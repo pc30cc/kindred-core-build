@@ -59,7 +59,10 @@ public static class AttachmentStore
         }
         else
         {
-            data = await AppHost.Current.Api.AttachmentDataAsync(id).ConfigureAwait(false);
+            // Platform-support files come from their own endpoint (the operator is not in the team's workspace).
+            data = id.StartsWith(Core.Support.SupportRules.StorePrefix, StringComparison.Ordinal)
+                ? await AppHost.Current.Api.SupportAttachmentDataAsync(id[Core.Support.SupportRules.StorePrefix.Length..]).ConfigureAwait(false)
+                : await AppHost.Current.Api.AttachmentDataAsync(id).ConfigureAwait(false);
             Interlocked.Increment(ref _downloads);
             Log.Write($"[files] downloaded {data.Length / 1024} KB");
             var bytes = data;

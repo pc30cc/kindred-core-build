@@ -220,6 +220,30 @@
                         </toolkit:SettingsCard>
                     </toolkit:SettingsExpander.Items>
                 </toolkit:SettingsExpander>
+
+                <!--
+                    Online support: one row into the chat with the platform's own team —
+                    whether it is there now, and how much of what it wrote is unread.
+                    Shown only when the server offers support to this operator.
+                -->
+                <TextBlock x:Name="SupportHeader" Style="{StaticResource Section}" Visibility="Collapsed" />
+                <toolkit:SettingsCard x:Name="SupportCard" IsClickEnabled="True" Click="OnOpenSupport" Visibility="Collapsed">
+                    <toolkit:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE95B;" />
+                    </toolkit:SettingsCard.HeaderIcon>
+                    <toolkit:SettingsCard.Header>
+                        <TextBlock x:Name="SupportLabel" />
+                    </toolkit:SettingsCard.Header>
+                    <toolkit:SettingsCard.Description>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse x:Name="SupportDot" Width="8" Height="8" VerticalAlignment="Center" />
+                            <TextBlock x:Name="SupportPresence" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </toolkit:SettingsCard.Description>
+                    <Border x:Name="SupportUnread" MinWidth="22" Height="22" Padding="7,0" CornerRadius="11" Background="{ThemeResource BrandBrush}" Visibility="Collapsed">
+                        <TextBlock x:Name="SupportUnreadText" FontSize="11.5" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </toolkit:SettingsCard>
             </StackPanel>
             </Grid>
         </ScrollViewer>

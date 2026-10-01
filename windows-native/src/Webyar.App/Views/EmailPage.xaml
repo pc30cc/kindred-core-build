@@ -74,7 +74,8 @@
                 </SelectorBar>
 
                 <Grid Grid.Row="4" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,1,0,0">
-                    <ListView x:Name="List" Padding="6,6,6,8" SelectionMode="Single" SelectionChanged="OnSelect">
+                    <!-- Mail reads left to right in every language, as mail clients show it: the list, then the open mail's header. -->
+                    <ListView x:Name="List" FlowDirection="LeftToRight" Padding="6,6,6,8" SelectionMode="Single" SelectionChanged="OnSelect">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
                                 <Setter Property="CornerRadius" Value="10" />
@@ -99,7 +100,7 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock FontSize="13.5" FontWeight="{x:Bind SenderWeight, Mode=OneWay}" Foreground="{ThemeResource TextBrush}" Text="{x:Bind Sender, Mode=OneWay}" TextTrimming="CharacterEllipsis" TextReadingOrder="DetectFromContent" />
+                                            <TextBlock HorizontalAlignment="Left" FontSize="13.5" FontWeight="{x:Bind SenderWeight, Mode=OneWay}" Foreground="{ThemeResource TextBrush}" Text="{x:Bind Sender, Mode=OneWay}" TextTrimming="CharacterEllipsis" TextReadingOrder="DetectFromContent" />
                                             <FontIcon Grid.Column="1" Glyph="&#xE723;" FontSize="12" Foreground="{ThemeResource Text3Brush}" VerticalAlignment="Center" Visibility="{x:Bind AttachmentVisibility, Mode=OneWay}" />
                                             <FontIcon Grid.Column="2" Glyph="&#xE735;" FontSize="12" Foreground="{ThemeResource WarningBrush}" VerticalAlignment="Center" Visibility="{x:Bind StarVisibility, Mode=OneWay}" />
                                             <TextBlock Grid.Column="3" FontSize="11.5" Foreground="{ThemeResource Text3Brush}" Text="{x:Bind Stamp, Mode=OneWay}" VerticalAlignment="Center" />
@@ -109,10 +110,10 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock FontSize="13" FontWeight="{x:Bind SubjectWeight, Mode=OneWay}" Foreground="{ThemeResource TextBrush}" Text="{x:Bind Subject, Mode=OneWay}" TextTrimming="CharacterEllipsis" TextReadingOrder="DetectFromContent" />
+                                            <TextBlock HorizontalAlignment="Left" FontSize="13" FontWeight="{x:Bind SubjectWeight, Mode=OneWay}" Foreground="{ThemeResource TextBrush}" Text="{x:Bind Subject, Mode=OneWay}" TextTrimming="CharacterEllipsis" TextReadingOrder="DetectFromContent" />
                                             <Ellipse Grid.Column="1" Width="8" Height="8" Fill="{ThemeResource BrandBrush}" VerticalAlignment="Center" Visibility="{x:Bind UnreadVisibility, Mode=OneWay}" />
                                         </Grid>
-                                        <TextBlock FontSize="12.5" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Snippet, Mode=OneWay}" TextTrimming="CharacterEllipsis" TextReadingOrder="DetectFromContent" />
+                                        <TextBlock HorizontalAlignment="Left" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" Text="{x:Bind Snippet, Mode=OneWay}" TextTrimming="CharacterEllipsis" TextReadingOrder="DetectFromContent" />
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>
@@ -191,13 +192,13 @@
                         </Grid.RowDefinitions>
 
                         <!-- Subject, chips, star and unread -->
-                        <Grid Padding="22,16,12,4" ColumnSpacing="10">
+                        <Grid Padding="22,16,12,4" ColumnSpacing="10" FlowDirection="LeftToRight">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Spacing="6">
-                                <TextBlock x:Name="SubjectText" FontSize="20" FontWeight="Bold" Foreground="{ThemeResource TextBrush}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" />
+                                <TextBlock HorizontalAlignment="Left" x:Name="SubjectText" FontSize="20" FontWeight="Bold" Foreground="{ThemeResource TextBrush}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Border x:Name="CountChip" Style="{StaticResource ChipBorder}" Visibility="Collapsed">
                                         <TextBlock x:Name="CountText" Style="{StaticResource ChipText}" />
@@ -232,7 +233,7 @@
                         </Grid>
 
                         <!-- Sender, recipients, date of the latest message -->
-                        <Grid Grid.Row="1" Padding="22,10,22,6" ColumnSpacing="12">
+                        <Grid Grid.Row="1" Padding="22,10,22,6" ColumnSpacing="12" FlowDirection="LeftToRight">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
@@ -245,17 +246,17 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="SenderName" MaxWidth="280" FontSize="14.5" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" />
-                                    <TextBlock x:Name="SenderAddress" Grid.Column="1" FontSize="12.5" Foreground="{ThemeResource Text3Brush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" />
+                                    <TextBlock HorizontalAlignment="Left" x:Name="SenderName" MaxWidth="280" FontSize="14.5" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" />
+                                    <TextBlock HorizontalAlignment="Left" x:Name="SenderAddress" Grid.Column="1" FontSize="12.5" Foreground="{ThemeResource Text3Brush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" />
                                 </Grid>
-                                <TextBlock x:Name="ToLine" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" />
-                                <TextBlock x:Name="CcLine" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" Visibility="Collapsed" />
+                                <TextBlock HorizontalAlignment="Left" x:Name="ToLine" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" />
+                                <TextBlock HorizontalAlignment="Left" x:Name="CcLine" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" TextReadingOrder="DetectFromContent" Visibility="Collapsed" />
                             </StackPanel>
                             <TextBlock x:Name="DateText" Grid.Column="2" Margin="0,2,0,0" FontSize="12" Foreground="{ThemeResource Text3Brush}" VerticalAlignment="Top" IsTextSelectionEnabled="True" />
                         </Grid>
 
                         <!-- Action bar -->
-                        <ScrollViewer Grid.Row="2" Padding="22,4,22,8" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                        <ScrollViewer Grid.Row="2" Padding="22,4,22,8" FlowDirection="LeftToRight" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <Button x:Name="ReplyButton" Style="{StaticResource PillButton}" Click="OnReply">
                                     <StackPanel Orientation="Horizontal" Spacing="7">
@@ -283,7 +284,7 @@
                         </ScrollViewer>
 
                         <!-- Attachments of the whole thread -->
-                        <ScrollViewer x:Name="AttachmentsHost" Grid.Row="3" Padding="22,0,22,8" Visibility="Collapsed" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                        <ScrollViewer x:Name="AttachmentsHost" Grid.Row="3" Padding="22,0,22,8" FlowDirection="LeftToRight" Visibility="Collapsed" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
                             <ItemsControl x:Name="AttachmentList">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -303,7 +304,7 @@
                                                     <FontIcon Glyph="{x:Bind Glyph}" FontSize="15" Foreground="{ThemeResource BrandBrush}" />
                                                 </Border>
                                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                                                    <TextBlock Text="{x:Bind FileName}" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" TextTrimming="CharacterEllipsis" TextReadingOrder="DetectFromContent" />
+                                                    <TextBlock HorizontalAlignment="Left" Text="{x:Bind FileName}" FontSize="12.5" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" TextTrimming="CharacterEllipsis" TextReadingOrder="DetectFromContent" />
                                                     <TextBlock Text="{x:Bind SizeText}" FontSize="11" Foreground="{ThemeResource Text3Brush}" />
                                                 </StackPanel>
                                                 <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12" Foreground="{ThemeResource Text2Brush}" VerticalAlignment="Center" />

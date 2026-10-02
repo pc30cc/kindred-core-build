@@ -796,23 +796,46 @@ actor APIClient {
     // Gmail connection. The server keeps them apart deliberately; so does
     // this client.
 
-    func emailThreads(workspaceID: String, search: String? = nil) async throws -> [EmailThreadSummary] {
-        var query: [URLQueryItem] = [URLQueryItem(name: "limit", value: "50")]
-        if let search, !search.isEmpty { query.append(URLQueryItem(name: "q", value: search)) }
-        let request = try makeRequest("GET", "/api/email-inbox/\(workspaceID)/threads", query: query)
-        return try await perform(request, as: EmailThreadsResponse.self).threads
+    private static func emailPath(_ workspaceID: String, _ tail: String = "") -> String {
+        "/api/email-inbox/\(escape(workspaceID))\(tail)"
     }
 
-    func emailThread(workspaceID: String, threadID: String) async throws -> EmailThreadResponse {
-        let request = try makeRequest("GET", "/api/email-inbox/\(workspaceID)/threads/\(threadID)")
+    /// `?provider=` naming the mailbox, when the call is about a particular one.
+    private static func mailboxQuery(_ mailbox: String?) -> [URLQueryItem] {
+        guard let mailbox, !mailbox.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+        return [URLQueryItem(name: "provider", value: mailbox)]
+    }
+
+    /// `?folder=`, left off for the inbox so the request is the one every server understands.
+    private static func folderQuery(_ folder: String?) -> [URLQueryItem] {
+        guard let folder, !folder.isEmpty, folder != EmailMailFolder.inbox else { return [] }
+        return [URLQueryItem(name: "folder", value: folder)]
+    }
+
+    func emailThreadsPage(
+        workspaceID: String, filter: EmailListFilter, before: String?, mailbox: String?, folder: String?
+    ) async throws -> EmailThreadsResponse {
+        var query = [URLQueryItem(name: "limit", value: "30")] + filter.query
+        if let before { query.append(URLQueryItem(name: "before", value: before)) }
+        query += Self.mailboxQuery(mailbox) + Self.folderQuery(folder)
+        let request = try makeRequest("GET", Self.emailPath(workspaceID, "/threads"), query: query)
+        return try await perform(request, as: EmailThreadsResponse.self)
+    }
+
+    func emailThread(workspaceID: String, threadID: String, mailbox: String?, folder: String?) async throws -> EmailThreadResponse {
+        let request = try makeRequest(
+            "GET", Self.emailPath(workspaceID, "/threads/\(Self.escape(threadID))"),
+            query: Self.mailboxQuery(mailbox) + Self.folderQuery(folder)
+        )
         return try await perform(request, as: EmailThreadResponse.self)
     }
 
     private struct EmailReadBody: Encodable, Sendable { let is_read: Bool }
 
-    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool) async throws {
+    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool, mailbox: String?) async throws {
         let request = try makeRequest(
-            "POST", "/api/email-inbox/\(workspaceID)/threads/\(threadID)/read",
+            "POST", Self.emailPath(workspaceID, "/threads/\(Self.escape(threadID))/read"),
+            query: Self.mailboxQuery(mailbox),
             body: EmailReadBody(is_read: isRead)
         )
         try await performIgnoringBody(request)
@@ -820,40 +843,113 @@ actor APIClient {
 
     private struct EmailStarBody: Encodable, Sendable { let starred: Bool }
 
-    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool) async throws {
+    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool, mailbox: String?) async throws {
         let request = try makeRequest(
-            "POST", "/api/email-inbox/\(workspaceID)/threads/\(threadID)/star",
+            "POST", Self.emailPath(workspaceID, "/threads/\(Self.escape(threadID))/star"),
+            query: Self.mailboxQuery(mailbox),
             body: EmailStarBody(starred: starred)
         )
         try await performIgnoringBody(request)
     }
 
-    private struct EmailSendBody: Encodable, Sendable {
+    private struct EmailDraftBody: Encodable, Sendable {
         let thread_id: String?
         let to: [String]
+        let cc: [String]?
+        let bcc: [String]?
         let subject: String
         let text_body: String
+        let attachments: [StagedEmailAttachment]?
     }
 
-    func sendEmail(
-        workspaceID: String,
-        threadID: String?,
-        to: [String],
-        subject: String,
-        body: String
-    ) async throws {
-        let request = try makeRequest(
-            "POST", "/api/email-inbox/\(workspaceID)/send",
-            body: EmailSendBody(thread_id: threadID, to: to, subject: subject, text_body: body)
+    func sendEmailDraft(workspaceID: String, draft: EmailDraft, mailbox: String?) async throws {
+        var request = try makeRequest(
+            "POST", Self.emailPath(workspaceID, "/send"),
+            query: Self.mailboxQuery(mailbox),
+            body: EmailDraftBody(
+                thread_id: draft.threadID,
+                to: draft.to,
+                cc: draft.cc.isEmpty ? nil : draft.cc,
+                bcc: draft.bcc.isEmpty ? nil : draft.bcc,
+                subject: draft.subject,
+                text_body: draft.body,
+                attachments: draft.attachments.isEmpty ? nil : draft.attachments
+            )
         )
+        // A Gmail reply is sent to Google within this request, carrying its
+        // attachments' bytes: a file on a phone connection outlasts the
+        // twenty seconds a JSON call gets.
+        if !draft.attachments.isEmpty { request.timeoutInterval = 120 }
         try await performIgnoringBody(request)
     }
 
-    /// Whose mailbox this is, or nil when none is connected.
-    ///
-    /// A failure here is not an error state: the thread list is the screen,
-    /// and the address is a caption on it.
-    func gmailConnection(workspaceID: String) async throws -> GmailConnection? {
+    /// Raw bytes, not the JSON-and-base64 the chat's upload uses: the email
+    /// route takes the file as the request body (`express.raw`, 25 MB), and
+    /// base64 would add a third to every attachment on a phone connection.
+    func stageEmailAttachment(
+        workspaceID: String, data: Data, filename: String, contentType: String, mailbox: String?
+    ) async throws -> StagedEmailAttachment {
+        var request = try makeRequest(
+            "POST", Self.emailPath(workspaceID, "/attachments"),
+            query: [
+                URLQueryItem(name: "filename", value: filename),
+                URLQueryItem(name: "content_type", value: contentType),
+            ] + Self.mailboxQuery(mailbox)
+        )
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+        request.timeoutInterval = 120
+        return try await perform(request, as: StagedEmailAttachment.self)
+    }
+
+    func emailAttachmentData(workspaceID: String, attachmentID: String, mailbox: String?) async throws -> Data {
+        var request = try makeRequest(
+            "GET", Self.emailPath(workspaceID, "/attachments/\(Self.escape(attachmentID))/file"),
+            query: Self.mailboxQuery(mailbox)
+        )
+        request.timeoutInterval = 120
+        return try await performData(request)
+    }
+
+    func emailMailboxes(workspaceID: String) async throws -> [EmailMailbox] {
+        let request = try makeRequest("GET", Self.emailPath(workspaceID, "/mailboxes"))
+        do {
+            let (data, _) = try await exchange(request)
+            guard let decoded = try? decoder.decode(EmailMailboxesResponse.self, from: data) else { throw APIError.decoding }
+            return decoded.mailboxes ?? []
+        } catch APIError.server(status: 404, _) {
+            // A server from before `/mailboxes`: ask the way it understands,
+            // one mailbox with no count.
+            guard let connection = try await gmailConnection(workspaceID: workspaceID),
+                  let address = connection.emailAddress
+            else { return [] }
+            return [EmailMailbox(provider: "gmail", address: address, status: connection.status, unread: nil)]
+        }
+    }
+
+    func emailFolders(workspaceID: String, mailbox: String?) async throws -> [EmailMailFolder] {
+        let request = try makeRequest("GET", Self.emailPath(workspaceID, "/folders"), query: Self.mailboxQuery(mailbox))
+        do {
+            let (data, _) = try await exchange(request)
+            guard let decoded = try? decoder.decode(EmailFoldersResponse.self, from: data) else { throw APIError.decoding }
+            let folders = decoded.folders ?? []
+            return folders.isEmpty ? EmailMailFolder.fallback : folders
+        } catch APIError.server(status: 404, _) {
+            // A server from before folders: the inbox is all it has.
+            return EmailMailFolder.fallback
+        }
+    }
+
+    func emailChanges(workspaceID: String, since: String, mailbox: String?) async throws -> EmailChanges {
+        let request = try makeRequest(
+            "GET", Self.emailPath(workspaceID, "/changes"),
+            query: [URLQueryItem(name: "since", value: since)] + Self.mailboxQuery(mailbox)
+        )
+        return try await perform(request, as: EmailChanges.self)
+    }
+
+    /// The connected Gmail, for a server from before `/mailboxes`.
+    private func gmailConnection(workspaceID: String) async throws -> GmailConnection? {
         let request = try makeRequest(
             "GET", "/api/plugins/gmail/connection",
             query: [URLQueryItem(name: "workspace_id", value: workspaceID)]

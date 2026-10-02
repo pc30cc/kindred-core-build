@@ -116,9 +116,13 @@ struct ConversationContact: Codable, Hashable, Sendable {
     let email: String?
     let avatarURL: String?
     let visitorCode: String?
+    /// What the inbound pipeline stamped on the contact: the channel they
+    /// write from, and for a platform-support contact the app they wrote
+    /// from (`client_platform`).
+    var metadata: [String: JSONValue]? = nil
 
     enum CodingKeys: String, CodingKey {
-        case name, email
+        case name, email, metadata
         case avatarURL = "avatar_url"
         case visitorCode = "visitor_code"
     }

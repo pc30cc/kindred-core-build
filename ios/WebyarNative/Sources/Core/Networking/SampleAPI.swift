@@ -310,61 +310,175 @@ actor SampleAPI: WebyarAPI {
     }
 
     // MARK: - Email inbox
+    //
+    // Two mailboxes, as a workspace with a Gmail and a Yahoo has them; Gmail
+    // with folders and labels, an unread thread, a starred one, a thread with
+    // an HTML mail, a quoted trail and a file, and one in Persian.
 
-    func emailThreads(workspaceID: String, search: String?) async throws -> [EmailThreadSummary] {
-        let threads = [
-            EmailThreadSummary(
-                id: "e-1", provider: "gmail", subject: "Invoice for August",
-                participants: [EmailAddress(email: "billing@northwind.example")],
-                lastMessageAt: Date().addingTimeInterval(-3_600), isRead: false, isStarred: true,
-                labels: ["INBOX"], lastMessageSnippet: "Attached is the invoice for August."
-            ),
-            EmailThreadSummary(
-                id: "e-2", provider: "gmail", subject: "Re: Widget not loading on Safari",
-                participants: [EmailAddress(email: "lena@acme.example")],
-                lastMessageAt: Date().addingTimeInterval(-86_400), isRead: true, isStarred: false,
-                labels: ["INBOX"], lastMessageSnippet: "That fixed it, thank you."
-            ),
+    private var sampleMail: [EmailThreadSummary] = SampleAPI.sampleMailThreads
+    private var sampleSent: [String: [EmailMessageView]] = [:]
+
+    private static let sampleMailThreads: [EmailThreadSummary] = [
+        EmailThreadSummary(
+            id: "e-1", provider: "gmail", subject: "Invoice for August",
+            participants: [EmailAddress(email: "\"Northwind Billing\" <billing@northwind.example>"),
+                           EmailAddress(email: "support@webyar.example")],
+            lastMessageAt: Date().addingTimeInterval(-3_600), isRead: false, isStarred: true,
+            labels: ["INBOX", "Label_1"], lastMessageSnippet: "Attached is the invoice for August.", messageCount: 1
+        ),
+        EmailThreadSummary(
+            id: "e-2", provider: "gmail", subject: "Re: Widget not loading on Safari",
+            participants: [EmailAddress(email: "Lena Fischer <lena@acme.example>"),
+                           EmailAddress(email: "support@webyar.example")],
+            lastMessageAt: Date().addingTimeInterval(-86_400), isRead: true, isStarred: false,
+            labels: ["INBOX"], lastMessageSnippet: "That fixed it, thank you.", messageCount: 3
+        ),
+        EmailThreadSummary(
+            id: "e-3", provider: "gmail", subject: "درخواست دمو برای تیم پشتیبانی",
+            participants: [EmailAddress(email: "مریم رضایی <maryam@shop.example>")],
+            lastMessageAt: Date().addingTimeInterval(-2 * 86_400), isRead: false, isStarred: false,
+            labels: ["INBOX"], lastMessageSnippet: "سلام، می‌خواستیم برای هفتهٔ بعد یک جلسهٔ دمو هماهنگ کنیم.", messageCount: 1
+        ),
+    ]
+
+    func emailThreadsPage(
+        workspaceID: String, filter: EmailListFilter, before: String?, mailbox: String?, folder: String?
+    ) async throws -> EmailThreadsResponse {
+        guard before == nil else { return EmailThreadsResponse() }
+        if mailbox == "yahoo" { return EmailThreadsResponse(threads: [], historyId: nil) }
+        var threads = sampleMail
+        switch folder ?? EmailMailFolder.inbox {
+        case "starred": threads = threads.filter { $0.isStarred == true }
+        case "label:Label_1": threads = threads.filter { $0.labels?.contains("Label_1") == true }
+        case EmailMailFolder.inbox, "all": break
+        default: threads = []
+        }
+        switch filter {
+        case .all: break
+        case .unread: threads = threads.filter { $0.isRead != true }
+        case .starred: threads = threads.filter { $0.isStarred == true }
+        }
+        return EmailThreadsResponse(threads: threads, nextBefore: nil, historyId: "h-1")
+    }
+
+    func emailThread(workspaceID: String, threadID: String, mailbox: String?, folder: String?) async throws -> EmailThreadResponse {
+        guard let summary = sampleMail.first(where: { $0.id == threadID }) else {
+            throw APIError.server(status: 404, message: "thread_not_found")
+        }
+        let them = summary.participants?.first?.email ?? "someone@example.com"
+        var messages: [EmailMessageView]
+        switch threadID {
+        case "e-1":
+            messages = [
+                EmailMessageView(
+                    id: "em-11", externalMessageId: "x-11", direction: "inbound", fromAddress: them,
+                    toAddresses: [EmailAddress(email: "support@webyar.example")], ccAddresses: [],
+                    textBody: nil,
+                    htmlBody: "<style>table{width:600px}</style><table><tr><td><h2>Invoice #2026-0914</h2>"
+                        + "<p>Hello,</p><p>Attached is the invoice for <b>August</b>. The total is <b>€240.00</b>.</p>"
+                        + "<p>Thanks &mdash; Northwind</p></td></tr></table>",
+                    snippet: "Attached is the invoice for August.", isRead: false, deliveryStatus: nil,
+                    deliveryError: nil, sentAt: Date().addingTimeInterval(-3_600),
+                    attachments: [EmailAttachmentView(id: "ea-1", filename: "invoice-2026-0914.pdf",
+                                                      contentType: "application/pdf", sizeBytes: 48_213, contentId: nil, url: nil)]
+                ),
+            ]
+        case "e-2":
+            messages = [
+                EmailMessageView(
+                    id: "em-21", externalMessageId: "x-21", direction: "inbound", fromAddress: them,
+                    toAddresses: [EmailAddress(email: "support@webyar.example")], ccAddresses: [],
+                    textBody: "Hi, the chat widget does not load on Safari 18 for us.", htmlBody: nil,
+                    snippet: nil, isRead: true, deliveryStatus: nil, deliveryError: nil,
+                    sentAt: Date().addingTimeInterval(-3 * 86_400), attachments: []
+                ),
+                EmailMessageView(
+                    id: "em-22", externalMessageId: "x-22", direction: "outbound", fromAddress: "support@webyar.example",
+                    toAddresses: [EmailAddress(email: them)], ccAddresses: [],
+                    textBody: "Could you try clearing the site data once? We shipped a fix this morning.", htmlBody: nil,
+                    snippet: nil, isRead: true, deliveryStatus: "sent", deliveryError: nil,
+                    sentAt: Date().addingTimeInterval(-2 * 86_400), attachments: []
+                ),
+                EmailMessageView(
+                    id: "em-23", externalMessageId: "x-23", direction: "inbound", fromAddress: them,
+                    toAddresses: [EmailAddress(email: "support@webyar.example")], ccAddresses: [],
+                    textBody: "That fixed it, thank you.\n\nOn Mon, Support <support@webyar.example> wrote:\n> Could you try clearing the site data once?",
+                    htmlBody: nil, snippet: nil, isRead: true, deliveryStatus: nil, deliveryError: nil,
+                    sentAt: Date().addingTimeInterval(-86_400), attachments: []
+                ),
+            ]
+        default:
+            messages = [
+                EmailMessageView(
+                    id: "em-31", externalMessageId: "x-31", direction: "inbound", fromAddress: them,
+                    toAddresses: [EmailAddress(email: "support@webyar.example")], ccAddresses: [],
+                    textBody: summary.lastMessageSnippet, htmlBody: nil, snippet: nil, isRead: summary.isRead,
+                    deliveryStatus: nil, deliveryError: nil, sentAt: summary.lastMessageAt, attachments: []
+                ),
+            ]
+        }
+        messages += sampleSent[threadID] ?? []
+        return EmailThreadResponse(thread: summary, messages: messages)
+    }
+
+    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool, mailbox: String?) async throws {
+        if let index = sampleMail.firstIndex(where: { $0.id == threadID }) { sampleMail[index].isRead = isRead }
+    }
+
+    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool, mailbox: String?) async throws {
+        if let index = sampleMail.firstIndex(where: { $0.id == threadID }) { sampleMail[index].isStarred = starred }
+    }
+
+    func sendEmailDraft(workspaceID: String, draft: EmailDraft, mailbox: String?) async throws {
+        guard let threadID = draft.threadID else { return }
+        sampleSent[threadID, default: []].append(EmailMessageView(
+            id: "sent-\(UUID().uuidString.prefix(8))", externalMessageId: nil, direction: "outbound",
+            fromAddress: "support@webyar.example", toAddresses: draft.to.map(EmailAddress.init(email:)),
+            ccAddresses: draft.cc.map(EmailAddress.init(email:)), textBody: draft.body, htmlBody: nil, snippet: nil,
+            isRead: true, deliveryStatus: "sent", deliveryError: nil, sentAt: Date(), attachments: []
+        ))
+        if let index = sampleMail.firstIndex(where: { $0.id == threadID }) {
+            sampleMail[index].lastMessageAt = Date()
+            sampleMail[index].lastMessageSnippet = draft.body
+            sampleMail[index].messageCount = (sampleMail[index].messageCount ?? 1) + 1
+        }
+    }
+
+    func stageEmailAttachment(
+        workspaceID: String, data: Data, filename: String, contentType: String, mailbox: String?
+    ) async throws -> StagedEmailAttachment {
+        StagedEmailAttachment(storageKey: "sample/\(filename)", filename: filename, contentType: contentType, sizeBytes: data.count)
+    }
+
+    func emailAttachmentData(workspaceID: String, attachmentID: String, mailbox: String?) async throws -> Data {
+        Data("%PDF-1.4\n% sample\n".utf8)
+    }
+
+    func emailMailboxes(workspaceID: String) async throws -> [EmailMailbox] {
+        [
+            EmailMailbox(provider: "gmail", address: "support@webyar.example", status: "connected",
+                         unread: sampleMail.filter { $0.isRead != true }.count),
+            EmailMailbox(provider: "yahoo", address: "sales@webyar.example", status: "connected", unread: 0),
         ]
-        guard let search, !search.isEmpty else { return threads }
-        return threads.filter { ($0.subject ?? "").localizedCaseInsensitiveContains(search) }
     }
 
-    func emailThread(workspaceID: String, threadID: String) async throws -> EmailThreadResponse {
-        let thread = try await emailThreads(workspaceID: workspaceID, search: nil)
-            .first { $0.id == threadID }
-        let summary = thread ?? EmailThreadSummary(
-            id: threadID, provider: "gmail", subject: nil, participants: nil,
-            lastMessageAt: Date(), isRead: true, isStarred: false, labels: nil, lastMessageSnippet: nil
-        )
-        return EmailThreadResponse(thread: summary, messages: [
-            EmailMessageView(
-                id: "em-1", externalMessageId: "x-1", direction: "inbound",
-                fromAddress: summary.participants?.first?.email ?? "someone@example.com",
-                toAddresses: [EmailAddress(email: "support@webyar.example")], ccAddresses: [],
-                textBody: "Hello — could you take a look at this when you get a moment?",
-                htmlBody: nil, snippet: nil, isRead: true, deliveryStatus: "sent",
-                deliveryError: nil, sentAt: Date().addingTimeInterval(-7_200), attachments: []
-            ),
-            EmailMessageView(
-                id: "em-2", externalMessageId: "x-2", direction: "outbound",
-                fromAddress: "support@webyar.example",
-                toAddresses: summary.participants ?? [], ccAddresses: [],
-                textBody: "Of course — looking now.", htmlBody: nil, snippet: nil,
-                isRead: true, deliveryStatus: "sent", deliveryError: nil,
-                sentAt: Date().addingTimeInterval(-3_600), attachments: []
-            ),
-        ])
+    func emailFolders(workspaceID: String, mailbox: String?) async throws -> [EmailMailFolder] {
+        guard mailbox != "yahoo" else { return [EmailMailFolder(id: "inbox"), EmailMailFolder(id: "sent"), EmailMailFolder(id: "trash")] }
+        return [
+            EmailMailFolder(id: "inbox", unread: sampleMail.filter { $0.isRead != true }.count),
+            EmailMailFolder(id: "starred"),
+            EmailMailFolder(id: "important"),
+            EmailMailFolder(id: "sent"),
+            EmailMailFolder(id: "drafts", total: 0),
+            EmailMailFolder(id: "all"),
+            EmailMailFolder(id: "spam", unread: 0),
+            EmailMailFolder(id: "trash"),
+            EmailMailFolder(id: "label:Label_1", kind: "label", name: "Clients", unread: 1),
+        ]
     }
 
-    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool) async throws {}
-    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool) async throws {}
-    func sendEmail(
-        workspaceID: String, threadID: String?, to: [String], subject: String, body: String
-    ) async throws {}
-
-    func gmailConnection(workspaceID: String) async throws -> GmailConnection? {
-        GmailConnection(connected: true, emailAddress: "support@webyar.example", status: "connected")
+    func emailChanges(workspaceID: String, since: String, mailbox: String?) async throws -> EmailChanges {
+        EmailChanges(historyId: since, threadIds: [])
     }
 
     // MARK: - Channel inboxes, colleagues, availability
@@ -1112,7 +1226,9 @@ actor SampleAPI: WebyarAPI {
             ),
             unreadCount: 128,
             aiState: "human_active",
-            metadata: nil
+            // An operator of another workspace writing to the platform's
+            // support from the Android app: «Site user · Android» on the row.
+            metadata: ["channel": .string("platform_support"), "client_platform": .string("android")]
         ),
         Conversation(
             id: "c-3",
@@ -1133,7 +1249,7 @@ actor SampleAPI: WebyarAPI {
             ),
             unreadCount: 0,
             aiState: nil,
-            metadata: nil
+            metadata: ["channel": .string("telegram")]
         ),
         Conversation(
             id: "c-4",
@@ -1183,7 +1299,7 @@ actor SampleAPI: WebyarAPI {
             ),
             unreadCount: 0,
             aiState: "human_active",
-            metadata: nil
+            metadata: ["channel": .string("whatsapp")]
         ),
         Conversation(
             id: "c-6",

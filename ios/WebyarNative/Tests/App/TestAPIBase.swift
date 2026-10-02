@@ -31,12 +31,16 @@ extension TestAPIBase {
     func aiSayNow(conversationID: String, body: String, voice: SayNowVoice) async throws { throw APIError.transport }
     func claim(conversationID: String, workspaceID: String) async throws { throw APIError.transport }
     func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts { throw APIError.transport }
-    func emailThreads(workspaceID: String, search: String?) async throws -> [EmailThreadSummary] { throw APIError.transport }
-    func emailThread(workspaceID: String, threadID: String) async throws -> EmailThreadResponse { throw APIError.transport }
-    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool) async throws { throw APIError.transport }
-    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool) async throws { throw APIError.transport }
-    func sendEmail(workspaceID: String, threadID: String?, to: [String], subject: String, body: String) async throws { throw APIError.transport }
-    func gmailConnection(workspaceID: String) async throws -> GmailConnection? { throw APIError.transport }
+    func emailThreadsPage(workspaceID: String, filter: EmailListFilter, before: String?, mailbox: String?, folder: String?) async throws -> EmailThreadsResponse { throw APIError.transport }
+    func emailThread(workspaceID: String, threadID: String, mailbox: String?, folder: String?) async throws -> EmailThreadResponse { throw APIError.transport }
+    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool, mailbox: String?) async throws { throw APIError.transport }
+    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool, mailbox: String?) async throws { throw APIError.transport }
+    func sendEmailDraft(workspaceID: String, draft: EmailDraft, mailbox: String?) async throws { throw APIError.transport }
+    func stageEmailAttachment(workspaceID: String, data: Data, filename: String, contentType: String, mailbox: String?) async throws -> StagedEmailAttachment { throw APIError.transport }
+    func emailAttachmentData(workspaceID: String, attachmentID: String, mailbox: String?) async throws -> Data { throw APIError.transport }
+    func emailMailboxes(workspaceID: String) async throws -> [EmailMailbox] { throw APIError.transport }
+    func emailFolders(workspaceID: String, mailbox: String?) async throws -> [EmailMailFolder] { throw APIError.transport }
+    func emailChanges(workspaceID: String, since: String, mailbox: String?) async throws -> EmailChanges { throw APIError.transport }
     func channelInboxes(workspaceID: String) async throws -> [ChannelInbox] { throw APIError.transport }
     func colleagues(workspaceID: String) async throws -> ColleaguesResponse { throw APIError.transport }
     func teamThread(workspaceID: String, peerID: String) async throws -> TeamThreadResponse { throw APIError.transport }

@@ -391,9 +391,12 @@ struct MainTabView: View {
             default: settingsPath.append(SettingsRoute.security)
             }
 
-        case .email:
+        case .email, .emailThread:
             guard inboxPath.isEmpty, appState.emailInboxVisible else { return }
             inboxPath.append(InboxRoute.email)
+            if SampleRoute.current == .emailThread {
+                inboxPath.append(InboxRoute.emailThread(EmailThreadRef(id: "e-1")))
+            }
 
         case .colleagues, .colleagueThread:
             guard inboxPath.isEmpty, appState.colleaguesVisible else { return }

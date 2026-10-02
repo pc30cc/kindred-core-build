@@ -90,11 +90,21 @@ class UITestCase: XCTestCase {
     /// throws "No matches found". Text is no better: a timestamp repeats down
     /// the column. Every message row carries `A11y.messageRow(id)`, which is
     /// stable across both.
+    ///
+    /// Each row is read once — its identifier and its frame together — from
+    /// elements bound to the row itself rather than to a position in the
+    /// list: a transcript still drawing its last rows re-renders between two
+    /// reads, and a row bound by index then resolves to nothing ("No matches
+    /// found") on the second. Bound to the row, it is the same row or gone.
     func newestMessageID() -> String? {
-        messageRows()
-            .filter { $0.exists && $0.frame.height > 0 }
-            .max { $0.frame.maxY < $1.frame.maxY }?
-            .identifier
+        var newest: (id: String, maxY: CGFloat)?
+        for row in messageRows() where row.exists {
+            let frame = row.frame
+            guard frame.height > 0 else { continue }
+            let id = row.identifier
+            if newest.map({ frame.maxY > $0.maxY }) ?? true { newest = (id, frame.maxY) }
+        }
+        return newest?.id
     }
 
     /// Where that message is now, asked fresh.
@@ -119,8 +129,8 @@ class UITestCase: XCTestCase {
     /// a fraction of one wide one.
     private func messageRows() -> [XCUIElement] {
         let predicate = NSPredicate(format: "identifier BEGINSWITH 'message.'")
-        return app.staticTexts.matching(predicate).allElementsBoundByIndex
-            + app.otherElements.matching(predicate).allElementsBoundByIndex
+        return app.staticTexts.matching(predicate).allElementsBoundByAccessibilityElement
+            + app.otherElements.matching(predicate).allElementsBoundByAccessibilityElement
     }
 
     /// Waits until a measurement stops changing.

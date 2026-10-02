@@ -197,6 +197,35 @@ public sealed partial class SupportPage : Page
         RenderSide(s);
     }
 
+    /// <summary>How wide the transcript's column is at most; the closed list's.</summary>
+    private const double TranscriptWidth = 760, ClosedListWidth = 820;
+
+    /// <summary>
+    /// The transcript as one column in the middle of the chat, as wide as it
+    /// may be — a ScrollViewer gives its content only the width it asks for,
+    /// which left the bubbles (the operator's own too) huddled on the left.
+    /// The frame also fills the viewport's height, so a short conversation
+    /// sits at the bottom, by the composer.
+    /// </summary>
+    private void OnTranscriptSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var pad = TranscriptScroll.Padding;
+        var width = Math.Max(0, e.NewSize.Width - pad.Left - pad.Right);
+        TranscriptFrame.Width = width;
+        TranscriptFrame.MinHeight = Math.Max(0, e.NewSize.Height - pad.Top - pad.Bottom);
+        Transcript.Width = Math.Min(TranscriptWidth, width);
+        if (_stickToBottom || TranscriptScroll.ScrollableHeight - TranscriptScroll.VerticalOffset < 80)
+            DispatcherQueue.TryEnqueue(() => TranscriptScroll.ChangeView(null, TranscriptScroll.ScrollableHeight, null, disableAnimation: true));
+    }
+
+    private void OnClosedSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var pad = ClosedScroll.Padding;
+        var width = Math.Max(0, e.NewSize.Width - pad.Left - pad.Right);
+        ClosedFrame.Width = width;
+        ClosedList.Width = Math.Min(ClosedListWidth, width);
+    }
+
     /// <summary>The page grew past, or shrank below, the width where the closed conversations get their own column.</summary>
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
     {

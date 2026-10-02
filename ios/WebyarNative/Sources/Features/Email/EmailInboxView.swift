@@ -297,7 +297,6 @@ struct EmailInboxView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: Theme.Space.sm, bottom: 0, trailing: Theme.Space.sm))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-                .simultaneousGesture(TapGesture().onEnded { model.markReadLocally(thread.id) })
                 .contextMenu {
                     let unread = thread.isRead != true
                     Button {

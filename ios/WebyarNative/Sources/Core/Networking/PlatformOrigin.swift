@@ -21,6 +21,7 @@ import Foundation
 enum PlatformOrigin {
     private static let originKey = "platform.apiOrigin"
     private static let supportKey = "platform.supportURL"
+    private static let websiteKey = "platform.websiteURL"
 
     /// The origin to use right now.
     static var current: URL {
@@ -59,6 +60,20 @@ enum PlatformOrigin {
         guard let url else { return }
         UserDefaults.standard.set(url.absoluteString, forKey: supportKey)
     }
+
+    /// Opened from Settings → About → Website when Super Admin set no address
+    /// for it: the platform's public site (Branding → Domains).
+    static var websiteURL: URL? {
+        guard let stored = UserDefaults.standard.string(forKey: websiteKey),
+              let url = URL(string: stored), url.scheme?.lowercased() == "https"
+        else { return nil }
+        return url
+    }
+
+    static func rememberWebsite(_ url: URL?) {
+        guard let url else { return }
+        UserDefaults.standard.set(url.absoluteString, forKey: websiteKey)
+    }
 }
 
 /// What `GET /api/platform/origins` answers.
@@ -79,6 +94,8 @@ struct PlatformOrigins: Decodable, Sendable {
     }
 
     var api: URL? { Self.https(apiBaseUrl) }
+    /// The platform's public site.
+    var website: URL? { Self.https(publicBaseUrl) }
     /// Where "Contact support" goes. The server decides; the last two are only
     /// for a platform that has not deployed the resolved field yet.
     var support: URL? {

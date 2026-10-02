@@ -58,11 +58,15 @@ struct SettingsView: View {
 
     private var language: Language { appState.language }
 
+    /// The version and the build as this binary carries them — the numbers
+    /// App Store Connect and TestFlight show for it, read from the bundle
+    /// rather than written here, so they can never disagree.
     private var appVersion: String {
-        let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "—"
-        let build = info?["CFBundleVersion"] as? String ?? "—"
-        return "\(short) (\(build))"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+
+    private var appBuild: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
     }
 
     var body: some View {
@@ -197,21 +201,35 @@ struct SettingsView: View {
 
             Section {
                 DetailRow(label: Str.version(language), value: appVersion, isLatin: true)
+                    .accessibilityIdentifier(A11y.settingsVersion)
+                DetailRow(label: SettingsStr.build(language), value: appBuild, isLatin: true)
+                    .accessibilityIdentifier(A11y.settingsBuild)
 
-                if let support = appState.supportURL {
+                // The platform's site — its address and its name are Super
+                // Admin's (Mobile App → iOS → In-app settings).
+                if let website = appState.websiteURL {
                     Button {
-                        openURL(support)
+                        openURL(website)
                     } label: {
-                        HStack {
-                            Text(supportLabel)
+                        HStack(spacing: Theme.Space.sm) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(Theme.Palette.brand)
+                            Text(appState.websiteLabel)
                                 .foregroundStyle(Theme.Palette.brand)
                             Spacer()
+                            Text(website.host() ?? "")
+                                .font(.app(.footnote))
+                                .foregroundStyle(Theme.Palette.labelTertiary)
+                                .lineLimit(1)
+                                .environment(\.layoutDirection, .leftToRight)
                             Image(systemName: "arrow.up.right")
                                 .font(.app(.footnote))
                                 .foregroundStyle(Theme.Palette.labelTertiary)
                         }
                         .frame(minHeight: Theme.Size.minTouchTarget - 10)
                     }
+                    .accessibilityIdentifier(A11y.settingsWebsite)
                 }
             } header: {
                 Text(Str.about(language))
@@ -251,10 +269,6 @@ struct SettingsView: View {
         .alert(Str.signOutFailed(language), isPresented: $signOutFailed) {
             Button(Str.cancel(language), role: .cancel) {}
         }
-    }
-
-    private var supportLabel: String {
-        Str.support(language)
     }
 
     /// The header needs the photo, which the session user does not carry.

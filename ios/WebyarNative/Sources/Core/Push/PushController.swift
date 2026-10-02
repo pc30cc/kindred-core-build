@@ -322,7 +322,9 @@ final class PushController {
             SyncCoordinator.shared.teamPushArrived(workspaceID: workspaceID, peerID: peerID)
         case .support(_, let threadID)?:
             SyncCoordinator.shared.supportPushArrived(threadID: threadID)
-        case .email?, nil:
+        case .email(let workspaceID, _)?:
+            SyncCoordinator.shared.emailPushArrived(workspaceID: workspaceID, provider: info["provider"] as? String)
+        case nil:
             break
         }
     }

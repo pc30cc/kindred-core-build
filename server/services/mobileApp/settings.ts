@@ -197,6 +197,11 @@ export interface MobileAppSettings {
   ios_app_show_support: boolean;
   // Where Settings → About → Support opens. Empty falls back to support_url.
   ios_app_support_url: string | null;
+  // Settings → About → Website: where it opens (https), and what it is
+  // called in each language. Empty falls back to the platform's public site
+  // and to the app's own word for "Website" (migration 246).
+  ios_app_website_url: string | null;
+  ios_app_website_label: AndroidMaintenanceMessage;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;
@@ -331,6 +336,8 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   ios_app_show_storage: true,
   ios_app_show_support: true,
   ios_app_support_url: null,
+  ios_app_website_url: null,
+  ios_app_website_label: {},
 
   checklist: {},
   updated_at: null,
@@ -406,6 +413,8 @@ export function normalize(row: Record<string, unknown>): MobileAppSettings {
     : MOBILE_APP_DEFAULTS.android_default_language;
   out.android_maintenance_enabled = row.android_maintenance_enabled === true;
   out.android_maintenance_message = maintenanceMessage(row.android_maintenance_message);
+  // The same shape: a few words per language, blanks dropped.
+  out.ios_app_website_label = maintenanceMessage(row.ios_app_website_label);
   out.android_maintenance_until =
     typeof row.android_maintenance_until === 'string' && !Number.isNaN(Date.parse(row.android_maintenance_until))
       ? row.android_maintenance_until
@@ -568,6 +577,13 @@ export interface IosAppConfig {
    * using the platform's own help centre.
    */
   supportUrl: string | null;
+  /**
+   * Where Settings → About → Website opens: the address Super Admin set, or
+   * `null` — and then the app opens the platform's public site.
+   */
+  websiteUrl: string | null;
+  /** What that row is called, by language; a language left out uses the app's own word. */
+  websiteLabel: Partial<Record<AndroidLanguage, string>>;
 }
 
 export function toIosAppConfig(settings: MobileAppSettings): IosAppConfig {
@@ -581,5 +597,7 @@ export function toIosAppConfig(settings: MobileAppSettings): IosAppConfig {
     showStorage: settings.ios_app_show_storage,
     showSupport: settings.ios_app_show_support,
     supportUrl: settings.ios_app_support_url || settings.support_url || null,
+    websiteUrl: settings.ios_app_website_url || null,
+    websiteLabel: settings.ios_app_website_label ?? {},
   };
 }

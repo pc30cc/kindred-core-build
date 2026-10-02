@@ -90,11 +90,21 @@ class UITestCase: XCTestCase {
     /// throws "No matches found". Text is no better: a timestamp repeats down
     /// the column. Every message row carries `A11y.messageRow(id)`, which is
     /// stable across both.
+    ///
+    /// Each row is read once — its identifier and its frame together — from
+    /// elements bound to the row itself rather than to a position in the
+    /// list: a transcript still drawing its last rows re-renders between two
+    /// reads, and a row bound by index then resolves to nothing ("No matches
+    /// found") on the second. Bound to the row, it is the same row or gone.
     func newestMessageID() -> String? {
-        messageRows()
-            .filter { $0.exists && $0.frame.height > 0 }
-            .max { $0.frame.maxY < $1.frame.maxY }?
-            .identifier
+        var newest: (id: String, maxY: CGFloat)?
+        for row in messageRows() where row.exists {
+            let frame = row.frame
+            guard frame.height > 0 else { continue }
+            let id = row.identifier
+            if newest.map({ frame.maxY > $0.maxY }) ?? true { newest = (id, frame.maxY) }
+        }
+        return newest?.id
     }
 
     /// Where that message is now, asked fresh.
@@ -119,8 +129,8 @@ class UITestCase: XCTestCase {
     /// a fraction of one wide one.
     private func messageRows() -> [XCUIElement] {
         let predicate = NSPredicate(format: "identifier BEGINSWITH 'message.'")
-        return app.staticTexts.matching(predicate).allElementsBoundByIndex
-            + app.otherElements.matching(predicate).allElementsBoundByIndex
+        return app.staticTexts.matching(predicate).allElementsBoundByAccessibilityElement
+            + app.otherElements.matching(predicate).allElementsBoundByAccessibilityElement
     }
 
     /// Waits until a measurement stops changing.
@@ -335,6 +345,7 @@ enum A11yID {
     static let storageRow = "settings.storage"
     static let clearCache = "settings.storage.clear"
     static let brandFooter = "brand.footer"
+    static func channelLabel(_ key: String) -> String { "channel.\(key)" }
     static let settingsSupportChat = "settings.support.chat"
     static let supportTranscript = "support.transcript"
     static let supportGreeting = "support.greeting"
@@ -349,4 +360,62 @@ enum A11yID {
     static func supportRatingSubmit(_ id: String) -> String { "support.rating.\(id).submit" }
     static func supportRatingGiven(_ id: String) -> String { "support.rating.\(id).given" }
     static func supportRetry(_ id: String) -> String { "support.retry.\(id)" }
+
+    // The mailbox (Inbox → Email). The same names as the Android app's test tags.
+    static let emailList = "email.list"
+    static func emailRow(_ threadID: String) -> String { "email.row.\(threadID)" }
+    static func emailStar(_ threadID: String) -> String { "email.star.\(threadID)" }
+    static let emailLoading = "email.loading"
+    static let emailEmpty = "email.empty"
+    static let emailNotConnected = "email.notConnected"
+    /// The thin line under the filters while the list is read again.
+    static let emailSyncing = "email.syncing"
+    /// The bar's ☰, which opens the folders.
+    static let emailFolders = "email.folders"
+    static let emailDrawer = "email.drawer"
+    static func emailMailFolder(_ id: String) -> String { "email.folder.\(id)" }
+    static func emailMailbox(_ provider: String) -> String { "email.mailbox.\(provider)" }
+    static func emailFilter(_ filter: String) -> String { "email.filter.\(filter)" }
+    static let emailCompose = "email.compose"
+    /// The page a thread is read on.
+    static let emailThread = "email.thread"
+    static let emailThreadStar = "email.thread.star"
+    static let emailMenu = "email.menu"
+    static let emailReply = "email.reply"
+    static let emailReplyAll = "email.replyAll"
+    static let emailForward = "email.forward"
+    static let emailDownloading = "email.downloading"
+    static let emailComposeTo = "email.compose.to"
+    static let emailComposeCc = "email.compose.cc"
+    static let emailComposeCcBcc = "email.compose.ccBcc"
+    static let emailComposeSubject = "email.compose.subject"
+    static let emailComposeBody = "email.compose.body"
+    static let emailComposeSend = "email.compose.send"
+    static let emailComposeClose = "email.compose.close"
+    static let emailComposeAttach = "email.compose.attach"
+    static let emailComposeAttachment = "email.compose.attachment"
+    static let emailComposeError = "email.compose.error"
+
+    /// Who is asking: the card at the top of a platform-support conversation.
+    static let supportRequesterCard = "support.requester"
+
+    /// Security: sign out of every device but this one.
+    static let securityRevokeOthers = "security.revokeOthers"
+    /// The confirming button inside its dialog — best effort, as with
+    /// account deletion: the bridged sheet need not carry it, and the words
+    /// are the fallback.
+    static let securityRevokeOthersConfirm = "security.revokeOthers.confirm"
+
+    /// Settings → About: the version, its build, and the platform's website.
+    static let settingsVersion = "settings.version"
+    static let settingsBuild = "settings.build"
+    static let settingsWebsite = "settings.website"
+
+    // The inbox's strip, beside its queues.
+    /// The strip's envelope, which opens the mailbox.
+    static let inboxEmail = "inbox.email"
+    /// The strip's ☰, which lists every inbox.
+    static let inboxEveryInbox = "inbox.everyInbox"
+    static let everyInboxSheet = "inbox.everyInbox.sheet"
+    static func everyInboxRow(_ key: String) -> String { "inbox.everyInbox.\(key)" }
 }

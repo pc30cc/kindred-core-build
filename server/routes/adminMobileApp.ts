@@ -57,6 +57,12 @@ const SUPPORT_LINK = z
   .transform((v) => (v === '' ? null : v))
   .nullable();
 
+/** What Settings → About → Website is called in one language: a few words, blank dropped. */
+const WEBSITE_LABEL = z.preprocess(
+  (v) => (v == null ? undefined : v),
+  z.string().trim().max(40).optional(),
+);
+
 const settingsSchema = z.object({
   app_name: z.string().trim().min(1).max(60).optional(),
   display_name: z.string().trim().min(1).max(30).optional(),
@@ -183,6 +189,11 @@ const settingsSchema = z.object({
   ios_app_show_storage: z.boolean().optional(),
   ios_app_show_support: z.boolean().optional(),
   ios_app_support_url: SUPPORT_LINK.optional(),
+  ios_app_website_url: HTTPS_URL.optional(),
+  ios_app_website_label: z
+    .object({ fa: WEBSITE_LABEL, en: WEBSITE_LABEL, tr: WEBSITE_LABEL })
+    .transform((m) => Object.fromEntries(Object.entries(m).filter(([, v]) => v)) as Record<string, string>)
+    .optional(),
 }).refine(
   (v) => v.android_min_sdk === undefined || v.android_target_sdk === undefined || v.android_min_sdk <= v.android_target_sdk,
   { message: 'minimum SDK above target SDK', path: ['android_min_sdk'] },

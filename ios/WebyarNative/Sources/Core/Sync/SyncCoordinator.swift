@@ -69,6 +69,7 @@ final class SyncCoordinator {
     @ObservationIgnored private var realtime: InboxRealtime?
     @ObservationIgnored private var continuations: [UUID: AsyncStream<SyncEvent>.Continuation] = [:]
     @ObservationIgnored private var supportContinuations: [UUID: AsyncStream<SupportSignal>.Continuation] = [:]
+    @ObservationIgnored private var emailContinuations: [UUID: AsyncStream<EmailSignal>.Continuation] = [:]
     @ObservationIgnored private let api: any WebyarAPI
     /// False for the sample backend: nothing of a screenshot run is kept.
     @ObservationIgnored private let persistent: Bool
@@ -131,6 +132,29 @@ final class SyncCoordinator {
 
     func emitSupport(_ signal: SupportSignal) {
         for continuation in supportContinuations.values { continuation.yield(signal) }
+    }
+
+    /// A connected mailbox changed — the inbox channel's
+    /// `email_mailbox_changed`, an email push, or the app back in front of
+    /// the operator — for the mailbox's screens and the strip's count. Not an
+    /// inbox event: no conversation moved.
+    func emailSignals() -> AsyncStream<EmailSignal> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream.makeStream(of: EmailSignal.self, bufferingPolicy: .bufferingNewest(8))
+        emailContinuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.emailContinuations[id] = nil }
+        }
+        return stream
+    }
+
+    func emitEmail(_ signal: EmailSignal) {
+        for continuation in emailContinuations.values { continuation.yield(signal) }
+    }
+
+    /// An email arrived by push while the app is open, or was tapped.
+    func emailPushArrived(workspaceID: String, provider: String?) {
+        emitEmail(EmailSignal(workspaceID: workspaceID, provider: provider))
     }
 
     // MARK: - Scope
@@ -244,6 +268,7 @@ final class SyncCoordinator {
             lists?.invalidate()
             emit(.resync)
             emitSupport(SupportSignal(kind: SupportSignal.resync))
+            if let workspaceID = scope?.workspaceID { emitEmail(EmailSignal(workspaceID: workspaceID, provider: nil)) }
         }
     }
 
@@ -350,6 +375,10 @@ final class SyncCoordinator {
 
     private func handle(_ event: RealtimeEvent, from workspaceID: String) {
         guard scope?.workspaceID == workspaceID, !event.needsNoRead else { return }
+        if event.isMailboxChange {
+            emitEmail(EmailSignal(workspaceID: workspaceID, provider: event.provider))
+            return
+        }
         // Before anyone reads again: no list read before this is handed out as current.
         lists?.invalidate()
         if event.isMessage, let conversationID = event.conversationID {

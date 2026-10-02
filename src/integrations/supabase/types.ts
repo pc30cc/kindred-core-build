@@ -10198,6 +10198,8 @@ export type Database = {
           ios_app_show_visitors: boolean
           ios_app_show_web_analytics: boolean
           ios_app_support_url: string | null
+          ios_app_website_label: Json
+          ios_app_website_url: string | null
           marketing_url: string | null
           marketing_version: string
           minimum_os_version: string
@@ -10318,6 +10320,8 @@ export type Database = {
           ios_app_show_visitors?: boolean
           ios_app_show_web_analytics?: boolean
           ios_app_support_url?: string | null
+          ios_app_website_label?: Json
+          ios_app_website_url?: string | null
           marketing_url?: string | null
           marketing_version?: string
           minimum_os_version?: string
@@ -10438,6 +10442,8 @@ export type Database = {
           ios_app_show_visitors?: boolean
           ios_app_show_web_analytics?: boolean
           ios_app_support_url?: string | null
+          ios_app_website_label?: Json
+          ios_app_website_url?: string | null
           marketing_url?: string | null
           marketing_version?: string
           minimum_os_version?: string

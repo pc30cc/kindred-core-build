@@ -38,9 +38,20 @@ export interface RequesterWorkspace {
     slug: string | null;
     is_free: boolean;
     status: string | null;
+    /**
+     * When the period being paid for began — the plan bought or last renewed:
+     * the active billing period's start, as the billing screen shows it, else
+     * the subscription's own `current_period_start`.
+     */
+    period_start: string | null;
+    /** When that period ends: the plan's expiry, or its renewal. */
     period_end: string | null;
     trial_end: string | null;
     cancel_at_period_end: boolean;
+    /** `monthly`, `yearly`… as the subscription is billed. */
+    billing_interval: string | null;
+    /** When the workspace first subscribed to a plan. */
+    started_at: string | null;
   } | null;
   operators: Metered;
   contacts: Metered;
@@ -146,13 +157,25 @@ export async function requesterSnapshot(
 
   let workspaces: RequesterWorkspace[] = [];
   if (ids.length) {
-    const [workspaceRows, subscriptionRows, memberRows, counterRows, contactCounts] = await Promise.all([
+    const [workspaceRows, subscriptionRows, periodRows, memberRows, counterRows, contactCounts] = await Promise.all([
       rows(sb.from('workspaces').select('id, name, status, created_at').in('id', ids)),
       rows(
         sb
           .from('workspace_subscriptions')
-          .select('workspace_id, plan_id, status, current_period_end, trial_end, cancel_at_period_end')
+          .select(
+            'workspace_id, plan_id, status, billing_interval, current_period_start, current_period_end, trial_end, cancel_at_period_end, created_at',
+          )
           .in('workspace_id', ids),
+      ),
+      // The period being paid for, as the billing screen reads it
+      // (billing/customer/readModels.ts): the active one wins over the
+      // subscription's own dates, which a v2 renewal does not move.
+      rows(
+        sb
+          .from('billing_subscription_periods')
+          .select('workspace_id, period_start, period_end')
+          .in('workspace_id', ids)
+          .eq('status', 'active'),
       ),
       rows(sb.from('workspace_members').select('workspace_id').in('workspace_id', ids)),
       rows(
@@ -179,6 +202,7 @@ export async function requesterSnapshot(
     const byId = <T extends Row>(list: T[], key: string) => new Map(list.map((r) => [String(r[key]), r]));
     const workspaceById = byId(workspaceRows, 'id');
     const subscriptionByWorkspace = byId(subscriptionRows, 'workspace_id');
+    const periodByWorkspace = byId(periodRows, 'workspace_id');
     const planById = byId(planRows, 'id');
     const counterByWorkspace = byId(counterRows, 'workspace_id');
     const contactsByWorkspace = new Map(contactCounts);
@@ -192,6 +216,7 @@ export async function requesterSnapshot(
       const id = String(membership.workspace_id);
       const workspace = workspaceById.get(id) ?? {};
       const subscription = subscriptionByWorkspace.get(id) ?? null;
+      const billingPeriod = periodByWorkspace.get(id) ?? null;
       const plan = subscription ? planById.get(String(subscription.plan_id)) ?? null : null;
       const limits = (plan?.limits as Row | null) ?? null;
       const counter = counterByWorkspace.get(id) ?? {};
@@ -208,9 +233,12 @@ export async function requesterSnapshot(
               slug: text(plan.slug),
               is_free: plan.is_free === true,
               status: text(subscription?.status),
-              period_end: text(subscription?.current_period_end),
+              period_start: text(billingPeriod?.period_start) ?? text(subscription?.current_period_start),
+              period_end: text(billingPeriod?.period_end) ?? text(subscription?.current_period_end),
               trial_end: text(subscription?.trial_end),
               cancel_at_period_end: subscription?.cancel_at_period_end === true,
+              billing_interval: text(subscription?.billing_interval),
+              started_at: text(subscription?.created_at),
             }
           : null,
         operators: { used: operatorsByWorkspace.get(id) ?? 0, limit: limitOf(limits, 'max_agents') },
@@ -265,7 +293,10 @@ export function requesterBody(snapshot: RequesterSnapshot): string {
   const lines = [`Site user: ${head || u.id}${since} · via ${u.client_platform}`];
   lines.push(`${snapshot.workspace_count} workspace${snapshot.workspace_count === 1 ? '' : 's'}`);
   for (const w of snapshot.workspaces) {
-    const plan = w.plan ? `${w.plan.name}${w.plan.status ? ` (${w.plan.status})` : ''}` : 'no plan';
+    const span = w.plan && (w.plan.period_start || w.plan.period_end)
+      ? ` ${w.plan.period_start?.slice(0, 10) ?? '…'} → ${w.plan.period_end?.slice(0, 10) ?? '…'}`
+      : '';
+    const plan = w.plan ? `${w.plan.name}${w.plan.status ? ` (${w.plan.status})` : ''}${span}` : 'no plan';
     lines.push(
       `• ${w.name} (${w.role}) — ${plan} · operators ${metered(w.operators)} · ` +
         `conversations ${metered(w.usage.conversations)} · visitors ${metered(w.usage.visitors)} · ` +

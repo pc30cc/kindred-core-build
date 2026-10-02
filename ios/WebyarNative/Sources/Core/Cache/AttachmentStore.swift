@@ -133,6 +133,44 @@ actor AttachmentStore {
         return try await task.value
     }
 
+    // MARK: - A mail's files
+
+    /// A mail's file on this phone's disk — beside the chats' files, under
+    /// the same account and workspace, inside the same limit, and cleared
+    /// with them at sign-out — fetched the first time it is asked for. The
+    /// same file serves a picture drawn inside the mail (`cid:`) and the
+    /// chip that opens it.
+    func mailFileURL(
+        id: String,
+        fileExtension: String?,
+        fetch: @escaping @Sendable () async throws -> Data
+    ) async throws -> URL {
+        let diskID = "email|\(id)"
+        let scope = self.scope
+        if let scope, let hit = await disk.existing(id: diskID, fileExtension: fileExtension, scope: scope) { return hit }
+        let key = key(diskID, in: scope)
+        if let running = fileInFlight[key] { return try await running.value }
+
+        let task = Task<URL, Error> { [disk] in
+            self.countNetworkFetch()
+            let data = try await fetch()
+            if let scope, self.scope == scope,
+               let kept = await disk.store(data, id: diskID, fileExtension: fileExtension, scope: scope) {
+                return kept
+            }
+            // Not kept (no account, a full disk, or the scope moved on): a
+            // file of its own in the temporary directory, for this one use.
+            let loose = FileManager.default.temporaryDirectory
+                .appendingPathComponent("webyar-\(UUID().uuidString)")
+                .appendingPathExtension(AttachmentDiskCache.sanitizedExtension(fileExtension))
+            try data.write(to: loose, options: .atomic)
+            return loose
+        }
+        fileInFlight[key] = task
+        defer { if fileInFlight[key] == task { fileInFlight[key] = nil } }
+        return try await task.value
+    }
+
     /// The file if it is already on this phone — never the network. A voice
     /// note uses this to show its length before anyone taps Play.
     func cachedFileURL(for attachment: MessageAttachment) async -> URL? {

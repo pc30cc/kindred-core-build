@@ -4504,7 +4504,11 @@ const tr: TranslationKeys = {
         showSupport: '"Canlı destek" bölümünü göster',
         showSupportHint: "Uygulama Ayarlarında platform destek ekibiyle sohbet. Kapalıyken uygulamada gizlenir. Desteğin açık olup olmadığı Süper Yönetici → Temel ayarlar → Destek bölümünden belirlenir.",
         supportUrl: "Uygulama içi destek bağlantısı",
-        supportUrlHint: "Ayarlar → Hakkında → Destek'in açtığı yer: bir sayfa, Telegram veya WhatsApp bağlantısı (https://…), e-posta (mailto:…) veya telefon numarası (tel:…). Boşsa Kimlik sekmesindeki \"Destek bağlantısı\", ardından platformun yardım merkezi kullanılır.",
+        supportUrlHint: "Uygulamanın yardıma ihtiyacı olan birini gönderdiği yer (Hesabı sil ekranı): bir sayfa, Telegram veya WhatsApp bağlantısı (https://…), e-posta (mailto:…) veya telefon numarası (tel:…). Boşsa Kimlik sekmesindeki \"Destek bağlantısı\", ardından platformun yardım merkezi kullanılır.",
+        websiteUrl: "Web sitesi adresi",
+        websiteUrlHint: "Ayarlar → Hakkında → Web sitesi'nin açtığı yer (https://…). Boşsa Marka → Alan adları'ndaki platformun genel sitesi açılır.",
+        websiteLabel: "Web sitesi adı",
+        websiteLabelHint: "Bu satırın uygulamadaki adı, dil başına. Boşsa uygulamanın kendi sözcüğü kullanılır: \"Web sitesi\", \"Website\", \"وب‌سایت\".",
       },
       androidTabs: {
         overview: 'Genel bakış',

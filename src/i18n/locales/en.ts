@@ -4515,7 +4515,11 @@ const en = {
         showSupport: 'Show "Online support"',
         showSupportHint: "The chat with the platform's support team in the app's Settings. Off hides it from the app. Whether support is on at all is set in Super Admin → Core settings → Support.",
         supportUrl: "Support link",
-        supportUrlHint: "Where Settings → About → Support opens: a page, a Telegram or WhatsApp link (https://…), an email (mailto:…) or a phone number (tel:…). Empty uses the Identity tab's \"Support URL\", then the platform's help centre.",
+        supportUrlHint: "Where the app sends someone who needs a person (the Delete account screen): a page, a Telegram or WhatsApp link (https://…), an email (mailto:…) or a phone number (tel:…). Empty uses the Identity tab's \"Support URL\", then the platform's help centre.",
+        websiteUrl: "Website address",
+        websiteUrlHint: "Where Settings → About → Website opens (https://…). Empty opens the platform's public site from Branding → Domains.",
+        websiteLabel: "Website name",
+        websiteLabelHint: "What that row is called in the app, per language. Empty uses the app's own word: \"Website\", \"وب‌سایت\", \"Web sitesi\".",
       },
       androidTabs: {
         overview: 'Overview',

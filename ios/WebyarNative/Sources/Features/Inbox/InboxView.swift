@@ -3,9 +3,13 @@ import SwiftUI
 /// Where the inbox's own navigation stack can go besides a conversation.
 enum InboxRoute: Hashable {
     case email, colleagues
-    /// One mail thread — pushed over the mailbox when a notification opens
-    /// it, so Back lands in the mailbox rather than the conversations.
-    case emailThread(EmailThreadSummary)
+    /// One of the workspace's mailboxes (`gmail`, `yahoo`), from the list of
+    /// every inbox when more than one is connected.
+    case emailMailbox(String)
+    /// One mail thread — from the mailbox's list, or pushed over the mailbox
+    /// when a notification opens it, so Back lands in the mailbox rather
+    /// than the conversations.
+    case emailThread(EmailThreadRef)
 }
 
 struct InboxView: View {
@@ -32,6 +36,11 @@ struct InboxView: View {
     @State private var showsColleagues = false
     @State private var isSearching = false
     @State private var isFiltering = false
+    /// The workspace's mailboxes: the strip's envelope counts from it, and the
+    /// mailbox's screens read and write through it.
+    @State private var email = EmailInboxModel()
+    @State private var showsEveryInbox = false
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var push = PushController.shared
     @State private var isAskingAboutNotifications = false
@@ -50,6 +59,12 @@ struct InboxView: View {
         return unread
     }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
+    /// The strip's three lines are lit while the list on screen is one of
+    /// theirs: a channel, or a queue that is not on the strip.
+    private var elsewhere: Bool {
+        !showsColleagues
+            && (model.channel != nil || !appState.inboxChips(automated: model.counts?.automated).contains(model.filter))
+    }
     /// The installed channel inboxes the plan lets this workspace work in.
     private var channelInboxes: [ChannelInbox] { model.channels.filter { appState.channelInboxVisible($0) } }
 
@@ -72,6 +87,7 @@ struct InboxView: View {
             .sheet(isPresented: $isFiltering) {
                 InboxFilterSheet(filter: $model.fieldFilter, language: language)
             }
+            .sheet(isPresented: $showsEveryInbox) { everyInboxSheet }
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)
             }
@@ -113,6 +129,23 @@ struct InboxView: View {
                 await colleagues.load(workspaceID: workspaceID, appState: appState)
                 await colleagues.listen(workspaceID: workspaceID)
             }
+            // The mailboxes and their unread count, for the strip's envelope:
+            // counted on the way in, then kept current by change signals —
+            // the inbox channel's `email_mailbox_changed`, an email push, the
+            // return to the foreground — while the app is in front.
+            .task(id: "\(workspaceID ?? "-")|\(appState.emailInboxVisible)") {
+                email.language = language
+                email.onUnauthorized = { [appState] in await appState.handleUnauthorized() }
+                guard appState.emailInboxVisible else { return }
+                await email.track(workspaceID)
+            }
+            .task(id: "\(workspaceID ?? "-")|\(appState.emailInboxVisible)|\(scenePhase == .active)") {
+                guard appState.emailInboxVisible, scenePhase == .active else { return }
+                for await signal in SyncCoordinator.shared.emailSignals() {
+                    email.onSignal(signal)
+                }
+            }
+            .onChange(of: language) { _, now in email.language = now }
             // Team chat switched off, or out of the plan: back to the queues.
             .onChange(of: appState.colleaguesVisible) { _, visible in
                 if !visible { showsColleagues = false }
@@ -246,12 +279,11 @@ struct InboxView: View {
             path.append(colleague)
 
         case .email(_, let threadID):
-            guard appState.emailInboxVisible, push.viewingEmailThread != threadID,
-                  let response = try? await Backend.current.emailThread(workspaceID: workspaceID, threadID: threadID),
-                  appState.selectedWorkspace?.id == workspaceID
-            else { return }
+            // The thread reads itself: the mailbox under it, so Back lands
+            // there, and the thread over it.
+            guard appState.emailInboxVisible, push.viewingEmailThread != threadID else { return }
             path.append(InboxRoute.email)
-            path.append(InboxRoute.emailThread(response.thread))
+            path.append(InboxRoute.emailThread(EmailThreadRef(id: threadID)))
 
         case .support:
             // Never reached: taken by `MainTabView` before the inbox looks.
@@ -292,14 +324,7 @@ struct InboxView: View {
                 .listRowSeparator(.hidden)
             }
 
-            FilterPicker(
-                selection: stripSelection,
-                items: appState.inboxStrip(automated: model.counts?.automated),
-                counts: model.counts,
-                colleaguesUnread: colleagues.unreadTotal,
-                unread: stripUnread,
-                language: language
-            )
+            strip
                 .listRowInsets(filterInsets)
                 .listRowSeparator(.hidden)
 
@@ -324,9 +349,10 @@ struct InboxView: View {
         }
         .navigationDestination(for: InboxRoute.self) { route in
             switch route {
-            case .email: EmailInboxView()
+            case .email: EmailInboxView(model: email)
+            case .emailMailbox(let provider): EmailInboxView(model: email, provider: provider)
             case .colleagues: ColleaguesView()
-            case .emailThread(let thread): EmailThreadView(thread: thread, mailbox: nil)
+            case .emailThread(let ref): EmailThreadView(ref: ref, inbox: email)
             }
         }
     }
@@ -447,6 +473,76 @@ struct InboxView: View {
         }
     }
 
+    /// The queues worked in all day and Colleagues — then, as the Android app
+    /// has them, an envelope that opens the mailbox, with its unread dot, and
+    /// three lines that open every inbox there is.
+    private var strip: some View {
+        HStack(spacing: Theme.Space.xs + 2) {
+            FilterPicker(
+                selection: stripSelection,
+                items: appState.inboxStrip(automated: model.counts?.automated),
+                counts: model.counts,
+                colleaguesUnread: colleagues.unreadTotal,
+                unread: stripUnread,
+                language: language
+            )
+            .frame(maxWidth: .infinity)
+
+            if appState.emailInboxVisible {
+                StripIconButton(
+                    systemImage: "envelope",
+                    label: Str.emailInbox(language),
+                    unread: email.unread,
+                    language: language
+                ) {
+                    path.append(InboxRoute.email)
+                }
+                .accessibilityIdentifier(A11y.inboxEmail)
+            }
+
+            StripIconButton(
+                systemImage: "line.3.horizontal",
+                label: EmailStr.everyInbox(language),
+                lit: elsewhere,
+                language: language
+            ) {
+                showsEveryInbox = true
+            }
+            .accessibilityIdentifier(A11y.inboxEveryInbox)
+        }
+    }
+
+    private var everyInboxSheet: some View {
+        EveryInboxSheet(
+            language: language,
+            filters: appState.inboxFilters(automated: model.counts?.automated),
+            selectedFilter: model.filter,
+            counts: model.counts,
+            channels: channelInboxes,
+            selectedChannel: model.channel,
+            colleaguesShown: showsColleagues,
+            colleaguesUnread: appState.colleaguesVisible ? colleagues.unreadTotal : nil,
+            openUnread: inboxBadge?.conversations ?? 0,
+            emailEntries: appState.emailInboxVisible
+                ? EmailEntry.entries(language, mailboxes: email.mailboxes, unread: email.unread)
+                : [],
+            onSelectFilter: { filter in
+                showsColleagues = false
+                model.open(filter)
+            },
+            onSelectChannel: { channel in
+                showsColleagues = false
+                model.open(channel)
+            },
+            onOpenColleagues: { showsColleagues = true },
+            onOpenEmail: { provider in openEmail(provider) }
+        )
+    }
+
+    private func openEmail(_ provider: String?) {
+        path.append(provider.map(InboxRoute.emailMailbox) ?? InboxRoute.email)
+    }
+
     /// The strip's selection: a queue, or Colleagues. Picking a queue is the
     /// same as picking it from the menu.
     private var stripSelection: Binding<InboxStripItem> {
@@ -515,10 +611,12 @@ struct InboxView: View {
                     }
                 }
                 if appState.emailInboxVisible {
-                    Button {
-                        path.append(InboxRoute.email)
-                    } label: {
-                        Label(Str.emailInbox(language), systemImage: "envelope")
+                    ForEach(EmailEntry.entries(language, mailboxes: email.mailboxes, unread: email.unread), id: \.label) { entry in
+                        Button {
+                            openEmail(entry.provider)
+                        } label: {
+                            Label(entry.label, systemImage: "envelope")
+                        }
                     }
                 }
             }
@@ -711,11 +809,22 @@ struct ConversationRow: View {
             )
 
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                HStack(alignment: .center, spacing: Theme.Space.sm) {
                     Text(displayName)
                         .font(Theme.Typo.rowTitle)
                         .foregroundStyle(Theme.Palette.label)
                         .lineLimit(1)
+
+                    // Where they are writing from, beside who they are — the
+                    // console's badge, on every row, the website's included;
+                    // a support conversation names the app it came from.
+                    ChannelLabel(
+                        key: ConversationChannel.of(conversation),
+                        language: language,
+                        platform: ConversationChannel.clientPlatform(conversation),
+                        compact: true
+                    )
+                    .layoutPriority(0.5)
 
                     Spacer(minLength: Theme.Space.xs)
 

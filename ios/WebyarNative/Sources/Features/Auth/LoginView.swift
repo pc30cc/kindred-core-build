@@ -120,7 +120,7 @@ struct LoginView: View {
     }
 
     private var fields: some View {
-        VStack(spacing: 0) {
+        AuthFieldGroup {
             AuthFieldRow(icon: "envelope") {
                 AuthEmailField(
                     placeholder: Str.emailLabel(language),

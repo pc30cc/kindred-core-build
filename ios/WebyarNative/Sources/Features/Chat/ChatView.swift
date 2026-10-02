@@ -130,7 +130,9 @@ struct ChatView: View {
                         avatarURL: conversation.contact?.avatarURL,
                         visitor: model.visitor,
                         aiState: actions.didTakeOver ? .humanActive : AIState.resolve(conversation),
-                        language: language
+                        language: language,
+                        channel: ConversationChannel.of(conversation),
+                        platform: ConversationChannel.clientPlatform(conversation)
                     )
                 }
 
@@ -370,6 +372,10 @@ struct ChatHeader: View {
     let visitor: VisitorProfile?
     let aiState: AIState?
     let language: Language
+    /// Where they write from (`ConversationChannel`), shown under the name.
+    var channel: String?
+    /// For a support conversation: the app it was written from.
+    var platform: String?
 
     /// Where they are and what they are on, when the server resolved it.
     private var subtitle: String? {
@@ -404,11 +410,19 @@ struct ChatHeader: View {
                     }
                 }
 
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.app(.caption2))
-                        .foregroundStyle(Theme.Palette.labelSecondary)
-                        .lineLimit(1)
+                // The channel under the name, as the console's header shows
+                // it: an operator switching between a Telegram thread and a
+                // website chat answers each in its own register.
+                HStack(spacing: Theme.Space.xs) {
+                    if let channel {
+                        ChannelLabel(key: channel, language: language, platform: platform, compact: true)
+                    }
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.app(.caption2))
+                            .foregroundStyle(Theme.Palette.labelSecondary)
+                            .lineLimit(1)
+                    }
                 }
             }
         }
@@ -633,16 +647,23 @@ struct MessageRow: View {
         (Theme.Size.avatarSmall - 4) + Theme.Space.xs
     }
 
+    @ViewBuilder
     private var systemNote: some View {
-        // Rebuilt from metadata, not read from the row: the body is the
-        // English sentence the server wrote when the notice happened. An
-        // unrecognised kind still shows that body rather than nothing.
-        Text(SystemMessage.text(message.metadata, language: language) ?? message.body)
-            .font(Theme.Typo.meta)
-            .foregroundStyle(Theme.Palette.labelSecondary)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Theme.Space.xs)
+        if let card = RequesterCard.parse(message.metadata) {
+            // Who is asking, at the top of a platform-support conversation:
+            // a card, not its plain-English fallback.
+            RequesterCardView(card: card, language: language)
+        } else {
+            // Rebuilt from metadata, not read from the row: the body is the
+            // English sentence the server wrote when the notice happened. An
+            // unrecognised kind still shows that body rather than nothing.
+            Text(SystemMessage.text(message.metadata, language: language) ?? message.body)
+                .font(Theme.Typo.meta)
+                .foregroundStyle(Theme.Palette.labelSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Space.xs)
+        }
     }
 }
 

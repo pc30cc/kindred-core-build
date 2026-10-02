@@ -265,13 +265,20 @@ struct MobileAppConfig: Hashable, Sendable {
     /// a page (https), an email (mailto:) or a phone number (tel:). `nil`
     /// leaves the platform's own help centre in charge (`PlatformOrigin`).
     var supportURL: URL?
+    /// Where Settings → About → Website opens, when Super Admin set it
+    /// (https only). `nil` opens the platform's public site (`PlatformOrigin`).
+    var websiteURL: URL?
+    /// What that row is called, by language code (`fa`, `en`, `tr`); a
+    /// language left out uses the app's own word.
+    var websiteLabel: [String: String]
 
     static let defaults = MobileAppConfig(showContacts: true, showVisitors: true, showWebAnalytics: true)
 
     init(
         showContacts: Bool, showVisitors: Bool, showWebAnalytics: Bool,
         showAIQueue: Bool = true, showColleagues: Bool = true, showStorage: Bool = true,
-        showSupport: Bool = true, supportURL: URL? = nil
+        showSupport: Bool = true, supportURL: URL? = nil,
+        websiteURL: URL? = nil, websiteLabel: [String: String] = [:]
     ) {
         self.showContacts = showContacts
         self.showVisitors = showVisitors
@@ -281,6 +288,22 @@ struct MobileAppConfig: Hashable, Sendable {
         self.showStorage = showStorage
         self.showSupport = showSupport
         self.supportURL = supportURL
+        self.websiteURL = websiteURL
+        self.websiteLabel = websiteLabel
+    }
+
+    /// The Website row's name in `language`, when Super Admin gave it one.
+    func websiteName(_ language: Language) -> String? {
+        websiteLabel[language.rawValue].flatMap {
+            let name = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? nil : name
+        }
+    }
+
+    /// A website address: https with a host, and nothing else.
+    static func websiteLink(_ raw: String?) -> URL? {
+        guard let url = supportLink(raw), url.scheme?.lowercased() == "https" else { return nil }
+        return url
     }
 
     /// A link fit to put behind a Support button: https, mailto: or tel:, and
@@ -301,6 +324,8 @@ extension MobileAppConfig: Decodable {
     enum CodingKeys: String, CodingKey {
         case showContacts, showVisitors, showWebAnalytics, showAIQueue, showColleagues, showStorage, showSupport
         case supportURL = "supportUrl"
+        case websiteURL = "websiteUrl"
+        case websiteLabel
     }
 
     /// Only an explicit `false` turns a section off; a missing or unreadable
@@ -319,5 +344,7 @@ extension MobileAppConfig: Decodable {
         showStorage = flag(.showStorage)
         showSupport = flag(.showSupport)
         supportURL = Self.supportLink(try? c.decodeIfPresent(String.self, forKey: .supportURL))
+        websiteURL = Self.websiteLink(try? c.decodeIfPresent(String.self, forKey: .websiteURL))
+        websiteLabel = (try? c.decodeIfPresent([String: String].self, forKey: .websiteLabel)) ?? [:]
     }
 }

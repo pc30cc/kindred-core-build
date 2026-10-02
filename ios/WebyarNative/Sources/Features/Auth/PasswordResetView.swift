@@ -95,16 +95,18 @@ struct PasswordResetView: View {
             .frame(maxWidth: .infinity)
 
             AuthCard {
-                AuthFieldRow(icon: "envelope") {
-                    AuthEmailField(
-                        placeholder: Str.emailLabel(language),
-                        text: $email,
-                        submitLabel: .send,
-                        onSubmit: { if canSend { send() } }
-                    )
-                    .focused($emailFocused)
+                AuthFieldGroup {
+                    AuthFieldRow(icon: "envelope") {
+                        AuthEmailField(
+                            placeholder: Str.emailLabel(language),
+                            text: $email,
+                            submitLabel: .send,
+                            onSubmit: { if canSend { send() } }
+                        )
+                        .focused($emailFocused)
+                    }
+                    .padding(.trailing, Theme.Space.md)
                 }
-                .padding(.trailing, Theme.Space.md)
             }
             .padding(.top, Theme.Space.xxl)
 

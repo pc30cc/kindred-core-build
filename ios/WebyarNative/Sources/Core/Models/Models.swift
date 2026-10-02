@@ -116,9 +116,13 @@ struct ConversationContact: Codable, Hashable, Sendable {
     let email: String?
     let avatarURL: String?
     let visitorCode: String?
+    /// What the inbound pipeline stamped on the contact: the channel they
+    /// write from, and for a platform-support contact the app they wrote
+    /// from (`client_platform`).
+    var metadata: [String: JSONValue]? = nil
 
     enum CodingKeys: String, CodingKey {
-        case name, email
+        case name, email, metadata
         case avatarURL = "avatar_url"
         case visitorCode = "visitor_code"
     }
@@ -539,6 +543,30 @@ enum JSONValue: Codable, Hashable, Sendable {
 
     subscript(key: String) -> JSONValue? {
         if case .object(let value) = self { return value[key] }
+        return nil
+    }
+
+    /// Any number, whether sent as one or as a string.
+    var doubleValue: Double? {
+        switch self {
+        case .number(let value): value.isFinite ? value : nil
+        case .string(let value): Double(value).flatMap { $0.isFinite ? $0 : nil }
+        default: nil
+        }
+    }
+
+    var boolValue: Bool? {
+        if case .bool(let value) = self { return value }
+        return nil
+    }
+
+    var arrayValue: [JSONValue]? {
+        if case .array(let value) = self { return value }
+        return nil
+    }
+
+    var objectValue: [String: JSONValue]? {
+        if case .object(let value) = self { return value }
         return nil
     }
 }

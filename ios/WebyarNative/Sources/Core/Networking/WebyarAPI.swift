@@ -8,7 +8,7 @@ import Foundation
 /// App Store screenshots Apple requires.
 /// Settings → Online support's endpoints are declared on `SupportAPI`
 /// (`PlatformSupport.swift`), which this refines.
-protocol WebyarAPI: SupportAPI {
+protocol WebyarAPI: SupportAPI, EmailAPI {
     var hasToken: Bool { get async }
     func logIn(email: String, password: String) async throws -> User
     func currentUser() async throws -> User
@@ -58,13 +58,8 @@ protocol WebyarAPI: SupportAPI {
     func aiSayNow(conversationID: String, body: String, voice: SayNowVoice) async throws
     func claim(conversationID: String, workspaceID: String) async throws
     func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts
-    // Email Inbox — a real mailbox, on its own `/api/email-inbox` surface.
-    func emailThreads(workspaceID: String, search: String?) async throws -> [EmailThreadSummary]
-    func emailThread(workspaceID: String, threadID: String) async throws -> EmailThreadResponse
-    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool) async throws
-    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool) async throws
-    func sendEmail(workspaceID: String, threadID: String?, to: [String], subject: String, body: String) async throws
-    func gmailConnection(workspaceID: String) async throws -> GmailConnection?
+    // Email Inbox — a real mailbox, on its own `/api/email-inbox` surface:
+    // declared on `EmailAPI` (`EmailInbox.swift`), which this refines.
     // Channel inboxes the workspace has installed — Telegram, Bale and the rest.
     func channelInboxes(workspaceID: String) async throws -> [ChannelInbox]
     // Colleagues — operator-to-operator messages.
@@ -120,6 +115,10 @@ protocol WebyarAPI: SupportAPI {
     func deleteAvatar() async throws
     func sessions() async throws -> AccountSessionsResponse
     func revokeSession(id: String) async throws
+    /// Every session of this account but the one making the request; how
+    /// many were signed out. `keepingDevice` is this phone's push id: every
+    /// other phone stops receiving notifications too.
+    func revokeOtherSessions(keepingDevice deviceID: String?) async throws -> Int
     func changePassword(current: String, new: String) async throws
 
     // MARK: - Notifications
@@ -244,6 +243,8 @@ enum LanguageOverride {
 /// to reach a screen, not to choose where its content comes from.
 enum SampleRoute: String {
     case inbox, chat, aiChat, call, videoCall, contacts, contact, settings, profile, security, email
+    /// A mail thread open in the reader, over the mailbox.
+    case emailThread
     case notifications
     case colleagues, colleagueThread
     case visitors, analytics

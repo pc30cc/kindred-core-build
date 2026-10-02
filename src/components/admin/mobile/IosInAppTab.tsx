@@ -7,9 +7,13 @@
  * here reaches every iPhone without a new build or an App Store release.
  */
 import { Inbox, LayoutGrid, Settings2 } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
+import { Label } from '@/components/ui/label';
 import { SettingsSection, FieldGrid, SwitchField, TextField } from '@/components/admin/settings/SettingsFields';
-import type { MobileAppSettings } from '@/hooks/useMobileApp';
+import { ANDROID_LANGUAGES, type AndroidLanguage, type MobileAppSettings } from '@/hooks/useMobileApp';
+
+/** As long as the server takes a Website name in one language. */
+const WEBSITE_LABEL_MAX = 40;
 
 export function IosInAppTab({
   draft,
@@ -19,6 +23,15 @@ export function IosInAppTab({
   set: (patch: Partial<MobileAppSettings>) => void;
 }) {
   const { t } = useTranslation();
+  const websiteLabel = draft.ios_app_website_label ?? {};
+
+  const setWebsiteLabel = (language: AndroidLanguage, value: string) => {
+    const next = { ...websiteLabel };
+    // An emptied language is dropped rather than stored as "", as the server does.
+    if (value) next[language] = value;
+    else delete next[language];
+    set({ ios_app_website_label: next });
+  };
 
   return (
     <div className="space-y-4">
@@ -96,7 +109,34 @@ export function IosInAppTab({
             dir="ltr"
             onChange={(value) => set({ ios_app_support_url: value || null })}
           />
+          <TextField
+            label={t('admin.mobileApp.iosInApp.websiteUrl')}
+            hint={t('admin.mobileApp.iosInApp.websiteUrlHint')}
+            value={draft.ios_app_website_url ?? ''}
+            placeholder="https://…"
+            dir="ltr"
+            invalid={!!draft.ios_app_website_url && !/^https:\/\//i.test(draft.ios_app_website_url.trim())}
+            onChange={(value) => set({ ios_app_website_url: value || null })}
+          />
         </FieldGrid>
+        <div className="mt-4 grid gap-3">
+          <div>
+            <Label>{t('admin.mobileApp.iosInApp.websiteLabel')}</Label>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('admin.mobileApp.iosInApp.websiteLabelHint')}</p>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-3">
+            {ANDROID_LANGUAGES.map((language) => (
+              <TextField
+                key={language}
+                label={t(`admin.mobileApp.android.inApp.languages.${language}` as TranslationKey)}
+                value={websiteLabel[language] ?? ''}
+                dir={language === 'fa' ? 'rtl' : 'ltr'}
+                maxLength={WEBSITE_LABEL_MAX}
+                onChange={(value) => setWebsiteLabel(language, value)}
+              />
+            ))}
+          </div>
+        </div>
       </SettingsSection>
     </div>
   );

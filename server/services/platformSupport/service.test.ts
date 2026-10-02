@@ -338,10 +338,19 @@ describe('writing', () => {
       workspace_id: workspaceId,
       plan_id: 'plan-pro',
       status: 'active',
+      billing_interval: 'monthly',
+      current_period_start: '2026-08-15T00:00:00.000Z',
       current_period_end: '2026-10-15T00:00:00.000Z',
       trial_end: null,
       cancel_at_period_end: false,
+      created_at: '2026-06-01T08:00:00.000Z',
     });
+    // A renewal recorded as a billing period moves the dates the card shows,
+    // as it moves the billing screen's; an expired one does not.
+    db.table('billing_subscription_periods').push(
+      { workspace_id: workspaceId, status: 'active', period_start: '2026-09-15T00:00:00.000Z', period_end: '2026-10-15T00:00:00.000Z' },
+      { workspace_id: workspaceId, status: 'expired', period_start: '2026-08-15T00:00:00.000Z', period_end: '2026-09-15T00:00:00.000Z' },
+    );
     db.table('workspace_usage_counters').push({
       workspace_id: workspaceId,
       period: new Date().toISOString().slice(0, 7),
@@ -372,12 +381,21 @@ describe('writing', () => {
     expect(card.workspace_count).toBe(1);
     const ws = card.workspaces[0];
     expect(ws).toMatchObject({ id: workspaceId, role: 'owner' });
-    expect(ws.plan).toMatchObject({ name: 'Startup', names: { fa: 'شروع' }, status: 'active', period_end: '2026-10-15T00:00:00.000Z' });
+    expect(ws.plan).toMatchObject({
+      name: 'Startup',
+      names: { fa: 'شروع' },
+      status: 'active',
+      // Bought (or last renewed) and when it runs out.
+      period_start: '2026-09-15T00:00:00.000Z',
+      period_end: '2026-10-15T00:00:00.000Z',
+      billing_interval: 'monthly',
+      started_at: '2026-06-01T08:00:00.000Z',
+    });
     expect(ws.operators).toEqual({ used: 2, limit: 3 });
     expect(ws.contacts).toEqual({ used: 1, limit: 500 });
     expect(ws.usage.conversations).toEqual({ used: 42, limit: 1000 });
     expect(ws.usage.visitors).toEqual({ used: 900, limit: -1 });
-    expect(String(rows[0].body)).toContain('Startup (active)');
+    expect(String(rows[0].body)).toContain('Startup (active) 2026-09-15 → 2026-10-15');
 
     // The operator never sees it, and the same conversation gets no second card.
     await say(userId, 'more');

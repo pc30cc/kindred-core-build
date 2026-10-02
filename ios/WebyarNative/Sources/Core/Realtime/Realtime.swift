@@ -76,6 +76,12 @@ struct RealtimeEvent: Sendable, Equatable {
     /// The message row itself, when the envelope carried one it could be
     /// read as: shown at once, before the thread is read again.
     var message: Message?
+    /// For `email_mailbox_changed`: which mailbox (`gmail`, `yahoo`).
+    var provider: String?
+
+    /// A connected mailbox changed (Gmail's push, Yahoo's poll): nothing
+    /// about a conversation, only the mailbox's screens read again.
+    var isMailboxChange: Bool { kind == "email_mailbox_changed" }
 
     var isMessage: Bool { type == "message" }
     /// Typing is not something the inbox or a thread reads anything for.
@@ -188,7 +194,8 @@ enum CentrifugoProtocol {
             conversationID: payload?["conversation_id"]?.stringValue,
             messageID: type == "message" ? payload?["id"]?.stringValue : payload?["message_id"]?.stringValue,
             kind: payload?["kind"]?.stringValue,
-            message: type == "message" ? payload.flatMap(message) : nil
+            message: type == "message" ? payload.flatMap(message) : nil,
+            provider: payload?["provider"]?.stringValue
         )
     }
 

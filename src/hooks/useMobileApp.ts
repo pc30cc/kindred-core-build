@@ -184,6 +184,9 @@ export interface MobileAppSettings {
   ios_app_show_storage: boolean;
   ios_app_show_support: boolean;
   ios_app_support_url: string | null;
+  /** Settings → About → Website: its https address, and its name per language (migration 246). */
+  ios_app_website_url: string | null;
+  ios_app_website_label: Partial<Record<AndroidLanguage, string>>;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;

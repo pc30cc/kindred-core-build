@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MOBILE_APP_DEFAULTS, normalize, toAndroidAppConfig, toIosAppConfig } from './settings.js';
+import { MOBILE_APP_DEFAULTS, normalize, toAndroidAppConfig, toIosAppConfig, toIosPublicConfig } from './settings.js';
 
 /**
  * What the installed iOS app reads from `GET /api/mobile-app/config?platform=ios`:
@@ -30,6 +30,17 @@ describe('iOS in-app config', () => {
     expect(config.websiteUrl).toBe('https://webyar.ai');
     // Trimmed, blanks dropped, only the app's languages.
     expect(config.websiteLabel).toEqual({ fa: 'سایت وبیار', en: 'Webyar site' });
+  });
+
+  it('opens in the language Super Admin chose, English until then (migration 247)', () => {
+    expect(toIosPublicConfig(MOBILE_APP_DEFAULTS)).toEqual({ platform: 'ios', defaultLanguage: 'en' });
+    expect(toIosPublicConfig(normalize({ ios_default_language: 'fa' })).defaultLanguage).toBe('fa');
+    expect(toIosPublicConfig(normalize({ ios_default_language: 'tr' })).defaultLanguage).toBe('tr');
+    // A row from before 247, or a value the app does not speak.
+    expect(toIosPublicConfig(normalize({})).defaultLanguage).toBe('en');
+    expect(toIosPublicConfig(normalize({ ios_default_language: 'de' })).defaultLanguage).toBe('en');
+    // Android's choice is Android's.
+    expect(toIosPublicConfig(normalize({ android_default_language: 'tr' })).defaultLanguage).toBe('en');
   });
 
   it('leaves the Website row to the platform when nothing is set', () => {

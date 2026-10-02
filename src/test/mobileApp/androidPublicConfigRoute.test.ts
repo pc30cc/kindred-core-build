@@ -98,8 +98,24 @@ describe('GET /api/mobile-app/public-config', () => {
     });
   });
 
-  it('knows only Android', async () => {
+  it('tells the iOS app the language Super Admin chose for it, and nothing else', async () => {
+    row = { ios_default_language: 'fa', android_default_language: 'tr', android_maintenance_enabled: true };
     const res = await request(app()).get('/api/mobile-app/public-config?platform=ios');
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body).toEqual({ platform: 'ios', defaultLanguage: 'fa' });
+    expect(requireUser).not.toHaveBeenCalled();
+  });
+
+  it('answers the iOS app with English when the settings cannot be read', async () => {
+    failRead = true;
+    const res = await request(app()).get('/api/mobile-app/public-config?platform=ios');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ platform: 'ios', defaultLanguage: 'en' });
+  });
+
+  it('knows only Android and iOS', async () => {
+    const res = await request(app()).get('/api/mobile-app/public-config?platform=windows');
     expect(res.status).toBe(400);
     expect(res.headers['cache-control']).toBe('no-store');
   });

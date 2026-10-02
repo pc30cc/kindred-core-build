@@ -4,12 +4,14 @@
  *
  * The app reads these from `GET /api/mobile-app/config?platform=ios` when it
  * signs in and whenever it comes back to the foreground, so a switch flipped
- * here reaches every iPhone without a new build or an App Store release.
+ * here reaches every iPhone without a new build or an App Store release. The
+ * default language is read before sign-in instead, from
+ * `GET /api/mobile-app/public-config?platform=ios`.
  */
-import { Inbox, LayoutGrid, Settings2 } from 'lucide-react';
+import { Inbox, Languages, LayoutGrid, Settings2 } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { Label } from '@/components/ui/label';
-import { SettingsSection, FieldGrid, SwitchField, TextField } from '@/components/admin/settings/SettingsFields';
+import { SettingsSection, FieldGrid, SwitchField, SelectField, TextField } from '@/components/admin/settings/SettingsFields';
 import { ANDROID_LANGUAGES, type AndroidLanguage, type MobileAppSettings } from '@/hooks/useMobileApp';
 
 /** As long as the server takes a Website name in one language. */
@@ -35,6 +37,26 @@ export function IosInAppTab({
 
   return (
     <div className="space-y-4">
+      <SettingsSection
+        icon={Languages}
+        heading={t('admin.mobileApp.iosInApp.languageHeading')}
+        caption={t('admin.mobileApp.iosInApp.languageCaption')}
+      >
+        <FieldGrid>
+          <SelectField
+            label={t('admin.mobileApp.iosInApp.defaultLanguage')}
+            hint={t('admin.mobileApp.iosInApp.defaultLanguageHint')}
+            value={draft.ios_default_language}
+            onChange={(value) => set({ ios_default_language: value as AndroidLanguage })}
+            options={ANDROID_LANGUAGES.map((language) => ({
+              value: language,
+              // Each language in its own name, so it can be found whatever this screen is in.
+              label: t(`admin.mobileApp.android.inApp.languages.${language}` as TranslationKey),
+            }))}
+          />
+        </FieldGrid>
+      </SettingsSection>
+
       <SettingsSection
         icon={LayoutGrid}
         heading={t('admin.mobileApp.iosInApp.tabsHeading')}

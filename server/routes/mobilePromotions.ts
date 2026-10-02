@@ -31,6 +31,7 @@ import {
   loadMobileAppSettings,
   toAndroidAppConfig,
   toAndroidPublicConfig,
+  toIosPublicConfig,
   toIosAppConfig,
   MOBILE_APP_DEFAULTS,
 } from '../services/mobileApp/settings.js';
@@ -155,14 +156,15 @@ mobilePromotionsRouter.get('/config', async (req, res) => {
 });
 
 /**
- * GET /api/mobile-app/public-config?platform=android — what the Android app
- * must know BEFORE anyone signs in: the language to open in until the
- * operator picks one, and whether a maintenance notice is up (while it is,
+ * GET /api/mobile-app/public-config?platform=android|ios — what the app must
+ * know BEFORE anyone signs in: the language to open in until the operator
+ * picks one, and on Android whether a maintenance notice is up (while it is,
  * nobody can sign in, and the sign-in screen shows the notice instead).
  *
  *   → { platform: 'android',
  *       defaultLanguage: 'fa' | 'en' | 'tr',
  *       maintenance: { enabled, message: { fa?, en?, tr? }, until } }
+ *   → { platform: 'ios', defaultLanguage: 'fa' | 'en' | 'tr' }
  *
  * Unauthenticated on purpose, like GET /api/platform/desktop-app: the answer
  * is needed on the sign-in screen, and nothing in it is secret. Auth in this
@@ -178,13 +180,15 @@ mobilePromotionsRouter.get('/config', async (req, res) => {
 mobilePromotionsRouter.get('/public-config', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const platform = String(req.query.platform || 'android');
-  if (platform !== 'android') {
+  if (platform !== 'android' && platform !== 'ios') {
     return res.status(400).json({ error: 'Unknown platform' });
   }
+  const shape = (settings: typeof MOBILE_APP_DEFAULTS) =>
+    platform === 'ios' ? toIosPublicConfig(settings) : toAndroidPublicConfig(settings);
   try {
     const settings = await loadMobileAppSettings(serverConfigOf(req));
-    return res.json(toAndroidPublicConfig(settings));
+    return res.json(shape(settings));
   } catch {
-    return res.json(toAndroidPublicConfig(MOBILE_APP_DEFAULTS));
+    return res.json(shape(MOBILE_APP_DEFAULTS));
   }
 });

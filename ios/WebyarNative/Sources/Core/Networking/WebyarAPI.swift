@@ -119,6 +119,9 @@ protocol WebyarAPI: SupportAPI, EmailAPI {
     /// many were signed out. `keepingDevice` is this phone's push id: every
     /// other phone stops receiving notifications too.
     func revokeOtherSessions(keepingDevice deviceID: String?) async throws -> Int
+    /// What the app needs before sign-in (the default language); nil when
+    /// the platform could not be asked just now.
+    func mobilePublicConfig() async -> MobilePublicConfig?
     func changePassword(current: String, new: String) async throws
 
     // MARK: - Notifications

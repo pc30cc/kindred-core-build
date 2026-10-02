@@ -101,6 +101,11 @@ struct RootView: View {
             // own hosts in Super Admin, and an app that ignored that would keep
             // calling the old one for as long as it stayed installed.
             await Backend.current.refreshOrigin()
+            // The language Super Admin chose for the iOS app, until the
+            // operator picks one. When it changes the language, the root is
+            // rebuilt in it and this runs again there — the session is
+            // restored by that run, not this one.
+            if await appState.adoptPlatformDefaultLanguage() { return }
             await appState.restore()
         }
         // Who is signed in, and where.

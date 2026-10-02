@@ -73,7 +73,11 @@ final class AppState {
     var language: Language {
         didSet {
             guard language != oldValue else { return }
-            UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey)
+            // The operator's choice is kept; the platform's default is only
+            // used until they make one (`adoptPlatformDefaultLanguage`).
+            if persistsLanguage {
+                UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey)
+            }
             // Before SwiftUI has even been told, so the window and the
             // interface turn together rather than one frame apart.
             WindowDirection.apply(language)
@@ -120,13 +124,22 @@ final class AppState {
     }
 
     private static let languageKey = "app.language"
+    /// The language Super Admin chose for the iOS app, as last read: the
+    /// first frame of the next launch is already in it.
+    private static let platformLanguageKey = "app.platformDefaultLanguage"
+    /// False while the platform's default is being applied, which is not the
+    /// operator choosing a language.
+    @ObservationIgnored private var persistsLanguage = true
     private static let appearanceKey = "app.appearance"
     private let api: any WebyarAPI
 
     init(api: any WebyarAPI = Backend.current) {
         self.api = api
-        let stored = UserDefaults.standard.string(forKey: Self.languageKey)
-        let chosen = stored.flatMap(Language.init(rawValue:)) ?? GeneratedConfig.defaultLanguage
+        let chosen = LanguageChoice.starting(
+            stored: UserDefaults.standard.string(forKey: Self.languageKey),
+            platformDefault: UserDefaults.standard.string(forKey: Self.platformLanguageKey),
+            compiled: GeneratedConfig.defaultLanguage
+        )
         #if DEBUG
         self.language = LanguageOverride.current ?? chosen
         #else
@@ -139,6 +152,28 @@ final class AppState {
         // `didSet` does not run for the initial value, and this is before the
         // first frame — IRANSans is registered and chosen here or not at all.
         Typeface.use(language)
+    }
+
+    // MARK: - Language
+
+    /// The language Super Admin chose for the iOS app, asked for before
+    /// sign-in, and switched to when the operator has not picked one of their
+    /// own. True when the language changed — the interface is rebuilt in it.
+    @discardableResult
+    func adoptPlatformDefaultLanguage() async -> Bool {
+        guard let platformDefault = await api.mobilePublicConfig()?.defaultLanguage else { return false }
+        UserDefaults.standard.set(platformDefault.rawValue, forKey: Self.platformLanguageKey)
+        #if DEBUG
+        // A screenshot run names its language; the platform does not move it.
+        if LanguageOverride.current != nil { return false }
+        #endif
+        let hasChosen = UserDefaults.standard.string(forKey: Self.languageKey) != nil
+        guard let next = LanguageChoice.adopt(platformDefault: platformDefault, hasChosen: hasChosen, current: language)
+        else { return false }
+        persistsLanguage = false
+        language = next
+        persistsLanguage = true
+        return true
     }
 
     // MARK: - Session

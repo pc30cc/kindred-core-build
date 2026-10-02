@@ -159,6 +159,10 @@ struct EveryInboxSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        // A sheet is presented in a hosting controller of its own and does
+        // not inherit the screen's direction: Persian reads from the right
+        // here too.
+        .environment(\.layoutDirection, language.layoutDirection)
         .accessibilityIdentifier(A11y.everyInboxSheet)
     }
 

@@ -37,6 +37,7 @@ import { findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/auth/password.js';
 import { SESSION_COOKIE_NAME, validateSessionToken, revokeSession, revokeAllSessions, listActiveSessions } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
+import { disableOtherDevices } from '../services/push/devices.js';
 
 export const accountRouter = Router();
 
@@ -732,7 +733,15 @@ accountRouter.delete('/security/sessions/:id', async (req, res) => {
 
     if (all) {
       const revoked = await revokeAllSessions(config, user.id, 'logout', currentSessionId ?? undefined);
-      return res.json({ success: true, revoked });
+      // The native apps name their own device (`keep_device`, the id they
+      // register for push with): every other phone of this account stops
+      // receiving notifications as well as being signed out. Best effort —
+      // the sign-out itself has already happened.
+      const keepDevice = typeof req.query.keep_device === 'string' ? req.query.keep_device.trim().slice(0, 200) : '';
+      const pushDevicesDisabled = keepDevice
+        ? await disableOtherDevices(config, user.id, keepDevice).catch(() => 0)
+        : 0;
+      return res.json({ success: true, revoked, push_devices_disabled: pushDevicesDisabled });
     }
 
     const sb = getServiceClient(config);

@@ -554,6 +554,15 @@ final class AppState {
     /// support URL), else the platform's own help centre.
     var supportURL: URL? { appConfig.supportURL ?? PlatformOrigin.supportURL }
 
+    /// Settings → About → Website: the address Super Admin set (Mobile App →
+    /// iOS → In-app settings), else the platform's public site, else — on a
+    /// phone that has never heard from the platform — the help centre.
+    var websiteURL: URL? { appConfig.websiteURL ?? PlatformOrigin.websiteURL ?? PlatformOrigin.supportURL }
+
+    /// What that row is called: Super Admin's name for it in this language,
+    /// else the app's own word.
+    var websiteLabel: String { appConfig.websiteName(language) ?? SettingsStr.website(language) }
+
     /// Whether the mailbox belongs here: an owner/admin section (as in the
     /// console's sidebar) whose Email Inbox module is exactly `true`. An entry
     /// that opens onto a 403 is worse than no entry.

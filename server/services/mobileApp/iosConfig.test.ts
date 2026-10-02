@@ -17,7 +17,28 @@ describe('iOS in-app config', () => {
       showStorage: true,
       showSupport: true,
       supportUrl: null,
+      websiteUrl: null,
+      websiteLabel: {},
     });
+  });
+
+  it('names and points the Website row as Super Admin set it (migration 246)', () => {
+    const config = toIosAppConfig(normalize({
+      ios_app_website_url: 'https://webyar.ai',
+      ios_app_website_label: { fa: ' سایت وبیار ', en: 'Webyar site', tr: '', de: 'Nein' },
+    }));
+    expect(config.websiteUrl).toBe('https://webyar.ai');
+    // Trimmed, blanks dropped, only the app's languages.
+    expect(config.websiteLabel).toEqual({ fa: 'سایت وبیار', en: 'Webyar site' });
+  });
+
+  it('leaves the Website row to the platform when nothing is set', () => {
+    // Rows from before 246, an emptied field, a label that is not an object.
+    expect(toIosAppConfig(normalize({})).websiteUrl).toBeNull();
+    expect(toIosAppConfig(normalize({ ios_app_website_url: '' })).websiteUrl).toBeNull();
+    expect(toIosAppConfig(normalize({ ios_app_website_label: 'Website' })).websiteLabel).toEqual({});
+    // The support link is not the website.
+    expect(toIosAppConfig(normalize({ ios_app_support_url: 'https://t.me/x' })).websiteUrl).toBeNull();
   });
 
   it('points Support at the in-app link Super Admin set', () => {

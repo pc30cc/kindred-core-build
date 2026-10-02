@@ -125,6 +125,17 @@ enum A11y {
     static let emailComposeAttachment = "email.compose.attachment"
     static let emailComposeError = "email.compose.error"
 
+    /// Who is asking: the card at the top of a platform-support conversation.
+    static let supportRequesterCard = "support.requester"
+
+    /// Security: sign out of every device but this one.
+    static let securityRevokeOthers = "security.revokeOthers"
+
+    /// Settings → About: the version, its build, and the platform's website.
+    static let settingsVersion = "settings.version"
+    static let settingsBuild = "settings.build"
+    static let settingsWebsite = "settings.website"
+
     // The inbox's strip, beside its queues.
     /// The strip's envelope, which opens the mailbox.
     static let inboxEmail = "inbox.email"

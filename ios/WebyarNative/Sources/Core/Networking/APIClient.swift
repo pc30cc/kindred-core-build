@@ -119,6 +119,7 @@ actor APIClient {
 
     private func adopt(_ origins: PlatformOrigins) {
         PlatformOrigin.rememberSupport(origins.support)
+        PlatformOrigin.rememberWebsite(origins.website)
         guard let api = origins.api, api != baseURL else { return }
         PlatformOrigin.remember(api)
         baseURL = api
@@ -1257,6 +1258,16 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
+    /// `?all=1` signs out every session but the caller's own — the server
+    /// knows which that is from the token on this request. The path's id is
+    /// ignored then; `all` is what the web and Android apps send too.
+    func revokeOtherSessions(keepingDevice deviceID: String?) async throws -> Int {
+        var query = [URLQueryItem(name: "all", value: "1")]
+        if let deviceID { query.append(URLQueryItem(name: "keep_device", value: deviceID)) }
+        let request = try makeRequest("DELETE", "/api/account/security/sessions/all", query: query)
+        return try await perform(request, as: RevokedSessions.self).revoked ?? 0
+    }
+
     private struct PasswordBody: Encodable, Sendable {
         let currentPassword: String
         let newPassword: String
@@ -1776,6 +1787,11 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
 /// Timestamps arrive from Postgres in more than one shape — with and without
 /// fractional seconds, occasionally with a space instead of `T`. Rather than
 /// let one variant break an entire response, every known form is tried.
+/// What `DELETE /api/account/security/sessions/:id?all=1` answers.
+private struct RevokedSessions: Decodable, Sendable {
+    let revoked: Int?
+}
+
 enum DateParsing {
     // `nonisolated(unsafe)` because the compiler cannot see what Apple
     // documents: date formatters are thread-safe for formatting and parsing

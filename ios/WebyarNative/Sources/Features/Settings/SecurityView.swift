@@ -8,6 +8,7 @@ final class SecurityViewModel {
     private(set) var isLoading = true
     private(set) var isChangingPassword = false
     private(set) var revoking: Set<String> = []
+    private(set) var isSigningOutOthers = false
 
     var currentPassword = ""
     var newPassword = ""
@@ -130,6 +131,34 @@ final class SecurityViewModel {
         }
     }
 
+    /// Whether anything but this device is signed in.
+    var hasOtherSessions: Bool { sessions.contains { $0.isCurrent != true } }
+
+    /// Every other device at once, in one request: the server keeps the
+    /// session this request is made with and ends the rest. The list is read
+    /// again afterwards rather than trimmed, so it shows what the server kept.
+    func signOutOthers(appState: AppState) async {
+        guard !isSigningOutOthers else { return }
+        isSigningOutOthers = true
+        defer { isSigningOutOthers = false }
+        let language = appState.language
+        do {
+            // This phone's push id: the other phones stop being notified too.
+            let count = try await api.revokeOtherSessions(keepingDevice: PushController.shared.deviceID)
+            sessions.removeAll { $0.isCurrent != true }
+            Haptics.success()
+            banner = .init(
+                text: count > 0 ? SettingsStr.signedOutOthers(language, count) : SettingsStr.noOtherDevices(language),
+                tone: .success
+            )
+            await load(appState: appState)
+        } catch APIError.unauthorized {
+            await appState.handleUnauthorized()
+        } catch {
+            banner = .init(text: Str.saveFailed(language), tone: .failure)
+        }
+    }
+
     func revoke(_ session: AccountSession, appState: AppState) async {
         revoking.insert(session.id)
         do {
@@ -148,6 +177,7 @@ struct SecurityView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.locale) private var locale
     @State private var model = SecurityViewModel()
+    @State private var confirmSignOutOthers = false
 
     private var language: Language { appState.language }
 
@@ -204,6 +234,38 @@ struct SecurityView: View {
                 Text(Str.activeSessions(language))
             }
 
+            // Everything but this phone, in one go — for a lost laptop, a
+            // shared computer, or a password that may have leaked.
+            if !model.isLoading, model.hasOtherSessions {
+                Section {
+                    Button(role: .destructive) {
+                        confirmSignOutOthers = true
+                    } label: {
+                        HStack(spacing: Theme.Space.md) {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 30, height: 30)
+                                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.Palette.danger))
+                                .flipsForRightToLeftLayoutDirection(true)
+                            Text(SettingsStr.signOutOtherDevices(language))
+                                .font(.app(.body, .semibold))
+                                .foregroundStyle(Theme.Palette.danger)
+                            Spacer(minLength: 0)
+                            if model.isSigningOutOthers {
+                                ProgressView().controlSize(.small)
+                            }
+                        }
+                        .frame(minHeight: Theme.Size.minTouchTarget)
+                        .contentShape(Rectangle())
+                    }
+                    .disabled(model.isSigningOutOthers)
+                    .accessibilityIdentifier(A11y.securityRevokeOthers)
+                } footer: {
+                    Text(SettingsStr.signOutOtherDevicesHelp(language))
+                }
+            }
+
             // Last, and on the security screen rather than the root: it is
             // the other thing you do to your own account, it belongs beside
             // the password and the sessions, and nothing should meet it on
@@ -227,6 +289,18 @@ struct SecurityView: View {
         .navigationTitle(Str.security(language))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(appState: appState) }
+        .confirmationDialog(
+            SettingsStr.signOutOtherDevicesConfirm(language),
+            isPresented: $confirmSignOutOthers,
+            titleVisibility: .visible
+        ) {
+            Button(SettingsStr.signOutOtherDevices(language), role: .destructive) {
+                Task { await model.signOutOthers(appState: appState) }
+            }
+            Button(Str.cancel(language), role: .cancel) {}
+        } message: {
+            Text(SettingsStr.signOutOtherDevicesConfirmBody(language))
+        }
         .alert(
             model.banner?.text ?? "",
             isPresented: Binding(

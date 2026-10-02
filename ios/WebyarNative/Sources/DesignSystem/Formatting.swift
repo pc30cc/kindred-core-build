@@ -123,6 +123,13 @@ enum Format {
     }
 
     /// The header that separates one day of chat from the next.
+    /// A date in full, with its year — «۲۴ مهر ۱۴۰۵», "October 15, 2026" —
+    /// for a date that is a fact rather than a moment in a conversation: when
+    /// a plan was bought, when it runs out.
+    static func fullDate(_ date: Date, locale: Locale) -> String {
+        string(date, template: "dMMMMyyyy", locale: locale, calendar: workingCalendar(locale))
+    }
+
     static func dayHeader(_ date: Date, locale: Locale, now: Date = Date()) -> String {
         let calendar = workingCalendar(locale)
 

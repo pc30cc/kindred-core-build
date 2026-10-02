@@ -726,21 +726,31 @@ actor SampleAPI: WebyarAPI {
         throw APIError.server(status: 404, message: nil)
     }
 
+    private var sampleSessions: [AccountSession] = [
+        AccountSession(id: "s-1", browser: "Webyar", os: "iOS 26", device: "iPhone",
+                       ip: "—", city: "Istanbul", country: "Türkiye", countryCode: "TR",
+                       isCurrent: true, createdAt: SampleAPI.ago(20), lastActiveAt: SampleAPI.ago(1)),
+        AccountSession(id: "s-2", browser: "Chrome", os: "macOS", device: nil,
+                       ip: "—", city: "Tehran", country: "Iran", countryCode: "IR",
+                       isCurrent: false, createdAt: SampleAPI.ago(4000), lastActiveAt: SampleAPI.ago(300)),
+        AccountSession(id: "s-3", browser: "Webyar", os: "Android 16", device: "Mobile",
+                       ip: "—", city: "Shiraz", country: "Iran", countryCode: "IR",
+                       isCurrent: false, createdAt: SampleAPI.ago(9000), lastActiveAt: SampleAPI.ago(2000)),
+    ]
+
     func sessions() async throws -> AccountSessionsResponse {
-        AccountSessionsResponse(
-            sessions: [
-                AccountSession(id: "s-1", browser: "Webyar", os: "iOS 26", device: "iPhone",
-                               ip: "—", city: "Istanbul", country: "Türkiye", countryCode: "TR",
-                               isCurrent: true, createdAt: SampleAPI.ago(20), lastActiveAt: SampleAPI.ago(1)),
-                AccountSession(id: "s-2", browser: "Chrome", os: "macOS", device: nil,
-                               ip: "—", city: "Tehran", country: "Iran", countryCode: "IR",
-                               isCurrent: false, createdAt: SampleAPI.ago(4000), lastActiveAt: SampleAPI.ago(300)),
-            ],
-            currentSessionId: "s-1"
-        )
+        AccountSessionsResponse(sessions: sampleSessions, currentSessionId: "s-1")
     }
 
-    func revokeSession(id: String) async throws {}
+    func revokeSession(id: String) async throws {
+        sampleSessions.removeAll { $0.id == id && $0.isCurrent != true }
+    }
+
+    func revokeOtherSessions(keepingDevice deviceID: String?) async throws -> Int {
+        let others = sampleSessions.filter { $0.isCurrent != true }.count
+        sampleSessions.removeAll { $0.isCurrent != true }
+        return others
+    }
 
     func changePassword(current: String, new: String) async throws {}
 
@@ -781,7 +791,13 @@ actor SampleAPI: WebyarAPI {
 
     // MARK: - App configuration
 
-    func mobileAppConfig() async throws -> MobileAppConfig { .defaults }
+    func mobileAppConfig() async throws -> MobileAppConfig {
+        // Settings → About → Website, named as Super Admin might name it.
+        var config = MobileAppConfig.defaults
+        config.websiteURL = URL(string: "https://webyar.ai")
+        config.websiteLabel = ["fa": "سایت وبیار"]
+        return config
+    }
 
     // MARK: - Online support
     //
@@ -1169,6 +1185,36 @@ actor SampleAPI: WebyarAPI {
 
     // MARK: - Fixtures
 
+    /// The card at the top of the sample support conversation: two
+    /// workspaces, one on a paid plan twelve days from running out.
+    private static var requesterCard: [String: JSONValue] {
+        let day: TimeInterval = 86_400
+        let iso = ISO8601DateFormatter()
+        func at(_ days: Double) -> String { iso.string(from: Date().addingTimeInterval(days * day)) }
+        let json = """
+        {"kind":"platform_support_requester","internal":true,
+         "user":{"id":"u-9","name":"Alexander Konstantinopoulos","email":"alexander.konstantinopoulos@verylongcompanyname.example",
+                 "phone":"+49 30 1234567","company":"Konstantinopoulos Trading","website":"konstantinopoulos.example",
+                 "member_since":"\(at(-400))","client_platform":"android","source_workspace":"Trading Shop"},
+         "workspace_count":3,
+         "workspaces":[
+          {"id":"w-a","name":"Trading Shop","role":"owner","status":"active","created_at":"\(at(-400))",
+           "plan":{"name":"Business","names":{"fa":"تجاری","tr":"İşletme"},"slug":"business","is_free":false,"status":"active",
+                   "period_start":"\(at(-18))","period_end":"\(at(12))","trial_end":null,"cancel_at_period_end":false,
+                   "billing_interval":"monthly","started_at":"\(at(-380))"},
+           "operators":{"used":4,"limit":5},"contacts":{"used":1820,"limit":5000},
+           "usage":{"period":"2026-10","conversations":{"used":930,"limit":1000},"visitors":{"used":12400,"limit":-1},
+                    "messages":5210,"ai_credits":{"used":310,"limit":1000},"call_minutes":42,
+                    "storage_bytes":3221225472,"storage_limit_gb":10}},
+          {"id":"w-b","name":"Second Store","role":"agent","status":"active","created_at":"\(at(-90))",
+           "plan":null,"operators":{"used":2,"limit":null},"contacts":{"used":40,"limit":null},
+           "usage":{"period":"2026-10","conversations":{"used":12,"limit":null},"visitors":{"used":300,"limit":null},
+                    "messages":80,"ai_credits":{"used":0,"limit":null},"call_minutes":0,"storage_bytes":1048576,"storage_limit_gb":null}}],
+         "captured_at":"\(at(-0.22))"}
+        """
+        return (try? JSONDecoder().decode([String: JSONValue].self, from: Data(json.utf8))) ?? [:]
+    }
+
     private static func ago(_ minutes: Int) -> Date {
         Date().addingTimeInterval(TimeInterval(-minutes * 60))
     }
@@ -1365,6 +1411,11 @@ actor SampleAPI: WebyarAPI {
                     createdAt: SampleAPI.ago(3), senderName: nil, senderAvatar: nil),
         ],
         "c-2": [
+            // Who is asking, as the server writes it before a support
+            // conversation's first message (docs/PLATFORM_SUPPORT.md).
+            Message(id: "n-0", conversationId: "c-2", senderType: .system, senderId: nil,
+                    body: "Site user: Alexander Konstantinopoulos", createdAt: SampleAPI.ago(321),
+                    senderName: nil, senderAvatar: nil, metadata: SampleAPI.requesterCard),
             Message(id: "n-1", conversationId: "c-2", senderType: .contact, senderId: nil,
                     body: "Hi — we're hitting an issue exporting our reports.",
                     createdAt: SampleAPI.ago(320), senderName: nil, senderAvatar: nil),

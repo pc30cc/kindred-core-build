@@ -647,16 +647,23 @@ struct MessageRow: View {
         (Theme.Size.avatarSmall - 4) + Theme.Space.xs
     }
 
+    @ViewBuilder
     private var systemNote: some View {
-        // Rebuilt from metadata, not read from the row: the body is the
-        // English sentence the server wrote when the notice happened. An
-        // unrecognised kind still shows that body rather than nothing.
-        Text(SystemMessage.text(message.metadata, language: language) ?? message.body)
-            .font(Theme.Typo.meta)
-            .foregroundStyle(Theme.Palette.labelSecondary)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Theme.Space.xs)
+        if let card = RequesterCard.parse(message.metadata) {
+            // Who is asking, at the top of a platform-support conversation:
+            // a card, not its plain-English fallback.
+            RequesterCardView(card: card, language: language)
+        } else {
+            // Rebuilt from metadata, not read from the row: the body is the
+            // English sentence the server wrote when the notice happened. An
+            // unrecognised kind still shows that body rather than nothing.
+            Text(SystemMessage.text(message.metadata, language: language) ?? message.body)
+                .font(Theme.Typo.meta)
+                .foregroundStyle(Theme.Palette.labelSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Space.xs)
+        }
     }
 }
 

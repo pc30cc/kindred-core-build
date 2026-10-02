@@ -115,6 +115,10 @@ protocol WebyarAPI: SupportAPI, EmailAPI {
     func deleteAvatar() async throws
     func sessions() async throws -> AccountSessionsResponse
     func revokeSession(id: String) async throws
+    /// Every session of this account but the one making the request; how
+    /// many were signed out. `keepingDevice` is this phone's push id: every
+    /// other phone stops receiving notifications too.
+    func revokeOtherSessions(keepingDevice deviceID: String?) async throws -> Int
     func changePassword(current: String, new: String) async throws
 
     // MARK: - Notifications

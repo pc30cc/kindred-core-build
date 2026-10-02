@@ -56,6 +56,9 @@ struct EmailComposeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
         }
+        // A sheet does not inherit the screen's direction (the addresses
+        // stay left to right on their own).
+        .environment(\.layoutDirection, language.layoutDirection)
         .interactiveDismissDisabled(model.touched && !model.sent)
         .confirmationDialog(EmailStr.discardDraft(language), isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button(EmailStr.discard(language), role: .destructive) { dismiss() }

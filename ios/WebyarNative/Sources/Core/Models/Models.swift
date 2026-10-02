@@ -545,4 +545,28 @@ enum JSONValue: Codable, Hashable, Sendable {
         if case .object(let value) = self { return value[key] }
         return nil
     }
+
+    /// Any number, whether sent as one or as a string.
+    var doubleValue: Double? {
+        switch self {
+        case .number(let value): value.isFinite ? value : nil
+        case .string(let value): Double(value).flatMap { $0.isFinite ? $0 : nil }
+        default: nil
+        }
+    }
+
+    var boolValue: Bool? {
+        if case .bool(let value) = self { return value }
+        return nil
+    }
+
+    var arrayValue: [JSONValue]? {
+        if case .array(let value) = self { return value }
+        return nil
+    }
+
+    var objectValue: [String: JSONValue]? {
+        if case .object(let value) = self { return value }
+        return nil
+    }
 }

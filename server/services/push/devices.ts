@@ -137,6 +137,32 @@ export async function disableDevice(
     .eq('device_id', deviceId);
 }
 
+/**
+ * "Sign out of every other device": the phones signed out stop being told
+ * about anything too. Every enabled registration of the user's except
+ * `keepDeviceId` — the phone that asked — is turned off; a phone that signs
+ * in again registers again and is turned back on (`registerDevice`).
+ *
+ * Only for a caller that names its own device: without it there is no
+ * telling which registration is the one still signed in.
+ */
+export async function disableOtherDevices(
+  config: ServerConfig,
+  userId: string,
+  keepDeviceId: string,
+  reason = 'signed_out_elsewhere',
+): Promise<number> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('mobile_push_devices')
+    .update({ enabled: false, disabled_reason: reason, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('enabled', true)
+    .neq('device_id', keepDeviceId)
+    .select('id');
+  return Array.isArray(data) ? data.length : 0;
+}
+
 /** The transport told us the address is dead. Never retried, never deleted blindly. */
 export async function disableToken(
   config: ServerConfig,

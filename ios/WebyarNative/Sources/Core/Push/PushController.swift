@@ -440,12 +440,13 @@ final class PushController {
     }
 
     private nonisolated static func clearDelivered(where matches: @escaping @Sendable (PushTarget?) -> Bool) {
-        let center = UNUserNotificationCenter.current()
-        center.getDeliveredNotifications { delivered in
+        // The center is asked for again inside rather than captured: it is
+        // not Sendable, and the completion handler is.
+        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
             let stale = delivered
                 .filter { matches(PushTarget(userInfo: $0.request.content.userInfo)) }
                 .map(\.request.identifier)
-            if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
+            if !stale.isEmpty { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: stale) }
         }
     }
 

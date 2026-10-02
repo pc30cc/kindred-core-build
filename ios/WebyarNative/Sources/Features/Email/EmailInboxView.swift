@@ -128,6 +128,7 @@ struct EmailInboxView: View {
         // another device — through the inbox that owns the model, which
         // listens for the strip's count anyway.
         .onChange(of: language) { _, now in model.language = now }
+        .mailSentNotice(model.sentCount, language: language)
         .sheet(item: $composing) { request in
             EmailComposeView(request: request, inbox: model)
         }
@@ -749,5 +750,50 @@ struct EmailFolderDrawer: View {
 
     private func providerName(_ provider: String?) -> String {
         provider == "yahoo" ? "Yahoo Mail" : "Gmail"
+    }
+}
+
+// MARK: - Sent
+
+/// «Sent», for a moment, on the screen the composer closes onto — the
+/// Android app's toast. `count` is the mailbox's `sentCount`: each new value
+/// is one mail gone.
+struct MailSentNotice: ViewModifier {
+    let count: Int
+    let language: Language
+
+    @State private var shown = false
+    @State private var hide: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if shown {
+                    Label(EmailStr.sent(language), systemImage: "checkmark.circle.fill")
+                        .font(.app(.subheadline, .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Theme.Space.lg)
+                        .padding(.vertical, Theme.Space.sm)
+                        .background(Capsule().fill(Color.black.opacity(0.82)))
+                        .padding(.top, Theme.Space.sm)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .accessibilityHidden(true)
+                }
+            }
+            .onChange(of: count) { _, _ in
+                withAnimation(Theme.Motion.standard) { shown = true }
+                hide?.cancel()
+                hide = Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    withAnimation(Theme.Motion.standard) { shown = false }
+                }
+            }
+    }
+}
+
+extension View {
+    func mailSentNotice(_ count: Int, language: Language) -> some View {
+        modifier(MailSentNotice(count: count, language: language))
     }
 }

@@ -21,6 +21,19 @@ final class EmailTests: UITestCase {
         return element.exists && element.isEnabled
     }
 
+    /// Opens a list row. Its identifier also lands on the row's invisible
+    /// navigation link, which is a few points wide and never hittable, so
+    /// the tap goes to the list cell holding it — or, failing that, to the
+    /// row's own words.
+    private func open(row identifier: String, text: String) {
+        let cell = app.cells.containing(.any, identifier: identifier).firstMatch
+        if cell.exists, cell.isHittable {
+            cell.tap()
+            return
+        }
+        app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.tap()
+    }
+
     /// A row of a sheet, scrolled to when it is below the fold.
     private func sheetRow(_ identifier: String) -> XCUIElement {
         let row = app.buttons[identifier]
@@ -39,9 +52,8 @@ final class EmailTests: UITestCase {
             .matching(NSPredicate(format: "label CONTAINS %@", "· Android")).firstMatch
         XCTAssertTrue(label.waitForExistence(timeout: 15), "the support conversation does not say which app it came from")
 
-        let row = element(A11yID.conversationRow("c-2"))
-        XCTAssertTrue(row.exists, "the support conversation is not listed")
-        row.tap()
+        XCTAssertTrue(element(A11yID.conversationRow("c-2")).exists, "the support conversation is not listed")
+        open(row: A11yID.conversationRow("c-2"), text: "Alexander")
         // And in the chat's bar.
         XCTAssertTrue(
             app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "· Android")).firstMatch
@@ -111,9 +123,8 @@ final class EmailTests: UITestCase {
     func testAMailIsReadAndAnswered() {
         app.launchArguments += ["-WebyarScreen", "email"]
         app.launch()
-        let row = element(A11yID.emailRow("e-2"))
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the mailbox did not open")
-        row.tap()
+        XCTAssertTrue(element(A11yID.emailRow("e-2")).waitForExistence(timeout: 20), "the mailbox did not open")
+        open(row: A11yID.emailRow("e-2"), text: "Widget not loading")
 
         XCTAssertTrue(element(A11yID.emailThread).waitForExistence(timeout: 15), "the thread's page never showed")
         let reply = app.buttons[A11yID.emailReply]

@@ -87,6 +87,7 @@ struct EmailThreadView: View {
             Task { await model.reloadQuietly() }
         }
         .onChange(of: language) { _, now in model.language = now }
+        .mailSentNotice(inbox.sentCount, language: language)
         .sheet(item: $composing) { request in
             EmailComposeView(request: request, inbox: inbox)
         }

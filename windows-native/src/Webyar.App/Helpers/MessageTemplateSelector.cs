@@ -11,9 +11,10 @@ public sealed partial class MessageTemplateSelector : DataTemplateSelector
     public DataTemplate? Outgoing { get; set; }
     public DataTemplate? System { get; set; }
     public DataTemplate? Day { get; set; }
+    public DataTemplate? Requester { get; set; }
 
     protected override DataTemplate? SelectTemplateCore(object item) => item is MessageItem m
-        ? m.Side switch { MessageSide.Outgoing => Outgoing, MessageSide.System => System, MessageSide.Day => Day, _ => Incoming }
+        ? m.Side switch { MessageSide.Outgoing => Outgoing, MessageSide.System => System, MessageSide.Day => Day, MessageSide.Requester => Requester ?? System, _ => Incoming }
         : Incoming;
 
     protected override DataTemplate? SelectTemplateCore(object item, DependencyObject container) => SelectTemplateCore(item);

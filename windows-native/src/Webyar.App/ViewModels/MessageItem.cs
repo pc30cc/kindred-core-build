@@ -14,6 +14,8 @@ public enum MessageSide
     System,
     /// <summary>The "Yesterday" / date line between days.</summary>
     Day,
+    /// <summary>Who is asking: the card at the top of a platform-support conversation.</summary>
+    Requester,
 }
 
 /// <summary>A row of the thread: a message, a notice, or a day separator.</summary>
@@ -24,7 +26,13 @@ public sealed partial class MessageItem : ObservableObject
         Id = m.Id;
         CreatedAt = m.CreatedAt;
         Side = m.IsSystem ? MessageSide.System : m.IsOutgoing ? MessageSide.Outgoing : MessageSide.Incoming;
-        Body = Side == MessageSide.System ? SystemText.For(m.Metadata, s) ?? m.Body : m.Body;
+        // The internal "who is asking" notice is drawn as a card, not as its English fallback sentence.
+        if (Side == MessageSide.System && RequesterCard.Parse(m.Metadata) is { } card)
+        {
+            Side = MessageSide.Requester;
+            Requester = card;
+        }
+        Body = Side == MessageSide.System ? SystemText.For(m.Metadata, s) ?? m.Body : Side == MessageSide.Requester ? string.Empty : m.Body;
         Time = m.CreatedAt is { } at ? Display.ClockTime(at, s.Language) : string.Empty;
         IsAi = m.SenderType is SenderTypes.Ai or SenderTypes.Bot;
         SenderId = m.SenderId;
@@ -102,6 +110,9 @@ public sealed partial class MessageItem : ObservableObject
     public string Time { get; } = string.Empty;
     public DateTimeOffset? CreatedAt { get; }
     public bool IsAi { get; }
+
+    /// <summary>For <see cref="MessageSide.Requester"/>: the site user and their workspaces.</summary>
+    public RequesterCard? Requester { get; }
 
     /// <summary>Who sent it; a change of sender starts a new run of bubbles.</summary>
     public string? SenderId { get; set; }

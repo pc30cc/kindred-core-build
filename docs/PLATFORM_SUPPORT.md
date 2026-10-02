@@ -50,8 +50,8 @@ own inbox, with the tools it already has.
 - **Who is asking.** Every new conversation opens with an internal notice
   (`metadata.kind = 'platform_support_requester'`, `internal: true`), written
   before the operator's first message (`server/services/platformSupport/requester.ts`).
-  The inbox draws it as a card on the web and in the Android app; the operator
-  never sees it. It is a snapshot as of that first message:
+  The inbox draws it as a card on the web and in the Android and Windows apps;
+  the operator never sees it. It is a snapshot as of that first message:
   - The person: name, email, phone, company, website, member since, the app
     they wrote from, and the workspace they wrote from.
   - Each workspace they belong to, owned ones first (at most 10; the total is
@@ -68,7 +68,10 @@ own inbox, with the tools it already has.
     `platform_workspace_name` and `client_platform`.
   - The inbox labels these conversations **"Site user · ‹app›"** — fa
     «کاربر سایت», tr «Site kullanıcısı» — where ‹app› is the client the
-    operator wrote from: `Android`, `iOS`, `macOS`, `Windows` or `Web`.
+    operator wrote from: `Android`, `iOS`, `macOS`, `Windows` or `Web`. The
+    Windows app names the app in its own words instead — «کاربر ویندوز»,
+    «کاربر اندروید»… / "Windows user", "Android user"… — on the conversation's
+    row and beside the name in its header.
 - **Client.** Each write reads the `X-Client-Platform` header (`android`,
   `ios`, `macos`, `windows`; anything else or nothing is `web`) and stores it
   as `client_platform` on the message, the conversation and the contact.

@@ -53,6 +53,12 @@ public sealed partial class SupportPage : Page
 
     private enum Mode { Chat, ClosedList, ClosedConversation }
 
+    /// <summary>From this page width the closed conversations sit in a column beside the chat.</summary>
+    private const double WideFrom = 860;
+
+    private bool _wide;
+    private string? _sideSignature;
+
     private SupportChat _chat = null!;
     private Mode _mode = Mode.Chat;
     private string? _openClosedId;
@@ -106,6 +112,10 @@ public sealed partial class SupportPage : Page
         RetryButton.Content = s["retry"];
         EndedBody.Text = s["supportEndedPanelBody"];
         StartNewButton.Content = s["supportStartNew"];
+        ReadOnlyText.Text = s["supportReadOnly"];
+        BackToCurrentText.Text = s["supportBackToCurrent"];
+        SideTitle.Text = s["supportClosedTitle"];
+        _sideSignature = null;
         BuildSkeleton();
 
         _chat = SharedChat();
@@ -157,6 +167,7 @@ public sealed partial class SupportPage : Page
         // Code-built rows took their brushes when drawn: draw them again in the new theme.
         _rows.Clear();
         _rowOrder.Clear();
+        _sideSignature = null;
         BuildSkeleton();
         Render();
     }
@@ -179,9 +190,29 @@ public sealed partial class SupportPage : Page
         if (_chat.Status is { } known) KnownStatus = known;
         RenderHeader(s);
         RenderBanner(s);
+        ReadOnlyBar.Visibility = Visibility.Collapsed;
         if (_mode == Mode.ClosedList) RenderClosedList(s);
         else RenderTranscriptMode(s);
         RenderNotice();
+        RenderSide(s);
+    }
+
+    /// <summary>The page grew past, or shrank below, the width where the closed conversations get their own column.</summary>
+    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var wide = e.NewSize.Width >= WideFrom;
+        var width = wide ? (e.NewSize.Width >= 1180 ? 340 : 300) : 0;
+        if (wide == _wide && SideColumn.Width.Value == width) return;
+        var changed = wide != _wide;
+        _wide = wide;
+        SidePane.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
+        SideColumn.Width = new GridLength(width);
+        Root.ColumnSpacing = wide ? 10 : 0;
+        if (!changed) return;
+        _sideSignature = null;
+        // The list has its column now: the chat takes the page again.
+        if (wide && _mode == Mode.ClosedList) SetMode(Mode.Chat);
+        else Render();
     }
 
     private void RenderHeader(Strings s)
@@ -189,7 +220,7 @@ public sealed partial class SupportPage : Page
         var status = _chat.Status;
         var chat = _mode == Mode.Chat;
         TeamMark.Visibility = chat ? Visibility.Visible : Visibility.Collapsed;
-        ClosedButton.Visibility = chat && _chat.Phase == SupportPhase.Loaded && _chat.Closed.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ClosedButton.Visibility = !_wide && chat && _chat.Phase == SupportPhase.Loaded && _chat.Closed.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         ClosedCountText.Text = Digits.Localize(_chat.Closed.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), s.Language);
         PresenceDot.Visibility = Visibility.Collapsed;
         SubtitleSkeleton.Visibility = Visibility.Collapsed;
@@ -322,6 +353,7 @@ public sealed partial class SupportPage : Page
                 ShowState("", s["supportClosedEmpty"], null, retry: false);
                 return;
             }
+            ReadOnlyBar.Visibility = Visibility.Visible;
             rows = SupportTimeline.Build([c], _chat.ItemsOf(c.Id), []);
         }
         else
@@ -847,22 +879,27 @@ public sealed partial class SupportPage : Page
         foreach (var c in closed) ClosedList.Children.Add(ClosedRow(c, s, now));
     }
 
-    private Button ClosedRow(SupportConversation c, Strings s, DateTimeOffset now)
+    private Button ClosedRow(SupportConversation c, Strings s, DateTimeOffset now, bool compact = false, bool selected = false)
     {
-        var grid = new Grid { ColumnSpacing = 14, Padding = new Thickness(6, 4, 6, 4) };
+        var grid = new Grid { ColumnSpacing = compact ? 10 : 14, Padding = compact ? new Thickness(2) : new Thickness(6, 4, 6, 4) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var resolved = c.Status != SupportConversation.StatusClosed;
-        var mark = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(20), Background = Palette.Resource(resolved ? "SuccessSoftBrush" : "ElevatedBrush") };
-        mark.Child = new FontIcon { Glyph = resolved ? "" : "", FontSize = 17, Foreground = Palette.Resource(resolved ? "SuccessBrush" : "Text2Brush") };
+        var size = compact ? 34 : 40;
+        var mark = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 2.0), Background = Palette.Resource(resolved ? "SuccessSoftBrush" : "ElevatedBrush"), VerticalAlignment = VerticalAlignment.Center };
+        mark.Child = new FontIcon { Glyph = resolved ? "" : "", FontSize = compact ? 15 : 17, Foreground = Palette.Resource(resolved ? "SuccessBrush" : "Text2Brush") };
         grid.Children.Add(mark);
         var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
-        var title = Text(SupportRules.ClosedTitle(_chat.Preview(c.Id), s), 14, "TextBrush", semibold: true);
+        var title = Text(SupportRules.ClosedTitle(_chat.Preview(c.Id), s), compact ? 13.5 : 14, "TextBrush", semibold: true);
         title.TextTrimming = TextTrimming.CharacterEllipsis;
+        title.TextWrapping = TextWrapping.NoWrap;
         title.TextReadingOrder = TextReadingOrder.DetectFromContent;
         words.Children.Add(title);
-        words.Children.Add(Text(SupportRules.ClosedSubtitle(c, s, now), 12.5, "Text2Brush"));
+        var subtitle = Text(SupportRules.ClosedSubtitle(c, s, now), compact ? 12 : 12.5, "Text2Brush");
+        subtitle.TextTrimming = TextTrimming.CharacterEllipsis;
+        subtitle.TextWrapping = TextWrapping.NoWrap;
+        words.Children.Add(subtitle);
         Grid.SetColumn(words, 1);
         grid.Children.Add(words);
         FrameworkElement? trailing = null;
@@ -895,16 +932,132 @@ public sealed partial class SupportPage : Page
             Content = grid,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(10, 10, 10, 10),
+            Padding = compact ? new Thickness(8) : new Thickness(10, 10, 10, 10),
             CornerRadius = new CornerRadius(12),
-            Background = Palette.Resource("SurfaceBrush"),
-            BorderBrush = Palette.Resource("LineBrush"),
+            Background = Palette.Resource(selected ? "SelectedBrush" : "SurfaceBrush"),
+            BorderBrush = Palette.Resource(selected ? "BrandBrush" : "LineBrush"),
             BorderThickness = new Thickness(1),
         };
         AutomationProperties.SetName(button, title.Text);
         button.Click += (_, _) => OpenClosed(c.Id);
         return button;
     }
+
+    // ── The side column (wide page) ──
+
+    /// <summary>
+    /// The current conversation, then the closed ones newest first, the one on
+    /// screen marked. Drawn again only when something in it changed, so a
+    /// poll that changes nothing leaves the hover and focus where they are.
+    /// </summary>
+    private void RenderSide(Strings s)
+    {
+        if (!_wide) return;
+        var closed = _chat.Phase == SupportPhase.Loaded ? _chat.Closed : [];
+        var now = DateTimeOffset.Now;
+        var signature = string.Join("|",
+            _chat.Phase, _mode, _openClosedId, s.Language, _chat.Status?.Online, _chat.Composer, _chat.IsEmpty, now.Date,
+            string.Join(";", closed.Select(c => $"{c.Id},{c.Status},{c.EndedAt},{c.CanRate},{c.Rating?.Score},{_chat.Preview(c.Id)}")));
+        if (signature == _sideSignature) return;
+        _sideSignature = signature;
+
+        SideCount.Visibility = closed.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        SideCountText.Text = Digits.Localize(closed.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), s.Language);
+        SideList.Children.Clear();
+        SideList.Children.Add(CurrentRow(s, selected: _mode != Mode.ClosedConversation));
+
+        switch (_chat.Phase)
+        {
+            case SupportPhase.Loading:
+                // Rows still on their way: their shape, never a spinner.
+                for (var i = 0; i < 4; i++)
+                    SideList.Children.Add(new Border { Height = 54, CornerRadius = new CornerRadius(12), Background = Palette.Resource("ElevatedBrush"), Opacity = 1 - i * 0.18 });
+                return;
+            case SupportPhase.Failed:
+                return;
+        }
+
+        if (closed.Count == 0)
+        {
+            var empty = new StackPanel { Spacing = 8, Margin = new Thickness(12, 28, 12, 12), HorizontalAlignment = HorizontalAlignment.Center };
+            var tile = new Border { Width = 52, Height = 52, CornerRadius = new CornerRadius(16), Background = Palette.Resource("ElevatedBrush"), HorizontalAlignment = HorizontalAlignment.Center };
+            tile.Child = new FontIcon { Glyph = "", FontSize = 20, Foreground = Palette.Resource("Text3Brush") };
+            empty.Children.Add(tile);
+            empty.Children.Add(Centered(Text(s["supportClosedEmpty"], 13, "Text2Brush", semibold: true)));
+            empty.Children.Add(Centered(Text(s["supportClosedColumnEmpty"], 12, "Text3Brush")));
+            SideList.Children.Add(empty);
+            return;
+        }
+
+        var label = Text(s["supportClosedTitle"], 11.5, "Text3Brush", semibold: true);
+        label.Margin = new Thickness(6, 10, 6, 2);
+        SideList.Children.Add(label);
+        foreach (var c in closed)
+            SideList.Children.Add(ClosedRow(c, s, now, compact: true, selected: _mode == Mode.ClosedConversation && _openClosedId == c.Id));
+    }
+
+    /// <summary>The conversation being written in (or the fresh page): the way back to it from a closed one.</summary>
+    private Button CurrentRow(Strings s, bool selected)
+    {
+        var grid = new Grid { ColumnSpacing = 10, Padding = new Thickness(2) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        var mark = new Grid { Width = 34, Height = 34, VerticalAlignment = VerticalAlignment.Center };
+        mark.Children.Add(new Border { CornerRadius = new CornerRadius(17), Background = Palette.Resource("BrandSoftBrush"), Child = new FontIcon { Glyph = "", FontSize = 15, Foreground = Palette.Resource("BrandBrush") } });
+        if (_chat.Status is { } status)
+        {
+            mark.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse
+            {
+                Width = 11,
+                Height = 11,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                StrokeThickness = 2,
+                Stroke = Palette.Resource(selected ? "SelectedBrush" : "SurfaceBrush"),
+                Fill = Palette.Resource(status.Online ? "SuccessBrush" : "Text3Brush"),
+            });
+        }
+        grid.Children.Add(mark);
+        var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
+        var title = Text(s["supportCurrentConversation"], 13.5, "TextBrush", semibold: true);
+        title.TextWrapping = TextWrapping.NoWrap;
+        title.TextTrimming = TextTrimming.CharacterEllipsis;
+        words.Children.Add(title);
+        var line = _chat.Phase != SupportPhase.Loaded ? string.Empty
+            : _chat.Composer == SupportComposer.Ended ? SupportRules.EndedSentence(_chat.Shown?.Status == SupportConversation.StatusClosed ? SupportConversation.StatusClosed : SupportConversation.StatusResolved, s)
+            : _chat.IsEmpty ? s["supportNewConversation"]
+            : _chat.Status is { } st ? SupportRules.Presence(st.Online, s)
+            : string.Empty;
+        if (line.Length > 0)
+        {
+            var sub = Text(line, 12, "Text2Brush");
+            sub.TextWrapping = TextWrapping.NoWrap;
+            sub.TextTrimming = TextTrimming.CharacterEllipsis;
+            words.Children.Add(sub);
+        }
+        Grid.SetColumn(words, 1);
+        grid.Children.Add(words);
+        var button = new Button
+        {
+            Content = grid,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(8),
+            CornerRadius = new CornerRadius(12),
+            Background = Palette.Resource(selected ? "SelectedBrush" : "SurfaceBrush"),
+            BorderBrush = Palette.Resource(selected ? "BrandBrush" : "LineBrush"),
+            BorderThickness = new Thickness(1),
+        };
+        AutomationProperties.SetName(button, s["supportCurrentConversation"]);
+        button.Click += (_, _) =>
+        {
+            if (_mode != Mode.Chat) SetMode(Mode.Chat);
+        };
+        return button;
+    }
+
+    private void OnBackToCurrent(object sender, RoutedEventArgs e) => SetMode(Mode.Chat);
+
 
     private void OpenClosed(string id)
     {
@@ -930,7 +1083,8 @@ public sealed partial class SupportPage : Page
         switch (_mode)
         {
             case Mode.ClosedConversation:
-                SetMode(Mode.ClosedList);
+                // Beside the column, back is the current conversation; on a narrow page, the list it came from.
+                SetMode(_wide ? Mode.Chat : Mode.ClosedList);
                 break;
             case Mode.ClosedList:
                 SetMode(Mode.Chat);

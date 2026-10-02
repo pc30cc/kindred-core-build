@@ -12,8 +12,16 @@
         conversation". The conversations that ended are behind "Closed", read
         back with their rating. The transcript is built in code from the rows
         Webyar.Core works out (SupportTimeline), as one list.
+
+        On a wide page the closed conversations are a column of their own beside
+        the chat: on the left in Persian (the chat on the right), on the right
+        in English and Turkish. On a narrow one they are behind "Closed".
     -->
-    <Grid Padding="10">
+    <Grid x:Name="Root" Padding="10" ColumnSpacing="0" SizeChanged="OnRootSizeChanged">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition x:Name="SideColumn" Width="0" />
+        </Grid.ColumnDefinitions>
         <Border Style="{StaticResource PanelBorder}">
             <Grid>
                 <Grid.RowDefinitions>
@@ -63,7 +71,7 @@
                 </Grid>
 
                 <!-- Nobody is online: leave a message — and when the team is back, and its week. -->
-                <Border x:Name="OfflineBanner" Grid.Row="1" Margin="14,10,14,0" Padding="14,12" CornerRadius="12" Background="{ThemeResource BrandSoftBrush}" Visibility="Collapsed">
+                <Border x:Name="OfflineBanner" Grid.Row="1" Margin="14,10,14,0" MaxWidth="752" Padding="14,12" CornerRadius="12" Background="{ThemeResource BrandSoftBrush}" Visibility="Collapsed">
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -87,14 +95,14 @@
                 <!-- The transcript, the closed list, or the state in their place. -->
                 <Grid x:Name="Body" Grid.Row="2" Margin="0,8,0,0" Background="{ThemeResource ChatBackgroundBrush}" AllowDrop="True" DragOver="OnBodyDragOver" Drop="OnBodyDrop">
                     <ScrollViewer x:Name="TranscriptScroll" Padding="18,6,18,12" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel x:Name="Transcript" MaxWidth="820" FlowDirection="LeftToRight" Spacing="2" VerticalAlignment="Bottom" />
+                        <StackPanel x:Name="Transcript" MaxWidth="760" FlowDirection="LeftToRight" Spacing="2" VerticalAlignment="Bottom" />
                     </ScrollViewer>
 
                     <ScrollViewer x:Name="ClosedScroll" Padding="14,8,14,14" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                         <StackPanel x:Name="ClosedList" MaxWidth="820" Spacing="6" />
                     </ScrollViewer>
 
-                    <StackPanel x:Name="Skeleton" Padding="18,14" MaxWidth="820" Spacing="14" VerticalAlignment="Bottom" FlowDirection="LeftToRight" />
+                    <StackPanel x:Name="Skeleton" Padding="18,14" MaxWidth="796" Spacing="14" VerticalAlignment="Bottom" FlowDirection="LeftToRight" />
 
                     <StackPanel x:Name="StatePanel" MaxWidth="420" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed">
                         <Border Width="72" Height="72" CornerRadius="20" Background="{ThemeResource BrandSoftBrush}" HorizontalAlignment="Center">
@@ -107,8 +115,28 @@
                 </Grid>
 
                 <!-- The bottom: what went wrong, then the composer — or how the conversation ended. -->
-                <StackPanel Grid.Row="3" Padding="16,6,16,16" Spacing="8" Background="{ThemeResource ChatBackgroundBrush}">
+                <Grid Grid.Row="3" Background="{ThemeResource ChatBackgroundBrush}">
+                <StackPanel Padding="16,6,16,16" Spacing="8" MaxWidth="792">
                     <InfoBar x:Name="Notice" IsClosable="True" Closed="OnNoticeClosed" />
+
+                    <!-- A closed conversation read back: it cannot be written to; the way back to the current one. -->
+                    <Border x:Name="ReadOnlyBar" Padding="14,8,8,8" CornerRadius="14" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource LineBrush}" BorderThickness="1" Visibility="Collapsed">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon Glyph="&#xE72E;" FontSize="13" Foreground="{ThemeResource Text3Brush}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="ReadOnlyText" Grid.Column="1" FontSize="12.5" Foreground="{ThemeResource Text2Brush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            <Button x:Name="BackToCurrentButton" Grid.Column="2" Style="{StaticResource PillButton}" Click="OnBackToCurrent">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE8BD;" FontSize="13" />
+                                    <TextBlock x:Name="BackToCurrentText" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </Border>
 
                     <Border x:Name="ComposerCard" CornerRadius="14" BorderBrush="{ThemeResource ComposerBorderBrush}" BorderThickness="1" Background="{ThemeResource ComposerBrush}" Visibility="Collapsed">
                         <Grid>
@@ -158,6 +186,34 @@
                         </StackPanel>
                     </Border>
                 </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Wide page: the current conversation and the closed ones, as a column beside the chat. -->
+        <Border x:Name="SidePane" Grid.Column="1" Style="{StaticResource PanelBorder}" Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Padding="16,0,12,0" Height="63" ColumnSpacing="10" BorderBrush="{ThemeResource LineBrush}" BorderThickness="0,0,0,1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="32" Height="32" CornerRadius="10" Background="{ThemeResource ElevatedBrush}" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE81C;" FontSize="14" Foreground="{ThemeResource Text2Brush}" />
+                    </Border>
+                    <TextBlock x:Name="SideTitle" Grid.Column="1" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Border x:Name="SideCount" Grid.Column="2" MinWidth="22" Height="22" Padding="6,0" CornerRadius="11" Background="{ThemeResource ElevatedBrush}" VerticalAlignment="Center" Visibility="Collapsed">
+                        <TextBlock x:Name="SideCountText" FontSize="11.5" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource Text2Brush}" />
+                    </Border>
+                </Grid>
+                <ScrollViewer Grid.Row="1" Padding="10,10,10,12" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="SideList" Spacing="6" />
+                </ScrollViewer>
             </Grid>
         </Border>
     </Grid>

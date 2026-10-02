@@ -48,13 +48,19 @@ final class KeyboardDismissalTests: UITestCase {
         let row = app.descendants(matching: .any)
             .matching(identifier: A11yID.deleteAccountRow)
             .firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 30), "Security never appeared")
-
+        // The last row of a long screen — a password form, the devices, the
+        // way out of the other ones — and a list draws only what is near the
+        // screen, so it is scrolled to before it can be found at all.
+        XCTAssertTrue(
+            app.navigationBars.firstMatch.waitForExistence(timeout: 30),
+            "Security never appeared"
+        )
         var attempts = 0
-        while !row.isHittable, attempts < 6 {
+        while !(row.exists && row.isHittable), attempts < 8 {
             app.swipeUp()
             attempts += 1
         }
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Security never showed its last row")
         row.tap()
 
         XCTAssertTrue(

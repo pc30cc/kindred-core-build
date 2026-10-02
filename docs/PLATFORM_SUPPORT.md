@@ -216,7 +216,11 @@ or administers.
 
 Mobile App → Android → In-app → **Show "Online support"**
 (`mobile_app_settings.android_app_show_support`, served as `showSupport`)
-hides the section in the Android app without a new build.
+hides the section in the Android app without a new build. Mobile App → iOS →
+In-app settings → **Show "Online support"**
+(`mobile_app_settings.ios_app_show_support`, migration 245, served as
+`showSupport` by `GET /api/mobile-app/config?platform=ios`) does the same for
+the iPhone app.
 
 ## Clients
 
@@ -241,4 +245,19 @@ hides the section in the Android app without a new build.
     the chat shows the end.
   - The composer takes text and a file (2 MB); no emoji.
   - Replies arrive live, and a `support_reply` push opens the chat.
-- **iOS, macOS, Windows, web:** the same endpoints and events.
+- **iOS:** the Android app's three screens, with the same rules
+  (`ios/WebyarNative/Sources/Features/Support`).
+  - Settings → Online support, one row with the presence and the unread
+    count; shown when `enabled && available` and `showSupport`.
+  - The chat, the **Closed** button in its bar, the closed list and the
+    read-only closed conversation behave as on Android. Every request sends
+    `X-Client-Platform: ios`.
+  - Photos and documents up to 2 MB of the six types; a photo from the
+    library is re-encoded as JPEG to fit (a camera HEIC is usually larger).
+    No voice note, no emoji.
+  - Live on the operator's channel (`support_*`), with a poll every 15 s
+    (30 s while the channel is joined) and the status every minute — only
+    while the app is in front. A `support_reply` push opens the chat in
+    Settings; while the chat is on screen it shows no banner, and opening it
+    clears the support notifications.
+- **macOS, Windows, web:** the same endpoints and events.

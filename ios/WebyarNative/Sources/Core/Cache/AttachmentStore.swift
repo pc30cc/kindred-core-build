@@ -70,7 +70,7 @@ actor AttachmentStore {
             }
             try Task.checkCancellation()
             self.countNetworkFetch()
-            let data = try await api.attachmentData(id: attachment.id)
+            let data = try await Self.fetchData(attachment, api: api)
             // Kept only if the account and workspace are still the ones it was fetched for.
             if let scope, self.scope == scope {
                 await disk.store(data, id: attachment.id, fileExtension: ext, scope: scope)
@@ -97,7 +97,7 @@ actor AttachmentStore {
         guard let scope else {
             // No account to keep it under (not expected while signed in): a
             // temporary copy for this one use.
-            return try await api.attachmentFile(id: attachment.id)
+            return try await Self.fetchFile(attachment, api: api)
         }
         if let hit = await disk.existing(id: attachment.id, fileExtension: ext, scope: scope) { return hit }
         let key = key(attachment.id, in: scope)
@@ -111,7 +111,7 @@ actor AttachmentStore {
                 temporary = FileManager.default.temporaryDirectory.appendingPathComponent("webyar-\(UUID().uuidString)")
                 try inMemory.write(to: temporary, options: .atomic)
             } else {
-                temporary = try await api.attachmentFile(id: attachment.id)
+                temporary = try await Self.fetchFile(attachment, api: api)
             }
             if self.scope == scope,
                let kept = await disk.adopt(temporary, id: attachment.id, fileExtension: ext, scope: scope) {
@@ -126,7 +126,7 @@ actor AttachmentStore {
                 try FileManager.default.moveItem(at: temporary, to: loose)
                 return loose
             }
-            return try await api.attachmentFile(id: attachment.id)
+            return try await Self.fetchFile(attachment, api: api)
         }
         fileInFlight[key] = task
         defer { if fileInFlight[key] == task { fileInFlight[key] = nil } }
@@ -146,6 +146,22 @@ actor AttachmentStore {
         cache.removeObject(forKey: key(attachment.id, in: scope) as NSString)
         guard let scope else { return }
         await disk.remove(id: attachment.id, fileExtension: AttachmentFormat.fileExtension(for: attachment), scope: scope)
+    }
+
+    /// The bytes from wherever this file lives: the workspace's own
+    /// attachments, or the support chat's (`MessageAttachment.Origin`).
+    private static func fetchData(_ attachment: MessageAttachment, api: any WebyarAPI) async throws -> Data {
+        switch attachment.origin {
+        case .conversation: return try await api.attachmentData(id: attachment.id)
+        case .support: return try await api.supportAttachmentData(id: attachment.id)
+        }
+    }
+
+    private static func fetchFile(_ attachment: MessageAttachment, api: any WebyarAPI) async throws -> URL {
+        switch attachment.origin {
+        case .conversation: return try await api.attachmentFile(id: attachment.id)
+        case .support: return try await api.supportAttachmentFile(id: attachment.id)
+        }
     }
 
     private func memoryHit(_ key: String) -> Data? {

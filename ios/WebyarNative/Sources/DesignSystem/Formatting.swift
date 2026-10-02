@@ -204,6 +204,47 @@ enum Format {
         return clock([total / 60, total % 60], locale: locale)
     }
 
+    /// An opening time the server stores as `HH:mm`, as a sign on a door
+    /// reads it: the hour unpadded, the minutes padded — "9:00", «۹:۰۰».
+    /// Anything that is not `HH:mm` comes back untouched.
+    static func openingTime(_ value: String, language: Language) -> String {
+        let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let hours = Int(parts[0]), let minutes = Int(parts[1]),
+              (0...24).contains(hours), (0...59).contains(minutes)
+        else { return value }
+        return clock([hours, minutes], locale: language.locale)
+    }
+
+    /// The day part of a moment ahead, for "we're back ‹day› at ‹time›": nil
+    /// for later today, "tomorrow", a weekday inside the coming week, a date
+    /// beyond that. The time is `bubbleTime`'s.
+    static func comingDay(_ date: Date, language: Language, now: Date = Date()) -> String? {
+        let locale = language.locale
+        let calendar = workingCalendar(locale)
+        if calendar.isDate(date, inSameDayAs: now) { return nil }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
+           calendar.isDate(date, inSameDayAs: tomorrow) {
+            let relative = RelativeDateTimeFormatter()
+            relative.locale = locale
+            relative.dateTimeStyle = .named
+            relative.unitsStyle = .full
+            return relative.localizedString(from: DateComponents(day: 1))
+        }
+        let weekAhead = now.addingTimeInterval(6 * 86_400)
+        return string(date, template: date < weekAhead ? "EEEE" : "dMMMM", locale: locale, calendar: calendar)
+    }
+
+    /// A time zone as a person names it — "Iran Time", «وقت ایران» — or its
+    /// IANA id when the system has no name for it.
+    static func zoneName(_ identifier: String, language: Language) -> String {
+        guard let zone = TimeZone(identifier: identifier),
+              let name = zone.localizedName(for: .generic, locale: language.locale),
+              !name.isEmpty
+        else { return identifier }
+        return name
+    }
+
     /// Joins clock fields with a colon, zero-padding every field after the
     /// first in whatever digits the locale writes.
     ///

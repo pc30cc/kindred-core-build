@@ -46,6 +46,10 @@ struct ComposerCapabilities: Sendable, Equatable {
     /// An internal thread between operators: no AI and no visitor, so every tool.
     static let team = ComposerCapabilities(canAttach: true, canRecordVoice: true, canUseEmoji: true, isAIManaged: false)
 
+    /// The platform's support chat: a photo or a document, no voice note and
+    /// no emoji strip — the same composer the Android app gives it.
+    static let support = ComposerCapabilities(canAttach: true, canRecordVoice: false, canUseEmoji: false, isAIManaged: false)
+
     /// `takenOver`: the operator took the thread over on this phone. The
     /// conversation in hand still says `ai_managed` until it is read again,
     /// and without this the composer stayed in AI mode after the take-over

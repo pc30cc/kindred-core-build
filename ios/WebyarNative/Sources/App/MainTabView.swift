@@ -246,9 +246,16 @@ struct MainTabView: View {
         }
         // A conversation somebody asked to open is shown in the inbox, so the
         // inbox comes forward; `InboxView` takes it from there, exactly as it
-        // does for a tapped notification.
-        .onChange(of: push.pendingOpen) { _, target in
-            guard target != nil, selection != .inbox else { return }
+        // does for a tapped notification. A support reply is the exception:
+        // the support chat lives in Settings, and opens there. `initial`, for
+        // the tap that launched the app before this view existed.
+        .onChange(of: push.pendingOpen, initial: true) { _, target in
+            guard let target else { return }
+            if target.isSupport {
+                openSupportChat()
+                return
+            }
+            guard selection != .inbox else { return }
             select(.inbox)
         }
         .task(id: appState.selectedWorkspace?.id) {
@@ -285,6 +292,16 @@ struct MainTabView: View {
         intent = tab
         selection = tab
         appState.selectedTab = tab
+    }
+
+    /// The platform team answered: Settings, with the support chat on top —
+    /// one chat, whichever conversation the reply is in.
+    private func openSupportChat() {
+        _ = push.takePendingOpen()
+        select(.settings)
+        guard !push.viewingSupport else { return }
+        settingsPath = NavigationPath()
+        settingsPath.append(SettingsRoute.support)
     }
 
     /// Opens a detail screen on launch when a Debug run asked for one, so a
@@ -362,14 +379,15 @@ struct MainTabView: View {
         case .settings:
             select(.settings)
 
-        case .profile, .security, .notifications:
-            // All three live behind Settings, so the tab has to be selected
+        case .profile, .security, .notifications, .support, .supportOffline:
+            // All of them live behind Settings, so the tab has to be selected
             // before the destination is pushed onto its stack.
             select(.settings)
             guard settingsPath.isEmpty else { return }
             switch SampleRoute.current {
             case .profile: settingsPath.append(SettingsRoute.profile)
             case .notifications: settingsPath.append(SettingsRoute.notifications)
+            case .support, .supportOffline: settingsPath.append(SettingsRoute.support)
             default: settingsPath.append(SettingsRoute.security)
             }
 

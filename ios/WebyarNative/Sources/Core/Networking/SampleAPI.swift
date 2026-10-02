@@ -669,6 +669,169 @@ actor SampleAPI: WebyarAPI {
 
     func mobileAppConfig() async throws -> MobileAppConfig { .defaults }
 
+    // MARK: - Online support
+    //
+    // The chat with the platform's team as a real operator meets it: an open
+    // conversation an agent joined and answered, one that was resolved and
+    // rated, one closed and still waiting for its stars. `supportOffline`
+    // has the team away, with its hours, and nothing open — the fresh page.
+
+    private var supportConversations: [SupportConversation] = SampleAPI.sampleSupportConversations
+    private var supportItems: [SupportItem] = SampleAPI.sampleSupportItems
+    private var supportActive: String? = SampleRoute.current == .supportOffline ? nil : "sc-3"
+    private var supportUnread = SampleRoute.current == .supportOffline ? 0 : 1
+    private var supportFiles: [String: Data] = [:]
+
+    func supportStatus() async throws -> SupportStatus {
+        let offline = SampleRoute.current == .supportOffline
+        return SupportStatus(
+            enabled: true,
+            available: true,
+            online: !offline,
+            teamName: "Webyar Support",
+            teamAvatar: nil,
+            unread: supportUnread,
+            hours: SupportHours(timezone: "Asia/Tehran", weekly: [
+                "sat": [SupportInterval(from: "09:00", to: "17:00")],
+                "sun": [SupportInterval(from: "09:00", to: "17:00")],
+                "mon": [SupportInterval(from: "09:00", to: "17:00")],
+                "tue": [SupportInterval(from: "09:00", to: "17:00")],
+                "wed": [SupportInterval(from: "09:00", to: "17:00")],
+                "thu": [SupportInterval(from: "09:00", to: "13:00")],
+            ]),
+            nextOpenAt: offline ? Date().addingTimeInterval(14 * 3600) : nil
+        )
+    }
+
+    func supportHistory() async throws -> SupportHistory {
+        let visible = SampleRoute.current == .supportOffline
+            ? supportConversations.filter(\.ended)
+            : supportConversations
+        let ids = Set(visible.map(\.id))
+        return SupportHistory(
+            conversations: visible,
+            items: supportItems.filter { ids.contains($0.conversationID) },
+            activeConversationID: supportActive
+        )
+    }
+
+    func sendSupportMessage(
+        body: String, clientMessageID: String, conversationID: String?, workspaceID: String?
+    ) async throws -> SupportPostResult {
+        try supportPost(body: body, attachment: nil, clientMessageID: clientMessageID, conversationID: conversationID)
+    }
+
+    func sendSupportAttachment(
+        fileName: String, mimeType: String, data: Data,
+        clientMessageID: String, conversationID: String?, workspaceID: String?
+    ) async throws -> SupportPostResult {
+        let id = "sf-\(clientMessageID)"
+        supportFiles[id] = data
+        let kind = mimeType.hasPrefix("image/") ? "image" : "file"
+        let file = SupportAttachment(id: id, fileName: fileName, mimeType: mimeType, sizeBytes: data.count, kind: kind)
+        return try supportPost(body: "", attachment: file, clientMessageID: clientMessageID, conversationID: conversationID)
+    }
+
+    /// The server's rules, in memory: the same client id is the same item,
+    /// an ended conversation takes nothing more, and no conversation named
+    /// starts a new one.
+    private func supportPost(
+        body: String, attachment: SupportAttachment?, clientMessageID: String, conversationID: String?
+    ) throws -> SupportPostResult {
+        if let landed = supportItems.first(where: { $0.clientMessageID == clientMessageID }),
+           let conversation = supportConversations.first(where: { $0.id == landed.conversationID }) {
+            return SupportPostResult(conversation: conversation, item: landed)
+        }
+        let conversation: SupportConversation
+        if let conversationID {
+            guard let named = supportConversations.first(where: { $0.id == conversationID }) else {
+                throw APIError.server(status: 404, message: "conversation_not_found")
+            }
+            guard !named.ended else { throw APIError.server(status: 409, message: "conversation_ended") }
+            conversation = named
+        } else if let active = supportActive, let open = supportConversations.first(where: { $0.id == active }) {
+            conversation = open
+        } else {
+            conversation = SupportConversation(id: "sc-\(clientMessageID.prefix(8))", status: SupportConversation.open, createdAt: Date())
+            supportConversations.append(conversation)
+            supportActive = conversation.id
+        }
+        let item = SupportItem(
+            id: "si-\(clientMessageID)",
+            conversationID: conversation.id,
+            body: body,
+            createdAt: Date(),
+            clientMessageID: clientMessageID,
+            attachments: attachment.map { [$0] } ?? []
+        )
+        supportItems.append(item)
+        return SupportPostResult(conversation: conversation, item: item)
+    }
+
+    func supportAttachmentData(id: String) async throws -> Data {
+        guard let data = supportFiles[id] else { throw APIError.server(status: 404, message: "attachment_not_found") }
+        return data
+    }
+
+    func supportAttachmentFile(id: String) async throws -> URL {
+        let data = try await supportAttachmentData(id: id)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("webyar-sample-\(UUID().uuidString)")
+        try data.write(to: url)
+        return url
+    }
+
+    func rateSupportConversation(id: String, score: Int, comment: String?) async throws -> SupportConversation {
+        guard let index = supportConversations.firstIndex(where: { $0.id == id }) else {
+            throw APIError.server(status: 404, message: "conversation_not_found")
+        }
+        guard supportConversations[index].canRate else { throw APIError.server(status: 409, message: "already_rated") }
+        supportConversations[index].rating = SupportRating(score: score, comment: comment, ratedAt: Date())
+        supportConversations[index].canRate = false
+        return supportConversations[index]
+    }
+
+    func markSupportRead() async throws {
+        supportUnread = 0
+    }
+
+    private static let sampleSupportConversations: [SupportConversation] = [
+        SupportConversation(
+            id: "sc-1", status: SupportConversation.resolved,
+            createdAt: ago(60 * 24 * 20), endedAt: ago(60 * 24 * 20 - 90),
+            rating: SupportRating(score: 5, comment: "Quick and clear, thank you!", ratedAt: ago(60 * 24 * 19)),
+            canRate: false
+        ),
+        SupportConversation(
+            id: "sc-2", status: SupportConversation.closed,
+            createdAt: ago(60 * 24 * 5), endedAt: ago(60 * 24 * 5 - 45),
+            rating: nil, canRate: true
+        ),
+        SupportConversation(id: "sc-3", status: SupportConversation.open, createdAt: ago(42)),
+    ]
+
+    private static let sampleSupportItems: [SupportItem] = [
+        SupportItem(id: "si-1", conversationID: "sc-1", body: "سلام، چطور دامنهٔ اختصاصی خودم را به ویجت وصل کنم؟",
+                    createdAt: ago(60 * 24 * 20)),
+        SupportItem(id: "si-2", conversationID: "sc-1", kind: SupportItem.kindJoined, author: SupportItem.authorTeam,
+                    senderName: "Neda Ahmadi", createdAt: ago(60 * 24 * 20 - 5)),
+        SupportItem(id: "si-3", conversationID: "sc-1", author: SupportItem.authorTeam,
+                    body: "سلام! از تنظیمات ← ویجت ← دامنه‌ها، دامنه را اضافه و رکورد CNAME را ثبت کنید.",
+                    senderName: "Neda Ahmadi", createdAt: ago(60 * 24 * 20 - 8)),
+        SupportItem(id: "si-4", conversationID: "sc-2", body: "Can I get last month's invoice as a PDF?",
+                    createdAt: ago(60 * 24 * 5)),
+        SupportItem(id: "si-5", conversationID: "sc-2", author: SupportItem.authorTeam,
+                    body: "Of course — it is under Billing → Invoices, with a download button on each row.",
+                    senderName: "Ali Rezaei", createdAt: ago(60 * 24 * 5 - 20)),
+        SupportItem(id: "si-6", conversationID: "sc-3",
+                    body: "The AI keeps answering in English on my Persian site. Where do I change that?",
+                    createdAt: ago(42)),
+        SupportItem(id: "si-7", conversationID: "sc-3", kind: SupportItem.kindJoined, author: SupportItem.authorTeam,
+                    senderName: "Ali Rezaei", createdAt: ago(40)),
+        SupportItem(id: "si-8", conversationID: "sc-3", author: SupportItem.authorTeam,
+                    body: "Hi Sara! Open AI agent → Language and choose «Match the visitor». It takes effect at once.",
+                    senderName: "Ali Rezaei", createdAt: ago(38)),
+    ]
+
     // MARK: - Online visitors
     //
     // A spread the screens have to cope with: several countries, one visitor

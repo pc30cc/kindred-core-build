@@ -287,12 +287,24 @@ struct MessageAttachment: Codable, Identifiable, Hashable, Sendable {
     let sizeBytes: Int?
     /// What the server decided this is, from the MIME type.
     let kind: String?
+    /// Where the bytes are fetched from. Never on the wire: a file decoded
+    /// from a workspace's own messages is always the workspace's.
+    var origin: Origin = .conversation
 
     enum CodingKeys: String, CodingKey {
         case id, kind
         case fileName = "file_name"
         case mimeType = "mime_type"
         case sizeBytes = "size_bytes"
+    }
+
+    /// Which endpoint hands the file over.
+    enum Origin: String, Sendable {
+        /// A workspace's conversation or team chat: `/api/conversation-attachments/:id/file`.
+        case conversation
+        /// The platform's support chat, in a workspace the operator is not a
+        /// member of: `/api/platform-support/attachments/:id`.
+        case support
     }
 
     /// How to draw it.

@@ -4501,6 +4501,8 @@ const tr: TranslationKeys = {
         settingsCaption: "Operatörlerin iOS uygulamasının Ayarlar'ında gördüğü bölümler. Yukarıdaki sekmeler gibi hemen uygulanır.",
         showStorage: "\"Depolama\" bölümünü göster",
         showStorageHint: "Uygulamanın telefonda tuttuğu veriler ve onları temizleyen düğme. Kapalıyken bölüm gizlenir; önbelleğin kendisi çalışmaya devam eder.",
+        showSupport: '"Canlı destek" bölümünü göster',
+        showSupportHint: "Uygulama Ayarlarında platform destek ekibiyle sohbet. Kapalıyken uygulamada gizlenir. Desteğin açık olup olmadığı Süper Yönetici → Temel ayarlar → Destek bölümünden belirlenir.",
         supportUrl: "Uygulama içi destek bağlantısı",
         supportUrlHint: "Ayarlar → Hakkında → Destek'in açtığı yer: bir sayfa, Telegram veya WhatsApp bağlantısı (https://…), e-posta (mailto:…) veya telefon numarası (tel:…). Boşsa Kimlik sekmesindeki \"Destek bağlantısı\", ardından platformun yardım merkezi kullanılır.",
       },

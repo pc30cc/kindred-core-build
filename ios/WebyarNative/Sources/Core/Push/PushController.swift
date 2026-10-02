@@ -250,6 +250,7 @@ final class PushController {
         viewing = nil
         viewingColleague = nil
         viewingEmailThread = nil
+        viewingSupport = false
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
         applyBadge(0)
     }
@@ -272,6 +273,9 @@ final class PushController {
     var viewingColleague: String?
     /// The email thread on screen. Set by `EmailThreadView`.
     var viewingEmailThread: String?
+    /// The support chat is on screen. One chat, whichever conversation a
+    /// reply is in. Set by `SupportChatView`.
+    var viewingSupport = false
 
     /// Foreground arrival: what iOS should do with it.
     ///
@@ -298,6 +302,7 @@ final class PushController {
         case .conversation(_, let id)?: id == viewing
         case .colleague(_, let peer)?: peer == viewingColleague
         case .email(_, let thread)?: thread == viewingEmailThread
+        case .support?: viewingSupport
         case nil: false
         }
     }
@@ -315,6 +320,8 @@ final class PushController {
             )
         case .colleague(let workspaceID, let peerID)?:
             SyncCoordinator.shared.teamPushArrived(workspaceID: workspaceID, peerID: peerID)
+        case .support(_, let threadID)?:
+            SyncCoordinator.shared.supportPushArrived(threadID: threadID)
         case .email?, nil:
             break
         }
@@ -346,6 +353,8 @@ final class PushController {
                     try await api.markSeen(conversationID: conversationID)
                 case .colleague(let workspaceID, let peerID):
                     try await api.markTeamThreadRead(workspaceID: workspaceID, peerID: peerID)
+                case .support:
+                    try await api.markSupportRead()
                 case .email:
                     pendingOpen = target
                 }
@@ -382,8 +391,10 @@ final class PushController {
                     try await api.sendTeamMessage(
                         workspaceID: workspaceID, recipientID: peerID, body: typed, attachmentID: nil
                     )
-                case .email:
+                case .email, .support:
                     // No reply from a banner for mail: it needs the thread.
+                    // Nor for support, whose conversation may have ended
+                    // since: the chat says so, a banner could not.
                     pendingOpen = target
                 }
             } catch {
@@ -419,12 +430,23 @@ final class PushController {
     /// the colleague's thread, the email — so what is left there is what is
     /// still waiting.
     nonisolated static func clearDelivered(_ target: PushTarget) {
-        let center = UNUserNotificationCenter.current()
-        center.getDeliveredNotifications { delivered in
+        clearDelivered { $0 == target }
+    }
+
+    /// Every support reply on the lock screen, once the support chat is
+    /// open: it is one chat, whichever conversation a reply was in.
+    nonisolated static func clearDeliveredSupport() {
+        clearDelivered { $0?.isSupport == true }
+    }
+
+    private nonisolated static func clearDelivered(where matches: @escaping @Sendable (PushTarget?) -> Bool) {
+        // The center is asked for again inside rather than captured: it is
+        // not Sendable, and the completion handler is.
+        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
             let stale = delivered
-                .filter { PushTarget(userInfo: $0.request.content.userInfo) == target }
+                .filter { matches(PushTarget(userInfo: $0.request.content.userInfo)) }
                 .map(\.request.identifier)
-            if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
+            if !stale.isEmpty { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: stale) }
         }
     }
 

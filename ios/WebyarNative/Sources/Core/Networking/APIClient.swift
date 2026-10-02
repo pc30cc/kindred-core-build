@@ -1116,6 +1116,11 @@ actor APIClient {
     func attachmentFile(id: String) async throws -> URL {
         let escaped = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         let request = try makeRequest("GET", "/api/conversation-attachments/\(escaped)/file")
+        return try await download(request)
+    }
+
+    /// Writes a response body to a temporary file the caller then owns.
+    private func download(_ request: URLRequest) async throws -> URL {
         let location: URL
         let response: URLResponse
         do {
@@ -1291,6 +1296,99 @@ actor APIClient {
             query: [URLQueryItem(name: "platform", value: "ios")]
         )
         return try await perform(request, as: MobileAppConfig.self)
+    }
+
+    // MARK: - Online support
+
+    /// The platform's own support team (docs/PLATFORM_SUPPORT.md). The team
+    /// answers from a workspace the operator is not a member of, so nothing
+    /// here is scoped to one of theirs.
+    ///
+    /// Every request says it comes from the iPhone app: the server stores it
+    /// on the message, the conversation and the contact, and the team's
+    /// inbox labels the conversation «Site user · iOS» from it.
+    private func supportRequest(
+        _ method: String,
+        _ path: String,
+        body: (any Encodable & Sendable)? = nil
+    ) throws -> URLRequest {
+        var request = try makeRequest(method, "/api/platform-support" + path, body: body)
+        request.setValue("ios", forHTTPHeaderField: "X-Client-Platform")
+        return request
+    }
+
+    private struct SupportMessageBody: Encodable, Sendable {
+        let body: String
+        let clientMessageId: String
+        let conversationId: String?
+        let workspaceId: String?
+    }
+
+    private struct SupportFileBody: Encodable, Sendable {
+        let fileName: String
+        let mimeType: String
+        /// The bytes in base64; at most 2 MB once decoded.
+        let data: String
+        let clientMessageId: String
+        let conversationId: String?
+        let workspaceId: String?
+    }
+
+    private struct SupportRatingBody: Encodable, Sendable {
+        let score: Int
+        let comment: String?
+    }
+
+    func supportStatus() async throws -> SupportStatus {
+        try await perform(try supportRequest("GET", "/status"), as: SupportStatus.self)
+    }
+
+    func supportHistory() async throws -> SupportHistory {
+        try await perform(try supportRequest("GET", "/history"), as: SupportHistory.self)
+    }
+
+    func sendSupportMessage(
+        body: String, clientMessageID: String, conversationID: String?, workspaceID: String?
+    ) async throws -> SupportPostResult {
+        let request = try supportRequest("POST", "/messages", body: SupportMessageBody(
+            body: body, clientMessageId: clientMessageID, conversationId: conversationID, workspaceId: workspaceID
+        ))
+        return try await perform(request, as: SupportPostResult.self)
+    }
+
+    func sendSupportAttachment(
+        fileName: String, mimeType: String, data: Data,
+        clientMessageID: String, conversationID: String?, workspaceID: String?
+    ) async throws -> SupportPostResult {
+        let request = try supportRequest("POST", "/attachments", body: SupportFileBody(
+            fileName: fileName,
+            mimeType: mimeType,
+            data: data.base64EncodedString(),
+            clientMessageId: clientMessageID,
+            conversationId: conversationID,
+            workspaceId: workspaceID
+        ))
+        return try await perform(request, as: SupportPostResult.self)
+    }
+
+    func supportAttachmentData(id: String) async throws -> Data {
+        try await performData(try supportRequest("GET", "/attachments/\(Self.escape(id))"))
+    }
+
+    func supportAttachmentFile(id: String) async throws -> URL {
+        try await download(try supportRequest("GET", "/attachments/\(Self.escape(id))"))
+    }
+
+    func rateSupportConversation(id: String, score: Int, comment: String?) async throws -> SupportConversation {
+        let request = try supportRequest(
+            "POST", "/conversations/\(Self.escape(id))/rating",
+            body: SupportRatingBody(score: score, comment: comment)
+        )
+        return try await perform(request, as: SupportRatingResult.self).conversation
+    }
+
+    func markSupportRead() async throws {
+        try await performIgnoringBody(try supportRequest("POST", "/read"))
     }
 
     // MARK: - Online visitors

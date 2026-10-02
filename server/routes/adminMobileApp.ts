@@ -181,6 +181,7 @@ const settingsSchema = z.object({
   ios_app_show_ai_queue: z.boolean().optional(),
   ios_app_show_colleagues: z.boolean().optional(),
   ios_app_show_storage: z.boolean().optional(),
+  ios_app_show_support: z.boolean().optional(),
   ios_app_support_url: SUPPORT_LINK.optional(),
 }).refine(
   (v) => v.android_min_sdk === undefined || v.android_target_sdk === undefined || v.android_min_sdk <= v.android_target_sdk,

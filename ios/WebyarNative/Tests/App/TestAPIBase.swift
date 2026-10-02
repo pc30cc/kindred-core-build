@@ -89,4 +89,13 @@ extension TestAPIBase {
     func analyticsBreakdown(workspaceID: String, report: WebAnalyticsBreakdown, dimension: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsRow> { throw APIError.transport }
     func analyticsPages(workspaceID: String, kind: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsPage> { throw APIError.transport }
     func analyticsEvents(workspaceID: String, range: AnalyticsDateRange) async throws -> WebAnalyticsRows<WebAnalyticsEvent> { throw APIError.transport }
+    // Online support.
+    func supportStatus() async throws -> SupportStatus { throw APIError.transport }
+    func supportHistory() async throws -> SupportHistory { throw APIError.transport }
+    func sendSupportMessage(body: String, clientMessageID: String, conversationID: String?, workspaceID: String?) async throws -> SupportPostResult { throw APIError.transport }
+    func sendSupportAttachment(fileName: String, mimeType: String, data: Data, clientMessageID: String, conversationID: String?, workspaceID: String?) async throws -> SupportPostResult { throw APIError.transport }
+    func supportAttachmentData(id: String) async throws -> Data { throw APIError.transport }
+    func supportAttachmentFile(id: String) async throws -> URL { throw APIError.transport }
+    func rateSupportConversation(id: String, score: Int, comment: String?) async throws -> SupportConversation { throw APIError.transport }
+    func markSupportRead() async throws { throw APIError.transport }
 }

@@ -257,6 +257,10 @@ final class InboxRealtime {
     var onEvent: ((RealtimeEvent) -> Void)?
     var onConnectionChanged: ((Bool) -> Void)?
     var onTeamEvent: ((TeamEvent) -> Void)?
+    /// Platform support's news (`support_*`), which rides the same channel:
+    /// the operator is not a member of the workspace that answers, so the
+    /// server tells them on their own channel of every workspace they are in.
+    var onSupportEvent: ((SupportSignal) -> Void)?
     var onTeamConnectionChanged: ((Bool) -> Void)?
 
     /// The command id of the team channel's subscribe.
@@ -427,7 +431,11 @@ final class InboxRealtime {
                     return Outcome(subscribed: subscribed, refresh: false, retry: nil)
                 case .publication(let fromChannel, let data):
                     if let fromChannel, fromChannel == team?.channel {
-                        if let event = TeamEvent.parse(data) { onTeamEvent?(event) }
+                        if let event = TeamEvent.parse(data) {
+                            onTeamEvent?(event)
+                        } else if let signal = SupportSignal.parse(data) {
+                            onSupportEvent?(signal)
+                        }
                         break
                     }
                     // Only the channel asked for; anything else is not this workspace's.

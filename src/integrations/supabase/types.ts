@@ -10194,6 +10194,7 @@ export type Database = {
           ios_app_show_colleagues: boolean
           ios_app_show_contacts: boolean
           ios_app_show_storage: boolean
+          ios_app_show_support: boolean
           ios_app_show_visitors: boolean
           ios_app_show_web_analytics: boolean
           ios_app_support_url: string | null
@@ -10313,6 +10314,7 @@ export type Database = {
           ios_app_show_colleagues?: boolean
           ios_app_show_contacts?: boolean
           ios_app_show_storage?: boolean
+          ios_app_show_support?: boolean
           ios_app_show_visitors?: boolean
           ios_app_show_web_analytics?: boolean
           ios_app_support_url?: string | null
@@ -10432,6 +10434,7 @@ export type Database = {
           ios_app_show_colleagues?: boolean
           ios_app_show_contacts?: boolean
           ios_app_show_storage?: boolean
+          ios_app_show_support?: boolean
           ios_app_show_visitors?: boolean
           ios_app_show_web_analytics?: boolean
           ios_app_support_url?: string | null

@@ -78,6 +78,13 @@ enum AuthField {
 /// The gutter is fixed rather than sized to the glyph, and that is the whole
 /// point of it: it is what keeps every field's text starting on exactly the
 /// same vertical line, on both screens, whichever icon a row happens to carry.
+///
+/// Laid out left to right in every language — the icon on the left, the eye
+/// on the right — because what is typed here is an address and a password,
+/// which are left-to-right text even in Persian: an icon on the right of a
+/// field whose text starts on the left reads as belonging to nothing. The
+/// card that holds the rows is turned the same way (`AuthFieldGroup`), so the
+/// dividers between them start after the icons too.
 struct AuthFieldRow<Content: View, Trailing: View>: View {
     let icon: String
     @ViewBuilder var content: Content
@@ -98,6 +105,21 @@ struct AuthFieldRow<Content: View, Trailing: View>: View {
         }
         .frame(minHeight: Theme.Size.minTouchTarget + 6)
         .padding(.trailing, Theme.Space.xs)
+        .environment(\.layoutDirection, .leftToRight)
+    }
+}
+
+/// The rows of a sign-in or reset form, left to right in every language with
+/// them (see `AuthFieldRow`). The words around the form — the title, the
+/// error, the button — keep the interface's direction.
+struct AuthFieldGroup<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content
+        }
+        .environment(\.layoutDirection, .leftToRight)
     }
 }
 

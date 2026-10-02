@@ -339,9 +339,14 @@ enum A11yID {
     static let supportTranscript = "support.transcript"
     static let supportGreeting = "support.greeting"
     static let supportOfflineBanner = "support.offline"
+    static let supportEndedPanel = "support.ended"
+    static let supportStartNew = "support.startNew"
     static let supportClosedButton = "support.closed"
+    static let supportClosedList = "support.closed.list"
     static func supportClosedRow(_ id: String) -> String { "support.closed.\(id)" }
     static func supportRatingStar(_ id: String, _ star: Int) -> String { "support.rating.\(id).star.\(star)" }
+    static func supportRatingComment(_ id: String) -> String { "support.rating.\(id).comment" }
     static func supportRatingSubmit(_ id: String) -> String { "support.rating.\(id).submit" }
     static func supportRatingGiven(_ id: String) -> String { "support.rating.\(id).given" }
+    static func supportRetry(_ id: String) -> String { "support.retry.\(id)" }
 }

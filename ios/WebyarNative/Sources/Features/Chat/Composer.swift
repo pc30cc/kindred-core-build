@@ -535,7 +535,7 @@ struct ComposerAttachmentRules: Sendable {
     /// being refused for its size.
     var fitsPhotos = false
     /// What to say about a file over `maximumBytes`.
-    var tooLarge: @Sendable (Language) -> String = Str.fileTooLarge
+    var tooLarge: @Sendable (Language) -> String = { Str.fileTooLarge($0) }
 
     /// The workspace's chats.
     static let chat = ComposerAttachmentRules()
@@ -547,7 +547,7 @@ struct ComposerAttachmentRules: Sendable {
         maximumBytes: SupportLimits.maxFileBytes,
         acceptsAudio: false,
         fitsPhotos: true,
-        tooLarge: SupportStr.fileTooLarge
+        tooLarge: { SupportStr.fileTooLarge($0) }
     )
 }
 

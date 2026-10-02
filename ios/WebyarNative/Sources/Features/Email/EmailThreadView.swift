@@ -420,6 +420,9 @@ struct EmailWebView: UIViewRepresentable {
         view.scrollView.contentInsetAdjustmentBehavior = .automatic
         // A long press would load the link in a preview, inside the app.
         view.allowsLinkPreview = false
+        // On the web view itself too: SwiftUI's modifier on a representable
+        // does not always reach the view UI tests see.
+        view.accessibilityIdentifier = A11y.emailThread
         return view
     }
 

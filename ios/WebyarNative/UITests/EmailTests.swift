@@ -126,9 +126,10 @@ final class EmailTests: UITestCase {
         XCTAssertTrue(element(A11yID.emailRow("e-2")).waitForExistence(timeout: 20), "the mailbox did not open")
         open(row: A11yID.emailRow("e-2"), text: "Widget not loading")
 
-        XCTAssertTrue(element(A11yID.emailThread).waitForExistence(timeout: 15), "the thread's page never showed")
+        // Reply, Reply all and Forward come with the thread once it is read.
         let reply = app.buttons[A11yID.emailReply]
-        XCTAssertTrue(reply.waitForExistence(timeout: 10), "no Reply under the thread")
+        XCTAssertTrue(reply.waitForExistence(timeout: 20), "the thread did not open")
+        XCTAssertTrue(element(A11yID.emailThread).waitForExistence(timeout: 10), "the thread's page never showed")
         XCTAssertTrue(app.buttons[A11yID.emailReplyAll].exists)
         XCTAssertTrue(app.buttons[A11yID.emailForward].exists)
         reply.tap()

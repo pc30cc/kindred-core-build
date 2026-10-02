@@ -26,13 +26,21 @@ final class SettingsSecurityTests: UITestCase {
         button.tap()
 
         // Asked first: it signs people out of computers they may be using.
-        let dialog = app.sheets.firstMatch.exists ? app.sheets.firstMatch : app.alerts.firstMatch
+        let sheet = app.sheets.firstMatch
+        let alert = app.alerts.firstMatch
         XCTAssertTrue(
-            app.sheets.firstMatch.waitForExistence(timeout: 5) || app.alerts.firstMatch.exists,
+            sheet.waitForExistence(timeout: 5) || alert.waitForExistence(timeout: 5),
             "it did not ask before signing everybody out"
         )
-        let confirm = (app.sheets.firstMatch.exists ? app.sheets.firstMatch : dialog).buttons
-            .matching(NSPredicate(format: "label CONTAINS %@", "دستگاه")).firstMatch
+        // `firstMatch` throughout: a bridged dialog carries its buttons twice.
+        let container = sheet.exists ? sheet : alert
+        let byID = container.buttons.matching(identifier: A11yID.securityRevokeOthersConfirm).firstMatch
+        let confirm = byID.exists
+            ? byID
+            : container.buttons.matching(identifier: "خروج از همهٔ دستگاه‌های دیگر").firstMatch
+        if !confirm.exists {
+            print("NO-CONFIRM-BUTTON\n\(app.debugDescription)\nEND")
+        }
         XCTAssertTrue(confirm.exists, "no confirming button")
         confirm.tap()
 

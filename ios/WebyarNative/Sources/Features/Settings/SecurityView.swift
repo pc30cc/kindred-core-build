@@ -297,6 +297,7 @@ struct SecurityView: View {
             Button(SettingsStr.signOutOtherDevices(language), role: .destructive) {
                 Task { await model.signOutOthers(appState: appState) }
             }
+            .accessibilityIdentifier(A11y.securityRevokeOthersConfirm)
             Button(Str.cancel(language), role: .cancel) {}
         } message: {
             Text(SettingsStr.signOutOtherDevicesConfirmBody(language))

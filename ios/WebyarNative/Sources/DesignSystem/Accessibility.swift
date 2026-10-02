@@ -130,6 +130,10 @@ enum A11y {
 
     /// Security: sign out of every device but this one.
     static let securityRevokeOthers = "security.revokeOthers"
+    /// The confirming button inside its dialog — best effort, as with
+    /// account deletion: the bridged sheet need not carry it, and the words
+    /// are the fallback.
+    static let securityRevokeOthersConfirm = "security.revokeOthers.confirm"
 
     /// Settings → About: the version, its build, and the platform's website.
     static let settingsVersion = "settings.version"

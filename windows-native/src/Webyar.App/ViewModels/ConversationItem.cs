@@ -91,11 +91,13 @@ public sealed partial class ConversationItem : ObservableObject
     {
         Conversation = c;
         var channel = c.ChannelKey;
-        ChannelText = Services.ChannelInfo.Label(channel, s);
-        if (channel != _channelKey)
+        // A site user writing to the platform's support: which app ("Windows user").
+        ChannelText = Services.ChannelInfo.Label(c, s);
+        var look = channel + "|" + ClientPlatforms.Of(c);
+        if (look != _channelKey)
         {
-            _channelKey = channel;
-            ChannelGlyph = Services.ChannelInfo.Glyph(channel);
+            _channelKey = look;
+            ChannelGlyph = Services.ChannelInfo.Glyph(c);
             ChannelBrush = Services.ChannelInfo.Brush(channel);
             ChannelSoftBrush = Services.ChannelInfo.SoftBrush(channel);
         }

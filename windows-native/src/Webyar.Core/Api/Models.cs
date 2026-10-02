@@ -73,11 +73,13 @@ public sealed record Conversation(
     [JsonIgnore]
     public bool IsAiManaged => AiStateValue == "ai_managed";
 
-    private static readonly string[] Channels = ["telegram", "bale", "whatsapp", "instagram", "x", "email", "phone", "widget"];
+    private static readonly string[] Channels = ["telegram", "bale", "whatsapp", "instagram", "x", "email", "phone", "widget", "platform_support"];
 
     /// <summary>
     /// Where the visitor wrote from, as the web's resolveChannelKey reads it:
     /// metadata.channel, else metadata.source, else the chat widget.
+    /// "platform_support" is a site user writing to the platform's own team
+    /// from Settings → Online support (docs/PLATFORM_SUPPORT.md).
     /// </summary>
     [JsonIgnore]
     public string ChannelKey

@@ -90,6 +90,7 @@ public sealed partial class ChatView : UserControl
         Start(id);
         _conversation = null;
         NameText.Text = Host.Strings["unknownVisitor"];
+        PlatformChip.Visibility = Visibility.Collapsed;
         HeaderAvatar.DisplayName = null;
         HeaderAvatar.Os = null;
         SubText.Text = string.Empty;
@@ -131,7 +132,16 @@ public sealed partial class ChatView : UserControl
         HeaderAvatar.ImageUrl = c.Contacts?.AvatarUrl;
         HeaderAvatar.PresenceState = c.Status;
         // Messages can load before the conversation itself (opened from a toast).
-        foreach (var m in _messages.Where(m => m.Side == MessageSide.Incoming))
+        var platform = ClientPlatforms.Of(c);
+        PlatformChip.Visibility = c.ChannelKey == ClientPlatforms.SupportChannel ? Visibility.Visible : Visibility.Collapsed;
+        if (PlatformChip.Visibility == Visibility.Visible)
+        {
+            PlatformText.Text = ClientPlatforms.UserLabel(platform, s);
+            PlatformGlyph.Glyph = ChannelInfo.PlatformGlyph(platform);
+            PlatformText.Foreground = PlatformGlyph.Foreground = ChannelInfo.Brush(ClientPlatforms.SupportChannel);
+            PlatformChip.Background = ChannelInfo.SoftBrush(ClientPlatforms.SupportChannel);
+        }
+        foreach (var m in _messages.Where(m => m.Side is MessageSide.Incoming or MessageSide.Requester))
         {
             m.AvatarName = c.Contacts?.Name ?? string.Empty;
             m.AvatarEmail = c.Contacts?.Email;
@@ -313,7 +323,7 @@ public sealed partial class ChatView : UserControl
         foreach (var m in list)
         {
             var item = new MessageItem(m, s);
-            if (item.Side == MessageSide.Incoming)
+            if (item.Side is MessageSide.Incoming or MessageSide.Requester)
             {
                 item.AvatarName = contact?.Name ?? string.Empty;
                 item.AvatarEmail = contact?.Email;

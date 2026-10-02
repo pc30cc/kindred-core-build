@@ -1,5 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
+using Webyar.Core.Api;
+using Webyar.Core.Inbox;
 using Webyar.Core.Localization;
 using Windows.UI;
 
@@ -21,7 +23,28 @@ public static class ChannelInfo
         "email" => s["channelEmail"],
         "phone" => s["channelPhone"],
         "widget" => s["channelWidget"],
+        ClientPlatforms.SupportChannel => s["channelPlatformSupport"],
         _ => key,
+    };
+
+    /// <summary>
+    /// A conversation's chip: its channel — and for a site user writing to
+    /// the platform's support, the app they wrote from ("Windows user").
+    /// </summary>
+    public static string Label(Conversation c, Strings s) =>
+        c.ChannelKey == ClientPlatforms.SupportChannel ? ClientPlatforms.UserLabel(ClientPlatforms.Of(c), s) : Label(c.ChannelKey, s);
+
+    public static string Glyph(Conversation c) =>
+        c.ChannelKey == ClientPlatforms.SupportChannel ? PlatformGlyph(ClientPlatforms.Of(c)) : Glyph(c.ChannelKey);
+
+    /// <summary>The device a site user wrote from: a monitor, a phone, a laptop, the web — a headset when unknown.</summary>
+    public static string PlatformGlyph(string? platform) => platform switch
+    {
+        "windows" => "\uE7F4",
+        "android" or "ios" => "\uE8EA",
+        "macos" => "\uE7F8",
+        "web" => "\uE774",
+        _ => "\uE95B",
     };
 
     public static string Glyph(string key) => key switch
@@ -32,6 +55,7 @@ public static class ChannelInfo
         "email" => "",
         "phone" => "",
         "x" => "",
+        ClientPlatforms.SupportChannel => "\uE95B",
         _ => "",
     };
 
@@ -45,6 +69,8 @@ public static class ChannelInfo
         "x" => Windows.UI.Color.FromArgb(255, 0x55, 0x5B, 0x66),
         "email" => Windows.UI.Color.FromArgb(255, 0xE0, 0x8A, 0x1E),
         "phone" => Windows.UI.Color.FromArgb(255, 0x10, 0xA3, 0x7F),
+        // The platform's own support: violet, as on Android.
+        ClientPlatforms.SupportChannel => Windows.UI.Color.FromArgb(255, 0x6A, 0x4B, 0xD6),
         _ => Windows.UI.Color.FromArgb(255, 0x3B, 0x6E, 0xF5),
     };
 

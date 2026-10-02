@@ -187,6 +187,8 @@ export interface MobileAppSettings {
   /** Settings → About → Website: its https address, and its name per language (migration 246). */
   ios_app_website_url: string | null;
   ios_app_website_label: Partial<Record<AndroidLanguage, string>>;
+  /** The language the iOS app opens in until the operator picks one (migration 247). */
+  ios_default_language: AndroidLanguage;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;

@@ -33,7 +33,7 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
 
 vi.mock('../../../server/services/email/index.js', async () => {
   const { captureEmail } = await import('./invitationHarness.js');
-  return { sendEmail: async (_config: unknown, req: any) => captureEmail(req) };
+  return { sendEmail: async (_config: unknown, req: unknown) => captureEmail(req) };
 });
 
 vi.mock('../../../server/supabase.js', async (importOriginal) => {
@@ -101,7 +101,7 @@ async function clearHistoryFault(): Promise<void> {
 
 suite('Workspace Invitations v5.1 §C.4 residual — offboarding fault injection and archive idempotency', () => {
   beforeAll(async () => { h = await startHarness(DSN!); }, 300_000);
-  afterAll(async () => { if (h) { await clearHistoryFault().catch(() => {}); await h.stop(); } });
+  afterAll(async () => { if (h) { await clearHistoryFault().catch(() => {}); await h.stop(); } }, 300_000);
 
   // ── C.4f ────────────────────────────────────────────────────────────────
   it('C.4f — a fault MIDWAY through offboarding rolls back membership, departments, revocation, history and audit together', async () => {

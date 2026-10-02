@@ -746,6 +746,10 @@ actor SampleAPI: WebyarAPI {
         sampleSessions.removeAll { $0.id == id && $0.isCurrent != true }
     }
 
+    /// The sample platform names no default language: a sample run is in
+    /// the one it was launched with.
+    func mobilePublicConfig() async -> MobilePublicConfig? { nil }
+
     func revokeOtherSessions(keepingDevice deviceID: String?) async throws -> Int {
         let others = sampleSessions.filter { $0.isCurrent != true }.count
         sampleSessions.removeAll { $0.isCurrent != true }

@@ -202,6 +202,10 @@ export interface MobileAppSettings {
   // and to the app's own word for "Website" (migration 246).
   ios_app_website_url: string | null;
   ios_app_website_label: AndroidMaintenanceMessage;
+  // The language the iOS app opens in until the operator picks one on the
+  // phone, read before sign-in from GET /api/mobile-app/public-config
+  // (migration 247), as android_default_language is on Android.
+  ios_default_language: AndroidLanguage;
 
   checklist: Record<string, { done: boolean; at?: string; by?: string }>;
   updated_at?: string | null;
@@ -338,6 +342,8 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   ios_app_support_url: null,
   ios_app_website_url: null,
   ios_app_website_label: {},
+  // English, which is what the iOS build fell back to before this setting.
+  ios_default_language: 'en',
 
   checklist: {},
   updated_at: null,
@@ -415,6 +421,9 @@ export function normalize(row: Record<string, unknown>): MobileAppSettings {
   out.android_maintenance_message = maintenanceMessage(row.android_maintenance_message);
   // The same shape: a few words per language, blanks dropped.
   out.ios_app_website_label = maintenanceMessage(row.ios_app_website_label);
+  out.ios_default_language = (ANDROID_LANGUAGES as readonly unknown[]).includes(row.ios_default_language)
+    ? row.ios_default_language
+    : MOBILE_APP_DEFAULTS.ios_default_language;
   out.android_maintenance_until =
     typeof row.android_maintenance_until === 'string' && !Number.isNaN(Date.parse(row.android_maintenance_until))
       ? row.android_maintenance_until
@@ -528,6 +537,23 @@ export function toAndroidPublicConfig(settings: MobileAppSettings, now: Date = n
     platform: 'android',
     defaultLanguage: androidLanguage(settings),
     maintenance: androidMaintenance(settings, now),
+  };
+}
+
+/** What the iOS app reads before anyone signs in: GET /api/mobile-app/public-config?platform=ios. */
+export interface IosPublicConfig {
+  platform: 'ios';
+  /** The language it opens in until the operator picks one on the phone. */
+  defaultLanguage: AndroidLanguage;
+}
+
+/** The part of the iOS config the app needs before sign-in. Public: nothing in it is secret. */
+export function toIosPublicConfig(settings: MobileAppSettings): IosPublicConfig {
+  return {
+    platform: 'ios',
+    defaultLanguage: ANDROID_LANGUAGES.includes(settings.ios_default_language)
+      ? settings.ios_default_language
+      : MOBILE_APP_DEFAULTS.ios_default_language,
   };
 }
 

@@ -26,6 +26,7 @@ import {
   invalidateMobileAppSettingsCache,
   normalize,
   MOBILE_APP_DEFAULTS,
+  ANDROID_LANGUAGES,
 } from '../services/mobileApp/settings.js';
 import { evaluateReadiness, summarize } from '../services/mobileApp/readiness.js';
 import { inspectNativeProject } from '../services/mobileApp/project.js';
@@ -190,6 +191,7 @@ const settingsSchema = z.object({
   ios_app_show_support: z.boolean().optional(),
   ios_app_support_url: SUPPORT_LINK.optional(),
   ios_app_website_url: HTTPS_URL.optional(),
+  ios_default_language: z.enum(ANDROID_LANGUAGES).optional(),
   ios_app_website_label: z
     .object({ fa: WEBSITE_LABEL, en: WEBSITE_LABEL, tr: WEBSITE_LABEL })
     .transform((m) => Object.fromEntries(Object.entries(m).filter(([, v]) => v)) as Record<string, string>)

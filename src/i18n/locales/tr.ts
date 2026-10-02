@@ -4509,6 +4509,10 @@ const tr: TranslationKeys = {
         websiteUrlHint: "Ayarlar → Hakkında → Web sitesi'nin açtığı yer (https://…). Boşsa Marka → Alan adları'ndaki platformun genel sitesi açılır.",
         websiteLabel: "Web sitesi adı",
         websiteLabelHint: "Bu satırın uygulamadaki adı, dil başına. Boşsa uygulamanın kendi sözcüğü kullanılır: \"Web sitesi\", \"Website\", \"وب‌سایت\".",
+        languageHeading: "Dil",
+        languageCaption: "Henüz kimsenin dil seçmediği bir iPhone'da uygulamanın açıldığı dil. Oturum açmadan önce okunur, yani ilk ekrandan itibaren geçerlidir.",
+        defaultLanguage: "Varsayılan dil",
+        defaultLanguageHint: "Operatör uygulamanın Ayarlar'ında bir dil seçene kadar uygulama bu dilde açılır; o andan itibaren operatörün seçimi geçerlidir. iOS uygulaması varsayılan olarak İngilizce başlar.",
       },
       androidTabs: {
         overview: 'Genel bakış',

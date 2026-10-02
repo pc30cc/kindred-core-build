@@ -4520,6 +4520,10 @@ const en = {
         websiteUrlHint: "Where Settings → About → Website opens (https://…). Empty opens the platform's public site from Branding → Domains.",
         websiteLabel: "Website name",
         websiteLabelHint: "What that row is called in the app, per language. Empty uses the app's own word: \"Website\", \"وب‌سایت\", \"Web sitesi\".",
+        languageHeading: "Language",
+        languageCaption: "The language the app opens in on an iPhone where nobody has chosen one yet. Read before sign-in, so it applies from the very first screen.",
+        defaultLanguage: "Default language",
+        defaultLanguageHint: "What the app opens in until the operator picks a language in the app's Settings; from then on, their choice wins. Out of the box the iOS app starts in English.",
       },
       androidTabs: {
         overview: 'Overview',

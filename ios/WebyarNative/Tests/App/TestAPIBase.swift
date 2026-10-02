@@ -75,6 +75,7 @@ extension TestAPIBase {
     func sessions() async throws -> AccountSessionsResponse { throw APIError.transport }
     func revokeSession(id: String) async throws { throw APIError.transport }
     func revokeOtherSessions(keepingDevice deviceID: String?) async throws -> Int { throw APIError.transport }
+    func mobilePublicConfig() async -> MobilePublicConfig? { nil }
     func changePassword(current: String, new: String) async throws { throw APIError.transport }
     func registerPushDevice(token: String, deviceID: String, deviceName: String, appVersion: String, permission: String, workspaceID: String?) async throws -> PushRegistration { throw APIError.transport }
     func unregisterPushDevice(deviceID: String) async throws { throw APIError.transport }

@@ -125,6 +125,21 @@ actor APIClient {
         baseURL = api
     }
 
+    /// `GET /api/mobile-app/public-config?platform=ios`: asked at launch,
+    /// before there is a session — its own short request, like the origins,
+    /// so a slow answer never holds the app on its launch screen for long.
+    func mobilePublicConfig() async -> MobilePublicConfig? {
+        guard let url = URL(string: "/api/mobile-app/public-config?platform=ios", relativeTo: baseURL) else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 4
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode)
+        else { return nil }
+        return try? JSONDecoder().decode(MobilePublicConfig.self, from: data)
+    }
+
     /// Deliberately its own request rather than going through `perform`: it
     /// runs before there is a session, it must not be treated as a failure
     /// worth showing, and it has to be able to ask a host we are about to stop

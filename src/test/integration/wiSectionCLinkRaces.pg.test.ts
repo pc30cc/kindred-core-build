@@ -27,7 +27,7 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
 
 vi.mock('../../../server/services/email/index.js', async () => {
   const { captureEmail } = await import('./invitationHarness.js');
-  return { sendEmail: async (_config: unknown, req: any) => captureEmail(req) };
+  return { sendEmail: async (_config: unknown, req: unknown) => captureEmail(req) };
 });
 
 vi.mock('../../../server/supabase.js', async (importOriginal) => {
@@ -78,7 +78,7 @@ async function createInvitation(owner: { cookie: string; workspaceId: string }) 
 
 suite('Workspace Invitations v5.1 §C.1/C.2 residual — resend/rotate races and rejected acceptances', () => {
   beforeAll(async () => { h = await startHarness(DSN!); }, 300_000);
-  afterAll(async () => { if (h) await h.stop(); });
+  afterAll(async () => { if (h) await h.stop(); }, 300_000);
 
   // ── C.2d ────────────────────────────────────────────────────────────────
   it('C.2d — two concurrent resends leave exactly one live manual token and one live email token', async () => {

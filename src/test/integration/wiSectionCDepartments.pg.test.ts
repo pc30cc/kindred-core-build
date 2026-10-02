@@ -24,7 +24,7 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
 
 vi.mock('../../../server/services/email/index.js', async () => {
   const { captureEmail } = await import('./invitationHarness.js');
-  return { sendEmail: async (_config: unknown, req: any) => captureEmail(req) };
+  return { sendEmail: async (_config: unknown, req: unknown) => captureEmail(req) };
 });
 
 vi.mock('../../../server/supabase.js', async (importOriginal) => {
@@ -56,7 +56,7 @@ const invitationCount = (workspaceId: string) => h.countOf(
 
 suite('Workspace Invitations v5.1 §C.3 residual — department pairing, consent evidence and cross-tenant isolation', () => {
   beforeAll(async () => { h = await startHarness(DSN!); }, 300_000);
-  afterAll(async () => { if (h) await h.stop(); });
+  afterAll(async () => { if (h) await h.stop(); }, 300_000);
 
   // ── C.3d ────────────────────────────────────────────────────────────────
   it('C.3d — a customer_facing invitation with NO department is rejected and nothing is written', async () => {

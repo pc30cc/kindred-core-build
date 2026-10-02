@@ -110,7 +110,7 @@ async function clearDeliveryFault(): Promise<void> {
 
 suite('Workspace Invitations v5.1 §C.5 residual — controlled worker fault points and delivery semantics', () => {
   beforeAll(async () => { h = await startHarness(DSN!); }, 300_000);
-  afterAll(async () => { if (h) { await clearDeliveryFault().catch(() => {}); await h.stop(); } });
+  afterAll(async () => { if (h) { await clearDeliveryFault().catch(() => {}); await h.stop(); } }, 300_000);
   beforeEach(() => { harnessState.emailOutcome = 'ok'; harnessState.capturedEmails.length = 0; });
 
   // ── C.5h ────────────────────────────────────────────────────────────────

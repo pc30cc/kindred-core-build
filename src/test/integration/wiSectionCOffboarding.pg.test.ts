@@ -30,7 +30,7 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
 
 vi.mock('../../../server/services/email/index.js', async () => {
   const { captureEmail } = await import('./invitationHarness.js');
-  return { sendEmail: async (_config: unknown, req: any) => captureEmail(req) };
+  return { sendEmail: async (_config: unknown, req: unknown) => captureEmail(req) };
 });
 
 vi.mock('../../../server/supabase.js', async (importOriginal) => {
@@ -78,7 +78,7 @@ async function onboardMember(owner: { cookie: string; workspaceId: string }, ove
 
 suite('Workspace Invitations v5.1 §C.3/C.4 — department/consent atomicity and offboarding idempotency', () => {
   beforeAll(async () => { h = await startHarness(DSN!); }, 300_000);
-  afterAll(async () => { if (h) await h.stop(); });
+  afterAll(async () => { if (h) await h.stop(); }, 300_000);
 
   // ── C.3a ────────────────────────────────────────────────────────────────
   it('C.3a — a customer-facing acceptance writes membership, ALL departments and consent in one transaction', async () => {

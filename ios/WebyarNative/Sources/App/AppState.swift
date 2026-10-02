@@ -545,6 +545,9 @@ final class AppState {
     /// Whether Settings shows Storage. Super Admin's switch alone: it is not
     /// a plan feature, and hiding it leaves the cache working as before.
     var storageVisible: Bool { appConfig.showStorage }
+    /// Super Admin's switch for Settings → Online support. The row also
+    /// needs the server to offer support (`SupportStatus.shown`).
+    var supportAllowed: Bool { appConfig.showSupport }
 
     /// Where Support opens: the link Super Admin set for the app (Mobile App
     /// → iOS → In-app settings, falling back server-side to the App Store

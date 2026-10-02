@@ -34,16 +34,27 @@ enum SettingsRoute: Hashable {
     /// account section, not a top-level setting — but it is on this type so
     /// that the whole stack travels through one path.
     case deleteAccount
+    /// Online support: the open conversation with the platform's team, or a
+    /// fresh start. Also where a `support_reply` notification lands.
+    case support
+    /// Online support's conversations that ended, the newest first.
+    case supportClosed
+    /// One of them, read back.
+    case supportClosedConversation(String)
 }
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var isConfirmingSignOut = false
     @State private var isSigningOut = false
     @State private var signOutFailed = false
     @State private var profile: AccountProfile?
+    /// Online support: whether the platform's team is there, and what it
+    /// wrote that is still unread.
+    @State private var support = SupportStatusModel()
 
     private var language: Language { appState.language }
 
@@ -178,6 +189,12 @@ struct SettingsView: View {
                 .disabled(isSigningOut)
             }
 
+            // Online support, when the platform offers it to this operator
+            // and Super Admin has not taken it out of the iPhone app.
+            if appState.supportAllowed, let status = support.status, status.shown {
+                SupportSettingsSection(status: status, language: language)
+            }
+
             Section {
                 DetailRow(label: Str.version(language), value: appVersion, isLatin: true)
 
@@ -208,12 +225,21 @@ struct SettingsView: View {
             case .security: SecurityView()
             case .storage: StorageView()
             case .deleteAccount: DeleteAccountView()
+            case .support: SupportChatView()
+            case .supportClosed: SupportClosedListView()
+            case .supportClosedConversation(let id): SupportClosedConversationView(conversationID: id)
             }
         }
         .navigationTitle(Str.tabSettings(language))
         .navigationBarTitleDisplayMode(.inline)
         .floatingTabBarInset()
         .task { await loadProfile() }
+        // While Settings is on screen and in front of the operator: the
+        // team's presence and unread count, live and every minute.
+        .task(id: scenePhase == .active && appState.supportAllowed) {
+            guard scenePhase == .active, appState.supportAllowed else { return }
+            await support.follow(SyncCoordinator.shared.supportSignals())
+        }
         .confirmationDialog(
             Str.signOutConfirm(language),
             isPresented: $isConfirmingSignOut,

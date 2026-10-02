@@ -68,6 +68,7 @@ final class SyncCoordinator {
     @ObservationIgnored private(set) var lists: ConversationLists?
     @ObservationIgnored private var realtime: InboxRealtime?
     @ObservationIgnored private var continuations: [UUID: AsyncStream<SyncEvent>.Continuation] = [:]
+    @ObservationIgnored private var supportContinuations: [UUID: AsyncStream<SupportSignal>.Continuation] = [:]
     @ObservationIgnored private let api: any WebyarAPI
     /// False for the sample backend: nothing of a screenshot run is kept.
     @ObservationIgnored private let persistent: Bool
@@ -112,6 +113,25 @@ final class SyncCoordinator {
     }
 
     var listenerCount: Int { continuations.count }
+
+    /// Platform support's news, for the support screens only: it belongs to
+    /// the platform team's workspace, never to the one open here, so it
+    /// is not an inbox event. Also told when anything may have been missed
+    /// (`SupportSignal.resync`): back in front of the operator, or the
+    /// operator's channel back after a gap.
+    func supportSignals() -> AsyncStream<SupportSignal> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream.makeStream(of: SupportSignal.self, bufferingPolicy: .bufferingNewest(8))
+        supportContinuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.supportContinuations[id] = nil }
+        }
+        return stream
+    }
+
+    func emitSupport(_ signal: SupportSignal) {
+        for continuation in supportContinuations.values { continuation.yield(signal) }
+    }
 
     // MARK: - Scope
 
@@ -223,6 +243,7 @@ final class SyncCoordinator {
         if wasAway {
             lists?.invalidate()
             emit(.resync)
+            emitSupport(SupportSignal(kind: SupportSignal.resync))
         }
     }
 
@@ -251,6 +272,13 @@ final class SyncCoordinator {
     func teamPushArrived(workspaceID: String?, peerID: String) {
         if let workspaceID, workspaceID != scope?.workspaceID { return }
         emit(.team(peerID: peerID))
+    }
+
+    /// The platform's support team answered, heard by push. Whichever
+    /// workspace the payload files it under: support is the same chat from
+    /// every one of them.
+    func supportPushArrived(threadID: String?) {
+        emitSupport(SupportSignal(kind: SupportSignal.message, threadID: threadID))
     }
 
     // MARK: - Finding one conversation
@@ -290,12 +318,19 @@ final class SyncCoordinator {
             guard let self, self.scope == scope else { return }
             self.emit(.team(peerID: event.peer(me: scope.userID)))
         }
+        connection.onSupportEvent = { [weak self] signal in
+            guard let self, self.scope == scope else { return }
+            self.emitSupport(signal)
+        }
         connection.onTeamConnectionChanged = { [weak self] up in
             guard let self, self.scope == scope else { return }
             self.teamRealtimeConnected = up
             // Team messages sent before the channel was joined were never
-            // heard: one catch-up read covers them.
-            if up { self.emit(.team(peerID: nil)) }
+            // heard: one catch-up read covers them — and support's too.
+            if up {
+                self.emit(.team(peerID: nil))
+                self.emitSupport(SupportSignal(kind: SupportSignal.resync))
+            }
         }
         realtime = connection
         connection.start()
@@ -305,6 +340,7 @@ final class SyncCoordinator {
         realtime?.onEvent = nil
         realtime?.onConnectionChanged = nil
         realtime?.onTeamEvent = nil
+        realtime?.onSupportEvent = nil
         realtime?.onTeamConnectionChanged = nil
         realtime?.stop()
         realtime = nil

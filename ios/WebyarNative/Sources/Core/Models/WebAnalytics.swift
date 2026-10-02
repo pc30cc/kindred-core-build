@@ -257,6 +257,10 @@ struct MobileAppConfig: Hashable, Sendable {
     /// Settings → Storage: what the app keeps on the phone and the button
     /// that clears it. Hiding it hides the row, not the cache.
     var showStorage: Bool
+    /// Settings → Online support: the chat with the platform's own team.
+    /// Only a ceiling — support still has to be on (Super Admin → Core
+    /// settings → Support) and offered to this operator.
+    var showSupport: Bool
     /// Where Settings → About → Support opens, when Super Admin named one:
     /// a page (https), an email (mailto:) or a phone number (tel:). `nil`
     /// leaves the platform's own help centre in charge (`PlatformOrigin`).
@@ -267,7 +271,7 @@ struct MobileAppConfig: Hashable, Sendable {
     init(
         showContacts: Bool, showVisitors: Bool, showWebAnalytics: Bool,
         showAIQueue: Bool = true, showColleagues: Bool = true, showStorage: Bool = true,
-        supportURL: URL? = nil
+        showSupport: Bool = true, supportURL: URL? = nil
     ) {
         self.showContacts = showContacts
         self.showVisitors = showVisitors
@@ -275,6 +279,7 @@ struct MobileAppConfig: Hashable, Sendable {
         self.showAIQueue = showAIQueue
         self.showColleagues = showColleagues
         self.showStorage = showStorage
+        self.showSupport = showSupport
         self.supportURL = supportURL
     }
 
@@ -294,7 +299,7 @@ struct MobileAppConfig: Hashable, Sendable {
 
 extension MobileAppConfig: Decodable {
     enum CodingKeys: String, CodingKey {
-        case showContacts, showVisitors, showWebAnalytics, showAIQueue, showColleagues, showStorage
+        case showContacts, showVisitors, showWebAnalytics, showAIQueue, showColleagues, showStorage, showSupport
         case supportURL = "supportUrl"
     }
 
@@ -312,6 +317,7 @@ extension MobileAppConfig: Decodable {
         showAIQueue = flag(.showAIQueue)
         showColleagues = flag(.showColleagues)
         showStorage = flag(.showStorage)
+        showSupport = flag(.showSupport)
         supportURL = Self.supportLink(try? c.decodeIfPresent(String.self, forKey: .supportURL))
     }
 }

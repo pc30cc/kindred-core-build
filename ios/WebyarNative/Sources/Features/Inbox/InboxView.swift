@@ -191,7 +191,9 @@ struct InboxView: View {
     /// inbox is still the right place to be left, which beats a dead end or a
     /// blank screen.
     private func openPendingTarget() async {
-        guard let target = push.pendingOpen else { return }
+        // A support reply opens in Settings (`MainTabView`), whatever
+        // workspace is open: never a reason to switch one here.
+        guard let target = push.pendingOpen, !target.isSupport else { return }
 
         if appState.selectedWorkspace?.id != target.workspaceID {
             // A tap that launched the app arrives before the workspace list
@@ -250,6 +252,10 @@ struct InboxView: View {
             else { return }
             path.append(InboxRoute.email)
             path.append(InboxRoute.emailThread(response.thread))
+
+        case .support:
+            // Never reached: taken by `MainTabView` before the inbox looks.
+            break
         }
     }
 

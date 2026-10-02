@@ -335,4 +335,13 @@ enum A11yID {
     static let storageRow = "settings.storage"
     static let clearCache = "settings.storage.clear"
     static let brandFooter = "brand.footer"
+    static let settingsSupportChat = "settings.support.chat"
+    static let supportTranscript = "support.transcript"
+    static let supportGreeting = "support.greeting"
+    static let supportOfflineBanner = "support.offline"
+    static let supportClosedButton = "support.closed"
+    static func supportClosedRow(_ id: String) -> String { "support.closed.\(id)" }
+    static func supportRatingStar(_ id: String, _ star: Int) -> String { "support.rating.\(id).star.\(star)" }
+    static func supportRatingSubmit(_ id: String) -> String { "support.rating.\(id).submit" }
+    static func supportRatingGiven(_ id: String) -> String { "support.rating.\(id).given" }
 }

@@ -64,4 +64,27 @@ enum A11y {
     static let clearCache = "settings.storage.clear"
     /// "WEBYAR AI" at the foot of the launch, sign-in and reset screens.
     static let brandFooter = "brand.footer"
+
+    // Settings → Online support (docs/PLATFORM_SUPPORT.md). The same names
+    // as the Android app's test tags.
+    /// The one row, which opens the chat.
+    static let settingsSupportChat = "settings.support.chat"
+    static let supportTranscript = "support.transcript"
+    static let supportGreeting = "support.greeting"
+    static let supportOfflineBanner = "support.offline"
+    static let supportEndedPanel = "support.ended"
+    static let supportStartNew = "support.startNew"
+    /// The chat bar's way to the conversations that ended.
+    static let supportClosedButton = "support.closed"
+    static let supportClosedList = "support.closed.list"
+    static func supportClosedRow(_ conversationID: String) -> String { "support.closed.\(conversationID)" }
+    static func supportRatingStar(_ conversationID: String, _ star: Int) -> String {
+        "support.rating.\(conversationID).star.\(star)"
+    }
+    static func supportRatingComment(_ conversationID: String) -> String { "support.rating.\(conversationID).comment" }
+    static func supportRatingSubmit(_ conversationID: String) -> String { "support.rating.\(conversationID).submit" }
+    /// The rating once given.
+    static func supportRatingGiven(_ conversationID: String) -> String { "support.rating.\(conversationID).given" }
+    /// A message that did not go, with its retry.
+    static func supportRetry(_ clientMessageID: String) -> String { "support.retry.\(clientMessageID)" }
 }

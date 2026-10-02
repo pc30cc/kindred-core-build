@@ -42,6 +42,9 @@ struct Composer: View {
     /// with — the internal thread has no visitor, so `{{contact.name}}` there
     /// would only ever resolve to itself.
     var shortcuts: ShortcutSource?
+    /// What may be attached, and how big. The chats take the workspace's
+    /// attachments; the support chat takes fewer kinds and smaller files.
+    var attachments: ComposerAttachmentRules = .chat
 
     @State private var isShowingEmoji = false
     @State private var isShowingShortcuts = false
@@ -55,10 +58,6 @@ struct Composer: View {
     @State private var recorder = VoiceRecorder()
     @State private var problem: String?
 
-    /// The types the server will accept. Offering more than this only moves
-    /// the rejection from the picker to the upload.
-    private static let allowedDocuments: [UTType] = [.pdf, .plainText, .png, .jpeg, .webP, .gif]
-    private static let maximumBytes = 25 * 1024 * 1024
 
     var body: some View {
         VStack(spacing: Theme.Space.sm) {
@@ -85,11 +84,11 @@ struct Composer: View {
         .photosPicker(
             isPresented: $isShowingPhotos,
             selection: $photoItem,
-            matching: .any(of: [.images, .videos])
+            matching: attachments.photosOnly ? .images : .any(of: [.images, .videos])
         )
         .fileImporter(
             isPresented: $isShowingDocuments,
-            allowedContentTypes: Self.allowedDocuments
+            allowedContentTypes: attachments.documentTypes
         ) { result in
             handlePickedDocument(result)
         }
@@ -218,15 +217,25 @@ struct Composer: View {
             problem = Str.attachmentFailed(language)
             return
         }
-        guard data.count <= Self.maximumBytes else {
-            problem = Str.fileTooLarge(language)
+        if attachments.fitsPhotos {
+            // A camera photo is a HEIC of several megabytes: drawn again as a
+            // JPEG small enough to go, rather than refused.
+            guard let fitted = await PhotoFitter.jpeg(data, maxBytes: attachments.maximumBytes) else {
+                problem = attachments.tooLarge(language)
+                return
+            }
+            onAttach(fitted, "photo.jpg", "image/jpeg")
+            return
+        }
+        guard data.count <= attachments.maximumBytes else {
+            problem = attachments.tooLarge(language)
             return
         }
         // `PhotosPickerItem` reports the type it will hand over, which is not
         // always the type in the library — a HEIC photo transcodes on the way
         // out. Whatever it actually is has to be one the server takes.
-        let type = item.supportedContentTypes.first { Self.mime(for: $0) != nil }
-        guard let type, let mime = Self.mime(for: type) else {
+        let type = item.supportedContentTypes.first { mime(for: $0) != nil }
+        guard let type, let mime = mime(for: type) else {
             problem = Str.fileTypeNotAllowed(language)
             return
         }
@@ -244,12 +253,12 @@ struct Composer: View {
             problem = Str.attachmentFailed(language)
             return
         }
-        guard data.count <= Self.maximumBytes else {
-            problem = Str.fileTooLarge(language)
+        guard data.count <= attachments.maximumBytes else {
+            problem = attachments.tooLarge(language)
             return
         }
         guard let type = UTType(filenameExtension: url.pathExtension),
-              let mime = Self.mime(for: type) else {
+              let mime = mime(for: type) else {
             problem = Str.fileTypeNotAllowed(language)
             return
         }
@@ -258,13 +267,14 @@ struct Composer: View {
 
     /// The server's allowed list, spelled the way it spells it. Anything not
     /// here is refused before a byte is uploaded.
-    private static func mime(for type: UTType) -> String? {
+    private func mime(for type: UTType) -> String? {
         if type.conforms(to: .png) { return "image/png" }
         if type.conforms(to: .jpeg) { return "image/jpeg" }
         if type.conforms(to: .webP) { return "image/webp" }
         if type.conforms(to: .gif) { return "image/gif" }
         if type.conforms(to: .pdf) { return "application/pdf" }
         if type.conforms(to: .plainText) { return "text/plain" }
+        guard attachments.acceptsAudio else { return nil }
         if type.conforms(to: .mpeg4Audio) { return "audio/mp4" }
         if type.conforms(to: .mp3) { return "audio/mpeg" }
         if type.conforms(to: .wav) { return "audio/wav" }
@@ -426,7 +436,7 @@ struct Composer: View {
                 Button {
                     isShowingPhotos = true
                 } label: {
-                    Label(Str.sendPhoto(language), systemImage: "photo")
+                    Label(attachments.photosOnly ? Str.photo(language) : Str.sendPhoto(language), systemImage: "photo")
                 }
                 Button {
                     isShowingDocuments = true
@@ -508,6 +518,55 @@ struct Composer: View {
             label: effectiveSendLabel,
             action: performSend
         )
+    }
+}
+
+/// What a composer lets the operator attach.
+struct ComposerAttachmentRules: Sendable {
+    /// Photos only from the library, no videos.
+    var photosOnly = false
+    /// What the document picker offers. More than the server takes only
+    /// moves the refusal from the picker to the upload.
+    var documentTypes: [UTType] = [.pdf, .plainText, .png, .jpeg, .webP, .gif]
+    var maximumBytes = 25 * 1024 * 1024
+    /// Voice notes and audio files.
+    var acceptsAudio = true
+    /// A photo is re-drawn as a JPEG that fits `maximumBytes` instead of
+    /// being refused for its size.
+    var fitsPhotos = false
+    /// What to say about a file over `maximumBytes`.
+    var tooLarge: @Sendable (Language) -> String = Str.fileTooLarge
+
+    /// The workspace's chats.
+    static let chat = ComposerAttachmentRules()
+
+    /// Settings → Online support: PNG, JPEG, WebP, GIF, PDF or plain text,
+    /// at most 2 MB (docs/PLATFORM_SUPPORT.md).
+    static let support = ComposerAttachmentRules(
+        photosOnly: true,
+        maximumBytes: SupportLimits.maxFileBytes,
+        acceptsAudio: false,
+        fitsPhotos: true,
+        tooLarge: SupportStr.fileTooLarge
+    )
+}
+
+/// Re-draws a photo as a JPEG under a size, off the main thread: the longest
+/// side brought down to what a screen shows, then the quality stepped down
+/// until it fits. Nil when the bytes are not a picture, or nothing fits.
+enum PhotoFitter {
+    static func jpeg(_ data: Data, maxBytes: Int) async -> Data? {
+        await Task.detached(priority: .userInitiated) {
+            for side in [2048, 1600, 1280] {
+                guard let image = AttachmentPreviews.downsample(data, maxPixel: side) else { return nil }
+                for quality in [0.82, 0.7, 0.55] {
+                    if let encoded = image.jpegData(compressionQuality: quality), encoded.count <= maxBytes {
+                        return encoded
+                    }
+                }
+            }
+            return nil
+        }.value
     }
 }
 

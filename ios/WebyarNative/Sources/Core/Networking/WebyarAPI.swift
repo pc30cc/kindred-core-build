@@ -6,7 +6,9 @@ import Foundation
 /// what allows the sample backend below to drive the whole UI with no network
 /// at all — needed to lay out and screenshot every screen, and to produce the
 /// App Store screenshots Apple requires.
-protocol WebyarAPI: Sendable {
+/// Settings → Online support's endpoints are declared on `SupportAPI`
+/// (`PlatformSupport.swift`), which this refines.
+protocol WebyarAPI: SupportAPI {
     var hasToken: Bool { get async }
     func logIn(email: String, password: String) async throws -> User
     func currentUser() async throws -> User
@@ -251,6 +253,11 @@ enum SampleRoute: String {
     /// The sign-in screen. The sample backend reports no session for this
     /// one run, so the app lands where a signed-out operator does.
     case login
+    /// Settings → Online support: the open conversation with the team.
+    case support
+    /// The same, with the team away (the banner and its hours) and nothing
+    /// open — the fresh page a first message starts from.
+    case supportOffline
 
     static let current: SampleRoute? = {
         let arguments = ProcessInfo.processInfo.arguments

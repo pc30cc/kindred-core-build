@@ -82,6 +82,12 @@ export function IosInAppTab({
             checked={draft.ios_app_show_storage}
             onChange={(ios_app_show_storage) => set({ ios_app_show_storage })}
           />
+          <SwitchField
+            label={t('admin.mobileApp.iosInApp.showSupport')}
+            hint={t('admin.mobileApp.iosInApp.showSupportHint')}
+            checked={draft.ios_app_show_support}
+            onChange={(ios_app_show_support) => set({ ios_app_show_support })}
+          />
           <TextField
             label={t('admin.mobileApp.iosInApp.supportUrl')}
             hint={t('admin.mobileApp.iosInApp.supportUrlHint')}

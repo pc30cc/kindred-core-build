@@ -15,6 +15,7 @@ describe('iOS in-app config', () => {
       showAIQueue: true,
       showColleagues: true,
       showStorage: true,
+      showSupport: true,
       supportUrl: null,
     });
   });
@@ -51,6 +52,19 @@ describe('iOS in-app config', () => {
       showAIQueue: true,
       showColleagues: true,
     });
+  });
+
+  it('keeps Settings → Online support on for rows written before migration 245', () => {
+    const config = toIosAppConfig(normalize({ ios_app_show_storage: false }));
+    expect(config).toMatchObject({ showStorage: false, showSupport: true });
+  });
+
+  it('hides Settings → Online support only on iOS when Super Admin turned it off', () => {
+    const settings = normalize({ ios_app_show_support: false });
+    expect(toIosAppConfig(settings)).toMatchObject({ showSupport: false, showStorage: true, showColleagues: true });
+    expect(toAndroidAppConfig(settings).showSupport).toBe(true);
+    // And Android's own switch leaves iOS alone.
+    expect(toIosAppConfig(normalize({ android_app_show_support: false })).showSupport).toBe(true);
   });
 
   it('keeps the Inbox AI and Colleagues tabs on for rows written before migration 230', () => {

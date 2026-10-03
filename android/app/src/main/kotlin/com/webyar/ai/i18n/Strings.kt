@@ -2433,9 +2433,9 @@ object Str {
     }
 
     fun analyticsLockedHint(l: Language): String = when (l) {
-        Language.EN -> "The workspace owner can add it by upgrading the plan."
-        Language.FA -> "مالک فضای کاری می‌تواند با ارتقای پلن آن را فعال کند."
-        Language.TR -> "Çalışma alanı sahibi planı yükselterek ekleyebilir."
+        Language.EN -> "Ask the workspace owner about access to website analytics."
+        Language.FA -> "برای دسترسی به تحلیل وب‌سایت با مالک فضای کاری هماهنگ کنید."
+        Language.TR -> "Web sitesi analitiğine erişim için çalışma alanı sahibine danışın."
     }
 
     fun analyticsLoadFailed(l: Language): String = when (l) {

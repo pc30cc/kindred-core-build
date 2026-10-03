@@ -63,6 +63,11 @@ struct LoginView: View {
                         .buttonStyle(.plain)
                         .padding(.top, Theme.Space.xs)
 
+                        if !appState.legalLinks.isEmpty {
+                            LegalLinksFooter(links: appState.legalLinks, language: language)
+                                .padding(.top, Theme.Space.sm)
+                        }
+
                         Spacer(minLength: Theme.Space.huge)
 
                         // Room for the name signed at the foot of the screen
@@ -197,5 +202,44 @@ struct LoginView: View {
         // Here `unauthorized` is a wrong email or password, not a session
         // that ran out — there is no session yet.
         error.text(language, unauthorized: Str.loginFailed(language))
+    }
+}
+
+/// The privacy policy and terms of use, side by side under the form.
+private struct LegalLinksFooter: View {
+    let links: LegalLinks
+    let language: Language
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        HStack(spacing: Theme.Space.xs) {
+            if let privacy = links.privacyPolicy {
+                link(SettingsStr.privacyPolicy(language), url: privacy)
+                    .accessibilityIdentifier(A11y.loginPrivacyPolicy)
+            }
+            if links.privacyPolicy != nil, links.terms != nil {
+                Text("·")
+                    .font(.app(.footnote))
+                    .foregroundStyle(Theme.Palette.labelTertiary)
+                    .accessibilityHidden(true)
+            }
+            if let terms = links.terms {
+                link(SettingsStr.termsOfUse(language), url: terms)
+                    .accessibilityIdentifier(A11y.loginTerms)
+            }
+        }
+    }
+
+    private func link(_ title: String, url: URL) -> some View {
+        Button {
+            openURL(url)
+        } label: {
+            Text(title)
+                .font(.app(.footnote))
+                .foregroundStyle(Theme.Palette.labelSecondary)
+                .underline()
+                .frame(minHeight: Theme.Size.minTouchTarget)
+        }
+        .buttonStyle(.plain)
     }
 }

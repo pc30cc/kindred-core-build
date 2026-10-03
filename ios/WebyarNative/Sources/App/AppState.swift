@@ -74,7 +74,7 @@ final class AppState {
         didSet {
             guard language != oldValue else { return }
             // The operator's choice is kept; the platform's default is only
-            // used until they make one (`adoptPlatformDefaultLanguage`).
+            // used until they make one (`adoptPublicConfig`).
             if persistsLanguage {
                 UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey)
             }
@@ -127,6 +127,16 @@ final class AppState {
     /// The language Super Admin chose for the iOS app, as last read: the
     /// first frame of the next launch is already in it.
     private static let platformLanguageKey = "app.platformDefaultLanguage"
+    private static let privacyPolicyKey = "app.privacyPolicyURL"
+    private static let termsKey = "app.termsURL"
+
+    /// The privacy policy and terms of use, as the platform last named them
+    /// before sign-in — remembered, so the sign-in screen links them from its
+    /// first frame and without a connection.
+    private(set) var legalLinks = LegalLinks(
+        privacyPolicy: LegalLinks.https(UserDefaults.standard.string(forKey: AppState.privacyPolicyKey)),
+        terms: LegalLinks.https(UserDefaults.standard.string(forKey: AppState.termsKey))
+    )
     /// False while the platform's default is being applied, which is not the
     /// operator choosing a language.
     @ObservationIgnored private var persistsLanguage = true
@@ -156,12 +166,15 @@ final class AppState {
 
     // MARK: - Language
 
-    /// The language Super Admin chose for the iOS app, asked for before
-    /// sign-in, and switched to when the operator has not picked one of their
-    /// own. True when the language changed — the interface is rebuilt in it.
+    /// What the platform says before sign-in: the privacy policy and terms,
+    /// and the language Super Admin chose for the iOS app — switched to when
+    /// the operator has not picked one of their own. True when the language
+    /// changed — the interface is rebuilt in it.
     @discardableResult
-    func adoptPlatformDefaultLanguage() async -> Bool {
-        guard let platformDefault = await api.mobilePublicConfig()?.defaultLanguage else { return false }
+    func adoptPublicConfig() async -> Bool {
+        guard let config = await api.mobilePublicConfig() else { return false }
+        rememberLegalLinks(config.legal)
+        guard let platformDefault = config.defaultLanguage else { return false }
         UserDefaults.standard.set(platformDefault.rawValue, forKey: Self.platformLanguageKey)
         #if DEBUG
         // A screenshot run names its language; the platform does not move it.
@@ -174,6 +187,17 @@ final class AppState {
         language = next
         persistsLanguage = true
         return true
+    }
+
+    private func rememberLegalLinks(_ links: LegalLinks) {
+        legalLinks = links
+        for (key, url) in [(Self.privacyPolicyKey, links.privacyPolicy), (Self.termsKey, links.terms)] {
+            if let url {
+                UserDefaults.standard.set(url.absoluteString, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
     }
 
     // MARK: - Session
@@ -266,6 +290,9 @@ final class AppState {
             // The session was already void — the desired end state either way.
             await api.discardSession()
         } catch {
+            // Still signed in, so this phone is still where their
+            // notifications go: register it again.
+            await PushController.shared.sessionChanged(signedIn: true, workspaceID: selectedWorkspace?.id)
             return false
         }
         // Leaving on purpose: this account's saved conversations and files
@@ -304,6 +331,8 @@ final class AppState {
 
     private func reset(purgeCache: Bool) async {
         let leaving = session.user?.id
+        // Whoever signs in next agrees to "Send with AI" for themselves.
+        AIConsent.reset()
         session = .signedOut
         workspaces = []
         selectedWorkspace = nil

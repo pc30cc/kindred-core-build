@@ -55,6 +55,28 @@ enum SettingsStr {
         }
     }
 
+    // MARK: Calls
+
+    /// A call is not offered while the microphone is refused.
+    static func callNeedsMicrophone(_ l: Language) -> String {
+        switch l {
+        case .en: "Allow microphone access in Settings to call a visitor."
+        case .fa: "برای تماس با بازدیدکننده، دسترسی به میکروفون را در تنظیمات اجازه دهید."
+        case .tr: "Bir ziyaretçiyi aramak için Ayarlar'dan mikrofon erişimine izin verin."
+        }
+    }
+
+    // MARK: Notifications
+
+    /// The one button on the screen before iOS asks about notifications.
+    static func continueAction(_ l: Language) -> String {
+        switch l {
+        case .en: "Continue"
+        case .fa: "ادامه"
+        case .tr: "Devam"
+        }
+    }
+
     // MARK: About
 
     /// Settings → About: the platform's website, unless Super Admin named it otherwise.
@@ -63,6 +85,22 @@ enum SettingsStr {
         case .en: "Website"
         case .fa: "وب‌سایت"
         case .tr: "Web sitesi"
+        }
+    }
+
+    static func privacyPolicy(_ l: Language) -> String {
+        switch l {
+        case .en: "Privacy Policy"
+        case .fa: "سیاست حفظ حریم خصوصی"
+        case .tr: "Gizlilik Politikası"
+        }
+    }
+
+    static func termsOfUse(_ l: Language) -> String {
+        switch l {
+        case .en: "Terms of Use"
+        case .fa: "شرایط استفاده"
+        case .tr: "Kullanım Koşulları"
         }
     }
 

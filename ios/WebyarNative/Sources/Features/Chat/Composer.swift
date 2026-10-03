@@ -57,6 +57,8 @@ struct Composer: View {
     @State private var pulse = false
     @State private var recorder = VoiceRecorder()
     @State private var problem: String?
+    /// The first "Send with AI" on this phone asks before anything leaves.
+    @State private var isAskingAIConsent = false
 
 
     var body: some View {
@@ -84,7 +86,9 @@ struct Composer: View {
         .photosPicker(
             isPresented: $isShowingPhotos,
             selection: $photoItem,
-            matching: attachments.photosOnly ? .images : .any(of: [.images, .videos])
+            // Photos only: no conversation takes a video file, and a picked
+            // video would be read whole into memory before being refused.
+            matching: .images
         )
         .fileImporter(
             isPresented: $isShowingDocuments,
@@ -227,19 +231,20 @@ struct Composer: View {
             onAttach(fitted, "photo.jpg", "image/jpeg")
             return
         }
-        guard data.count <= attachments.maximumBytes else {
+        // The bytes are the item's own first type. One the server takes, at a
+        // size it takes, goes as it is — a GIF stays animated, a PNG keeps its
+        // transparency. Anything else — a HEIC, which is every camera photo by
+        // default, or a picture over the limit — is drawn again as a JPEG.
+        if let type = item.supportedContentTypes.first, let mime = mime(for: type),
+           data.count <= attachments.maximumBytes {
+            onAttach(data, "photo.\(type.preferredFilenameExtension ?? "jpg")", mime)
+            return
+        }
+        guard let fitted = await PhotoFitter.jpeg(data, maxBytes: attachments.maximumBytes) else {
             problem = attachments.tooLarge(language)
             return
         }
-        // `PhotosPickerItem` reports the type it will hand over, which is not
-        // always the type in the library — a HEIC photo transcodes on the way
-        // out. Whatever it actually is has to be one the server takes.
-        let type = item.supportedContentTypes.first { mime(for: $0) != nil }
-        guard let type, let mime = mime(for: type) else {
-            problem = Str.fileTypeNotAllowed(language)
-            return
-        }
-        onAttach(data, "photo.\(type.preferredFilenameExtension ?? "jpg")", mime)
+        onAttach(fitted, "photo.jpg", "image/jpeg")
     }
 
     private func handlePickedDocument(_ result: Result<URL, Error>) {
@@ -335,6 +340,14 @@ struct Composer: View {
             onSend()
             return
         }
+        guard AIConsent.hasAgreed else {
+            isAskingAIConsent = true
+            return
+        }
+        sendWithAI(active)
+    }
+
+    private func sendWithAI(_ active: SayNowModel) {
         let body = text
         Task {
             if await active.send(body, language: language) { text = "" }
@@ -417,6 +430,15 @@ struct Composer: View {
         .contentShape(shape)
         .animation(.smooth(duration: 0.18), value: isWriting)
         .onTapGesture { isWriting = true }
+        .alert(AIConsentStr.title(language), isPresented: $isAskingAIConsent) {
+            Button(AIConsentStr.allow(language)) {
+                AIConsent.agree()
+                sendWithAI(active)
+            }
+            Button(Str.cancel(language), role: .cancel) {}
+        } message: {
+            Text(AIConsentStr.body(language))
+        }
     }
 
     /// The controls before the text.

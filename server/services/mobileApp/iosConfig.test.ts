@@ -33,7 +33,9 @@ describe('iOS in-app config', () => {
   });
 
   it('opens in the language Super Admin chose, English until then (migration 247)', () => {
-    expect(toIosPublicConfig(MOBILE_APP_DEFAULTS)).toEqual({ platform: 'ios', defaultLanguage: 'en' });
+    expect(toIosPublicConfig(MOBILE_APP_DEFAULTS)).toEqual({
+      platform: 'ios', defaultLanguage: 'en', privacyPolicyUrl: null, termsUrl: null,
+    });
     expect(toIosPublicConfig(normalize({ ios_default_language: 'fa' })).defaultLanguage).toBe('fa');
     expect(toIosPublicConfig(normalize({ ios_default_language: 'tr' })).defaultLanguage).toBe('tr');
     // A row from before 247, or a value the app does not speak.
@@ -41,6 +43,16 @@ describe('iOS in-app config', () => {
     expect(toIosPublicConfig(normalize({ ios_default_language: 'de' })).defaultLanguage).toBe('en');
     // Android's choice is Android's.
     expect(toIosPublicConfig(normalize({ android_default_language: 'tr' })).defaultLanguage).toBe('en');
+  });
+
+  it('links the App Store record\'s privacy policy and terms before sign-in', () => {
+    const config = toIosPublicConfig(normalize({
+      privacy_policy_url: 'https://webyar.ai/privacy',
+      terms_url: 'https://webyar.ai/terms',
+    }));
+    expect(config.privacyPolicyUrl).toBe('https://webyar.ai/privacy');
+    expect(config.termsUrl).toBe('https://webyar.ai/terms');
+    expect(toIosPublicConfig(normalize({ privacy_policy_url: '' })).privacyPolicyUrl).toBeNull();
   });
 
   it('leaves the Website row to the platform when nothing is set', () => {

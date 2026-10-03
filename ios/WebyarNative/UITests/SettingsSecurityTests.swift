@@ -64,6 +64,9 @@ final class SettingsSecurityTests: UITestCase {
         XCTAssertTrue(website.label.contains("سایت وبیار"), "the row is not called what Super Admin named it: \(website.label)")
         XCTAssertTrue(element(A11yID.settingsVersion).exists, "no version")
         XCTAssertTrue(element(A11yID.settingsBuild).exists, "no build")
+        // App Review asks for the privacy policy inside the app.
+        XCTAssertTrue(reveal(element(A11yID.settingsPrivacyPolicy)).waitForExistence(timeout: 5), "no privacy policy in About")
+        XCTAssertTrue(element(A11yID.settingsTerms).exists, "no terms in About")
     }
 
     func testASupportConversationOpensWithWhoIsAsking() {

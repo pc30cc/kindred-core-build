@@ -6,15 +6,15 @@ import SwiftUI
 /// launch, before the operator has seen a single conversation, and most
 /// people tap "Don't allow" — after which the only way back is the Settings
 /// app, which almost nobody finds. So the system prompt is never the first
-/// thing asked: this is, and `requestAuthorization` is only called by
-/// somebody who has already said yes to a screen that explained why.
+/// thing shown: this is, and `requestAuthorization` comes once the operator
+/// has read why, on the first screen where the question means anything.
 ///
-/// Declining here costs nothing and asks nothing of iOS, so the real prompt
-/// is still there to be spent later from Settings → Notifications.
+/// One way on: "Continue" always leads to iOS's own question, where the
+/// operator allows or declines. App Review refuses a screen before a
+/// permission request that can be closed without reaching the request.
 struct NotificationPrimerView: View {
     let language: Language
-    let onAllow: () -> Void
-    let onDismiss: () -> Void
+    let onContinue: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,22 +42,13 @@ struct NotificationPrimerView: View {
 
             Spacer(minLength: Theme.Space.xl)
 
-            PrimaryButton(title: Str.pushTurnOn(language), action: onAllow)
-
-            Button(action: onDismiss) {
-                Text(Str.pushNotNow(language))
-                    .font(.app(.subheadline))
-                    .foregroundStyle(Theme.Palette.labelSecondary)
-                    .frame(minHeight: Theme.Size.minTouchTarget)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, Theme.Space.xs)
+            PrimaryButton(title: SettingsStr.continueAction(language), action: onContinue)
         }
         .padding(.horizontal, Theme.Space.xxl)
         .padding(.bottom, Theme.Space.lg)
         .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(false)
+        .presentationDragIndicator(.hidden)
+        .interactiveDismissDisabled(true)
     }
 }
 

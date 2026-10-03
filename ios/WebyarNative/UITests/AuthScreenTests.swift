@@ -8,6 +8,10 @@ import XCTest
 /// one screen replaces the other and while the keyboard comes up.
 final class AuthScreenTests: UITestCase {
 
+    private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
     private func launchToLogin() {
         app.launchArguments += ["-WebyarScreen", "login"]
         app.launch()
@@ -51,6 +55,17 @@ final class AuthScreenTests: UITestCase {
         let signIn = app.buttons["ورود"]
         if signIn.exists {
             XCTAssertLessThan(signIn.frame.maxY, footer.minY, "the sign-in button runs into the name")
+        }
+    }
+
+    func testSignInLinksThePrivacyPolicyAndTerms() {
+        launchToLogin()
+
+        let privacy = element(A11yID.loginPrivacyPolicy)
+        XCTAssertTrue(privacy.waitForExistence(timeout: 20), "sign in does not link the privacy policy")
+        XCTAssertTrue(element(A11yID.loginTerms).exists, "sign in does not link the terms")
+        if let footer = waitForFooter() {
+            XCTAssertLessThan(privacy.frame.maxY, footer.minY, "the links run into the name")
         }
     }
 

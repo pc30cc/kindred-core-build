@@ -291,3 +291,53 @@ export function useGeneratedConfig(enabled: boolean) {
     },
   });
 }
+
+// ── The account Apple's App Review signs in with (migration 248) ─────────────
+
+export interface AppReviewAccount {
+  email: string;
+  exists: boolean;
+  enabled: boolean;
+  user_id: string | null;
+  full_name: string | null;
+  workspace_id: string | null;
+  workspace_name: string | null;
+  seeded_at: string | null;
+}
+
+const APP_REVIEW_KEY = ['admin-mobile-app', 'app-review'] as const;
+
+export function useAppReviewAccount() {
+  return useQuery({
+    queryKey: APP_REVIEW_KEY,
+    queryFn: () => adminFetch<AppReviewAccount>('/api/admin/mobile-app/app-review'),
+  });
+}
+
+export function useSeedAppReviewAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { password?: string }) =>
+      adminFetch<AppReviewAccount>('/api/admin/mobile-app/app-review/seed', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(APP_REVIEW_KEY, data);
+      // The seed also fills in the demo username on the App Store record.
+      void qc.invalidateQueries({ queryKey: KEY });
+    },
+  });
+}
+
+export function useSetAppReviewEnabled() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      adminFetch<AppReviewAccount>('/api/admin/mobile-app/app-review/enabled', {
+        method: 'POST',
+        body: JSON.stringify({ enabled }),
+      }),
+    onSuccess: (data) => qc.setQueryData(APP_REVIEW_KEY, data),
+  });
+}

@@ -242,7 +242,13 @@ final class InboxViewModel {
     /// the finger.
     func refresh(workspaceID: String?, appState: AppState) async {
         self.appState = appState
-        guard let workspaceID else { return }
+        guard let workspaceID else {
+            // No workspace yet: the list of them never arrived — a flaky
+            // first sign-in, or the server failing. Pulling asks again, and a
+            // workspace that arrives loads the inbox as it does at sign-in.
+            await appState.loadWorkspaces()
+            return
+        }
         sync.lists(for: workspaceID)?.invalidate()
         await fetch(workspaceID: workspaceID, filter: filter, generation: generation)
     }

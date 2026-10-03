@@ -106,6 +106,13 @@ targets:
           record a voice note to send into a conversation.
         NSCameraUsageDescription: >-
           Webyar uses the camera when you start a video call with a visitor.
+        # Add-only, and only ever asked by iOS itself: a photo or video opened
+        # from a conversation or an email is shown by Quick Look, whose share
+        # button offers "Save Image". Without this key that one tap ends the
+        # app.
+        NSPhotoLibraryAddUsageDescription: >-
+          Webyar saves a photo or video to your library when you choose Save
+          on a file opened from a conversation or an email.
         # Persian and Turkish ship in-bundle so the language picker works
         # offline and iOS reports the app as localized for them.
         CFBundleLocalizations:

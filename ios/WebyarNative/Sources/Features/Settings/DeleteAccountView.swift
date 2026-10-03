@@ -203,6 +203,12 @@ struct DeleteAccountView: View {
                 }
             } catch APIError.unauthorized {
                 await appState.handleUnauthorized()
+            } catch APIError.server(status: 400, message: _) {
+                // The server's answer to a wrong password; the field is never
+                // sent empty.
+                withAnimation(Theme.Motion.standard) {
+                    errorMessage = Str.deleteAccountWrongPassword(language)
+                }
             } catch let error as APIError {
                 withAnimation(Theme.Motion.standard) {
                     errorMessage = error.text(

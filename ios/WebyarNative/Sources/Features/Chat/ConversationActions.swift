@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import AVFoundation
 
 /// Everything the chat screen's menu can change about a conversation.
 ///
@@ -26,6 +27,9 @@ final class ConversationActionsModel {
     /// cleared when the operator closes the screen.
     var pendingInvitation: CallInvitation?
     var inviteFailed = false
+    /// The microphone is off for this app in iOS Settings, so no call was
+    /// offered: the visitor would have answered and heard nothing.
+    var callNeedsMicrophone = false
     /// Set once the server has actually handed the thread over, so the menu
     /// stops offering a row with nothing left to do.
     ///
@@ -197,6 +201,18 @@ final class ConversationActionsModel {
     /// once the visitor accepts — which is why this ends in "waiting", not in
     /// a ringing tone.
     func invite(_ channel: CallChannel, appState: AppState) async {
+        // Asked before the visitor is: iOS records silence rather than
+        // failing when the microphone is refused, and its own question
+        // arriving after the visitor answers lands in the middle of the call.
+        guard await AVAudioApplication.requestRecordPermission() else {
+            callNeedsMicrophone = true
+            return
+        }
+        // The camera's answer is the call's to handle: refused, a video call
+        // carries on as audio.
+        if channel == .video {
+            _ = await AVCaptureDevice.requestAccess(for: .video)
+        }
         do {
             pendingInvitation = try await api.inviteToCall(
                 conversationID: conversationID,

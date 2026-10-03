@@ -58,8 +58,11 @@ actor APIClient {
         let config = URLSessionConfiguration.default
         // A hung request is worse than a failed one: the operator is left
         // staring at a spinner. Fail fast enough to show a retry affordance.
+        // That is the idle timeout — no bytes for 20 s. The resource timeout
+        // caps a whole transfer and no request can lift it, so it has to fit
+        // the largest one: a 25 MB attachment on a slow uplink.
         config.timeoutIntervalForRequest = 20
-        config.timeoutIntervalForResource = 60
+        config.timeoutIntervalForResource = 900
         config.waitsForConnectivity = false
         // The session token is the auth; cookies would only add a second,
         // confusing transport.
@@ -111,10 +114,14 @@ actor APIClient {
             adopt(origins)
             return
         }
-        guard PlatformOrigin.isStored else { return }
+        guard PlatformOrigin.isStored, baseURL != GeneratedConfig.apiBaseURL else { return }
+        // Forgotten only once the compiled origin answers. Offline, or on a
+        // link too slow for either, neither does — and then the remembered
+        // origin is not the one at fault.
+        guard let origins = await askOrigins(at: GeneratedConfig.apiBaseURL) else { return }
         PlatformOrigin.forget()
         baseURL = GeneratedConfig.apiBaseURL
-        if let origins = await askOrigins(at: baseURL) { adopt(origins) }
+        adopt(origins)
     }
 
     private func adopt(_ origins: PlatformOrigins) {

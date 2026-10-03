@@ -139,6 +139,11 @@ enum A11y {
     static let settingsVersion = "settings.version"
     static let settingsBuild = "settings.build"
     static let settingsWebsite = "settings.website"
+    /// The privacy policy and terms of use: in About, and under the sign-in form.
+    static let settingsPrivacyPolicy = "settings.privacyPolicy"
+    static let settingsTerms = "settings.terms"
+    static let loginPrivacyPolicy = "login.privacyPolicy"
+    static let loginTerms = "login.terms"
 
     // The inbox's strip, beside its queues.
     /// The strip's envelope, which opens the mailbox.

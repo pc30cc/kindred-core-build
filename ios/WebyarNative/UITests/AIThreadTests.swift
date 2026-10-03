@@ -138,6 +138,27 @@ final class AIThreadTests: UITestCase {
         XCTAssertEqual(field.value as? String, "سفارش فردا می‌رسد")
     }
 
+    func testTheFirstSendWithAIAsksBeforeAnythingLeaves() {
+        // As if this operator had never agreed, whatever an earlier run did.
+        app.launchArguments += ["-WebyarScreen", "aiChat", "-ai.sendWithAIConsent", "NO"]
+        app.launch()
+
+        let field = app.textFields[A11yID.composerField]
+        XCTAssertTrue(field.waitForExistence(timeout: 25), "no composer field")
+        field.tap()
+        field.typeText("سفارش فردا می‌رسد")
+        app.buttons[A11yID.composerSend].tap()
+
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "Send with AI did not ask first")
+        XCTAssertTrue(alert.buttons["اجازه می‌دهم و ارسال"].exists, "no way to agree")
+        alert.buttons["انصراف"].tap()
+
+        // Declined: nothing went, and the words are still there.
+        XCTAssertTrue(waitForDisappearance(alert, timeout: 5), "the question stayed")
+        XCTAssertEqual(field.value as? String, "سفارش فردا می‌رسد", "the draft was lost")
+    }
+
     // MARK: - Take over
 
     func testTheChatMenuOffersTakeOverOnAnAIThread() {

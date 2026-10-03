@@ -34,8 +34,12 @@ import { buildGeneratedConfig } from '../services/mobileApp/generatedConfig.js';
 import { firebaseClientFields, firebaseProjectsMatch } from '../services/mobileApp/firebaseClient.js';
 import { androidLanguageMaintenanceFields } from '../services/mobileApp/androidMaintenance.js';
 import { readShippedAndroidRelease, withShippedVersion } from '../services/mobileApp/androidRelease.js';
+import { adminAppReviewRouter } from './adminAppReview.js';
 
 export const adminMobileAppRouter = Router();
+
+// The account Apple's App Review signs in with (migration 248).
+adminMobileAppRouter.use('/app-review', adminAppReviewRouter);
 
 function serverConfigOf(req: Request): ServerConfig {
   return (req as unknown as Request & { serverConfig: ServerConfig }).serverConfig;

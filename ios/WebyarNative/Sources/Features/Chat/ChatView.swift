@@ -261,6 +261,17 @@ struct ChatView: View {
                 Button(Str.cancel(language), role: .cancel) {}
             }
             .alert(
+                SettingsStr.callNeedsMicrophone(language),
+                isPresented: $actions.callNeedsMicrophone
+            ) {
+                Button(Str.pushOpenSettings(language)) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button(Str.cancel(language), role: .cancel) {}
+            }
+            .alert(
                 Str.saveFailed(language),
                 isPresented: $actions.saveFailed
             ) {

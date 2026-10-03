@@ -5,3 +5,4 @@
 "CFBundleDisplayName" = "Webyar";
 "NSMicrophoneUsageDescription" = "Webyar uses the microphone when you call a visitor, and when you record a voice note to send into a conversation.";
 "NSCameraUsageDescription" = "Webyar uses the camera when you start a video call with a visitor.";
+"NSPhotoLibraryAddUsageDescription" = "Webyar saves a photo or video to your library when you choose Save on a file opened from a conversation or an email.";

@@ -32,4 +32,16 @@ final class LanguageChoiceTests: XCTestCase {
         XCTAssertNil(try decode(#"{"platform":"ios"}"#).defaultLanguage)
         XCTAssertNil(try decode(#"{"defaultLanguage":7}"#).defaultLanguage)
     }
+
+    func testThePrivacyPolicyAndTermsAreKeptOnlyAsHttpsAddresses() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(MobilePublicConfig.self, from: Data(json.utf8)) }
+        let set = try decode(#"{"privacyPolicyUrl":"https://webyar.ai/privacy","termsUrl":" https://webyar.ai/terms "}"#)
+        XCTAssertEqual(set.legal.privacyPolicy?.absoluteString, "https://webyar.ai/privacy")
+        XCTAssertEqual(set.legal.terms?.absoluteString, "https://webyar.ai/terms")
+        XCTAssertFalse(set.legal.isEmpty)
+
+        let refused = try decode(#"{"privacyPolicyUrl":"http://webyar.ai/privacy","termsUrl":"javascript:alert(1)"}"#)
+        XCTAssertTrue(refused.legal.isEmpty, "only https is linked")
+        XCTAssertTrue(try decode(#"{"privacyPolicyUrl":null,"termsUrl":7}"#).legal.isEmpty)
+    }
 }

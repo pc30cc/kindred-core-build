@@ -18,3 +18,14 @@ Build from a separate worktree (`~/dev/kcb-ui-preview`), never from the
 owner's checkout in `~/dev/kindred-core-build`, which is on their own branch.
 
 Why each of those holds, with measurements: `docs/ANDROID_LOCAL_DEV.md`.
+
+## The iOS app in Xcode on the Mac
+
+`~/dev/kcb-ios-preview` is the copy of the native app (`ios/WebyarNative`)
+open in the owner's Xcode. A LaunchAgent (`ai.webyar.xcode-sync`, script
+`~/dev/webyar-xcode-sync.sh`, log `~/dev/webyar-xcode-sync.log`) moves it to
+the latest `origin/main` every 3 minutes and regenerates the Xcode project, so
+whatever is merged shows up there on its own. It skips the update while a
+tracked file there has local edits. Do not check other branches out in that
+folder: build and test a PR in a separate worktree (e.g. `~/dev/kcbi-pr`).
+Turn the sync off with `launchctl bootout gui/$(id -u)/ai.webyar.xcode-sync`.

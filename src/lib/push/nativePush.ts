@@ -125,8 +125,8 @@ function deliver(target: PushNavigationTarget | null): void {
 /**
  * Runs the button the operator pressed on the notification.
  *
- * The action ids are the ones registered natively in
- * ios/App/App/NotificationCategories.swift and configured in Super Admin →
+ * The action ids are the ones the native app registers and that are
+ * configured in Super Admin →
  * Notifications → Actions. An unknown id (an older build, an id an operator
  * renamed on only one side) falls through to plain navigation rather than
  * doing nothing — the notification still takes the operator where they meant

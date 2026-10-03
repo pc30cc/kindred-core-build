@@ -360,7 +360,7 @@ describe('the legacy domain survives only where it is meant to', () => {
       'this file — it searches for the string',
   };
 
-  const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', 'ios/App/App/public']);
+  const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next']);
 
   function walkAll(dir: string, out: string[] = []): string[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

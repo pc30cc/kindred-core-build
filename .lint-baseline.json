@@ -107,10 +107,7 @@
     "scripts/build-woocommerce-plugin-zip.mjs": {},
     "scripts/call-widget-hash.js": {},
     "scripts/ci/advisor-baseline-check.mjs": {},
-    "scripts/ios/apply-app-settings.ts": {},
-    "scripts/ios/prune-web-assets.mjs": {},
     "scripts/ios/write-native-config.mjs": {},
-    "scripts/ios/write-runtime-config.mjs": {},
     "scripts/lint-baseline-core.mjs": {},
     "scripts/lint-baseline.mjs": {},
     "scripts/lint-changed-core.mjs": {},
@@ -1147,7 +1144,6 @@
     "server/services/maptiles/index.ts": {
       "@typescript-eslint/no-explicit-any": 2
     },
-    "server/services/mobileApp/generatedConfig.ts": {},
     "server/services/mobileApp/project.ts": {},
     "server/services/mobileApp/readiness.test.ts": {},
     "server/services/mobileApp/readiness.ts": {},
@@ -3529,7 +3525,6 @@
     "src/test/security/mobileBearerAuth.test.ts": {
       "@typescript-eslint/no-explicit-any": 14
     },
-    "src/test/security/mobileRuntimeConfig.test.ts": {},
     "src/test/security/outboundUrlGuard.test.ts": {
       "@typescript-eslint/no-explicit-any": 2
     },

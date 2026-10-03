@@ -23,12 +23,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
-import plist from 'plist';
 
 /** An app-icon catalog: masked by the system, so square and opaque. */
 const CATALOGS = [
   'ios/WebyarNative/Resources/Assets.xcassets/AppIcon.appiconset',
-  'ios/App/App/Assets.xcassets/AppIcon.appiconset',
 ];
 /** Masked by the system too, but a plain file rather than a catalog. */
 const SQUARE_FILES = ['public/apple-touch-icon.png'];
@@ -311,17 +309,7 @@ describe('the bundles that carry an icon', () => {
     ).toMatch(new RegExp(`^\\s*CFBundleIconName:\\s*${CATALOG_NAME}\\s*$`, 'm'));
   });
 
-  it('the Capacitor app names its icon set in its Info.plist', () => {
-    const info = plist.parse(
-      readFileSync('ios/App/App/Info.plist', 'utf8'),
-    ) as Record<string, unknown>;
-    expect(
-      info.CFBundleIconName,
-      'ios/App/App/Info.plist declares no CFBundleIconName',
-    ).toBe(CATALOG_NAME);
-  });
-
-  it('both names match a catalog that exists', () => {
+  it('the name matches a catalog that exists', () => {
     for (const catalog of CATALOGS) {
       expect(
         catalog.endsWith(`${CATALOG_NAME}.appiconset`),

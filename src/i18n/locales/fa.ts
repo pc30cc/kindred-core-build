@@ -3900,7 +3900,7 @@ const fa: TranslationKeys = {
       },
       build: {
         title: 'نسخه و هدف استقرار',
-        caption: 'در ios/generated.xcconfig نوشته می‌شود که پروژه Xcode در هر بیلد آن را می‌خواند.',
+        caption: 'آنچه App Store Connect و چک‌لیست انتظار دارند. نسخهٔ خود اپ در ios/WebyarNative/project.yml است و راهنمای build همین نسخه و شمارهٔ build را در دستور آرشیو می‌گذارد.',
         version: 'نسخه نمایشی',
         versionHint: 'آنچه مشتری می‌بیند، مثلاً ۱.۲.۰. برای هر انتشار عمومی باید افزایش یابد.',
         buildNumber: 'شماره بیلد',
@@ -4146,15 +4146,11 @@ const fa: TranslationKeys = {
           },
           capabilities: {
             title: 'فعال‌سازی قابلیت‌ها',
-            body: 'روی همان App ID، هر قابلیتی را که در تب قابلیت‌ها فعال کرده‌اید علامت بزنید — به‌ویژه Push Notifications. قابلیتی که در اپ هست ولی در App ID نیست، امضا را شکست می‌دهد.',
+            body: 'روی همان App ID قابلیت Push Notifications را فعال کنید؛ این تنها قابلیتی است که اپ اعلام می‌کند (ios/WebyarNative/project.yml). قابلیتی که در اپ باشد ولی روی App ID نباشد، امضا را ناموفق می‌کند.',
           },
           apnsKey: {
             title: 'ساخت کلید APNs',
-            body: 'به Keys → + → Apple Push Notifications service بروید. فایل .p8 را فوراً دانلود کنید: اپل فقط یک بار اجازه دانلود می‌دهد. Key ID و Team ID را همراه آن نگه دارید.',
-          },
-          firebase: {
-            title: 'اتصال Firebase',
-            body: 'در کنسول Firebase یک اپ iOS با همان شناسه باندل بسازید، فایل GoogleService-Info.plist را در ios/App/App/ قرار دهید و فایل .p8 را در بخش Cloud Messaging بارگذاری کنید. سپس FIREBASE_SERVICE_ACCOUNT_JSON را روی سرور API تنظیم کنید.',
+            body: 'Keys → + → Apple Push Notifications service. فایل .p8 را همان لحظه دانلود کنید؛ اپل فقط یک بار اجازهٔ دانلود می‌دهد. روی سرور API متغیرهای APNS_KEY_ID، APNS_TEAM_ID، APNS_PRIVATE_KEY (محتوای فایل) و APNS_BUNDLE_ID را تنظیم کنید؛ تب نمای کلی نشان می‌دهد سرور آن‌ها را دارد یا نه.',
           },
           appStoreConnect: {
             title: 'ساخت رکورد App Store Connect',
@@ -4162,15 +4158,15 @@ const fa: TranslationKeys = {
           },
           configure: {
             title: 'تکمیل همین تنظیمات',
-            body: 'تب‌های همین صفحه را کامل کنید تا چک‌لیست اپ استور هیچ مانعی نداشته باشد، سپس JSON خروجی پایین را در config/ios-app.json کپی و کامیت کنید.',
+            body: 'تب‌های همین صفحه را کامل کنید تا چک‌لیست اپ استور هیچ مانعی نداشته باشد. تنظیمات build خود اپ (شناسهٔ باندل، تیم، نسخه) در ios/WebyarNative/project.yml است.',
           },
           build: {
-            title: 'ساخت بسته وب و همگام‌سازی',
-            body: 'روی مک دستور npm run ios:prepare را اجرا کنید. اپ وب را می‌سازد، Info.plist و entitlements و مانیفست حریم خصوصی و تنظیمات بیلد را از پیکربندی شما می‌نویسد و cap sync را اجرا می‌کند.',
+            title: 'ساخت پروژهٔ Xcode',
+            body: 'روی مک XcodeGen را نصب کنید (brew install xcodegen) و در ios/WebyarNative دستور xcodegen generate را اجرا کنید. پروژه از project.yml ساخته می‌شود و در مخزن نیست، پس بعد از هر pull دوباره اجرایش کنید.',
           },
           archive: {
             title: 'آرشیو در Xcode',
-            body: 'دستور npm run ios:open را بزنید، گزینه Any iOS Device را انتخاب کنید و سپس Product → Archive. ابتدا اپ را روی دستگاه واقعی اجرا و اجرا شدن، ورود و یک اعلان را بررسی کنید.',
+            body: 'فایل WebyarNative.xcodeproj را باز کنید، scheme ‏WebyarNative و Any iOS Device را انتخاب کنید و سپس Product → Archive، با شمارهٔ build بالاتر از آپلود قبلی. ابتدا اپ را روی دستگاه واقعی اجرا و اجرا شدن، ورود و یک اعلان را بررسی کنید.',
           },
           upload: {
             title: 'آپلود بیلد',
@@ -4187,14 +4183,6 @@ const fa: TranslationKeys = {
         },
         commands: 'دستورات بیلد',
         commandsHint: 'این‌ها را روی مکی با Xcode نصب‌شده اجرا کنید.',
-        generated: 'فایل‌های تولیدشده پروژه',
-        generatedHint: 'دقیقاً همان چیزی که npm run ios:sync از این تنظیمات در پروژه Xcode می‌نویسد.',
-        fileXcconfig: 'تنظیمات بیلد',
-        fileInfoPlist: 'Info.plist',
-        fileEntitlements: 'Entitlements',
-        filePrivacy: 'مانیفست حریم خصوصی',
-        export: 'فایل پیکربندی بیلد',
-        exportHint: 'ماشین بیلد پایگاه‌داده ندارد، پس آرشیو از همین فایل کامیت‌شده ساخته می‌شود. هر بار تنظیمی را اینجا تغییر دادید، آن را در config/ios-app.json کپی و کامیت کنید.',
       },
       checks: {
         bundleId: {
@@ -4245,7 +4233,7 @@ const fa: TranslationKeys = {
         launchScreen: {
           title: 'صفحه شروع موجود است',
           requirement: 'هر اپ به استوری‌بورد شروع نیاز دارد تا تمام صفحه را پر کند.',
-          fix: 'توسط ios/App/App/Base.lproj/LaunchScreen.storyboard تأمین می‌شود. آن را در تارگت نگه دارید؛ حذف آن باعث نمایش با حاشیه سیاه می‌شود.',
+          fix: 'به‌صورت UILaunchScreen در ios/WebyarNative/project.yml اعلام شده است. آن را نگه دارید؛ بدون آن اپ با حاشیهٔ سیاه نمایش داده می‌شود.',
         },
         orientations: {
           title: 'حداقل یک جهت',
@@ -4425,7 +4413,7 @@ const fa: TranslationKeys = {
         encryptionDeclaration: {
           title: 'اعلام رمزنگاری در Info.plist',
           requirement: 'کلید ITSAppUsesNonExemptEncryption باعث می‌شود App Store Connect در هر آپلود سؤال نکند.',
-          fix: 'به‌صورت خودکار توسط npm run ios:sync از پاسخ انطباق صادرات در تب انتشار نوشته می‌شود.',
+          fix: 'به‌صورت ITSAppUsesNonExemptEncryption در ios/WebyarNative/project.yml اعلام شده است؛ آن را با پاسخ انطباق صادرات در تب انتشار هماهنگ نگه دارید.',
         },
         noExternalPayments: {
           title: 'بدون لینک پرداخت خارجی',

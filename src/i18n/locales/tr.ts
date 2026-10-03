@@ -3904,7 +3904,7 @@ const tr: TranslationKeys = {
       },
       build: {
         title: 'Sürüm ve dağıtım hedefi',
-        caption: 'Xcode projesinin her derlemede okuduğu ios/generated.xcconfig dosyasına yazılır.',
+        caption: 'App Store Connect’in ve kontrol listesinin beklediği değerler. Uygulamanın kendi kopyası ios/WebyarNative/project.yml içindedir; derleme kılavuzu bu sürümü ve derleme numarasını arşiv komutuna ekler.',
         version: 'Pazarlama sürümü',
         versionHint: 'Müşterilerin gördüğü değer, örn. 1.2.0. Her genel sürümde artmalıdır.',
         buildNumber: 'Derleme numarası',
@@ -4150,15 +4150,11 @@ const tr: TranslationKeys = {
           },
           capabilities: {
             title: 'Yetenekleri etkinleştirin',
-            body: 'O App ID üzerinde, Yetenekler sekmesinde açtığınız her yeteneği işaretleyin — özellikle Push Notifications. Uygulamada olup App ID’de olmayan bir yetenek imzalamayı bozar.',
+            body: 'Bu App ID üzerinde Push Notifications’ı etkinleştirin: uygulamanın bildirdiği tek yetenek budur (ios/WebyarNative/project.yml). Uygulamada olup App ID’de olmayan bir yetenek imzalamayı başarısız kılar.',
           },
           apnsKey: {
             title: 'APNs anahtarını oluşturun',
-            body: 'Keys → + → Apple Push Notifications service. .p8 dosyasını hemen indirin: Apple yalnızca bir kez indirmenize izin verir. Key ID ve Takım Kimliğinizi yanında saklayın.',
-          },
-          firebase: {
-            title: 'Firebase’i bağlayın',
-            body: 'Firebase konsolunda aynı paket tanımlayıcısıyla bir iOS uygulaması ekleyin, GoogleService-Info.plist dosyasını ios/App/App/ klasörüne indirin ve .p8 dosyasını Cloud Messaging altında yükleyin. Ardından API sunucusunda FIREBASE_SERVICE_ACCOUNT_JSON değerini ayarlayın.',
+            body: 'Keys → + → Apple Push Notifications service. .p8 dosyasını hemen indirin: Apple yalnızca bir kez indirmenize izin verir. API sunucusunda APNS_KEY_ID, APNS_TEAM_ID, APNS_PRIVATE_KEY (dosyanın içeriği) ve APNS_BUNDLE_ID değerlerini ayarlayın; sunucunun bunlara sahip olup olmadığını Genel Bakış sekmesi gösterir.',
           },
           appStoreConnect: {
             title: 'App Store Connect kaydını oluşturun',
@@ -4166,15 +4162,15 @@ const tr: TranslationKeys = {
           },
           configure: {
             title: 'Bu ayarları doldurun',
-            body: 'Buradaki sekmeleri, App Store kontrol listesinde engel kalmayana kadar tamamlayın, ardından aşağıdaki dışa aktarılan JSON’u config/ios-app.json dosyasına kopyalayıp commit edin.',
+            body: 'App Store kontrol listesinde engel kalmayana kadar buradaki sekmeleri tamamlayın. Uygulamanın kendi derleme ayarları (paket tanımlayıcısı, takım, sürüm) ios/WebyarNative/project.yml içindedir.',
           },
           build: {
-            title: 'Web paketini derleyin ve eşitleyin',
-            body: 'Bir Mac’te npm run ios:prepare komutunu çalıştırın. Web uygulamasını derler, yapılandırmanızdan Info.plist, yetkilendirmeler, gizlilik bildirimi ve derleme ayarlarını yazar ve cap sync çalıştırır.',
+            title: 'Xcode projesini oluşturun',
+            body: 'Bir Mac’te XcodeGen’i kurun (brew install xcodegen) ve ios/WebyarNative içinde xcodegen generate komutunu çalıştırın. Proje project.yml’den üretilir ve depoya eklenmez, bu yüzden her pull’dan sonra yeniden çalıştırın.',
           },
           archive: {
             title: 'Xcode’da arşivleyin',
-            body: 'npm run ios:open komutunu çalıştırın, Any iOS Device seçin, sonra Product → Archive. Önce uygulamayı gerçek bir cihazda çalıştırıp açılışı, girişi ve bir bildirimi kontrol edin.',
+            body: 'WebyarNative.xcodeproj’u açın, WebyarNative şemasını ve Any iOS Device’ı seçin, ardından son yüklemeden yüksek bir derleme numarasıyla Product → Archive. Önce uygulamayı gerçek bir cihazda çalıştırın ve açılışı, oturum açmayı ve bir bildirimi kontrol edin.',
           },
           upload: {
             title: 'Derlemeyi yükleyin',
@@ -4191,14 +4187,6 @@ const tr: TranslationKeys = {
         },
         commands: 'Derleme komutları',
         commandsHint: 'Bunları Xcode kurulu bir Mac’te çalıştırın.',
-        generated: 'Oluşturulan proje dosyaları',
-        generatedHint: 'npm run ios:sync komutunun bu ayarlardan Xcode projesine tam olarak yazdığı içerik.',
-        fileXcconfig: 'Derleme ayarları',
-        fileInfoPlist: 'Info.plist',
-        fileEntitlements: 'Yetkilendirmeler',
-        filePrivacy: 'Gizlilik bildirimi',
-        export: 'Derleme yapılandırma dosyası',
-        exportHint: 'Derleme makinesinin veritabanı yoktur, bu yüzden arşiv bu commit’lenmiş dosyadan üretilir. Burada bir ayarı her değiştirdiğinizde config/ios-app.json dosyasına kopyalayıp commit edin.',
       },
       checks: {
         bundleId: {
@@ -4249,7 +4237,7 @@ const tr: TranslationKeys = {
         launchScreen: {
           title: 'Açılış ekranı mevcut',
           requirement: 'Her uygulamanın tüm ekranı doldurabilmesi için bir açılış storyboard’u gerekir.',
-          fix: 'ios/App/App/Base.lproj/LaunchScreen.storyboard tarafından sağlanır. Hedefte tutun; kaldırmak uygulamanın siyah kenarlıkla görünmesine yol açar.',
+          fix: 'ios/WebyarNative/project.yml içinde UILaunchScreen olarak bildirilmiştir. Koruyun; o olmadan uygulama siyah kenarlıkla görünür.',
         },
         orientations: {
           title: 'En az bir yön',
@@ -4429,7 +4417,7 @@ const tr: TranslationKeys = {
         encryptionDeclaration: {
           title: 'Şifreleme Info.plist’te beyan edildi',
           requirement: 'ITSAppUsesNonExemptEncryption, App Store Connect’in her yüklemede sormasını engeller.',
-          fix: 'Yayın sekmesindeki ihracat uyumluluğu yanıtından npm run ios:sync tarafından otomatik olarak yazılır.',
+          fix: 'ios/WebyarNative/project.yml içinde ITSAppUsesNonExemptEncryption olarak bildirilmiştir; Yayın sekmesindeki ihracat uyumluluğu yanıtıyla uyumlu tutun.',
         },
         noExternalPayments: {
           title: 'Harici ödeme bağlantısı yok',

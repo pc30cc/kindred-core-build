@@ -1,7 +1,7 @@
 /**
- * Capabilities and entitlements. Each switch here adds a real entitlement to
- * `ios/App/App/App.entitlements` — enabling one that the App ID does not
- * carry in the Apple Developer portal fails the build, which is exactly why
+ * Capabilities and entitlements: what the app declares to Apple. The native
+ * app's entitlements live in ios/WebyarNative/project.yml, and one the App ID
+ * does not carry in the Apple Developer portal fails signing, which is why
  * the hints name the portal step next to each toggle.
  */
 import { Bell, KeyRound, ToggleRight, Camera } from 'lucide-react';

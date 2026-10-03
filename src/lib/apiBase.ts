@@ -52,11 +52,9 @@ function runtimeApiBase(): string | undefined {
  *
  * The bundled iOS app serves its own assets from `capacitor://localhost`,
  * so "same origin" is the app itself and an empty `apiBaseUrl` would make
- * every API call fail. `mobileApiBaseUrl` is written deterministically into
- * `runtime-config.js` at build/sync time (scripts/ios/write-runtime-config.mjs
- * + config/mobile-runtime.json), so `npx cap sync ios` can never reset the
- * iOS API base to empty and nobody has to hand-edit the copy under
- * `ios/App/App/public/`.
+ * every API call fail. `mobileApiBaseUrl` was written into `runtime-config.js`
+ * when that shell was built. The shell has since been replaced by the native
+ * app (ios/WebyarNative), which reads config/mobile-runtime.json itself.
  */
 function runtimeMobileApiBase(): string | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -69,7 +67,8 @@ function runtimeMobileApiBase(): string | undefined {
 
 function isNativeRuntime(): boolean {
   try {
-    const cap = (window as any)?.Capacitor;
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean; isNative?: boolean } })
+      .Capacitor;
     return Boolean(cap?.isNativePlatform?.() ?? cap?.isNative);
   } catch {
     return false;

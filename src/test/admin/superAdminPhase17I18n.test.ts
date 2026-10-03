@@ -51,7 +51,6 @@ const files = [
  */
 const technicalCopy = new Set([
   'Info.plist', 'PrivacyInfo.xcprivacy', 'App.entitlements', 'GoogleService-Info.plist',
-  'ios/generated.xcconfig', 'config/ios-app.json', 'npm run ios:sync',
   // The scheme every link field requires, shown as its placeholder.
   'https://',
 ]);

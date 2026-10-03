@@ -212,10 +212,9 @@ describe('native app — background modes are earned', () => {
 });
 
 describe('native app — export compliance agrees with the platform', () => {
-  it('answers exactly what Super Admin derives for the other binary', () => {
-    // generatedConfig.ts builds the Capacitor app's value as
-    // `uses_encryption && !encryption_exempt`. Both binaries are the same
-    // product making the same export claim, so a hardcoded answer here that
+  it('answers exactly what Super Admin derives', () => {
+    // Super Admin's export-compliance answer is
+    // `uses_encryption && !encryption_exempt`. A hardcoded answer here that
     // disagrees with the platform's is the kind of thing nobody notices until
     // a compliance question arrives.
     const derived = MOBILE_APP_DEFAULTS.uses_encryption && !MOBILE_APP_DEFAULTS.encryption_exempt;

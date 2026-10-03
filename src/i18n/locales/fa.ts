@@ -3804,14 +3804,15 @@ const fa: TranslationKeys = {
         },
         appCard: 'این اپلیکیشن',
         environmentCard: 'وضعیت استقرار',
-        environmentHint: 'آنچه این سرور واقعاً می‌بیند — کلیدها در محیط آن و فایل‌ها در پروژه نیتیو.',
+        environmentHint: 'آنچه این سرور می‌بیند: کلیدهای پوش در محیط آن، و پروژهٔ نیتیو iOS ‏(ios/WebyarNative) همان‌طور که با این نسخه مستقر شده است.',
+        sandbox: 'Sandbox',
         env: {
-          pushConfigured: 'کلید پوش (سرور)',
-          nativeProject: 'پروژه Xcode موجود است',
-          googleServicePlist: 'GoogleService-Info.plist',
+          apnsConfigured: 'کلید APNs (پوش iOS)',
+          pushConfigured: 'کلید Firebase (پوش اندروید)',
+          nativeProject: 'پروژهٔ نیتیو iOS',
           appIcon: 'آیکون ۱۰۲۴×۱۰۲۴',
           privacyManifestFile: 'PrivacyInfo.xcprivacy',
-          entitlementsFile: 'App.entitlements',
+          pushEntitlement: 'Entitlement پوش (aps-environment)',
         },
         blockersTitle: 'مانع ارسال',
         openChecklist: 'باز کردن چک‌لیست',
@@ -4239,7 +4240,7 @@ const fa: TranslationKeys = {
         appIcon: {
           title: 'آیکون اپ کامل است',
           requirement: 'یک PNG با ابعاد ۱۰۲۴×۱۰۲۴ بدون کانال آلفا و بدون گوشه گرد.',
-          fix: 'آن را در ios/App/App/Assets.xcassets/AppIcon.appiconset قرار دهید. شفافیت رایج‌ترین دلیل شکست آپلود است؛ تصویر را روی پس‌زمینه یکدست تخت کنید.',
+          fix: 'آن را در ios/WebyarNative/Resources/Assets.xcassets/AppIcon.appiconset قرار دهید و سپس npm run ios:project-facts را اجرا کنید. شفافیت رایج‌ترین دلیل شکست آپلود است؛ تصویر را روی پس‌زمینهٔ یکدست تخت کنید.',
         },
         launchScreen: {
           title: 'صفحه شروع موجود است',
@@ -4304,7 +4305,7 @@ const fa: TranslationKeys = {
         privacyManifest: {
           title: 'مانیفست حریم خصوصی موجود است',
           requirement: 'فایل PrivacyInfo.xcprivacy که هر API نیازمند دلیل را اعلام می‌کند.',
-          fix: 'دستور npm run ios:sync را اجرا کنید — مانیفست را از همین تنظیمات می‌سازد و در تارگت اپ می‌نویسد. اپل آپلود بدون آن را رد می‌کند.',
+          fix: 'فایل ios/WebyarNative/Resources/PrivacyInfo.xcprivacy را با APIهای نیازمند دلیلی که اینجا فهرست شده‌اند هماهنگ نگه دارید؛ این فایل در تارگت اپ قرار می‌گیرد. اپل آپلود بدون آن را رد می‌کند.',
         },
         privacyNutritionLabels: {
           title: 'پاسخ‌های App Privacy اعلام شده',
@@ -4398,28 +4399,18 @@ const fa: TranslationKeys = {
         },
         pushCapability: {
           title: 'قابلیت پوش فعال است',
-          requirement: 'تارگت اپ دارای entitlement اعلان پوش است.',
-          fix: 'در تب قابلیت‌ها روشن کنید و Push Notifications را روی App ID در پورتال Apple Developer فعال کنید.',
+          requirement: 'entitlementهای تارگت اپ aps-environment را اعلام می‌کنند.',
+          fix: 'aps-environment را زیر entitlements در ios/WebyarNative/project.yml نگه دارید (XcodeGen آن را در build می‌نویسد) و Push Notifications را روی App ID در پورتال Apple Developer فعال کنید.',
         },
         pushBackgroundMode: {
-          title: 'حالت پس‌زمینه اعلان از راه دور',
-          requirement: 'برای اینکه اعلان پیش از نمایش بنر اپ را بیدار کند لازم است.',
-          fix: 'دریافت اعلان در پس‌زمینه را در تب قابلیت‌ها فعال کنید.',
+          title: 'حالت پس‌زمینهٔ بی‌استفاده برای پوش اعلام نشده',
+          requirement: 'اپ اعلان نمایش می‌دهد و اعلان بی‌صدا نمی‌فرستد، پس نباید حالت پس‌زمینهٔ remote-notification را اعلام کند: App Review به حالت‌های پس‌زمینه‌ای که اپ از آن‌ها استفاده نمی‌کند ایراد می‌گیرد.',
+          fix: 'remote-notification را از UIBackgroundModes در ios/WebyarNative/project.yml بردارید و سپس npm run ios:project-facts را اجرا کنید.',
         },
         pushServerCredentials: {
-          title: 'کلیدهای پوش روی سرور',
-          requirement: 'بک‌اند باید سرویس‌اکانت Firebase داشته باشد تا بتواند اعلان بفرستد.',
-          fix: 'متغیر FIREBASE_SERVICE_ACCOUNT_JSON را روی سرور API تنظیم کنید و سپس در بخش اعلان‌ها → وضعیت آن را تأیید کنید. کلیدها هرگز در پایگاه‌داده ذخیره نمی‌شوند.',
-        },
-        pushFirebasePlist: {
-          title: 'فایل GoogleService-Info.plist در تارگت',
-          requirement: 'اپ iOS برای گرفتن توکن به فایل پیکربندی Firebase نیاز دارد.',
-          fix: 'آن را از کنسول Firebase برای همین شناسه باندل دانلود و در ios/App/App/GoogleService-Info.plist قرار دهید و به تارگت App اضافه کنید.',
-        },
-        pushApnsKey: {
-          title: 'کلید APNs در Firebase بارگذاری شده',
-          requirement: 'Firebase از طریق APNs به iOS تحویل می‌دهد و به کلید احراز APNs شما نیاز دارد.',
-          fix: 'به Apple Developer → Keys بروید و یک کلید APNs بسازید (فایل .p8 فقط یک بار دانلود می‌شود). آن را در Firebase → Project settings → Cloud Messaging → Apple app configuration همراه با Key ID و Team ID بارگذاری کنید.',
+          title: 'کلید APNs روی سرور',
+          requirement: 'سرور API اعلان‌های اپ iOS را با کلید احراز APNs شما مستقیم به اپل می‌فرستد، روی درگاه production که buildهای TestFlight و App Store از آن استفاده می‌کنند.',
+          fix: 'در Apple Developer → Keys یک کلید APNs بسازید (فایل .p8 فقط یک بار دانلود می‌شود). روی سرور API متغیرهای APNS_KEY_ID، APNS_TEAM_ID، APNS_PRIVATE_KEY (محتوای فایل .p8) و APNS_BUNDLE_ID را تنظیم کنید و APNS_ENVIRONMENT را خالی بگذارید: sandbox فقط برای buildی است که از Xcode اجرا می‌شود. کلیدها هرگز در پایگاه‌داده ذخیره نمی‌شوند.',
         },
         pushNotRequiredForUse: {
           title: 'استفاده از اپ نیازمند پوش نیست',

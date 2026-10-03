@@ -3808,14 +3808,15 @@ const tr: TranslationKeys = {
         },
         appCard: 'Bu uygulama',
         environmentCard: 'Dağıtım durumu',
-        environmentHint: 'Bu sunucunun gerçekten görebildikleri — ortamındaki kimlik bilgileri ve yerel projedeki dosyalar.',
+        environmentHint: 'Bu sunucunun gördükleri: ortamındaki push anahtarları ve bu dağıtımla gelen yerel iOS projesi (ios/WebyarNative).',
+        sandbox: 'Sandbox',
         env: {
-          pushConfigured: 'Push kimlik bilgileri (sunucu)',
-          nativeProject: 'Xcode projesi mevcut',
-          googleServicePlist: 'GoogleService-Info.plist',
+          apnsConfigured: 'APNs anahtarı (iOS push)',
+          pushConfigured: 'Firebase anahtarı (Android push)',
+          nativeProject: 'Yerel iOS projesi',
           appIcon: '1024×1024 uygulama simgesi',
           privacyManifestFile: 'PrivacyInfo.xcprivacy',
-          entitlementsFile: 'App.entitlements',
+          pushEntitlement: 'Push yetkilendirmesi (aps-environment)',
         },
         blockersTitle: 'Gönderimi engelleyenler',
         openChecklist: 'Kontrol listesini aç',
@@ -4243,7 +4244,7 @@ const tr: TranslationKeys = {
         appIcon: {
           title: 'Uygulama simgesi eksiksiz',
           requirement: 'Alfa kanalı ve yuvarlatılmış köşesi olmayan 1024×1024 PNG.',
-          fix: 'ios/App/App/Assets.xcassets/AppIcon.appiconset klasörüne ekleyin. Şeffaflık en yaygın yükleme hatasıdır; görseli düz bir arka plan üzerine düzleştirin.',
+          fix: 'ios/WebyarNative/Resources/Assets.xcassets/AppIcon.appiconset klasörüne ekleyin, ardından npm run ios:project-facts komutunu çalıştırın. Şeffaflık en yaygın yükleme hatasıdır; görseli düz bir arka plan üzerine düzleştirin.',
         },
         launchScreen: {
           title: 'Açılış ekranı mevcut',
@@ -4308,7 +4309,7 @@ const tr: TranslationKeys = {
         privacyManifest: {
           title: 'Gizlilik bildirimi mevcut',
           requirement: 'Uygulamanın çağırdığı her gerekçeli API’yi bildiren PrivacyInfo.xcprivacy.',
-          fix: 'npm run ios:sync komutunu çalıştırın — bildirimi bu ayarlardan üretip uygulama hedefine yazar. Apple bu dosya olmadan yüklemeleri reddeder.',
+          fix: 'ios/WebyarNative/Resources/PrivacyInfo.xcprivacy dosyasını burada listelenen gerekçeli API’lerle uyumlu tutun; dosya uygulama hedefine eklenir. Apple bu dosya olmadan yüklemeleri reddeder.',
         },
         privacyNutritionLabels: {
           title: 'App Privacy yanıtları beyan edildi',
@@ -4402,28 +4403,18 @@ const tr: TranslationKeys = {
         },
         pushCapability: {
           title: 'Push yeteneği etkin',
-          requirement: 'Uygulama hedefi push bildirimi yetkilendirmesini taşıyor.',
-          fix: 'Yetenekler sekmesinde açın ve Apple Developer portalında App ID üzerinde Push Notifications’ı etkinleştirin.',
+          requirement: 'Uygulama hedefinin yetkilendirmeleri aps-environment bildiriyor.',
+          fix: 'ios/WebyarNative/project.yml içinde entitlements altında aps-environment’ı koruyun (XcodeGen bunu derlemeye yazar) ve Apple Developer portalında App ID üzerinde Push Notifications’ı etkinleştirin.',
         },
         pushBackgroundMode: {
-          title: 'Uzak bildirim arka plan modu',
-          requirement: 'Bir bildirimin, başlık gösterilmeden önce uygulamayı uyandırması için gerekir.',
-          fix: 'Yetenekler sekmesinde arka planda uzak bildirimi etkinleştirin.',
+          title: 'Push için kullanılmayan arka plan modu yok',
+          requirement: 'Uygulama bildirim gösterir ve sessiz bildirim göndermez; bu yüzden remote-notification arka plan modunu bildirmemelidir: App Review, uygulamanın kullanmadığı arka plan modlarını işaretler.',
+          fix: 'ios/WebyarNative/project.yml içindeki UIBackgroundModes’tan remote-notification’ı kaldırın, ardından npm run ios:project-facts komutunu çalıştırın.',
         },
         pushServerCredentials: {
-          title: 'Sunucu push kimlik bilgileri',
-          requirement: 'Arka uç, bildirim gönderebilmek için bir Firebase servis hesabı tutar.',
-          fix: 'API sunucusunda FIREBASE_SERVICE_ACCOUNT_JSON değerini ayarlayın, ardından Bildirimler → Durum bölümünden doğrulayın. Kimlik bilgileri asla veritabanında saklanmaz.',
-        },
-        pushFirebasePlist: {
-          title: 'Hedefte GoogleService-Info.plist',
-          requirement: 'iOS uygulamasının belirteç alabilmesi için Firebase yapılandırma dosyası gerekir.',
-          fix: 'Firebase konsolundan bu paket tanımlayıcısı için indirin ve App hedefine ekli olacak şekilde ios/App/App/GoogleService-Info.plist konumuna koyun.',
-        },
-        pushApnsKey: {
-          title: 'APNs anahtarı Firebase’e yüklendi',
-          requirement: 'Firebase iOS’a APNs üzerinden teslim eder ve APNs kimlik doğrulama anahtarınıza ihtiyaç duyar.',
-          fix: 'Apple Developer → Keys bölümünde bir APNs anahtarı oluşturun (.p8, yalnızca bir kez indirilebilir). Firebase → Project settings → Cloud Messaging → Apple app configuration bölümüne Key ID ve Takım Kimliğinizle birlikte yükleyin.',
+          title: 'Sunucuda APNs kimlik bilgileri',
+          requirement: 'API sunucusu iOS uygulamasının bildirimlerini APNs kimlik doğrulama anahtarınızla doğrudan Apple’a, TestFlight ve App Store derlemelerinin kullandığı production ağ geçidi üzerinden gönderir.',
+          fix: 'Apple Developer → Keys bölümünde bir APNs anahtarı oluşturun (.p8, yalnızca bir kez indirilebilir). API sunucusunda APNS_KEY_ID, APNS_TEAM_ID, APNS_PRIVATE_KEY (.p8 dosyasının içeriği) ve APNS_BUNDLE_ID değerlerini ayarlayın, APNS_ENVIRONMENT’ı boş bırakın: sandbox yalnızca Xcode’dan çalıştırılan derlemeler içindir. Anahtarlar asla veritabanında saklanmaz.',
         },
         pushNotRequiredForUse: {
           title: 'Uygulamayı kullanmak için push gerekmiyor',

@@ -6,11 +6,13 @@ import { buildEntitlements, buildInfoPlist, buildXcconfig, toPlistXml } from './
 function input(overrides: Partial<MobileAppSettings> = {}, rest: Partial<ReadinessInput> = {}): ReadinessInput {
   return {
     settings: { ...MOBILE_APP_DEFAULTS, ...overrides },
-    pushConfigured: true,
+    apnsConfigured: true,
+    apnsSandbox: false,
     nativeProjectAvailable: true,
-    googleServicePlistPresent: true,
     appIconPresent: true,
     privacyManifestFilePresent: true,
+    pushEntitlementPresent: true,
+    backgroundModes: ['audio'],
     requiresLogin: true,
     ...rest,
   };
@@ -64,6 +66,40 @@ describe('App Store readiness', () => {
     expect(verdict(evaluateReadiness(input({}, { appIconPresent: false })), 'appIcon')).toBe('fail');
   });
 
+  it('wants the APNs key on the server, on the production gateway', () => {
+    expect(verdict(evaluateReadiness(input()), 'pushServerCredentials')).toBe('pass');
+    expect(verdict(evaluateReadiness(input({}, { apnsConfigured: false })), 'pushServerCredentials')).toBe('fail');
+    // A sandbox gateway rejects the tokens of TestFlight and App Store builds.
+    const sandbox = evaluateReadiness(input({}, { apnsSandbox: true }));
+    expect(verdict(sandbox, 'pushServerCredentials')).toBe('fail');
+    expect(sandbox.find((c) => c.id === 'pushServerCredentials')?.evidence).toBe('sandbox');
+    expect(
+      verdict(evaluateReadiness(input({ cap_push_notifications: false }, { apnsConfigured: false })), 'pushServerCredentials'),
+    ).toBe('pass');
+  });
+
+  it('reads the push capability from the native project\'s entitlements', () => {
+    expect(verdict(evaluateReadiness(input()), 'pushCapability')).toBe('pass');
+    expect(verdict(evaluateReadiness(input({}, { pushEntitlementPresent: false })), 'pushCapability')).toBe('fail');
+    expect(
+      verdict(evaluateReadiness(input({}, { nativeProjectAvailable: false, pushEntitlementPresent: false })), 'pushCapability'),
+    ).toBe('manual');
+  });
+
+  it('flags a silent-push background mode the app never uses', () => {
+    expect(verdict(evaluateReadiness(input()), 'pushBackgroundMode')).toBe('pass');
+    const declared = evaluateReadiness(input({}, { backgroundModes: ['audio', 'remote-notification'] }));
+    expect(verdict(declared, 'pushBackgroundMode')).toBe('fail');
+    // The setting of that name is the old Capacitor shell's, not the app's.
+    expect(verdict(evaluateReadiness(input({ cap_background_remote_notifications: false })), 'pushBackgroundMode')).toBe('pass');
+  });
+
+  it('no longer asks for Firebase files the native app does not use', () => {
+    const ids = evaluateReadiness(input()).map((c) => c.id);
+    expect(ids).not.toContain('pushFirebasePlist');
+    expect(ids).not.toContain('pushApnsKey');
+  });
+
   it('requires a demo account while the app is behind a login', () => {
     expect(verdict(evaluateReadiness(input()), 'demoAccount')).toBe('fail');
     expect(
@@ -103,7 +139,7 @@ describe('App Store readiness', () => {
           checklist: Object.fromEntries(
             [
               'screenshots', 'ageRating', 'storeDescription', 'keywords', 'demoAccountPassword',
-              'pushApnsKey', 'dataSafetyAccuracy', 'crashFree', 'deviceTested',
+              'dataSafetyAccuracy', 'crashFree', 'deviceTested',
             ].map((key) => [key, { done: true }]),
           ),
         }),

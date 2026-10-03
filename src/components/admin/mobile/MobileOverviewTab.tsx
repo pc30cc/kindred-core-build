@@ -30,14 +30,20 @@ export function MobileOverviewTab({
     { key: 'blockers', value: summary.blockers, icon: AlertTriangle, tone: 'text-destructive' },
   ] as const;
 
+  // A key on Apple's sandbox gateway is present but wrong for an App Store
+  // build, so it reads as a warning with its own word.
   const env = [
+    {
+      key: 'apnsConfigured',
+      ok: environment.apns.configured && environment.apns.environment === 'production',
+      label: environment.apns.environment === 'sandbox' ? t('admin.mobileApp.overview.sandbox') : undefined,
+    },
     { key: 'pushConfigured', ok: environment.pushConfigured },
     { key: 'nativeProject', ok: environment.nativeProject.available },
-    { key: 'googleServicePlist', ok: environment.nativeProject.googleServicePlist },
     { key: 'appIcon', ok: environment.nativeProject.appIcon1024 },
     { key: 'privacyManifestFile', ok: environment.nativeProject.privacyManifestFile },
-    { key: 'entitlementsFile', ok: environment.nativeProject.entitlementsFile },
-  ] as const;
+    { key: 'pushEntitlement', ok: environment.nativeProject.pushEntitlement },
+  ];
 
   return (
     <div className="space-y-4">
@@ -143,7 +149,7 @@ export function MobileOverviewTab({
                 ) : (
                   <span className="flex items-center gap-1 text-xs font-medium text-amber-600">
                     <CircleDashed className="h-3.5 w-3.5" />
-                    {t('admin.mobileApp.common.missing')}
+                    {entry.label ?? t('admin.mobileApp.common.missing')}
                   </span>
                 )}
               </div>

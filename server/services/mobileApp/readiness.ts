@@ -46,20 +46,27 @@ export interface ReadinessCheck {
 
 export interface ReadinessInput {
   settings: MobileAppSettings;
-  /** FCM service account present in the server environment. */
-  pushConfigured: boolean;
   /**
-   * False when this deployment has no `ios/` checkout at all (the API image
-   * does not ship one). Every file-backed check then reports `manual`: the
-   * server cannot honestly fail a file it was never given.
+   * APNs auth key present in the server environment. The native app's
+   * notifications go to Apple directly (server/services/push/apns.ts).
+   */
+  apnsConfigured: boolean;
+  /** The server sends to Apple's sandbox gateway, which App Store builds' tokens do not belong to. */
+  apnsSandbox: boolean;
+  /**
+   * False when nothing is known about the native project (no checkout and
+   * no facts file, see project.ts). Every file-backed check then reports
+   * `manual`: the server cannot honestly fail a file it was never given.
    */
   nativeProjectAvailable: boolean;
-  /** GoogleService-Info.plist committed to the iOS target. */
-  googleServicePlistPresent: boolean;
   /** 1024×1024 marketing icon present in the asset catalog. */
   appIconPresent: boolean;
   /** PrivacyInfo.xcprivacy present in the iOS target. */
   privacyManifestFilePresent: boolean;
+  /** The target's entitlements declare `aps-environment`. */
+  pushEntitlementPresent: boolean;
+  /** The app's UIBackgroundModes. */
+  backgroundModes: string[];
   /** The app forces sign-in before any content is reachable. */
   requiresLogin: boolean;
 }
@@ -287,21 +294,30 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessCheck[] {
 
   // ── Push ──────────────────────────────────────────────────────────────
   const pushOn = s.cap_push_notifications;
-  add('pushCapability', 'push', pushOn ? 'blocker' : 'info', pushOn ? 'pass' : 'manual');
+  add(
+    'pushCapability',
+    'push',
+    pushOn ? 'blocker' : 'info',
+    pushOn ? fileVerdict(input, input.pushEntitlementPresent) : 'manual',
+  );
+  // The app shows notifications and sends no silent ones, so it has no use
+  // for the remote-notification background mode, and App Review looks for
+  // background modes an app declares but does not use.
   add(
     'pushBackgroundMode',
     'push',
-    'blocker',
-    !pushOn || s.cap_background_remote_notifications ? 'pass' : 'fail',
+    'warning',
+    fileVerdict(input, !input.backgroundModes.includes('remote-notification')),
+    input.backgroundModes.join(','),
+    '2.5.4',
   );
-  add('pushServerCredentials', 'push', 'blocker', !pushOn || input.pushConfigured ? 'pass' : 'fail');
   add(
-    'pushFirebasePlist',
+    'pushServerCredentials',
     'push',
     'blocker',
-    !pushOn ? 'pass' : fileVerdict(input, input.googleServicePlistPresent),
+    !pushOn || (input.apnsConfigured && !input.apnsSandbox) ? 'pass' : 'fail',
+    !input.apnsConfigured ? 'missing' : input.apnsSandbox ? 'sandbox' : 'production',
   );
-  add('pushApnsKey', 'push', 'blocker', !pushOn ? 'pass' : ack(s, 'pushApnsKey'));
   add('pushNotRequiredForUse', 'push', 'warning', 'pass', undefined, '4.5.4');
 
   // ── Compliance ────────────────────────────────────────────────────────

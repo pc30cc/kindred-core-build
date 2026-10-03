@@ -1,11 +1,14 @@
 /**
- * 248 — the account App Review signs in with, against real PostgreSQL.
+ * 248 and 249 — the account App Review signs in with, against real
+ * PostgreSQL.
  *
  * The seed has to be safe to run before every submission: it brings the
  * account back after App Review deleted it, replaces the demo content
  * without duplicating it, and never turns a blocked account back on.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { PgQueryable } from './pgMigrationChain';
 import { ensureAuthChainInstalled } from './authStubSchema';
 
@@ -186,11 +189,32 @@ suite('248 — app_review_seed / app_review_set_enabled (real PostgreSQL)', () =
       SELECT p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
              has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authed
         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname LIKE 'app_review_%'`);
-    expect(grants.rows.length).toBe(4);
-    for (const row of grants.rows as Array<{ anon: boolean; authed: boolean }>) {
+       WHERE n.nspname = 'public' AND p.proname LIKE 'app\\_review\\_%'
+       ORDER BY p.proname`);
+    const rows = grants.rows as Array<{ proname: string; anon: boolean; authed: boolean }>;
+    expect(rows.map((r) => r.proname)).toEqual([
+      'app_review_keep_visitors_live', 'app_review_seed', 'app_review_seed_contacts', 'app_review_seed_inbox',
+      'app_review_seed_inbox_more', 'app_review_seed_page_views', 'app_review_seed_people', 'app_review_seed_plan',
+      'app_review_seed_team', 'app_review_seed_thread', 'app_review_seed_title', 'app_review_seed_traffic',
+      'app_review_seed_visitors', 'app_review_seed_workspace', 'app_review_set_enabled', 'app_review_status',
+    ]);
+    for (const row of rows) {
       expect(row.anon).toBe(false);
       expect(row.authed).toBe(false);
+    }
+  });
+});
+
+describe('249 — the seed applies in small parts', () => {
+  // The hosted project is reached through a connection that drops a
+  // request much over 4 KB, so each function, with its grants, has to stay
+  // under that to be applied on its own.
+  it('keeps every function of the migration under 4 KB', () => {
+    const sql = readFileSync(resolve(process.cwd(), 'supabase/migrations/20261003150000_app_review_seed_compact.sql'), 'utf8');
+    const parts = sql.split(/(?<=TO service_role;\n)/).filter((part) => part.includes('CREATE OR REPLACE FUNCTION'));
+    expect(parts).toHaveLength(13);
+    for (const part of parts) {
+      expect(Buffer.byteLength(part, 'utf8'), part.match(/FUNCTION public\.(\w+)/)?.[1]).toBeLessThan(4096);
     }
   });
 });

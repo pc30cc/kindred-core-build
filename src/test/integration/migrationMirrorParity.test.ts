@@ -409,6 +409,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/248_app_review_account.sql',
     hosted: 'supabase/migrations/20261003120000_app_review_account.sql',
   },
+  {
+    label: '249 — the App Review demo seed, smaller and in parts',
+    selfHost: 'database/migrations/249_app_review_seed_compact.sql',
+    hosted: 'supabase/migrations/20261003150000_app_review_seed_compact.sql',
+  },
 
   // intentionally asymmetric, not a drift bug.
 

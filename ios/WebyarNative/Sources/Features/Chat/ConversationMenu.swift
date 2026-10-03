@@ -59,10 +59,7 @@ struct ConversationMenu: View {
                             // A checkmark rather than a `Picker`: the value
                             // only changes once the server has taken it, and a
                             // picker's binding would claim it already had.
-                            Label(
-                                status.title(language),
-                                systemImage: status == model.status ? "checkmark" : ""
-                            )
+                            CheckedMenuLabel(title: status.title(language), checked: status == model.status)
                         }
                     }
                 } label: {
@@ -77,10 +74,7 @@ struct ConversationMenu: View {
                         Button {
                             onPriority(priority)
                         } label: {
-                            Label(
-                                priority.title(language),
-                                systemImage: priority == model.priority ? "checkmark" : ""
-                            )
+                            CheckedMenuLabel(title: priority.title(language), checked: priority == model.priority)
                         }
                     }
                 } label: {
@@ -184,6 +178,23 @@ extension ConversationPriority {
         case .normal: Str.priorityNormal(language)
         case .high: Str.priorityHigh(language)
         case .urgent: Str.priorityUrgent(language)
+        }
+    }
+}
+
+/// A menu row with a checkmark when it is the current choice. The other rows
+/// carry no image at all: an empty symbol name is not "no image" to SwiftUI,
+/// which looks it up and logs "No symbol named '' found in system symbol set"
+/// for every such row, every time the menu is rebuilt.
+private struct CheckedMenuLabel: View {
+    let title: String
+    let checked: Bool
+
+    var body: some View {
+        if checked {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
         }
     }
 }

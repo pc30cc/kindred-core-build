@@ -748,7 +748,13 @@ actor SampleAPI: WebyarAPI {
 
     /// The sample platform names no default language: a sample run is in
     /// the one it was launched with.
-    func mobilePublicConfig() async -> MobilePublicConfig? { nil }
+    /// Legal links only: a sample run's language is its launch argument's.
+    func mobilePublicConfig() async -> MobilePublicConfig? {
+        MobilePublicConfig(defaultLanguage: nil, legal: LegalLinks(
+            privacyPolicy: URL(string: "https://webyar.ai/privacy"),
+            terms: URL(string: "https://webyar.ai/terms")
+        ))
+    }
 
     func revokeOtherSessions(keepingDevice deviceID: String?) async throws -> Int {
         let others = sampleSessions.filter { $0.isCurrent != true }.count

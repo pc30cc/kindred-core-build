@@ -155,8 +155,8 @@ struct InboxView: View {
             // This is the first screen where the question means anything: the
             // operator is signed in, they are looking at the conversations
             // they would be told about, and iOS has not been asked yet. The
-            // one system prompt an app ever gets is not spent until somebody
-            // says yes to this.
+            // one system prompt an app ever gets is not spent until the
+            // operator has read why it is asked.
             .task(id: "primer|\(content.isLoaded)|\(path.isEmpty)|\(isSelectedTab)") {
                 guard content.isLoaded,
                       // Only while the inbox is what is actually on screen.
@@ -180,17 +180,10 @@ struct InboxView: View {
             .sheet(isPresented: $isAskingAboutNotifications) {
                 NotificationPrimerView(
                     language: language,
-                    onAllow: {
+                    onContinue: {
                         NotificationPrimer.markShown()
                         isAskingAboutNotifications = false
                         Task { await push.requestAuthorization() }
-                    },
-                    onDismiss: {
-                        // Marked either way: declining our own sheet twice a
-                        // day would be its own kind of rude, and Settings →
-                        // Notifications is where it lives from now on.
-                        NotificationPrimer.markShown()
-                        isAskingAboutNotifications = false
                     }
                 )
             }

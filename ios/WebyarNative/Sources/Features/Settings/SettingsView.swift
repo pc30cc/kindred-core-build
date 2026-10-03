@@ -69,6 +69,26 @@ struct SettingsView: View {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
     }
 
+    /// A row in About that opens a page in the browser.
+    private func linkRow(_ title: String, icon: String, url: URL) -> some View {
+        Button {
+            openURL(url)
+        } label: {
+            HStack(spacing: Theme.Space.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.Palette.brand)
+                Text(title)
+                    .foregroundStyle(Theme.Palette.brand)
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.app(.footnote))
+                    .foregroundStyle(Theme.Palette.labelTertiary)
+            }
+            .frame(minHeight: Theme.Size.minTouchTarget - 10)
+        }
+    }
+
     var body: some View {
         @Bindable var appState = appState
 
@@ -230,6 +250,17 @@ struct SettingsView: View {
                         .frame(minHeight: Theme.Size.minTouchTarget - 10)
                     }
                     .accessibilityIdentifier(A11y.settingsWebsite)
+                }
+
+                // The App Store record's own privacy policy and terms (Super
+                // Admin → Mobile App → App Store record).
+                if let privacy = appState.legalLinks.privacyPolicy {
+                    linkRow(SettingsStr.privacyPolicy(language), icon: "hand.raised", url: privacy)
+                        .accessibilityIdentifier(A11y.settingsPrivacyPolicy)
+                }
+                if let terms = appState.legalLinks.terms {
+                    linkRow(SettingsStr.termsOfUse(language), icon: "doc.text", url: terms)
+                        .accessibilityIdentifier(A11y.settingsTerms)
                 }
             } header: {
                 Text(Str.about(language))

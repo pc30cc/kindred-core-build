@@ -545,6 +545,13 @@ export interface IosPublicConfig {
   platform: 'ios';
   /** The language it opens in until the operator picks one on the phone. */
   defaultLanguage: AndroidLanguage;
+  /**
+   * The App Store record's own privacy policy and terms (Super Admin → Mobile
+   * App → App Store record), linked from the sign-in screen and Settings →
+   * About. Before sign-in, because the sign-in screen links them too.
+   */
+  privacyPolicyUrl: string | null;
+  termsUrl: string | null;
 }
 
 /** The part of the iOS config the app needs before sign-in. Public: nothing in it is secret. */
@@ -554,6 +561,8 @@ export function toIosPublicConfig(settings: MobileAppSettings): IosPublicConfig 
     defaultLanguage: ANDROID_LANGUAGES.includes(settings.ios_default_language)
       ? settings.ios_default_language
       : MOBILE_APP_DEFAULTS.ios_default_language,
+    privacyPolicyUrl: settings.privacy_policy_url || null,
+    termsUrl: settings.terms_url || null,
   };
 }
 

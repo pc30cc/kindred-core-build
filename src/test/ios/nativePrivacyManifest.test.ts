@@ -167,10 +167,14 @@ describe('native app — permission purpose strings', () => {
   it('asks for exactly the permissions the sources need', () => {
     // The microphone covers calls AND recorded voice notes; the camera covers
     // video calls. Photos go through `PhotosPicker`, which runs out of process
-    // and must NOT carry a usage string.
-    expect(keys.sort()).toEqual(['NSCameraUsageDescription', 'NSMicrophoneUsageDescription']);
+    // and must NOT carry a read usage string. Saving is add-only: Quick Look's
+    // share button offers "Save Image" on an opened photo or video.
+    expect(keys.sort()).toEqual([
+      'NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSPhotoLibraryAddUsageDescription',
+    ]);
     expect(project).not.toContain('NSPhotoLibraryUsageDescription');
     expect(sources).toMatch(/PhotosPicker/);
+    expect(sources).toMatch(/quickLookPreview/);
   });
 
   it('localizes every purpose string in all three languages', () => {

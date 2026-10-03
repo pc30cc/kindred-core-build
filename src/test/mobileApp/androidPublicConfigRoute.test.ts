@@ -98,12 +98,18 @@ describe('GET /api/mobile-app/public-config', () => {
     });
   });
 
-  it('tells the iOS app the language Super Admin chose for it, and nothing else', async () => {
-    row = { ios_default_language: 'fa', android_default_language: 'tr', android_maintenance_enabled: true };
+  it('tells the iOS app its language and legal links, and nothing of Android\'s', async () => {
+    row = {
+      ios_default_language: 'fa', android_default_language: 'tr', android_maintenance_enabled: true,
+      privacy_policy_url: 'https://webyar.ai/privacy', terms_url: 'https://webyar.ai/terms',
+    };
     const res = await request(app()).get('/api/mobile-app/public-config?platform=ios');
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.body).toEqual({ platform: 'ios', defaultLanguage: 'fa' });
+    expect(res.body).toEqual({
+      platform: 'ios', defaultLanguage: 'fa',
+      privacyPolicyUrl: 'https://webyar.ai/privacy', termsUrl: 'https://webyar.ai/terms',
+    });
     expect(requireUser).not.toHaveBeenCalled();
   });
 
@@ -111,7 +117,7 @@ describe('GET /api/mobile-app/public-config', () => {
     failRead = true;
     const res = await request(app()).get('/api/mobile-app/public-config?platform=ios');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ platform: 'ios', defaultLanguage: 'en' });
+    expect(res.body).toEqual({ platform: 'ios', defaultLanguage: 'en', privacyPolicyUrl: null, termsUrl: null });
   });
 
   it('knows only Android and iOS', async () => {

@@ -49,6 +49,12 @@ struct CallScreen: View {
         .preferredColorScheme(.dark)
         .statusBarHidden(isFullScreenVideo && !chromeVisible)
         .task { session.start() }
+        // A video call is watched, not touched. Left to Auto-Lock the screen
+        // locks, the app goes to the background and iOS stops the camera.
+        .onChange(of: keepsScreenAwake, initial: true) { _, awake in
+            UIApplication.shared.isIdleTimerDisabled = awake
+        }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .onChange(of: session.phase) { _, phase in
             // An ended call lingers for a moment so the outcome can be read,
             // then gets out of the way on its own. Nobody wants to dismiss a
@@ -76,6 +82,10 @@ struct CallScreen: View {
     /// face on a black background for a few seconds.
     private var isFullScreenVideo: Bool {
         session.channel == .video && session.phase == .connected
+    }
+
+    private var keepsScreenAwake: Bool {
+        session.channel == .video && session.phase.isLive
     }
 
     /// The audio layout, and every layout before the picture arrives: name at

@@ -3407,9 +3407,9 @@ extension Str {
 
     static func analyticsLockedHint(_ l: Language) -> String {
         switch l {
-        case .en: "The workspace owner can add it by upgrading the plan."
-        case .fa: "مالک فضای کاری می‌تواند با ارتقای پلن آن را فعال کند."
-        case .tr: "Çalışma alanı sahibi planı yükselterek ekleyebilir."
+        case .en: "Ask the workspace owner about access to website analytics."
+        case .fa: "برای دسترسی به تحلیل وب‌سایت با مالک فضای کاری هماهنگ کنید."
+        case .tr: "Web sitesi analitiğine erişim için çalışma alanı sahibine danışın."
         }
     }
 

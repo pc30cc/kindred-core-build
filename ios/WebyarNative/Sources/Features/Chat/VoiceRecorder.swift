@@ -111,13 +111,13 @@ final class VoiceRecorder {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(200))
                 guard let self, let recorder = self.recorder else { return }
+                // Stopped without the operator: `record(forDuration:)` at the
+                // cap, or a phone call, Siri or an alarm taking the
+                // microphone. What was said is kept, with Send and the bin
+                // still on screen, rather than dropped; `currentTime` reads 0
+                // from here on, so `seconds` keeps the last length heard.
+                guard recorder.isRecording else { return }
                 self.seconds = recorder.currentTime
-                // `record(forDuration:)` stops on its own at the cap; follow
-                // it rather than letting the timer run past the audio.
-                if !recorder.isRecording {
-                    self.isRecording = false
-                    return
-                }
             }
         }
     }

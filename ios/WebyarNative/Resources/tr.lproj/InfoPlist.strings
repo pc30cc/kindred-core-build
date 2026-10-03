@@ -5,3 +5,4 @@
 "CFBundleDisplayName" = "Webyar";
 "NSMicrophoneUsageDescription" = "Webyar, bir ziyaretçiyi aradığınızda ve bir görüşmeye göndermek üzere sesli not kaydettiğinizde mikrofonu kullanır.";
 "NSCameraUsageDescription" = "Webyar, bir ziyaretçiyle görüntülü görüşme başlattığınızda kamerayı kullanır.";
+"NSPhotoLibraryAddUsageDescription" = "Bir konuşmadan veya e-postadan açtığınız dosyada Kaydet'i seçtiğinizde Webyar fotoğrafı veya videoyu arşivinize kaydeder.";

@@ -488,6 +488,7 @@ final class AudioNotePlayer {
             player.pause()
             isPlaying = false
             ticker?.cancel()
+            releaseSession()
             return
         }
         // Playback shares the session with calls, so ask for it rather than
@@ -514,6 +515,12 @@ final class AudioNotePlayer {
         isPlaying = false
         ticker?.cancel()
         ticker = nil
+        releaseSession()
+    }
+
+    /// Hands the audio back, so music ducked under the note comes back up
+    /// when it pauses or ends, not only when the chat closes.
+    private func releaseSession() {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -526,6 +533,7 @@ final class AudioNotePlayer {
                 self.elapsed = self.player.currentTime
                 if !self.player.isPlaying {
                     self.isPlaying = false
+                    self.releaseSession()
                     // Finished rather than paused: park the bar at the end so
                     // it does not look like it stopped halfway.
                     if self.player.currentTime >= self.player.duration - 0.05 {

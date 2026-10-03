@@ -120,6 +120,7 @@ import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
 import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRenewalTicker.js';
 import { startNotificationEmailTicker } from './services/notificationEmail/ticker.js';
+import { startAppReviewVisitorsTicker } from './services/appReview/visitorsTicker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import { isPublicWidgetApiPath, PUBLIC_WIDGET_REALTIME_ROUTES } from './lib/routePrefix.js';
@@ -925,6 +926,11 @@ const httpServer = app.listen(config.port, () => {
   // feature switched off, which is how it ships. See
   // server/services/notificationEmail/ticker.ts.
   startNotificationEmailTicker(config);
+
+  // The App Review demo's visitors, kept on the Visitors tab while that
+  // account may sign in (migration 248). See
+  // server/services/appReview/visitorsTicker.ts.
+  startAppReviewVisitorsTicker(config);
 
   // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into

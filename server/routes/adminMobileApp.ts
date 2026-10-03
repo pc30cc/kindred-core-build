@@ -21,6 +21,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { isPushConfigured } from '../services/push/fcm.js';
+import { getApnsCredentials } from '../services/push/apns.js';
 import {
   loadMobileAppSettings,
   invalidateMobileAppSettingsCache,
@@ -226,20 +227,29 @@ async function readRow(config: ServerConfig) {
  * The readiness verdicts for the CURRENT settings. Computed on every read so
  * a change an operator just saved cannot be masked by a stale score.
  */
+/** The iOS app's push credentials as this server holds them; never the key itself. */
+function apnsStatus(): { configured: boolean; environment: 'production' | 'sandbox' | null } {
+  const creds = getApnsCredentials();
+  return { configured: Boolean(creds), environment: creds ? (creds.sandbox ? 'sandbox' : 'production') : null };
+}
+
 function readinessFor(settings: ReturnType<typeof normalize>) {
   const project = inspectNativeProject();
+  const apns = apnsStatus();
   const checks = evaluateReadiness({
     settings,
-    pushConfigured: isPushConfigured(),
+    apnsConfigured: apns.configured,
+    apnsSandbox: apns.environment === 'sandbox',
     nativeProjectAvailable: project.available,
-    googleServicePlistPresent: project.googleServicePlist,
     appIconPresent: project.appIcon1024,
     privacyManifestFilePresent: project.privacyManifestFile,
+    pushEntitlementPresent: project.pushEntitlement,
+    backgroundModes: project.backgroundModes,
     // Webyar has no unauthenticated surface in the native shell: the login
     // screen is the first screen, so Apple always needs a demo account.
     requiresLogin: true,
   });
-  return { checks, summary: summarize(checks), project };
+  return { checks, summary: summarize(checks), project, apns };
 }
 
 adminMobileAppRouter.get('/settings', async (req, res) => {
@@ -261,13 +271,16 @@ adminMobileAppRouter.get('/settings', async (req, res) => {
       invalidateMobileAppSettingsCache();
     }
     const settings = withShippedVersion(row ? normalize(row) : { ...MOBILE_APP_DEFAULTS }, shipped);
-    const { checks, summary, project } = readinessFor(settings);
+    const { checks, summary, project, apns } = readinessFor(settings);
     return res.json({
       settings,
       checks,
       summary,
       environment: {
+        // Firebase: the Android app's notifications.
         pushConfigured: isPushConfigured(),
+        // APNs: the iOS app's.
+        apns,
         nativeProject: project,
         provisioned: Boolean(row),
         androidRelease: shipped,

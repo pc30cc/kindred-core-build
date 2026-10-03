@@ -199,13 +199,18 @@ export interface MobileAppPayload {
   checks: ReadinessCheck[];
   summary: ReadinessSummary;
   environment: {
+    /** Firebase credentials: the Android app's notifications. */
     pushConfigured: boolean;
+    /** APNs credentials: the iOS app's notifications. */
+    apns: { configured: boolean; environment: 'production' | 'sandbox' | null };
+    /** The native iOS project (ios/WebyarNative), as shipped with this deployment. */
     nativeProject: {
       available: boolean;
-      googleServicePlist: boolean;
       appIcon1024: boolean;
       privacyManifestFile: boolean;
-      entitlementsFile: boolean;
+      pushEntitlement: boolean;
+      backgroundModes: string[];
+      source: 'checkout' | 'snapshot' | 'none';
     };
     provisioned: boolean;
     /**

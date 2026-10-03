@@ -3819,14 +3819,15 @@ const en = {
         },
         appCard: 'This app',
         environmentCard: 'Deployment facts',
-        environmentHint: 'What this server can actually see — credentials in its environment and files in the native checkout.',
+        environmentHint: 'What this server sees: the push keys in its environment, and the native iOS project (ios/WebyarNative) as shipped with this deployment.',
+        sandbox: 'Sandbox',
         env: {
-          pushConfigured: 'Push credentials (server)',
-          nativeProject: 'Xcode project checked out',
-          googleServicePlist: 'GoogleService-Info.plist',
+          apnsConfigured: 'APNs key (iOS push)',
+          pushConfigured: 'Firebase key (Android push)',
+          nativeProject: 'Native iOS project',
           appIcon: '1024×1024 app icon',
           privacyManifestFile: 'PrivacyInfo.xcprivacy',
-          entitlementsFile: 'App.entitlements',
+          pushEntitlement: 'Push entitlement (aps-environment)',
         },
         blockersTitle: 'Blocking submission',
         openChecklist: 'Open checklist',
@@ -4254,7 +4255,7 @@ const en = {
         appIcon: {
           title: 'App icon is complete',
           requirement: 'A 1024×1024 PNG with no alpha channel and no rounded corners.',
-          fix: 'Add it to ios/App/App/Assets.xcassets/AppIcon.appiconset. Transparency is the most common upload failure; flatten the image onto a solid background.',
+          fix: 'Add it to ios/WebyarNative/Resources/Assets.xcassets/AppIcon.appiconset, then run npm run ios:project-facts. Transparency is the most common upload failure; flatten the image onto a solid background.',
         },
         launchScreen: {
           title: 'Launch screen is present',
@@ -4319,7 +4320,7 @@ const en = {
         privacyManifest: {
           title: 'Privacy manifest is present',
           requirement: 'PrivacyInfo.xcprivacy declaring every required-reason API the app calls.',
-          fix: 'Run npm run ios:sync — it generates the manifest from these settings and writes it into the app target. Apple rejects uploads without it.',
+          fix: 'Keep ios/WebyarNative/Resources/PrivacyInfo.xcprivacy in step with the required-reason APIs listed here; it is bundled into the app target. Apple rejects uploads without it.',
         },
         privacyNutritionLabels: {
           title: 'App Privacy answers are declared',
@@ -4413,28 +4414,18 @@ const en = {
         },
         pushCapability: {
           title: 'Push capability enabled',
-          requirement: 'The app target carries the push notifications entitlement.',
-          fix: 'Turn it on under Capabilities, and enable Push Notifications on the App ID in the Apple Developer portal.',
+          requirement: 'The app target\'s entitlements declare aps-environment.',
+          fix: 'Keep aps-environment under entitlements in ios/WebyarNative/project.yml (XcodeGen writes it into the build), and enable Push Notifications on the App ID in the Apple Developer portal.',
         },
         pushBackgroundMode: {
-          title: 'Remote notification background mode',
-          requirement: 'Needed for a notification to wake the app before the banner is shown.',
-          fix: 'Enable background remote notifications on the Capabilities tab.',
+          title: 'No unused background mode for push',
+          requirement: 'The app shows notifications and sends no silent ones, so it must not declare the remote-notification background mode: App Review flags background modes an app does not use.',
+          fix: 'Remove remote-notification from UIBackgroundModes in ios/WebyarNative/project.yml, then run npm run ios:project-facts.',
         },
         pushServerCredentials: {
-          title: 'Server push credentials',
-          requirement: 'The backend holds a Firebase service account so it can send notifications.',
-          fix: 'Set FIREBASE_SERVICE_ACCOUNT_JSON on the API server, then confirm it under Notifications → Status. Credentials are never stored in the database.',
-        },
-        pushFirebasePlist: {
-          title: 'GoogleService-Info.plist in the target',
-          requirement: 'The iOS app needs its Firebase configuration file to obtain a token.',
-          fix: 'Download it from the Firebase console for this bundle identifier and place it at ios/App/App/GoogleService-Info.plist, added to the App target.',
-        },
-        pushApnsKey: {
-          title: 'APNs key uploaded to Firebase',
-          requirement: 'Firebase delivers to iOS through APNs and needs your APNs auth key.',
-          fix: 'Apple Developer → Keys → create an APNs key (.p8, downloadable once). Upload it in Firebase → Project settings → Cloud Messaging → Apple app configuration, with its Key ID and your Team ID.',
+          title: 'Server APNs credentials',
+          requirement: 'The API server sends the iOS app\'s notifications to Apple with your APNs auth key, on the production gateway that TestFlight and App Store builds use.',
+          fix: 'Apple Developer → Keys → create an APNs key (.p8, downloadable once). On the API server set APNS_KEY_ID, APNS_TEAM_ID, APNS_PRIVATE_KEY (the .p8 file\'s contents) and APNS_BUNDLE_ID, and leave APNS_ENVIRONMENT empty: sandbox is only for builds run from Xcode. Keys are never stored in the database.',
         },
         pushNotRequiredForUse: {
           title: 'Push is not required to use the app',

@@ -1,0 +1,9 @@
+{
+  "available": true,
+  "appIcon1024": true,
+  "privacyManifestFile": true,
+  "pushEntitlement": true,
+  "backgroundModes": [
+    "audio"
+  ]
+}

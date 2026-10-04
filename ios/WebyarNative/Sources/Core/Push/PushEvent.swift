@@ -3,10 +3,9 @@ import UserNotifications
 /// What the app needs from a notification, read off it where iOS hands it
 /// over.
 ///
-/// `UNNotification` and `UNNotificationResponse` are not `Sendable`, and the
-/// notification centre calls its delegate from outside the main actor. So the
-/// objects stay where they arrive — `AppDelegate`'s nonisolated methods — and
-/// only these plain values cross to `PushController`, which is main-actor.
+/// `UNNotification` and `UNNotificationResponse` are not `Sendable`. So the
+/// objects stay where they arrive — `AppDelegate` — and only these plain
+/// values travel on to `PushController`, into the task that handles a tap.
 struct PushArrival: Sendable, Equatable {
     /// Where the notification wants to take the operator, if anywhere.
     let target: PushTarget?

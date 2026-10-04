@@ -138,7 +138,7 @@ enum GeneratedConfig {
     /// Origin the app sends every API request to.
     static let apiBaseURL = URL(string: ${JSON.stringify(apiBaseUrl)})!
 
-    /// Opened from Settings → About.
+    /// Opened from Delete Account, for an owner who has to ask for help.
     static let supportURL = ${supportUrl ? `URL(string: ${JSON.stringify(supportUrl)})` : 'URL?.none'}
 
     /// Language a first launch starts in, before the operator picks one.

@@ -618,7 +618,7 @@ final class AppState {
     /// support URL), else the platform's own help centre.
     var supportURL: URL? { appConfig.supportURL ?? PlatformOrigin.supportURL }
 
-    /// Settings → About → Website: the address Super Admin set (Mobile App →
+    /// The website link at the foot of Settings: the address Super Admin set (Mobile App →
     /// iOS → In-app settings), else the platform's public site, else — on a
     /// phone that has never heard from the platform — the help centre.
     var websiteURL: URL? { appConfig.websiteURL ?? PlatformOrigin.websiteURL ?? PlatformOrigin.supportURL }

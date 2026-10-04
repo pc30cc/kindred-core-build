@@ -45,7 +45,6 @@ enum SettingsRoute: Hashable {
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var isConfirmingSignOut = false
@@ -69,24 +68,23 @@ struct SettingsView: View {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
     }
 
-    /// A row in About that opens a page in the browser.
-    private func linkRow(_ title: String, icon: String, url: URL) -> some View {
-        Button {
-            openURL(url)
-        } label: {
-            HStack(spacing: Theme.Space.sm) {
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.Palette.brand)
-                Text(title)
-                    .foregroundStyle(Theme.Palette.brand)
-                Spacer()
-                Image(systemName: "arrow.up.right")
-                    .font(.app(.footnote))
-                    .foregroundStyle(Theme.Palette.labelTertiary)
-            }
-            .frame(minHeight: Theme.Size.minTouchTarget - 10)
+    /// The pages the footer links to, in the order it shows them: the
+    /// platform's site, then the App Store record's privacy policy and terms.
+    private var footerLinks: [SettingsFooter.Link] {
+        var links: [SettingsFooter.Link] = []
+        // The site's address and name are Super Admin's (Mobile App → iOS →
+        // In-app settings).
+        if let website = appState.websiteURL {
+            links.append(.init(title: appState.websiteLabel, url: website, identifier: A11y.settingsWebsite))
         }
+        // Super Admin → Mobile App → App Store record.
+        if let privacy = appState.legalLinks.privacyPolicy {
+            links.append(.init(title: SettingsStr.privacyPolicy(language), url: privacy, identifier: A11y.settingsPrivacyPolicy))
+        }
+        if let terms = appState.legalLinks.terms {
+            links.append(.init(title: SettingsStr.termsOfUse(language), url: terms, identifier: A11y.settingsTerms))
+        }
+        return links
     }
 
     var body: some View {
@@ -219,51 +217,19 @@ struct SettingsView: View {
                 SupportSettingsSection(status: status, language: language)
             }
 
+            // About is not a section of rows but the page's foot, as apps
+            // sign off their settings: the name, the version and the build,
+            // and the links, small and grey on the page's own background.
             Section {
-                DetailRow(label: Str.version(language), value: appVersion, isLatin: true)
-                    .accessibilityIdentifier(A11y.settingsVersion)
-                DetailRow(label: SettingsStr.build(language), value: appBuild, isLatin: true)
-                    .accessibilityIdentifier(A11y.settingsBuild)
-
-                // The platform's site — its address and its name are Super
-                // Admin's (Mobile App → iOS → In-app settings).
-                if let website = appState.websiteURL {
-                    Button {
-                        openURL(website)
-                    } label: {
-                        HStack(spacing: Theme.Space.sm) {
-                            Image(systemName: "globe")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(Theme.Palette.brand)
-                            Text(appState.websiteLabel)
-                                .foregroundStyle(Theme.Palette.brand)
-                            Spacer()
-                            Text(website.host() ?? "")
-                                .font(.app(.footnote))
-                                .foregroundStyle(Theme.Palette.labelTertiary)
-                                .lineLimit(1)
-                                .environment(\.layoutDirection, .leftToRight)
-                            Image(systemName: "arrow.up.right")
-                                .font(.app(.footnote))
-                                .foregroundStyle(Theme.Palette.labelTertiary)
-                        }
-                        .frame(minHeight: Theme.Size.minTouchTarget - 10)
-                    }
-                    .accessibilityIdentifier(A11y.settingsWebsite)
-                }
-
-                // The App Store record's own privacy policy and terms (Super
-                // Admin → Mobile App → App Store record).
-                if let privacy = appState.legalLinks.privacyPolicy {
-                    linkRow(SettingsStr.privacyPolicy(language), icon: "hand.raised", url: privacy)
-                        .accessibilityIdentifier(A11y.settingsPrivacyPolicy)
-                }
-                if let terms = appState.legalLinks.terms {
-                    linkRow(SettingsStr.termsOfUse(language), icon: "doc.text", url: terms)
-                        .accessibilityIdentifier(A11y.settingsTerms)
-                }
-            } header: {
-                Text(Str.about(language))
+                SettingsFooter(
+                    language: language,
+                    version: appVersion,
+                    build: appBuild,
+                    links: footerLinks
+                )
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
             }
         }
         .listStyle(.insetGrouped)

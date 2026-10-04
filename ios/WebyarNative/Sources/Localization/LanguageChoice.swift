@@ -51,7 +51,7 @@ struct MobilePublicConfig: Decodable, Sendable, Equatable {
 }
 
 /// The privacy policy and terms of use, linked from the sign-in screen and
-/// Settings → About. Only https addresses are kept.
+/// the foot of Settings. Only https addresses are kept.
 struct LegalLinks: Equatable, Sendable {
     var privacyPolicy: URL?
     var terms: URL?

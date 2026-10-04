@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import WebyarNative
 
-/// Settings → About → Website, as Super Admin sets it
+/// The website link at the foot of Settings, as Super Admin sets it
 /// (GET /api/mobile-app/config?platform=ios: websiteUrl, websiteLabel).
 final class WebsiteConfigTests: XCTestCase {
     private func config(_ json: String) throws -> MobileAppConfig {

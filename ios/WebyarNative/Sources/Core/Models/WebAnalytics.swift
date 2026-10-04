@@ -261,11 +261,11 @@ struct MobileAppConfig: Hashable, Sendable {
     /// Only a ceiling — support still has to be on (Super Admin → Core
     /// settings → Support) and offered to this operator.
     var showSupport: Bool
-    /// Where Settings → About → Support opens, when Super Admin named one:
+    /// Where Delete Account's Support link opens, when Super Admin named one:
     /// a page (https), an email (mailto:) or a phone number (tel:). `nil`
     /// leaves the platform's own help centre in charge (`PlatformOrigin`).
     var supportURL: URL?
-    /// Where Settings → About → Website opens, when Super Admin set it
+    /// Where the website link at the foot of Settings opens, when Super Admin set it
     /// (https only). `nil` opens the platform's public site (`PlatformOrigin`).
     var websiteURL: URL?
     /// What that row is called, by language code (`fa`, `en`, `tr`); a

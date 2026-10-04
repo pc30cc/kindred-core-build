@@ -77,9 +77,9 @@ enum SettingsStr {
         }
     }
 
-    // MARK: About
+    // MARK: The foot of Settings
 
-    /// Settings → About: the platform's website, unless Super Admin named it otherwise.
+    /// The foot of Settings: the platform's website, unless Super Admin named it otherwise.
     static func website(_ l: Language) -> String {
         switch l {
         case .en: "Website"

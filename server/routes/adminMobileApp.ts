@@ -8,11 +8,6 @@
  * readiness verdicts are computed (never stored), so a value an operator
  * changes is reflected in the checklist on the very next read instead of
  * drifting behind a cached score.
- *
- * `/generated-config` returns exactly what `scripts/ios/write-runtime-config.mjs`
- * will write into the Xcode project, so an operator can see the Info.plist,
- * entitlements and build settings BEFORE syncing rather than after a failed
- * archive.
  */
 import { Router } from 'express';
 import type { Request } from 'express';
@@ -23,7 +18,6 @@ import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { isPushConfigured } from '../services/push/fcm.js';
 import { getApnsCredentials } from '../services/push/apns.js';
 import {
-  loadMobileAppSettings,
   invalidateMobileAppSettingsCache,
   normalize,
   MOBILE_APP_DEFAULTS,
@@ -31,7 +25,6 @@ import {
 } from '../services/mobileApp/settings.js';
 import { evaluateReadiness, summarize } from '../services/mobileApp/readiness.js';
 import { inspectNativeProject } from '../services/mobileApp/project.js';
-import { buildGeneratedConfig } from '../services/mobileApp/generatedConfig.js';
 import { firebaseClientFields, firebaseProjectsMatch } from '../services/mobileApp/firebaseClient.js';
 import { androidLanguageMaintenanceFields } from '../services/mobileApp/androidMaintenance.js';
 import { readShippedAndroidRelease, withShippedVersion } from '../services/mobileApp/androidRelease.js';
@@ -366,13 +359,3 @@ adminMobileAppRouter.post('/checklist', async (req, res) => {
   }
 });
 
-/** Exactly what `npm run ios:sync` will write into the Xcode project. */
-adminMobileAppRouter.get('/generated-config', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const settings = await loadMobileAppSettings(serverConfigOf(req));
-    return res.json({ config: buildGeneratedConfig(settings) });
-  } catch (err) {
-    return res.status(500).json({ error: (err as Error).message });
-  }
-});

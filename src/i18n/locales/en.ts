@@ -3915,7 +3915,7 @@ const en = {
       },
       build: {
         title: 'Version and deployment',
-        caption: 'Written into ios/generated.xcconfig, which the Xcode project reads on every build.',
+        caption: 'What App Store Connect and the checklist expect. The app\'s own copy lives in ios/WebyarNative/project.yml; the build guide puts this version and build number on the archive\'s command line.',
         version: 'Marketing version',
         versionHint: 'What customers see, e.g. 1.2.0. Must increase for each public release.',
         buildNumber: 'Build number',
@@ -4161,15 +4161,11 @@ const en = {
           },
           capabilities: {
             title: 'Enable the capabilities',
-            body: 'On that App ID, tick every capability you enabled on the Capabilities tab — Push Notifications above all. A capability in the app but not on the App ID fails signing.',
+            body: 'On that App ID, enable Push Notifications: it is the one capability the app declares (ios/WebyarNative/project.yml). A capability in the app but not on the App ID fails signing.',
           },
           apnsKey: {
             title: 'Create the APNs key',
-            body: 'Keys → + → Apple Push Notifications service. Download the .p8 immediately: Apple lets you download it exactly once. Keep the Key ID and your Team ID with it.',
-          },
-          firebase: {
-            title: 'Connect Firebase',
-            body: 'Add an iOS app in the Firebase console with the same bundle identifier, download GoogleService-Info.plist into ios/App/App/, and upload the .p8 under Cloud Messaging. Then set FIREBASE_SERVICE_ACCOUNT_JSON on the API server.',
+            body: 'Keys → + → Apple Push Notifications service. Download the .p8 immediately: Apple lets you download it exactly once. On the API server set APNS_KEY_ID, APNS_TEAM_ID, APNS_PRIVATE_KEY (the file\'s contents) and APNS_BUNDLE_ID; the Overview tab shows when the server has them.',
           },
           appStoreConnect: {
             title: 'Create the App Store Connect record',
@@ -4177,15 +4173,15 @@ const en = {
           },
           configure: {
             title: 'Fill in these settings',
-            body: 'Work through the tabs here until the App Store checklist has no blockers, then copy the exported JSON below into config/ios-app.json and commit it.',
+            body: 'Work through the tabs here until the App Store checklist has no blockers. The app\'s own build settings (bundle identifier, team, version) live in ios/WebyarNative/project.yml.',
           },
           build: {
-            title: 'Build the web bundle and sync',
-            body: 'Run npm run ios:prepare on a Mac. It builds the web app, writes the Info.plist, entitlements, privacy manifest and build settings from your configuration, and runs cap sync.',
+            title: 'Generate the Xcode project',
+            body: 'On a Mac, install XcodeGen (brew install xcodegen) and run xcodegen generate in ios/WebyarNative. The project is generated from project.yml and is not committed, so run it again after every pull.',
           },
           archive: {
             title: 'Archive in Xcode',
-            body: 'npm run ios:open, choose Any iOS Device, then Product → Archive. Run the app on a real device first and check the launch, sign-in and a notification.',
+            body: 'Open WebyarNative.xcodeproj, choose the WebyarNative scheme and Any iOS Device, then Product → Archive, with a build number above the last upload. Run the app on a real device first and check the launch, sign-in and a notification.',
           },
           upload: {
             title: 'Upload the build',
@@ -4202,14 +4198,6 @@ const en = {
         },
         commands: 'Build commands',
         commandsHint: 'Run these on a Mac with Xcode installed.',
-        generated: 'Generated project files',
-        generatedHint: 'Exactly what npm run ios:sync writes into the Xcode project from these settings.',
-        fileXcconfig: 'Build settings',
-        fileInfoPlist: 'Info.plist',
-        fileEntitlements: 'Entitlements',
-        filePrivacy: 'Privacy manifest',
-        export: 'Build configuration file',
-        exportHint: 'The build machine has no database, so this committed file is what an archive is built from. Copy it into config/ios-app.json and commit it whenever you change a setting here.',
       },
       checks: {
         bundleId: {
@@ -4260,7 +4248,7 @@ const en = {
         launchScreen: {
           title: 'Launch screen is present',
           requirement: 'Every app needs a launch storyboard so it fills the whole screen.',
-          fix: 'Provided by ios/App/App/Base.lproj/LaunchScreen.storyboard. Keep it in the target; removing it makes the app render letterboxed.',
+          fix: 'Declared as UILaunchScreen in ios/WebyarNative/project.yml. Keep it; without it the app renders letterboxed.',
         },
         orientations: {
           title: 'At least one orientation',
@@ -4440,7 +4428,7 @@ const en = {
         encryptionDeclaration: {
           title: 'Encryption declared in Info.plist',
           requirement: 'ITSAppUsesNonExemptEncryption stops App Store Connect asking on every upload.',
-          fix: 'Written automatically by npm run ios:sync from the export compliance answer on the Release tab.',
+          fix: 'Declared as ITSAppUsesNonExemptEncryption in ios/WebyarNative/project.yml; keep it in step with the export compliance answer on the Release tab.',
         },
         noExternalPayments: {
           title: 'No external payment links',

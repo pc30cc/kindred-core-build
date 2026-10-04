@@ -1,13 +1,3 @@
-App/build
-App/Pods
-App/output
-App/App/public
+# The native app's Xcode project is generated from WebyarNative/project.yml.
 DerivedData
 xcuserdata
-
-# Cordova plugins for Capacitor
-capacitor-cordova-ios-plugins
-
-# Generated Config files
-App/App/capacitor.config.json
-App/App/config.xml

@@ -82,9 +82,9 @@ targets:
         #
         # The answer mirrors the platform's own declared position rather than
         # being an independent opinion. Super Admin holds `uses_encryption` and
-        # `encryption_exempt`, and generatedConfig.ts resolves the Capacitor
-        # app's value as `uses_encryption && !encryption_exempt`. This app is
-        # the same product making the same claim: it does use encryption, and
+        # `encryption_exempt`, and the answer they give is
+        # `uses_encryption && !encryption_exempt`. This app makes the same
+        # claim: it does use encryption, and
         # it is the exempt kind — TLS and Keychain are iOS's own, and a call's
         # DTLS-SRTP is standard WebRTC with nothing proprietary anywhere.
         # `nativePrivacyManifest.test.ts` fails if the two ever disagree, so

@@ -3,8 +3,7 @@
 <!--
   PRIVACY MANIFEST — what this binary actually does.
 
-  Unlike ios/App/App/PrivacyInfo.xcprivacy, which `npm run ios:sync` generates
-  from Super Admin, this file is written by hand and kept honest by a test.
+  This file is written by hand and kept honest by a test.
   That is deliberate: every value here is a fact about the Swift sources, not
   a setting an operator should be able to turn on. Nobody in Super Admin can
   make this app stop calling UserDefaults, and an operator who could edit this

@@ -35,12 +35,6 @@
     "test:e2e": "playwright test",
     "test:e2e:invitations": "playwright test e2e/invitations.spec.ts",
     "test:realtime:cross-node": "bun run scripts/realtime/cross-node-integration.ts",
-    "ios:runtime-config": "node scripts/ios/write-runtime-config.mjs",
-    "ios:prune": "node scripts/ios/prune-web-assets.mjs",
-    "ios:sync": "npm run ios:app-settings && npm run ios:runtime-config && npm run ios:prune && npx cap sync ios",
-    "ios:open": "npx cap open ios",
-    "ios:prepare": "npm run build && npm run ios:sync",
-    "ios:app-settings": "tsx scripts/ios/apply-app-settings.ts",
     "ios:native-config": "node scripts/ios/write-native-config.mjs",
     "ios:project-facts": "tsx scripts/ios/write-project-facts.ts"
   },

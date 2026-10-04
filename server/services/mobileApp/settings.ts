@@ -3,17 +3,13 @@
  *
  * The singleton `mobile_app_settings` row is the one source of truth for the
  * native shell's identity, build, capabilities, privacy strings and App Store
- * metadata. It is read by:
- *   • Super Admin → Mobile App (server/routes/adminMobileApp.ts),
- *   • `npm run ios:runtime-config`, which materialises the generated
- *     Info.plist / entitlements / capacitor values before `cap sync`.
+ * metadata. It is read by Super Admin → Mobile App
+ * (server/routes/adminMobileApp.ts) and the public config the apps fetch.
  *
  * Nothing about the WEB build reads this row — a deployment that never ships
  * a native app is unaffected by every value here.
  *
- * Never throws: a missing row or a read failure resolves to DEFAULTS, which
- * reproduce the values that were hardcoded in ios/App/App/Info.plist before
- * this table existed.
+ * Never throws: a missing row or a read failure resolves to DEFAULTS.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';

@@ -8,7 +8,7 @@
  *
  * Storage rules (security-critical):
  *  - the token lives in the iOS KEYCHAIN, via the app's own
- *    `SecureStorage` Capacitor plugin (ios/App/App/SecureStoragePlugin.swift);
+ *    `SecureStorage` Capacitor plugin of the former iOS shell;
  *  - it is NEVER written to localStorage, sessionStorage, IndexedDB, cookies
  *    or Capacitor Preferences (all of which are plain, backed-up, and
  *    readable by anything running in the web view);
@@ -32,7 +32,8 @@ interface SecureStoragePlugin {
 
 function securePlugin(): SecureStoragePlugin | null {
   try {
-    const plugin = (window as any)?.Capacitor?.Plugins?.SecureStorage;
+    const plugin = (window as unknown as { Capacitor?: { Plugins?: { SecureStorage?: SecureStoragePlugin } } })
+      .Capacitor?.Plugins?.SecureStorage;
     return plugin && typeof plugin.get === 'function' ? (plugin as SecureStoragePlugin) : null;
   } catch {
     return null;

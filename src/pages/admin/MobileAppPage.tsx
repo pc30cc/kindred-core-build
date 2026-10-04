@@ -4,10 +4,9 @@
  * The single place an operator configures the iOS and Android apps. A switch
  * at the top picks the platform; each has its own tabs over the same row.
  *
- *   • iOS: everything is real configuration — the values are what
- *     `npm run ios:sync` writes into the Xcode project (Info.plist,
- *     entitlements, privacy manifest, build settings), and the App Store
- *     readiness verdicts are recomputed server-side on every read and save.
+ *   • iOS: the App Store record, the in-app switches and the App Store
+ *     readiness verdicts, recomputed server-side on every read and save. The
+ *     native app's own build settings live in ios/WebyarNative/project.yml.
  *   • Android: the Play identity and release, and the in-app switches the
  *     installed app reads live from `GET /api/mobile-app/config` — hiding
  *     Storage, locking the name on the profile — without a new build.
@@ -271,7 +270,7 @@ export default function MobileAppPage() {
             <MobileReleaseTab draft={draft} set={set} />
           </TabsContent>
           <TabsContent value="buildGuide" className="space-y-4">
-            <MobileBuildGuideTab active={tab === 'buildGuide'} settings={data.settings} />
+            <MobileBuildGuideTab settings={data.settings} />
           </TabsContent>
         </Tabs>
       ) : (

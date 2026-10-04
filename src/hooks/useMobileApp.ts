@@ -229,14 +229,6 @@ export interface ShippedAndroidRelease {
   releasedAt: string | null;
 }
 
-export interface GeneratedConfig {
-  infoPlist: Record<string, unknown>;
-  entitlements: Record<string, unknown>;
-  privacyManifest: Record<string, unknown>;
-  xcconfig: Record<string, string>;
-  commands: string[];
-}
-
 const KEY = ['admin', 'mobile-app'] as const;
 
 export function useMobileAppSettings() {
@@ -280,19 +272,6 @@ export function useAcknowledgeRequirement() {
           ? { ...previous, settings: data.settings, checks: data.checks, summary: data.summary }
           : previous,
       );
-    },
-  });
-}
-
-export function useGeneratedConfig(enabled: boolean) {
-  return useQuery({
-    queryKey: [...KEY, 'generated-config'],
-    enabled,
-    queryFn: async () => {
-      const body = await adminFetch<{ config: GeneratedConfig }>(
-        '/api/admin/mobile-app/generated-config',
-      );
-      return body.config;
     },
   });
 }

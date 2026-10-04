@@ -2,11 +2,13 @@
 
 Webyar's push stack is **self-hosted**: all logic runs in the project's own
 Express backend (`server/services/push/*`). No Supabase Edge Function is used.
-Firebase Cloud Messaging is only the delivery transport (FCM → APNs on iOS).
+The delivery transport is Firebase Cloud Messaging for the Android app and
+Apple's push service (APNs) directly for the native iOS app
+(`server/services/push/apns.ts`); each device row says which (`transport`).
 
 ```
 message committed → notifyInboundMessage() → recipient resolver (prefs, roles,
-assignment, actor exclusion) → mobile_push_devices → FCM v1 → APNs → device
+assignment, actor exclusion) → mobile_push_devices → FCM v1 | APNs → device
 ```
 
 A colleague's direct message in team chat takes the same road from its own
@@ -41,22 +43,21 @@ failure can never fail or roll back message ingestion.
 ## 1. Apple Developer (once)
 
 1. Certificates, Identifiers & Profiles → **Identifiers** → the app id
-   `com.webyar.app` → enable **Push Notifications**.
+   `com.webyar.ai` → enable **Push Notifications**.
 2. **Keys** → create an **APNs Auth Key (.p8)**. Note the *Key ID* and your
    *Team ID*, and download the `.p8` (Apple lets you download it once).
-3. In Xcode → target **App** → *Signing & Capabilities* → add
-   **Push Notifications** and **Background Modes → Remote notifications**.
+3. The app already declares the capability: `aps-environment` under
+   `entitlements` in `ios/WebyarNative/project.yml`. It deliberately has no
+   *Remote notifications* background mode: it sends no silent pushes.
 
 ## 2. Firebase Console (once)
 
-1. Create/open the Firebase project → **Add app → iOS**, bundle id
-   `com.webyar.app`. Download **`GoogleService-Info.plist`** and place it at
-   `ios/App/App/GoogleService-Info.plist` (added to the Xcode target).
-2. Project settings → **Cloud Messaging** → *Apple app configuration* → upload
-   the `.p8` APNs key with its Key ID and Team ID.
-3. Project settings → **Service accounts** → *Generate new private key* → this
+Firebase serves the Android app only; the iOS app has no Firebase
+configuration file.
+
+1. Project settings → **Service accounts** → *Generate new private key* → this
    JSON is the **server** credential (never ships in the app).
-4. Android: **Add app → Android**, package `com.webyar.ai`. Download its
+2. Android: **Add app → Android**, package `com.webyar.ai`. Download its
    `google-services.json` and read it into **Super Admin → Mobile App →
    Android → Identity → Push notifications (Firebase)** ("Read
    google-services.json"), then save. Installed apps read the four values from
@@ -78,15 +79,26 @@ FIREBASE_CLIENT_EMAIL=...
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
-If none are set, `isPushConfigured()` is false and dispatch turns into a no-op —
-the rest of the product is unaffected.
+and, for the iOS app:
+
+```
+APNS_KEY_ID=...
+APNS_TEAM_ID=...
+APNS_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+APNS_BUNDLE_ID=com.webyar.ai
+# APNS_ENVIRONMENT=sandbox only for builds run straight from Xcode
+```
+
+If neither transport is configured, dispatch turns into a no-op — the rest of
+the product is unaffected. Super Admin → Mobile app → Overview shows whether
+the server holds each key.
 
 ## 4. Build the app
 
 ```bash
-git pull && npm install
-npm run ios:prepare      # build + npx cap sync ios
-npm run ios:open         # Xcode → Run on a physical device
+cd ios/WebyarNative
+xcodegen generate        # the Xcode project is generated from project.yml
+open WebyarNative.xcodeproj   # Run on a physical device
 ```
 
 Push does **not** work in the iOS Simulator; use a real device.
@@ -114,8 +126,8 @@ strings and every App Store requirement — lives in **Super Admin → Mobile ap
 See `docs/IOS_APP_AND_NOTIFICATIONS.md` for how those settings reach the Xcode
 project.
 
-Credentials are deliberately NOT editable there: the FCM service account is
-read from the server environment only.
+Credentials are deliberately NOT editable there: the FCM service account and
+the APNs key are read from the server environment only.
 
 ## Behaviour
 
@@ -129,11 +141,8 @@ read from the server environment only.
   `quiet_hours_enabled/start/end/timezone` on `user_notification_prefs`, support
   windows that wrap past midnight, and are bypassed only by a direct @mention;
   an unparsable window or timezone never mutes.
-- The app icon badge is owned by `@capawesome/capacitor-badge`
-  (`Badge.set` / `Badge.clear`) — `@capacitor-firebase/messaging` has no
-  `setBadge`. `aps.badge` in the payload sets it on arrival, and
-  `GET /api/push/badge` reconciles it after a read on any device.
-- The Capacitor plugin config key for this plugin is `FirebaseMessaging`
-  (not `PushNotifications`).
+- `aps.badge` in the payload sets the app icon badge on arrival, and
+  `GET /api/push/badge` reconciles it after a read on any device
+  (`ios/WebyarNative/Sources/Core/Push/PushController.swift`).
 - `UNREGISTERED` / invalid-token responses disable the device row instead of
   retrying, keeping the token table clean.

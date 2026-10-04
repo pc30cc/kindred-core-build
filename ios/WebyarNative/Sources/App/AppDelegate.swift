@@ -46,24 +46,31 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     // MARK: - Arrival
 
+    // The two below are `nonisolated`: the notification centre calls them
+    // from outside the main actor, and the objects it passes are not
+    // `Sendable`. What `PushController` needs is read off them here, and only
+    // those values cross to the main actor.
+
     /// A notification that arrives while the operator is looking at the app.
     ///
     /// iOS shows nothing by default here, which is the wrong answer for an
     /// inbox: an operator reading one thread still needs to know another
     /// customer has written. The one exception is the thread they are already
     /// in, where the banner would cover the message it is announcing.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        await PushController.shared.presentation(for: notification.request.content)
+        let arrival = PushArrival(notification.request.content)
+        return await PushController.shared.presentation(for: arrival)
     }
 
     /// A tap, or one of the buttons on the banner.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        await PushController.shared.handle(response)
+        let tapped = PushResponse(response)
+        await PushController.shared.handle(tapped)
     }
 }

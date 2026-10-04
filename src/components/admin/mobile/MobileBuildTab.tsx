@@ -1,7 +1,8 @@
 /**
  * Build settings — versioning, deployment target, devices, orientation and
- * signing. These map 1:1 onto `ios/generated.xcconfig`, which the Xcode
- * project reads, so nothing here is advisory: it is the build.
+ * signing: what App Store Connect and the readiness checklist expect. The
+ * native app's own copy lives in ios/WebyarNative/project.yml, and the build
+ * guide puts this version and build number on the archive's command line.
  */
 import { Hammer, PenLine, Link2 } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';

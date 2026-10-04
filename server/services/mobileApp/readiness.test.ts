@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateReadiness, summarize, type ReadinessInput } from './readiness.js';
 import { MOBILE_APP_DEFAULTS, type MobileAppSettings } from './settings.js';
-import { buildEntitlements, buildInfoPlist, buildXcconfig, toPlistXml } from './generatedConfig.js';
 
 function input(overrides: Partial<MobileAppSettings> = {}, rest: Partial<ReadinessInput> = {}): ReadinessInput {
   return {
@@ -147,54 +146,5 @@ describe('App Store readiness', () => {
     );
     expect(clean.blockers).toBe(0);
     expect(clean.submittable).toBe(true);
-  });
-});
-
-describe('generated Xcode configuration', () => {
-  it('declares the background mode push actually needs', () => {
-    const plist = buildInfoPlist({ ...MOBILE_APP_DEFAULTS });
-    expect(plist.UIBackgroundModes).toEqual(['remote-notification']);
-  });
-
-  it('omits a purpose string for a capability that is off', () => {
-    const plist = buildInfoPlist({ ...MOBILE_APP_DEFAULTS, cap_camera: false });
-    expect(plist.NSCameraUsageDescription).toBeUndefined();
-    expect(plist.NSMicrophoneUsageDescription).toBeDefined();
-  });
-
-  it('answers export compliance so App Store Connect stops asking', () => {
-    const exempt = buildInfoPlist({ ...MOBILE_APP_DEFAULTS });
-    expect(exempt.ITSAppUsesNonExemptEncryption).toBe(false);
-    const nonExempt = buildInfoPlist({ ...MOBILE_APP_DEFAULTS, encryption_exempt: false });
-    expect(nonExempt.ITSAppUsesNonExemptEncryption).toBe(true);
-  });
-
-  it('leaves the APNs environment to the build configuration', () => {
-    // Hardcoding `production` breaks a debug run: codesign rejects an
-    // entitlement that disagrees with the development profile.
-    expect(buildEntitlements({ ...MOBILE_APP_DEFAULTS })['aps-environment']).toBe('$(APS_ENVIRONMENT)');
-  });
-
-  it('drops the associated-domains entitlement when no domain is listed', () => {
-    const none = buildEntitlements({ ...MOBILE_APP_DEFAULTS, cap_associated_domains: true });
-    expect(none['com.apple.developer.associated-domains']).toBeUndefined();
-    const some = buildEntitlements({
-      ...MOBILE_APP_DEFAULTS,
-      cap_associated_domains: true,
-      associated_domains: ['acme.test'],
-    });
-    expect(some['com.apple.developer.associated-domains']).toEqual(['applinks:acme.test']);
-  });
-
-  it('never overrides PRODUCT_NAME, which would rename the built executable', () => {
-    expect(buildXcconfig({ ...MOBILE_APP_DEFAULTS }).PRODUCT_NAME).toBeUndefined();
-  });
-
-  it('serializes a plist Xcode can read', () => {
-    const xml = toPlistXml({ a: true, b: 2, c: ['x'], d: { e: 'f & g' } });
-    expect(xml).toContain('<plist version="1.0">');
-    expect(xml).toContain('<true/>');
-    expect(xml).toContain('<integer>2</integer>');
-    expect(xml).toContain('f &amp; g');
   });
 });

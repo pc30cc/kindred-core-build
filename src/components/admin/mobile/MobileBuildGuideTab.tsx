@@ -22,7 +22,7 @@ const STEPS = [
 ] as const;
 
 /** What a Mac with Xcode runs, from a fresh checkout to an archive. */
-export function buildCommands(settings: Pick<MobileAppSettings, 'marketing_version' | 'build_number'>): string[] {
+function buildCommands(settings: Pick<MobileAppSettings, 'marketing_version' | 'build_number'>): string[] {
   return [
     'brew install xcodegen',
     'cd ios/WebyarNative',

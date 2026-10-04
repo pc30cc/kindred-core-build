@@ -15,7 +15,14 @@ import UserNotifications
 /// for yet — a tap that launches the app cold arrives before there is a
 /// window, let alone a navigation stack — so nothing here navigates or draws.
 /// It records what was asked for; the inbox acts on it when it exists.
-final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+///
+/// The notification centre calls this delegate on the main thread and needs
+/// its completion handlers called there too — call one from anywhere else and
+/// UIKit stops the app ("Call must be made on main thread"). So the class is
+/// main-actor, as `UIApplicationDelegate` makes it, and the conformance is
+/// `@preconcurrency`: the protocol predates Swift concurrency and does not
+/// say where it calls, and this is where it does.
+final class AppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
 
     func application(
         _ application: UIApplication,
@@ -46,10 +53,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     // MARK: - Arrival
 
-    // The two below are `nonisolated`: the notification centre calls them
-    // from outside the main actor, and the objects it passes are not
-    // `Sendable`. What `PushController` needs is read off them here, and only
-    // those values cross to the main actor.
+    // Completion handlers rather than the `async` forms. An `async` delegate
+    // method is bridged by a task that calls the handler wherever the task
+    // finishes, and for `didReceive` that is a crash: tapping a notification
+    // left the app frozen on its launch screen. Here the handler is called by
+    // a task that inherits this class's main actor, after the work is done.
 
     /// A notification that arrives while the operator is looking at the app.
     ///
@@ -57,20 +65,24 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     /// inbox: an operator reading one thread still needs to know another
     /// customer has written. The one exception is the thread they are already
     /// in, where the banner would cover the message it is announcing.
-    nonisolated func userNotificationCenter(
+    func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        let arrival = PushArrival(notification.request.content)
-        return await PushController.shared.presentation(for: arrival)
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler(PushController.shared.presentation(for: PushArrival(notification.request.content)))
     }
 
     /// A tap, or one of the buttons on the banner.
-    nonisolated func userNotificationCenter(
+    func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
         let tapped = PushResponse(response)
-        await PushController.shared.handle(tapped)
+        Task {
+            await PushController.shared.handle(tapped)
+            completionHandler()
+        }
     }
 }

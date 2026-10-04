@@ -815,10 +815,7 @@ object Str {
         Language.TR -> "Hakkında"
     }
 
-    /**
-     * Settings → About, and the one way forward for an owner who wants their
-     * account removed.
-     */
+    /** The one way forward for an owner who wants their account removed. */
     fun support(l: Language): String = when (l) {
         Language.EN -> "Support"
         Language.FA -> "پشتیبانی"

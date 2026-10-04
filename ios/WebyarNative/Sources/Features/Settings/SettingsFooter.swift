@@ -11,11 +11,13 @@ import SwiftUI
 struct SettingsFooter: View {
     /// A page the footer opens in the browser.
     struct Link: Identifiable {
+        enum Kind { case website, privacyPolicy, terms }
+
+        /// Also what tells the links apart, since two may share a title.
+        let kind: Kind
         let title: String
         let url: URL
-        /// Also what tells the links apart, since two may share a title.
-        let identifier: String
-        var id: String { identifier }
+        var id: Kind { kind }
     }
 
     let language: Language
@@ -65,22 +67,32 @@ struct SettingsFooter: View {
                 if index > 0 {
                     dot
                 }
-                Button {
-                    openURL(link.url)
-                } label: {
-                    Text(link.title)
-                        .font(.app(.footnote))
-                        .foregroundStyle(Theme.Palette.labelSecondary)
-                        .underline()
-                        .lineLimit(1)
-                        .fixedSize()
-                        .frame(minHeight: Theme.Size.minTouchTarget)
-                }
-                // Each link its own target: a list row's buttons otherwise
-                // all fire together, on a tap anywhere in the row.
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier(link.identifier)
+                button(link)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func button(_ link: Link) -> some View {
+        let button = Button {
+            openURL(link.url)
+        } label: {
+            Text(link.title)
+                .font(.app(.footnote))
+                .foregroundStyle(Theme.Palette.labelSecondary)
+                .underline()
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minHeight: Theme.Size.minTouchTarget)
+        }
+        // Each link its own target: a list row's buttons otherwise all fire
+        // together, on a tap anywhere in the row.
+        .buttonStyle(.borderless)
+
+        switch link.kind {
+        case .website: button.accessibilityIdentifier(A11y.settingsWebsite)
+        case .privacyPolicy: button.accessibilityIdentifier(A11y.settingsPrivacyPolicy)
+        case .terms: button.accessibilityIdentifier(A11y.settingsTerms)
         }
     }
 

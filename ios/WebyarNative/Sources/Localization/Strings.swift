@@ -1081,6 +1081,14 @@ enum Str {
         }
     }
 
+    static func about(_ l: Language) -> String {
+        switch l {
+        case .en: "About"
+        case .fa: "درباره"
+        case .tr: "Hakkında"
+        }
+    }
+
     /// The one way forward for an owner who wants their account removed.
     static func support(_ l: Language) -> String {
         switch l {

@@ -75,14 +75,14 @@ struct SettingsView: View {
         // The site's address and name are Super Admin's (Mobile App → iOS →
         // In-app settings).
         if let website = appState.websiteURL {
-            links.append(.init(title: appState.websiteLabel, url: website, identifier: A11y.settingsWebsite))
+            links.append(.init(kind: .website, title: appState.websiteLabel, url: website))
         }
         // Super Admin → Mobile App → App Store record.
         if let privacy = appState.legalLinks.privacyPolicy {
-            links.append(.init(title: SettingsStr.privacyPolicy(language), url: privacy, identifier: A11y.settingsPrivacyPolicy))
+            links.append(.init(kind: .privacyPolicy, title: SettingsStr.privacyPolicy(language), url: privacy))
         }
         if let terms = appState.legalLinks.terms {
-            links.append(.init(title: SettingsStr.termsOfUse(language), url: terms, identifier: A11y.settingsTerms))
+            links.append(.init(kind: .terms, title: SettingsStr.termsOfUse(language), url: terms))
         }
         return links
     }

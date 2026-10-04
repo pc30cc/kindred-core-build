@@ -287,13 +287,12 @@ final class PushController {
     /// The icon's number is left alone here: while the app is open it
     /// follows the inbox's own count (`MainTabView`), which a payload counted
     /// for another workspace would only contradict.
-    func presentation(for content: UNNotificationContent) -> UNNotificationPresentationOptions {
+    func presentation(for arrival: PushArrival) -> UNNotificationPresentationOptions {
         // Nobody signed in: whatever this is belongs to an account that is
         // not here, and the sign-in screen is no place to show it.
         guard isSignedIn else { return [] }
-        let target = PushTarget(userInfo: content.userInfo)
-        noteArrival(target, content.userInfo)
-        return isOnScreen(target) ? [] : [.banner, .sound, .list]
+        noteArrival(arrival)
+        return isOnScreen(arrival.target) ? [] : [.banner, .sound, .list]
     }
 
     /// Whether the notification is about what the operator is looking at.
@@ -310,30 +309,29 @@ final class PushController {
     /// Hands a notification's identifiers to the sync layer. The message id,
     /// when the payload has one, lets an open thread that already has that
     /// message (realtime was faster) skip the read altogether.
-    private func noteArrival(_ target: PushTarget?, _ info: [AnyHashable: Any]) {
-        switch target {
+    private func noteArrival(_ arrival: PushArrival) {
+        switch arrival.target {
         case .conversation(let workspaceID, let conversationID)?:
             SyncCoordinator.shared.pushArrived(
                 workspaceID: workspaceID,
                 conversationID: conversationID,
-                messageID: info["messageId"] as? String
+                messageID: arrival.messageID
             )
         case .colleague(let workspaceID, let peerID)?:
             SyncCoordinator.shared.teamPushArrived(workspaceID: workspaceID, peerID: peerID)
         case .support(_, let threadID)?:
             SyncCoordinator.shared.supportPushArrived(threadID: threadID)
         case .email(let workspaceID, _)?:
-            SyncCoordinator.shared.emailPushArrived(workspaceID: workspaceID, provider: info["provider"] as? String)
+            SyncCoordinator.shared.emailPushArrived(workspaceID: workspaceID, provider: arrival.provider)
         case nil:
             break
         }
     }
 
     /// A tap, or one of the buttons on the banner.
-    func handle(_ response: UNNotificationResponse) async {
-        let info = response.notification.request.content.userInfo
-        guard let target = PushTarget(userInfo: info) else { return }
-        noteArrival(target, info)
+    func handle(_ response: PushResponse) async {
+        guard let target = response.arrival.target else { return }
+        noteArrival(response.arrival)
 
         // The two buttons act on the server as whoever holds the token. With
         // nobody signed in there is nobody to act as — and a pending open
@@ -365,7 +363,7 @@ final class PushController {
             }
 
         case "REPLY":
-            guard let typed = (response as? UNTextInputNotificationResponse)?.userText
+            guard let typed = response.typedText?
                 .trimmingCharacters(in: .whitespacesAndNewlines), !typed.isEmpty
             else {
                 pendingOpen = target
@@ -383,7 +381,7 @@ final class PushController {
                         // key on the replay: derived from the notification
                         // and the words, not made up fresh each time.
                         clientMessageID: Self.replyKey(
-                            notification: response.notification.request.identifier, body: typed
+                            notification: response.notificationID, body: typed
                         ),
                         attachmentID: nil
                     )

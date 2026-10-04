@@ -16,6 +16,27 @@ final class PushTargetTests: XCTestCase {
         XCTAssertEqual(target, .conversation(workspaceID: "w1", conversationID: "c1"))
     }
 
+    /// What crosses from the notification centre's delegate to the main
+    /// actor: the target, and the two identifiers the sync layer reads.
+    func testAnArrivalCarriesItsTargetTheMessageAndTheMailbox() {
+        let message = PushArrival(userInfo: [
+            "type": "new_message", "workspaceId": "w1", "conversationId": "c1", "messageId": "m1",
+        ])
+        XCTAssertEqual(message.target, .conversation(workspaceID: "w1", conversationID: "c1"))
+        XCTAssertEqual(message.messageID, "m1")
+        XCTAssertNil(message.provider)
+
+        let mail = PushArrival(userInfo: [
+            "type": "email_message", "workspaceId": "w1", "threadId": "e1", "provider": "gmail",
+        ])
+        XCTAssertEqual(mail.target, .email(workspaceID: "w1", threadID: "e1"))
+        XCTAssertEqual(mail.provider, "gmail")
+
+        let unknown = PushArrival(userInfo: ["type": "test"])
+        XCTAssertNil(unknown.target)
+        XCTAssertNil(unknown.messageID)
+    }
+
     func testAnAssignmentAHandoffAndANoteOpenTheirConversation() {
         for type in ["assignment", "handoff", "internal_note", "mention"] {
             let target = PushTarget(userInfo: ["type": type, "workspaceId": "w1", "conversationId": "c1"])

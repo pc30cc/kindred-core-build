@@ -46,7 +46,7 @@ enum PlatformOrigin {
         UserDefaults.standard.removeObject(forKey: originKey)
     }
 
-    /// Opened from Settings → About. The platform's help centre when it names
+    /// Opened from Delete Account. The platform's help centre when it names
     /// one, its public site otherwise, and only then the compiled fallback.
     static var supportURL: URL? {
         if let stored = UserDefaults.standard.string(forKey: supportKey),
@@ -61,7 +61,7 @@ enum PlatformOrigin {
         UserDefaults.standard.set(url.absoluteString, forKey: supportKey)
     }
 
-    /// Opened from Settings → About → Website when Super Admin set no address
+    /// Opened from the website link at the foot of Settings when Super Admin set no address
     /// for it: the platform's public site (Branding → Domains).
     static var websiteURL: URL? {
         guard let stored = UserDefaults.standard.string(forKey: websiteKey),

@@ -802,7 +802,7 @@ actor SampleAPI: WebyarAPI {
     // MARK: - App configuration
 
     func mobileAppConfig() async throws -> MobileAppConfig {
-        // Settings → About → Website, named as Super Admin might name it.
+        // The website link at the foot of Settings, named as Super Admin might name it.
         var config = MobileAppConfig.defaults
         config.websiteURL = URL(string: "https://webyar.ai")
         config.websiteLabel = ["fa": "سایت وبیار"]

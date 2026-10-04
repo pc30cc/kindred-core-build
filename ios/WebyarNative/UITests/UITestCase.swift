@@ -406,11 +406,11 @@ enum A11yID {
     /// are the fallback.
     static let securityRevokeOthersConfirm = "security.revokeOthers.confirm"
 
-    /// Settings → About: the version, its build, and the platform's website.
+    /// The foot of Settings: the version, its build, and the platform's website.
     static let settingsVersion = "settings.version"
     static let settingsBuild = "settings.build"
     static let settingsWebsite = "settings.website"
-    /// The privacy policy and terms of use: in About, and under the sign-in form.
+    /// The privacy policy and terms of use: at the foot of Settings, and under the sign-in form.
     static let settingsPrivacyPolicy = "settings.privacyPolicy"
     static let settingsTerms = "settings.terms"
     static let loginPrivacyPolicy = "login.privacyPolicy"

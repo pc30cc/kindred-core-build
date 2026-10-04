@@ -36,9 +36,9 @@ enum AIConsentStr {
 
     static func body(_ l: Language) -> String {
         switch l {
-        case .en: "To write this reply, what you typed and the recent messages of this conversation are sent to the third-party AI service the platform uses. The visitor receives the AI's reply. The Privacy Policy in Settings → About explains how this data is handled."
-        case .fa: "برای نوشتن این پاسخ، آنچه نوشته‌اید و پیام‌های اخیر این گفتگو به سرویس هوش مصنوعی شخص ثالثی که پلتفرم از آن استفاده می‌کند فرستاده می‌شود. بازدیدکننده پاسخ هوش مصنوعی را دریافت می‌کند. سیاست حفظ حریم خصوصی در تنظیمات ← درباره توضیح می‌دهد این داده‌ها چگونه نگهداری می‌شوند."
-        case .tr: "Bu yanıtı yazmak için yazdıklarınız ve bu konuşmanın son mesajları, platformun kullandığı üçüncü taraf yapay zekâ hizmetine gönderilir. Ziyaretçi yapay zekânın yanıtını alır. Bu verilerin nasıl işlendiği Ayarlar → Hakkında'daki Gizlilik Politikası'nda açıklanır."
+        case .en: "To write this reply, what you typed and the recent messages of this conversation are sent to the third-party AI service the platform uses. The visitor receives the AI's reply. The Privacy Policy, at the foot of Settings, explains how this data is handled."
+        case .fa: "برای نوشتن این پاسخ، آنچه نوشته‌اید و پیام‌های اخیر این گفتگو به سرویس هوش مصنوعی شخص ثالثی که پلتفرم از آن استفاده می‌کند فرستاده می‌شود. بازدیدکننده پاسخ هوش مصنوعی را دریافت می‌کند. سیاست حفظ حریم خصوصی، در پایین صفحهٔ تنظیمات، توضیح می‌دهد این داده‌ها چگونه نگهداری می‌شوند."
+        case .tr: "Bu yanıtı yazmak için yazdıklarınız ve bu konuşmanın son mesajları, platformun kullandığı üçüncü taraf yapay zekâ hizmetine gönderilir. Ziyaretçi yapay zekânın yanıtını alır. Bu verilerin nasıl işlendiği, Ayarlar'ın en altındaki Gizlilik Politikası'nda açıklanır."
         }
     }
 

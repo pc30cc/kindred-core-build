@@ -1,7 +1,7 @@
 import XCTest
 
-/// Settings → Security's way out of every other device, Settings → About's
-/// version, build and website, and who is asking at the top of a support
+/// Settings → Security's way out of every other device, the version, build
+/// and links at the foot of Settings, and who is asking at the top of a support
 /// conversation — against the sample backend.
 final class SettingsSecurityTests: UITestCase {
 
@@ -54,19 +54,19 @@ final class SettingsSecurityTests: UITestCase {
                       "the button stayed with no other device left")
     }
 
-    func testAboutSaysTheVersionTheBuildAndWhereTheWebsiteIs() {
+    func testSettingsEndsWithTheVersionTheBuildAndTheLinks() {
         app.launchArguments += ["-WebyarScreen", "settings"]
         app.launch()
 
         let website = reveal(element(A11yID.settingsWebsite))
-        XCTAssertTrue(website.waitForExistence(timeout: 20), "no Website row in About")
+        XCTAssertTrue(website.waitForExistence(timeout: 20), "no website link at the foot of Settings")
         // The name Super Admin gave it, not "Support".
-        XCTAssertTrue(website.label.contains("سایت وبیار"), "the row is not called what Super Admin named it: \(website.label)")
+        XCTAssertTrue(website.label.contains("سایت وبیار"), "the link is not called what Super Admin named it: \(website.label)")
         XCTAssertTrue(element(A11yID.settingsVersion).exists, "no version")
         XCTAssertTrue(element(A11yID.settingsBuild).exists, "no build")
         // App Review asks for the privacy policy inside the app.
-        XCTAssertTrue(reveal(element(A11yID.settingsPrivacyPolicy)).waitForExistence(timeout: 5), "no privacy policy in About")
-        XCTAssertTrue(element(A11yID.settingsTerms).exists, "no terms in About")
+        XCTAssertTrue(reveal(element(A11yID.settingsPrivacyPolicy)).waitForExistence(timeout: 5), "no privacy policy at the foot of Settings")
+        XCTAssertTrue(element(A11yID.settingsTerms).exists, "no terms at the foot of Settings")
     }
 
     func testASupportConversationOpensWithWhoIsAsking() {

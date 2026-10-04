@@ -11,7 +11,7 @@ enum GeneratedConfig {
     /// Origin the app sends every API request to.
     static let apiBaseURL = URL(string: "https://api.webyar.ai")!
 
-    /// Opened from Settings → About.
+    /// Opened from Delete Account, for an owner who has to ask for help.
     static let supportURL = URL?.none
 
     /// Language a first launch starts in, before the operator picks one.

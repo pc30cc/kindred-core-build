@@ -1089,8 +1089,7 @@ enum Str {
         }
     }
 
-    /// Settings → About, and the one way forward for an owner who wants their
-    /// account removed.
+    /// The one way forward for an owner who wants their account removed.
     static func support(_ l: Language) -> String {
         switch l {
         case .en: "Support"

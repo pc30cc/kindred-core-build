@@ -33,6 +33,7 @@
  *    must not break anything for anybody else.
  */
 import http2 from 'node:http2';
+import { createPrivateKey } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 
 export interface ApnsCredentials {
@@ -88,6 +89,19 @@ const SANDBOX_HOST = 'https://api.sandbox.push.apple.com';
 let cachedCreds: ApnsCredentials | null | undefined;
 
 /**
+ * Why the credentials are absent when they were in fact set: the four
+ * variables are there, but the key in them cannot be read as a .p8 key.
+ * Super Admin says so, rather than calling a key it can see "missing".
+ */
+export type ApnsCredentialProblem = 'invalid_key';
+let credentialProblem: ApnsCredentialProblem | null = null;
+
+export function getApnsCredentialProblem(): ApnsCredentialProblem | null {
+  getApnsCredentials();
+  return credentialProblem;
+}
+
+/**
  * Reads credentials from env. Returns null when APNs is simply not
  * configured, which is a valid deployment state — the call still rings in
  * every browser that has the operator console open, and the console still
@@ -106,6 +120,7 @@ export function isApnsConfigured(): boolean {
 /** Test seam: forget the memoized credentials, token and connection. */
 export function resetApnsCache(): void {
   cachedCreds = undefined;
+  credentialProblem = null;
   providerToken = null;
   closeSession();
 }
@@ -114,15 +129,22 @@ function loadCredentials(): ApnsCredentials | null {
   const keyId = process.env.APNS_KEY_ID?.trim();
   const teamId = process.env.APNS_TEAM_ID?.trim();
   const bundleId = process.env.APNS_BUNDLE_ID?.trim() || process.env.IOS_BUNDLE_ID?.trim();
-  const raw = process.env.APNS_PRIVATE_KEY ?? process.env.APNS_PRIVATE_KEY_BASE64;
+  const raw = process.env.APNS_PRIVATE_KEY || process.env.APNS_PRIVATE_KEY_BASE64;
   if (!keyId || !teamId || !bundleId || !raw) return null;
 
-  const privateKey = normalizeKey(raw.trim());
-  if (!privateKey.includes('BEGIN PRIVATE KEY')) {
-    // Never log the value itself: it is the signing key.
-    console.error('[apns] APNS_PRIVATE_KEY is not a PEM-encoded .p8 key');
+  const privateKey = normalizeKey(raw);
+  const unreadable = keyProblem(privateKey);
+  if (unreadable) {
+    // Never log the value itself: it is the signing key. What is wrong with
+    // it, and which variables to look at, is enough to fix it.
+    console.error(
+      `[apns] APNS_PRIVATE_KEY / APNS_PRIVATE_KEY_BASE64 is set but is not a usable .p8 key (${unreadable}). ` +
+        'Paste the whole AuthKey_<KEY_ID>.p8 file, or `base64 -i AuthKey_<KEY_ID>.p8` of it.',
+    );
+    credentialProblem = 'invalid_key';
     return null;
   }
+  credentialProblem = null;
   return {
     keyId,
     teamId,
@@ -132,16 +154,45 @@ function loadCredentials(): ApnsCredentials | null {
   };
 }
 
-function normalizeKey(value: string): string {
-  if (value.includes('BEGIN PRIVATE KEY')) {
-    return value.includes('\\n') ? value.replace(/\\n/g, '\n') : value;
+/**
+ * The .p8 key as Node reads it, from whatever shape it arrived in.
+ *
+ * A key goes into a deployment's environment through a form field, and the
+ * field decides what the line breaks become: kept, turned into spaces, into a
+ * literal "\n", or dropped altogether — and sometimes the value keeps the
+ * quotes it was pasted with. The key between the two markers is the same in
+ * every one of those, so it is rebuilt from that rather than refused: a key
+ * that was pasted correctly in every way that matters must not silently stop
+ * every iPhone notification.
+ *
+ * Accepted: the PEM file in any of those shapes; base64 of the whole file
+ * (the friendliest thing to paste into a single-line variable); and the
+ * base64 body alone, without its marker lines.
+ */
+export function normalizeKey(value: string): string {
+  let text = value.trim().replace(/^(['"])([\s\S]*)\1$/, '$2').trim();
+  if (!text.includes('BEGIN PRIVATE KEY')) {
+    const decoded = Buffer.from(text.replace(/\s+/g, ''), 'base64').toString('utf8');
+    // Base64 of the file decodes to the PEM; the body alone decodes to the
+    // key's binary form, and is itself what goes between the markers.
+    if (decoded.includes('BEGIN PRIVATE KEY')) text = decoded.trim();
   }
-  // Base64 of the whole .p8 file is the friendlier thing to paste into a
-  // single-line environment variable.
+  const body = text
+    .replace(/\\n/g, '\n')
+    .replace(/-----(BEGIN|END) PRIVATE KEY-----/g, '')
+    .replace(/[\s'"]+/g, '');
+  const lines = body.match(/.{1,64}/g) ?? [];
+  return `-----BEGIN PRIVATE KEY-----\n${lines.join('\n')}\n-----END PRIVATE KEY-----\n`;
+}
+
+/** Why a normalized key cannot sign an ES256 token, or null when it can. */
+function keyProblem(pem: string): string | null {
   try {
-    return Buffer.from(value, 'base64').toString('utf8');
+    const key = createPrivateKey(pem);
+    if (key.asymmetricKeyType !== 'ec') return `a ${key.asymmetricKeyType ?? 'non-EC'} key, not the EC key Apple issues`;
+    return null;
   } catch {
-    return value;
+    return 'not a readable private key';
   }
 }
 
@@ -359,7 +410,24 @@ export function nativeBundleId(): string | undefined {
 export async function sendApnsAlert(input: ApnsAlertInput): Promise<ApnsSendOutcome> {
   const creds = getApnsCredentials();
   if (!creds) return { ok: false, reason: 'not_configured' };
-  return performApnsRequest(buildAlertRequest(creds, input));
+  const request = prepare(() => buildAlertRequest(creds, input));
+  return 'ok' in request ? request : performApnsRequest(request);
+}
+
+/**
+ * Builds a request, turning a failure into an outcome. Signing the provider
+ * token is the part that can throw, and a throw here used to escape the
+ * whole dispatch: every device of every recipient went unsent and the log
+ * row was left at "attempted", with nothing to say why.
+ */
+export function prepare(build: () => ApnsRequest): ApnsRequest | ApnsSendOutcome {
+  try {
+    return build();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[apns] could not prepare the request', { message });
+    return { ok: false, reason: `request_failed: ${message}`.slice(0, 200) };
+  }
 }
 
 function clamp01(value: number): number {

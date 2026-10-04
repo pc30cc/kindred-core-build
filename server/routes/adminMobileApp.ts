@@ -16,7 +16,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { isPushConfigured } from '../services/push/fcm.js';
-import { getApnsCredentials } from '../services/push/apns.js';
+import { getApnsCredentialProblem, getApnsCredentials } from '../services/push/apns.js';
 import {
   invalidateMobileAppSettingsCache,
   normalize,
@@ -221,9 +221,18 @@ async function readRow(config: ServerConfig) {
  * a change an operator just saved cannot be masked by a stale score.
  */
 /** The iOS app's push credentials as this server holds them; never the key itself. */
-function apnsStatus(): { configured: boolean; environment: 'production' | 'sandbox' | null } {
+function apnsStatus(): {
+  configured: boolean;
+  environment: 'production' | 'sandbox' | null;
+  /** Set, but unusable: the key in the environment is not a readable .p8 key. */
+  problem: 'invalid_key' | null;
+} {
   const creds = getApnsCredentials();
-  return { configured: Boolean(creds), environment: creds ? (creds.sandbox ? 'sandbox' : 'production') : null };
+  return {
+    configured: Boolean(creds),
+    environment: creds ? (creds.sandbox ? 'sandbox' : 'production') : null,
+    problem: getApnsCredentialProblem(),
+  };
 }
 
 function readinessFor(settings: ReturnType<typeof normalize>) {
@@ -232,6 +241,7 @@ function readinessFor(settings: ReturnType<typeof normalize>) {
   const checks = evaluateReadiness({
     settings,
     apnsConfigured: apns.configured,
+    apnsKeyInvalid: apns.problem === 'invalid_key',
     apnsSandbox: apns.environment === 'sandbox',
     nativeProjectAvailable: project.available,
     appIconPresent: project.appIcon1024,

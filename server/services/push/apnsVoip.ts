@@ -18,6 +18,7 @@ import {
   getApnsCredentials,
   getProviderToken,
   performApnsRequest,
+  prepare,
   type ApnsCredentials,
   type ApnsRequest,
   type ApnsSendOutcome,
@@ -89,5 +90,6 @@ export function buildVoipRequest(creds: ApnsCredentials, input: VoipPushInput): 
 export async function sendVoipPush(input: VoipPushInput): Promise<ApnsSendOutcome> {
   const creds = getApnsCredentials();
   if (!creds) return { ok: false, reason: 'not_configured' };
-  return performApnsRequest(buildVoipRequest(creds, input));
+  const request = prepare(() => buildVoipRequest(creds, input));
+  return 'ok' in request ? request : performApnsRequest(request);
 }

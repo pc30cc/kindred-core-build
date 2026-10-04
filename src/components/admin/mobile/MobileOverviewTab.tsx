@@ -31,12 +31,15 @@ export function MobileOverviewTab({
   ] as const;
 
   // A key on Apple's sandbox gateway is present but wrong for an App Store
-  // build, so it reads as a warning with its own word.
+  // build, so it reads as a warning with its own word — and so does a key
+  // that is set but cannot be read, which is not the same as no key at all.
   const env = [
     {
       key: 'apnsConfigured',
       ok: environment.apns.configured && environment.apns.environment === 'production',
-      label: environment.apns.environment === 'sandbox' ? t('admin.mobileApp.overview.sandbox') : undefined,
+      label: environment.apns.problem === 'invalid_key'
+        ? t('admin.mobileApp.overview.invalidKey')
+        : environment.apns.environment === 'sandbox' ? t('admin.mobileApp.overview.sandbox') : undefined,
     },
     { key: 'pushConfigured', ok: environment.pushConfigured },
     { key: 'nativeProject', ok: environment.nativeProject.available },

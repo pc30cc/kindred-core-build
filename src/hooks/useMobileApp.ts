@@ -202,7 +202,12 @@ export interface MobileAppPayload {
     /** Firebase credentials: the Android app's notifications. */
     pushConfigured: boolean;
     /** APNs credentials: the iOS app's notifications. */
-    apns: { configured: boolean; environment: 'production' | 'sandbox' | null };
+    apns: {
+      configured: boolean;
+      environment: 'production' | 'sandbox' | null;
+      /** The key is set but cannot be read as a .p8 key. */
+      problem?: 'invalid_key' | null;
+    };
     /** The native iOS project (ios/WebyarNative), as shipped with this deployment. */
     nativeProject: {
       available: boolean;

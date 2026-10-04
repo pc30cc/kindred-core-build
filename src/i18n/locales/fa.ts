@@ -3806,6 +3806,7 @@ const fa: TranslationKeys = {
         environmentCard: 'وضعیت استقرار',
         environmentHint: 'آنچه این سرور می‌بیند: کلیدهای پوش در محیط آن، و پروژهٔ نیتیو iOS ‏(ios/WebyarNative) همان‌طور که با این نسخه مستقر شده است.',
         sandbox: 'Sandbox',
+        invalidKey: 'تنظیم شده، ولی خوانا نیست',
         env: {
           apnsConfigured: 'کلید APNs (پوش iOS)',
           pushConfigured: 'کلید Firebase (پوش اندروید)',

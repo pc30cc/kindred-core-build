@@ -3810,6 +3810,7 @@ const tr: TranslationKeys = {
         environmentCard: 'Dağıtım durumu',
         environmentHint: 'Bu sunucunun gördükleri: ortamındaki push anahtarları ve bu dağıtımla gelen yerel iOS projesi (ios/WebyarNative).',
         sandbox: 'Sandbox',
+        invalidKey: 'Ayarlı ama okunamıyor',
         env: {
           apnsConfigured: 'APNs anahtarı (iOS push)',
           pushConfigured: 'Firebase anahtarı (Android push)',

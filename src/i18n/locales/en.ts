@@ -3821,6 +3821,7 @@ const en = {
         environmentCard: 'Deployment facts',
         environmentHint: 'What this server sees: the push keys in its environment, and the native iOS project (ios/WebyarNative) as shipped with this deployment.',
         sandbox: 'Sandbox',
+        invalidKey: 'Set, but unreadable',
         env: {
           apnsConfigured: 'APNs key (iOS push)',
           pushConfigured: 'Firebase key (Android push)',

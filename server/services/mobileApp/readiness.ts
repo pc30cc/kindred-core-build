@@ -51,6 +51,8 @@ export interface ReadinessInput {
    * notifications go to Apple directly (server/services/push/apns.ts).
    */
   apnsConfigured: boolean;
+  /** The key is set but is not a readable .p8 key. */
+  apnsKeyInvalid?: boolean;
   /** The server sends to Apple's sandbox gateway, which App Store builds' tokens do not belong to. */
   apnsSandbox: boolean;
   /**
@@ -316,7 +318,7 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessCheck[] {
     'push',
     'blocker',
     !pushOn || (input.apnsConfigured && !input.apnsSandbox) ? 'pass' : 'fail',
-    !input.apnsConfigured ? 'missing' : input.apnsSandbox ? 'sandbox' : 'production',
+    !input.apnsConfigured ? (input.apnsKeyInvalid ? 'invalid' : 'missing') : input.apnsSandbox ? 'sandbox' : 'production',
   );
   add('pushNotRequiredForUse', 'push', 'warning', 'pass', undefined, '4.5.4');
 

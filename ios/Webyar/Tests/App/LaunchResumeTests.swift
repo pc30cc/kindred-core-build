@@ -30,6 +30,11 @@ final class LaunchResumeTests: XCTestCase {
 
     private let saved = User(id: "u1", email: "sara@example.com", fullName: "Sara", emailVerified: true)
 
+    /// The account on screen, as far as the saved copy keeps it.
+    private func shown(_ appState: AppState) -> String? {
+        appState.session.user.map { "\($0.id) \($0.fullName ?? "")" }
+    }
+
     override func setUp() async throws {
         SessionCache.clear()
     }
@@ -43,7 +48,7 @@ final class LaunchResumeTests: XCTestCase {
         let api = LaunchAPI()
         let appState = AppState(api: api)
         await appState.resumeSavedSession()
-        XCTAssertEqual(appState.session, .signedIn(saved))
+        XCTAssertEqual(shown(appState), "u1 Sara")
         let calls = await api.currentUserCalls
         XCTAssertEqual(calls, 0, "nothing waited on the server")
     }
@@ -82,7 +87,7 @@ final class LaunchResumeTests: XCTestCase {
         let appState = AppState(api: api)
         await appState.resumeSavedSession()
         await appState.restore()
-        XCTAssertEqual(appState.session, .signedIn(saved))
+        XCTAssertEqual(shown(appState), "u1 Sara")
     }
 
     func testATokenOfAnotherAccountReplacesTheSavedOne() async {

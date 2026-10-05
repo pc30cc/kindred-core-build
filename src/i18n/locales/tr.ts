@@ -4010,9 +4010,10 @@ const tr: TranslationKeys = {
         collectsDataHint: 'Bir hesap, bir mesaj veya bir push belirteci toplanan veri sayılır.',
         dataTypes: 'Toplanan veri türleri',
         dataTypesHint: 'Her tür için, kullanıcıya bağlı olup olmadığını ve izleme için kullanılıp kullanılmadığını da beyan edin.',
+        dataTypesNeeded: 'Uygulamanın gizlilik bildirimi şu kategorilerde veri topluyor: {{categories}}. Bunların her birini burada ve App Store Connect’te işaretleyin.',
         thirdPartySdks: 'Üçüncü taraf SDK’ları',
         thirdPartySdksHint: 'Her birinin kendi gizlilik bildirimi gerekir ve verileri sizin sayılır.',
-        manifestPreview: 'Oluşturulan gizlilik bildirimi',
+        manifestPreview: 'Uygulamanın gizlilik bildirimi (ios/Webyar/Resources/PrivacyInfo.xcprivacy)',
       },
       appStore: {
         title: 'Gönderim kontrol listesi',

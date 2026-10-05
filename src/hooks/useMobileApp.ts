@@ -213,6 +213,10 @@ export interface MobileAppPayload {
       available: boolean;
       appIcon1024: boolean;
       privacyManifestFile: boolean;
+      /** Required-reason API categories the manifest declares (`UserDefaults`, …). */
+      privacyApiTypes?: string[];
+      /** Data types the manifest says the app collects (`EmailAddress`, …). */
+      privacyDataTypes?: string[];
       pushEntitlement: boolean;
       backgroundModes: string[];
       source: 'checkout' | 'snapshot' | 'none';

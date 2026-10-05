@@ -26,6 +26,17 @@ export interface NativeProjectFacts {
   appIcon1024: boolean;
   /** Resources/PrivacyInfo.xcprivacy, bundled into the app target. */
   privacyManifestFile: boolean;
+  /**
+   * The required-reason API categories that manifest declares, without
+   * Apple's prefix: `UserDefaults`, `FileTimestamp`, `DiskSpace`…
+   */
+  privacyApiTypes: string[];
+  /**
+   * The data types it says the app collects, without Apple's prefix:
+   * `EmailAddress`, `UserID`, `CustomerSupport`… — what App Store
+   * Connect's App Privacy answers have to cover.
+   */
+  privacyDataTypes: string[];
   /** The target's entitlements declare `aps-environment`: the push capability. */
   pushEntitlement: boolean;
   /** The app's UIBackgroundModes. */
@@ -46,6 +57,8 @@ const NONE: NativeProjectFacts = {
   available: false,
   appIcon1024: false,
   privacyManifestFile: false,
+  privacyApiTypes: [],
+  privacyDataTypes: [],
   pushEntitlement: false,
   backgroundModes: [],
 };
@@ -56,10 +69,14 @@ export function readNativeProjectFacts(root: string): NativeProjectFacts {
   const specPath = resolve(dir, 'project.yml');
   if (!existsSync(specPath)) return { ...NONE };
   const spec = readFileSync(specPath, 'utf8');
+  const manifestPath = resolve(dir, 'Resources/PrivacyInfo.xcprivacy');
+  const manifest = existsSync(manifestPath) ? readFileSync(manifestPath, 'utf8') : '';
   return {
     available: true,
     appIcon1024: hasMarketingIcon(resolve(dir, 'Resources/Assets.xcassets/AppIcon.appiconset')),
-    privacyManifestFile: existsSync(resolve(dir, 'Resources/PrivacyInfo.xcprivacy')),
+    privacyManifestFile: existsSync(manifestPath),
+    privacyApiTypes: manifestValues(manifest, 'NSPrivacyAccessedAPIType', 'NSPrivacyAccessedAPICategory'),
+    privacyDataTypes: manifestValues(manifest, 'NSPrivacyCollectedDataType', 'NSPrivacyCollectedDataType'),
     pushEntitlement: declaresPushEntitlement(spec),
     backgroundModes: backgroundModes(spec),
   };
@@ -82,12 +99,29 @@ export function readSnapshot(path: string = NATIVE_PROJECT_SNAPSHOT): NativeProj
       available: raw.available === true,
       appIcon1024: raw.appIcon1024 === true,
       privacyManifestFile: raw.privacyManifestFile === true,
+      privacyApiTypes: strings(raw.privacyApiTypes),
+      privacyDataTypes: strings(raw.privacyDataTypes),
       pushEntitlement: raw.pushEntitlement === true,
-      backgroundModes: Array.isArray(raw.backgroundModes) ? raw.backgroundModes.filter((m) => typeof m === 'string') : [],
+      backgroundModes: strings(raw.backgroundModes),
     };
   } catch {
     return null;
   }
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+
+/**
+ * What a privacy manifest gives for `key`, each time it appears, with
+ * Apple's `prefix` taken off — in order and once each. Its comments are
+ * skipped: they name categories the app does NOT use.
+ */
+function manifestValues(manifest: string, key: string, prefix: string): string[] {
+  const body = manifest.replace(/<!--[\s\S]*?-->/g, '');
+  const pattern = new RegExp(`<key>\\s*${key}\\s*</key>\\s*<string>\\s*${prefix}(\\w+)\\s*</string>`, 'g');
+  return [...new Set([...body.matchAll(pattern)].map((m) => m[1]))];
 }
 
 /** The 1024×1024 marketing icon Apple requires, read from the asset catalog. */

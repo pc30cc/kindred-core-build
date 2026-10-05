@@ -334,11 +334,17 @@ private struct SupportPendingFile: View {
     var body: some View {
         Group {
             if upload.isImage, let preview {
+                // Cut to the photo's own proportions, as in the chats: a box
+                // wider than the picture put the corners and the beak in
+                // empty space.
+                let size = PhotoBubbleSize.fitting(preview.size)
                 Image(uiImage: preview)
                     .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 220, maxHeight: 260)
-                    .chatBubbleClip(hasBeak: hasBeak, pointsRight: true)
+                    .scaledToFill()
+                    .frame(width: size.width, height: size.height)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg - 3, style: .continuous))
+                    .padding(3)
+                    .chatBubble(Theme.Palette.bubbleOutgoing, radius: Theme.Radius.lg, hasBeak: hasBeak, pointsRight: true)
                     .opacity(0.75)
             } else {
                 HStack(spacing: Theme.Space.md) {

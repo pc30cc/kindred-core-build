@@ -199,7 +199,15 @@ struct ChatView: View {
                             )
                         }
                     },
-                    shortcuts: shortcuts
+                    shortcuts: shortcuts,
+                    stagedPhoto: model.photos.photo,
+                    onStagePhoto: { data, name, mime in
+                        Task {
+                            await model.stagePhoto(data: data, fileName: name, mimeType: mime, appState: appState)
+                        }
+                    },
+                    onRemovePhoto: { model.photos.discard() },
+                    onRetryPhoto: { model.photos.retry() }
                 )
             }
             .task {
@@ -238,6 +246,18 @@ struct ChatView: View {
                     case .call: await actions.invite(.audio, appState: appState)
                     case .videoCall: await actions.invite(.video, appState: appState)
                     default: break
+                    }
+                    if let demo = SamplePhotoDemo.current {
+                        await model.stagePhoto(
+                            data: SamplePhotoDemo.photo(), fileName: "photo.jpg",
+                            mimeType: "image/jpeg", appState: appState
+                        )
+                        if demo == .send {
+                            for _ in 0..<50 where model.photos.attachmentID == nil {
+                                try? await Task.sleep(for: .milliseconds(100))
+                            }
+                            await model.send(appState: appState)
+                        }
                     }
                 }
                 #endif
@@ -322,7 +342,11 @@ struct ChatView: View {
                     // Not the message count: a thread whose newest message is
                     // replaced — an edit, a delivery receipt — has to re-pin
                     // too, and two conversations can have the same count.
-                    revision: revisionOf(days)
+                    revision: revisionOf(days),
+                    // The operator's own message is followed to the bottom
+                    // wherever they were reading — and so is the photo in it
+                    // as it finishes laying out.
+                    follow: model.sentCount
                 ) {
                     LazyVStack(spacing: Theme.Space.xxs) {
                         ForEach(days) { day in

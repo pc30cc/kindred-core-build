@@ -17,6 +17,9 @@ struct OutgoingMessage: Identifiable, Equatable, Sendable {
     let clientID: String
     let body: String
     let createdAt: Date
+    /// A photo already uploaded from the composer, drawn from this phone's
+    /// own copy until the server's row replaces the bubble.
+    var attachment: MessageAttachment? = nil
     var id: String { Self.localID(clientID) }
 
     static let localPrefix = "local:"
@@ -41,6 +44,11 @@ final class ChatViewModel {
     private(set) var sendFailed = false
     /// Device and location behind this thread, for the header avatar.
     private(set) var visitor: VisitorProfile?
+    /// The photo waiting in the composer, if any.
+    let photos: PhotoStager
+    /// Goes up each time the operator sends something: the transcript
+    /// follows their own message to the bottom wherever they were reading.
+    private(set) var sentCount = 0
 
     var draft = ""
 
@@ -61,7 +69,7 @@ final class ChatViewModel {
     /// The last text send that failed, and the key it went out with. Sending
     /// the same words again reuses the key — the first attempt may have
     /// reached the server even though its answer never reached us.
-    @ObservationIgnored private var lastFailedSend: (body: String, clientID: String)?
+    @ObservationIgnored private var lastFailedSend: (body: String, clientID: String, attachmentID: String?)?
     @ObservationIgnored private var lastSeenMarked: String?
 
     init(conversation: Conversation, api: any WebyarAPI = Backend.current, sync: SyncCoordinator = .shared) {
@@ -69,10 +77,16 @@ final class ChatViewModel {
         self.api = api
         self.sync = sync
         generation = sync.scopeGeneration
+        photos = PhotoStager()
+        photos.onUnauthorized = { [weak self] in await self?.appState?.handleUnauthorized() }
     }
 
+    /// Something to send, and nothing holding it: a photo still uploading
+    /// (or failed) keeps Send off until it is ready or taken out.
     var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+        guard !isSending else { return false }
+        if photos.photo != nil { return photos.attachmentID != nil }
+        return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Messages grouped into calendar days, oldest first — the order a
@@ -190,6 +204,9 @@ final class ChatViewModel {
             // The send that "failed" had reached the server after all: its
             // words are on screen, so they leave the composer.
             if draft.trimmingCharacters(in: .whitespacesAndNewlines) == failed.body { draft = "" }
+            if let attachmentID = failed.attachmentID, photos.attachmentID == attachmentID {
+                photos.discard()
+            }
             lastFailedSend = nil
             sendFailed = false
         }
@@ -199,7 +216,8 @@ final class ChatViewModel {
                 id: outgoing.id, conversationId: conversation.id, senderType: .agent,
                 senderId: me?.id, body: outgoing.body, createdAt: outgoing.createdAt,
                 senderName: me?.displayName, senderAvatar: appState?.myAvatarURL,
-                metadata: ["client_message_id": .string(outgoing.clientID)]
+                metadata: ["client_message_id": .string(outgoing.clientID)],
+                attachments: outgoing.attachment.map { [$0] }
             )
         }
         let next = thread.messages + pending
@@ -307,12 +325,16 @@ final class ChatViewModel {
 
     func send(appState: AppState) async {
         self.appState = appState
+        guard canSend else { return }
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty, !isSending else { return }
+        // The photo in the composer goes with the words, as one message.
+        let photo = photos.takeForSending()
+        let attachmentID = photo?.attachmentID
 
-        // The same words after a failure are the same message: same key.
+        // The same words (and photo) after a failure are the same message:
+        // same key.
         let clientID: String
-        if let failed = lastFailedSend, failed.body == body {
+        if let failed = lastFailedSend, failed.body == body, failed.attachmentID == attachmentID {
             clientID = failed.clientID
         } else {
             clientID = UUID().uuidString
@@ -326,8 +348,19 @@ final class ChatViewModel {
         // request is in flight invites a second tap and a duplicate message —
         // and show the message at once, marked as still on its way.
         draft = ""
-        outbox.append(OutgoingMessage(clientID: clientID, body: body, createdAt: Date()))
+        var outgoing = OutgoingMessage(clientID: clientID, body: body, createdAt: Date())
+        if let photo, let attachmentID {
+            // The bubble draws this phone's copy at once, and so does the
+            // server's row that replaces it: both look the file up by its id.
+            AttachmentPreviews.store(photo.preview, for: attachmentID)
+            outgoing.attachment = MessageAttachment(
+                id: attachmentID, fileName: photo.fileName, mimeType: photo.mimeType,
+                sizeBytes: photo.sizeBytes, kind: MessageAttachment.Kind.image.rawValue
+            )
+        }
+        outbox.append(outgoing)
         publish()
+        sentCount += 1
 
         do {
             try await api.send(
@@ -337,8 +370,9 @@ final class ChatViewModel {
                 // The server collapses a replay of the same key, so this is
                 // what makes a retry safe rather than duplicating.
                 clientMessageID: clientID,
-                attachmentID: nil
+                attachmentID: attachmentID
             )
+            if let photo { photos.sent(photo) }
             // The row itself comes back by realtime or by this delta —
             // whichever is first — and replaces the pending bubble. Not the
             // whole thread again.
@@ -355,15 +389,32 @@ final class ChatViewModel {
             } else {
                 outbox.removeAll { $0.clientID == clientID }
                 publish()
-                // Hand the text back so nothing the operator typed is lost —
-                // and keep its key for when they press Send again.
+                // Hand the text and the photo back so nothing the operator
+                // put in is lost — and keep the key for when they press Send
+                // again. The photo is already uploaded; it does not go again.
                 if draft.isEmpty { draft = body }
-                lastFailedSend = (body, clientID)
+                if let photo { photos.putBack(photo) }
+                lastFailedSend = (body, clientID, attachmentID)
                 sendFailed = true
             }
         }
 
         isSending = false
+    }
+
+    // MARK: - A photo in the composer
+
+    /// Puts a picked photo in the composer and starts uploading it.
+    func stagePhoto(data: Data, fileName: String, mimeType: String, appState: AppState) async {
+        self.appState = appState
+        let conversation = conversation
+        let staged = await photos.stage(data: data, fileName: fileName, mimeType: mimeType) { [api] data, fileName, mimeType, onProgress in
+            try await api.uploadAttachment(
+                conversationID: conversation.id, workspaceID: conversation.workspaceId,
+                fileName: fileName, mimeType: mimeType, data: data, onProgress: onProgress
+            )
+        }
+        if !staged { sendFailed = true }
     }
 
     /// Sends a file, with whatever is in the composer as its caption.
@@ -404,6 +455,7 @@ final class ChatViewModel {
                 attachmentID: attachmentID
             )
             await read()
+            sentCount += 1
             Haptics.success()
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()

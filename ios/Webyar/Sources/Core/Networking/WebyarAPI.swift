@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// What the app needs from a backend.
 ///
@@ -42,12 +43,16 @@ protocol WebyarAPI: SupportAPI, EmailAPI {
     /// `conversationID` is nil for an internal message: team chat reuses
     /// `conversation_attachments` with the conversation left unset, which is
     /// how the server tells an operator-to-operator file from a visitor's.
+    ///
+    /// `onProgress` hears how much of the file has gone, from 0 to 1, on no
+    /// particular thread — the composer draws it on the photo being sent.
     func uploadAttachment(
         conversationID: String?,
         workspaceID: String,
         fileName: String,
         mimeType: String,
-        data: Data
+        data: Data,
+        onProgress: (@Sendable (Double) -> Void)?
     ) async throws -> String
     func markSeen(conversationID: String) async throws
     func setStatus(_ status: ConversationStatus, conversationID: String, workspaceID: String) async throws
@@ -199,6 +204,22 @@ enum Backend {
     #endif
 }
 
+extension WebyarAPI {
+    /// An upload nobody is watching the progress of.
+    func uploadAttachment(
+        conversationID: String?,
+        workspaceID: String,
+        fileName: String,
+        mimeType: String,
+        data: Data
+    ) async throws -> String {
+        try await uploadAttachment(
+            conversationID: conversationID, workspaceID: workspaceID,
+            fileName: fileName, mimeType: mimeType, data: data, onProgress: nil
+        )
+    }
+}
+
 #if DEBUG
 /// Signs in from launch arguments so a screenshot run can reach the screens
 /// that live behind the login.
@@ -244,6 +265,37 @@ enum LanguageOverride {
 /// how `fastlane snapshot` and friends do it. It applies to a sample-data run
 /// and to an auto-signed-in run against the real server alike — the point is
 /// to reach a screen, not to choose where its content comes from.
+/// A Debug run's photo, put in the chat composer on its own (`stage`) or
+/// sent as well (`send`), so the field and the bubble can be laid out and
+/// screenshotted without driving the photo picker by hand.
+enum SamplePhotoDemo: String {
+    case stage, send
+
+    static let current: SamplePhotoDemo? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-WebyarSamplePhoto"),
+              arguments.index(after: index) < arguments.endIndex
+        else { return nil }
+        return SamplePhotoDemo(rawValue: arguments[arguments.index(after: index)])
+    }()
+
+    /// A tall picture, the shape a phone's camera takes.
+    static func photo() -> Data {
+        let size = CGSize(width: 900, height: 1200)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            let colors = [UIColor.systemTeal.cgColor, UIColor.systemIndigo.cgColor] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                context.cgContext.drawLinearGradient(
+                    gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: []
+                )
+            }
+            UIColor.white.withAlphaComponent(0.85).setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: 300, y: 380, width: 300, height: 300))
+        }
+        return image.jpegData(compressionQuality: 0.8) ?? Data()
+    }
+}
+
 enum SampleRoute: String {
     case inbox, chat, aiChat, call, videoCall, contacts, contact, settings, profile, security, email
     /// A mail thread open in the reader, over the mailbox.

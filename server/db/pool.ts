@@ -13,6 +13,9 @@
  *     on Supabase (`extensions` is ignored where it does not exist).
  *   * `request.jwt.claims = {"role":"service_role"}` — so auth.role() answers
  *     as it did for the service-role key.
+ *   * `TimeZone = UTC` — Supabase's default. A server configured for another
+ *     zone would otherwise change how timestamps come back and where now()'s
+ *     day boundaries fall, so the application behaves the same on any host.
  *
  * These are session settings, so the URL must be a direct or session-mode
  * connection. Supabase's transaction pooler (port 6543) hands consecutive
@@ -181,6 +184,7 @@ export class DatabasePool implements Queryable {
     const path = [...this.settings.schemas, 'extensions'].map(quoteIdent).join(', ');
     const statements = [
       `SET search_path TO ${path}`,
+      `SET TimeZone TO 'UTC'`,
       `SELECT pg_catalog.set_config('request.jwt.claims', ${quoteLiteral(JSON.stringify({ role: role ?? 'service_role' }))}, false)`,
     ];
     if (role) statements.push(`SET ROLE ${quoteIdent(role)}`);

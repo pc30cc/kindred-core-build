@@ -246,6 +246,8 @@ function readinessFor(settings: ReturnType<typeof normalize>) {
     nativeProjectAvailable: project.available,
     appIconPresent: project.appIcon1024,
     privacyManifestFilePresent: project.privacyManifestFile,
+    privacyApiTypes: project.privacyApiTypes,
+    privacyDataTypes: project.privacyDataTypes,
     pushEntitlementPresent: project.pushEntitlement,
     backgroundModes: project.backgroundModes,
     // Webyar has no unauthenticated surface in the native shell: the login

@@ -4021,9 +4021,10 @@ const en = {
         collectsDataHint: 'An account, a message or a push token all count as collected data.',
         dataTypes: 'Collected data types',
         dataTypesHint: 'Also declare, per type, whether it is linked to the user and used for tracking.',
+        dataTypesNeeded: 'The app’s privacy manifest collects data under: {{categories}}. Tick each of these here and in App Store Connect.',
         thirdPartySdks: 'Third-party SDKs',
         thirdPartySdksHint: 'Each one needs its own privacy manifest, and its data counts as yours.',
-        manifestPreview: 'Generated privacy manifest',
+        manifestPreview: 'The app’s privacy manifest (ios/Webyar/Resources/PrivacyInfo.xcprivacy)',
       },
       appStore: {
         title: 'Submission checklist',

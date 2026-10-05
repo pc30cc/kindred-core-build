@@ -18,6 +18,7 @@
  * exact specification an operator needs and are acknowledged in the UI, which
  * records the acknowledgement in `mobile_app_settings.checklist`.
  */
+import { appPrivacyCategoriesFor } from '../../../shared/mobile/appPrivacy.js';
 import type { MobileAppSettings } from './settings.js';
 
 export type CheckStatus = 'pass' | 'fail' | 'manual';
@@ -65,6 +66,10 @@ export interface ReadinessInput {
   appIconPresent: boolean;
   /** PrivacyInfo.xcprivacy present in the iOS target. */
   privacyManifestFilePresent: boolean;
+  /** The required-reason API categories that manifest declares (`UserDefaults`, …). */
+  privacyApiTypes: string[];
+  /** The data types it says the app collects (`EmailAddress`, `UserID`, …). */
+  privacyDataTypes: string[];
   /** The target's entitlements declare `aps-environment`. */
   pushEntitlementPresent: boolean;
   /** The app's UIBackgroundModes. */
@@ -211,20 +216,17 @@ export function evaluateReadiness(input: ReadinessInput): ReadinessCheck[] {
     undefined,
     '5.1.2',
   );
+  // The app's own manifest, read from the project: the file is what Apple
+  // checks on upload, so it is what this checks too.
   add(
     'privacyManifest',
     'privacy',
     'blocker',
-    privacyManifestOk(s) ? fileVerdict(input, input.privacyManifestFilePresent) : 'fail',
+    fileVerdict(input, input.privacyManifestFilePresent && input.privacyApiTypes.length > 0),
+    input.privacyApiTypes.join(', ') || undefined,
   );
-  add(
-    'privacyNutritionLabels',
-    'privacy',
-    'blocker',
-    !s.collects_data ? 'pass' : dataCollectionOk(s) ? 'pass' : 'fail',
-    undefined,
-    '5.1.1',
-  );
+  const labels = privacyLabels(s, input);
+  add('privacyNutritionLabels', 'privacy', 'blocker', labels.status, labels.missing.join(', ') || undefined, '5.1.1');
   add('thirdPartySdkAudit', 'privacy', 'warning', s.third_party_sdks.length > 0 ? 'pass' : 'manual');
 
   // ── Account (5.1.1(v)) ────────────────────────────────────────────────
@@ -370,16 +372,26 @@ function usesThirdPartyLogin(s: MobileAppSettings): boolean {
   return s.third_party_sdks.some((name) => /google|facebook|apple sign|oauth|twitter|github/i.test(name));
 }
 
-function privacyManifestOk(s: MobileAppSettings): boolean {
-  const manifest = s.privacy_manifest as Record<string, unknown>;
-  const reasons = manifest?.NSPrivacyAccessedAPITypes;
-  return Array.isArray(reasons) && reasons.length > 0;
-}
-
-function dataCollectionOk(s: MobileAppSettings): boolean {
+function declaredCategories(s: MobileAppSettings): string[] {
   const collection = s.data_collection as Record<string, unknown>;
   const types = collection?.types;
-  return Array.isArray(types) && types.length > 0;
+  return Array.isArray(types) ? types.filter((type): type is string => typeof type === 'string') : [];
+}
+
+/**
+ * The App Privacy answers against what the app's manifest says it collects:
+ * every category the manifest falls in has to be ticked on the Privacy tab
+ * — and so entered in App Store Connect. `missing` names the ones that are
+ * not. Without the project to read, any declaration passes, as before.
+ */
+function privacyLabels(s: MobileAppSettings, input: ReadinessInput): { status: CheckStatus; missing: string[] } {
+  const declared = s.collects_data ? declaredCategories(s) : [];
+  const needed = input.nativeProjectAvailable ? appPrivacyCategoriesFor(input.privacyDataTypes) : [];
+  if (needed.length === 0) {
+    return { status: !s.collects_data || declared.length > 0 ? 'pass' : 'fail', missing: [] };
+  }
+  const missing = needed.filter((category) => !declared.includes(category));
+  return { status: missing.length === 0 ? 'pass' : 'fail', missing };
 }
 
 export interface ReadinessSummary {

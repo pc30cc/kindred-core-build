@@ -252,7 +252,7 @@ export default function MobileAppPage() {
             <MobileCapabilitiesTab draft={draft} set={set} environment={data.environment} />
           </TabsContent>
           <TabsContent value="privacy" className="space-y-4">
-            <MobilePrivacyTab draft={draft} set={set} />
+            <MobilePrivacyTab draft={draft} set={set} nativeProject={data.environment.nativeProject} />
           </TabsContent>
           <TabsContent value="inApp" className="space-y-4">
             <IosInAppTab draft={draft} set={set} />

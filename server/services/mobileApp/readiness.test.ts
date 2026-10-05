@@ -10,6 +10,8 @@ function input(overrides: Partial<MobileAppSettings> = {}, rest: Partial<Readine
     nativeProjectAvailable: true,
     appIconPresent: true,
     privacyManifestFilePresent: true,
+    privacyApiTypes: ['UserDefaults', 'FileTimestamp', 'DiskSpace'],
+    privacyDataTypes: [],
     pushEntitlementPresent: true,
     backgroundModes: ['audio'],
     requiresLogin: true,
@@ -133,7 +135,6 @@ describe('App Store readiness', () => {
           review_contact_phone: '+905551112233',
           review_notes: 'Sign in with the demo account; the inbox loads on launch.',
           demo_account_username: 'review@acme.test',
-          privacy_manifest: { NSPrivacyAccessedAPITypes: [{ NSPrivacyAccessedAPIType: 'x' }] },
           data_collection: { types: ['contactInfo'] },
           checklist: Object.fromEntries(
             [
@@ -146,5 +147,31 @@ describe('App Store readiness', () => {
     );
     expect(clean.blockers).toBe(0);
     expect(clean.submittable).toBe(true);
+  });
+  it('takes the privacy manifest from the app itself, not from a setting', () => {
+    // Nothing on the Privacy tab writes `privacy_manifest`; the file is what
+    // Apple reads on upload, so it is what passes or fails this.
+    expect(verdict(evaluateReadiness(input()), 'privacyManifest')).toBe('pass');
+    expect(verdict(evaluateReadiness(input({}, { privacyApiTypes: [] })), 'privacyManifest')).toBe('fail');
+    expect(verdict(evaluateReadiness(input({}, { privacyManifestFilePresent: false })), 'privacyManifest')).toBe('fail');
+    expect(verdict(evaluateReadiness(input({}, { nativeProjectAvailable: false })), 'privacyManifest')).toBe('manual');
+  });
+
+  it('wants every category the manifest collects in ticked on the Privacy tab', () => {
+    const manifest = { privacyDataTypes: ['EmailAddress', 'Name', 'UserID', 'DeviceID', 'CustomerSupport', 'AudioData'] };
+    const answered = (types: string[], collects = true) =>
+      evaluateReadiness(input({ collects_data: collects, data_collection: { types } }, manifest)).find(
+        (check) => check.id === 'privacyNutritionLabels',
+      )!;
+
+    expect(answered([]).status).toBe('fail');
+    expect(answered(['contactInfo']).status).toBe('fail');
+    expect(answered(['contactInfo']).evidence).toBe('identifiers, userContent');
+    expect(answered(['contactInfo', 'identifiers', 'userContent']).status).toBe('pass');
+    expect(answered(['contactInfo', 'identifiers', 'userContent'], false).status).toBe('fail');
+
+    // Without the project to read, any declaration still passes.
+    const blind = evaluateReadiness(input({ collects_data: true, data_collection: { types: ['contactInfo'] } }, { nativeProjectAvailable: false }));
+    expect(verdict(blind, 'privacyNutritionLabels')).toBe('pass');
   });
 });

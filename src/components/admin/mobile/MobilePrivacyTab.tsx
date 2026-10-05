@@ -15,21 +15,23 @@ import {
 } from '@/components/admin/settings/SettingsFields';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import type { MobileAppSettings } from '@/hooks/useMobileApp';
-
-/** Apple's App Privacy data categories, as declared in App Store Connect. */
-const DATA_TYPES = [
-  'contactInfo', 'identifiers', 'usageData', 'diagnostics', 'userContent', 'location',
-];
+import type { MobileAppSettings, MobileAppPayload } from '@/hooks/useMobileApp';
+import { APP_PRIVACY_CATEGORIES as DATA_TYPES, appPrivacyCategoriesFor } from '../../../../shared/mobile/appPrivacy';
 
 export function MobilePrivacyTab({
   draft,
   set,
+  nativeProject,
 }: {
   draft: MobileAppSettings;
   set: (patch: Partial<MobileAppSettings>) => void;
+  /** What the app's own privacy manifest declares, as this deployment knows it. */
+  nativeProject?: MobileAppPayload['environment']['nativeProject'];
 }) {
   const { t } = useTranslation();
+  const manifestApiTypes = nativeProject?.privacyApiTypes ?? [];
+  const manifestDataTypes = nativeProject?.privacyDataTypes ?? [];
+  const neededTypes = appPrivacyCategoriesFor(manifestDataTypes);
 
   const collection = (draft.data_collection ?? {}) as Record<string, unknown>;
   const declaredTypes = Array.isArray(collection.types) ? (collection.types as string[]) : [];
@@ -176,6 +178,15 @@ export function MobilePrivacyTab({
             <p className="text-xs text-muted-foreground">
               {t('admin.mobileApp.privacy.dataTypesHint')}
             </p>
+            {neededTypes.length > 0 && (
+              <p className="text-xs font-medium text-foreground">
+                {t('admin.mobileApp.privacy.dataTypesNeeded', {
+                  categories: neededTypes
+                    .map((value) => t(`admin.mobileApp.dataTypes.${value}.label` as TranslationKey))
+                    .join(' · '),
+                })}
+              </p>
+            )}
           </div>
         )}
 
@@ -193,14 +204,8 @@ export function MobilePrivacyTab({
           value={JSON.stringify(
             {
               NSPrivacyTracking: draft.att_enabled,
-              NSPrivacyTrackingDomains: [],
-              NSPrivacyCollectedDataTypes: declaredTypes,
-              NSPrivacyAccessedAPITypes: [
-                { NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults', NSPrivacyAccessedAPITypeReasons: ['CA92.1'] },
-                { NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryFileTimestamp', NSPrivacyAccessedAPITypeReasons: ['C617.1'] },
-                { NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryDiskSpace', NSPrivacyAccessedAPITypeReasons: ['E174.1'] },
-                { NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] },
-              ],
+              NSPrivacyCollectedDataTypes: manifestDataTypes.map((type) => `NSPrivacyCollectedDataType${type}`),
+              NSPrivacyAccessedAPITypes: manifestApiTypes.map((type) => `NSPrivacyAccessedAPICategory${type}`),
             },
             null,
             2,

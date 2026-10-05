@@ -65,6 +65,8 @@ describe('native iOS project facts', () => {
       available: true,
       appIcon1024: true,
       privacyManifestFile: true,
+      privacyApiTypes: [],
+      privacyDataTypes: [],
       pushEntitlement: true,
       backgroundModes: ['audio'],
     });
@@ -72,6 +74,33 @@ describe('native iOS project facts', () => {
     expect(readNativeProjectFacts(fakeProject(noPush)).pushEntitlement).toBe(false);
     const inline = SPEC.replace('UIBackgroundModes:\n          - audio', 'UIBackgroundModes: [audio, remote-notification]');
     expect(readNativeProjectFacts(fakeProject(inline)).backgroundModes).toEqual(['audio', 'remote-notification']);
+  });
+
+  it('reads what the privacy manifest declares, and not what its comments mention', () => {
+    const root = fakeProject(SPEC, { manifest: false });
+    writeFileSync(
+      join(root, 'ios/Webyar/Resources/PrivacyInfo.xcprivacy'),
+      `<plist><dict>
+  <!-- Not NSPrivacyAccessedAPICategorySystemBootTime: <key>NSPrivacyAccessedAPIType</key><string>NSPrivacyAccessedAPICategorySystemBootTime</string> -->
+  <key>NSPrivacyCollectedDataTypes</key><array><dict>
+    <key>NSPrivacyCollectedDataType</key><string>NSPrivacyCollectedDataTypeEmailAddress</string>
+    <key>NSPrivacyCollectedDataTypePurposes</key><array><string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string></array>
+  </dict></array>
+  <key>NSPrivacyAccessedAPITypes</key><array><dict>
+    <key>NSPrivacyAccessedAPIType</key>
+    <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+  </dict></array>
+</dict></plist>`,
+    );
+    const facts = readNativeProjectFacts(root);
+    expect(facts.privacyApiTypes).toEqual(['UserDefaults']);
+    expect(facts.privacyDataTypes).toEqual(['EmailAddress']);
+  });
+
+  it('finds the manifest of this repository declaring what it collects and why', () => {
+    const facts = readNativeProjectFacts(ROOT);
+    expect(facts.privacyApiTypes.length).toBeGreaterThan(0);
+    expect(facts.privacyDataTypes).toEqual(expect.arrayContaining(['EmailAddress', 'UserID', 'CustomerSupport']));
   });
 
   it('wants the icon file itself, not only its listing', () => {
@@ -87,6 +116,8 @@ describe('native iOS project facts', () => {
       privacyManifestFile: false,
       pushEntitlement: false,
       backgroundModes: [],
+      privacyApiTypes: [],
+      privacyDataTypes: [],
     });
     expect(readSnapshot(join(empty, 'missing.json'))).toBeNull();
   });

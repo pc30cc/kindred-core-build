@@ -4006,9 +4006,10 @@ const fa: TranslationKeys = {
         collectsDataHint: 'حساب کاربری، پیام یا توکن پوش همگی داده جمع‌آوری‌شده محسوب می‌شوند.',
         dataTypes: 'انواع داده جمع‌آوری‌شده',
         dataTypesHint: 'برای هر نوع، مشخص کنید که به کاربر پیوند دارد و آیا برای ردیابی استفاده می‌شود.',
+        dataTypesNeeded: 'مانیفست حریم خصوصی اپ داده را در این دسته‌ها جمع می‌کند: {{categories}}. همهٔ این‌ها را اینجا و در App Store Connect تیک بزنید.',
         thirdPartySdks: 'SDKهای شخص ثالث',
         thirdPartySdksHint: 'هر کدام مانیفست حریم خصوصی خود را لازم دارد و داده‌اش به حساب شما است.',
-        manifestPreview: 'مانیفست حریم خصوصی تولیدشده',
+        manifestPreview: 'مانیفست حریم خصوصی اپ (ios/Webyar/Resources/PrivacyInfo.xcprivacy)',
       },
       appStore: {
         title: 'چک‌لیست ارسال',

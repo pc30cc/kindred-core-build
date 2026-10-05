@@ -217,7 +217,7 @@ enum SupportHoursText {
                         Format.openingTime($0.to, language: language)
                     )
                 }
-                .joined(separator: language == .fa ? "، " : ", ")
+                .joined(separator: language.listSeparator)
             return SupportStr.hoursLine(language, days: days, times: times)
         }
     }

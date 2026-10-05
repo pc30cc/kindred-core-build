@@ -68,6 +68,25 @@ enum Format {
         number(value, locale: language.locale)
     }
 
+    /// A count and its noun in Arabic, which shapes the noun by the number:
+    /// a word of its own for one and for two («رسالة واحدة», «رسالتان»), the
+    /// plural from three to ten («٣ رسائل»), the singular from eleven to
+    /// ninety-nine («١١ رسالة») and, for some nouns, another form again for
+    /// a hundred and up (`other`, which defaults to `many`). It goes by the
+    /// last two digits, so 103 is counted like 3.
+    static func arabicCount(
+        _ count: Int, one: String, two: String, few: String, many: String, other: String? = nil
+    ) -> String {
+        switch count {
+        case 1: return one
+        case 2: return two
+        default:
+            let rest = count % 100
+            let noun = (3...10).contains(rest) ? few : (11...99).contains(rest) ? many : (other ?? many)
+            return "\(number(count, language: .ar)) \(noun)"
+        }
+    }
+
     /// Same reasoning as the date cache: building a `NumberFormatter` per row
     /// per frame is not free.
     private final class NumberFormatterCache: @unchecked Sendable {

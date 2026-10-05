@@ -9,6 +9,7 @@ enum EmailStr {
         case .en: "Inbox"
         case .fa: "صندوق"
         case .tr: "Gelen kutusu"
+        case .ar: "صندوق الوارد"
         }
     }
 
@@ -17,6 +18,7 @@ enum EmailStr {
         case .en: "Unread"
         case .fa: "خوانده‌نشده"
         case .tr: "Okunmamış"
+        case .ar: "غير المقروءة"
         }
     }
 
@@ -25,6 +27,7 @@ enum EmailStr {
         case .en: "Starred"
         case .fa: "ستاره‌دار"
         case .tr: "Yıldızlı"
+        case .ar: "المميّزة بنجمة"
         }
     }
 
@@ -33,6 +36,7 @@ enum EmailStr {
         case .en: "All"
         case .fa: "همه"
         case .tr: "Tümü"
+        case .ar: "الكل"
         }
     }
 
@@ -41,6 +45,7 @@ enum EmailStr {
         case .en: "Folders"
         case .fa: "پوشه‌ها"
         case .tr: "Klasörler"
+        case .ar: "المجلدات"
         }
     }
 
@@ -49,6 +54,7 @@ enum EmailStr {
         case .en: "Labels"
         case .fa: "برچسب‌ها"
         case .tr: "Etiketler"
+        case .ar: "التصنيفات"
         }
     }
 
@@ -57,6 +63,7 @@ enum EmailStr {
         case .en: "Mailboxes"
         case .fa: "صندوق‌های ایمیل"
         case .tr: "Posta kutuları"
+        case .ar: "صناديق البريد"
         }
     }
 
@@ -65,6 +72,7 @@ enum EmailStr {
         case .en: "Nothing in this folder"
         case .fa: "این پوشه خالی است"
         case .tr: "Bu klasör boş"
+        case .ar: "لا يوجد شيء في هذا المجلد"
         }
     }
 
@@ -73,6 +81,7 @@ enum EmailStr {
         case .en: "Loading mail…"
         case .fa: "در حال دریافت ایمیل‌ها…"
         case .tr: "E-postalar yükleniyor…"
+        case .ar: "جارٍ تحميل البريد…"
         }
     }
 
@@ -81,6 +90,7 @@ enum EmailStr {
         case .en: "Opening the email…"
         case .fa: "در حال باز کردن ایمیل…"
         case .tr: "E-posta açılıyor…"
+        case .ar: "جارٍ فتح الرسالة…"
         }
     }
 
@@ -89,6 +99,7 @@ enum EmailStr {
         case .en: "Downloading the file…"
         case .fa: "در حال دریافت فایل…"
         case .tr: "Dosya indiriliyor…"
+        case .ar: "جارٍ تنزيل الملف…"
         }
     }
 
@@ -97,6 +108,7 @@ enum EmailStr {
         case .en: "Draft"
         case .fa: "پیش‌نویس"
         case .tr: "Taslak"
+        case .ar: "مسودة"
         }
     }
 
@@ -105,6 +117,7 @@ enum EmailStr {
         case .en: "Compose"
         case .fa: "نوشتن"
         case .tr: "Yeni e-posta"
+        case .ar: "كتابة"
         }
     }
 
@@ -113,6 +126,7 @@ enum EmailStr {
         case .en: "New message"
         case .fa: "ایمیل جدید"
         case .tr: "Yeni ileti"
+        case .ar: "رسالة جديدة"
         }
     }
 
@@ -121,6 +135,7 @@ enum EmailStr {
         case .en: "Mark as read"
         case .fa: "علامت خوانده‌شده"
         case .tr: "Okundu olarak işaretle"
+        case .ar: "تعليم كمقروءة"
         }
     }
 
@@ -129,6 +144,7 @@ enum EmailStr {
         case .en: "Mark as unread"
         case .fa: "علامت خوانده‌نشده"
         case .tr: "Okunmadı olarak işaretle"
+        case .ar: "تعليم كغير مقروءة"
         }
     }
 
@@ -137,6 +153,7 @@ enum EmailStr {
         case .en: "Star"
         case .fa: "ستاره زدن"
         case .tr: "Yıldızla"
+        case .ar: "تمييز بنجمة"
         }
     }
 
@@ -145,6 +162,7 @@ enum EmailStr {
         case .en: "Remove star"
         case .fa: "برداشتن ستاره"
         case .tr: "Yıldızı kaldır"
+        case .ar: "إزالة النجمة"
         }
     }
 
@@ -153,6 +171,7 @@ enum EmailStr {
         case .en: "Reply"
         case .fa: "پاسخ"
         case .tr: "Yanıtla"
+        case .ar: "رد"
         }
     }
 
@@ -161,6 +180,7 @@ enum EmailStr {
         case .en: "Reply all"
         case .fa: "پاسخ به همه"
         case .tr: "Tümünü yanıtla"
+        case .ar: "رد على الكل"
         }
     }
 
@@ -169,6 +189,7 @@ enum EmailStr {
         case .en: "Forward"
         case .fa: "ارسال به دیگری"
         case .tr: "İlet"
+        case .ar: "إعادة توجيه"
         }
     }
 
@@ -177,6 +198,7 @@ enum EmailStr {
         case .en: "To"
         case .fa: "به"
         case .tr: "Kime"
+        case .ar: "إلى"
         }
     }
 
@@ -185,6 +207,7 @@ enum EmailStr {
         case .en: "Cc / Bcc"
         case .fa: "رونوشت (Cc / Bcc)"
         case .tr: "Bilgi (Cc / Bcc)"
+        case .ar: "نسخة / نسخة مخفية"
         }
     }
 
@@ -193,6 +216,7 @@ enum EmailStr {
         case .en: "Subject"
         case .fa: "موضوع"
         case .tr: "Konu"
+        case .ar: "الموضوع"
         }
     }
 
@@ -201,6 +225,7 @@ enum EmailStr {
         case .en: "Write your message"
         case .fa: "متن ایمیل را بنویسید"
         case .tr: "İletinizi yazın"
+        case .ar: "اكتب رسالتك"
         }
     }
 
@@ -209,6 +234,7 @@ enum EmailStr {
         case .en: "Separate addresses with a comma"
         case .fa: "نشانی‌ها را با ویرگول جدا کنید"
         case .tr: "Adresleri virgülle ayırın"
+        case .ar: "افصل بين العناوين بفاصلة"
         }
     }
 
@@ -217,6 +243,7 @@ enum EmailStr {
         case .en: "Add at least one recipient"
         case .fa: "دست‌کم یک گیرنده وارد کنید"
         case .tr: "En az bir alıcı ekleyin"
+        case .ar: "أضف مستلمًا واحدًا على الأقل"
         }
     }
 
@@ -225,6 +252,7 @@ enum EmailStr {
         case .en: "Add a subject"
         case .fa: "موضوع را وارد کنید"
         case .tr: "Bir konu ekleyin"
+        case .ar: "أضف موضوعًا"
         }
     }
 
@@ -233,6 +261,7 @@ enum EmailStr {
         case .en: "Attach a file"
         case .fa: "افزودن پیوست"
         case .tr: "Dosya ekle"
+        case .ar: "إرفاق ملف"
         }
     }
 
@@ -241,6 +270,7 @@ enum EmailStr {
         case .en: "Remove attachment"
         case .fa: "حذف پیوست"
         case .tr: "Eki kaldır"
+        case .ar: "إزالة المرفق"
         }
     }
 
@@ -249,6 +279,7 @@ enum EmailStr {
         case .en: "Uploading…"
         case .fa: "در حال بارگذاری…"
         case .tr: "Yükleniyor…"
+        case .ar: "جارٍ الرفع…"
         }
     }
 
@@ -257,6 +288,7 @@ enum EmailStr {
         case .en: "The file could not be attached"
         case .fa: "پیوست بارگذاری نشد"
         case .tr: "Dosya eklenemedi"
+        case .ar: "تعذّر إرفاق الملف"
         }
     }
 
@@ -265,6 +297,7 @@ enum EmailStr {
         case .en: "No app on this phone can open this file"
         case .fa: "برنامه‌ای برای باز کردن این فایل روی گوشی نیست"
         case .tr: "Bu telefonda dosyayı açabilecek bir uygulama yok"
+        case .ar: "لا يوجد تطبيق على هذا الهاتف يمكنه فتح هذا الملف"
         }
     }
 
@@ -273,6 +306,7 @@ enum EmailStr {
         case .en: "The attachment could not be downloaded"
         case .fa: "پیوست دریافت نشد"
         case .tr: "Ek indirilemedi"
+        case .ar: "تعذّر تنزيل المرفق"
         }
     }
 
@@ -281,6 +315,7 @@ enum EmailStr {
         case .en: "Sent"
         case .fa: "ارسال شد"
         case .tr: "Gönderildi"
+        case .ar: "تم الإرسال"
         }
     }
 
@@ -289,6 +324,7 @@ enum EmailStr {
         case .en: "Show quoted text"
         case .fa: "نمایش متن نقل‌قول"
         case .tr: "Alıntıyı göster"
+        case .ar: "إظهار النص المقتبس"
         }
     }
 
@@ -297,6 +333,7 @@ enum EmailStr {
         case .en: "Hide quoted text"
         case .fa: "پنهان کردن متن نقل‌قول"
         case .tr: "Alıntıyı gizle"
+        case .ar: "إخفاء النص المقتبس"
         }
     }
 
@@ -305,6 +342,7 @@ enum EmailStr {
         case .en: "me"
         case .fa: "من"
         case .tr: "ben"
+        case .ar: "أنا"
         }
     }
 
@@ -313,6 +351,7 @@ enum EmailStr {
         case .en: "Not delivered"
         case .fa: "تحویل نشد"
         case .tr: "Teslim edilmedi"
+        case .ar: "لم يتم التسليم"
         }
     }
 
@@ -321,6 +360,7 @@ enum EmailStr {
         case .en: "---------- Forwarded message ----------"
         case .fa: "---------- پیام ارسال‌شده ----------"
         case .tr: "---------- İletilen ileti ----------"
+        case .ar: "---------- رسالة مُعاد توجيهها ----------"
         }
     }
 
@@ -329,6 +369,7 @@ enum EmailStr {
         case .en: "From"
         case .fa: "از"
         case .tr: "Kimden"
+        case .ar: "من"
         }
     }
 
@@ -337,6 +378,7 @@ enum EmailStr {
         case .en: "Date"
         case .fa: "تاریخ"
         case .tr: "Tarih"
+        case .ar: "التاريخ"
         }
     }
 
@@ -345,6 +387,7 @@ enum EmailStr {
         case .en: "Discard this draft?"
         case .fa: "این پیش‌نویس دور ریخته شود؟"
         case .tr: "Bu taslak silinsin mi?"
+        case .ar: "هل تريد تجاهل هذه المسودة؟"
         }
     }
 
@@ -353,6 +396,7 @@ enum EmailStr {
         case .en: "Discard"
         case .fa: "دور ریختن"
         case .tr: "Sil"
+        case .ar: "تجاهل"
         }
     }
 
@@ -361,6 +405,7 @@ enum EmailStr {
         case .en: "Keep editing"
         case .fa: "ادامهٔ نوشتن"
         case .tr: "Düzenlemeye devam et"
+        case .ar: "متابعة التحرير"
         }
     }
 
@@ -369,6 +414,7 @@ enum EmailStr {
         case .en: "That's everything"
         case .fa: "همه همین بود"
         case .tr: "Hepsi bu kadar"
+        case .ar: "هذا كل شيء"
         }
     }
 
@@ -385,6 +431,7 @@ enum EmailStr {
             case .en: "Inbox"
             case .fa: "صندوق ورودی"
             case .tr: "Gelen kutusu"
+            case .ar: "الوارد"
             }
         case "starred": folderStarred(l)
         case "important":
@@ -392,28 +439,33 @@ enum EmailStr {
             case .en: "Important"
             case .fa: "مهم"
             case .tr: "Önemli"
+            case .ar: "مهم"
             }
         case "sent":
             switch l {
             case .en: "Sent"
             case .fa: "ارسال‌شده"
             case .tr: "Gönderilmiş"
+            case .ar: "المُرسَلة"
             }
         case "drafts":
             switch l {
             case .en: "Drafts"
             case .fa: "پیش‌نویس‌ها"
             case .tr: "Taslaklar"
+            case .ar: "المسودات"
             }
         case "all":
             switch l {
             case .en: "All mail"
             case .fa: "همهٔ نامه‌ها"
             case .tr: "Tüm postalar"
+            case .ar: "كل البريد"
             }
         case "spam":
             switch l {
             case .en, .tr: "Spam"
+            case .ar: "البريد العشوائي"
             case .fa: "هرزنامه"
             }
         case "trash":
@@ -421,6 +473,7 @@ enum EmailStr {
             case .en: "Trash"
             case .fa: "سطل زباله"
             case .tr: "Çöp kutusu"
+            case .ar: "سلة المهملات"
             }
         default: nil
         }
@@ -436,6 +489,7 @@ enum EmailStr {
         case .en: return "Not an email address: \(isolated)"
         case .fa: return "نشانی ایمیل معتبر نیست: \(isolated)"
         case .tr: return "Geçerli bir e-posta adresi değil: \(isolated)"
+        case .ar: return "ليس عنوان بريد إلكتروني صالحًا: \(isolated)"
         }
     }
 
@@ -444,6 +498,7 @@ enum EmailStr {
         case .en: "to \(who)"
         case .fa: "به \(who)"
         case .tr: "kime: \(who)"
+        case .ar: "إلى \(who)"
         }
     }
 
@@ -452,6 +507,7 @@ enum EmailStr {
         case .en: count == 1 ? "1 message" : "\(count) messages"
         case .fa: "\(Format.number(count, language: l)) پیام"
         case .tr: "\(count) ileti"
+        case .ar: Format.arabicCount(count, one: "رسالة واحدة", two: "رسالتان", few: "رسائل", many: "رسالة")
         }
     }
 
@@ -461,6 +517,7 @@ enum EmailStr {
         case .en: "Earlier messages (\(count))"
         case .fa: "پیام‌های قبلی (\(Format.number(count, language: l)))"
         case .tr: "Önceki iletiler (\(count))"
+        case .ar: "الرسائل السابقة (\(Format.number(count, language: l)))"
         }
     }
 
@@ -470,6 +527,7 @@ enum EmailStr {
         case .en: "All inboxes"
         case .fa: "همهٔ صندوق‌ها"
         case .tr: "Tüm gelen kutuları"
+        case .ar: "كل صناديق الوارد"
         }
     }
 
@@ -479,6 +537,7 @@ enum EmailStr {
         case .en: "Team and email"
         case .fa: "همکاران و ایمیل"
         case .tr: "Ekip ve e-posta"
+        case .ar: "الفريق والبريد"
         }
     }
 
@@ -487,6 +546,7 @@ enum EmailStr {
         case .en: "More options"
         case .fa: "گزینه‌های بیشتر"
         case .tr: "Diğer seçenekler"
+        case .ar: "خيارات أخرى"
         }
     }
 
@@ -496,6 +556,7 @@ enum EmailStr {
         case .en: "That file is over 20 MB."
         case .fa: "این فایل از ۲۰ مگابایت بزرگ‌تر است."
         case .tr: "Bu dosya 20 MB'tan büyük."
+        case .ar: "حجم هذا الملف أكبر من ٢٠ ميغابايت."
         }
     }
 
@@ -504,6 +565,7 @@ enum EmailStr {
         case .en: "Photo or video"
         case .fa: "عکس یا ویدیو"
         case .tr: "Fotoğraf veya video"
+        case .ar: "صورة أو فيديو"
         }
     }
 
@@ -512,6 +574,7 @@ enum EmailStr {
         case .en: "File"
         case .fa: "فایل"
         case .tr: "Dosya"
+        case .ar: "ملف"
         }
     }
 }

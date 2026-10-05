@@ -85,7 +85,7 @@ struct CannedResponsePicker: View {
                     // A beat, so typing does not fire a request per keystroke.
                     try? await Task.sleep(for: .milliseconds(220))
                     guard !Task.isCancelled else { return }
-                    await model.load(workspaceID: workspaceID, locale: language.rawValue)
+                    await model.load(workspaceID: workspaceID, locale: language.serverLocale)
                 }
         }
         .presentationDetents([.medium, .large])
@@ -119,7 +119,7 @@ struct CannedResponsePicker: View {
                 message: Str.offlineBody(language),
                 retryTitle: Str.retry(language),
                 onRetry: {
-                    Task { await model.load(workspaceID: workspaceID, locale: language.rawValue) }
+                    Task { await model.load(workspaceID: workspaceID, locale: language.serverLocale) }
                 }
             )
 

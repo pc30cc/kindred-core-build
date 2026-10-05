@@ -11,6 +11,7 @@ enum SettingsStr {
         case .en: "Sign out of all other devices"
         case .fa: "خروج از همهٔ دستگاه‌های دیگر"
         case .tr: "Diğer tüm cihazlardan çık"
+        case .ar: "تسجيل الخروج من جميع الأجهزة الأخرى"
         }
     }
 
@@ -19,6 +20,7 @@ enum SettingsStr {
         case .en: "Every other phone, computer and browser signed in to this account is signed out. This device stays signed in."
         case .fa: "همهٔ گوشی‌ها، رایانه‌ها و مرورگرهای دیگری که با این حساب وارد شده‌اند خارج می‌شوند. این دستگاه وارد می‌ماند."
         case .tr: "Bu hesapla oturum açmış diğer tüm telefon, bilgisayar ve tarayıcılardan çıkış yapılır. Bu cihaz oturumda kalır."
+        case .ar: "سيُسجَّل خروج كل هاتف وحاسوب ومتصفح آخر مسجّل الدخول إلى هذا الحساب. يبقى هذا الجهاز مسجّل الدخول."
         }
     }
 
@@ -27,6 +29,7 @@ enum SettingsStr {
         case .en: "Sign out of every other device?"
         case .fa: "از همهٔ دستگاه‌های دیگر خارج شوید؟"
         case .tr: "Diğer tüm cihazlardan çıkış yapılsın mı?"
+        case .ar: "تسجيل الخروج من كل الأجهزة الأخرى؟"
         }
     }
 
@@ -35,6 +38,7 @@ enum SettingsStr {
         case .en: "They will need to sign in again. This device stays signed in."
         case .fa: "برای ادامه باید دوباره وارد شوند. این دستگاه وارد می‌ماند."
         case .tr: "Yeniden oturum açmaları gerekecek. Bu cihaz oturumda kalır."
+        case .ar: "ستحتاج تلك الأجهزة إلى تسجيل الدخول مجددًا. يبقى هذا الجهاز مسجّل الدخول."
         }
     }
 
@@ -44,6 +48,7 @@ enum SettingsStr {
         case .en: return count == 1 ? "Signed out of 1 other device." : "Signed out of \(n) other devices."
         case .fa: return "از \(n) دستگاه دیگر خارج شدید."
         case .tr: return "\(n) diğer cihazdan çıkış yapıldı."
+        case .ar: return "تم تسجيل الخروج من " + Format.arabicCount(count, one: "جهاز آخر", two: "جهازين آخرين", few: "أجهزة أخرى", many: "جهازًا آخر", other: "جهاز آخر") + "."
         }
     }
 
@@ -52,6 +57,7 @@ enum SettingsStr {
         case .en: "No other device is signed in."
         case .fa: "دستگاه دیگری با این حساب وارد نیست."
         case .tr: "Başka bir cihazda oturum açık değil."
+        case .ar: "لا يوجد جهاز آخر مسجّل الدخول."
         }
     }
 
@@ -63,6 +69,7 @@ enum SettingsStr {
         case .en: "Allow microphone access in Settings to call a visitor."
         case .fa: "برای تماس با بازدیدکننده، دسترسی به میکروفون را در تنظیمات اجازه دهید."
         case .tr: "Bir ziyaretçiyi aramak için Ayarlar'dan mikrofon erişimine izin verin."
+        case .ar: "اسمح بالوصول إلى الميكروفون من الإعدادات للاتصال بالزائر."
         }
     }
 
@@ -74,6 +81,7 @@ enum SettingsStr {
         case .en: "Continue"
         case .fa: "ادامه"
         case .tr: "Devam"
+        case .ar: "متابعة"
         }
     }
 
@@ -85,6 +93,7 @@ enum SettingsStr {
         case .en: "Website"
         case .fa: "وب‌سایت"
         case .tr: "Web sitesi"
+        case .ar: "الموقع الإلكتروني"
         }
     }
 
@@ -93,6 +102,7 @@ enum SettingsStr {
         case .en: "Privacy Policy"
         case .fa: "سیاست حفظ حریم خصوصی"
         case .tr: "Gizlilik Politikası"
+        case .ar: "سياسة الخصوصية"
         }
     }
 
@@ -101,6 +111,7 @@ enum SettingsStr {
         case .en: "Terms of Use"
         case .fa: "شرایط استفاده"
         case .tr: "Kullanım Koşulları"
+        case .ar: "شروط الاستخدام"
         }
     }
 
@@ -110,6 +121,7 @@ enum SettingsStr {
         case .en: "Build"
         case .fa: "شمارهٔ ساخت"
         case .tr: "Derleme"
+        case .ar: "رقم البناء"
         }
     }
 }

@@ -24,7 +24,12 @@ struct ChannelInbox: Identifiable, Hashable, Sendable {
         case "instagram": return "Instagram"
         case "x", "twitter": return "X"
         case "messenger", "facebook": return "Messenger"
-        case "sms": return language == .fa ? "پیامک" : "SMS"
+        case "sms":
+            switch language {
+            case .fa: return "پیامک"
+            case .ar: return "الرسائل النصية"
+            case .en, .tr: return "SMS"
+            }
         default: return key.prefix(1).uppercased() + key.dropFirst()
         }
     }

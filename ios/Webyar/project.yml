@@ -112,12 +112,13 @@ targets:
         NSPhotoLibraryAddUsageDescription: >-
           Webyar saves a photo or video to your library when you choose Save
           on a file opened from a conversation or an email.
-        # Persian and Turkish ship in-bundle so the language picker works
-        # offline and iOS reports the app as localized for them.
+        # Persian, Turkish and Arabic ship in-bundle so the language picker
+        # works offline and iOS reports the app as localized for them.
         CFBundleLocalizations:
           - en
           - fa
           - tr
+          - ar
     # Push notifications.
     #
     # `aps-environment` is the whole capability: without it iOS refuses to

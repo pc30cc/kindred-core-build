@@ -7,10 +7,16 @@ import type { ServerConfig } from '../../config.js';
 
 const TTL_SECONDS = 60 * 30; // 30 min
 
+/** Dedicated secrets a deployment may add to its config ahead of the shared one. */
+interface OptionalWidgetSecrets {
+  widgetTokenSecret?: string;
+  sessionSecret?: string;
+}
+
 function secret(config: ServerConfig): string {
   return (
-    (config as any).widgetTokenSecret ||
-    (config as any).sessionSecret ||
+    (config as ServerConfig & OptionalWidgetSecrets).widgetTokenSecret ||
+    (config as ServerConfig & OptionalWidgetSecrets).sessionSecret ||
     config.signingSecret ||
     config.supabaseServiceRoleKey
   );

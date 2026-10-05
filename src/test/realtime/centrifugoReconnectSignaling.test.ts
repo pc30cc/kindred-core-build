@@ -31,8 +31,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@/lib/platformPublicConfig', () => ({
-  fetchPlatformPublicConfig: async () => ({ branding: null, localized: [], region: null, realtime: null }),
+vi.mock('@/lib/supabase', () => ({
+  supabase: { rpc: async () => ({ data: null, error: null }) },
 }));
 
 // centrifugo.ts dynamically imports this module inside scheduleReconnect's

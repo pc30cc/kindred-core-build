@@ -48,7 +48,7 @@ healthRouter.get('/invitation-worker', (_req, res) => {
  * Leaks nothing: booleans + origin count only, never the configured values.
  */
 healthRouter.get('/cors', (req, res) => {
-  const config = (req as any).serverConfig as { corsOrigins: string[] } | undefined;
+  const config = (req as unknown as { serverConfig?: { corsOrigins: string[] } }).serverConfig;
   const origins = config?.corsOrigins ?? [];
   const wildcard = origins.length === 1 && origins[0] === '*';
   const requestOrigin = req.headers.origin;

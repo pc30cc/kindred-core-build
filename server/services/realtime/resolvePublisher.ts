@@ -59,7 +59,7 @@ async function fetchWorkspaceOverride(
       .eq('is_active', true)
       .maybeSingle();
     if (error) return null;
-    const name = (data as any)?.provider_name as string | undefined;
+    const name = (data as { provider_name?: string } | null)?.provider_name;
     if (!name || !SUPPORTED_OVERRIDE_VENDORS.has(name)) return null;
     return name as 'centrifugo' | 'supabase';
   } catch {

@@ -188,9 +188,9 @@ async function evaluateCentrifugo(
         checked_at: Date.now(),
       };
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     probeStatus = 'down';
-    probeMessage = err?.message || 'probe_failed';
+    probeMessage = (err as { message?: string } | null)?.message || 'probe_failed';
   }
 
   if (probeStatus === 'down') {

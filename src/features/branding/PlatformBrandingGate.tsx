@@ -67,12 +67,12 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
 
     // Set meta description
     if (locRow?.meta_description) {
-      let metaDesc = document.querySelector('meta[name="description"]');
+      const metaDesc = document.querySelector('meta[name="description"]');
       if (metaDesc) metaDesc.setAttribute('content', locRow.meta_description);
     }
 
     // Set OG title
-    let ogTitle = document.querySelector('meta[property="og:title"]');
+    const ogTitle = document.querySelector('meta[property="og:title"]');
     if (ogTitle) ogTitle.setAttribute('content', title);
 
     // Set favicon

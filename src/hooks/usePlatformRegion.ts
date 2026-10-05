@@ -23,12 +23,12 @@ export function usePlatformRegionSettings() {
     queryFn: async () => {
       // A failed read falls back to the defaults below, as it always did.
       const data = await fetchPlatformPublicConfig().then((c) => c.region, () => null);
-      const mode: RegionMode = isRegionMode((data as any)?.region_mode) ? (data as any).region_mode : 'multi';
+      const mode: RegionMode = isRegionMode(data?.region_mode) ? (data.region_mode as RegionMode) : 'multi';
       setCachedRegionMode(mode);
       return {
         mode,
-        activeLocales: ((data as any)?.active_locales ?? null) as string[] | null,
-        defaultLocale: ((data as any)?.default_locale ?? 'en') as string,
+        activeLocales: data?.active_locales ?? null,
+        defaultLocale: data?.default_locale ?? 'en',
       };
     },
     staleTime: 5 * 60 * 1000,

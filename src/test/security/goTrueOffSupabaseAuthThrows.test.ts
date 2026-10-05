@@ -62,8 +62,10 @@ describe('migrated frontend API modules never touch supabase.auth.*', () => {
     // (auth-throwing proxy would surface as a rejection with our marker
     // message; the old bug threw "Not signed in" before ever touching
     // fetch at all).
-    const anyMod = mod as any;
-    const fn = anyMod.listPrivacyJobs || anyMod.fetchPrivacyJobs || Object.values(anyMod).find((v) => typeof v === 'function');
+    const anyMod = mod as unknown as Record<string, unknown>;
+    const fn = (anyMod.listPrivacyJobs || anyMod.fetchPrivacyJobs || Object.values(anyMod).find((v) => typeof v === 'function')) as (
+      workspaceId: string,
+    ) => Promise<unknown>;
     expect(typeof fn).toBe('function');
     await expect(fn('ws_1')).resolves.toBeDefined();
   });

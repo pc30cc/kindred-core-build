@@ -51,7 +51,7 @@ interface FakeBuilder {
 interface FakeTerminal {
   eq: (col: string, val: unknown) => FakeTerminal;
   is?: (col: string, val: unknown) => FakeTerminal;
-  select?: (columns?: string) => any;
+  select?: (columns?: string) => { maybeSingle: () => Promise<Resolved>; single: () => Promise<Resolved> };
   then: (resolve: Resolve) => unknown;
 }
 const db: Record<string, Row[]> = {};

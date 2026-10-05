@@ -85,7 +85,7 @@ export async function enqueueOutboundMediaIfChannelConversation(
     .eq('id', input.conversationId)
     .maybeSingle();
 
-  const metadata = ((conversation as any)?.metadata ?? {}) as Record<string, unknown>;
+  const metadata = ((conversation as { metadata?: unknown } | null)?.metadata ?? {}) as Record<string, unknown>;
   const provider = String(metadata.channel ?? '');
   if (!isBotProvider(provider)) return 'not_a_channel_conversation';
 
@@ -146,7 +146,7 @@ export async function enqueueOutboundMediaIfChannelConversation(
     });
     return 'enqueued';
   } catch (err) {
-    if ((err as any)?.message?.includes('duplicate key')) return 'already_enqueued';
+    if ((err as { message?: string } | null)?.message?.includes('duplicate key')) return 'already_enqueued';
     throw err;
   }
 }

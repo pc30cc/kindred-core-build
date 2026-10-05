@@ -29,6 +29,12 @@
 --    columns 240 reconciled). Nothing reads them yet, but a database built
 --    from this chain could not take a data copy of production without them:
 --    COPY names every column. Definitions copied from the production catalog.
+--    The policy row a database already holds when the state column is added
+--    — on a fresh install, the one 118 seeds — gets 'legacy': the behaviour
+--    it had, since under 'legacy' the new-workspace trigger of 251 does
+--    nothing. Rows inserted later get production's column default,
+--    'v2_active'. Once the column exists its value is never written again
+--    here, so an administrator's choice survives any re-run.
 --
 -- Idempotent; a no-op on production, which already has all three.
 
@@ -60,7 +66,14 @@ BEGIN
 END $pgvector$;
 
 ALTER TABLE public.billing_v2_policy ADD COLUMN IF NOT EXISTS new_workspace_default_region text;
-ALTER TABLE public.billing_v2_policy ADD COLUMN IF NOT EXISTS new_workspace_default_state text NOT NULL DEFAULT 'v2_active'::text;
+DO $billing_state$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.billing_v2_policy'::regclass
+                  AND attname = 'new_workspace_default_state' AND NOT attisdropped) THEN
+    ALTER TABLE public.billing_v2_policy ADD COLUMN new_workspace_default_state text NOT NULL DEFAULT 'legacy'::text;
+    ALTER TABLE public.billing_v2_policy ALTER COLUMN new_workspace_default_state SET DEFAULT 'v2_active'::text;
+  END IF;
+END $billing_state$;
 DO $billing_policy$
 BEGIN
   ALTER TABLE public.billing_v2_policy

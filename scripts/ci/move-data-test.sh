@@ -12,7 +12,7 @@
 #
 #   check            writes nothing: both databases are set to refuse writes
 #                    and their schema, rows and write counters are compared.
-#   success          source -> empty target (phase 2 builds its schema), and
+#   success          source -> empty target (phase 3 builds its schema), and
 #                    every row compared independently of the script's own
 #                    checksum (row text, not jsonb).
 #   retry            the same move again over the now-populated target.
@@ -24,10 +24,16 @@
 #                    target's rows, triggers, constraints and sequences
 #                    exactly as before.
 #   Supabase-like    a target owned by a non-superuser BYPASSRLS role with
-#                    FORCE RLS tables, built by phase 2 as that role; then the
+#                    FORCE RLS tables, built by phase 3 as that role; then the
 #                    reverse move out of it.
 #   refusals         a source role RLS would filter, a target role that does
 #                    not own the tables, the same database twice.
+#   confirmation     declined (or no answer) on an empty target: not one
+#                    object created — the migrations wait for the answer too.
+#   foreign rows     a target table holding rows the source has no table for:
+#                    refused by check and run before anything is written;
+#                    once empty it gets as far as the schema match, which says
+#                    the migrations stayed applied and no data was copied.
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -81,7 +87,7 @@ unchanged_after() { # $1 = database, $2 = saved state
 }
 
 # ── databases ───────────────────────────────────────────────────────────
-for db in mvt_src mvt_dst mvt_supa; do admin -c "DROP DATABASE IF EXISTS $db"; done
+for db in mvt_src mvt_dst mvt_supa mvt_fresh; do admin -c "DROP DATABASE IF EXISTS $db"; done
 admin -c "DROP ROLE IF EXISTS mvt_supa" -c "DROP ROLE IF EXISTS mvt_reader"
 admin -c "CREATE DATABASE mvt_src" -c "CREATE DATABASE mvt_dst"
 DATABASE_URL="$(url mvt_src)" bash "$ROOT/scripts/migrate-database.sh" > "$WORK/migrate.log" 2>&1 \
@@ -121,7 +127,7 @@ ok "check against an empty target: read-only (both databases refused writes; sch
 move run "$SRC" "$DST" || die "move into an empty target failed"
 grep -q '^ok — ' "$WORK/out" || die "no final confirmation"
 same_rows mvt_src mvt_dst
-ok "success: empty target built by phase 2, every row identical (row text compared outside the script)"
+ok "success: empty target built by phase 3, every row identical (row text compared outside the script)"
 [ "$(sql mvt_dst -c "SELECT count(*) FROM workspace_subscriptions WHERE current_period_id IS NOT NULL")" = 1 ] || die "the subscription <-> period cycle did not arrive"
 [ "$(sql mvt_dst -c "SELECT count(*) FROM pg_constraint WHERE contype = 'f' AND condeferrable AND connamespace = 'public'::regnamespace")" = \
   "$(sql mvt_src -c "SELECT count(*) FROM pg_constraint WHERE contype = 'f' AND condeferrable AND connamespace = 'public'::regnamespace")" ] \
@@ -151,7 +157,7 @@ sql mvt_dst -c "ALTER TABLE conversations DROP CONSTRAINT conversations_contact_
   -c "ALTER TABLE conversations ADD CONSTRAINT conversations_contact_id_fkey FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE SET NULL NOT VALID"
 state mvt_dst > "$WORK/saved"
 expect_refusal "orphan row" 'violates foreign key constraint "conversations_contact_id_fkey"' run "$SRC" "$DST"
-grep -q 'Nothing was committed' "$WORK/out" || die "no rollback statement"
+grep -q 'Nothing of the copy was committed. No migration was run on the target.' "$WORK/out" || die "no rollback statement, or it did not say that no migration ran"
 unchanged_after mvt_dst "$WORK/saved"
 ok "failure (orphan under a NOT VALID foreign key): exit 1, target unchanged — rows, triggers, constraints, sequences"
 sql mvt_src -c "DELETE FROM conversations WHERE id = '00000000-0000-0000-0000-0000000000f9'"
@@ -223,7 +229,7 @@ SUPA="$(url mvt_supa mvt_supa)"
 move run "$SRC" "$SUPA" || die "move into the Supabase-like target failed"
 same_rows mvt_src mvt_supa
 [ "$(sql mvt_supa -c "SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relforcerowsecurity")" -gt 0 ] || die "no FORCE RLS table on the target"
-ok "Supabase-like target (non-superuser BYPASSRLS owner, FORCE RLS tables, schema built by phase 2 as that role): rows identical"
+ok "Supabase-like target (non-superuser BYPASSRLS owner, FORCE RLS tables, schema built by phase 3 as that role): rows identical"
 
 sql mvt_supa -c "INSERT INTO contacts (workspace_id, name) VALUES ('00000000-0000-0000-0000-0000000000c2', 'written on the Supabase-like side')"
 move run "$SUPA" "$DST" || die "move out of the Supabase-like database failed"
@@ -240,6 +246,34 @@ expect_refusal "same database twice" 'SOURCE and TARGET are the same database' r
 unchanged_after mvt_dst "$WORK/saved"
 ok "refused before writing: a source role RLS would filter, a target role that does not own the tables, the same database twice"
 
-for db in mvt_src mvt_dst mvt_supa; do admin -c "DROP DATABASE $db"; done
+# ── confirmation comes before the first write ───────────────────────────
+admin -c "CREATE DATABASE mvt_fresh"
+FRESH="$(url mvt_fresh)"
+public_objects() { sql mvt_fresh -c "SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace"; }
+for answer in no EOF; do
+  if [ "$answer" = EOF ]; then input=/dev/null; else input="$WORK/answer"; printf '%s\n' "$answer" > "$input"; fi
+  if SOURCE_DATABASE_URL="$SRC" TARGET_DATABASE_URL="$FRESH" bash "$ROOT/scripts/db/move-data.sh" run < "$input" > "$WORK/out" 2>&1; then
+    die "confirmation answered '$answer': move-data went ahead"
+  fi
+  grep -q 'Aborted at confirmation. Nothing was written to the target.' "$WORK/out" || die "confirmation answered '$answer': no abort message"
+  grep -qE 'phase 3: [0-9]+ migration\(s\)' "$WORK/out" || die "the confirmation did not list the migrations it would apply"
+  [ "$(public_objects)" = 0 ] || die "confirmation answered '$answer': the target was changed"
+done
+ok "confirmation declined, or not given, on an empty target: it asked before any migration and not one object was created"
+
+# ── rows in a table the source does not have ────────────────────────────
+sql mvt_fresh -c "CREATE TABLE public.legacy_notes (id int)" -c "INSERT INTO public.legacy_notes VALUES (1), (2)"
+state mvt_fresh > "$WORK/saved"
+expect_refusal "foreign rows (check)" 'hold rows and the source has no table of that name: legacy_notes \(2 rows\)' check "$SRC" "$FRESH"
+expect_refusal "foreign rows (run)" 'legacy_notes \(2 rows\).*Nothing was written' run "$SRC" "$FRESH"
+unchanged_after mvt_fresh "$WORK/saved"
+[ "$(public_objects)" = 1 ] || die "a refused move changed the target"
+ok "a target table holding rows the source has no table for: check and run refuse before writing anything"
+sql mvt_fresh -c "DELETE FROM public.legacy_notes"
+expect_refusal "an empty foreign table" "does not match the source's.*No data was copied from the source\. The [0-9]+ migration\(s\) phase 3 applied stay applied" run "$SRC" "$FRESH"
+[ "$(sql mvt_fresh -c "SELECT count(*) FROM public._schema_migrations")" -gt 0 ] || die "the migrations the message reports were not recorded"
+ok "an empty one gets as far as the schema match, which says the migrations stayed applied and no data was copied"
+
+for db in mvt_src mvt_dst mvt_supa mvt_fresh; do admin -c "DROP DATABASE $db"; done
 admin -c "DROP ROLE mvt_supa" -c "DROP ROLE mvt_reader"
 echo "move-data: all scenarios passed"

@@ -306,12 +306,12 @@ already changed.
 
 | Phase | Writes to | On failure |
 | --- | --- | --- |
-| 1. Preflight (as `check`) | nothing | nothing changed |
-| 2. Target schema: `scripts/migrate-database.sh` on the target, if migrations are missing | the **target's schema** | **Not undone.** Migrations are forward-only. Files before the failing one are applied and recorded in `_schema_migrations`. The failing file is not recorded and may be **partly** applied, because files run statement by statement (some cannot run in one transaction, e.g. `CREATE INDEX CONCURRENTLY`). No data was copied. Fix the cause and run again; if the failing file is not safe to run twice, first undo the part of it that applied. |
-| 3. Schema match: the target must present the source's schema (functions, triggers, constraints, columns, policies, rules, grants…) up to the reviewed differences in `scripts/db/schema-parity-allowlist.txt` | nothing | the target's schema is as phase 2 left it, no data written |
-| 4. Confirmation: type `replace`, or `YES=1` | nothing | as above |
-| 5. Source snapshot: per-table row count and content checksum, `pg_dump --data-only`, checksums again | nothing | something wrote to the source during the dump; nothing written to the target |
-| 6. Load and validate, in **one transaction** on the target | the target's data | **Everything rolled back** (below) |
+| 1. Preflight (as `check`). Also stops when a target table holds rows and the source has no table of that name: the copy would not replace them and the schemas could not match, so what happens to them is left to you | nothing | nothing changed |
+| 2. Confirmation: type `replace`, or `YES=1`. It comes **before** anything is written, and lists the migrations phase 3 will apply | nothing | nothing changed |
+| 3. Target schema: `scripts/migrate-database.sh` on the target, if migrations are missing. A migration can convert or delete rows already on the target, not only change its schema (251 does both; it keeps legacy tables that still hold rows) | the **target's schema**, and rows a migration converts | **Not undone.** Migrations are forward-only and run outside phase 6's transaction. Files before the failing one are applied and recorded in `_schema_migrations`. The failing file is not recorded and may be **partly** applied, because files run statement by statement (some cannot run in one transaction, e.g. `CREATE INDEX CONCURRENTLY`). No data was copied. Fix the cause and run again; if the failing file is not safe to run twice, first undo the part of it that applied. |
+| 4. Schema match: the target must present the source's schema (functions, triggers, constraints, columns, policies, rules, grants…) up to the reviewed differences in `scripts/db/schema-parity-allowlist.txt` | nothing | no data copied; the migrations phase 3 applied stay applied |
+| 5. Source snapshot: per-table row count and content checksum, `pg_dump --data-only`, checksums again | nothing | something wrote to the source during the dump; no data copied to the target (phase 3's migrations stay applied) |
+| 6. Load and validate, in **one transaction** on the target | the target's data | **The copy is rolled back** (below); phase 3's migrations are not part of it and stay applied |
 | 7. Final check: committed target vs. source snapshot, the schema match again, the source's checksums again | nothing | the target is committed. If the source changed after the snapshot, those writes are **not** on the target, so stop the writer and run again. |
 
 Phase 6 in detail, all inside one transaction:

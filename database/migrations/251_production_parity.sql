@@ -2435,15 +2435,9 @@ BEGIN
 END
 $not_null$;
 
--- A database built from this chain seeds one billing_v2_policy row (118);
--- production has none. 250 gave it production's column default
--- (new_workspace_default_state = 'v2_active'), which with the trigger above
--- would start seeding V2 billing for every new workspace of an existing
--- self-host install. Rows that predate this file keep the previous behaviour
--- ('legacy': the trigger does nothing). A data move replaces the table with
--- production's rows anyway.
-UPDATE public.billing_v2_policy SET new_workspace_default_state = 'legacy'
- WHERE new_workspace_default_state = 'v2_active' AND new_workspace_default_region IS NULL;
+-- billing_v2_policy.new_workspace_default_state is not written here: 250 gave
+-- the row a database already had 'legacy' (the trigger above then does
+-- nothing, as before), and whatever an administrator set since is theirs.
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- H. Commerce catalogue: production hard-deletes and records a tombstone in
@@ -2527,21 +2521,53 @@ $policies$;
 -- ─────────────────────────────────────────────────────────────────────────
 -- K. Objects production dropped and nothing in the code reads or writes:
 --    the workspace health snapshot family and widget templates (with the
---    widget_settings.template_slug column that pointed at them). Rows they
---    hold are unreachable by the application; the count is reported.
+--    widget_settings.template_slug column that pointed at them).
+--
+--    Dropped only while they hold nothing but what the chain itself put
+--    there — as on a fresh install: no snapshot, and in widget_templates only
+--    the two rows 239 seeds, unchanged (their own ids and updated_at; the
+--    table's trigger moves updated_at on any edit). A table with other rows,
+--    and template_slug while widget_templates has such rows or any widget
+--    names a template other than 'default', are KEPT, with a WARNING: those
+--    rows are the operator's to
+--    export or empty, not this file's to delete for the sake of matching
+--    production's schema (scripts/db/schema-diff.sh then reports them, and
+--    scripts/db/move-data.sh refuses to move into a target that holds them).
+--    No CASCADE: anything else that depends on them stops this file instead
+--    of disappearing with them. Running it again, after the rows are gone,
+--    drops what was kept.
 -- ─────────────────────────────────────────────────────────────────────────
 
 DROP FUNCTION IF EXISTS public.workspace_health_snapshot_compute();
 DO $leftovers$
-DECLARE t text; n bigint;
+DECLARE t text; n bigint; named bigint := 0;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['workspace_health_snapshots', 'workspace_health_snapshots_legacy', 'widget_templates'] LOOP
+  FOREACH t IN ARRAY ARRAY['workspace_health_snapshots', 'workspace_health_snapshots_legacy'] LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('SELECT count(*) FROM public.%I', t) INTO n;
-      EXECUTE format('DROP TABLE public.%I CASCADE', t);
-      RAISE NOTICE '251: dropped public.% (% row(s)) — production no longer has it', t, n;
+      IF n = 0 THEN
+        EXECUTE format('DROP TABLE public.%I', t);
+      ELSE
+        RAISE WARNING '251: kept public.% — it holds % row(s); production no longer has the table. Export or empty it, then run 251 again to drop it.', t, n;
+      END IF;
     END IF;
   END LOOP;
+
+  n := 0;
+  IF to_regclass('public.widget_templates') IS NOT NULL THEN
+    EXECUTE $q$SELECT count(*) FROM public.widget_templates
+                WHERE NOT coalesce((id, updated_at) IN (('a25826ee-431c-443b-8a23-d4c938f8742b'::uuid, '2026-09-30 04:34:03.946197+00'::timestamptz),
+                                                        ('d33d4466-9056-4550-814c-4e3c2544cbf7'::uuid, '2026-09-30 04:34:03.948071+00'::timestamptz)), false)$q$ INTO n;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.widget_settings'::regclass
+              AND attname = 'template_slug' AND NOT attisdropped) THEN
+    EXECUTE $q$SELECT count(*) FROM public.widget_settings WHERE template_slug IS DISTINCT FROM 'default'$q$ INTO named;
+  END IF;
+  IF n = 0 AND named = 0 THEN
+    ALTER TABLE public.widget_settings DROP COLUMN IF EXISTS template_slug;
+    DROP TABLE IF EXISTS public.widget_templates;
+  ELSE
+    RAISE WARNING '251: kept public.widget_templates (% row(s) besides the two 239 seeds) and widget_settings.template_slug (% widget(s) naming a template other than ''default''); production no longer has them. Export or empty them, then run 251 again to drop them.', n, named;
+  END IF;
 END
 $leftovers$;
-ALTER TABLE public.widget_settings DROP COLUMN IF EXISTS template_slug;

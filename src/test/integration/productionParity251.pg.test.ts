@@ -11,6 +11,10 @@
  *   - seat capacity: the plan's max_agents, unless a fixed limit is set;
  *   - the new-workspace trigger: nothing under the 'legacy' default, its
  *     wallet and audit rows under any other;
+ *   - the billing policy a fresh chain ends with, and an administrator's
+ *     value surviving 250 and 251 run again;
+ *   - the tables production dropped: kept while they hold rows, dropped once
+ *     they are empty;
  *   - running 251 again changes nothing.
  *
  * It needs its own database: the shared integration database re-applies
@@ -159,6 +163,62 @@ suite('251 — production parity, exercised on a database built by the whole cha
     expect(await rows('00000000-0000-0000-0000-00000000d251')).toEqual({ wallet: 1, audit: 1 });
     await db.query(`UPDATE public.billing_v2_policy SET new_workspace_default_state = 'legacy' WHERE id`);
   });
+
+  it('billing policy: a fresh chain starts new workspaces on legacy, and 250 or 251 run again keeps what an administrator set', async () => {
+    const policy = () =>
+      one<{ state: string; region: string | null; dflt: string }>(
+        `SELECT new_workspace_default_state AS state, new_workspace_default_region AS region,
+                (SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d
+                   JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+                  WHERE d.adrelid = 'public.billing_v2_policy'::regclass AND a.attname = 'new_workspace_default_state') AS dflt
+           FROM public.billing_v2_policy WHERE id`);
+    // The row 118 seeds was there before 250 added the column: 'legacy'. A row
+    // inserted later would get production's default.
+    expect(await policy()).toEqual({ state: 'legacy', region: null, dflt: "'v2_active'::text" });
+    for (const state of ['v2_active', 'shadow']) {
+      await db.query('UPDATE public.billing_v2_policy SET new_workspace_default_state = $1 WHERE id', [state]);
+      for (const file of ['250_postgres_portability.sql', '251_production_parity.sql']) {
+        await applyMigrationSql(db, readFileSync(resolve(DIR, file), 'utf8'));
+        expect({ file, ...(await policy()) }).toEqual({ file, state, region: null, dflt: "'v2_active'::text" });
+      }
+    }
+    await db.query(`UPDATE public.billing_v2_policy SET new_workspace_default_state = 'legacy' WHERE id`);
+  }, 240_000);
+
+  it('the tables production dropped go only while empty: rows keep them, with a warning, until they are gone', async () => {
+    const present = () =>
+      one<{ legacy: boolean; templates: boolean; slug: boolean }>(
+        `SELECT to_regclass('public.workspace_health_snapshots_legacy') IS NOT NULL AS legacy,
+                to_regclass('public.widget_templates') IS NOT NULL AS templates,
+                EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.widget_settings'::regclass
+                         AND attname = 'template_slug' AND NOT attisdropped) AS slug`);
+    // A fresh chain holds nothing in them but 239's two template seeds, so the
+    // first run dropped them.
+    expect(await present()).toEqual({ legacy: false, templates: false, slug: false });
+    // An older install's leftovers: a snapshot row, a template of its own.
+    await db.query(`CREATE TABLE public.workspace_health_snapshots_legacy (id serial PRIMARY KEY, note text)`);
+    await db.query(`INSERT INTO public.workspace_health_snapshots_legacy (note) VALUES ('kept')`);
+    await db.query(`CREATE TABLE public.widget_templates (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), slug text UNIQUE, updated_at timestamptz DEFAULT now())`);
+    await db.query(`INSERT INTO public.widget_templates (slug) VALUES ('custom')`);
+    await db.query(`ALTER TABLE public.widget_settings ADD COLUMN template_slug text NOT NULL DEFAULT 'default'`);
+    const warnings: string[] = [];
+    const listen = (m: { message?: string }) => warnings.push(String(m.message));
+    db.on('notice', listen);
+    try {
+      await applyMigrationSql(db, readFileSync(resolve(DIR, '251_production_parity.sql'), 'utf8'));
+    } finally {
+      db.off('notice', listen);
+    }
+    expect(await present()).toEqual({ legacy: true, templates: true, slug: true });
+    expect(await one('SELECT note FROM public.workspace_health_snapshots_legacy')).toEqual({ note: 'kept' });
+    expect(await one('SELECT slug FROM public.widget_templates')).toEqual({ slug: 'custom' });
+    expect(warnings.filter((w) => w.startsWith('251: kept')).length).toBe(2);
+    // Emptied by the operator, they go on the next run — and without CASCADE.
+    await db.query('DELETE FROM public.workspace_health_snapshots_legacy');
+    await db.query('DELETE FROM public.widget_templates');
+    await applyMigrationSql(db, readFileSync(resolve(DIR, '251_production_parity.sql'), 'utf8'));
+    expect(await present()).toEqual({ legacy: false, templates: false, slug: false });
+  }, 240_000);
 
   it('running 251 again changes nothing', async () => {
     const before = await fingerprint();

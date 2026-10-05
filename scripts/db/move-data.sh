@@ -9,21 +9,31 @@
 # check  Read-only on BOTH sides (every session is default_transaction_read_only).
 #        Versions, pgvector, the migrations the target still lacks, whether
 #        the target's schema matches the source's (scripts/db/schema-diff.sh),
-#        whether every source column has a place on the target, the size of
+#        whether every source column has a place on the target, whether the
+#        target holds rows in a table the source does not have, the size of
 #        the copy, and who is connected to the source. Writes nothing.
 #
 # run    The phases below, each saying what it changed when it fails:
 #
-#   1. preflight        read-only, as `check`.
-#   2. target schema    scripts/migrate-database.sh on the TARGET. This CHANGES
-#                       the target and is NOT undone by a later failure:
-#                       migrations are forward-only. Re-running is safe — the
+#   1. preflight        read-only, as `check`. A target table that holds rows
+#                       and has no counterpart on the source stops the move
+#                       here: the copy would not replace those rows, the
+#                       schemas could not match while they are there, and
+#                       what happens to them is the operator's decision —
+#                       not a migration's, and not this script's.
+#   2. confirmation     type `replace` (or YES=1), BEFORE anything is written:
+#                       it lists the migrations phase 3 will apply as well as
+#                       the replacement of the rows.
+#   3. target schema    scripts/migrate-database.sh on the TARGET. This CHANGES
+#                       the target — its schema, and the rows a migration
+#                       converts or removes (e.g. 251) — and is NOT undone by a
+#                       later failure: migrations are forward-only and run
+#                       outside phase 6's transaction. Re-running is safe — the
 #                       ledger applies only what is missing.
-#   3. schema match     read-only: the target must now present the source's
+#   4. schema match     read-only: the target must now present the source's
 #                       schema (functions, triggers, constraints, columns,
 #                       policies…), up to the reviewed differences in
 #                       scripts/db/schema-parity-allowlist.txt.
-#   4. confirmation     type `replace` (or YES=1).
 #   5. source snapshot  per-table row count + content checksum of the source,
 #                       then pg_dump --data-only, then the checksums again. If
 #                       they moved, something wrote to the source during the
@@ -175,7 +185,7 @@ unreadable="$(ro "$SOURCE" "SELECT coalesce(string_agg(c.relname, ', ' ORDER BY 
                             WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT has_table_privilege(c.oid, 'SELECT')")"
 [ -z "$unreadable" ] || fail "The source role cannot read: $(short "$unreadable"). Nothing was written."
 # The target's tables exist once its migrations have run: checked here when
-# they already exist, otherwise right after phase 2 builds them.
+# they already exist, otherwise right after phase 3 builds them.
 target_role_checked=0
 check_target_role() { # $1 = what was already written, for the failure message
   local notowned blocked
@@ -205,6 +215,24 @@ echo "target: $pending of ${#files[@]} migration(s) not applied yet"
 
 ro "$SOURCE" "$TABLES_SQL" > "$WORK/tables"
 ro "$SOURCE" "$COLUMNS_SQL" | LC_ALL=C sort > "$WORK/source_columns"
+
+# Rows the move would neither copy nor replace: a target table that holds rows
+# and has no table of that name on the source (a legacy table the source's
+# schema no longer has, say). Phase 6 replaces only the source's tables, and
+# the schemas cannot match while such a table is there; a pending migration
+# may also drop or rewrite it. Stopped here, before anything is written.
+src_names="$(cat "$WORK/tables")"
+orphaned="$(ro "$TARGET" "
+  SELECT coalesce(string_agg(format('%s (%s rows)', relname, n), ', ' ORDER BY relname), '')
+    FROM (SELECT c.relname,
+                 (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM public.%I', c.relname), false, true, '')))[1]::text::bigint AS n
+            FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+           WHERE ns.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+             AND c.relname <> '_schema_migrations'
+             AND c.relname <> ALL (string_to_array(\$mvnames\$$src_names\$mvnames\$, E'\\n'))) x
+   WHERE n > 0")"
+[ -z "$orphaned" ] || fail "These target tables hold rows and the source has no table of that name: $(short "$orphaned"). The move replaces only the source's tables, so those rows would stay where they are and the target's schema could not match the source's. Decide what happens to them — export them, empty the table — and run again. (On a target whose migrations stopped part-way they can be rows a migration seeded, e.g. 239's two widget_templates rows.) Nothing was written."
+echo "target: no rows in tables the source does not have"
 echo "source: $(wc -l < "$WORK/tables" | tr -d ' ') tables, $(ro "$SOURCE" "SELECT pg_size_pretty(sum(pg_total_relation_size(c.oid))) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','p')") in public"
 echo "source sessions other than this one (stop the application before 'run'):"
 ro "$SOURCE" "SELECT '  ' || coalesce(nullif(application_name, ''), '?') || ' as ' || usename || ': ' || count(*) || ' (' || count(*) FILTER (WHERE state = 'active') || ' active)'
@@ -227,7 +255,7 @@ Add them with a migration (database/migrations). Nothing was written."
   fi
   echo "schema: matches, up to the reviewed differences"
 else
-  echo "schema: compared after the target's migrations are applied (phase 2 of 'run')"
+  echo "schema: compared after the target's migrations are applied (phase 3 of 'run')"
 fi
 
 if [ "$MODE" = check ]; then
@@ -235,45 +263,58 @@ if [ "$MODE" = check ]; then
   exit 0
 fi
 
-# ── 2. target schema ────────────────────────────────────────────────────
+# ── 2. confirmation, before anything is written ─────────────────────────
+say "2. Confirmation"
 if [ "$pending" != 0 ]; then
-  say "2. Target schema — applying $pending migration(s). This changes the target and is not undone if a later phase fails; re-running is safe."
-  DATABASE_URL="$TARGET" bash "$ROOT/scripts/migrate-database.sh" || fail "A migration failed (output above). The files before it are applied and recorded in public._schema_migrations. The failing file is not recorded, and it may be PARTLY applied: scripts/migrate-database.sh runs each file statement by statement, not as one transaction (some cannot run in one, e.g. CREATE INDEX CONCURRENTLY). No data was copied. Fix the cause; if the failing file is not safe to run twice, undo the statements of it that did apply before running again."
+  echo "The TARGET will be changed in two steps:"
+  echo "  phase 3: $pending migration(s) — $(short "$(LC_ALL=C comm -23 "$WORK/migrations" "$WORK/applied" | paste -sd, - | sed 's/,/, /g')")."
+  echo "           They change its schema and may convert or delete rows already on it (251 does both), and they stay applied whatever happens later."
+  echo "  phase 6: every row in its public schema replaced with the SOURCE's data, in one transaction that is rolled back if anything fails."
 else
-  say "2. Target schema — already complete"
+  echo "Every row in the TARGET's public schema will be replaced with the SOURCE's data, in one transaction that is rolled back if anything fails. No migration is needed."
+fi
+if [ "${YES:-}" != "1" ]; then
+  read -r -p "Type 'replace' to continue: " answer || answer=""
+  [ "$answer" = "replace" ] || fail "Aborted at confirmation. Nothing was written to the target."
+else
+  echo "confirmed (YES=1)"
 fi
 
-# ── 3. schema match ─────────────────────────────────────────────────────
+# What a failure after this point leaves behind, besides what phase 6 rolls back.
+migrated="No migration was run on the target."
+
+# ── 3. target schema ────────────────────────────────────────────────────
+if [ "$pending" != 0 ]; then
+  say "3. Target schema — applying $pending migration(s). This changes the target and is not undone if a later phase fails; re-running is safe."
+  DATABASE_URL="$TARGET" bash "$ROOT/scripts/migrate-database.sh" || fail "A migration failed (output above). The files before it are applied and recorded in public._schema_migrations, with whatever they changed. The failing file is not recorded, and it may be PARTLY applied: scripts/migrate-database.sh runs each file statement by statement, not as one transaction (some cannot run in one, e.g. CREATE INDEX CONCURRENTLY). No data was copied from the source. Fix the cause; if the failing file is not safe to run twice, undo the statements of it that did apply before running again."
+  migrated="The $pending migration(s) phase 3 applied stay applied: they ran before, and outside, the copy."
+else
+  say "3. Target schema — already complete"
+fi
+
+# ── 4. schema match ─────────────────────────────────────────────────────
 if [ "$schema_ready" = 0 ]; then
-  say "3. Schema match — read-only"
+  say "4. Schema match — read-only"
   ro "$TARGET" "$COLUMNS_SQL" | LC_ALL=C sort > "$WORK/target_columns"
   missing="$(LC_ALL=C comm -23 "$WORK/source_columns" "$WORK/target_columns" || true)"
   [ -z "$missing" ] || fail "These source columns do not exist on the target:
 $(echo "$missing" | sed 's/^/  /')
-The target's schema was built (phase 2) but no data was written. Add them with a migration and run again."
+No data was copied from the source. $migrated Add them with a migration and run again."
   if ! SOURCE_DATABASE_URL="$SOURCE" TARGET_DATABASE_URL="$TARGET" bash "$ROOT/scripts/db/schema-diff.sh" > "$WORK/schema-diff"; then
     sed 's/^/  /' "$WORK/schema-diff" | head -60 >&2
-    fail "The target's schema does not match the source's (above). The target's schema was built (phase 2) but no data was written."
+    fail "The target's schema does not match the source's (above). No data was copied from the source. $migrated"
   fi
   echo "ok"
 fi
 
-[ "$target_role_checked" = 1 ] || check_target_role "The target's schema was built (phase 2) but no data was written."
-
-# ── 4. confirmation ─────────────────────────────────────────────────────
-if [ "${YES:-}" != "1" ]; then
-  echo
-  echo "Every row in the TARGET's public schema will be replaced with the SOURCE's data."
-  read -r -p "Type 'replace' to continue: " answer
-  [ "$answer" = "replace" ] || fail "Aborted at confirmation. No data was written (the target's schema is as phase 2 left it)."
-fi
+[ "$target_role_checked" = 1 ] || check_target_role "No data was copied from the source. $migrated"
 
 # ── 5. source snapshot ──────────────────────────────────────────────────
 say "5. Source snapshot — read-only"
 checksums "$SOURCE" "$WORK/source_columns" "$WORK/source_before"
 pg_dump "$SOURCE" --data-only --schema=public --exclude-table='public._schema_migrations' \
   --load-via-partition-root --no-owner --no-privileges --format=custom --file="$WORK/data.dump" 2> "$WORK/dump.err" \
-  || { cat "$WORK/dump.err" >&2; fail "pg_dump failed (above). Nothing was written to the target."; }
+  || { cat "$WORK/dump.err" >&2; fail "pg_dump failed (above). No data was copied to the target. $migrated"; }
 # Its warnings about circular foreign keys are what phase 6 defers; anything
 # else it says is shown.
 grep -v -E 'circular foreign-key constraints|^pg_dump: (detail|hint):' "$WORK/dump.err" >&2 || true
@@ -281,7 +322,7 @@ checksums "$SOURCE" "$WORK/source_columns" "$WORK/source_after"
 if ! diff -q "$WORK/source_before" "$WORK/source_after" > /dev/null; then
   echo "tables that changed while the dump ran:" >&2
   diff "$WORK/source_before" "$WORK/source_after" | grep '^>' | cut -d'|' -f1 | sed 's/^> /  /' >&2 || true
-  fail "Something wrote to the source during the dump. Stop the backend, every worker and scheduled job (docs/DATABASE.md §6), then run again. No data was written to the target."
+  fail "Something wrote to the source during the dump. Stop the backend, every worker and scheduled job (docs/DATABASE.md §6), then run again. No data was copied to the target. $migrated"
 fi
 echo "dump: $(du -h "$WORK/data.dump" | cut -f1), $(awk -F'|' '{s += $2} END {print s}' "$WORK/source_before") rows, the source did not change while it ran"
 
@@ -429,7 +470,7 @@ if ! psql "$TARGET" -q -f "$WORK/load.sql" > "$WORK/load.out" 2> "$WORK/load.err
       restored=" WARNING: could not set back the sequences no column owns; their earlier values were: $(tr '\n' ' ' < "$WORK/free_sequences")"
     fi
   fi
-  fail "Load or validation failed (above). The transaction was rolled back: the target's rows, triggers, foreign keys and sequences are as they were before this phase, and its schema as phase 2 left it.$restored Nothing was committed."
+  fail "Load or validation failed (above). The copy's transaction was rolled back: the target's rows, triggers, foreign keys and sequences are as they were before this phase.$restored Nothing of the copy was committed. $migrated"
 fi
 psql "$TARGET" -v ON_ERROR_STOP=1 -qtAX -c "ANALYZE $all_tables" > /dev/null
 echo "committed: every foreign key holds, every sequence is ahead of its rows, every table's rows match the source, every trigger is back as it was"

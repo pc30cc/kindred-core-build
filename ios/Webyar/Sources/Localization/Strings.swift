@@ -746,7 +746,7 @@ enum Str {
         case .en: "AI"
         case .fa: "هوش مصنوعی"
         case .tr: "YZ"
-        case .ar: "الذكاء الاصطناعي"
+        case .ar: "ذكاء اصطناعي"
         }
     }
 

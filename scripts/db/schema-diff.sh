@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────────────────
 # Compare the schema two databases present to the application — functions
 # (bodies, security, volatility, settings), service_role privileges, tables,
-# columns, constraints, indexes, triggers, views, RLS policies, types,
+# columns, constraints, indexes, triggers, views, RLS policies, rules, types,
 # sequences and extensions — not just table and column names.
 #
 #   SOURCE_DATABASE_URL=postgresql://...  TARGET_DATABASE_URL=postgresql://... \
@@ -12,8 +12,9 @@
 # normalizes what legitimately differs between a Supabase project and plain
 # PostgreSQL (the extensions schema, whitespace, comments in function bodies,
 # constraint and index names, customer-role privileges). Differences listed
-# in scripts/db/schema-parity-allowlist.txt are reported as reviewed; any
-# other difference makes the exit status 1.
+# in scripts/db/schema-parity-allowlist.txt (or the file SCHEMA_PARITY_ALLOWLIST
+# names) are reported as reviewed; any other difference makes the exit
+# status 1.
 #
 # Output: one line per differing object —
 #   missing   on the target only in the source
@@ -36,9 +37,10 @@ fingerprint() {
 fingerprint "$SOURCE" > "$WORK/source"
 fingerprint "$TARGET" > "$WORK/target"
 
-grep -v '^#' "$HERE/schema-parity-allowlist.txt" | awk -F'\t' 'NF >= 2' > "$WORK/allow" || true
+ALLOWLIST="${SCHEMA_PARITY_ALLOWLIST:-$HERE/schema-parity-allowlist.txt}"
+grep -v '^#' "$ALLOWLIST" | awk -F'\t' 'NF >= 2' > "$WORK/allow" || true
 
-awk -F'\t' -v verbose="${VERBOSE:-}" '
+awk -F'\t' -v verbose="${VERBOSE:-}" -v allowlist="${SCHEMA_PARITY_ALLOWLIST:-scripts/db/schema-parity-allowlist.txt}" '
   FILENAME == ARGV[1] { allow[$1 "\t" $2] = 1; next }
   FILENAME == ARGV[2] { k = $1 "\t" $3; src[k] = $4; grp[k] = $2; next }
   FILENAME == ARGV[3] { k = $1 "\t" $3; dst[k] = $4; grp[k] = $2; next }
@@ -54,7 +56,7 @@ awk -F'\t' -v verbose="${VERBOSE:-}" '
       nbad++
       print what "  " p[1] "  " p[2]
     }
-    printf "schema-diff: %d unexpected difference(s), %d reviewed (scripts/db/schema-parity-allowlist.txt)\n", nbad, nreviewed > "/dev/stderr"
+    printf "schema-diff: %d unexpected difference(s), %d reviewed (%s)\n", nbad, nreviewed, allowlist > "/dev/stderr"
     exit nbad > 0 ? 1 : 0
   }
 ' "$WORK/allow" "$WORK/source" "$WORK/target" | LC_ALL=C sort

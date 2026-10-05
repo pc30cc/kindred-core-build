@@ -84,6 +84,9 @@ fp(kind, grp, key, def) AS (
   UNION ALL
   SELECT 'type', t.typname::text, t.typname::text,
          t.typtype::text || ' | ' || coalesce((SELECT string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder) FROM pg_enum e WHERE e.enumtypid = t.oid), '')
+           || CASE WHEN t.typtype = 'd' THEN ' | ' || format_type(t.typbasetype, t.typtypmod) || CASE WHEN t.typnotnull THEN ' not null' ELSE '' END
+                || coalesce(' | ' || (SELECT string_agg(pg_get_constraintdef(co.oid), ' ' ORDER BY pg_get_constraintdef(co.oid)) FROM pg_constraint co WHERE co.contypid = t.oid), '')
+              ELSE '' END
     FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
    WHERE n.nspname = 'public' AND t.typtype IN ('e', 'd') AND t.oid NOT IN (SELECT objid FROM ext)
   UNION ALL
@@ -91,6 +94,9 @@ fp(kind, grp, key, def) AS (
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public' AND c.relkind = 'S' AND c.oid NOT IN (SELECT objid FROM ext)
      AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype IN ('a', 'i'))
+  UNION ALL
+  SELECT 'rule', r.tablename::text, r.tablename || '.' || r.rulename, r.definition
+    FROM pg_rules r WHERE r.schemaname = 'public'
   UNION ALL
   SELECT 'extension', e.extname::text, e.extname::text, '' FROM pg_extension e WHERE e.extname <> 'plpgsql'
 ),

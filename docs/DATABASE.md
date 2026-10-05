@@ -16,16 +16,26 @@ database or to Supabase: it talks only to the backend API.
 
 ## 1. How the server reaches the database
 
-`server/db` gives the code a single entry point with two drivers. Call sites
-never choose between them (`getServiceClient()`, `serviceClientFor()` and every
-worker client come from `server/db/index.ts`):
+`server/db` gives the code a single entry point. Call sites never choose how
+the database is reached (`getServiceClient()`, `serviceClientFor()` and every
+worker client come from `server/db/index.ts`). `DATABASE_MODE` decides it
+once, at boot, for the backend and every worker:
 
-| Driver | Chosen when | What happens |
-| --- | --- | --- |
-| `postgres` | `DATABASE_URL` is set | The server connects to PostgreSQL directly over a `pg` pool. supabase-js still builds the queries, and an in-process PostgREST-compatible engine (`server/db/postgrest`) turns them into SQL. No Supabase service is involved. |
-| `supabase-rest` (legacy) | `DATABASE_URL` is empty | The previous behaviour: Supabase's REST API (PostgREST) over HTTPS, with `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`. It is kept so that an install that has not set `DATABASE_URL` yet keeps running unchanged. |
+| `DATABASE_MODE` | Default when | Data | Supabase services |
+| --- | --- | --- | --- |
+| `postgres-only` | `DATABASE_URL` is set | PostgreSQL directly over a `pg` pool. supabase-js still builds the queries, and an in-process PostgREST-compatible engine (`server/db/postgrest`) turns them into SQL. | **None.** No REST, Realtime, Auth, Storage or Edge Functions. `SUPABASE_URL` and `SUPABASE_*_KEY` are **ignored** even when still set; boot logs which ones. They cannot bring a Supabase service back, and the signing root never falls back to the old service-role key. |
+| `postgres+supabase-services` | never (opt-in) | as `postgres-only` | Only the optional ones in §7, with `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` |
+| `supabase-rest` (legacy) | `DATABASE_URL` is empty | Supabase's REST API (PostgREST) over HTTPS, with `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | as before |
 
-Use `postgres` for every new install and for every move.
+A combination that contradicts itself is refused at boot instead of guessed
+at. Examples: `postgres-only` without `DATABASE_URL`, or `supabase-rest`
+together with `DATABASE_URL`. **There is no fallback between modes.** When the
+direct connection is down, the process waits for it
+(`DATABASE_CONNECT_ATTEMPTS`) and then exits; it never switches to Supabase's
+REST API. `GET /api/health/database` reports the mode.
+`src/test/database/databaseMode.test.ts` holds these rules.
+
+Use `postgres-only` for every new install and for every move.
 
 Each pooled connection is prepared once, so it matches what PostgREST gives
 the server on Supabase:
@@ -212,10 +222,13 @@ still the same Supabase project.
    new random value works too, but it logs every widget visitor out and
    invalidates links already sent.
 3. Restart. `GET /api/health/database` should answer
-   `{"status":"ok","driver":"postgres","role":"service_role",…}`.
-4. `SUPABASE_URL` and `SUPABASE_*_KEY` may stay set. They then serve only the
-   optional Supabase Realtime transport (§7), and removing them later is
-   safe.
+   `{"status":"ok","mode":"postgres-only","driver":"postgres","role":"service_role",…}`.
+4. `SUPABASE_URL` and `SUPABASE_*_KEY` may stay set. Under `postgres-only`
+   they are ignored (boot names them), so removing them later changes
+   nothing. Realtime keeps running on Centrifugo, already first in
+   production's provider order. Supabase Realtime, second in that order, is
+   no longer offered; set `DATABASE_MODE=postgres+supabase-services` only to
+   keep it during a transition.
 
 To roll back, unset `DATABASE_URL` and restart. The legacy driver comes back
 with no other change.
@@ -232,32 +245,124 @@ record what is already applied:
 ## 6. Moving the data: Supabase ⇄ PostgreSQL
 
 `scripts/db/move-data.sh` copies all application data from one database to
-another, in either direction.
+another, in either direction. It has two modes:
 
 ```sh
+# read-only on both sides: what a move would do, and whether it can
 SOURCE_DATABASE_URL=postgresql://…  TARGET_DATABASE_URL=postgresql://… \
-  bash scripts/db/move-data.sh
+  bash scripts/db/move-data.sh check
+
+# the move
+SOURCE_DATABASE_URL=postgresql://…  TARGET_DATABASE_URL=postgresql://… \
+  bash scripts/db/move-data.sh run
 ```
 
-What it does:
+**`check`** writes nothing to either database: every session it opens is
+`default_transaction_read_only`. It reports the server versions, whether the
+target can hold pgvector data, how many migrations the target still lacks,
+whether the source role can read every row and the target role owns every
+table, the size of the copy, and who is still connected to the source. When
+the target's schema is already complete, it also checks that every source
+column has a place on the target and runs `scripts/db/schema-diff.sh`. Run it
+as often as you like, against production too.
 
-1. **Builds the target's schema from `database/migrations`** with
-   `migrate-database.sh`. The schema is never copied from the source:
-   Supabase keeps extensions in an `extensions` schema and plain PostgreSQL
-   keeps them in `public`, and a schema dump carries one layout into the
-   other.
-2. Checks that the target has pgvector when the source does, and that
-   **every source table and column exists on the target**. Any gap aborts
-   the run, lists what is missing and writes nothing.
-3. Asks you to type `replace`, unless `YES=1` is set.
-4. Copies **only data**: `pg_dump --data-only` of schema `public`, loaded
-   with triggers and FK checks off, inside **one transaction**. Either all of
-   it lands or none of it does. Sequences come along.
-5. Compares the **row count of every table** on both sides.
+**`run`** goes through these phases. Each failure message says what had
+already changed.
 
-The target's existing public data is replaced, and its migration ledger is
-kept. The source is only read. Stop the application, or put it in
-maintenance, for the duration.
+| Phase | Writes to | On failure |
+| --- | --- | --- |
+| 1. Preflight (as `check`) | nothing | nothing changed |
+| 2. Target schema: `scripts/migrate-database.sh` on the target, if migrations are missing | the **target's schema** | **Not undone.** Migrations are forward-only. Files before the failing one are applied and recorded in `_schema_migrations`. The failing file is not recorded and may be **partly** applied, because files run statement by statement (some cannot run in one transaction, e.g. `CREATE INDEX CONCURRENTLY`). No data was copied. Fix the cause and run again; if the failing file is not safe to run twice, first undo the part of it that applied. |
+| 3. Schema match: the target must present the source's schema (functions, triggers, constraints, columns, policies, rules, grants…) up to the reviewed differences in `scripts/db/schema-parity-allowlist.txt` | nothing | the target's schema is as phase 2 left it, no data written |
+| 4. Confirmation: type `replace`, or `YES=1` | nothing | as above |
+| 5. Source snapshot: per-table row count and content checksum, `pg_dump --data-only`, checksums again | nothing | something wrote to the source during the dump; nothing written to the target |
+| 6. Load and validate, in **one transaction** on the target | the target's data | **Everything rolled back** (below) |
+| 7. Final check: committed target vs. source snapshot, the schema match again, the source's checksums again | nothing | the target is committed. If the source changed after the snapshot, those writes are **not** on the target, so stop the writer and run again. |
+
+Phase 6 in detail, all inside one transaction:
+
+1. Switch off the tables' own triggers, exactly the ones that are on. They
+   would re-run side effects the source already holds, such as seeding
+   billing rows for every loaded workspace.
+2. Make the foreign keys that form a cycle between tables
+   `DEFERRABLE INITIALLY DEFERRED`, e.g. `workspace_subscriptions` ⇄
+   `billing_subscription_periods` and `billing_payments` ⇄
+   `billing_payment_intents` ⇄ `billing_wallet_deposits`. Rows that reference
+   each other cannot be loaded one table at a time.
+3. Empty `public`'s tables, `TRUNCATE … RESTART IDENTITY` (no `CASCADE`).
+4. Load the rows. Every other foreign key is **enforced** as each table goes
+   in.
+5. `SET CONSTRAINTS ALL IMMEDIATE`, which checks the deferred keys on every
+   row. Then put those keys back as `NOT DEFERRABLE` and every trigger back in
+   its earlier mode (`ENABLE`, `ENABLE ALWAYS`, `ENABLE REPLICA`; a disabled
+   trigger stays disabled).
+6. Before `COMMIT`:
+   - check every validated foreign key again;
+   - check that every sequence is ahead of the rows it numbers;
+   - check that every table's row count **and content checksum** equal the
+     source snapshot's.
+
+The checksum covers each row as `jsonb`, so column order does not matter. It
+is limited to the source's columns, with pgvector values compared as `real[]`.
+The session's output settings are pinned so equal values hash equally on both
+servers.
+
+If any of this fails, the transaction rolls back. The target's rows,
+triggers, foreign keys and the sequences its columns own are exactly as they
+were before phase 6. `TRUNCATE … RESTART IDENTITY` in the same transaction
+makes the dump's `setval()` on them transactional. A sequence that no column
+owns is the one thing PostgreSQL does not roll back. The script records those
+first and sets them back after a failure (there are none in the chain today).
+
+Phase 6 needs the role that **owns the tables**, the one that ran the
+migrations (`postgres` on Supabase), plus `BYPASSRLS` or ownership without
+`FORCE RLS` to load past row-level security. It does not need a superuser.
+The source role must be able to read every row: a role that RLS would filter
+is refused, not silently copied in part. The target's public data is replaced,
+and its ledger (`public._schema_migrations`) is kept. The source is only ever
+read.
+
+`scripts/ci/move-data-test.sh` runs all of this in CI on `postgres:16` and
+`pgvector/pgvector:pg17`, against throwaway databases:
+
+- `check` changes nothing, with both databases set to refuse writes;
+- success into an empty target, and a retry over a populated one;
+- a source row orphaned under a `NOT VALID` foreign key;
+- a source sequence behind its rows (fails after `setval()` ran), with a
+  sequence no column owns;
+- a reviewed type difference that rounds a value, which only the content
+  checksum can see;
+- a writer on the source during the dump;
+- a Supabase-like target owned by a non-superuser `BYPASSRLS` role, with
+  `FORCE RLS` tables, and the move back out of it;
+- refusals for an RLS-filtered source role, a target role that does not own
+  the tables, and the same database twice.
+
+After every failure the target's rows, triggers, constraints and sequences
+are compared with their state before the run.
+
+### Stop every writer to the source first
+
+Phase 5 refuses a source that changes during the dump, and phase 7 detects
+one that changed afterwards. But only a source with **no writer at all**
+gives a consistent copy. Stop all of these, and keep them stopped until the
+application points at the target:
+
+- the **backend** (`backend` service). It also runs in-process tickers:
+  billing, retention, notifications, rollups, the realtime outbox, and, when
+  their `*_WORKER_INPROC` flags are set, the KB, source-sync, regression and
+  invitation workers;
+- **every worker container**, whatever its `WORKER_KIND`: `intelligence`,
+  `source-sync`, `file-ingest`, `regression-runner`, `channels`,
+  `invitations`, `seo-crawler`, `commerce-sync`, `retention`, `all`;
+- the **channels gateway** and the **AI runtime**. They hold no database
+  credentials but call the backend; stopping them keeps queued work from
+  piling up;
+- anything else connected to the source. `check` lists the sessions by
+  `application_name`. On the hosted project:
+  - Supabase **Edge Functions**. Two legacy ones are deployed and unused (§7);
+    make sure nothing invokes them;
+  - **scheduled jobs**. The hosted project has no `pg_cron` or `pg_net`.
 
 The client tools must be at least as new as the newer server. The simplest
 way is to run the script from the matching image:
@@ -265,7 +370,7 @@ way is to run the script from the matching image:
 ```sh
 docker run --rm -it --network host -v "$PWD":/app -w /app \
   -e SOURCE_DATABASE_URL -e TARGET_DATABASE_URL \
-  pgvector/pgvector:pg17 bash scripts/db/move-data.sh
+  pgvector/pgvector:pg17 bash scripts/db/move-data.sh check
 ```
 
 `--network host` lets the container reach a database published on the
@@ -279,9 +384,15 @@ host's `127.0.0.1`, such as the bundled one.
    builds the schema itself.
 2. Stop the application.
 3. `SOURCE_DATABASE_URL=<Supabase session-pooler or direct URL>`,
-   `TARGET_DATABASE_URL=<new server>` and run the script.
-4. Set `DATABASE_URL` to the new server, keep `PLATFORM_SIGNING_SECRET`
-   unchanged (§5), and start the application.
+   `TARGET_DATABASE_URL=<new server>`. Run `check`, then `run`.
+4. Set `DATABASE_URL` to the new server, keep `PLATFORM_SIGNING_SECRET` and
+   `PLUGIN_SECRETS_MASTER_KEY` unchanged (§5), and start the application.
+   Signed sessions, links and the encrypted plugin secrets in the database
+   depend on them.
+
+To go back, point `DATABASE_URL` at the source again. It was only read, so
+it holds everything up to the moment the application stopped. Writes made on
+the target since then are not on it.
 
 ### Your own PostgreSQL → Supabase
 
@@ -302,23 +413,42 @@ are.
 
 ## 7. Supabase services that remain optional
 
-| Feature | Needs | Without it |
+Only with `DATABASE_MODE=postgres+supabase-services` (or the legacy driver):
+
+| Feature | Needs | Without it (`postgres-only`) |
 | --- | --- | --- |
-| Supabase Realtime transport | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Centrifugo (the default first transport) and polling carry realtime; the provider order in Super Admin skips Supabase Realtime |
-| Cleanup of legacy `auth.users` rows on user deletion | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Skipped: identity lives in `public.profiles`, and nothing reads `auth.users` |
+| Supabase Realtime transport | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Centrifugo carries realtime; it is the first transport in the provider order (production runs on it today). The order in Super Admin skips Supabase Realtime, and polling remains only as the last fallback when Centrifugo is unreachable. |
+| Cleanup of legacy `auth.users` rows on user deletion | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Skipped: identity lives in `public.profiles` / `user_credentials`, and nothing reads `auth.users` |
 
 The channels gateway and the AI runtime never get database credentials. They
 refuse to start with `DATABASE_URL`, `PLATFORM_SIGNING_SECRET` or the
 service-role key set.
 
----
+### What is left on the hosted Supabase project, and the plan for it
+
+Inspected read-only. Nothing has been deleted.
+
+- **Two Edge Functions** are deployed. Nothing in this repository calls them:
+  the browser, widget, backend and workers reach only the backend API. Plan:
+  check their invocation logs over a full billing cycle. If there are none,
+  delete them in the dashboard after the move. Before that, they are one of
+  the writers to stop (§6).
+- **`auth.users`** holds one legacy row. Sign-in uses `profiles` +
+  `user_credentials` (every profile has credentials) and first-party
+  `auth_sessions`. Plan: leave the row; it is unused. A move copies only
+  `public`, so the row stays on the Supabase project and nothing on the
+  target depends on it. Remove it there only once the project is retired.
+- **Storage** buckets are empty. Files live in the providers configured in
+  Super Admin.
 
 ## 8. Environment reference
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DATABASE_URL` | — | The database. Its presence selects the `postgres` driver. |
-| `PLATFORM_SIGNING_SECRET` | `SUPABASE_SERVICE_ROLE_KEY` | Root of the server's HMAC keys; at least 32 characters. Required with `DATABASE_URL`. |
+| `DATABASE_URL` | — | The database. Its presence makes `postgres-only` the default mode. |
+| `DATABASE_MODE` | `postgres-only` with `DATABASE_URL`, else `supabase-rest` | `postgres-only`, `postgres+supabase-services` or `supabase-rest` (§1). |
+| `PLATFORM_SIGNING_SECRET` | — (`SUPABASE_SERVICE_ROLE_KEY` only under `supabase-rest`) | Root of the server's HMAC keys; at least 32 characters. Required with `DATABASE_URL`. Keep it across a move (§5). |
+| `PLUGIN_SECRETS_MASTER_KEY` | — | Encrypts plugin and channel secrets stored in the database. Keep it across a move, or those secrets cannot be read. |
 | `DATABASE_SSL` | `disable` for localhost and container names, `require` otherwise | `disable`, `require` (encrypted, not verified) or `verify-full`. `sslmode=` in the URL works too. |
 | `DATABASE_SSL_CA` | — | CA certificate, as PEM text or a file path, for `verify-full`. |
 | `DATABASE_POOL_MAX` | `10` | Connections per process. |
@@ -329,7 +459,7 @@ service-role key set.
 | `DATABASE_APPLICATION_NAME` | `webyar` | Shown in `pg_stat_activity`. |
 | `DATABASE_CONNECT_ATTEMPTS` | `30` | Boot-time wait for the database, 2 s apart. |
 | `DATABASE_ALLOW_TRANSACTION_POOLER` | — | `1` disables the port-6543 refusal. Only for a pooler you know runs in session mode. |
-| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | — | Only for §7, or for the legacy driver when `DATABASE_URL` is empty. |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | — | Only with `DATABASE_MODE=postgres+supabase-services` (§7) or `supabase-rest`. Ignored under `postgres-only`. |
 
 ---
 
@@ -344,6 +474,8 @@ service-role key set.
 | `no pg_hba.conf entry … no encryption` | The server requires TLS but `sslmode=disable` (or a local host name) turned it off. Set `DATABASE_SSL=require`. |
 | AI knowledge answers fail with `column "embedding" does not exist` | The server has no pgvector. Install it (or use `pgvector/pgvector:pg17`), then apply `database/migrations/250_postgres_portability.sql` once more by hand. Its ledger entry stops the script from doing so. |
 | `move-data.sh`: "These source columns do not exist on the target" | The source has columns no migration creates. Add them with a migration, then run it again. Nothing was written. |
+| `move-data.sh`: "The target's schema does not match the source's" | `schema-diff.sh` lists each difference. A function, trigger or constraint the target lacks would change what the application does there. Bring the schemas together with a migration, or, after review, add the difference to `scripts/db/schema-parity-allowlist.txt` with the reason. The content checksum still catches a reviewed difference that changes data. |
+| `move-data.sh`: "Something wrote to the source" | A writer is still running (§6, *Stop every writer*). Nothing was written to the target. |
 | `pg_dump: server version mismatch` | Run the script from a newer client image (§6). |
 | Widget visitors logged out after the switch | `PLATFORM_SIGNING_SECRET` differs from the old service-role key (§5). |
 

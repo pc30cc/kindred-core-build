@@ -146,7 +146,8 @@ export function verifySessionToken(token: string, options?: { skipExpiry?: boole
     return { valid: false, reason: 'invalid_signature' };
   }
 
-  let payload: Record<string, unknown> & { rl?: unknown; exp?: number };
+  // The claims createSessionToken() signs. `rl` stays unknown: see below.
+  let payload: { w?: string; o?: string; n?: string; iat?: number; exp?: number; rl?: unknown };
   try {
     payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
   } catch {

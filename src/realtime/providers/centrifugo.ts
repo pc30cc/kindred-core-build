@@ -490,7 +490,7 @@ function attachSocketHandlers(conn: SharedConnection): void {
         const handlersSet = conn.subs.get(channel);
         if (!handlersSet) continue;
         if (data?.type === 'message' && data.payload) {
-          const payload = data.payload as NormalizedMessagePayload;
+          const payload = data.payload as unknown as NormalizedMessagePayload;
           // Phase 2 — message dedupe. Centrifugo can replay a recent push
           // on resubscribe; drop duplicates by payload.id before fan-out.
           const { messageDedupeEnabled, messageDedupeWindow } = getHardeningSync();

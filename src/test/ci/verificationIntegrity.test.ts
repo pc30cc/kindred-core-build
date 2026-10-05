@@ -218,10 +218,14 @@ describe('self-host CI — official Auth image', () => {
     expect(workflow).toContain('"$AUTH_IMAGE" gotrue migrate');
   });
 
-  it('passes require_ai_kb explicitly on both chains', () => {
-    // Both chains carry the AI-KB tables and RPCs since self-host 239, so both
-    // must prove them live — neither may quietly opt out with =0.
-    expect(workflow.match(/-v require_ai_kb=1/g) ?? []).toHaveLength(2);
+  it('passes require_ai_kb explicitly on every chain', () => {
+    // Every chain carries the AI-KB tables and RPCs since self-host 239 — the
+    // hosted chain, and the self-host chain on Supabase's image and on plain
+    // PostgreSQL — so each run must prove them live; none may quietly opt out
+    // with =0.
+    const runs = workflow.match(/-f scripts\/ci\/verify-migration-security\.sql/g) ?? [];
+    expect(runs).toHaveLength(3);
+    expect(workflow.match(/-v require_ai_kb=1/g) ?? []).toHaveLength(runs.length);
     expect(workflow).not.toContain('-v require_ai_kb=0');
   });
 });

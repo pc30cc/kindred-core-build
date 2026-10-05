@@ -20,6 +20,7 @@
  *      what's registered.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
+import type { AuthProvider } from '../../types/providers';
 
 const dbRows: { key: string; value: unknown }[] = [];
 
@@ -57,7 +58,7 @@ describe('legacy Supabase Auth provider — reactivation is closed', () => {
     dbRows.push({ key: 'default_auth_provider', value: { provider_name: 'supabase' } });
     // Even if some future change re-registers a provider literally named
     // 'supabase' under 'auth', the sync loop must still refuse to touch it.
-    providerRegistry.register('auth', 'supabase', { getSession: async () => null } as unknown as Parameters<typeof providerRegistry.register>[2], { priority: 50 });
+    providerRegistry.register('auth', 'supabase', { getSession: async () => null } as unknown as AuthProvider, { priority: 50 });
 
     await syncProvidersFromDB();
 

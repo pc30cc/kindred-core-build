@@ -6,9 +6,10 @@
  * PostgREST gives a request on Supabase:
  *   * `SET ROLE service_role` — the role the server used through PostgREST.
  *     It holds the grants every migration hands out and BYPASSRLS, which the
- *     FORCE ROW LEVEL SECURITY tables of 073 need. Skipped (with one warning)
- *     when the login role cannot assume it, unless DATABASE_ROLE named it
- *     explicitly — then the connection is refused instead.
+ *     FORCE ROW LEVEL SECURITY tables of 073 need. When the login role
+ *     cannot assume it, every query fails with the GRANT that fixes it: run
+ *     as the login role instead, those tables would silently read as empty.
+ *     DATABASE_ROLE=none runs as the login role on purpose.
  *   * `search_path = <exposed schemas>, extensions` — PostgREST's search path
  *     on Supabase (`extensions` is ignored where it does not exist).
  *   * `request.jwt.claims = {"role":"service_role"}` — so auth.role() answers
@@ -31,8 +32,6 @@ export interface DatabaseSettings {
   poolMax: number;
   /** Role assumed per session; `null` = stay the login role. */
   role: string | null;
-  /** True when DATABASE_ROLE named the role (refuse rather than skip). */
-  roleExplicit: boolean;
   schemas: string[];
   maxRows: number;
   statementTimeoutMs: number;
@@ -111,7 +110,6 @@ export function databaseSettings(env: NodeJS.ProcessEnv = process.env): Database
     ssl,
     poolMax: Math.max(1, intEnv(env, 'DATABASE_POOL_MAX', 10)),
     role,
-    roleExplicit: roleEnv !== undefined && roleEnv !== '' && role !== null,
     schemas: (env.DATABASE_SCHEMAS?.trim() || 'public').split(',').map((s) => s.trim()).filter(Boolean),
     maxRows: intEnv(env, 'DATABASE_MAX_ROWS', 1000),
     statementTimeoutMs: intEnv(env, 'DATABASE_STATEMENT_TIMEOUT_MS', 120_000),
@@ -156,21 +154,27 @@ export class DatabasePool implements Queryable {
       const role = this.settings.role;
       this.roleDecision = (async () => {
         if (!role) return null;
-        const { rows } = await client.query<{ present: boolean; member: boolean | null; login: string }>(
+        // From PostgreSQL 16 a membership can withhold SET (e.g. the one a
+        // CREATEROLE user gets for a role it creates), so ask for SET itself.
+        const { rows } = await client.query<{ present: boolean; can_set: boolean | null; login: string; v16: boolean }>(
           `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1) AS present,
-                  CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1)
-                       THEN pg_catalog.pg_has_role(current_user, $1, 'MEMBER') END AS member,
-                  current_user AS login`,
+                  CASE WHEN NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1) THEN NULL
+                       WHEN pg_catalog.current_setting('server_version_num')::int >= 160000
+                         THEN pg_catalog.pg_has_role(current_user, $1, 'SET')
+                       ELSE pg_catalog.pg_has_role(current_user, $1, 'MEMBER') END AS can_set,
+                  current_user AS login,
+                  pg_catalog.current_setting('server_version_num')::int >= 160000 AS v16`,
           [role],
         );
         const r = rows[0];
-        if (r.present && r.member) return role;
+        if (r.present && r.can_set) return role;
         const why = r.present
-          ? `login role "${r.login}" is not a member of "${role}" (GRANT ${role} TO ${r.login})`
+          ? `login role "${r.login}" cannot SET ROLE ${role} (GRANT ${role} TO ${r.login}${r.v16 ? ' WITH SET TRUE' : ''})`
           : `role "${role}" does not exist (apply database/migrations, which create it)`;
-        if (this.settings.roleExplicit) throw new Error(`DATABASE_ROLE: ${why}`);
-        console.warn(`[db] running as "${r.login}" instead of "${role}": ${why}`);
-        return null;
+        throw new Error(
+          `DATABASE_ROLE: ${why}. To run as "${r.login}" on purpose, set DATABASE_ROLE=none ` +
+            '(tables with FORCE ROW LEVEL SECURITY then read as empty).',
+        );
       })().catch((err) => {
         this.roleDecision = null;
         throw err;

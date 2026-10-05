@@ -18,7 +18,8 @@ export const W2 = 'aaaaaaaa-0000-0000-0000-000000000002';
 const D = '44444444-4444-4444-4444-444444444444';
 const E = '55555555-5555-5555-5555-555555555555';
 
-type Sb = SupabaseClient<any, any, any>;
+/** The two entry points the cases use, whatever schema the client was made for. */
+export type Sb = Pick<SupabaseClient, 'from' | 'rpc'>;
 
 export interface ParityCase {
   name: string;

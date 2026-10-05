@@ -23,6 +23,10 @@ import { getServiceClient } from '../supabase.js';
 
 export const platformPublicRouter = Router();
 
+// Whitelists, applied after a `select('*')`: production and a database built
+// from database/migrations do not have exactly the same optional columns
+// (lock_ui_preferences exists only in the latter), and naming a missing column
+// would fail the whole read.
 const BRANDING_COLUMNS = [
   'logo_url',
   'favicon_url',
@@ -37,7 +41,7 @@ const BRANDING_COLUMNS = [
   'default_ui_chroma',
   'default_ui_skin',
   'lock_ui_preferences',
-].join(', ');
+];
 
 const LOCALIZED_COLUMNS = [
   'locale',
@@ -53,7 +57,12 @@ const LOCALIZED_COLUMNS = [
   'legal_company_display_name',
   'knowledge_base_title',
   'widget_display_name',
-].join(', ');
+];
+
+function pick(row: Record<string, unknown> | null | undefined, keys: string[]): Record<string, unknown> | null {
+  if (!row) return null;
+  return Object.fromEntries(keys.filter((k) => k in row).map((k) => [k, row[k]]));
+}
 
 const REALTIME_KEYS = [
   'realtime_reconnect_jitter_pct',
@@ -66,8 +75,8 @@ platformPublicRouter.get('/config', async (req, res) => {
   const config = (req as unknown as { serverConfig: ServerConfig }).serverConfig;
   const sb = getServiceClient(config);
   const [branding, localized, settings, widgetPlatform] = await Promise.all([
-    sb.from('platform_branding').select(BRANDING_COLUMNS).limit(1).maybeSingle(),
-    sb.from('platform_branding_localized').select(LOCALIZED_COLUMNS).order('locale'),
+    sb.from('platform_branding').select('*').limit(1).maybeSingle(),
+    sb.from('platform_branding_localized').select('*').order('locale'),
     sb
       .from('platform_settings')
       .select('region_mode, active_locales, default_locale')
@@ -92,8 +101,8 @@ platformPublicRouter.get('/config', async (req, res) => {
   // page load still replaces the four it used to take.
   res.set('Cache-Control', 'no-store');
   return res.json({
-    branding: branding.data ?? null,
-    localized: localized.data ?? [],
+    branding: pick(branding.data as Record<string, unknown> | null, BRANDING_COLUMNS),
+    localized: ((localized.data ?? []) as Record<string, unknown>[]).map((r) => pick(r, LOCALIZED_COLUMNS)),
     region: settings.data ?? null,
     realtime,
   });

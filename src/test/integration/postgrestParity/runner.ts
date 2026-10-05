@@ -5,8 +5,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { CASES } from './cases';
+import { CASES, type Sb } from './cases';
 
 export const PARITY_DIR = join(process.cwd(), 'src', 'test', 'integration', 'postgrestParity');
 export const FIXTURE_SQL = readFileSync(join(PARITY_DIR, 'fixture.sql'), 'utf8');
@@ -27,7 +26,7 @@ export function comparable(r: unknown): Comparable {
 }
 
 export async function runCases(
-  sb: SupabaseClient<any, any, any>,
+  sb: Sb,
   reset: () => Promise<void>,
 ): Promise<Record<string, { result: Comparable; after?: Comparable }>> {
   const out: Record<string, { result: Comparable; after?: Comparable }> = {};

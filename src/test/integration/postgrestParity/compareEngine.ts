@@ -14,12 +14,16 @@ import { PostgrestEngine } from '../../../../server/db/postgrest/engine';
 import { SchemaCache } from '../../../../server/db/postgrest/schemaCache';
 import { createPgFetch } from '../../../../server/db/pgFetch';
 import { FIXTURE_SQL, PARITY_DIR, SEED_SQL, runCases } from './runner';
+import type { Sb } from './cases';
 
 export async function engineResults(dsn: string) {
   // Fixture and seed go in as the login role; the engine's pool runs as
   // service_role, like the server.
   const admin = new pg.Client({ connectionString: dsn });
   await admin.connect();
+  // The roles the fixture grants to (and the engine assumes), as on any
+  // database the migrations built.
+  await admin.query(readFileSync(join(process.cwd(), 'database', 'migrations', '000_selfhost_roles_bootstrap.sql'), 'utf8'));
   await admin.query(FIXTURE_SQL);
   const settings = databaseSettings({ DATABASE_URL: dsn, DATABASE_SCHEMAS: 'pgrst_parity' })!;
   const pool = new DatabasePool(settings);
@@ -28,7 +32,7 @@ export async function engineResults(dsn: string) {
     auth: { persistSession: false, autoRefreshToken: false },
     db: { schema: 'pgrst_parity' },
     global: { fetch: createPgFetch(engine) },
-  });
+  }) as unknown as Sb;
   try {
     return await runCases(sb, async () => {
       await admin.query(SEED_SQL);

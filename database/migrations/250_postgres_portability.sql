@@ -21,7 +21,13 @@
 --    extension can be installed. Without pgvector it still skips, with a
 --    notice: the rest of the product works, AI knowledge retrieval does not.
 --
--- Idempotent; a no-op on production, which already has both.
+-- 3. billing_v2_policy.new_workspace_default_region / _state exist in
+--    production but in neither migration chain (added outside them, like the
+--    columns 240 reconciled). Nothing reads them yet, but a database built
+--    from this chain could not take a data copy of production without them:
+--    COPY names every column. Definitions copied from the production catalog.
+--
+-- Idempotent; a no-op on production, which already has all three.
 
 DO $kb_fk$
 BEGIN
@@ -49,3 +55,13 @@ BEGIN
   EXECUTE format($ddl$ALTER TABLE public.ai_knowledge_chunks ADD COLUMN IF NOT EXISTS embedding %1$I.vector(1536)$ddl$, s);
   EXECUTE format($ddl$CREATE INDEX IF NOT EXISTS ai_knowledge_chunks_embedding_hnsw ON public.ai_knowledge_chunks USING hnsw (embedding %1$I.vector_cosine_ops)$ddl$, s);
 END $pgvector$;
+
+ALTER TABLE public.billing_v2_policy ADD COLUMN IF NOT EXISTS new_workspace_default_region text;
+ALTER TABLE public.billing_v2_policy ADD COLUMN IF NOT EXISTS new_workspace_default_state text NOT NULL DEFAULT 'v2_active'::text;
+DO $billing_policy$
+BEGIN
+  ALTER TABLE public.billing_v2_policy
+    ADD CONSTRAINT billing_v2_policy_new_workspace_state_check
+    CHECK (new_workspace_default_state = ANY (ARRAY['legacy'::text, 'shadow'::text, 'v2_cutover_pending'::text, 'v2_active'::text]));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $billing_policy$;

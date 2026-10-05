@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import pg from 'pg';
 import { createClient } from '@supabase/supabase-js';
 import { PARITY_DIR, SEED_SQL, runCases } from './runner';
+import type { Sb } from './cases';
 
 async function main() {
   const dsn = process.env.PARITY_DATABASE_URL;
@@ -33,7 +34,7 @@ async function main() {
         return fetch(`${base}${url.pathname.replace(/^\/rest\/v1/, '')}${url.search}`, init);
       },
     },
-  });
+  }) as unknown as Sb;
   const results = await runCases(sb, async () => {
     await db.query(SEED_SQL);
   });

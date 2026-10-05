@@ -23,6 +23,11 @@ ai_usage_events.model, platform_settings.ai_topup_*, workspaces.timezone,
 call_sessions.contact_id) and ai_runs.billing_cycle_id.
 
 Only literal names are checked; a name built at run time is skipped.
+
+On a server without pgvector, 250_postgres_portability.sql leaves out the
+columns that need it (PGVECTOR_ONLY below) on purpose — knowledge retrieval
+then needs pgvector installed (docs/DATABASE.md §2) — so those are not
+reported there; on a server with pgvector they are checked like any other.
 """
 import os
 import re
@@ -30,6 +35,8 @@ import subprocess
 import sys
 
 ROOTS = ['server', 'worker', 'channels', 'ai-runtime', 'shared']
+# Columns 250 creates only when the server can install pgvector.
+PGVECTOR_ONLY = {'ai_knowledge_chunks.embedding'}
 FILTERS = {'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'is', 'in', 'contains',
            'containedBy', 'order', 'not', 'filter', 'overlaps', 'textSearch', 'match'}
 
@@ -45,6 +52,9 @@ def catalog(url):
              "AND a.attnum > 0 AND NOT a.attisdropped")
     tables = q("SELECT relname FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind IN ('r','v','m','p')")
     functions = q("SELECT proname FROM pg_proc WHERE pronamespace = 'public'::regnamespace")
+    if not q("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'"):
+        print(f'check-code-columns: no pgvector on this server; not reporting {", ".join(sorted(PGVECTOR_ONLY))}', file=sys.stderr)
+        cols |= PGVECTOR_ONLY
     return cols, tables, functions
 
 

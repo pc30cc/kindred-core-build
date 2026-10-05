@@ -186,8 +186,10 @@ const connectSchema = z.object({
  * transport lives: the project URL and its public (anon) key, the same pair
  * /connect hands the widget. The dashboard reads it here instead of shipping
  * a project baked into its bundle, so one build serves any install. 404 when
- * this install has no Supabase project behind it (DATABASE_URL only); the
- * dashboard then stays on polling.
+ * this install offers no Supabase Realtime — always under
+ * DATABASE_MODE=postgres-only, whatever SUPABASE_* is left set; the dashboard
+ * then uses the next transport in the provider order (Centrifugo, and polling
+ * only when Centrifugo is unreachable).
  */
 realtimeRouter.get('/supabase-config', (req, res) => {
   const config: ServerConfig = serverConfigOf(req);

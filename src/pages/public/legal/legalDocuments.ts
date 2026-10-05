@@ -31,9 +31,56 @@ export const LEGAL_CONTACT_EMAIL = 'info@webyar.ai';
 export const LEGAL_CHROME = {
   brand: 'Webyar',
   copyright: '© 2026 Webyar — All rights reserved.',
+  contact: 'Contact',
   privacy: 'Privacy',
   terms: 'Terms of Use',
 };
+
+/**
+ * The contact page at /contact, the App Store record's support address: the
+ * site's own contact page in English, with the form handed to the reader's
+ * email app rather than to a server.
+ */
+export const CONTACT_PAGE = {
+  pageTitle: 'Contact | Webyar',
+  title: 'Contact us',
+  subtitle: 'Have a question? We’re here to help.',
+  form: {
+    name: 'Full name',
+    email: 'Email',
+    subject: 'Subject',
+    message: 'Message',
+    send: 'Send message',
+    note: 'Sending opens your email app with the message ready to go to {email}.',
+    errors: {
+      name: 'Enter your name (at least 2 characters).',
+      email: 'Enter a valid email address.',
+      subject: 'Enter a subject.',
+      message: 'Write a message (at least 5 characters).',
+    },
+    /** The line under the message, so the reply goes to the right person. */
+    signature: 'From: {name} <{email}>',
+  },
+  cards: [
+    {
+      kind: 'email',
+      title: 'Email',
+      text: 'Write to us about Webyar, your account, billing or the apps: {email}',
+    },
+    {
+      kind: 'help',
+      title: 'Help center',
+      text: 'Guides and answers to common questions.',
+      link: { label: 'Open the help center', to: '/help/en' },
+    },
+    {
+      kind: 'privacy',
+      title: 'Privacy and your data',
+      text: 'To see, export or delete your personal data, or to delete your account, write to {email} from the address on your account.',
+      link: { label: 'Read the Privacy Policy', to: '/privacy' },
+    },
+  ],
+} as const;
 
 const PRIVACY: LegalDocument = {
   pageTitle: 'Privacy Policy | Webyar',

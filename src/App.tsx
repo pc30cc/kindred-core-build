@@ -161,6 +161,7 @@ import NotFound from "@/pages/NotFound";
 // Public Knowledge Base — SPA hydration on top of SSR-rendered first paint.
 import HelpIndexPage from "@/pages/public/kb/HelpIndexPage";
 import LegalPage from "@/pages/public/legal/LegalPage";
+import ContactPage from "@/pages/public/legal/ContactPage";
 import HelpCategoryPage from "@/pages/public/kb/HelpCategoryPage";
 import HelpArticlePage from "@/pages/public/kb/HelpArticlePage";
 import HelpSearchPage from "@/pages/public/kb/HelpSearchPage";
@@ -219,13 +220,15 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
               <Route path="/help/:locale/a/:slug" element={<HelpArticlePage />} />
               <Route path="/help/:locale/search" element={<HelpSearchPage />} />
 
-              {/* The privacy policy and terms of use, public and in English:
-                  what the mobile apps and their store records link to.
-                  `/privacy/:locale` only sends an old link to `/privacy`. */}
+              {/* The privacy policy, terms of use and contact page, public
+                  and in English: what the mobile apps and their store records
+                  link to. `/privacy/:locale` only sends an old link to
+                  `/privacy`. */}
               <Route path="/privacy" element={<LegalPage doc="privacy" />} />
               <Route path="/privacy/:locale" element={<LegalPage doc="privacy" />} />
               <Route path="/terms" element={<LegalPage doc="terms" />} />
               <Route path="/terms/:locale" element={<LegalPage doc="terms" />} />
+              <Route path="/contact" element={<ContactPage />} />
 
               {/* Auth */}
               <Route element={<AuthLayout />}>

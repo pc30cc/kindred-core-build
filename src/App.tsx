@@ -219,8 +219,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
               <Route path="/help/:locale/a/:slug" element={<HelpArticlePage />} />
               <Route path="/help/:locale/search" element={<HelpSearchPage />} />
 
-              {/* The privacy policy and terms of use, public: what the
-                  mobile apps and their store records link to. */}
+              {/* The privacy policy and terms of use, public and in English:
+                  what the mobile apps and their store records link to.
+                  `/privacy/:locale` only sends an old link to `/privacy`. */}
               <Route path="/privacy" element={<LegalPage doc="privacy" />} />
               <Route path="/privacy/:locale" element={<LegalPage doc="privacy" />} />
               <Route path="/terms" element={<LegalPage doc="terms" />} />

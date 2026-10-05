@@ -16,7 +16,9 @@
  * Call sites never choose: getServiceClient(), serviceClientFor() and the
  * workers' clients all come from here.
  */
+import { randomBytes } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { platformSigningSecret } from '../lib/platformSecret.js';
 import { createPgFetch } from './pgFetch.js';
 import { DatabasePool, databaseSettings } from './pool.js';
 import { PostgrestEngine } from './postgrest/engine.js';
@@ -52,8 +54,9 @@ function openDirect(): Direct {
   const engine = new PostgrestEngine(pool, cache, { maxRows: settings.maxRows });
   const client = createClient(DIRECT_DATABASE_BASE_URL, 'direct-database', {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    // No db.schema: a request without a profile header lands in the first of
+    // DATABASE_SCHEMAS, exactly as PostgREST treats db-schemas.
     global: { fetch: createPgFetch(engine) },
-    db: { schema: settings.schemas[0] },
   });
   return { pool, cache, engine, client };
 }
@@ -85,9 +88,6 @@ export function dataClientFor(supabaseUrl: string, serviceRoleKey: string): Supa
   const id = `${supabaseUrl}\u0000${serviceRoleKey}`;
   let client = restClients.get(id);
   if (!client) {
-    if (!supabaseUrl || !serviceRoleKey) {
-      throw new Error('Set DATABASE_URL (or, for the legacy REST driver, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)');
-    }
     client = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
     restClients.set(id, client);
   }
@@ -115,5 +115,55 @@ export async function closeDataLayer(): Promise<void> {
   const d = direct;
   direct = null;
   restClients.clear();
+  servicesClient = undefined;
   if (d) await d.pool.end();
+}
+
+/**
+ * The two legacy ServerConfig fields a worker that builds its config by hand
+ * needs, for whichever driver applies. Under `postgres` they no longer select
+ * a database (see ServerConfig.supabaseUrl); the key carries the platform
+ * signing secret, or — when a worker has none — a random per-process value, so
+ * nothing it might sign could be forged from a known constant.
+ */
+export function workerDatabaseConfig(
+  label: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { supabaseUrl: string; supabaseServiceRoleKey: string; signingSecret: string } {
+  if (dataDriver(env) === 'postgres') {
+    const signingSecret = platformSigningSecret(env) || randomBytes(32).toString('hex');
+    return {
+      supabaseUrl: env.SUPABASE_URL?.trim() || DIRECT_DATABASE_BASE_URL,
+      supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY || signingSecret,
+      signingSecret,
+    };
+  }
+  const supabaseUrl = env.SUPABASE_URL;
+  const supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    throw new Error(`${label} DATABASE_URL is required (or SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for the legacy REST driver)`);
+  }
+  return { supabaseUrl, supabaseServiceRoleKey, signingSecret: platformSigningSecret(env) };
+}
+
+let servicesClient: SupabaseClient | null | undefined;
+
+/**
+ * A client for Supabase's own HTTP services — Auth admin and Realtime — or
+ * null when there is no Supabase project to talk to.
+ *
+ * Under `supabase-rest` this is the data client itself, as it always was.
+ * Under `postgres` the database needs no Supabase service, so this exists only
+ * when SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are still configured: then
+ * the optional extras keep working (legacy auth.users cleanup, the Supabase
+ * Realtime transport); without them they switch off and nothing else changes.
+ */
+export function supabaseServicesClient(env: NodeJS.ProcessEnv = process.env): SupabaseClient | null {
+  const url = env.SUPABASE_URL?.trim();
+  const key = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (dataDriver(env) === 'supabase-rest') return url && key ? dataClientFor(url, key) : null;
+  if (servicesClient === undefined) {
+    servicesClient = url && key ? createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } }) : null;
+  }
+  return servicesClient;
 }

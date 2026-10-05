@@ -23,11 +23,12 @@ import { getServiceClient } from '../../supabase.js';
 import { botJobType, enqueueChannelJob } from './jobs.js';
 import { isBotProvider } from '../../../shared/channels/botProviders.js';
 import { resolveSelfApiBaseUrl } from '../calls/rtcResolver.js';
+import { platformSigningSecret } from '../../lib/platformSecret.js';
 
 const URL_TTL_SECONDS = 60 * 60 * 6; // 6h — plenty for retries, short enough to be safe.
 
 function secret(): Buffer {
-  const base = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.WIDGET_SIGNING_SECRET || '';
+  const base = platformSigningSecret() || process.env.WIDGET_SIGNING_SECRET || '';
   return crypto.createHash('sha256').update('attachment-public:' + base).digest();
 }
 

@@ -39,7 +39,7 @@ if (!SECRET) {
 // Refuse to boot when handed credentials this service must never hold. The
 // runtime lives outside the trusted network; a leak there must not be a
 // database compromise.
-for (const forbidden of ['SUPABASE_SERVICE_ROLE_KEY', 'PLUGIN_SECRETS_MASTER_KEY', 'SESSION_SECRET']) {
+for (const forbidden of ['SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL', 'PLATFORM_SIGNING_SECRET', 'PLUGIN_SECRETS_MASTER_KEY', 'SESSION_SECRET']) {
   if (process.env[forbidden]) {
     console.error(
       `[ai-runtime] ${forbidden} must NOT be provided to the AI runtime — it has no database or credential access by design`,

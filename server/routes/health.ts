@@ -1,11 +1,23 @@
 import { Router } from 'express';
 import { getManifestDiagnostics } from '../services/widget/manifest.js';
 import { getInvitationWorkerStatus } from '../services/invitations/worker.js';
+import { databaseStatus } from '../db/status.js';
 
 export const healthRouter = Router();
 
 healthRouter.get('/', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+/**
+ * Database reachability: which driver is in use and, for a direct
+ * DATABASE_URL connection, the server's major version, the role queries run
+ * as and the round-trip time. Leaks no host, user or password.
+ */
+healthRouter.get('/database', async (_req, res) => {
+  const status = await databaseStatus();
+  res.set('Cache-Control', 'no-store');
+  res.status(status.ok ? 200 : 503).json({ status: status.ok ? 'ok' : 'unavailable', ...status, error: status.ok ? undefined : 'database_unreachable' });
 });
 
 /**

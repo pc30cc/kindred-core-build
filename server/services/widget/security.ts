@@ -14,6 +14,7 @@ import crypto from 'crypto';
 import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
 import { readVisitorCookie } from './visitorIdentity.js';
+import { platformSigningSecret } from '../../lib/platformSecret.js';
 
 // ─── Session Token Config ───
 const SESSION_TOKEN_TTL_SECONDS = 900; // 15 minutes
@@ -21,7 +22,7 @@ const SESSION_TOKEN_PREFIX = 'wss_';
 const REFRESH_GRACE_PERIOD_SECONDS = 5 * 60; // 5 min grace for expired tokens
 
 function getSigningSecret(): Buffer {
-  const base = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.WIDGET_SIGNING_SECRET || '';
+  const base = platformSigningSecret() || process.env.WIDGET_SIGNING_SECRET || '';
   return crypto.createHash('sha256').update('widget-session:' + base).digest();
 }
 

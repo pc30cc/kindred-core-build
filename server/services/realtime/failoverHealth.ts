@@ -37,6 +37,7 @@ import {
 } from './index.js';
 import type { RealtimeProviderId, RealtimeFailoverPolicy } from './controlPlane.js';
 import { getMonitoringCollector } from '../observability/collector/index.js';
+import { supabaseRealtimeAvailable } from './supabaseAvailability.js';
 
 export type ProviderHealthStatus =
   | 'healthy'
@@ -232,6 +233,19 @@ async function evaluateSupabase(
   policy: RealtimeFailoverPolicy,
   sinceIso: string,
 ): Promise<ProviderHealthSignal> {
+  // Not configured at all (no Supabase project behind this install): never a
+  // failover target.
+  if (!supabaseRealtimeAvailable(config)) {
+    return {
+      provider: 'supabase_realtime',
+      status: 'unhealthy',
+      error_rate: null,
+      p95_latency_ms: null,
+      sample_size: 0,
+      reason: 'not_configured',
+      checked_at: Date.now(),
+    };
+  }
   // No direct probe — Supabase Realtime runs in the managed project.
   // Use error metrics tagged with driver=supabase and the same realtime
   // perf samples (which apply to whichever provider is active).

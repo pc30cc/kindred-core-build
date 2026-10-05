@@ -11,17 +11,13 @@
  *
  * A server-side client never holds a user session, so the options match
  * getServiceClient(): no persisted session, no refresh ticker.
+ *
+ * With `DATABASE_URL` set the arguments no longer pick anything — there is one
+ * database — and the process-wide direct client is returned (server/db).
  */
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-
-const clients = new Map<string, SupabaseClient>();
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { dataClientFor } from '../db/index.js';
 
 export function serviceClientFor(supabaseUrl: string, serviceRoleKey: string): SupabaseClient {
-  const id = `${supabaseUrl}\u0000${serviceRoleKey}`;
-  let client = clients.get(id);
-  if (!client) {
-    client = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
-    clients.set(id, client);
-  }
-  return client;
+  return dataClientFor(supabaseUrl, serviceRoleKey);
 }

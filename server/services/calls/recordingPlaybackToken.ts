@@ -40,10 +40,11 @@ function b64uDecode(str: string): Buffer {
 }
 
 function signingKey(config: ServerConfig): Buffer {
-  // Domain-separated derivation from the server-only service-role secret.
+  // Domain-separated derivation from the server-only platform signing secret
+  // (historically the service-role key; see server/lib/platformSecret.ts).
   // Keeps tokens unforgeable from anything the browser sees, and rotates
-  // automatically if the service-role secret is rotated.
-  return createHmac('sha256', config.supabaseServiceRoleKey)
+  // automatically if that secret is rotated.
+  return createHmac('sha256', config.signingSecret || config.supabaseServiceRoleKey)
     .update('admin-recording-playback/v1')
     .digest();
 }

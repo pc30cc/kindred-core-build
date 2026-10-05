@@ -144,10 +144,14 @@ import {
   abuseDetectionMiddleware,
   validateJsonBody,
 } from './middleware/security.js';
+import { waitForDatabase } from './db/status.js';
 
 installProcessErrorHandlers('server');
 
 const config = loadConfig();
+// DATABASE_URL → direct PostgreSQL (server/db); otherwise the legacy Supabase
+// REST driver. Either way, wait for it before anything below queries it.
+await waitForDatabase('server');
 
 const app = express();
 

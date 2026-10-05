@@ -18,7 +18,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { dataClientFor, workerDatabaseConfig } from '../../server/db/index.js';
 import {
   claimChannelJobs,
   completeChannelJob,
@@ -1106,13 +1107,12 @@ async function writeHeartbeat(): Promise<void> {
 }
 
 export function startChannelsWorker(): void {
-  const supabaseUrl = requireEnv('SUPABASE_URL');
-  const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const { supabaseUrl, supabaseServiceRoleKey: serviceRoleKey } = workerDatabaseConfig('[channels-worker]');
   coreBaseUrl = requireEnv('CORE_INTERNAL_BASE_URL').replace(/\/+$/, '');
   coreSecret = requireEnv('CORE_INTERNAL_SECRET');
   masterKey = requireEnv('PLUGIN_SECRETS_MASTER_KEY');
 
-  sb = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+  sb = dataClientFor(supabaseUrl, serviceRoleKey);
 
   console.log('[channels-worker] started', { workerId: WORKER_ID, batch: BATCH_SIZE });
 

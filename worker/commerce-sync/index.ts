@@ -15,6 +15,7 @@
  */
 import os from 'node:os';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
+import { workerDatabaseConfig } from '../../server/db/index.js';
 import { claimNextSyncJob, runSyncJobOnce, enqueueSyncJob, pruneFinishedSyncJobs } from '../../server/services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../server/services/commerce/pairing.js';
 import { catalogIndexedProviders } from '../../server/services/commerce/connectors/registry.js';
@@ -28,16 +29,13 @@ function clampInt(v: string | undefined, def: number, min: number, max: number):
 }
 
 function buildConfig(): ServerConfig {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new Error('[commerce-sync worker] SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
-  }
+  const { supabaseUrl, supabaseServiceRoleKey, signingSecret } = workerDatabaseConfig('[commerce-sync worker]');
   return {
     port: 0,
     supabaseUrl,
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || 'unused-by-commerce-sync-worker',
     supabaseServiceRoleKey,
+    signingSecret,
     corsOrigins: [],
     rateLimitWindowMs: 60_000,
     rateLimitMax: 100,

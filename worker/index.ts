@@ -29,6 +29,8 @@
 // vendor HTTP call, far lighter than a multi-page crawl, so it shares this
 // worker's single poller rather than needing its own kind/container (see
 // worker/seo-crawler/index.ts and worker/seo-backlinks/processScan.ts).
+import { waitForDatabase } from '../server/db/status.js';
+
 const ALLOWED = new Set([
   'intelligence',
   'source-sync',
@@ -70,6 +72,8 @@ process.on('unhandledRejection', (reason) => {
 });
 
 async function main() {
+  // DATABASE_URL (direct PostgreSQL) or the legacy SUPABASE_URL + key.
+  await waitForDatabase('worker');
   if (runs('intelligence')) {
     const mod = await import('./intelligence/index.js');
     mod.startAiKbWorker?.();

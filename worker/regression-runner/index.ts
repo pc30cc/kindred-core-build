@@ -5,7 +5,8 @@
  * public.ai_agent_regression_schedules (enabled, due) and executes them.
  * Self-hosted; no external cron, no edge function, no MCP/webhooks.
  */
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { dataClientFor, workerDatabaseConfig } from '../../server/db/index.js';
 import {
   claimDueSchedule,
   claimQueuedBatch,
@@ -33,10 +34,8 @@ function log(event: string, data: object = {}) {
 }
 
 function loadEnv() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required');
-  return { url, key };
+  const { supabaseUrl, supabaseServiceRoleKey } = workerDatabaseConfig('[regression-worker]');
+  return { url: supabaseUrl, key: supabaseServiceRoleKey };
 }
 
 /** One poll of schedules and batches. Resolves true when anything was claimed. */
@@ -96,7 +95,7 @@ export function startRegressionWorker() {
   if (started) return;
   started = true;
   const env = loadEnv();
-  const sb = createClient(env.url, env.key, { auth: { autoRefreshToken: false, persistSession: false } });
+  const sb = dataClientFor(env.url, env.key);
   log('started', { workerId: WORKER_ID, interval: POLL_INTERVAL_MS, maxIdleInterval: MAX_IDLE_POLL_MS });
   // setInterval, not a self-rescheduling timeout: a batch runs for minutes
   // inside tick() while the next interval still picks up the next one. Only

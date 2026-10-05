@@ -46,6 +46,7 @@ import type { UserDeletionJobRow } from './types.js';
 import { IdleBackoff } from '../jobs/idleBackoff.js';
 import { reviveFailedWorkspaceDeletion } from '../workspaceDeletion/revive.js';
 import { resolveOwnerCdn, purgeOwnerFromCdn, logOwnerCdnPurge } from '../cdn/ownerPurge.js';
+import { supabaseServicesClient } from '../../db/index.js';
 
 const POLL_INTERVAL_MS = 5_000;
 /** Ceiling for the idle backoff — see the start function below. */
@@ -335,15 +336,19 @@ async function purgeUser(config: ServerConfig, job: UserDeletionJobRow): Promise
 
   // Legacy Supabase Auth row. Identity lives in profiles/user_credentials
   // (just purged), but accounts created before that migration still have
-  // an auth.users row carrying their email. Best effort: a self-hosted
-  // stack without GoTrue has nothing to delete here.
-  try {
-    const { error: authError } = await sb.auth.admin.deleteUser(job.user_id);
-    if (authError && !/not.?found/i.test(authError.message)) {
-      console.warn('[user deletion] legacy auth user delete failed for', job.user_id, authError.message);
+  // an auth.users row carrying their email. Best effort: a stack without
+  // GoTrue — plain PostgreSQL, or Supabase reached only through DATABASE_URL
+  // with no SUPABASE_URL — has nothing to delete here.
+  const authAdmin = supabaseServicesClient();
+  if (authAdmin) {
+    try {
+      const { error: authError } = await authAdmin.auth.admin.deleteUser(job.user_id);
+      if (authError && !/not.?found/i.test(authError.message)) {
+        console.warn('[user deletion] legacy auth user delete failed for', job.user_id, authError.message);
+      }
+    } catch (err) {
+      console.warn('[user deletion] legacy auth user delete failed for', job.user_id, errMessage(err));
     }
-  } catch (err) {
-    console.warn('[user deletion] legacy auth user delete failed for', job.user_id, errMessage(err));
   }
 
   const now = new Date().toISOString();

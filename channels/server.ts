@@ -42,7 +42,7 @@ for (const [name, value] of [
 }
 
 // Refuse to boot if someone hands the gateway credentials it must never hold.
-for (const forbidden of ['SUPABASE_SERVICE_ROLE_KEY', 'PLUGIN_SECRETS_MASTER_KEY']) {
+for (const forbidden of ['SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL', 'PLATFORM_SIGNING_SECRET', 'PLUGIN_SECRETS_MASTER_KEY']) {
   if (process.env[forbidden]) {
     console.error(
       `[channels-gateway] ${forbidden} must NOT be provided to the gateway — it has no database or credential access by design`,

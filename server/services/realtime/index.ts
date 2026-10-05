@@ -7,6 +7,8 @@
  */
 
 import type { ServerConfig } from '../../config.js';
+import { supabaseRealtimeAvailable } from './supabaseAvailability.js';
+export { supabaseRealtimeAvailable } from './supabaseAvailability.js';
 import { CentrifugoDriver } from './centrifugo.js';
 import { loadRealtimeConfig } from './store.js';
 import {
@@ -141,6 +143,11 @@ export async function resolveRealtimeProvider(
     // the project's anon key (already shipped to the browser). No server
     // token issuance is needed. Capabilities mirror Centrifugo's broadcast
     // surface — no presence/typing guarantees from this path today.
+    // It needs a Supabase project (SUPABASE_URL, service-role and anon keys);
+    // a database reached only through DATABASE_URL has no Realtime service.
+    if (!supabaseRealtimeAvailable(config)) {
+      return fallbackOrFail(cfg, 'Supabase Realtime is not configured (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and SUPABASE_ANON_KEY)');
+    }
     return {
       effective_vendor: 'supabase',
       source: 'global_default',

@@ -32,8 +32,9 @@
  *
  * SECRET
  *   `REALTIME_CHANNEL_SECRET` (≥ 32 chars) when set. Otherwise a key derived,
- *   with domain separation, from `SUPABASE_SERVICE_ROLE_KEY` — the Supabase
- *   publisher cannot work without that key anyway. With neither available
+ *   with domain separation, from the platform signing secret
+ *   (`PLATFORM_SIGNING_SECRET`, else `SUPABASE_SERVICE_ROLE_KEY` — see
+ *   server/lib/platformSecret.ts). With neither available
  *   (or a too-short dedicated secret) derivation FAILS CLOSED: nothing is
  *   published and no topic is handed out, so realtime degrades to polling
  *   rather than falling back to a guessable public channel.
@@ -47,6 +48,7 @@
  */
 
 import crypto from 'node:crypto';
+import { platformSigningSecret } from '../../lib/platformSecret.js';
 
 export type RealtimeTopicAudience = 'operator' | 'visitor';
 
@@ -89,15 +91,15 @@ export function resolveRealtimeChannelKey(env: NodeJS.ProcessEnv = process.env):
       source: 'dedicated',
     };
   }
-  const serviceRole = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (typeof serviceRole === 'string' && serviceRole.length > 0) {
+  const root = platformSigningSecret(env);
+  if (root.length > 0) {
     return {
       ok: true,
-      key: crypto.createHmac('sha256', serviceRole).update('realtime-channel-topic:v1').digest(),
+      key: crypto.createHmac('sha256', root).update('realtime-channel-topic:v1').digest(),
       source: 'derived',
     };
   }
-  return { ok: false, reason: 'neither REALTIME_CHANNEL_SECRET nor SUPABASE_SERVICE_ROLE_KEY is set' };
+  return { ok: false, reason: 'none of REALTIME_CHANNEL_SECRET, PLATFORM_SIGNING_SECRET or SUPABASE_SERVICE_ROLE_KEY is set' };
 }
 
 function requireKey(): Buffer {

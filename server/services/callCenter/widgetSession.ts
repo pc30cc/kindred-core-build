@@ -11,6 +11,7 @@ function secret(config: ServerConfig): string {
   return (
     (config as any).widgetTokenSecret ||
     (config as any).sessionSecret ||
+    config.signingSecret ||
     config.supabaseServiceRoleKey
   );
 }

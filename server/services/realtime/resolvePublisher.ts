@@ -20,6 +20,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { supabaseServicesClient } from '../../db/index.js';
 import { getCentrifugoDriver, loadRealtimeConfig } from './index.js';
 import { CentrifugoPublisher } from './publishers/centrifugo.js';
 import { SupabaseRealtimePublisher } from './publishers/supabase.js';
@@ -76,7 +77,12 @@ async function buildPublisher(
     return new CentrifugoPublisher(driver);
   }
   if (vendor === 'supabase') {
-    return new SupabaseRealtimePublisher(getServiceClient(config));
+    // Supabase Realtime is an optional transport of a Supabase project, not
+    // part of the database. Without one (DATABASE_URL and no SUPABASE_URL)
+    // there is nothing to publish to: polling carries the UI.
+    const sb = supabaseServicesClient();
+    if (!sb) return new NoopPublisher();
+    return new SupabaseRealtimePublisher(sb);
   }
   return new NoopPublisher();
 }

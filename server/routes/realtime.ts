@@ -801,11 +801,17 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
 
     if (resolved.effective_vendor !== 'centrifugo') {
       // For supabase / polling / disabled the operator client uses the
-      // matching provider and never receives a centrifugo token.
+      // matching provider and never receives a centrifugo token. Supabase
+      // also gets the project URL and its public anon key — the same pair
+      // /connect hands the widget — so the dashboard needs no Supabase
+      // settings of its own.
       return res.json({
         vendor: resolved.effective_vendor,
         capabilities: resolved.capabilities,
         effective_policy,
+        ...(resolved.effective_vendor === 'supabase'
+          ? { supabase_url: config.supabaseUrl, anon_key: config.supabaseAnonKey }
+          : {}),
       });
     }
     const driver = await getCentrifugoDriver(config);

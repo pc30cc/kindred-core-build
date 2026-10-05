@@ -1,0 +1,16 @@
+# Reviewed, deliberate differences between the production database and a
+# database built from database/migrations, as reported by
+# scripts/db/schema-diff.sh. Anything NOT listed here fails the comparison.
+#
+# Format (tab-separated): kind  group  reason
+#   kind   one of the kinds schema-fingerprint.sql prints, or * for all
+#   group  the table / function / extension name the object belongs to
+#
+# Keep this list short. Every entry is a difference the application has been
+# checked not to depend on.
+
+*	_schema_migrations	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/verified-baseline.sh).
+extension	pg_stat_statements	Supabase platform extension; the application never queries it.
+extension	supabase_vault	Supabase platform extension; the application stores no secret in Vault.
+column	platform_branding	lock_ui_preferences: self-host UI lock, NOT NULL DEFAULT false. Rows copied from production get false, which is production's behaviour (no lock).
+function	wi_resolve_seat_capacity	251: production's plan-authoritative resolution plus the self-host fixed seat limit. Production stores seat_limit NULL, so on production's data the result is identical.

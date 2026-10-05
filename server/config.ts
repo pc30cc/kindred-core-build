@@ -40,19 +40,17 @@ export interface ServerConfig {
    */
   initialAdminEmail?: string;
   /**
-   * Explicit, server-only deployment-policy boundary: true ONLY when this
-   * server was deliberately started as a self-host install with no
-   * billing/plans subsystem installed (SELF_HOST_BILLING_MODE=unlimited).
-   * Read once from process.env at server startup — never from a request,
-   * header, or client-supplied value, so it cannot be toggled per-request or
-   * from the browser. Defaults to `false` (fail-closed) when unset, matching
-   * every other entitlement-outage path in server/middleware/featureGating.ts.
-   * The one place this flag is consulted (checkEntitlementFromDB) still
-   * additionally requires the RPC error to precisely name
-   * check_workspace_entitlement as absent — this flag alone never bypasses
-   * an entitlement check by itself; see entitlementParse.ts's
-   * isCheckWorkspaceEntitlementFunctionMissing for the other half of that
-   * condition.
+   * Explicit, server-only deployment-policy switch: true ONLY when this
+   * server was deliberately started without plan limits
+   * (SELF_HOST_BILLING_MODE=unlimited). Read once from process.env at server
+   * startup — never from a request, header, or client-supplied value, so it
+   * cannot be toggled per-request or from the browser. Defaults to `false`
+   * (fail-closed). When true, every entitlement, module and channel check
+   * answers "allowed, unlimited" without consulting the database
+   * (server/middleware/featureGating.ts). It does not depend on which
+   * functions the database has: the migration chain installs the billing
+   * gate everywhere, so the hosted service — which never sets this flag —
+   * keeps enforcing plans on any database it moves to.
    */
   selfHostBillingUnlimited: boolean;
   /**

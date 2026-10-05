@@ -1,5 +1,7 @@
 import { BrandWordmark } from '@/components/brand/BrandLoader';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
+import { AdsMeasurementConsent } from '@/components/AdsMeasurementConsent';
+import { trackSuccessfulSignup } from '@/lib/googleAds';
 import { AuthHeroPanel } from '@/components/auth/AuthHeroPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -41,6 +43,7 @@ export default function SignupPage() {
 
   const [loading, setLoading] = useState(false);
   const [succeeded, setSucceeded] = useState(false);
+  const signupConversionId = useRef<string | null>(null);
 
   const brandName = useMemo(() => brand?.platform_name || 'App', [brand]);
 
@@ -67,7 +70,7 @@ export default function SignupPage() {
     const trimmedEmail = email.trim().toLowerCase();
     const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
     try {
-      const { error } = await signUp({
+      const { user: newUser, error } = await signUp({
         email: trimmedEmail,
         password,
         fullName: fullName || undefined,
@@ -90,6 +93,15 @@ export default function SignupPage() {
           toast.error(t('auth.signupFailed'), { description: error.message });
         }
         return;
+      }
+
+      // The backend has confirmed creation; auto-login/verification may still fail.
+      // A random event ID deduplicates reporting without disclosing the account ID.
+      if (newUser?.id) {
+        try {
+          signupConversionId.current ??= crypto.randomUUID();
+          trackSuccessfulSignup(signupConversionId.current);
+        } catch { /* Optional measurement must never interrupt registration. */ }
       }
 
       const { error: signInError } = await signIn({ email: trimmedEmail, password });
@@ -139,6 +151,7 @@ export default function SignupPage() {
 
   return (
     <div className="fixed inset-0 flex" dir={dir}>
+      <AdsMeasurementConsent english={locale !== 'fa'} />
       {/* Left side — Form */}
       <div className={`auth-aurora flex-1 flex flex-col overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>
         {/* Top bar */}

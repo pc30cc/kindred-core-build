@@ -45,6 +45,13 @@ struct Composer: View {
     /// What may be attached, and how big. The chats take the workspace's
     /// attachments; the support chat takes fewer kinds and smaller files.
     var attachments: ComposerAttachmentRules = .chat
+    /// The photo waiting in the field, drawn small with its upload on it.
+    var stagedPhoto: StagedPhoto?
+    /// Set where a picked photo waits in the field for Send — uploading
+    /// meanwhile — rather than going the moment it is picked.
+    var onStagePhoto: ((Data, String, String) -> Void)?
+    var onRemovePhoto: (() -> Void)?
+    var onRetryPhoto: (() -> Void)?
 
     @State private var isShowingEmoji = false
     @State private var isShowingShortcuts = false
@@ -228,7 +235,7 @@ struct Composer: View {
                 problem = attachments.tooLarge(language)
                 return
             }
-            onAttach(fitted, "photo.jpg", "image/jpeg")
+            deliverPhoto(fitted, "photo.jpg", "image/jpeg")
             return
         }
         // The bytes are the item's own first type. One the server takes, at a
@@ -237,14 +244,24 @@ struct Composer: View {
         // default, or a picture over the limit — is drawn again as a JPEG.
         if let type = item.supportedContentTypes.first, let mime = mime(for: type),
            data.count <= attachments.maximumBytes {
-            onAttach(data, "photo.\(type.preferredFilenameExtension ?? "jpg")", mime)
+            deliverPhoto(data, "photo.\(type.preferredFilenameExtension ?? "jpg")", mime)
             return
         }
         guard let fitted = await PhotoFitter.jpeg(data, maxBytes: attachments.maximumBytes) else {
             problem = attachments.tooLarge(language)
             return
         }
-        onAttach(fitted, "photo.jpg", "image/jpeg")
+        deliverPhoto(fitted, "photo.jpg", "image/jpeg")
+    }
+
+    /// Into the field to wait for Send where the screen stages photos, and
+    /// straight out where it does not.
+    private func deliverPhoto(_ data: Data, _ name: String, _ mime: String) {
+        if let onStagePhoto {
+            onStagePhoto(data, name, mime)
+        } else {
+            onAttach(data, name, mime)
+        }
     }
 
     private func handlePickedDocument(_ result: Result<URL, Error>) {
@@ -365,13 +382,28 @@ struct Composer: View {
         if let active = activeSayNow {
             aiCard(active)
         } else {
-            HStack(alignment: .bottom, spacing: 0) {
-                leadingControls
-                textArea
-                sendButton
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                if let stagedPhoto {
+                    StagedPhotoThumbnail(
+                        photo: stagedPhoto,
+                        language: language,
+                        onRemove: { onRemovePhoto?() },
+                        onRetry: { onRetryPhoto?() }
+                    )
+                    .padding(.top, Theme.Space.xxs)
+                    .padding(.leading, Theme.Space.xxs)
+                    .transition(.scale(scale: 0.8, anchor: .bottomLeading).combined(with: .opacity))
+                }
+
+                HStack(alignment: .bottom, spacing: 0) {
+                    leadingControls
+                    textArea
+                    sendButton
+                }
             }
             .composerPill()
             .onTapGesture { isWriting = true }
+            .animation(Theme.Motion.standard, value: stagedPhoto?.id)
         }
     }
 
@@ -540,6 +572,84 @@ struct Composer: View {
             label: effectiveSendLabel,
             action: performSend
         )
+    }
+}
+
+/// The photo waiting in the composer: small, with its upload drawn on it —
+/// a ring filling while it goes, a retry if it did not — and a cross to take
+/// it out again.
+struct StagedPhotoThumbnail: View {
+    let photo: StagedPhoto
+    let language: Language
+    let onRemove: () -> Void
+    let onRetry: () -> Void
+
+    private static let side: CGFloat = 64
+    private let shape = RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+
+    var body: some View {
+        Image(uiImage: photo.preview)
+            .resizable()
+            .scaledToFill()
+            .frame(width: Self.side, height: Self.side)
+            .clipShape(shape)
+            .overlay { state }
+            .overlay(shape.strokeBorder(Theme.Palette.separator.opacity(0.6), lineWidth: 0.5))
+            .overlay(alignment: .topTrailing) { removeButton }
+            .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private var state: some View {
+        switch photo.phase {
+        case .uploading(let sent):
+            ZStack {
+                shape.fill(.black.opacity(0.35))
+                Circle()
+                    .stroke(.white.opacity(0.35), lineWidth: 3)
+                    .frame(width: 26, height: 26)
+                Circle()
+                    .trim(from: 0, to: max(0.04, sent))
+                    .stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .frame(width: 26, height: 26)
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 0.2), value: sent)
+            }
+            .accessibilityElement()
+            .accessibilityLabel(Str.photoUploading(language))
+            .accessibilityValue(Text(verbatim: "\(Int((sent * 100).rounded()))%"))
+        case .failed:
+            Button(action: onRetry) {
+                ZStack {
+                    shape.fill(.black.opacity(0.45))
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Str.photoUploadFailed(language))
+        case .ready:
+            EmptyView()
+        }
+    }
+
+    private var removeButton: some View {
+        Button(action: onRemove) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(Circle().fill(.black.opacity(0.7)))
+                .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1))
+                // Apple's 44 for the tap, laid out at its own size.
+                .padding(12)
+                .contentShape(Rectangle())
+                .padding(-12)
+        }
+        .buttonStyle(.plain)
+        .offset(x: 6, y: -6)
+        .accessibilityLabel(Str.removePhoto(language))
     }
 }
 

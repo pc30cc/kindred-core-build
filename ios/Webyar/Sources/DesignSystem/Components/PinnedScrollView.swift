@@ -26,6 +26,9 @@ struct PinnedScrollView<Content: View>: View {
     let revision: Int
     /// Treated as "at the bottom" within this many points.
     var threshold: CGFloat = 80
+    /// Changing this is "the operator sent something" — follow it down,
+    /// wherever they were reading, and keep following while it lays out.
+    var follow: Int = 0
     @ViewBuilder var content: Content
 
     @State private var metrics = ScrollMetrics()
@@ -53,24 +56,10 @@ struct PinnedScrollView<Content: View>: View {
                             .frame(height: 1)
                             .id(Self.anchorID)
                     }
-                    .background(
-                        GeometryReader { inner in
-                            Color.clear.preference(
-                                key: TranscriptGeometryKey.self,
-                                value: TranscriptGeometry(
-                                    height: inner.size.height,
-                                    offset: -inner.frame(in: .named(Self.space)).minY
-                                )
-                            )
-                        }
-                    )
+                    .modifier(LegacyGeometryProbe(space: Self.space))
                 }
                 .coordinateSpace(name: Self.space)
-                // The closure has to be sendable, so it may only touch an
-                // actor-isolated box — never the proxy, and never `self`.
-                .onPreferenceChange(TranscriptGeometryKey.self) { [metrics] geometry in
-                    Task { @MainActor in metrics.apply(geometry) }
-                }
+                .modifier(TranscriptGeometryReader(metrics: metrics))
                 .onChange(of: metrics.height) { _, height in
                     defer { lastHeight = height }
                     guard height > lastHeight + 0.5 else { return }
@@ -82,8 +71,22 @@ struct PinnedScrollView<Content: View>: View {
                 }
                 .onChange(of: revision) {
                     guard isNearBottom else { return }
+                    // A new row's photo or file card lays out a beat after the
+                    // row does; keep the bottom while it grows.
+                    settleUntil = max(settleUntil, .now + 1)
                     withAnimation(Theme.Motion.bubble) {
                         proxy.scrollTo(Self.anchorID, anchor: .bottom)
+                    }
+                }
+                .onChange(of: follow) {
+                    settleUntil = .now + 1.5
+                    // A turn of the run loop first, so the bottom aimed at is
+                    // the one with the new message in it.
+                    Task { @MainActor in
+                        await Task.yield()
+                        withAnimation(Theme.Motion.bubble) {
+                            proxy.scrollTo(Self.anchorID, anchor: .bottom)
+                        }
                     }
                 }
                 .onChange(of: conversationKey) {
@@ -175,8 +178,68 @@ struct PinnedScrollView<Content: View>: View {
     private var isNearBottom: Bool {
         // Before anything is measured, "at the bottom" is the safe answer:
         // the alternative is refusing to scroll on the very first paint.
-        guard metrics.height > 0, viewport > 0 else { return true }
+        guard metrics.height > 0 else { return true }
+        if let distance = metrics.distanceToBottom { return distance < threshold }
+        guard viewport > 0 else { return true }
         return metrics.height - metrics.offset - viewport < threshold
+    }
+}
+
+/// Where the transcript is, read from the scroll view itself.
+///
+/// iOS 18 reports a scroll view's geometry directly. Before that it had to be
+/// measured with a `GeometryReader` behind the content and handed up as a
+/// preference — which changes with every scrolled point, and a scroll made in
+/// answer to it changes it again in the same frame. That is the console's
+/// "Bound preference TranscriptGeometryKey tried to update multiple times per
+/// frame". The preference is kept only for iOS 17.
+private struct TranscriptGeometryReader: ViewModifier {
+    let metrics: ScrollMetrics
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: TranscriptGeometry.self) { geometry in
+                let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
+                return TranscriptGeometry(
+                    height: geometry.contentSize.height,
+                    offset: geometry.contentOffset.y + geometry.contentInsets.top,
+                    // Zero at the very end, whatever the bars and the
+                    // composer cover.
+                    distanceToBottom: geometry.contentSize.height + geometry.contentInsets.bottom - visibleBottom
+                )
+            } action: { _, geometry in
+                metrics.apply(geometry)
+            }
+        } else {
+            // The closure has to be sendable, so it may only touch an
+            // actor-isolated box — never the proxy, and never `self`.
+            content.onPreferenceChange(TranscriptGeometryKey.self) { [metrics] geometry in
+                Task { @MainActor in metrics.apply(geometry) }
+            }
+        }
+    }
+}
+
+/// The iOS 17 measurement: the content's height and how far it has scrolled.
+private struct LegacyGeometryProbe: ViewModifier {
+    let space: String
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+        } else {
+            content.background(
+                GeometryReader { inner in
+                    Color.clear.preference(
+                        key: TranscriptGeometryKey.self,
+                        value: TranscriptGeometry(
+                            height: inner.size.height,
+                            offset: -inner.frame(in: .named(space)).minY
+                        )
+                    )
+                }
+            )
+        }
     }
 }
 
@@ -190,18 +253,23 @@ struct PinnedScrollView<Content: View>: View {
 final class ScrollMetrics {
     private(set) var height: CGFloat = 0
     private(set) var offset: CGFloat = 0
+    /// How far the end of the transcript is below the visible part, when the
+    /// scroll view says so itself (iOS 18 and later).
+    private(set) var distanceToBottom: CGFloat?
 
     nonisolated init() {}
 
     fileprivate func apply(_ geometry: TranscriptGeometry) {
         height = geometry.height
         offset = geometry.offset
+        distanceToBottom = geometry.distanceToBottom
     }
 }
 
 struct TranscriptGeometry: Equatable, Sendable {
     var height: CGFloat = 0
     var offset: CGFloat = 0
+    var distanceToBottom: CGFloat?
 }
 
 private struct TranscriptGeometryKey: PreferenceKey {

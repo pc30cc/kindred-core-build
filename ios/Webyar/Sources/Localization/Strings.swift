@@ -2603,6 +2603,24 @@ extension Str {
         }
     }
 
+    static func photoUploading(_ l: Language) -> String {
+        switch l {
+        case .en: "Uploading photo"
+        case .fa: "در حال بارگذاری تصویر"
+        case .tr: "Fotoğraf yükleniyor"
+        case .ar: "جارٍ رفع الصورة"
+        }
+    }
+
+    static func photoUploadFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "The photo did not upload. Tap to try again."
+        case .fa: "تصویر بارگذاری نشد. برای تلاش دوباره بزنید."
+        case .tr: "Fotoğraf yüklenemedi. Tekrar denemek için dokunun."
+        case .ar: "لم تُرفع الصورة. اضغط للمحاولة مجددًا."
+        }
+    }
+
     static func photo(_ l: Language) -> String {
         switch l {
         case .en: "Photo"

@@ -97,8 +97,12 @@ struct RootView: View {
             // promotion, so "skip the first launches" counts launches rather
             // than the first time something asked.
             PromotionCenter.noteLaunch()
-            // Before anything else talks to the server: the platform names its
-            // own hosts in Super Admin, and an app that ignored that would keep
+            // A returning operator is shown their saved inbox now, not after
+            // the three requests below have come back; `restore()` then asks
+            // the server whether the session still stands.
+            await appState.resumeSavedSession()
+            // As early as possible — before anything at all on a first launch:
+            // the platform names its own hosts in Super Admin, and an app that ignored that would keep
             // calling the old one for as long as it stayed installed.
             await Backend.current.refreshOrigin()
             // The privacy policy and terms, and the language Super Admin

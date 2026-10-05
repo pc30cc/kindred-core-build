@@ -10,7 +10,7 @@ package com.webyar.ai.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 399 of 415 strings are generated.
+// 401 of 417 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
 //   resetSentDetail — takes more than a language
@@ -1616,6 +1616,18 @@ object Str {
         Language.EN -> "This format can't be played here."
         Language.FA -> "این قالب اینجا پخش نمی‌شود."
         Language.TR -> "Bu biçim burada oynatılamıyor."
+    }
+
+    fun photoUploading(l: Language): String = when (l) {
+        Language.EN -> "Uploading photo"
+        Language.FA -> "در حال بارگذاری تصویر"
+        Language.TR -> "Fotoğraf yükleniyor"
+    }
+
+    fun photoUploadFailed(l: Language): String = when (l) {
+        Language.EN -> "The photo did not upload. Tap to try again."
+        Language.FA -> "تصویر بارگذاری نشد. برای تلاش دوباره بزنید."
+        Language.TR -> "Fotoğraf yüklenemedi. Tekrar denemek için dokunun."
     }
 
     fun photo(l: Language): String = when (l) {

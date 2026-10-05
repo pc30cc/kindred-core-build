@@ -86,8 +86,10 @@ interface AndroidDeviceRow {
 
 interface CallRow {
   id: string;
-  contact_id: string | null;
   visitor_session_id: string | null;
+  context_type: string | null;
+  context_id: string | null;
+  metadata: Record<string, unknown> | null;
 }
 
 interface ContactRow {
@@ -451,7 +453,7 @@ async function describeCaller(
     const [{ data: call }, { data: workspace }] = await Promise.all([
       sb
         .from('call_sessions')
-        .select('id, contact_id, visitor_session_id, metadata')
+        .select('id, visitor_session_id, context_type, context_id, metadata')
         .eq('id', callSessionId)
         .eq('workspace_id', workspaceId)
         .maybeSingle(),
@@ -460,12 +462,13 @@ async function describeCaller(
     fallback.workspaceName = (workspace as WorkspaceRow | null)?.name ?? null;
     if (!call) return fallback;
 
-    const contactId = (call as CallRow).contact_id;
+    const contactId = await callContactId(sb, workspaceId, call as CallRow);
     if (contactId) {
       const { data: contact } = await sb
         .from('contacts')
         .select('id, name, email, visitor_code, avatar_url, avatar_storage_key')
         .eq('id', contactId)
+        .eq('workspace_id', workspaceId)
         .maybeSingle();
       if (contact) {
         const row = contact as ContactRow;
@@ -486,6 +489,35 @@ async function describeCaller(
   } catch {
     return fallback;
   }
+}
+
+/**
+ * The contact behind a call. call_sessions has no contact column (selecting
+ * one made this whole lookup fail, so every call rang as "Website visitor"):
+ * the call widget records the contact in metadata.contact_id, a call started
+ * from a chat belongs to that conversation's contact, and otherwise the
+ * visitor session may be linked to one.
+ */
+async function callContactId(
+  sb: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+  call: CallRow,
+): Promise<string | null> {
+  const fromMeta = call.metadata && typeof call.metadata.contact_id === 'string' ? call.metadata.contact_id : null;
+  if (fromMeta) return fromMeta;
+  if (call.context_type === 'conversation' && call.context_id) {
+    const { data } = await sb.from('conversations').select('contact_id')
+      .eq('id', call.context_id).eq('workspace_id', workspaceId).maybeSingle();
+    const id = (data as { contact_id: string | null } | null)?.contact_id;
+    if (id) return id;
+  }
+  if (call.visitor_session_id) {
+    const { data } = await sb.from('visitor_sessions').select('contact_id')
+      .eq('id', call.visitor_session_id).eq('workspace_id', workspaceId).maybeSingle();
+    const id = (data as { contact_id: string | null } | null)?.contact_id;
+    if (id) return id;
+  }
+  return null;
 }
 
 function firstNonEmpty(values: Array<string | null | undefined>): string | null {

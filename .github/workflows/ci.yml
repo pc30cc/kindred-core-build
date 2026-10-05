@@ -533,7 +533,7 @@ jobs:
   plain-postgres-chain:
     name: Plain PostgreSQL migration chain (${{ matrix.image }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -607,6 +607,12 @@ jobs:
             -v require_hosted_service_acl=0 \
             -f scripts/ci/verify-migration-security.sql
 
+      # Every table, column and function the server code names in a query
+      # exists in the schema just built. A missing column does not fail
+      # loudly in production — the read errors and the code runs on defaults.
+      - name: Code names only columns the schema has (scripts/ci/check-code-columns.py)
+        run: python3 scripts/ci/check-code-columns.py
+
       # scripts/db/move-data.sh on throwaway databases on this server: check
       # writes nothing; a move into an empty target and a repeat over a
       # populated one; every failure (an orphan row, a sequence behind its
@@ -621,3 +627,15 @@ jobs:
             -e PGHOST=localhost -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
             -v "$PWD:/w:ro" -w /w ${{ matrix.image }} \
             bash scripts/ci/move-data-test.sh
+
+      # scripts/db/baseline-verify.sh: a database built by hand through file
+      # 120 reads as exactly that prefix; `mark` refuses undecided files and
+      # then records exactly that prefix, after which migrate-database.sh
+      # brings the schema to a fresh build's; a dropped trigger reads as
+      # partial and an edited function as drift. Nothing is marked blindly.
+      - name: Verified baseline (scripts/ci/baseline-verify-test.sh)
+        run: |
+          docker run --rm --network host \
+            -e PGHOST=localhost -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
+            -v "$PWD:/w:ro" -w /w ${{ matrix.image }} \
+            bash scripts/ci/baseline-verify-test.sh

@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 type Row = Record<string, unknown>;
 type Result = { data: unknown; error: { code: string; message: string } | null };
 interface Builder {
-  select(): Builder;
+  select(cols?: string): Builder;
   eq(col: string, val: unknown): Builder;
   is(col: string, val: null): Builder;
   in(col: string, vals: unknown[]): Builder;
@@ -22,6 +22,16 @@ interface Builder {
   then(resolve: (value: Result) => void): void;
 }
 const db: Record<string, Row[]> = {};
+// Tables whose real columns the fake enforces: selecting a column the
+// database does not have fails the read (42703), as it does on PostgreSQL.
+const COLUMNS: Record<string, string[]> = {
+  call_sessions: ['id', 'workspace_id', 'provider', 'provider_room_id', 'call_type', 'context_type', 'context_id', 'state',
+    'initiated_by', 'initiated_by_type', 'started_at', 'ended_at', 'duration_seconds', 'recording_enabled', 'recording_state',
+    'metadata', 'created_at', 'updated_at', 'connected_at', 'ended_by', 'ended_by_user_id', 'end_reason', 'entry_source',
+    'subject', 'page_url', 'page_title', 'origin', 'direction', 'visitor_name', 'visitor_email', 'visitor_phone', 'wait_seconds',
+    'department_id', 'assigned_agent_id', 'transfer_from_agent_id', 'transfer_to_agent_id', 'transfer_to_department_id',
+    'transfer_reason', 'visitor_session_id'],
+};
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
@@ -30,16 +40,22 @@ vi.mock('../../../server/supabase.js', () => ({
       const filters: Array<(r: Row) => boolean> = [];
       let inserting: Row | null = null;
       let updating: Row | null = null;
+      let failure: { code: string; message: string } | null = null;
       const matching = () => rows.filter((r) => filters.every((f) => f(r)));
       const builder: Builder = {
-        select: () => builder,
+        select(cols?: string) {
+          const known = COLUMNS[table];
+          const unknown = known && cols ? cols.split(',').map((c) => c.trim()).find((c) => c && !known.includes(c)) : undefined;
+          if (unknown) failure = { code: '42703', message: `column ${table}.${unknown} does not exist` };
+          return builder;
+        },
         eq(col, val) { filters.push((r) => r[col] === val); return builder; },
         is(col, val) { filters.push((r) => (r[col] ?? null) === val); return builder; },
         in(col, vals) { filters.push((r) => vals.includes(r[col])); return builder; },
         not: () => builder,
         insert(values) { inserting = values; return builder; },
         update(values) { updating = values; return builder; },
-        maybeSingle: async () => ({ data: matching()[0] ?? null, error: null }),
+        maybeSingle: async () => (failure ? { data: null, error: failure } : { data: matching()[0] ?? null, error: null }),
         then(resolve) {
           const row = inserting;
           if (row) {
@@ -132,10 +148,11 @@ beforeEach(() => {
   db.user_notification_prefs = [];
   db.mobile_push_devices = [android(ME), android(COLLEAGUE), android(OTHER)];
   db.push_dispatch_log = [];
-  db.contacts = [{ id: 'contact-1', name: 'Ali', email: null, visitor_code: null }];
+  db.contacts = [{ id: 'contact-1', workspace_id: WS, name: 'Ali', email: null, visitor_code: null }];
   db.conversations = [{ id: 'conv-1', workspace_id: WS, assigned_to: ME, contact_id: 'contact-1', status: 'open' }];
   db.workspaces = [{ id: WS, name: 'Webyar' }];
-  db.call_sessions = [{ id: 'call-1', workspace_id: WS, contact_id: 'contact-1', visitor_session_id: null }];
+  db.call_sessions = [{ id: 'call-1', workspace_id: WS, visitor_session_id: null, context_type: null, context_id: null, metadata: { call_center: true, contact_id: 'contact-1' } }];
+  db.visitor_sessions = [];
   db.call_center_agent_presence = [
     { workspace_id: WS, user_id: ME, status: 'available' },
     { workspace_id: WS, user_id: OTHER, status: 'available' },
@@ -281,10 +298,30 @@ describe('a call-centre call on an Android phone', () => {
   });
 
   it('an anonymous caller carries their visitor code, which the list names them by', async () => {
-    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    db.contacts = [{ id: 'contact-1', workspace_id: WS, name: null, email: null, visitor_code: '4ZTK' }];
     await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: ME, channel: 'audio' });
     expect(sent.data[0].data.caller).toBe('');
     expect(sent.data[0].data.callerCode).toBe('4ZTK');
+  });
+
+  it('a call started from a chat is named after that chat\'s contact', async () => {
+    db.call_sessions = [{ id: 'call-1', workspace_id: WS, visitor_session_id: null, context_type: 'conversation', context_id: 'conv-1', metadata: {} }];
+    await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: ME, channel: 'audio' });
+    expect(sent.data[0].data.caller).toBe('Ali');
+  });
+
+  it('otherwise by the contact its visitor session is linked to', async () => {
+    db.call_sessions = [{ id: 'call-1', workspace_id: WS, visitor_session_id: 'vs-1', context_type: null, context_id: null, metadata: {} }];
+    db.visitor_sessions = [{ id: 'vs-1', workspace_id: WS, contact_id: 'contact-1' }];
+    await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: ME, channel: 'audio' });
+    expect(sent.data[0].data.caller).toBe('Ali');
+  });
+
+  it('never by a contact of another workspace', async () => {
+    db.contacts = [{ id: 'contact-x', workspace_id: 'another-workspace', name: 'Mallory', email: null, visitor_code: null }];
+    db.call_sessions = [{ id: 'call-1', workspace_id: WS, visitor_session_id: null, context_type: null, context_id: null, metadata: { contact_id: 'contact-x' } }];
+    await ringOperators(CONFIG, { workspaceId: WS, callSessionId: 'call-1', agentId: ME, channel: 'audio' });
+    expect(sent.data[0].data.caller).toBe('');
   });
 
   it('broadcast rings every available operator, support agents included', async () => {
@@ -314,7 +351,7 @@ describe('a customer is named as the app lists them', () => {
   const message = { workspaceId: WS, conversationId: 'conv-1', messageId: 'm-1', text: 'Hello', channel: 'widget' };
 
   it('an anonymous visitor is "Visitor" and their code, in each operator\'s language', async () => {
-    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    db.contacts = [{ id: 'contact-1', workspace_id: WS, name: null, email: null, visitor_code: '4ZTK' }];
     db.conversations[0].assigned_to = null;
     await dispatch.notifyInboundMessage(CONFIG, message);
     const title = (token: string) => sent.fcm.find((m) => m.token === token)?.title;
@@ -323,37 +360,37 @@ describe('a customer is named as the app lists them', () => {
   });
 
   it('never "Customer" for a visitor the widget sent no name for', async () => {
-    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    db.contacts = [{ id: 'contact-1', workspace_id: WS, name: null, email: null, visitor_code: '4ZTK' }];
     await dispatch.notifyInboundMessage(CONFIG, { ...message, senderName: null });
     expect(sent.fcm[0].title).not.toContain('مشتری');
   });
 
   it('once they give a name, by that name', async () => {
-    db.contacts = [{ id: 'contact-1', name: 'سارا', email: 'sara@example.com', visitor_code: '4ZTK' }];
+    db.contacts = [{ id: 'contact-1', workspace_id: WS, name: 'سارا', email: 'sara@example.com', visitor_code: '4ZTK' }];
     await dispatch.notifyInboundMessage(CONFIG, message);
     expect(sent.fcm[0].title).toBe('سارا');
   });
 
   it('known only by email, by what comes before the @', async () => {
-    db.contacts = [{ id: 'contact-1', name: null, email: 'ali.rezaei@example.com', visitor_code: '4ZTK' }];
+    db.contacts = [{ id: 'contact-1', workspace_id: WS, name: null, email: 'ali.rezaei@example.com', visitor_code: '4ZTK' }];
     await dispatch.notifyInboundMessage(CONFIG, message);
     expect(sent.fcm[0].title).toContain('ali.rezaei');
   });
 
   it('the contact, not whatever name came with the message', async () => {
-    db.contacts = [{ id: 'contact-1', name: 'M D', email: null, visitor_code: '8K2X' }];
+    db.contacts = [{ id: 'contact-1', workspace_id: WS, name: 'M D', email: null, visitor_code: '8K2X' }];
     await dispatch.notifyInboundMessage(CONFIG, { ...message, senderName: 'someone else' });
     expect(sent.fcm[0].title).toContain('M D');
   });
 
   it('an AI handoff names the customer the same way', async () => {
-    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    db.contacts = [{ id: 'contact-1', workspace_id: WS, name: null, email: null, visitor_code: '4ZTK' }];
     await dispatch.notifyHandoff(CONFIG, { workspaceId: WS, conversationId: 'conv-1', handoffAt: 't1' });
     expect(sent.fcm[0].body).toContain('بازدیدکننده 4ZTK');
   });
 
   it('a handover names the customer the same way', async () => {
-    db.contacts = [{ id: 'contact-1', name: null, email: null, visitor_code: '4ZTK' }];
+    db.contacts = [{ id: 'contact-1', workspace_id: WS, name: null, email: null, visitor_code: '4ZTK' }];
     await dispatch.notifyAssignment(CONFIG, { workspaceId: WS, conversationId: 'conv-1', assigneeId: ME, actorId: null, stamp: 't9' });
     expect(sent.fcm[0].body).toBe('بازدیدکننده 4ZTK');
   });

@@ -140,8 +140,9 @@ DATABASE_URL=postgresql://… ./scripts/migrate-database.sh
 It applies every file not yet recorded in `public._schema_migrations`, in
 byte order (`LC_ALL=C`, so `000a` and `016a` land where their numbers say),
 and records each one. Re-running it applies only new files. A database that
-already has the chain without the ledger must be baselined first
-(`scripts/migrate-database-mark-baseline.sh`, see
+already has the chain without the ledger must be baselined first, with
+`scripts/db/baseline-verify.sh`, which records only the files whose changes
+it finds on the database (see
 [`../docs/AUTO_MIGRATIONS.md`](../docs/AUTO_MIGRATIONS.md)).
 
 ### Verifying the security posture after migrating

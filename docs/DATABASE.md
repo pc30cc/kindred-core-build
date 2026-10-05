@@ -236,9 +236,10 @@ with no other change.
 **Schema changes afterwards.** The hosted project was built from
 `supabase/migrations` and has no `public._schema_migrations` ledger. Before
 `scripts/migrate-database.sh` or `deploy-migrations.yml` ever runs against it,
-record what is already applied:
-`DATABASE_URL=… ./scripts/migrate-database-mark-baseline.sh`
-(docs/AUTO_MIGRATIONS.md). Otherwise the script would replay the whole chain.
+record what it already holds with `scripts/db/baseline-verify.sh`
+(docs/AUTO_MIGRATIONS.md). That script records a file only when its changes
+are found in the database's catalog. Otherwise `migrate-database.sh` would
+replay the whole chain.
 
 ---
 
@@ -399,8 +400,9 @@ the target since then are not on it.
 The same steps with source and target swapped. The target is a Supabase
 project's connection string. A brand-new, empty project is the simple case,
 since the script builds its schema. An existing project that was built from
-`supabase/migrations` must first have its ledger baselined (§5). Otherwise
-the script would replay the whole chain on it.
+`supabase/migrations` must first have its ledger baselined with
+`scripts/db/baseline-verify.sh` (§5). Otherwise the script would replay the
+whole chain on it.
 
 ### Moving the file storage
 

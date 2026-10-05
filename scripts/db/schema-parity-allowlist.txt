@@ -9,7 +9,7 @@
 # Keep this list short. Every entry is a difference the application has been
 # checked not to depend on.
 
-*	_schema_migrations	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/verified-baseline.sh).
+*	_schema_migrations	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/baseline-verify.sh).
 extension	pg_stat_statements	Supabase platform extension; the application never queries it.
 extension	supabase_vault	Supabase platform extension; the application stores no secret in Vault.
 column	platform_branding	lock_ui_preferences: self-host UI lock, NOT NULL DEFAULT false. Rows copied from production get false, which is production's behaviour (no lock).

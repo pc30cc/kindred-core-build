@@ -70,8 +70,13 @@ activityRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
   let visitorMessage: any = null;
   let aiMessage: any = null;
   if (run.conversation_id) {
-    const { data: c } = await sb.from('conversations').select('id, status, channel, locale, created_at').eq('id', run.conversation_id).maybeSingle();
-    conversation = c || null;
+    // conversations has no channel or locale column — asking for them made the
+    // whole read fail, so this was always null. A plugin channel is recorded in
+    // metadata.channel (as offlineDelivery reads it); widget threads have none.
+    const { data: c } = await sb.from('conversations').select('id, status, created_at, metadata').eq('id', run.conversation_id).maybeSingle();
+    conversation = c
+      ? { id: c.id, status: c.status, created_at: c.created_at, channel: typeof (c as any).metadata?.channel === 'string' ? (c as any).metadata.channel : null }
+      : null;
     if (run.visitor_message_id) {
       const { data: vm } = await sb.from('conversation_messages').select('id, body, created_at, sender_type').eq('id', run.visitor_message_id).maybeSingle();
       visitorMessage = vm ? { id: vm.id, body: truncate(vm.body, 4000), sender_type: (vm as any).sender_type, created_at: vm.created_at } : null;

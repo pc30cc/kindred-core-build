@@ -68,15 +68,12 @@ export interface RegressionBatch {
 // No hardcoded city/zone (no Istanbul, no server tz, no browser tz).
 // Resolution order:
 //   1) schedule.timezone (if valid IANA)
-//   2) workspace-level timezone (if a `workspaces.timezone` column exists)
-//   3) platform_settings.timezone
-//   4) 'UTC'
+//   2) platform_settings.timezone
+//   3) 'UTC'
 //
-// NOTE: As of E10.2 the public.workspaces table does NOT have a `timezone`
-// column. The lookup below probes for it and silently caches "unsupported"
-// after the first miss so we don't hammer the DB. If a future migration
-// adds workspaces.timezone, this code starts honouring it automatically
-// without further changes.
+// There is no workspace-level timezone: public.workspaces has no such column
+// (nor does any other per-workspace table). An earlier probe for
+// `workspaces.timezone` failed on every database and only cost a query.
 // Invalid IANA strings fall back to UTC and emit metadata.warning.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -145,38 +142,6 @@ async function getPlatformTimezone(sb: SupabaseClient): Promise<string | null> {
 }
 
 
-let _workspaceTzColumnSupported: boolean | null = null;
-const _workspaceTzCache = new Map<string, { tz: string | null; ts: number }>();
-async function getWorkspaceTimezone(
-  sb: SupabaseClient,
-  workspaceId: string | null | undefined,
-): Promise<string | null> {
-  if (!workspaceId) return null;
-  if (_workspaceTzColumnSupported === false) return null;
-  const cached = _workspaceTzCache.get(workspaceId);
-  if (cached && Date.now() - cached.ts < 60_000) return cached.tz;
-  try {
-    const { data, error } = await sb.from('workspaces')
-      .select('timezone').eq('id', workspaceId).maybeSingle();
-    if (error) {
-      // 42703 = undefined_column. Treat any column-missing error as "not supported".
-      const msg = (error.message || '').toLowerCase();
-      if (msg.includes('column') || (error as any).code === '42703') {
-        _workspaceTzColumnSupported = false;
-        return null;
-      }
-      return null;
-    }
-    _workspaceTzColumnSupported = true;
-    const tz = (data as any)?.timezone || null;
-    _workspaceTzCache.set(workspaceId, { tz, ts: Date.now() });
-    return tz;
-  } catch {
-    _workspaceTzColumnSupported = false;
-    return null;
-  }
-}
-
 export interface ResolvedSchedule {
   resolvedTimezone: string;
   warning: string | null;
@@ -185,14 +150,11 @@ export interface ResolvedSchedule {
 /** Test-only: clear timezone caches between unit runs. */
 export function __resetTimezoneCachesForTests(): void {
   _platformTzCache = null;
-  _workspaceTzColumnSupported = null;
-  _workspaceTzCache.clear();
 }
 
 export async function resolveScheduleTimezone(
   sb: SupabaseClient,
   scheduleTz: string | null | undefined,
-  workspaceId?: string | null,
 ): Promise<ResolvedSchedule> {
   // 1) schedule
   if (scheduleTz && scheduleTz.trim()) {
@@ -201,17 +163,12 @@ export async function resolveScheduleTimezone(
   }
   const invalidWarning = scheduleTz && !isValidTimezone(scheduleTz)
     ? 'timezone_invalid_fallback_utc' : null;
-  // 2) workspace-level (if column exists)
-  const wsTz = await getWorkspaceTimezone(sb, workspaceId);
-  if (wsTz && isValidTimezone(wsTz)) {
-    return { resolvedTimezone: wsTz, warning: invalidWarning };
-  }
-  // 3) platform default
+  // 2) platform default
   const platformTz = await getPlatformTimezone(sb);
   if (platformTz && isValidTimezone(platformTz)) {
     return { resolvedTimezone: platformTz, warning: invalidWarning };
   }
-  // 4) UTC
+  // 3) UTC
   return { resolvedTimezone: 'UTC', warning: invalidWarning };
 }
 
@@ -227,10 +184,10 @@ export async function computeNextRunAt(
   from: Date = new Date(),
 ): Promise<NextRunComputation> {
   if (schedule.frequency === 'manual') {
-    const r = await resolveScheduleTimezone(sb, schedule.timezone, schedule.workspace_id ?? null);
+    const r = await resolveScheduleTimezone(sb, schedule.timezone);
     return { next_run_at: null, resolved_timezone: r.resolvedTimezone, warning: r.warning };
   }
-  const tzInfo = await resolveScheduleTimezone(sb, schedule.timezone, schedule.workspace_id ?? null);
+  const tzInfo = await resolveScheduleTimezone(sb, schedule.timezone);
   const tz = tzInfo.resolvedTimezone;
   let warning = tzInfo.warning;
 

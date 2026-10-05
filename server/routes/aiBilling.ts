@@ -24,33 +24,29 @@ import { resolveBillingConfig, getProvider } from '../services/billing/index.js'
 import { assertLegacyPathAllowed, LegacyPathRejectedError } from '../services/billing/rollout.js';
 import { createAiCreditTopupIntent, setPaymentIntentProviderRef, markPaymentIntentFailed, IRAN_PROVIDERS } from '../services/billing/paymentIntent.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
+import { readTopupConfig, TOPUP_CONFIG_KEY, type TopupConfig } from '../services/billing/topupConfig.js';
 
 export const aiBillingRouter = Router();
 
 const DEFAULT_TOPUP_PRESETS_TOMAN = [100_000, 250_000, 500_000, 1_000_000];
 const DEFAULT_TOPUP_MIN_TOMAN = 10_000;
 const DEFAULT_TOPUP_MAX_TOMAN = 50_000_000;
-const TOPUP_CONFIG_KEY = 'ai_credit_topup_config';
-
-interface TopupConfig {
-  presetsToman: number[];
-  minToman: number;
-  maxToman: number;
-}
 
 async function getTopupConfig(config: ServerConfig): Promise<TopupConfig> {
-  const sb = getServiceClient(config);
-  const { data } = await sb.from('app_runtime_config').select('value').eq('key', TOPUP_CONFIG_KEY).maybeSingle();
-  const v = (data?.value || {}) as Partial<TopupConfig>;
-  return {
-    presetsToman: Array.isArray(v.presetsToman) && v.presetsToman.length ? v.presetsToman : DEFAULT_TOPUP_PRESETS_TOMAN,
-    minToman: Number.isFinite(v.minToman) ? Number(v.minToman) : DEFAULT_TOPUP_MIN_TOMAN,
-    maxToman: Number.isFinite(v.maxToman) ? Number(v.maxToman) : DEFAULT_TOPUP_MAX_TOMAN,
-  };
+  return readTopupConfig(config, {
+    presetsToman: DEFAULT_TOPUP_PRESETS_TOMAN,
+    minToman: DEFAULT_TOPUP_MIN_TOMAN,
+    maxToman: DEFAULT_TOPUP_MAX_TOMAN,
+  });
 }
 
 function cfg(req: any): ServerConfig {
   return req.serverConfig;
+}
+
+function cycleStart(): string {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
 }
 
 function cycleEnd(): string {
@@ -477,7 +473,9 @@ aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
     activeFilter(sb.from('ai_exchange_rates').select('id, from_currency, to_currency, rate, version, effective_from, effective_to')),
     activeFilter(sb.from('ai_sell_policies').select('id, scope, workspace_id, multiplier, overage_policy, version, effective_from, effective_to')),
     sb.from('ai_models').select('*'),
-    sb.from('ai_usage_events').select('provider, model').limit(5000),
+    // priced by the model that actually ran (runContext: actualModel, else
+    // requestedModel) — ai_usage_events has no `model` column
+    sb.from('ai_usage_events').select('provider, requested_model, actual_model').limit(5000),
     sb.from('ai_usage_logs').select('provider_name, model').limit(5000),
     sb.from('billing_plans').select('id, name, limits'),
   ]);
@@ -492,7 +490,7 @@ aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
     if (!runtimePaths.has(key)) runtimePaths.set(key, { provider, model, source });
   };
   for (const m of (models.data || []) as any[]) add(m.provider ?? m.provider_name, m.model ?? m.model_key ?? m.name, 'catalog');
-  for (const u of (seenUsage.data || []) as any[]) add(u.provider, u.model, 'usage_event');
+  for (const u of (seenUsage.data || []) as any[]) add(u.provider, u.actual_model || u.requested_model, 'usage_event');
   for (const l of (seenLogs.data || []) as any[]) add(l.provider_name, l.model, 'legacy_log');
 
   const paths = [...runtimePaths.values()].map((p) => ({
@@ -713,12 +711,16 @@ aiBillingRouter.get('/admin/health', async (req, res) => {
     sb.from('ai_billing_audit_log').select('*').eq('action', 'idempotency_conflict').order('created_at', { ascending: false }).limit(50),
   ]);
   // METER_ONLY validation metrics — coverage/quality of the current cycle.
+  // ai_runs has no billing_cycle_id column (asking for it failed every count,
+  // so these read 0): a run's cycle is the UTC month it began in
+  // (billingCycleId at beginRun), so the cycle's runs are those created in it.
   const cycle = billingCycleId();
+  const inCycle = (qb: any) => qb.gte('created_at', cycleStart()).lt('created_at', cycleEnd());
   const [{ count: runsTotal }, { count: runsEstimated }, { count: runsUnresolved }, { count: settledTotal }] =
     await Promise.all([
-      sb.from('ai_runs').select('id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle),
-      sb.from('ai_runs').select('id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle).eq('billing_quality', 'ESTIMATED'),
-      sb.from('ai_runs').select('id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle).eq('billing_quality', 'UNRESOLVED'),
+      inCycle(sb.from('ai_runs').select('id', { count: 'exact', head: true })),
+      inCycle(sb.from('ai_runs').select('id', { count: 'exact', head: true })).eq('billing_quality', 'ESTIMATED'),
+      inCycle(sb.from('ai_runs').select('id', { count: 'exact', head: true })).eq('billing_quality', 'UNRESOLVED'),
       sb.from('ai_run_settlements').select('run_id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle),
     ]);
 

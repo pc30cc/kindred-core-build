@@ -58,6 +58,7 @@ import {
   listPayableGateways,
 } from '../services/billing/config/index.js';
 import { isAllowedBillingCallbackUrl, resolvePublicApiOrigin } from '../services/billing/callbackUrl.js';
+import { readTopupConfig } from '../services/billing/topupConfig.js';
 
 
 export const billingCustomerRouter = Router();
@@ -743,13 +744,12 @@ billingCustomerRouter.post('/workspaces/:workspaceId/ai-credit/invoice', async (
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   const cfg = serverConfigOf(req);
   try {
-    const sb = getServiceClient(cfg);
-    const { data: policy } = await sb
-      .from('platform_settings')
-      .select('ai_topup_min_toman, ai_topup_max_toman')
-      .maybeSingle();
-    const minIrr = Math.round(Number((policy as any)?.ai_topup_min_toman ?? 50_000)) * 10;
-    const maxIrr = Math.round(Number((policy as any)?.ai_topup_max_toman ?? 100_000_000)) * 10;
+    // The limits Super Admin sets for AI top-ups. platform_settings has no
+    // ai_topup_* columns: reading them failed and this path always ran on the
+    // defaults below, which it keeps while no limit is stored.
+    const topup = await readTopupConfig(cfg, { presetsToman: [], minToman: 50_000, maxToman: 100_000_000 });
+    const minIrr = Math.round(topup.minToman) * 10;
+    const maxIrr = Math.round(topup.maxToman) * 10;
 
     const invoice = await issueAiCreditPurchase(cfg, req.params.workspaceId, parsed.data.amountIrr, {
       minIrr,

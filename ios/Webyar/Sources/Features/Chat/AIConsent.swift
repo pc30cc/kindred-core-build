@@ -31,6 +31,7 @@ enum AIConsentStr {
         case .en: "Send with AI?"
         case .fa: "ارسال با هوش مصنوعی؟"
         case .tr: "Yapay zekâ ile gönderilsin mi?"
+        case .ar: "الإرسال عبر الذكاء الاصطناعي؟"
         }
     }
 
@@ -39,6 +40,7 @@ enum AIConsentStr {
         case .en: "To write this reply, what you typed and the recent messages of this conversation are sent to the third-party AI service the platform uses. The visitor receives the AI's reply. The Privacy Policy, at the foot of Settings, explains how this data is handled."
         case .fa: "برای نوشتن این پاسخ، آنچه نوشته‌اید و پیام‌های اخیر این گفتگو به سرویس هوش مصنوعی شخص ثالثی که پلتفرم از آن استفاده می‌کند فرستاده می‌شود. بازدیدکننده پاسخ هوش مصنوعی را دریافت می‌کند. سیاست حفظ حریم خصوصی، در پایین صفحهٔ تنظیمات، توضیح می‌دهد این داده‌ها چگونه نگهداری می‌شوند."
         case .tr: "Bu yanıtı yazmak için yazdıklarınız ve bu konuşmanın son mesajları, platformun kullandığı üçüncü taraf yapay zekâ hizmetine gönderilir. Ziyaretçi yapay zekânın yanıtını alır. Bu verilerin nasıl işlendiği, Ayarlar'ın en altındaki Gizlilik Politikası'nda açıklanır."
+        case .ar: "لكتابة هذا الرد، يُرسَل ما كتبته والرسائل الأخيرة في هذه المحادثة إلى خدمة الذكاء الاصطناعي الخارجية التي تستخدمها المنصة. ويتلقى الزائر رد الذكاء الاصطناعي. توضح سياسة الخصوصية، في أسفل صفحة الإعدادات، كيفية التعامل مع هذه البيانات."
         }
     }
 
@@ -47,6 +49,7 @@ enum AIConsentStr {
         case .en: "Allow and send"
         case .fa: "اجازه می‌دهم و ارسال"
         case .tr: "İzin ver ve gönder"
+        case .ar: "السماح والإرسال"
         }
     }
 }

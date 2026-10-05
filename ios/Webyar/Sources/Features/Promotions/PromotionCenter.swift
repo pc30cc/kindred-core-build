@@ -50,7 +50,7 @@ final class PromotionCenter {
     func load(workspaceID: String?, language: Language) async {
         guard let workspaceID, !Self.isSuppressed else { return }
         promotions = (try? await api.promotions(
-            workspaceID: workspaceID, locale: language.rawValue
+            workspaceID: workspaceID, locale: language.serverLocale
         )) ?? .none
     }
 

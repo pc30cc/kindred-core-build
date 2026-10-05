@@ -160,7 +160,8 @@ final class AppState {
         self.appearance = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
 
         // `didSet` does not run for the initial value, and this is before the
-        // first frame — IRANSans is registered and chosen here or not at all.
+        // first frame — the Persian font is registered and chosen here or
+        // not at all.
         Typeface.use(language)
     }
 

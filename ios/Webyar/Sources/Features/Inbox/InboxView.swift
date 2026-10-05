@@ -199,7 +199,7 @@ struct InboxView: View {
     /// Changes when a notification asks for somewhere, and when the list it
     /// would have to be found in has settled.
     private var pendingOpenKey: String {
-        "\(push.pendingOpen?.key ?? "-")|\(content.isSettled)|\(appState.workspaces.count)"
+        "\(push.pendingOpen?.key ?? "-")|\(content.isSettled)|\(appState.workspaces.count)|\(appState.planResolved)"
     }
 
     /// What the list can show for the workspace on screen — never another's.
@@ -244,6 +244,18 @@ struct InboxView: View {
         // the tap back until some later reload, and then open a thread out of
         // nowhere minutes after the operator gave up on it.
         guard content.isSettled, let workspaceID else { return }
+        // A mailbox and team chat are there only if the role and plan say so,
+        // and those come from the server after the list, which this phone can
+        // show from its own copy at once. Asked before they are in, the gates
+        // below say no, and the tap of a notification that launched the app
+        // was dropped — the email simply never opened. The key counts the
+        // plan, so this runs again when it lands.
+        switch target {
+        case .email, .colleague:
+            guard appState.planResolved else { return }
+        case .conversation, .support:
+            break
+        }
         _ = push.takePendingOpen()
 
         switch target {
@@ -271,12 +283,13 @@ struct InboxView: View {
             guard let colleague = found, appState.selectedWorkspace?.id == workspaceID else { return }
             path.append(colleague)
 
-        case .email(_, let threadID):
+        case .email(_, let threadID, let provider):
             // The thread reads itself: the mailbox under it, so Back lands
-            // there, and the thread over it.
+            // there, and the thread over it — both the mailbox the
+            // notification names, where the thread is to be found.
             guard appState.emailInboxVisible, push.viewingEmailThread != threadID else { return }
-            path.append(InboxRoute.email)
-            path.append(InboxRoute.emailThread(EmailThreadRef(id: threadID)))
+            path.append(provider.map(InboxRoute.emailMailbox) ?? InboxRoute.email)
+            path.append(InboxRoute.emailThread(EmailThreadRef(id: threadID, provider: provider)))
 
         case .support:
             // Never reached: taken by `MainTabView` before the inbox looks.

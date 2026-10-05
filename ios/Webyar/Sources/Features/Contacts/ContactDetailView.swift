@@ -97,6 +97,7 @@ struct ContactDetailView: View {
         case .en: "Phone"
         case .fa: "تلفن"
         case .tr: "Telefon"
+        case .ar: "الهاتف"
         }
     }
 
@@ -105,6 +106,7 @@ struct ContactDetailView: View {
         case .en: "First seen"
         case .fa: "نخستین بازدید"
         case .tr: "İlk görülme"
+        case .ar: "أول زيارة"
         }
     }
 }

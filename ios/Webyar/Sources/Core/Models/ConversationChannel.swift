@@ -74,24 +74,28 @@ enum ConversationChannel {
             case .en: return "Site user"
             case .fa: return "کاربر سایت"
             case .tr: return "Site kullanıcısı"
+            case .ar: return "مستخدم الموقع"
             }
         case web:
             switch language {
             case .en: return "Website"
             case .fa: return "وب‌سایت"
             case .tr: return "Web sitesi"
+            case .ar: return "الموقع الإلكتروني"
             }
         case "email":
             switch language {
             case .en: return "Email"
             case .fa: return "ایمیل"
             case .tr: return "E-posta"
+            case .ar: return "البريد الإلكتروني"
             }
         case "phone":
             switch language {
             case .en: return "Phone"
             case .fa: return "تلفن"
             case .tr: return "Telefon"
+            case .ar: return "الهاتف"
             }
         default:
             return ChannelInbox(key: key).title(language)

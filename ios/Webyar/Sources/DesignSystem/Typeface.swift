@@ -3,10 +3,11 @@ import UIKit
 import CoreText
 import os
 
-/// IRANSans for Persian, San Francisco for English and Turkish.
+/// The Persian font for Persian, San Francisco for English, Turkish and
+/// Arabic.
 ///
-/// IRANSans is the web console's own font, and the Mac and Windows apps
-/// bundle the same file (`Resources/IRANSans.ttc`: Regular, Medium, Bold) —
+/// The Persian font is the web console's own, and the Mac and Windows apps
+/// bundle the same file (here `Resources/fa.ttc`: Regular, Medium, Bold) —
 /// so Persian reads the same in every Webyar app, and the same as the
 /// Capacitor app this one replaced. The system's own Persian fallback is a
 /// different face with different proportions, which is what made the app
@@ -19,11 +20,11 @@ import os
 /// no screen is ever drawn in the previous language's type.
 enum Typeface {
 
-    /// The three faces in the collection, by their PostScript names.
-    enum Face: String, CaseIterable {
-        case regular = "IRANSans-Regular"
-        case medium = "IRANSans-Medium"
-        case bold = "IRANSans-Bold"
+    /// The three faces in the collection, lightest first.
+    enum Face: CaseIterable {
+        case regular
+        case medium
+        case bold
 
         /// The face that carries a weight, the way the web console maps them:
         /// its 600 is set in the Bold file, so a semibold title is bold here
@@ -35,34 +36,55 @@ enum Typeface {
             default: self = .regular
             }
         }
+
+        /// The face's PostScript name, as the font file itself gives it —
+        /// read from `fa.ttc` when it is registered, so the code names the
+        /// file and never the font.
+        var name: String { Typeface.faces[self] ?? "" }
     }
 
-    /// Whether text is being set in IRANSans. Read from any thread — a
-    /// `Font` is a value and nothing stops a background task building one —
+    /// Whether text is being set in the Persian font. Read from any thread —
+    /// a `Font` is a value and nothing stops a background task building one —
     /// so it sits behind a lock rather than on the main actor.
     static var isPersian: Bool { state.withLock { $0 } }
 
     private static let state = OSAllocatedUnfairLock(initialState: false)
 
-    /// The faces are registered with this process once, the first time a
-    /// language is chosen — which is `AppState`'s initialiser, before the
-    /// first frame.
-    private static let registered: Bool = {
-        guard let url = Bundle.main.url(forResource: "IRANSans", withExtension: "ttc") else {
-            Logger(subsystem: "com.webyar.ai", category: "font")
-                .error("IRANSans.ttc is missing from the bundle")
-            return false
+    /// The faces of `fa.ttc` by weight, registered with this process once,
+    /// the first time a language is chosen — which is `AppState`'s
+    /// initialiser, before the first frame. Empty if the file is missing or
+    /// not the three faces it should be, which leaves Persian in the system
+    /// face, which still reads.
+    fileprivate static let faces: [Face: String] = {
+        let log = Logger(subsystem: "com.webyar.ai", category: "font")
+        guard let url = Bundle.main.url(forResource: "fa", withExtension: "ttc") else {
+            log.error("fa.ttc is missing from the bundle")
+            return [:]
         }
         var error: Unmanaged<CFError>?
         if !CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
             // Already registered is not a failure worth a word; anything
-            // else leaves Persian in the system face, which still reads.
+            // else shows up below as faces that do not load.
             let reason = error.map { String(describing: $0.takeRetainedValue()) } ?? "unknown"
-            Logger(subsystem: "com.webyar.ai", category: "font")
-                .error("IRANSans registration: \(reason, privacy: .public)")
+            log.error("Persian font registration: \(reason, privacy: .public)")
         }
-        return UIFont(name: Face.regular.rawValue, size: 12) != nil
+        let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor] ?? []
+        let byWeight = descriptors
+            .map { CTFontCreateWithFontDescriptor($0, 12, nil) }
+            .map { font -> (name: String, weight: Double) in
+                let traits = CTFontCopyTraits(font) as? [CFString: Any]
+                let weight = (traits?[kCTFontWeightTrait] as? NSNumber)?.doubleValue ?? 0
+                return (CTFontCopyPostScriptName(font) as String, weight)
+            }
+            .sorted { $0.weight < $1.weight }
+        guard byWeight.count == Face.allCases.count else {
+            log.error("fa.ttc has \(byWeight.count, privacy: .public) faces, not \(Face.allCases.count, privacy: .public)")
+            return [:]
+        }
+        return Dictionary(uniqueKeysWithValues: zip(Face.allCases, byWeight.map(\.name)))
     }()
+
+    private static let registered: Bool = UIFont(name: Face.regular.name, size: 12) != nil
 
     /// Chooses the type for a language, and tells UIKit.
     @MainActor
@@ -73,8 +95,8 @@ enum Typeface {
     }
 
     /// A text style's size at the default Dynamic Type setting (Large).
-    /// IRANSans is then scaled from it with the reader's setting, exactly as
-    /// the system face is.
+    /// The Persian font is then scaled from it with the reader's setting,
+    /// exactly as the system face is.
     static func pointSize(_ style: Font.TextStyle) -> CGFloat {
         switch style {
         case .largeTitle: 34
@@ -99,7 +121,7 @@ enum Typeface {
             forTextStyle: style,
             compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)
         )
-        guard let face = UIFont(name: Face(weight).rawValue, size: base.pointSize) else { return base }
+        guard let face = UIFont(name: Face(weight).name, size: base.pointSize) else { return base }
         return UIFontMetrics(forTextStyle: style).scaledFont(for: face)
     }
 }
@@ -118,7 +140,7 @@ extension Font {
         guard Typeface.isPersian else { return .system(style, design: design, weight: weight) }
         let resolved = weight ?? (style == .headline ? .semibold : .regular)
         return .custom(
-            Typeface.Face(resolved).rawValue,
+            Typeface.Face(resolved).name,
             size: Typeface.pointSize(style),
             relativeTo: style
         )
@@ -128,7 +150,7 @@ extension Font {
     /// size rather than to a text style, like the tab bar's labels.
     static func app(size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         guard Typeface.isPersian else { return .system(size: size, weight: weight) }
-        return .custom(Typeface.Face(weight).rawValue, fixedSize: size)
+        return .custom(Typeface.Face(weight).name, fixedSize: size)
     }
 }
 

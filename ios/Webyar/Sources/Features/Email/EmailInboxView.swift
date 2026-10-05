@@ -387,7 +387,7 @@ struct EmailThreadRow: View {
     }
 
     private var people: String {
-        let names = others.map(\.display).joined(separator: language == .fa ? "، " : ", ")
+        let names = others.map(\.display).joined(separator: language.listSeparator)
         // Sent and Drafts are about whom a mail is to, as every mail client says there.
         let addressed = folder == "sent" || folder == "drafts"
         return addressed && !names.isEmpty ? "\(EmailStr.to(language)): \u{2068}\(names)\u{2069}" : names

@@ -36,10 +36,10 @@ enum VisitorFormat {
         }
     }
 
-    /// Where they are, or the words for not knowing. Persian lists with its
-    /// own comma.
+    /// Where they are, or the words for not knowing. Persian and Arabic list
+    /// with their own comma.
     static func location(_ geo: VisitorGeo?, language: Language) -> String {
-        VisitorText.location(geo, separator: language == .fa ? "، " : ", ")
+        VisitorText.location(geo, separator: language.listSeparator)
             ?? Str.visitorsUnknownLocation(language)
     }
 

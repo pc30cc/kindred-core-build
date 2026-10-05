@@ -9,6 +9,7 @@ enum RequesterStr {
         case .en: "Who is asking"
         case .fa: "مشخصات درخواست‌کننده"
         case .tr: "Talep eden"
+        case .ar: "من يسأل"
         }
     }
 
@@ -17,6 +18,7 @@ enum RequesterStr {
         case .en: "Only your team sees this"
         case .fa: "فقط تیم شما این را می‌بیند"
         case .tr: "Bunu yalnızca ekibiniz görür"
+        case .ar: "لا يرى هذا إلا فريقك"
         }
     }
 
@@ -25,6 +27,7 @@ enum RequesterStr {
         case .en: "Member since \(date)"
         case .fa: "عضو از \(date)"
         case .tr: "\(date) tarihinden beri üye"
+        case .ar: "عضو منذ \(date)"
         }
     }
 
@@ -33,6 +36,7 @@ enum RequesterStr {
         case .en: "Wrote from \(app)"
         case .fa: "از \(app) نوشته"
         case .tr: "\(app) üzerinden yazdı"
+        case .ar: "كتب من \(app)"
         }
     }
 
@@ -41,6 +45,7 @@ enum RequesterStr {
         case .en: "From \(workspace)"
         case .fa: "از \(workspace)"
         case .tr: "\(workspace) çalışma alanından"
+        case .ar: "من \(workspace)"
         }
     }
 
@@ -50,6 +55,7 @@ enum RequesterStr {
         case .en: return count == 1 ? "1 workspace" : "\(n) workspaces"
         case .fa: return "\(n) ورک‌اسپیس"
         case .tr: return "\(n) çalışma alanı"
+        case .ar: return Format.arabicCount(count, one: "مساحة عمل واحدة", two: "مساحتا عمل", few: "مساحات عمل", many: "مساحة عمل")
         }
     }
 
@@ -59,6 +65,7 @@ enum RequesterStr {
         case .en: return "and \(n) more"
         case .fa: return "و \(n) مورد دیگر"
         case .tr: return "ve \(n) tane daha"
+        case .ar: return "و\(n) أخرى"
         }
     }
 
@@ -67,6 +74,7 @@ enum RequesterStr {
         case .en: "No plan"
         case .fa: "بدون پلن"
         case .tr: "Plan yok"
+        case .ar: "بلا باقة"
         }
     }
 
@@ -75,6 +83,7 @@ enum RequesterStr {
         case .en: "Free"
         case .fa: "رایگان"
         case .tr: "Ücretsiz"
+        case .ar: "مجانية"
         }
     }
 
@@ -84,12 +93,15 @@ enum RequesterStr {
         case ("owner", .en): "Owner"
         case ("owner", .fa): "مالک"
         case ("owner", .tr): "Sahip"
+        case ("owner", .ar): "المالك"
         case ("admin", .en): "Admin"
         case ("admin", .fa): "مدیر"
         case ("admin", .tr): "Yönetici"
+        case ("admin", .ar): "مدير"
         case ("agent", .en): "Operator"
         case ("agent", .fa): "اپراتور"
         case ("agent", .tr): "Operatör"
+        case ("agent", .ar): "موظف"
         default: role
         }
     }
@@ -100,18 +112,23 @@ enum RequesterStr {
         case ("active", .en): "Active"
         case ("active", .fa): "فعال"
         case ("active", .tr): "Aktif"
+        case ("active", .ar): "نشطة"
         case ("trialing", .en): "Trial"
         case ("trialing", .fa): "آزمایشی"
         case ("trialing", .tr): "Deneme"
+        case ("trialing", .ar): "تجريبية"
         case ("past_due", .en): "Past due"
         case ("past_due", .fa): "معوق"
         case ("past_due", .tr): "Gecikmiş"
+        case ("past_due", .ar): "متأخرة السداد"
         case ("canceled", .en), ("cancelled", .en): "Canceled"
         case ("canceled", .fa), ("cancelled", .fa): "لغوشده"
         case ("canceled", .tr), ("cancelled", .tr): "İptal edildi"
+        case ("canceled", .ar), ("cancelled", .ar): "ملغاة"
         case ("expired", .en): "Expired"
         case ("expired", .fa): "منقضی"
         case ("expired", .tr): "Süresi doldu"
+        case ("expired", .ar): "منتهية"
         default: status
         }
     }
@@ -121,12 +138,15 @@ enum RequesterStr {
         case ("monthly", .en), ("month", .en): "Monthly"
         case ("monthly", .fa), ("month", .fa): "ماهانه"
         case ("monthly", .tr), ("month", .tr): "Aylık"
+        case ("monthly", .ar), ("month", .ar): "شهرية"
         case ("yearly", .en), ("annual", .en), ("year", .en): "Yearly"
         case ("yearly", .fa), ("annual", .fa), ("year", .fa): "سالانه"
         case ("yearly", .tr), ("annual", .tr), ("year", .tr): "Yıllık"
+        case ("yearly", .ar), ("annual", .ar), ("year", .ar): "سنوية"
         case ("quarterly", .en): "Quarterly"
         case ("quarterly", .fa): "سه‌ماهه"
         case ("quarterly", .tr): "Üç aylık"
+        case ("quarterly", .ar): "ربع سنوية"
         default: nil
         }
     }
@@ -137,6 +157,7 @@ enum RequesterStr {
         case .en: "Purchased"
         case .fa: "تاریخ خرید"
         case .tr: "Satın alma"
+        case .ar: "تاريخ الشراء"
         }
     }
 
@@ -146,6 +167,7 @@ enum RequesterStr {
         case .en: "Expires"
         case .fa: "تاریخ اتمام"
         case .tr: "Bitiş"
+        case .ar: "تاريخ الانتهاء"
         }
     }
 
@@ -154,6 +176,7 @@ enum RequesterStr {
         case .en: "Trial ends"
         case .fa: "پایان دورهٔ آزمایشی"
         case .tr: "Deneme bitişi"
+        case .ar: "تنتهي الفترة التجريبية"
         }
     }
 
@@ -162,6 +185,7 @@ enum RequesterStr {
         case .en: "Renews automatically"
         case .fa: "تمدید خودکار"
         case .tr: "Otomatik yenilenir"
+        case .ar: "تتجدد تلقائيًا"
         }
     }
 
@@ -170,6 +194,7 @@ enum RequesterStr {
         case .en: "Won't renew"
         case .fa: "تمدید نمی‌شود"
         case .tr: "Yenilenmeyecek"
+        case .ar: "لن تتجدد"
         }
     }
 
@@ -179,6 +204,7 @@ enum RequesterStr {
         case .en: return days == 1 ? "1 day left" : "\(n) days left"
         case .fa: return "\(n) روز مانده"
         case .tr: return "\(n) gün kaldı"
+        case .ar: return "بقي " + Format.arabicCount(days, one: "يوم واحد", two: "يومان", few: "أيام", many: "يومًا", other: "يوم")
         }
     }
 
@@ -187,6 +213,7 @@ enum RequesterStr {
         case .en: "Ends today"
         case .fa: "امروز تمام می‌شود"
         case .tr: "Bugün bitiyor"
+        case .ar: "تنتهي اليوم"
         }
     }
 
@@ -196,6 +223,7 @@ enum RequesterStr {
         case .en: return days == 1 ? "Expired 1 day ago" : "Expired \(n) days ago"
         case .fa: return "\(n) روز پیش تمام شده"
         case .tr: return "\(n) gün önce sona erdi"
+        case .ar: return "انتهت منذ " + Format.arabicCount(days, one: "يوم واحد", two: "يومين", few: "أيام", many: "يومًا", other: "يوم")
         }
     }
 
@@ -204,6 +232,7 @@ enum RequesterStr {
         case .en: "Customer since \(date)"
         case .fa: "مشتری از \(date)"
         case .tr: "\(date) tarihinden beri müşteri"
+        case .ar: "عميل منذ \(date)"
         }
     }
 
@@ -212,6 +241,7 @@ enum RequesterStr {
         case .en: "This month"
         case .fa: "مصرف این ماه"
         case .tr: "Bu ay"
+        case .ar: "هذا الشهر"
         }
     }
 
@@ -220,6 +250,7 @@ enum RequesterStr {
         case .en: "Operators"
         case .fa: "اپراتورها"
         case .tr: "Operatörler"
+        case .ar: "الموظفون"
         }
     }
 
@@ -228,6 +259,7 @@ enum RequesterStr {
         case .en: "Conversations"
         case .fa: "گفتگوها"
         case .tr: "Görüşmeler"
+        case .ar: "المحادثات"
         }
     }
 
@@ -236,6 +268,7 @@ enum RequesterStr {
         case .en: "Visitors"
         case .fa: "بازدیدکنندگان"
         case .tr: "Ziyaretçiler"
+        case .ar: "الزوار"
         }
     }
 
@@ -244,6 +277,7 @@ enum RequesterStr {
         case .en: "Contacts"
         case .fa: "مخاطبان"
         case .tr: "Kişiler"
+        case .ar: "جهات الاتصال"
         }
     }
 
@@ -252,6 +286,7 @@ enum RequesterStr {
         case .en: "AI credits"
         case .fa: "اعتبار هوش مصنوعی"
         case .tr: "Yapay zekâ kredisi"
+        case .ar: "أرصدة الذكاء الاصطناعي"
         }
     }
 
@@ -260,6 +295,7 @@ enum RequesterStr {
         case .en: "Messages"
         case .fa: "پیام‌ها"
         case .tr: "Mesajlar"
+        case .ar: "الرسائل"
         }
     }
 
@@ -268,6 +304,7 @@ enum RequesterStr {
         case .en: "Storage"
         case .fa: "فضای ذخیره‌سازی"
         case .tr: "Depolama"
+        case .ar: "التخزين"
         }
     }
 
@@ -276,6 +313,7 @@ enum RequesterStr {
         case .en: "As of \(date)"
         case .fa: "در تاریخ \(date)"
         case .tr: "\(date) itibarıyla"
+        case .ar: "حتى \(date)"
         }
     }
 }

@@ -15,6 +15,7 @@ enum SupportStr {
         case .en: "Online support"
         case .fa: "پشتیبانی آنلاین"
         case .tr: "Canlı destek"
+        case .ar: "الدعم المباشر"
         }
     }
 
@@ -24,6 +25,7 @@ enum SupportStr {
         case .en: "Support"
         case .fa: "پشتیبانی"
         case .tr: "Destek"
+        case .ar: "الدعم"
         }
     }
 
@@ -32,6 +34,7 @@ enum SupportStr {
         case .en: "Chat with support"
         case .fa: "گفتگو با پشتیبانی"
         case .tr: "Destekle sohbet et"
+        case .ar: "الدردشة مع الدعم"
         }
     }
 
@@ -40,6 +43,7 @@ enum SupportStr {
         case .en: "Online"
         case .fa: "آنلاین"
         case .tr: "Çevrimiçi"
+        case .ar: "متصل"
         }
     }
 
@@ -49,6 +53,7 @@ enum SupportStr {
         case .en: "Offline · Leave a message"
         case .fa: "آفلاین · پیغام بگذارید"
         case .tr: "Çevrimdışı · Mesaj bırakın"
+        case .ar: "غير متصل · اترك رسالة"
         }
     }
 
@@ -63,6 +68,7 @@ enum SupportStr {
         case .en: "Nobody is online right now. Leave a message — we'll answer right here as soon as we can."
         case .fa: "الان کسی آنلاین نیست. پیغام بگذارید؛ در اولین فرصت همین‌جا پاسخ می‌دهیم."
         case .tr: "Şu anda kimse çevrimiçi değil. Mesaj bırakın; en kısa sürede buradan yanıt vereceğiz."
+        case .ar: "لا أحد متصل الآن. اترك رسالة — وسنرد هنا في أقرب وقت ممكن."
         }
     }
 
@@ -72,6 +78,7 @@ enum SupportStr {
         case .en: "Hours"
         case .fa: "ساعات پاسخگویی"
         case .tr: "Çalışma saatleri"
+        case .ar: "ساعات العمل"
         }
     }
 
@@ -83,42 +90,49 @@ enum SupportStr {
             case .en: "Saturday"
             case .fa: "شنبه"
             case .tr: "Cumartesi"
+            case .ar: "السبت"
             }
         case "sun":
             switch l {
             case .en: "Sunday"
             case .fa: "یکشنبه"
             case .tr: "Pazar"
+            case .ar: "الأحد"
             }
         case "mon":
             switch l {
             case .en: "Monday"
             case .fa: "دوشنبه"
             case .tr: "Pazartesi"
+            case .ar: "الاثنين"
             }
         case "tue":
             switch l {
             case .en: "Tuesday"
             case .fa: "سه‌شنبه"
             case .tr: "Salı"
+            case .ar: "الثلاثاء"
             }
         case "wed":
             switch l {
             case .en: "Wednesday"
             case .fa: "چهارشنبه"
             case .tr: "Çarşamba"
+            case .ar: "الأربعاء"
             }
         case "thu":
             switch l {
             case .en: "Thursday"
             case .fa: "پنجشنبه"
             case .tr: "Perşembe"
+            case .ar: "الخميس"
             }
         default:
             switch l {
             case .en: "Friday"
             case .fa: "جمعه"
             case .tr: "Cuma"
+            case .ar: "الجمعة"
             }
         }
     }
@@ -127,6 +141,7 @@ enum SupportStr {
     static func dayRange(_ l: Language, _ first: String, _ last: String) -> String {
         switch l {
         case .en, .tr: "\(first)–\(last)"
+        case .ar: "\(first) إلى \(last)"
         case .fa: "\(first) تا \(last)"
         }
     }
@@ -135,6 +150,7 @@ enum SupportStr {
     static func interval(_ l: Language, _ from: String, _ to: String) -> String {
         switch l {
         case .en, .tr: "\(from)–\(to)"
+        case .ar: "\(from) إلى \(to)"
         case .fa: "\(from) تا \(to)"
         }
     }
@@ -143,6 +159,7 @@ enum SupportStr {
     static func hoursLine(_ l: Language, days: String, times: String) -> String {
         switch l {
         case .en, .tr: "\(days): \(times)"
+        case .ar: "\(days): \(times)"
         case .fa: "\(days) \(times)"
         }
     }
@@ -152,6 +169,7 @@ enum SupportStr {
         case .en: "\(days): closed"
         case .fa: "\(days) تعطیل"
         case .tr: "\(days): kapalı"
+        case .ar: "\(days): مغلق"
         }
     }
 
@@ -161,6 +179,7 @@ enum SupportStr {
         case .en: "Time zone: \(zone)"
         case .fa: "منطقهٔ زمانی: \(zone)"
         case .tr: "Saat dilimi: \(zone)"
+        case .ar: "المنطقة الزمنية: \(zone)"
         }
     }
 
@@ -178,6 +197,9 @@ enum SupportStr {
             guard let day else { return "Saat \(time) itibarıyla yanıt veriyoruz" }
             let capitalised = day.prefix(1).uppercased(with: l.locale) + day.dropFirst()
             return "\(capitalised) saat \(time) itibarıyla yanıt veriyoruz"
+        case .ar:
+            guard let day else { return "نعود عند الساعة \(time)" }
+            return "نعود \(day) عند الساعة \(time)"
         }
     }
 
@@ -187,6 +209,7 @@ enum SupportStr {
         case .en: "New conversation"
         case .fa: "گفتگوی تازه"
         case .tr: "Yeni görüşme"
+        case .ar: "محادثة جديدة"
         }
         guard let date, !date.isEmpty else { return label }
         return "\(label) · \(date)"
@@ -199,6 +222,7 @@ enum SupportStr {
         case .en: return "\(who) joined the conversation"
         case .fa: return "\(who) به گفتگو پیوست"
         case .tr: return "\(who) görüşmeye katıldı"
+        case .ar: return "\(who) انضم إلى المحادثة"
         }
     }
 
@@ -208,6 +232,7 @@ enum SupportStr {
         case .en: "Support team"
         case .fa: "تیم پشتیبانی"
         case .tr: "Destek ekibi"
+        case .ar: "فريق الدعم"
         }
     }
 
@@ -218,12 +243,14 @@ enum SupportStr {
             case .en: "This conversation was closed"
             case .fa: "این گفتگو بسته شد"
             case .tr: "Bu görüşme kapatıldı"
+            case .ar: "أُغلقت هذه المحادثة"
             }
         } else {
             switch l {
             case .en: "This conversation was resolved"
             case .fa: "این گفتگو حل شد"
             case .tr: "Bu görüşme çözüldü"
+            case .ar: "تم حل هذه المحادثة"
             }
         }
     }
@@ -234,6 +261,7 @@ enum SupportStr {
         case .en: "Closed conversations"
         case .fa: "گفتگوهای بسته‌شده"
         case .tr: "Kapanan görüşmeler"
+        case .ar: "المحادثات المغلقة"
         }
     }
 
@@ -243,6 +271,7 @@ enum SupportStr {
         case .en: "Closed"
         case .fa: "بسته‌شده‌ها"
         case .tr: "Kapananlar"
+        case .ar: "مغلقة"
         }
     }
 
@@ -251,6 +280,7 @@ enum SupportStr {
         case .en: "No closed conversations yet"
         case .fa: "هنوز گفتگوی بسته‌شده‌ای ندارید"
         case .tr: "Henüz kapanan görüşme yok"
+        case .ar: "لا توجد محادثات مغلقة بعد"
         }
     }
 
@@ -261,12 +291,14 @@ enum SupportStr {
             case .en: "Closed"
             case .fa: "بسته شد"
             case .tr: "Kapatıldı"
+            case .ar: "مغلقة"
             }
         } else {
             switch l {
             case .en: "Resolved"
             case .fa: "حل شد"
             case .tr: "Çözüldü"
+            case .ar: "تم الحل"
             }
         }
     }
@@ -277,6 +309,7 @@ enum SupportStr {
         case .en: "Rate"
         case .fa: "امتیاز دهید"
         case .tr: "Değerlendir"
+        case .ar: "تقييم"
         }
     }
 
@@ -286,6 +319,7 @@ enum SupportStr {
         case .en: "Conversation with support"
         case .fa: "گفتگو با پشتیبانی"
         case .tr: "Destekle görüşme"
+        case .ar: "محادثة مع الدعم"
         }
     }
 
@@ -295,6 +329,7 @@ enum SupportStr {
         case .en: "It can't be continued. Need more help? Start a new conversation."
         case .fa: "ادامهٔ این گفتگو ممکن نیست. اگر باز هم کمک لازم دارید، گفتگوی جدیدی شروع کنید."
         case .tr: "Bu görüşme sürdürülemez. Yardıma mı ihtiyacınız var? Yeni bir görüşme başlatın."
+        case .ar: "لا يمكن متابعتها. هل تحتاج إلى مزيد من المساعدة؟ ابدأ محادثة جديدة."
         }
     }
 
@@ -303,6 +338,7 @@ enum SupportStr {
         case .en: "Start a new conversation"
         case .fa: "شروع گفتگوی جدید"
         case .tr: "Yeni görüşme başlat"
+        case .ar: "بدء محادثة جديدة"
         }
     }
 
@@ -312,6 +348,7 @@ enum SupportStr {
         case .en: "This conversation has ended, so your message wasn't sent. Start a new conversation to send it."
         case .fa: "این گفتگو بسته شده و پیام شما ارسال نشد. برای ارسال، گفتگوی جدیدی شروع کنید."
         case .tr: "Bu görüşme sona erdi, mesajınız gönderilmedi. Göndermek için yeni bir görüşme başlatın."
+        case .ar: "انتهت هذه المحادثة، لذا لم تُرسَل رسالتك. ابدأ محادثة جديدة لإرسالها."
         }
     }
 
@@ -320,6 +357,7 @@ enum SupportStr {
         case .en: "Rate this conversation"
         case .fa: "به این گفتگو امتیاز دهید"
         case .tr: "Bu görüşmeyi değerlendirin"
+        case .ar: "قيّم هذه المحادثة"
         }
     }
 
@@ -329,6 +367,7 @@ enum SupportStr {
         case .en: count == 1 ? "1 star" : "\(count) stars"
         case .fa: "\(Format.number(count, language: l)) ستاره"
         case .tr: "\(count) yıldız"
+        case .ar: Format.arabicCount(count, one: "نجمة واحدة", two: "نجمتان", few: "نجوم", many: "نجمة")
         }
     }
 
@@ -337,6 +376,7 @@ enum SupportStr {
         case .en: "Anything to add? (optional)"
         case .fa: "نظر شما (اختیاری)"
         case .tr: "Eklemek istedikleriniz (isteğe bağlı)"
+        case .ar: "هل لديك ما تضيفه؟ (اختياري)"
         }
     }
 
@@ -345,6 +385,7 @@ enum SupportStr {
         case .en: "Submit rating"
         case .fa: "ثبت امتیاز"
         case .tr: "Puanı gönder"
+        case .ar: "إرسال التقييم"
         }
     }
 
@@ -353,6 +394,7 @@ enum SupportStr {
         case .en: "Your rating"
         case .fa: "امتیاز شما"
         case .tr: "Puanınız"
+        case .ar: "تقييمك"
         }
     }
 
@@ -362,6 +404,7 @@ enum SupportStr {
         case .en: "Hi! How can we help?"
         case .fa: "سلام! چطور می‌توانیم کمکتان کنیم؟"
         case .tr: "Merhaba! Size nasıl yardımcı olabiliriz?"
+        case .ar: "مرحبًا! كيف يمكننا المساعدة؟"
         }
     }
 
@@ -371,6 +414,7 @@ enum SupportStr {
         case .en: "Write to the Webyar team here. Your message starts a new conversation."
         case .fa: "پیام خود را برای تیم وب‌یار همین‌جا بنویسید؛ با اولین پیام، گفتگوی تازه‌ای شروع می‌شود."
         case .tr: "Webyar ekibine buradan yazın. İlk mesajınız yeni bir görüşme başlatır."
+        case .ar: "اكتب إلى فريق Webyar هنا. تبدأ رسالتك محادثة جديدة."
         }
     }
 
@@ -379,6 +423,7 @@ enum SupportStr {
         case .en: "Not sent — tap to try again"
         case .fa: "ارسال نشد — برای تلاش دوباره بزنید"
         case .tr: "Gönderilmedi — tekrar denemek için dokunun"
+        case .ar: "لم تُرسَل — اضغط لإعادة المحاولة"
         }
     }
 
@@ -388,6 +433,7 @@ enum SupportStr {
         case .en: "The file must be 2 MB or smaller"
         case .fa: "حجم فایل باید حداکثر ۲ مگابایت باشد"
         case .tr: "Dosya en fazla 2 MB olmalı"
+        case .ar: "يجب ألا يتجاوز حجم الملف ٢ ميغابايت"
         }
     }
 
@@ -396,6 +442,7 @@ enum SupportStr {
         case .en: "That's a lot of messages — wait a moment."
         case .fa: "پیام‌ها زیاد شد؛ کمی صبر کنید."
         case .tr: "Çok fazla mesaj; biraz bekleyin."
+        case .ar: "رسائل كثيرة — انتظر قليلًا."
         }
     }
 
@@ -404,6 +451,7 @@ enum SupportStr {
         case .en: "Support isn't available right now."
         case .fa: "پشتیبانی در حال حاضر در دسترس نیست."
         case .tr: "Destek şu anda kullanılamıyor."
+        case .ar: "الدعم غير متاح الآن."
         }
     }
 
@@ -413,6 +461,7 @@ enum SupportStr {
         case .en: return "This message is too long — \(count) characters at most."
         case .fa: return "این پیام خیلی طولانی است — حداکثر \(count) نویسه."
         case .tr: return "Bu mesaj çok uzun — en fazla \(count) karakter."
+        case .ar: return "هذه الرسالة طويلة جدًا — الحد الأقصى \(count) حرف."
         }
     }
 
@@ -423,6 +472,7 @@ enum SupportStr {
         case .en: return count == 1 ? "1 unread message" : "\(number) unread messages"
         case .fa: return "\(number) پیام خوانده‌نشده"
         case .tr: return "\(number) okunmamış mesaj"
+        case .ar: return Format.arabicCount(count, one: "رسالة واحدة غير مقروءة", two: "رسالتان غير مقروءتين", few: "رسائل غير مقروءة", many: "رسالة غير مقروءة")
         }
     }
 }

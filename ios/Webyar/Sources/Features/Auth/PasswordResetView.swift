@@ -193,7 +193,7 @@ struct PasswordResetView: View {
             do {
                 try await Backend.current.requestPasswordReset(
                     email: address,
-                    locale: language.rawValue
+                    locale: language.serverLocale
                 )
                 sentTo = address
                 Haptics.success()

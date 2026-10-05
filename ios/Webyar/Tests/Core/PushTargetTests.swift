@@ -29,7 +29,7 @@ final class PushTargetTests: XCTestCase {
         let mail = PushArrival(userInfo: [
             "type": "email_message", "workspaceId": "w1", "threadId": "e1", "provider": "gmail",
         ])
-        XCTAssertEqual(mail.target, .email(workspaceID: "w1", threadID: "e1"))
+        XCTAssertEqual(mail.target, .email(workspaceID: "w1", threadID: "e1", provider: "gmail"))
         XCTAssertEqual(mail.provider, "gmail")
 
         let unknown = PushArrival(userInfo: ["type": "test"])
@@ -56,6 +56,17 @@ final class PushTargetTests: XCTestCase {
             "type": "email_message", "workspaceId": "w1", "threadId": "e1", "messageId": "em1",
         ])
         XCTAssertEqual(target, .email(workspaceID: "w1", threadID: "e1"))
+    }
+
+    /// The thread is looked for in the mailbox the server says it is in: a
+    /// workspace with Gmail and Yahoo both would otherwise look in the first.
+    func testAnEmailNamesItsMailbox() {
+        let target = PushTarget(userInfo: [
+            "type": "email_message", "workspaceId": "w1", "threadId": "e1", "provider": "yahoo",
+        ])
+        XCTAssertEqual(target, .email(workspaceID: "w1", threadID: "e1", provider: "yahoo"))
+        // One notification per thread, whichever mailbox it came through.
+        XCTAssertEqual(target?.key, PushTarget.email(workspaceID: "w1", threadID: "e1").key)
     }
 
     func testTheSuperAdminDiagnosticGoesNowhere() {

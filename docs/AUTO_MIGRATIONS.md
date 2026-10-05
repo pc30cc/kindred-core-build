@@ -16,6 +16,12 @@ safely re-runnable on their own (e.g. a bare `CREATE POLICY` with no
 `IF NOT EXISTS`/drop-first guard) — blindly re-running the whole folder on
 every push would fail the second time.
 
+A database that already holds WebYar's schema (`public.workspaces`) but
+whose ledger records no file — the hosted project, for one — is refused
+before anything is written, not even the ledger table: it must be baselined
+first (below). So setting the `DATABASE_URL` secret too early cannot replay
+the chain against it.
+
 ## One-time setup
 
 ### 1. Add the `DATABASE_URL` secret

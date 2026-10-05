@@ -580,6 +580,22 @@ jobs:
           bash scripts/migrate-database.sh | tee /tmp/second-run.log
           grep -q "Applied: 0," /tmp/second-run.log
 
+      # A database that already holds the schema but whose ledger records
+      # nothing (as the hosted project would look to deploy-migrations.yml)
+      # is refused before anything is written — the chain is never replayed.
+      - name: A populated database without a ledger is refused
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE unbaselined"
+          U="postgresql://postgres:postgres@localhost:5432/unbaselined?sslmode=disable"
+          psql "$U" -v ON_ERROR_STOP=1 -q -c "CREATE TABLE public.workspaces (id uuid PRIMARY KEY)"
+          if DATABASE_URL="$U" bash scripts/migrate-database.sh > /tmp/unbaselined.log 2>&1; then
+            cat /tmp/unbaselined.log; echo "migrate-database.sh ran on an unbaselined database"; exit 1
+          fi
+          grep -q 'Refusing to run' /tmp/unbaselined.log
+          [ "$(psql "$U" -tAc "SELECT to_regclass('public._schema_migrations') IS NULL AND (SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r') = 1")" = t ]
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "DROP DATABASE unbaselined"
+
       - name: pgvector — embedding column exactly where the server ships it
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \

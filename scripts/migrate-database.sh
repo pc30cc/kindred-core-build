@@ -25,6 +25,22 @@ set -euo pipefail
 
 MIGRATIONS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/database/migrations"
 
+# An existing WebYar database whose ledger records nothing (the hosted
+# project, built by the Supabase CLI, or one built by hand) would otherwise
+# get the whole chain replayed from 000. Refuse before writing anything —
+# not even the ledger table: it has to be baselined first, file by file.
+has_schema="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT to_regclass('public.workspaces') IS NOT NULL")"
+recorded=0
+if [ "$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT to_regclass('public._schema_migrations') IS NOT NULL")" = "t" ]; then
+  recorded="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT count(*) FROM public._schema_migrations")"
+fi
+if [ "$has_schema" = "t" ] && [ "$recorded" = "0" ]; then
+  echo "Refusing to run: this database already holds WebYar's schema (public.workspaces) but its ledger" >&2
+  echo "(public._schema_migrations) records no file, so every migration from 000 would run again." >&2
+  echo "Baseline it first with scripts/db/baseline-verify.sh (docs/AUTO_MIGRATIONS.md). Nothing was written." >&2
+  exit 1
+fi
+
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
   CREATE TABLE IF NOT EXISTS public._schema_migrations (
     filename text PRIMARY KEY,

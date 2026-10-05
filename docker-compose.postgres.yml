@@ -1,0 +1,74 @@
+# docker-compose.postgres.yml — a bundled PostgreSQL for docker-compose.yml.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# Adds:
+#   * postgres — PostgreSQL 17 with pgvector (AI knowledge retrieval needs it),
+#     data in the `postgres-data` volume, reachable only on the compose network
+#     (and on 127.0.0.1:${POSTGRES_PORT:-5432} for psql / backups).
+#   * migrate  — applies database/migrations once per start, through the same
+#     scripts/migrate-database.sh the deploy workflow uses (ledger table
+#     public._schema_migrations, so a re-run applies only new files).
+# and points the backend and workers at it: DATABASE_URL is derived from
+# POSTGRES_PASSWORD unless you set DATABASE_URL yourself.
+#
+# Required in .env: POSTGRES_PASSWORD and PLATFORM_SIGNING_SECRET
+# (openssl rand -hex 32 for each). See docs/DATABASE.md.
+
+x-database-url: &database-url "${DATABASE_URL:-postgresql://webyar:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (openssl rand -hex 32)}@postgres:5432/webyar?sslmode=disable}"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: webyar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (openssl rand -hex 32)}
+      POSTGRES_DB: webyar
+    ports:
+      # Loopback only — for psql and pg_dump from the host.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webyar -d webyar"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  migrate:
+    image: pgvector/pgvector:pg17
+    entrypoint: ["bash", "/app/scripts/migrate-database.sh"]
+    environment:
+      DATABASE_URL: *database-url
+    volumes:
+      - ./database:/app/database:ro
+      - ./scripts/migrate-database.sh:/app/scripts/migrate-database.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  channels-worker:
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  invitations-worker:
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:

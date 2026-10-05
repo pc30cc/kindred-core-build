@@ -8,8 +8,6 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
-        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3001}
     ports:
       - "${FRONTEND_PORT:-80}:80"
@@ -23,9 +21,13 @@ services:
       - "${BACKEND_PORT:-3001}:3001"
     environment:
       - PORT=3001
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      # Any PostgreSQL 15+ with pgvector — a self-hosted one, or a Supabase
+      # project used purely as a database (docs/DATABASE.md).
+      - DATABASE_URL=${DATABASE_URL:-}
+      - PLATFORM_SIGNING_SECRET=${PLATFORM_SIGNING_SECRET:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
       - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}

@@ -1,6 +1,15 @@
 # docker-compose.yml — LOCAL DEVELOPMENT ONLY
 # For production: deploy frontend and backend as separate services in Coolify.
 # See COOLIFY_DEPLOY.md for production instructions.
+#
+# Database: every service that needs one reads DATABASE_URL — any PostgreSQL
+# 15+ with pgvector (docs/DATABASE.md):
+#   * bundled PostgreSQL:   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up
+#     (adds a `postgres` service and applies database/migrations before the backend starts)
+#   * Supabase as database: set DATABASE_URL to the project's direct or session-pooler
+#     connection string and run docker-compose.yml alone.
+# SUPABASE_URL / SUPABASE_*_KEY are optional (the Supabase Realtime transport,
+# or the legacy REST driver when DATABASE_URL is unset).
 
 services:
   frontend:
@@ -8,8 +17,6 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
-        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3001}
     ports:
       - "${FRONTEND_PORT:-80}:80"
@@ -28,9 +35,14 @@ services:
       - "${BACKEND_PORT:-3001}:3001"
     environment:
       - PORT=3001
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      # The database (direct PostgreSQL connection; see the header).
+      - DATABASE_URL=${DATABASE_URL:-}
+      # Root of the server's HMAC keys. Moving from Supabase: the old
+      # SUPABASE_SERVICE_ROLE_KEY value, so sessions and signed links survive.
+      - PLATFORM_SIGNING_SECRET=${PLATFORM_SIGNING_SECRET:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       # Empty (the default) keeps the in-process invitation worker on; 0
       # leaves delivery to the invitations-worker container below.
@@ -181,8 +193,10 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       - WORKER_KIND=channels
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - PLATFORM_SIGNING_SECRET=${PLATFORM_SIGNING_SECRET:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
       - CORE_INTERNAL_BASE_URL=${CORE_INTERNAL_BASE_URL:-http://backend:3001}
       - CORE_INTERNAL_SECRET=${CORE_INTERNAL_SECRET:-}
       - PLUGIN_SECRETS_MASTER_KEY=${PLUGIN_SECRETS_MASTER_KEY:-}
@@ -193,9 +207,10 @@ services:
   # Durable workspace-invitation email/SMS outbox. Keep this separate from
   # Express so provider calls never run in request transactions.
   #
-  # It boots through the same loadConfig() as the backend, which requires
-  # SUPABASE_ANON_KEY: without it this container exited at startup and
-  # restarted forever. CORS_ORIGINS is the invitation-link base when Super
+  # It boots through the same loadConfig() as the backend, so it needs the
+  # same database settings (DATABASE_URL + PLATFORM_SIGNING_SECRET, or the
+  # legacy SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY):
+  # missing one, this container exited at startup and restarted forever. CORS_ORIGINS is the invitation-link base when Super
   # Admin → Domains has no app URL; without it links pointed at localhost.
   # Claims are leased (FOR UPDATE SKIP LOCKED), so running alongside the
   # backend's in-process worker is safe; INVITATION_WORKER_INPROC=0 (as in
@@ -206,9 +221,11 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       - WORKER_KIND=invitations
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - PLATFORM_SIGNING_SECRET=${PLATFORM_SIGNING_SECRET:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - INVITATION_LINK_SECRET=${INVITATION_LINK_SECRET}
       - INVITATION_LINK_SECRET_RING=${INVITATION_LINK_SECRET_RING:-}
@@ -230,7 +247,8 @@ services:
   # In the split topology this container runs on the EXTERNAL server
   # while backend/DB/frontend stay in the restricted network; here it
   # runs locally so dev matches production wiring.
-  # Stateless: no Supabase credentials, no stored provider keys.
+  # Stateless: no database credentials (it refuses DATABASE_URL and the
+  # service-role key), no stored provider keys.
   # ─────────────────────────────────────────────────────────────────
   ai-runtime:
     build:

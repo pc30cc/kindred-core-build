@@ -34,7 +34,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
 
 shopt -s nullglob
 files=("$MIGRATIONS_DIR"/*.sql)
-IFS=$'\n' files=($(printf '%s\n' "${files[@]}" | sort))
+IFS=$'\n' files=($(printf '%s\n' "${files[@]}" | LC_ALL=C sort))
 shopt -u nullglob
 
 if [ "${#files[@]}" -eq 0 ]; then

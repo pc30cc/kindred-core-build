@@ -213,6 +213,7 @@ suite('postgres-only acceptance: the main paths with nothing of Supabase', () =>
       authEmail: (await import('../../../server/routes/auth-email.js')).authEmailRouter,
       workspaces: (await import('../../../server/routes/workspaces.js')).workspacesRouter,
       invitations: (await import('../../../server/routes/workspaceInvitations.js')).workspaceInvitationsRouter,
+      departments: (await import('../../../server/routes/workspaceDepartments.js')).workspaceDepartmentsRouter,
       billing: (await import('../../../server/routes/billingCustomer.js')).billingCustomerRouter,
       realtime: (await import('../../../server/routes/realtime.js')).realtimeRouter,
       conversations: (await import('../../../server/routes/conversations.js')).conversationsRouter,
@@ -226,6 +227,7 @@ suite('postgres-only acceptance: the main paths with nothing of Supabase', () =>
     server.use('/api/auth-email', routes.authEmail);
     server.use('/api/workspaces', routes.workspaces);
     server.use('/api/workspace-invitations', routes.invitations);
+    server.use('/api/workspace-departments', routes.departments);
     server.use('/api/billing', routes.billing);
     server.use('/api/realtime', routes.realtime);
     server.use('/api/conversations', routes.conversations);
@@ -385,10 +387,15 @@ suite('postgres-only acceptance: the main paths with nothing of Supabase', () =>
   });
 
   it('the invitations worker delivers a queued invitation in one pass', async () => {
+    // An agent is a customer-facing member and joins at least one department
+    // (workspace_invitations_v2_role_pairing_chk, create_workspace_invitation_v2).
+    const department = await call('POST', `/api/workspace-departments/${state.workspaceId}`, { name: 'Support' });
+    expect(department.status).toBe(201);
     const email = `agent-${Date.now()}@example.test`;
     const invited = await call('POST', '/api/workspace-invitations', {
       workspaceId: state.workspaceId, firstName: 'Sara', lastName: 'Agent', email,
-      memberType: 'staff', role: 'agent', requestId: randomUUID(), locale: 'en',
+      memberType: 'customer_facing', role: 'agent', departmentIds: [(department.json.department as { id: string }).id],
+      requestId: randomUUID(), locale: 'en',
     });
     expect(invited.status).toBe(201);
     const queued = await chain.db.query(`SELECT count(*)::int AS n FROM public.workspace_invitation_jobs WHERE status IN ('queued', 'retrying')`);

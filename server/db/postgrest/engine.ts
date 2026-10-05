@@ -11,9 +11,14 @@
  * file, over a direct `DATABASE_URL` connection. So the same build runs on any
  * PostgreSQL, and on Supabase it uses nothing but the database.
  *
- * Every request is one SQL statement (autocommit), as in PostgREST. A
- * `.single()` mutation that matches more than one row aborts its own statement,
- * so the write is rolled back exactly as PostgREST rolls it back.
+ * Every request is one SQL statement (autocommit), as in PostgREST, which runs
+ * each request in one transaction. Whatever would make PostgREST answer with an
+ * error AFTER the work ran — `.single()` over a result that is not exactly one
+ * row, an offset past the end of an exactly counted result — is checked INSIDE
+ * that statement and raises there, so the statement aborts and everything it
+ * wrote (a mutation's rows, a function's side effects) is rolled back, exactly
+ * as PostgREST rolls its transaction back. A check made after the statement
+ * returned would leave the writes committed.
  */
 import {
   PgrstError,
@@ -22,6 +27,7 @@ import {
   fromPgError,
   functionNotFound,
   isPgServerError,
+  rangeNotSatisfiable,
   singularityError,
 } from './errors.js';
 import {
@@ -96,8 +102,27 @@ function contentRange(offset: number, rows: number, total: number | null): strin
   return rows > 0 ? `${offset}-${offset + rows - 1}/${t}` : `*/${t}`;
 }
 
-/** Marker the single-row guard raises to abort a multi-row `.single()` mutation. */
+/** Marker the single-row guard raises to abort a `.single()` whose result is not one row. */
 const SINGULAR_GUARD = 'pgrst_singular:';
+/** Marker the range guard raises for an offset past the counted total. */
+const RANGE_GUARD = 'pgrst_range:';
+
+/**
+ * A SELECT-list expression that is 0 when the response may be sent, and
+ * otherwise raises (an invalid integer cast carrying a marker) so the whole
+ * statement — and every write in it — is rolled back. handle() turns the
+ * marker into PostgREST's error.
+ */
+function responseGuard(opts: { singleRows?: string; offset?: number; total?: string }): string {
+  const branches: string[] = [];
+  if (opts.singleRows) {
+    branches.push(`WHEN ${opts.singleRows} <> 1 THEN ('${SINGULAR_GUARD}' || ${opts.singleRows})::int`);
+  }
+  if (opts.total && opts.offset) {
+    branches.push(`WHEN ${opts.total} IS NOT NULL AND ${opts.offset} > ${opts.total} THEN ('${RANGE_GUARD}${opts.offset}:' || ${opts.total})::int`);
+  }
+  return branches.length ? `CASE ${branches.join(' ')} ELSE 0 END` : '0';
+}
 
 export class PostgrestEngine {
   constructor(
@@ -129,6 +154,10 @@ export class PostgrestEngine {
           if (err.code === '22P02' && err.message?.includes(SINGULAR_GUARD)) {
             const rows = Number(/pgrst_singular:(\d+)/.exec(err.message)?.[1] ?? 0);
             return errorResponse(singularityError(rows));
+          }
+          if (err.code === '22P02' && err.message?.includes(RANGE_GUARD)) {
+            const m = /pgrst_range:(\d+):(\d+)/.exec(err.message);
+            return errorResponse(rangeNotSatisfiable(Number(m?.[1] ?? 0), Number(m?.[2] ?? 0)));
           }
           return errorResponse(fromPgError(err));
         }
@@ -209,6 +238,8 @@ export class PostgrestEngine {
     const total = rows[0].total === null ? null : Number(rows[0].total);
     if (single && page !== 1) throw singularityError(page);
     const offset = root.offset ?? 0;
+    // A read writes nothing, so this check may follow the statement.
+    if (total !== null && offset > total) throw rangeNotSatisfiable(offset, total);
     const partial = total !== null && (offset > 0 || offset + page < total);
     return {
       status: partial ? 206 : 200,
@@ -294,14 +325,6 @@ export class PostgrestEngine {
     if (rows.some((r) => r === null || typeof r !== 'object' || Array.isArray(r))) {
       throw badRequest('PGRST102', 'All object keys must match');
     }
-    if (prefer.missingDefault) {
-      throw new PgrstError(501, {
-        code: 'PGRST128',
-        message: 'Prefer: missing=default is not supported by this server',
-        details: null,
-        hint: null,
-      });
-    }
     // supabase-js sends `columns` for an array (the union of its keys); a
     // single object inserts exactly the keys it has.
     const cols = params.columns ?? Object.keys(rows[0] ?? {});
@@ -333,12 +356,27 @@ export class PostgrestEngine {
       if (cols.length === 0) return `INSERT INTO ${target} AS ${alias} DEFAULT VALUES RETURNING ${returning}`;
       const list = cols.map(qi).join(', ');
       const body = p.add(JSON.stringify(rows));
+      if (prefer.missingDefault) {
+        // `Prefer: missing=default` (supabase-js `defaultToNull: false`): a key
+        // a row leaves out takes the column default, not NULL. Rows keep their
+        // order, so RETURNING answers in the order they were sent.
+        const values = cols.map((c) => {
+          const def = table.columns.get(c)?.defaultExpr ?? 'NULL';
+          return `CASE WHEN pgrst_elem.value ? ${p.add(c)} THEN pgrst_row.${qi(c)} ELSE ${def} END`;
+        });
+        return (
+          `INSERT INTO ${target} AS ${alias} (${list}) SELECT ${values.join(', ')} ` +
+          `FROM jsonb_array_elements(${body}::jsonb) WITH ORDINALITY AS pgrst_elem(value, ord), ` +
+          `LATERAL jsonb_populate_record(NULL::${target}, pgrst_elem.value) AS pgrst_row ORDER BY pgrst_elem.ord` +
+          `${conflict} RETURNING ${returning}`
+        );
+      }
       return `INSERT INTO ${target} AS ${alias} (${list}) SELECT ${list} FROM json_populate_recordset(NULL::${target}, ${body}::json) AS pgrst_body${conflict} RETURNING ${returning}`;
     };
     return this.mutate(planner, table, params, mutation, p, prefer, single, kind);
   }
 
-  /** WHERE for PATCH/DELETE, plus PostgREST 13's limited update/delete (`limit`/`order`). */
+  /** WHERE for PATCH/DELETE, plus PostgREST's limited update/delete (`limit`/`order`). */
   private targetWhere(planner: Planner, table: TableInfo, params: QueryParams, p: Params): string {
     const root = planner.readTree(table, [{ kind: 'star' }], params);
     const where = planner.whereParts(root, p);
@@ -454,6 +492,7 @@ export class PostgrestEngine {
       from = `json_to_record(${p.add(JSON.stringify(args))}::json) AS pgrst_args(${cols})`;
     }
     const fromList = (extra: string) => (from ? `FROM ${from}${extra ? `, LATERAL ${extra}` : ''}` : extra ? `FROM ${extra}` : '');
+    const head = req.method === 'HEAD';
 
     switch (fn.returnShape) {
       case 'void': {
@@ -476,33 +515,74 @@ export class PostgrestEngine {
       case 'setof-scalar': {
         const limit = effectiveLimit(params.limit.get(''), this.options.maxRows);
         const offset = params.offset.get('') ?? 0;
-        const inner = `SELECT pgrst_call AS pgrst_scalar ${fromList(`${call} AS pgrst_call`)}${limit !== undefined ? ` LIMIT ${limit}` : ''}${offset ? ` OFFSET ${offset}` : ''}`;
-        const body = single ? `(json_agg(_pgrst_t.pgrst_scalar) -> 0)::text` : `coalesce(json_agg(_pgrst_t.pgrst_scalar), '[]')::text`;
-        const { rows } = await this.db.query<{ page: string; body: string }>(
-          `SELECT pg_catalog.count(*) AS page, ${body} AS body FROM (${inner}) AS _pgrst_t`,
-          p.values,
+        // The function runs exactly once (a materialized CTE), so a count
+        // never calls it a second time.
+        const source = `SELECT pgrst_call AS pgrst_scalar ${fromList(`${call} AS pgrst_call`)}`;
+        const page = `SELECT pgrst_scalar FROM pgrst_source${limit !== undefined ? ` LIMIT ${limit}` : ''}${offset ? ` OFFSET ${offset}` : ''}`;
+        const body = head ? `''` : single ? `(json_agg(_pgrst_t.pgrst_scalar) -> 0)::text` : `coalesce(json_agg(_pgrst_t.pgrst_scalar), '[]')::text`;
+        return this.runSetRpc(
+          `WITH pgrst_source AS MATERIALIZED (${source})`,
+          `(SELECT pg_catalog.count(*) FROM pgrst_source)`,
+          `SELECT pg_catalog.count(*) AS page, ${body} AS body FROM (${page}) AS _pgrst_t`,
+          p,
+          { prefer, single, head, offset },
         );
-        const page = Number(rows[0].page);
-        if (single && page !== 1) throw singularityError(page);
-        return { status: 200, headers: { 'content-range': contentRange(offset, page, null) }, body: rows[0].body };
       }
       case 'setof-composite': {
         const planner = new Planner(snapshot, schema);
         const rowType = this.rowTable(snapshot, schema, fn);
         const root = planner.readTree(rowType, params.select, params, fn.name);
-        const source = `(SELECT pgrst_call.* ${fromList(`${call} AS pgrst_call`)})`;
-        const top = planner.selectSql(root, p, { from: source, maxRows: this.options.maxRows });
-        const body = single ? `(json_agg(_pgrst_t) -> 0)::text` : `coalesce(json_agg(_pgrst_t), '[]')::text`;
-        const { rows } = await this.db.query<{ page: string; body: string }>(
+        const source = `SELECT pgrst_call.* ${fromList(`${call} AS pgrst_call`)}`;
+        const top = planner.selectSql(root, p, { from: 'pgrst_source', maxRows: this.options.maxRows });
+        // Built only when asked for: its filters add their own parameters.
+        let total = 'NULL::bigint';
+        if (prefer.count) {
+          const where = planner.whereParts(root, p);
+          total = `(SELECT pg_catalog.count(*) FROM pgrst_source AS ${qi(root.alias)}${where.length ? ` WHERE ${where.join(' AND ')}` : ''})`;
+        }
+        const body = head ? `''` : single ? `(json_agg(_pgrst_t) -> 0)::text` : `coalesce(json_agg(_pgrst_t), '[]')::text`;
+        return this.runSetRpc(
+          `WITH pgrst_source AS MATERIALIZED (${source})`,
+          total,
           `SELECT pg_catalog.count(*) AS page, ${body} AS body FROM (${top}) AS _pgrst_t`,
-          p.values,
+          p,
+          { prefer, single, head, offset: root.offset ?? 0 },
         );
-        const page = Number(rows[0].page);
-        if (single && page !== 1) throw singularityError(page);
-        const offset = root.offset ?? 0;
-        return { status: 200, headers: { 'content-range': contentRange(offset, page, null) }, body: rows[0].body };
       }
     }
+  }
+
+  /**
+   * One statement for a set-returning function: the call, the page, the
+   * optional exact count, and the guards — so a `.single()` over anything but
+   * one row, or an offset past the counted total, aborts the statement and
+   * the function's writes with it.
+   */
+  private async runSetRpc(
+    withSource: string,
+    totalSql: string,
+    pageSql: string,
+    p: Params,
+    opts: { prefer: Prefer; single: boolean; head: boolean; offset: number },
+  ): Promise<EngineResponse> {
+    const total = opts.prefer.count ? totalSql : 'NULL::bigint';
+    const guard = responseGuard({
+      singleRows: opts.single ? 'pgrst_page.page' : undefined,
+      offset: opts.offset,
+      total: opts.prefer.count ? 'pgrst_page.total' : undefined,
+    });
+    const sql =
+      `${withSource} SELECT pgrst_page.total, pgrst_page.page, pgrst_page.body, ${guard} AS guard ` +
+      `FROM (SELECT ${total} AS total, _pgrst_p.page, _pgrst_p.body FROM (${pageSql}) AS _pgrst_p) AS pgrst_page`;
+    const { rows } = await this.db.query<{ total: string | null; page: string; body: string }>(sql, p.values);
+    const page = Number(rows[0].page);
+    const totalCount = rows[0].total === null ? null : Number(rows[0].total);
+    const partial = totalCount !== null && (opts.offset > 0 || opts.offset + page < totalCount);
+    return {
+      status: partial ? 206 : 200,
+      headers: { 'content-range': contentRange(opts.offset, page, totalCount) },
+      body: opts.head ? '' : rows[0].body,
+    };
   }
 
   /** The table a set-returning function's rows belong to, when it returns one; else an anonymous row type. */

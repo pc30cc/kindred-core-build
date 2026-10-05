@@ -23,6 +23,12 @@ export interface ColumnInfo {
   /** pg_type.typname of the column's type (e.g. `tsvector`, `_text`). */
   typname: string;
   generated: boolean;
+  /**
+   * The SQL a missing value takes under `Prefer: missing=default`: the
+   * column's DEFAULT expression, nextval() of an identity column's sequence,
+   * or null when it has neither (the value is then NULL).
+   */
+  defaultExpr: string | null;
 }
 
 export interface TableInfo {
@@ -97,11 +103,16 @@ const COLUMNS_SQL = `
   SELECT a.attrelid::int8 AS oid, a.attname AS name,
          pg_catalog.format_type(a.atttypid, a.atttypmod) AS type,
          t.typname AS typname,
-         (a.attgenerated <> '') AS generated
+         (a.attgenerated <> '') AS generated,
+         CASE WHEN a.attidentity <> ''
+              THEN pg_catalog.format('nextval(%L::regclass)',
+                     pg_catalog.pg_get_serial_sequence(pg_catalog.format('%I.%I', n.nspname, c.relname), a.attname))
+              ELSE pg_catalog.pg_get_expr(d.adbin, d.adrelid) END AS default_expr
     FROM pg_catalog.pg_attribute a
     JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+    LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.attgenerated = ''
    WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
      AND n.nspname = ANY($1::text[])
      AND a.attnum > 0 AND NOT a.attisdropped
@@ -185,7 +196,10 @@ export function functionFromRow(r: FunctionRow): FunctionInfo {
 export async function loadSchema(db: Queryable, schemas: string[]): Promise<SchemaSnapshot> {
   const [tablesRes, columnsRes, constraintsRes, functionsRes] = await Promise.all([
     db.query<{ oid: string; schema: string; name: string; kind: string }>(TABLES_SQL, [schemas]),
-    db.query<{ oid: string; name: string; type: string; typname: string; generated: boolean }>(COLUMNS_SQL, [schemas]),
+    db.query<{ oid: string; name: string; type: string; typname: string; generated: boolean; default_expr: string | null }>(
+      COLUMNS_SQL,
+      [schemas],
+    ),
     db.query<{ name: string; type: string; rel: string; frel: string; cols: string[]; fcols: string[] }>(
       CONSTRAINTS_SQL,
       [schemas],
@@ -206,6 +220,7 @@ export async function loadSchema(db: Queryable, schemas: string[]): Promise<Sche
       type: r.type,
       typname: r.typname,
       generated: r.generated,
+      defaultExpr: r.default_expr,
     });
   }
 

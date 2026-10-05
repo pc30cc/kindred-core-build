@@ -1,5 +1,6 @@
 /**
- * PostgREST's query-string grammar, parsed the way PostgREST 12 parses it.
+ * PostgREST's query-string grammar, parsed the way PostgREST parses it (12.x
+ * through 14.5, the version production runs).
  *
  * The data layer keeps supabase-js as its query builder and answers its HTTP
  * requests in-process (see ../pgFetch.ts). Everything a builder call becomes —

@@ -47,24 +47,36 @@ is refused at startup instead of half-working.
 
 ### What "PostgREST-compatible" means here
 
-The engine reproduces PostgREST **13** (the version Supabase runs) for
-everything the code uses: filters, embeds and their hints, `count`, `single` /
-`maybeSingle`, upsert, RPC, ranges, the error codes (`PGRST116`, `PGRST2xx`,
-SQLSTATEs) and the HTTP statuses. Two parts of the test suite prove it:
+The engine reproduces the PostgREST version the production project runs —
+**14.5**, read from the `application_name` of its connections — for
+everything the code uses: filters, embeds and their hints, `count`,
+pagination, `single` / `maybeSingle`, insert / upsert (including
+`defaultToNull: false`), update, delete, RPC (including functions that write),
+the error codes (`PGRST116`, `PGRST103`, `PGRST2xx`, SQLSTATEs) and the HTTP
+statuses.
 
-- `src/test/integration/postgrestEngineParity.pg.test.ts` runs 125
-  supabase-js calls through the engine and compares data, error, count,
-  status and key order with answers recorded from a real PostgREST 13.0.8
-  (`postgrestParity/expected.json`).
-- When the engine was built, every `.select()` string in `server/` and
-  `worker/` (1,073 of them) was run against both a real PostgREST and the
-  engine over the same database. All gave identical results.
+`src/test/integration/postgrestEngineParity.pg.test.ts` proves it: 160
+supabase-js calls, each compared with what a real PostgREST 14.5 answered
+(data, error, count, status, key order) **and** with what the database held
+afterwards — every row of every fixture table and the identity counters — so a
+write that PostgREST rolls back and the engine keeps (or the reverse) fails
+the suite. The recording is in `postgrestParity/expected.json`; re-record it
+with `record.ts` when production moves to another PostgREST version.
 
-There is one deliberate difference. With `return=representation` (a mutation
-followed by `.select()`), PostgREST applies an `or()` filter a second time to
-the returned rows. The engine applies it once, as the code intends. On
-Supabase, this PostgREST behaviour makes the GDPR anonymiser's
-`identity_merges` delete remove nothing. On the `postgres` driver it works.
+There are no deliberate differences. Two things worth knowing, both identical
+on PostgREST 14.5 and the engine:
+
+- Whatever makes PostgREST answer with an error after the work ran —
+  `.single()` over anything but one row, an offset past the end of an exactly
+  counted result — rolls the whole request back, writes made inside a
+  function included (`src/test/integration/engineRpcRollback.pg.test.ts`).
+- `.maybeSingle()` is enforced by supabase-js on the client. A writing RPC or
+  mutation that returns several rows under `.maybeSingle()` gets an error,
+  but its writes stay — on PostgREST too. Use `.single()` where a multi-row
+  write must not be kept.
+
+(PostgREST before 14.4 re-applied an `or()` filter to the rows a PATCH or
+DELETE returned; 14.4 fixed it, so production no longer behaves that way.)
 
 Reads are capped at **1000 rows** per request (`DATABASE_MAX_ROWS`), the same
 cap Supabase's API applies, so the code behaves the same on both.

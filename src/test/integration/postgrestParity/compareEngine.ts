@@ -13,7 +13,7 @@ import { DatabasePool, databaseSettings } from '../../../../server/db/pool';
 import { PostgrestEngine } from '../../../../server/db/postgrest/engine';
 import { SchemaCache } from '../../../../server/db/postgrest/schemaCache';
 import { createPgFetch } from '../../../../server/db/pgFetch';
-import { FIXTURE_SQL, PARITY_DIR, SEED_SQL, runCases } from './runner';
+import { FIXTURE_SQL, PARITY_DIR, SEED_SQL, STATE_SQL, runCases } from './runner';
 import type { Sb } from './cases';
 
 export async function engineResults(dsn: string) {
@@ -21,6 +21,9 @@ export async function engineResults(dsn: string) {
   // service_role, like the server.
   const admin = new pg.Client({ connectionString: dsn });
   await admin.connect();
+  // The state snapshots format timestamps in the session's zone; UTC, as the
+  // engine's own sessions and Supabase's default.
+  await admin.query("SET TimeZone TO 'UTC'");
   // The roles the fixture grants to (and the engine assumes), as on any
   // database the migrations built.
   await admin.query(readFileSync(join(process.cwd(), 'database', 'migrations', '000_selfhost_roles_bootstrap.sql'), 'utf8'));
@@ -34,9 +37,13 @@ export async function engineResults(dsn: string) {
     global: { fetch: createPgFetch(engine) },
   }) as unknown as Sb;
   try {
-    return await runCases(sb, async () => {
-      await admin.query(SEED_SQL);
-    });
+    return await runCases(
+      sb,
+      async () => {
+        await admin.query(SEED_SQL);
+      },
+      async () => (await admin.query(STATE_SQL)).rows[0].state,
+    );
   } finally {
     await pool.end();
     await admin.end();

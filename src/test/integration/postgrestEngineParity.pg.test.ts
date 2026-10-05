@@ -1,64 +1,54 @@
 // @vitest-environment node
 /**
  * The in-process PostgREST engine (server/db/postgrest) answers supabase-js
- * exactly as PostgREST 13 — the version Supabase runs — answers it.
+ * exactly as the PostgREST the production project runs answers it.
  *
- * Each case in postgrestParity/cases.ts is a real supabase-js call. Its answer
- * from a real PostgREST 13.0.8 is recorded in postgrestParity/expected.json
- * (record.ts); this suite runs every case through the engine over the live
- * database and compares data, error, count and status, key order included.
- *
- * Two answers are deliberately NOT PostgREST's. With `return=representation`
- * (a mutation followed by `.select()`), PostgREST re-applies an `or()` filter
- * to the rows it returns — against their NEW values and only the selected
- * columns. So an update can report no rows, and a delete whose or() columns
- * are not selected fails with 42703 and is rolled back. The second is how
- * server/services/privacy/anonymizer.ts deletes identity_merges, so on
- * Supabase that GDPR deletion silently removes nothing. The engine applies the
- * filter once, to the rows being changed, as the code intends; those two cases
- * are asserted against the correct result below.
+ * Each case in postgrestParity/cases.ts is a real supabase-js call. What a
+ * real PostgREST answered — data, error, count, status, key order — and what
+ * the fixture's tables held afterwards (rows kept or rolled back, identity
+ * values consumed) is recorded in postgrestParity/expected.json (record.ts;
+ * the version is its `recordedWith`, 14.5 — read from the production
+ * project's connections). This suite runs every case through the engine over
+ * the live database and compares all of it, with no exceptions.
  *
  * Driven by TEST_DATABASE_URL (any PostgreSQL 15+; the fixture lives in its own
  * schema). Skipped without it.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { engineResults, expectedResults } from './postgrestParity/compareEngine';
+import { PARITY_DIR } from './postgrestParity/runner';
 
 const DSN = process.env.PARITY_DATABASE_URL || process.env.TEST_DATABASE_URL;
 const suite = DSN ? describe : describe.skip;
 
-const INTENDED_DEVIATIONS: Record<string, unknown> = {
-  'update with or filter': {
-    result: {
-      data: [
-        { label: 'c1', sent_at: '2026-05-05T00:00:00+00:00' },
-        { label: 'c2', sent_at: '2026-05-05T00:00:00+00:00' },
-      ],
-      error: null,
-      count: null,
-      status: 200,
-    },
-  },
-  'delete with or and select id': {
-    result: { data: [{ id: 1 }, { id: 2 }], error: null, count: null, status: 200 },
-    after: { data: [{ id: 3, label: 'c3' }], error: null, count: null, status: 200 },
-  },
-};
+describe('the recorded reference', () => {
+  it('comes from the PostgREST version production runs', () => {
+    const recorded = JSON.parse(readFileSync(join(PARITY_DIR, 'expected.json'), 'utf8')).recordedWith;
+    expect(recorded).toBe('postgrest/14.5');
+  });
 
-suite('in-process PostgREST engine matches PostgREST 13', () => {
+  it('holds the database state after every case, not only the response', () => {
+    const want = expectedResults() as Record<string, { state?: unknown }>;
+    const missing = Object.entries(want).filter(([, v]) => v.state === undefined).map(([k]) => k);
+    expect(missing).toEqual([]);
+  });
+});
+
+suite('in-process PostgREST engine matches the production PostgREST', () => {
   let got: Record<string, unknown>;
   const want = expectedResults();
 
   it('runs every case', async () => {
     got = await engineResults(DSN!);
     expect(Object.keys(got).sort()).toEqual(Object.keys(want).sort());
-  }, 120_000);
+  }, 180_000);
 
   for (const name of Object.keys(want)) {
     it(name, () => {
-      const expected = INTENDED_DEVIATIONS[name] ?? want[name];
       // Stringified so that key order — which callers can observe — counts.
-      expect(JSON.stringify(got[name])).toBe(JSON.stringify(expected));
+      expect(JSON.stringify(got[name])).toBe(JSON.stringify(want[name]));
     });
   }
 });

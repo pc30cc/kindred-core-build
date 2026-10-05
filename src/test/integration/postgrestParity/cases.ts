@@ -5,8 +5,10 @@
  * 42703, P0001).
  *
  * Each case runs against seeded data (seed.sql) through a client whose schema
- * is `pgrst_parity`. `expected.json` holds what PostgREST 13.0.8 — the
- * version Supabase runs — answered for each, recorded by record.ts.
+ * is `pgrst_parity`. `expected.json` holds what the reference PostgREST
+ * answered for each — and what the fixture's tables held afterwards — as
+ * recorded by record.ts (the version is in expected.json's recordedWith; it is
+ * the version the production project runs).
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -206,4 +208,53 @@ export const CASES: ParityCase[] = [
   { name: 'rpc unknown argument', run: (sb) => sb.rpc('scalar_fn', { a: 1, zzz: 2 }) },
   { name: 'rpc missing required argument', run: (sb) => sb.rpc('scalar_fn', { b: 'x' }) },
   { name: 'rpc max rows', run: (sb) => sb.rpc('set_text', { _n: 1500 }).then((r) => ({ ...r, data: Array.isArray(r.data) ? r.data.length : r.data })) },
+
+  // ── writing functions: the response AND what the database keeps ───────
+  // (every case is also compared on the fixture's full state afterwards)
+  { name: 'rpc writes setof', run: (sb) => sb.rpc('log_rows', { _n: 2 }) },
+  { name: 'rpc writes setof single zero rows', run: (sb) => sb.rpc('log_rows', { _n: 0 }).single() },
+  { name: 'rpc writes setof single one row', run: (sb) => sb.rpc('log_rows', { _n: 1 }).single() },
+  { name: 'rpc writes setof single many rows', run: (sb) => sb.rpc('log_rows', { _n: 3 }).single() },
+  { name: 'rpc writes setof maybeSingle zero rows', run: (sb) => sb.rpc('log_rows', { _n: 0 }).maybeSingle() },
+  { name: 'rpc writes setof maybeSingle many rows', run: (sb) => sb.rpc('log_rows', { _n: 2 }).maybeSingle() },
+  {
+    name: 'rpc writes setof single many rows then again',
+    run: async (sb) => {
+      const first = await sb.rpc('log_rows', { _n: 2, _note: 'first' }).single();
+      const second = await sb.rpc('log_rows', { _n: 1, _note: 'second' }).single();
+      return { data: { first: first.data, second: second.data }, error: first.error ?? second.error, count: null, status: second.status };
+    },
+  },
+  { name: 'rpc writes returns table single many rows', run: (sb) => sb.rpc('log_table', { _n: 2 }).single() },
+  { name: 'rpc writes composite single', run: (sb) => sb.rpc('bump', { _name: 'alpha' }).single() },
+  { name: 'rpc writes composite no row', run: (sb) => sb.rpc('bump', { _name: 'nobody' }) },
+  { name: 'rpc writes then raises', run: (sb) => sb.rpc('write_then_fail') },
+  { name: 'rpc writes scalar', run: (sb) => sb.rpc('log_count', { _n: 2 }) },
+  { name: 'rpc writes setof filtered', run: (sb) => sb.rpc('log_rows', { _n: 3 }).eq('note', 'row2') },
+  { name: 'rpc setof count exact', run: (sb) => sb.rpc('set_table', { _n: 5 }, { count: 'exact' }).range(1, 2) },
+  { name: 'rpc setof count exact head', run: (sb) => sb.rpc('set_table', { _n: 4 }, { count: 'exact', head: true }) },
+  { name: 'rpc get', run: (sb) => sb.rpc('set_text', { _n: 2 }, { get: true }) },
+  { name: 'rpc setof order range', run: (sb) => sb.rpc('set_table', { _n: 6 }).order('sq', { ascending: false }).range(0, 2) },
+
+  // ── more writes: failures must leave nothing behind ────────────────────
+  { name: 'insert array one bad row', run: (sb) => sb.from('parent').insert([{ id: D, name: 'delta' }, { id: A, name: 'dup' }]).select('id') },
+  { name: 'insert array fk violation', run: (sb) => sb.from('child').insert([{ parent_id: A, label: 'ok' }, { parent_id: E, label: 'orphan' }]) },
+  { name: 'insert check via not null in array', run: (sb) => sb.from('member').insert([{ workspace_id: W2, user_name: 'x1' }, { workspace_id: W2 }]).select() },
+  { name: 'delete many single rolls back', run: (sb) => sb.from('child').delete().eq('parent_id', A).select('id').single() },
+  { name: 'delete one single', run: (sb) => sb.from('child').delete().eq('label', 'c3').select('id, label').single() },
+  { name: 'delete maybeSingle none', run: (sb) => sb.from('child').delete().eq('label', 'nope').select().maybeSingle() },
+  { name: 'update one single', run: (sb) => sb.from('parent').update({ n: 99 }).eq('name', 'beta').select('name, n').single() },
+  { name: 'update many maybeSingle rolls back', run: (sb) => sb.from('parent').update({ n: 0 }).eq('status', 'open').select('name').maybeSingle() },
+  { name: 'upsert count exact', run: (sb) => sb.from('kv').upsert([{ key: 'k1', value: { c: 3 } }, { key: 'k5', value: { c: 5 } }], { count: 'exact' }).select('key, value') },
+  { name: 'upsert defaultToNull false', run: (sb) => sb.from('parent').upsert([{ id: D, name: 'delta' }, { id: E, name: 'eps', status: 'closed' }], { defaultToNull: false }).select('name, n, status') },
+  { name: 'upsert ignore duplicates array', run: (sb) => sb.from('kv').upsert([{ key: 'k1', value: { ignored: true } }, { key: 'k7', value: { kept: true } }], { ignoreDuplicates: true }).select('key, value') },
+  { name: 'upsert unique violation on other key', run: (sb) => sb.from('workspace').upsert({ id: W1, slug: 'two', name: 'clash' }).select() },
+  { name: 'insert select embed inner filter', run: (sb) => sb.from('child').insert({ parent_id: B, label: 'emb' }).select('label, parent!child_parent_id_fkey(name, n)').single() },
+  { name: 'update select embed one-to-many', run: (sb) => sb.from('parent').update({ status: 'touched' }).eq('name', 'alpha').select('name, child!child_parent_id_fkey(label)').single() },
+
+  // ── pagination ─────────────────────────────────────────────────────────
+  { name: 'range past end', run: (sb) => sb.from('parent').select('name', { count: 'exact' }).order('name').range(10, 20) },
+  { name: 'range with embed and count', run: (sb) => sb.from('parent').select('name, child!child_parent_id_fkey(label)', { count: 'exact' }).order('name').range(1, 1) },
+  { name: 'limit zero', run: (sb) => sb.from('parent').select('name').order('name').limit(0) },
+  { name: 'order by embedded-free column with range', run: (sb) => sb.from('child').select('label').order('score', { ascending: true, nullsFirst: false }).range(0, 1) },
 ];

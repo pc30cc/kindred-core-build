@@ -4,7 +4,8 @@
  * Callers of the data layer branch on these fields — `code === '23505'`,
  * `'PGRST202'` with a message that names the function, `'PGRST205'` naming the
  * table — so the in-process engine must answer with the same code, message and
- * HTTP status PostgREST 12 would, or a working fallback silently stops firing.
+ * HTTP status PostgREST would (checked against 14.5, the version production
+ * runs), or a working fallback silently stops firing.
  */
 
 export interface PgrstErrorBody {
@@ -115,13 +116,23 @@ export function fromPgError(err: PgDriverError): PgrstError {
   });
 }
 
-// ── PostgREST's own errors, worded as PostgREST 12.2 words them ─────────────
+// ── PostgREST's own errors, worded as PostgREST words them (12.2 through 14.5) ─
 
 export function singularityError(rows: number): PgrstError {
   return new PgrstError(406, {
     code: 'PGRST116',
     message: 'Cannot coerce the result to a single JSON object',
     details: `The result contains ${rows} rows`,
+    hint: null,
+  });
+}
+
+/** PostgREST's answer to an offset past the end of an exactly counted result. */
+export function rangeNotSatisfiable(offset: number, total: number): PgrstError {
+  return new PgrstError(416, {
+    code: 'PGRST103',
+    message: 'Requested range not satisfiable',
+    details: `An offset of ${offset} was requested, but there are only ${total} rows.`,
     hint: null,
   });
 }

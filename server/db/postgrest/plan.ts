@@ -3,8 +3,8 @@
  * row already holds the response: the JSON body (built by Postgres, as
  * PostgREST builds it), the page size and, when asked for, the exact count.
  *
- * Shapes follow PostgREST 13 (what Supabase runs), checked against the real
- * binary by src/test/integration/postgrestEngineParity.pg.test.ts:
+ * Shapes follow PostgREST 14.5 (what the production project runs), checked
+ * against the real binary by src/test/integration/postgrestEngineParity.pg.test.ts:
  *   * the top level is json_agg of the rows, in select order;
  *   * an embed is jsonb (to_jsonb / jsonb_agg — so its keys come back in jsonb
  *     order), `null` for a missing to-one row and `[]` for an empty to-many;

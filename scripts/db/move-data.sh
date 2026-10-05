@@ -65,6 +65,13 @@ say "Building the target schema from database/migrations"
 DATABASE_URL="$TARGET" bash "$ROOT/scripts/migrate-database.sh"
 
 say "Checking that every source table and column exists on the target"
+if ! q "$TARGET" "SELECT 1 FROM pg_extension WHERE extname = 'vector'" | grep -q 1 \
+   && q "$SOURCE" "SELECT 1 FROM pg_extension WHERE extname = 'vector'" | grep -q 1; then
+  echo "The source has pgvector and the target does not: knowledge-base embeddings cannot be copied." >&2
+  echo "Install pgvector on the target (or use an image that ships it, e.g. pgvector/pgvector:pg17)," >&2
+  echo "apply database/migrations/250_postgres_portability.sql to it again, then run this again." >&2
+  exit 1
+fi
 COLUMNS_SQL="
   SELECT c.relname || '.' || a.attname
     FROM pg_class c
@@ -73,9 +80,10 @@ COLUMNS_SQL="
    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
      AND c.relname <> '_schema_migrations'
    ORDER BY 1"
-q "$SOURCE" "$COLUMNS_SQL" > "$WORK/source_columns"
-q "$TARGET" "$COLUMNS_SQL" > "$WORK/target_columns"
-missing="$(comm -23 "$WORK/source_columns" "$WORK/target_columns" || true)"
+# Sorted here, bytewise: the two servers' collations may order rows differently.
+q "$SOURCE" "$COLUMNS_SQL" | LC_ALL=C sort > "$WORK/source_columns"
+q "$TARGET" "$COLUMNS_SQL" | LC_ALL=C sort > "$WORK/target_columns"
+missing="$(LC_ALL=C comm -23 "$WORK/source_columns" "$WORK/target_columns" || true)"
 if [ -n "$missing" ]; then
   echo "These source columns do not exist on the target, so their data has nowhere to go:" >&2
   echo "$missing" | sed 's/^/  /' >&2
@@ -83,13 +91,6 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 echo "ok — $(wc -l < "$WORK/source_columns") columns"
-
-if ! q "$TARGET" "SELECT 1 FROM pg_extension WHERE extname = 'vector'" | grep -q 1 \
-   && q "$SOURCE" "SELECT 1 FROM pg_extension WHERE extname = 'vector'" | grep -q 1; then
-  echo "The source has pgvector and the target does not: knowledge-base embeddings cannot be copied." >&2
-  echo "Use a target with pgvector (e.g. image pgvector/pgvector:pg17), then run again." >&2
-  exit 1
-fi
 
 if [ "${YES:-}" != "1" ]; then
   echo
@@ -126,8 +127,10 @@ COUNT_SQL="
    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
      AND c.relname <> '_schema_migrations'
    ORDER BY 1"
-q "$SOURCE" "$COUNT_SQL" > "$WORK/source_counts"
-q "$TARGET" "$COUNT_SQL" | grep -F -f <(cut -d'|' -f1 "$WORK/source_counts" | sed 's/$/|/') > "$WORK/target_counts" || true
+q "$SOURCE" "$COUNT_SQL" | LC_ALL=C sort > "$WORK/source_counts"
+# The target's counts for the source's tables only (it may have more tables).
+q "$TARGET" "$COUNT_SQL" | LC_ALL=C sort \
+  | awk -F'|' 'NR == FNR { keep[$1] = 1; next } ($1 in keep)' "$WORK/source_counts" - > "$WORK/target_counts"
 if diff -q "$WORK/source_counts" "$WORK/target_counts" > /dev/null; then
   total="$(awk -F'|' '{s += $2} END {print s}' "$WORK/source_counts")"
   echo "ok — $(wc -l < "$WORK/source_counts") tables, $total rows, every count matches"

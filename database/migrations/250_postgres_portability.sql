@@ -17,9 +17,12 @@
 --    HNSW index only when the extension is available at that moment; a
 --    database that gets pgvector later (moved to an image that ships it)
 --    never got the column, and every knowledge retrieval failed with 42703.
---    Re-asserted here, so the next migration run completes it wherever the
---    extension can be installed. Without pgvector it still skips, with a
+--    Re-asserted here, idempotently. Without pgvector it still skips, with a
 --    notice: the rest of the product works, AI knowledge retrieval does not.
+--    A database that gets pgvector later completes it by applying THIS FILE
+--    again by hand — migrate-database.sh will not, since its ledger already
+--    lists it:
+--      psql "$DATABASE_URL" -f database/migrations/250_postgres_portability.sql
 --
 -- 3. billing_v2_policy.new_workspace_default_region / _state exist in
 --    production but in neither migration chain (added outside them, like the
@@ -49,7 +52,7 @@ BEGIN
   SELECT n.nspname INTO s FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
    WHERE e.extname = 'vector';
   IF s IS NULL THEN
-    RAISE NOTICE '250: pgvector is not available on this server — ai_knowledge_chunks.embedding stays absent and AI knowledge retrieval will not work. Use a PostgreSQL image that ships pgvector (e.g. pgvector/pgvector:pg17) and run the migrations again.';
+    RAISE NOTICE '250: pgvector is not available on this server — ai_knowledge_chunks.embedding stays absent and AI knowledge retrieval will not work. Install pgvector (or use an image that ships it, e.g. pgvector/pgvector:pg17), then apply this file again: psql "$DATABASE_URL" -f database/migrations/250_postgres_portability.sql';
     RETURN;
   END IF;
   EXECUTE format($ddl$ALTER TABLE public.ai_knowledge_chunks ADD COLUMN IF NOT EXISTS embedding %1$I.vector(1536)$ddl$, s);

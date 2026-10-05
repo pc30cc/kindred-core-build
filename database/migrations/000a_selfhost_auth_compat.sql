@@ -52,6 +52,7 @@ BEGIN
   IF to_regclass('auth.users') IS NULL THEN
     CREATE TABLE auth.users (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      instance_id uuid,
       aud varchar(255),
       role varchar(255),
       email varchar(255),

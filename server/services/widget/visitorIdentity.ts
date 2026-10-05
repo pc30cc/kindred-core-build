@@ -17,6 +17,7 @@
 
 import { Request, Response } from 'express';
 import crypto from 'crypto';
+import { platformSigningSecret } from '../../lib/platformSecret.js';
 
 const COOKIE_NAME = 'dvsid';
 const COOKIE_TTL_DAYS = 365;
@@ -55,7 +56,7 @@ function getVisitorSecret(): Buffer {
   const base =
     process.env.WIDGET_VISITOR_SECRET ||
     process.env.WIDGET_SIGNING_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    platformSigningSecret() ||
     '';
   if (!base) throw new Error('Missing WIDGET_VISITOR_SECRET');
   return crypto.createHash('sha256').update('visitor-cookie:' + base).digest();

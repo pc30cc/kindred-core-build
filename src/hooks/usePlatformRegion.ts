@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { fetchPlatformPublicConfig } from '@/lib/platformPublicConfig';
 import { useI18n } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import {
@@ -21,17 +21,14 @@ export function usePlatformRegionSettings() {
   return useQuery({
     queryKey: ['platform_region_settings'],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('platform_settings')
-        .select('region_mode, active_locales, default_locale')
-        .limit(1)
-        .maybeSingle();
-      const mode: RegionMode = isRegionMode((data as any)?.region_mode) ? (data as any).region_mode : 'multi';
+      // A failed read falls back to the defaults below, as it always did.
+      const data = await fetchPlatformPublicConfig().then((c) => c.region, () => null);
+      const mode: RegionMode = isRegionMode(data?.region_mode) ? (data.region_mode as RegionMode) : 'multi';
       setCachedRegionMode(mode);
       return {
         mode,
-        activeLocales: ((data as any)?.active_locales ?? null) as string[] | null,
-        defaultLocale: ((data as any)?.default_locale ?? 'en') as string,
+        activeLocales: data?.active_locales ?? null,
+        defaultLocale: data?.default_locale ?? 'en',
       };
     },
     staleTime: 5 * 60 * 1000,

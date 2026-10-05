@@ -56,17 +56,28 @@ export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
  * `084_selfhost_parity_table_policies.sql`, so the whole chain replays
  * against an empty database with ON_ERROR_STOP=1.
  *
- * 223 is the one exclusion, and only because of how this helper re-applies
- * the chain: it drops `operator_activity_samples`, which 016 creates (the
- * base range, installed once per database) and 129 indexes (the range
- * re-applied on every call). After one call had run 223, the next call's
- * re-application of 129 found no table. Shipped migrations are never edited,
- * and a real runner applies each file exactly once (the _schema_migrations
- * ledger), so 223 is proven where that holds: the self-host full-chain CI
- * job replays it with psql. Nothing the suites using this helper test
- * touches the table.
+ * Two files are excluded, and only because of how this helper re-applies
+ * the chain:
+ *
+ * - 223 drops `operator_activity_samples`, which 016 creates (the base range,
+ *   installed once per database) and 129 indexes (the range re-applied on
+ *   every call). After one call had run 223, the next call's re-application
+ *   of 129 found no table.
+ * - 251 brings the schema to production's: it drops columns and replaces
+ *   constraints that older files name — the commerce `deleted_at` columns
+ *   148 indexes, the billing period source check 113 and 122 set. After one call had
+ *   run 251, the next call's re-application of those files failed.
+ *
+ * Shipped migrations are never edited, and a real runner applies each file
+ * exactly once (the _schema_migrations ledger), so both are proven where that
+ * holds: the plain-PostgreSQL CI jobs replay the whole chain with
+ * scripts/migrate-database.sh, and productionParity251.pg.test.ts builds its
+ * own database with the whole chain and exercises what 251 brings.
  */
-export const AUTH_CHAIN_EXCLUDED_FILES = new Set<string>(['223_drop_operator_activity_samples.sql']);
+export const AUTH_CHAIN_EXCLUDED_FILES = new Set<string>([
+  '223_drop_operator_activity_samples.sql',
+  '251_production_parity.sql',
+]);
 
 
 /**

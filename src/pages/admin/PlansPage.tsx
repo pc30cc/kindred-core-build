@@ -22,7 +22,7 @@ import {
   useRevokePlan,
 } from '@/hooks/usePlans';
 import { useAdminWorkspaces } from '@/hooks/useAdmin';
-import { supabase } from '@/lib/supabase';
+import { fetchPlatformPublicConfig } from '@/lib/platformPublicConfig';
 import {
   useCapabilityCatalog,
   useWorkspaceEffectiveEntitlements,
@@ -182,7 +182,7 @@ function usePlatformLocales() {
   return useQuery({
     queryKey: ['platform-settings-locales'],
     queryFn: async () => {
-      const { data } = await supabase.from('platform_settings').select('active_locales').limit(1).maybeSingle();
+      const data = await fetchPlatformPublicConfig().then((c) => c.region, () => null);
       return { locales: (data?.active_locales || ['en']) as string[] };
     },
   });

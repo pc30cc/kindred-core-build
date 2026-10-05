@@ -22,6 +22,7 @@
  * as a false "offline" for anyone else.
  */
 import crypto from 'node:crypto';
+import { platformSigningSecret } from '../../lib/platformSecret.js';
 
 /** Lease lifetime. Short enough that a dead socket stops suppressing writes. */
 export const VISITOR_PRESENCE_LEASE_TTL_SECONDS = 180;
@@ -29,7 +30,7 @@ export const VISITOR_PRESENCE_LEASE_TTL_SECONDS = 180;
 const PREFIX = 'vpl1';
 
 function secret(): Buffer {
-  const base = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.WIDGET_SIGNING_SECRET || '';
+  const base = platformSigningSecret() || process.env.WIDGET_SIGNING_SECRET || '';
   return crypto.createHash('sha256').update('visitor-presence-lease:' + base).digest();
 }
 

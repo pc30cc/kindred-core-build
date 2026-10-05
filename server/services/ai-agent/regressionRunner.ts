@@ -68,15 +68,12 @@ export interface RegressionBatch {
 // No hardcoded city/zone (no Istanbul, no server tz, no browser tz).
 // Resolution order:
 //   1) schedule.timezone (if valid IANA)
-//   2) workspace-level timezone (if a `workspaces.timezone` column exists)
-//   3) platform_settings.timezone
-//   4) 'UTC'
+//   2) platform_settings.timezone
+//   3) 'UTC'
 //
-// NOTE: As of E10.2 the public.workspaces table does NOT have a `timezone`
-// column. The lookup below probes for it and silently caches "unsupported"
-// after the first miss so we don't hammer the DB. If a future migration
-// adds workspaces.timezone, this code starts honouring it automatically
-// without further changes.
+// There is no workspace-level timezone: public.workspaces has no such column
+// (nor does any other per-workspace table). An earlier probe for
+// `workspaces.timezone` failed on every database and only cost a query.
 // Invalid IANA strings fall back to UTC and emit metadata.warning.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -138,44 +135,12 @@ async function getPlatformTimezone(sb: SupabaseClient): Promise<string | null> {
   if (_platformTzCache && Date.now() - _platformTzCache.ts < 60_000) return _platformTzCache.tz;
   try {
     const { data } = await sb.from('platform_settings').select('timezone').limit(1).maybeSingle();
-    const tz = (data as any)?.timezone || null;
+    const tz = (data as { timezone?: string | null } | null)?.timezone || null;
     _platformTzCache = { tz, ts: Date.now() };
     return tz;
   } catch { return null; }
 }
 
-
-let _workspaceTzColumnSupported: boolean | null = null;
-const _workspaceTzCache = new Map<string, { tz: string | null; ts: number }>();
-async function getWorkspaceTimezone(
-  sb: SupabaseClient,
-  workspaceId: string | null | undefined,
-): Promise<string | null> {
-  if (!workspaceId) return null;
-  if (_workspaceTzColumnSupported === false) return null;
-  const cached = _workspaceTzCache.get(workspaceId);
-  if (cached && Date.now() - cached.ts < 60_000) return cached.tz;
-  try {
-    const { data, error } = await sb.from('workspaces')
-      .select('timezone').eq('id', workspaceId).maybeSingle();
-    if (error) {
-      // 42703 = undefined_column. Treat any column-missing error as "not supported".
-      const msg = (error.message || '').toLowerCase();
-      if (msg.includes('column') || (error as any).code === '42703') {
-        _workspaceTzColumnSupported = false;
-        return null;
-      }
-      return null;
-    }
-    _workspaceTzColumnSupported = true;
-    const tz = (data as any)?.timezone || null;
-    _workspaceTzCache.set(workspaceId, { tz, ts: Date.now() });
-    return tz;
-  } catch {
-    _workspaceTzColumnSupported = false;
-    return null;
-  }
-}
 
 export interface ResolvedSchedule {
   resolvedTimezone: string;
@@ -185,14 +150,11 @@ export interface ResolvedSchedule {
 /** Test-only: clear timezone caches between unit runs. */
 export function __resetTimezoneCachesForTests(): void {
   _platformTzCache = null;
-  _workspaceTzColumnSupported = null;
-  _workspaceTzCache.clear();
 }
 
 export async function resolveScheduleTimezone(
   sb: SupabaseClient,
   scheduleTz: string | null | undefined,
-  workspaceId?: string | null,
 ): Promise<ResolvedSchedule> {
   // 1) schedule
   if (scheduleTz && scheduleTz.trim()) {
@@ -201,17 +163,12 @@ export async function resolveScheduleTimezone(
   }
   const invalidWarning = scheduleTz && !isValidTimezone(scheduleTz)
     ? 'timezone_invalid_fallback_utc' : null;
-  // 2) workspace-level (if column exists)
-  const wsTz = await getWorkspaceTimezone(sb, workspaceId);
-  if (wsTz && isValidTimezone(wsTz)) {
-    return { resolvedTimezone: wsTz, warning: invalidWarning };
-  }
-  // 3) platform default
+  // 2) platform default
   const platformTz = await getPlatformTimezone(sb);
   if (platformTz && isValidTimezone(platformTz)) {
     return { resolvedTimezone: platformTz, warning: invalidWarning };
   }
-  // 4) UTC
+  // 3) UTC
   return { resolvedTimezone: 'UTC', warning: invalidWarning };
 }
 
@@ -227,10 +184,10 @@ export async function computeNextRunAt(
   from: Date = new Date(),
 ): Promise<NextRunComputation> {
   if (schedule.frequency === 'manual') {
-    const r = await resolveScheduleTimezone(sb, schedule.timezone, schedule.workspace_id ?? null);
+    const r = await resolveScheduleTimezone(sb, schedule.timezone);
     return { next_run_at: null, resolved_timezone: r.resolvedTimezone, warning: r.warning };
   }
-  const tzInfo = await resolveScheduleTimezone(sb, schedule.timezone, schedule.workspace_id ?? null);
+  const tzInfo = await resolveScheduleTimezone(sb, schedule.timezone);
   const tz = tzInfo.resolvedTimezone;
   let warning = tzInfo.warning;
 
@@ -350,7 +307,7 @@ export async function updateRegressionSchedule(
     if (merged.enabled) {
       const c = await computeNextRunAt(sb, merged);
       safe.next_run_at = c.next_run_at?.toISOString() ?? null;
-      const meta = { ...((cur as any)?.metadata || {}) };
+      const meta = { ...((cur as RegressionSchedule | null)?.metadata || {}) };
       meta.resolved_timezone = c.resolved_timezone;
       if (c.warning) meta.warning = c.warning;
       else delete meta.warning;
@@ -426,10 +383,19 @@ export async function listRegressionBatches(
   return { items: (data || []) as RegressionBatch[], total: count || 0, limit, offset };
 }
 
+/** A test run row (every column, plus its joined test_case) in a batch detail. */
+type BatchDetailRun = Record<string, unknown> & { status: string };
+
+/** The retry batches started from a batch, as the batch detail lists them. */
+type RetryChildBatch = Pick<
+  RegressionBatch,
+  'id' | 'status' | 'passed' | 'failed' | 'errored' | 'pass_rate' | 'created_at' | 'trigger_type'
+>;
+
 export async function getRegressionBatchDetail(
   config: ServerConfig,
   batchId: string,
-): Promise<{ batch: RegressionBatch; runs: any[] } | null> {
+): Promise<{ batch: RegressionBatch; runs: BatchDetailRun[]; retryChildren: RetryChildBatch[] } | null> {
   const sb = getServiceClient(config);
   const { data: batch } = await sb
     .from('ai_agent_regression_batches')
@@ -444,15 +410,15 @@ export async function getRegressionBatchDetail(
     .order('created_at', { ascending: true });
   // Sort failed/errored first, then passed, preserving created_at order within group.
   const order = (s: string) => (s === 'errored' ? 0 : s === 'failed' ? 1 : 2);
-  const sortedRuns = [...(runs || [])].sort((a: any, b: any) => order(a.status) - order(b.status));
+  const sortedRuns = [...((runs || []) as BatchDetailRun[])].sort((a, b) => order(a.status) - order(b.status));
   // Find retry children (other batches whose metadata.retry_of_batch_id === this id).
   const { data: children } = await sb
     .from('ai_agent_regression_batches')
     .select('id,status,passed,failed,errored,pass_rate,created_at,trigger_type')
-    .eq('workspace_id', (batch as any).workspace_id)
-    .contains('metadata', { retry_of_batch_id: batchId } as any)
+    .eq('workspace_id', (batch as RegressionBatch).workspace_id)
+    .contains('metadata', { retry_of_batch_id: batchId })
     .order('created_at', { ascending: false });
-  return { batch: batch as RegressionBatch, runs: sortedRuns, retryChildren: children || [] } as any;
+  return { batch: batch as RegressionBatch, runs: sortedRuns, retryChildren: (children || []) as RetryChildBatch[] };
 }
 
 /**
@@ -484,7 +450,7 @@ export async function findDueScheduleIds(sb: SupabaseClient, limit = 5): Promise
     .lte('next_run_at', nowIso)
     .order('next_run_at', { ascending: true })
     .limit(limit);
-  return (data || []).map((r: any) => r.id);
+  return (data || []).map((r: { id: string }) => r.id);
 }
 
 export async function findQueuedBatchIds(sb: SupabaseClient, limit = 5): Promise<string[]> {
@@ -494,7 +460,7 @@ export async function findQueuedBatchIds(sb: SupabaseClient, limit = 5): Promise
     .eq('status', 'queued')
     .order('created_at', { ascending: true })
     .limit(limit);
-  return (data || []).map((r: any) => r.id);
+  return (data || []).map((r: { id: string }) => r.id);
 }
 
 /**
@@ -516,7 +482,7 @@ export async function claimDueSchedule(
   const c = await computeNextRunAt(sb, cur as RegressionSchedule);
   const newNext = c.next_run_at?.toISOString() ?? null;
   const nowIso = new Date().toISOString();
-  const meta = { ...((cur as any).metadata || {}) };
+  const meta = { ...((cur as RegressionSchedule).metadata || {}) };
   meta.resolved_timezone = c.resolved_timezone;
   if (c.warning) meta.warning = c.warning; else delete meta.warning;
   const { data: claimed } = await sb
@@ -583,8 +549,9 @@ export async function runRegressionBatch(
 
   let q = sb.from('ai_agent_test_cases').select('*').eq('workspace_id', batch.workspace_id);
   if (includeEnabledOnly) q = q.eq('enabled', true);
-  const retryIds = Array.isArray((batch.metadata as any)?.retry_case_ids)
-    ? ((batch.metadata as any).retry_case_ids as string[]) : null;
+  const batchMeta = batch.metadata as Record<string, unknown> | null;
+  const retryIds = Array.isArray(batchMeta?.retry_case_ids)
+    ? (batchMeta.retry_case_ids as string[]) : null;
   // Hard guard: a retry batch must NEVER fall back to the full enabled-case set.
   if (retryIds !== null) {
     if (retryIds.length === 0) {
@@ -646,7 +613,8 @@ export async function runRegressionBatch(
           pageContext: tc.page_context || null,
           callLLM,
         });
-      } catch (innerErr: any) {
+      } catch (innerErr) {
+        const innerMessage = (innerErr as { message?: string } | null)?.message;
         result = {
           status: 'failed', output_text: null, confidence: 0,
           selected_sources: [], retrieval_debug: null, excluded_summary: null,
@@ -656,8 +624,8 @@ export async function runRegressionBatch(
             retrieval_strength: 'none', top_score: 0, handoff_required: false, source_types_used: [],
           },
           prompt_preview: null,
-          safety_notes: [`runner_error:${innerErr?.message || 'unknown'}`],
-          provider: null, model: null, error: innerErr?.message || 'runner_error',
+          safety_notes: [`runner_error:${innerMessage || 'unknown'}`],
+          provider: null, model: null, error: innerMessage || 'runner_error',
           runtime: {
             conversation_created: false, handoff_created: false,
             workflow_executed: false, learning_candidate_created: false,
@@ -737,7 +705,7 @@ export async function runRegressionBatch(
           passed, failed, errored, pass_rate: passRate, metadata: progressMeta,
         }).eq('id', batchId);
       }
-    } catch (caseErr: any) {
+    } catch (caseErr) {
       // Last-resort: don't abort whole batch.
       errored += 1;
       await sb.from('ai_agent_test_runs').insert({
@@ -752,7 +720,7 @@ export async function runRegressionBatch(
         selected_sources: [],
         retrieval_debug: null,
         answer_strategy: null,
-        failure_reasons: [`runner_unhandled:${caseErr?.message || 'unknown'}`],
+        failure_reasons: [`runner_unhandled:${(caseErr as { message?: string } | null)?.message || 'unknown'}`],
         metadata: { regression_trigger: batch.trigger_type },
         created_by: batch.created_by,
       });
@@ -853,7 +821,7 @@ export async function retryFailedRegressionBatch(
     .order('created_at', { ascending: false });
   const seen = new Set<string>();
   const failedCaseIds: string[] = [];
-  for (const r of (runs || []) as any[]) {
+  for (const r of (runs || []) as { test_case_id: string | null; status: string }[]) {
     if (!r.test_case_id || seen.has(r.test_case_id)) continue;
     seen.add(r.test_case_id);
     if (r.status === 'failed' || r.status === 'errored') failedCaseIds.push(r.test_case_id);
@@ -897,6 +865,19 @@ export interface RegressionOverview {
   next_due_schedule: { id: string; name: string; next_run_at: string | null; timezone: string } | null;
 }
 
+/** The parts of a selected_sources entry the overview and CSV export read. */
+interface SelectedSourceRef {
+  source_type?: string | null;
+  title?: string | null;
+}
+
+/** ai_agent_test_runs columns the overview reads. */
+interface OverviewRunRow {
+  status: string;
+  failure_reasons: string[] | null;
+  selected_sources: (SelectedSourceRef | null)[] | null;
+}
+
 export async function getRegressionOverview(
   config: ServerConfig,
   workspaceId: string,
@@ -913,7 +894,7 @@ export async function getRegressionOverview(
     sb.from('ai_agent_regression_schedules').select('id,name,next_run_at,timezone').eq('workspace_id', workspaceId).eq('enabled', true).neq('frequency', 'manual').not('next_run_at', 'is', null).order('next_run_at', { ascending: true }).limit(1).maybeSingle(),
   ]);
 
-  const schedList = (schedules || []) as any[];
+  const schedList = (schedules || []) as Pick<RegressionSchedule, 'id' | 'enabled' | 'name' | 'next_run_at' | 'timezone'>[];
   const all7d = (batches7d || []) as RegressionBatch[];
   const all24h = all7d.filter((b) => new Date(b.created_at).getTime() >= now - 24 * 3600 * 1000);
   const computeRate = (rows: RegressionBatch[]) => {
@@ -950,14 +931,14 @@ export async function getRegressionOverview(
       .limit(2000);
     const counts = new Map<string, number>();
     const cov = new Map<string, number>();
-    for (const r of (runs || []) as any[]) {
+    for (const r of (runs || []) as OverviewRunRow[]) {
       if (r.status === 'errored') erroredRunsCount += 1;
       for (const reason of (r.failure_reasons || []) as string[]) {
         const key = String(reason).split(':')[0] || String(reason);
         counts.set(key, (counts.get(key) || 0) + 1);
       }
       const seen = new Set<string>();
-      for (const s of (r.selected_sources || []) as any[]) {
+      for (const s of (r.selected_sources || []) as (SelectedSourceRef | null)[]) {
         const t = s?.source_type;
         if (t && !seen.has(t)) { seen.add(t); cov.set(t, (cov.get(t) || 0) + 1); }
       }
@@ -979,7 +960,7 @@ export async function getRegressionOverview(
     errored_runs_count: erroredRunsCount,
     top_failure_reasons: topFailure,
     coverage_by_source_type: coverage,
-    next_due_schedule: (nextDue as any) || null,
+    next_due_schedule: (nextDue as RegressionOverview['next_due_schedule']) || null,
   };
 }
 
@@ -1016,6 +997,18 @@ function csvEscape(v: unknown): string {
   return s;
 }
 
+/** ai_agent_test_runs columns (and the joined test case) the CSV export reads. */
+interface CsvRunRow {
+  test_case_id: string | null;
+  status: string;
+  actual_status: string | null;
+  confidence: number | null;
+  failure_reasons: string[] | null;
+  selected_sources: (SelectedSourceRef | null)[] | null;
+  created_at: string;
+  test_case: { name?: string | null; expected_behavior?: string | null } | null;
+}
+
 export async function exportRegressionBatchCsv(
   config: ServerConfig,
   batchId: string,
@@ -1035,10 +1028,10 @@ export async function exportRegressionBatchCsv(
     'confidence', 'failure_reasons', 'selected_source_types', 'selected_source_titles', 'created_at',
   ];
   const lines: string[] = [header.join(',')];
-  for (const r of (runs || []) as any[]) {
+  for (const r of (runs || []) as CsvRunRow[]) {
     const tc = r.test_case || {};
-    const types = Array.from(new Set((r.selected_sources || []).map((s: any) => s?.source_type).filter(Boolean)));
-    const titles = (r.selected_sources || []).map((s: any) => s?.title).filter(Boolean).slice(0, 8);
+    const types = Array.from(new Set((r.selected_sources || []).map((s: SelectedSourceRef | null) => s?.source_type).filter(Boolean)));
+    const titles = (r.selected_sources || []).map((s: SelectedSourceRef | null) => s?.title).filter(Boolean).slice(0, 8);
     lines.push([
       csvEscape(r.test_case_id),
       csvEscape(tc.name || ''),
@@ -1053,7 +1046,7 @@ export async function exportRegressionBatchCsv(
     ].join(','));
   }
   return {
-    workspaceId: (batch as any).workspace_id,
+    workspaceId: batch.workspace_id as string,
     filename: `regression-batch-${batchId.slice(0, 8)}.csv`,
     csv: lines.join('\n'),
   };

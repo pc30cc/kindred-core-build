@@ -34,6 +34,7 @@ import {
   selectNode,
   resolveDeploymentMode,
   normalizeNodes,
+  supabaseRealtimeAvailable,
   type RealtimeProviderConfig,
 } from '../services/realtime/index.js';
 import { verifySessionToken, verifyConversationOwnership } from '../services/widget/security.js';
@@ -178,6 +179,25 @@ const connectSchema = z.object({
   // Defaults to 'initial' so an older/cached widget bundle that omits this
   // field is never miscounted as a reconnect.
   intent: z.enum(['initial', 'refresh', 'reconnect', 'policy_poll']).optional().default('initial'),
+});
+
+/**
+ * GET /api/realtime/supabase-config — where the optional Supabase Realtime
+ * transport lives: the project URL and its public (anon) key, the same pair
+ * /connect hands the widget. The dashboard reads it here instead of shipping
+ * a project baked into its bundle, so one build serves any install. 404 when
+ * this install offers no Supabase Realtime — always under
+ * DATABASE_MODE=postgres-only, whatever SUPABASE_* is left set; the dashboard
+ * then uses the next transport in the provider order (Centrifugo, and polling
+ * only when Centrifugo is unreachable).
+ */
+realtimeRouter.get('/supabase-config', (req, res) => {
+  const config: ServerConfig = serverConfigOf(req);
+  res.set('Cache-Control', 'no-store');
+  if (!supabaseRealtimeAvailable(config)) {
+    return res.status(404).json({ error: 'supabase_realtime_not_configured' });
+  }
+  return res.json({ supabase_url: config.supabaseUrl, anon_key: config.supabaseAnonKey });
 });
 
 realtimeRouter.post('/connect', async (req, res) => {

@@ -2,13 +2,28 @@
 // All sensitive values come from server env, never from frontend
 
 import { assertDistinctSigningKey } from '../shared/channels/webhookSecret.js';
+import { DIRECT_DATABASE_BASE_URL, dataDriver, databaseMode } from './db/index.js';
+import { MIN_PLATFORM_SIGNING_SECRET_LENGTH, platformSigningSecret } from './lib/platformSecret.js';
 
 
 export interface ServerConfig {
   port: number;
+  /**
+   * Legacy names, kept because ~400 modules pass them along. With
+   * DATABASE_URL set (server/db) the database is reached directly and these no
+   * longer select it: supabaseUrl is SUPABASE_URL when set — used only by the
+   * optional Supabase Realtime transport — else a placeholder, the anon key may
+   * be empty, and supabaseServiceRoleKey carries the platform signing secret
+   * (PLATFORM_SIGNING_SECRET, falling back to SUPABASE_SERVICE_ROLE_KEY).
+   */
   supabaseUrl: string;
   supabaseAnonKey: string;
   supabaseServiceRoleKey: string;
+  /**
+   * Root of the server's own HMAC keys (server/lib/platformSecret.ts).
+   * Optional on the type for hand-built test configs; loadConfig() always sets it.
+   */
+  signingSecret?: string;
   corsOrigins: string[];
   rateLimitWindowMs: number;
   rateLimitMax: number;
@@ -25,19 +40,17 @@ export interface ServerConfig {
    */
   initialAdminEmail?: string;
   /**
-   * Explicit, server-only deployment-policy boundary: true ONLY when this
-   * server was deliberately started as a self-host install with no
-   * billing/plans subsystem installed (SELF_HOST_BILLING_MODE=unlimited).
-   * Read once from process.env at server startup — never from a request,
-   * header, or client-supplied value, so it cannot be toggled per-request or
-   * from the browser. Defaults to `false` (fail-closed) when unset, matching
-   * every other entitlement-outage path in server/middleware/featureGating.ts.
-   * The one place this flag is consulted (checkEntitlementFromDB) still
-   * additionally requires the RPC error to precisely name
-   * check_workspace_entitlement as absent — this flag alone never bypasses
-   * an entitlement check by itself; see entitlementParse.ts's
-   * isCheckWorkspaceEntitlementFunctionMissing for the other half of that
-   * condition.
+   * Explicit, server-only deployment-policy switch: true ONLY when this
+   * server was deliberately started without plan limits
+   * (SELF_HOST_BILLING_MODE=unlimited). Read once from process.env at server
+   * startup — never from a request, header, or client-supplied value, so it
+   * cannot be toggled per-request or from the browser. Defaults to `false`
+   * (fail-closed). When true, every entitlement, module and channel check
+   * answers "allowed, unlimited" without consulting the database
+   * (server/middleware/featureGating.ts). It does not depend on which
+   * functions the database has: the migration chain installs the billing
+   * gate everywhere, so the hosted service — which never sets this flag —
+   * keeps enforcing plans on any database it moves to.
    */
   selfHostBillingUnlimited: boolean;
   /**
@@ -303,13 +316,36 @@ export function loadConfig(): ServerConfig {
   const pluginSecretsMasterKey = optional('PLUGIN_SECRETS_MASTER_KEY');
   const aiRuntimeInternalSecret = optional('AI_RUNTIME_INTERNAL_SECRET');
 
+  // The database: DATABASE_URL (direct PostgreSQL — any server, or a
+  // Supabase project used purely as PostgreSQL), else the legacy PostgREST
+  // driver, which needs the Supabase URL and service-role key.
+  const direct = dataDriver() === 'postgres';
+  const signingSecret = platformSigningSecret();
+  if (process.env.PLATFORM_SIGNING_SECRET && process.env.PLATFORM_SIGNING_SECRET.length < MIN_PLATFORM_SIGNING_SECRET_LENGTH) {
+    throw new Error(`PLATFORM_SIGNING_SECRET must be at least ${MIN_PLATFORM_SIGNING_SECRET_LENGTH} characters`);
+  }
+  if (direct && !signingSecret) {
+    throw new Error(
+      'Missing required env var: PLATFORM_SIGNING_SECRET (when moving from Supabase, set it to the old ' +
+        'SUPABASE_SERVICE_ROLE_KEY value so existing sessions and signed links stay valid)',
+    );
+  }
+  // postgres-only takes nothing from SUPABASE_*; the extras mode keeps them
+  // for the optional Supabase services; the legacy driver needs them.
+  const mode = databaseMode();
+  const supabaseServices = mode === 'postgres+supabase-services';
+  const serviceRoleKey = direct
+    ? (supabaseServices && process.env.SUPABASE_SERVICE_ROLE_KEY) || signingSecret
+    : required('SUPABASE_SERVICE_ROLE_KEY');
+
   // Startup guard: these three must be distinct from each other and from the
-  // service-role key. A shared value collapses three security boundaries.
-  const serviceRoleKey = required('SUPABASE_SERVICE_ROLE_KEY');
+  // service-role key and the signing secret. A shared value collapses three
+  // security boundaries.
   assertDistinctSigningKey(channelsWebhookSigningKey, [
     coreInternalSecret,
     pluginSecretsMasterKey,
     serviceRoleKey,
+    signingSecret,
     process.env.SESSION_SECRET,
     process.env.JWT_SECRET,
   ]);
@@ -319,14 +355,21 @@ export function loadConfig(): ServerConfig {
   if (coreInternalSecret && coreInternalSecret === serviceRoleKey) {
     throw new Error('CORE_INTERNAL_SECRET must not reuse SUPABASE_SERVICE_ROLE_KEY');
   }
+  if (coreInternalSecret && coreInternalSecret === signingSecret) {
+    throw new Error('CORE_INTERNAL_SECRET must not reuse PLATFORM_SIGNING_SECRET');
+  }
   if (pluginSecretsMasterKey && pluginSecretsMasterKey === serviceRoleKey) {
     throw new Error('PLUGIN_SECRETS_MASTER_KEY must not reuse SUPABASE_SERVICE_ROLE_KEY');
+  }
+  if (pluginSecretsMasterKey && pluginSecretsMasterKey === signingSecret) {
+    throw new Error('PLUGIN_SECRETS_MASTER_KEY must not reuse PLATFORM_SIGNING_SECRET');
   }
   // The AI runtime lives OUTSIDE the trusted network. Its secret must never be
   // a credential that also unlocks the database or another internal boundary.
   if (aiRuntimeInternalSecret) {
     for (const [name, other] of [
       ['SUPABASE_SERVICE_ROLE_KEY', serviceRoleKey],
+      ['PLATFORM_SIGNING_SECRET', signingSecret],
       ['CORE_INTERNAL_SECRET', coreInternalSecret],
       ['PLUGIN_SECRETS_MASTER_KEY', pluginSecretsMasterKey],
       ['CHANNELS_WEBHOOK_SIGNING_KEY', channelsWebhookSigningKey],
@@ -338,9 +381,12 @@ export function loadConfig(): ServerConfig {
   }
   return {
     port: parseInt(process.env.PORT || '3001', 10),
-    supabaseUrl: required('SUPABASE_URL'),
-    supabaseAnonKey: required('SUPABASE_ANON_KEY'),
+    supabaseUrl: direct
+      ? (supabaseServices && process.env.SUPABASE_URL?.trim()) || DIRECT_DATABASE_BASE_URL
+      : required('SUPABASE_URL'),
+    supabaseAnonKey: direct ? (supabaseServices && process.env.SUPABASE_ANON_KEY?.trim()) || '' : required('SUPABASE_ANON_KEY'),
     supabaseServiceRoleKey: serviceRoleKey,
+    signingSecret,
     corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map(s => s.trim()),
     // Parsed for compatibility but read by nothing: every limiter in
     // middleware/security.ts has its own fixed window and cap.

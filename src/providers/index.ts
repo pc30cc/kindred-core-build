@@ -1,6 +1,4 @@
 export { selfHostedAuthProvider } from './selfHosted/auth';
-export { supabaseDatabaseProvider } from './supabase/database';
-export { supabaseRealtimeProvider } from './supabase/realtime';
 export { createApiEmailProvider } from './email/api';
 export { providerRegistry, PROVIDER_TYPE_KEYS } from './registry';
 export type { ProviderTypeKey, ProviderTypeMap, ProviderHealth, RegisteredProvider } from './registry';

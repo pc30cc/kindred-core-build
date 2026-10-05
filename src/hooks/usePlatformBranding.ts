@@ -1,4 +1,3 @@
-import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminFetch } from '@/hooks/useAdmin';
 
@@ -22,13 +21,8 @@ export function usePlatformBranding() {
   return useQuery({
     queryKey: ['platform_branding'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('platform_branding')
-        .select('*')
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data as PlatformBranding | null;
+      const { branding } = await adminFetch<{ branding: PlatformBranding | null }>('/api/admin/management/platform-branding');
+      return branding;
     },
   });
 }
@@ -72,12 +66,10 @@ export function usePlatformBrandingLocalized() {
   return useQuery({
     queryKey: ['platform_branding_localized'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('platform_branding_localized')
-        .select('*')
-        .order('locale');
-      if (error) throw error;
-      return (data ?? []) as PlatformBrandingLocalized[];
+      const { branding } = await adminFetch<{ branding: PlatformBrandingLocalized[] }>(
+        '/api/admin/management/platform-branding-localized',
+      );
+      return branding ?? [];
     },
   });
 }
@@ -121,13 +113,8 @@ export function usePlatformDomains() {
   return useQuery({
     queryKey: ['platform_domains'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('platform_domains')
-        .select('*')
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data as PlatformDomains | null;
+      const { domains } = await adminFetch<{ domains: PlatformDomains | null }>('/api/admin/management/platform-domains');
+      return domains;
     },
   });
 }

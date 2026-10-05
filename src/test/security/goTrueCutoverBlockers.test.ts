@@ -51,7 +51,7 @@ interface FakeBuilder {
 interface FakeTerminal {
   eq: (col: string, val: unknown) => FakeTerminal;
   is?: (col: string, val: unknown) => FakeTerminal;
-  select?: (columns?: string) => any;
+  select?: (columns?: string) => { maybeSingle: () => Promise<Resolved>; single: () => Promise<Resolved> };
   then: (resolve: Resolve) => unknown;
 }
 const db: Record<string, Row[]> = {};
@@ -282,8 +282,11 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+// The browser's only Supabase client is the optional Realtime transport,
+// built from server-provided settings (the old src/integrations/supabase/
+// client.ts, hard-wired to one project, is gone).
 describe('browser Supabase client — Auth session machinery is off', () => {
-  const source = read('src/integrations/supabase/client.ts');
+  const source = read('src/realtime/providers/supabaseConnection.ts');
 
   it('persistSession, autoRefreshToken and detectSessionInUrl are all false', () => {
     expect(source).toMatch(/persistSession:\s*false/);

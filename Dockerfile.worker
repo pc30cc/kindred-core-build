@@ -9,8 +9,11 @@
 # Default kind is "intelligence" for backward compatibility.
 #
 # Required env (all kinds):
-#   SUPABASE_URL
-#   SUPABASE_SERVICE_ROLE_KEY
+#   DATABASE_URL              any PostgreSQL 15+ (or a Supabase project's Postgres)
+#   PLATFORM_SIGNING_SECRET   kinds that boot through loadConfig (invitations,
+#                             seo-crawler, retention, regression-runner)
+# Legacy alternative to DATABASE_URL: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
+# (+ SUPABASE_ANON_KEY for the loadConfig kinds).
 #
 # Optional env (kind-aware; new names preferred, old names still work):
 #   WORKER_ID | AI_KB_WORKER_ID

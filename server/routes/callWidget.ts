@@ -391,7 +391,7 @@ type OptionalCookieSecrets = { widgetTokenSecret?: string; sessionSecret?: strin
 
 function activeCallCookieSecret(config: ServerConfig): string {
   const secrets = config as ServerConfig & OptionalCookieSecrets;
-  return `call-widget-active:${secrets.widgetTokenSecret || secrets.sessionSecret || config.supabaseServiceRoleKey}`;
+  return `call-widget-active:${secrets.widgetTokenSecret || secrets.sessionSecret || config.signingSecret || config.supabaseServiceRoleKey}`;
 }
 
 function signActiveCallCookie(config: ServerConfig, body: string): string {

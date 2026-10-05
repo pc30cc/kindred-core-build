@@ -17,7 +17,7 @@ It bundles, in a single codebase:
 - A multi-tenant operator/admin web application (React SPA).
 - An embeddable visitor chat widget (Shadow-DOM, content-hashed runtime).
 - An independent embeddable voice/video **call widget**.
-- An Express backend that brokers Supabase, LiveKit, Centrifugo, email
+- An Express backend that brokers PostgreSQL, LiveKit, Centrifugo, email
   providers, MaxMind GeoIP, and AI services.
 - A multi-kind worker process (AI knowledge-base builder, data-source
   sync, regression runner).
@@ -27,6 +27,10 @@ It bundles, in a single codebase:
 The deployment model is **self-host first**. There is no required
 dependency on managed Lovable Cloud or Supabase Edge Functions —
 all server-side logic runs in the project's own Express server.
+The database is any PostgreSQL 15+: your own server, a managed one, or a
+Supabase project used only as a database. Moving between them is a
+connection string plus `scripts/db/move-data.sh` — see
+[`docs/DATABASE.md`](docs/DATABASE.md).
 
 ---
 
@@ -55,8 +59,8 @@ The full route table lives in `src/App.tsx`.
 - i18n: `fa` (RTL), `en` (LTR), `tr` (LTR)
 - Maps: Leaflet + react-leaflet + markercluster
 - LiveKit JS SDK (self-hosted vendor bundle)
-- Supabase JS client (auth + DB read paths only — privileged work goes
-  through the Express backend)
+- No database client in the browser: every read and write goes through the
+  Express backend's `/api/...`
 
 The root `package.json` `name` field is `vite_react_shadcn_ts` (the
 default Lovable Vite template name). It has not been renamed in order
@@ -69,7 +73,9 @@ to avoid breaking deploy scripts and image caches. See `NAMING.md`.
 - Node + Express 4 (`server/index.ts`)
 - TypeScript (compiled by `tsc -p tsconfig.server.json`, output to `dist/server/`)
 - Helmet, CORS, cookie-parser, express-rate-limit
-- Supabase service-role client (server-only)
+- PostgreSQL over `DATABASE_URL` (`pg` pool). Queries are built with the
+  supabase-js API and run by an in-process PostgREST-compatible engine
+  (`server/db`). Details in [`docs/DATABASE.md`](docs/DATABASE.md).
 - JWT (`jsonwebtoken`), `crypto-js`
 - Email providers: Resend, SendGrid, SMTP (configured via env or DB)
 - MaxMind GeoIP (`maxmind`) for visitor geolocation
@@ -163,8 +169,6 @@ See `docs/WORKERS_DEPLOYMENT.md` and `docs/AI_KB_WORKER_DEPLOYMENT.md`.
 
 | Variable                      | Required | Notes                                                                                                                        |
 | ----------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_SUPABASE_URL`           | yes      | Supabase project URL                                                                                                         |
-| `VITE_SUPABASE_ANON_KEY`      | yes      | Supabase anon (publishable) key                                                                                              |
 | `VITE_API_BASE_URL`           | yes      | URL of the Express backend                                                                                                   |
 | `VITE_WIDGET_LOADER_BASE_URL` | no       | Used **only** for the in-panel preview snippet shown on the login page when widget assets are served from a different origin |
 | `VITE_WIDGET_ASSET_BASE_URL`  | no       | Same as above for hashed runtime URLs                                                                                        |
@@ -176,9 +180,18 @@ after changing them.
 
 Required:
 
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY` (server-only — never sent to the browser)
+- `DATABASE_URL`: any PostgreSQL 15+ (with pgvector for AI knowledge
+  retrieval). On Supabase, use the direct or session-pooler connection
+  string, never the transaction pooler.
+- `PLATFORM_SIGNING_SECRET`: root of the server's HMAC keys
+  (`openssl rand -hex 32`). When moving off the Supabase REST driver, set it
+  to the old `SUPABASE_SERVICE_ROLE_KEY` value.
+
+Optional: `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`,
+only for the Supabase Realtime transport. Without `DATABASE_URL`, the server
+falls back to the legacy driver, Supabase's REST API with these keys. The
+`DATABASE_*` tuning variables are listed in
+[`docs/DATABASE.md`](docs/DATABASE.md#8-environment-reference).
 
 Optional / common:
 
@@ -203,22 +216,24 @@ Worker-only env: `WORKER_KIND` (see Worker section).
 
 ## Local development
 
-Prereqs: Node 18+, a Supabase project (or compatible Postgres), Docker
-(optional, for compose-based dev).
+Prereqs: Node 18+, PostgreSQL 15+ (any: local, Docker, or a Supabase
+project's database), Docker (optional, for compose-based dev).
 
-1. Database. Apply `database/migrations/001_*.sql` through
-   `006_*.sql` in order against your Supabase / Postgres. Migration
-   order is significant.
+1. Database. Apply the whole chain:
+   `DATABASE_URL=postgresql://… ./scripts/migrate-database.sh`. It runs every
+   `database/migrations/*.sql` in order and records them, so a re-run applies
+   only new files. A throwaway local server:
+   `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=dev pgvector/pgvector:pg17`.
 2. Backend:
    ```sh
    cd server
-   cp .env.example .env   # fill SUPABASE_URL / ANON / SERVICE_ROLE
+   cp .env.example .env   # fill DATABASE_URL and PLATFORM_SIGNING_SECRET
    npm install
    npm run dev            # tsx watch on :3001
    ```
 3. Frontend (from repo root):
    ```sh
-   cp .env.example .env   # fill VITE_SUPABASE_* and VITE_API_BASE_URL
+   cp .env.example .env   # fill VITE_API_BASE_URL
    npm install
    npm run dev            # vite on :5173 (or 8080)
    ```
@@ -234,6 +249,12 @@ Compose-based local dev (frontend + backend, no workers, no Centrifugo):
 
 ```sh
 docker compose -f docker-compose.yaml up --build
+```
+
+The full stack with a bundled PostgreSQL (migrations applied on start):
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
 ```
 
 Centrifugo and LiveKit are deployed as separate services — see
@@ -345,9 +366,10 @@ and runtime bundle. They do not share runtime code at the bundle level.
    manifest reader fail loudly on purpose; deploys must rebuild
    _both_ frontend and (if dependent on a remote manifest) the backend
    manifest cache.
-2. **Service-role key isolation.** `SUPABASE_SERVICE_ROLE_KEY` must
-   never reach the browser. The frontend uses the publishable / anon
-   key only; privileged work crosses through `/api/...`.
+2. **Database credentials stay on the server.** `DATABASE_URL`,
+   `PLATFORM_SIGNING_SECRET` and `SUPABASE_SERVICE_ROLE_KEY` never reach the
+   browser, the channels gateway or the AI runtime. The frontend has no
+   database client at all; everything crosses through `/api/...`.
 3. **Edge Functions are forbidden by project policy.** All backend
    logic runs in the Express server.
 4. **White-label.** No customer-facing brand string is hardcoded in
@@ -359,11 +381,12 @@ and runtime bundle. They do not share runtime code at the bundle level.
 6. **Realtime configuration lives in the database**, not env files.
    Centrifugo credentials are managed at runtime via Super Admin →
    Providers → Realtime.
-7. **Migrations live in two places.** `database/migrations/00X_*.sql`
-   are the canonical numbered migrations for self-host bring-up;
+7. **Migrations live in two places.** `database/migrations/NNN_*.sql`
+   are the canonical numbered migrations. They build any database from
+   empty, plain PostgreSQL included, via `scripts/migrate-database.sh`.
    `supabase/migrations/<timestamp>_*.sql` are produced by the
    Supabase migration tooling for incremental schema changes against
-   the connected project. Both are applied to production.
+   the connected hosted project.
 8. **Trust proxy is private-only.** Public IPs in the
    `x-forwarded-for` chain are not trusted — operators terminating
    TLS in custom topologies should verify this matches their setup.
@@ -380,7 +403,7 @@ and runtime bundle. They do not share runtime code at the bundle level.
 │   ├── features/           # Auth, branding, calls, providers, workspace
 │   ├── hooks/              # TanStack Query hooks + domain hooks
 │   ├── lib/                # API clients, helpers
-│   ├── providers/          # Provider-driven architecture (Supabase, stubs, registry)
+│   ├── providers/          # Provider-driven architecture (self-hosted, stubs, registry)
 │   ├── realtime/           # Realtime resolver + drivers
 │   ├── i18n/               # fa / en / tr
 │   └── integrations/       # supabase/client, generated types
@@ -395,7 +418,7 @@ and runtime bundle. They do not share runtime code at the bundle level.
 │   └── call-widget/        # Call widget loader + runtime sources
 ├── scripts/
 │   └── widget-hash.js      # Hashes widget runtime + writes widget-manifest.json
-├── database/migrations/    # Numbered self-host migrations (001-006)
+├── database/migrations/    # Numbered migrations — build any PostgreSQL from empty
 ├── supabase/migrations/    # Timestamped migrations from Supabase tooling
 ├── docs/                   # Architecture and ops runbooks
 ├── deploy/                 # Centrifugo / LiveKit / MaxMind config templates

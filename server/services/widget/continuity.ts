@@ -14,6 +14,7 @@ import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Request, Response } from 'express';
 import { isSecureRequest } from './visitorIdentity.js';
+import { platformSigningSecret } from '../../lib/platformSecret.js';
 
 const CONTINUITY_TOKEN_BYTES = 48;
 const CONTINUITY_TTL_DAYS = 90;
@@ -31,7 +32,7 @@ interface SignedContactContinuityPayload {
 function getContinuitySecret(): string {
   const key = process.env.WIDGET_CONTINUITY_SECRET
     || process.env.WIDGET_SIGNING_SECRET
-    || process.env.SUPABASE_SERVICE_ROLE_KEY
+    || platformSigningSecret()
     || '';
   if (!key) throw new Error('Missing WIDGET_CONTINUITY_SECRET');
   return key;

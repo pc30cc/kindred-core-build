@@ -18,7 +18,7 @@
 #   AI_HTTP_TIMEOUT_MS / AI_RETRY_ATTEMPTS / AI_TOTAL_BUDGET_MS
 #
 # MUST NOT be set (the process refuses to start if they are):
-#   SUPABASE_SERVICE_ROLE_KEY, PLUGIN_SECRETS_MASTER_KEY, SESSION_SECRET
+#   SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, PLATFORM_SIGNING_SECRET, PLUGIN_SECRETS_MASTER_KEY, SESSION_SECRET
 # The runtime is stateless: no database, no long-lived provider credentials.
 # Provider config travels inline, per request, from Core.
 #

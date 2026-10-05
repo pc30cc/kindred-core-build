@@ -23,11 +23,12 @@ import { getServiceClient } from '../../supabase.js';
 import { botJobType, enqueueChannelJob } from './jobs.js';
 import { isBotProvider } from '../../../shared/channels/botProviders.js';
 import { resolveSelfApiBaseUrl } from '../calls/rtcResolver.js';
+import { platformSigningSecret } from '../../lib/platformSecret.js';
 
 const URL_TTL_SECONDS = 60 * 60 * 6; // 6h — plenty for retries, short enough to be safe.
 
 function secret(): Buffer {
-  const base = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.WIDGET_SIGNING_SECRET || '';
+  const base = platformSigningSecret() || process.env.WIDGET_SIGNING_SECRET || '';
   return crypto.createHash('sha256').update('attachment-public:' + base).digest();
 }
 
@@ -84,7 +85,7 @@ export async function enqueueOutboundMediaIfChannelConversation(
     .eq('id', input.conversationId)
     .maybeSingle();
 
-  const metadata = ((conversation as any)?.metadata ?? {}) as Record<string, unknown>;
+  const metadata = ((conversation as { metadata?: unknown } | null)?.metadata ?? {}) as Record<string, unknown>;
   const provider = String(metadata.channel ?? '');
   if (!isBotProvider(provider)) return 'not_a_channel_conversation';
 
@@ -145,7 +146,7 @@ export async function enqueueOutboundMediaIfChannelConversation(
     });
     return 'enqueued';
   } catch (err) {
-    if ((err as any)?.message?.includes('duplicate key')) return 'already_enqueued';
+    if ((err as { message?: string } | null)?.message?.includes('duplicate key')) return 'already_enqueued';
     throw err;
   }
 }

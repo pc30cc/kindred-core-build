@@ -18,6 +18,7 @@
 
 import os from 'node:os';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
+import { workerDatabaseConfig } from '../../server/db/index.js';
 import { processOne, getWorkerInfo } from '../../server/services/ai-agent/sourceWorker.js';
 import { IdleBackoff } from '../../server/services/jobs/idleBackoff.js';
 
@@ -28,11 +29,7 @@ function clampInt(v: string | undefined, def: number, min: number, max: number):
 }
 
 function buildConfig(): ServerConfig {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new Error('[ai-source worker] SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
-  }
+  const { supabaseUrl, supabaseServiceRoleKey, signingSecret } = workerDatabaseConfig('[ai-source worker]');
   // Anon key is unused by sourceWorker (only service client is used). Keep a
   // safe placeholder so we don't force operators to wire the anon key into
   // the worker container.
@@ -42,6 +39,7 @@ function buildConfig(): ServerConfig {
     supabaseUrl,
     supabaseAnonKey,
     supabaseServiceRoleKey,
+    signingSecret,
     corsOrigins: [],
     rateLimitWindowMs: 60_000,
     rateLimitMax: 100,

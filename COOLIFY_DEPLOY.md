@@ -3,6 +3,11 @@
 This project deploys as **two separate services** in Coolify.
 The same codebase supports multiple domains via environment variables.
 
+The database is any PostgreSQL 15+ the backend can reach: a PostgreSQL
+service in Coolify (image `pgvector/pgvector:pg17`), an external server, or
+a Supabase project used only as a database. Setup, migrations and moving
+between them: [`docs/DATABASE.md`](docs/DATABASE.md).
+
 ---
 
 ## Architecture
@@ -32,8 +37,6 @@ Browser → https://api.example.com (Backend / Express, optional direct API call
 
 | Variable | Example | Required |
 |---|---|---|
-| `VITE_SUPABASE_URL` | `https://xxx.supabase.co` | ✅ |
-| `VITE_SUPABASE_ANON_KEY` | `eyJ...` | ✅ |
 | `VITE_API_BASE_URL` | `https://api.example.com` | ✅ |
 
 > ⚠️ These are **build-time** variables. You must rebuild after changing them.
@@ -70,9 +73,9 @@ https://api.example.com/api → https://api.example.com/api/...
 | Variable | Example | Required |
 |---|---|---|
 | `PORT` | `3001` | ✅ |
-| `SUPABASE_URL` | `https://xxx.supabase.co` | ✅ |
-| `SUPABASE_ANON_KEY` | `eyJ...` | ✅ |
-| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | ✅ |
+| `DATABASE_URL` | `postgresql://webyar_app:…@postgres:5432/webyar` | ✅ |
+| `PLATFORM_SIGNING_SECRET` | `openssl rand -hex 32` (moving from Supabase: the old service-role key) | ✅ |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | | ❌ (only for the optional Supabase Realtime transport) |
 | `CORS_ORIGINS` | `https://example.com` | ✅ |
 | `WIDGET_ASSET_BASE_URL` | `https://example.com` | ✅ (split deploy) |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | ❌ (no effect — limits are fixed per route) |
@@ -154,10 +157,9 @@ Set `CORS_ORIGINS` on the backend to your frontend domain(s).
 
 ## 6. Auth & Session Notes
 
-- Auth uses Supabase Auth (token-based via `supabase-js`)
-- No cookie-based sessions between frontend/backend
-- Frontend authenticates directly with Supabase
-- Backend validates tokens via Supabase service role
+- Auth is first-party: the backend checks `profiles` + `user_credentials` in
+  your own database and issues an HttpOnly `gs_session` cookie. Supabase Auth
+  is not used, and the browser never talks to Supabase.
 - Email verification and password reset use **fully self-hosted** custom token system
 - Verification/reset links point to the **frontend domain** (not Supabase)
 - No `supabase.co/auth/v1/verify` links are used
@@ -181,8 +183,10 @@ Use `docker-compose.yaml` for local dev only:
 
 ```bash
 cp .env.docker.example .env.docker
-# Edit .env.docker with your values
+# Edit .env.docker with your values (DATABASE_URL, PLATFORM_SIGNING_SECRET, …)
 docker compose --env-file .env.docker up --build
 ```
+
+For the full stack with a bundled PostgreSQL, see `docker-compose.postgres.yml`.
 
 This starts both services locally. **Not for production use.**

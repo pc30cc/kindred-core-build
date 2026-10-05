@@ -29,6 +29,8 @@
 // vendor HTTP call, far lighter than a multi-page crawl, so it shares this
 // worker's single poller rather than needing its own kind/container (see
 // worker/seo-crawler/index.ts and worker/seo-backlinks/processScan.ts).
+import { waitForDatabase } from '../server/db/status.js';
+
 const ALLOWED = new Set([
   'intelligence',
   'source-sync',
@@ -59,6 +61,16 @@ const KINDS = new Set(REQUESTED);
 const runsAll = KINDS.has('all');
 const runs = (kind: string) => runsAll || KINDS.has(kind);
 
+// Each worker container opens its own connection pool. A worker runs one job
+// at a time per loop, so a few connections serve it; the backend keeps the
+// default of 10 for concurrent HTTP traffic. Summed over the backend and every
+// worker container this must stay below the server's max_connections (60 on
+// the hosted project, ~12 of them taken by Supabase itself) — docs/DATABASE.md
+// §8. DATABASE_POOL_MAX, when set, always wins.
+if (!process.env.DATABASE_POOL_MAX?.trim()) {
+  process.env.DATABASE_POOL_MAX = runsAll || KINDS.size > 1 ? '5' : '3';
+}
+
 console.log('[worker] starting', { kinds: [...KINDS] });
 
 // Node's default for an unhandled rejection is to kill the process — and
@@ -70,6 +82,8 @@ process.on('unhandledRejection', (reason) => {
 });
 
 async function main() {
+  // DATABASE_URL (direct PostgreSQL) or the legacy SUPABASE_URL + key.
+  await waitForDatabase('worker');
   if (runs('intelligence')) {
     const mod = await import('./intelligence/index.js');
     mod.startAiKbWorker?.();

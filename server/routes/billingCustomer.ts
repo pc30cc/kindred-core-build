@@ -14,6 +14,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
+import type { ServerConfig } from '../config.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveBillingConfig, resolveNamedBillingConfig, logBillingEvent } from '../services/billing/index.js';
@@ -43,7 +44,8 @@ import {
   getInvoice,
   InvoiceSettlementError,
 } from '../services/billing/invoice/settle.js';
-import { createWalletDeposit } from '../services/billing/wallet/index.js';
+import { createWalletDeposit, type WalletDepositRow } from '../services/billing/wallet/index.js';
+import type { PurchaseActionType } from '../services/billing/periods.js';
 import {
   createInvoiceIntent,
   createWalletDepositIntent,
@@ -58,22 +60,49 @@ import {
   listPayableGateways,
 } from '../services/billing/config/index.js';
 import { isAllowedBillingCallbackUrl, resolvePublicApiOrigin } from '../services/billing/callbackUrl.js';
+import { readTopupConfig } from '../services/billing/topupConfig.js';
 
 
 export const billingCustomerRouter = Router();
 
-function fail(res: any, e: unknown) {
+/** The part of an Express response the error mapper writes to. */
+type JsonResponse = { status(code: number): { json(body: unknown): unknown } };
+
+/** The `billing_plans` fields the plans tab reads; legacy rows may lack some. */
+interface CatalogPlanRow {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  is_hidden?: boolean | null;
+  prices?: { IRR?: { monthly?: unknown; yearly?: unknown } } | null;
+  price_monthly?: unknown;
+  price_yearly?: unknown;
+  limits?: Record<string, unknown> | null;
+  entitlements?: Record<string, unknown> | null;
+  features?: unknown;
+}
+
+/** The `workspace_subscriptions` columns the plans tab selects. */
+interface PlanTabSubscriptionRow {
+  plan_id: string | null;
+  billing_interval: string | null;
+  pending_change_type: string | null;
+  next_plan_id: string | null;
+}
+
+function fail(res: JsonResponse, e: unknown) {
   if (e instanceof BillingActionError) {
     return res.status(e.status).json({ error: e.code, message: e.message, details: e.details ?? null });
   }
   if (e instanceof InvoiceSettlementError) {
-    return res.status((e as any).status || 409).json({ error: (e as any).code || 'SETTLEMENT_FAILED' });
+    return res.status(e.status || 409).json({ error: e.code || 'SETTLEMENT_FAILED' });
   }
   const message = e instanceof Error ? e.message : 'unexpected_error';
   return res.status(500).json({ error: 'INTERNAL_ERROR', message });
 }
 
-function pageParams(req: any) {
+function pageParams(req: { query: Record<string, unknown> }) {
   return {
     page: Number(req.query.page ?? 1) || 1,
     pageSize: Number(req.query.pageSize ?? 10) || 10,
@@ -93,7 +122,7 @@ function isManage(auth: { isAdmin: boolean; role: string | null } | null): boole
  * crafted request cannot reach a disabled or unimplemented provider. With no
  * explicit choice we fall back to the configured default resolution.
  */
-async function resolveCheckoutProvider(cfg: any, workspaceId: string, providerName?: string | null) {
+async function resolveCheckoutProvider(cfg: ServerConfig, workspaceId: string, providerName?: string | null) {
   if (providerName) {
     const gateways = await listPayableGateways(cfg, 'IRR');
     const gateway = gateways.find((g) => g.provider_name === providerName);
@@ -230,7 +259,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/pay-wal
 
     const settlement = await settleInvoiceFromWallet(cfg, { invoiceId, actorId: auth.userId });
     let application: unknown = null;
-    if ((settlement as any).status === 'paid') {
+    if (settlement.status === 'paid') {
       application = await applyInvoiceEffects(cfg, invoiceId);
     }
     res.json({ success: true, settlement, application });
@@ -294,8 +323,8 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
   try {
     const invoice = await getInvoice(cfg, invoiceId);
     if (!invoice || invoice.workspace_id !== workspaceId) return res.status(404).json({ error: 'NOT_FOUND' });
-    const due = Number((invoice as any).amount_due_irr ?? 0);
-    if (!['open', 'partially_paid', 'past_due'].includes((invoice as any).status) || due <= 0) {
+    const due = Number(invoice.amount_due_irr ?? 0);
+    if (!['open', 'partially_paid', 'past_due'].includes(invoice.status) || due <= 0) {
       return res.status(409).json({ error: 'INVOICE_NOT_PAYABLE' });
     }
 
@@ -313,11 +342,13 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       invoiceId,
       amountIrr: due,
       providerName: resolved.provider.name,
-      planId: (invoice as any).plan_id ?? null,
-      interval: (invoice as any).billing_interval ?? null,
-      actionType: ((invoice as any).effect_snapshot?.action_type as any) ?? null,
-      planNameSnapshot: (invoice as any).plan_name_snapshot ?? null,
-      invoiceNumber: (invoice as any).invoice_number,
+      planId: invoice.plan_id ?? null,
+      interval: invoice.billing_interval ?? null,
+      // The frozen effect may name the invoice act ('ai_credit_purchase');
+      // createInvoiceIntent maps it onto the purchase vocabulary.
+      actionType: (invoice.effect_snapshot?.action_type as PurchaseActionType) ?? null,
+      planNameSnapshot: invoice.plan_name_snapshot ?? null,
+      invoiceNumber: invoice.invoice_number,
       metadata: { origin: 'customer_invoice_checkout' },
     });
     intentId = intent.id;
@@ -360,8 +391,8 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
 
     const result = await resolved.provider.createCheckoutSession(resolved.config, {
       workspaceId,
-      planId: (invoice as any).plan_id || 'invoice',
-      interval: ((invoice as any).billing_interval || 'monthly') as any,
+      planId: invoice.plan_id || 'invoice',
+      interval: invoice.billing_interval || 'monthly',
       currency: 'IRR',
       callbackUrl: gatewayCallbackUrl,
       metadata: { amount: String(due), invoiceId },
@@ -374,8 +405,12 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
     if (bindingRequired || ref) {
       try {
         await setPaymentIntentProviderRef(cfg, intent.id, ref);
-      } catch (bindError: any) {
-        await markPaymentIntentFailed(cfg, intent.id, String(bindError?.message || 'binding_failed'));
+      } catch (bindError) {
+        await markPaymentIntentFailed(
+          cfg,
+          intent.id,
+          String((bindError as { message?: string })?.message || 'binding_failed'),
+        );
         if (bindingRequired) {
           await releaseCollection(cfg, hold.collection_id, 'binding_failed').catch(() => undefined);
           return res.status(502).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
@@ -393,7 +428,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       metadata: { invoiceId, intentId: intent.id },
     });
 
-    res.json({ success: true, ...result, intentId: intent.id, invoiceNumber: (invoice as any).invoice_number });
+    res.json({ success: true, ...result, intentId: intent.id, invoiceNumber: invoice.invoice_number });
   } catch (e) {
     if (hold) {
       await releaseCollection(serverConfigOf(req), hold.collection_id, 'checkout_failed').catch(
@@ -427,27 +462,27 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
     ]);
     if (plansRes.error) throw new Error(`billing plans read failed: ${plansRes.error.message}`);
     if (subRes.error) throw new Error(`billing subscription read failed: ${subRes.error.message}`);
-    const plans = plansRes.data;
-    const sub = subRes.data;
+    const plans = plansRes.data as CatalogPlanRow[] | null;
+    const sub = subRes.data as PlanTabSubscriptionRow | null;
 
     // The plans tab is an upgrade catalogue: it lists only the paid plans a
     // customer can move to. Hidden plans stay admin-only, and the free/trial
     // tiers are never offered here — a trial or free workspace sees the paid
     // plans it can upgrade to, and its current tier is reported by the
     // overview tab instead.
-    const currentPlanId = (sub as any)?.plan_id ?? null;
-    const isPaidPlan = (p: any) =>
+    const currentPlanId = sub?.plan_id ?? null;
+    const isPaidPlan = (p: CatalogPlanRow) =>
       Number(p.prices?.IRR?.monthly ?? p.price_monthly ?? 0) > 0 ||
       Number(p.prices?.IRR?.yearly ?? p.price_yearly ?? 0) > 0;
     const visiblePlans = (plans || []).filter(
-      (p: any) => p.is_hidden !== true && p.slug !== 'trial' && p.slug !== 'free' && isPaidPlan(p),
+      (p) => p.is_hidden !== true && p.slug !== 'trial' && p.slug !== 'free' && isPaidPlan(p),
     );
 
     res.json({
       currentPlanId,
-      currentInterval: (sub as any)?.billing_interval ?? null,
-      pendingPlanId: (sub as any)?.next_plan_id ?? null,
-      plans: visiblePlans.map((p: any) => ({
+      currentInterval: sub?.billing_interval ?? null,
+      pendingPlanId: sub?.next_plan_id ?? null,
+      plans: visiblePlans.map((p) => ({
         id: p.id,
         name: p.name,
         description: p.description ?? null,
@@ -567,7 +602,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/invoice', as
     res.json({
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoice_number,
-      amountIrr: Number((invoice as any).amount_due_irr),
+      amountIrr: Number(invoice.amount_due_irr),
     });
   } catch (e) {
     fail(res, e);
@@ -625,16 +660,16 @@ billingCustomerRouter.get('/workspaces/:workspaceId/wallet/deposits/:depositId',
       .select('*')
       .eq('id', req.params.depositId)
       .eq('workspace_id', req.params.workspaceId)
-      .maybeSingle();
+      .maybeSingle<WalletDepositRow>();
     if (!deposit) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({
       deposit: {
-        id: (deposit as any).id,
-        documentNumber: (deposit as any).document_number,
+        id: deposit.id,
+        documentNumber: deposit.document_number,
         documentType: 'wallet_deposit',
-        amountIrr: Number((deposit as any).amount_irr),
-        status: (deposit as any).status,
-        createdAt: (deposit as any).created_at,
+        amountIrr: Number(deposit.amount_irr),
+        status: deposit.status,
+        createdAt: deposit.created_at,
       },
     });
   } catch (e) {
@@ -668,19 +703,19 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
       .select('*')
       .eq('id', parsed.data.depositId)
       .eq('workspace_id', workspaceId)
-      .maybeSingle();
+      .maybeSingle<WalletDepositRow>();
     if (!deposit) return res.status(404).json({ error: 'NOT_FOUND' });
-    if ((deposit as any).status !== 'pending') return res.status(409).json({ error: 'DEPOSIT_NOT_PENDING' });
+    if (deposit.status !== 'pending') return res.status(409).json({ error: 'DEPOSIT_NOT_PENDING' });
 
     const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName);
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
     if (!IRAN_PROVIDERS.has(resolved.provider.name)) return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
 
-    const amount = Number((deposit as any).amount_irr);
+    const amount = Number(deposit.amount_irr);
     const intent = await createWalletDepositIntent(cfg, {
       workspaceId,
-      depositId: (deposit as any).id,
-      documentNumber: (deposit as any).document_number,
+      depositId: deposit.id,
+      documentNumber: deposit.document_number,
       amountIrr: amount,
       providerName: resolved.provider.name,
       metadata: { origin: 'customer_wallet_deposit' },
@@ -688,7 +723,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
     await sb
       .from('billing_wallet_deposits')
       .update({ payment_intent_id: intent.id })
-      .eq('id', (deposit as any).id);
+      .eq('id', deposit.id);
 
     const apiOrigin = await resolvePublicApiOrigin(cfg.supabaseUrl, cfg.supabaseServiceRoleKey);
     const { browserReturnUrl, gatewayCallbackUrl } = paymentReturnUrls(
@@ -714,7 +749,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
       interval: 'monthly',
       currency: 'IRR',
       callbackUrl: gatewayCallbackUrl,
-      metadata: { amount: String(amount), depositId: (deposit as any).id },
+      metadata: { amount: String(amount), depositId: deposit.id },
     });
 
     const ref = result.providerRef || result.authority || result.sessionId || '';
@@ -722,13 +757,17 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
     if (bindingRequired || ref) {
       try {
         await setPaymentIntentProviderRef(cfg, intent.id, ref);
-      } catch (bindError: any) {
-        await markPaymentIntentFailed(cfg, intent.id, String(bindError?.message || 'binding_failed'));
+      } catch (bindError) {
+        await markPaymentIntentFailed(
+          cfg,
+          intent.id,
+          String((bindError as { message?: string })?.message || 'binding_failed'),
+        );
         if (bindingRequired) return res.status(502).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
       }
     }
 
-    res.json({ success: true, ...result, intentId: intent.id, documentNumber: (deposit as any).document_number });
+    res.json({ success: true, ...result, intentId: intent.id, documentNumber: deposit.document_number });
   } catch (e) {
     fail(res, e);
   }
@@ -743,13 +782,12 @@ billingCustomerRouter.post('/workspaces/:workspaceId/ai-credit/invoice', async (
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   const cfg = serverConfigOf(req);
   try {
-    const sb = getServiceClient(cfg);
-    const { data: policy } = await sb
-      .from('platform_settings')
-      .select('ai_topup_min_toman, ai_topup_max_toman')
-      .maybeSingle();
-    const minIrr = Math.round(Number((policy as any)?.ai_topup_min_toman ?? 50_000)) * 10;
-    const maxIrr = Math.round(Number((policy as any)?.ai_topup_max_toman ?? 100_000_000)) * 10;
+    // The limits Super Admin sets for AI top-ups. platform_settings has no
+    // ai_topup_* columns: reading them failed and this path always ran on the
+    // defaults below, which it keeps while no limit is stored.
+    const topup = await readTopupConfig(cfg, { presetsToman: [], minToman: 50_000, maxToman: 100_000_000 });
+    const minIrr = Math.round(topup.minToman) * 10;
+    const maxIrr = Math.round(topup.maxToman) * 10;
 
     const invoice = await issueAiCreditPurchase(cfg, req.params.workspaceId, parsed.data.amountIrr, {
       minIrr,
@@ -758,7 +796,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/ai-credit/invoice', async (
     res.json({
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoice_number,
-      amountIrr: Number((invoice as any).amount_due_irr),
+      amountIrr: Number(invoice.amount_due_irr),
     });
   } catch (e) {
     fail(res, e);

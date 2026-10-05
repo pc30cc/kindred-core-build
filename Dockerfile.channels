@@ -13,7 +13,7 @@
 #   CHANNELS_PORT                  default 3011
 #
 # MUST NOT be provided (the process exits if they are):
-#   SUPABASE_SERVICE_ROLE_KEY, PLUGIN_SECRETS_MASTER_KEY
+#   SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, PLATFORM_SIGNING_SECRET, PLUGIN_SECRETS_MASTER_KEY
 #
 # Build from repo root:
 #   docker build -f Dockerfile.channels -t growth-suite-channels .

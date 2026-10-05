@@ -59,14 +59,13 @@ vi.mock('@/hooks/useEntitlements', async () => {
     useEntitlementDiagnostics: idle,
   };
 });
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: () => ({
-      select: () => ({
-        limit: () => ({ maybeSingle: async () => ({ data: { active_locales: ['en', 'fa', 'tr'] } }) }),
-      }),
-    }),
-  },
+vi.mock('@/lib/platformPublicConfig', () => ({
+  fetchPlatformPublicConfig: async () => ({
+    branding: null,
+    localized: [],
+    region: { region_mode: 'multi', active_locales: ['en', 'fa', 'tr'], default_locale: 'en' },
+    realtime: null,
+  }),
 }));
 
 import AdminPlansPage from '@/pages/admin/PlansPage';

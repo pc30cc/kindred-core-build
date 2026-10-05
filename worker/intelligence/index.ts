@@ -12,7 +12,8 @@
  * cannot expand the scope.
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { dataClientFor, workerDatabaseConfig } from '../../server/db/index.js';
 import { processJob } from './processor.js';
 import { DbJobQueueProvider, type JobQueueProvider } from '../../server/services/ai-kb/queue.js';
 import { loadConfig } from '../../server/config.js';
@@ -59,11 +60,7 @@ export function workerLog(event: string, data: object = {}) {
 const log = workerLog;
 
 function loadEnv(): WorkerEnv {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new Error('[ai-kb worker] SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
-  }
+  const { supabaseUrl, supabaseServiceRoleKey } = workerDatabaseConfig('[ai-kb worker]');
   return {
     supabaseUrl,
     supabaseServiceRoleKey,
@@ -74,9 +71,7 @@ function loadEnv(): WorkerEnv {
 }
 
 export function createWorkerClient(env: WorkerEnv): SupabaseClient {
-  return createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  return dataClientFor(env.supabaseUrl, env.supabaseServiceRoleKey);
 }
 
 let lastIdleLogAt = 0;

@@ -8,6 +8,7 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
+import type { OperatorEventKind } from '../../services/realtime/publish.js';
 import { getServiceClient } from '../../supabase.js';
 import { recordAiAgentDebugEvent } from '../../services/ai-agent/debugEvents.js';
 import { routeParam } from '../../lib/routeParams.js';
@@ -17,10 +18,13 @@ import { authorizeMember, isOwnerOrAdmin, requireWorkspace, redactDeep } from '.
 
 export const activityRouter: Router = express.Router();
 
+/** The server attaches its config to every request (server/index.ts). */
+type ConfiguredRequest = Request & { serverConfig?: ServerConfig };
+
 
 // ─── GET /runs ───
 activityRouter.get('/runs', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -46,35 +50,96 @@ activityRouter.get('/runs', async (req: Request, res: Response) => {
 // Strips storage paths, signed URLs, credentials, tokens. File source URLs are null.
 // redactDeep is shared with the internal-qa domain's /debug/retrieval route
 // (see shared.ts); truncate is only used here.
-function truncate(s: any, n: number): any {
+function truncate(s: unknown, n: number): unknown {
   if (typeof s !== 'string') return s;
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
+interface ExcludedSourcesSummary {
+  disabled_qna_excluded?: number;
+  draft_kb_excluded?: number;
+  inactive_file_excluded?: number;
+  inactive_web_page_excluded?: number;
+  unapproved_learned_qna_excluded?: number;
+}
+
+/** The parts of ai_agent_runs.metadata the inspector reads. */
+interface InspectRunMetadata {
+  retrieval?: {
+    retrieval_debug?: {
+      excluded_sources_summary?: ExcludedSourcesSummary;
+      selected_sources?: unknown[];
+    } | null;
+    excluded_sources_summary?: ExcludedSourcesSummary;
+    selected_sources?: unknown[];
+    page_context?: unknown;
+  };
+  answer_strategy?: unknown;
+  page_context?: unknown;
+  prompt_preview?: { system?: unknown; user?: unknown } | null;
+  decision_timeline?: unknown[];
+}
+
+/** conversations columns the inspector reads (a plugin channel is in metadata). */
+interface InspectConversationRow {
+  id: string;
+  status: string;
+  created_at: string;
+  metadata: Record<string, unknown> | null;
+}
+
+/** conversation_messages columns the inspector reads. */
+interface InspectMessageRow {
+  id: string;
+  body: string | null;
+  created_at: string;
+  sender_type: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+interface InspectedConversation {
+  id: string;
+  status: string;
+  created_at: string;
+  channel: string | null;
+}
+
+interface InspectedMessage {
+  id: string;
+  body: unknown;
+  sender_type: string | null;
+  created_at: string;
+}
+
 activityRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
   const { data: run, error } = await sb.from('ai_agent_runs').select('*').eq('id', req.params.id).maybeSingle();
   if (error || !run) return res.status(404).json({ error: 'run_not_found' });
   const auth = await authorizeMember(req, res, config, run.workspace_id);
   if (!auth) return;
 
-  const meta: any = run.metadata || {};
+  const meta: InspectRunMetadata = run.metadata || {};
   const retrieval = meta.retrieval || {};
   const retrievalDebug = retrieval.retrieval_debug || null;
   const answerStrategy = meta.answer_strategy || null;
   const pageContext = meta.page_context || retrieval.page_context || null;
 
   // Conversation + visitor/AI message context (best-effort).
-  let conversation: any = null;
-  let visitorMessage: any = null;
-  let aiMessage: any = null;
+  let conversation: InspectedConversation | null = null;
+  let visitorMessage: InspectedMessage | null = null;
+  let aiMessage: InspectedMessage | null = null;
   if (run.conversation_id) {
-    const { data: c } = await sb.from('conversations').select('id, status, channel, locale, created_at').eq('id', run.conversation_id).maybeSingle();
-    conversation = c || null;
+    // conversations has no channel or locale column — asking for them made the
+    // whole read fail, so this was always null. A plugin channel is recorded in
+    // metadata.channel (as offlineDelivery reads it); widget threads have none.
+    const { data: c } = await sb.from('conversations').select('id, status, created_at, metadata').eq('id', run.conversation_id).maybeSingle<InspectConversationRow>();
+    conversation = c
+      ? { id: c.id, status: c.status, created_at: c.created_at, channel: typeof c.metadata?.channel === 'string' ? c.metadata.channel : null }
+      : null;
     if (run.visitor_message_id) {
-      const { data: vm } = await sb.from('conversation_messages').select('id, body, created_at, sender_type').eq('id', run.visitor_message_id).maybeSingle();
-      visitorMessage = vm ? { id: vm.id, body: truncate(vm.body, 4000), sender_type: (vm as any).sender_type, created_at: vm.created_at } : null;
+      const { data: vm } = await sb.from('conversation_messages').select('id, body, created_at, sender_type').eq('id', run.visitor_message_id).maybeSingle<InspectMessageRow>();
+      visitorMessage = vm ? { id: vm.id, body: truncate(vm.body, 4000), sender_type: vm.sender_type, created_at: vm.created_at } : null;
     }
     const { data: am } = await sb.from('conversation_messages')
       .select('id, body, created_at, sender_type, metadata')
@@ -82,8 +147,8 @@ activityRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
       .gte('created_at', run.created_at)
       .order('created_at', { ascending: true })
       .limit(5);
-    const found = (am || []).find((m: any) => m?.metadata?.run_id === run.id || m?.metadata?.runId === run.id);
-    if (found) aiMessage = { id: found.id, body: truncate(found.body, 4000), sender_type: (found as any).sender_type, created_at: found.created_at };
+    const found = ((am || []) as InspectMessageRow[]).find((m) => m?.metadata?.run_id === run.id || m?.metadata?.runId === run.id);
+    if (found) aiMessage = { id: found.id, body: truncate(found.body, 4000), sender_type: found.sender_type, created_at: found.created_at };
   }
 
   const promptPreview = meta.prompt_preview
@@ -138,7 +203,7 @@ activityRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
 
 // ─── GET /analytics ───
 activityRouter.get('/analytics', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -159,12 +224,25 @@ activityRouter.get('/analytics', async (req: Request, res: Response) => {
 // but mutations go through the service role + this middleware.
 // ─────────────────────────────────────────────────────────────────────
 
+/** ai_agent_suggestions columns authorizeSuggestion reads. */
+interface SuggestionRow {
+  id: string;
+  workspace_id: string;
+  conversation_id: string;
+  status: string;
+  suggested_reply: string | null;
+  source_article_ids: string[] | null;
+  confidence: number | null;
+  visitor_message_id: string | null;
+  created_at: string;
+}
+
 async function authorizeSuggestion(
   req: Request,
   res: Response,
   config: ServerConfig,
   suggestionId: string,
-): Promise<{ workspaceId: string; userId: string; isAdmin: boolean; row: any } | null> {
+): Promise<{ workspaceId: string; userId: string; isAdmin: boolean; row: SuggestionRow } | null> {
   const sb = getServiceClient(config);
   const { data: row, error } = await sb
     .from('ai_agent_suggestions')
@@ -181,7 +259,7 @@ async function authorizeSuggestion(
 }
 
 activityRouter.get('/conversations/:conversationId/suggestions', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const conversationId = req.params.conversationId;
   const sb = getServiceClient(config);
   const { data: conv } = await sb
@@ -210,7 +288,7 @@ activityRouter.get('/conversations/:conversationId/suggestions', async (req: Req
   const articleIds = Array.from(
     new Set((data || []).flatMap((r) => (r.source_article_ids as string[] | null) || [])),
   );
-  let articleMap: Record<string, { id: string; title: string; slug: string | null; locale: string | null }> = {};
+  const articleMap: Record<string, { id: string; title: string; slug: string | null; locale: string | null }> = {};
   if (articleIds.length > 0) {
     const { data: arts } = await sb
       .from('knowledge_base_articles')
@@ -236,7 +314,7 @@ activityRouter.get('/conversations/:conversationId/suggestions', async (req: Req
 });
 
 activityRouter.post('/suggestions/:id/use', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const suggestionId = routeParam(req.params.id);
   if (!suggestionId) return res.status(400).json({ error: 'invalid_params' });
   const ctx = await authorizeSuggestion(req, res, config, suggestionId);
@@ -259,7 +337,7 @@ activityRouter.post('/suggestions/:id/use', async (req: Request, res: Response) 
   try {
     const { publishOperatorEvent } = await import('../../services/realtime/publish.js');
     await publishOperatorEvent(config, {
-      kind: 'ai_suggestion_updated' as any,
+      kind: 'ai_suggestion_updated' as OperatorEventKind, // not listed in the OperatorEventKind union
       conversation_id: data.conversation_id as string,
       workspace_id: data.workspace_id as string,
       actor_id: ctx.userId,
@@ -272,7 +350,7 @@ activityRouter.post('/suggestions/:id/use', async (req: Request, res: Response) 
 });
 
 activityRouter.post('/suggestions/:id/dismiss', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
   const suggestionId = routeParam(req.params.id);
   if (!suggestionId) return res.status(400).json({ error: 'invalid_params' });
   const ctx = await authorizeSuggestion(req, res, config, suggestionId);
@@ -294,7 +372,7 @@ activityRouter.post('/suggestions/:id/dismiss', async (req: Request, res: Respon
   try {
     const { publishOperatorEvent } = await import('../../services/realtime/publish.js');
     await publishOperatorEvent(config, {
-      kind: 'ai_suggestion_updated' as any,
+      kind: 'ai_suggestion_updated' as OperatorEventKind, // not listed in the OperatorEventKind union
       conversation_id: data.conversation_id as string,
       workspace_id: data.workspace_id as string,
       actor_id: ctx.userId,
@@ -317,7 +395,7 @@ const takeOverSchema = z.object({
 activityRouter.post(
   '/conversations/:conversationId/take-over',
   async (req: Request, res: Response) => {
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = (req as ConfiguredRequest).serverConfig as ServerConfig;
     const conversationId = routeParam(req.params.conversationId);
     if (!conversationId) return res.status(400).json({ error: 'invalid_params' });
     const parsed = takeOverSchema.safeParse(req.body);

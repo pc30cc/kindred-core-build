@@ -11,6 +11,7 @@
 
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { platformSigningSecret } from '../../lib/platformSecret.js';
 
 const VERIFICATION_TTL_MINUTES = 10;
 const TOKEN_LENGTH_BYTES = 32; // 256 bits
@@ -20,7 +21,7 @@ function getVerificationSecret(): Buffer {
   const base =
     process.env.WIDGET_VERIFICATION_SECRET ||
     process.env.WIDGET_SIGNING_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    platformSigningSecret() ||
     '';
   if (!base) throw new Error('Missing WIDGET_VERIFICATION_SECRET');
   return crypto.createHash('sha256').update('contact-verification:' + base).digest();

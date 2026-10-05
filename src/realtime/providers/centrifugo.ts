@@ -13,10 +13,11 @@
  * when the operator navigates between conversations.
  */
 
-import { supabase } from '@/lib/supabase';
+import { fetchPlatformPublicConfig } from '@/lib/platformPublicConfig';
 import type {
   ClientRealtimeProvider,
   NormalizedMessagePayload,
+  OperatorEventPayload,
   RealtimeHandlers,
   RealtimeNegotiation,
   RealtimeSubscription,
@@ -87,10 +88,9 @@ async function loadHardening(): Promise<ClientHardeningSettings> {
   if (hardeningInflight) return hardeningInflight;
   hardeningInflight = (async () => {
     try {
-      // Sanitized RPC — the raw table holds secrets (alert_webhook_secret)
-      // and is not readable by anon/browser clients.
-      const { data: raw } = await supabase.rpc('get_widget_platform_settings');
-      const data = (raw ?? null) as Record<string, unknown> | null;
+      // The server's sanitized projection (get_widget_platform_settings) —
+      // the raw table holds secrets (alert_webhook_secret) and never leaves it.
+      const data = (await fetchPlatformPublicConfig()).realtime;
       const value: ClientHardeningSettings = data
         ? {
             reconnectJitterPct: clampInt(data.realtime_reconnect_jitter_pct, 0, 50, 20),
@@ -298,12 +298,27 @@ function parseChannel(channel: string): ParsedChannel | null {
   return null;
 }
 
+/** A Centrifugo protocol frame, as far as this client reads one. */
+interface CentrifugoFrame {
+  id?: number;
+  error?: { code?: number | string; message?: string };
+  push?: {
+    channel?: string;
+    pub?: { data?: { type?: string; payload?: Record<string, unknown> } };
+    disconnect?: { code?: number; reason?: string };
+  };
+  [key: string]: unknown;
+}
+
+/** What a caught error may carry (Centrifugo errors add `code`, sockets `reason`). */
+type ErrorLike = { message?: string; reason?: string; code?: number | string } | null | undefined;
+
 /** Per-tab connection cache keyed by ws_url so we share one socket. */
 interface SharedConnection {
   ws: WebSocket;
   ready: Promise<void>;
   nextId: number;
-  pending: Record<number, (reply: any) => void>;
+  pending: Record<number, (reply: CentrifugoFrame) => void>;
   subs: Map<string, Set<RealtimeHandlers>>; // channel → handlers
   /** Per-channel sub token cache so we can re-subscribe after reconnect. */
   subTokens: Map<string, { channel: string; token: string; expiresAt: number; refresh: () => Promise<SubscribeResponse | null> }>;
@@ -429,8 +444,8 @@ function openSocket(conn: SharedConnection): Promise<void> {
       } catch (err) {
         // Surface the real Centrifugo error message so scheduleReconnect
         // can detect token-related failures and force a re-negotiation.
-        const e: any = err;
-        const msg = e?.message || e?.reason || (typeof e === 'string' ? e : 'connect_failed');
+        const e = err as ErrorLike | string;
+        const msg = (typeof e === 'object' ? e?.message || e?.reason : undefined) || (typeof e === 'string' ? e : 'connect_failed');
         if (!settled) { settled = true; reject(new Error(msg)); }
       }
     };
@@ -448,7 +463,7 @@ function attachSocketHandlers(conn: SharedConnection): void {
     const lines = String(ev.data || '').split('\n');
     for (const line of lines) {
       if (!line) continue;
-      let frame: any;
+      let frame: CentrifugoFrame;
       try {
         frame = JSON.parse(line);
       } catch {
@@ -475,12 +490,13 @@ function attachSocketHandlers(conn: SharedConnection): void {
         const handlersSet = conn.subs.get(channel);
         if (!handlersSet) continue;
         if (data?.type === 'message' && data.payload) {
-          const payload = data.payload as NormalizedMessagePayload;
+          const payload = data.payload as unknown as NormalizedMessagePayload;
           // Phase 2 — message dedupe. Centrifugo can replay a recent push
           // on resubscribe; drop duplicates by payload.id before fan-out.
           const { messageDedupeEnabled, messageDedupeWindow } = getHardeningSync();
-          if (messageDedupeEnabled && (payload as any)?.id) {
-            if (rememberAndCheckSeen(conn, channel, String((payload as any).id), messageDedupeWindow)) {
+          const payloadId = (payload as { id?: unknown } | null)?.id;
+          if (messageDedupeEnabled && payloadId) {
+            if (rememberAndCheckSeen(conn, channel, String(payloadId), messageDedupeWindow)) {
               continue;
             }
           }
@@ -491,7 +507,7 @@ function attachSocketHandlers(conn: SharedConnection): void {
           handlersSet.forEach((h) => h.onSeen?.(data.payload || {}));
         } else if (data?.type === 'event' && data.payload) {
           // Phase 5 — operator-only event envelope.
-          handlersSet.forEach((h) => h.onEvent?.(data.payload));
+          handlersSet.forEach((h) => h.onEvent?.(data.payload as unknown as OperatorEventPayload));
         }
         // Unknown envelope types are silently dropped (forward-safe).
       }
@@ -617,7 +633,7 @@ function scheduleReconnect(conn: SharedConnection): void {
       try {
         await openSocket(conn);
       } catch (err) {
-        const msg = String((err as any)?.message || err || '');
+        const msg = String((err as ErrorLike)?.message || err || '');
         rtWarn('centrifugo', 'initial connection recovery open failed', { error: msg });
         if (/token|expired|unauthorized|401/i.test(msg)) {
           conn.tokenExpiresAt = 0;
@@ -664,7 +680,7 @@ function scheduleReconnect(conn: SharedConnection): void {
     try {
       await openSocket(conn);
     } catch (err) {
-      const msg = String((err as any)?.message || err || '');
+      const msg = String((err as ErrorLike)?.message || err || '');
       rtWarn('centrifugo', 'reconnect open failed', { error: msg });
       // If the failure looks like a token problem, mark the local expiry
       // as past so the NEXT scheduleReconnect cycle definitely re-negotiates.
@@ -778,7 +794,7 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
     try {
       await sendOnConn(conn, 'subscribe', { channel, token });
     } catch (err) {
-      const e: any = err;
+      const e = err as ErrorLike;
       const code = Number(e?.code) || 0;
       const msg = String(e?.message || '');
       // socket_closed / socket_not_open here means the underlying socket
@@ -843,7 +859,7 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
         await sendOnConn(conn, 'subscribe', { channel, token: retryFresh.token });
         rtDebug('centrifugo', 're-subscribe succeeded after token refresh', { channel });
       } catch (retryErr) {
-        const re: any = retryErr;
+        const re = retryErr as ErrorLike;
         const reMsgEarly = String(re?.message || '');
         if (/socket_closed|socket_not_open/i.test(reMsgEarly)) {
           rtDebug('centrifugo', 'resubscribe retry aborted — socket died', {
@@ -875,7 +891,7 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
   }
 }
 
-function sendOnConn(conn: SharedConnection, key: string, body: Record<string, unknown>): Promise<any> {
+function sendOnConn(conn: SharedConnection, key: string, body: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
     if (conn.closed || conn.ws.readyState !== 1) return reject(new Error('socket_not_open'));
     // Phase 2 — hard cap on in-flight pending callbacks. Prevents the
@@ -903,8 +919,7 @@ function sendOnConn(conn: SharedConnection, key: string, body: Record<string, un
         // Build a real Error so callers (and our reconnect heuristics) get
         // a stable `.message`. Centrifugo error shape: { code, message }.
         const e = reply.error;
-        const err = new Error(e?.message || `centrifugo_error_${e?.code || 'unknown'}`);
-        (err as any).code = e?.code;
+        const err = Object.assign(new Error(e?.message || `centrifugo_error_${e?.code || 'unknown'}`), { code: e?.code });
         reject(err);
       }
       else resolve(reply?.[key] ?? {});
@@ -961,7 +976,7 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
         conn.ready = new Promise<void>((resolve, reject) => {
           let settled = false;
           const onResolved = () => { if (!settled) { settled = true; resolve(); } };
-          const onRejected = (e: any) => { if (!settled) { settled = true; reject(e); } };
+          const onRejected = (e: unknown) => { if (!settled) { settled = true; reject(e); } };
           // Kick the reconnect loop immediately (it self-debounces via
           // reconnectTimer) and resolve once any subscriber sees 'open'.
           // We piggy-back on the existing handler fan-out by injecting a
@@ -1061,8 +1076,8 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
     // pick up our pre-registered subscription on next success.
     try {
       await conn.ready;
-    } catch (err: any) {
-      handlers.onStatus?.('error', { reason: String(err?.message || err) });
+    } catch (err: unknown) {
+      handlers.onStatus?.('error', { reason: String((err as ErrorLike)?.message || err) });
       // Force a reconnect cycle so we don't sit indefinitely on a dead
       // negotiation. scheduleReconnect re-negotiates the token if needed.
       conn.tokenExpiresAt = 0;
@@ -1094,11 +1109,11 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
         }
         try {
           await sendOnConn(conn, 'subscribe', { channel: sub.channel, token: sub.token });
-        } catch (subErr: any) {
+        } catch (subErr: unknown) {
           // Already-subscribed is benign (race with another caller / a
           // resubscribeAll that just ran). Treat as success.
-          const subCode = Number(subErr?.code) || 0;
-          const subMsg = String(subErr?.message || '');
+          const subCode = Number((subErr as ErrorLike)?.code) || 0;
+          const subMsg = String((subErr as ErrorLike)?.message || '');
           if (subCode !== 105 && !/already\s*subscribed/i.test(subMsg)) {
             throw subErr;
           }
@@ -1130,8 +1145,8 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
       // status, and let resubscribeAll retry on the next reconnect cycle.
       rtWarn('centrifugo', 'subscribe deferred — no token yet', { channel: expectedChannel });
       handlers.onStatus?.('error', { reason: 'subscribe_token_unavailable' });
-    } catch (err: any) {
-      const errMsg = String(err?.message || err);
+    } catch (err: unknown) {
+      const errMsg = String((err as ErrorLike)?.message || err);
       // socket_not_open is a transient race during reconnect — do NOT
       // surface as a hard error or kill the socket. The reconnect loop
       // owns recovery; resubscribeAll will retry our pre-registered entry.

@@ -11,7 +11,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getWorkspacePlanInfo } from '../middleware/featureGating.js';
 import * as ledger from '../services/ai-billing/ledger.js';
 import { billingCycleId } from '../services/ai-billing/runContext.js';
@@ -22,35 +22,50 @@ import { getBillingDegradation } from '../services/ai-billing/degrade.js';
 import { getAiBillingRecoveryStatus } from '../services/ai-billing/recoveryTicker.js';
 import { resolveBillingConfig, getProvider } from '../services/billing/index.js';
 import { assertLegacyPathAllowed, LegacyPathRejectedError } from '../services/billing/rollout.js';
-import { createAiCreditTopupIntent, setPaymentIntentProviderRef, markPaymentIntentFailed, IRAN_PROVIDERS } from '../services/billing/paymentIntent.js';
+import { createAiCreditTopupIntent, setPaymentIntentProviderRef, markPaymentIntentFailed, IRAN_PROVIDERS, type PaymentIntentRow } from '../services/billing/paymentIntent.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
+import { readTopupConfig, TOPUP_CONFIG_KEY, type TopupConfig } from '../services/billing/topupConfig.js';
 
 export const aiBillingRouter = Router();
 
 const DEFAULT_TOPUP_PRESETS_TOMAN = [100_000, 250_000, 500_000, 1_000_000];
 const DEFAULT_TOPUP_MIN_TOMAN = 10_000;
 const DEFAULT_TOPUP_MAX_TOMAN = 50_000_000;
-const TOPUP_CONFIG_KEY = 'ai_credit_topup_config';
-
-interface TopupConfig {
-  presetsToman: number[];
-  minToman: number;
-  maxToman: number;
-}
 
 async function getTopupConfig(config: ServerConfig): Promise<TopupConfig> {
-  const sb = getServiceClient(config);
-  const { data } = await sb.from('app_runtime_config').select('value').eq('key', TOPUP_CONFIG_KEY).maybeSingle();
-  const v = (data?.value || {}) as Partial<TopupConfig>;
-  return {
-    presetsToman: Array.isArray(v.presetsToman) && v.presetsToman.length ? v.presetsToman : DEFAULT_TOPUP_PRESETS_TOMAN,
-    minToman: Number.isFinite(v.minToman) ? Number(v.minToman) : DEFAULT_TOPUP_MIN_TOMAN,
-    maxToman: Number.isFinite(v.maxToman) ? Number(v.maxToman) : DEFAULT_TOPUP_MAX_TOMAN,
-  };
+  return readTopupConfig(config, {
+    presetsToman: DEFAULT_TOPUP_PRESETS_TOMAN,
+    minToman: DEFAULT_TOPUP_MIN_TOMAN,
+    maxToman: DEFAULT_TOPUP_MAX_TOMAN,
+  });
 }
 
-function cfg(req: any): ServerConfig {
-  return req.serverConfig;
+/** What the admin gate below attaches to the request. */
+interface AdminRequestContext {
+  adminId?: string;
+}
+
+/** Fields read from a thrown error (AiBillingError, DB and network errors). */
+interface ThrownErrorShape {
+  message?: string;
+  code?: string;
+  httpStatus?: number;
+}
+
+/** PostgREST returns `numeric` columns as a number or a string. */
+type DbNumeric = number | string;
+
+function cfg(req: object): ServerConfig {
+  return serverConfigOf(req);
+}
+
+function adminIdOf(req: object): string | undefined {
+  return (req as AdminRequestContext).adminId;
+}
+
+function cycleStart(): string {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
 }
 
 function cycleEnd(): string {
@@ -73,7 +88,7 @@ async function ensureCycleAllowance(config: ServerConfig, workspaceId: string): 
   if (legacyActive === false) return;
 
   const info = await getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
-  const amount = Number((info.limits as any)?.included_ai_allowance_irr ?? 0);
+  const amount = Number(info.limits?.included_ai_allowance_irr ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) return;
   const cycle = billingCycleId();
   await ledger
@@ -89,6 +104,12 @@ async function ensureCycleAllowance(config: ServerConfig, workspaceId: string): 
 }
 
 // ═══════════════════ Workspace surface ═══════════════════
+
+interface BalanceLotSummaryRow {
+  source_type: string;
+  original_amount: DbNumeric;
+  remaining_amount: DbNumeric;
+}
 
 aiBillingRouter.get('/workspaces/:workspaceId/summary', async (req, res) => {
   const config = cfg(req);
@@ -108,19 +129,22 @@ aiBillingRouter.get('/workspaces/:workspaceId/summary', async (req, res) => {
     .in('state', ['ACTIVE', 'EXPIRING']);
 
   const planTotal = (lots || [])
-    .filter((l: any) => l.source_type === 'PLAN_ALLOWANCE')
-    .reduce((s: number, l: any) => s + Number(l.remaining_amount), 0);
+    .filter((l: BalanceLotSummaryRow) => l.source_type === 'PLAN_ALLOWANCE')
+    .reduce((s: number, l: BalanceLotSummaryRow) => s + Number(l.remaining_amount), 0);
   const purchasedTotal = (lots || [])
-    .filter((l: any) => l.source_type !== 'PLAN_ALLOWANCE')
-    .reduce((s: number, l: any) => s + Number(l.remaining_amount), 0);
-  const grantedTotal = (lots || []).reduce((s: number, l: any) => s + Number(l.original_amount), 0);
+    .filter((l: BalanceLotSummaryRow) => l.source_type !== 'PLAN_ALLOWANCE')
+    .reduce((s: number, l: BalanceLotSummaryRow) => s + Number(l.remaining_amount), 0);
+  const grantedTotal = (lots || []).reduce((s: number, l: BalanceLotSummaryRow) => s + Number(l.original_amount), 0);
 
   const { data: settlements } = await sb
     .from('ai_run_settlements')
     .select('customer_charge_irr')
     .eq('workspace_id', workspaceId)
     .eq('billing_cycle_id', cycle);
-  const usedThisCycle = (settlements || []).reduce((s: number, r: any) => s + Number(r.customer_charge_irr), 0);
+  const usedThisCycle = (settlements || []).reduce(
+    (s: number, r: { customer_charge_irr: DbNumeric }) => s + Number(r.customer_charge_irr),
+    0,
+  );
 
   const { count: replyCount } = await sb
     .from('ai_runs')
@@ -232,11 +256,11 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', async (req, res) 
       .limit(1)
       .maybeSingle();
 
-    const intent = (reusable as any) || await createAiCreditTopupIntent(config, {
+    const intent = (reusable as PaymentIntentRow | null) || await createAiCreditTopupIntent(config, {
       workspaceId,
       providerName: resolved.provider.name,
       amountIrr,
-      workspaceNameSnapshot: (workspace as any)?.name ?? null,
+      workspaceNameSnapshot: workspace?.name ?? null,
       metadata: { origin: 'topup_preview' },
     });
 
@@ -246,7 +270,7 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', async (req, res) 
         invoiceNumber: intent.invoice_number,
         issuedAt: intent.created_at,
         expiresAt: intent.expires_at,
-        workspaceName: intent.workspace_name_snapshot || (workspace as any)?.name || null,
+        workspaceName: intent.workspace_name_snapshot || workspace?.name || null,
         purchaseType: 'ai_credit_topup',
         amountIrr: intent.amount_irr ?? amountIrr,
         discountIrr: intent.discount_irr ?? 0,
@@ -254,8 +278,8 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', async (req, res) 
         providerName: resolved.provider.name,
       },
     });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
   }
 });
 
@@ -302,7 +326,7 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res)
   try {
     // The proforma the customer confirmed is reused so the document number
     // they saw is the one that reaches the bank — never a second one.
-    let intent: any = null;
+    let intent: PaymentIntentRow | null = null;
     if (parsed.data.intentId) {
       const { data: existing } = await getServiceClient(config)
         .from('billing_payment_intents')
@@ -344,8 +368,8 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res)
       if (bindingRequired || ref) {
         try {
           await setPaymentIntentProviderRef(config, intent.id, ref);
-        } catch (bindError: any) {
-          await markPaymentIntentFailed(config, intent.id, String(bindError?.message || 'binding_failed'));
+        } catch (bindError) {
+          await markPaymentIntentFailed(config, intent.id, String((bindError as ThrownErrorShape)?.message || 'binding_failed'));
           if (bindingRequired) {
             return res.status(502).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
           }
@@ -353,8 +377,8 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res)
       }
     }
     res.json({ success: true, ...result, intentId: intent.id });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
   }
 });
 
@@ -380,9 +404,23 @@ aiBillingRouter.get('/workspaces/:workspaceId/history', async (req, res) => {
 aiBillingRouter.use('/admin', async (req, res, next) => {
   const adminId = await requirePlatformAdmin(req, res);
   if (!adminId) return;
-  (req as any).adminId = adminId;
+  (req as AdminRequestContext).adminId = adminId;
   next();
 });
+
+interface SettlementCostRow {
+  provider_cost_usd: DbNumeric;
+  internal_cost_irr: DbNumeric;
+  customer_charge_irr: DbNumeric;
+  platform_absorbed_amount: DbNumeric;
+}
+
+interface SettlementTotals {
+  providerCostUsd: number;
+  internalCostIrr: number;
+  customerChargeIrr: number;
+  absorbed: number;
+}
 
 aiBillingRouter.get('/admin/overview', async (req, res) => {
   const sb = getServiceClient(cfg(req));
@@ -394,7 +432,7 @@ aiBillingRouter.get('/admin/overview', async (req, res) => {
     .limit(5000);
 
   const totals = (settlements || []).reduce(
-    (acc: any, r: any) => ({
+    (acc: SettlementTotals, r: SettlementCostRow): SettlementTotals => ({
       providerCostUsd: acc.providerCostUsd + Number(r.provider_cost_usd),
       internalCostIrr: acc.internalCostIrr + Number(r.internal_cost_irr),
       customerChargeIrr: acc.customerChargeIrr + Number(r.customer_charge_irr),
@@ -421,7 +459,7 @@ aiBillingRouter.get('/admin/overview', async (req, res) => {
       .order('id', { ascending: true })
       .range(from, from + 999);
     if (!page || page.length === 0) break;
-    for (const r of page as any[]) providerCostUsdAllTime += Number(r.provider_cost_usd) || 0;
+    for (const r of page as Pick<SettlementCostRow, 'provider_cost_usd'>[]) providerCostUsdAllTime += Number(r.provider_cost_usd) || 0;
     if (page.length < 1000) break;
   }
 
@@ -454,6 +492,55 @@ aiBillingRouter.get('/admin/pricing', async (req, res) => {
   res.json({ rateCards: cards.data || [], exchangeRates: fx.data || [], sellPolicies: policies.data || [] });
 });
 
+/** A query builder whose filters return the builder itself. */
+interface EffectiveDatedQuery<Q> {
+  lte(column: string, value: string): Q;
+  or(filters: string): Q;
+}
+
+interface RateCardComponentRow {
+  component_type: string;
+  unit: string;
+  unit_amount: DbNumeric;
+  per_units: DbNumeric;
+}
+
+interface RateCardRow {
+  provider: string;
+  model_key: string;
+  currency: string;
+  version: number;
+  effective_from: string;
+  notes: string | null;
+  ai_rate_card_components: RateCardComponentRow[] | null;
+}
+
+/** ai_models is read with `*`; each of these column names is accepted. */
+interface AiModelRow {
+  provider?: string | null;
+  provider_name?: string | null;
+  model?: string | null;
+  model_key?: string | null;
+  name?: string | null;
+}
+
+interface UsageEventPathRow {
+  provider: string | null;
+  requested_model: string | null;
+  actual_model: string | null;
+}
+
+interface UsageLogPathRow {
+  provider_name: string | null;
+  model: string | null;
+}
+
+interface PlanAllowanceRow {
+  id: string;
+  name: string;
+  limits: Record<string, unknown> | null;
+}
+
 /**
  * ACTIVE PRICING COVERAGE — the ENFORCED readiness gate.
  *
@@ -466,7 +553,8 @@ aiBillingRouter.get('/admin/pricing', async (req, res) => {
 aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
   const sb = getServiceClient(cfg(req));
   const nowIso = new Date().toISOString();
-  const activeFilter = (qb: any) => qb.lte('effective_from', nowIso).or(`effective_to.is.null,effective_to.gt.${nowIso}`);
+  const activeFilter = <Q extends EffectiveDatedQuery<Q>>(qb: Q): Q =>
+    qb.lte('effective_from', nowIso).or(`effective_to.is.null,effective_to.gt.${nowIso}`);
 
   const [cards, fx, policies, models, seenUsage, seenLogs, plans] = await Promise.all([
     activeFilter(
@@ -477,12 +565,14 @@ aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
     activeFilter(sb.from('ai_exchange_rates').select('id, from_currency, to_currency, rate, version, effective_from, effective_to')),
     activeFilter(sb.from('ai_sell_policies').select('id, scope, workspace_id, multiplier, overage_policy, version, effective_from, effective_to')),
     sb.from('ai_models').select('*'),
-    sb.from('ai_usage_events').select('provider, model').limit(5000),
+    // priced by the model that actually ran (runContext: actualModel, else
+    // requestedModel) — ai_usage_events has no `model` column
+    sb.from('ai_usage_events').select('provider, requested_model, actual_model').limit(5000),
     sb.from('ai_usage_logs').select('provider_name, model').limit(5000),
     sb.from('billing_plans').select('id, name, limits'),
   ]);
 
-  const cardRows = (cards.data || []) as any[];
+  const cardRows = (cards.data || []) as RateCardRow[];
   const priced = new Set(cardRows.map((c) => `${c.provider}/${c.model_key}`));
   // Every billable path runtime has actually taken, plus the configured catalog.
   const runtimePaths = new Map<string, { provider: string; model: string; source: string }>();
@@ -491,9 +581,9 @@ aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
     const key = `${provider}/${model}`;
     if (!runtimePaths.has(key)) runtimePaths.set(key, { provider, model, source });
   };
-  for (const m of (models.data || []) as any[]) add(m.provider ?? m.provider_name, m.model ?? m.model_key ?? m.name, 'catalog');
-  for (const u of (seenUsage.data || []) as any[]) add(u.provider, u.model, 'usage_event');
-  for (const l of (seenLogs.data || []) as any[]) add(l.provider_name, l.model, 'legacy_log');
+  for (const m of (models.data || []) as AiModelRow[]) add(m.provider ?? m.provider_name, m.model ?? m.model_key ?? m.name, 'catalog');
+  for (const u of (seenUsage.data || []) as UsageEventPathRow[]) add(u.provider, u.actual_model || u.requested_model, 'usage_event');
+  for (const l of (seenLogs.data || []) as UsageLogPathRow[]) add(l.provider_name, l.model, 'legacy_log');
 
   const paths = [...runtimePaths.values()].map((p) => ({
     ...p,
@@ -510,7 +600,7 @@ aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
       version: c.version,
       effectiveFrom: c.effective_from,
       source: c.notes || 'admin',
-      components: (c.ai_rate_card_components || []).map((k: any) => ({
+      components: (c.ai_rate_card_components || []).map((k) => ({
         component: k.component_type,
         unit: k.unit,
         unitAmount: k.unit_amount,
@@ -518,9 +608,10 @@ aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
       })),
     })),
     exchangeRates: fx.data || [],
-    billingFxUsdToIrr: (fx.data || []).find((r: any) => r.from_currency === 'USD' && r.to_currency === 'IRR') || null,
+    billingFxUsdToIrr:
+      (fx.data || []).find((r: { from_currency: string; to_currency: string }) => r.from_currency === 'USD' && r.to_currency === 'IRR') || null,
     sellPolicies: policies.data || [],
-    planAllowances: (plans.data || []).map((p: any) => ({
+    planAllowances: (plans.data || []).map((p: PlanAllowanceRow) => ({
       planId: p.id,
       name: p.name,
       aiAllowance: p.limits?.ai_credits ?? p.limits?.aiCredits ?? p.limits?.ai_allowance ?? null,
@@ -559,7 +650,7 @@ aiBillingRouter.post('/admin/pricing/rate-cards', async (req, res) => {
     p_model_key: parsed.data.modelKey,
     p_currency: parsed.data.currency,
     p_components: parsed.data.components.map((c) => ({ ...c, unit_amount: String(c.unit_amount), per_units: String(c.per_units) })),
-    p_actor: (req as any).adminId,
+    p_actor: adminIdOf(req),
     p_notes: parsed.data.notes ?? null,
   });
   if (error) return res.status(500).json({ error: error.message });
@@ -577,12 +668,15 @@ aiBillingRouter.post('/admin/pricing/rate-cards', async (req, res) => {
  * `official` is the central-bank style reference rate, `market` is the free
  * market print most Iranian pricing actually follows.
  */
-const FX_SOURCES: { key: string; url: string; kind: 'official' | 'market'; pick: (j: any) => number | null }[] = [
+const FX_SOURCES: { key: string; url: string; kind: 'official' | 'market'; pick: (j: unknown) => number | null }[] = [
   {
     key: 'open_er_api',
     kind: 'official',
     url: 'https://open.er-api.com/v6/latest/USD',
-    pick: (j) => (Number(j?.rates?.IRR) > 0 ? Number(j.rates.IRR) : null),
+    pick: (j) => {
+      const quote = j as { rates?: { IRR?: unknown } } | null;
+      return Number(quote?.rates?.IRR) > 0 ? Number(quote.rates.IRR) : null;
+    },
   },
   {
     key: 'tgju',
@@ -590,7 +684,7 @@ const FX_SOURCES: { key: string; url: string; kind: 'official' | 'market'; pick:
     url: 'https://call1.tgju.org/ajax.json',
     // price_dollar_rl is quoted in Rial already.
     pick: (j) => {
-      const raw = j?.current?.price_dollar_rl?.p;
+      const raw = (j as { current?: { price_dollar_rl?: { p?: unknown } } } | null)?.current?.price_dollar_rl?.p;
       const n = Number(String(raw ?? '').replace(/,/g, ''));
       return Number.isFinite(n) && n > 0 ? n : null;
     },
@@ -609,8 +703,8 @@ aiBillingRouter.get('/admin/pricing/fx-quotes', async (_req, res) => {
         const rateIrr = s.pick(json);
         if (!rateIrr) throw new Error('rate_not_found');
         return { source: s.key, kind: s.kind, rateIrr, rateToman: rateIrr / 10, fetchedAt: new Date().toISOString(), ok: true };
-      } catch (err: any) {
-        return { source: s.key, kind: s.kind, ok: false, error: String(err?.message || err) };
+      } catch (err) {
+        return { source: s.key, kind: s.kind, ok: false, error: String((err as ThrownErrorShape)?.message || err) };
       } finally {
         clearTimeout(timer);
       }
@@ -633,7 +727,7 @@ aiBillingRouter.post('/admin/pricing/exchange-rates', async (req, res) => {
     p_from: parsed.data.from,
     p_to: parsed.data.to,
     p_rate: String(parsed.data.rate),
-    p_actor: (req as any).adminId,
+    p_actor: adminIdOf(req),
   });
   if (error) return res.status(500).json({ error: error.message });
   resetRateCache();
@@ -658,12 +752,18 @@ aiBillingRouter.post('/admin/pricing/sell-policies', async (req, res) => {
     p_workspace_id: parsed.data.scope === 'WORKSPACE' ? parsed.data.workspaceId : null,
     p_multiplier: String(parsed.data.multiplier),
     p_overage_policy: parsed.data.overagePolicy,
-    p_actor: (req as any).adminId,
+    p_actor: adminIdOf(req),
   });
   if (error) return res.status(500).json({ error: error.message });
   resetRateCache();
   res.json({ id: data });
 });
+
+/** An ai_runs row as listed below; every selected column is passed through. */
+interface AiRunListRow {
+  workspace_id: string | null;
+  [column: string]: unknown;
+}
 
 aiBillingRouter.get('/admin/runs', async (req, res) => {
   const sb = getServiceClient(cfg(req));
@@ -677,13 +777,13 @@ aiBillingRouter.get('/admin/runs', async (req, res) => {
   if (typeof req.query.quality === 'string') q = q.eq('billing_quality', req.query.quality);
   const { data } = await q;
   const rows = data || [];
-  const wsIds = Array.from(new Set(rows.map((r: any) => r.workspace_id).filter(Boolean)));
+  const wsIds = Array.from(new Set(rows.map((r: AiRunListRow) => r.workspace_id).filter(Boolean)));
   let nameById = new Map<string, string>();
   if (wsIds.length) {
     const { data: ws } = await sb.from('workspaces').select('id, name, slug').in('id', wsIds);
-    nameById = new Map((ws || []).map((w: any) => [w.id, w.name || w.slug || '']));
+    nameById = new Map((ws || []).map((w: { id: string; name: string | null; slug: string | null }) => [w.id, w.name || w.slug || '']));
   }
-  res.json({ runs: rows.map((r: any) => ({ ...r, workspace_name: nameById.get(r.workspace_id) || null })) });
+  res.json({ runs: rows.map((r: AiRunListRow) => ({ ...r, workspace_name: nameById.get(r.workspace_id) || null })) });
 });
 
 
@@ -699,6 +799,24 @@ aiBillingRouter.get('/admin/runs/:runId', async (req, res) => {
   res.json({ run: run.data, steps: steps.data || [], events: events.data || [], settlement: settlement.data || null });
 });
 
+/** A query builder whose filters return the builder itself. */
+interface CreatedAtRangeQuery<Q> {
+  gte(column: string, value: string): Q;
+  lt(column: string, value: string): Q;
+}
+
+interface WalletLotRow {
+  workspace_id: string;
+  remaining_amount: DbNumeric;
+  reserved_amount: DbNumeric;
+}
+
+interface WalletRow {
+  workspace_id: string;
+  available_amount: DbNumeric;
+  reserved_amount: DbNumeric;
+}
+
 aiBillingRouter.get('/admin/health', async (req, res) => {
   const sb = getServiceClient(cfg(req));
   const [conflicts, unresolved, staleRes, alerts] = await Promise.all([
@@ -713,12 +831,16 @@ aiBillingRouter.get('/admin/health', async (req, res) => {
     sb.from('ai_billing_audit_log').select('*').eq('action', 'idempotency_conflict').order('created_at', { ascending: false }).limit(50),
   ]);
   // METER_ONLY validation metrics — coverage/quality of the current cycle.
+  // ai_runs has no billing_cycle_id column (asking for it failed every count,
+  // so these read 0): a run's cycle is the UTC month it began in
+  // (billingCycleId at beginRun), so the cycle's runs are those created in it.
   const cycle = billingCycleId();
+  const inCycle = <Q extends CreatedAtRangeQuery<Q>>(qb: Q): Q => qb.gte('created_at', cycleStart()).lt('created_at', cycleEnd());
   const [{ count: runsTotal }, { count: runsEstimated }, { count: runsUnresolved }, { count: settledTotal }] =
     await Promise.all([
-      sb.from('ai_runs').select('id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle),
-      sb.from('ai_runs').select('id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle).eq('billing_quality', 'ESTIMATED'),
-      sb.from('ai_runs').select('id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle).eq('billing_quality', 'UNRESOLVED'),
+      inCycle(sb.from('ai_runs').select('id', { count: 'exact', head: true })),
+      inCycle(sb.from('ai_runs').select('id', { count: 'exact', head: true })).eq('billing_quality', 'ESTIMATED'),
+      inCycle(sb.from('ai_runs').select('id', { count: 'exact', head: true })).eq('billing_quality', 'UNRESOLVED'),
       sb.from('ai_run_settlements').select('run_id', { count: 'exact', head: true }).eq('billing_cycle_id', cycle),
     ]);
 
@@ -744,18 +866,18 @@ aiBillingRouter.get('/admin/health', async (req, res) => {
     .from('workspace_ai_balance_lots')
     .select('workspace_id, remaining_amount, reserved_amount')
     .eq('state', 'ACTIVE');
-  const sum = (rows: any[], key: string) => rows.reduce((a, r) => a + Number(r?.[key] ?? 0), 0);
+  const sum = (rows: SettlementCostRow[], key: keyof SettlementCostRow) => rows.reduce((a, r) => a + Number(r?.[key] ?? 0), 0);
   const settlementRows = settlements.data || [];
   // Wallet projection vs. lot truth — any nonzero drift needs ai_reconcile_wallet.
   const lotTruth = new Map<string, { available: number; reserved: number }>();
-  for (const l of lots || []) {
-    const key = (l as any).workspace_id as string;
+  for (const l of (lots || []) as WalletLotRow[]) {
+    const key = l.workspace_id;
     const cur = lotTruth.get(key) || { available: 0, reserved: 0 };
-    cur.available += Number((l as any).remaining_amount ?? 0) - Number((l as any).reserved_amount ?? 0);
-    cur.reserved += Number((l as any).reserved_amount ?? 0);
+    cur.available += Number(l.remaining_amount ?? 0) - Number(l.reserved_amount ?? 0);
+    cur.reserved += Number(l.reserved_amount ?? 0);
     lotTruth.set(key, cur);
   }
-  const walletMismatch = (wallets.data || []).filter((w: any) => {
+  const walletMismatch = (wallets.data || []).filter((w: WalletRow) => {
     const truth = lotTruth.get(w.workspace_id) || { available: 0, reserved: 0 };
     return (
       Math.abs(Number(w.available_amount ?? 0) - truth.available) > 0.000001 ||
@@ -805,7 +927,7 @@ aiBillingRouter.post('/admin/mode', async (req, res) => {
   await setBillingMode(cfg(req), parsed.data.mode);
   const sb = getServiceClient(cfg(req));
   await sb.from('ai_billing_audit_log').insert({
-    actor_id: (req as any).adminId,
+    actor_id: adminIdOf(req),
     action: 'set_billing_mode',
     details: { mode: parsed.data.mode },
   });
@@ -836,11 +958,12 @@ aiBillingRouter.post('/admin/workspaces/:workspaceId/credit', async (req, res) =
             amount: String(parsed.data.amount),
             reason: parsed.data.reason,
             commandKey: parsed.data.commandKey,
-            actorId: (req as any).adminId,
+            actorId: adminIdOf(req),
           });
     res.json({ id });
-  } catch (err: any) {
-    res.status(err?.httpStatus || 500).json({ error: err?.code || 'billing_internal_error' });
+  } catch (err) {
+    const e = err as ThrownErrorShape;
+    res.status(e?.httpStatus || 500).json({ error: e?.code || 'billing_internal_error' });
   }
 });
 
@@ -858,11 +981,12 @@ aiBillingRouter.post('/admin/runs/:runId/refund', async (req, res) => {
       amount: String(parsed.data.amount),
       reason: parsed.data.reason,
       commandKey: parsed.data.commandKey,
-      actorId: (req as any).adminId,
+      actorId: adminIdOf(req),
     });
     res.json(result);
-  } catch (err: any) {
-    res.status(err?.httpStatus || 500).json({ error: err?.code || 'billing_internal_error', message: err?.message });
+  } catch (err) {
+    const e = err as ThrownErrorShape;
+    res.status(e?.httpStatus || 500).json({ error: e?.code || 'billing_internal_error', message: e?.message });
   }
 });
 

@@ -32,6 +32,7 @@ import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
 import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
 import { reviveFailedWorkspaceDeletion } from '../services/workspaceDeletion/revive.js';
+import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
 
 
 export const adminManagementRouter = Router();
@@ -669,6 +670,8 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   // an operator's change takes effect on the very next signup.
   invalidateSignupPolicyCache();
   invalidateSignupPlanCache();
+  // region_mode / active_locales / default_locale feed the public config.
+  invalidatePlatformPublicConfig();
   return res.json({ success: true, settings: savedSettings });
 });
 
@@ -692,6 +695,34 @@ const platformDomainsSchema = z.object({
   public_base_url: z.string().max(2000).nullable().optional(),
   help_center_base_url: z.string().max(2000).nullable().optional(),
   email_base_url: z.string().max(2000).nullable().optional(),
+});
+
+// Reads of the three rows the Branding page edits. They used to be read
+// browser-direct from Supabase with the anon key, which only worked against
+// hosted Supabase (the self-host chain grants anon nothing on two of them) and
+// tied the dashboard to a Supabase URL. Same gate as the writes below.
+adminManagementRouter.get('/platform-domains', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb.from('platform_domains').select('*').limit(1).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ domains: data });
+});
+
+adminManagementRouter.get('/platform-branding', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb.from('platform_branding').select('*').limit(1).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ branding: data });
+});
+
+adminManagementRouter.get('/platform-branding-localized', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb.from('platform_branding_localized').select('*').order('locale');
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ branding: data ?? [] });
 });
 
 adminManagementRouter.put('/platform-domains', async (req, res) => {
@@ -740,6 +771,7 @@ adminManagementRouter.put('/platform-branding', async (req, res) => {
         .maybeSingle()
     : await sb.from('platform_branding').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  invalidatePlatformPublicConfig();
   return res.json({ branding: data });
 });
 
@@ -781,6 +813,7 @@ adminManagementRouter.put('/platform-branding-localized', async (req, res) => {
         .maybeSingle()
     : await sb.from('platform_branding_localized').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  invalidatePlatformPublicConfig();
   return res.json({ branding: data });
 });
 

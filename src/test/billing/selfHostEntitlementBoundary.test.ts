@@ -1,24 +1,19 @@
 /**
  * Explicit self-host billing-less entitlement boundary.
  *
- * `checkEntitlementFromDB` (server/middleware/featureGating.ts) only treats
- * a missing `check_workspace_entitlement` RPC as "unlimited" when BOTH:
- *   1. `ServerConfig.selfHostBillingUnlimited` (SELF_HOST_BILLING_MODE=
- *      unlimited) is explicitly set — a server-only, request-uncontrollable
- *      deployment flag, defaulting to false/fail-closed when absent.
- *   2. The RPC error precisely names `check_workspace_entitlement` as
- *      absent (isCheckWorkspaceEntitlementFunctionMissing in
- *      entitlementParse.ts).
+ * `SELF_HOST_BILLING_MODE=unlimited` (ServerConfig.selfHostBillingUnlimited)
+ * is a server-only, request-uncontrollable deployment switch, false/fail-
+ * closed when unset. With it, `checkEntitlementFromDB`
+ * (server/middleware/featureGating.ts) answers "allowed, unlimited" without
+ * consulting the database at all — whatever the billing RPC would say, and
+ * whether or not it exists. Since 251 the migration chain installs
+ * `check_workspace_entitlement` everywhere, so the switch can no longer be
+ * inferred from the function's absence; it has to stand on its own.
  *
- * Neither is sufficient alone: PostgREST's own docs note PGRST202 can also
- * mean a stale schema-cache entry on a deployment where the function
- * genuinely exists, so error-parsing alone cannot prove deployment type.
- * These tests prove the full interaction matrix (cases A-G from the task's
- * required test list), in a file of its own — deliberately NOT appended to
- * requireLimitMiddleware.test.ts, whose own mock/cache state has a
- * pre-existing, unrelated contamination bug across its later describe
- * blocks (documented separately; several of ITS OWN pre-existing tests
- * already fail before any of this work, same signature, same file).
+ * Without the switch — the default, and every hosted deployment — the plan is
+ * enforced: a real denial is a 403, and every RPC failure (a missing function
+ * or a stale-schema-cache PGRST202 included) fails closed with a 503. Those
+ * cases are what keep a hosted install from ever being unlocked by an error.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -54,8 +49,15 @@ vi.mock("@supabase/supabase-js", () => ({
 import { requireLimit, requireFeature, clearEntitlementCache } from "../../../server/middleware/featureGating";
 import { usageFnForLimit } from "../../../server/services/billing/usageResolvers";
 
+type Middleware = ReturnType<typeof requireLimit>;
+type Req = Parameters<Middleware>[0];
+type Res = Parameters<Middleware>[1];
+interface Entitlement { allowed?: boolean; limit?: number }
+/** What the middleware leaves on the request for the route. */
+const entitlementOf = (req: Req): Entitlement | undefined => (req as unknown as { entitlement?: Entitlement }).entitlement;
+
 function makeReqRes(body: Record<string, unknown> = {}, configOverrides: Record<string, unknown> = {}) {
-  const req: any = {
+  const req = {
     body,
     query: {},
     params: {},
@@ -64,13 +66,13 @@ function makeReqRes(body: Record<string, unknown> = {}, configOverrides: Record<
       supabaseServiceRoleKey: "stub-key",
       ...configOverrides,
     },
-  };
+  } as unknown as Req;
   let statusCode: number | undefined;
-  let jsonBody: any;
-  const res: any = {
+  let jsonBody: Record<string, unknown> | undefined;
+  const res = {
     status(code: number) { statusCode = code; return res; },
-    json(b: any) { jsonBody = b; return res; },
-  };
+    json(b: Record<string, unknown>) { jsonBody = b; return res; },
+  } as unknown as Res;
   const getResult = () => ({ statusCode, jsonBody });
   return { req, res, getResult };
 }
@@ -92,7 +94,7 @@ describe("requireLimit/requireFeature — explicit self-host billing-less bounda
     clearEntitlementCache();
   });
 
-  it("A: selfHostBillingUnlimited=true + 42883 naming check_workspace_entitlement → allowed, limit -1, next() called, no usage check", async () => {
+  it("A: selfHostBillingUnlimited=true + check_workspace_entitlement absent → allowed, limit -1, next() called, no usage check", async () => {
     rpcMock.mockResolvedValue(missingFnError());
     const mw = requireLimit("max_agents", usageFnForLimit("max_conversations"));
     const { req, res, getResult } = makeReqRes(
@@ -103,8 +105,8 @@ describe("requireLimit/requireFeature — explicit self-host billing-less bounda
     await mw(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(getResult().statusCode).toBeUndefined();
-    expect((req as any).entitlement?.allowed).toBe(true);
-    expect((req as any).entitlement?.limit).toBe(-1);
+    expect(entitlementOf(req)?.allowed).toBe(true);
+    expect(entitlementOf(req)?.limit).toBe(-1);
     expect(counterRowMock).not.toHaveBeenCalled();
   });
 
@@ -146,46 +148,55 @@ describe("requireLimit/requireFeature — explicit self-host billing-less bounda
     expect(getResult().statusCode).toBe(503);
   });
 
-  it("E: selfHostBillingUnlimited=true + permission denied → 503, not allowed (error doesn't precisely name the function as absent)", async () => {
-    rpcMock.mockResolvedValue({
-      data: null,
-      error: { code: "42501", message: "permission denied for function check_workspace_entitlement" },
+  // With the switch, the database is never asked: no error and no real
+  // answer can change the outcome.
+  for (const [label, rpcAnswer] of [
+    ["permission denied", { data: null, error: { code: "42501", message: "permission denied for function check_workspace_entitlement" } }],
+    ["timeout / network error", { data: null, error: { message: "timeout" } }],
+    ["a real denial", { data: { allowed: false, plan: "free" }, error: null }],
+    ["a real limited allow", { data: { allowed: true, limit: 5, plan: "pro" }, error: null }],
+  ] as const) {
+    it(`E: selfHostBillingUnlimited=true + ${label} → allowed, unlimited, the RPC is not called`, async () => {
+      rpcMock.mockResolvedValue(rpcAnswer);
+      const mw = requireLimit("max_conversations", usageFnForLimit("max_conversations"));
+      const { req, res, getResult } = makeReqRes({ workspace_id: `shu-e-${label}` }, { selfHostBillingUnlimited: true });
+      const next = vi.fn();
+      await mw(req, res, next);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(getResult().statusCode).toBeUndefined();
+      expect(entitlementOf(req)?.limit).toBe(-1);
+      expect(rpcMock).not.toHaveBeenCalled();
+      expect(counterRowMock).not.toHaveBeenCalled();
     });
-    const mw = requireLimit("max_agents", usageFnForLimit("max_conversations"));
-    const { req, res, getResult } = makeReqRes({ workspace_id: "shu-e" }, { selfHostBillingUnlimited: true });
-    const next = vi.fn();
-    await mw(req, res, next);
-    expect(next).not.toHaveBeenCalled();
-    expect(getResult().statusCode).toBe(503);
-  });
+  }
 
-  it("F: selfHostBillingUnlimited=true + generic timeout/network error → 503, not allowed", async () => {
-    rpcMock.mockResolvedValue({ data: null, error: { message: "timeout" } });
-    const mw = requireLimit("max_agents", usageFnForLimit("max_conversations"));
+  it("F: selfHostBillingUnlimited=true + requireFeature → next(), the RPC is not called", async () => {
+    rpcMock.mockResolvedValue({ data: { allowed: false, plan: "free" }, error: null });
     const { req, res, getResult } = makeReqRes({ workspace_id: "shu-f" }, { selfHostBillingUnlimited: true });
     const next = vi.fn();
-    await mw(req, res, next);
-    expect(next).not.toHaveBeenCalled();
-    expect(getResult().statusCode).toBe(503);
+    await requireFeature("ai_assistant")(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(getResult().statusCode).toBeUndefined();
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 
-  it("G1: selfHostBillingUnlimited=true + a real, well-formed allowed payload behaves exactly as before (usage check still runs)", async () => {
+  it("G1: selfHostBillingUnlimited absent + a real, well-formed allowed payload → usage check runs", async () => {
     rpcMock.mockResolvedValue({ data: { allowed: true, limit: 5, plan: "pro" }, error: null });
     counterRowMock.mockResolvedValue({ data: { conversations_count: 2 }, error: null });
     const mw = requireLimit("max_conversations", usageFnForLimit("max_conversations"));
-    const { req, res, getResult } = makeReqRes({ workspace_id: "shu-g1" }, { selfHostBillingUnlimited: true });
+    const { req, res, getResult } = makeReqRes({ workspace_id: "shu-g1" });
     const next = vi.fn();
     await mw(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(getResult().statusCode).toBeUndefined();
-    expect((req as any).entitlement?.limit).toBe(5);
+    expect(entitlementOf(req)?.limit).toBe(5);
     expect(counterRowMock).toHaveBeenCalled();
   });
 
-  it("G2: selfHostBillingUnlimited=true + a real, well-formed denial behaves exactly as before (403)", async () => {
+  it("G2: selfHostBillingUnlimited absent + a real, well-formed denial → 403", async () => {
     rpcMock.mockResolvedValue({ data: { allowed: false, plan: "free" }, error: null });
     const mw = requireLimit("max_conversations", usageFnForLimit("max_conversations"));
-    const { req, res, getResult } = makeReqRes({ workspace_id: "shu-g2" }, { selfHostBillingUnlimited: true });
+    const { req, res, getResult } = makeReqRes({ workspace_id: "shu-g2" });
     const next = vi.fn();
     await mw(req, res, next);
     expect(next).not.toHaveBeenCalled();
@@ -193,9 +204,9 @@ describe("requireLimit/requireFeature — explicit self-host billing-less bounda
     expect(getResult().jsonBody?.upgrade_required).toBe(true);
   });
 
-  it("G3: selfHostBillingUnlimited=true + requireFeature real denial behaves exactly as before (403)", async () => {
+  it("G3: selfHostBillingUnlimited absent + requireFeature real denial → 403", async () => {
     rpcMock.mockResolvedValue({ data: { allowed: false, plan: "free" }, error: null });
-    const { req, res, getResult } = makeReqRes({ workspace_id: "shu-g3" }, { selfHostBillingUnlimited: true });
+    const { req, res, getResult } = makeReqRes({ workspace_id: "shu-g3" });
     const next = vi.fn();
     await requireFeature("ai_assistant")(req, res, next);
     expect(next).not.toHaveBeenCalled();
@@ -203,11 +214,21 @@ describe("requireLimit/requireFeature — explicit self-host billing-less bounda
     expect(getResult().jsonBody?.upgrade_required).toBe(true);
   });
 
-  it("G4: selfHostBillingUnlimited=true + requireFeature real allow behaves exactly as before (next())", async () => {
+  it("G4: selfHostBillingUnlimited absent + requireFeature real allow → next()", async () => {
     rpcMock.mockResolvedValue({ data: { allowed: true, plan: "pro" }, error: null });
-    const { req, res } = makeReqRes({ workspace_id: "shu-g4" }, { selfHostBillingUnlimited: true });
+    const { req, res } = makeReqRes({ workspace_id: "shu-g4" });
     const next = vi.fn();
     await requireFeature("ai_assistant")(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("G5: selfHostBillingUnlimited absent + permission denied → 503 (fails closed)", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "42501", message: "permission denied for function check_workspace_entitlement" } });
+    const mw = requireLimit("max_agents", usageFnForLimit("max_conversations"));
+    const { req, res, getResult } = makeReqRes({ workspace_id: "shu-g5" });
+    const next = vi.fn();
+    await mw(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(getResult().statusCode).toBe(503);
   });
 });

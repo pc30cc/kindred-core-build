@@ -14,6 +14,16 @@ import crypto from 'crypto';
 import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
 import { readVisitorCookie } from './visitorIdentity.js';
+import { platformSigningSecret } from '../../lib/platformSecret.js';
+
+/** What requireWidgetSession() leaves on the request for later middleware. */
+interface WidgetSessionRequest extends Request {
+  _widgetWorkspaceId?: string;
+  _widgetSessionOrigin?: string;
+  _widgetToken?: string;
+  _widgetNonce?: string;
+  _widgetRateLimitTrust?: WidgetRateLimitTrust;
+}
 
 // ─── Session Token Config ───
 const SESSION_TOKEN_TTL_SECONDS = 900; // 15 minutes
@@ -21,7 +31,7 @@ const SESSION_TOKEN_PREFIX = 'wss_';
 const REFRESH_GRACE_PERIOD_SECONDS = 5 * 60; // 5 min grace for expired tokens
 
 function getSigningSecret(): Buffer {
-  const base = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.WIDGET_SIGNING_SECRET || '';
+  const base = platformSigningSecret() || process.env.WIDGET_SIGNING_SECRET || '';
   return crypto.createHash('sha256').update('widget-session:' + base).digest();
 }
 
@@ -136,7 +146,8 @@ export function verifySessionToken(token: string, options?: { skipExpiry?: boole
     return { valid: false, reason: 'invalid_signature' };
   }
 
-  let payload: any;
+  // The claims createSessionToken() signs. `rl` stays unknown: see below.
+  let payload: { w?: string; o?: string; n?: string; iat?: number; exp?: number; rl?: unknown };
   try {
     payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
   } catch {
@@ -243,6 +254,18 @@ function checkRateLimit(key: string, category: string = 'default'): boolean {
  */
 export { getClientIp } from '../../utils/clientIp.js';
 
+/** The conversation columns verifyConversationOwnership reads and returns. */
+export interface OwnedConversation {
+  id: string;
+  status: string;
+  assigned_to: string | null;
+  updated_at: string;
+  contact_id: string | null;
+  visitor_session_id: string | null;
+  workspace_id: string;
+  metadata: ({ visitor_id?: string } & Record<string, unknown>) | null;
+}
+
 /** Rate-limit bucket key: the real IP, or a shared 'unknown' bucket. */
 function rateLimitIpKey(req: Request): string {
   return resolveClientIp(req) ?? 'unknown';
@@ -273,21 +296,22 @@ export function enforceWidgetToken(req: Request, res: Response, next: NextFuncti
     });
   }
 
-  (req as any)._widgetWorkspaceId = result.workspaceId;
-  (req as any)._widgetSessionOrigin = result.origin;
-  (req as any)._widgetToken = token;
-  (req as any)._widgetNonce = result.nonce;
-  (req as any)._widgetRateLimitTrust = result.rateLimitTrust;
+  const ctx = req as WidgetSessionRequest;
+  ctx._widgetWorkspaceId = result.workspaceId;
+  ctx._widgetSessionOrigin = result.origin;
+  ctx._widgetToken = token;
+  ctx._widgetNonce = result.nonce;
+  ctx._widgetRateLimitTrust = result.rateLimitTrust;
   next();
 }
 
 // ─── Middleware: Origin enforcement (FAIL CLOSED) ───
 export function enforceOrigin(req: Request, res: Response, next: NextFunction) {
-  const workspaceId = (req as any)._widgetWorkspaceId;
+  const workspaceId = (req as WidgetSessionRequest)._widgetWorkspaceId;
   if (!workspaceId) return next();
 
   const requestOrigin = getRequestOrigin(req);
-  const sessionOrigin = (req as any)._widgetSessionOrigin;
+  const sessionOrigin = (req as WidgetSessionRequest)._widgetSessionOrigin;
 
   if (sessionOrigin && requestOrigin) {
     const tokenOrigin = sessionOrigin.toLowerCase().replace(/\/+$/, '');
@@ -319,7 +343,7 @@ export function enforceOrigin(req: Request, res: Response, next: NextFunction) {
 export function widgetRateLimit(category: string = 'default') {
   return (req: Request, res: Response, next: NextFunction) => {
     const ip = rateLimitIpKey(req);
-    const workspaceId = (req as any)._widgetWorkspaceId || req.body?.workspace_id || 'unknown';
+    const workspaceId = (req as WidgetSessionRequest)._widgetWorkspaceId || req.body?.workspace_id || 'unknown';
     const key = `${category}:${ip}:${workspaceId}`;
 
     if (!checkRateLimit(key, category)) {
@@ -350,7 +374,7 @@ export function widgetRateLimit(category: string = 'default') {
 
 // ─── Workspace resolution ───
 export function resolveWorkspaceId(req: Request, res: Response, candidateWorkspaceId?: string): string | null {
-  const tokenWorkspaceId = (req as any)._widgetWorkspaceId || null;
+  const tokenWorkspaceId = (req as WidgetSessionRequest)._widgetWorkspaceId || null;
   const requestedWorkspaceId = typeof candidateWorkspaceId === 'string' && candidateWorkspaceId.trim().length > 0
     ? candidateWorkspaceId.trim() : null;
 
@@ -382,16 +406,17 @@ export async function verifyConversationOwnership(
   visitorId?: string | null,
   visitorSessionId?: string | null,
   req?: Request,
-): Promise<{ valid: boolean; conversation: any | null }> {
+): Promise<{ valid: boolean; conversation: OwnedConversation | null }> {
   if (!conversationId) return { valid: false, conversation: null };
 
   const supabase = getServiceClient(config);
 
-  const { data: conv } = await supabase
+  const { data } = await supabase
     .from('conversations')
     .select('id, status, assigned_to, updated_at, contact_id, visitor_session_id, workspace_id, metadata')
     .eq('id', conversationId)
     .maybeSingle();
+  const conv = data as OwnedConversation | null;
 
   if (!conv) return { valid: false, conversation: null };
   if (conv.workspace_id !== workspaceId) return { valid: false, conversation: null };
@@ -420,7 +445,7 @@ export async function verifyConversationOwnership(
   // contact, so this is their only ownership anchor. The cookie-derived
   // visitor id is authoritative and cannot be forged by client JS.
   if (candidateVisitorIds.size > 0) {
-    const convVisitorId = ((conv as any).metadata || {}).visitor_id;
+    const convVisitorId = (conv.metadata || {}).visitor_id;
     if (convVisitorId && candidateVisitorIds.has(convVisitorId)) {
       return { valid: true, conversation: conv };
     }
@@ -435,7 +460,7 @@ export async function verifyConversationOwnership(
       .maybeSingle();
 
     if (contact) {
-      const meta = (contact.metadata as any) || {};
+      const meta = (contact.metadata as { visitor_id?: string } | null) || {};
       if (meta.visitor_id && candidateVisitorIds.has(meta.visitor_id)) {
         return { valid: true, conversation: conv };
       }

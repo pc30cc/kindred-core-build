@@ -19,22 +19,10 @@
  *      explicitly refuse to touch the 'auth' provider type regardless of
  *      what's registered.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { AuthProvider } from '../../types/providers';
 
-const dbRows: { key: string; value: any }[] = [];
-
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: (table: string) => {
-      if (table !== 'app_runtime_config') throw new Error(`unexpected table ${table}`);
-      return {
-        select: () => ({
-          like: async () => ({ data: dbRows }),
-        }),
-      };
-    },
-  },
-}));
+const dbRows: { key: string; value: unknown }[] = [];
 
 const { providerRegistry, PROVIDER_TYPE_KEYS } = await import('../../providers/registry');
 const { bootstrapProviders } = await import('../../providers/bootstrap');
@@ -63,14 +51,14 @@ describe('legacy Supabase Auth provider — reactivation is closed', () => {
     // never a Supabase client method — this is a structural proxy for "not
     // the legacy provider" since the legacy module no longer exists to
     // import for a stronger identity check.
-    expect(typeof (resolved as any).getSession).toBe('function');
+    expect(typeof (resolved as { getSession?: unknown }).getSession).toBe('function');
   });
 
   it('a malicious/stray default_auth_provider DB row is never applied — sync skips type "auth" unconditionally', async () => {
     dbRows.push({ key: 'default_auth_provider', value: { provider_name: 'supabase' } });
     // Even if some future change re-registers a provider literally named
     // 'supabase' under 'auth', the sync loop must still refuse to touch it.
-    providerRegistry.register('auth', 'supabase', { getSession: async () => null } as any, { priority: 50 });
+    providerRegistry.register('auth', 'supabase', { getSession: async () => null } as unknown as AuthProvider, { priority: 50 });
 
     await syncProvidersFromDB();
 
@@ -78,7 +66,7 @@ describe('legacy Supabase Auth provider — reactivation is closed', () => {
     expect(authProviders).toContain('supabase'); // registration itself is untouched
     // But it must never have been made active by the sync pass.
     const resolved = providerRegistry.resolve('auth');
-    expect((resolved as any)?.__isFakeReregisteredSupabase).not.toBe(true);
+    expect((resolved as { __isFakeReregisteredSupabase?: boolean } | undefined)?.__isFakeReregisteredSupabase).not.toBe(true);
   });
 
   it('other provider types are unaffected by the auth guard — a real default row still applies', async () => {
@@ -94,10 +82,12 @@ describe('legacy Supabase Auth provider — reactivation is closed', () => {
     expect(error?.message).toMatch(/cannot be changed/i);
   });
 
-  it('the database and realtime Supabase providers are untouched — auth != database', () => {
+  it('database and realtime stay registered — auth != database — and both are the server, not a browser Supabase client', () => {
     const dbProviders = providerRegistry.getProviders('database').map((p) => p.name);
     const realtimeProviders = providerRegistry.getProviders('realtime').map((p) => p.name);
-    expect(dbProviders).toContain('supabase');
-    expect(realtimeProviders).toContain('supabase');
+    expect(dbProviders).toContain('self-hosted');
+    expect(realtimeProviders).toContain('self-hosted');
+    expect(dbProviders).not.toContain('supabase');
+    expect(realtimeProviders).not.toContain('supabase');
   });
 });

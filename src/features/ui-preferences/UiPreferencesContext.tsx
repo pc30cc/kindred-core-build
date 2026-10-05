@@ -8,7 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { fetchPlatformPublicConfig } from '@/lib/platformPublicConfig';
 import {
   DEFAULT_UI_PREFERENCES,
   applyUiPreferences,
@@ -38,13 +38,8 @@ function usePlatformUiDefaults(): UiPreferencesOverrides {
   const { data } = useQuery({
     queryKey: ['platform_ui_defaults'],
     queryFn: async (): Promise<UiPreferencesOverrides> => {
-      const { data, error } = await supabase
-        .from('platform_branding')
-        .select('default_ui_font_size, default_ui_accent, default_ui_chroma, default_ui_skin')
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      const row = (data ?? {}) as Record<string, string | null>;
+      const { branding } = await fetchPlatformPublicConfig();
+      const row = (branding ?? {}) as unknown as Record<string, string | null>;
       const next: UiPreferencesOverrides = {
         fontSize: row.default_ui_font_size as UiPreferences['fontSize'] | undefined,
         accent: row.default_ui_accent as UiPreferences['accent'] | undefined,

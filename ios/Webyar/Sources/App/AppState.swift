@@ -34,6 +34,10 @@ final class AppState {
     /// no connection), so it is asked for again when the app comes forward.
     @ObservationIgnored private var workspacesFromSnapshot = false
 
+    /// The session on screen came from this phone's saved copy and the server
+    /// has not yet said it still stands (`resumeSavedSession()`).
+    @ObservationIgnored private var savedSessionUnconfirmed = false
+
     /// What the current workspace's plan grants. Every plan-gated tab and
     /// queue reads this rather than assuming.
     private(set) var entitlements: EntitlementsState = .loading
@@ -207,6 +211,10 @@ final class AppState {
     /// operator signed in with whatever is cached — only the server saying the
     /// session is void signs them out.
     func restore() async {
+        if savedSessionUnconfirmed {
+            await confirmSavedSession()
+            return
+        }
         // Changing the language rebuilds the whole hierarchy, so the root's
         // `task` runs again. Working out the launch state is a launch
         // concern: once it is known, redoing it would cost a round trip and
@@ -264,6 +272,57 @@ final class AppState {
             } else {
                 session = .signedOut
             }
+        }
+    }
+
+    /// A returning operator, straight into the app from this phone's saved
+    /// copy — the account last seen here and its workspaces — without waiting
+    /// for the server.
+    ///
+    /// The launch loader used to stay up until three requests had come back
+    /// one after another: where the API is (up to 8 s), the public config
+    /// (4 s) and who the token belongs to (20 s). On a good connection that
+    /// is a second or two; on a slow or flaky one it was half a minute of a
+    /// spinner in front of an inbox the phone already had. `restore()` asks
+    /// the server afterwards, and only a `401` ends the session.
+    ///
+    /// Nothing to resume on a first launch, after a sign-out, or when the
+    /// app was reinstalled (the token outlives the app in the Keychain, the
+    /// saved account does not): those still wait, as they must, to learn
+    /// whether there is anybody to show.
+    func resumeSavedSession() async {
+        guard case .restoring = session, !Backend.isSample,
+              await api.hasToken, let saved = SessionCache.read()
+        else { return }
+        savedSessionUnconfirmed = true
+        session = .signedIn(saved)
+        adoptSnapshot(for: saved.id)
+    }
+
+    /// The server's word on a session `resumeSavedSession()` put on screen.
+    private func confirmSavedSession() async {
+        savedSessionUnconfirmed = false
+        guard let shown = session.user else { return }
+        do {
+            let user = try await api.currentUser()
+            guard session.user?.id == shown.id else { return }
+            guard user.id == shown.id else {
+                // The token belongs to somebody else than the saved account:
+                // nothing of the saved one may stay on screen.
+                await reset(purgeCache: false)
+                await signedIn(user)
+                return
+            }
+            session = .signedIn(user)
+            SessionCache.save(user)
+            await loadWorkspaces()
+        } catch APIError.unauthorized {
+            guard session.user?.id == shown.id else { return }
+            await handleUnauthorized()
+        } catch {
+            // Offline, as in `restore()`: the saved copy stays, and the next
+            // request that gets an answer settles it.
+            await loadWorkspaces()
         }
     }
 
@@ -342,6 +401,7 @@ final class AppState {
         access = .unknown
         appConfig = .defaults
         workspacesFromSnapshot = false
+        savedSessionUnconfirmed = false
         entitlements = .loading
         profile = nil
         // Whoever signs in next must not be greeted by the last person's

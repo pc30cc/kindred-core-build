@@ -494,7 +494,7 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           files=(database/migrations/*.sql)
-          IFS=$'\n' files=($(printf '%s\n' "${files[@]}" | sort))
+          IFS=$'\n' files=($(printf '%s\n' "${files[@]}" | LC_ALL=C sort))
           if [ "${#files[@]}" -lt 16 ]; then
             echo "expected the full chain, found ${#files[@]} files"; exit 1
           fi
@@ -518,6 +518,91 @@ jobs:
           PGPASSWORD: postgres
         run: |
           psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -v require_ai_kb=1 \
+            -v require_hosted_service_acl=0 \
+            -f scripts/ci/verify-migration-security.sql
+
+  # The chain on a PLAIN PostgreSQL — no Supabase image, no GoTrue, nothing
+  # pre-seeded — applied exactly as an install applies it
+  # (scripts/migrate-database.sh, the same script deploy-migrations.yml and
+  # docker-compose.postgres.yml run). 000 supplies the roles and 000a the
+  # `auth` names the chain refers to. Two servers: stock postgres:16 (no
+  # pgvector: 250 must skip the embedding column with a notice, not fail) and
+  # pgvector/pgvector:pg17 (the image docker-compose.postgres.yml ships: the
+  # column and its HNSW index must exist). See docs/DATABASE.md.
+  plain-postgres-chain:
+    name: Plain PostgreSQL migration chain (${{ matrix.image }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['postgres:16', 'pgvector/pgvector:pg17']
+
+    services:
+      postgres:
+        image: ${{ matrix.image }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: webyar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/webyar?sslmode=disable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fail if the database service did not start
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'SELECT version()'
+
+      - name: Apply the whole chain (scripts/migrate-database.sh)
+        run: |
+          set -euo pipefail
+          expected="$(ls database/migrations/*.sql | wc -l)"
+          bash scripts/migrate-database.sh | tee /tmp/first-run.log
+          grep -q "Applied: ${expected}, already up to date: 0\." /tmp/first-run.log
+
+      - name: A second run applies nothing
+        run: |
+          set -euo pipefail
+          bash scripts/migrate-database.sh | tee /tmp/second-run.log
+          grep -q "Applied: 0," /tmp/second-run.log
+
+      - name: pgvector — embedding column exactly where the server ships it
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "DO \$\$
+             DECLARE
+               available boolean := EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector');
+               has_column boolean := EXISTS (SELECT 1 FROM pg_attribute
+                                              WHERE attrelid = 'public.ai_knowledge_chunks'::regclass
+                                                AND attname = 'embedding' AND NOT attisdropped);
+             BEGIN
+               IF available AND NOT has_column THEN
+                 RAISE EXCEPTION 'pgvector is available but ai_knowledge_chunks.embedding was not created';
+               END IF;
+               IF available AND to_regclass('public.ai_knowledge_chunks_embedding_hnsw') IS NULL THEN
+                 RAISE EXCEPTION 'pgvector is available but the HNSW index was not created';
+               END IF;
+               RAISE NOTICE 'pgvector available: %, embedding column: %', available, has_column;
+             END \$\$;"
+
+      # The same live privilege proof the Supabase-image job runs. The
+      # structural check (verify-selfhost-chain.sql) is not run here: it
+      # asserts GoTrue's own auth.schema_migrations, which a database without
+      # GoTrue has no reason to contain.
+      - name: Database security verification
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -v require_ai_kb=1 \
             -v require_hosted_service_acl=0 \
             -f scripts/ci/verify-migration-security.sql

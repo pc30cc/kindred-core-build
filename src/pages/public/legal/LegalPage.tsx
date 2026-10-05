@@ -1,22 +1,13 @@
 import { Fragment, useEffect } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { BrandLogo } from '@/components/brand/BrandLogo';
-import { isRtl, SUPPORTED_LOCALES, type Locale } from '@/i18n/config';
 import { applySeoHead } from '@/lib/seoHead';
-import { cn } from '@/lib/utils';
 import {
   LEGAL_CHROME,
   LEGAL_CONTACT_EMAIL,
-  LEGAL_DEFAULT_LOCALE,
   LEGAL_DOCUMENTS,
-  LEGAL_LOCALES,
   type LegalDocumentId,
 } from './legalDocuments';
-
-/** `/privacy` is the Persian, as on the site; `/privacy/en` and `/privacy/tr` the others. */
-function pathFor(doc: LegalDocumentId, locale: Locale): string {
-  return locale === LEGAL_DEFAULT_LOCALE ? `/${doc}` : `/${doc}/${locale}`;
-}
 
 /** A paragraph, with `{email}` drawn as a link to write to. */
 function Paragraph({ text }: { text: string }) {
@@ -28,7 +19,6 @@ function Paragraph({ text }: { text: string }) {
           {index > 0 && (
             <a
               href={`mailto:${LEGAL_CONTACT_EMAIL}`}
-              dir="ltr"
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
               {LEGAL_CONTACT_EMAIL}
@@ -42,80 +32,42 @@ function Paragraph({ text }: { text: string }) {
 }
 
 /**
- * The privacy policy or the terms of use, public and signed out — laid out as
- * the site's own pages are: the title, the date it took effect, and numbered
- * sections, in one readable column.
+ * The privacy policy or the terms of use, public and signed out, in English —
+ * laid out as the site's own pages are: the title, the date it took effect,
+ * and numbered sections, in one readable column.
  */
 export default function LegalPage({ doc }: { doc: LegalDocumentId }) {
-  const { locale: requested } = useParams<{ locale?: string }>();
-  const wanted = (requested ?? LEGAL_DEFAULT_LOCALE).toLowerCase();
-  const locale = (SUPPORTED_LOCALES as readonly string[]).includes(wanted) ? (wanted as Locale) : null;
-
-  const content = locale ? LEGAL_DOCUMENTS[doc][locale] : null;
-  const chrome = locale ? LEGAL_CHROME[locale] : null;
-  const dir = locale && isRtl(locale) ? 'rtl' : 'ltr';
+  // `/privacy/en` and the like, from when there were three languages.
+  const { locale } = useParams<{ locale?: string }>();
+  const content = LEGAL_DOCUMENTS[doc];
 
   useEffect(() => {
-    if (!locale || !content) return;
-    const origin = window.location.origin;
+    const url = `${window.location.origin}/${doc}`;
     applySeoHead({
       title: content.pageTitle,
       description: content.title,
-      canonical: `${origin}${pathFor(doc, locale)}`,
-      locale,
-      dir,
-      hreflangs: LEGAL_LOCALES.map((l) => ({ hreflang: l.locale, href: `${origin}${pathFor(doc, l.locale)}` })),
-      jsonLd: {
-        '@context': 'https://schema.org',
-        '@type': 'WebPage',
-        name: content.title,
-        url: `${origin}${pathFor(doc, locale)}`,
-        inLanguage: locale,
-      },
+      canonical: url,
+      locale: 'en',
+      dir: 'ltr',
+      jsonLd: { '@context': 'https://schema.org', '@type': 'WebPage', name: content.title, url, inLanguage: 'en' },
     });
-  }, [doc, locale, content, dir]);
+  }, [doc, content]);
 
-  // `/privacy` is the default language already; `/privacy/fa` and anything
-  // unknown land there.
-  if (!locale || (requested && locale === LEGAL_DEFAULT_LOCALE)) {
-    return <Navigate to={pathFor(doc, LEGAL_DEFAULT_LOCALE)} replace />;
-  }
-  if (!content || !chrome) return null;
+  if (locale) return <Navigate to={`/${doc}`} replace />;
 
   return (
     <div
-      dir={dir}
-      lang={locale}
+      dir="ltr"
+      lang="en"
       // The app turns every digit Persian while its own language is Persian
-      // (lib/persian-digits). The English and Turkish texts keep theirs:
-      // "1 September 2026", not "۱ September ۲۰۲۶".
-      data-latin-digits={locale === 'fa' ? undefined : ''}
+      // (lib/persian-digits); this text keeps "September 1, 2026".
+      data-latin-digits=""
       className="flex min-h-screen flex-col bg-background text-foreground"
     >
       <header className="border-b border-border/60">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-4 px-5 py-4">
-          <div className="flex items-center gap-2.5">
-            <BrandLogo className="h-8 w-8 rounded-lg" alt={chrome.brand} />
-            <span className="text-base font-bold text-foreground">{chrome.brand}</span>
-          </div>
-          <nav className="flex items-center gap-1 text-xs" aria-label="Language">
-            {LEGAL_LOCALES.map((l) => (
-              <Link
-                key={l.locale}
-                to={pathFor(doc, l.locale)}
-                lang={l.locale}
-                aria-current={l.locale === locale ? 'page' : undefined}
-                className={cn(
-                  'rounded-full px-2.5 py-1 transition-colors',
-                  l.locale === locale
-                    ? 'bg-muted font-semibold text-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {l.label}
-              </Link>
-            ))}
-          </nav>
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-2.5 px-5 py-4">
+          <BrandLogo className="h-8 w-8 rounded-lg" alt={LEGAL_CHROME.brand} />
+          <span className="text-base font-bold text-foreground">{LEGAL_CHROME.brand}</span>
         </div>
       </header>
 
@@ -142,13 +94,13 @@ export default function LegalPage({ doc }: { doc: LegalDocumentId }) {
 
       <footer className="border-t border-border/60">
         <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-3 px-5 py-6 text-xs text-muted-foreground sm:flex-row sm:justify-between">
-          <span>{chrome.copyright}</span>
+          <span>{LEGAL_CHROME.copyright}</span>
           <nav className="flex items-center gap-4">
-            <Link to={pathFor('terms', locale)} className="hover:text-foreground">
-              {chrome.terms}
+            <Link to="/terms" className="hover:text-foreground">
+              {LEGAL_CHROME.terms}
             </Link>
-            <Link to={pathFor('privacy', locale)} className="hover:text-foreground">
-              {chrome.privacy}
+            <Link to="/privacy" className="hover:text-foreground">
+              {LEGAL_CHROME.privacy}
             </Link>
           </nav>
         </div>

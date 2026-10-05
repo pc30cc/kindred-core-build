@@ -95,14 +95,17 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build
 
+  # pgvector/pgvector:pg16 is PostgreSQL 16 with pgvector: the database-only
+  # acceptance suite (postgresOnlyAcceptance.pg.test.ts) retrieves AI knowledge
+  # over real embeddings, which needs the extension on the server.
   integration:
     name: Integration (PostgreSQL)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

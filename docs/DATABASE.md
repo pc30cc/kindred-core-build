@@ -95,7 +95,8 @@ cap Supabase's API applies, so the code behaves the same on both.
 
 ## 2. Requirements
 
-- **PostgreSQL 15 or newer.** CI runs on 16 and 17, and on Supabase's image.
+- **PostgreSQL 15 or newer.** CI runs on 16 and 17, and on Supabase's image
+  (see *What CI proves* below for which suite runs where).
 - **pgvector** for AI knowledge retrieval (`ai_knowledge_chunks.embedding`).
   Without it, everything else works: migration 250 skips the column with a
   notice. Images that ship it include `pgvector/pgvector:pg17` (used by the
@@ -105,6 +106,39 @@ cap Supabase's API applies, so the code behaves the same on both.
   `service_role` with `BYPASSRLS`, and the chain creates extensions. On
   Supabase, `postgres` is enough. On a managed service with no superuser,
   check that its admin role may create `BYPASSRLS` roles.
+
+### What CI proves, and on which server
+
+Production runs PostgreSQL 17 with pgvector 0.8.0 on Supabase. Local
+development used PostgreSQL 16 with pgvector 0.6.0.
+
+| Suite | What it proves | Server |
+| --- | --- | --- |
+| Plain PostgreSQL migration chain | the whole chain applies from empty through `migrate-database.sh`, and a second run applies nothing; `verify-migration-security.sql`; code names no column the schema lacks (`check-code-columns.py`) | `postgres:16` (no pgvector), `pgvector/pgvector:pg17` |
+| ″ — `move-data-test.sh` | §6: check, success, retry, four kinds of failure rolled back, Supabase-like target and the reverse move | both of the above |
+| ″ — `baseline-verify-test.sh` | the verified baseline (docs/AUTO_MIGRATIONS.md) | both of the above |
+| Integration — `postgrestEngineParity.pg.test.ts` | the engine against PostgREST 14.5's recorded answers and database state, 160 cases | `pgvector/pgvector:pg16` |
+| Integration — `engineRpcRollback.pg.test.ts` | a writing set-returning function under `.single()` leaves nothing behind | ″ |
+| Integration — `productionParity251.pg.test.ts` | 251's plan-and-access functions, seat capacity, the new-workspace trigger, and that 251 runs twice unchanged, on a database built by the whole chain | ″ |
+| Integration — `postgresOnlyAcceptance.pg.test.ts` | the main paths under `postgres-only`, with outbound requests refused (below) | ″ |
+| Hosted Supabase full migration chain | `supabase/migrations` on Supabase's own image | Supabase CLI |
+
+`postgresOnlyAcceptance.pg.test.ts` sets `DATABASE_URL`, leaves the old
+`SUPABASE_*` variables set, and does not enable unlimited billing. It
+refuses and records every outbound request that is not to this machine.
+On production's plan policy (trial signups and the trial plan's limits) it
+covers:
+
+- signup, verification, login and the session cookie;
+- workspace creation, with the second refused by the plan and allowed by an
+  override;
+- an operator message, stored, counted and published through Centrifugo;
+- an AI-credit invoice;
+- a file uploaded to local storage and read back;
+- AI knowledge retrieval over pgvector embeddings;
+- the invitations worker.
+
+It passes only if nothing went to Supabase or anywhere else.
 
 ---
 

@@ -363,7 +363,9 @@ application points at the target:
   `application_name`. On the hosted project:
   - Supabase **Edge Functions**. Two legacy ones are deployed and unused (§7);
     make sure nothing invokes them;
-  - **scheduled jobs**. The hosted project has no `pg_cron` or `pg_net`.
+  - **scheduled jobs**. The hosted project's database has neither the
+    `pg_cron` nor the `pg_net` extension installed, so nothing in it runs on
+    a schedule. Supabase's own launcher processes for them run, with no jobs.
 
 The client tools must be at least as new as the newer server. The simplest
 way is to run the script from the matching image:
@@ -453,7 +455,7 @@ Inspected read-only. Nothing has been deleted.
 | `PLUGIN_SECRETS_MASTER_KEY` | — | Encrypts plugin and channel secrets stored in the database. Keep it across a move, or those secrets cannot be read. |
 | `DATABASE_SSL` | `disable` for localhost and container names, `require` otherwise | `disable`, `require` (encrypted, not verified) or `verify-full`. `sslmode=` in the URL works too. |
 | `DATABASE_SSL_CA` | — | CA certificate, as PEM text or a file path, for `verify-full`. |
-| `DATABASE_POOL_MAX` | `10` | Connections per process. |
+| `DATABASE_POOL_MAX` | `10` for the backend; `3` per worker container (`5` for `all` or several kinds) | Most connections this process opens (below). |
 | `DATABASE_ROLE` | `service_role` | Role every session assumes. The login role must be allowed to `SET ROLE` to it (§4). `none` means stay the login role. |
 | `DATABASE_SCHEMAS` | `public` | Exposed schemas, as PostgREST's `db-schemas`. |
 | `DATABASE_MAX_ROWS` | `1000` | Row cap on reads; `0` means no cap. |
@@ -462,6 +464,58 @@ Inspected read-only. Nothing has been deleted.
 | `DATABASE_CONNECT_ATTEMPTS` | `30` | Boot-time wait for the database, 2 s apart. |
 | `DATABASE_ALLOW_TRANSACTION_POOLER` | — | `1` disables the port-6543 refusal. Only for a pooler you know runs in session mode. |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | — | Only with `DATABASE_MODE=postgres+supabase-services` (§7) or `supabase-rest`. Ignored under `postgres-only`. |
+
+### Connections: the budget across processes
+
+Under `supabase-rest`, every process reached the database through
+PostgREST's single pool: 11 connections on the hosted project. With
+`DATABASE_URL`, **each process has its own pool**:
+
+- the backend, the server process;
+- every worker container;
+- the `migrate` job while it runs.
+
+The channels gateway and the AI runtime hold no database credentials.
+
+A pool opens connections only as queries need them, up to its maximum, and
+closes them after 30 s idle. So the worst case is the sum of the maxima:
+
+```
+DATABASE_POOL_MAX(backend) + Σ DATABASE_POOL_MAX(each worker container)
+  ≤ max_connections − superuser_reserved − what else connects
+```
+
+On the hosted project (read on 2026-10-05) `max_connections` is 60, with 3
+reserved, and Supabase's own processes hold about 11. That leaves about 45
+for the application. With the defaults, the backend (10) plus, say, seven
+worker containers (7 × 3) comes to 31 at most. That is more than the 11 the
+whole application has today through PostgREST, and well within the limit.
+Each process logs its maximum at boot ("pool up to N connection(s)").
+Sum them before adding containers or raising `DATABASE_POOL_MAX`. A server
+that runs out refuses new connections to every client, Supabase's own
+included.
+
+Two more sources of database load were looked at:
+
+- `GET /api/platform/public/config` runs on every page load. It needs four
+  database operations, and its response is now kept in memory
+  (`server/services/platformPublicConfig.ts`):
+  - for at most 30 s;
+  - dropped by every Super Admin write to branding, localized branding,
+    platform region settings or the widget platform settings;
+  - one load at a time.
+
+  `src/test/database/platformPublicConfigCache.test.ts` counts the database
+  operations: 4 for the first request and 0 for every repeat within the TTL,
+  25 concurrent cold requests share one load of 4, and a write shows on the
+  next read. Another backend replica can serve the old values for at most
+  the TTL.
+- The engine's schema cache. One load is 4 catalog queries, about 65 ms
+  (median of 12) for the 316 tables and 696 functions of the full chain on
+  PostgreSQL 16. It reloads every 5 minutes, and on a request naming
+  something it does not know, at most once a second. Code that names a
+  column the database lacks would hit that path on every call;
+  `scripts/ci/check-code-columns.py` keeps such names out of the code.
 
 ---
 

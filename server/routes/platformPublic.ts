@@ -15,95 +15,22 @@
  * Public, unauthenticated, read-only. Only presentational columns leave the
  * server: no platform_settings field beyond the three the language picker
  * needs, and the realtime values come from get_widget_platform_settings(),
- * the sanitized projection that already existed for anon callers.
+ * the sanitized projection that already existed for anon callers. Built and
+ * cached in server/services/platformPublicConfig.ts.
  */
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
-import { getServiceClient } from '../supabase.js';
+import { getPlatformPublicConfig } from '../services/platformPublicConfig.js';
 
 export const platformPublicRouter = Router();
 
-// Whitelists, applied after a `select('*')`: production and a database built
-// from database/migrations do not have exactly the same optional columns
-// (lock_ui_preferences exists only in the latter), and naming a missing column
-// would fail the whole read.
-const BRANDING_COLUMNS = [
-  'logo_url',
-  'favicon_url',
-  'pwa_icon_url',
-  'primary_color',
-  'secondary_color',
-  'pwa_enabled',
-  'pwa_short_name',
-  'pwa_background_color',
-  'default_ui_font_size',
-  'default_ui_accent',
-  'default_ui_chroma',
-  'default_ui_skin',
-  'lock_ui_preferences',
-];
-
-const LOCALIZED_COLUMNS = [
-  'locale',
-  'platform_name',
-  'public_site_title',
-  'browser_title_format',
-  'meta_title',
-  'meta_description',
-  'social_share_title',
-  'social_share_description',
-  'footer_company_text',
-  'support_label',
-  'legal_company_display_name',
-  'knowledge_base_title',
-  'widget_display_name',
-];
-
-function pick(row: Record<string, unknown> | null | undefined, keys: string[]): Record<string, unknown> | null {
-  if (!row) return null;
-  return Object.fromEntries(keys.filter((k) => k in row).map((k) => [k, row[k]]));
-}
-
-const REALTIME_KEYS = [
-  'realtime_reconnect_jitter_pct',
-  'realtime_pending_max',
-  'realtime_message_dedupe_enabled',
-  'realtime_message_dedupe_window',
-] as const;
-
 platformPublicRouter.get('/config', async (req, res) => {
   const config = (req as unknown as { serverConfig: ServerConfig }).serverConfig;
-  const sb = getServiceClient(config);
-  const [branding, localized, settings, widgetPlatform] = await Promise.all([
-    sb.from('platform_branding').select('*').limit(1).maybeSingle(),
-    sb.from('platform_branding_localized').select('*').order('locale'),
-    sb
-      .from('platform_settings')
-      .select('region_mode, active_locales, default_locale')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle(),
-    sb.rpc('get_widget_platform_settings'),
-  ]);
-  for (const r of [branding, localized, settings]) {
-    if (r.error) {
-      console.warn('[platform-public] config read failed:', r.error.message);
-      return res.status(503).json({ error: 'platform_config_unavailable' });
-    }
-  }
-  const rawRealtime = (widgetPlatform.error ? null : (widgetPlatform.data as Record<string, unknown> | null)) ?? null;
-  const realtime = rawRealtime
-    ? Object.fromEntries(REALTIME_KEYS.filter((k) => k in rawRealtime).map((k) => [k, rawRealtime[k]]))
-    : null;
-
-  // Not cached: Super Admin → Branding edits must show on the next read
-  // (the page invalidates its queries right after saving). One request per
-  // page load still replaces the four it used to take.
+  const body = await getPlatformPublicConfig(config);
+  if (!body) return res.status(503).json({ error: 'platform_config_unavailable' });
+  // The browser keeps no copy: a Super Admin change must show on its next
+  // read. The server keeps one (server/services/platformPublicConfig.ts),
+  // dropped by every write to the settings it is built from.
   res.set('Cache-Control', 'no-store');
-  return res.json({
-    branding: pick(branding.data as Record<string, unknown> | null, BRANDING_COLUMNS),
-    localized: ((localized.data ?? []) as Record<string, unknown>[]).map((r) => pick(r, LOCALIZED_COLUMNS)),
-    region: settings.data ?? null,
-    realtime,
-  });
+  return res.json(body);
 });

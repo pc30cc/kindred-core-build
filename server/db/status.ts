@@ -65,7 +65,10 @@ export async function waitForDatabase(label: string, attempts = Number(process.e
   for (let i = 1; ; i++) {
     const status = await databaseStatus();
     if (status.ok) {
-      console.log(`[${label}] database: ${target}, PostgreSQL ${status.serverVersion}, role ${status.role}, mode ${status.mode}`);
+      console.log(
+        `[${label}] database: ${target}, PostgreSQL ${status.serverVersion}, role ${status.role}, mode ${status.mode}, ` +
+          `pool up to ${databaseSettings()?.poolMax ?? '?'} connection(s)`,
+      );
       const ignored = ignoredSupabaseVars();
       if (ignored.length) {
         console.warn(

@@ -32,6 +32,7 @@ import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
 import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
 import { reviveFailedWorkspaceDeletion } from '../services/workspaceDeletion/revive.js';
+import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
 
 
 export const adminManagementRouter = Router();
@@ -669,6 +670,8 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   // an operator's change takes effect on the very next signup.
   invalidateSignupPolicyCache();
   invalidateSignupPlanCache();
+  // region_mode / active_locales / default_locale feed the public config.
+  invalidatePlatformPublicConfig();
   return res.json({ success: true, settings: savedSettings });
 });
 
@@ -768,6 +771,7 @@ adminManagementRouter.put('/platform-branding', async (req, res) => {
         .maybeSingle()
     : await sb.from('platform_branding').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  invalidatePlatformPublicConfig();
   return res.json({ branding: data });
 });
 
@@ -809,6 +813,7 @@ adminManagementRouter.put('/platform-branding-localized', async (req, res) => {
         .maybeSingle()
     : await sb.from('platform_branding_localized').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  invalidatePlatformPublicConfig();
   return res.json({ branding: data });
 });
 

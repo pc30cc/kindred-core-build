@@ -25,6 +25,7 @@ import {
 import { uploadForOwner, deleteForOwner } from '../services/storage/index.js';
 import { widgetAssetKey } from '../services/storage/keys.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
+import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
 
 
 export const widgetSettingsRouter = Router();
@@ -567,6 +568,7 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
   // (or the row was deleted). Create it on demand — the table enforces a
   // singleton unique index, so concurrent seeds are safe.
   const seed = await sb.from('widget_platform_settings').insert({}).select().single();
+  if (!seed.error) invalidatePlatformPublicConfig();
   if (seed.error) {
     const retry = await sb.from('widget_platform_settings').select('*').limit(1).maybeSingle();
     if (retry.data) return res.json({ settings: retry.data });
@@ -673,5 +675,7 @@ widgetSettingsRouter.patch('/platform/config', async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  // The realtime_* tuning values are part of the public config.
+  invalidatePlatformPublicConfig();
   return res.json({ settings: data });
 });

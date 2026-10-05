@@ -246,7 +246,7 @@ the iPhone app.
   - The composer takes text and a file (2 MB); no emoji.
   - Replies arrive live, and a `support_reply` push opens the chat.
 - **iOS:** the Android app's three screens, with the same rules
-  (`ios/WebyarNative/Sources/Features/Support`).
+  (`ios/Webyar/Sources/Features/Support`).
   - Settings → Online support, one row with the presence and the unread
     count; shown when `enabled && available` and `showSupport`.
   - The chat, the **Closed** button in its bar, the closed list and the

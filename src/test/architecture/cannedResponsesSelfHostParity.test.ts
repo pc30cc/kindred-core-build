@@ -117,14 +117,14 @@ describe('the route tells "not installed" apart from "broken"', () => {
   });
 
   it('the iOS client has a name for it', () => {
-    const api = readFileSync('ios/WebyarNative/Sources/Core/Networking/APIClient.swift', 'utf8');
+    const api = readFileSync('ios/Webyar/Sources/Core/Networking/APIClient.swift', 'utf8');
     expect(api).toMatch(/var isFeatureMissing: Bool/);
     expect(api).toMatch(/status == 501/);
 
     // And the picker uses it, rather than showing an offline banner with a
     // Try again button that cannot ever work.
     const picker = readFileSync(
-      'ios/WebyarNative/Sources/Features/Chat/CannedResponsePicker.swift',
+      'ios/Webyar/Sources/Features/Chat/CannedResponsePicker.swift',
       'utf8',
     );
     expect(picker).toMatch(/case \.failed\(let error\) where error\.isFeatureMissing/);

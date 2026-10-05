@@ -11,7 +11,7 @@ import { API_BASE } from '@/lib/api';
  * domain is a settings edit, never a rebuild.
  *
  * This is the same endpoint the native iOS app asks on every launch
- * (see ios/WebyarNative/Sources/Core/Networking/PlatformOrigin.swift). One
+ * (see ios/Webyar/Sources/Core/Networking/PlatformOrigin.swift). One
  * endpoint, one answer, every client agrees.
  */
 export interface PlatformOrigins {

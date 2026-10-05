@@ -77,7 +77,7 @@ describe('buttons on the banner', () => {
   });
 
   it('and every category is one the iOS app registers — or its banner has no buttons', () => {
-    const swift = readFileSync('ios/WebyarNative/Sources/Core/Push/PushController.swift', 'utf8');
+    const swift = readFileSync('ios/Webyar/Sources/Core/Push/PushController.swift', 'utf8');
     for (const category of DEFAULT_CATEGORIES) {
       expect(swift, category.id).toContain(`identifier: "${category.id}"`);
       for (const action of category.actions) expect(swift, action.id).toContain(`identifier: "${action.id}"`);
@@ -87,7 +87,7 @@ describe('buttons on the banner', () => {
 
 describe('the payload the app routes on', () => {
   it('names each destination with the keys the iOS app reads', () => {
-    const swift = readFileSync('ios/WebyarNative/Sources/Core/Push/PushTarget.swift', 'utf8');
+    const swift = readFileSync('ios/Webyar/Sources/Core/Push/PushTarget.swift', 'utf8');
     const server = readFileSync('server/services/push/dispatch.ts', 'utf8');
     for (const key of ['workspaceId', 'conversationId', 'peerId', 'threadId']) {
       expect(swift, key).toContain(`"${key}"`);

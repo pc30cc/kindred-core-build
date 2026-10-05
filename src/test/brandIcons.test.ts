@@ -26,7 +26,7 @@ import { inflateSync } from 'node:zlib';
 
 /** An app-icon catalog: masked by the system, so square and opaque. */
 const CATALOGS = [
-  'ios/WebyarNative/Resources/Assets.xcassets/AppIcon.appiconset',
+  'ios/Webyar/Resources/Assets.xcassets/AppIcon.appiconset',
 ];
 /** Masked by the system too, but a plain file rather than a catalog. */
 const SQUARE_FILES = ['public/apple-touch-icon.png'];
@@ -301,7 +301,7 @@ describe('the bundles that carry an icon', () => {
   const CATALOG_NAME = 'AppIcon';
 
   it('the native app names its icon set in the generated Info.plist', () => {
-    const project = readFileSync('ios/WebyarNative/project.yml', 'utf8');
+    const project = readFileSync('ios/Webyar/project.yml', 'utf8');
     expect(
       project,
       'project.yml builds the Info.plist and declares no CFBundleIconName, ' +

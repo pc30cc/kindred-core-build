@@ -21,7 +21,7 @@ Why each of those holds, with measurements: `docs/ANDROID_LOCAL_DEV.md`.
 
 ## The iOS app in Xcode on the Mac
 
-`~/dev/kcb-ios-preview` is the copy of the native app (`ios/WebyarNative`)
+`~/dev/kcb-ios-preview` is the copy of the iOS app (`ios/Webyar`)
 open in the owner's Xcode. A LaunchAgent (`ai.webyar.xcode-sync`, script
 `~/dev/webyar-xcode-sync.sh`, log `~/dev/webyar-xcode-sync.log`) moves it to
 the latest `origin/main` every 3 minutes and regenerates the Xcode project, so

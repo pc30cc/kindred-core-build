@@ -208,7 +208,7 @@ export interface MobileAppPayload {
       /** The key is set but cannot be read as a .p8 key. */
       problem?: 'invalid_key' | null;
     };
-    /** The native iOS project (ios/WebyarNative), as shipped with this deployment. */
+    /** The native iOS project (ios/Webyar), as shipped with this deployment. */
     nativeProject: {
       available: boolean;
       appIcon1024: boolean;

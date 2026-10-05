@@ -86,7 +86,7 @@ import kotlinx.coroutines.withContext
 /**
  * What a message carries besides its words.
  *
- * Port of `ios/WebyarNative/Sources/Features/Chat/Attachments.swift`. Four
+ * Port of `ios/Webyar/Sources/Features/Chat/Attachments.swift`. Four
  * shapes for four kinds, because a voice note drawn as a file card is a
  * feature the operator cannot use: the bytes are there, the transport is not,
  * and the only way to hear it is to leave the app.

@@ -39,7 +39,7 @@ val buildingAppBundle: Boolean = gradle.startParameter.taskNames.any {
 
 android {
     // The same identifier as the iOS app (`PRODUCT_BUNDLE_IDENTIFIER` in
-    // ios/WebyarNative/project.yml): one name for the product on both stores.
+    // ios/Webyar/project.yml): one name for the product on both stores.
     // Releases up to 1.0.1 are `com.webyar.operator`, which Android treats as
     // a different app: a phone with one installs this beside it rather than
     // over it, and the old one is removed by hand.

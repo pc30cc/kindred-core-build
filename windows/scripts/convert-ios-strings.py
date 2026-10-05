@@ -10,7 +10,7 @@ could drift. Re-run after the iOS strings change:
 import json, re, pathlib, sys
 
 root = pathlib.Path(__file__).resolve().parents[2]
-src = root / "ios/WebyarNative/Sources/Localization/Strings.swift"
+src = root / "ios/Webyar/Sources/Localization/Strings.swift"
 out = pathlib.Path(__file__).resolve().parents[1] / "src/renderer/src/i18n/strings.json"
 
 text = src.read_text(encoding="utf-8")

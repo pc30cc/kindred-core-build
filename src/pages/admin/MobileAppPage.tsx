@@ -6,7 +6,7 @@
  *
  *   • iOS: the App Store record, the in-app switches and the App Store
  *     readiness verdicts, recomputed server-side on every read and save. The
- *     native app's own build settings live in ios/WebyarNative/project.yml.
+ *     native app's own build settings live in ios/Webyar/project.yml.
  *   • Android: the Play identity and release, and the in-app switches the
  *     installed app reads live from `GET /api/mobile-app/config` — hiding
  *     Storage, locking the name on the profile — without a new build.

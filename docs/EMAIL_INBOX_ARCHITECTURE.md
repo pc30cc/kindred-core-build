@@ -194,7 +194,7 @@ with text. Each app must now also:
 | --- | --- | --- | --- |
 | Windows (`windows-native`) | SQLite (`LocalStore.cs`), shared across windows | realtime `email_mailbox_changed` | none |
 | macOS (`macos/Webyar`) | SQLite (`LocalStore.swift`), shared across windows | realtime | none |
-| iOS (`ios/WebyarNative`) | local store in `Core/Cache` | realtime in foreground; APNs alert (no content) | no reliance on silent push |
+| iOS (`ios/Webyar`) | local store in `Core/Cache` | realtime in foreground; APNs alert (no content) | no reliance on silent push |
 | Android (`android/`) | Room | realtime in foreground; FCM (no content) | WorkManager only for required work |
 
 and: key the body cache on the thread version; clear the cache on sign-out,

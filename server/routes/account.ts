@@ -586,12 +586,13 @@ export function parseUserAgent(ua: string | null): { browser: string; os: string
   if (!ua) return { browser: 'Unknown', os: 'Unknown', device: 'Unknown' };
   const lower = ua.toLowerCase();
 
-  // The native app first, because it is not a browser and says so only by
-  // naming itself: `WebyarNative/1 CFNetwork/… Darwin/…` carries no
+  // The iPhone app first, because it is not a browser and says so only by
+  // naming itself: `Webyar/1 CFNetwork/… Darwin/…` carries no
   // "iphone", no "mobile" and no "ios", so every rule below read it as a
   // desktop running an unknown browser. The operator's own phone was the top
-  // row of that list, labelled Desktop.
-  if (lower.includes('webyarnative')) {
+  // row of that list, labelled Desktop. Builds from before the app's project
+  // was renamed call themselves `WebyarNative/…`, and are still signed in.
+  if (/^webyar(native)?\/\S+ cfnetwork\//.test(lower)) {
     return { browser: 'Webyar', os: 'iOS', device: 'Mobile' };
   }
 

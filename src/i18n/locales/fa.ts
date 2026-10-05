@@ -3804,7 +3804,7 @@ const fa: TranslationKeys = {
         },
         appCard: 'این اپلیکیشن',
         environmentCard: 'وضعیت استقرار',
-        environmentHint: 'آنچه این سرور می‌بیند: کلیدهای پوش در محیط آن، و پروژهٔ نیتیو iOS ‏(ios/WebyarNative) همان‌طور که با این نسخه مستقر شده است.',
+        environmentHint: 'آنچه این سرور می‌بیند: کلیدهای پوش در محیط آن، و پروژهٔ نیتیو iOS ‏(ios/Webyar) همان‌طور که با این نسخه مستقر شده است.',
         sandbox: 'Sandbox',
         invalidKey: 'تنظیم شده، ولی خوانا نیست',
         env: {
@@ -3901,7 +3901,7 @@ const fa: TranslationKeys = {
       },
       build: {
         title: 'نسخه و هدف استقرار',
-        caption: 'آنچه App Store Connect و چک‌لیست انتظار دارند. نسخهٔ خود اپ در ios/WebyarNative/project.yml است و راهنمای build همین نسخه و شمارهٔ build را در دستور آرشیو می‌گذارد.',
+        caption: 'آنچه App Store Connect و چک‌لیست انتظار دارند. نسخهٔ خود اپ در ios/Webyar/project.yml است و راهنمای build همین نسخه و شمارهٔ build را در دستور آرشیو می‌گذارد.',
         version: 'نسخه نمایشی',
         versionHint: 'آنچه مشتری می‌بیند، مثلاً ۱.۲.۰. برای هر انتشار عمومی باید افزایش یابد.',
         buildNumber: 'شماره بیلد',
@@ -4147,7 +4147,7 @@ const fa: TranslationKeys = {
           },
           capabilities: {
             title: 'فعال‌سازی قابلیت‌ها',
-            body: 'روی همان App ID قابلیت Push Notifications را فعال کنید؛ این تنها قابلیتی است که اپ اعلام می‌کند (ios/WebyarNative/project.yml). قابلیتی که در اپ باشد ولی روی App ID نباشد، امضا را ناموفق می‌کند.',
+            body: 'روی همان App ID قابلیت Push Notifications را فعال کنید؛ این تنها قابلیتی است که اپ اعلام می‌کند (ios/Webyar/project.yml). قابلیتی که در اپ باشد ولی روی App ID نباشد، امضا را ناموفق می‌کند.',
           },
           apnsKey: {
             title: 'ساخت کلید APNs',
@@ -4159,15 +4159,15 @@ const fa: TranslationKeys = {
           },
           configure: {
             title: 'تکمیل همین تنظیمات',
-            body: 'تب‌های همین صفحه را کامل کنید تا چک‌لیست اپ استور هیچ مانعی نداشته باشد. تنظیمات build خود اپ (شناسهٔ باندل، تیم، نسخه) در ios/WebyarNative/project.yml است.',
+            body: 'تب‌های همین صفحه را کامل کنید تا چک‌لیست اپ استور هیچ مانعی نداشته باشد. تنظیمات build خود اپ (شناسهٔ باندل، تیم، نسخه) در ios/Webyar/project.yml است.',
           },
           build: {
             title: 'ساخت پروژهٔ Xcode',
-            body: 'روی مک XcodeGen را نصب کنید (brew install xcodegen) و در ios/WebyarNative دستور xcodegen generate را اجرا کنید. پروژه از project.yml ساخته می‌شود و در مخزن نیست، پس بعد از هر pull دوباره اجرایش کنید.',
+            body: 'روی مک XcodeGen را نصب کنید (brew install xcodegen) و در ios/Webyar دستور xcodegen generate را اجرا کنید. پروژه از project.yml ساخته می‌شود و در مخزن نیست، پس بعد از هر pull دوباره اجرایش کنید.',
           },
           archive: {
             title: 'آرشیو در Xcode',
-            body: 'فایل WebyarNative.xcodeproj را باز کنید، scheme ‏WebyarNative و Any iOS Device را انتخاب کنید و سپس Product → Archive، با شمارهٔ build بالاتر از آپلود قبلی. ابتدا اپ را روی دستگاه واقعی اجرا و اجرا شدن، ورود و یک اعلان را بررسی کنید.',
+            body: 'فایل Webyar.xcodeproj را باز کنید، scheme ‏Webyar و Any iOS Device را انتخاب کنید و سپس Product → Archive، با شمارهٔ build بالاتر از آپلود قبلی. ابتدا اپ را روی دستگاه واقعی اجرا و اجرا شدن، ورود و یک اعلان را بررسی کنید.',
           },
           upload: {
             title: 'آپلود بیلد',
@@ -4229,12 +4229,12 @@ const fa: TranslationKeys = {
         appIcon: {
           title: 'آیکون اپ کامل است',
           requirement: 'یک PNG با ابعاد ۱۰۲۴×۱۰۲۴ بدون کانال آلفا و بدون گوشه گرد.',
-          fix: 'آن را در ios/WebyarNative/Resources/Assets.xcassets/AppIcon.appiconset قرار دهید و سپس npm run ios:project-facts را اجرا کنید. شفافیت رایج‌ترین دلیل شکست آپلود است؛ تصویر را روی پس‌زمینهٔ یکدست تخت کنید.',
+          fix: 'آن را در ios/Webyar/Resources/Assets.xcassets/AppIcon.appiconset قرار دهید و سپس npm run ios:project-facts را اجرا کنید. شفافیت رایج‌ترین دلیل شکست آپلود است؛ تصویر را روی پس‌زمینهٔ یکدست تخت کنید.',
         },
         launchScreen: {
           title: 'صفحه شروع موجود است',
           requirement: 'هر اپ به استوری‌بورد شروع نیاز دارد تا تمام صفحه را پر کند.',
-          fix: 'به‌صورت UILaunchScreen در ios/WebyarNative/project.yml اعلام شده است. آن را نگه دارید؛ بدون آن اپ با حاشیهٔ سیاه نمایش داده می‌شود.',
+          fix: 'به‌صورت UILaunchScreen در ios/Webyar/project.yml اعلام شده است. آن را نگه دارید؛ بدون آن اپ با حاشیهٔ سیاه نمایش داده می‌شود.',
         },
         orientations: {
           title: 'حداقل یک جهت',
@@ -4294,7 +4294,7 @@ const fa: TranslationKeys = {
         privacyManifest: {
           title: 'مانیفست حریم خصوصی موجود است',
           requirement: 'فایل PrivacyInfo.xcprivacy که هر API نیازمند دلیل را اعلام می‌کند.',
-          fix: 'فایل ios/WebyarNative/Resources/PrivacyInfo.xcprivacy را با APIهای نیازمند دلیلی که اینجا فهرست شده‌اند هماهنگ نگه دارید؛ این فایل در تارگت اپ قرار می‌گیرد. اپل آپلود بدون آن را رد می‌کند.',
+          fix: 'فایل ios/Webyar/Resources/PrivacyInfo.xcprivacy را با APIهای نیازمند دلیلی که اینجا فهرست شده‌اند هماهنگ نگه دارید؛ این فایل در تارگت اپ قرار می‌گیرد. اپل آپلود بدون آن را رد می‌کند.',
         },
         privacyNutritionLabels: {
           title: 'پاسخ‌های App Privacy اعلام شده',
@@ -4389,12 +4389,12 @@ const fa: TranslationKeys = {
         pushCapability: {
           title: 'قابلیت پوش فعال است',
           requirement: 'entitlementهای تارگت اپ aps-environment را اعلام می‌کنند.',
-          fix: 'aps-environment را زیر entitlements در ios/WebyarNative/project.yml نگه دارید (XcodeGen آن را در build می‌نویسد) و Push Notifications را روی App ID در پورتال Apple Developer فعال کنید.',
+          fix: 'aps-environment را زیر entitlements در ios/Webyar/project.yml نگه دارید (XcodeGen آن را در build می‌نویسد) و Push Notifications را روی App ID در پورتال Apple Developer فعال کنید.',
         },
         pushBackgroundMode: {
           title: 'حالت پس‌زمینهٔ بی‌استفاده برای پوش اعلام نشده',
           requirement: 'اپ اعلان نمایش می‌دهد و اعلان بی‌صدا نمی‌فرستد، پس نباید حالت پس‌زمینهٔ remote-notification را اعلام کند: App Review به حالت‌های پس‌زمینه‌ای که اپ از آن‌ها استفاده نمی‌کند ایراد می‌گیرد.',
-          fix: 'remote-notification را از UIBackgroundModes در ios/WebyarNative/project.yml بردارید و سپس npm run ios:project-facts را اجرا کنید.',
+          fix: 'remote-notification را از UIBackgroundModes در ios/Webyar/project.yml بردارید و سپس npm run ios:project-facts را اجرا کنید.',
         },
         pushServerCredentials: {
           title: 'کلید APNs روی سرور',
@@ -4414,7 +4414,7 @@ const fa: TranslationKeys = {
         encryptionDeclaration: {
           title: 'اعلام رمزنگاری در Info.plist',
           requirement: 'کلید ITSAppUsesNonExemptEncryption باعث می‌شود App Store Connect در هر آپلود سؤال نکند.',
-          fix: 'به‌صورت ITSAppUsesNonExemptEncryption در ios/WebyarNative/project.yml اعلام شده است؛ آن را با پاسخ انطباق صادرات در تب انتشار هماهنگ نگه دارید.',
+          fix: 'به‌صورت ITSAppUsesNonExemptEncryption در ios/Webyar/project.yml اعلام شده است؛ آن را با پاسخ انطباق صادرات در تب انتشار هماهنگ نگه دارید.',
         },
         noExternalPayments: {
           title: 'بدون لینک پرداخت خارجی',

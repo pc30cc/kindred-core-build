@@ -1,5 +1,5 @@
 /**
- * Facts about the native iOS app's project (ios/WebyarNative), for the
+ * Facts about the native iOS app's project (ios/Webyar), for the
  * readiness checks and Super Admin's "Deployment status" card.
  *
  * The API image does not ship `ios/` (Dockerfile.server copies `server/`
@@ -20,7 +20,7 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 export interface NativeProjectFacts {
-  /** ios/WebyarNative/project.yml, the spec the Xcode project is generated from. */
+  /** ios/Webyar/project.yml, the spec the Xcode project is generated from. */
   available: boolean;
   /** A 1024×1024 image listed in the app icon set, and that image on disk. */
   appIcon1024: boolean;
@@ -35,7 +35,7 @@ export interface NativeProjectFacts {
 /** Where the facts came from: the checkout itself, or the file shipped with the server. */
 export type NativeProjectSource = 'checkout' | 'snapshot' | 'none';
 
-export const NATIVE_PROJECT_DIR = 'ios/WebyarNative';
+export const NATIVE_PROJECT_DIR = 'ios/Webyar';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** server/ in development, /app in the server image. */

@@ -54,7 +54,7 @@ function runtimeApiBase(): string | undefined {
  * so "same origin" is the app itself and an empty `apiBaseUrl` would make
  * every API call fail. `mobileApiBaseUrl` was written into `runtime-config.js`
  * when that shell was built. The shell has since been replaced by the native
- * app (ios/WebyarNative), which reads config/mobile-runtime.json itself.
+ * app (ios/Webyar), which reads config/mobile-runtime.json itself.
  */
 function runtimeMobileApiBase(): string | undefined {
   if (typeof window === 'undefined') return undefined;

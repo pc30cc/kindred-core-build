@@ -1,6 +1,6 @@
 /**
  * The launch loader, the same one the iOS app opens on (LaunchView in
- * ios/WebyarNative/Sources/App/WebyarApp.swift): two arcs turning against each
+ * ios/Webyar/Sources/App/WebyarApp.swift): two arcs turning against each
  * other, and "WEBYAR AI" set small at the foot of the screen.
  *
  * The styles live in index.html (the `.wy-*` classes) so the static

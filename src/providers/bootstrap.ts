@@ -6,11 +6,11 @@
 
 import { providerRegistry } from './registry';
 import { selfHostedAuthProvider } from './selfHosted/auth';
-import { supabaseDatabaseProvider } from './supabase/database';
-import { supabaseRealtimeProvider } from './supabase/realtime';
 import { createApiEmailProvider } from './email/api';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import {
+  stubDatabaseProvider,
+  stubRealtimeProvider,
   stubEmailProvider,
   stubAIProvider,
   stubStorageProvider,
@@ -70,34 +70,38 @@ export function bootstrapProviders(): void {
   // entry: that shape was itself the accidental-reactivation risk — a
   // stray/attacker-written app_runtime_config row naming 'supabase' would
   // have silently flipped providerRegistry's active auth provider with no
-  // UI ever surfacing the change. Auth != Database: the Supabase
-  // *database* client below is unaffected and remains required for
-  // PostgreSQL.
-  providerRegistry.register('database', 'supabase', supabaseDatabaseProvider, {
+  // UI ever surfacing the change.
+  //
+  // --- Database / Realtime: owned by the server ---
+  // The browser has no database client at all: every read and write goes
+  // through the Express API, which reaches PostgreSQL through DATABASE_URL
+  // (server/db) — a self-hosted PostgreSQL or a Supabase project used purely
+  // as a database. These entries exist so Super Admin → Providers shows what
+  // is in use and can probe it; nothing resolves them to run queries.
+  providerRegistry.register('database', 'self-hosted', stubDatabaseProvider, {
     priority: 0,
     healthCheck: async () => {
-      // Must be a check the BROWSER is actually allowed to make: the admin_*
-      // RPCs are service_role-only now, so probing one from here would report
-      // the database as broken for every non-admin (and never surface a real
-      // outage, since the provider returns errors instead of throwing).
       try {
-        const { error } = await supabaseDatabaseProvider.query({
-          table: 'app_runtime_config',
-          select: 'key',
-          limit: 1,
-        });
-        return error ? 'degraded' : 'healthy';
+        const res = await fetch(`${RESOLVED_API_BASE}/api/health/database`, { credentials: 'include' });
+        return res.ok ? 'healthy' : 'down';
       } catch {
-        return 'degraded';
+        return 'down';
       }
     },
-
-    meta: { vendor: 'supabase', builtIn: true },
+    meta: {
+      vendor: 'self-hosted',
+      builtIn: true,
+      description: 'PostgreSQL behind the server API (DATABASE_URL) — the browser holds no database credentials.',
+    },
   });
 
-  providerRegistry.register('realtime', 'supabase', supabaseRealtimeProvider, {
+  providerRegistry.register('realtime', 'self-hosted', stubRealtimeProvider, {
     priority: 0,
-    meta: { vendor: 'supabase', builtIn: true },
+    meta: {
+      vendor: 'self-hosted',
+      builtIn: true,
+      description: 'Resolved per workspace by the server: Centrifugo, Supabase Realtime (when configured) or polling.',
+    },
   });
 
   // --- Email: Self-hosted API provider ---
@@ -221,8 +225,8 @@ export function bootstrapProviders(): void {
 
   // Set active defaults for core providers
   providerRegistry.setActive('auth', 'self-hosted');
-  providerRegistry.setActive('database', 'supabase');
-  providerRegistry.setActive('realtime', 'supabase');
+  providerRegistry.setActive('database', 'self-hosted');
+  providerRegistry.setActive('realtime', 'self-hosted');
   providerRegistry.setActive('email', 'api');
   providerRegistry.setActive('map_tiles', 'osm');
 

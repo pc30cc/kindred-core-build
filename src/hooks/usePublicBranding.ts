@@ -1,33 +1,9 @@
 /**
- * Hook for loading branding on public pages (unauthenticated).
- * Uses the anon-accessible workspace_branding table.
- * Falls back to 'Platform' if no branding found.
+ * Branding text for public (signed-out) pages: login, signup, password reset.
+ * Served by GET /api/platform/public/config, shared with PlatformBrandingGate.
  */
-import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
-import type { WorkspaceBranding } from '@/types/models';
-
-export function usePublicBranding() {
-  const { data: branding, isLoading } = useQuery({
-    queryKey: ['public-branding'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workspace_branding')
-        .select('*')
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data as WorkspaceBranding | null;
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  return {
-    branding: branding ?? null,
-    platformName: (branding?.platform_name || '').trim(),
-    isLoading,
-  };
-}
+import { fetchPlatformPublicConfig } from '@/lib/platformPublicConfig';
 
 export interface PublicBrandingLocalized {
   platform_name: string;
@@ -40,13 +16,11 @@ export function usePlatformBrandingForLocale(locale: string) {
   const { data } = useQuery({
     queryKey: ['platform_branding_localized', locale],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('platform_branding_localized')
-        .select('platform_name, meta_title, meta_description, browser_title_format')
-        .eq('locale', locale)
-        .maybeSingle();
-      if (error) throw error;
-      return data as PublicBrandingLocalized | null;
+      const { localized } = await fetchPlatformPublicConfig();
+      const row = localized.find((r) => r.locale === locale);
+      if (!row) return null;
+      const { platform_name, meta_title, meta_description, browser_title_format } = row;
+      return { platform_name, meta_title, meta_description, browser_title_format } as PublicBrandingLocalized;
     },
     staleTime: 5 * 60 * 1000,
   });

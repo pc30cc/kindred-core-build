@@ -19,22 +19,9 @@
  *      explicitly refuse to touch the 'auth' provider type regardless of
  *      what's registered.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 const dbRows: { key: string; value: any }[] = [];
-
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: (table: string) => {
-      if (table !== 'app_runtime_config') throw new Error(`unexpected table ${table}`);
-      return {
-        select: () => ({
-          like: async () => ({ data: dbRows }),
-        }),
-      };
-    },
-  },
-}));
 
 const { providerRegistry, PROVIDER_TYPE_KEYS } = await import('../../providers/registry');
 const { bootstrapProviders } = await import('../../providers/bootstrap');
@@ -94,10 +81,12 @@ describe('legacy Supabase Auth provider — reactivation is closed', () => {
     expect(error?.message).toMatch(/cannot be changed/i);
   });
 
-  it('the database and realtime Supabase providers are untouched — auth != database', () => {
+  it('database and realtime stay registered — auth != database — and both are the server, not a browser Supabase client', () => {
     const dbProviders = providerRegistry.getProviders('database').map((p) => p.name);
     const realtimeProviders = providerRegistry.getProviders('realtime').map((p) => p.name);
-    expect(dbProviders).toContain('supabase');
-    expect(realtimeProviders).toContain('supabase');
+    expect(dbProviders).toContain('self-hosted');
+    expect(realtimeProviders).toContain('self-hosted');
+    expect(dbProviders).not.toContain('supabase');
+    expect(realtimeProviders).not.toContain('supabase');
   });
 });

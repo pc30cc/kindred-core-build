@@ -34,6 +34,7 @@ import {
   selectNode,
   resolveDeploymentMode,
   normalizeNodes,
+  supabaseRealtimeAvailable,
   type RealtimeProviderConfig,
 } from '../services/realtime/index.js';
 import { verifySessionToken, verifyConversationOwnership } from '../services/widget/security.js';
@@ -178,6 +179,23 @@ const connectSchema = z.object({
   // Defaults to 'initial' so an older/cached widget bundle that omits this
   // field is never miscounted as a reconnect.
   intent: z.enum(['initial', 'refresh', 'reconnect', 'policy_poll']).optional().default('initial'),
+});
+
+/**
+ * GET /api/realtime/supabase-config — where the optional Supabase Realtime
+ * transport lives: the project URL and its public (anon) key, the same pair
+ * /connect hands the widget. The dashboard reads it here instead of shipping
+ * a project baked into its bundle, so one build serves any install. 404 when
+ * this install has no Supabase project behind it (DATABASE_URL only); the
+ * dashboard then stays on polling.
+ */
+realtimeRouter.get('/supabase-config', (req, res) => {
+  const config: ServerConfig = serverConfigOf(req);
+  res.set('Cache-Control', 'no-store');
+  if (!supabaseRealtimeAvailable(config)) {
+    return res.status(404).json({ error: 'supabase_realtime_not_configured' });
+  }
+  return res.json({ supabase_url: config.supabaseUrl, anon_key: config.supabaseAnonKey });
 });
 
 realtimeRouter.post('/connect', async (req, res) => {
@@ -801,17 +819,11 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
 
     if (resolved.effective_vendor !== 'centrifugo') {
       // For supabase / polling / disabled the operator client uses the
-      // matching provider and never receives a centrifugo token. Supabase
-      // also gets the project URL and its public anon key — the same pair
-      // /connect hands the widget — so the dashboard needs no Supabase
-      // settings of its own.
+      // matching provider and never receives a centrifugo token.
       return res.json({
         vendor: resolved.effective_vendor,
         capabilities: resolved.capabilities,
         effective_policy,
-        ...(resolved.effective_vendor === 'supabase'
-          ? { supabase_url: config.supabaseUrl, anon_key: config.supabaseAnonKey }
-          : {}),
       });
     }
     const driver = await getCentrifugoDriver(config);

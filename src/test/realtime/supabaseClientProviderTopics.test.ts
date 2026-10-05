@@ -8,8 +8,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const joined: string[] = [];
 
 vi.mock('@/lib/apiBase', () => ({ API_BASE: '' }));
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
+// The Supabase connection comes from the server at runtime
+// (supabaseConnection.ts); stand in for it here.
+vi.mock('@/realtime/providers/supabaseConnection', () => ({
+  getSupabaseRealtimeClient: async () => ({
     channel(topic: string) {
       joined.push(topic);
       const ch = {
@@ -19,7 +21,7 @@ vi.mock('@/lib/supabase', () => ({
       return ch;
     },
     removeChannel: async () => 'ok',
-  },
+  }),
 }));
 
 const { SupabaseRealtimeClientProvider, parseSupabaseChannel } = await import('@/realtime/providers/supabase');

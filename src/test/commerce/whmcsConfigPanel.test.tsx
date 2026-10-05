@@ -12,10 +12,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-vi.mock('@/integrations/supabase/client', () => ({
-  supabase: { auth: { getSession: async () => ({ data: { session: null } }) } },
-}));
-
 import { WhmcsConfigPanel } from '@/components/plugins/WhmcsConfigPanel';
 import { WooCommerceConfigPanel } from '@/components/plugins/WooCommerceConfigPanel';
 

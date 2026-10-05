@@ -1,47 +1,35 @@
 /**
- * GoTrue-off closure (item 11) — hard requirement: proof that the
- * migrated frontend API client modules (item 8's cleanup target) never
- * call supabase.auth.* at all, not merely that they degrade gracefully
- * if it's unavailable.
+ * GoTrue-off closure (item 11) — proof that the dashboard's API client
+ * modules never reach Supabase Auth, or Supabase at all.
  *
- * Approach: mock BOTH browser Supabase client import paths
- * (`@/integrations/supabase/client`, the source of truth — `@/lib/supabase`
- * just re-exports the same singleton, see that file's own header comment)
- * so that `.auth` is a Proxy that throws synchronously on ANY property
- * access — get, call, everything. Then call a representative function
- * from each migrated client module with a mocked `fetch`. If any of them
- * still touch `supabase.auth.getSession()`/`getUser()`/`refreshSession()`/
- * `signInWithPassword()`/`onAuthStateChange()` etc., the call throws and
- * the test fails loudly instead of silently passing.
- *
- * This deliberately does NOT stub `.from()`/`.rpc()` — a handful of these
- * modules still use direct Supabase table reads for non-auth reasons
- * (documented in the item-8 commit as a separate, out-of-scope finding);
- * touching `.auth` must throw regardless of whether `.from()` is used
- * elsewhere in the same module.
+ * The browser no longer has a Supabase client: `@/integrations/supabase/client`
+ * and `@/lib/supabase` are gone, every read goes through the server API, and
+ * the server reaches the database through DATABASE_URL. So the proof is two
+ * parts:
+ *   1. static — no browser module imports a Supabase client, except the
+ *      optional Supabase Realtime transport, which builds one on demand from
+ *      the server-provided project URL + anon key (supabaseConnection.ts) and
+ *      configures it with Supabase Auth switched off;
+ *   2. runtime — a representative function from each migrated client module
+ *      completes with nothing but a mocked `fetch`.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
-function throwingAuthProxy(): any {
-  return new Proxy(
-    {},
-    {
-      get(_t, prop) {
-        throw new Error(`supabase.auth.${String(prop)} was called — GoTrue/Supabase Auth must not be reachable`);
-      },
-    },
-  );
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) {
+      if (name === 'test') continue;
+      out.push(...sourceFiles(p));
+    } else if (/\.(ts|tsx)$/.test(name)) {
+      out.push(p);
+    }
+  }
+  return out;
 }
-
-const supabaseStub = {
-  auth: throwingAuthProxy(),
-  from: () => { throw new Error('unexpected supabase.from() call in this test'); },
-  channel: () => { throw new Error('unexpected supabase.channel() call in this test'); },
-  rpc: () => { throw new Error('unexpected supabase.rpc() call in this test'); },
-};
-
-vi.mock('@/integrations/supabase/client', () => ({ supabase: supabaseStub }));
-vi.mock('@/lib/supabase', () => ({ supabase: supabaseStub }));
 
 const fetchMock = vi.fn();
 
@@ -136,8 +124,23 @@ describe('migrated frontend API modules never touch supabase.auth.*', () => {
     await expect(mod.resendMyVerificationEmail()).resolves.toBeDefined();
   });
 
-  it('accessing supabase.auth directly still throws — proves the mock itself is a valid negative control', async () => {
-    const { supabase } = await import('@/integrations/supabase/client');
-    expect(() => (supabase as any).auth.getSession()).toThrow(/must not be reachable/);
+  it('no browser module imports a Supabase client except the optional Realtime connection', () => {
+    const offenders = sourceFiles(join(process.cwd(), 'src')).filter((f) => {
+      if (f.endsWith(join('realtime', 'providers', 'supabaseConnection.ts'))) return false;
+      const src = readFileSync(f, 'utf8');
+      return /@supabase\/supabase-js|integrations\/supabase\/client|@\/lib\/supabase['"]/.test(src);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it('the optional Realtime connection never enables Supabase Auth', () => {
+    const src = readFileSync(join(process.cwd(), 'src', 'realtime', 'providers', 'supabaseConnection.ts'), 'utf8');
+    expect(src).toMatch(/persistSession:\s*false/);
+    expect(src).toMatch(/autoRefreshToken:\s*false/);
+    expect(src).toMatch(/detectSessionInUrl:\s*false/);
+    expect(src).not.toMatch(/\.auth\./);
+    // Configured only from the server — never a project compiled in.
+    expect(src).toContain('/api/realtime/supabase-config');
+    expect(src).not.toMatch(/https:\/\/[a-z0-9]+\.supabase\.co/);
   });
 });

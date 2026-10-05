@@ -694,6 +694,34 @@ const platformDomainsSchema = z.object({
   email_base_url: z.string().max(2000).nullable().optional(),
 });
 
+// Reads of the three rows the Branding page edits. They used to be read
+// browser-direct from Supabase with the anon key, which only worked against
+// hosted Supabase (the self-host chain grants anon nothing on two of them) and
+// tied the dashboard to a Supabase URL. Same gate as the writes below.
+adminManagementRouter.get('/platform-domains', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb.from('platform_domains').select('*').limit(1).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ domains: data });
+});
+
+adminManagementRouter.get('/platform-branding', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb.from('platform_branding').select('*').limit(1).maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ branding: data });
+});
+
+adminManagementRouter.get('/platform-branding-localized', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data, error } = await sb.from('platform_branding_localized').select('*').order('locale');
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ branding: data ?? [] });
+});
+
 adminManagementRouter.put('/platform-domains', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const parsed = platformDomainsSchema.safeParse(req.body);

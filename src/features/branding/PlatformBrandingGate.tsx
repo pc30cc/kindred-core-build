@@ -1,16 +1,16 @@
 /**
  * PlatformBrandingGate: Loads platform_branding + platform_branding_localized
- * and sets document.title, favicon, and CSS custom properties globally.
+ * (GET /api/platform/public/config) and sets document.title, favicon, and CSS
+ * custom properties globally.
  */
 import React, { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { fetchPlatformPublicConfig } from '@/lib/platformPublicConfig';
 import { useI18n } from '@/i18n';
 import { isNativePlatform } from '@/lib/native';
 import { API_BASE } from '@/lib/apiBase';
 
 interface PlatformBrandingRow {
-  id: string;
   logo_url: string | null;
   favicon_url: string | null;
   primary_color: string | null;
@@ -32,13 +32,10 @@ function usePlatformBrandingGlobal() {
   return useQuery({
     queryKey: ['platform_branding_global'],
     queryFn: async () => {
-      const [{ data: branding }, { data: localized }] = await Promise.all([
-        supabase.from('platform_branding').select('*').limit(1).maybeSingle(),
-        supabase.from('platform_branding_localized').select('*').order('locale'),
-      ]);
+      const { branding, localized } = await fetchPlatformPublicConfig();
       return {
         branding: branding as PlatformBrandingRow | null,
-        localized: (localized ?? []) as PlatformBrandingLocalizedRow[],
+        localized: localized as PlatformBrandingLocalizedRow[],
       };
     },
     staleTime: 5 * 60 * 1000,

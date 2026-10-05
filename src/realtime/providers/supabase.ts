@@ -17,9 +17,12 @@
  * concrete topic, then joins it. The topic is never computed client-side.
  * If the server refuses or is unreachable, the subscription reports
  * `error` and the React Query polling fallback keeps the UI correct.
+ *
+ * The Supabase connection itself comes from ./supabaseConnection — the
+ * project URL and anon key are the server's to give, never compiled in.
  */
 
-import { supabase } from '@/lib/supabase';
+import { getSupabaseRealtimeClient, type RealtimeChannelLike } from './supabaseConnection';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import type {
   ClientRealtimeProvider,
@@ -105,7 +108,13 @@ export class SupabaseRealtimeClientProvider implements ClientRealtimeProvider {
       return { unsubscribe: () => { /* nothing was joined */ } };
     }
 
-    const ch = supabase.channel(topic, {
+    const supabase = await getSupabaseRealtimeClient();
+    if (!supabase) {
+      handlers.onStatus?.('error', { reason: 'supabase_realtime_unavailable' });
+      return { unsubscribe: () => { /* nothing was joined */ } };
+    }
+
+    const ch: RealtimeChannelLike = supabase.channel(topic, {
       config: { broadcast: { self: false, ack: false } },
     });
 

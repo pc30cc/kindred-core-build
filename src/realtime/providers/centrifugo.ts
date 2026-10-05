@@ -13,7 +13,7 @@
  * when the operator navigates between conversations.
  */
 
-import { supabase } from '@/lib/supabase';
+import { fetchPlatformPublicConfig } from '@/lib/platformPublicConfig';
 import type {
   ClientRealtimeProvider,
   NormalizedMessagePayload,
@@ -87,10 +87,9 @@ async function loadHardening(): Promise<ClientHardeningSettings> {
   if (hardeningInflight) return hardeningInflight;
   hardeningInflight = (async () => {
     try {
-      // Sanitized RPC — the raw table holds secrets (alert_webhook_secret)
-      // and is not readable by anon/browser clients.
-      const { data: raw } = await supabase.rpc('get_widget_platform_settings');
-      const data = (raw ?? null) as Record<string, unknown> | null;
+      // The server's sanitized projection (get_widget_platform_settings) —
+      // the raw table holds secrets (alert_webhook_secret) and never leaves it.
+      const data = (await fetchPlatformPublicConfig()).realtime;
       const value: ClientHardeningSettings = data
         ? {
             reconnectJitterPct: clampInt(data.realtime_reconnect_jitter_pct, 0, 50, 20),

@@ -15,6 +15,7 @@ import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { backupAgentRouter } from './routes/backupAgent.js';
 import { manifestRouter } from './routes/manifest.js';
+import { platformPublicRouter } from './routes/platformPublic.js';
 import { metricsExportRouter } from './routes/metricsExport.js';
 import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
@@ -387,6 +388,10 @@ app.use('/api/backup-agent', backupAgentRouter);
 
 // PWA web app manifest — public, unauthenticated, reflects live platform_branding.
 app.use('/api/manifest.webmanifest', manifestRouter);
+
+// Platform branding, region and realtime tuning for every page — public,
+// read-only; the dashboard's only source for them (no browser Supabase client).
+app.use('/api/platform/public', platformPublicRouter);
 
 // Prometheus/OpenTelemetry readiness stub — off by default (404) unless
 // OBSERVABILITY_PROMETHEUS_ENABLED=1, and token-gated even when enabled.

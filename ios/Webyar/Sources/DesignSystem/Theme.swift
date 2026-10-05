@@ -185,7 +185,7 @@ enum Theme {
     //
     // Text styles, never fixed point sizes, so every label grows with the
     // reader's Dynamic Type setting — and through `Font.app`, so Persian is
-    // set in IRANSans (see `Typeface`). Computed rather than stored: the
+    // set in the Persian font (see `Typeface`). Computed rather than stored: the
     // answer depends on the language, which can change while the app runs.
 
     enum Typo {

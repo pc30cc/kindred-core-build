@@ -426,14 +426,14 @@ enum EmailReader {
 
     private static let person = "M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4.4 0-8 2.5-8 5.5V21h16v-1.5c0-3-3.6-5.5-8-5.5z"
 
-    /// The reader's stylesheet — the Android and Windows readers' own, with
-    /// the app's Persian face first. Every class is the reader's own (`w-…`)
-    /// and no rule names a bare element, so a mail's markup never picks up the
-    /// reader's look. The header is drawn above the mail (`z-index`) on white,
-    /// so nothing a mail positions can cover who sent it.
+    /// The reader's stylesheet — the Android and Windows readers' own. Every
+    /// class is the reader's own (`w-…`) and no rule names a bare element, so
+    /// a mail's markup never picks up the reader's look. The header is drawn
+    /// above the mail (`z-index`) on white, so nothing a mail positions can
+    /// cover who sent it.
     private static let css = [
         "html,body{background:#ffffff}",
-        "body{margin:0;padding:14px 16px 24px;font-family:IRANSansX,IRANSans,Vazirmatn,-apple-system,'SF Pro Text',Tahoma,sans-serif;font-size:15px;line-height:1.6;color:#1f2633;-webkit-text-size-adjust:100%;overflow-wrap:break-word}",
+        "body{margin:0;padding:14px 16px 24px;font-family:Vazirmatn,-apple-system,'SF Pro Text',Tahoma,sans-serif;font-size:15px;line-height:1.6;color:#1f2633;-webkit-text-size-adjust:100%;overflow-wrap:break-word}",
         "a{color:#2f6ae0}",
         ".w-s{font-size:19px;line-height:1.4;font-weight:700;color:#0f1729;margin:2px 0 4px;overflow-wrap:anywhere}",
         ".w-s,.w-cnt,.w-hd{position:relative;z-index:1;background:#ffffff}",

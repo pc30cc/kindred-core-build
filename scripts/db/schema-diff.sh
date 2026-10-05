@@ -9,12 +9,14 @@
 #     bash scripts/db/schema-diff.sh
 #
 # Read-only on both sides. Both run scripts/db/schema-fingerprint.sql, which
-# normalizes what legitimately differs between a Supabase project and plain
-# PostgreSQL (the extensions schema, whitespace, comments in function bodies,
-# constraint and index names, customer-role privileges). Differences listed
-# in scripts/db/schema-parity-allowlist.txt (or the file SCHEMA_PARITY_ALLOWLIST
-# names) are reported as reviewed; any other difference makes the exit
-# status 1.
+# compares definitions as PostgreSQL prints them — string literals, comments
+# and whitespace inside function bodies included — and leaves out only what
+# legitimately differs between a Supabase project and plain PostgreSQL (the
+# schema extension objects live in, constraint and index names,
+# customer-role privileges). A difference listed in
+# scripts/db/schema-parity-allowlist.txt (or the file SCHEMA_PARITY_ALLOWLIST
+# names) — that object, between exactly those two definitions — is reported
+# as reviewed; any other difference makes the exit status 1.
 #
 # Output: one line per differing object —
 #   missing   on the target only in the source
@@ -38,12 +40,16 @@ fingerprint "$SOURCE" > "$WORK/source"
 fingerprint "$TARGET" > "$WORK/target"
 
 ALLOWLIST="${SCHEMA_PARITY_ALLOWLIST:-$HERE/schema-parity-allowlist.txt}"
-grep -v '^#' "$ALLOWLIST" | awk -F'\t' 'NF >= 2' > "$WORK/allow" || true
+grep -v '^#' "$ALLOWLIST" | awk -F'\t' 'NF >= 4' > "$WORK/allow" || true
 
+# An object can print more than one line (two constraints with the same
+# definition); its state is the set of its hashes, as baseline-verify.sh
+# reads it.
 awk -F'\t' -v verbose="${VERBOSE:-}" -v allowlist="${SCHEMA_PARITY_ALLOWLIST:-scripts/db/schema-parity-allowlist.txt}" '
-  FILENAME == ARGV[1] { allow[$1 "\t" $2] = 1; next }
-  FILENAME == ARGV[2] { k = $1 "\t" $3; src[k] = $4; grp[k] = $2; next }
-  FILENAME == ARGV[3] { k = $1 "\t" $3; dst[k] = $4; grp[k] = $2; next }
+  function add(cur, h) { return cur == "" ? h : index("," cur ",", "," h ",") ? cur : cur "," h }
+  FILENAME == ARGV[1] { allow[$1 "\t" $2 "\t" $3 "\t" $4] = 1; allow[$1 "\t" $2 "\t" $4 "\t" $3] = 1; next }
+  FILENAME == ARGV[2] { k = $1 "\t" $3; src[k] = add(src[k], $4); grp[k] = $2; next }
+  FILENAME == ARGV[3] { k = $1 "\t" $3; dst[k] = add(dst[k], $4); grp[k] = $2; next }
   END {
     for (k in grp) {
       split(k, p, "\t")
@@ -51,7 +57,7 @@ awk -F'\t' -v verbose="${VERBOSE:-}" -v allowlist="${SCHEMA_PARITY_ALLOWLIST:-sc
       else if (!(k in src)) what = "extra"
       else if (src[k] != dst[k]) what = "changed"
       else continue
-      reviewed = (("*" "\t" grp[k]) in allow) || ((p[1] "\t" grp[k]) in allow)
+      reviewed = ((k "\t" ((k in src) ? src[k] : "-") "\t" ((k in dst) ? dst[k] : "-")) in allow)
       if (reviewed) { nreviewed++; if (verbose != "") print "reviewed  " what "  " p[1] "  " p[2]; continue }
       nbad++
       print what "  " p[1] "  " p[2]

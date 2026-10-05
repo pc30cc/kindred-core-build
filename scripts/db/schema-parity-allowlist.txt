@@ -2,15 +2,92 @@
 # database built from database/migrations, as reported by
 # scripts/db/schema-diff.sh. Anything NOT listed here fails the comparison.
 #
-# Format (tab-separated): kind  group  reason
-#   kind   one of the kinds schema-fingerprint.sql prints, or * for all
-#   group  the table / function / extension name the object belongs to
+# Format (tab-separated): kind  key  definition-a  definition-b  reason
+#   kind   one of the kinds schema-fingerprint.sql prints
+#   key    the object's key exactly as schema-fingerprint.sql prints it
+#          (a column is table.column, a function its signature)
+#   definition-a, definition-b
+#          the md5 schema-fingerprint.sql prints for the object on each side,
+#          or - where the object is absent. The entry covers a difference
+#          between exactly these two definitions, in either direction. Any
+#          other change to the object — and every other object, in the same
+#          table or not — is still reported.
 #
-# Keep this list short. Every entry is a difference the application has been
-# checked not to depend on.
+# Every entry is a difference the application has been checked not to depend
+# on. The function entries were checked against production's catalog on
+# 2026-10-05 (read-only): arguments, result, security, volatility and
+# settings identical; code lines identical; what differs is named in the
+# reason. When either side changes, the entry stops matching and the
+# difference has to be reviewed again.
 
-*	_schema_migrations	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/baseline-verify.sh).
-extension	pg_stat_statements	Supabase platform extension; the application never queries it.
-extension	supabase_vault	Supabase platform extension; the application stores no secret in Vault.
-column	platform_branding	lock_ui_preferences: self-host UI lock, NOT NULL DEFAULT false. Rows copied from production get false, which is production's behaviour (no lock).
-function	wi_resolve_seat_capacity	251: production's plan-authoritative resolution plus the self-host fixed seat limit. Production stores seat_limit NULL, so on production's data the result is identical.
+table	_schema_migrations	-	31cb86da32981cb85f30c32e2556a03b	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/baseline-verify.sh).
+column	_schema_migrations.applied_at	-	1871c30174565bf40fff04c22fba2d2a	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/baseline-verify.sh).
+column	_schema_migrations.filename	-	e83c5caa255c7d8b2a786d9286ea6efa	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/baseline-verify.sh).
+constraint	_schema_migrations p PRIMARY KEY (filename)	-	d41d8cd98f00b204e9800998ecf8427e	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/baseline-verify.sh).
+index	CREATE UNIQUE INDEX ON public._schema_migrations USING btree (filename)	-	d41d8cd98f00b204e9800998ecf8427e	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/baseline-verify.sh).
+grant	_schema_migrations	-	d41d8cd98f00b204e9800998ecf8427e	Migration ledger of scripts/migrate-database.sh. Production (built by the Supabase CLI) has none until it is baselined (scripts/db/baseline-verify.sh).
+extension	pg_stat_statements	d41d8cd98f00b204e9800998ecf8427e	-	Supabase platform extension; the application never queries it.
+extension	supabase_vault	d41d8cd98f00b204e9800998ecf8427e	-	Supabase platform extension; the application stores no secret in Vault.
+column	platform_branding.lock_ui_preferences	-	ed2273dae95315bb6fefd6334a0d6f55	Self-host UI lock, boolean NOT NULL DEFAULT false. Rows copied from production get false, which is production's behaviour (no lock).
+function	_ai_kb_apply_generated(uuid,uuid,uuid,text,text,text,text)	5e4d70a5487020b786a0cb9362ce9be2	f1dc26e04d6ab8c9e0513b633abc18cf	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	accept_invitation_existing_context_v2(text,uuid,text,uuid,uuid,text,text,text)	c82310c95d698e6ba4ecf48b27e8865b	b0989ec431693525c854c3ec5e75aff0	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	accept_invitation_new_user_v2(text,text,text,uuid,text,uuid,uuid,text,text,text,text)	f58950164d1f3fa4582cc24f7be809f7	93169a22642147521b1543d00b69e708	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	accept_workspace_invitation_as(text,uuid)	7f3a17fb1c5c476cc3dc0726df3fe6bd	ffa4b1974e5bb5e4404e956e3d617002	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	acquire_owner_write_lease(text,uuid,text,integer)	420d9d5635bf7525154154bf021d02f9	046a68a6e7b1b361d1a2583409161d8d	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	admin_change_user_email(uuid,text)	7f0c5d338d67e2efd959090a262f87fc	dd6a8f123e871e871c6d2a1db99b9c4e	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	admin_reset_settings_tables()	1ca64dc3385292d1d02a13e3a281641b	749f52ecc6635866965a6a450fbfb7cb	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	admin_restore_database(uuid,jsonb)	75bfaacdf4a3964cffee0b06b13b50dc	6407ec815af9429de92689c34549dc8a	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	ai_nudge_acquire_evaluation(uuid,text,text,integer,integer,integer)	1b2c9c662d40d77a98e1402abfe00ce9	7472535b93e77579f15377a67af3879a	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	ai_nudge_apply_lifecycle_event(uuid,uuid,text,text,text,text)	e309bab2746da41ed41364d6899c2f8b	cfe586cdfc778ed36e44a42801ce04f6	Same code as production; comments only, one of them trailing a statement (production has the earlier text of the same function).
+function	archive_invitation_v2(uuid,uuid)	b994c8f233466b50e993443776ac1d5d	e53340958adf898cb6e41cd1ff7eb82d	Same code as production; comments and one statement wrapped onto two lines (production has the earlier text of the same function).
+function	billing_apply_subscription_payment(uuid,uuid,uuid,text,text,timestamp with time zone)	c27ac220d7e0b42b55042dfcd79029d0	bf5f363a0273270f1ce2f6cfb47991ee	Same code as production; comments only, one of them trailing a statement (production has the earlier text of the same function).
+function	billing_invoice_freeze()	ea94e72b35b7a1a72c8ffe29aab60d56	c22bad749d8801be95ebc06c2c47b199	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_notify_subscription_lifecycle()	0f051e1b26972fdb64488f9d74684502	88aa3619400cf449817b3b1f545c5a65	Same code as production; comments only, one of them trailing a statement (production has the earlier text of the same function).
+function	billing_purge_active()	ab7b91dec890170217437597b0e0c7d8	361604336bd95ccb49e8331676f7a111	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_recover_unapplied_invoices(integer)	cd4decf97d6fa2e2d8360c1402ad826b	f2d2bb6c5989cddecc8e9bf59e32ed2a	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_retire_legacy_allowance(uuid)	9c447d98ffcc0a107953fc158c2d61cd	35501d00bf163a2dda3d2be3c49c4a08	Same code as production; comments only, one of them trailing a statement (after the closing quote) (production has the earlier text of the same function).
+function	billing_settle_invoice(uuid,bigint,text,text,uuid,uuid)	bcba08ffca380d4db33c398630488025	5039c9f8d360f7dbb2b3cf0670b7b17f	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_activate(uuid,uuid,text)	334da9c2f90430c251927b4b40700419	1cad04a085737547b7847b114483f11d	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_add_interval(timestamp with time zone,text,integer)	ec7164df3fa134900a825a64ebb58251	11b51a4b333e498b95a794aa904c709e	Same code as production; indentation only (production has the earlier text of the same function).
+function	billing_v2_block_direct_subscription_mutation()	0e31dbbe03ba567e87229d920581acf0	ada3125c21ec15c272f22cf8cbea16dc	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_document_number()	6d01e958b0b16965d0c0666955e62831	dbae22b6f2abcb85fbf17dfffd9fe8d1	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_enqueue_notification(uuid,text,text,uuid,timestamp with time zone,jsonb,text)	82219d9ff6766679fa72a2b28212e04d	a8e0c1d0e0a1dcbb5c46dd7c23bf60e5	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_ensure_period_cycles(uuid)	8bd25e6d4372af27ddc540bd3773992f	c965adf47233de966c47c1a634c57cf8	Same code as production; comments only, one of them trailing a statement (production has the earlier text of the same function).
+function	billing_v2_evaluate_cutover(uuid)	ace0bccf101eb7f1a4837e16b53d3d53	4c2e38e06261d1b7f91a0599302d5d48	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_grant_cycle_allowance(uuid)	cf9e57274d56c471ef8ff0154e8643b3	5681ec392af75a4a2cae103af47651b7	Same code as production; comments only, two of them trailing statements (production has the earlier text of the same function).
+function	billing_v2_issue_renewal_invoice(uuid,boolean)	13d5a929e4e76d38cd6eda8b7500b828	94c7fa4386750968fb003ec0dbaa11d2	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_period_monthly_allowance(billing_subscription_periods)	de589d501c827242743009cb45caf15c	7a1d12b9d1923ebb3118f5481a1c021f	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_policy_for(uuid)	89d2a2319be17fb597ef79948807c219	a69f2567e21a3d49eaccc8948057c666	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_resolve_billing_recipient(uuid)	dc1087c62bbcb8cdea2a2a73a2f3ba1a	343f66c1cba731fcdf924eb290f344b8	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_restore_subscription(uuid)	b20cce46b8c61a6b7a82584714b75a81	12904f7c2ab8f26e4c830e79509ac4c5	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_run_dunning(integer)	c1119c182aea964210f8f8693d1bb939	fc6c58812fc911b6b5418d9c279dab22	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_run_entitlement_cycles(integer)	9655fbf0b7f4375fbb747aad4647b29c	74fd0546f0b0c82be659f1342bf3195b	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_run_period_activation(integer)	ac41f6850850960adb19458034c61cd1	fd4a9d3acdd06ecadb95fced090016d7	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_run_wallet_autopay(integer)	cb54e3690473b7e7141d5a7ce623bcbf	16a242af13a039f67c0489f93029ba1e	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_schedule_invoice_notifications(uuid)	611bd75e56874837de7874464bfcc94b	5689ab259eb3e7a7b46f2bacd2f9890f	Same code as production; comments only, one of them trailing a statement (production has the earlier text of the same function).
+function	billing_v2_set_state(uuid,text,uuid,text,boolean)	620cfb9d6ccf5ce36a6a30c8424b2903	0dbc81ffd0892a416855c6af9d9ab3de	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_sync_period_cycles(uuid)	519d85502745b050f0ef3739bf029308	f227ac6ef244c95738391d621abb553f	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_v2_wallet_autopay_invoice(uuid)	7d22eacb39a2320451f0e30c672332a4	33e3959cc5c009cddaf59ec76d31bedf	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_wallet_append(uuid,text,bigint,text,text,uuid,uuid,uuid,uuid,jsonb)	cbf627feacf32820227ad0be8f51c413	bd7a7ca85f818984341acd4d21c33982	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	billing_wallet_pay_invoice(uuid,uuid)	fe46320e96c1c992fc295c4f1d30d9b4	19e48c7434dd12354672a2c417f4a038	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	change_password_and_revoke_sessions(uuid,text,uuid)	07d95961c80a56393abb9d02ae691630	6306950aac8becb9939f8b1f39a9a508	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	commerce_tombstone_product(uuid,text,text)	0e6de28f824937fe9b6f13a846057b14	45800c0cb32f2c23aff55c388acf3f1e	Same code as production; comments only, one of them trailing a statement (production has the earlier text of the same function).
+function	commerce_upsert_product(uuid,uuid,text,text,text,text,text,text,text,text,numeric,numeric,numeric,text,integer,jsonb,jsonb,jsonb,boolean,boolean,text)	e37a4f6418b7f0788221c8deabbcc164	9db1a10daf02e70fb3c6e77beabca4e2	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	conversation_apply_post_send_action(uuid,uuid,text,text[],uuid)	f73a66431f0aa3febade4ed9eeadd8f5	b1f1381f3158935aff1552b54da49fb8	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	enqueue_workspace_deletion(uuid,uuid)	36456bbb413afb5ff76281dbbe93d738	1be4fec7ef015870180955aca94b7247	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	ensure_active_conversation(uuid,text,text,text,uuid,uuid,text,text,jsonb)	e51161e79d22da213df8fd97c230dfc8	71556afb72a73dc998851fc09c1e3d8d	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	handle_new_user()	0b0de2d6d00ec44a75d7fc4d2ec356c8	131678feed6a7ce231e033d38ea0ed96	Same code as production; production names profiles and provision_account_on_signup without public.; the function is SECURITY DEFINER with search_path=public, so both resolve to the same objects (production has the earlier text of the same function).
+function	is_account_member(uuid,uuid)	a2ac0c9a61ace08e2e84a7d0968d058f	3a6c5af180ef030329cb933bc0e6265e	Same code as production; production names account_members without public.; the function is SECURITY DEFINER with search_path=public, so both resolve to the same table (production has the earlier text of the same function).
+function	observability_try_acquire_ticker_lease(text,text,integer)	5ebc64587502340c5e98f61729deee04	97d3d929efd9c0181245f8cb741209e6	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	redeem_password_reset_token(text,text)	10c1040d5c9290194b74670f15334772	6ad4a3358aefb88883e1c38d73714d43	Same code as production; comments only, one of them trailing a statement (production has the earlier text of the same function).
+function	renew_owner_write_lease(uuid,uuid,integer)	5e88dd5d327e31ab2eaf94f39eb74a0c	693fa1145ddd35deb48784b76f4aa0ef	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	resend_invitation_email_v2(uuid,uuid,text,text)	d9eacb722f87cf08882f1346fe3d1d76	1e18659cc3bde9676009c16e681600aa	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	rotate_manual_link_v2(uuid,uuid,text,text,timestamp with time zone)	b1237b4ea8b60b3ce6ad07580f3d36d9	7445626e646faaaa3ffd21242cb081a4	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	wi_complete_invitation_job(uuid,uuid,text,text,text,text,text,integer)	707d35a5b59cce8ac28b026cefc19892	bd7a92850220affcf147074f687f9d23	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	wi_delete_invitation(uuid,uuid)	280d8e9fffe82fe86edada3efb8ab042	797971a53ff49491942b54d65dfb0647	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	wi_execute_idempotent(text,text,text,text,uuid,uuid,uuid,jsonb,integer)	9eac2d1728805f3b6190667ea4659d09	3794428f41c961a45e3bd07b6203602a	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	wi_fail_otp_job_atomic(uuid,uuid,text,text,text,text,text)	0b7bb793c34c94e960b8c48275382538	7990e7bddf59e94273e2fd541e4d739a	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	wi_lock_and_validate_token(text,text)	5f88f736ec3fcb55297bc708f914cfe5	4c52909f08818aebe0fa1760587b271d	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	wi_request_invitation_otp_v2(text,uuid,text,timestamp with time zone,text,text)	7c7a7029a8c087363f12031334ed7dbc	843c8590ba373c53da7a724673b6fba9	Same code as production; comments and blank lines only (production has the earlier text of the same function).
+function	wi_resolve_seat_capacity(uuid)	1ebc8dd7b4927b6f74a7c0463f0cbb5c	0db1ba1873fdebf96582ecba02b4698c	251: production's plan-authoritative resolution plus the self-host fixed seat limit (SELF_HOST_SEAT_LIMIT). Production stores seat_limit NULL, so on production's data the result is identical.
+function	wi_verify_invitation_otp(text,text,text,timestamp with time zone)	acc96422b4dc7b6f634b2469da594491	c203ac91671e0c92284843c65c912ca5	Same code as production; comments and blank lines only (production has the earlier text of the same function).

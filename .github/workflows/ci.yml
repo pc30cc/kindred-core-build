@@ -616,12 +616,26 @@ jobs:
       - name: Code names only columns the schema has (scripts/ci/check-code-columns.py)
         run: python3 scripts/ci/check-code-columns.py
 
+      # scripts/db/schema-diff.sh on two small throwaway databases: function
+      # bodies that differ only inside a string literal, or in a parameter's
+      # default or name, are reported; an allowlist entry covers its one
+      # object between its two definitions — another column of the same
+      # table, or the same object changed again, is still reported.
+      - name: Schema comparison (scripts/ci/schema-diff-test.sh)
+        run: |
+          docker run --rm --network host \
+            -e PGHOST=localhost -e PGPORT=5432 -e PGUSER=postgres -e PGPASSWORD=postgres \
+            -v "$PWD:/w:ro" -w /w ${{ matrix.image }} \
+            bash scripts/ci/schema-diff-test.sh
+
       # scripts/db/move-data.sh on throwaway databases on this server: check
       # writes nothing; a move into an empty target and a repeat over a
       # populated one; every failure (an orphan row, a sequence behind its
       # rows, content that differs after the load, a writer on the source)
       # leaves the target exactly as it was; a Supabase-like target owned by a
-      # non-superuser BYPASSRLS role, and the move back out of it. Run inside
+      # non-superuser BYPASSRLS role, and the move back out of it; a declined
+      # confirmation creates nothing, and rows in a table the source does not
+      # have stop the move before anything is written. Run inside
       # the server's own image, as docs/DATABASE.md §6 says to, so pg_dump is
       # as new as the server.
       - name: Moving data between databases (scripts/ci/move-data-test.sh)

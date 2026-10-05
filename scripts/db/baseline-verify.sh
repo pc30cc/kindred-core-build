@@ -41,8 +41,10 @@
 #                 ASSUME_APPLIED="file.sql other.sql", and refuses while one
 #                 before the last applied file is in neither ASSUME_APPLIED
 #                 nor RUN_AGAIN (left for migrate-database.sh to run).
-# Objects in reviewed groups (scripts/db/schema-parity-allowlist.txt, or
-# SCHEMA_PARITY_ALLOWLIST) are left out of the verdicts.
+# An object is left out of the verdicts when the target's definition of it and
+# the one the whole chain ends with are exactly a pair that
+# scripts/db/schema-parity-allowlist.txt (or SCHEMA_PARITY_ALLOWLIST) lists for
+# that object; any other state of it still counts.
 #
 # `mark` records the `applied` files (and the ASSUME_APPLIED ones) and
 # nothing else, after confirmation (type `mark`, or YES=1). It refuses when a
@@ -90,7 +92,9 @@ nfiles="$i"
 # ── the reference: one fingerprint delta per file (reused while the files
 #    are unchanged) ─────────────────────────────────────────────────────────
 current="$(psql "$ADMIN" -qtAX -c "SELECT 1 FROM pg_database WHERE datname = '_baseline_state'")"
-if [ "$current" = 1 ] && [ "$(st -c "SELECT coalesce(string_agg(step || E'\t' || filename || E'\t' || md5, E'\n' ORDER BY step), '') FROM files" 2>/dev/null)" = "$(cat "$WORK/manifest")" ]; then
+fp_md5="$(md5sum < "$FP" | cut -d' ' -f1)"
+if [ "$current" = 1 ] && [ "$(st -c "SELECT coalesce(string_agg(step || E'\t' || filename || E'\t' || md5, E'\n' ORDER BY step), '') FROM files" 2>/dev/null)" = "$(cat "$WORK/manifest")" ] \
+   && [ "$(st -c "SELECT md5 FROM fingerprint_version" 2>/dev/null)" = "$fp_md5" ]; then
   echo "reference: reusing the per-file changes recorded for these $nfiles files"
 else
   echo "reference: building the chain one file at a time on $(psql "$ADMIN" -qtAX -c "SELECT current_setting('server_version')") (a few minutes)…"
@@ -98,6 +102,8 @@ else
        -c "CREATE DATABASE _baseline_build" -c "CREATE DATABASE _baseline_state"
   st <<'SQL'
 CREATE TABLE files (step int PRIMARY KEY, filename text UNIQUE NOT NULL, md5 text NOT NULL);
+-- the schema-fingerprint.sql the versions were recorded with
+CREATE TABLE fingerprint_version (md5 text NOT NULL);
 -- the state of one object after a step: its hash(es), or NULL once removed
 CREATE TABLE versions (step int NOT NULL, kind text NOT NULL, grp text NOT NULL, key text NOT NULL, h text);
 CREATE TABLE raw (kind text, grp text, key text, h text);
@@ -118,7 +124,7 @@ SQL
       || { tail -20 "$WORK/apply.log" >&2; fail "$name failed on the reference database; nothing was read from or written to the target."; }
     record_step "$step"
   done < "$WORK/manifest"
-  st -c "\\copy files FROM '$WORK/manifest' $COPY_OPTS"
+  st -c "\\copy files FROM '$WORK/manifest' $COPY_OPTS" -c "INSERT INTO fingerprint_version VALUES ('$fp_md5')"
   echo "reference: done"
 fi
 
@@ -134,20 +140,28 @@ else
   fingerprint "$TARGET" > "$WORK/target"
   echo "target: fingerprint read (read-only session)"
 fi
-grep -v '^#' "$ALLOWLIST" | awk -F'\t' 'NF >= 2 { print $1 "\t" $2 }' > "$WORK/allow" || true
+grep -v '^#' "$ALLOWLIST" | awk -F'\t' 'NF >= 4 { print $1 "\t" $2 "\t" $3 "\t" $4 }' > "$WORK/allow" || true
 
 st -c "DROP TABLE IF EXISTS target_raw, target, allow" \
    -c "CREATE TABLE target_raw (kind text, grp text, key text, h text)" \
    -c "\\copy target_raw FROM '$WORK/target' $COPY_OPTS" \
    -c "CREATE TABLE target AS SELECT kind, min(grp) AS grp, key, string_agg(DISTINCT h, ',' ORDER BY h) AS h FROM target_raw GROUP BY kind, key" \
-   -c "CREATE TABLE allow (kind text, grp text)" \
+   -c "CREATE TABLE allow (kind text, key text, a text, b text)" \
    -c "\\copy allow FROM '$WORK/allow' $COPY_OPTS"
 
 st > "$WORK/verdicts" <<'SQL'
 WITH keys AS (SELECT kind, key, min(grp) AS grp FROM versions GROUP BY kind, key),
-reviewed AS (
+final AS (  -- the object as the whole chain leaves it (NULL: removed)
+  SELECT DISTINCT ON (kind, key) kind, key, h FROM versions ORDER BY kind, key, step DESC
+),
+reviewed AS (  -- target and chain differ by exactly an allowlisted pair ('-' = absent)
   SELECT k.kind, k.key FROM keys k
-   WHERE EXISTS (SELECT 1 FROM allow a WHERE a.grp = k.grp AND a.kind IN ('*', k.kind))
+    JOIN final f USING (kind, key)
+    LEFT JOIN target t USING (kind, key)
+   WHERE EXISTS (SELECT 1 FROM allow a
+                  WHERE a.kind = k.kind AND a.key = k.key
+                    AND ((nullif(a.a, '-') IS NOT DISTINCT FROM t.h AND nullif(a.b, '-') IS NOT DISTINCT FROM f.h)
+                      OR (nullif(a.b, '-') IS NOT DISTINCT FROM t.h AND nullif(a.a, '-') IS NOT DISTINCT FROM f.h)))
 ),
 timeline AS (  -- every state an object had, by the step that produced it
   SELECT kind, key, step, h FROM versions

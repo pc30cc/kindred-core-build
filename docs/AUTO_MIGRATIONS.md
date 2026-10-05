@@ -90,14 +90,18 @@ anything while:
 `report` also warns about files the ledger already records but the catalog
 says are not applied.
 
-The hosted project, checked read-only: its catalog matches
+The hosted project, checked read-only on 2026-10-05: its catalog matches
 the chain through `251_production_parity.sql`. Every kind of object
 (functions, triggers, constraints, columns, indexes, policies,
 `service_role` grants, types, views) hashes identically, outside the reviewed
-differences in `scripts/db/schema-parity-allowlist.txt`. So the verdicts are
-216 `applied` (251 included: its changes are already there), 34
-`unverifiable`, and nothing `pending`, `partial` or `drift`. Those 34 must be
-decided one by one before `mark` runs there.
+differences in `scripts/db/schema-parity-allowlist.txt`. Function bodies are
+compared as written, so 61 functions whose text differs from production's
+only in comments, whitespace, or a `public.` prefix under
+`search_path=public` are listed there one by one, each with both hashes, after
+their code lines were compared with production's. So the verdicts are 208
+`applied` (251 included: its changes are already there), 42 `unverifiable`,
+and nothing `pending`, `partial` or `drift`. Those 42 must be decided one by
+one before `mark` runs there.
 
 ### The unverifiable files
 
@@ -123,7 +127,16 @@ not yet changed.
 
 On the hosted project the evidence was read on 2026-10-05:
 
-- **33 of the 34: the effect is present.** Record them with `ASSUME_APPLIED`.
+- **8 files whose only catalog change is a function production holds with
+  other comments**: `011` and `139` (`_ai_kb_apply_generated`), `072`
+  (`ensure_active_conversation`), `088` and `092` (`wi_execute_idempotent`),
+  `127` (`admin_reset_settings_tables`), `129`
+  (`billing_v2_schedule_invoice_notifications`), `157`
+  (`billing_v2_resolve_billing_recipient`). Production's version of each has
+  the same arguments, result, security, settings and code lines as the
+  chain's final one (the allowlist entries). The effect is present: record
+  them with `ASSUME_APPLIED`.
+- **33 of the other 34: the effect is present.** Record them with `ASSUME_APPLIED`.
   This covers seeds, backfills, customer-role grants, dropped objects and
   storage parameters. Two caveats remain, and both are Supabase's own
   platform state, not something these files can change there:

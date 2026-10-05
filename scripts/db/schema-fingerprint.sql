@@ -1,28 +1,40 @@
 -- One row per schema object of `public` (plus the auth helpers the chain
--- calls) and a hash of its normalized definition: what the application
--- depends on, not just table and column names. Read-only.
+-- calls) and a hash of its definition: what the application depends on, not
+-- just table and column names. Read-only.
 --
--- Normalization removes only what legitimately differs between a Supabase
--- project and a database built from database/migrations:
---   * the schema of extension objects (`extensions.` on Supabase, `public.`
---     elsewhere) and redundant `public.` qualification;
---   * whitespace, comments inside function bodies, and constraint and index
---     NAMES (keyed by definition instead);
+-- Definitions are compared as PostgreSQL prints them, with nothing rewritten
+-- by pattern — a pattern cannot tell a string literal from code, so it could
+-- make 'a  b' and 'a b' (or a literal holding "--") look the same. What
+-- legitimately differs between a Supabase project and a database built from
+-- database/migrations is handled at the source instead:
+--   * the schema extension objects live in (`extensions` on Supabase,
+--     `public` elsewhere): the query runs with search_path = public,
+--     extensions, so PostgreSQL's own deparser leaves both unqualified;
+--   * constraint, index and trigger NAMES (keyed by definition instead);
+--   * a function body's leading and trailing whitespace and its line endings
+--     (no literal can sit there); everything in between counts, comments
+--     included;
 --   * privileges of the customer roles anon/authenticated (only the
 --     service_role's rights are compared — see function_acl and grant).
+-- A function's definition includes its input parameters — names, modes,
+-- types and defaults — and its result.
 --
 --   psql "$URL" -qAtX -f scripts/db/schema-fingerprint.sql
--- prints  kind <TAB> group <TAB> key <TAB> md5(definition)
+-- prints  kind <TAB> group <TAB> key <TAB> md5(definition); a tab, newline or
+-- backslash inside a key is written \t, \n or \\.
 -- scripts/db/schema-diff.sh compares two databases with it.
+BEGIN READ ONLY;
+SET LOCAL search_path = public, extensions;
 WITH
 ext AS (SELECT objid FROM pg_depend WHERE deptype = 'e'),
 fp(kind, grp, key, def) AS (
   -- functions: signature → security, volatility, settings, language, result, body
   SELECT 'function', p.proname::text, p.oid::regprocedure::text,
          concat_ws(' | ', CASE WHEN p.prosecdef THEN 'definer' ELSE 'invoker' END, p.provolatile::text,
-                   p.prokind::text, l.lanname::text, pg_get_function_result(p.oid),
+                   p.prokind::text, l.lanname::text, 'args=' || pg_get_function_arguments(p.oid),
+                   'returns=' || coalesce(pg_get_function_result(p.oid), ''),
                    (SELECT string_agg(c, ',' ORDER BY c) FROM unnest(p.proconfig) c),
-                   regexp_replace(regexp_replace(p.prosrc, '/\*.*?\*/', '', 'g'), '--[^\n]*', '', 'g'))
+                   btrim(replace(p.prosrc, E'\r\n', E'\n'), E' \t\r\n'))
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_language l ON l.oid = p.prolang
    WHERE n.nspname = 'public' AND p.oid NOT IN (SELECT objid FROM ext)
   UNION ALL
@@ -100,10 +112,10 @@ fp(kind, grp, key, def) AS (
   UNION ALL
   SELECT 'extension', e.extname::text, e.extname::text, '' FROM pg_extension e WHERE e.extname <> 'plpgsql'
 ),
-normalized AS (
-  SELECT kind, grp,
-         regexp_replace(regexp_replace(key, '\m(extensions|public)\.', '', 'g'), '\s+', ' ', 'g') AS key,
-         md5(regexp_replace(regexp_replace(coalesce(def, ''), '\m(extensions|public)\.', '', 'g'), '\s+', ' ', 'g')) AS h
+escaped AS (  -- one line per object, whatever its key holds
+  SELECT kind, grp, replace(replace(replace(replace(key, E'\\', E'\\\\'), E'\t', E'\\t'), E'\n', E'\\n'), E'\r', E'\\r') AS key,
+         md5(coalesce(def, '')) AS h
     FROM fp
 )
-SELECT kind || E'\t' || grp || E'\t' || key || E'\t' || h FROM normalized ORDER BY kind, grp, key, h;
+SELECT kind || E'\t' || grp || E'\t' || key || E'\t' || h FROM escaped ORDER BY kind, grp, key, h;
+COMMIT;

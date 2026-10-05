@@ -44,10 +44,11 @@ suite('251 — production parity, exercised on a database built by the whole cha
     (await db.query(sql, params)).rows[0] as T;
   const entitlement = (feature: string) =>
     one<{ r: Record<string, unknown> }>('SELECT public.check_workspace_entitlement($1, $2) AS r', [WS, feature]).then((x) => x.r);
-  const fingerprint = async () =>
-    (await db.query(readFileSync(resolve(process.cwd(), 'scripts/db/schema-fingerprint.sql'), 'utf8'))).rows
-      .map((r) => Object.values(r)[0])
-      .join('\n');
+  const fingerprint = async () => {
+    // BEGIN; SET LOCAL …; SELECT …; COMMIT — the SELECT's rows.
+    const results = (await db.query(readFileSync(resolve(process.cwd(), 'scripts/db/schema-fingerprint.sql'), 'utf8'))) as unknown as pg.QueryResult[];
+    return results.find((r) => r.command === 'SELECT')!.rows.map((r) => Object.values(r)[0]).join('\n');
+  };
 
   beforeAll(async () => {
     const adminUrl = new URL(DSN!);

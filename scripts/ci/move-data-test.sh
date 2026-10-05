@@ -178,7 +178,11 @@ sql mvt_src -c "SELECT setval('bot_visits_id_seq', (SELECT max(id) FROM bot_visi
 # 3. a reviewed schema difference that changes data: only the content
 #    checksum can see it
 sql mvt_dst -c "ALTER TABLE visitor_sessions ALTER COLUMN geo_latitude TYPE real"
-{ cat "$ROOT/scripts/db/schema-parity-allowlist.txt"; printf 'column\tvisitor_sessions\ttest: a reviewed type difference that rounds data\n'; } > "$WORK/allow"
+# reviewed exactly as the allowlist reviews: this column, between these two definitions
+fpcol() { PGOPTIONS='-c default_transaction_read_only=on' psql "$(url "$1")" -qAtX -f "$ROOT/scripts/db/schema-fingerprint.sql" \
+            | awk -F'\t' '$1 == "column" && $3 == "visitor_sessions.geo_latitude" { print $4 }'; }
+{ cat "$ROOT/scripts/db/schema-parity-allowlist.txt"
+  printf 'column\tvisitor_sessions.geo_latitude\t%s\t%s\ttest: a reviewed type difference that rounds data\n' "$(fpcol mvt_src)" "$(fpcol mvt_dst)"; } > "$WORK/allow"
 state mvt_dst > "$WORK/saved"
 expect_refusal "rounded value" 'loaded rows differ from the source:' run "$SRC" "$DST" SCHEMA_PARITY_ALLOWLIST="$WORK/allow"
 grep -q 'visitor_sessions: source 1 rows' "$WORK/out" || die "the content mismatch did not name visitor_sessions"

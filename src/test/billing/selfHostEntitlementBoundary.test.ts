@@ -49,8 +49,15 @@ vi.mock("@supabase/supabase-js", () => ({
 import { requireLimit, requireFeature, clearEntitlementCache } from "../../../server/middleware/featureGating";
 import { usageFnForLimit } from "../../../server/services/billing/usageResolvers";
 
+type Middleware = ReturnType<typeof requireLimit>;
+type Req = Parameters<Middleware>[0];
+type Res = Parameters<Middleware>[1];
+interface Entitlement { allowed?: boolean; limit?: number }
+/** What the middleware leaves on the request for the route. */
+const entitlementOf = (req: Req): Entitlement | undefined => (req as unknown as { entitlement?: Entitlement }).entitlement;
+
 function makeReqRes(body: Record<string, unknown> = {}, configOverrides: Record<string, unknown> = {}) {
-  const req: any = {
+  const req = {
     body,
     query: {},
     params: {},
@@ -59,13 +66,13 @@ function makeReqRes(body: Record<string, unknown> = {}, configOverrides: Record<
       supabaseServiceRoleKey: "stub-key",
       ...configOverrides,
     },
-  };
+  } as unknown as Req;
   let statusCode: number | undefined;
-  let jsonBody: any;
-  const res: any = {
+  let jsonBody: Record<string, unknown> | undefined;
+  const res = {
     status(code: number) { statusCode = code; return res; },
-    json(b: any) { jsonBody = b; return res; },
-  };
+    json(b: Record<string, unknown>) { jsonBody = b; return res; },
+  } as unknown as Res;
   const getResult = () => ({ statusCode, jsonBody });
   return { req, res, getResult };
 }
@@ -98,8 +105,8 @@ describe("requireLimit/requireFeature — explicit self-host billing-less bounda
     await mw(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(getResult().statusCode).toBeUndefined();
-    expect((req as any).entitlement?.allowed).toBe(true);
-    expect((req as any).entitlement?.limit).toBe(-1);
+    expect(entitlementOf(req)?.allowed).toBe(true);
+    expect(entitlementOf(req)?.limit).toBe(-1);
     expect(counterRowMock).not.toHaveBeenCalled();
   });
 
@@ -157,7 +164,7 @@ describe("requireLimit/requireFeature — explicit self-host billing-less bounda
       await mw(req, res, next);
       expect(next).toHaveBeenCalledTimes(1);
       expect(getResult().statusCode).toBeUndefined();
-      expect((req as any).entitlement?.limit).toBe(-1);
+      expect(entitlementOf(req)?.limit).toBe(-1);
       expect(rpcMock).not.toHaveBeenCalled();
       expect(counterRowMock).not.toHaveBeenCalled();
     });
@@ -182,7 +189,7 @@ describe("requireLimit/requireFeature — explicit self-host billing-less bounda
     await mw(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(getResult().statusCode).toBeUndefined();
-    expect((req as any).entitlement?.limit).toBe(5);
+    expect(entitlementOf(req)?.limit).toBe(5);
     expect(counterRowMock).toHaveBeenCalled();
   });
 

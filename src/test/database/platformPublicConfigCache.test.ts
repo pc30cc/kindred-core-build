@@ -30,11 +30,18 @@ vi.mock('../../../server/supabase.js', () => {
     if (fail) return { data: null, error: { message: 'connection refused' } };
     return { data, error: null };
   };
-  const chain = (value: () => unknown) => {
-    const b: any = {
+  type Answer = Awaited<ReturnType<typeof result>>;
+  interface Chain extends PromiseLike<Answer> {
+    select(): Chain;
+    limit(): Chain;
+    order(): Chain;
+    maybeSingle(): Promise<Answer>;
+  }
+  const chain = (value: () => unknown): Chain => {
+    const b: Chain = {
       select: () => b, limit: () => b, order: () => b,
       maybeSingle: () => result(value),
-      then: (resolve: any, reject: any) => result(value).then(resolve, reject),
+      then: (resolve, reject) => result(value).then(resolve, reject),
     };
     return b;
   };
@@ -57,7 +64,7 @@ import {
   __resetPlatformPublicConfigForTests,
 } from '../../../server/services/platformPublicConfig';
 
-const CONFIG = {} as any;
+const CONFIG = {} as Parameters<typeof getPlatformPublicConfig>[0];
 
 beforeEach(() => {
   __resetPlatformPublicConfigForTests();

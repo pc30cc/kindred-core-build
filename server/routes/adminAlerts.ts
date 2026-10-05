@@ -25,9 +25,17 @@ import {
 
 export const adminAlertsRouter = Router();
 
+/** What server/index.ts attaches to every request before this router runs. */
+interface AdminAlertsRequest {
+  serverConfig: ServerConfig;
+}
+
+/** A caught value, read only for an optional `message` (it may not be an Error). */
+type ThrownValue = { message?: string } | null | undefined;
+
 adminAlertsRouter.get('/rules', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminAlertsRequest).serverConfig;
     const sb = getServiceClient(config);
     const { data, error } = await sb
       .from('alert_rules')
@@ -35,8 +43,8 @@ adminAlertsRouter.get('/rules', async (req, res) => {
       .order('slug', { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
     res.json({ rules: data || [] });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to load rules' });
+  } catch (err) {
+    res.status(500).json({ error: (err as ThrownValue)?.message || 'Failed to load rules' });
   }
 });
 
@@ -50,7 +58,7 @@ const RuleUpdateSchema = z.object({
 
 adminAlertsRouter.patch('/rules/:id', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminAlertsRequest).serverConfig;
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ error: 'Missing id' });
 
@@ -76,14 +84,14 @@ adminAlertsRouter.patch('/rules/:id', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     if (!data) return res.status(404).json({ error: 'Rule not found' });
     res.json({ rule: data });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to update rule' });
+  } catch (err) {
+    res.status(500).json({ error: (err as ThrownValue)?.message || 'Failed to update rule' });
   }
 });
 
 adminAlertsRouter.get('/events', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminAlertsRequest).serverConfig;
     const limit = Math.min(
       Math.max(parseInt(String(req.query.limit || '50'), 10) || 50, 1),
       200,
@@ -99,14 +107,14 @@ adminAlertsRouter.get('/events', async (req, res) => {
     const { data, error } = await q;
     if (error) return res.status(500).json({ error: error.message });
     res.json({ events: data || [] });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to load events' });
+  } catch (err) {
+    res.status(500).json({ error: (err as ThrownValue)?.message || 'Failed to load events' });
   }
 });
 
 adminAlertsRouter.get('/active', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminAlertsRequest).serverConfig;
     const sb = getServiceClient(config);
     const { data, error } = await sb
       .from('alert_events')
@@ -116,24 +124,24 @@ adminAlertsRouter.get('/active', async (req, res) => {
       .limit(20);
     if (error) return res.status(500).json({ error: error.message });
     res.json({ active: data || [] });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to load active alerts' });
+  } catch (err) {
+    res.status(500).json({ error: (err as ThrownValue)?.message || 'Failed to load active alerts' });
   }
 });
 
 adminAlertsRouter.post('/evaluate', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminAlertsRequest).serverConfig;
     const result = await runAlertCycle(config);
     res.json({ ok: true, result });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Evaluation failed' });
+  } catch (err) {
+    res.status(500).json({ error: (err as ThrownValue)?.message || 'Evaluation failed' });
   }
 });
 
 adminAlertsRouter.get('/webhook', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminAlertsRequest).serverConfig;
     const flags = await loadAlertFlags(config);
     res.json({
       alerting_enabled: flags.alertingEnabled,
@@ -141,8 +149,8 @@ adminAlertsRouter.get('/webhook', async (req, res) => {
       // Never echo the secret. Just whether one is configured.
       webhook_secret_set: Boolean(flags.webhookSecret),
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to load webhook config' });
+  } catch (err) {
+    res.status(500).json({ error: (err as ThrownValue)?.message || 'Failed to load webhook config' });
   }
 });
 
@@ -160,7 +168,7 @@ const WebhookSchema = z.object({
 
 adminAlertsRouter.put('/webhook', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminAlertsRequest).serverConfig;
     const parsed = WebhookSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() });
@@ -198,7 +206,7 @@ adminAlertsRouter.put('/webhook', async (req, res) => {
     __resetAlertFlagCacheForTests(); // clear 60s cache so changes apply immediately
     invalidatePlatformPublicConfig(); // same row as the public realtime values
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to update webhook config' });
+  } catch (err) {
+    res.status(500).json({ error: (err as ThrownValue)?.message || 'Failed to update webhook config' });
   }
 });

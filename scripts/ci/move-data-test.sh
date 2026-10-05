@@ -93,10 +93,15 @@ ok "source: the chain plus $(rows mvt_src | awk -F'|' '{ s += $2 } END { print s
 # ── check writes nothing ────────────────────────────────────────────────
 # Rows inserted, updated or deleted in the database's own tables, catalogs
 # included. Statistics reach the view up to a second after a session ends, so
-# wait for them; shared catalogs are left out (ALTER DATABASE writes one).
+# wait for them. Left out: shared catalogs (ALTER DATABASE writes one), and
+# pg_statistic with its TOAST table, which autovacuum's ANALYZE of the freshly
+# seeded tables rewrites in the background whatever the sessions do.
 counters() { sleep 1.5; sql "$1" -c "SELECT pg_stat_force_next_flush()" > /dev/null; sleep 0.5
              sql "$1" -c "SELECT string_agg(s.relid::regclass::text || '=' || (s.n_tup_ins + s.n_tup_upd + s.n_tup_del), ' ' ORDER BY s.relid)
-                            FROM pg_stat_all_tables s JOIN pg_class c ON c.oid = s.relid WHERE NOT c.relisshared"; }
+                            FROM pg_stat_all_tables s JOIN pg_class c ON c.oid = s.relid
+                           WHERE NOT c.relisshared
+                             AND c.oid NOT IN ('pg_catalog.pg_statistic'::regclass,
+                                               (SELECT reltoastrelid FROM pg_class WHERE oid = 'pg_catalog.pg_statistic'::regclass))"; }
 check_is_read_only() {
   for db in mvt_src mvt_dst; do admin -c "ALTER DATABASE $db SET default_transaction_read_only = on"; done
   { state mvt_src; state mvt_dst; psql "$SRC" -qAtX -f "$ROOT/scripts/db/schema-fingerprint.sql"; psql "$DST" -qAtX -f "$ROOT/scripts/db/schema-fingerprint.sql"; } > "$WORK/before"

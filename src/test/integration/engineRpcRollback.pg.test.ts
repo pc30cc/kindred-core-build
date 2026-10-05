@@ -11,20 +11,22 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import pg from 'pg';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { DatabasePool, databaseSettings } from '../../../server/db/pool';
 import { PostgrestEngine } from '../../../server/db/postgrest/engine';
 import { SchemaCache } from '../../../server/db/postgrest/schemaCache';
 import { createPgFetch } from '../../../server/db/pgFetch';
 
 const DSN = process.env.TEST_DATABASE_URL;
+
 const suite = DSN ? describe : describe.skip;
 const SCHEMA = 'engine_rpc_rollback';
 
 suite('engine: a writing RPC whose response fails leaves nothing behind', () => {
   let admin: pg.Client;
   let pool: DatabasePool;
-  let sb: ReturnType<typeof createClient>;
+  // A schema outside the generated Database types, as the parity suite types it.
+  let sb: Pick<SupabaseClient, 'from' | 'rpc'>;
 
   const notes = async () => (await admin.query(`SELECT note FROM ${SCHEMA}.ledger ORDER BY id`)).rows.map((r) => r.note);
   const nextId = async () => (await admin.query(`SELECT nextval('${SCHEMA}.ledger_id_seq')::int AS v`)).rows[0].v;
@@ -53,7 +55,7 @@ suite('engine: a writing RPC whose response fails leaves nothing behind', () => 
       auth: { persistSession: false, autoRefreshToken: false },
       db: { schema: SCHEMA },
       global: { fetch: createPgFetch(engine) },
-    });
+    }) as unknown as Pick<SupabaseClient, 'from' | 'rpc'>;
   });
 
   beforeEach(async () => {

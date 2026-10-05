@@ -2,10 +2,13 @@
  * Startup and health checks for the database connection.
  */
 import { dataDriver, directPool } from './index.js';
+import { databaseMode, ignoredSupabaseVars, type DatabaseMode } from './mode.js';
 import { databaseSettings } from './pool.js';
 
 export interface DatabaseStatus {
   driver: 'postgres' | 'supabase-rest';
+  /** Whether any Supabase service may be used (DATABASE_MODE). */
+  mode: DatabaseMode;
   ok: boolean;
   /** postgres only: server major version, the role queries run as, round-trip ms. */
   serverVersion?: string;
@@ -30,7 +33,8 @@ export function describeDatabaseTarget(env: NodeJS.ProcessEnv = process.env): st
 }
 
 export async function databaseStatus(): Promise<DatabaseStatus> {
-  if (dataDriver() !== 'postgres') return { driver: 'supabase-rest', ok: true };
+  const mode = databaseMode();
+  if (dataDriver() !== 'postgres') return { driver: 'supabase-rest', mode, ok: true };
   const started = Date.now();
   try {
     const { rows } = await directPool().query<{ version: string; role: string }>(
@@ -38,13 +42,14 @@ export async function databaseStatus(): Promise<DatabaseStatus> {
     );
     return {
       driver: 'postgres',
+      mode,
       ok: true,
       serverVersion: String(Math.floor(Number(rows[0].version) / 10000)),
       role: rows[0].role,
       latencyMs: Date.now() - started,
     };
   } catch (err) {
-    return { driver: 'postgres', ok: false, error: (err as Error).message };
+    return { driver: 'postgres', mode, ok: false, error: (err as Error).message };
   }
 }
 
@@ -60,7 +65,14 @@ export async function waitForDatabase(label: string, attempts = Number(process.e
   for (let i = 1; ; i++) {
     const status = await databaseStatus();
     if (status.ok) {
-      console.log(`[${label}] database: ${target}, PostgreSQL ${status.serverVersion}, role ${status.role}`);
+      console.log(`[${label}] database: ${target}, PostgreSQL ${status.serverVersion}, role ${status.role}, mode ${status.mode}`);
+      const ignored = ignoredSupabaseVars();
+      if (ignored.length) {
+        console.warn(
+          `[${label}] DATABASE_MODE=postgres-only: ignoring ${ignored.join(', ')} — no Supabase service is used. ` +
+            'Remove them, or set DATABASE_MODE=postgres+supabase-services to use the optional Supabase Realtime.',
+        );
+      }
       if (Number(status.serverVersion) < 15) {
         console.warn(`[${label}] PostgreSQL ${status.serverVersion} is older than 15, the oldest version the migrations are tested on`);
       }

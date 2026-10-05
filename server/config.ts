@@ -2,7 +2,7 @@
 // All sensitive values come from server env, never from frontend
 
 import { assertDistinctSigningKey } from '../shared/channels/webhookSecret.js';
-import { DIRECT_DATABASE_BASE_URL, dataDriver } from './db/index.js';
+import { DIRECT_DATABASE_BASE_URL, dataDriver, databaseMode } from './db/index.js';
 import { MIN_PLATFORM_SIGNING_SECRET_LENGTH, platformSigningSecret } from './lib/platformSecret.js';
 
 
@@ -330,7 +330,13 @@ export function loadConfig(): ServerConfig {
         'SUPABASE_SERVICE_ROLE_KEY value so existing sessions and signed links stay valid)',
     );
   }
-  const serviceRoleKey = direct ? process.env.SUPABASE_SERVICE_ROLE_KEY || signingSecret : required('SUPABASE_SERVICE_ROLE_KEY');
+  // postgres-only takes nothing from SUPABASE_*; the extras mode keeps them
+  // for the optional Supabase services; the legacy driver needs them.
+  const mode = databaseMode();
+  const supabaseServices = mode === 'postgres+supabase-services';
+  const serviceRoleKey = direct
+    ? (supabaseServices && process.env.SUPABASE_SERVICE_ROLE_KEY) || signingSecret
+    : required('SUPABASE_SERVICE_ROLE_KEY');
 
   // Startup guard: these three must be distinct from each other and from the
   // service-role key and the signing secret. A shared value collapses three
@@ -375,8 +381,10 @@ export function loadConfig(): ServerConfig {
   }
   return {
     port: parseInt(process.env.PORT || '3001', 10),
-    supabaseUrl: direct ? process.env.SUPABASE_URL?.trim() || DIRECT_DATABASE_BASE_URL : required('SUPABASE_URL'),
-    supabaseAnonKey: direct ? process.env.SUPABASE_ANON_KEY?.trim() || '' : required('SUPABASE_ANON_KEY'),
+    supabaseUrl: direct
+      ? (supabaseServices && process.env.SUPABASE_URL?.trim()) || DIRECT_DATABASE_BASE_URL
+      : required('SUPABASE_URL'),
+    supabaseAnonKey: direct ? (supabaseServices && process.env.SUPABASE_ANON_KEY?.trim()) || '' : required('SUPABASE_ANON_KEY'),
     supabaseServiceRoleKey: serviceRoleKey,
     signingSecret,
     corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map(s => s.trim()),

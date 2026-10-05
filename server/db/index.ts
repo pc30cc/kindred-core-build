@@ -14,11 +14,13 @@
  *     install that has not set `DATABASE_URL` yet keeps running unchanged.
  *
  * Call sites never choose: getServiceClient(), serviceClientFor() and the
- * workers' clients all come from here.
+ * workers' clients all come from here. Which one applies, and whether any
+ * Supabase service may be used at all, is DATABASE_MODE (./mode.ts).
  */
 import { randomBytes } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { platformSigningSecret } from '../lib/platformSecret.js';
+import { databaseMode } from './mode.js';
 import { createPgFetch } from './pgFetch.js';
 import { DatabasePool, databaseSettings } from './pool.js';
 import { PostgrestEngine } from './postgrest/engine.js';
@@ -33,8 +35,10 @@ export type DataDriver = 'postgres' | 'supabase-rest';
  */
 export const DIRECT_DATABASE_BASE_URL = 'http://direct-database.invalid';
 
+export { databaseMode, ignoredSupabaseVars, type DatabaseMode } from './mode.js';
+
 export function dataDriver(env: NodeJS.ProcessEnv = process.env): DataDriver {
-  return env.DATABASE_URL?.trim() ? 'postgres' : 'supabase-rest';
+  return databaseMode(env) === 'supabase-rest' ? 'supabase-rest' : 'postgres';
 }
 
 interface Direct {
@@ -132,9 +136,11 @@ export function workerDatabaseConfig(
 ): { supabaseUrl: string; supabaseServiceRoleKey: string; signingSecret: string } {
   if (dataDriver(env) === 'postgres') {
     const signingSecret = platformSigningSecret(env) || randomBytes(32).toString('hex');
+    // postgres-only hands the worker nothing of Supabase's, set or not.
+    const services = databaseMode(env) === 'postgres+supabase-services';
     return {
-      supabaseUrl: env.SUPABASE_URL?.trim() || DIRECT_DATABASE_BASE_URL,
-      supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY || signingSecret,
+      supabaseUrl: (services && env.SUPABASE_URL?.trim()) || DIRECT_DATABASE_BASE_URL,
+      supabaseServiceRoleKey: (services && env.SUPABASE_SERVICE_ROLE_KEY) || signingSecret,
       signingSecret,
     };
   }
@@ -150,18 +156,24 @@ let servicesClient: SupabaseClient | null | undefined;
 
 /**
  * A client for Supabase's own HTTP services — Auth admin and Realtime — or
- * null when there is no Supabase project to talk to.
+ * null when this process may not use them.
  *
- * Under `supabase-rest` this is the data client itself, as it always was.
- * Under `postgres` the database needs no Supabase service, so this exists only
- * when SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are still configured: then
- * the optional extras keep working (legacy auth.users cleanup, the Supabase
- * Realtime transport); without them they switch off and nothing else changes.
+ *   supabase-rest               the data client itself, as it always was;
+ *   postgres+supabase-services  a client for SUPABASE_URL (required by that
+ *                               mode), used only by the optional extras —
+ *                               legacy auth.users cleanup and the Supabase
+ *                               Realtime transport;
+ *   postgres-only               null, always — whatever SUPABASE_* variables
+ *                               are still set. Supabase Realtime is then
+ *                               unavailable to the resolver, the publisher and
+ *                               the widget alike; realtime runs on Centrifugo.
  */
 export function supabaseServicesClient(env: NodeJS.ProcessEnv = process.env): SupabaseClient | null {
+  const mode = databaseMode(env);
+  if (mode === 'postgres-only') return null;
   const url = env.SUPABASE_URL?.trim();
   const key = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (dataDriver(env) === 'supabase-rest') return url && key ? dataClientFor(url, key) : null;
+  if (mode === 'supabase-rest') return url && key ? dataClientFor(url, key) : null;
   if (servicesClient === undefined) {
     servicesClient = url && key ? createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } }) : null;
   }

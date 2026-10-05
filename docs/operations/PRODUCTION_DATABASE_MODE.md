@@ -27,7 +27,7 @@ Coolify on `analyticsme.site`. The seven services switched (Coolify app id,
 Auto-deploy on push to `main`: apps 29, 30 and the frontend (28). The others
 deploy only when triggered in Coolify.
 
-Not switched: **API.Destekly** (app 10, `api.destekly.tr`) still uses Supabase
+Not switched: the older second backend, **Coolify app 10**, still uses Supabase
 REST (PostgREST) with `SUPABASE_URL` / service-role key. Keep the hosted
 project's REST, Auth and Storage services running for it.
 

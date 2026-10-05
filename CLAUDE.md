@@ -35,7 +35,8 @@ Turn the sync off with `launchctl bootout gui/$(id -u)/ai.webyar.xcode-sync`.
 The production backend and six workers on the Coolify at `analyticsme.site`
 run `DATABASE_MODE=postgres-only` against the hosted Supabase project's
 PostgreSQL, as login role `webyar_app` through the session pooler (port 5432,
-15-connection cap; pools sum to 13). API.Destekly still uses Supabase REST.
+15-connection cap; pools sum to 13). The older second backend (Coolify app 10)
+still uses Supabase REST.
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 `DATABASE_URL` and `DATABASE_MODE` are set and removed together. Do not run
 `migrate-database.sh`, a baseline or `move-data.sh` against production.

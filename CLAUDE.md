@@ -29,3 +29,16 @@ whatever is merged shows up there on its own. It skips the update while a
 tracked file there has local edits. Do not check other branches out in that
 folder: build and test a PR in a separate worktree (e.g. `~/dev/kcbi-pr`).
 Turn the sync off with `launchctl bootout gui/$(id -u)/ai.webyar.xcode-sync`.
+
+## Production database connection (since 2026-10-05)
+
+The production backend and six workers on the Coolify at `analyticsme.site`
+run `DATABASE_MODE=postgres-only` against the hosted Supabase project's
+PostgreSQL, as login role `webyar_app` through the session pooler (port 5432,
+15-connection cap; pools sum to 13). API.Destekly still uses Supabase REST.
+Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
+`DATABASE_URL` and `DATABASE_MODE` are set and removed together. Do not run
+`migrate-database.sh`, a baseline or `move-data.sh` against production.
+Runbook and rollback: `docs/operations/PRODUCTION_DATABASE_MODE.md`; the
+rollback kit (snapshot, scripts, credential) is root-only on the server in
+`/root/webyar-rollout/20261005-postgres-only/`.

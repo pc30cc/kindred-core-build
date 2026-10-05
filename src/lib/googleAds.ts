@@ -42,7 +42,7 @@ export function initGoogleAds(): boolean {
   const w = window as AdsWindow;
   if (configured.has(w)) return true;
   w.dataLayer ??= [];
-  w.gtag ??= function (..._args: unknown[]) { w.dataLayer!.push(arguments); };
+  w.gtag ??= (...args: unknown[]) => { w.dataLayer!.push(args); };
   w.gtag('consent', 'default', {
     ad_storage: 'denied', analytics_storage: 'denied',
     ad_user_data: 'denied', ad_personalization: 'denied',

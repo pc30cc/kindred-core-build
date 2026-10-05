@@ -300,7 +300,7 @@ final class PushController {
         switch target {
         case .conversation(_, let id)?: id == viewing
         case .colleague(_, let peer)?: peer == viewingColleague
-        case .email(_, let thread)?: thread == viewingEmailThread
+        case .email(_, let thread, _)?: thread == viewingEmailThread
         case .support?: viewingSupport
         case nil: false
         }
@@ -321,7 +321,7 @@ final class PushController {
             SyncCoordinator.shared.teamPushArrived(workspaceID: workspaceID, peerID: peerID)
         case .support(_, let threadID)?:
             SyncCoordinator.shared.supportPushArrived(threadID: threadID)
-        case .email(let workspaceID, _)?:
+        case .email(let workspaceID, _, _)?:
             SyncCoordinator.shared.emailPushArrived(workspaceID: workspaceID, provider: arrival.provider)
         case nil:
             break

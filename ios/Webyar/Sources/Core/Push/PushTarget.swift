@@ -11,8 +11,10 @@ enum PushTarget: Equatable, Hashable, Sendable {
     case conversation(workspaceID: String, conversationID: String)
     /// A colleague's team-chat thread.
     case colleague(workspaceID: String, peerID: String)
-    /// A thread in the shared email inbox.
-    case email(workspaceID: String, threadID: String)
+    /// A thread in the shared email inbox, and the mailbox it is in
+    /// (`gmail`, `yahoo`) when the payload names one: a workspace can have
+    /// both, and a thread is only found in its own.
+    case email(workspaceID: String, threadID: String, provider: String? = nil)
     /// The platform's support team answered (`support_reply`): the support
     /// chat in Settings. `workspaceID` is only where the server filed the
     /// notification — support is the same chat from every workspace — and
@@ -21,7 +23,7 @@ enum PushTarget: Equatable, Hashable, Sendable {
 
     var workspaceID: String {
         switch self {
-        case .conversation(let workspaceID, _), .colleague(let workspaceID, _), .email(let workspaceID, _),
+        case .conversation(let workspaceID, _), .colleague(let workspaceID, _), .email(let workspaceID, _, _),
              .support(let workspaceID, _):
             workspaceID
         }
@@ -38,7 +40,7 @@ enum PushTarget: Equatable, Hashable, Sendable {
         switch self {
         case .conversation(let workspace, let id): "c|\(workspace)|\(id)"
         case .colleague(let workspace, let peer): "t|\(workspace)|\(peer)"
-        case .email(let workspace, let thread): "e|\(workspace)|\(thread)"
+        case .email(let workspace, let thread, _): "e|\(workspace)|\(thread)"
         case .support(let workspace, let thread): "s|\(workspace)|\(thread)"
         }
     }
@@ -61,7 +63,7 @@ enum PushTarget: Equatable, Hashable, Sendable {
             self = .colleague(workspaceID: workspaceID, peerID: peer)
         } else if type == "email_message" {
             guard let thread = value("threadId") else { return nil }
-            self = .email(workspaceID: workspaceID, threadID: thread)
+            self = .email(workspaceID: workspaceID, threadID: thread, provider: value("provider"))
         } else if type == "support_reply" {
             guard let thread = value("threadId") else { return nil }
             self = .support(workspaceID: workspaceID, threadID: thread)

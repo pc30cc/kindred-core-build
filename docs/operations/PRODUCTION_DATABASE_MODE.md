@@ -1,13 +1,9 @@
 # Production database mode — runbook
 
-**Status: prepared, pending deployment and production verification
-(2026-10-05).** This file describes the switch of the production WebYar
-backend and its workers to the hosted Supabase project's PostgreSQL over a
-direct connection (`DATABASE_MODE=postgres-only`). Prepared so far: the login
-role, the Coolify variables on the seven services (the code they run now does
-not read them yet) and the rollback kit. The switch takes effect only when
-each service is deployed with the code that reads them. Until this line says
-otherwise, production still runs through Supabase REST.
+**Status: switched and verified in production on 2026-10-05.** The
+production WebYar backend and its six workers reach the hosted Supabase
+project's PostgreSQL directly (`DATABASE_MODE=postgres-only`), as recorded in
+[Verified state](#verified-state-2026-10-05) below.
 
 It is a connection-mode change only: the database, its data and its schema
 stay where they are; no migration is replayed, no baseline is recorded and no
@@ -18,8 +14,8 @@ the protected rollback kit on the server.
 
 ## What runs where
 
-Coolify on `analyticsme.site`. The seven services being switched (Coolify app
-id, `WORKER_KIND`, `DATABASE_POOL_MAX`):
+Coolify on `analyticsme.site`. The seven switched services (Coolify app id,
+`WORKER_KIND`, `DATABASE_POOL_MAX`):
 
 | App id | Service | Kind | Pool |
 | --- | --- | --- | --- |
@@ -62,7 +58,7 @@ What can be open at once:
 | --- | --- |
 | Steady state: backend 3 + six workers × 1 | **9** |
 | A deployment runs the old and the new container side by side until the new one is up, so it adds the new container's pool | backend +3, a worker +1 |
-| Coolify on this server runs at most **2** deployments at a time (server setting `concurrent_builds` = 2); further ones wait in its queue. A push to `main` queues 28 (no database), 29 and 30; a manual worker deployment joins the same queue. The worst pair is the backend and one worker: 9 + 3 + 1 | **13** |
+| Coolify on this server runs at most **2** queued deployments at a time (server setting `concurrent_builds` = 2); further ones wait. A push to `main` queues 28 (no database), 29 and 30; the Deploy button and the rollback kit's `deploy.php` join the same queue. The worst pair is the backend and one worker: 9 + 3 + 1 | **13** |
 | Left under the cap of 15 | 2 |
 
 The first allocation (backend 6, channels 2, the rest 1; 13 steady) would have
@@ -77,8 +73,8 @@ about 40 ms each), with one-second bursts of up to 133. Such a burst waits up
 to about 1.5 s for a free connection; nothing is refused (a query fails only
 after 15 s without one).
 
-The first cutover is lower still: the containers being replaced use REST, not
-PostgreSQL, so the old side holds no connection (peak 9).
+The first cutover was lower still: the containers being replaced used REST,
+not PostgreSQL, so the old side held no connection (peak 9).
 
 Rules that keep this true:
 
@@ -87,6 +83,10 @@ Rules that keep this true:
   measure the new cap.
 - Keep Coolify's `concurrent_builds` at 2 on this server, or recompute: each
   extra concurrent deployment adds up to the backend's pool.
+- Deploy these apps only through the queue: a push, the Deploy button, or the
+  kit's `deploy.php`. Coolify's API endpoints that create and deploy at once,
+  and its MCP `Deploy` tool, start immediately (`no_questions_asked`) and do
+  not wait for the limit, so each one adds its app's pool on top of the 13.
 - Do not hold a session as `webyar_app` through the pooler (psql, a script)
   while a deployment runs; it takes one of the 15. Read-only checks go through
   the Supabase SQL editor, which connects as another user.
@@ -101,7 +101,7 @@ Rules that keep this true:
 | `DATABASE_MODE` | `postgres-only` |
 | `PLATFORM_SIGNING_SECRET` | the value `SUPABASE_SERVICE_ROLE_KEY` has — the signing root of sessions, widget cookies, signed links |
 | `DATABASE_POOL_MAX` | see the table and the budget |
-| `DATABASE_APPLICATION_NAME` | `webyar-backend`, `webyar-worker-<kind>` |
+| `DATABASE_APPLICATION_NAME` | `webyar-backend`, `webyar-worker-<kind>` (the session pooler replaces it: `pg_stat_activity` shows `Supavisor`; count by `usename = 'webyar_app'`) |
 
 Kept unchanged: every `SUPABASE_*` variable (ignored in postgres-only, needed
 for a rollback), `PLUGIN_SECRETS_MASTER_KEY`, `CORE_INTERNAL_SECRET` and all
@@ -122,6 +122,47 @@ curl -s https://api.webyar.ai/api/health/database
 
 Each worker logs at start:
 `database: postgres aws-1-eu-north-1.pooler.supabase.com:5432/postgres (ssl on), PostgreSQL 17, role service_role, mode postgres-only, pool up to N connection(s)`.
+
+The kit's `verify.sh` prints, per container, the image, health, mode, those
+log lines and its TCP connections to Supabase REST and to the pooler (REST
+must be 0 for all seven). `pg_stat_activity` should show 9 sessions for
+`webyar_app` in steady state.
+
+Not caused by the switch: `[ai-billing] recovery tick failed:
+invalid_decimal:8.8e-7`. A few `ai_usage_events.provider_cost_usd` values below
+1e-6 reach `D.fromString` as a JavaScript number in exponent notation; the
+REST path failed the same way, which is why some runs have stayed
+`USAGE_RECORDED` since 2026-09-20.
+
+## Verified state (2026-10-05)
+
+Deployed: commit `687e6fe` (#263) on all seven services and the frontend
+(app 28); app 10 unchanged on `17c093d`, still on REST. Previous images, for a
+rollback: 29, 30 and 28 on `530f1e7`, 21 on `b334ea7`, 18 on `d3bda54`,
+24, 27 and 19 on `d6033b9` (full hashes in the kit's README).
+
+Checked after the switch:
+
+- `/api/health/database`: `status ok`, driver `postgres`, mode
+  `postgres-only`, role `service_role`, about 30 ms.
+- All seven containers healthy with no restarts, each logging
+  `mode postgres-only` and its pool size; no TCP connection from any of them
+  to Supabase REST. On the server only app 10 still connects to REST.
+- 9 `webyar_app` sessions through the pooler; the database is the same
+  instance (same start time and database oid as before the switch); no
+  migration ledger was created, and `deploy-migrations.yml` skipped.
+- Sessions: a wrong password still returns 401 with the same body; existing
+  cookies keep validating (session lookups and role checks run through the new
+  engine), as `PLATFORM_SIGNING_SECRET` equals the old signing root.
+- Workers: the channels worker heartbeats, the WooCommerce worker completed a
+  sync job, the intelligence and source-sync workers poll their queues, the
+  backend's ticker, billing and recovery leases advance.
+- Storage is Bunny (primary) with an Arvan replica, not Supabase Storage, so
+  it did not change. Realtime is Centrifugo (unchanged); the public config
+  serves its client settings and no secret.
+- REST traffic to the project fell from about 450 to about 60 requests a
+  minute; what remains comes from app 10.
+
 
 ## Rollback
 

@@ -30,16 +30,23 @@ tracked file there has local edits. Do not check other branches out in that
 folder: build and test a PR in a separate worktree (e.g. `~/dev/kcbi-pr`).
 Turn the sync off with `launchctl bootout gui/$(id -u)/ai.webyar.xcode-sync`.
 
-## Production database connection (since 2026-10-05)
+## Production database connection (prepared 2026-10-05, pending)
 
-The production backend and six workers on the Coolify at `analyticsme.site`
+Status: prepared, pending deployment and production verification. The plan:
+the production backend and six workers on the Coolify at `analyticsme.site`
 run `DATABASE_MODE=postgres-only` against the hosted Supabase project's
-PostgreSQL, as login role `webyar_app` through the session pooler (port 5432,
-15-connection cap; pools sum to 13). The older second backend (Coolify app 10)
-still uses Supabase REST.
+PostgreSQL, as login role `webyar_app` through the session pooler (port 5432).
+The role, the Coolify variables and the rollback kit are in place; the code
+running in production does not read them until it is redeployed. Until this
+section says the switch was verified, production still uses Supabase REST.
+The older second backend (Coolify app 10) stays on Supabase REST either way.
+Connection budget: the pooler admits 15 connections; pools are backend 3 and
+1 per worker (9 steady), and Coolify runs at most 2 deployments at once, each
+running old and new containers side by side, so the peak is 9 + 3 + 1 = 13.
+Keep `steady + the two largest pools <= 13` when changing a pool.
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 `DATABASE_URL` and `DATABASE_MODE` are set and removed together. Do not run
 `migrate-database.sh`, a baseline or `move-data.sh` against production.
-Runbook and rollback: `docs/operations/PRODUCTION_DATABASE_MODE.md`; the
-rollback kit (snapshot, scripts, credential) is root-only on the server in
+Runbook, budget and rollback: `docs/operations/PRODUCTION_DATABASE_MODE.md`;
+the rollback kit (snapshot, scripts, credential) is root-only on the server in
 `/root/webyar-rollout/20261005-postgres-only/`.

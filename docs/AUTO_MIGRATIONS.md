@@ -26,9 +26,11 @@ In the repo's GitHub Settings → Secrets and variables → Actions, add
 database. This works identically whether that database is a self-hosted
 Postgres instance or your Supabase project's own Postgres (Supabase exposes
 a direct connection string under Project Settings → Database — the same
-one `psql` can use). Until this secret exists, the workflow logs a warning
-and exits successfully without doing anything — it will never fail your
-pipeline just because the secret is missing.
+one `psql` can use; the session pooler on port 5432 works too, the
+transaction pooler on 6543 does not). Until this secret exists, the workflow
+logs a warning and exits successfully without doing anything — it will never
+fail your pipeline just because the secret is missing. Connect as a superuser
+(`postgres` on Supabase): the chain creates roles and extensions.
 
 ### 2. Baseline an already-provisioned database
 
@@ -48,9 +50,15 @@ it exactly once. If you are not sure your database is fully caught up to
 the current chain, apply the chain manually first (`SELF_HOST_GUIDE.md`),
 then run this.
 
+The hosted Supabase project that was built from `supabase/migrations/` falls
+under this rule too. It has no ledger, so baseline it before the first run.
+
 If you are instead starting from a brand-new, empty database, skip this
 step — just let the workflow (or a manual run of `migrate-database.sh`)
-apply the full chain from scratch.
+apply the full chain from scratch. That is the case for a fresh plain
+PostgreSQL and a fresh Supabase project alike, and for the target of
+`scripts/db/move-data.sh`, which runs `migrate-database.sh` itself
+([`DATABASE.md`](DATABASE.md)).
 
 ## Manual run
 

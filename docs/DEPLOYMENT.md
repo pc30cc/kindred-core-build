@@ -21,7 +21,7 @@ Related, narrower docs:
  ┌───────────────────────────────────────┐   ┌──────────────────────────────┐
  │ frontend (nginx)                      │   │ ai-runtime  ──▶ AI providers │
  │ backend  (Core API, Express)          │──▶│                              │
- │ postgres / Supabase                   │   │ channels-gateway ──▶ Telegram│
+ │ postgres (or Supabase as database)    │   │ channels-gateway ──▶ Telegram│
  │ centrifugo (realtime)                 │   │ channels-worker              │
  │ workers (intelligence, source-sync)   │   └──────────────────────────────┘
  └───────────────────────────────────────┘
@@ -34,7 +34,7 @@ channels services. Breaking this fails `src/test/security/restrictedNetwork*`.
 | Service | Image / Dockerfile | Port | Needs DB | Talks to providers |
 |---|---|---|---|---|
 | frontend | `Dockerfile.frontend` | 80 | no | no |
-| backend (Core) | `Dockerfile.server` | 3001 | yes (service role) | **no** |
+| backend (Core) | `Dockerfile.server` | 3001 | yes (`DATABASE_URL`) | **no** |
 | centrifugo | `centrifugo/centrifugo:v5` | 8000 | no | no |
 | channels-gateway | `Dockerfile.channels` | 3011 | no | inbound webhooks only |
 | channels-worker | `Dockerfile.worker` (`WORKER_KIND=channels`) | — | yes | yes (Telegram) |
@@ -47,16 +47,20 @@ channels services. Breaking this fails `src/test/security/restrictedNetwork*`.
 ## 2. Prerequisites
 
 - Docker 24+ / Coolify, or any container host
-- A Supabase-shaped PostgreSQL database (hosted Supabase, or `supabase/postgres`
-  self-hosted — stock `postgres:16` lacks the `auth` schema the RLS policies need)
+- PostgreSQL 15+ with pgvector: stock PostgreSQL (e.g. `pgvector/pgvector:pg17`),
+  a managed server, or a Supabase project used only as a database. All of
+  it, including moving between them, is in [`DATABASE.md`](DATABASE.md).
 - One public HTTPS hostname per publicly reachable service:
   app (frontend), api (backend), channels gateway, ai-runtime
 
 ## 3. Database migrations
 
-Run `database/migrations/*.sql` **in numeric order**, starting with
-`000_selfhost_roles_bootstrap.sql` on self-hosted Postgres (no-op on hosted
-Supabase). Details and the per-file rationale: [`../database/README.md`](../database/README.md).
+Apply `database/migrations/*.sql` **in numeric order** with
+`DATABASE_URL=… ./scripts/migrate-database.sh`. It records each file in
+`public._schema_migrations` and applies only new ones on later runs. `000` and
+`000a` give a plain PostgreSQL the roles and `auth` names the chain refers to,
+and are no-ops on Supabase. Details and the per-file rationale:
+[`../database/README.md`](../database/README.md).
 
 Every migration is forward-only. Never edit a shipped file — add a new one.
 
@@ -65,7 +69,7 @@ chains and every production deployment runs exactly one of them:
 
 | Deployment | Authoritative chain | AI Billing migrations |
 |---|---|---|
-| Self-hosted Postgres (this guide) | `database/migrations/*.sql`, numeric order | `073_ai_usage_billing.sql`, `074_ai_billing_pricing_append_only.sql`, `075_ai_billing_recovery_lease.sql` |
+| Self-hosted Postgres, or a Supabase project built from this chain (this guide) | `database/migrations/*.sql`, numeric order | `073_ai_usage_billing.sql`, `074_ai_billing_pricing_append_only.sql`, `075_ai_billing_recovery_lease.sql` |
 | Hosted Supabase | `supabase/migrations/*.sql`, timestamp order | `20260901094824_*`, `20260901103902_*`, `20260901105630_*` |
 
 The two AI Billing sets are byte-equivalent mirrors (comments/whitespace aside)
@@ -89,7 +93,8 @@ refuses to start if the AI secret is reused for channels.
 
 | Secret | Held by | Purpose |
 |---|---|---|
-| `SUPABASE_SERVICE_ROLE_KEY` | backend, workers | DB access. **Never** in frontend or ai-runtime |
+| `DATABASE_URL` | backend, workers | DB access. **Never** in frontend, channels-gateway or ai-runtime |
+| `PLATFORM_SIGNING_SECRET` | backend, workers | root of the server's HMAC keys (widget sessions, signed links, realtime topics). Moving from Supabase: the old `SUPABASE_SERVICE_ROLE_KEY` value |
 | `CORE_INTERNAL_SECRET` | backend, channels-gateway, channels-worker | bearer for `/internal/channels/*` |
 | `CHANNELS_WEBHOOK_SIGNING_KEY` | backend, channels-gateway | signs/validates provider webhook URLs |
 | `PLUGIN_SECRETS_MASTER_KEY` | backend, channels-worker | envelope encryption of plugin credentials (bot tokens) |
@@ -105,8 +110,10 @@ each channel must be reconnected.
 
 ```bash
 cp .env.docker.example .env.docker
-# fill Supabase creds + the secrets from section 4
+# fill DATABASE_URL (or POSTGRES_PASSWORD for the bundled database) + the secrets from section 4
 docker compose --env-file .env.docker up -d --build
+# or, with a bundled PostgreSQL that is migrated on start:
+docker compose --env-file .env.docker -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
 docker compose ps          # every service should be healthy
 ```
 
@@ -114,6 +121,7 @@ Health endpoints:
 
 ```bash
 curl -fsS http://localhost:3001/api/health   # backend
+curl -fsS http://localhost:3001/api/health/database   # driver, PostgreSQL version, role
 curl -fsS http://localhost:3011/health       # channels-gateway
 curl -fsS http://localhost:3021/health       # ai-runtime
 curl -fsS http://localhost:8000/health       # centrifugo
@@ -127,14 +135,15 @@ different Dockerfile).
 ### frontend — `Dockerfile.frontend`
 
 Build args (baked at build time, so rebuild after changing):
-`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_BASE_URL`.
+`VITE_API_BASE_URL`. The frontend has no database or Supabase settings.
 Runtime: `BACKEND_URL` (bare origin, no `/api` suffix) for the same-origin nginx proxy.
 
 ### backend (Core) — `Dockerfile.server`, port 3001
 
 ```env
 PORT=3001
-SUPABASE_URL= / SUPABASE_ANON_KEY= / SUPABASE_SERVICE_ROLE_KEY=
+DATABASE_URL=postgresql://…                    # direct or session-mode, never a transaction pooler
+PLATFORM_SIGNING_SECRET=
 SESSION_SECRET=
 APP_BASE_URL=https://app.example.com          # links inside auth emails
 CORS_ORIGINS=https://app.example.com          # never leave "*" in production
@@ -160,8 +169,8 @@ AI_HTTP_TIMEOUT_MS= / AI_RETRY_ATTEMPTS= / AI_TOTAL_BUDGET_MS=   # optional
 
 Stateless by contract: no database, no stored provider keys — provider config
 travels inline per request from Core. The process **refuses to boot** if
-`SUPABASE_SERVICE_ROLE_KEY`, `PLUGIN_SECRETS_MASTER_KEY` or `SESSION_SECRET`
-are present. Restrict ingress to Core's egress IP.
+`SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `PLATFORM_SIGNING_SECRET`,
+`PLUGIN_SECRETS_MASTER_KEY` or `SESSION_SECRET` are present. Restrict ingress to Core's egress IP.
 
 ### channels-gateway — `Dockerfile.channels`, port 3011
 
@@ -179,7 +188,8 @@ database access and no provider credentials by design.
 
 ```env
 WORKER_KIND=channels
-SUPABASE_URL= / SUPABASE_SERVICE_ROLE_KEY=
+DATABASE_URL=
+PLATFORM_SIGNING_SECRET=
 CORE_INTERNAL_BASE_URL=https://api.example.com
 CORE_INTERNAL_SECRET=
 PLUGIN_SECRETS_MASTER_KEY=

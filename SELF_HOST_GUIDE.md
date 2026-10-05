@@ -4,9 +4,9 @@
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Frontend SPA  │────▶│  Backend Server   │────▶│    Supabase     │
-│   (Vite/React)  │     │  (Express/Node)   │     │   (Postgres)    │
-│   Port 5173     │     │   Port 3001       │     │   Auth/DB/RT    │
+│   Frontend SPA  │────▶│  Backend Server   │────▶│   PostgreSQL    │
+│   (Vite/React)  │     │  (Express/Node)   │     │  15+ (pgvector) │
+│   Port 5173     │     │   Port 3001       │     │ any, or Supabase│
 └─────────────────┘     └──────────────────┘     └─────────────────┘
                               │
                         ┌─────┴─────┐
@@ -19,21 +19,20 @@
 ## Prerequisites
 
 - Node.js 18+
-- A Supabase project (or any Postgres instance) — used as the application database only; dashboard authentication is first-party and does not require Supabase Auth/GoTrue
+- PostgreSQL 15+, with pgvector for AI knowledge retrieval. It can be your own server, a managed one, the bundled `docker-compose.postgres.yml`, or a Supabase project used only as a database. Authentication is first-party and needs no Supabase Auth/GoTrue. Everything about the database, including moving it between PostgreSQL and Supabase, is in [`docs/DATABASE.md`](docs/DATABASE.md).
 - A VPS / Docker host / Coolify instance
 
 ## Quick Start (Development)
 
 ### 1. Database Setup
 
-Apply the **complete** `database/migrations/` chain, in numeric order, against your Supabase/Postgres project — not just the first few files:
+Apply the **complete** `database/migrations/` chain, in numeric order, against your database — not just the first few files:
 
 ```bash
-# Via Supabase SQL Editor or psql
-for f in database/migrations/*.sql; do
-  psql "$DATABASE_URL" -f "$f" || break
-done
+DATABASE_URL=postgresql://postgres:…@host:5432/webyar ./scripts/migrate-database.sh
 ```
+
+The script records each applied file in `public._schema_migrations`, so it is safe to run again after every update: it applies only new files. It works on stock PostgreSQL (`000` creates the roles and `000a` the `auth` names the chain refers to) and on Supabase alike. Run it as a superuser (or `postgres` on Supabase). See [`docs/DATABASE.md`](docs/DATABASE.md) §3 for the application's own login role.
 
 **Migration order is critical, and the chain must be run through its current head, not truncated.** Early migrations create core tables, workspace features, visitors/KB, and default feature flags; later migrations build the entire first-party authentication system (`profiles` as the identity root, `user_credentials`, session/token RPCs) and the account/workspace provisioning schema (`accounts`, `account_members`, `create_workspace_atomic`, `provision_account_on_signup`) that the dashboard's signup, login, and workspace-bootstrap flows depend on. Stopping partway through the chain leaves the dashboard unable to complete signup or provision a first workspace.
 
@@ -42,10 +41,9 @@ done
 ```bash
 cd server
 cp .env.example .env
-# Edit .env with your Supabase credentials:
-#   SUPABASE_URL=https://your-project.supabase.co
-#   SUPABASE_ANON_KEY=your-anon-key
-#   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+# Edit .env:
+#   DATABASE_URL=postgresql://webyar_app:…@localhost:5432/webyar
+#   PLATFORM_SIGNING_SECRET=$(openssl rand -hex 32)
 
 npm install
 npm run dev        # Development (ts-node with watch)
@@ -59,8 +57,6 @@ Backend runs on `http://localhost:3001` by default.
 # From project root
 cp .env.example .env
 # Edit .env:
-#   VITE_SUPABASE_URL=https://your-project.supabase.co
-#   VITE_SUPABASE_ANON_KEY=your-anon-key
 #   VITE_API_BASE_URL=http://localhost:3001
 
 npm install
@@ -80,9 +76,9 @@ npm run dev        # Vite dev server on http://localhost:5173
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SUPABASE_URL` | Yes | Your Supabase project URL |
-| `SUPABASE_ANON_KEY` | Yes | Supabase anon/public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (server-only!) |
+| `DATABASE_URL` | Yes | PostgreSQL connection string. On Supabase, use the direct connection or the session pooler (port 5432), never the transaction pooler. Tuning variables: [`docs/DATABASE.md`](docs/DATABASE.md#8-environment-reference). |
+| `PLATFORM_SIGNING_SECRET` | Yes | Root of the server's HMAC keys (widget sessions, signed links, realtime topics); at least 32 characters. When moving off the Supabase REST driver, set it to the old `SUPABASE_SERVICE_ROLE_KEY` value so existing sessions stay valid. |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | No | Only for the optional Supabase Realtime transport, or for the legacy REST driver when `DATABASE_URL` is unset. Server-only. |
 | `PORT` | No | Server port (default: 3001) |
 | `CORS_ORIGINS` | No | Comma-separated allowed origins for cross-origin dashboard requests. Unset/`*` fails closed (rejects cross-origin credentialed requests) rather than allowing every origin — only needed if the frontend is served from a different origin than the API; a same-origin reverse-proxy deployment doesn't need it. |
 | `RATE_LIMIT_WINDOW_MS` | No | Accepted but currently has no effect — rate limits are fixed per route in `server/middleware/security.ts` |
@@ -107,14 +103,12 @@ npm run dev        # Vite dev server on http://localhost:5173
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `VITE_SUPABASE_URL` | Yes | Your Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Yes | Supabase anon key (safe for frontend) |
 | `VITE_API_BASE_URL` | Yes | Your backend server URL (e.g. http://localhost:3001) |
 
 ## Production Deployment
 
 Run one durable worker container from `Dockerfile.worker` with
-`WORKER_KIND=invitations`. It requires the Supabase service key, invitation
+`WORKER_KIND=invitations`. It requires `DATABASE_URL` and `PLATFORM_SIGNING_SECRET`, invitation
 secrets, seat entitlement configuration and email/SMS provider credentials.
 Do not enable `INVITATION_WORKER_INPROC` on production API replicas.
 
@@ -132,8 +126,6 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_ANON_KEY
 ARG VITE_API_BASE_URL
 RUN npm run build
 
@@ -290,12 +282,12 @@ server {
 - ✅ Auth — first-party: the dashboard authenticates against `profiles` + `user_credentials` in your own Postgres schema, not Supabase Auth/GoTrue. Login/signup issue an HttpOnly `gs_session` cookie from your own Express server; Supabase GoTrue is not used as application auth at all.
 - ✅ Email verification — fully self-hosted custom token system (no Supabase GoTrue links)
 - ✅ Password reset — fully self-hosted custom token system
-- ✅ Database — your Supabase Postgres (used purely as a Postgres database — GoTrue/`auth.users` is not part of the application's identity model)
-- ✅ Realtime — your Supabase Realtime
+- ✅ Database — any PostgreSQL 15+ over `DATABASE_URL`: your own, a managed one, or a Supabase project used purely as a database (GoTrue/`auth.users` is not part of the application's identity model). Switch between them with `scripts/db/move-data.sh` ([`docs/DATABASE.md`](docs/DATABASE.md)).
+- ✅ Realtime — Centrifugo (self-hosted) with polling fallback; Supabase Realtime is optional
 - ✅ Widget bootstrap — your own Express server (`/api/widget/config`)
 - ✅ Visitor tracking — your own Express server (`/api/visitors/track`)
-- ✅ All CRUD — direct Supabase client from frontend
-- ✅ All admin config — persisted in your Supabase database
+- ✅ All CRUD — through your own Express server; the browser has no database client
+- ✅ All admin config — persisted in your own database
 - ✅ All branding — stored in `workspace_branding` table, fully editable
 - ✅ Widget loader — static file in `public/widget/loader.js`
 - ✅ Browser title, favicon, meta — driven from `workspace_branding`

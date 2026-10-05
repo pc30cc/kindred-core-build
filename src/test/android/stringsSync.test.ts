@@ -23,7 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 
 const GENERATOR = 'scripts/android/strings-from-ios.mjs';
-const SWIFT = 'ios/WebyarNative/Sources/Localization/Strings.swift';
+const SWIFT = 'ios/Webyar/Sources/Localization/Strings.swift';
 const KOTLIN = 'android/app/src/main/kotlin/com/webyar/ai/i18n/Strings.kt';
 const MANUAL = 'android/app/src/main/kotlin/com/webyar/ai/i18n/StringsManual.kt';
 

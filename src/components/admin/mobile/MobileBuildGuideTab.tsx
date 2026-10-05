@@ -1,9 +1,9 @@
 /**
  * Build & ship: the end-to-end procedure from an empty Apple Developer account
  * to a submitted build, and the commands that build the native app
- * (ios/WebyarNative) on a Mac.
+ * (ios/Webyar) on a Mac.
  *
- * The Xcode project is generated from ios/WebyarNative/project.yml by
+ * The Xcode project is generated from ios/Webyar/project.yml by
  * XcodeGen and is not committed; the version and build number go in on the
  * archive's command line, taken here from the Release tab.
  */
@@ -25,12 +25,12 @@ const STEPS = [
 function buildCommands(settings: Pick<MobileAppSettings, 'marketing_version' | 'build_number'>): string[] {
   return [
     'brew install xcodegen',
-    'cd ios/WebyarNative',
+    'cd ios/Webyar',
     'xcodegen generate',
-    'open WebyarNative.xcodeproj',
+    'open Webyar.xcodeproj',
     [
-      'xcodebuild -project WebyarNative.xcodeproj -scheme WebyarNative -configuration Release',
-      '-destination "generic/platform=iOS" -archivePath build/WebyarNative.xcarchive',
+      'xcodebuild -project Webyar.xcodeproj -scheme Webyar -configuration Release',
+      '-destination "generic/platform=iOS" -archivePath build/Webyar.xcarchive',
       `MARKETING_VERSION=${settings.marketing_version} CURRENT_PROJECT_VERSION=${settings.build_number} archive`,
     ].join(' \\\n  '),
   ];

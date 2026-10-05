@@ -20,7 +20,9 @@ import { parseUserAgent } from '../../../server/routes/account.js';
 
 /** Real strings, as `auth_sessions.user_agent` stores them. */
 const UA = {
-  nativeApp: 'WebyarNative/1 CFNetwork/3860.500.112 Darwin/25.6.0',
+  iphoneApp: 'Webyar/1 CFNetwork/3860.500.112 Darwin/25.6.0',
+  /** The same app, built before its project was renamed. */
+  iphoneAppBefore: 'WebyarNative/1 CFNetwork/3860.500.112 Darwin/25.6.0',
   iphoneSafari:
     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1',
   iphoneFirefox:
@@ -40,12 +42,14 @@ const UA = {
 };
 
 describe('session device labels', () => {
-  it('names the native app as the phone it runs on', () => {
-    expect(parseUserAgent(UA.nativeApp)).toEqual({
-      browser: 'Webyar',
-      os: 'iOS',
-      device: 'Mobile',
-    });
+  it('names the iPhone app as the phone it runs on', () => {
+    for (const ua of [UA.iphoneApp, UA.iphoneAppBefore]) {
+      expect(parseUserAgent(ua)).toEqual({
+        browser: 'Webyar',
+        os: 'iOS',
+        device: 'Mobile',
+      });
+    }
   });
 
   it('an iPhone is not a Mac, whatever its user agent says about Mac OS X', () => {
@@ -91,6 +95,6 @@ describe('session device labels', () => {
       const { device, os, browser } = parseUserAgent(ua);
       return `${device}|${os}|${browser}`;
     };
-    expect(key(UA.nativeApp)).not.toBe(key(UA.curl));
+    expect(key(UA.iphoneApp)).not.toBe(key(UA.curl));
   });
 });

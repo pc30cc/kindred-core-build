@@ -7,7 +7,7 @@ With a flat colour there, the loader seemed to arrive late. With this, the
 loader is on screen from the first instant, and `LaunchView` takes over in
 the same place and starts it turning.
 
-So this has to be `LaunchLoader` (ios/WebyarNative/Sources/App/WebyarApp.swift)
+So this has to be `LaunchLoader` (ios/Webyar/Sources/App/WebyarApp.swift)
 at rest, to the pixel it can be: the same sizes, line widths, colours and
 starting angles. It reads nothing from the Swift file — keep the numbers
 below in step with it and run this again after changing either:
@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 OUT = os.path.join(
     os.path.dirname(__file__), '..', '..',
-    'ios', 'WebyarNative', 'Resources', 'Assets.xcassets', 'LaunchLoader.imageset',
+    'ios', 'Webyar', 'Resources', 'Assets.xcassets', 'LaunchLoader.imageset',
 )
 
 # LaunchLoader, in points.

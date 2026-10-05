@@ -107,7 +107,7 @@
     "scripts/build-woocommerce-plugin-zip.mjs": {},
     "scripts/call-widget-hash.js": {},
     "scripts/ci/advisor-baseline-check.mjs": {},
-    "scripts/ios/write-native-config.mjs": {},
+    "scripts/ios/write-ios-config.mjs": {},
     "scripts/lint-baseline-core.mjs": {},
     "scripts/lint-baseline.mjs": {},
     "scripts/lint-changed-core.mjs": {},
@@ -3362,7 +3362,7 @@
       "@typescript-eslint/no-explicit-any": 8
     },
     "src/test/ios/accessibilityIdentifiers.test.ts": {},
-    "src/test/ios/nativePrivacyManifest.test.ts": {},
+    "src/test/ios/privacyManifest.test.ts": {},
     "src/test/ios/pushReviewRules.test.ts": {},
     "src/test/kb/aiCapabilityAlignment.test.ts": {},
     "src/test/kb/aiKbBuilderTabStates.test.tsx": {},

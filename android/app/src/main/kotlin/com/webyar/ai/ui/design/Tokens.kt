@@ -9,7 +9,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
  * Spacing, radius and size, in one place.
  *
  * Port of the corresponding sections of
- * `ios/WebyarNative/Sources/DesignSystem/Theme.swift`. The numbers are the
+ * `ios/Webyar/Sources/DesignSystem/Theme.swift`. The numbers are the
  * same ones, because a title on Android should sit where a title on iOS sits —
  * the two apps are the same product and an operator moves between them.
  *

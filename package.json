@@ -35,7 +35,7 @@
     "test:e2e": "playwright test",
     "test:e2e:invitations": "playwright test e2e/invitations.spec.ts",
     "test:realtime:cross-node": "bun run scripts/realtime/cross-node-integration.ts",
-    "ios:native-config": "node scripts/ios/write-native-config.mjs",
+    "ios:config": "node scripts/ios/write-ios-config.mjs",
     "ios:project-facts": "tsx scripts/ios/write-project-facts.ts"
   },
   "dependencies": {

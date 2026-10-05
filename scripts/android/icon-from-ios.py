@@ -41,7 +41,7 @@ except ImportError:
     sys.exit("needs Pillow and numpy:  pip install Pillow numpy")
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "ios/WebyarNative/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
+SOURCE = ROOT / "ios/Webyar/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
 RES = ROOT / "android/app/src/main/res"
 
 # Adaptive layers are 108dp square; the legacy launcher icon is 48dp.

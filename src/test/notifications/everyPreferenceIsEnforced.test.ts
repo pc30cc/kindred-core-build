@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 
 const ROUTE = 'server/routes/notifications.ts';
 const WEB_TYPE = 'src/lib/notifications-api.ts';
-const IOS_MODEL = 'ios/WebyarNative/Sources/Core/Models/NotificationPrefs.swift';
+const IOS_MODEL = 'ios/Webyar/Sources/Core/Models/NotificationPrefs.swift';
 
 /** Where a preference may be enforced. Each is a place that ACTS. */
 const ENFORCEMENT = [

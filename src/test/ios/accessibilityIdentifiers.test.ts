@@ -21,7 +21,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const APP = 'ios/WebyarNative';
+const APP = 'ios/Webyar';
 const DECLARATION = join(APP, 'Sources/DesignSystem/Accessibility.swift');
 const MIRROR = join(APP, 'UITests/UITestCase.swift');
 

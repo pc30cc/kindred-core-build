@@ -3819,7 +3819,7 @@ const en = {
         },
         appCard: 'This app',
         environmentCard: 'Deployment facts',
-        environmentHint: 'What this server sees: the push keys in its environment, and the native iOS project (ios/WebyarNative) as shipped with this deployment.',
+        environmentHint: 'What this server sees: the push keys in its environment, and the native iOS project (ios/Webyar) as shipped with this deployment.',
         sandbox: 'Sandbox',
         invalidKey: 'Set, but unreadable',
         env: {
@@ -3916,7 +3916,7 @@ const en = {
       },
       build: {
         title: 'Version and deployment',
-        caption: 'What App Store Connect and the checklist expect. The app\'s own copy lives in ios/WebyarNative/project.yml; the build guide puts this version and build number on the archive\'s command line.',
+        caption: 'What App Store Connect and the checklist expect. The app\'s own copy lives in ios/Webyar/project.yml; the build guide puts this version and build number on the archive\'s command line.',
         version: 'Marketing version',
         versionHint: 'What customers see, e.g. 1.2.0. Must increase for each public release.',
         buildNumber: 'Build number',
@@ -4162,7 +4162,7 @@ const en = {
           },
           capabilities: {
             title: 'Enable the capabilities',
-            body: 'On that App ID, enable Push Notifications: it is the one capability the app declares (ios/WebyarNative/project.yml). A capability in the app but not on the App ID fails signing.',
+            body: 'On that App ID, enable Push Notifications: it is the one capability the app declares (ios/Webyar/project.yml). A capability in the app but not on the App ID fails signing.',
           },
           apnsKey: {
             title: 'Create the APNs key',
@@ -4174,15 +4174,15 @@ const en = {
           },
           configure: {
             title: 'Fill in these settings',
-            body: 'Work through the tabs here until the App Store checklist has no blockers. The app\'s own build settings (bundle identifier, team, version) live in ios/WebyarNative/project.yml.',
+            body: 'Work through the tabs here until the App Store checklist has no blockers. The app\'s own build settings (bundle identifier, team, version) live in ios/Webyar/project.yml.',
           },
           build: {
             title: 'Generate the Xcode project',
-            body: 'On a Mac, install XcodeGen (brew install xcodegen) and run xcodegen generate in ios/WebyarNative. The project is generated from project.yml and is not committed, so run it again after every pull.',
+            body: 'On a Mac, install XcodeGen (brew install xcodegen) and run xcodegen generate in ios/Webyar. The project is generated from project.yml and is not committed, so run it again after every pull.',
           },
           archive: {
             title: 'Archive in Xcode',
-            body: 'Open WebyarNative.xcodeproj, choose the WebyarNative scheme and Any iOS Device, then Product → Archive, with a build number above the last upload. Run the app on a real device first and check the launch, sign-in and a notification.',
+            body: 'Open Webyar.xcodeproj, choose the Webyar scheme and Any iOS Device, then Product → Archive, with a build number above the last upload. Run the app on a real device first and check the launch, sign-in and a notification.',
           },
           upload: {
             title: 'Upload the build',
@@ -4244,12 +4244,12 @@ const en = {
         appIcon: {
           title: 'App icon is complete',
           requirement: 'A 1024×1024 PNG with no alpha channel and no rounded corners.',
-          fix: 'Add it to ios/WebyarNative/Resources/Assets.xcassets/AppIcon.appiconset, then run npm run ios:project-facts. Transparency is the most common upload failure; flatten the image onto a solid background.',
+          fix: 'Add it to ios/Webyar/Resources/Assets.xcassets/AppIcon.appiconset, then run npm run ios:project-facts. Transparency is the most common upload failure; flatten the image onto a solid background.',
         },
         launchScreen: {
           title: 'Launch screen is present',
           requirement: 'Every app needs a launch storyboard so it fills the whole screen.',
-          fix: 'Declared as UILaunchScreen in ios/WebyarNative/project.yml. Keep it; without it the app renders letterboxed.',
+          fix: 'Declared as UILaunchScreen in ios/Webyar/project.yml. Keep it; without it the app renders letterboxed.',
         },
         orientations: {
           title: 'At least one orientation',
@@ -4309,7 +4309,7 @@ const en = {
         privacyManifest: {
           title: 'Privacy manifest is present',
           requirement: 'PrivacyInfo.xcprivacy declaring every required-reason API the app calls.',
-          fix: 'Keep ios/WebyarNative/Resources/PrivacyInfo.xcprivacy in step with the required-reason APIs listed here; it is bundled into the app target. Apple rejects uploads without it.',
+          fix: 'Keep ios/Webyar/Resources/PrivacyInfo.xcprivacy in step with the required-reason APIs listed here; it is bundled into the app target. Apple rejects uploads without it.',
         },
         privacyNutritionLabels: {
           title: 'App Privacy answers are declared',
@@ -4404,12 +4404,12 @@ const en = {
         pushCapability: {
           title: 'Push capability enabled',
           requirement: 'The app target\'s entitlements declare aps-environment.',
-          fix: 'Keep aps-environment under entitlements in ios/WebyarNative/project.yml (XcodeGen writes it into the build), and enable Push Notifications on the App ID in the Apple Developer portal.',
+          fix: 'Keep aps-environment under entitlements in ios/Webyar/project.yml (XcodeGen writes it into the build), and enable Push Notifications on the App ID in the Apple Developer portal.',
         },
         pushBackgroundMode: {
           title: 'No unused background mode for push',
           requirement: 'The app shows notifications and sends no silent ones, so it must not declare the remote-notification background mode: App Review flags background modes an app does not use.',
-          fix: 'Remove remote-notification from UIBackgroundModes in ios/WebyarNative/project.yml, then run npm run ios:project-facts.',
+          fix: 'Remove remote-notification from UIBackgroundModes in ios/Webyar/project.yml, then run npm run ios:project-facts.',
         },
         pushServerCredentials: {
           title: 'Server APNs credentials',
@@ -4429,7 +4429,7 @@ const en = {
         encryptionDeclaration: {
           title: 'Encryption declared in Info.plist',
           requirement: 'ITSAppUsesNonExemptEncryption stops App Store Connect asking on every upload.',
-          fix: 'Declared as ITSAppUsesNonExemptEncryption in ios/WebyarNative/project.yml; keep it in step with the export compliance answer on the Release tab.',
+          fix: 'Declared as ITSAppUsesNonExemptEncryption in ios/Webyar/project.yml; keep it in step with the export compliance answer on the Release tab.',
         },
         noExternalPayments: {
           title: 'No external payment links',

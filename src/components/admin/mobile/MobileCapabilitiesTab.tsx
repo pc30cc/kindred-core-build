@@ -1,6 +1,6 @@
 /**
  * Capabilities and entitlements: what the app declares to Apple. The native
- * app's entitlements live in ios/WebyarNative/project.yml, and one the App ID
+ * app's entitlements live in ios/Webyar/project.yml, and one the App ID
  * does not carry in the Apple Developer portal fails signing, which is why
  * the hints name the portal step next to each toggle.
  */

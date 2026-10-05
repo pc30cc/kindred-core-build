@@ -10,7 +10,7 @@ The platform currently ships two iOS surfaces:
 
 - `ios/App` — the Capacitor shell (`com.webyar.app`), a WKWebView hosting the
   same React bundle that ships to the web.
-- `ios/WebyarNative` — a native SwiftUI app (`com.webyar.ai`), 80 Swift
+- `ios/Webyar` — a native SwiftUI app (`com.webyar.ai`), 80 Swift
   files / ~18,450 lines, iOS 17, iPhone-only and portrait-only, with exactly
   one external dependency (LiveKit).
 
@@ -119,7 +119,7 @@ option but is explicitly not what this ADR covers.
   KVM. This is where the majority of the suite lives.
 - `src/androidTest/` — instrumented tests on an emulator, reserved for what
   Robolectric genuinely cannot answer: real IME/keyboard behaviour, which is
-  precisely the class of bug `ios/WebyarNative/UITests/KeyboardTests.swift` and
+  precisely the class of bug `ios/Webyar/UITests/KeyboardTests.swift` and
   `DesignSystem/Components/PinnedScrollView.swift` exist for.
 
 The identifier-drift guard already proven on iOS
@@ -243,7 +243,7 @@ precondition of enabling the runner, not a later tuning pass:
 - **Right-to-left is expected to be easier**, not harder: `supportsRtl` plus
   Compose's `LayoutDirection` has no equivalent of the
   `UISemanticContentAttribute` problem recorded in
-  `ios/WebyarNative/Sources/App/WindowDirection.swift`.
+  `ios/Webyar/Sources/App/WindowDirection.swift`.
 
 ## Operational implications
 

@@ -1,5 +1,5 @@
 /**
- * The decisions in the native push work that App Review would reject if they
+ * The decisions in the iPhone app's push work that App Review would reject if they
  * were reversed.
  *
  * None of these can be caught by building the app: it compiles and runs
@@ -13,8 +13,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-const SOURCES = join(ROOT, 'ios', 'WebyarNative', 'Sources');
-const PROJECT = join(ROOT, 'ios', 'WebyarNative', 'project.yml');
+const SOURCES = join(ROOT, 'ios', 'Webyar', 'Sources');
+const PROJECT = join(ROOT, 'ios', 'Webyar', 'project.yml');
 
 /**
  * Swift with its comments removed.

@@ -171,9 +171,9 @@ describe('platform_domains reaches every dynamic consumer', () => {
 // ───────────────────────────────────────────────────────────────────────────
 
 describe('native iOS API bootstrap defers to the platform', () => {
-  const script = read('scripts/ios/write-native-config.mjs');
+  const script = read('scripts/ios/write-ios-config.mjs');
   const cfg = JSON.parse(read('config/mobile-runtime.json'));
-  const origin = read('ios/WebyarNative/Sources/Core/Networking/PlatformOrigin.swift');
+  const origin = read('ios/Webyar/Sources/Core/Networking/PlatformOrigin.swift');
 
   it('ships an https bootstrap origin so a fresh install can make its first request', () => {
     expect(cfg.apiBaseUrl).toMatch(/^https:\/\/[^/]+$/);
@@ -199,7 +199,7 @@ describe('native iOS API bootstrap defers to the platform', () => {
     // A stored origin that stops answering must be abandoned, or one typo in
     // Super Admin bricks every installed copy.
     expect(origin).toContain('forget()');
-    const client = read('ios/WebyarNative/Sources/Core/Networking/APIClient.swift');
+    const client = read('ios/Webyar/Sources/Core/Networking/APIClient.swift');
     expect(client).toContain('refreshOrigin');
     expect(client).toContain('PlatformOrigin.forget()');
   });
@@ -231,7 +231,7 @@ describe('no active configuration points at the legacy domain', () => {
   it('the native bootstrap does not', () => {
     const raw = read('config/mobile-runtime.json').toLowerCase();
     expect(raw).not.toContain(LEGACY);
-    const generated = read('ios/WebyarNative/Sources/Core/Networking/GeneratedConfig.swift');
+    const generated = read('ios/Webyar/Sources/Core/Networking/GeneratedConfig.swift');
     expect(generated.toLowerCase()).not.toContain(LEGACY);
   });
 
@@ -242,7 +242,7 @@ describe('no active configuration points at the legacy domain', () => {
     // client guessing at a path. `/contact` was such a guess, and it was never
     // a route this app served.
     expect(read('server/routes/platformOriginsPublic.ts')).toContain('supportUrl');
-    expect(stripTs(read('scripts/ios/write-native-config.mjs'))).not.toContain('/contact');
+    expect(stripTs(read('scripts/ios/write-ios-config.mjs'))).not.toContain('/contact');
   });
 
   it('no page served from public/ does', () => {

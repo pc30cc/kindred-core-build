@@ -3808,7 +3808,7 @@ const tr: TranslationKeys = {
         },
         appCard: 'Bu uygulama',
         environmentCard: 'Dağıtım durumu',
-        environmentHint: 'Bu sunucunun gördükleri: ortamındaki push anahtarları ve bu dağıtımla gelen yerel iOS projesi (ios/WebyarNative).',
+        environmentHint: 'Bu sunucunun gördükleri: ortamındaki push anahtarları ve bu dağıtımla gelen yerel iOS projesi (ios/Webyar).',
         sandbox: 'Sandbox',
         invalidKey: 'Ayarlı ama okunamıyor',
         env: {
@@ -3905,7 +3905,7 @@ const tr: TranslationKeys = {
       },
       build: {
         title: 'Sürüm ve dağıtım hedefi',
-        caption: 'App Store Connect’in ve kontrol listesinin beklediği değerler. Uygulamanın kendi kopyası ios/WebyarNative/project.yml içindedir; derleme kılavuzu bu sürümü ve derleme numarasını arşiv komutuna ekler.',
+        caption: 'App Store Connect’in ve kontrol listesinin beklediği değerler. Uygulamanın kendi kopyası ios/Webyar/project.yml içindedir; derleme kılavuzu bu sürümü ve derleme numarasını arşiv komutuna ekler.',
         version: 'Pazarlama sürümü',
         versionHint: 'Müşterilerin gördüğü değer, örn. 1.2.0. Her genel sürümde artmalıdır.',
         buildNumber: 'Derleme numarası',
@@ -4151,7 +4151,7 @@ const tr: TranslationKeys = {
           },
           capabilities: {
             title: 'Yetenekleri etkinleştirin',
-            body: 'Bu App ID üzerinde Push Notifications’ı etkinleştirin: uygulamanın bildirdiği tek yetenek budur (ios/WebyarNative/project.yml). Uygulamada olup App ID’de olmayan bir yetenek imzalamayı başarısız kılar.',
+            body: 'Bu App ID üzerinde Push Notifications’ı etkinleştirin: uygulamanın bildirdiği tek yetenek budur (ios/Webyar/project.yml). Uygulamada olup App ID’de olmayan bir yetenek imzalamayı başarısız kılar.',
           },
           apnsKey: {
             title: 'APNs anahtarını oluşturun',
@@ -4163,15 +4163,15 @@ const tr: TranslationKeys = {
           },
           configure: {
             title: 'Bu ayarları doldurun',
-            body: 'App Store kontrol listesinde engel kalmayana kadar buradaki sekmeleri tamamlayın. Uygulamanın kendi derleme ayarları (paket tanımlayıcısı, takım, sürüm) ios/WebyarNative/project.yml içindedir.',
+            body: 'App Store kontrol listesinde engel kalmayana kadar buradaki sekmeleri tamamlayın. Uygulamanın kendi derleme ayarları (paket tanımlayıcısı, takım, sürüm) ios/Webyar/project.yml içindedir.',
           },
           build: {
             title: 'Xcode projesini oluşturun',
-            body: 'Bir Mac’te XcodeGen’i kurun (brew install xcodegen) ve ios/WebyarNative içinde xcodegen generate komutunu çalıştırın. Proje project.yml’den üretilir ve depoya eklenmez, bu yüzden her pull’dan sonra yeniden çalıştırın.',
+            body: 'Bir Mac’te XcodeGen’i kurun (brew install xcodegen) ve ios/Webyar içinde xcodegen generate komutunu çalıştırın. Proje project.yml’den üretilir ve depoya eklenmez, bu yüzden her pull’dan sonra yeniden çalıştırın.',
           },
           archive: {
             title: 'Xcode’da arşivleyin',
-            body: 'WebyarNative.xcodeproj’u açın, WebyarNative şemasını ve Any iOS Device’ı seçin, ardından son yüklemeden yüksek bir derleme numarasıyla Product → Archive. Önce uygulamayı gerçek bir cihazda çalıştırın ve açılışı, oturum açmayı ve bir bildirimi kontrol edin.',
+            body: 'Webyar.xcodeproj’u açın, Webyar şemasını ve Any iOS Device’ı seçin, ardından son yüklemeden yüksek bir derleme numarasıyla Product → Archive. Önce uygulamayı gerçek bir cihazda çalıştırın ve açılışı, oturum açmayı ve bir bildirimi kontrol edin.',
           },
           upload: {
             title: 'Derlemeyi yükleyin',
@@ -4233,12 +4233,12 @@ const tr: TranslationKeys = {
         appIcon: {
           title: 'Uygulama simgesi eksiksiz',
           requirement: 'Alfa kanalı ve yuvarlatılmış köşesi olmayan 1024×1024 PNG.',
-          fix: 'ios/WebyarNative/Resources/Assets.xcassets/AppIcon.appiconset klasörüne ekleyin, ardından npm run ios:project-facts komutunu çalıştırın. Şeffaflık en yaygın yükleme hatasıdır; görseli düz bir arka plan üzerine düzleştirin.',
+          fix: 'ios/Webyar/Resources/Assets.xcassets/AppIcon.appiconset klasörüne ekleyin, ardından npm run ios:project-facts komutunu çalıştırın. Şeffaflık en yaygın yükleme hatasıdır; görseli düz bir arka plan üzerine düzleştirin.',
         },
         launchScreen: {
           title: 'Açılış ekranı mevcut',
           requirement: 'Her uygulamanın tüm ekranı doldurabilmesi için bir açılış storyboard’u gerekir.',
-          fix: 'ios/WebyarNative/project.yml içinde UILaunchScreen olarak bildirilmiştir. Koruyun; o olmadan uygulama siyah kenarlıkla görünür.',
+          fix: 'ios/Webyar/project.yml içinde UILaunchScreen olarak bildirilmiştir. Koruyun; o olmadan uygulama siyah kenarlıkla görünür.',
         },
         orientations: {
           title: 'En az bir yön',
@@ -4298,7 +4298,7 @@ const tr: TranslationKeys = {
         privacyManifest: {
           title: 'Gizlilik bildirimi mevcut',
           requirement: 'Uygulamanın çağırdığı her gerekçeli API’yi bildiren PrivacyInfo.xcprivacy.',
-          fix: 'ios/WebyarNative/Resources/PrivacyInfo.xcprivacy dosyasını burada listelenen gerekçeli API’lerle uyumlu tutun; dosya uygulama hedefine eklenir. Apple bu dosya olmadan yüklemeleri reddeder.',
+          fix: 'ios/Webyar/Resources/PrivacyInfo.xcprivacy dosyasını burada listelenen gerekçeli API’lerle uyumlu tutun; dosya uygulama hedefine eklenir. Apple bu dosya olmadan yüklemeleri reddeder.',
         },
         privacyNutritionLabels: {
           title: 'App Privacy yanıtları beyan edildi',
@@ -4393,12 +4393,12 @@ const tr: TranslationKeys = {
         pushCapability: {
           title: 'Push yeteneği etkin',
           requirement: 'Uygulama hedefinin yetkilendirmeleri aps-environment bildiriyor.',
-          fix: 'ios/WebyarNative/project.yml içinde entitlements altında aps-environment’ı koruyun (XcodeGen bunu derlemeye yazar) ve Apple Developer portalında App ID üzerinde Push Notifications’ı etkinleştirin.',
+          fix: 'ios/Webyar/project.yml içinde entitlements altında aps-environment’ı koruyun (XcodeGen bunu derlemeye yazar) ve Apple Developer portalında App ID üzerinde Push Notifications’ı etkinleştirin.',
         },
         pushBackgroundMode: {
           title: 'Push için kullanılmayan arka plan modu yok',
           requirement: 'Uygulama bildirim gösterir ve sessiz bildirim göndermez; bu yüzden remote-notification arka plan modunu bildirmemelidir: App Review, uygulamanın kullanmadığı arka plan modlarını işaretler.',
-          fix: 'ios/WebyarNative/project.yml içindeki UIBackgroundModes’tan remote-notification’ı kaldırın, ardından npm run ios:project-facts komutunu çalıştırın.',
+          fix: 'ios/Webyar/project.yml içindeki UIBackgroundModes’tan remote-notification’ı kaldırın, ardından npm run ios:project-facts komutunu çalıştırın.',
         },
         pushServerCredentials: {
           title: 'Sunucuda APNs kimlik bilgileri',
@@ -4418,7 +4418,7 @@ const tr: TranslationKeys = {
         encryptionDeclaration: {
           title: 'Şifreleme Info.plist’te beyan edildi',
           requirement: 'ITSAppUsesNonExemptEncryption, App Store Connect’in her yüklemede sormasını engeller.',
-          fix: 'ios/WebyarNative/project.yml içinde ITSAppUsesNonExemptEncryption olarak bildirilmiştir; Yayın sekmesindeki ihracat uyumluluğu yanıtıyla uyumlu tutun.',
+          fix: 'ios/Webyar/project.yml içinde ITSAppUsesNonExemptEncryption olarak bildirilmiştir; Yayın sekmesindeki ihracat uyumluluğu yanıtıyla uyumlu tutun.',
         },
         noExternalPayments: {
           title: 'Harici ödeme bağlantısı yok',

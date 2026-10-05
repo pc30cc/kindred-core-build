@@ -55,7 +55,7 @@ describe('GET /api/workspaces carries the workspace logo', () => {
     // Two independent spellings of the same name are how this breaks next: the
     // route could return `logoUrl` and the app would decode nothing, silently.
     const model = readFileSync(
-      'ios/WebyarNative/Sources/Core/Models/Models.swift',
+      'ios/Webyar/Sources/Core/Models/Models.swift',
       'utf8',
     );
     expect(model).toMatch(/case logoURL = "logo_url"/);

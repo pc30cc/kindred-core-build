@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The launch colour the iOS app (WebyarNative's LaunchBackground colour
+    <!-- The launch colour the iOS app (Webyar's LaunchBackground colour
          set) and the Mac app (Palette.appBackground) open on — light here,
          dark in values-night — so the three platforms start on the same
          shade. The loading screen after the system splash draws it too. -->

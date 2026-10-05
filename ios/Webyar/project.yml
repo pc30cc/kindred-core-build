@@ -1,0 +1,208 @@
+name: Webyar
+options:
+  bundleIdPrefix: com.webyar
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: KB548B4TUJ
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    # The version and build, in one place: Xcode's General tab edits these,
+    # the foot of Settings shows them, and App Store Connect reads them from the
+    # Info.plist below. Kept in step with Super Admin → Mobile App → App
+    # Store record (marketing_version / build_number). An archive can set
+    # them without an edit: `xcodebuild archive MARKETING_VERSION=1.1.0
+    # CURRENT_PROJECT_VERSION=7`; every upload needs a build number above the
+    # last one.
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  # The one external dependency in this app, and it earns its place: a call
+  # needs a real WebRTC stack, and the platform's own calls already run on
+  # LiveKit — the operator console uses `livekit-client`, so the phone joining
+  # the same rooms with the same tokens is the only arrangement that cannot
+  # drift from what the web does.
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    from: 2.0.0
+
+targets:
+  Webyar:
+    type: application
+    platform: iOS
+    dependencies:
+      - package: LiveKit
+    sources:
+      - path: Sources
+      # Resources/IRANSans.ttc is IRANSans for Persian (Regular, Medium,
+      # Bold): the web console's own font, and the same file the Mac and
+      # Windows apps bundle (src/test/ios/iransans.test.ts keeps them equal).
+      - path: Resources
+        buildPhase: resources
+    # Generated, and deliberately NOT inside `Resources` — a plist sitting in
+    # a resources build phase is also copied verbatim, which makes two
+    # commands produce the same output file and fails the build.
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: Webyar
+        # Names the icon set in the asset catalog. Not the `CFBundleIcons`
+        # dictionary — the asset compiler writes that one itself during a
+        # build, and it was already there and correct. This is the separate
+        # top-level key, which Xcode's own app template ships and a plist
+        # built from a project file does not get.
+        #
+        # Nothing visibly misbehaves without it on a device or a clean
+        # simulator; it is App Store Connect that rejects the upload, as
+        # ITMS-90713. That is the whole reason it is here.
+        CFBundleIconName: AppIcon
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # The launch loader's first frame, centred on the whole screen, over
+        # the launch colour: the loader is there the instant the icon is
+        # tapped, and LaunchView takes over in the same place. Drawn by
+        # scripts/ios/render-launch-loader.py from LaunchLoader's numbers.
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: LaunchLoader
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Export compliance, NOT App Transport Security. The two get confused
+        # because both sound like "is the connection secure", and they are not
+        # the same question: this key answers the US export declaration that
+        # App Store Connect otherwise asks on every single upload.
+        #
+        # The answer mirrors the platform's own declared position rather than
+        # being an independent opinion. Super Admin holds `uses_encryption` and
+        # `encryption_exempt`, and the answer they give is
+        # `uses_encryption && !encryption_exempt`. This app makes the same
+        # claim: it does use encryption, and
+        # it is the exempt kind — TLS and Keychain are iOS's own, and a call's
+        # DTLS-SRTP is standard WebRTC with nothing proprietary anywhere.
+        # `privacyManifest.test.ts` fails if the two ever disagree, so
+        # changing the position in Super Admin cannot silently leave this
+        # binary behind.
+        ITSAppUsesNonExemptEncryption: false
+        # No NSAppTransportSecurity key on purpose — that is the other
+        # question. ATS's defaults already require HTTPS, and `PlatformOrigin`
+        # refuses to adopt an origin that is not https no matter what the
+        # platform answers, so there is no exception to ask for.
+        # A call has to survive the operator locking the screen or switching
+        # apps mid-sentence, which is exactly what this background mode is
+        # for. No `voip` here: nothing rings, the operator always starts the
+        # call from inside the app.
+        UIBackgroundModes:
+          - audio
+        NSMicrophoneUsageDescription: >-
+          Webyar uses the microphone when you call a visitor, and when you
+          record a voice note to send into a conversation.
+        NSCameraUsageDescription: >-
+          Webyar uses the camera when you start a video call with a visitor.
+        # Add-only, and only ever asked by iOS itself: a photo or video opened
+        # from a conversation or an email is shown by Quick Look, whose share
+        # button offers "Save Image". Without this key that one tap ends the
+        # app.
+        NSPhotoLibraryAddUsageDescription: >-
+          Webyar saves a photo or video to your library when you choose Save
+          on a file opened from a conversation or an email.
+        # Persian and Turkish ship in-bundle so the language picker works
+        # offline and iOS reports the app as localized for them.
+        CFBundleLocalizations:
+          - en
+          - fa
+          - tr
+    # Push notifications.
+    #
+    # `aps-environment` is the whole capability: without it iOS refuses to
+    # hand the app a device token at all, and `didFailToRegister` is the only
+    # sign of it. Its value has to match the APNs gateway the token belongs
+    # to — a Debug build's token is a sandbox token and is invalid against
+    # Apple's production endpoint, and the other way round — so it comes from
+    # a build setting rather than being pinned in the file.
+    #
+    # There is deliberately NO `remote-notification` background mode. That
+    # one is for silent pushes (`content-available`), which this app does not
+    # send and does not want; declaring a background mode an app never uses
+    # is something App Review looks for.
+    entitlements:
+      path: Generated/Webyar.entitlements
+      properties:
+        aps-environment: $(APS_ENVIRONMENT)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.ai
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        Debug:
+          APS_ENVIRONMENT: development
+        Release:
+          APS_ENVIRONMENT: production
+
+  # Where the keyboard and the search field get tested.
+  #
+  # These behaviours have no unit test that could catch them: whether the
+  # keyboard lifts the tab bar, whether a blur closes the field that is being
+  # opened, whether the transcript follows the keys — all of it is UIKit
+  # answering SwiftUI on a real screen, and all of it was got wrong at least
+  # once by reasoning about it instead of running it. The tests drive the
+  # sample backend, so they need no account, no network and no credentials.
+  WebyarUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Webyar
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.ai.uitests
+        TEST_TARGET_NAME: Webyar
+        TARGETED_DEVICE_FAMILY: "1"
+        # The app writes its own Info.plist above, from `info:`. A test bundle
+        # has nothing to say in one, and without either the key or this it
+        # cannot be signed at all.
+        GENERATE_INFOPLIST_FILE: YES
+
+  # Where the local-first layer gets tested: the saved copy on the phone,
+  # the thread merge, the shared list reader, the attachment caches, the
+  # realtime protocol, and the inbox and chat view models against a scripted
+  # server — every ordering of reads, realtime rows, pushes and sends that
+  # could show a message twice, lose one, or show one account's data to
+  # another. None of it needs a screen, so it runs in seconds and needs no
+  # sample backend; nothing in `Tests/Core` touches UIKit at all.
+  WebyarTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Webyar
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.ai.tests
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Webyar:
+    build:
+      targets:
+        Webyar: all
+        WebyarTests: [test]
+        WebyarUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - WebyarTests
+        - WebyarUITests

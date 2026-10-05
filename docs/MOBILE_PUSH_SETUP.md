@@ -47,7 +47,7 @@ failure can never fail or roll back message ingestion.
 2. **Keys** → create an **APNs Auth Key (.p8)**. Note the *Key ID* and your
    *Team ID*, and download the `.p8` (Apple lets you download it once).
 3. The app already declares the capability: `aps-environment` under
-   `entitlements` in `ios/WebyarNative/project.yml`. It deliberately has no
+   `entitlements` in `ios/Webyar/project.yml`. It deliberately has no
    *Remote notifications* background mode: it sends no silent pushes.
 
 ## 2. Firebase Console (once)
@@ -96,9 +96,9 @@ the server holds each key.
 ## 4. Build the app
 
 ```bash
-cd ios/WebyarNative
+cd ios/Webyar
 xcodegen generate        # the Xcode project is generated from project.yml
-open WebyarNative.xcodeproj   # Run on a physical device
+open Webyar.xcodeproj   # Run on a physical device
 ```
 
 Push does **not** work in the iOS Simulator; use a real device.
@@ -143,6 +143,6 @@ the APNs key are read from the server environment only.
   an unparsable window or timezone never mutes.
 - `aps.badge` in the payload sets the app icon badge on arrival, and
   `GET /api/push/badge` reconciles it after a read on any device
-  (`ios/WebyarNative/Sources/Core/Push/PushController.swift`).
+  (`ios/Webyar/Sources/Core/Push/PushController.swift`).
 - `UNREGISTERED` / invalid-token responses disable the device row instead of
   retrying, keeping the token table clean.

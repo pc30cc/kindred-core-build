@@ -1,7 +1,7 @@
 # Webyar for Windows
 
 The operator app for Windows: the same inbox, chat, calls, email and team
-messaging as the native iOS app (`ios/WebyarNative`), built for the desktop.
+messaging as the native iOS app (`ios/Webyar`), built for the desktop.
 Electron + React + TypeScript, talking to the same REST API.
 
 ## What it does

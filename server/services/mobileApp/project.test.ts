@@ -6,10 +6,10 @@ import { inspectNativeProject, readNativeProjectFacts, readSnapshot } from './pr
 
 const ROOT = resolve(__dirname, '..', '..', '..');
 
-/** A minimal ios/WebyarNative checkout to read facts from. */
+/** A minimal ios/Webyar checkout to read facts from. */
 function fakeProject(spec: string, opts: { icon?: boolean; manifest?: boolean } = {}): string {
   const root = mkdtempSync(join(tmpdir(), 'ios-facts-'));
-  const dir = join(root, 'ios/WebyarNative');
+  const dir = join(root, 'ios/Webyar');
   const icons = join(dir, 'Resources/Assets.xcassets/AppIcon.appiconset');
   mkdirSync(icons, { recursive: true });
   writeFileSync(join(dir, 'project.yml'), spec);
@@ -23,14 +23,14 @@ function fakeProject(spec: string, opts: { icon?: boolean; manifest?: boolean } 
 }
 
 const SPEC = `targets:
-  WebyarNative:
+  Webyar:
     info:
       properties:
         UIBackgroundModes:
           - audio
         NSMicrophoneUsageDescription: Calls.
     entitlements:
-      path: Generated/WebyarNative.entitlements
+      path: Generated/Webyar.entitlements
       properties:
         aps-environment: $(APS_ENVIRONMENT)
     settings:

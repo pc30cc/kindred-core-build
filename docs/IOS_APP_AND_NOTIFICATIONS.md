@@ -14,13 +14,13 @@ expose the rest of this configuration to an admin UI at all.
 
 ## Where the settings actually take effect
 
-The native app is `ios/WebyarNative`. Its Xcode project is generated from
-`ios/WebyarNative/project.yml` by XcodeGen and is not committed; that spec is
+The native app is `ios/Webyar`. Its Xcode project is generated from
+`ios/Webyar/project.yml` by XcodeGen and is not committed; that spec is
 where the bundle identifier, team, versions, Info.plist keys (purpose strings,
 orientation, launch screen, export compliance), entitlements and background
-modes live. The privacy manifest is `ios/WebyarNative/Resources/PrivacyInfo.xcprivacy`,
+modes live. The privacy manifest is `ios/Webyar/Resources/PrivacyInfo.xcprivacy`,
 written by hand and checked against the Swift sources by
-`src/test/ios/nativePrivacyManifest.test.ts`.
+`src/test/ios/privacyManifest.test.ts`.
 
 Super Admin → Mobile app does not write into the project. It holds the App
 Store record and what App Store Connect expects (versions, review details,
@@ -46,7 +46,7 @@ about the deployment into one verdict per App Store requirement:
   who confirmed it and when, in `mobile_app_settings.checklist`.
 
 A requirement whose evidence is a FILE (the icon, the privacy manifest, the
-push entitlement, the background modes) is read from `ios/WebyarNative` when
+push entitlement, the background modes) is read from `ios/Webyar` when
 the project is checked out. The API image does not ship `ios/`, so a deployed
 server reads the same facts from `server/services/mobileApp/iosProjectFacts.json`,
 written by `npm run ios:project-facts`; `project.test.ts` fails CI while that
@@ -68,7 +68,7 @@ translated and a CI check could reuse the same verdicts without the prose.
   and `apns-*` headers in `server/services/push/fcm.ts`.
 - **Categories** connect two halves: the server attaches `aps.category`, and the
   app registers the matching `UNNotificationCategory` in
-  `ios/WebyarNative/Sources/Core/Push/PushController.swift`. An id that exists on only one side
+  `ios/Webyar/Sources/Core/Push/PushController.swift`. An id that exists on only one side
   produces a banner with no buttons — never a crash.
 - **Templates** are per event type and per locale, with a separate variant for
   a recipient who turned previews off. That private variant is the text that
@@ -83,7 +83,7 @@ token all line up.
 ### Action buttons
 
 `REPLY` and `MARK_READ` are handled in
-`ios/WebyarNative/Sources/Core/Push/PushController.swift` when iOS hands the
+`ios/Webyar/Sources/Core/Push/PushController.swift` when iOS hands the
 action back. `REPLY` is a **foreground** action: a
 background send would need a notification service extension, and a button that
 silently fails is worse than one that opens the thread. The typed text arrives
@@ -94,9 +94,9 @@ sends exactly once.
 
 ```bash
 brew install xcodegen
-cd ios/WebyarNative
+cd ios/Webyar
 xcodegen generate              # after every pull: the project is not committed
-open WebyarNative.xcodeproj    # Any iOS Device → Product → Archive
+open Webyar.xcodeproj    # Any iOS Device → Product → Archive
 ```
 
 Push does not work in the Simulator — use a real device.

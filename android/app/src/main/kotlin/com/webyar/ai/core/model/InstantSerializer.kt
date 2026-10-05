@@ -14,7 +14,7 @@ import java.time.format.DateTimeFormatterBuilder
 /**
  * Parses the three shapes this API's timestamps actually arrive in.
  *
- * The port of `DateParsing` in `ios/WebyarNative/.../APIClient.swift`, and it
+ * The port of `DateParsing` in `ios/Webyar/.../APIClient.swift`, and it
  * exists for the same reason: Postgres writes however many fractional digits
  * the value needs — real rows in this database carry 3, 5 and 6 — and a
  * formatter pinned to milliseconds drops the whole response when it meets one

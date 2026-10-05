@@ -16,6 +16,9 @@ actor SampleAPI: WebyarAPI {
     private var sampleTags: [String: [String]] = [:]
     private var sampleNotes: [String: [ConversationNote]] = [:]
     private var extraMessages: [String: [Message]] = [:]
+    /// Files "uploaded" to the sample, so a photo sent from the composer
+    /// comes back on its message like it does from the server.
+    private var uploadedFiles: [String: (data: Data, fileName: String, mimeType: String)] = [:]
     /// Round-tripped in memory so the notification settings screen can be
     /// laid out and screenshotted with its switches actually working.
     private var samplePrefs = NotificationPrefs()
@@ -139,7 +142,16 @@ actor SampleAPI: WebyarAPI {
                 createdAt: Date(),
                 senderName: Self.user.fullName,
                 senderAvatar: nil,
-                metadata: ["client_message_id": .string(clientMessageID)]
+                metadata: ["client_message_id": .string(clientMessageID)],
+                attachments: attachmentID.flatMap { id in
+                    uploadedFiles[id].map { file in
+                        [MessageAttachment(
+                            id: id, fileName: file.fileName, mimeType: file.mimeType,
+                            sizeBytes: file.data.count,
+                            kind: file.mimeType.hasPrefix("image/") ? "image" : "file"
+                        )]
+                    }
+                }
             )
         )
     }
@@ -267,9 +279,19 @@ actor SampleAPI: WebyarAPI {
         workspaceID: String,
         fileName: String,
         mimeType: String,
-        data: Data
+        data: Data,
+        onProgress: (@Sendable (Double) -> Void)?
     ) async throws -> String {
-        UUID().uuidString
+        // Slow enough to see the ring fill — slower still on a run that
+        // stages a photo to screenshot the field while it uploads.
+        let pause = SamplePhotoDemo.current == .stage ? 1500 : 150
+        for step in 1...4 {
+            try? await Task.sleep(for: .milliseconds(pause))
+            onProgress?(Double(step) / 4)
+        }
+        let id = UUID().uuidString
+        uploadedFiles[id] = (data, fileName, mimeType)
+        return id
     }
 
     /// Sample contacts get the same treatment as sample conversations, so the
@@ -723,7 +745,8 @@ actor SampleAPI: WebyarAPI {
     /// draw the "could not load" card, which is the honest thing for a
     /// backend that genuinely has nothing to hand over.
     func attachmentData(id: String) async throws -> Data {
-        throw APIError.server(status: 404, message: nil)
+        guard let file = uploadedFiles[id] else { throw APIError.server(status: 404, message: nil) }
+        return file.data
     }
 
     private var sampleSessions: [AccountSession] = [

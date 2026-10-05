@@ -87,6 +87,14 @@ actor TestAPI: TestAPIBase {
     var sendFailures: [SendFailure] = []
     var sendDelay: UInt64 = 0
     private(set) var seenMarks = 0
+    /// The attachment each send carried, in order.
+    private(set) var sentAttachments: [String?] = []
+
+    // Uploads
+    var uploadDelay: UInt64 = 0
+    /// How many of the next uploads fail.
+    var uploadFailures = 0
+    private(set) var uploads = 0
 
     func setFile(_ id: String, _ data: Data) { files[id] = data }
     func setFailing(_ id: String, _ failing: Bool) { if failing { failingFiles.insert(id) } else { failingFiles.remove(id) } }
@@ -103,6 +111,24 @@ actor TestAPI: TestAPIBase {
     func setSingle(_ conversation: Conversation) { single[conversation.id] = conversation }
     func setSendFailures(_ failures: [SendFailure]) { sendFailures = failures }
     func setSendDelay(_ nanoseconds: UInt64) { sendDelay = nanoseconds }
+    func setUploadDelay(_ nanoseconds: UInt64) { uploadDelay = nanoseconds }
+    func setUploadFailures(_ count: Int) { uploadFailures = count }
+
+    func uploadAttachment(
+        conversationID: String?, workspaceID: String, fileName: String, mimeType: String,
+        data: Data, onProgress: (@Sendable (Double) -> Void)?
+    ) async throws -> String {
+        uploads += 1
+        let number = uploads
+        onProgress?(0.5)
+        if uploadDelay > 0 { try? await Task.sleep(nanoseconds: uploadDelay) }
+        if uploadFailures > 0 {
+            uploadFailures -= 1
+            throw APIError.transport
+        }
+        onProgress?(1)
+        return "att-\(number)"
+    }
     var threadReadCount: Int { threadReads.count }
     var lastThreadSince: String?? { threadReads.last.map { $0.since } }
     var listReadCount: Int { listReads.count }
@@ -164,6 +190,7 @@ actor TestAPI: TestAPIBase {
 
     func send(body: String, conversationID: String, workspaceID: String, clientMessageID: String, attachmentID: String?) async throws {
         sentKeys.append(clientMessageID)
+        sentAttachments.append(attachmentID)
         if sendDelay > 0 { try? await Task.sleep(nanoseconds: sendDelay) }
         let failure = sendFailures.isEmpty ? nil : sendFailures.removeFirst()
         if failure == .beforeInsert { throw APIError.transport }
@@ -172,7 +199,10 @@ actor TestAPI: TestAPIBase {
             let row = Message(
                 id: "srv-\(clientMessageID)", conversationId: conversationID, senderType: .agent, senderId: "me",
                 body: body, createdAt: Date(), updatedAt: Date(), senderName: "Me", senderAvatar: nil,
-                metadata: ["client_message_id": .string(clientMessageID)]
+                metadata: ["client_message_id": .string(clientMessageID)],
+                attachments: attachmentID.map {
+                    [MessageAttachment(id: $0, fileName: "photo.png", mimeType: "image/png", sizeBytes: nil, kind: "image")]
+                }
             )
             inserted[conversationID, default: []].append(row)
         }

@@ -228,10 +228,16 @@ actor APIClient {
     }
 
     /// For endpoints whose body we do not need — only that they succeeded.
-    private func performIgnoringBody(_ request: URLRequest) async throws {
+    ///
+    /// `onProgress` hears how much of the request body has been sent.
+    private func performIgnoringBody(
+        _ request: URLRequest,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws {
         let response: URLResponse
         do {
-            (_, response) = try await session.data(for: request)
+            let delegate = onProgress.map(UploadProgress.init)
+            (_, response) = try await session.data(for: request, delegate: delegate)
         } catch {
             throw APIError.transport
         }
@@ -557,7 +563,8 @@ actor APIClient {
         workspaceID: String,
         fileName: String,
         mimeType: String,
-        data: Data
+        data: Data,
+        onProgress: (@Sendable (Double) -> Void)?
     ) async throws -> String {
         let reserve = try makeRequest(
             "POST",
@@ -580,7 +587,12 @@ actor APIClient {
                 data: data.base64EncodedString()
             )
         )
-        try await performIgnoringBody(upload)
+        // The reservation is a few bytes; the file is the whole wait.
+        onProgress?(0.03)
+        try await performIgnoringBody(upload, onProgress: onProgress.map { report in
+            { @Sendable sent in report(0.03 + sent * 0.95) }
+        })
+        onProgress?(1)
         return attachmentID
     }
 
@@ -1873,5 +1885,25 @@ enum DateParsing {
 
         let keepUntil = raw.index(afterDot, offsetBy: 3)
         return String(raw[..<keepUntil]) + String(raw[end...])
+    }
+}
+
+/// Hears the bytes of one request's body leave, for a progress ring.
+private final class UploadProgress: NSObject, URLSessionTaskDelegate, Sendable {
+    private let report: @Sendable (Double) -> Void
+
+    init(_ report: @escaping @Sendable (Double) -> Void) {
+        self.report = report
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        report(min(1, Double(totalBytesSent) / Double(totalBytesExpectedToSend)))
     }
 }

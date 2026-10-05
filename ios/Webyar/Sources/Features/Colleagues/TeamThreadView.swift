@@ -18,12 +18,27 @@ final class TeamThreadViewModel {
     private(set) var me: String?
     private(set) var isSending = false
     private(set) var sendFailed = false
+    /// The photo waiting in the composer, if any.
+    let photos = PhotoStager()
+    /// Goes up each time the operator sends something, so the transcript
+    /// follows it down.
+    private(set) var sentCount = 0
     var draft = ""
 
     private let api: any WebyarAPI
+    @ObservationIgnored private weak var appState: AppState?
 
     init(api: any WebyarAPI = Backend.current) {
         self.api = api
+        photos.onUnauthorized = { [weak self] in await self?.appState?.handleUnauthorized() }
+    }
+
+    /// Something to send, and nothing holding it: a photo still uploading
+    /// (or failed) keeps Send off until it is ready or taken out.
+    var canSend: Bool {
+        guard !isSending else { return false }
+        if photos.photo != nil { return photos.attachmentID != nil }
+        return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// The same grouping the visitor transcript uses, including dropping a
@@ -92,23 +107,50 @@ final class TeamThreadViewModel {
     }
 
     func send(workspaceID: String?, peerID: String, appState: AppState) async {
+        self.appState = appState
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty, !isSending, let workspaceID else { return }
+        guard canSend, let workspaceID else { return }
+        // The photo in the composer goes with the words, as one message.
+        let photo = photos.takeForSending()
+        let attachmentID = photo?.attachmentID
 
         isSending = true
         sendFailed = false
         defer { isSending = false }
         do {
             try await api.sendTeamMessage(
-                workspaceID: workspaceID, recipientID: peerID, body: body, attachmentID: nil
+                workspaceID: workspaceID, recipientID: peerID, body: body, attachmentID: attachmentID
             )
             draft = ""
+            if let photo, let attachmentID {
+                // Drawn from this phone's copy the moment the row arrives.
+                AttachmentPreviews.store(photo.preview, for: attachmentID)
+                photos.sent(photo)
+            }
             await reload(workspaceID: workspaceID, peerID: peerID, appState: appState)
+            sentCount += 1
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {
+            if let photo { photos.putBack(photo) }
             sendFailed = true
         }
+    }
+
+    /// Puts a picked photo in the composer and starts uploading it.
+    ///
+    /// Filed under the workspace with no conversation, as every internal
+    /// file is.
+    func stagePhoto(data: Data, fileName: String, mimeType: String, workspaceID: String?, appState: AppState) async {
+        self.appState = appState
+        guard let workspaceID else { return }
+        let staged = await photos.stage(data: data, fileName: fileName, mimeType: mimeType) { [api] data, fileName, mimeType, onProgress in
+            try await api.uploadAttachment(
+                conversationID: nil, workspaceID: workspaceID,
+                fileName: fileName, mimeType: mimeType, data: data, onProgress: onProgress
+            )
+        }
+        if !staged { sendFailed = true }
     }
 
     /// A photo, a document or a voice note.
@@ -142,6 +184,7 @@ final class TeamThreadViewModel {
                 workspaceID: workspaceID, recipientID: peerID, body: "", attachmentID: attachmentID
             )
             await reload(workspaceID: workspaceID, peerID: peerID, appState: appState)
+            sentCount += 1
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {
@@ -285,7 +328,8 @@ struct TeamThreadView: View {
             } else {
                 PinnedScrollView(
                     conversationKey: colleague.userId,
-                    revision: revisionOf(days)
+                    revision: revisionOf(days),
+                    follow: model.sentCount
                 ) {
                     LazyVStack(spacing: Theme.Space.xxs) {
                         ForEach(days) { day in
@@ -375,7 +419,18 @@ struct TeamThreadView: View {
             // offering a drawer of the wrong register, and the one they
             // would reach for most, the greeting, is the one with
             // `{{contact.name}}` in it, which has nothing to resolve to.
-            shortcuts: nil
+            shortcuts: nil,
+            stagedPhoto: model.photos.photo,
+            onStagePhoto: { data, name, mime in
+                Task {
+                    await model.stagePhoto(
+                        data: data, fileName: name, mimeType: mime,
+                        workspaceID: workspaceID, appState: appState
+                    )
+                }
+            },
+            onRemovePhoto: { model.photos.discard() },
+            onRetryPhoto: { model.photos.retry() }
         )
     }
 
@@ -387,9 +442,7 @@ struct TeamThreadView: View {
 
     private var calendar: Calendar { Format.workingCalendar(locale) }
 
-    private var canSend: Bool {
-        !model.isSending && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    private var canSend: Bool { model.canSend }
 }
 
 private struct TeamMessageRow: View {

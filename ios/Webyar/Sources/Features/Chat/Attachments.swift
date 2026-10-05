@@ -110,7 +110,13 @@ struct AttachmentView: View {
 
 // MARK: - Image
 
-/// A photo, at its own proportions inside a fixed box, opening full screen.
+/// A photo in a bubble of its own colour, opening full screen.
+///
+/// The bubble is cut to the photo's own proportions. It used to be a fixed
+/// 220 × 260 box with the picture fitted inside it: a tall photo then sat in
+/// the middle of a box much wider than itself, so the rounded corners and the
+/// beak were cut out of empty space — no bubble to be seen — and the picture
+/// stood a long way off from the face it belongs to.
 ///
 /// Photos are the one kind of file fetched as soon as the bubble is drawn —
 /// a photo is content to be seen, not an action to take. What is decoded for
@@ -124,23 +130,43 @@ private struct ImageAttachmentView: View {
     @State private var state: PreviewState = .loading
     @State private var isOpen = false
 
+    /// The bubble's own colour shows this much around the photo.
+    private static let inset: CGFloat = 3
+
     private var image: UIImage? {
         if case .ready(let image) = state { return image }
         // Already decoded for another bubble, or before a scroll: same frame.
         return AttachmentPreviews.cached(attachment.id)
     }
 
+    private var bubbleColor: Color {
+        isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming
+    }
+
+    private var tint: Color {
+        isOutgoing ? Theme.Palette.bubbleOutgoingText : Theme.Palette.bubbleIncomingText
+    }
+
+    private var innerShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Theme.Radius.lg - Self.inset, style: .continuous)
+    }
+
     var body: some View {
         Group {
             if let image {
+                let size = PhotoBubbleSize.fitting(image.size)
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 220, maxHeight: 260)
-                    // A photo is its own bubble, so the beak is cut out of it
-                    // rather than drawn behind it.
-                    .chatBubbleClip(hasBeak: hasBeak, pointsRight: isOutgoing)
+                    .scaledToFill()
+                    .frame(width: size.width, height: size.height)
+                    .clipShape(innerShape)
+                    .padding(Self.inset)
+                    .chatBubble(bubbleColor, radius: Theme.Radius.lg, hasBeak: hasBeak, pointsRight: isOutgoing)
+                    .contentShape(Rectangle())
                     .onTapGesture { isOpen = true }
+                    .accessibilityElement()
+                    .accessibilityLabel(attachment.displayName ?? Str.photo(language))
+                    .accessibilityAddTraits(.isImage)
             } else if case .failed = state {
                 FileCard(
                     icon: "photo",
@@ -161,17 +187,19 @@ private struct ImageAttachmentView: View {
         }
     }
 
-    /// A box the size the photo will be, so the bubble does not jump when the
-    /// bytes land.
+    /// The bubble, at a photo's usual size, so the row does not jump far when
+    /// the bytes land.
     private var placeholder: some View {
-        ChatBubble(radius: Theme.Radius.lg, hasBeak: hasBeak, pointsRight: isOutgoing)
-            .fill(Theme.Palette.surfaceElevated)
-            .frame(width: 180, height: 132)
+        innerShape
+            .fill(tint.opacity(0.08))
+            .frame(width: PhotoBubbleSize.placeholder.width, height: PhotoBubbleSize.placeholder.height)
             .overlay {
                 Label(Str.receivingFile(language), systemImage: "arrow.down.circle")
                     .font(Theme.Typo.meta)
-                    .foregroundStyle(Theme.Palette.labelSecondary)
+                    .foregroundStyle(tint.opacity(0.7))
             }
+            .padding(Self.inset)
+            .chatBubble(bubbleColor, radius: Theme.Radius.lg, hasBeak: hasBeak, pointsRight: isOutgoing)
     }
 
     private func load() async {
@@ -201,6 +229,27 @@ private struct ImageAttachmentView: View {
             guard !Task.isCancelled else { return }
             state = .failed
         }
+    }
+}
+
+/// How big a photo is drawn in a bubble: its own proportions, within a box
+/// a bubble can hold, and never so thin that it stops reading as a picture.
+enum PhotoBubbleSize {
+    static let maximum = CGSize(width: 220, height: 260)
+    /// A panorama or a screenshot of a long page is cropped to this rather
+    /// than drawn as a sliver.
+    static let minimum = CGSize(width: 120, height: 90)
+    static let placeholder = CGSize(width: 200, height: 150)
+
+    static func fitting(_ image: CGSize) -> CGSize {
+        guard image.width > 0, image.height > 0 else { return placeholder }
+        // Small pictures are drawn at most twice their size, not blown up to
+        // the full box.
+        let scale = min(maximum.width / image.width, maximum.height / image.height, 2)
+        return CGSize(
+            width: max(minimum.width, (image.width * scale).rounded()),
+            height: max(minimum.height, (image.height * scale).rounded())
+        )
     }
 }
 

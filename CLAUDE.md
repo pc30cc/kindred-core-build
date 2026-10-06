@@ -45,10 +45,11 @@ so the bound is 9 + 3 + 1 = 13 (calculated; measured peaks 13 and 12). Keep
 `steady + the two largest pools <= 13` when changing a pool, and deploy these
 apps only through Coolify's queue (a push, the Deploy button or the kit's
 `deploy.php`), never its API create-and-deploy endpoints or MCP `Deploy` tool.
-Not yet verified in production: login, a visitor message and operator reply
-over Centrifugo, and an attachment round trip. That needs an owner-authorized
-test account whose workspace has the widget on; the test is ready in the kit
-(`functional_test.mjs`).
+Production functional test passed 2026-10-06 (28/28: login, visitor message
+and operator reply delivered live once over Centrifugo, duplicate replays,
+attachment round trip and access rules) with an owner-authorized test account
+(credentials root-only in `/root/webyar-test-account.env`); rerun it with the
+kit's `functional_test.mjs` and clean up with `functional_cleanup.mjs`.
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 `DATABASE_URL` and `DATABASE_MODE` are set and removed together. Do not run
 `migrate-database.sh`, a baseline or `move-data.sh` against production.

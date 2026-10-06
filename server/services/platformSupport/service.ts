@@ -48,7 +48,7 @@ import { recordConversationEvent } from '../conversationEvents.js';
 import { buildMessageEnvelope, publishConversationEvent, publishSupportEvent } from '../realtime/publish.js';
 import { notifyInboundMessage, notifySupportReply } from '../push/index.js';
 import { createStorageUrlResolver } from '../storage/urlResolver.js';
-import { downloadFile, uploadFile } from '../storage/index.js';
+import { downloadFile, resolveStorageConfig, uploadFile, type StorageResult } from '../storage/index.js';
 import { chatAttachmentKey } from '../storage/keys.js';
 import { requesterBody, requesterSnapshot } from './requester.js';
 
@@ -1117,7 +1117,7 @@ export async function sendAttachment(
     .insert({
       workspace_id: ctx.supportWorkspaceId,
       conversation_id: ctx.conversationId,
-      storage_provider: await storageProviderName(ctx.sb, ctx.supportWorkspaceId),
+      storage_provider: (await resolveStorageConfig(config, ctx.supportWorkspaceId))?.provider || 'local',
       storage_path: storagePath,
       file_name: file.fileName,
       mime_type: file.mimeType,
@@ -1138,7 +1138,7 @@ export async function sendAttachment(
     fileKey: storagePath,
     data: file.bytes,
     contentType: file.mimeType,
-  }).catch((err: unknown) => ({ success: false, error: err instanceof Error ? err.message : 'upload failed' }));
+  }).catch((err: unknown): StorageResult => ({ success: false, error: err instanceof Error ? err.message : 'upload failed' }));
   if (!stored.success) {
     await ctx.sb
       .from('conversation_attachments')
@@ -1148,32 +1148,15 @@ export async function sendAttachment(
   }
   await ctx.sb
     .from('conversation_attachments')
-    .update({ status: 'uploaded', finalized_at: new Date().toISOString() })
+    .update({
+      status: 'uploaded',
+      finalized_at: new Date().toISOString(),
+      ...(stored.provider ? { storage_provider: stored.provider } : {}),
+    })
     .eq('id', attachmentId);
 
   const item = await postRequesterMessage(config, ctx, { body: '', clientMessageId, attachment: { id: attachmentId } });
   return { conversation: await conversationViewFor(ctx.sb, ctx.thread), item };
-}
-
-/** The storage provider the workspace's files go to, recorded on the row as the widget does. */
-async function storageProviderName(sb: ServiceClient, workspaceId: string): Promise<string> {
-  const { data } = await sb
-    .from('provider_configs')
-    .select('provider_name')
-    .eq('workspace_id', workspaceId)
-    .eq('provider_type', 'storage')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const own = (data as { provider_name?: string } | null)?.provider_name;
-  if (own) return own;
-  const { data: global } = await sb
-    .from('app_runtime_config')
-    .select('value')
-    .eq('key', 'default_storage_provider')
-    .maybeSingle();
-  return ((global as { value?: { provider?: string } } | null)?.value?.provider) || 'local';
 }
 
 /** A file from the operator's own chat — theirs or the team's — as bytes. */

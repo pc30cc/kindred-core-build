@@ -43,7 +43,8 @@ vi.mock('../storage/urlResolver.js', () => ({
   }),
 }));
 vi.mock('../storage/index.js', () => ({
-  uploadFile: vi.fn(async () => ({ success: true })),
+  resolveStorageConfig: vi.fn(async () => ({ provider: 'bunny_storage' })),
+  uploadFile: vi.fn(async () => ({ success: true, provider: 'arvan_storage' })),
   downloadFile: vi.fn(async () => ({ success: true, data: Buffer.from('file bytes') })),
 }));
 vi.mock('../storage/keys.js', () => ({
@@ -530,6 +531,8 @@ describe('files', () => {
     );
     const [row] = db.table('conversation_attachments');
     expect(row).toMatchObject({ conversation_id: conversation.id, message_id: item.id, status: 'attached', uploaded_by_type: 'contact' });
+    // The row names the provider the upload used, not the one resolved before it.
+    expect(row.storage_provider).toBe('arvan_storage');
 
     const file = await attachmentFile(config, userId, item.attachments[0].id);
     expect(file.mimeType).toBe('image/png');

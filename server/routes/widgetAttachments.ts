@@ -35,7 +35,7 @@ import {
   resolveWorkspaceId,
   verifyConversationOwnership,
 } from '../services/widget/security.js';
-import { uploadFile, downloadFile } from '../services/storage/index.js';
+import { uploadFile, downloadFile, resolveStorageConfig } from '../services/storage/index.js';
 import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
@@ -192,26 +192,9 @@ widgetAttachmentsRouter.post('/init', widgetRateLimit('upload'), async (req: Req
 
   // Resolve provider name (server-side only)
   const sb = getServiceClient(config);
-  // We don't expose the provider; we just need to know its name to record it.
-  const { data: wsConfig } = await sb
-    .from('provider_configs')
-    .select('provider_name')
-    .eq('workspace_id', workspaceId)
-    .eq('provider_type', 'storage')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let providerName = wsConfig?.provider_name as string | undefined;
-  if (!providerName) {
-    const { data: globalCfg } = await sb
-      .from('app_runtime_config')
-      .select('value')
-      .eq('key', 'default_storage_provider')
-      .maybeSingle();
-    providerName = (globalCfg?.value as { provider?: string } | null | undefined)?.provider || 'local';
-  }
+  // We don't expose the provider; we just need to know its name to record it,
+  // resolved the way the upload resolves it (which then records the one it used).
+  const providerName = (await resolveStorageConfig(config, workspaceId))?.provider || 'local';
 
   const storagePath = buildStoragePath(workspaceId, data.file_name, data.mime_type);
 
@@ -325,7 +308,11 @@ widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (re
     }
 
     await sb.from('conversation_attachments')
-      .update({ status: 'uploaded', finalized_at: new Date().toISOString() })
+      .update({
+        status: 'uploaded',
+        finalized_at: new Date().toISOString(),
+        ...(result.provider ? { storage_provider: result.provider } : {}),
+      })
       .eq('id', row.id);
 
     return res.json({ attachment_id: row.id, status: 'uploaded' });

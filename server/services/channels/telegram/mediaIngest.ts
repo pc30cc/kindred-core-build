@@ -265,7 +265,11 @@ export async function persistInboundAttachment(
 
     await sb
       .from('conversation_attachments')
-      .update({ status: 'uploaded', finalized_at: new Date().toISOString() })
+      .update({
+        status: 'uploaded',
+        finalized_at: new Date().toISOString(),
+        ...(uploadResult.provider ? { storage_provider: uploadResult.provider } : {}),
+      })
       .eq('id', attachmentId);
 
     return {

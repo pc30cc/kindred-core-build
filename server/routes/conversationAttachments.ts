@@ -25,7 +25,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { uploadFile, downloadFileRange } from '../services/storage/index.js';
+import { uploadFile, downloadFileRange, resolveStorageConfig } from '../services/storage/index.js';
 import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { setTrustedGateWorkspaceId } from '../middleware/gateWorkspace.js';
@@ -174,25 +174,9 @@ conversationAttachmentsRouter.post('/init', async (req, res) => {
       convId = data.conversation_id;
     }
 
-    // Resolve provider name (for record-keeping; storage svc resolves at upload).
-    const { data: wsConfig } = await sb
-      .from('provider_configs')
-      .select('provider_name')
-      .eq('workspace_id', data.workspace_id)
-      .eq('provider_type', 'storage')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    let providerName = wsConfig?.provider_name as string | undefined;
-    if (!providerName) {
-      const { data: globalCfg } = await sb
-        .from('app_runtime_config')
-        .select('value')
-        .eq('key', 'default_storage_provider')
-        .maybeSingle();
-      providerName = (globalCfg?.value as { provider?: string } | null | undefined)?.provider || 'local';
-    }
+    // Provider name for record-keeping, resolved the way the upload resolves
+    // it; the upload then records the provider it actually used.
+    const providerName = (await resolveStorageConfig(config, data.workspace_id))?.provider || 'local';
 
     const storagePath = buildStoragePath(data.workspace_id, data.file_name, data.mime_type);
 
@@ -305,7 +289,11 @@ conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
     }
 
     await sb.from('conversation_attachments')
-      .update({ status: 'uploaded', finalized_at: new Date().toISOString() })
+      .update({
+        status: 'uploaded',
+        finalized_at: new Date().toISOString(),
+        ...(result.provider ? { storage_provider: result.provider } : {}),
+      })
       .eq('id', row.id);
 
     return res.json({ attachment_id: row.id, status: 'uploaded' });

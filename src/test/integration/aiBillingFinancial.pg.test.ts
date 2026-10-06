@@ -17,13 +17,15 @@
  *   - ledger + usage events append-only
  *   - ACL: anon/authenticated cannot execute financial functions
  *   - wallet reconciliation and stale reservation release
+ *   - the recovery pass, through the in-process engine, settles a run whose
+ *     usage costs arrive in exponent notation once, and never charges twice
  *
  * CI-MANDATORY: the ai-billing-db job sets REQUIRE_BILLING_DB=1, and in that
  * mode a missing TEST_DATABASE_URL FAILS the job instead of skipping — money
  * invariants must never pass by absence. Locally (no REQUIRE_BILLING_DB) the
  * suite still skips without a database.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -45,7 +47,7 @@ const BILLING_MIGRATIONS = [
   'supabase/migrations/20260901105630_5ba30ba4-19b7-4cc7-85fc-9aeb4a6bedc6.sql',
 ];
 
-let client: any;
+let client: import('pg').Client;
 const WS = '11111111-1111-1111-1111-111111111111';
 
 const q = async (sql: string, params?: unknown[]) => (await client.query(sql, params)).rows;
@@ -58,7 +60,7 @@ function wsId(): string {
   return `${h()}${h()}-${h()}-4${h().slice(1)}-8${h().slice(1)}-${h()}${h()}${h()}`;
 }
 
-async function beginRun(ws: string, key: string, hash: string, extra: Partial<Record<string, any>> = {}) {
+async function beginRun(ws: string, key: string, hash: string, extra: Partial<Record<string, unknown>> = {}) {
   return one(
     `SELECT * FROM public.ai_begin_run($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     [
@@ -543,6 +545,103 @@ suite('AI billing financial invariants (PostgreSQL)', () => {
         expect(`${r.proname}:anon=${r.anon_can}`).toBe(`${r.proname}:anon=false`);
         expect(`${r.proname}:auth=${r.auth_can}`).toBe(`${r.proname}:auth=false`);
       }
+    });
+  });
+
+  // ── Recovery through the server code ───────────────────────────────────
+  //
+  // Numerics reach the server as JSON numbers. 0.000000880000 became the
+  // number 8.8e-7, String() printed it in exponent notation, and the decimal
+  // parser rejected it: from 2026-09-20 every recovery pass in production
+  // failed on such a run before settling anything. This drives the real
+  // recovery pass and ledger through the in-process engine (as service_role)
+  // against this database.
+  describe('recovery pass over usage costs below 1e-6', () => {
+    type Recovery = typeof import('../../../server/services/ai-billing/recovery');
+    type Ledger = typeof import('../../../server/services/ai-billing/ledger');
+    type ServiceClient = import('../../../server/supabase').ServiceClient;
+    let recovery: Recovery;
+    let ledger: Ledger;
+    let serviceClient: () => ServiceClient;
+    let closeDataLayer: () => Promise<void>;
+    // Only getServiceClient reads it, and under DATABASE_MODE=postgres-only it ignores it.
+    const config = {} as import('../../../server/config').ServerConfig;
+
+    beforeAll(async () => {
+      vi.stubEnv('DATABASE_URL', DSN!);
+      vi.stubEnv('DATABASE_MODE', 'postgres-only');
+      vi.stubEnv('DATABASE_POOL_MAX', '2');
+      vi.resetModules();
+      recovery = await import('../../../server/services/ai-billing/recovery');
+      ledger = await import('../../../server/services/ai-billing/ledger');
+      const supabase = await import('../../../server/supabase');
+      serviceClient = () => supabase.getServiceClient(config);
+      ({ closeDataLayer } = await import('../../../server/db/index'));
+    });
+
+    afterAll(async () => {
+      await closeDataLayer?.();
+      vi.unstubAllEnvs();
+    });
+
+    const state = async (ws: string, runId: string) =>
+      one(
+        `SELECT (SELECT status FROM public.ai_runs WHERE id = $2) AS status,
+                (SELECT count(*)::int FROM public.ai_run_settlements WHERE run_id = $2) AS settlements,
+                (SELECT count(*)::int FROM public.workspace_ai_ledger WHERE run_id = $2) AS ledger_entries,
+                public.ai_available_balance($1)::text AS balance`,
+        [ws, runId],
+      );
+
+    it('settles the run once at the exact charge; a second pass and a retried settlement charge nothing more', async () => {
+      const ws = wsId();
+      await q(`SELECT public.ai_purchase_credit($1,$2,$3,$4)`, [ws, 5000, `buy:${ws}`, 'x']);
+      const run = await beginRun(ws, `k:${ws}`, 'h', { mode: 'ENFORCED', sellMultiplier: 4 });
+      await q(`SELECT public.ai_reserve($1,$2,$3,$4)`, [ws, run.id, 2000, `res:${ws}`]);
+      const step = await openStep(run.id);
+      // The two event shapes of the stuck production runs.
+      await ingest(step, 'tiny', usage({ quantity: 11, provider_cost_amount: '0.00000088', provider_cost_usd: '0.00000088', internal_cost_irr: '1.95448' }));
+      await ingest(step, 'main', usage({ provider_cost_amount: '0.000136', provider_cost_usd: '0.000136', internal_cost_irr: '302.056' }));
+      await q(`UPDATE public.ai_runs SET status = 'USAGE_RECORDED', updated_at = now() - interval '10 minutes' WHERE id = $1`, [run.id]);
+
+      // The value really does arrive in exponent notation.
+      const { data: events, error } = await serviceClient()
+        .from('ai_usage_events')
+        .select('provider_cost_usd')
+        .eq('run_id', run.id)
+        .lt('provider_cost_usd', 0.000001);
+      expect(error).toBeNull();
+      expect(String(events?.[0]?.provider_cost_usd)).toBe('8.8e-7');
+
+      const first = await recovery.runAiBillingRecovery(config);
+      expect(first.settledRuns).toBeGreaterThanOrEqual(1);
+      const settled = await state(ws, run.id);
+      expect(settled).toMatchObject({ status: 'SETTLED', settlements: 1, ledger_entries: 1 });
+      // 0.00000088 + 0.000136 USD; (1.95448 + 302.056) IRR x 4, rounded to 6 places only when stored.
+      const exact = await one(
+        `SELECT provider_cost_usd = 0.00013688 AS usd, internal_cost_irr = 304.01048 AS irr,
+                customer_charge_irr = 1216.04192 AS charge, platform_absorbed_amount = 0 AS absorbed,
+                public.ai_available_balance($2) = 5000 - 1216.04192 AS balance
+           FROM public.ai_run_settlements WHERE run_id = $1`,
+        [run.id, ws],
+      );
+      expect(exact).toEqual({ usd: true, irr: true, charge: true, absorbed: true, balance: true });
+
+      // A second pass: the run is no longer pending; nothing more is charged.
+      await recovery.runAiBillingRecovery(config);
+      expect(await state(ws, run.id)).toEqual(settled);
+
+      // A retried settlement with the command key the pass used replays.
+      const replay = await ledger.settleRun(config, {
+        runId: run.id,
+        commandKey: `settle:${run.id}`,
+        providerCostUsd: '0.00013688',
+        internalCostIrr: '304.01048',
+        customerChargeIrr: '1216.04192',
+        billingCycleId: '2026-10',
+      });
+      expect(replay.replayed).toBe(true);
+      expect(await state(ws, run.id)).toEqual(settled);
     });
   });
 

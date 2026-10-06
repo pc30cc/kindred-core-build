@@ -1,9 +1,11 @@
 # Production database mode — runbook
 
-**Status: switched and verified in production on 2026-10-05.** The
-production WebYar backend and its six workers reach the hosted Supabase
-project's PostgreSQL directly (`DATABASE_MODE=postgres-only`), as recorded in
-[Verified state](#verified-state-2026-10-05) below.
+**Status: switched and verified in production on 2026-10-05; the AI billing
+decimal fix (#266) deployed and verified on 2026-10-06.** The production
+WebYar backend and its six workers reach the hosted Supabase project's
+PostgreSQL directly (`DATABASE_MODE=postgres-only`). What was measured, what
+is still an estimate and what is still unverified:
+[Verified state](#verified-state-2026-10-06) below.
 
 It is a connection-mode change only: the database, its data and its schema
 stay where they are; no migration is replayed, no baseline is recorded and no
@@ -128,57 +130,156 @@ log lines and its TCP connections to Supabase REST and to the pooler (REST
 must be 0 for all seven). `pg_stat_activity` should show 9 sessions for
 `webyar_app` in steady state.
 
-Not caused by the switch: `[ai-billing] recovery tick failed:
-invalid_decimal:8.8e-7`. A few `ai_usage_events.provider_cost_usd` values below
-1e-6 reach `D.fromString` as a JavaScript number in exponent notation; the
-REST path failed the same way, which is why some runs have stayed
-`USAGE_RECORDED` since 2026-09-20.
+`[ai-billing] recovery tick failed: invalid_decimal:…` should no longer
+appear (fixed by #266, see below). If it does, a value reached
+`D.fromString` in a form it does not accept; the pass stops before settling
+anything, so look at it the same day.
 
-## Verified state (2026-10-05)
+## Verified state (2026-10-06)
 
-Deployed: commit `687e6fe` (#263) on all seven services and the frontend
-(app 28); app 10 unchanged on `17c093d`, still on REST. Previous images, for a
-rollback: 29, 30 and 28 on `530f1e7`, 21 on `b334ea7`, 18 on `d3bda54`,
-24, 27 and 19 on `d6033b9` (full hashes in the kit's README).
+Deployed (Coolify app → commit):
 
-Checked after the switch:
+| App | Commit | Since |
+| --- | --- | --- |
+| 29 backend, 30 WooCommerce, 28 frontend | `6960097` (#266) code | 2026-10-06 07:55 UTC (auto-deploy on merge); a later docs-only merge to `main` redeploys them with the same code |
+| 18 intelligence, 24 regression, 19 source-sync | `6960097` (#266) | 2026-10-06, queued with `deploy.php` |
+| 21 channels, 27 SEO crawler | `687e6fe` (#263) | 2026-10-05; #265 and #266 do not change their code |
+| 10 (older backend, REST) | `17c093d` | unchanged |
 
-- `/api/health/database`: `status ok`, driver `postgres`, mode
-  `postgres-only`, role `service_role`, about 30 ms.
-- All seven containers healthy with no restarts, each logging
-  `mode postgres-only` and its pool size; no TCP connection from any of them
-  to Supabase REST. On the server only app 10 still connects to REST.
-- 9 `webyar_app` sessions through the pooler; the database is the same
-  instance (same start time and database oid as before the switch); no
-  migration ledger was created, and `deploy-migrations.yml` skipped.
-- Sessions: a wrong password still returns 401 with the same body; existing
-  cookies keep validating (session lookups and role checks run through the new
-  engine), as `PLATFORM_SIGNING_SECRET` equals the old signing root.
-- Workers: the channels worker heartbeats, the WooCommerce worker completed a
-  sync job, the intelligence and source-sync workers poll their queues, the
-  backend's ticker, billing and recovery leases advance.
-- Storage is Bunny (primary) with an Arvan replica, not Supabase Storage, so
-  it did not change. Realtime is Centrifugo (unchanged); the public config
-  serves its client settings and no secret.
-- REST traffic to the project fell from about 450 to about 60 requests a
-  minute; what remains comes from app 10.
+`687e6fe` is the switch; `10ae91f` (#265) only changed docs; `6960097` adds
+the AI billing fix to the code paths of 29, 18, 24 and 19.
 
+### Measured
+
+- Pooler cap for `webyar_app`: 15 session connections; the 16th is refused
+  with `EMAXCONNSESSION` (2026-10-05).
+- Steady state: 9 connections from the seven services (TCP connections per
+  container and `pg_stat_activity`, 2026-10-05 and 2026-10-06). Idle
+  connections close after 30 s, so the count drifts between 7 and 9.
+- Deployment overlap, sampled every 2–4 s from every container's TCP
+  connections to the pooler (`pool_peak.sh` in the kit; a spike shorter than
+  one sample could be missed):
+  - #265 auto-deploy of 29 + 30 side by side, 2026-10-05 17:05: peak **13**.
+  - #266 auto-deploy of 29 + 30, then 28, 18, 24 and 19 through the queue,
+    2026-10-06 07:53–08:03: peak **12**.
+- 2026-10-06, about 14 h after the switch: all seven containers healthy, no
+  restarts, no `EMAXCONN`, connection-refused, timeout or `FATAL` lines in
+  their logs, no TCP connection to Supabase REST (only app 10 has one), the
+  database health endpoint `ok` / `postgres-only` / `service_role`, the same
+  database instance, no migration ledger.
+- Again after the #266 deploys (2026-10-06 08:04): the same on every container,
+  each logging `mode postgres-only`, and no `recovery tick failed` line.
+
+### Estimated (not measured)
+
+- The budget bound itself: 9 + 3 + 1 = 13 is a calculation from the pool
+  sizes and Coolify's two-deployment limit; the measured peaks stayed at or
+  under it.
+- Backend throughput at pool 3, about 90 statements a second, from a ~30 ms
+  round trip and the REST request rate before the switch (see the budget).
+
+### Production functional checks: not yet run
+
+A login, a visitor message and an operator reply delivered once and live over
+Centrifugo, and an attachment round trip have not been exercised in
+production. Health endpoints, worker heartbeats and CI do not count as that
+proof. It needs a test account the owner authorizes, in a workspace whose
+widget is on:
+
+- A new workspace's widget is off, and turning it on requires the owner's
+  phone to be verified (`workspace_owner_phone_verified`): by SMS code, or by
+  a super admin's manual verification (Super Admin → user → phone).
+- The only workspace with the widget on is WebYar's own live support inbox,
+  which must not be used for tests.
+- A self-registered account would stay (there is no self-service workspace
+  deletion) on a trial plan whose ending emails go to its address; a super
+  admin removes it afterwards with `DELETE /api/admin/management/users/:id`.
+
+The test is ready in the kit: `functional_test.mjs` (prepared, not yet run).
+It reads `TEST_EMAIL`, `TEST_PASSWORD`, `TEST_WORKSPACE_ID` and `TEST_ORIGIN`
+from a root-only env file and prints no secret; it sends no OTP or SMS,
+resolves nothing, calls no AI and leaves the test conversation in the test
+workspace:
+
+```
+D=/root/webyar-rollout/20261005-postgres-only
+IMG=$(docker inspect "$(docker ps --filter name=^vpvsddhbp640fdb9j4r5sfym- --format '{{.Names}}' | head -1)" --format '{{.Config.Image}}')
+docker run --rm --env-file /root/webyar-test-account.env -v $D/functional_test.mjs:/kit/functional_test.mjs:ro \
+  --entrypoint node "$IMG" --experimental-websocket /kit/functional_test.mjs
+```
+
+### AI billing recovery (#266)
+
+Numerics reach the server as JSON numbers, and `String()` prints one below
+1e-6 in exponent notation; `D.fromString` rejected `8.8e-7`, and every
+recovery pass failed from 2026-09-20. It now rewrites that form as the same
+digits in plain notation (string only, no float arithmetic) and keeps the
+12-place rule. The first pass after the deploy (2026-10-06 07:57 UTC), through
+the existing idempotent mechanism, measured against a read-only snapshot taken
+before it:
+
+- 19 runs `USAGE_RECORDED` since 20–30 September (WebYar's own workspace,
+  `ENFORCED`): each settled once, one ledger entry each, charge exactly
+  (IRR cost × 4) rounded to 6 places, nothing absorbed; 50,103.627840 IRR in
+  all. Balance 376,915.475120 → 326,811.847280, as predicted.
+- 1 orphaned `RUNNING` run (24 September, no reservation) → `CANCELLED`.
+- 13 settled `ESTIMATED` runs → `RECONCILED` (label only).
+- Nothing left pending; no run anywhere has more than one settlement.
 
 ## Rollback
 
-The rollback kit is on the server, root only:
-`/root/webyar-rollout/20261005-postgres-only/` — its `README.md` has the exact
-commands. It holds the Coolify variable rows of the seven apps as they were
-before the switch (values and which keys existed), the images each app ran,
-the deploy and restore scripts, and the `webyar_app` credential.
+The kit is on the server, root only: `/root/webyar-rollout/20261005-postgres-only/`.
+It holds the Coolify variable rows of the seven apps as they were before the
+switch, the deploy and restore scripts and the `webyar_app` credential; its
+`README.md` repeats these commands. Coolify keeps only the two newest images
+of an app, so the images a rollback needs are also kept under
+`webyar-rollback/<app uuid>:<commit>`, and a commit with no image left is
+rebuilt from Git instead.
 
-1. Restore the variables: delete the five added keys from the seven apps
-   (`restore_env.php`) — `DATABASE_URL` **and** `DATABASE_MODE` both, never
-   one without the other. `PLATFORM_SIGNING_SECRET` may also stay: it equals
-   the service-role key, so signatures are valid either way.
-2. Redeploy each app on its previous image with `deploy.php`
-   (`ROLLBACK=1`, the commit listed in the kit's README) — no rebuild.
-3. Check `/api/health` (200) and the workers' logs.
+Set up (every rollback):
+
+```
+D=/root/webyar-rollout/20261005-postgres-only
+docker cp $D/deploy.php coolify:/tmp/ && docker cp $D/restore_env.php coolify:/tmp/
+docker exec -u root coolify chmod 644 /tmp/deploy.php /tmp/restore_env.php
+# app id, full commit, 1 = run the existing image / 0 = build that commit; goes through Coolify's queue
+deploy() { DEPLOY_APP_ID=$1 DEPLOY_COMMIT=$2 ROLLBACK=$3 docker exec -e DEPLOY_APP_ID -e DEPLOY_COMMIT -e ROLLBACK coolify php artisan tinker --execute="require '/tmp/deploy.php';"; }
+keep() { docker tag "webyar-rollback/$1:$2" "$1:$2"; }   # put a kept image back under its Coolify name
+```
+
+**A. Undo only the AI billing fix** (stay on postgres-only). Runs settled
+since stay settled; nothing to reverse.
+
+```
+P=10ae91fb6d885b744047dfb5f355d92d7495f98c S=687e6feb3b78a3edc02db76ec010e8af21eb77a3
+keep vpvsddhbp640fdb9j4r5sfym $P; keep 1pxev53a9ylbnn1jflmscups $P; keep vyc6ywzjtlw1es51km4arrl5 $P
+deploy 29 $P 1; deploy 30 $P 1; deploy 28 $P 1
+deploy 18 $S 1; deploy 24 $S 1; deploy 19 $S 1      # 687e6fe is still their second image
+```
+
+**B. Undo the whole postgres-only switch.**
+
+```
+# 1. remove DATABASE_URL, DATABASE_MODE, PLATFORM_SIGNING_SECRET, DATABASE_POOL_MAX,
+#    DATABASE_APPLICATION_NAME from the seven apps (both together, never one)
+docker exec coolify php artisan tinker --execute="require '/tmp/restore_env.php';"
+# 2. backend, WooCommerce, frontend: no 530f1e7 image is left, so rebuild it
+O=530f1e7fd171b5c0a49ed311c4d46c5e4fc36361
+deploy 29 $O 0; deploy 30 $O 0; deploy 28 $O 0
+# 3. workers: their pre-switch images are kept
+C=b334ea73ce188eee5e6c25fb8049c3cf3e5901c3 I=d3bda54c83d2b5f0126538cbac00315ddf9561b0 W=d6033b99723b43be68fa33139aff0f57cc117fff
+keep 8yooppd8yzfygezjfah3gupl $C; keep a21qofxtx8g0vin1f7he88f6 $I
+keep f31csnb3mvr3gdgppa7vcdzu $W; keep uimjkt8awgjagabncll0lgap $W; keep nwypq2oag3roduru7djp53j1 $W
+deploy 21 $C 1; deploy 18 $I 1; deploy 24 $W 1; deploy 27 $W 1; deploy 19 $W 1
+```
+
+Then check: `https://api.webyar.ai/api/health` → 200 and
+`/api/health/database` → 404 (the old code has no such route), the workers'
+logs, and the kit's `verify.sh` (REST connections come back, pooler goes to 0).
+`PLATFORM_SIGNING_SECRET` equals the service-role key the old code signs with,
+so sessions and signed links stay valid in both directions. Either rollback
+only ever lowers the pooler connection count. The `webyar_app` role can stay
+unused.
 
 An application rollback never touches database data. Do not run
 `move-data.sh`, `migrate-database.sh` or a baseline against production as part

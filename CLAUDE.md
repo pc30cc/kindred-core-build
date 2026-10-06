@@ -35,19 +35,24 @@ Turn the sync off with `launchctl bootout gui/$(id -u)/ai.webyar.xcode-sync`.
 The production backend and six workers on the Coolify at `analyticsme.site`
 run `DATABASE_MODE=postgres-only` against the hosted Supabase project's
 PostgreSQL, as login role `webyar_app` through the session pooler (port 5432).
-Switched and verified on 2026-10-05 (commit `687e6fe`). The older second
-backend (Coolify app 10) still uses Supabase REST.
-Connection budget: the pooler admits 15 connections; pools are backend 3 and
-1 per worker (9 steady), and Coolify runs at most 2 queued deployments at
-once, each running old and new containers side by side, so the peak is
-9 + 3 + 1 = 13. Keep `steady + the two largest pools <= 13` when changing a
-pool, and deploy these apps only through Coolify's queue (a push, the Deploy
-button or the kit's `deploy.php`), never its API create-and-deploy endpoints
-or MCP `Deploy` tool, which skip the limit.
+Switched 2026-10-05 (`687e6fe`); the AI billing decimal fix (`6960097`, #266)
+is on 29, 30, 28, 18, 24 and 19 since 2026-10-06. The older second backend
+(Coolify app 10) still uses Supabase REST.
+Connection budget: the pooler admits 15 connections (measured); pools are
+backend 3 and 1 per worker (9 steady, measured), and Coolify runs at most 2
+queued deployments at once, each running old and new containers side by side,
+so the bound is 9 + 3 + 1 = 13 (calculated; measured peaks 13 and 12). Keep
+`steady + the two largest pools <= 13` when changing a pool, and deploy these
+apps only through Coolify's queue (a push, the Deploy button or the kit's
+`deploy.php`), never its API create-and-deploy endpoints or MCP `Deploy` tool.
+Not yet verified in production: login, a visitor message and operator reply
+over Centrifugo, and an attachment round trip. That needs an owner-authorized
+test account whose workspace has the widget on; the test is ready in the kit
+(`functional_test.mjs`).
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 `DATABASE_URL` and `DATABASE_MODE` are set and removed together. Do not run
 `migrate-database.sh`, a baseline or `move-data.sh` against production.
-Runbook, budget, verified state and rollback:
+Runbook, measured state and exact rollback commands:
 `docs/operations/PRODUCTION_DATABASE_MODE.md`; the rollback kit (snapshot,
-scripts, credential) is root-only on the server in
-`/root/webyar-rollout/20261005-postgres-only/`.
+scripts, credential, kept images `webyar-rollback/*`) is root-only on the
+server in `/root/webyar-rollout/20261005-postgres-only/`.

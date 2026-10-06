@@ -7,6 +7,10 @@ PostgreSQL directly (`DATABASE_MODE=postgres-only`). What was measured and what
 is still an estimate:
 [Verified state](#verified-state-2026-10-06) below.
 
+A copy to a self-hosted PostgreSQL 17 was rehearsed on 2026-10-06 without
+switching any service. Production is still on the hosted project; see
+[the rehearsal](#self-hosted-postgresql-rehearsal-2026-10-06).
+
 It is a connection-mode change only: the database, its data and its schema
 stay where they are; no migration is replayed, no baseline is recorded and no
 data is moved. See [`docs/DATABASE.md`](../DATABASE.md) for the modes.
@@ -422,6 +426,176 @@ not measured as a rollback):
 
 Neither path is instantaneous. The old containers keep serving until each new
 one is healthy.
+
+## Self-hosted PostgreSQL rehearsal (2026-10-06)
+
+**Outcome: the copy to a self-hosted PostgreSQL 17 was rehearsed and verified
+end to end, and no production service was switched.** The live switch stopped
+before it began because safe isolation could not be achieved (below).
+Production stayed on project `bdycuenbjztkgnaqonfm` in `postgres-only` mode the
+whole time, with no maintenance window. Evidence is in the kit's `rehearsal/`
+folder, root only.
+
+### What was built and verified (nothing here wrote to production)
+
+- **Temporary server:** Coolify database `webyar-rehearsal-pg17`
+  (`vk5tdhrhens6rrmp1ouuysqt`).
+  - Image `pgvector/pgvector:pg17`: PostgreSQL 17.11 with pgvector 0.8.7
+    (production has 17.6 / 0.8.0).
+  - Network `coolify` only, no published port, 1 GB memory limit.
+  - Volume `postgres-data-vk5tdhrhens6rrmp1ouuysqt` (205 MB).
+  - Stopped afterwards through Coolify; the volume is kept.
+  - `rehearsal/start_pg17.php` starts it again (with `RH_ACTION=stop` it
+    stops it); the kit README has the commands.
+- **Pre-test configuration snapshot:**
+  - Every stored variable row of apps 29, 30, 21, 18, 24, 27, 19 and 28,
+    kept as ciphertext.
+  - A present/absent matrix of the database keys, plus app rows, settings and
+    images.
+  - `restore_from_snapshot.sh check` compares the live configuration with it.
+- **Consistent backup:** one `REPEATABLE READ` transaction exported its
+  snapshot at 14:41:23 UTC.
+  - `pg_dump` (client 17) dumped `public` and `widget_archive` in that
+    snapshot: 3.4 MB.
+  - In the same snapshot, `move-data.sh`'s own row counts and content checksums
+    were taken: 313 tables, 19,047 rows.
+- **Schema:** the migration chain at `fa0e79d` (250 files) was applied by
+  `scripts/migrate-database.sh` to the new server.
+  - `schema-diff.sh` between production and that database: **0 unexpected
+    differences**, 71 reviewed (the allowlist).
+  - So functions, triggers, enums, indexes, constraints, sequences, views,
+    policies and service_role grants match.
+- **Data:** the backup was loaded into a chain-built `webyar_frozen`.
+  - `webyar_frozen` equalled production at the snapshot: every count and
+    checksum matched.
+  - Then `scripts/db/move-data.sh run` copied `webyar_frozen` into the target,
+    unmodified and with every phase passing:
+    - schema match;
+    - the source unchanged during the dump;
+    - one-transaction load with every foreign key enforced;
+    - every sequence ahead of its rows;
+    - 314 tables, identical content.
+- **Not in the chain:**
+  - `widget_archive` (1 table, 2 rows, its function, trigger, RLS and grants)
+    was restored from the backup and equals the snapshot.
+  - The `supabase_realtime` publication (`public.team_messages`) was
+    recreated. It is inert there: nothing subscribes, and WebYar's realtime
+    runs over Centrifugo.
+- **Roles:**
+  - `anon`, `authenticated` and `service_role` came from migration `000`.
+  - `webyar_app` was added: `LOGIN NOINHERIT`, a member of `service_role`
+    `WITH SET TRUE`, with its own password, root-only.
+- **Application access, isolated:**
+  - The images production runs now (backend `fa0e79d` and the six workers) ran
+    on an internal Docker network with no route out (proved) whose only other
+    member was the new server.
+  - They used a disposable clone of the target, logging in as `webyar_app`.
+    Every secret was a random dummy.
+  - Backend:
+    - `/api/health` returned 200.
+    - `/api/health/database` reported `ok`, `postgres-only`, server 17, role
+      `service_role`, 2–3 ms.
+    - `/api/plans` returned the copy's 3 plans.
+    - `/api/platform/public/config` returned 200.
+  - Each worker kind (`commerce-sync`, `channels`, `intelligence`,
+    `regression-runner`, `seo-crawler`, `source-sync`) stayed healthy for
+    30 s, logged its start and held sessions on the new server.
+  - The clone was dropped afterwards. Nothing could leave the host, so no mail,
+    push, AI or channel call was made.
+
+### Left out on purpose
+
+These are Supabase-managed:
+- `auth`: 27 tables. Neither `webyar_app` nor `service_role` may read them,
+  and WebYar's identity lives in `public` (`000a` provides the stub).
+- `storage`, `realtime` and `vault`: every table `service_role` can read is
+  empty. That is 7 of 8 in `storage` and 2 of 3 in `realtime`; the unreadable
+  ones are their migration ledgers. `vault` holds no secret.
+- `supabase_migrations`, `graphql`, `graphql_public` and `pgbouncer`.
+- The `extensions` schema's Supabase helpers and its 6 event triggers (pg_graphql, pg_cron,
+  pg_net and PostgREST watchers).
+- The extensions `pg_stat_statements` and `supabase_vault` (allowlisted).
+
+`public.verification_admin_idempotency` is owner-only (`postgres`, no grant to
+`service_role`) and used only by two `SECURITY DEFINER` functions. Its data was
+not readable with our credential. Its heap was 0 bytes at the snapshot, so it
+was empty. Its definition comes from the chain.
+
+### Findings
+
+- **The Supabase session pooler drops startup options.** `PGOPTIONS` and the
+  URL's `options` both have no effect. Measured: a session arrives as plain
+  `webyar_app`, not read-only, with `row_security` on.
+  - `move-data.sh` therefore cannot read production as `service_role` through
+    the pooler. Its read-only session setting does not apply there, though it
+    only ever issues reads.
+  - `schema-diff.sh` run as bare `webyar_app` reports a false difference on
+    `workspace_invitations.token`: `webyar_app` has no USAGE on `extensions`,
+    so the default prints as `extensions.gen_random_bytes`. Run it with the
+    source session set to `service_role`, as `rehearsal/schema_diff_prod.sh`
+    does.
+- **`move-data.sh` needs a source with no writer, and production always
+  writes.** A 90 s sample saw 10 tables change, among them leases, presence,
+  heartbeats and commerce sync. A real move therefore needs the application
+  stopped (DATABASE.md §6). The rehearsal used the snapshot-consistent
+  `webyar_frozen` instead.
+- **A real move out of production also needs the table owner (`postgres`)**
+  for `verification_admin_idempotency`. That credential is not held, and its
+  password must not be reset.
+
+### Why there was no live switch
+
+- **No maintenance mode.** Holding traffic would need a gate in the shared
+  Coolify proxy. The frontend (28) calls the backend through its public
+  hostname, so an IP allowlist would let all of it through.
+- **WooCommerce plugin events can't be held without loss.** A 400/401/403/404/422
+  response dead-letters an event at once, and 401/403 also forces re-pairing.
+  A 5xx response is retried 6 times over about 15.5 minutes, then
+  dead-lettered.
+- **Widget messages can't be held either.** A message that fails needs the
+  visitor to press retry.
+- **Webhooks would land on the temporary database.** Signed payment webhooks
+  (Stripe, Paddle, Lemon Squeezy, PayTR), LiveKit, Gmail push and Telegram
+  would be acknowledged and recorded there. Those are real writes that would
+  have to be reconciled into Supabase by hand.
+- **Workers would redo production work.** Pointed at a copy, they would run
+  pending and scheduled production work again: channel sends, AI runs and
+  billing. Pausing them is possible, but the paused work would then have to
+  be reconciled.
+- **No test account.** `/root/webyar-test-account.env` is absent, so the
+  login, inbox, realtime and attachment checks could not run with a
+  legitimate login.
+
+### Restoring the configuration (prepared, not needed)
+
+`rehearsal/restore_from_snapshot.sh` has two modes:
+- `check` is read-only. It compares every stored row of the eight apps with
+  the snapshot. Result: 251 rows, 0 differences, the same images.
+- `apply` needs `CONFIRM=restore`. In one transaction it puts the database keys
+  back byte for byte; then redeploy each app through the queue with `rb`
+  (above).
+
+The rehearsal never changed a variable, so the check stayed at 0 differences
+and nothing was redeployed.
+
+### Final database destination
+
+All seven consumers (29, 30, 21, 18, 24, 27, 19) still use project
+`bdycuenbjztkgnaqonfm`:
+- through the session pooler `aws-1-eu-north-1.pooler.supabase.com:5432`;
+- as `webyar_app.bdycuenbjztkgnaqonfm`;
+- with `DATABASE_MODE=postgres-only`.
+
+Checked at 14:53 UTC, after the rehearsal:
+- Every running container's `DATABASE_URL` points there, and each is healthy.
+- No container was restarted during the rehearsal.
+- The backend's `/api/health/database` reports `ok`, `postgres-only`,
+  `service_role`.
+- Production's `pg_stat_activity` on PostgreSQL 17.6 (system id
+  `7623125441096521075`) shows 10 `webyar_app` sessions: the usual 9 plus the
+  check's own.
+
+The frontend (28) has no database variable.
 
 ## Migrations
 

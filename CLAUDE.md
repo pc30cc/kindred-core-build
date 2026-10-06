@@ -51,6 +51,18 @@ attachment round trip and access rules) with an owner-authorized test account
 (its credentials file was removed afterwards; to rerun, recreate the root-only
 `/root/webyar-test-account.env`, run the kit's `functional_test.mjs` and clean
 up with `functional_cleanup.mjs`).
+Self-hosted PostgreSQL rehearsal 2026-10-06:
+- A copy to PostgreSQL 17 was built and verified with the repo's own tools.
+  It lives in the Coolify database `webyar-rehearsal-pg17`, which is stopped
+  with its volume kept.
+- No service was switched: there was no safe isolation (no maintenance mode,
+  plugin, widget and webhook traffic can't be held, workers would redo work,
+  no test account). WebYar still runs on `bdycuenbjztkgnaqonfm`.
+- The Supabase session pooler ignores `PGOPTIONS` and the URL's `options`.
+  When running a tool against production, set the role by statement
+  (`SET ROLE service_role`).
+- Details are in the runbook's "Self-hosted PostgreSQL rehearsal" section.
+
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 `DATABASE_URL` and `DATABASE_MODE` are set and removed together. Do not run
 `migrate-database.sh`, a baseline or `move-data.sh` against production.

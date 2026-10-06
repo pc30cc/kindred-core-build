@@ -330,6 +330,7 @@ describe('uploadForOwner / downloadForOwner / deleteForOwner / getFileUrlForOwne
       contentType: 'image/png',
     });
     expect(uploaded.success).toBe(true);
+    expect(uploaded.provider).toBe('local');
     expect(existsSync(join('/tmp/storage', key))).toBe(true);
 
     const downloaded = await storage.downloadForOwner({} as unknown as ServerConfig, { kind: 'user', userId: USER_A }, key);

@@ -58,5 +58,9 @@ Runbook, measured state and exact rollback commands:
 `docs/operations/PRODUCTION_DATABASE_MODE.md`; the rollback kit (snapshot,
 scripts, credential) is root-only on the server in
 `/root/webyar-rollout/20261005-postgres-only/`. Coolify's hourly Docker
-cleanup deletes images no container uses, so a rollback rebuilds an old
-commit when its image is gone (the runbook's `rb` helper does that).
+cleanup deletes images no container uses, so `rb` makes Coolify rebuild a
+rollback commit whose image is gone. Every rollback commit was rebuilt and
+start-checked in isolation on 2026-10-06 (not a production rollback); the
+images are kept as files in the kit's `rebuild/images/` and
+`rebuild/rollback_load.sh A|B`, run just before the `rb` lines, makes Coolify
+reuse them instead of building.

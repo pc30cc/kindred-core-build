@@ -141,7 +141,7 @@ Deployed (Coolify app → commit):
 
 | App | Commit | Since |
 | --- | --- | --- |
-| 29 backend, 30 WooCommerce, 28 frontend | `6960097` (#266) code | 2026-10-06 07:55 UTC (auto-deploy on merge); a later docs-only merge to `main` redeploys them with the same code |
+| 29 backend, 30 WooCommerce, 28 frontend | #270's merge (#266 plus the attachment storage label fix, which runs in 29) | 2026-10-06, auto-deploy on merge; every merge to `main` redeploys these three |
 | 18 intelligence, 24 regression, 19 source-sync | `6960097` (#266) | 2026-10-06, queued with `deploy.php` |
 | 21 channels, 27 SEO crawler | `687e6fe` (#263) | 2026-10-05; #265 and #266 do not change their code |
 | 10 (older backend, REST) | `17c093d` | unchanged |
@@ -228,11 +228,18 @@ attachment, conversation, contact; it refuses a file key outside the test
 workspace, and the workspace-wide conversation delete must only run when the
 test's conversation is the workspace's only one).
 
-Known, pre-existing and harmless: `conversation_attachments.storage_provider`
-records `local` for every attachment (the init route reads the setting's
-`provider` key, the stored setting has `provider_name`). The bytes go to the
-configured provider (Bunny; `storage_usage_logs.provider_name`), and reads
-resolve the provider from the setting, not from that label.
+Attachment storage label (fixed in #270):
+`conversation_attachments.storage_provider` said `local` for every attachment,
+because the operator and widget init routes and platform support read the
+setting's `provider` key while the stored setting has `provider_name`. The
+bytes went to the configured provider all along (Bunny, mirrored to Arvan;
+`storage_usage_logs.provider_name`). Init now resolves the label the way the
+upload resolves the provider, and a successful upload records the provider it
+used. Reads and deletes never used the label: they resolve the provider from
+the setting and use `storage_path`. Earlier rows are corrected only where the
+upload log names one provider for the same workspace and key (kit:
+`attachments_provider_fix.sql`, a count-checked transaction); the kit README
+records that correction and the round trip after the deploy.
 
 ### AI billing recovery (#266)
 
@@ -259,12 +266,29 @@ It holds the Coolify variable rows of the seven apps as they were before the
 switch, the deploy and restore scripts and the `webyar_app` credential; its
 `README.md` repeats these commands.
 
-Do not count on old images: Coolify's Docker cleanup on this server runs every
-hour (forced) and deletes every image no container uses, extra tags included,
-keeping only each app's newest two or three. So each step below runs the
-commit's image if it is still there and otherwise rebuilds that commit from Git
-(about 2.5 min for the backend and a worker, about 9 min for the frontend).
-`deploy.php` goes through Coolify's queue, two deployments at a time.
+`rb` queues an ordinary Coolify deployment of one app at one exact commit
+(`deploy.php`, through Coolify's queue, two deployments at a time). Coolify
+(v4.3.23; read from its code on this server) clones `main`, fetches and checks
+out that commit (an explicit commit is never replaced by the branch head), and
+skips the build when an image `<app uuid>:<commit>` exists and no build setting
+changed since the app's last successful deployment; otherwise it builds that
+commit with the app's Dockerfile. Removing runtime-only variables (B, step 1)
+is not a build change. `ROLLBACK=1` does not change that decision for these
+Dockerfile apps; it only lets Coolify queue a deployment for a commit already
+queued.
+
+Do not count on old images: Coolify's forced Docker cleanup runs every hour
+here and deletes every image no container uses (extra tags included, keeping
+each app's newest two) and the whole build cache. Two ways around it, both
+verified (see [Rebuilding the rollback commits](#rebuilding-the-rollback-commits-verified-2026-10-06)):
+
+- **Load the kept images first** (fastest): `$D/rebuild/rollback_load.sh A`
+  (or `B`) loads the option's images from the kit's files and tags them as
+  `<app uuid>:<commit>`, so Coolify skips every build. Run it right before
+  the `rb` lines, not an hour earlier. A tag Coolify already has is left
+  alone. `DRY_RUN=1` only checks the files and prints what it would do
+  (run for A and B on 2026-10-06: all files intact, every app mapped).
+- **Let Coolify rebuild**: without it, each `rb` builds its commit from Git.
 
 Set up (every rollback):
 
@@ -272,7 +296,7 @@ Set up (every rollback):
 D=/root/webyar-rollout/20261005-postgres-only
 docker cp $D/deploy.php coolify:/tmp/ && docker cp $D/restore_env.php coolify:/tmp/
 docker exec -u root coolify chmod 644 /tmp/deploy.php /tmp/restore_env.php
-# rb <app id> <app uuid> <full commit>: reuse the image if present, else build that commit
+# rb <app id> <app uuid> <full commit>: deploy that commit; Coolify reuses its image if present, else builds it
 rb() {
   if docker image inspect "$2:$3" >/dev/null 2>&1; then R=1; else R=0; fi
   DEPLOY_APP_ID=$1 DEPLOY_COMMIT=$3 ROLLBACK=$R docker exec -e DEPLOY_APP_ID -e DEPLOY_COMMIT -e ROLLBACK coolify php artisan tinker --execute="require '/tmp/deploy.php';"
@@ -286,6 +310,7 @@ since stay settled; nothing to reverse.
 
 ```
 P=10ae91fb6d885b744047dfb5f355d92d7495f98c S=687e6feb3b78a3edc02db76ec010e8af21eb77a3
+$D/rebuild/rollback_load.sh A        # optional: kept images, no builds
 rb 29 $BE $P; rb 30 $WC $P; rb 28 $FE $P
 rb 18 $IN $S; rb 24 $RG $S; rb 19 $SS $S
 ```
@@ -299,6 +324,7 @@ docker exec coolify php artisan tinker --execute="require '/tmp/restore_env.php'
 # 2. redeploy the pre-switch commits
 O=530f1e7fd171b5c0a49ed311c4d46c5e4fc36361 C=b334ea73ce188eee5e6c25fb8049c3cf3e5901c3
 I=d3bda54c83d2b5f0126538cbac00315ddf9561b0 W=d6033b99723b43be68fa33139aff0f57cc117fff
+$D/rebuild/rollback_load.sh B        # optional: kept images, no builds
 rb 29 $BE $O; rb 30 $WC $O; rb 28 $FE $O
 rb 21 $CH $C; rb 18 $IN $I; rb 24 $RG $W; rb 27 $SEO $W; rb 19 $SS $W
 ```
@@ -313,7 +339,89 @@ unused.
 
 An application rollback never touches database data. Do not run
 `move-data.sh`, `migrate-database.sh` or a baseline against production as part
-of it.
+of it. After a rollback, the next merge to `main` redeploys 29, 30 and 28 at
+`main`'s head.
+
+### Rebuilding the rollback commits (verified 2026-10-06)
+
+This was not a production rollback drill: nothing was deployed, restarted or
+replaced, and no production variable was used. The work ran on the production
+server outside Coolify, one build at a time; the scripts and logs are in the
+kit's `rebuild/`.
+
+- **Builds.** Both options need nine distinct builds (a Dockerfile at a
+  commit):
+  - backend: 10ae91f, 530f1e7;
+  - frontend: 10ae91f, 530f1e7;
+  - worker: 687e6fe, 530f1e7, b334ea7, d3bda54, d6033b9.
+
+  App 30 at 10ae91f takes the worker built from 687e6fe: the two commits have
+  identical worker inputs and differ only in documentation. Each was built the
+  way Coolify builds these apps:
+  - a fresh shallow clone of `main`, then fetch and checkout of the exact
+    commit;
+  - the app's Dockerfile, BuildKit, `--network host`;
+  - `--no-cache`, because the hourly cleanup leaves no build cache.
+
+  Build arguments: none for the backend and workers, because no build step
+  reads one; for the frontend, Coolify's `VITE_API_BASE_URL`, the only
+  variable its build reads. All nine builds succeeded (clone + build,
+  measured):
+
+  | Image | 10ae91f / 687e6fe | 530f1e7 | b334ea7 | d3bda54 | d6033b9 |
+  | --- | --- | --- | --- | --- | --- |
+  | backend | 55 s | 47 s | | | |
+  | worker | 80 s | 82 s | 94 s | 92 s | 82 s |
+  | frontend | 383 s | 358 s | | | |
+
+- **Same files as Coolify's builds** (`rebuild/compare/`, SHA-1 of every
+  file, `node_modules` included):
+  - Workers 687e6fe, b334ea7 and d6033b9 match the images Coolify built at the
+    same commits (apps 18, 21 and 27) file for file: 30,124, 29,968 and
+    29,941 files, no difference, both on Node 20.20.2.
+  - The 10ae91f frontend matches the image Coolify built at 731774f, which
+    runs now: 97 files, identical.
+  - The 10ae91f backend differs from Coolify's 731774f backend in one file
+    of 5,457, `services/ai-billing/decimal.ts`, which is the #266 fix that
+    731774f adds.
+- **Isolated startup** (`rebuild/checks/`), every image with random dummy
+  secrets:
+  - The network was internal with no route out; the frontend ran with no
+    network at all.
+  - Postgres-only commits ran against a throwaway PostgreSQL holding that
+    commit's migration chain. Pre-switch commits ran against a throwaway
+    PostgREST over it, behind `/rest/v1`, with its own keys.
+
+  All 14 checks passed:
+  - Both backends answered `GET /api/health` with 200.
+  - Each worker kind a rollback starts on each worker image was still running
+    after 30 s, Docker reported it healthy, and it logged its start. The kinds
+    were commerce-sync, channels, intelligence, regression-runner, seo-crawler
+    and source-sync.
+  - Both frontends served the app, the widget manifest and the Android version
+    file.
+- **Kept outside Docker** (`rebuild/images/*.tar.gz`, root only; no secret in
+  them): nine gzip files, 1.4 GB in all (backend 85 MB, frontend 63 MB, worker
+  225 MB each), with SHA-256 sums. Each was proven:
+  - the image was removed from Docker and loaded back from its file alone
+    (backend and frontend 2–4 s, a worker 35–48 s);
+  - the loaded image has the same image id;
+  - it passed the same startup check again.
+
+**Expected recovery time** (estimates from the measurements above and
+Coolify's own deployment records on this server, two deployments at a time;
+not measured as a rollback):
+
+- With `rollback_load.sh` first: about 1 min (A) or 3 min (B) to load, then
+  about 3 min for A (6 deployments) and about 4 min for B (8). Deployments
+  that skipped the build here took 60–81 s for the backend, 25–32 s for the
+  frontend and 46 s for a worker.
+- Letting Coolify rebuild: about 12 min for A and 15 min for B. A deployment
+  with a build took about 2.5 min for the backend or a worker and 7.5–10 min
+  for the frontend, the longest single step.
+
+Neither path is instantaneous. The old containers keep serving until each new
+one is healthy.
 
 ## Migrations
 

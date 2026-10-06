@@ -72,6 +72,9 @@ const routerFor = (): Router => adminStorageProvidersRouter;
 
 // ── Two hermetic vendors: a local primary and a stubbed S3 mirror ──
 
+const MIRROR_ACCESS_KEY = 'mirror-access-key-id-value';
+const MIRROR_SECRET_KEY = 'mirror-secret-access-key-value';
+
 let primaryDir: string;
 let mirrorObjects: Map<string, string>;
 let mirrorReachable: boolean;
@@ -115,7 +118,7 @@ function seedPool(overrides?: { mirrorEnabled?: boolean }) {
       local: { enabled: true, config: { local_path: primaryDir, public_url: 'http://localhost:9999/files' } },
       s3: {
         enabled: overrides?.mirrorEnabled ?? true,
-        config: { bucket: 'mirror', region: 'us-east-1', access_key_id: 'ak', secret_access_key: 'sk' },
+        config: { bucket: 'mirror', region: 'us-east-1', access_key_id: MIRROR_ACCESS_KEY, secret_access_key: MIRROR_SECRET_KEY },
       },
     },
   });
@@ -296,6 +299,8 @@ describe('POST /:providerName/primary — promotion gate', () => {
     expect(mirror.config.access_key_id).toBeUndefined();
     expect(mirror.config.secret_access_key).toBeUndefined();
     expect(mirror.secretKeys).toContain('access_key_id');
-    expect(JSON.stringify(res.body)).not.toContain('sk');
+    // Distinctive values: a two-letter one ('sk') also matched random temp-dir names.
+    expect(JSON.stringify(res.body)).not.toContain(MIRROR_ACCESS_KEY);
+    expect(JSON.stringify(res.body)).not.toContain(MIRROR_SECRET_KEY);
   });
 });

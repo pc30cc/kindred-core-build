@@ -82,6 +82,11 @@ export interface StorageResult {
    * the object — but it is reported so an operator can re-sync.
    */
   mirrors?: MirrorOutcome[];
+  /**
+   * The vendor the upload was sent to (the primary resolved for the owner).
+   * Set by uploadForOwner, so a caller can record where the object went.
+   */
+  provider?: string;
 }
 
 /** Result of mirroring one object to one replica vendor. */
@@ -1254,7 +1259,7 @@ export async function uploadForOwner(
     const startedAt = Date.now();
     let result: StorageResult;
     try {
-      result = await handler(storageConfig, req);
+      result = { ...(await handler(storageConfig, req)), provider: storageConfig.provider };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       if (req.owner.kind === 'workspace') {

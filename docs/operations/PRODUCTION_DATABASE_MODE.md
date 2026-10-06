@@ -257,10 +257,14 @@ before it:
 The kit is on the server, root only: `/root/webyar-rollout/20261005-postgres-only/`.
 It holds the Coolify variable rows of the seven apps as they were before the
 switch, the deploy and restore scripts and the `webyar_app` credential; its
-`README.md` repeats these commands. Coolify keeps only the two newest images
-of an app, so the images a rollback needs are also kept under
-`webyar-rollback/<app uuid>:<commit>`, and a commit with no image left is
-rebuilt from Git instead.
+`README.md` repeats these commands.
+
+Do not count on old images: Coolify's Docker cleanup on this server runs every
+hour (forced) and deletes every image no container uses, extra tags included,
+keeping only each app's newest two or three. So each step below runs the
+commit's image if it is still there and otherwise rebuilds that commit from Git
+(about 2.5 min for the backend and a worker, about 9 min for the frontend).
+`deploy.php` goes through Coolify's queue, two deployments at a time.
 
 Set up (every rollback):
 
@@ -268,9 +272,13 @@ Set up (every rollback):
 D=/root/webyar-rollout/20261005-postgres-only
 docker cp $D/deploy.php coolify:/tmp/ && docker cp $D/restore_env.php coolify:/tmp/
 docker exec -u root coolify chmod 644 /tmp/deploy.php /tmp/restore_env.php
-# app id, full commit, 1 = run the existing image / 0 = build that commit; goes through Coolify's queue
-deploy() { DEPLOY_APP_ID=$1 DEPLOY_COMMIT=$2 ROLLBACK=$3 docker exec -e DEPLOY_APP_ID -e DEPLOY_COMMIT -e ROLLBACK coolify php artisan tinker --execute="require '/tmp/deploy.php';"; }
-keep() { docker tag "webyar-rollback/$1:$2" "$1:$2"; }   # put a kept image back under its Coolify name
+# rb <app id> <app uuid> <full commit>: reuse the image if present, else build that commit
+rb() {
+  if docker image inspect "$2:$3" >/dev/null 2>&1; then R=1; else R=0; fi
+  DEPLOY_APP_ID=$1 DEPLOY_COMMIT=$3 ROLLBACK=$R docker exec -e DEPLOY_APP_ID -e DEPLOY_COMMIT -e ROLLBACK coolify php artisan tinker --execute="require '/tmp/deploy.php';"
+}
+BE=vpvsddhbp640fdb9j4r5sfym WC=1pxev53a9ylbnn1jflmscups FE=vyc6ywzjtlw1es51km4arrl5 CH=8yooppd8yzfygezjfah3gupl
+IN=a21qofxtx8g0vin1f7he88f6 RG=f31csnb3mvr3gdgppa7vcdzu SEO=uimjkt8awgjagabncll0lgap SS=nwypq2oag3roduru7djp53j1
 ```
 
 **A. Undo only the AI billing fix** (stay on postgres-only). Runs settled
@@ -278,9 +286,8 @@ since stay settled; nothing to reverse.
 
 ```
 P=10ae91fb6d885b744047dfb5f355d92d7495f98c S=687e6feb3b78a3edc02db76ec010e8af21eb77a3
-keep vpvsddhbp640fdb9j4r5sfym $P; keep 1pxev53a9ylbnn1jflmscups $P; keep vyc6ywzjtlw1es51km4arrl5 $P
-deploy 29 $P 1; deploy 30 $P 1; deploy 28 $P 1
-deploy 18 $S 1; deploy 24 $S 1; deploy 19 $S 1      # 687e6fe is still their second image
+rb 29 $BE $P; rb 30 $WC $P; rb 28 $FE $P
+rb 18 $IN $S; rb 24 $RG $S; rb 19 $SS $S
 ```
 
 **B. Undo the whole postgres-only switch.**
@@ -289,14 +296,11 @@ deploy 18 $S 1; deploy 24 $S 1; deploy 19 $S 1      # 687e6fe is still their sec
 # 1. remove DATABASE_URL, DATABASE_MODE, PLATFORM_SIGNING_SECRET, DATABASE_POOL_MAX,
 #    DATABASE_APPLICATION_NAME from the seven apps (both together, never one)
 docker exec coolify php artisan tinker --execute="require '/tmp/restore_env.php';"
-# 2. backend, WooCommerce, frontend: no 530f1e7 image is left, so rebuild it
-O=530f1e7fd171b5c0a49ed311c4d46c5e4fc36361
-deploy 29 $O 0; deploy 30 $O 0; deploy 28 $O 0
-# 3. workers: their pre-switch images are kept
-C=b334ea73ce188eee5e6c25fb8049c3cf3e5901c3 I=d3bda54c83d2b5f0126538cbac00315ddf9561b0 W=d6033b99723b43be68fa33139aff0f57cc117fff
-keep 8yooppd8yzfygezjfah3gupl $C; keep a21qofxtx8g0vin1f7he88f6 $I
-keep f31csnb3mvr3gdgppa7vcdzu $W; keep uimjkt8awgjagabncll0lgap $W; keep nwypq2oag3roduru7djp53j1 $W
-deploy 21 $C 1; deploy 18 $I 1; deploy 24 $W 1; deploy 27 $W 1; deploy 19 $W 1
+# 2. redeploy the pre-switch commits
+O=530f1e7fd171b5c0a49ed311c4d46c5e4fc36361 C=b334ea73ce188eee5e6c25fb8049c3cf3e5901c3
+I=d3bda54c83d2b5f0126538cbac00315ddf9561b0 W=d6033b99723b43be68fa33139aff0f57cc117fff
+rb 29 $BE $O; rb 30 $WC $O; rb 28 $FE $O
+rb 21 $CH $C; rb 18 $IN $I; rb 24 $RG $W; rb 27 $SEO $W; rb 19 $SS $W
 ```
 
 Then check: `https://api.webyar.ai/api/health` → 200 and

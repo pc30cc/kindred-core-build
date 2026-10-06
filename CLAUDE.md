@@ -48,12 +48,15 @@ apps only through Coolify's queue (a push, the Deploy button or the kit's
 Production functional test passed 2026-10-06 (28/28: login, visitor message
 and operator reply delivered live once over Centrifugo, duplicate replays,
 attachment round trip and access rules) with an owner-authorized test account
-(credentials root-only in `/root/webyar-test-account.env`); rerun it with the
-kit's `functional_test.mjs` and clean up with `functional_cleanup.mjs`.
+(its credentials file was removed afterwards; to rerun, recreate the root-only
+`/root/webyar-test-account.env`, run the kit's `functional_test.mjs` and clean
+up with `functional_cleanup.mjs`).
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 `DATABASE_URL` and `DATABASE_MODE` are set and removed together. Do not run
 `migrate-database.sh`, a baseline or `move-data.sh` against production.
 Runbook, measured state and exact rollback commands:
 `docs/operations/PRODUCTION_DATABASE_MODE.md`; the rollback kit (snapshot,
-scripts, credential, kept images `webyar-rollback/*`) is root-only on the
-server in `/root/webyar-rollout/20261005-postgres-only/`.
+scripts, credential) is root-only on the server in
+`/root/webyar-rollout/20261005-postgres-only/`. Coolify's hourly Docker
+cleanup deletes images no container uses, so a rollback rebuilds an old
+commit when its image is gone (the runbook's `rb` helper does that).

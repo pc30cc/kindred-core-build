@@ -3,8 +3,8 @@
 **Status: switched and verified in production on 2026-10-05; the AI billing
 decimal fix (#266) deployed and verified on 2026-10-06.** The production
 WebYar backend and its six workers reach the hosted Supabase project's
-PostgreSQL directly (`DATABASE_MODE=postgres-only`). What was measured, what
-is still an estimate and what is still unverified:
+PostgreSQL directly (`DATABASE_MODE=postgres-only`). What was measured and what
+is still an estimate:
 [Verified state](#verified-state-2026-10-06) below.
 
 It is a connection-mode change only: the database, its data and its schema
@@ -178,35 +178,61 @@ the AI billing fix to the code paths of 29, 18, 24 and 19.
 - Backend throughput at pool 3, about 90 statements a second, from a ~30 ms
   round trip and the REST request rate before the switch (see the budget).
 
-### Production functional checks: not yet run
+### Production functional checks: passed (2026-10-06 08:57 UTC)
 
-A login, a visitor message and an operator reply delivered once and live over
-Centrifugo, and an attachment round trip have not been exercised in
-production. Health endpoints, worker heartbeats and CI do not count as that
-proof. It needs a test account the owner authorizes, in a workspace whose
-widget is on:
+Run against production through the normal routes by `functional_test.mjs` (in
+the kit), as an owner-authorized test account in its own workspace (slug
+`ws_98b9076a`, widget on, no AI agent configured, no push devices), from a
+throwaway container of the backend image with no production variables. All 28
+checks passed (measured):
 
-- A new workspace's widget is off, and turning it on requires the owner's
-  phone to be verified (`workspace_owner_phone_verified`): by SMS code, or by
-  a super admin's manual verification (Super Admin → user → phone).
-- The only workspace with the widget on is WebYar's own live support inbox,
-  which must not be used for tests.
-- A self-registered account would stay (there is no self-service workspace
-  deletion) on a trial plan whose ending emails go to its address; a super
-  admin removes it afterwards with `DELETE /api/admin/management/users/:id`.
+- Login with the cookie transport; the session is the test account's; a
+  request without a cookie has no session; the inbox reads.
+- Visitor message through the widget (signed visitor session for the allowed
+  origin): stored once; the operator, connected to Centrifugo
+  (`ws:<ws>:inbox`), received it live exactly once, 717 ms after the send.
+- Operator reply: stored once; the visitor, subscribed to
+  `ws:<ws>:conv:<conv>`, received it live exactly once, 287 ms after the send;
+  the inbox got it once too.
+- Duplicates: replaying the visitor message (same `client_message_id`)
+  returned the same id and was neither stored nor delivered again; replaying
+  the operator reply returned `duplicate: true`, stored and delivered once.
+- Attachment (93-byte text file): uploaded, sent, delivered live once; the
+  reopened conversation lists it; the operator and the conversation's visitor
+  download it byte for byte (SHA-256); without a session 401; another
+  visitor 403.
 
-The test is ready in the kit: `functional_test.mjs` (prepared, not yet run).
-It reads `TEST_EMAIL`, `TEST_PASSWORD`, `TEST_WORKSPACE_ID` and `TEST_ORIGIN`
-from a root-only env file and prints no secret; it sends no OTP or SMS,
-resolves nothing, calls no AI and leaves the test conversation in the test
-workspace:
+Cleanup: the stored object was deleted through `POST /api/storage/delete`
+(Bunny and the Arvan replica), then the attachment row, the conversation with
+its messages, and the contact through their routes. Rows no route removes
+(3 timeline events, the AI engine's `skipped` run, the AI settings row created
+on first use with the defaults, 2 storage-usage log rows, the month's usage
+counter row holding only the test's counts) were deleted in one transaction
+that checked every row count (kit: `functional/residual_cleanup.sql`). Every
+workspace-scoped table is back to its pre-test count. The account's two login
+sessions (revoked at logout) and two login-attempt audit rows are kept.
+
+To run it again: put `TEST_EMAIL`, `TEST_PASSWORD`, `TEST_WORKSPACE_ID` (id or
+slug) and `TEST_ORIGIN` in the root-only `/root/webyar-test-account.env`;
+the test writes what it created to `/out/created.json`:
 
 ```
 D=/root/webyar-rollout/20261005-postgres-only
 IMG=$(docker inspect "$(docker ps --filter name=^vpvsddhbp640fdb9j4r5sfym- --format '{{.Names}}' | head -1)" --format '{{.Config.Image}}')
 docker run --rm --env-file /root/webyar-test-account.env -v $D/functional_test.mjs:/kit/functional_test.mjs:ro \
-  --entrypoint node "$IMG" --experimental-websocket /kit/functional_test.mjs
+  -v $D/functional:/out --entrypoint node "$IMG" --experimental-websocket /kit/functional_test.mjs
 ```
+
+Then remove what it created with `functional_cleanup.mjs` (storage object,
+attachment, conversation, contact; it refuses a file key outside the test
+workspace, and the workspace-wide conversation delete must only run when the
+test's conversation is the workspace's only one).
+
+Known, pre-existing and harmless: `conversation_attachments.storage_provider`
+records `local` for every attachment (the init route reads the setting's
+`provider` key, the stored setting has `provider_name`). The bytes go to the
+configured provider (Bunny; `storage_usage_logs.provider_name`), and reads
+resolve the provider from the setting, not from that label.
 
 ### AI billing recovery (#266)
 

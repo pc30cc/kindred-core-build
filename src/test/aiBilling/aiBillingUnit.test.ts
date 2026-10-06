@@ -37,6 +37,54 @@ describe('decimal fixed-point', () => {
   });
 });
 
+// A numeric column arrives as a JSON number, and String() prints a number
+// below 1e-6 in exponent notation: 0.000000880000 became "8.8e-7", which the
+// parser rejected, failing every recovery pass that met such a usage event.
+describe('decimal fixed-point: exponent notation', () => {
+  const same = (exponent: string | number, plain: string) =>
+    expect(D.fromString(exponent)).toBe(D.fromString(plain));
+
+  it('reads the exponent form String() gives small and large numbers, digit for digit', () => {
+    same('8.8e-7', '0.00000088');
+    same(8.8e-7, '0.00000088');
+    same(Number('0.000000880000'), '0.00000088');
+    same('1.95448e-7', '0.000000195448');
+    same('-2.5e-7', '-0.00000025');
+    same('5e-7', '0.0000005');
+    same('1e-12', '0.000000000001');
+    same('1.5E+3', '1500');
+    same('1e21', '1000000000000000000000');
+    same(1e21, '1000000000000000000000');
+    same('0.5e-6', '0.0000005');
+    same('12.34e1', '123.4');
+    expect(D.toString(D.fromString('8.8e-7'))).toBe('0.00000088');
+  });
+
+  it('keeps the existing rounding rule: digits past SCALE are cut, as for plain input', () => {
+    same('1e-13', '0.0000000000001');
+    expect(D.isZero(D.fromString('1e-13'))).toBe(true);
+    same('1.23456789012345e-1', '0.123456789012345');
+    expect(D.toString(D.fromString('1.23456789012345e-1'))).toBe('0.123456789012');
+  });
+
+  it('leaves ordinary decimals exactly as before', () => {
+    expect(D.toString(D.fromString('0.000136000000'))).toBe('0.000136');
+    expect(D.toString(D.fromString('302.056000'))).toBe('302.056');
+    expect(D.toString(D.fromString(1.95448))).toBe('1.95448');
+    expect(D.toString(D.fromString('-1.5'))).toBe('-1.5');
+    expect(D.toString(D.fromString('4.000000'))).toBe('4');
+    expect(D.toStoredIrr(D.mul(D.fromString('304.01048'), D.fromString('4')))).toBe('1216.04192');
+  });
+
+  it('still rejects anything that is not a number', () => {
+    for (const bad of ['1e', 'e5', '1e+', '1.2.3e4', '1e2.5', 'NaN', 'Infinity', '-Infinity', '0x10', '1 e5', '1e5000']) {
+      expect(() => D.fromString(bad), bad).toThrow(/invalid_decimal/);
+    }
+    expect(() => D.fromString(Number.NaN)).toThrow(/invalid_decimal/);
+    expect(() => D.fromString(Number.POSITIVE_INFINITY)).toThrow(/invalid_decimal/);
+  });
+});
+
 describe('operation identity', () => {
   const base = { workspaceId: 'w1', conversationId: 'c1', messageId: 'm1', prompt: 'hello' };
 

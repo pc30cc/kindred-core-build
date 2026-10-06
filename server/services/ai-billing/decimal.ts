@@ -11,10 +11,42 @@ const SCALE_FACTOR = 10n ** BigInt(SCALE);
 
 export type Dec = bigint;
 
+const PLAIN = /^-?\d*(\.\d*)?$/;
+const EXPONENT = /^(-?)(\d+)(?:\.(\d*))?[eE]([+-]?\d+)$/;
+// A double's decimal exponent stays within ±324; this only bounds the string
+// built below for input that did not come from a number.
+const MAX_EXPONENT = 400;
+
+/**
+ * Database numerics reach the server as JSON numbers, and String() prints a
+ * number below 1e-6 (or from 1e21) in exponent notation: 0.000000880000
+ * arrives as "8.8e-7". Rewrite that as the same digits in plain notation,
+ * moving the decimal point in the string (no float arithmetic), so it adds no
+ * rounding of its own. Returns null for anything else.
+ */
+function expandExponent(s: string): string | null {
+  const m = EXPONENT.exec(s);
+  if (!m) return null;
+  const [, sign, intPart, frac = '', expRaw] = m;
+  const exp = Number(expRaw);
+  if (Math.abs(exp) > MAX_EXPONENT) return null;
+  const digits = intPart + frac;
+  const point = intPart.length + exp;
+  let plain: string;
+  if (point <= 0) plain = `0.${'0'.repeat(-point)}${digits}`;
+  else if (point >= digits.length) plain = digits + '0'.repeat(point - digits.length);
+  else plain = `${digits.slice(0, point)}.${digits.slice(point)}`;
+  return sign + plain;
+}
+
 export function fromString(value: string | number | null | undefined): Dec {
   if (value === null || value === undefined || value === '') return 0n;
-  const s = String(value).trim();
-  if (!/^-?\d*(\.\d*)?$/.test(s)) throw new Error(`invalid_decimal:${s}`);
+  let s = String(value).trim();
+  if (!PLAIN.test(s)) {
+    const plain = expandExponent(s);
+    if (plain === null) throw new Error(`invalid_decimal:${s}`);
+    s = plain;
+  }
   const neg = s.startsWith('-');
   const body = neg ? s.slice(1) : s;
   const [intPart = '0', fracRaw = ''] = body.split('.');

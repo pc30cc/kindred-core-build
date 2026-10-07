@@ -41,6 +41,10 @@ WebYar's own PostgreSQL 17 + pgvector on the same server:
   (`oqzy9q4ovntam9jgf7nxzqun:5432`, `sslmode=disable`) and has no public port.
 - Coolify backs it up daily at 02:13 UTC and keeps 14 dumps on the server
   only; there is no off-site copy yet.
+- Super Admin → Database → Backup also backs it up (`pg_dump` from app 29 as
+  the read-only role `webyar_backup`, via `BACKUP_DATABASE_URL`; local copies
+  in the bind volume `/data/webyar/db-backups`; storage/FTP copies encrypted
+  with `PLUGIN_SECRETS_MASTER_KEY`). See `docs/operations/DATABASE_BACKUPS.md`.
 - Only `DATABASE_URL` changed in the move: secrets, pools and names are as
   before.
 - The migration ledger `public._schema_migrations` is complete (the chain at

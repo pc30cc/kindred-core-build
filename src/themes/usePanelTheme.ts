@@ -7,14 +7,18 @@
  * localStorage so the panel's first paint already wears it.
  *
  * A Super Admin can also preview a theme before activating it: the preview
- * lives in this tab's sessionStorage only and is never sent anywhere.
+ * lives in this tab's sessionStorage only and is never sent anywhere. Every
+ * caller reads the same value (a small store below), so ending it anywhere
+ * ends it everywhere; it is honoured only for platform admins, so whoever
+ * signs in next on the tab never sees it.
  *
  * AppLayout applies the result as `<html data-panel-theme="...">` while the
  * panel is open and removes it on leaving, so the Super Admin panel, sign-in
  * and help center keep their own look. Portalled dialogs, menus and toasts
  * sit under <html> too, so they follow the theme.
  */
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
+import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { usePlatformPublicConfig } from '@/lib/platformPublicConfig';
 import { isPanelThemeId, resolvePanelTheme, type PanelThemeId } from '../../shared/panelThemes';
 
@@ -51,24 +55,40 @@ function readPreview(): PanelThemeId | null {
   return isPanelThemeId(value) ? value : null;
 }
 
+const previewListeners = new Set<() => void>();
+
+function subscribePreview(listener: () => void) {
+  previewListeners.add(listener);
+  return () => {
+    previewListeners.delete(listener);
+  };
+}
+
+function setPreview(theme: PanelThemeId | null) {
+  writeStorage(session, PREVIEW_KEY, theme);
+  for (const listener of previewListeners) listener();
+}
+
 /** Wear `theme` in this tab's workspace panel until the preview is ended. */
 export function startPanelThemePreview(theme: PanelThemeId) {
-  writeStorage(session, PREVIEW_KEY, theme);
+  setPreview(theme);
+}
+
+export function endPanelThemePreview() {
+  setPreview(null);
 }
 
 export function usePanelTheme() {
   const { data } = usePlatformPublicConfig();
+  const { data: isAdmin } = useIsGlobalAdmin();
   const platformTheme = data ? resolvePanelTheme(data.branding?.workspace_panel_theme) : cachedPanelTheme();
-  const [preview, setPreview] = useState<PanelThemeId | null>(readPreview);
+  const stored = useSyncExternalStore(subscribePreview, readPreview, () => null);
+  // Previewing the theme everyone already has is no preview.
+  const preview = isAdmin && stored && stored !== platformTheme ? stored : null;
 
   useEffect(() => {
     if (data) writeStorage(local, CACHE_KEY, platformTheme);
   }, [data, platformTheme]);
-
-  const endPreview = useCallback(() => {
-    writeStorage(session, PREVIEW_KEY, null);
-    setPreview(null);
-  }, []);
 
   return {
     /** What the panel wears now. */
@@ -77,7 +97,7 @@ export function usePanelTheme() {
     platformTheme,
     /** A theme this tab is previewing, if any. */
     preview,
-    endPreview,
+    endPreview: endPanelThemePreview,
   };
 }
 

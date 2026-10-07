@@ -16,9 +16,9 @@ export function PanelThemePreviewBar({ theme, onEnd }: { theme: PanelThemeId; on
   return (
     <div
       role="status"
-      className="fixed inset-x-0 bottom-[calc(72px+env(safe-area-inset-bottom))] z-50 flex justify-center px-4 md:bottom-6"
+      className="pointer-events-none fixed inset-x-0 bottom-[calc(72px+env(safe-area-inset-bottom))] z-50 flex justify-center px-4 md:bottom-6"
     >
-      <div className="flex max-w-full items-center gap-2 rounded-full border border-border bg-popover/95 py-1.5 pe-1.5 ps-3 text-sm text-popover-foreground shadow-lg backdrop-blur">
+      <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-full border border-border bg-popover/95 py-1.5 pe-1.5 ps-3 text-sm text-popover-foreground shadow-lg backdrop-blur">
         <Eye className="h-4 w-4 shrink-0 text-primary" aria-hidden />
         <span className="min-w-0 truncate">{t('admin.panelThemes.preview.banner', { name })}</span>
         <Button asChild size="sm" variant="ghost" className="h-8 shrink-0 rounded-full px-3">

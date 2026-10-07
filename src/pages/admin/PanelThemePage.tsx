@@ -22,7 +22,7 @@ import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { panelThemes, type PanelThemeInfo } from '@/themes/registry';
 import { ThemePreview } from '@/themes/ThemePreview';
-import { startPanelThemePreview } from '@/themes/usePanelTheme';
+import { endPanelThemePreview, startPanelThemePreview } from '@/themes/usePanelTheme';
 import { resolvePanelTheme, type PanelThemeId } from '../../../shared/panelThemes';
 
 const BRANDING_QUERY_KEY = ['platform_branding'] as const;
@@ -50,12 +50,19 @@ export default function PanelThemePage() {
         body: JSON.stringify({ theme }),
       }),
     onSuccess: ({ theme }) => {
-      void qc.invalidateQueries({ queryKey: BRANDING_QUERY_KEY });
-      void qc.invalidateQueries({ queryKey: PLATFORM_PUBLIC_CONFIG_QUERY_KEY });
+      // Show the new theme as active at once; the refetch below confirms it.
+      qc.setQueryData<Record<string, unknown> | null>(BRANDING_QUERY_KEY, (branding) =>
+        branding ? { ...branding, workspace_panel_theme: theme } : branding,
+      );
+      endPanelThemePreview();
       toast({
         title: tk('admin.panelThemes.activated', { name: tk(`admin.panelThemes.themes.${theme}.name`) }),
         description: tk('admin.panelThemes.activatedHint'),
       });
+      return Promise.all([
+        qc.invalidateQueries({ queryKey: BRANDING_QUERY_KEY }),
+        qc.invalidateQueries({ queryKey: PLATFORM_PUBLIC_CONFIG_QUERY_KEY }),
+      ]);
     },
     onError: (err: Error) => {
       toast({ title: tk('admin.panelThemes.failed'), description: err.message, variant: 'destructive' });
@@ -229,10 +236,12 @@ function ThemeCard({
               {active ? tk('admin.panelThemes.inUse') : tk('admin.panelThemes.activate')}
             </Button>
           )}
-          <Button variant="outline" onClick={onPreview}>
-            <Eye className="h-4 w-4" />
-            {tk('admin.panelThemes.previewAction')}
-          </Button>
+          {!active && (
+            <Button variant="outline" onClick={onPreview}>
+              <Eye className="h-4 w-4" />
+              {tk('admin.panelThemes.previewAction')}
+            </Button>
+          )}
         </div>
       </div>
     </Card>

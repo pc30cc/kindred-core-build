@@ -5,14 +5,19 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const config = vi.hoisted(() => ({ data: undefined as unknown }));
+const config = vi.hoisted(() => ({ data: undefined as unknown, admin: true }));
 
 vi.mock('@/lib/platformPublicConfig', () => ({
   usePlatformPublicConfig: () => ({ data: config.data }),
 }));
 
+vi.mock('@/hooks/useAdmin', () => ({
+  useIsGlobalAdmin: () => ({ data: config.admin }),
+}));
+
 import {
   cachedPanelTheme,
+  endPanelThemePreview,
   startPanelThemePreview,
   useApplyPanelTheme,
   usePanelTheme,
@@ -20,8 +25,9 @@ import {
 
 beforeEach(() => {
   config.data = undefined;
+  config.admin = true;
   localStorage.clear();
-  sessionStorage.clear();
+  act(() => endPanelThemePreview());
 });
 
 afterEach(() => {
@@ -59,6 +65,30 @@ describe('usePanelTheme', () => {
     act(() => result.current.endPreview());
     expect(result.current).toMatchObject({ theme: 'classic', preview: null });
     expect(sessionStorage.getItem('wy-panel-theme-preview')).toBeNull();
+  });
+
+  it('ending the preview anywhere ends it for every caller (the panel and Settings → Interface)', () => {
+    config.data = { branding: { workspace_panel_theme: 'classic' } };
+    startPanelThemePreview('art');
+    const panel = renderHook(() => usePanelTheme());
+    const settings = renderHook(() => usePanelTheme());
+    expect(settings.result.current.theme).toBe('art');
+    act(() => panel.result.current.endPreview());
+    expect(panel.result.current.theme).toBe('classic');
+    expect(settings.result.current.theme).toBe('classic');
+  });
+
+  it('a stored preview is ignored for anyone but a platform admin', () => {
+    config.data = { branding: { workspace_panel_theme: 'classic' } };
+    config.admin = false;
+    startPanelThemePreview('art');
+    expect(renderHook(() => usePanelTheme()).result.current).toMatchObject({ theme: 'classic', preview: null });
+  });
+
+  it('previewing the theme everyone already has is no preview', () => {
+    config.data = { branding: { workspace_panel_theme: 'art' } };
+    startPanelThemePreview('art');
+    expect(renderHook(() => usePanelTheme()).result.current).toMatchObject({ theme: 'art', preview: null });
   });
 });
 

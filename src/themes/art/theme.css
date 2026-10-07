@@ -1,8 +1,9 @@
 /*
  * Art — a workspace panel theme ("قالب") after the Lart design: warm ivory
  * paper, deep ink text and a refined terracotta (clay) accent, in a calm,
- * premium frame. The content floats on a soft panel inside the sidebar's
- * colour; navigation is quiet; surfaces are hairline-ringed paper.
+ * premium frame of its own: no sidebar, a top bar with the navigation as
+ * pills (src/themes/art/shell), and pages centred on the paper; surfaces are
+ * hairline-ringed paper.
  *
  * Everything here applies only under <html data-panel-theme="art">, which the
  * workspace panel sets while it is open (src/themes/usePanelTheme.ts). The
@@ -31,7 +32,9 @@
   --popover: 40 69% 99.1%;
   --popover-foreground: 221 26% 10.5%;
 
-  --primary: 17 57% 43.5%;
+  /* Clay, a touch deeper than Lart's 43.5% so clay text on its own /10 tint
+     still meets WCAG AA (4.7:1); warning and destructive likewise. */
+  --primary: 17 57% 41%;
   --primary-foreground: 40 50% 98.4%;
   --secondary: 37 32% 93.4%;
   --secondary-foreground: 221 20% 14.2%;
@@ -39,14 +42,14 @@
   --muted-foreground: 31 8% 38.3%;
   --accent: 26 49% 92.5%;
   --accent-foreground: 17 45% 28%;
-  --gold: 17 57% 43.5%;
+  --gold: 17 57% 41%;
   --gold-foreground: 40 50% 98.4%;
 
-  --destructive: 357 68% 47.6%;
+  --destructive: 357 68% 45%;
   --destructive-foreground: 40 50% 98.4%;
   --success: 148 59% 28.9%;
   --success-foreground: 40 50% 98.4%;
-  --warning: 33 85% 36%;
+  --warning: 33 85% 32%;
   --warning-foreground: 40 50% 98.4%;
   --info: 210 51% 39.9%;
   --info-foreground: 40 50% 98.4%;
@@ -65,7 +68,7 @@
 
   --sidebar-background: 37 42% 95.4%;
   --sidebar-foreground: 221 16% 19%;
-  --sidebar-primary: 17 57% 43.5%;
+  --sidebar-primary: 17 57% 41%;
   --sidebar-primary-foreground: 40 50% 98.4%;
   --sidebar-accent: 34 31% 90.1%;
   --sidebar-accent-foreground: 221 26% 10.5%;
@@ -97,7 +100,9 @@
   --shadow-glow: 0 8px 20px -8px hsl(var(--art-shadow) / 0.16), 0 2px 4px -2px hsl(var(--art-shadow) / 0.06);
   --shadow-elevated: 0 14px 34px -14px hsl(var(--art-shadow) / 0.22);
   --art-hairline: 0 0 0 1px hsl(var(--foreground) / 0.075);
-  --art-grain-opacity: 0.045;
+  --art-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.15 0 0 0 0 0.15 0 0 0 0 0.15 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  /* The width of a normal page's column (ArtShell). */
+  --art-content-max: 80rem;
 
   color-scheme: light;
 }
@@ -170,193 +175,247 @@
   --shadow-glow: 0 10px 26px -10px hsl(var(--art-shadow) / 0.75), 0 2px 4px -2px hsl(var(--art-shadow) / 0.4);
   --shadow-elevated: 0 16px 38px -14px hsl(var(--art-shadow) / 0.8);
   --art-hairline: 0 0 0 1px hsl(0 0% 100% / 0.07);
-  --art-grain-opacity: 0.03;
+  --art-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
 
   color-scheme: dark;
 }
 
+/* The call stage stays dark in both modes: its status colours are the dark
+   mode's, so they read on it. */
+:root[data-panel-theme="art"] .bg-call-stage {
+  --success: 144 47% 58%;
+  --warning: 39 78% 61.8%;
+  --destructive: 359 81% 66.7%;
+  --info: 210 70% 69.2%;
+}
+
 /* ── 2. The frame ──────────────────────────────────────────────────────── */
 
-/* The canvas is the sidebar's colour; the page floats on it. */
+/* Art has its own frame, src/themes/art/shell/ArtShell.tsx: no sidebar, a top
+   bar with the navigation as pills, then the page on ivory paper. */
 :root[data-panel-theme="art"] body,
 :root[data-panel-theme="art"] [data-shell="app"] {
-  background-color: hsl(var(--sidebar-background));
+  background-color: hsl(var(--background));
   background-image: none;
 }
 
-/* Glows, aurora blobs and the top bar's gradient hairline: Art is calm. */
+/* Glows and aurora blobs: Art is calm. */
 :root[data-panel-theme="art"] [data-shell-decor] {
   display: none !important;
 }
 
+/* Everything under the bars: the paper, lit faintly with clay from the top
+   end, with a grain. Painted as background layers of the frame itself, not as
+   pseudo-elements: the frame must not become a stacking context, or a page's
+   own fixed overlay (the phone inbox's contact drawer, z-50) would sink under
+   the bottom tab bar (z-40) that sits outside it. */
 :root[data-panel-theme="art"] [data-shell="frame"] {
-  position: relative;
-  isolation: isolate;
+  --art-light-start: 100%;
+  --art-light-end: 0%;
   background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(60rem 22rem at var(--art-light-start) -7rem, hsl(var(--primary) / 0.075), transparent 70%),
+    radial-gradient(44rem 18rem at var(--art-light-end) -9rem, hsl(var(--brand-coral) / 0.05), transparent 70%),
+    var(--art-grain);
 }
 
-@media (min-width: 768px) {
-  :root[data-panel-theme="art"] [data-shell="frame"] {
-    margin-block: 0.5rem;
-    margin-inline-end: 0.5rem;
-    border-radius: 1rem;
-    box-shadow: var(--art-hairline), 0 1px 3px 0 hsl(var(--art-shadow) / 0.07), 0 12px 32px -20px hsl(var(--art-shadow) / 0.18);
+/* The light sits at the top end: right in LTR, left in RTL. */
+:root[data-panel-theme="art"] [dir="rtl"] [data-shell="frame"] {
+  --art-light-start: 0%;
+  --art-light-end: 100%;
+}
+
+/* A normal page: one centred column with room to breathe. Full-bleed pages
+   (inbox, settings, ...) fill the frame edge to edge instead. */
+:root[data-panel-theme="art"] [data-shell="main"][data-layout="page"] {
+  padding-block: 2rem 3rem;
+  padding-inline: max(2rem, calc((100% - var(--art-content-max)) / 2));
+}
+
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] [data-shell="main"][data-layout="page"] {
+    padding-block: 1.25rem 2rem;
+    padding-inline: 1rem;
   }
 }
 
-/* A faint clay light at the top of the page and a paper grain under it. */
-:root[data-panel-theme="art"] [data-shell="frame"]::before,
-:root[data-panel-theme="art"] [data-shell="frame"]::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  border-radius: inherit;
+/* ── 3. The bars ───────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-shell="header"] {
+  background-color: hsl(var(--background));
+  box-shadow: 0 1px 0 0 hsl(var(--foreground) / 0.07);
 }
 
-:root[data-panel-theme="art"] [data-shell="frame"]::before {
-  background-image:
-    radial-gradient(56rem 20rem at 100% -6rem, hsl(var(--primary) / 0.07), transparent 70%),
-    radial-gradient(40rem 18rem at 0% -8rem, hsl(var(--brand-coral) / 0.05), transparent 70%);
+:root[data-panel-theme="art"] [data-shell="context-bar"] {
+  background-color: hsl(var(--background));
+  box-shadow: inset 0 -1px 0 0 hsl(var(--foreground) / 0.07);
 }
 
-:root[data-panel-theme="art"] [data-shell="frame"]::after {
-  opacity: var(--art-grain-opacity);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
-  mix-blend-mode: multiply;
-}
-
-:root[data-panel-theme="art"].dark [data-shell="frame"]::after {
-  mix-blend-mode: screen;
-}
-
-/* ── 3. Sidebar ────────────────────────────────────────────────────────── */
-
-:root[data-panel-theme="art"] [data-shell="sidebar"] {
-  background-color: hsl(var(--sidebar-background));
-  border-inline-end-color: transparent;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-:root[data-panel-theme="art"] [data-shell="sidebar-toggle"] {
-  background-color: hsl(var(--card));
-  border-color: hsl(var(--foreground) / 0.1);
-  box-shadow: 0 1px 2px 0 hsl(var(--art-shadow) / 0.1);
-}
-
-:root[data-panel-theme="art"] [data-shell="workspace-mark"] {
-  border-radius: 0.625rem;
-  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.14), 0 1px 2px 0 hsl(var(--art-shadow) / 0.2);
-}
-
-/* Navigation: a plain icon and label; the current page sits on a soft
-   paper chip with a clay mark at the edge of the rail. */
-:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-item] {
-  border-radius: 0.625rem;
-  padding-block: 0.375rem;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-item]:hover {
-  background-color: hsl(var(--sidebar-accent) / 0.65);
-  color: hsl(var(--sidebar-foreground));
-}
-
-:root[data-panel-theme="art"] [data-shell="sidebar"] .nav-glow {
-  background-image: none;
-  background-color: hsl(var(--sidebar-accent));
-  color: hsl(var(--sidebar-accent-foreground));
-  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.035);
-}
-
-:root[data-panel-theme="art"] [data-shell="sidebar"] .nav-glow::after {
-  inset-block: 9px;
-  width: 3px;
-  background-image: none;
-  background-color: hsl(var(--sidebar-primary));
-  box-shadow: none;
-}
-
-:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-chip] {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 0.5rem;
-  background-color: transparent;
-  background-image: none;
-  box-shadow: none;
-  color: hsl(var(--sidebar-muted-foreground));
-  transform: none;
-}
-
-:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-item]:hover [data-nav-chip] {
-  color: hsl(var(--sidebar-foreground));
-}
-
-:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-chip][data-active="true"] {
-  color: hsl(var(--sidebar-primary));
-}
-
-:root[data-panel-theme="art"] [data-shell="sidebar"][data-collapsed="true"] [data-nav-chip] {
+/* AlertsMenu (classic) as one of the bar's round icon buttons. */
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"] {
   width: 2.5rem;
   height: 2.5rem;
-  border-radius: 0.75rem;
+  border-radius: 9999px;
+  color: hsl(var(--muted-foreground));
 }
 
-/* ── 4. Top bar and phone tab bar ──────────────────────────────────────── */
-
-:root[data-panel-theme="art"] [data-shell="topbar"] {
-  background-color: hsl(var(--background) / 0.82);
-  border-bottom-color: hsl(var(--foreground) / 0.07);
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"]:hover,
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"][data-state="open"] {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
 }
 
-:root[data-panel-theme="art"] [data-shell="search"] {
-  border-radius: 0.75rem;
-  border-color: hsl(var(--foreground) / 0.07);
-  background-color: hsl(var(--muted) / 0.7);
-  box-shadow: none;
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"] > svg {
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="search"]:hover {
-  border-color: hsl(var(--primary) / 0.3);
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"] > span {
+  inset-block-start: 0.3125rem;
+  inset-inline-end: 0.3125rem;
+  box-shadow: 0 0 0 2px hsl(var(--background));
+}
+
+/* UserMenu (classic): only the avatar in the bar; its panel as an Art menu.
+   Keyed to its markup: button > [avatar wrapper, name block, chevron]. */
+:root[data-panel-theme="art"] [data-shell="account"] > div > button {
+  border-radius: 9999px;
+  padding: 0.125rem;
+  transition: background-color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > button:hover {
   background-color: hsl(var(--muted));
 }
 
-:root[data-panel-theme="art"] [data-shell="search"] > svg {
+:root[data-panel-theme="art"] [data-shell="account"] > div > button > div:first-child > :first-child {
+  width: 2.25rem;
+  height: 2.25rem;
+  box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.08);
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > button > div:nth-child(2),
+:root[data-panel-theme="art"] [data-shell="account"] > div > button > svg {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div {
+  margin-top: 0.625rem;
+  border-color: transparent;
+  border-radius: 1rem;
+  padding: 0.375rem;
+  box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.07), 0 18px 40px -16px hsl(var(--art-shadow) / 0.28), 0 2px 6px -2px hsl(var(--art-shadow) / 0.08);
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > a,
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > button {
+  min-height: 2.5rem;
+  border-radius: 0.625rem;
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > a:hover,
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > button:hover {
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > a > svg,
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > button > svg {
   width: 1.125rem;
   height: 1.125rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="topbar"] [data-slot="button"] {
-  border-radius: 0.75rem;
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > div.border-t,
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > div.border-b {
+  border-color: hsl(var(--foreground) / 0.07);
 }
 
-:root[data-panel-theme="art"] [data-shell="topbar"] [data-slot="button"] > svg {
-  width: 1.3rem;
-  height: 1.3rem;
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > div.border-b {
+  margin-bottom: 0.25rem;
+  padding-inline: 0.75rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="topbar"] [data-slot="button"]:hover {
-  background-color: hsl(var(--muted));
+/* PlanStatusBanner (classic) as one slim, centred line under the bar.
+   Keyed to its markup: box > row > [icon, text block > title, text, link]. */
+:root[data-panel-theme="art"] [data-shell="plan-strip"]:empty {
+  display: none;
 }
 
-:root[data-panel-theme="art"] [data-shell="topbar"] [data-slot="select-trigger"] {
-  height: 2.375rem;
-  border-radius: 0.75rem;
-  border-color: hsl(var(--foreground) / 0.08);
-  background-color: transparent;
-  box-shadow: none;
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div {
+  margin: 0;
+  border-width: 0;
+  border-radius: 0;
+  padding-block: 0.4375rem;
+  padding-inline: 1rem;
+  background-color: hsl(var(--primary) / 0.065);
+  box-shadow: inset 0 -1px 0 0 hsl(var(--primary) / 0.12);
 }
 
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div {
+  align-items: center;
+  justify-content: center;
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > svg {
+  margin-top: 0;
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.625rem;
+  row-gap: 0.125rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > * {
+  margin-top: 0;
+  font-size: 0.8125rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > p:first-child {
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > a {
+  color: hsl(var(--primary));
+  font-weight: 600;
+}
+
+/* On a phone: the title and the way to upgrade, on one line. */
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > p:nth-child(2) {
+    display: none;
+  }
+}
+
+/* ── 4. Phones ─────────────────────────────────────────────────────────── */
+
+/* MobileBottomNav (classic): the current tab sits on a clay pill. */
 :root[data-panel-theme="art"] [data-shell="bottom-nav"] {
-  background-color: hsl(var(--background) / 0.92);
+  background-color: hsl(var(--background) / 0.94);
   border-top-color: hsl(var(--foreground) / 0.07);
 }
 
-:root[data-panel-theme="art"] [data-shell="bottom-nav"] [data-active="true"] > span:first-child {
-  width: 3rem;
-  height: 1.75rem;
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] > a > span:first-child,
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] > button > span:first-child {
+  width: 3.5rem;
+  height: 2rem;
   border-radius: 9999px;
+  transition: background-color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] > a > span:last-child,
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] > button > span:last-child {
+  font-size: 0.6875rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] [data-active="true"] > span:first-child {
   background-color: hsl(var(--primary) / 0.12);
+}
+
+:root[data-panel-theme="art"] [data-shell="drawer"] {
+  background-color: hsl(var(--background));
 }

@@ -287,15 +287,15 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
                     <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="waPageviewsFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.22} />
-                    <stop offset="100%" stopColor="#38bdf8" stopOpacity={0} />
+                    <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-sky-400))', stopOpacity: 0.22 }} />
+                    <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-sky-400))', stopOpacity: 0 }} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/40" />
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} tickFormatter={(d: string) => d.slice(5)} />
                 <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={40} />
                 <ReTooltip content={<OverviewChartTooltip />} />
-                <Area type="monotone" dataKey="pageviews" stroke="#38bdf8" strokeWidth={2} fill="url(#waPageviewsFill)" />
+                <Area type="monotone" dataKey="pageviews" stroke="rgb(var(--palette-sky-400))" strokeWidth={2} fill="url(#waPageviewsFill)" />
                 <Area type="monotone" dataKey="sessions" stroke="hsl(var(--primary))" strokeWidth={2.5} fill="url(#waSessionsFill)" />
               </AreaChart>
             </ResponsiveContainer>

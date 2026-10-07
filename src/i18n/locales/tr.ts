@@ -10364,6 +10364,14 @@ const tr: TranslationKeys = {
       empty: 'Henüz önceki denetim yok.',
     },
   },
+  artShell: {
+    primaryNav: 'Ana menü',
+    more: 'Daha fazla',
+    workspaces: 'Çalışma alanları',
+    switchWorkspace: 'Çalışma alanını değiştir',
+    language: 'Dil',
+    inboxViews: 'Gelen kutusu görünümleri',
+  },
 };
 
 export default tr;

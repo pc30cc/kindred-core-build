@@ -272,7 +272,7 @@ export default function OverviewPage() {
   return (
     <div dir={dir} className="blur-fade-stagger space-y-6">
       {/* ── Hero ─────────────────────────────────────────── */}
-      <section className="relative overflow-hidden beam-border rounded-3xl border border-border/60 bg-brand-soft p-6 shadow-glow sm:p-7">
+      <section data-page-hero="dashboard" className="relative overflow-hidden beam-border rounded-3xl border border-border/60 bg-brand-soft p-6 shadow-glow sm:p-7">
         <div className="pointer-events-none absolute -top-24 end-[-4rem] h-64 w-64 rounded-full bg-brand-violet/25 blur-3xl animate-aurora" />
         <div className="pointer-events-none absolute bottom-[-7rem] start-1/4 h-56 w-56 rounded-full bg-brand-teal/25 blur-3xl animate-aurora" />
         <div className="pointer-events-none absolute -bottom-16 end-1/3 h-40 w-40 rounded-full bg-brand-coral/15 blur-3xl" />
@@ -284,6 +284,7 @@ export default function OverviewPage() {
           <div className="min-w-0">
             <div
               dir={dir}
+              data-hero-eyebrow
               className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur"
             >
               <Sparkles className="h-3 w-3 text-primary" />
@@ -304,6 +305,7 @@ export default function OverviewPage() {
           {canSeeBilling && (
           <Link
             to={wsPath('/billing')}
+            data-hero-aside
             className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-card/80 px-4 py-3 shadow-sm backdrop-blur transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-md shadow-violet-500/25">
@@ -319,7 +321,7 @@ export default function OverviewPage() {
         </div>
 
         {/* quick actions */}
-        <div className="relative mt-5 flex flex-wrap gap-2">
+        <div data-hero-actions className="relative mt-5 flex flex-wrap gap-2">
           {[
             { label: tr('dashboard.openInbox'), icon: Inbox, path: '/inbox', accent: 'emerald' as AiAccent },
             { label: tr('dashboard.manageContacts'), icon: Users, path: '/contacts', accent: 'amber' as AiAccent },
@@ -351,12 +353,13 @@ export default function OverviewPage() {
             <Link
               key={s.label}
               to={wsPath(s.path)}
+              data-figure="kpi"
               className="group magic-card spotlight px-4 py-3.5 hover:-translate-y-1"
             >
               <span className={cn('pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r', a.grad)} />
               <span className={cn('pointer-events-none absolute -top-10 -end-8 h-20 w-20 rounded-full blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100', a.glow)} />
               <div className="relative flex items-center gap-2.5">
-                <span className={cn(
+                <span data-figure-icon className={cn(
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm transition-transform duration-300 group-hover:scale-110',
                   a.grad,
                 )}>
@@ -376,7 +379,7 @@ export default function OverviewPage() {
       {/* ── Main grid ────────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Chart */}
-        <div className="relative overflow-hidden magic-card spotlight p-5 xl:col-span-2">
+        <div data-panel="chart" className="relative overflow-hidden magic-card spotlight p-5 xl:col-span-2">
           <div className="pointer-events-none absolute -top-16 -start-10 h-40 w-40 rounded-full bg-indigo-500/15 blur-3xl" />
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-3">
@@ -405,12 +408,12 @@ export default function OverviewPage() {
                 <defs>
                   {/* Violet-500, indigo-500, cyan-500 through the palette
                       variables, so a panel theme can repaint the chart. */}
-                  <linearGradient id="convGrad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="convGrad" data-chart-gradient="fill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-violet-500))', stopOpacity: 0.45 }} />
                     <stop offset="60%" style={{ stopColor: 'rgb(var(--palette-indigo-500))', stopOpacity: 0.15 }} />
                     <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-cyan-500))', stopOpacity: 0 }} />
                   </linearGradient>
-                  <linearGradient id="convStroke" x1="0" y1="0" x2="1" y2="0">
+                  <linearGradient id="convStroke" data-chart-gradient="stroke" x1="0" y1="0" x2="1" y2="0">
                     <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-indigo-500))' }} />
                     <stop offset="50%" style={{ stopColor: 'rgb(var(--palette-violet-500))' }} />
                     <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-cyan-500))' }} />
@@ -437,7 +440,7 @@ export default function OverviewPage() {
 
         {/* Plan & usage — admins/owners only */}
         {canSeeBilling && (
-        <div className="relative overflow-hidden magic-card spotlight p-5">
+        <div data-panel="plan" className="relative overflow-hidden magic-card spotlight p-5">
           <div className="pointer-events-none absolute -top-16 -end-10 h-40 w-40 rounded-full bg-emerald-500/15 blur-3xl" />
           <div className="relative mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -452,13 +455,13 @@ export default function OverviewPage() {
             </Link>
           </div>
 
-          <div className="relative rounded-2xl border border-primary/20 bg-brand-soft p-3.5">
+          <div data-plan-current className="relative rounded-2xl border border-primary/20 bg-brand-soft p-3.5">
             <p className="text-[11px] text-muted-foreground">{tr('dashboard.currentPlan')}</p>
             <p className="text-lg font-bold text-foreground">{planName}</p>
           </div>
 
           {/* Storage consumption (bytes vs. plan storage_gb) */}
-          <div className="relative mt-4 rounded-2xl border border-border/60 bg-muted/30 p-3.5">
+          <div data-plan-usage className="relative mt-4 rounded-2xl border border-border/60 bg-muted/30 p-3.5">
             <div className="mb-1.5 flex items-center justify-between text-xs">
               <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                 <HardDrive className="h-3.5 w-3.5" />
@@ -533,8 +536,8 @@ export default function OverviewPage() {
       {/* ── Recent + team ────────────────────────────────── */}
       <div className="grid gap-4 xl:grid-cols-3">
         {/* Recent conversations */}
-        <div className="magic-card spotlight xl:col-span-2">
-          <div className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-sky-500/[0.10] to-transparent px-5 py-3.5">
+        <div data-panel="list" className="magic-card spotlight xl:col-span-2">
+          <div data-panel-header className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-sky-500/[0.10] to-transparent px-5 py-3.5">
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-md shadow-sky-500/25">
                 <MessageSquare className="h-4 w-4" />
@@ -609,8 +612,8 @@ export default function OverviewPage() {
         </div>
 
         {/* Team presence */}
-        <div className="magic-card spotlight">
-          <div className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-rose-500/[0.10] to-transparent px-5 py-3.5">
+        <div data-panel="list" className="magic-card spotlight">
+          <div data-panel-header className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-rose-500/[0.10] to-transparent px-5 py-3.5">
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-md shadow-rose-500/25">
                 <ShieldCheck className="h-4 w-4" />

@@ -109,7 +109,7 @@ export default function PluginDetailPage() {
         </Link>
       </Button>
 
-      <header className="relative flex flex-wrap items-start gap-4 overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6">
+      <header data-page-hero="plugin" className="relative flex flex-wrap items-start gap-4 overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6">
         <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
         <div className="relative">
           <PluginLogo id={item.id} />

@@ -295,7 +295,8 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-const LINK_TYPE_COLORS = { dofollow: 'hsl(var(--primary))', nofollow: '#94a3b8' };
+// Nofollow is slate-400 through the palette variable, so a panel theme can repaint it.
+const LINK_TYPE_COLORS = { dofollow: 'hsl(var(--primary))', nofollow: 'rgb(var(--palette-slate-400))' };
 
 function LinkTypeDonut({ dofollow, nofollow }: { dofollow: number; nofollow: number }) {
   const { t } = useTranslation();

@@ -10361,6 +10361,14 @@ const fa: TranslationKeys = {
       empty: 'هنوز بررسی قبلی وجود ندارد.',
     },
   },
+  artShell: {
+    primaryNav: 'منوی اصلی',
+    more: 'بیشتر',
+    workspaces: 'فضاهای کاری',
+    switchWorkspace: 'تغییر فضای کاری',
+    language: 'زبان',
+    inboxViews: 'بخش‌های صندوق ورودی',
+  },
 };
 
 export default fa;

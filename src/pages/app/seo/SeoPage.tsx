@@ -1049,8 +1049,8 @@ function PerformanceTab({ workspaceId, crawlId }: { workspaceId: string; crawlId
               <BarChart data={pageScores} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="perfScoreGrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#ef4444" />
-                    <stop offset="100%" stopColor="#f59e0b" />
+                    <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-red-500))' }} />
+                    <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-amber-500))' }} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
@@ -1114,10 +1114,10 @@ export function GradientStatCard({
   label: string;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+    <div data-figure="stat" className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
       <div className={`pointer-events-none absolute -top-10 -end-8 h-24 w-24 rounded-full ${blobColor} blur-2xl`} />
       <div className="relative flex items-center gap-3">
-        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${iconGradient} text-white shadow-md`}>
+        <span data-figure-icon className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${iconGradient} text-white shadow-md`}>
           <Icon className="h-4.5 w-4.5" />
         </span>
         <div className="min-w-0">
@@ -1174,7 +1174,8 @@ function startBacklinkScanErrorMessage(t: (key: string, opts?: Record<string, un
   return t('seo.backlinks.errors.startFailed' as any);
 }
 
-const DOFOLLOW_COLOR = '#10b981';
+// Emerald-500 through the palette variable, so a panel theme can repaint it.
+const DOFOLLOW_COLOR = 'rgb(var(--palette-emerald-500))';
 const NOFOLLOW_COLOR = 'hsl(var(--muted-foreground))';
 
 function rankTierClass(rank: number | null): string {
@@ -1350,8 +1351,8 @@ function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: st
                 <BarChart data={topDomains} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="domainRankGrad" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%" stopColor="#6366f1" />
-                      <stop offset="100%" stopColor="#8b5cf6" />
+                      <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-indigo-500))' }} />
+                      <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-violet-500))' }} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
@@ -1589,8 +1590,8 @@ function KeywordsTab({ workspaceId, siteId }: { workspaceId: string; siteId: str
               <BarChart data={topKeywords} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="keywordVolumeGrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#6366f1" />
-                    <stop offset="100%" stopColor="#8b5cf6" />
+                    <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-indigo-500))' }} />
+                    <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-violet-500))' }} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
@@ -1683,7 +1684,7 @@ function RankHistoryChart({ workspaceId, keywordId }: { workspaceId: string; key
             contentStyle={{ background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12, color: 'hsl(var(--popover-foreground))' }}
             labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
           />
-          <Line type="monotone" dataKey="position" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
+          <Line type="monotone" dataKey="position" stroke="rgb(var(--palette-indigo-500))" strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
         </ReLineChart>
       </ResponsiveContainer>
     </div>
@@ -1985,7 +1986,7 @@ function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
                 <YAxis reversed allowDecimals={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={32} />
                 <ReTooltip {...tooltipStyle} />
-                <Line type="monotone" dataKey="avgPosition" stroke="#6366f1" strokeWidth={2.5} dot={false} connectNulls />
+                <Line type="monotone" dataKey="avgPosition" stroke="rgb(var(--palette-indigo-500))" strokeWidth={2.5} dot={false} connectNulls />
               </ReLineChart>
             </ResponsiveContainer>
           </div>
@@ -2001,7 +2002,7 @@ function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={28} />
                 <ReTooltip {...tooltipStyle} />
-                <Bar dataKey="top10Count" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={24} />
+                <Bar dataKey="top10Count" fill="rgb(var(--palette-emerald-500))" radius={[4, 4, 0, 0]} maxBarSize={24} />
               </BarChart>
             </ResponsiveContainer>
           </div>

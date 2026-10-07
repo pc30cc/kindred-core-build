@@ -29,7 +29,7 @@ export default function AiBuilderPage() {
       </div>
 
       <div className="flex items-start gap-4">
-        <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
+        <div data-hero-icon className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
           <Sparkles className="h-6 w-6 text-primary-foreground" />
         </div>
         <div>

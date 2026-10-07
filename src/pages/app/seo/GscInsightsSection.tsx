@@ -379,8 +379,8 @@ function GscTrendChart({ rows }: { rows: SeoGscSearchAnalyticsRow[] }) {
               <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
             </linearGradient>
             <linearGradient id="gscImpressionsFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.22} />
-              <stop offset="100%" stopColor="#38bdf8" stopOpacity={0} />
+              <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-sky-400))', stopOpacity: 0.22 }} />
+              <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-sky-400))', stopOpacity: 0 }} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/40" />
@@ -388,7 +388,7 @@ function GscTrendChart({ rows }: { rows: SeoGscSearchAnalyticsRow[] }) {
           <YAxis yAxisId="clicks" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={40} />
           <YAxis yAxisId="impressions" orientation="right" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={50} />
           <ReTooltip content={<GscChartTooltip />} />
-          <Area yAxisId="impressions" type="monotone" dataKey="impressions" stroke="#38bdf8" strokeWidth={2} fill="url(#gscImpressionsFill)" />
+          <Area yAxisId="impressions" type="monotone" dataKey="impressions" stroke="rgb(var(--palette-sky-400))" strokeWidth={2} fill="url(#gscImpressionsFill)" />
           <Area yAxisId="clicks" type="monotone" dataKey="clicks" stroke="hsl(var(--primary))" strokeWidth={2.5} fill="url(#gscClicksFill)" />
         </AreaChart>
       </ResponsiveContainer>

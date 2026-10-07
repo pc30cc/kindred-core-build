@@ -32,6 +32,8 @@ import { usePhoneVerificationStatus } from '@/features/phone-verification/hooks'
 import { resolvePhoneStatus } from '@/features/phone-verification/status';
 import { useApplyPanelTheme, usePanelTheme } from '@/themes/usePanelTheme';
 import { PanelThemePreviewBar } from '@/themes/PanelThemePreviewBar';
+import { ArtShell } from '@/themes/art/shell/ArtShell';
+import { ArtShellSkeleton } from '@/themes/art/shell/ArtShellSkeleton';
 
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
@@ -325,7 +327,34 @@ export function AppLayout() {
   // sidebar never paints gated items that disappear a moment later.
 
   if (!shellReady) {
-    return <AppShellSkeleton />;
+    return panelTheme.theme === 'art' ? <ArtShellSkeleton /> : <AppShellSkeleton />;
+  }
+
+  // Art has a frame of its own (top navigation, no sidebar) around the same
+  // page, providers and notices: src/themes/art/shell/ArtShell.tsx.
+  if (panelTheme.theme === 'art') {
+    return (
+      <div dir={dir} data-shell="app" className="app-scope flex h-screen h-dvh flex-col overflow-hidden bg-background text-foreground">
+        <OperatorCallProvider>
+          <CommandPalette />
+          <ArtShell
+            fullBleed={isFullBleed}
+            notices={
+              <>
+                {showVerificationBanner && <EmailVerificationBar />}
+                <PhoneVerificationBar />
+              </>
+            }
+          >
+            <Outlet />
+          </ArtShell>
+          <FloatingOperatorCallWindow />
+          {panelTheme.preview && (
+            <PanelThemePreviewBar theme={panelTheme.preview} onEnd={panelTheme.endPreview} />
+          )}
+        </OperatorCallProvider>
+      </div>
+    );
   }
 
   return (

@@ -78,6 +78,7 @@ const SelectContent = React.forwardRef<
     >
       <SelectScrollUpButton />
       <SelectPrimitive.Viewport
+        data-slot="select-viewport"
         className={cn(
           "p-1",
           position === "popper" &&
@@ -96,7 +97,7 @@ const SelectLabel = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Label>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Label>
 >(({ className, ...props }, ref) => (
-  <SelectPrimitive.Label ref={ref} className={cn("py-1.5 pl-8 pr-2 text-sm font-semibold", className)} {...props} />
+  <SelectPrimitive.Label ref={ref} data-slot="select-label" className={cn("py-1.5 pl-8 pr-2 text-sm font-semibold", className)} {...props} />
 ));
 SelectLabel.displayName = SelectPrimitive.Label.displayName;
 
@@ -106,6 +107,7 @@ const SelectItem = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
+    data-slot="select-item"
     className={cn(
       "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 focus:bg-accent focus:text-accent-foreground",
       className,
@@ -127,7 +129,7 @@ const SelectSeparator = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Separator>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>
 >(({ className, ...props }, ref) => (
-  <SelectPrimitive.Separator ref={ref} className={cn("-mx-1 my-1 h-px bg-muted", className)} {...props} />
+  <SelectPrimitive.Separator ref={ref} data-slot="select-separator" className={cn("-mx-1 my-1 h-px bg-muted", className)} {...props} />
 ));
 SelectSeparator.displayName = SelectPrimitive.Separator.displayName;
 

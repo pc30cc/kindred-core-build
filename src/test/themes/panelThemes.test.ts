@@ -107,6 +107,23 @@ describe('palette', () => {
   });
 });
 
+/** A selector list split on its top-level commas (`:is(a, b)` stays one selector). */
+function splitSelectors(list: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of list) {
+    if (ch === '(') depth += 1;
+    if (ch === ')') depth -= 1;
+    if (ch === ',' && depth === 0) {
+      out.push(current);
+      current = '';
+    } else current += ch;
+  }
+  out.push(current);
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
 describe('the Art stylesheets', () => {
   const FILES = ['src/themes/art/theme.css', 'src/themes/art/components.css', 'src/themes/art/pages.css'];
   const strip = (path: string) => read(path).replace(/\/\*[\s\S]*?\*\//g, '');
@@ -118,7 +135,7 @@ describe('the Art stylesheets', () => {
     const source = strip(path).replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
     const rule = /([^{}@;]+)\{[^{}]*\}/g;
     for (let m = rule.exec(source); m; m = rule.exec(source)) {
-      selectors.push(...m[1].split(',').map((s) => s.trim()).filter(Boolean));
+      selectors.push(...splitSelectors(m[1]));
     }
     expect(selectors.length).toBeGreaterThan(5);
     for (const selector of selectors) {

@@ -30,8 +30,8 @@ export interface PanelThemeSwatches {
 
 export interface PanelThemeInfo {
   id: PanelThemeId;
-  /** The content sits on a floating panel inside the sidebar's colour. */
-  inset: boolean;
+  /** How the panel is framed: a sidebar rail, or a top bar with navigation pills. */
+  layout: 'sidebar' | 'topnav';
   light: PanelThemeSwatches;
   dark: PanelThemeSwatches;
 }
@@ -39,7 +39,7 @@ export interface PanelThemeInfo {
 const PANEL_THEMES: Record<PanelThemeId, PanelThemeInfo> = {
   classic: {
     id: 'classic',
-    inset: false,
+    layout: 'sidebar',
     light: {
       canvas: 'hsl(45 33% 98%)',
       sidebar: 'hsl(45 30% 99%)',
@@ -69,7 +69,7 @@ const PANEL_THEMES: Record<PanelThemeId, PanelThemeInfo> = {
   },
   art: {
     id: 'art',
-    inset: true,
+    layout: 'topnav',
     light: {
       canvas: 'hsl(37 42% 95.4%)',
       sidebar: 'hsl(37 42% 95.4%)',
@@ -78,7 +78,7 @@ const PANEL_THEMES: Record<PanelThemeId, PanelThemeInfo> = {
       ink: 'hsl(221 26% 10.5%)',
       muted: 'hsl(31 8% 38.3%)',
       line: 'hsl(34 20% 87%)',
-      primary: 'hsl(17 57% 43.5%)',
+      primary: 'hsl(17 57% 41%)',
       primaryInk: 'hsl(40 50% 98.4%)',
       accents: ['hsl(16 63% 46.5%)', 'hsl(175 100% 26.8%)', 'hsl(39 94% 40%)', 'hsl(338 49% 54.9%)'],
       mark: 'linear-gradient(135deg, hsl(17 57% 46%), hsl(338 49% 55%))',

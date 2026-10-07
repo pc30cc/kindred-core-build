@@ -10379,6 +10379,14 @@ const en = {
       empty: 'No previous audits yet.',
     },
   },
+  artShell: {
+    primaryNav: 'Main navigation',
+    more: 'More',
+    workspaces: 'Workspaces',
+    switchWorkspace: 'Switch workspace',
+    language: 'Language',
+    inboxViews: 'Inbox views',
+  },
 };
 
 export type TranslationKeys = typeof en;

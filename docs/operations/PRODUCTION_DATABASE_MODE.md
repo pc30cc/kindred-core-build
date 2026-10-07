@@ -1,17 +1,119 @@
 # Production database mode — runbook
 
-**Status: switched and verified in production on 2026-10-05; the AI billing
-decimal fix (#266) deployed and verified on 2026-10-06.** The production
-WebYar backend and its six workers reach the hosted Supabase project's
-PostgreSQL directly (`DATABASE_MODE=postgres-only`). What was measured and what
-is still an estimate:
-[Verified state](#verified-state-2026-10-06) below.
+**Status: since 2026-10-07 the production WebYar backend and its six workers
+use WebYar's own self-hosted PostgreSQL 17 on the Coolify server**, still in
+`DATABASE_MODE=postgres-only`. See
+[Self-hosted PostgreSQL](#self-hosted-postgresql-since-2026-10-07). The
+hosted Supabase project holds the data as of the cutover and is the
+fallback.
 
-A copy to a self-hosted PostgreSQL 17 was rehearsed on 2026-10-06 without
-switching any service. Production is still on the hosted project; see
-[the rehearsal](#self-hosted-postgresql-rehearsal-2026-10-06).
+The sections after that one describe the Supabase period (2026-10-05 to
+2026-10-07) and the 2026-10-06 rehearsal. They are kept as history and for
+their findings.
 
-It is a connection-mode change only: the database, its data and its schema
+## Self-hosted PostgreSQL (since 2026-10-07)
+
+**The server**
+- Coolify database `webyar-postgres` (`oqzy9q4ovntam9jgf7nxzqun`), image
+  `pgvector/pgvector:pg17`: PostgreSQL 17.11 with pgvector 0.8.7.
+- Network `coolify` only, no public port, 2 GB memory limit.
+- Volume `postgres-data-oqzy9q4ovntam9jgf7nxzqun`.
+- Tuned with `ALTER SYSTEM` (the kit's `setup_db.sh`):
+  - `shared_buffers` 384MB, `effective_cache_size` 1GB, `work_mem` 8MB;
+  - `log_min_duration_statement` 2s;
+  - `pg_stat_statements` preloaded;
+  - `max_connections` 100.
+- Database `webyar` is production. `webyar_staging` is the write-free copy
+  the move read, and may be dropped later.
+- Roles:
+  - `postgres` owns the tables.
+  - `webyar_app` is the application login: `NOINHERIT`, connection limit 60,
+    member of `service_role` `WITH SET TRUE`, as on Supabase.
+
+**The connection**
+- The seven apps use
+  `postgresql://webyar_app:…@oqzy9q4ovntam9jgf7nxzqun:5432/webyar?sslmode=disable`.
+- That variable is the only one the move changed. Signing and encryption
+  secrets, `DATABASE_MODE`, pools (backend 3, workers 1) and application
+  names are as before.
+- The pooler's 15-connection budget no longer applies. Fourteen of 100
+  connections were in use after the move.
+
+**Backups**
+- Coolify's scheduled backup takes a `pg_dump` of `webyar` daily at 02:13 UTC
+  and keeps the last 14 on the server.
+- The first one ran right after the move and succeeded (3.2 MB).
+- There is no off-site copy: Coolify has no S3 storage configured. Add one.
+
+**Migrations**
+- The ledger `public._schema_migrations` is complete: the chain at `fa0e79d`,
+  250 files, built by `scripts/migrate-database.sh`.
+- `schema-diff.sh` against the Supabase schema found 0 unexpected
+  differences.
+- Apply new migrations from the server with that script, as `postgres`,
+  against `webyar`. GitHub Actions cannot reach this database.
+
+**How it moved (2026-10-07)**
+
+Everything is in the kit `/root/webyar-rollout/20261007-selfhosted/`, root
+only.
+
+1. Stop the seven apps through Coolify, keeping their containers and images.
+   - `api.webyar.ai` then answers 503, Coolify's catch-all. WooCommerce
+     events (retried on 5xx for about 15 minutes) and webhooks are retried,
+     not dropped.
+2. Check that Supabase is write-quiet: no table changed in 20 s.
+3. Take one exported snapshot of Supabase (05:41:03 UTC): `pg_dump` of
+   `public` and `widget_archive`, with `move-data.sh`'s row counts and
+   content checksums taken in the same snapshot (313 tables, 19,127 rows).
+4. Load the snapshot into `webyar_staging`, which proves equal to it. Then
+   `scripts/db/move-data.sh run`, unmodified, from `webyar_staging` into
+   `webyar`, with every phase passing. Then `widget_archive` and the
+   publication.
+5. Recheck Supabase: unchanged since the snapshot, so nothing was left behind.
+6. Change `DATABASE_URL` on the seven apps.
+7. Redeploy through the queue at the commits already running.
+8. Verify:
+   - every container's `DATABASE_URL` points to the new host;
+   - each app logs `database: postgres oqzy9q4ovntam9jgf7nxzqun:5432/webyar … PostgreSQL 17, role service_role`;
+   - `/api/health/database` is ok at 3 ms (36 ms on Supabase);
+   - there are no database errors in the logs;
+   - no `webyar_app` session is left on Supabase;
+   - Supabase is no longer written.
+
+Downtime of `api.webyar.ai` was about 4 minutes (05:40:39 to 05:44:20 UTC);
+the last worker was back at 05:45:12. A first attempt at 05:30 aborted
+before any configuration change: a glob in the window script picked a file
+instead of the backup directory. That attempt restored service on Supabase
+automatically after about 6 minutes.
+
+**What was not copied**
+- Supabase-managed schemas that WebYar does not use: `auth`, plus `storage`,
+  `realtime` and `vault` (all empty).
+- The data of the owner-only, empty
+  `public.verification_admin_idempotency`.
+
+**Shared writer found and stopped**
+- Coolify app 10 (API.Destekly, an older backend at `17c093d`) was still
+  running WebYar's background tickers on the same Supabase database over
+  REST: about 31,000 writes a day (billing schedulers, invitations, deletion
+  jobs, call queue).
+- With WebYar moved, it would have acted on stale data. The owner stopped it
+  (2026-10-07 05:14:47 UTC); its settings were not changed.
+- Do not start it again unless it is pointed at the self-hosted database.
+
+**Rollback**
+- Supabase has the data only up to 05:41:03 UTC.
+- To roll back the configuration, the kit's `restore_from_snapshot.sh apply`
+  (`CONFIRM=restore`) puts the seven `DATABASE_URL` rows back byte for byte;
+  then run `deploy_all.sh`.
+- Writes made on the self-hosted database since the cutover are then not on
+  Supabase. Move them back first: `move-data.sh` with Supabase as target,
+  which needs Supabase's `postgres` role.
+
+## The Supabase period (2026-10-05 to 2026-10-07)
+
+The 2026-10-05 switch was a connection-mode change only: the database, its data and its schema
 stay where they are; no migration is replayed, no baseline is recorded and no
 data is moved. See [`docs/DATABASE.md`](../DATABASE.md) for the modes.
 
@@ -264,6 +366,11 @@ before it:
 - Nothing left pending; no run anywhere has more than one settlement.
 
 ## Rollback
+
+This section is the rollback of the 2026-10-05 switch: from `postgres-only`
+on Supabase back to Supabase REST. For today's self-hosted database, see
+**Rollback** under
+[Self-hosted PostgreSQL](#self-hosted-postgresql-since-2026-10-07).
 
 The kit is on the server, root only: `/root/webyar-rollout/20261005-postgres-only/`.
 It holds the Coolify variable rows of the seven apps as they were before the
@@ -545,6 +652,14 @@ was empty. Its definition comes from the chain.
 
 ### Why there was no live switch
 
+These blockers applied to a temporary switch-and-return with no downtime.
+The one-way move of 2026-10-07 dealt with them as follows:
+- A maintenance window: with the backend stopped, Coolify's catch-all answers
+  503, so plugin events and webhooks are retried.
+- Every writer stopped first, app 10 included.
+- No return trip, so nothing has to be reconciled.
+- The owner tests after the move.
+
 - **No maintenance mode.** Holding traffic would need a gate in the shared
   Coolify proxy. The frontend (28) calls the backend through its public
   hostname, so an IP allowlist would let all of it through.
@@ -599,7 +714,14 @@ The frontend (28) has no database variable.
 
 ## Migrations
 
-Production has no `public._schema_migrations` ledger. `migrate-database.sh`
-(and so `deploy-migrations.yml`) refuses to run against it until it is
-baselined with `scripts/db/baseline-verify.sh` (docs/AUTO_MIGRATIONS.md); keep
-the `DATABASE_URL` Actions secret unset until then.
+Since 2026-10-07 the production database (self-hosted `webyar`) has a
+complete `public._schema_migrations` ledger: the chain at `fa0e79d`, 250
+files.
+
+Apply new files from the server with `scripts/migrate-database.sh` against
+`webyar`, as `postgres`. The database has no public port, so
+`deploy-migrations.yml` cannot reach it; keep the `DATABASE_URL` Actions
+secret unset.
+
+The hosted Supabase project still has no ledger. Never run the script
+against it.

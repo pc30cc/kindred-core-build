@@ -208,7 +208,9 @@ export interface BackupOverview {
 /** A destination is off-server when it is an object-storage URI, not a local path. */
 export function isOffsite(destination: string | null | undefined): boolean {
   if (!destination) return false;
-  return /^(s3|gs|b2|azure|r2|minio|swift):\/\//i.test(destination.trim());
+  // bunny / ftp / ftps: database backups sent from Super Admin → Database
+  // (server/services/backup/databaseBackup.ts) to a storage vendor or FTP.
+  return /^(s3|gs|b2|azure|r2|minio|swift|bunny|ftp|ftps):\/\//i.test(destination.trim());
 }
 
 async function rpc<T>(config: ServerConfig, fn: string, args: Record<string, unknown> = {}): Promise<T> {

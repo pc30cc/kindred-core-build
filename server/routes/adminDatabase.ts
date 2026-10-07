@@ -1,5 +1,7 @@
 /**
- * Platform-admin database maintenance: JSON backup / restore / purge.
+ * Platform-admin database maintenance: JSON backup / restore / purge, and the
+ * real database backups of the Backup tab (pg_dump, see
+ * server/services/backup/databaseBackup.ts) under /backups.
  *
  * Mounted under adminRouter (server/routes/admin.ts), which already gates
  * every route behind `requirePlatformAdmin`. All heavy lifting happens in
@@ -9,7 +11,7 @@
  *
  * No edge functions — this is Express-only, per project architecture rules.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -23,11 +25,31 @@ import {
 import { compareWithTarget } from '../services/database/inventoryCompare.js';
 import { generateSqlDump } from '../services/database/sqlDump.js';
 import { createGzip } from 'node:zlib';
+import { pipeline } from 'node:stream/promises';
+import {
+  DatabaseBackupError,
+  databaseBackupStatus,
+  deleteDatabaseBackup,
+  downloadDatabaseBackup,
+  getBackupSettings,
+  saveBackupSettings,
+  startDatabaseBackup,
+  testBackupDestination,
+  toRunView,
+  backupStorageVendors,
+  type DestinationTestInput,
+} from '../services/backup/databaseBackup.js';
+import {
+  applyBackupSettingsUpdate,
+  backupSettingsUpdateSchema,
+  backupSettingsView,
+  BackupSettingsError,
+} from '../services/backup/databaseBackupSettings.js';
 
 export const adminDatabaseRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
 const scopeSchema = z.object({
@@ -275,4 +297,115 @@ adminDatabaseRouter.get('/dump.sql.gz', async (req, res) => {
     // truncated dump can never be mistaken for a complete one.
     gzip.end(`\n-- DUMP FAILED: ${String((err as Error).message).replace(/\n/g, ' ')}\n`);
   }
+});
+
+
+// ─── Database backups (pg_dump): settings, run, history, download ────────
+function backupFail(res: Response, err: unknown) {
+  if (err instanceof DatabaseBackupError) {
+    return res.status(err.status).json({ error: err.code, detail: err.detail });
+  }
+  if (err instanceof BackupSettingsError) return res.status(400).json({ error: err.code });
+  console.warn('[db-backup] request failed:', (err as Error)?.message);
+  return res.status(500).json({ error: 'backup_request_failed' });
+}
+
+adminDatabaseRouter.get('/backups', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await databaseBackupStatus(serverConfigOf(req)));
+  } catch (err) { backupFail(res, err); }
+});
+
+adminDatabaseRouter.put('/backups/settings', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const parsed = backupSettingsUpdateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+  const config = serverConfigOf(req);
+  try {
+    if (parsed.data.destination === 'storage') {
+      const vendors = await backupStorageVendors(config);
+      if (!vendors.some((v) => v.name === parsed.data.storageProvider)) {
+        return res.status(400).json({ error: 'storage_provider_not_configured' });
+      }
+    }
+    const next = applyBackupSettingsUpdate(await getBackupSettings(config), parsed.data, {
+      masterKey: config.pluginSecretsMasterKey,
+      actorId,
+    });
+    await saveBackupSettings(config, next);
+    res.json({ ok: true, settings: backupSettingsView(next) });
+  } catch (err) { backupFail(res, err); }
+});
+
+const backupRunSchema = z.object({
+  destination: z.enum(['local', 'storage', 'ftp']).optional(),
+  storageProvider: z.string().trim().max(64).nullable().optional(),
+});
+
+// Starts a backup and answers at once with the running record; the page
+// polls GET /backups until it settles.
+adminDatabaseRouter.post('/backups/run', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const parsed = backupRunSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+  try {
+    const { run, job } = await startDatabaseBackup(serverConfigOf(req), {
+      trigger: 'manual',
+      actorId,
+      destination: parsed.data.destination,
+      storageProvider: parsed.data.storageProvider,
+    });
+    job.catch(() => undefined);
+    res.status(202).json({ ok: true, run: toRunView(run) });
+  } catch (err) { backupFail(res, err); }
+});
+
+const backupTestSchema = z.object({
+  destination: z.enum(['local', 'storage', 'ftp']),
+  storageProvider: z.string().trim().max(64).nullable().optional(),
+  ftp: backupSettingsUpdateSchema.shape.ftp,
+});
+
+adminDatabaseRouter.post('/backups/test', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const parsed = backupTestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+  try {
+    res.json(await testBackupDestination(serverConfigOf(req), parsed.data as DestinationTestInput));
+  } catch (err) { backupFail(res, err); }
+});
+
+adminDatabaseRouter.get('/backups/:id/download', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  let download;
+  try {
+    download = await downloadDatabaseBackup(serverConfigOf(req), req.params.id);
+  } catch (err) {
+    return backupFail(res, err);
+  }
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Length', String(download.bytes));
+  res.setHeader('Content-Disposition', `attachment; filename="${download.fileName}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    await pipeline(download.stream, res);
+  } catch {
+    res.destroy();
+  }
+});
+
+adminDatabaseRouter.delete('/backups/:id', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  try {
+    await deleteDatabaseBackup(serverConfigOf(req), req.params.id, { force: req.query.force === '1' });
+    res.json({ ok: true });
+  } catch (err) { backupFail(res, err); }
 });

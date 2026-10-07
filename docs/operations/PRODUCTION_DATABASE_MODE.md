@@ -44,6 +44,10 @@ their findings.
   and keeps the last 14 on the server.
 - The first one ran right after the move and succeeded (3.2 MB).
 - There is no off-site copy: Coolify has no S3 storage configured. Add one.
+- Super Admin → Database → Backup makes `pg_dump` backups from the backend
+  (manual or scheduled; on the server, a storage provider or FTP, encrypted
+  when off-server) through the read-only login `webyar_backup`. Setup, restore
+  and the restore drill: `DATABASE_BACKUPS.md`.
 
 **Migrations**
 - The ledger `public._schema_migrations` is complete: the chain at `fa0e79d`,

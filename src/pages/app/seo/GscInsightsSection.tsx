@@ -17,7 +17,7 @@ import {
   Link2, Unlink, Search as SearchIcon, MousePointerClick, Eye, Percent, TrendingUp,
   Smartphone, Monitor, Tablet, Globe2, Sparkles, ArrowUpRight, Plus,
 } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -56,14 +56,14 @@ function last28DaysRange(): { startDate: string; endDate: string } {
   return { startDate: isoDate(start), endDate: isoDate(end) };
 }
 
-function gscErrorMessage(err: unknown, t: (k: any) => string): string {
+function gscErrorMessage(err: unknown, t: (k: TranslationKey) => string): string {
   if (err instanceof SeoApiError) {
     const key = `seo.gsc.errors.${err.code}`;
-    const translated = t(key as any);
-    const base = translated !== key ? translated : `${t('seo.gsc.errors.generic' as any)} (${err.code})`;
+    const translated = t(key as TranslationKey);
+    const base = translated !== key ? translated : `${t('seo.gsc.errors.generic')} (${err.code})`;
     return err.detail ? `${base} — ${err.detail}` : base;
   }
-  return t('seo.gsc.errors.generic' as any);
+  return t('seo.gsc.errors.generic');
 }
 
 
@@ -162,21 +162,21 @@ function GscConnectCard({
           <SearchIcon className="h-6 w-6" />
         </span>
         <div className="relative max-w-md space-y-1">
-          <h3 className="text-lg font-semibold">{t('seo.gsc.connect.title' as any)}</h3>
-          <p className="text-sm text-muted-foreground">{t('seo.gsc.connect.description' as any)}</p>
+          <h3 className="text-lg font-semibold">{t('seo.gsc.connect.title')}</h3>
+          <p className="text-sm text-muted-foreground">{t('seo.gsc.connect.description')}</p>
         </div>
         {status === 'revoked' && (
-          <Badge variant="destructive" className="relative">{t('seo.gsc.connect.revoked' as any)}</Badge>
+          <Badge variant="destructive" className="relative">{t('seo.gsc.connect.revoked')}</Badge>
         )}
         {status === 'error' && lastError && (
           <p className="relative max-w-md text-xs text-destructive">{lastError}</p>
         )}
         {!platformConfigured ? (
-          <p className="relative max-w-md text-xs text-muted-foreground">{t('seo.gsc.connect.notConfigured' as any)}</p>
+          <p className="relative max-w-md text-xs text-muted-foreground">{t('seo.gsc.connect.notConfigured')}</p>
         ) : (
           <Button onClick={handleConnect} disabled={startOAuth.isPending} className="relative gap-2">
             <Link2 className="h-4 w-4" />
-            {startOAuth.isPending ? t('seo.gsc.connect.connecting' as any) : t('seo.gsc.connect.cta' as any)}
+            {startOAuth.isPending ? t('seo.gsc.connect.connecting') : t('seo.gsc.connect.cta')}
           </Button>
         )}
       </CardContent>
@@ -196,7 +196,7 @@ function GscPropertyPicker({ workspaceId, connectionEmail }: { workspaceId: stri
   const handleLink = async (siteUrl: string) => {
     try {
       await linkProperty.mutateAsync({ siteUrl });
-      toast.success(t('seo.gsc.property.linked' as any));
+      toast.success(t('seo.gsc.property.linked'));
     } catch (err) {
       toast.error(gscErrorMessage(err, t));
     }
@@ -205,9 +205,9 @@ function GscPropertyPicker({ workspaceId, connectionEmail }: { workspaceId: stri
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('seo.gsc.pickProperty.title' as any)}</CardTitle>
+        <CardTitle>{t('seo.gsc.pickProperty.title')}</CardTitle>
         <CardDescription>
-          {t('seo.gsc.pickProperty.description' as any)}
+          {t('seo.gsc.pickProperty.description')}
           {connectionEmail ? ` — ${connectionEmail}` : ''}
         </CardDescription>
       </CardHeader>
@@ -217,7 +217,7 @@ function GscPropertyPicker({ workspaceId, connectionEmail }: { workspaceId: stri
         ) : error ? (
           <p className="text-sm text-destructive">{gscErrorMessage(error, t)}</p>
         ) : sites.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('seo.gsc.pickProperty.empty' as any)}</p>
+          <p className="text-sm text-muted-foreground">{t('seo.gsc.pickProperty.empty')}</p>
         ) : (
           <div className="space-y-2">
             {sites.map((s) => (
@@ -227,7 +227,7 @@ function GscPropertyPicker({ workspaceId, connectionEmail }: { workspaceId: stri
                   {s.permissionLevel && <p className="text-xs text-muted-foreground">{s.permissionLevel}</p>}
                 </div>
                 <Button size="sm" variant="outline" onClick={() => handleLink(s.siteUrl)} disabled={linkProperty.isPending}>
-                  {t('seo.gsc.pickProperty.link' as any)}
+                  {t('seo.gsc.pickProperty.link')}
                 </Button>
               </div>
             ))}
@@ -235,7 +235,7 @@ function GscPropertyPicker({ workspaceId, connectionEmail }: { workspaceId: stri
         )}
         <div className="mt-4 border-t border-border/60 pt-4">
           <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => disconnect.mutate()} disabled={disconnect.isPending}>
-            <Unlink className="me-1.5 h-3.5 w-3.5" />{t('seo.gsc.disconnect' as any)}
+            <Unlink className="me-1.5 h-3.5 w-3.5" />{t('seo.gsc.disconnect')}
           </Button>
         </div>
       </CardContent>
@@ -272,7 +272,7 @@ function GscPropertyBar({
           <SelectContent>
             {properties.map((p) => (
               <SelectItem key={p.id} value={p.id}>
-                {prettyUrl(p.siteUrl)}{p.isPrimary ? ` (${t('seo.gsc.property.primary' as any)})` : ''}
+                {prettyUrl(p.siteUrl)}{p.isPrimary ? ` (${t('seo.gsc.property.primary')})` : ''}
               </SelectItem>
             ))}
           </SelectContent>
@@ -284,7 +284,7 @@ function GscPropertyBar({
           <Select onValueChange={(v) => linkProperty.mutate({ siteUrl: v })}>
             <SelectTrigger className="h-8 w-[170px] text-xs">
               <Plus className="me-1 h-3 w-3" />
-              <SelectValue placeholder={t('seo.gsc.property.addAnother' as any)} />
+              <SelectValue placeholder={t('seo.gsc.property.addAnother')} />
             </SelectTrigger>
             <SelectContent>
               {linkable.map((s) => <SelectItem key={s.siteUrl} value={s.siteUrl}>{prettyUrl(s.siteUrl)}</SelectItem>)}
@@ -299,12 +299,12 @@ function GscPropertyBar({
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>{t('seo.gsc.disconnectConfirm.title' as any)}</AlertDialogTitle>
-              <AlertDialogDescription>{t('seo.gsc.disconnectConfirm.description' as any)}</AlertDialogDescription>
+              <AlertDialogTitle>{t('seo.gsc.disconnectConfirm.title')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('seo.gsc.disconnectConfirm.description')}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>{t('seo.gsc.disconnectConfirm.cancel' as any)}</AlertDialogCancel>
-              <AlertDialogAction onClick={() => disconnect.mutate()}>{t('seo.gsc.disconnect' as any)}</AlertDialogAction>
+              <AlertDialogCancel>{t('seo.gsc.disconnectConfirm.cancel')}</AlertDialogCancel>
+              <AlertDialogAction onClick={() => disconnect.mutate()}>{t('seo.gsc.disconnect')}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -344,16 +344,23 @@ function summarize(rows: SeoGscSearchAnalyticsRow[]) {
   return { totalClicks, totalImpressions, avgCtr, avgPosition: weightedPosition };
 }
 
-function GscChartTooltip({ active, payload, label }: any) {
+/** What Recharts hands a custom tooltip (only the fields read here). */
+type ChartTooltipProps = {
+  active?: boolean;
+  label?: string;
+  payload?: Array<{ dataKey?: string | number; color?: string; value?: number }>;
+};
+
+function GscChartTooltip({ active, payload, label }: ChartTooltipProps) {
   const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-border/60 bg-popover px-3 py-2 shadow-lg">
       <p className="mb-1 text-xs font-medium text-foreground">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2 text-xs">
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
-          <span className="text-muted-foreground">{p.dataKey === 'clicks' ? t('seo.gsc.stat.clicks' as any) : t('seo.gsc.stat.impressions' as any)}</span>
+          <span className="text-muted-foreground">{p.dataKey === 'clicks' ? t('seo.gsc.stat.clicks') : t('seo.gsc.stat.impressions')}</span>
           <span className="ms-auto font-semibold tabular-nums text-foreground">{formatCompact(p.value)}</span>
         </div>
       ))}
@@ -378,6 +385,7 @@ function GscTrendChart({ rows }: { rows: SeoGscSearchAnalyticsRow[] }) {
               <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.32} />
               <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
             </linearGradient>
+            {/* Sky-400 through the palette variable, so a panel theme can repaint it. */}
             <linearGradient id="gscImpressionsFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-sky-400))', stopOpacity: 0.22 }} />
               <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-sky-400))', stopOpacity: 0 }} />
@@ -393,8 +401,8 @@ function GscTrendChart({ rows }: { rows: SeoGscSearchAnalyticsRow[] }) {
         </AreaChart>
       </ResponsiveContainer>
       <div className="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.gsc.stat.clicks' as any)}</span>
-        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />{t('seo.gsc.stat.impressions' as any)}</span>
+        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.gsc.stat.clicks')}</span>
+        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />{t('seo.gsc.stat.impressions')}</span>
       </div>
     </div>
   );
@@ -417,16 +425,16 @@ function GscOverview({ workspaceId, propertyId }: { workspaceId: string; propert
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <GradientStatCard icon={MousePointerClick} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(stats.totalClicks)} label={t('seo.gsc.stat.clicks' as any)} />
-        <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(stats.totalImpressions)} label={t('seo.gsc.stat.impressions' as any)} />
-        <GradientStatCard icon={Percent} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCtr(stats.avgCtr)} label={t('seo.gsc.stat.avgCtr' as any)} />
-        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatPosition(stats.avgPosition)} label={t('seo.gsc.stat.avgPosition' as any)} />
+        <GradientStatCard icon={MousePointerClick} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(stats.totalClicks)} label={t('seo.gsc.stat.clicks')} />
+        <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(stats.totalImpressions)} label={t('seo.gsc.stat.impressions')} />
+        <GradientStatCard icon={Percent} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCtr(stats.avgCtr)} label={t('seo.gsc.stat.avgCtr')} />
+        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatPosition(stats.avgPosition)} label={t('seo.gsc.stat.avgPosition')} />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('seo.gsc.overview.trendTitle' as any)}</CardTitle>
-          <CardDescription>{t('seo.gsc.overview.last28days' as any)}</CardDescription>
+          <CardTitle className="text-base">{t('seo.gsc.overview.trendTitle')}</CardTitle>
+          <CardDescription>{t('seo.gsc.overview.last28days')}</CardDescription>
         </CardHeader>
         <CardContent>
           <GscTrendChart rows={rows} />
@@ -435,13 +443,13 @@ function GscOverview({ workspaceId, propertyId }: { workspaceId: string; propert
 
       <div className="grid gap-4 lg:grid-cols-2">
         <MiniRankedList
-          title={t('seo.gsc.overview.topQueries' as any)}
+          title={t('seo.gsc.overview.topQueries')}
           rows={topQueries.data?.rows || []}
           loading={topQueries.isLoading}
           viewAllHref={wsPath('/seo/gsc-insights/queries')}
         />
         <MiniRankedList
-          title={t('seo.gsc.overview.topPages' as any)}
+          title={t('seo.gsc.overview.topPages')}
           rows={topPages.data?.rows || []}
           loading={topPages.isLoading}
           viewAllHref={wsPath('/seo/gsc-insights/pages')}
@@ -460,14 +468,14 @@ function MiniRankedList({
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-base">{title}</CardTitle>
         <Button asChild variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
-          <Link to={viewAllHref}>{t('seo.gsc.overview.viewAll' as any)}<ArrowUpRight className="h-3 w-3" /></Link>
+          <Link to={viewAllHref}>{t('seo.gsc.overview.viewAll')}<ArrowUpRight className="h-3 w-3" /></Link>
         </Button>
       </CardHeader>
       <CardContent>
         {loading ? (
           <SkeletonTable rows={5} columns={2} withHeader={false} />
         ) : rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+          <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
         ) : (
           <div className="space-y-1.5">
             {rows.map((r) => (
@@ -497,29 +505,29 @@ function GscPerformance({ workspaceId, propertyId }: { workspaceId: string; prop
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <GradientStatCard icon={MousePointerClick} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(stats.totalClicks)} label={t('seo.gsc.stat.clicks' as any)} />
-        <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(stats.totalImpressions)} label={t('seo.gsc.stat.impressions' as any)} />
-        <GradientStatCard icon={Percent} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCtr(stats.avgCtr)} label={t('seo.gsc.stat.avgCtr' as any)} />
-        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatPosition(stats.avgPosition)} label={t('seo.gsc.stat.avgPosition' as any)} />
+        <GradientStatCard icon={MousePointerClick} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(stats.totalClicks)} label={t('seo.gsc.stat.clicks')} />
+        <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(stats.totalImpressions)} label={t('seo.gsc.stat.impressions')} />
+        <GradientStatCard icon={Percent} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCtr(stats.avgCtr)} label={t('seo.gsc.stat.avgCtr')} />
+        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatPosition(stats.avgPosition)} label={t('seo.gsc.stat.avgPosition')} />
       </div>
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('seo.gsc.overview.trendTitle' as any)}</CardTitle>
-          <CardDescription>{t('seo.gsc.overview.last28days' as any)}</CardDescription>
+          <CardTitle className="text-base">{t('seo.gsc.overview.trendTitle')}</CardTitle>
+          <CardDescription>{t('seo.gsc.overview.last28days')}</CardDescription>
         </CardHeader>
         <CardContent><GscTrendChart rows={rows} /></CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle className="text-base">{t('seo.gsc.performance.byDay' as any)}</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">{t('seo.gsc.performance.byDay')}</CardTitle></CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('seo.gsc.column.date' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.gsc.stat.clicks' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.gsc.stat.impressions' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.gsc.stat.avgCtr' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.gsc.stat.avgPosition' as any)}</TableHead>
+                <TableHead>{t('seo.gsc.column.date')}</TableHead>
+                <TableHead className="text-end">{t('seo.gsc.stat.clicks')}</TableHead>
+                <TableHead className="text-end">{t('seo.gsc.stat.impressions')}</TableHead>
+                <TableHead className="text-end">{t('seo.gsc.stat.avgCtr')}</TableHead>
+                <TableHead className="text-end">{t('seo.gsc.stat.avgPosition')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -556,24 +564,24 @@ function GscDimensionPage({
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <GradientStatCard icon={MousePointerClick} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(stats.totalClicks)} label={t('seo.gsc.stat.clicks' as any)} />
-        <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(stats.totalImpressions)} label={t('seo.gsc.stat.impressions' as any)} />
-        <GradientStatCard icon={Percent} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCtr(stats.avgCtr)} label={t('seo.gsc.stat.avgCtr' as any)} />
-        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatPosition(stats.avgPosition)} label={t('seo.gsc.stat.avgPosition' as any)} />
+        <GradientStatCard icon={MousePointerClick} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(stats.totalClicks)} label={t('seo.gsc.stat.clicks')} />
+        <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(stats.totalImpressions)} label={t('seo.gsc.stat.impressions')} />
+        <GradientStatCard icon={Percent} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCtr(stats.avgCtr)} label={t('seo.gsc.stat.avgCtr')} />
+        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatPosition(stats.avgPosition)} label={t('seo.gsc.stat.avgPosition')} />
       </div>
       <Card>
         <CardContent className="pt-6">
           {rows.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t(keyLabelKey as any)}</TableHead>
-                  <TableHead className="text-end">{t('seo.gsc.stat.clicks' as any)}</TableHead>
-                  <TableHead className="text-end">{t('seo.gsc.stat.impressions' as any)}</TableHead>
-                  <TableHead className="text-end">{t('seo.gsc.stat.avgCtr' as any)}</TableHead>
-                  <TableHead className="text-end">{t('seo.gsc.stat.avgPosition' as any)}</TableHead>
+                  <TableHead>{t(keyLabelKey as TranslationKey)}</TableHead>
+                  <TableHead className="text-end">{t('seo.gsc.stat.clicks')}</TableHead>
+                  <TableHead className="text-end">{t('seo.gsc.stat.impressions')}</TableHead>
+                  <TableHead className="text-end">{t('seo.gsc.stat.avgCtr')}</TableHead>
+                  <TableHead className="text-end">{t('seo.gsc.stat.avgPosition')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -627,19 +635,19 @@ function GscDevices({ workspaceId, propertyId }: { workspaceId: string; property
               </div>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
-                  <p className="text-xs text-muted-foreground">{t('seo.gsc.stat.clicks' as any)}</p>
+                  <p className="text-xs text-muted-foreground">{t('seo.gsc.stat.clicks')}</p>
                   <p className="font-semibold tabular-nums">{formatCompact(r.clicks)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">{t('seo.gsc.stat.impressions' as any)}</p>
+                  <p className="text-xs text-muted-foreground">{t('seo.gsc.stat.impressions')}</p>
                   <p className="font-semibold tabular-nums">{formatCompact(r.impressions)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">{t('seo.gsc.stat.avgCtr' as any)}</p>
+                  <p className="text-xs text-muted-foreground">{t('seo.gsc.stat.avgCtr')}</p>
                   <p className="font-semibold tabular-nums">{formatCtr(r.ctr)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">{t('seo.gsc.stat.avgPosition' as any)}</p>
+                  <p className="text-xs text-muted-foreground">{t('seo.gsc.stat.avgPosition')}</p>
                   <p className="font-semibold tabular-nums">{formatPosition(r.position)}</p>
                 </div>
               </div>
@@ -648,7 +656,7 @@ function GscDevices({ workspaceId, propertyId }: { workspaceId: string; property
         );
       })}
       {rows.length === 0 && (
-        <p className="col-span-full py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+        <p className="col-span-full py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
       )}
     </div>
   );
@@ -677,22 +685,22 @@ function GscOpportunities({ workspaceId, propertyId }: { workspaceId: string; pr
       <CardHeader>
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-amber-500" />
-          <CardTitle className="text-base">{t('seo.gsc.opportunities.title' as any)}</CardTitle>
+          <CardTitle className="text-base">{t('seo.gsc.opportunities.title')}</CardTitle>
         </div>
-        <CardDescription>{t('seo.gsc.opportunities.description' as any)}</CardDescription>
+        <CardDescription>{t('seo.gsc.opportunities.description')}</CardDescription>
       </CardHeader>
       <CardContent>
         {opportunities.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.opportunities.empty' as any)}</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.opportunities.empty')}</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('seo.gsc.column.query' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.gsc.stat.impressions' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.gsc.stat.clicks' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.gsc.stat.avgCtr' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.gsc.stat.avgPosition' as any)}</TableHead>
+                <TableHead>{t('seo.gsc.column.query')}</TableHead>
+                <TableHead className="text-end">{t('seo.gsc.stat.impressions')}</TableHead>
+                <TableHead className="text-end">{t('seo.gsc.stat.clicks')}</TableHead>
+                <TableHead className="text-end">{t('seo.gsc.stat.avgCtr')}</TableHead>
+                <TableHead className="text-end">{t('seo.gsc.stat.avgPosition')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

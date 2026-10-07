@@ -65,7 +65,7 @@ export default function KnowledgeBasePage() {
   );
 
   const totalViews = 0; // Placeholder — data model can be extended
-  const publishedCount = articles?.filter((a: any) => a.status === 'published').length ?? 0;
+  const publishedCount = articles?.filter((a) => a.status === 'published').length ?? 0;
 
   const statusBadge: Record<string, string> = {
     draft: 'bg-muted text-muted-foreground',

@@ -15,7 +15,7 @@
 import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AlertCircle, Ban, BarChart3, BookOpen, Bot, Check, Clock, Eye, Inbox,
+  AlertCircle, Ban, BarChart3, BookOpen, Check, Clock, Eye, Inbox,
   LayoutDashboard, Mail, MessageSquare, Package, PhoneCall, Plug, Radar,
   Settings, Sparkles, UserCog, Users,
   type LucideIcon,
@@ -26,12 +26,7 @@ import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useInboxCounts } from '@/hooks/useConversations';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import type { AppSection } from '@/lib/planAccess';
-import {
-  aiQueueVisible,
-  channelInboxVisible,
-  colleaguesQueueVisible,
-  needsHumanQueueVisible,
-} from '@/lib/planAccess';
+import { channelInboxVisible, needsHumanQueueVisible } from '@/lib/planAccess';
 import { pluginsApi } from '@/lib/plugins-api';
 import { channelLabel, type ChannelKey } from '@/components/inbox/ChannelBadge';
 
@@ -125,7 +120,9 @@ export function useArtNav() {
   };
   const utility = UTILITY.filter(offered).map(toItem);
 
-  // The inbox's queues, shown while the inbox is open.
+  // The inbox's other views, shown while the inbox is open. Open, AI and
+  // Colleagues are left out: InboxPage puts its own tabs for those in the
+  // same bar (#topbar-page-slot), right beside these.
   const onInbox = isActive('/inbox');
   const queues: ArtQueueItem[] = [];
   if (onInbox) {
@@ -151,12 +148,6 @@ export function useArtNav() {
       ...extra,
     });
 
-    queues.push(queue('open', '', t('inbox.open') || 'Open', MessageSquare, !q && !f && !ch && (!st || st === 'open')));
-    if (aiQueueVisible(sections, inboxCounts?.automated ?? 0)) {
-      queues.push(queue('automated', '?queue=automated', t('inbox.aiTab') || 'AI', Bot, q === 'automated', {
-        badge: inboxCounts?.automated ?? 0,
-      }));
-    }
     if (needsHumanQueueVisible(plan)) {
       queues.push(queue('needs_human', '?filter=needs_human', t('inbox.needsHuman') || 'Needs human', AlertCircle, f === 'needs_human', {
         badge: needsHuman,
@@ -168,11 +159,6 @@ export function useArtNav() {
     queues.push(queue('spam', '?queue=spam', t('inbox.spamInbox') || 'Spam', Ban, q === 'spam', {
       badge: inboxCounts?.spam ?? 0,
     }));
-    if (colleaguesQueueVisible(plan)) {
-      queues.push(queue('colleagues', '?filter=colleagues', t('inbox.colleagues') || 'Colleagues', Users, f === 'colleagues', {
-        group: 'internal',
-      }));
-    }
     for (const p of pluginCatalog || []) {
       if (!channelInboxVisible(p, plan)) continue;
       const key = (p.slug || p.id).toLowerCase();

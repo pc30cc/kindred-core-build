@@ -2,7 +2,7 @@ import { Outlet, NavLink, useLocation, Navigate } from 'react-router-dom';
 import { useWorkspacePath, useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon, Power, ScrollText } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
@@ -35,7 +35,7 @@ export function AiAgentLayout() {
   const { data: capabilities, isLoading, isError } = useAiAgentCapabilities(workspace?.id || null);
   const { data: isAdmin } = useIsGlobalAdmin();
   const tr = (k: string, fb: string) => {
-    const v = t(`aiAgent.${k}` as any);
+    const v = t(`aiAgent.${k}` as TranslationKey);
     return !v || v === `aiAgent.${k}` ? fb : v;
   };
 

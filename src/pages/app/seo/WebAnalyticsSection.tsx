@@ -20,7 +20,7 @@ import {
   Copy, AlertTriangle, Network, Sparkles, Flag, Building2, Languages, Chrome, Monitor,
   Smartphone, Zap, Filter, Plus, Trash2, ChevronRight, ChevronDown, Clock, MousePointerClick,
 } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -95,14 +95,14 @@ function prettyUrl(value: string): string {
   }
 }
 
-function webAnalyticsErrorMessage(err: unknown, t: (k: any) => string): string {
+function webAnalyticsErrorMessage(err: unknown, t: (k: TranslationKey) => string): string {
   if (err instanceof WebAnalyticsApiError) {
-    if (err.upgradeRequired) return t('seo.webAnalytics.errors.limit_reached' as any);
+    if (err.upgradeRequired) return t('seo.webAnalytics.errors.limit_reached');
     const key = `seo.webAnalytics.errors.${err.code}`;
-    const translated = t(key as any);
+    const translated = t(key as TranslationKey);
     if (translated !== key) return translated;
   }
-  return t('seo.webAnalytics.errors.generic' as any);
+  return t('seo.webAnalytics.errors.generic');
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────
@@ -125,7 +125,7 @@ function LiveVisitorsBadge({ workspaceId }: { workspaceId: string }) {
         {count > 0 && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
         <span className={`relative inline-flex h-2 w-2 rounded-full ${count > 0 ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
       </span>
-      {t('seo.webAnalytics.liveVisitors' as any, { count })}
+      {t('seo.webAnalytics.liveVisitors', { count })}
     </span>
   );
 }
@@ -139,15 +139,15 @@ function WebAnalyticsInner({ workspaceId, subsectionKey }: { workspaceId: string
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <p className="text-xs text-muted-foreground">{t('seo.webAnalytics.dataSourceNote' as any)}</p>
+          <p className="text-xs text-muted-foreground">{t('seo.webAnalytics.dataSourceNote')}</p>
           <LiveVisitorsBadge workspaceId={workspaceId} />
         </div>
         <Select value={preset} onValueChange={(v) => setPreset(v as RangePreset)}>
           <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="7d">{t('seo.webAnalytics.range.last7' as any)}</SelectItem>
-            <SelectItem value="28d">{t('seo.webAnalytics.range.last28' as any)}</SelectItem>
-            <SelectItem value="90d">{t('seo.webAnalytics.range.last90' as any)}</SelectItem>
+            <SelectItem value="7d">{t('seo.webAnalytics.range.last7')}</SelectItem>
+            <SelectItem value="28d">{t('seo.webAnalytics.range.last28')}</SelectItem>
+            <SelectItem value="90d">{t('seo.webAnalytics.range.last90')}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -189,7 +189,7 @@ function WebAnalyticsDataView({ workspaceId, subsectionKey, range }: { workspace
 function BreakdownTable({ rows, isLoading, keyLabel, icon: Icon, limit }: { rows: BreakdownRow[]; isLoading: boolean; keyLabel: string; icon: React.ComponentType<{ className?: string }>; limit?: number }) {
   const { t } = useTranslation();
   if (isLoading) return <SkeletonTable rows={8} columns={3} />;
-  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>;
+  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>;
   const visibleRows = limit ? rows.slice(0, limit) : rows;
   const max = Math.max(...rows.map((r) => r.sessions), 1);
   return (
@@ -197,8 +197,8 @@ function BreakdownTable({ rows, isLoading, keyLabel, icon: Icon, limit }: { rows
       <TableHeader>
         <TableRow>
           <TableHead>{keyLabel}</TableHead>
-          <TableHead className="text-end">{t('seo.webAnalytics.column.sessions' as any)}</TableHead>
-          <TableHead className="text-end">{t('seo.webAnalytics.column.pageviews' as any)}</TableHead>
+          <TableHead className="text-end">{t('seo.webAnalytics.column.sessions')}</TableHead>
+          <TableHead className="text-end">{t('seo.webAnalytics.column.pageviews')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -229,7 +229,7 @@ function ReportCard({ title, description, truncated, children }: { title: string
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
-        {truncated && <Badge variant="outline" className="mt-1 w-fit gap-1 text-[10px] text-amber-600"><AlertTriangle className="h-3 w-3" />{t('seo.webAnalytics.truncatedNotice' as any)}</Badge>}
+        {truncated && <Badge variant="outline" className="mt-1 w-fit gap-1 text-[10px] text-amber-600"><AlertTriangle className="h-3 w-3" />{t('seo.webAnalytics.truncatedNotice')}</Badge>}
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
@@ -238,16 +238,23 @@ function ReportCard({ title, description, truncated, children }: { title: string
 
 // ─── Overview ──────────────────────────────────────────────────────────
 
-function OverviewChartTooltip({ active, payload, label }: any) {
+/** What Recharts hands a custom tooltip (only the fields read here). */
+type ChartTooltipProps = {
+  active?: boolean;
+  label?: string;
+  payload?: Array<{ dataKey?: string | number; color?: string; value?: number }>;
+};
+
+function OverviewChartTooltip({ active, payload, label }: ChartTooltipProps) {
   const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-border/60 bg-popover px-3 py-2 shadow-lg">
       <p className="mb-1 text-xs font-medium text-foreground">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2 text-xs">
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
-          <span className="text-muted-foreground">{p.dataKey === 'sessions' ? t('seo.webAnalytics.column.sessions' as any) : t('seo.webAnalytics.column.pageviews' as any)}</span>
+          <span className="text-muted-foreground">{p.dataKey === 'sessions' ? t('seo.webAnalytics.column.sessions') : t('seo.webAnalytics.column.pageviews')}</span>
           <span className="ms-auto font-semibold tabular-nums text-foreground">{formatCompact(p.value)}</span>
         </div>
       ))}
@@ -265,17 +272,17 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(data.pageviews)} label={t('seo.webAnalytics.stat.pageviews' as any)} />
-        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatCompact(data.uniqueVisitors)} label={t('seo.webAnalytics.stat.uniqueVisitors' as any)} />
-        <GradientStatCard icon={Users} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(data.sessions)} label={t('seo.webAnalytics.stat.sessions' as any)} />
-        <GradientStatCard icon={Layers} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={data.avgPagesPerSession} label={t('seo.webAnalytics.stat.avgPagesPerSession' as any)} />
-        <GradientStatCard icon={MousePointerClick} iconGradient="from-rose-500 to-pink-500" blobColor="bg-rose-500/15" value={`${data.bounceRate}%`} label={t('seo.webAnalytics.stat.bounceRate' as any)} />
-        <GradientStatCard icon={Clock} iconGradient="from-slate-500 to-slate-700" blobColor="bg-slate-500/15" value={formatDuration(data.avgVisitDurationSeconds)} label={t('seo.webAnalytics.stat.visitDuration' as any)} />
+        <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(data.pageviews)} label={t('seo.webAnalytics.stat.pageviews')} />
+        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatCompact(data.uniqueVisitors)} label={t('seo.webAnalytics.stat.uniqueVisitors')} />
+        <GradientStatCard icon={Users} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(data.sessions)} label={t('seo.webAnalytics.stat.sessions')} />
+        <GradientStatCard icon={Layers} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={data.avgPagesPerSession} label={t('seo.webAnalytics.stat.avgPagesPerSession')} />
+        <GradientStatCard icon={MousePointerClick} iconGradient="from-rose-500 to-pink-500" blobColor="bg-rose-500/15" value={`${data.bounceRate}%`} label={t('seo.webAnalytics.stat.bounceRate')} />
+        <GradientStatCard icon={Clock} iconGradient="from-slate-500 to-slate-700" blobColor="bg-slate-500/15" value={formatDuration(data.avgVisitDurationSeconds)} label={t('seo.webAnalytics.stat.visitDuration')} />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('seo.webAnalytics.overview.trendTitle' as any)}</CardTitle>
+          <CardTitle className="text-base">{t('seo.webAnalytics.overview.trendTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-64">
@@ -286,6 +293,7 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
                     <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.32} />
                     <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                   </linearGradient>
+                  {/* Sky-400 through the palette variable, so a panel theme can repaint it. */}
                   <linearGradient id="waPageviewsFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-sky-400))', stopOpacity: 0.22 }} />
                     <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-sky-400))', stopOpacity: 0 }} />
@@ -301,8 +309,8 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
             </ResponsiveContainer>
           </div>
           <div className="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.webAnalytics.column.sessions' as any)}</span>
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />{t('seo.webAnalytics.column.pageviews' as any)}</span>
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.webAnalytics.column.sessions')}</span>
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />{t('seo.webAnalytics.column.pageviews')}</span>
           </div>
         </CardContent>
       </Card>
@@ -347,7 +355,7 @@ function OverviewMiniCard({
       <CardContent className="pt-0">
         {children}
         <div className="mt-3 text-end">
-          <Link to={viewMoreHref} className="text-xs font-medium text-primary hover:underline">{t('seo.webAnalytics.viewMore' as any)}</Link>
+          <Link to={viewMoreHref} className="text-xs font-medium text-primary hover:underline">{t('seo.webAnalytics.viewMore')}</Link>
         </div>
       </CardContent>
     </Card>
@@ -364,17 +372,17 @@ function OverviewTrafficSourcesCard({ workspaceId, range }: { workspaceId: strin
   const leafKey = dimension === 'channel' ? 'channels' : dimension === 'source' ? 'sources' : 'campaigns';
   return (
     <OverviewMiniCard
-      title={t('seo.nav.item.trafficSources' as any)}
+      title={t('seo.nav.item.trafficSources')}
       tabs={[
-        { value: 'channel', label: t('seo.nav.item.channels' as any) },
-        { value: 'source', label: t('seo.nav.item.sources' as any) },
-        { value: 'campaign', label: t('seo.nav.item.campaigns' as any) },
+        { value: 'channel', label: t('seo.nav.item.channels') },
+        { value: 'source', label: t('seo.nav.item.sources') },
+        { value: 'campaign', label: t('seo.nav.item.campaigns') },
       ]}
       activeTab={dimension}
       onTabChange={(v) => setDimension(v as TrafficSourceDimension)}
       viewMoreHref={wsPath(`/analytics/${leafKey}`)}
     >
-      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(TRAFFIC_SOURCE_COLUMN_KEY[dimension] as any)} icon={DIMENSION_ICON[dimension]} limit={OVERVIEW_MINI_ROW_LIMIT} />
+      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(TRAFFIC_SOURCE_COLUMN_KEY[dimension] as TranslationKey)} icon={DIMENSION_ICON[dimension]} limit={OVERVIEW_MINI_ROW_LIMIT} />
     </OverviewMiniCard>
   );
 }
@@ -387,11 +395,11 @@ function OverviewPagesCard({ workspaceId, range }: { workspaceId: string; range:
   const leafKey = kind === 'top' ? 'topPages' : kind === 'entry' ? 'entryPages' : 'exitPages';
   return (
     <OverviewMiniCard
-      title={t('seo.nav.item.pages' as any)}
+      title={t('seo.nav.item.pages')}
       tabs={[
-        { value: 'top', label: t('seo.nav.item.topPages' as any) },
-        { value: 'entry', label: t('seo.nav.item.entryPages' as any) },
-        { value: 'exit', label: t('seo.nav.item.exitPages' as any) },
+        { value: 'top', label: t('seo.nav.item.topPages') },
+        { value: 'entry', label: t('seo.nav.item.entryPages') },
+        { value: 'exit', label: t('seo.nav.item.exitPages') },
       ]}
       activeTab={kind}
       onTabChange={(v) => setKind(v as 'top' | 'entry' | 'exit')}
@@ -410,16 +418,16 @@ function OverviewGeographyCard({ workspaceId, range }: { workspaceId: string; ra
   const labelKey = `seo.webAnalytics.column.${dimension}`;
   return (
     <OverviewMiniCard
-      title={t('seo.nav.item.geography' as any)}
+      title={t('seo.nav.item.geography')}
       tabs={[
-        { value: 'country', label: t('seo.nav.item.countries' as any) },
-        { value: 'language', label: t('seo.nav.item.languages' as any) },
+        { value: 'country', label: t('seo.nav.item.countries') },
+        { value: 'language', label: t('seo.nav.item.languages') },
       ]}
       activeTab={dimension}
       onTabChange={(v) => setDimension(v as 'country' | 'language')}
       viewMoreHref={wsPath(`/analytics/${dimension === 'country' ? 'countries' : 'languages'}`)}
     >
-      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as any)} icon={DIMENSION_ICON[dimension]} limit={OVERVIEW_MINI_ROW_LIMIT} />
+      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as TranslationKey)} icon={DIMENSION_ICON[dimension]} limit={OVERVIEW_MINI_ROW_LIMIT} />
     </OverviewMiniCard>
   );
 }
@@ -433,17 +441,17 @@ function OverviewBrowsersSystemsCard({ workspaceId, range }: { workspaceId: stri
   const leafKey = dimension === 'browser' ? 'browsers' : dimension === 'os' ? 'operatingSystems' : 'devices';
   return (
     <OverviewMiniCard
-      title={t('seo.nav.item.browsersSystems' as any)}
+      title={t('seo.nav.item.browsersSystems')}
       tabs={[
-        { value: 'browser', label: t('seo.nav.item.browsers' as any) },
-        { value: 'os', label: t('seo.nav.item.operatingSystems' as any) },
-        { value: 'device', label: t('seo.nav.item.devices' as any) },
+        { value: 'browser', label: t('seo.nav.item.browsers') },
+        { value: 'os', label: t('seo.nav.item.operatingSystems') },
+        { value: 'device', label: t('seo.nav.item.devices') },
       ]}
       activeTab={dimension}
       onTabChange={(v) => setDimension(v as BrowsersSystemsDimension)}
       viewMoreHref={wsPath(`/analytics/${leafKey}`)}
     >
-      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as any)} icon={DIMENSION_ICON[dimension]} limit={OVERVIEW_MINI_ROW_LIMIT} />
+      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as TranslationKey)} icon={DIMENSION_ICON[dimension]} limit={OVERVIEW_MINI_ROW_LIMIT} />
     </OverviewMiniCard>
   );
 }
@@ -453,7 +461,7 @@ function OverviewTrackedEventsCard({ workspaceId, range }: { workspaceId: string
   const wsPath = useWorkspacePath();
   const { data, isLoading } = useWebAnalyticsTrackedEvents(workspaceId, range);
   return (
-    <OverviewMiniCard title={t('seo.nav.item.trackedEvents' as any)} viewMoreHref={wsPath('/analytics/trackedEvents')}>
+    <OverviewMiniCard title={t('seo.nav.item.trackedEvents')} viewMoreHref={wsPath('/analytics/trackedEvents')}>
       <TrackedEventsTable rows={data?.rows || []} isLoading={isLoading} limit={OVERVIEW_MINI_ROW_LIMIT} />
     </OverviewMiniCard>
   );
@@ -482,8 +490,8 @@ function TrafficSourceView({ workspaceId, range, dimension }: { workspaceId: str
   const { t } = useTranslation();
   const { data, isLoading } = useWebAnalyticsTrafficSources(workspaceId, dimension, range);
   return (
-    <ReportCard title={t(TRAFFIC_SOURCE_TITLE_KEY[dimension] as any)} truncated={data?.truncated}>
-      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(TRAFFIC_SOURCE_COLUMN_KEY[dimension] as any)} icon={DIMENSION_ICON[dimension]} />
+    <ReportCard title={t(TRAFFIC_SOURCE_TITLE_KEY[dimension] as TranslationKey)} truncated={data?.truncated}>
+      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(TRAFFIC_SOURCE_COLUMN_KEY[dimension] as TranslationKey)} icon={DIMENSION_ICON[dimension]} />
     </ReportCard>
   );
 }
@@ -493,8 +501,8 @@ function GeographyView({ workspaceId, range, dimension }: { workspaceId: string;
   const { data, isLoading } = useWebAnalyticsGeography(workspaceId, dimension, range);
   const labelKey = `seo.webAnalytics.column.${dimension}`;
   return (
-    <ReportCard title={t(labelKey as any)} truncated={data?.truncated}>
-      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as any)} icon={DIMENSION_ICON[dimension]} />
+    <ReportCard title={t(labelKey as TranslationKey)} truncated={data?.truncated}>
+      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as TranslationKey)} icon={DIMENSION_ICON[dimension]} />
     </ReportCard>
   );
 }
@@ -504,8 +512,8 @@ function BrowsersSystemsView({ workspaceId, range, dimension }: { workspaceId: s
   const { data, isLoading } = useWebAnalyticsBrowsersSystems(workspaceId, dimension, range);
   const labelKey = dimension === 'browser' ? 'seo.webAnalytics.column.browser' : dimension === 'os' ? 'seo.webAnalytics.column.os' : 'seo.webAnalytics.column.device';
   return (
-    <ReportCard title={t(labelKey as any)} truncated={data?.truncated}>
-      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as any)} icon={DIMENSION_ICON[dimension]} />
+    <ReportCard title={t(labelKey as TranslationKey)} truncated={data?.truncated}>
+      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as TranslationKey)} icon={DIMENSION_ICON[dimension]} />
     </ReportCard>
   );
 }
@@ -515,14 +523,14 @@ function BrowsersSystemsView({ workspaceId, range, dimension }: { workspaceId: s
 function PagesTable({ rows, isLoading, icon: Icon, limit }: { rows: Array<{ path: string; views: number }>; isLoading: boolean; icon: React.ComponentType<{ className?: string }>; limit?: number }) {
   const { t } = useTranslation();
   if (isLoading) return <SkeletonTable rows={8} columns={2} />;
-  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>;
+  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>;
   const visibleRows = limit ? rows.slice(0, limit) : rows;
   return (
     <Table dir="ltr">
       <TableHeader>
         <TableRow>
-          <TableHead className="text-left">{t('seo.webAnalytics.column.page' as any)}</TableHead>
-          <TableHead className="text-right">{t('seo.webAnalytics.column.views' as any)}</TableHead>
+          <TableHead className="text-left">{t('seo.webAnalytics.column.page')}</TableHead>
+          <TableHead className="text-right">{t('seo.webAnalytics.column.views')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -551,7 +559,7 @@ function PagesView({ workspaceId, range, kind }: { workspaceId: string; range: {
   const { data, isLoading } = useWebAnalyticsPages(workspaceId, kind, range);
 
   return (
-    <ReportCard title={t(`seo.nav.item.${kind === 'top' ? 'topPages' : kind === 'entry' ? 'entryPages' : kind === 'exit' ? 'exitPages' : 'new'}` as any)} truncated={data?.truncated}>
+    <ReportCard title={t(`seo.nav.item.${kind === 'top' ? 'topPages' : kind === 'entry' ? 'entryPages' : kind === 'exit' ? 'exitPages' : 'new'}` as TranslationKey)} truncated={data?.truncated}>
       <PagesTable rows={data?.rows || []} isLoading={isLoading} icon={pagesIcon(kind)} />
     </ReportCard>
   );
@@ -564,14 +572,14 @@ function ClonedPagesView({ workspaceId, range }: { workspaceId: string; range: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{t('seo.nav.item.clonedPages' as any)}</CardTitle>
-        <CardDescription>{t('seo.webAnalytics.clonedPages.description' as any)}</CardDescription>
+        <CardTitle className="text-base">{t('seo.nav.item.clonedPages')}</CardTitle>
+        <CardDescription>{t('seo.webAnalytics.clonedPages.description')}</CardDescription>
       </CardHeader>
       <CardContent>
         {isLoading ? (
           <SkeletonTable rows={4} columns={2} />
         ) : (data?.rows.length || 0) === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.clonedPages.empty' as any)}</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.clonedPages.empty')}</p>
         ) : (
           <div className="space-y-4">
             {(data?.rows || []).map((group) => (
@@ -579,7 +587,7 @@ function ClonedPagesView({ workspaceId, range }: { workspaceId: string; range: {
                 <div dir="ltr" className="mb-2 flex items-center gap-2 text-left">
                   <Copy className="h-3.5 w-3.5 text-amber-500" />
                   <span className="font-medium">{prettyUrl(group.normalizedPath)}</span>
-                  <Badge variant="outline" className="ms-auto text-[10px]">{formatCompact(group.totalViews)} {t('seo.webAnalytics.column.views' as any)}</Badge>
+                  <Badge variant="outline" className="ms-auto text-[10px]">{formatCompact(group.totalViews)} {t('seo.webAnalytics.column.views')}</Badge>
                 </div>
                 <div className="space-y-1">
                   {group.variants.map((v) => (
@@ -612,8 +620,8 @@ function Possible404View({ workspaceId, range }: { workspaceId: string; range: {
           <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
             <AlertTriangle className="h-5 w-5" />
           </span>
-          <h3 className="text-base font-semibold">{t('seo.webAnalytics.possible404.needsCrawlTitle' as any)}</h3>
-          <p className="max-w-md text-sm text-muted-foreground">{t('seo.webAnalytics.possible404.needsCrawlDescription' as any)}</p>
+          <h3 className="text-base font-semibold">{t('seo.webAnalytics.possible404.needsCrawlTitle')}</h3>
+          <p className="max-w-md text-sm text-muted-foreground">{t('seo.webAnalytics.possible404.needsCrawlDescription')}</p>
         </CardContent>
       </Card>
     );
@@ -622,19 +630,19 @@ function Possible404View({ workspaceId, range }: { workspaceId: string; range: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{t('seo.nav.item.possible404' as any)}</CardTitle>
-        <CardDescription>{t('seo.webAnalytics.possible404.description' as any)}</CardDescription>
+        <CardTitle className="text-base">{t('seo.nav.item.possible404')}</CardTitle>
+        <CardDescription>{t('seo.webAnalytics.possible404.description')}</CardDescription>
       </CardHeader>
       <CardContent>
         {data.rows.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.possible404.empty' as any)}</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.possible404.empty')}</p>
         ) : (
           <Table dir="ltr">
             <TableHeader>
               <TableRow>
-                <TableHead className="text-left">{t('seo.webAnalytics.column.page' as any)}</TableHead>
-                <TableHead className="text-right">{t('seo.webAnalytics.column.status' as any)}</TableHead>
-                <TableHead className="text-right">{t('seo.webAnalytics.column.views' as any)}</TableHead>
+                <TableHead className="text-left">{t('seo.webAnalytics.column.page')}</TableHead>
+                <TableHead className="text-right">{t('seo.webAnalytics.column.status')}</TableHead>
+                <TableHead className="text-right">{t('seo.webAnalytics.column.views')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -685,12 +693,12 @@ function SiteStructureView({ workspaceId, range }: { workspaceId: string; range:
 
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">{t('seo.nav.item.siteStructure' as any)}</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-base">{t('seo.nav.item.siteStructure')}</CardTitle></CardHeader>
       <CardContent>
         {isLoading ? (
           <SkeletonTable rows={6} columns={1} />
         ) : !data?.root || data.root.views === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>
         ) : (
           <div>
             {data.root.children.map((child) => <SiteStructureNodeRow key={child.path} node={child} depth={0} />)}
@@ -706,16 +714,16 @@ function SiteStructureView({ workspaceId, range }: { workspaceId: string; range:
 function TrackedEventsTable({ rows, isLoading, limit }: { rows: TrackedEventRow[]; isLoading: boolean; limit?: number }) {
   const { t } = useTranslation();
   if (isLoading) return <SkeletonTable rows={6} columns={4} />;
-  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty' as any)}</p>;
+  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty')}</p>;
   const visibleRows = limit ? rows.slice(0, limit) : rows;
   return (
     <Table dir="ltr">
       <TableHeader>
         <TableRow>
-          <TableHead className="text-left">{t('seo.webAnalytics.column.event' as any)}</TableHead>
-          <TableHead className="text-right">{t('seo.webAnalytics.column.uniqueSessions' as any)}</TableHead>
-          <TableHead className="text-right">{t('seo.webAnalytics.column.count' as any)}</TableHead>
-          <TableHead className="text-right">{t('seo.webAnalytics.column.conversionRate' as any)}</TableHead>
+          <TableHead className="text-left">{t('seo.webAnalytics.column.event')}</TableHead>
+          <TableHead className="text-right">{t('seo.webAnalytics.column.uniqueSessions')}</TableHead>
+          <TableHead className="text-right">{t('seo.webAnalytics.column.count')}</TableHead>
+          <TableHead className="text-right">{t('seo.webAnalytics.column.conversionRate')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -739,7 +747,7 @@ function TrackedEventsView({ workspaceId, range }: { workspaceId: string; range:
   const { data, isLoading } = useWebAnalyticsTrackedEvents(workspaceId, range);
 
   return (
-    <ReportCard title={t('seo.nav.item.trackedEvents' as any)} description={t('seo.webAnalytics.trackedEvents.description' as any)} truncated={data?.truncated}>
+    <ReportCard title={t('seo.nav.item.trackedEvents')} description={t('seo.webAnalytics.trackedEvents.description')} truncated={data?.truncated}>
       <TrackedEventsTable rows={data?.rows || []} isLoading={isLoading} />
     </ReportCard>
   );
@@ -760,24 +768,24 @@ function EventPropertiesView({ workspaceId, range }: { workspaceId: string; rang
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{t('seo.nav.item.eventProperties' as any)}</CardTitle>
-        <CardDescription>{t('seo.webAnalytics.eventProperties.description' as any)}</CardDescription>
+        <CardTitle className="text-base">{t('seo.nav.item.eventProperties')}</CardTitle>
+        <CardDescription>{t('seo.webAnalytics.eventProperties.description')}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {events.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty' as any)}</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty')}</p>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={activeEvent} onValueChange={(v) => { setEventName(v); setPropertyKey(undefined); }}>
-                <SelectTrigger className="h-8 w-[220px] text-xs"><SelectValue placeholder={t('seo.webAnalytics.column.event' as any)} /></SelectTrigger>
+                <SelectTrigger className="h-8 w-[220px] text-xs"><SelectValue placeholder={t('seo.webAnalytics.column.event')} /></SelectTrigger>
                 <SelectContent>
                   {events.map((e) => <SelectItem key={e.eventName} value={e.eventName}>{e.eventName}</SelectItem>)}
                 </SelectContent>
               </Select>
               {(keysData?.keys.length || 0) > 0 && (
                 <Select value={activeKey} onValueChange={setPropertyKey}>
-                  <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue placeholder={t('seo.webAnalytics.eventProperties.property' as any)} /></SelectTrigger>
+                  <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue placeholder={t('seo.webAnalytics.eventProperties.property')} /></SelectTrigger>
                   <SelectContent>
                     {(keysData?.keys || []).map((k) => <SelectItem key={k} value={k}>{k}</SelectItem>)}
                   </SelectContent>
@@ -785,17 +793,17 @@ function EventPropertiesView({ workspaceId, range }: { workspaceId: string; rang
               )}
             </div>
             {activeEvent && (keysData?.keys.length || 0) === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.eventProperties.noProperties' as any)}</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.eventProperties.noProperties')}</p>
             ) : isLoading ? (
               <SkeletonTable rows={5} columns={2} />
             ) : (breakdownData?.rows.length || 0) === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>
             ) : (
               <Table dir="ltr">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-left">{t('seo.webAnalytics.eventProperties.value' as any)}</TableHead>
-                    <TableHead className="text-right">{t('seo.webAnalytics.column.count' as any)}</TableHead>
+                    <TableHead className="text-left">{t('seo.webAnalytics.eventProperties.value')}</TableHead>
+                    <TableHead className="text-right">{t('seo.webAnalytics.column.count')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -831,7 +839,7 @@ function FunnelsView({ workspaceId, range }: { workspaceId: string; range: { sta
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">{t('seo.nav.item.funnels' as any)}</h3>
+        <h3 className="text-sm font-semibold">{t('seo.nav.item.funnels')}</h3>
         <CreateFunnelDialog workspaceId={workspaceId} disabled={funnels.length >= maxFunnels} />
       </div>
 
@@ -841,8 +849,8 @@ function FunnelsView({ workspaceId, range }: { workspaceId: string; range: { sta
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
               <Filter className="h-5 w-5" />
             </span>
-            <h3 className="text-base font-semibold">{t('seo.webAnalytics.funnels.emptyTitle' as any)}</h3>
-            <p className="max-w-md text-sm text-muted-foreground">{t('seo.webAnalytics.funnels.emptyDescription' as any)}</p>
+            <h3 className="text-base font-semibold">{t('seo.webAnalytics.funnels.emptyTitle')}</h3>
+            <p className="max-w-md text-sm text-muted-foreground">{t('seo.webAnalytics.funnels.emptyDescription')}</p>
           </CardContent>
         </Card>
       ) : (
@@ -887,12 +895,12 @@ function FunnelResultsPanel({ workspaceId, funnelId, range }: { workspaceId: str
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>{t('seo.webAnalytics.funnels.deleteConfirmTitle' as any)}</AlertDialogTitle>
-              <AlertDialogDescription>{t('seo.webAnalytics.funnels.deleteConfirmDescription' as any)}</AlertDialogDescription>
+              <AlertDialogTitle>{t('seo.webAnalytics.funnels.deleteConfirmTitle')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('seo.webAnalytics.funnels.deleteConfirmDescription')}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>{t('seo.gsc.disconnectConfirm.cancel' as any)}</AlertDialogCancel>
-              <AlertDialogAction onClick={() => deleteFunnel.mutate(funnelId)}>{t('seo.webAnalytics.funnels.delete' as any)}</AlertDialogAction>
+              <AlertDialogCancel>{t('seo.gsc.disconnectConfirm.cancel')}</AlertDialogCancel>
+              <AlertDialogAction onClick={() => deleteFunnel.mutate(funnelId)}>{t('seo.webAnalytics.funnels.delete')}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -909,7 +917,7 @@ function FunnelResultsPanel({ workspaceId, funnelId, range }: { workspaceId: str
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(r.sessions / max) * 100}%` }} />
             </div>
-            {i > 0 && <p className="text-[11px] text-muted-foreground">{t('seo.webAnalytics.funnels.conversionFromPrevious' as any, { percent: r.conversionFromPrevious } as any)}</p>}
+            {i > 0 && <p className="text-[11px] text-muted-foreground">{t('seo.webAnalytics.funnels.conversionFromPrevious', { percent: r.conversionFromPrevious })}</p>}
           </div>
         ))}
       </CardContent>
@@ -936,7 +944,7 @@ function CreateFunnelDialog({ workspaceId, disabled }: { workspaceId: string; di
   const handleCreate = async () => {
     try {
       await createFunnel.mutateAsync({ name, steps });
-      toast.success(t('seo.webAnalytics.funnels.created' as any));
+      toast.success(t('seo.webAnalytics.funnels.created'));
       setOpen(false);
       setName('');
       setSteps([{ type: 'pageview', matcher: 'contains', value: '' }, { type: 'pageview', matcher: 'contains', value: '' }]);
@@ -949,21 +957,21 @@ function CreateFunnelDialog({ workspaceId, disabled }: { workspaceId: string; di
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" className="gap-1.5" disabled={disabled}>
-          <Plus className="h-3.5 w-3.5" />{t('seo.webAnalytics.funnels.create' as any)}
+          <Plus className="h-3.5 w-3.5" />{t('seo.webAnalytics.funnels.create')}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>{t('seo.webAnalytics.funnels.create' as any)}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{t('seo.webAnalytics.funnels.create')}</DialogTitle></DialogHeader>
         <div className="flex flex-col gap-4">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('seo.webAnalytics.funnels.namePlaceholder' as any)} />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('seo.webAnalytics.funnels.namePlaceholder')} />
           <div className="flex flex-col gap-3">
             {steps.map((step, i) => (
               <div key={i} className="flex items-center gap-2 rounded-lg border border-border/60 p-2">
                 <span className="w-5 shrink-0 text-center text-xs font-semibold text-muted-foreground">{i + 1}</span>
                 <Tabs value={step.type} onValueChange={(v) => updateStep(i, v === 'event' ? { type: 'event', eventName: '' } : { type: 'pageview', matcher: 'contains', value: '' })}>
                   <TabsList className="h-8">
-                    <TabsTrigger value="pageview" className="text-xs">{t('seo.webAnalytics.funnels.pageview' as any)}</TabsTrigger>
-                    <TabsTrigger value="event" className="text-xs">{t('seo.webAnalytics.funnels.event' as any)}</TabsTrigger>
+                    <TabsTrigger value="pageview" className="text-xs">{t('seo.webAnalytics.funnels.pageview')}</TabsTrigger>
+                    <TabsTrigger value="event" className="text-xs">{t('seo.webAnalytics.funnels.event')}</TabsTrigger>
                   </TabsList>
                 </Tabs>
                 {step.type === 'pageview' ? (
@@ -980,14 +988,14 @@ function CreateFunnelDialog({ workspaceId, disabled }: { workspaceId: string; di
             ))}
             {steps.length < 10 && (
               <Button variant="outline" size="sm" className="gap-1.5 self-start" onClick={addStep}>
-                <Plus className="h-3.5 w-3.5" />{t('seo.webAnalytics.funnels.addStep' as any)}
+                <Plus className="h-3.5 w-3.5" />{t('seo.webAnalytics.funnels.addStep')}
               </Button>
             )}
           </div>
         </div>
         <DialogFooter>
           <Button onClick={handleCreate} disabled={createFunnel.isPending || !name.trim()}>
-            {t('seo.webAnalytics.funnels.save' as any)}
+            {t('seo.webAnalytics.funnels.save')}
           </Button>
         </DialogFooter>
       </DialogContent>

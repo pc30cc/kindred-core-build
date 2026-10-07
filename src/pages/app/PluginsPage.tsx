@@ -45,7 +45,7 @@ export default function PluginsPage() {
       toast({ title: t('plugins.telegram.disconnected') });
       qc.invalidateQueries({ queryKey: ['plugins'] });
     },
-    onError: (err: any) =>
+    onError: (err: Error) =>
       toast({ variant: 'destructive', title: t('plugins.error.generic'), description: err?.message }),
   });
 

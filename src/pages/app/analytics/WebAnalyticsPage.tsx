@@ -28,9 +28,9 @@ export default function WebAnalyticsPage() {
   const subsectionKey = subsectionParam || firstWebAnalyticsLeafKey();
 
   return (
-    <div className="flex h-full min-h-0 items-stretch">
+    <div data-section-layout="analytics" className="flex h-full min-h-0 items-stretch">
       <WebAnalyticsSectionNav activeSubsectionKey={subsectionKey} />
-      <div className="min-w-0 flex-1 overflow-y-auto bg-background p-6">
+      <div data-section-content className="min-w-0 flex-1 overflow-y-auto bg-background p-6">
         <WebAnalyticsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
       </div>
     </div>

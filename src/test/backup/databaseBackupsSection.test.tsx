@@ -80,6 +80,8 @@ describe('DatabaseBackupsSection', () => {
     expect(screen.getByText(fa.admin.database.backups.verified)).toBeTruthy();
     expect(screen.getByText(new RegExp(fa.admin.database.backups.errors.pg_dump_failed))).toBeTruthy();
     expect(container.textContent).not.toMatch(/admin\.database\./);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(api.fetchDatabaseBackups).toHaveBeenCalledTimes(1); // no refetch loop while idle
   });
 
   it('warns when the backup folder is not persistent and pg_dump is missing', async () => {

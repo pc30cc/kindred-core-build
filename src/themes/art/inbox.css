@@ -1,0 +1,5 @@
+/*
+ * Art — the inbox and the email inbox: the conversation list, its header and
+ * rows, the thread, the composer, the contact panel and contact avatars.
+ * Every selector starts with :root[data-panel-theme="art"]; see theme.css.
+ */

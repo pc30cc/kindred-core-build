@@ -6,6 +6,7 @@ import "./index.css";
 import "./themes/art/theme.css";
 import "./themes/art/components.css";
 import "./themes/art/pages.css";
+import "./themes/art/inbox.css";
 import { loadFontsForLocale } from "./lib/fonts";
 import { getStoredLocale, loadLocaleMessages } from "./i18n";
 import { installLocalizedDateDefaults, setAppDateLocale } from "./lib/date";

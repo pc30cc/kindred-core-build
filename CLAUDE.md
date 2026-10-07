@@ -30,37 +30,55 @@ tracked file there has local edits. Do not check other branches out in that
 folder: build and test a PR in a separate worktree (e.g. `~/dev/kcbi-pr`).
 Turn the sync off with `launchctl bootout gui/$(id -u)/ai.webyar.xcode-sync`.
 
-## Production database connection (since 2026-10-05, verified)
+## Production database (self-hosted PostgreSQL since 2026-10-07, verified)
 
 The production backend and six workers on the Coolify at `analyticsme.site`
-run `DATABASE_MODE=postgres-only` against the hosted Supabase project's
-PostgreSQL, as login role `webyar_app` through the session pooler (port 5432).
-Switched 2026-10-05 (`687e6fe`); the AI billing decimal fix (`6960097`, #266)
-is on 29, 30, 28, 18, 24 and 19 since 2026-10-06. The older second backend
-(Coolify app 10) still uses Supabase REST.
-Connection budget: the pooler admits 15 connections (measured); pools are
-backend 3 and 1 per worker (9 steady, measured), and Coolify runs at most 2
-queued deployments at once, each running old and new containers side by side,
-so the bound is 9 + 3 + 1 = 13 (calculated; measured peaks 13 and 12). Keep
-`steady + the two largest pools <= 13` when changing a pool, and deploy these
-apps only through Coolify's queue (a push, the Deploy button or the kit's
-`deploy.php`), never its API create-and-deploy endpoints or MCP `Deploy` tool.
-Production functional test passed 2026-10-06 (28/28: login, visitor message
-and operator reply delivered live once over Centrifugo, duplicate replays,
-attachment round trip and access rules) with an owner-authorized test account
-(its credentials file was removed afterwards; to rerun, recreate the root-only
-`/root/webyar-test-account.env`, run the kit's `functional_test.mjs` and clean
-up with `functional_cleanup.mjs`).
+(apps 29, 30, 21, 18, 24, 27, 19) run `DATABASE_MODE=postgres-only` against
+WebYar's own PostgreSQL 17 + pgvector on the same server:
+- Coolify database `webyar-postgres` (uuid `oqzy9q4ovntam9jgf7nxzqun`),
+  database `webyar`, login role `webyar_app` (member of `service_role`).
+- It is reached over the `coolify` network
+  (`oqzy9q4ovntam9jgf7nxzqun:5432`, `sslmode=disable`) and has no public port.
+- Coolify backs it up daily at 02:13 UTC and keeps 14 dumps on the server
+  only; there is no off-site copy yet.
+- Only `DATABASE_URL` changed in the move: secrets, pools and names are as
+  before.
+- The migration ledger `public._schema_migrations` is complete (the chain at
+  `fa0e79d`, 250 files). Apply new migrations from the server with
+  `scripts/migrate-database.sh` against `webyar`.
+- Kit, measured cutover, backups and rollback:
+  `/root/webyar-rollout/20261007-selfhosted/README.md` (root only).
+- Runbook: `docs/operations/PRODUCTION_DATABASE_MODE.md`.
+
+The hosted Supabase project `bdycuenbjztkgnaqonfm` still holds WebYar's data
+as of the cutover snapshot (2026-10-07 05:41:03 UTC). It is the fallback and
+receives no writes. Do not write to it, pause it or delete it.
+Going back to it loses everything written since, unless that data is moved
+back first, which needs Supabase's `postgres` role.
+
+App 10 (an older backend deployment) used to run the same background
+tickers on Supabase over REST. The owner stopped it on 2026-10-07. Do not
+start it again unless it is pointed at the self-hosted database.
+
+Deploy these apps only through Coolify's queue (a push, the Deploy button or
+the kit's `deploy.php`), never its API create-and-deploy endpoints or MCP
+`Deploy` tool. To stop an app for maintenance, use Coolify's
+`StopApplication` with `dockerCleanup=false, removeContainers=false` (the
+kit's `apps.php`). The defaults remove the container and prune its image.
+While the backend is stopped, `https://api.webyar.ai` answers 503 (Coolify's
+catch-all), so plugin events and webhooks are retried.
+
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
-`DATABASE_URL` and `DATABASE_MODE` are set and removed together. Do not run
-`migrate-database.sh`, a baseline or `move-data.sh` against production.
-Runbook, measured state and exact rollback commands:
-`docs/operations/PRODUCTION_DATABASE_MODE.md`; the rollback kit (snapshot,
-scripts, credential) is root-only on the server in
-`/root/webyar-rollout/20261005-postgres-only/`. Coolify's hourly Docker
-cleanup deletes images no container uses, so `rb` makes Coolify rebuild a
-rollback commit whose image is gone. Every rollback commit was rebuilt and
-start-checked in isolation on 2026-10-06 (not a production rollback); the
-images are kept as files in the kit's `rebuild/images/` and
-`rebuild/rollback_load.sh A|B`, run just before the `rb` lines, makes Coolify
-reuse them instead of building.
+`DATABASE_URL` and `DATABASE_MODE` are set and removed together.
+
+History, kept for reference:
+- 2026-10-05 to 2026-10-07: Supabase's session pooler, pooler cap 15. The
+  2026-10-05 kit `/root/webyar-rollout/20261005-postgres-only/` holds the
+  rollback to Supabase REST and the rebuilt rollback images.
+- The 2026-10-06 rehearsal (stopped database `webyar-rehearsal-pg17`, volume
+  kept) found that the session pooler ignores `PGOPTIONS` and URL `options`.
+  When running a tool against Supabase, set the role by statement.
+- Production functional test passed 2026-10-06 (28/28) with an
+  owner-authorized test account, before the move. To rerun, recreate the
+  root-only `/root/webyar-test-account.env` and use the 2026-10-05 kit's
+  `functional_test.mjs` / `functional_cleanup.mjs`.

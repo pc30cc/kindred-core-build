@@ -334,6 +334,15 @@ describe('database backups', () => {
     expect(tables.backup_runs.some((r) => r.id === done.id)).toBe(false);
   });
 
+  it('the destination test writes and removes a probe', async () => {
+    const res = await svc.testBackupDestination(config, { destination: 'local' });
+    expect(res).toMatchObject({ ok: true });
+    expect(readdirSync(backupDir).filter((f) => f.includes('probe'))).toEqual([]);
+    expect(await svc.testBackupDestination(config, { destination: 'storage', storageProvider: 's3' })).toMatchObject({ ok: true, cleanedUp: true });
+    expect(objects.size).toBe(0);
+    await expect(svc.testBackupDestination(config, { destination: 'ftp' })).rejects.toMatchObject({ code: 'ftp_settings_incomplete' });
+  });
+
   it('a run left "running" by a stopped server is closed as interrupted', async () => {
     tables.backup_runs.push({
       id: randomUUID(), backup_id: 'webyar-db-x', kind: 'logical', status: 'running', started_at: new Date().toISOString(),

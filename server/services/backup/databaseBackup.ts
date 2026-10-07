@@ -1002,7 +1002,7 @@ export interface DestinationTestInput {
 }
 
 export async function testBackupDestination(config: ServerConfig, input: DestinationTestInput): Promise<Record<string, unknown>> {
-  const probe = `.probe-${randomBytes(6).toString('hex')}`;
+  const probe = `webyar-probe-${randomBytes(6).toString('hex')}`;
   const body = Buffer.from(`webyar backup destination test ${new Date().toISOString()}\n`);
   if (input.destination === 'local') {
     const status = await localBackupStatus();

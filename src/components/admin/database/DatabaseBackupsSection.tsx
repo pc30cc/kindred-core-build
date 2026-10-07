@@ -620,7 +620,7 @@ export function DatabaseBackupsSection() {
                   <div className={cn('flex min-w-0 items-start gap-3 text-start', isRtl && 'flex-row-reverse')}>
                     <Database className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0">
-                      <p className="truncate font-mono text-sm text-foreground" dir="ltr">{r.backupId}</p>
+                      <p className="truncate font-mono text-sm text-foreground" dir="ltr" data-latin-digits>{r.backupId}</p>
                       <p className="text-xs text-muted-foreground">
                         {formatBytes(r.bytes)} • {new Date(r.startedAt).toLocaleString()} • {destLabel(r.destinationType, r.storageProvider)}
                       </p>
@@ -688,7 +688,7 @@ export function DatabaseBackupsSection() {
                 : t('admin.database.backups.deleteBody')}
             </DialogDescription>
           </DialogHeader>
-          {confirmDelete && <p className="font-mono text-xs text-muted-foreground" dir="ltr">{confirmDelete.run.backupId}</p>}
+          {confirmDelete && <p className="font-mono text-xs text-muted-foreground" dir="ltr" data-latin-digits>{confirmDelete.run.backupId}</p>}
           <DialogFooter className={cn('gap-2', isRtl && 'flex-row-reverse')}>
             <Button variant="outline" onClick={() => setConfirmDelete(null)}>{t('admin.database.cancel')}</Button>
             <Button variant="destructive" disabled={busyId !== null} onClick={() => void handleDelete()} className="gap-2">

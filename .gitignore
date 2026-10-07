@@ -39,3 +39,6 @@ ios/Webyar/Generated/
 .env.*
 !.env.example
 !.env.*.example
+
+# Local database backups (Super Admin → Database → Backup) when the server runs from a checkout
+server/data/

@@ -2,6 +2,11 @@
 FROM node:20-alpine
 WORKDIR /app
 
+# pg_dump / pg_restore for Super Admin → Database → Backup
+# (server/services/backup/databaseBackup.ts). Major version 17 matches the
+# production database and can also dump any older server.
+RUN apk add --no-cache postgresql17-client
+
 # Build identity — stamped in so /internal/channels/ready and
 # /internal/channels/auth-diagnostic can PROVE which commit answered a
 # request instead of reporting build=unknown forever. Pass --build-arg

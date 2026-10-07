@@ -10,3 +10,6 @@ dist
 .vscode
 .idea
 supabase/.temp
+
+# Local database backups — never baked into an image
+server/data

@@ -122,6 +122,7 @@ import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
 import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRenewalTicker.js';
 import { startNotificationEmailTicker } from './services/notificationEmail/ticker.js';
 import { startAppReviewVisitorsTicker } from './services/appReview/visitorsTicker.js';
+import { startDatabaseBackupScheduler } from './services/backup/databaseBackup.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import { isPublicWidgetApiPath, PUBLIC_WIDGET_REALTIME_ROUTES } from './lib/routePrefix.js';
@@ -940,6 +941,11 @@ const httpServer = app.listen(config.port, () => {
   // account may sign in (migration 248). See
   // server/services/appReview/visitorsTicker.ts.
   startAppReviewVisitorsTicker(config);
+
+  // Scheduled database backups from Super Admin → Database → Backup (checked
+  // every 5 min). A no-op until a schedule is switched on there. See
+  // server/services/backup/databaseBackup.ts.
+  startDatabaseBackupScheduler(config);
 
   // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into

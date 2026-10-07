@@ -403,15 +403,17 @@ export default function OverviewPage() {
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
                 <defs>
+                  {/* Violet-500, indigo-500, cyan-500 through the palette
+                      variables, so a panel theme can repaint the chart. */}
                   <linearGradient id="convGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.45} />
-                    <stop offset="60%" stopColor="#6366f1" stopOpacity={0.15} />
-                    <stop offset="100%" stopColor="#06b6d4" stopOpacity={0} />
+                    <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-violet-500))', stopOpacity: 0.45 }} />
+                    <stop offset="60%" style={{ stopColor: 'rgb(var(--palette-indigo-500))', stopOpacity: 0.15 }} />
+                    <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-cyan-500))', stopOpacity: 0 }} />
                   </linearGradient>
                   <linearGradient id="convStroke" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#6366f1" />
-                    <stop offset="50%" stopColor="#8b5cf6" />
-                    <stop offset="100%" stopColor="#06b6d4" />
+                    <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-indigo-500))' }} />
+                    <stop offset="50%" style={{ stopColor: 'rgb(var(--palette-violet-500))' }} />
+                    <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-cyan-500))' }} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />

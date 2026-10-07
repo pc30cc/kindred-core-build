@@ -30,6 +30,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { PhoneVerificationFlow } from '@/features/phone-verification/PhoneVerificationFlow';
 import { usePhoneVerificationStatus } from '@/features/phone-verification/hooks';
 import { resolvePhoneStatus } from '@/features/phone-verification/status';
+import { useApplyPanelTheme, usePanelTheme } from '@/themes/usePanelTheme';
+import { PanelThemePreviewBar } from '@/themes/PanelThemePreviewBar';
 
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
@@ -271,6 +273,9 @@ export function AppLayout() {
   const { slug: routeSlug } = useParams<{ slug: string }>();
   // Boot gate: user + workspace + plan only. See useAppShellReady.
   const shellReady = useAppShellReady(workspace?.id, isLoading);
+  // The panel theme the Super Admin chose (or this tab is previewing).
+  const panelTheme = usePanelTheme();
+  useApplyPanelTheme(panelTheme.theme);
   const showVerificationBanner = user && !user.emailVerified;
   // Presence heartbeat → powers the "Operator activity" report.
   useOperatorHeartbeat(workspace?.id);
@@ -324,7 +329,7 @@ export function AppLayout() {
   }
 
   return (
-    <div dir={dir} className="app-scope app-aurora flex h-screen h-dvh overflow-hidden bg-background text-foreground">
+    <div dir={dir} data-shell="app" className="app-scope app-aurora flex h-screen h-dvh overflow-hidden bg-background text-foreground">
       <OperatorCallProvider>
         <CommandPalette />
         {isMobile ? (
@@ -337,10 +342,11 @@ export function AppLayout() {
         ) : (
           <AppSidebar />
         )}
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div data-shell="frame" className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />
           <DegradedModeBanner />
           <main
+            data-shell="main"
             className={
               isFullBleed
                 ? 'flex-1 overflow-hidden p-0'
@@ -368,6 +374,9 @@ export function AppLayout() {
         {/* Survives route changes — reads the same LiveKit room as the
             sidebar surface so navigation never disconnects the call. */}
         <FloatingOperatorCallWindow />
+        {panelTheme.preview && (
+          <PanelThemePreviewBar theme={panelTheme.preview} onEnd={panelTheme.endPreview} />
+        )}
       </OperatorCallProvider>
     </div>
   );

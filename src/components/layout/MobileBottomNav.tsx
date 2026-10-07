@@ -44,6 +44,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
 
   return (
     <nav
+      data-shell="bottom-nav"
       // `fixed` and pinned to the true visual viewport bottom — NOT a normal
       // flex-column child. Relying on flex sizing meant this bar's visibility
       // depended on every single page correctly respecting the shell's
@@ -73,7 +74,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
         );
         const className = 'flex flex-1 flex-col items-center justify-center gap-0.5';
         return tab.to ? (
-          <Link key={tab.key} to={tab.to} className={className}>{content}</Link>
+          <Link key={tab.key} to={tab.to} data-active={tab.active} className={className}>{content}</Link>
         ) : (
           <button key={tab.key} type="button" onClick={tab.onClick} className={className}>{content}</button>
         );

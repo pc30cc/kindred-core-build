@@ -1,4 +1,7 @@
 import type { Config } from "tailwindcss";
+import animate from "tailwindcss-animate";
+import typography from "@tailwindcss/typography";
+import { paletteColors, palettePlugin } from "./src/themes/palette";
 
 export default {
   darkMode: ["class"],
@@ -30,6 +33,9 @@ export default {
         display: ['var(--font-heading)', 'var(--font-primary)', 'IRANSans', 'InterWY', 'system-ui', 'sans-serif'],
       },
       colors: {
+        // Tailwind's hues through CSS variables, unchanged by default; a
+        // workspace panel theme can repaint them (src/themes/palette.ts).
+        ...paletteColors,
         brand: {
           teal: "hsl(var(--brand-teal))",
           sky: "hsl(var(--brand-sky))",
@@ -122,6 +128,9 @@ export default {
           "accent-foreground": "hsl(var(--admin-accent-foreground))",
         },
       },
+      // Tailwind derives the bare `ring` colour from blue-500, which it cannot
+      // read once that is a variable; keep its own value.
+      ringColor: { DEFAULT: "#3b82f6" },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
@@ -159,5 +168,5 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+  plugins: [animate, typography, palettePlugin],
 } satisfies Config;

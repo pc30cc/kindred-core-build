@@ -1,0 +1,362 @@
+/*
+ * Art — a workspace panel theme ("قالب") after the Lart design: warm ivory
+ * paper, deep ink text and a refined terracotta (clay) accent, in a calm,
+ * premium frame. The content floats on a soft panel inside the sidebar's
+ * colour; navigation is quiet; surfaces are hairline-ringed paper.
+ *
+ * Everything here applies only under <html data-panel-theme="art">, which the
+ * workspace panel sets while it is open (src/themes/usePanelTheme.ts). The
+ * classic theme has no rules: it is the panel's own index.css, untouched.
+ *
+ * How it reaches every page without editing them:
+ *   1. Tokens: the panel's colour variables (index.css) get Lart's palette.
+ *      `:root[...]` outranks the per-user accent / skin / chroma attributes,
+ *      so the theme looks the same for everyone.
+ *   2. Palette: Tailwind's hues (bg-sky-500, from-indigo-500, ...) are
+ *      repainted in Lart's earthy tones by src/themes/art/palette.ts.
+ *   3. Hooks: the shell and the shadcn primitives carry `data-shell` /
+ *      `data-slot` attributes; the rules below style those. Where a page set
+ *      its own size, radius or shadow on a primitive, the rule is keyed to the
+ *      primitive's default class (e.g. `.rounded-lg`), so the page's own
+ *      choice still wins.
+ */
+
+/* ── 1. Tokens ─────────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] {
+  --background: 40 50% 97.5%;
+  --foreground: 221 26% 10.5%;
+  --card: 40 69% 99.1%;
+  --card-foreground: 221 26% 10.5%;
+  --popover: 40 69% 99.1%;
+  --popover-foreground: 221 26% 10.5%;
+
+  --primary: 17 57% 43.5%;
+  --primary-foreground: 40 50% 98.4%;
+  --secondary: 37 32% 93.4%;
+  --secondary-foreground: 221 20% 14.2%;
+  --muted: 37 29% 94.2%;
+  --muted-foreground: 31 8% 38.3%;
+  --accent: 26 49% 92.5%;
+  --accent-foreground: 17 45% 28%;
+  --gold: 17 57% 43.5%;
+  --gold-foreground: 40 50% 98.4%;
+
+  --destructive: 357 68% 47.6%;
+  --destructive-foreground: 40 50% 98.4%;
+  --success: 148 59% 28.9%;
+  --success-foreground: 40 50% 98.4%;
+  --warning: 33 85% 36%;
+  --warning-foreground: 40 50% 98.4%;
+  --info: 210 51% 39.9%;
+  --info-foreground: 40 50% 98.4%;
+
+  /* Lart's categorical set: clay, teal, ochre, indigo ink, rose. */
+  --plan-1: 16 63% 46.5%;
+  --plan-2: 175 100% 26.8%;
+  --plan-3: 39 94% 40%;
+  --plan-4: 228 44% 44.3%;
+  --plan-5: 338 49% 54.9%;
+
+  --border: 34 20% 87%;
+  --input: 34 19% 83.6%;
+  --ring: 16 49% 52.6%;
+  --radius: 0.75rem;
+
+  --sidebar-background: 37 42% 95.4%;
+  --sidebar-foreground: 221 16% 19%;
+  --sidebar-primary: 17 57% 43.5%;
+  --sidebar-primary-foreground: 40 50% 98.4%;
+  --sidebar-accent: 34 31% 90.1%;
+  --sidebar-accent-foreground: 221 26% 10.5%;
+  --sidebar-border: 34 21% 87.6%;
+  --sidebar-ring: 16 49% 52.6%;
+  --sidebar-muted-foreground: 31 9% 40%;
+
+  --surface-elevated: 40 69% 99.1%;
+  --surface-sunken: 37 35% 95%;
+
+  /* The panel's "brand" hues become clay, teal, rose and ochre. */
+  --brand-teal: 17 57% 46%;
+  --brand-sky: 175 62% 32%;
+  --brand-violet: 338 49% 55%;
+  --brand-coral: 39 85% 45%;
+  --gradient-primary: linear-gradient(135deg, hsl(17 57% 46%), hsl(338 49% 55%));
+  --gradient-brand: linear-gradient(125deg, hsl(17 60% 45%), hsl(6 52% 50%) 50%, hsl(338 49% 55%));
+  --gradient-soft: linear-gradient(160deg, hsl(26 52% 94%), hsl(338 42% 96%));
+  --gradient-gold: var(--gradient-primary);
+  --gradient-auth-hero: linear-gradient(135deg, hsl(221 26% 10%), hsl(221 23% 15%));
+  --gradient-sidebar: linear-gradient(180deg, hsl(37 42% 95.4%), hsl(37 42% 95.4%));
+  --gradient-card-hover: linear-gradient(135deg, hsl(40 60% 98.5%), hsl(34 34% 94.5%));
+  --gradient-surface: linear-gradient(180deg, hsl(40 69% 99.1%), hsl(40 69% 99.1%));
+
+  /* Shadows are warm and low: paper on a desk, not neon. */
+  --art-shadow: 28 30% 18%;
+  --art-scrim: 221 30% 8%;
+  --shadow-card: 0 1px 2px 0 hsl(var(--art-shadow) / 0.06);
+  --shadow-glow: 0 8px 20px -8px hsl(var(--art-shadow) / 0.16), 0 2px 4px -2px hsl(var(--art-shadow) / 0.06);
+  --shadow-elevated: 0 14px 34px -14px hsl(var(--art-shadow) / 0.22);
+  --art-hairline: 0 0 0 1px hsl(var(--foreground) / 0.075);
+  --art-grain-opacity: 0.045;
+
+  color-scheme: light;
+}
+
+:root[data-panel-theme="art"].dark {
+  --background: 221 23% 8%;
+  --foreground: 40 23% 92.8%;
+  --card: 221 19% 11.7%;
+  --card-foreground: 40 23% 92.8%;
+  --popover: 221 18% 12.6%;
+  --popover-foreground: 40 23% 92.8%;
+
+  --primary: 19 69% 60.9%;
+  --primary-foreground: 15 33% 8.9%;
+  --secondary: 221 15% 15.9%;
+  --secondary-foreground: 40 17% 90.2%;
+  --muted: 221 15% 14.9%;
+  --muted-foreground: 37 7% 63.7%;
+  --accent: 221 16% 18%;
+  --accent-foreground: 22 55% 80%;
+  --gold: 19 69% 60.9%;
+  --gold-foreground: 15 33% 8.9%;
+
+  --destructive: 359 81% 66.7%;
+  --destructive-foreground: 0 35% 9%;
+  --success: 144 47% 58%;
+  --success-foreground: 150 40% 8%;
+  --warning: 39 78% 61.8%;
+  --warning-foreground: 35 50% 9%;
+  --info: 210 70% 69.2%;
+  --info-foreground: 215 40% 9%;
+
+  --plan-1: 16 69% 56.9%;
+  --plan-2: 175 80% 35.2%;
+  --plan-3: 38 69% 45.3%;
+  --plan-4: 227 44% 53.6%;
+  --plan-5: 340 57% 63.2%;
+
+  --border: 221 13% 17.5%;
+  --input: 221 12% 21%;
+  --ring: 19 64% 61.3%;
+
+  --sidebar-background: 221 29% 5.8%;
+  --sidebar-foreground: 40 12% 83.6%;
+  --sidebar-primary: 19 69% 60.9%;
+  --sidebar-primary-foreground: 15 33% 8.9%;
+  --sidebar-accent: 221 16% 14%;
+  --sidebar-accent-foreground: 40 28% 94.1%;
+  --sidebar-border: 221 16% 12%;
+  --sidebar-ring: 19 64% 61.3%;
+  --sidebar-muted-foreground: 37 6% 58%;
+
+  --surface-elevated: 221 19% 13.5%;
+  --surface-sunken: 221 25% 6.5%;
+
+  --brand-teal: 19 65% 58%;
+  --brand-sky: 175 60% 42%;
+  --brand-violet: 340 55% 63%;
+  --brand-coral: 38 70% 55%;
+  --gradient-primary: linear-gradient(135deg, hsl(19 69% 58%), hsl(340 57% 63%));
+  --gradient-brand: linear-gradient(125deg, hsl(19 69% 57%), hsl(8 60% 60%) 50%, hsl(340 57% 63%));
+  --gradient-soft: linear-gradient(160deg, hsl(19 30% 13%), hsl(340 22% 13%));
+  --gradient-auth-hero: linear-gradient(135deg, hsl(221 29% 6%), hsl(221 23% 11%));
+  --gradient-sidebar: linear-gradient(180deg, hsl(221 29% 5.8%), hsl(221 29% 5.8%));
+  --gradient-card-hover: linear-gradient(135deg, hsl(221 19% 13%), hsl(221 17% 15%));
+  --gradient-surface: linear-gradient(180deg, hsl(221 19% 11.7%), hsl(221 19% 11.7%));
+
+  --art-shadow: 220 45% 2%;
+  --shadow-card: 0 1px 2px 0 hsl(var(--art-shadow) / 0.45);
+  --shadow-glow: 0 10px 26px -10px hsl(var(--art-shadow) / 0.75), 0 2px 4px -2px hsl(var(--art-shadow) / 0.4);
+  --shadow-elevated: 0 16px 38px -14px hsl(var(--art-shadow) / 0.8);
+  --art-hairline: 0 0 0 1px hsl(0 0% 100% / 0.07);
+  --art-grain-opacity: 0.03;
+
+  color-scheme: dark;
+}
+
+/* ── 2. The frame ──────────────────────────────────────────────────────── */
+
+/* The canvas is the sidebar's colour; the page floats on it. */
+:root[data-panel-theme="art"] body,
+:root[data-panel-theme="art"] [data-shell="app"] {
+  background-color: hsl(var(--sidebar-background));
+  background-image: none;
+}
+
+/* Glows, aurora blobs and the top bar's gradient hairline: Art is calm. */
+:root[data-panel-theme="art"] [data-shell-decor] {
+  display: none !important;
+}
+
+:root[data-panel-theme="art"] [data-shell="frame"] {
+  position: relative;
+  isolation: isolate;
+  background-color: hsl(var(--background));
+}
+
+@media (min-width: 768px) {
+  :root[data-panel-theme="art"] [data-shell="frame"] {
+    margin-block: 0.5rem;
+    margin-inline-end: 0.5rem;
+    border-radius: 1rem;
+    box-shadow: var(--art-hairline), 0 1px 3px 0 hsl(var(--art-shadow) / 0.07), 0 12px 32px -20px hsl(var(--art-shadow) / 0.18);
+  }
+}
+
+/* A faint clay light at the top of the page and a paper grain under it. */
+:root[data-panel-theme="art"] [data-shell="frame"]::before,
+:root[data-panel-theme="art"] [data-shell="frame"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+:root[data-panel-theme="art"] [data-shell="frame"]::before {
+  background-image:
+    radial-gradient(56rem 20rem at 100% -6rem, hsl(var(--primary) / 0.07), transparent 70%),
+    radial-gradient(40rem 18rem at 0% -8rem, hsl(var(--brand-coral) / 0.05), transparent 70%);
+}
+
+:root[data-panel-theme="art"] [data-shell="frame"]::after {
+  opacity: var(--art-grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+}
+
+:root[data-panel-theme="art"].dark [data-shell="frame"]::after {
+  mix-blend-mode: screen;
+}
+
+/* ── 3. Sidebar ────────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-shell="sidebar"] {
+  background-color: hsl(var(--sidebar-background));
+  border-inline-end-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="sidebar-toggle"] {
+  background-color: hsl(var(--card));
+  border-color: hsl(var(--foreground) / 0.1);
+  box-shadow: 0 1px 2px 0 hsl(var(--art-shadow) / 0.1);
+}
+
+:root[data-panel-theme="art"] [data-shell="workspace-mark"] {
+  border-radius: 0.625rem;
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.14), 0 1px 2px 0 hsl(var(--art-shadow) / 0.2);
+}
+
+/* Navigation: a plain icon and label; the current page sits on a soft
+   paper chip with a clay mark at the edge of the rail. */
+:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-item] {
+  border-radius: 0.625rem;
+  padding-block: 0.375rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-item]:hover {
+  background-color: hsl(var(--sidebar-accent) / 0.65);
+  color: hsl(var(--sidebar-foreground));
+}
+
+:root[data-panel-theme="art"] [data-shell="sidebar"] .nav-glow {
+  background-image: none;
+  background-color: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-accent-foreground));
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.035);
+}
+
+:root[data-panel-theme="art"] [data-shell="sidebar"] .nav-glow::after {
+  inset-block: 9px;
+  width: 3px;
+  background-image: none;
+  background-color: hsl(var(--sidebar-primary));
+  box-shadow: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-chip] {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: hsl(var(--sidebar-muted-foreground));
+  transform: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-item]:hover [data-nav-chip] {
+  color: hsl(var(--sidebar-foreground));
+}
+
+:root[data-panel-theme="art"] [data-shell="sidebar"] [data-nav-chip][data-active="true"] {
+  color: hsl(var(--sidebar-primary));
+}
+
+:root[data-panel-theme="art"] [data-shell="sidebar"][data-collapsed="true"] [data-nav-chip] {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+}
+
+/* ── 4. Top bar and phone tab bar ──────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-shell="topbar"] {
+  background-color: hsl(var(--background) / 0.82);
+  border-bottom-color: hsl(var(--foreground) / 0.07);
+}
+
+:root[data-panel-theme="art"] [data-shell="search"] {
+  border-radius: 0.75rem;
+  border-color: hsl(var(--foreground) / 0.07);
+  background-color: hsl(var(--muted) / 0.7);
+  box-shadow: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="search"]:hover {
+  border-color: hsl(var(--primary) / 0.3);
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] [data-shell="search"] > svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="topbar"] [data-slot="button"] {
+  border-radius: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="topbar"] [data-slot="button"] > svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="topbar"] [data-slot="button"]:hover {
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] [data-shell="topbar"] [data-slot="select-trigger"] {
+  height: 2.375rem;
+  border-radius: 0.75rem;
+  border-color: hsl(var(--foreground) / 0.08);
+  background-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] {
+  background-color: hsl(var(--background) / 0.92);
+  border-top-color: hsl(var(--foreground) / 0.07);
+}
+
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] [data-active="true"] > span:first-child {
+  width: 3rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  background-color: hsl(var(--primary) / 0.12);
+}

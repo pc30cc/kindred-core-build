@@ -59,6 +59,8 @@ function NavChip({
   const a = AI_ACCENT[accent];
   return (
     <span
+      data-nav-chip
+      data-active={active}
       className={cn(
         'relative flex shrink-0 items-center justify-center rounded-xl transition-all duration-300',
         collapsed ? 'h-10 w-10' : 'h-8 w-8',
@@ -67,7 +69,7 @@ function NavChip({
           : cn('bg-sidebar-accent/70 ring-1 ring-sidebar-border text-sidebar-muted-foreground group-hover:-translate-y-0.5 group-hover:ring-0 group-hover:bg-brand group-hover:text-white group-hover:shadow-glow'),
       )}
     >
-      {active && <span aria-hidden className={cn('absolute inset-0 -z-10 rounded-xl blur-md opacity-60', a.glow)} />}
+      {active && <span aria-hidden data-shell-decor className={cn('absolute inset-0 -z-10 rounded-xl blur-md opacity-60', a.glow)} />}
       <Icon className={collapsed ? 'h-[19px] w-[19px]' : 'h-[17px] w-[17px]'} strokeWidth={2} />
     </span>
   );
@@ -321,6 +323,8 @@ export function AppSidebar({
   return (
     <>
     <aside
+      data-shell="sidebar"
+      data-collapsed={collapsed}
       className={cn(
         'relative flex flex-col overflow-hidden bg-sidebar/80 backdrop-blur-xl',
         variant === 'drawer'
@@ -329,7 +333,7 @@ export function AppSidebar({
         variant === 'rail' && (collapsed ? 'w-[68px]' : 'w-[220px]'),
       )}
     >
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-0 overflow-hidden">
+      <div aria-hidden data-shell-decor className="pointer-events-none absolute inset-0 -z-0 overflow-hidden">
         <div className="animate-aurora absolute -top-24 -start-16 h-56 w-56 rounded-full bg-brand-teal/15 blur-3xl" />
         <div className="animate-aurora absolute bottom-10 -end-20 h-56 w-56 rounded-full bg-brand-violet/15 blur-3xl" style={{ animationDelay: '-8s' }} />
       </div>
@@ -338,6 +342,7 @@ export function AppSidebar({
       {variant === 'rail' && (
         <button
           onClick={toggleCollapsed}
+          data-shell="sidebar-toggle"
           aria-label="toggle sidebar"
           className="absolute top-1/2 end-0 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-muted-foreground shadow-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground ltr:translate-x-1/2 rtl:-translate-x-1/2"
         >
@@ -359,7 +364,7 @@ export function AppSidebar({
             'hover:bg-sidebar-accent/50',
           )}
         >
-          <div className="relative w-9 h-9 rounded-xl bg-brand flex items-center justify-center shrink-0 overflow-hidden shadow-glow">
+          <div data-shell="workspace-mark" className="relative w-9 h-9 rounded-xl bg-brand flex items-center justify-center shrink-0 overflow-hidden shadow-glow">
             {workspaceIconUrl ? (
               <ImageWithSkeleton src={workspaceIconUrl} className="h-full w-full object-cover" />
             ) : (
@@ -493,6 +498,8 @@ export function AppSidebar({
         <NavTip label={t('nav.dashboard')} enabled={collapsed}>
         <Link
           to={wsPath('')}
+          data-nav-item
+          data-active={isActive('')}
           title={collapsed ? undefined : t('nav.dashboard')}
           className={cn(
             'flex items-center rounded-xl px-3 py-2 text-sm font-semibold transition-all',
@@ -515,6 +522,8 @@ export function AppSidebar({
         <NavTip label={t('nav.inbox')} enabled={collapsed}>
         <Link
           to={wsPath('/inbox')}
+          data-nav-item
+          data-active={isActive('/inbox')}
           title={collapsed ? undefined : t('nav.inbox')}
           className={cn(
             'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all',
@@ -661,6 +670,8 @@ export function AppSidebar({
           <NavTip key={item.key} label={t(`nav.${item.key}` as TranslationKey)} enabled={collapsed}>
           <Link
             to={wsPath(item.path)}
+            data-nav-item
+            data-active={isActive(item.path)}
             title={collapsed ? undefined : t(`nav.${item.key}` as TranslationKey)}
             className={cn(
               'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all',
@@ -686,6 +697,8 @@ export function AppSidebar({
           <NavTip key={item.key} label={t(`nav.${item.key}` as TranslationKey)} enabled={collapsed}>
           <Link
             to={item.path === '#' ? '#' : wsPath(item.path)}
+            data-nav-item
+            data-active={isActive(item.path)}
             title={collapsed ? undefined : t(`nav.${item.key}` as TranslationKey)}
             onClick={item.key === 'search' ? (e) => {
               e.preventDefault();
@@ -709,6 +722,7 @@ export function AppSidebar({
           <NavTip label="Super Admin" enabled={collapsed}>
           <Link
             to="/admin"
+            data-nav-item
             title={collapsed ? undefined : 'Super Admin'}
             className={cn(
               'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-sidebar-primary hover:bg-sidebar-accent transition-all',

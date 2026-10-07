@@ -1,0 +1,64 @@
+/*
+ * Art — page patterns: charts, page heroes, figures (stat cards), empty
+ * states and the section layouts (settings, AI agent, call center).
+ * Every selector starts with :root[data-panel-theme="art"]; see theme.css.
+ */
+
+/* ── Decorative surfaces (stat cards, magic cards, shimmer, aurora) ── */
+
+:root[data-panel-theme="art"] .stat-card,
+:root[data-panel-theme="art"] .card-elevated {
+  background-image: none;
+  border-color: hsl(var(--border));
+}
+
+:root[data-panel-theme="art"] .stat-card:hover {
+  border-color: hsl(var(--primary) / 0.28);
+}
+
+:root[data-panel-theme="art"] .magic-card {
+  border-radius: 1.25rem;
+  background-color: hsl(var(--card));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: hsl(var(--border));
+}
+
+:root[data-panel-theme="art"] .magic-card::before,
+:root[data-panel-theme="art"] .beam-border::before,
+:root[data-panel-theme="art"] .btn-shimmer::after,
+:root[data-panel-theme="art"] .meteor {
+  display: none;
+}
+
+:root[data-panel-theme="art"] .magic-card:hover {
+  border-color: hsl(var(--primary) / 0.28);
+  box-shadow: var(--shadow-glow);
+}
+
+:root[data-panel-theme="art"] .glass {
+  background-color: hsl(var(--card) / 0.9);
+  border-color: hsl(var(--border));
+}
+
+:root[data-panel-theme="art"] .btn-shimmer {
+  background-image: none !important;
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.14), 0 1px 2px 0 hsl(var(--art-shadow) / 0.2);
+}
+
+:root[data-panel-theme="art"] .text-shine {
+  animation: none;
+  background-image: none;
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] .spotlight::after {
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), hsl(var(--primary) / 0.06), transparent 45%);
+}
+
+:root[data-panel-theme="art"] .animate-aurora {
+  animation: none;
+}
+

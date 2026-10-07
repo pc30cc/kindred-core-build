@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useTheme } from 'next-themes';
-import { useTranslation, useI18n } from '@/i18n';
+import { useTranslation, useI18n, type TranslationKey } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
@@ -28,6 +28,7 @@ import { useUiPreferences } from '@/features/ui-preferences/UiPreferencesContext
 import { UI_ACCENT_SWATCH, UI_FONT_SIZE_PX, type UiChroma, type UiFontSize, type UiPreferences, type UiSkin } from '@/lib/ui-preferences';
 import { updateAccount } from '@/lib/account-api';
 import { toast } from '@/hooks/use-toast';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 
 const LOCALE_FLAGS: Record<Locale, string> = {
   en: '🇬🇧',
@@ -51,6 +52,10 @@ export default function InterfacePage() {
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { preferences, setPreference, reset } = useUiPreferences();
+  // A platform theme other than Classic brings its own colours: the personal
+  // accent, chroma and skin choices only apply to Classic.
+  const { theme: panelTheme } = usePanelTheme();
+  const themed = panelTheme !== 'classic';
 
   const [savingLocale, setSavingLocale] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -88,10 +93,10 @@ export default function InterfacePage() {
     try {
       await updateAccount({ preferred_locale: next });
       setSavedAt(Date.now());
-    } catch (err: any) {
+    } catch (err) {
       toast({
         title: t('account.saveError'),
-        description: err?.message || '',
+        description: err instanceof Error ? err.message : '',
         variant: 'destructive',
       });
     } finally {
@@ -194,7 +199,7 @@ export default function InterfacePage() {
               {currentTheme === 'system' && resolvedTheme && (
                 <>
                   {' '}
-                  · <span className="text-foreground">{t('interface.currentlyUsing')} {t(`interface.${resolvedTheme}` as any)}</span>
+                  · <span className="text-foreground">{t('interface.currentlyUsing')} {t(`interface.${resolvedTheme}` as TranslationKey)}</span>
                 </>
               )}
             </p>
@@ -228,14 +233,22 @@ export default function InterfacePage() {
                 }`}
                 style={{ fontSize: `${UI_FONT_SIZE_PX[size]}px` }}
               >
-                {t(`interface.fontSize_${size}` as any)}
+                {t(`interface.fontSize_${size}` as TranslationKey)}
               </button>
             ))}
           </div>
           <p className="text-xs text-muted-foreground">{t('interface.fontSizeHelper')}</p>
         </div>
 
+        {themed && (
+          <p className="flex items-start gap-2 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+            <Palette className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            {t('interface.themeNotice', { name: t(`admin.panelThemes.themes.${panelTheme}.name` as TranslationKey) })}
+          </p>
+        )}
+
         {/* Accent colour */}
+        {!themed && (
         <div className="space-y-2">
           <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
             <Droplet className="h-4 w-4 text-muted-foreground" />
@@ -246,7 +259,7 @@ export default function InterfacePage() {
               <button
                 key={accent}
                 type="button"
-                aria-label={t(`interface.accent_${accent}` as any)}
+                aria-label={t(`interface.accent_${accent}` as TranslationKey)}
                 onClick={() => handlePref('accent', accent)}
                 disabled={preferences.chroma === 'mono'}
                 className={`h-9 w-9 rounded-full border-2 transition-transform disabled:opacity-40 ${
@@ -260,8 +273,10 @@ export default function InterfacePage() {
             {preferences.chroma === 'mono' ? t('interface.accentMonoNote') : t('interface.accentHelper')}
           </p>
         </div>
+        )}
 
         {/* Chroma + skin */}
+        {!themed && (
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-2">
             <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -294,6 +309,7 @@ export default function InterfacePage() {
             <p className="text-xs text-muted-foreground">{t('interface.skinHelper')}</p>
           </div>
         </div>
+        )}
 
         <div className="flex justify-end">
           <Button

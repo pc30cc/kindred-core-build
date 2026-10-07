@@ -46,6 +46,7 @@ const BRANDING_COLUMNS = [
   'default_ui_chroma',
   'default_ui_skin',
   'lock_ui_preferences',
+  'workspace_panel_theme',
 ];
 
 const LOCALIZED_COLUMNS = [

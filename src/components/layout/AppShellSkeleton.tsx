@@ -21,12 +21,13 @@ export function AppShellSkeleton() {
   return (
     <div
       dir={dir}
+      data-shell="app"
       className="app-scope flex h-screen h-dvh overflow-hidden bg-background text-foreground"
       role="status"
       aria-busy="true"
     >
       {!isMobile && (
-        <aside className="flex w-[220px] shrink-0 flex-col gap-4 border-e border-border bg-[image:var(--gradient-sidebar)] p-3">
+        <aside data-shell="sidebar" className="flex w-[220px] shrink-0 flex-col gap-4 border-e border-border bg-[image:var(--gradient-sidebar)] p-3">
           <div className="flex items-center gap-2 px-1 pt-1">
             <BrandLogo className="h-8 w-8 rounded-lg" />
             <Skeleton className="h-4 w-24" />
@@ -43,8 +44,8 @@ export function AppShellSkeleton() {
         </aside>
       )}
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
+      <div data-shell="frame" className="flex flex-1 flex-col overflow-hidden">
+        <header data-shell="topbar" className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
           {isMobile && <BrandLogo className="h-7 w-7 rounded-md" />}
           <Skeleton className="h-8 w-48 rounded-lg" />
           <div className="ms-auto flex items-center gap-2">

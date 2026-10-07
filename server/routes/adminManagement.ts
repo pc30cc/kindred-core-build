@@ -33,6 +33,7 @@ import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
 import { reviveFailedWorkspaceDeletion } from '../services/workspaceDeletion/revive.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
+import { PANEL_THEME_IDS } from '../../shared/panelThemes.js';
 
 
 export const adminManagementRouter = Router();
@@ -815,6 +816,40 @@ adminManagementRouter.put('/platform-branding-localized', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   invalidatePlatformPublicConfig();
   return res.json({ branding: data });
+});
+
+// ── Workspace panel theme ("قالب") ─────────────────────────────────────
+// Which theme every workspace panel wears, platform-wide
+// (shared/panelThemes.ts). Everyone reads it through the public config
+// (platform_branding.workspace_panel_theme); only this route writes it.
+const panelThemeSchema = z.object({ theme: z.enum(PANEL_THEME_IDS) });
+
+adminManagementRouter.put('/panel-theme', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const parsed = panelThemeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const { data: existing, error: lookupError } = await sb.from('platform_branding').select('*').limit(1).maybeSingle();
+  if (lookupError) return res.status(500).json({ error: lookupError.message });
+  const row = existing as { id: string; workspace_panel_theme?: string } | null;
+  const payload = { workspace_panel_theme: parsed.data.theme, updated_at: new Date().toISOString() };
+  const { error } = row
+    ? await sb.from('platform_branding').update(payload).eq('id', row.id).select().maybeSingle()
+    : await sb.from('platform_branding').insert(payload).select().maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  invalidatePlatformPublicConfig();
+  await insertAuditLogRows(config, sb, {
+    workspace_id: null,
+    user_id: actorId,
+    action: 'admin.panel_theme.changed',
+    entity_type: 'platform_branding',
+    entity_id: row?.id ?? null,
+    old_value: { theme: row?.workspace_panel_theme ?? null },
+    new_value: { theme: parsed.data.theme },
+  });
+  return res.json({ theme: parsed.data.theme });
 });
 
 

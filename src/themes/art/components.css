@@ -1,0 +1,156 @@
+/*
+ * Art — components: the shadcn primitives (buttons, fields, tabs, tables,
+ * badges, cards, dialogs, menus, tooltips) in Art's own shapes and sizes.
+ * Every selector starts with :root[data-panel-theme="art"]; see theme.css.
+ */
+
+/* ── Cards ── */
+
+:root[data-panel-theme="art"] [data-slot="card"].rounded-lg {
+  border-radius: 1rem;
+}
+
+:root[data-panel-theme="art"] [data-slot="card"].shadow-sm {
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-panel-theme="art"] [data-slot="card-title"].text-2xl {
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  letter-spacing: -0.012em;
+}
+
+/* ── 6. Controls ───────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-slot="button"] {
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+:root[data-panel-theme="art"] [data-slot="button"]:active:not(:disabled):not([aria-haspopup]) {
+  transform: translateY(1px);
+}
+
+:root[data-panel-theme="art"] [data-slot="button"][data-variant="default"] {
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.14), 0 1px 2px 0 hsl(var(--art-shadow) / 0.18);
+}
+
+:root[data-panel-theme="art"] [data-slot="button"][data-variant="outline"] {
+  box-shadow: 0 1px 2px 0 hsl(var(--art-shadow) / 0.05);
+}
+
+:root[data-panel-theme="art"] [data-slot="input"],
+:root[data-panel-theme="art"] [data-slot="textarea"],
+:root[data-panel-theme="art"] [data-slot="select-trigger"] {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* The classic inputs hide their focus ring; Art shows a soft clay one. */
+:root[data-panel-theme="art"] [data-slot="input"]:focus-visible,
+:root[data-panel-theme="art"] [data-slot="textarea"]:focus-visible,
+:root[data-panel-theme="art"] [data-slot="select-trigger"]:focus-visible,
+:root[data-panel-theme="art"] [data-slot="select-trigger"][data-state="open"] {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.18);
+}
+
+:root[data-panel-theme="art"] [data-slot="tabs-list"].bg-muted {
+  border-radius: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-slot="tabs-trigger"].rounded-sm {
+  border-radius: 0.5rem;
+}
+
+:root[data-panel-theme="art"] [data-slot="tabs-trigger"][data-state="active"] {
+  box-shadow: var(--art-hairline), 0 1px 2px 0 hsl(var(--art-shadow) / 0.08);
+}
+
+:root[data-panel-theme="art"] [data-slot="badge"] {
+  font-weight: 500;
+}
+
+/* ── 7. Overlays ───────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-slot="dialog-overlay"].bg-black\/80 {
+  background-color: hsl(var(--art-scrim) / 0.42);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+:root[data-panel-theme="art"] [data-slot="dialog-content"].bg-background {
+  background-color: hsl(var(--card));
+}
+
+:root[data-panel-theme="art"] [data-slot="dialog-content"] {
+  border-color: hsl(var(--foreground) / 0.08);
+  box-shadow: 0 28px 70px -24px hsl(var(--art-shadow) / 0.4), 0 2px 8px -2px hsl(var(--art-shadow) / 0.1);
+}
+
+@media (min-width: 640px) {
+  :root[data-panel-theme="art"] [data-slot="dialog-content"] {
+    border-radius: 1.25rem;
+  }
+}
+
+:root[data-panel-theme="art"] [data-slot="sheet-content"] {
+  box-shadow: 0 0 48px -12px hsl(var(--art-shadow) / 0.3);
+}
+
+:root[data-panel-theme="art"] [data-slot="popover-content"],
+:root[data-panel-theme="art"] [data-slot="menu-content"],
+:root[data-panel-theme="art"] [data-slot="select-content"] {
+  border-radius: 0.875rem;
+  border-color: hsl(var(--foreground) / 0.08);
+  box-shadow: 0 16px 36px -14px hsl(var(--art-shadow) / 0.25), 0 2px 6px -2px hsl(var(--art-shadow) / 0.08);
+}
+
+:root[data-panel-theme="art"] [data-slot="menu-content"] [role^="menuitem"],
+:root[data-panel-theme="art"] [data-slot="select-content"] [role="option"] {
+  border-radius: 0.5rem;
+}
+
+:root[data-panel-theme="art"] [data-slot="tooltip-content"] {
+  border-radius: 0.5rem;
+  border-color: hsl(var(--foreground) / 0.08);
+  box-shadow: 0 8px 20px -8px hsl(var(--art-shadow) / 0.25);
+}
+
+/* ── 8. Tables ─────────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-slot="table-header"] {
+  background-color: hsl(var(--muted) / 0.5);
+}
+
+:root[data-panel-theme="art"] [data-slot="table-head"] {
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] [data-slot="table"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 9. Type and details ───────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-shell="main"] h1 {
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+}
+
+:root[data-panel-theme="art"] ::selection {
+  background-color: hsl(var(--primary) / 0.2);
+}
+
+:root[data-panel-theme="art"] ::-webkit-scrollbar-thumb {
+  background: hsl(var(--foreground) / 0.14);
+}
+
+:root[data-panel-theme="art"] ::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground) / 0.24);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-panel-theme="art"] [data-slot="button"]:active:not(:disabled) {
+    transform: none;
+  }
+}

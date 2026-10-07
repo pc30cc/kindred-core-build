@@ -94,7 +94,7 @@ automatically after about 6 minutes.
   `public.verification_admin_idempotency`.
 
 **Shared writer found and stopped**
-- Coolify app 10 (API.Destekly, an older backend at `17c093d`) was still
+- Coolify app 10 (an older backend deployment at `17c093d`) was still
   running WebYar's background tickers on the same Supabase database over
   REST: about 31,000 writes a day (billing schedulers, invitations, deletion
   jobs, call queue).

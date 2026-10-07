@@ -56,7 +56,7 @@ receives no writes. Do not write to it, pause it or delete it.
 Going back to it loses everything written since, unless that data is moved
 back first, which needs Supabase's `postgres` role.
 
-App 10 (API.Destekly, an older backend) used to run the same background
+App 10 (an older backend deployment) used to run the same background
 tickers on Supabase over REST. The owner stopped it on 2026-10-07. Do not
 start it again unless it is pointed at the self-hosted database.
 

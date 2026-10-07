@@ -51,7 +51,8 @@ their findings.
 
 **Migrations**
 - The ledger `public._schema_migrations` is complete: the chain at `fa0e79d`,
-  250 files, built by `scripts/migrate-database.sh`.
+  250 files, built by `scripts/migrate-database.sh`, then
+  `252_email_sender_placeholders_cleared.sql` (2026-10-07), applied the same way.
 - `schema-diff.sh` against the Supabase schema found 0 unexpected
   differences.
 - Apply new migrations from the server with that script, as `postgres`,

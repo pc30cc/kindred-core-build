@@ -48,8 +48,9 @@ WebYar's own PostgreSQL 17 + pgvector on the same server:
 - Only `DATABASE_URL` changed in the move: secrets, pools and names are as
   before.
 - The migration ledger `public._schema_migrations` is complete (the chain at
-  `fa0e79d`, 250 files). Apply new migrations from the server with
-  `scripts/migrate-database.sh` against `webyar`.
+  `fa0e79d`, 250 files, plus `252_email_sender_placeholders_cleared.sql`).
+  Apply new migrations from the server with `scripts/migrate-database.sh`
+  against `webyar`.
 - Kit, measured cutover, backups and rollback:
   `/root/webyar-rollout/20261007-selfhosted/README.md` (root only).
 - Runbook: `docs/operations/PRODUCTION_DATABASE_MODE.md`.

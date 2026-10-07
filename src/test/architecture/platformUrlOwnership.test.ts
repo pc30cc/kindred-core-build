@@ -354,6 +354,10 @@ describe('the legacy domain survives only where it is meant to', () => {
       'historical — a comment naming the legacy value it cleared',
     'database/migrations/197_retire_legacy_platform_url_shadows.sql':
       'the cleanup itself — must list the exact legacy values it targets',
+    'database/migrations/252_email_sender_placeholders_cleared.sql':
+      'the cleanup itself — must name the exact legacy sender name it clears',
+    'src/test/integration/emailSenderPlaceholders.pg.test.ts':
+      'proves 252 clears that exact legacy sender name',
     'src/test/ci/migrationForeignKeySeedSafety.test.ts':
       'guards the historical seeds above; names them by design',
     'src/test/architecture/platformUrlOwnership.test.ts':

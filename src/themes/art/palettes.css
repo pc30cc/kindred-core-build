@@ -1,0 +1,13 @@
+/*
+ * Art's colour schemes (Super Admin → Panel theme → colour). AppLayout puts
+ * <html data-panel-palette="<id>"> next to data-panel-theme="art"; ids are
+ * ART_PALETTES in shared/panelThemes.ts. `clay` is Art's original scheme and
+ * the fallback when the attribute is missing.
+ *
+ * Every selector starts with :root[data-panel-theme="art"] (checked by
+ * src/test/themes/panelThemes.test.ts).
+ *
+ * Contract used by charts.css and the chart code: each scheme defines, for
+ * light and dark, the HSL triplets --art-chart-1 ... --art-chart-6 (series
+ * colours, 1 = the scheme's main colour) plus the panel tokens it changes.
+ */

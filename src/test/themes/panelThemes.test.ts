@@ -125,7 +125,15 @@ function splitSelectors(list: string): string[] {
 }
 
 describe('the Art stylesheets', () => {
-  const FILES = ['src/themes/art/theme.css', 'src/themes/art/components.css', 'src/themes/art/pages.css', 'src/themes/art/inbox.css'];
+  const FILES = [
+    'src/themes/art/theme.css',
+    'src/themes/art/components.css',
+    'src/themes/art/pages.css',
+    'src/themes/art/inbox.css',
+    'src/themes/art/sidebar.css',
+    'src/themes/art/palettes.css',
+    'src/themes/art/charts.css',
+  ];
   const strip = (path: string) => read(path).replace(/\/\*[\s\S]*?\*\//g, '');
   const css = strip('src/themes/art/theme.css');
 

@@ -1,0 +1,8 @@
+/*
+ * Art's charts: the look of every Recharts chart in the workspace panel under
+ * the Art theme. Series colours come from the active colour scheme
+ * (--art-chart-1 ... --art-chart-6, palettes.css).
+ *
+ * Every selector starts with :root[data-panel-theme="art"] (checked by
+ * src/test/themes/panelThemes.test.ts).
+ */

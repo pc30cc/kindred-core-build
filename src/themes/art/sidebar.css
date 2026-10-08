@@ -1,0 +1,367 @@
+/*
+ * Art — the side-menu frame (prototype). ArtShell renders it on desktops
+ * when localStorage "wy-art-layout" is "sidebar": an inset panel on the
+ * reading-start side (src/themes/art/shell/ArtSidebar.tsx) and the page on
+ * the ivory paper beside it; an app page (inbox, settings, ...) sits in a
+ * card of its own. One 12px gutter frames the panel and the card alike.
+ * Like theme.css, every rule applies only under <html data-panel-theme="art">.
+ */
+
+:root[data-panel-theme="art"] {
+  /* The panel: a step deeper than the paper and the white cards, with a
+     warm hairline and a soft shadow, so it reads as a sheet of its own. */
+  --art-side: 36 28% 92.5%;
+  --art-side-edge: 0 0 0 1px hsl(30 20% 85%);
+  --art-side-shadow: 0 8px 24px -12px rgb(60 40 20 / 0.12), 0 1px 2px 0 rgb(60 40 20 / 0.04);
+  /* The app card: the white of the cards, a fainter hairline. */
+  --art-side-card-edge: 0 0 0 1px hsl(30 20% 87.5%);
+  --art-side-card-shadow: 0 10px 28px -16px rgb(60 40 20 / 0.14), 0 1px 2px 0 rgb(60 40 20 / 0.035);
+}
+
+:root[data-panel-theme="art"].dark {
+  /* In the dark a step lighter than the canvas, so it still floats. */
+  --art-side: 222 14% 13%;
+  --art-side-edge: 0 0 0 1px rgb(255 255 255 / 0.07);
+  --art-side-shadow: 0 1px 2px 0 hsl(var(--art-shadow) / 0.5), 0 18px 40px -20px hsl(var(--art-shadow) / 0.9);
+  --art-side-card-edge: 0 0 0 1px rgb(255 255 255 / 0.06);
+  --art-side-card-shadow: 0 1px 2px 0 hsl(var(--art-shadow) / 0.45), 0 18px 40px -22px hsl(var(--art-shadow) / 0.85);
+}
+
+/* ── Sizes: a row is 40px on a tall screen, less on a laptop's, so the
+      whole menu fits without scrolling down to 800px ─────────────────── */
+
+:root[data-panel-theme="art"] [data-shell="side"] {
+  --side-row: 2.5rem;
+  --side-sub: 2.125rem;
+  --side-search: 2.5rem;
+  --side-label-pt: 0.875rem;
+}
+
+@media (max-height: 999px) {
+  :root[data-panel-theme="art"] [data-shell="side"] {
+    --side-row: 2.25rem;
+    --side-sub: 2rem;
+    --side-search: 2.25rem;
+    --side-label-pt: 0.5rem;
+  }
+}
+
+@media (max-height: 859px) {
+  :root[data-panel-theme="art"] [data-shell="side"] {
+    --side-row: 2rem;
+    --side-sub: 1.875rem;
+    --side-search: 2rem;
+    --side-label-pt: 0.375rem;
+  }
+}
+
+/* ── The paper: one sheet under the panel and the page ─────────────────── */
+
+:root[data-panel-theme="art"] [data-shell="side-layout"] {
+  --art-light-start: 100%;
+  --art-light-end: 0%;
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(60rem 22rem at var(--art-light-start) -7rem, hsl(var(--primary) / 0.07), transparent 70%),
+    radial-gradient(44rem 18rem at var(--art-light-end) -9rem, hsl(var(--brand-coral) / 0.05), transparent 70%),
+    var(--art-grain);
+}
+
+:root[data-panel-theme="art"] [dir="rtl"] [data-shell="side-layout"] {
+  --art-light-start: 0%;
+  --art-light-end: 100%;
+}
+
+:root[data-panel-theme="art"] [data-shell="side-layout"] [data-shell="frame"] {
+  background: none;
+}
+
+/* ── The panel ─────────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-shell="side-panel"] {
+  background-color: hsl(var(--art-side));
+  box-shadow: var(--art-side-edge), var(--art-side-shadow);
+}
+
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="workspace-switcher"]:hover,
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="workspace-switcher"][data-state="open"] {
+  background-color: hsl(var(--foreground) / 0.05);
+}
+
+/* The workspace on the rail: its mark alone. */
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="workspace-switcher"] > :not([data-shell="workspace-mark"]) {
+  display: none;
+}
+
+/* Search: a field of paper on the panel. */
+:root[data-panel-theme="art"] [data-shell="side-search"] {
+  background-color: hsl(var(--card));
+  box-shadow: 0 0 0 1px hsl(30 20% 85%), 0 1px 1px 0 rgb(60 40 20 / 0.04);
+}
+
+:root[data-panel-theme="art"].dark [data-shell="side-search"] {
+  background-color: hsl(var(--foreground) / 0.045);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.07);
+}
+
+:root[data-panel-theme="art"] [data-shell="side-search"]:hover {
+  box-shadow: 0 0 0 1px hsl(30 18% 78%), 0 1px 2px 0 rgb(60 40 20 / 0.06);
+}
+
+:root[data-panel-theme="art"] [data-shell="side-kbd"] {
+  background-color: hsl(var(--foreground) / 0.055);
+  letter-spacing: 0.02em;
+}
+
+/* Group headings (4.5:1 and more on the panel), and the rail's rules. */
+:root[data-panel-theme="art"] [data-shell="side"] [data-side-label] {
+  padding-top: var(--side-label-pt);
+}
+
+:root[data-panel-theme="art"] [data-shell="side"] [data-side-rule] {
+  margin-block: calc(var(--side-label-pt) * 0.5);
+}
+
+/* The current page and view: a clay pill; deeper in the dark, where a
+   10% tint barely shows. */
+:root[data-panel-theme="art"].dark [data-shell="side"] [data-side-item][data-state="page"],
+:root[data-panel-theme="art"].dark [data-shell="side"] [data-side-view][data-active="true"],
+:root[data-panel-theme="art"].dark [data-shell="side-views-bar"] [data-side-view][data-active="true"] {
+  background-color: hsl(var(--primary) / 0.22);
+}
+
+/* The list scrolls on its own; the edge that hides more fades out. */
+:root[data-panel-theme="art"] [data-shell="side-list"][data-fade="end"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);
+}
+
+:root[data-panel-theme="art"] [data-shell="side-list"][data-fade="start"] {
+  -webkit-mask-image: linear-gradient(to top, #000 calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to top, #000 calc(100% - 2.5rem), transparent);
+}
+
+:root[data-panel-theme="art"] [data-shell="side-list"][data-fade="both"] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+}
+
+/* Team, Settings and Super Admin: pinned under the list, a hairline over them. */
+:root[data-panel-theme="art"] [data-shell="side-pinned"] {
+  border-top: 1px solid hsl(var(--foreground) / 0.08);
+}
+
+/* ── The foot ──────────────────────────────────────────────────────────── */
+
+/* The plan: a quiet clay-tinted card over the account. */
+:root[data-panel-theme="art"] [data-shell="side-plan"] {
+  background-color: hsl(var(--primary) / 0.07);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.12);
+}
+
+:root[data-panel-theme="art"].dark [data-shell="side-plan"] {
+  background-color: hsl(var(--primary) / 0.1);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.16);
+}
+
+:root[data-panel-theme="art"] [data-shell="side-account-row"] {
+  border-top: 1px solid hsl(var(--foreground) / 0.08);
+}
+
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="side-account-row"] {
+  margin-inline: 0.875rem;
+}
+
+/* The foot's round buttons: language, light / dark and alerts, a size
+   under the header's, so the account keeps the room for its name. */
+:root[data-panel-theme="art"] [data-shell="side-foot"] [data-shell="side-prefs"] > button,
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="header-alerts"] [data-slot="button"] {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="side-foot"] [data-shell="side-prefs"] > button > svg,
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="header-alerts"] [data-slot="button"] > svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="side-foot"] [data-shell="side-prefs"] > button:hover,
+:root[data-panel-theme="art"] [data-shell="side-foot"] [data-shell="side-prefs"] > button[data-state="open"],
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="header-alerts"] [data-slot="button"]:hover {
+  background-color: hsl(var(--foreground) / 0.055);
+}
+
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="header-alerts"] [data-slot="button"] > span {
+  box-shadow: 0 0 0 2px hsl(var(--art-side));
+}
+
+/* The rail's foot: a size smaller again. */
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="side-foot"] [data-shell="side-prefs"] > button,
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="header-alerts"] [data-slot="button"] {
+  width: 2rem;
+  height: 2rem;
+}
+
+/* UserMenu (classic) at the foot: the avatar, the name and "User profile"
+   under it. Its panel opens upwards (on the rail: towards the page), out
+   of the menu's panel, which no longer clips. Keyed to its markup:
+   button > [avatar wrapper, name block > (label, name), chevron]. */
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div {
+  min-width: 0;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="false"] [data-shell="account"] > div {
+  width: 100%;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > button {
+  padding: 0.25rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="account"] > div > button {
+  padding: 0.125rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="false"] [data-shell="account"] > div > button {
+  width: 100%;
+  min-width: 0;
+  gap: 0.625rem;
+  padding-inline-end: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > button:hover {
+  background-color: hsl(var(--foreground) / 0.05);
+}
+
+/* The avatar a size under the header's (36px). */
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > button > div:first-child > span:first-child {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > button > div:first-child > span:last-child {
+  border-color: hsl(var(--art-side));
+}
+
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="false"] [data-shell="account"] > div > button > div:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column-reverse;
+  gap: 0.0625rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > button > div:nth-child(2) > p {
+  max-width: none;
+}
+
+/* The name. */
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > button > div:nth-child(2) > p:last-child {
+  color: hsl(var(--foreground));
+  font-size: 0.875rem !important;
+  font-weight: 600;
+  line-height: 1.3 !important;
+}
+
+/* "User profile". */
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > button > div:nth-child(2) > p:first-child {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+/* The chevron: smaller and quiet, as the workspace's. */
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > button > svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  color: hsl(var(--muted-foreground));
+  stroke-width: 2.5;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="account"] > div > button > svg {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > div {
+  top: auto;
+  bottom: calc(100% + 0.5rem);
+  margin-top: 0;
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+}
+
+:root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="account"] > div > div {
+  bottom: 0;
+  inset-inline-start: calc(100% + 1.125rem);
+}
+
+/* ── The page ──────────────────────────────────────────────────────────── */
+
+/* A normal page: on the paper, 12px of frame plus 16px of its own from
+   the panel and from the window's edge alike (centred past 1280px). */
+:root[data-panel-theme="art"] [data-shell="side-layout"] [data-shell="main"][data-layout="page"] {
+  padding-block: 1.75rem 3rem;
+  padding-inline: max(1.75rem, calc((100% - var(--art-content-max)) / 2));
+}
+
+/* An app page (inbox, settings, ...): a card of its own beside the menu,
+   with the menu's 12px gutter on every side, so its top and bottom meet
+   the panel's. */
+:root[data-panel-theme="art"] [data-shell="side-layout"] [data-shell="main"][data-layout="full-bleed"] {
+  margin: 0.75rem;
+  margin-inline-start: 0.75rem;
+  border-radius: 1.375rem;
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-side-card-edge), var(--art-side-card-shadow);
+}
+
+/* Under the inbox's strip of views (the rail): the strip gives the air. */
+:root[data-panel-theme="art"] [data-shell="side-content"][data-views-bar="true"] [data-shell="main"][data-layout="full-bleed"] {
+  margin-top: 0;
+}
+
+/* The strip of views starts at the card's edge. */
+:root[data-panel-theme="art"] [data-shell="side-views-bar"] {
+  padding-inline: 0.75rem;
+}
+
+/* The dashboard's shortcuts (inbox, contacts, knowledge base, AI) repeat
+   the menu that is always beside them. */
+:root[data-panel-theme="art"] [data-shell="side-layout"] [data-page-hero="dashboard"] [data-hero-actions] {
+  display: none;
+}
+
+/* ── Short screens (under 860px): the chrome a size smaller too ────────── */
+
+@media (max-height: 859px) {
+  :root[data-panel-theme="art"] [data-shell="side"] [data-side-label] {
+    padding-bottom: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-shell="side-plan"] {
+    height: 1.75rem;
+  }
+
+  :root[data-panel-theme="art"] [data-shell="side"] [data-shell="account"] > div > button > div:first-child > span:first-child {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  :root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="workspace-switcher"] {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  :root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="side-toggle"],
+  :root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="side-foot"] [data-shell="side-prefs"] > button,
+  :root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="header-alerts"] [data-slot="button"] {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  :root[data-panel-theme="art"] [data-shell="side"][data-collapsed="true"] [data-shell="side-list"] {
+    padding-block: 0.125rem;
+  }
+}

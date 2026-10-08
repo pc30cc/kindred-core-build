@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { useI18n } from '@/i18n';
@@ -9,9 +10,77 @@ import { useIsMobile } from '@/hooks/use-mobile';
  * shape, top bar (spanning the window over an edge-to-edge app, as the
  * real one does) and centred column, so nothing jumps when the panel arrives.
  */
+/** Prototype: the side-menu frame's shape (ArtShell, `wy-art-layout`). */
+function sideLayoutWanted() {
+  try {
+    return window.localStorage.getItem('wy-art-layout') === 'sidebar' && window.matchMedia('(min-width: 1024px)').matches;
+  } catch {
+    return false;
+  }
+}
+
+function ArtSideSkeleton() {
+  const { dir } = useI18n();
+  // As ArtShell decides it: the member's choice, else a rail under 1280px
+  // and on Settings (its own side list).
+  let collapsed = false;
+  try {
+    const stored = window.localStorage.getItem('wy-art-sidebar-collapsed');
+    collapsed = /\/settings(\/|$)/.test(window.location.pathname)
+      || (stored === '1' ? true : stored === '0' ? false : !window.matchMedia('(min-width: 1280px)').matches);
+  } catch {
+    /* expanded */
+  }
+  return (
+    <div
+      dir={dir}
+      data-shell="app"
+      className="app-scope flex h-screen h-dvh flex-col overflow-hidden bg-background text-foreground"
+      role="status"
+      aria-busy="true"
+    >
+      <div data-shell="side-layout" className="flex min-h-0 flex-1">
+        <div data-shell="side" data-collapsed={collapsed} className={collapsed ? 'flex w-[84px] shrink-0 flex-col py-3 ps-3' : 'flex w-[276px] shrink-0 flex-col py-3 ps-3'}>
+          <div data-shell="side-panel" className="flex flex-1 flex-col gap-1 overflow-hidden rounded-[1.375rem] p-2.5">
+            <div className="flex items-center gap-2.5 p-1">
+              <BrandLogo className="h-9 w-9 rounded-xl" />
+              {!collapsed && <Skeleton className="h-4 w-28 rounded-full" />}
+            </div>
+            <Skeleton className="mt-1.5 h-9 rounded-full" />
+            <div className="mt-4 flex flex-col gap-2.5">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <Skeleton key={i} className="h-7 rounded-full" style={{ opacity: 1 - i * 0.07 }} />
+              ))}
+            </div>
+            <div className="mt-auto flex items-center gap-2.5 p-1">
+              <Skeleton className="h-9 w-9 rounded-full" />
+              {!collapsed && <Skeleton className="h-4 w-24 rounded-full" />}
+            </div>
+          </div>
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div data-shell="frame" className="relative min-h-0 flex-1 overflow-hidden">
+            <div data-shell="main" data-layout="page">
+              <Skeleton className="h-9 w-64 rounded-xl" />
+              <Skeleton className="mt-3 h-4 w-80 max-w-full rounded-full" />
+              <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-32 rounded-[1.25rem]" />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ArtShellSkeleton({ wide = false }: { wide?: boolean }) {
   const { dir } = useI18n();
   const isMobile = useIsMobile();
+  const [side] = useState(sideLayoutWanted);
+  if (side) return <ArtSideSkeleton />;
 
   return (
     <div

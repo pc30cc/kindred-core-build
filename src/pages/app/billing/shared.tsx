@@ -11,8 +11,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, RefreshCw, Inbox } from 'lucide-react';
 import { formatDate } from '@/lib/date';
-import { formatToman } from '@/lib/money';
+import { formatAmountForEdition, formatToman } from '@/lib/money';
 import { formatPlanPrice } from '@/lib/planPrice';
+import { currentEdition } from '@/lib/edition';
+import { editionCurrency } from '../../../../shared/edition';
 import type { TranslationKey } from '@/i18n';
 
 /** Jalali in fa, Gregorian elsewhere — a display concern only, never storage. */
@@ -23,11 +25,15 @@ export function billingDate(value: string | null | undefined, locale: string): s
 
 /**
  * A server amount as people read it. IRR (whole Rial) reads as Toman; every
- * other currency is in minor units and reads as e.g. "$29.00". AI credit and
- * the wallet are Rial, so their callers leave `currency` at IRR.
+ * other currency is in minor units and reads as e.g. "$29.00". With no
+ * currency the edition's applies: IRR in the Iranian edition (AI credit and
+ * the wallet are Rial there, so their callers leave it out), USD in the
+ * International one — which never shows Toman.
  */
-export function money(amount: number | null | undefined, locale: string, currency = 'IRR'): string {
-  const code = (currency || 'IRR').toUpperCase();
+export function money(amount: number | null | undefined, locale: string, currency?: string | null): string {
+  const edition = currentEdition();
+  if (edition !== 'iran') return formatAmountForEdition(amount ?? 0, currency, locale, edition);
+  const code = (currency || editionCurrency(edition)).toUpperCase();
   if (code === 'IRR') return formatToman(amount ?? 0, locale);
   return formatPlanPrice(amount ?? 0, code, locale);
 }

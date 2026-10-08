@@ -60,6 +60,12 @@ import {
   type PaymentIntentRow,
 } from '../services/billing/paymentIntent.js';
 import { classifyPlanAction, computeSubscriptionWindow } from '../services/billing/periods.js';
+import {
+  assertCurrencyAllowed,
+  editionErrorResponse,
+  getPlatformEdition,
+} from '../services/billing/edition.js';
+import { editionCurrency, isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
 import { buildCancelAtPeriodEndPatch, decideResume } from '../services/billing/cancellation.js';
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
@@ -245,10 +251,22 @@ async function requireSuperAdmin(req: Request, res: Response, next: NextFunction
 }
 
 // ─── GET /api/billing/providers — list all billing providers with capabilities ──
+// Only those the edition allows: no Iranian gateway in the International edition.
 billingRouter.get('/providers', async (req, res) => {
   if (!(await requireUser(req, res))) return;
-  res.json({ providers: getAllProviders() });
+  try {
+    res.json({ providers: getAllProviders(await getPlatformEdition(serverConfigOf(req))) });
+  } catch (e: unknown) {
+    sendBillingError(res, e);
+  }
 });
+
+/** Edition errors (503 unknown edition, 4xx not in this edition), else 500. */
+function sendBillingError(res: Response, e: unknown) {
+  const editionError = editionErrorResponse(e);
+  if (editionError) return res.status(editionError.status).json(editionError.body);
+  return res.status(500).json({ error: errorMessageOf(e) });
+}
 
 // ─── GET /api/billing/plans — list available plans ──────────────────
 billingRouter.get('/plans', async (req, res) => {
@@ -263,15 +281,29 @@ billingRouter.get('/plans', async (req, res) => {
     .order('sort_order', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
 
-  // Filter plans based on locale currency display
+  // Filter plans based on locale currency display. Persian means Rial only
+  // in the Iranian edition; in the International edition it is priced like
+  // every other language (never in Rial).
+  let edition: Awaited<ReturnType<typeof getPlatformEdition>>;
+  try {
+    edition = await getPlatformEdition(serverConfigOf(req));
+  } catch (e: unknown) {
+    return sendBillingError(res, e);
+  }
   type PlanListRow = Record<string, unknown> & {
     prices?: Record<string, unknown> | null;
     default_currency?: string | null;
   };
+  const displayCurrencyOf = (plan: PlanListRow): string => {
+    if (locale === 'fa' && edition === 'iran') return 'IRR';
+    if (locale === 'tr') return 'TRY';
+    const preferred = plan.default_currency || 'USD';
+    return edition !== 'iran' && isRialCurrency(preferred) ? editionCurrency(edition) : preferred;
+  };
   const plans = ((data || []) as PlanListRow[]).map((plan) => ({
     ...plan,
-    displayPrice: plan.prices?.[locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : plan.default_currency || 'USD'],
-    displayCurrency: locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : plan.default_currency || 'USD',
+    displayPrice: plan.prices?.[displayCurrencyOf(plan)],
+    displayCurrency: displayCurrencyOf(plan),
   }));
   res.json({ plans });
 });
@@ -362,6 +394,8 @@ billingRouter.post('/invoice-preview', async (req, res) => {
 
   const { url, key } = getConfig(req);
   try {
+    // A Rial proforma for an Iranian gateway: the Iranian edition only.
+    assertCurrencyAllowed(await getPlatformEdition(serverConfigOf(req)), 'IRR');
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
     if (!IRAN_PROVIDERS.has(resolved.provider.name)) {
@@ -479,7 +513,7 @@ billingRouter.post('/invoice-preview', async (req, res) => {
     });
 
   } catch (e: unknown) {
-    res.status(500).json({ error: errorMessageOf(e) });
+    sendBillingError(res, e);
   }
 });
 
@@ -545,6 +579,9 @@ billingRouter.post('/checkout', async (req, res) => {
       }
       throw guard;
     }
+    // Rial is never charged in the International edition (and the resolver
+    // below never returns an Iranian gateway there).
+    assertCurrencyAllowed(await getPlatformEdition(serverConfigOf(req)), input.currency);
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
 
@@ -678,7 +715,7 @@ billingRouter.post('/checkout', async (req, res) => {
 
     res.json({ success: true, ...result, intentId, invoiceNumber });
   } catch (e: unknown) {
-    res.status(500).json({ error: errorMessageOf(e) });
+    sendBillingError(res, e);
   }
 });
 
@@ -1103,7 +1140,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
     // which the invoice engine forbids.)
     return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
   } catch (e: unknown) {
-    res.status(500).json({ error: errorMessageOf(e) });
+    sendBillingError(res, e);
   }
 });
 
@@ -1773,11 +1810,27 @@ billingRouter.get('/admin/overview', requireSuperAdmin, async (req, res) => {
 
   const activeSubs = ((subs.data || []) as Array<{ status: string }>).filter((s) => s.status === 'active' || s.status === 'trialing');
 
+  // The International edition shows no Rial money and no Iranian gateway
+  // activity (e.g. history cloned from an Iranian deployment).
+  let edition: Awaited<ReturnType<typeof getPlatformEdition>>;
+  try {
+    edition = await getPlatformEdition(serverConfigOf(req));
+  } catch (e: unknown) {
+    return sendBillingError(res, e);
+  }
+  type MoneyRow = { currency?: unknown; provider_name?: unknown };
+  const shown = (rows: unknown[] | null) =>
+    ((rows || []) as MoneyRow[]).filter(
+      (r) =>
+        edition === 'iran' ||
+        (!isRialCurrency(r.currency) && isProviderAllowedInEdition(String(r.provider_name || ''), edition)),
+    );
+
   res.json({
     totalSubscriptions: subs.count || 0,
     activeSubscriptions: activeSubs.length,
-    recentPayments: payments.data || [],
-    recentEvents: events.data || [],
+    recentPayments: edition === 'iran' ? payments.data || [] : shown(payments.data),
+    recentEvents: edition === 'iran' ? events.data || [] : shown(events.data),
     plans: plans.data || [],
   });
 });
@@ -1823,6 +1876,20 @@ interface FinanceSubscriptionRow {
 billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = serviceClientFor(url, key);
+  // The Iranian edition reports exactly as before (Rial). The International
+  // edition reports in USD only: its MRR comes from the USD plan prices and
+  // its totals from USD money; any Rial history (e.g. data cloned from an
+  // Iranian deployment) is left out, never summed into dollars.
+  let edition: Awaited<ReturnType<typeof getPlatformEdition>>;
+  try {
+    edition = await getPlatformEdition(serverConfigOf(req));
+  } catch (e: unknown) {
+    return sendBillingError(res, e);
+  }
+  const international = edition !== 'iran';
+  const reportCurrency = editionCurrency(edition);
+  const inReportCurrency = (code: unknown) =>
+    String(code || (international ? '' : 'IRR')).trim().toUpperCase() === reportCurrency;
 
   const months = Math.min(Math.max(parseInt(String(req.query.months ?? '6'), 10) || 6, 1), 24);
   const since = new Date();
@@ -1832,13 +1899,16 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
 
   const [payments, intents, subs, plans, workspaces] = await Promise.all([
     supabase.from('billing_payments').select('*').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(5000),
-    supabase.from('billing_payment_intents').select('id, status, purchase_type, action_type, amount_irr, provider_name, created_at, workspace_id').gte('created_at', sinceIso).limit(5000),
+    // `metadata` carries an attempt's currency (read in the International edition only).
+    supabase.from('billing_payment_intents').select('id, status, purchase_type, action_type, amount_irr, provider_name, created_at, workspace_id, metadata').gte('created_at', sinceIso).limit(5000),
     supabase.from('workspace_subscriptions').select('workspace_id, plan_id, status, billing_interval'),
     supabase.from('billing_plans').select('id, name, slug, prices, is_free'),
     supabase.from('workspaces').select('id, name, slug').limit(2000),
   ]);
 
-  const paymentRows = (payments.data || []) as FinancePaymentRow[];
+  const paymentRows = ((payments.data || []) as FinancePaymentRow[]).filter(
+    (p) => !international || inReportCurrency(p.currency),
+  );
   const paid = paymentRows.filter((p) => p.status === 'succeeded' || p.status === 'refunded' || p.status === 'partially_refunded');
   const planById = new Map(((plans.data || []) as FinancePlanRow[]).map((p) => [p.id, p]));
   const workspaceById = new Map(((workspaces.data || []) as FinanceWorkspaceRow[]).map((w) => [w.id, w]));
@@ -1890,7 +1960,10 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
     }
   }
 
-  const intentRows = (intents.data || []) as Array<{ status: string }>;
+  // An attempt's currency lives in its metadata (the intent has no column).
+  const intentRows = ((intents.data || []) as Array<{ status: string; metadata?: { currency?: unknown } | null }>).filter(
+    (i) => !international || inReportCurrency(i.metadata?.currency),
+  );
   const byStatus = new Map<string, number>();
   for (const i of intentRows) byStatus.set(i.status, (byStatus.get(i.status) || 0) + 1);
   const attempts = intentRows.length;
@@ -1905,15 +1978,17 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
     if (!plan) continue;
     planDistribution.set(plan.name, (planDistribution.get(plan.name) || 0) + 1);
     if (plan.is_free) continue;
-    const irr: Partial<Record<'monthly' | 'yearly', unknown>> = plan.prices?.IRR || {};
+    const price: Partial<Record<'monthly' | 'yearly', unknown>> = plan.prices?.[reportCurrency] || {};
     const monthly = s.billing_interval === 'yearly'
-      ? Number(irr.yearly || 0) / 12
-      : Number(irr.monthly || 0);
+      ? Number(price.yearly || 0) / 12
+      : Number(price.monthly || 0);
     mrrIrr += Math.round(monthly);
   }
 
   res.json({
-    currency: 'IRR',
+    // Field names are historic: in the International edition every amount
+    // (mrrIrr / arrIrr included) is USD minor units (cents).
+    currency: reportCurrency,
     months,
     totals: {
       grossRevenue,

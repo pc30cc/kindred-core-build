@@ -33,6 +33,7 @@ import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
 import { reviveFailedWorkspaceDeletion } from '../services/workspaceDeletion/revive.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
+import { invalidatePlatformRegionCache } from '../services/platformRegion.js';
 import { PANEL_THEME_IDS, isValidPanelThemeOptions, resolvePanelThemeOptions } from '../../shared/panelThemes.js';
 
 
@@ -673,6 +674,9 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   invalidateSignupPlanCache();
   // region_mode / active_locales / default_locale feed the public config.
   invalidatePlatformPublicConfig();
+  // region_mode decides the allowed locales and the edition (Iran vs
+  // International: currency, gateways) — the next money request must see it.
+  invalidatePlatformRegionCache();
   return res.json({ success: true, settings: savedSettings });
 });
 

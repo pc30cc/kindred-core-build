@@ -10,6 +10,7 @@
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { getAllProviders } from '../index.js';
+import { getPlatformEdition, isCurrencyAllowedInEdition, isProviderAllowedInEdition } from '../edition.js';
 
 export class BillingConfigError extends Error {
   constructor(
@@ -184,14 +185,24 @@ export async function listGateways(config: ServerConfig): Promise<
 }
 
 
-/** Gateways a customer may actually pay this currency with. */
+/**
+ * Gateways a customer may actually pay this currency with. In the
+ * International edition no Iranian gateway is ever payable and nothing can
+ * be paid in Rial; the Iranian edition is unchanged.
+ */
 export async function listPayableGateways(
   config: ServerConfig,
   currency: string,
 ): Promise<Gateway[]> {
+  const edition = await getPlatformEdition(config);
+  if (!isCurrencyAllowedInEdition(currency, edition)) return [];
   const rows = await listGateways(config);
   return rows.filter(
-    (g) => g.is_active && g.implemented && (g.currencies.length === 0 || g.currencies.includes(currency)),
+    (g) =>
+      g.is_active &&
+      g.implemented &&
+      isProviderAllowedInEdition(g.provider_name, edition) &&
+      (g.currencies.length === 0 || g.currencies.includes(currency)),
   );
 }
 

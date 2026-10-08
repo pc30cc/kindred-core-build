@@ -11,6 +11,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
 import express from 'express';
 
+// These tests pin today's Iranian-edition behaviour (shared/edition.ts); the
+// International edition has its own suite (src/test/edition/*).
+vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/platformRegion.js')>()),
+  getPlatformEdition: async () => 'iran',
+}));
+
 const WS = '11111111-1111-4111-8111-111111111111';
 const INVOICE = 'inv-1';
 

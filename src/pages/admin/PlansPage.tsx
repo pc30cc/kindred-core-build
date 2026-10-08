@@ -78,6 +78,7 @@ import {
   planPriceInputValue,
   planPriceUnitLabel,
 } from '@/lib/planPrice';
+import { useEdition } from '@/hooks/useEdition';
 
 // ─── Constants ───
 const CURRENCIES = PLAN_PRICE_CURRENCIES;
@@ -300,6 +301,10 @@ function PlanFormDialog({
   capabilities: CapabilityDefinition[];
 }) {
   const { t, locale } = useTranslation();
+  // The Rial (Toman) price card exists in the Iranian edition only; a stored
+  // IRR price is kept untouched (never shown or edited) elsewhere.
+  const edition = useEdition();
+  const shownCurrencies = CURRENCIES.filter((cur) => edition.allowsCurrency(cur));
   const [form, setForm] = useState<PlanFormData>(() => buildFormFromRegistry(capabilities, locales, plan));
   const [priceDrafts, setPriceDrafts] = useState<PriceDrafts>(() => priceDraftsFrom(form.prices));
   const [activeSection, setActiveSection] = useState('general');
@@ -599,7 +604,7 @@ function PlanFormDialog({
               <p className="text-xs text-muted-foreground">{t('admin.plans.form.pricingHint')}</p>
               <p className="text-xs text-muted-foreground">{t('admin.plans.form.priceUnitHint')}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {CURRENCIES.map((cur) => {
+                {shownCurrencies.map((cur) => {
                   const unit = planPriceUnitLabel(cur, locale);
                   return (
                     <Card key={cur} className="bg-muted/20 border-border">
@@ -1341,6 +1346,9 @@ function DiagnosticsPanel() {
 // ─── Main Page ───
 export default function AdminPlansPage() {
   const { t, locale } = useTranslation();
+  // The Rial (Toman) price is shown and edited in the Iranian edition only.
+  const edition = useEdition();
+  const shownCurrencies = CURRENCIES.filter((cur) => edition.allowsCurrency(cur));
   const { data: plans, isLoading } = useAdminPlans();
   const { data: subscriptions } = useAdminSubscriptions();
   const { data: workspaces } = useAdminWorkspaces();
@@ -1580,7 +1588,7 @@ export default function AdminPlansPage() {
 
                       {!plan.is_free && (
                         <div className="flex flex-wrap gap-3">
-                          {CURRENCIES.map((cur) => {
+                          {shownCurrencies.map((cur) => {
                             const p = plan.prices?.[cur];
                             if (!p?.monthly && !p?.yearly) return null;
                             return (

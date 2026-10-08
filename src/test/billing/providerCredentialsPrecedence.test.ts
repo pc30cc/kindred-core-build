@@ -11,7 +11,14 @@
  */
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 
-type Row = Record<string, any>;
+// These tests pin today's Iranian-edition behaviour (shared/edition.ts); the
+// International edition has its own suite (src/test/edition/*).
+vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/platformRegion.js')>()),
+  getPlatformEdition: async () => 'iran',
+}));
+
+type Row = Record<string, unknown>;
 let tables: Record<string, Row[]> = {};
 let tableErrors: Record<string, { code: string; message: string }> = {};
 
@@ -20,7 +27,7 @@ vi.mock('@supabase/supabase-js', () => ({
     from(table: string) {
       let rows = [...(tables[table] || [])];
       const forcedError = tableErrors[table] || null;
-      const builder: any = {
+      const builder: Record<string, unknown> = {
         select: () => builder,
         eq: (col: string, val: unknown) => {
           rows = rows.filter((r) => r[col] === val);
@@ -36,7 +43,7 @@ vi.mock('@supabase/supabase-js', () => ({
           return builder;
         },
         maybeSingle: async () => (forcedError ? { data: null, error: forcedError } : { data: rows[0] ?? null, error: null }),
-        then: (resolve: any) => resolve(forcedError ? { data: null, error: forcedError } : { data: rows, error: null }),
+        then: (resolve: (v: unknown) => unknown) => resolve(forcedError ? { data: null, error: forcedError } : { data: rows, error: null }),
       };
       return builder;
     },

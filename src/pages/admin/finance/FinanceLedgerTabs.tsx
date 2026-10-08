@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { useTranslation } from '@/i18n';
 import { adminBillingApi, type AdminFinanceOverview } from '@/lib/adminBillingApi';
 import { formatMoney } from '@/lib/money';
+import { useEdition } from '@/hooks/useEdition';
 
 const DICT = {
   fa: {
@@ -76,6 +77,8 @@ function money(map: Record<string, number> | undefined, intl: string): string {
 
 export function FinanceOverviewTab() {
   const { d, intl } = useDict();
+  // The Rial wallet is an Iranian-edition feature; amounts are USD elsewhere (src/lib/money.ts).
+  const { features } = useEdition();
   const [data, setData] = useState<AdminFinanceOverview | null>(null);
 
   useEffect(() => {
@@ -86,7 +89,7 @@ export function FinanceOverviewTab() {
   const cards = [
     { icon: TrendingUp, label: d.revenue, value: money(data?.revenue30d, intl) },
     { icon: Receipt, label: d.outstanding, value: money(data?.outstanding, intl) },
-    { icon: Wallet, label: d.wallets, value: money(data?.walletBalances, intl) },
+    ...(features.wallet ? [{ icon: Wallet, label: d.wallets, value: money(data?.walletBalances, intl) }] : []),
     { icon: Users, label: d.subs, value: data ? String(data.activeSubscriptions) : '' },
   ];
 
@@ -166,9 +169,29 @@ function FinanceDangerZone({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** The fields the ledger tables read from an invoice, payment or customer row. */
+interface LedgerRow {
+  id?: string;
+  workspace_id?: string;
+  workspace_name?: string | null;
+  invoice_number?: string | null;
+  currency?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  total_amount?: number | null;
+  total_amount_irr?: number | null;
+  amount?: number | null;
+  amount_irr?: number | null;
+  method?: string | null;
+  provider?: string | null;
+  plan_name?: string | null;
+  outstanding?: number | null;
+  wallet_balance?: number | null;
+}
+
 export function InvoicesLedgerTab() {
   const { d, intl } = useDict();
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<LedgerRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -233,7 +256,7 @@ export function InvoicesLedgerTab() {
 
 export function PaymentsLedgerTab() {
   const { d, intl } = useDict();
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<LedgerRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -283,7 +306,8 @@ export function PaymentsLedgerTab() {
 
 export function CustomersLedgerTab() {
   const { d, intl } = useDict();
-  const [rows, setRows] = useState<any[]>([]);
+  const { features } = useEdition();
+  const [rows, setRows] = useState<LedgerRow[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -312,16 +336,18 @@ export function CustomersLedgerTab() {
           <Table>
             <TableHeader><TableRow>
               <TableHead>{d.workspace}</TableHead><TableHead>{d.plan}</TableHead>
-              <TableHead>{d.balance}</TableHead><TableHead>{d.outstanding}</TableHead>
+              {features.wallet && <TableHead>{d.balance}</TableHead>}<TableHead>{d.outstanding}</TableHead>
             </TableRow></TableHeader>
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.workspace_id}>
                   <TableCell className="font-medium">{r.workspace_name || r.workspace_id}</TableCell>
                   <TableCell>{r.plan_name || '—'}</TableCell>
-                  <TableCell className="tabular-nums">
-                    {formatMoney(r.wallet_balance ?? 0, r.currency, intl)}
-                  </TableCell>
+                  {features.wallet && (
+                    <TableCell className="tabular-nums">
+                      {formatMoney(r.wallet_balance ?? 0, r.currency, intl)}
+                    </TableCell>
+                  )}
                   <TableCell className="tabular-nums">
                     {formatMoney(r.outstanding ?? 0, r.currency, intl)}
                   </TableCell>

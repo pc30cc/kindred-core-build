@@ -7,6 +7,10 @@
  *   - turkey → Turkish only, Turkish Lira
  *   - global → English only, US Dollar
  *   - multi  → every active language, currency follows the active language
+ *
+ * Only `iran` is the Iranian edition (shared/edition.ts). Every other mode is
+ * the International edition, where Persian is just Persian text: a Persian
+ * UI there reads US Dollars, never Toman.
  */
 import type { Locale } from '@/i18n/config';
 import { SUPPORTED_LOCALES } from '@/i18n/config';
@@ -30,8 +34,13 @@ export const REGION_CURRENCY: Record<RegionMode, string | null> = {
   global: 'USD',
 };
 
+/**
+ * The currency a language reads when the region pins none (`multi`, the
+ * International edition). Toman is pinned by the `iran` region only, so
+ * Persian here is USD.
+ */
 export const LOCALE_CURRENCY: Record<Locale, string> = {
-  fa: 'IRT',
+  fa: 'USD',
   tr: 'TRY',
   en: 'USD',
 };
@@ -109,7 +118,7 @@ export function formatMoney(
   // currencies skip the minor-units step entirely and go straight to the
   // Rial→Toman conversion. USD/EUR/TRY keep the normal minor-units (cents)
   // behavior.
-  let value = isRial ? (amount ?? 0) / 10 : (amount ?? 0) / (minor ? 100 : 1);
+  const value = isRial ? (amount ?? 0) / 10 : (amount ?? 0) / (minor ? 100 : 1);
 
   const nf = new Intl.NumberFormat(intlLocaleFor(locale), {
     minimumFractionDigits: 0,

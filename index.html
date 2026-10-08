@@ -145,22 +145,24 @@
       <div class="wy-footer" aria-hidden="true"><span class="wy-name">WEBYAR</span><span class="wy-ai">AI</span></div>
     </div>
     <script>
-      // International mode (src/lib/internationalMode.ts): the site mode last
-      // seen is multi_language and the UI language (as getStoredLocale picks
-      // it) is not Persian. Then the first paint already wears the RESPOK kit:
-      // the launch loader as BrandLoaderScreen draws it, the favicon and the
-      // home-screen icon (PlatformBrandingGate keeps them in step afterwards).
+      // International mode (src/lib/internationalMode.ts): the edition last
+      // seen (src/lib/edition.ts, key wy-edition) is the International one —
+      // in every UI language, Persian included. Then the first paint already
+      // wears the RESPOK kit: the launch loader as BrandLoaderScreen draws it,
+      // the favicon and the home-screen icon (PlatformBrandingGate keeps them
+      // in step afterwards). The Iranian edition, or an edition not known yet,
+      // keeps the page as it is. Before wy-edition was written, a cached
+      // 'iran' region mode means Iran and a cached multi-language site mode
+      // means International (as cachedEdition() reads them).
       (function () {
         try {
           var ls = window.localStorage;
-          if (ls.getItem('wy-site-mode') !== 'multi_language') return;
-          var ok = { en: 1, fa: 1, tr: 1 };
-          var locale = ls.getItem('app-locale');
-          if (!ok[locale]) {
-            var configured = (window.__APP_RUNTIME_CONFIG__ || {}).defaultLocale;
-            locale = ok[configured] ? configured : 'en';
+          var edition = ls.getItem('wy-edition');
+          if (edition !== 'iran' && edition !== 'international') {
+            if (ls.getItem('platform-region-mode') === 'iran') edition = 'iran';
+            else if (ls.getItem('wy-site-mode') === 'multi_language') edition = 'international';
           }
-          if (locale === 'fa') return;
+          if (edition !== 'international') return;
           var splash = document.getElementById('boot-splash');
           splash.querySelector('.wy-loader').className += ' wy-intl';
           var foot = splash.querySelector('.wy-footer');

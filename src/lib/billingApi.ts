@@ -8,6 +8,8 @@
  */
 
 import { API_BASE } from './apiBase';
+import { currentEdition } from '@/lib/edition';
+import { editionCurrency } from '../../shared/edition';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -325,7 +327,8 @@ export interface PayableGateway {
 }
 
 /** Active payment methods for a currency — decided by the platform, not the UI. */
-export function billingGateways(workspaceId: string, currency = 'IRR') {
+/** Gateways for `currency`; with none, the edition's (IRR in the Iranian edition, USD in the International one). */
+export function billingGateways(workspaceId: string, currency: string = editionCurrency(currentEdition())) {
   return request<{ currency: string; gateways: PayableGateway[] }>(
     `${base(workspaceId)}/gateways?currency=${encodeURIComponent(currency)}`,
   );

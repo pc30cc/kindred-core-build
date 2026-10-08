@@ -31,6 +31,8 @@ import {
 import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, errorMessage } from './shared';
 import { billingGetPaymentIntent, billingVerifyCallback, type BillingReceipt } from '@/lib/api';
 import { openPaddleCheckout } from '@/lib/paddleCheckout';
+import { currentEdition } from '@/lib/edition';
+import { editionCurrency, isProviderAllowedInEdition } from '../../../../shared/edition';
 
 type Kind = 'invoice' | 'deposit';
 
@@ -110,14 +112,15 @@ export default function PaymentPage() {
           })
         : billingInvoiceDetail(workspaceId, id).then((detail) => {
             setInvoice(detail);
-            return detail.invoice.currency || 'IRR';
+            return detail.invoice.currency || editionCurrency(currentEdition());
           });
 
     doc
       .then((currency) =>
         billingGateways(workspaceId, currency)
           .then((r) => {
-            setGateways(r.gateways);
+            // Defense in depth: the server already lists only this edition's gateways.
+            setGateways(r.gateways.filter((g) => isProviderAllowedInEdition(g.provider_name, currentEdition())));
             setSelected((prev) =>
               prev && r.gateways.some((g) => g.provider_name === prev) ? prev : r.gateways[0]?.provider_name ?? null,
             );
@@ -317,7 +320,7 @@ export default function PaymentPage() {
   const isDeposit = kind === 'deposit';
   const docNumber = isDeposit ? deposit?.documentNumber : invoice?.invoice.invoiceNumber;
   // A wallet top-up is Rial; an invoice carries its own currency.
-  const docCurrency = isDeposit ? 'IRR' : invoice?.invoice.currency || 'IRR';
+  const docCurrency = isDeposit ? 'IRR' : invoice?.invoice.currency || editionCurrency(currentEdition());
   const amountDue = isDeposit ? deposit?.amountIrr ?? 0 : invoice?.totals.dueIrr ?? 0;
   const alreadyPaid = isDeposit
     ? deposit?.status === 'paid'

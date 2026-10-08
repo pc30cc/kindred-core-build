@@ -60,6 +60,9 @@ vi.mock('@/lib/entitlements-api', async (importOriginal) => ({
   validatePlanPayload: async () => ({ issues: [] }),
 }));
 vi.mock('@/lib/platformPublicConfig', () => ({
+  // The edition (src/lib/edition.ts) comes from the cache in these tests:
+  // unknown reads as the Iranian one, whose editor shows the Toman price.
+  usePlatformPublicConfig: () => ({ data: undefined }),
   fetchPlatformPublicConfig: async () => ({
     branding: null,
     localized: [],
@@ -69,6 +72,7 @@ vi.mock('@/lib/platformPublicConfig', () => ({
 }));
 
 import AdminPlansPage from '@/pages/admin/PlansPage';
+import { __resetEditionForTests } from '@/lib/edition';
 
 function renderPage() {
   render(
@@ -106,7 +110,11 @@ describe('Super Admin plan editor prices', () => {
       disconnect() {}
     } as unknown as typeof ResizeObserver;
   });
-  beforeEach(() => updatePlan.mockReset().mockResolvedValue({}));
+  beforeEach(() => {
+    updatePlan.mockReset().mockResolvedValue({});
+    localStorage.clear();
+    __resetEditionForTests();
+  });
 
   it('lists stored prices as formatted major units and Toman', async () => {
     renderPage();
@@ -158,5 +166,24 @@ describe('Super Admin plan editor prices', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: en.admin.plans.form.updatePlan }));
     await new Promise((r) => setTimeout(r, 20));
     expect(updatePlan).not.toHaveBeenCalled();
+  });
+
+  it('International edition: no Toman price anywhere, and a stored Rial price is kept untouched', async () => {
+    localStorage.setItem('wy-edition', 'international');
+    const dialog = await openPricing();
+    expect(field('USD', 'monthly').value).toBe('29');
+    expect(field('IRR', 'monthly')).toBeNull();
+    // No Toman price field, label or preview (the shared hint copy is a later i18n phase).
+    const labels = [...dialog.querySelectorAll('label, [data-testid$="-preview"]')].map((n) => n.textContent).join(' ');
+    expect(labels).not.toMatch(/Toman/);
+    expect(labels).toMatch(/\(\$\)/);
+
+    fireEvent.change(field('USD', 'monthly'), { target: { value: '30' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: en.admin.plans.form.updatePlan }));
+    await waitFor(() => expect(updatePlan).toHaveBeenCalledTimes(1));
+    expect(updatePlan.mock.calls[0][0].prices).toMatchObject({
+      USD: { monthly: 3000, yearly: 29000 },
+      IRR: { monthly: 15_000_000, yearly: 150_000_000 },
+    });
   });
 });

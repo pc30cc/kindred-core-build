@@ -37,7 +37,8 @@ import {
   adminSetStorageReplication, adminSyncStorageReplica,
   type AdminStoragePoolDto, type AdminStorageProviderDto, type AdminStorageSyncReport,
 } from '@/lib/storage-providers-api';
-import { PROVIDER_SCHEMAS, type ProviderVendor } from './schemas';
+import { getSchemaForEdition, type ProviderVendor } from './schemas';
+import { useEdition } from '@/hooks/useEdition';
 import { ProviderConfigForm } from './ProviderConfigForm';
 import { ProviderVendorRail, type VendorState } from './ProviderVendorRail';
 
@@ -143,7 +144,9 @@ export function AdminStorageProvidersPanel() {
   const { t, dir } = useI18n();
   const rtl = dir === 'rtl';
   const qc = useQueryClient();
-  const schema = PROVIDER_SCHEMAS.storage;
+  // The International edition lists no Iranian storage vendor (schemas.ts).
+  const { edition } = useEdition();
+  const schema = getSchemaForEdition('storage', edition);
   const vendors = useMemo(() => schema?.vendors ?? [], [schema]);
 
   const [selected, setSelected] = useState<string>(vendors[0]?.name ?? '');

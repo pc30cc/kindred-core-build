@@ -1,24 +1,34 @@
 /**
- * "International mode": the platform runs several languages
- * (`platform_settings.site_mode = 'multi_language'`, RESPOK) and the UI is in
- * one other than Persian. Only there does the app wear the RESPOK brand kit
- * (its logos, icons and the Art colour scheme `respok`). In Persian, and on a
- * single-language site (WebYar), it never does.
+ * "International mode": the platform is the International edition
+ * (shared/edition.ts: `platform_settings.region_mode` is anything but
+ * `'iran'`, RESPOK). There the app wears the RESPOK brand kit (its logos,
+ * icons and the Art colour scheme `respok`) in EVERY language, Persian
+ * included: Persian in the International edition is only right-to-left
+ * Persian text, never the Iranian look. The Iranian edition (WebYar) never
+ * wears it.
  *
- * Shared by the client (src/lib/internationalMode.ts) and the server (the PWA
- * manifest's icons).
+ * Shared by the client (src/lib/internationalMode.ts, index.html's boot
+ * script) and the server (the PWA manifest's icons).
  */
+import { parseEdition, type Edition } from './edition.js';
 
 export const SITE_MODES = ['single_language', 'multi_language'] as const;
 export type SiteMode = (typeof SITE_MODES)[number];
 
-/** A missing or unknown site mode is single_language: nothing changes. */
+/** A missing or unknown site mode is single_language. */
 export function resolveSiteMode(value: unknown): SiteMode {
   return value === 'multi_language' ? 'multi_language' : 'single_language';
 }
 
-export function isInternationalMode(siteMode: unknown, locale: unknown): boolean {
-  return resolveSiteMode(siteMode) === 'multi_language' && typeof locale === 'string' && locale !== '' && locale !== 'fa';
+/**
+ * True in the International edition, whatever the UI language. `edition` is
+ * an Edition (`'iran'` / `'international'`); anything else — an unknown
+ * edition before the platform settings are known — is not international, so
+ * an unknown first paint looks exactly as it always did. The locale argument
+ * is kept for the existing call sites and no longer changes the answer.
+ */
+export function isInternationalMode(edition: Edition | null | undefined | unknown, _locale?: unknown): boolean {
+  return parseEdition(edition) === 'international';
 }
 
 /**

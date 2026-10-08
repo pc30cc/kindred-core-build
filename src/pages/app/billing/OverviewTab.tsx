@@ -22,6 +22,7 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import type { BillingOverview } from '@/lib/billingApi';
 import { billingSetAutoPay } from '@/lib/billingApi';
 import { billingDate, money, InvoiceStatusBadge, errorMessage } from './shared';
+import { useEdition } from '@/hooks/useEdition';
 
 
 /** Escalation ramp for the next service invoice — index is the server stage. */
@@ -57,6 +58,7 @@ export default function OverviewTab({
   onGoTo: (tab: 'plans' | 'wallet' | 'ai') => void;
 }) {
   const { t, locale } = useTranslation();
+  const { features } = useEdition();
   const { subscription, servicePeriod, aiCycle, wallet, upcomingInvoice, pendingPlanChange } = overview;
   const canManage = overview.permissions.manage;
   const alert = overview.upcomingInvoiceAlert;
@@ -156,7 +158,8 @@ export default function OverviewTab({
         </Card>
 
 
-        {/* Wallet */}
+        {/* Wallet — Rial: the Iranian edition only. */}
+        {features.wallet && (
         <Card className="relative flex h-full flex-col overflow-hidden border-2 border-emerald-500/25">
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-emerald-500/15 to-transparent"
@@ -217,8 +220,10 @@ export default function OverviewTab({
 
           </CardContent>
         </Card>
+        )}
 
-        {/* AI credit */}
+        {/* AI credit — its ledger is Rial: the Iranian edition only. */}
+        {features.aiCreditTopup && (
         <Card className="relative flex h-full flex-col overflow-hidden border-2 border-violet-500/25">
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-violet-500/15 to-transparent"
@@ -269,6 +274,7 @@ export default function OverviewTab({
 
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* ── Pending plan change ──────────────────────────────────────── */}

@@ -351,6 +351,7 @@ const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; hasDescription?:
 
 import { Globe, Wrench, CreditCard, Languages, Flag } from 'lucide-react';
 import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedRegionMode, type RegionMode } from '@/lib/region';
+import { isProviderAllowedInEdition, resolveEdition } from '../../../shared/edition';
 
 const REGION_META: Record<RegionMode, { flag: string; languages: string }> = {
   multi: {
@@ -443,6 +444,18 @@ function SettingsSection() {
     });
   };
 
+  // The edition follows the region chosen here: outside `iran` (the
+  // International edition) no Iranian gateway can be picked for any language,
+  // Persian included, and a stored one is dropped on the next save.
+  const edition = resolveEdition(regionMode);
+  const billingProviders = BILLING_PROVIDERS.filter(
+    (p) => p.value === 'none' || isProviderAllowedInEdition(p.value, edition),
+  );
+  const shownBillingProvider = (code: string) => {
+    const v = localeBillingProviders[code];
+    return v && isProviderAllowedInEdition(v, edition) ? v : 'none';
+  };
+
   const handleSaveSettings = async () => {
     const payload = {
       default_locale: defaultLocale,
@@ -453,7 +466,12 @@ function SettingsSection() {
       region_currency: REGION_CURRENCY[regionMode],
       maintenance_mode: maintenanceMode,
       maintenance_message: maintenanceMessage || null,
-      locale_billing_providers: localeBillingProviders,
+      locale_billing_providers:
+        edition === 'iran'
+          ? localeBillingProviders
+          : Object.fromEntries(
+              Object.entries(localeBillingProviders).filter(([, v]) => isProviderAllowedInEdition(v, edition)),
+            ),
     };
 
     try {
@@ -708,7 +726,7 @@ function SettingsSection() {
                         </TableCell>
                         <TableCell>
                           <Select
-                            value={localeBillingProviders[code] || 'none'}
+                            value={shownBillingProvider(code)}
                             onValueChange={(v) => {
                               setLocaleBillingProviders(prev => ({ ...prev, [code]: v }));
                               setSettingsDirty(true);
@@ -716,7 +734,7 @@ function SettingsSection() {
                           >
                             <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
                             <SelectContent>
-                              {BILLING_PROVIDERS.map(p => (
+                              {billingProviders.map(p => (
                                 <SelectItem key={p.value} value={p.value}>{p.value === 'none' ? t('admin.brandingPage.settings.billing.none') : p.label}</SelectItem>
                               ))}
                             </SelectContent>

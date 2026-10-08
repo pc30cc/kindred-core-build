@@ -7,7 +7,7 @@
 // first-party session before touching service-role data.
 // ============================================================
 
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
@@ -22,14 +22,23 @@ import {
   listCoupons, upsertCoupon, deleteCoupon,
   listUsageItems, upsertUsageItem,
 } from '../services/billing/config/index.js';
+import {
+  assertCurrencyAllowed,
+  assertProviderAllowed,
+  editionErrorResponse,
+  getPlatformEdition,
+} from '../services/billing/edition.js';
+import { isCurrencyAllowedInEdition, isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
 
 export const adminBillingRouter = Router();
 
-function cfg(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function cfg(req: object): ServerConfig {
+  return (req as { serverConfig?: ServerConfig }).serverConfig as ServerConfig;
 }
 
-function fail(res: any, e: unknown) {
+function fail(res: Response, e: unknown) {
+  const editionError = editionErrorResponse(e);
+  if (editionError) return res.status(editionError.status).json(editionError.body);
   if (e instanceof BillingConfigError) {
     return res.status(e.status).json({ error: e.code, message: e.message });
   }
@@ -44,7 +53,10 @@ function fail(res: any, e: unknown) {
 adminBillingRouter.get('/currencies', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    res.json({ currencies: await listCurrencies(cfg(req)) });
+    // The International edition has no Rial: it is neither listed nor offered.
+    const edition = await getPlatformEdition(cfg(req));
+    const currencies = await listCurrencies(cfg(req));
+    res.json({ currencies: currencies.filter((c) => isCurrencyAllowedInEdition(c.code, edition)) });
   } catch (e) { fail(res, e); }
 });
 
@@ -61,7 +73,9 @@ const currencySchema = z.object({
 adminBillingRouter.put('/currencies', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    res.json({ currency: await upsertCurrency(cfg(req), currencySchema.parse(req.body) as any) });
+    const body = currencySchema.parse(req.body);
+    assertCurrencyAllowed(await getPlatformEdition(cfg(req)), body.code);
+    res.json({ currency: await upsertCurrency(cfg(req), body as Parameters<typeof upsertCurrency>[1]) });
   } catch (e) { fail(res, e); }
 });
 
@@ -78,7 +92,13 @@ adminBillingRouter.delete('/currencies/:code', async (req, res) => {
 adminBillingRouter.get('/exchange-rates', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    res.json({ rates: await listExchangeRates(cfg(req)) });
+    const edition = await getPlatformEdition(cfg(req));
+    const rates = await listExchangeRates(cfg(req));
+    res.json({
+      rates: (rates as Array<{ base_code?: string; quote_code?: string }>).filter(
+        (r) => isCurrencyAllowedInEdition(r.base_code, edition) && isCurrencyAllowedInEdition(r.quote_code, edition),
+      ),
+    });
   } catch (e) { fail(res, e); }
 });
 
@@ -88,7 +108,10 @@ adminBillingRouter.post('/exchange-rates', async (req, res) => {
     const body = z
       .object({ base_code: z.string().length(3), quote_code: z.string().length(3), rate: z.number().positive() })
       .parse(req.body);
-    res.json({ rate: await publishExchangeRate(cfg(req), body as any) });
+    const edition = await getPlatformEdition(cfg(req));
+    assertCurrencyAllowed(edition, body.base_code);
+    assertCurrencyAllowed(edition, body.quote_code);
+    res.json({ rate: await publishExchangeRate(cfg(req), body as Parameters<typeof publishExchangeRate>[1]) });
   } catch (e) { fail(res, e); }
 });
 
@@ -97,7 +120,14 @@ adminBillingRouter.post('/exchange-rates', async (req, res) => {
 adminBillingRouter.get('/gateways', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    res.json({ gateways: await listGateways(cfg(req)) });
+    // No Iranian gateway is listed (or switchable on) in the International edition.
+    const edition = await getPlatformEdition(cfg(req));
+    const gateways = await listGateways(cfg(req));
+    res.json({
+      gateways: gateways
+        .filter((g) => isProviderAllowedInEdition(g.provider_name, edition))
+        .map((g) => edition === 'iran' ? g : { ...g, currencies: (g.currencies || []).filter((c) => !isRialCurrency(c)) }),
+    });
   } catch (e) { fail(res, e); }
 });
 
@@ -118,7 +148,10 @@ adminBillingRouter.put('/gateways', async (req, res) => {
         sort_order: z.number().int().optional(),
       })
       .parse(req.body);
-    res.json({ gateway: await upsertGateway(cfg(req), body as any) });
+    const edition = await getPlatformEdition(cfg(req));
+    assertProviderAllowed(edition, body.provider_name);
+    for (const code of body.currencies ?? []) assertCurrencyAllowed(edition, code);
+    res.json({ gateway: await upsertGateway(cfg(req), body as Parameters<typeof upsertGateway>[1]) });
   } catch (e) { fail(res, e); }
 });
 
@@ -132,6 +165,7 @@ adminBillingRouter.put('/gateways', async (req, res) => {
 adminBillingRouter.get('/providers/:providerName', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
+    assertProviderAllowed(await getPlatformEdition(cfg(req)), req.params.providerName);
     const credentials = await getProviderCredentials(cfg(req), req.params.providerName);
     res.json({ provider_name: req.params.providerName, config: credentials?.config ?? {} });
   } catch (e) { fail(res, e); }
@@ -141,6 +175,7 @@ adminBillingRouter.put('/providers/:providerName', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
     const body = z.object({ config: z.record(z.unknown()) }).parse(req.body);
+    assertProviderAllowed(await getPlatformEdition(cfg(req)), req.params.providerName);
     const credentials = await upsertProviderCredentials(cfg(req), req.params.providerName, body.config);
     res.json({ provider_name: credentials.provider_name, config: credentials.config });
   } catch (e) { fail(res, e); }
@@ -151,7 +186,14 @@ adminBillingRouter.put('/providers/:providerName', async (req, res) => {
 adminBillingRouter.get('/tax-rates', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    res.json({ taxRates: await listTaxRates(cfg(req)) });
+    // International: no Rial (Iranian VAT) rates.
+    const edition = await getPlatformEdition(cfg(req));
+    const taxRates = await listTaxRates(cfg(req));
+    res.json({
+      taxRates: (taxRates as Array<{ currency?: string | null }>).filter(
+        (r) => !r.currency || isCurrencyAllowedInEdition(r.currency, edition),
+      ),
+    });
   } catch (e) { fail(res, e); }
 });
 
@@ -169,7 +211,8 @@ adminBillingRouter.put('/tax-rates', async (req, res) => {
         is_active: z.boolean().optional(),
       })
       .parse(req.body);
-    res.json({ taxRate: await upsertTaxRate(cfg(req), body as any) });
+    assertCurrencyAllowed(await getPlatformEdition(cfg(req)), (body as { currency?: string | null }).currency);
+    res.json({ taxRate: await upsertTaxRate(cfg(req), body as Parameters<typeof upsertTaxRate>[1]) });
   } catch (e) { fail(res, e); }
 });
 
@@ -186,7 +229,14 @@ adminBillingRouter.delete('/tax-rates/:id', async (req, res) => {
 adminBillingRouter.get('/coupons', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    res.json({ coupons: await listCoupons(cfg(req)) });
+    // International: no Rial coupons.
+    const edition = await getPlatformEdition(cfg(req));
+    const coupons = await listCoupons(cfg(req));
+    res.json({
+      coupons: (coupons as Array<{ currency?: string | null }>).filter(
+        (c) => !c.currency || isCurrencyAllowedInEdition(c.currency, edition),
+      ),
+    });
   } catch (e) { fail(res, e); }
 });
 
@@ -210,7 +260,8 @@ adminBillingRouter.put('/coupons', async (req, res) => {
         is_active: z.boolean().optional(),
       })
       .parse(req.body);
-    res.json({ coupon: await upsertCoupon(cfg(req), body as any) });
+    assertCurrencyAllowed(await getPlatformEdition(cfg(req)), (body as { currency?: string | null }).currency);
+    res.json({ coupon: await upsertCoupon(cfg(req), body as Parameters<typeof upsertCoupon>[1]) });
   } catch (e) { fail(res, e); }
 });
 
@@ -244,7 +295,7 @@ adminBillingRouter.put('/usage-items', async (req, res) => {
         sort_order: z.number().int().optional(),
       })
       .parse(req.body);
-    res.json({ usageItem: await upsertUsageItem(cfg(req), body as any) });
+    res.json({ usageItem: await upsertUsageItem(cfg(req), body as Parameters<typeof upsertUsageItem>[1]) });
   } catch (e) { fail(res, e); }
 });
 
@@ -254,6 +305,7 @@ adminBillingRouter.get('/overview', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
     const client = getServiceClient(cfg(req));
+    const edition = await getPlatformEdition(cfg(req));
     const since = new Date(Date.now() - 30 * 86400000).toISOString();
     const [paid, open, payments, wallets, subs] = await Promise.all([
       client.from('billing_invoices').select('total_irr, currency, paid_at').eq('status', 'paid').gte('paid_at', since),
@@ -263,20 +315,24 @@ adminBillingRouter.get('/overview', async (req, res) => {
       client.from('workspace_subscriptions').select('status', { count: 'exact', head: true }).eq('status', 'active'),
     ]);
 
-    const sumBy = (rows: any[] | null, field: string) => {
+    // A row without a currency is Rial (the column default). The
+    // International edition reports no Rial amounts at all.
+    const sumBy = (rows: Array<Record<string, unknown>> | null, field: string) => {
       const out: Record<string, number> = {};
       for (const r of rows || []) {
-        const c = r.currency || 'IRR';
+        const c = String(r.currency || 'IRR');
+        if (!isCurrencyAllowedInEdition(c, edition)) continue;
         out[c] = (out[c] || 0) + Number(r[field] || 0);
       }
       return out;
     };
 
     res.json({
-      revenue30d: sumBy(paid.data as any[], 'total_irr'),
-      outstanding: sumBy(open.data as any[], 'amount_due_irr'),
-      walletBalances: sumBy(wallets.data as any[], 'available_balance_irr'),
+      revenue30d: sumBy(paid.data as Array<Record<string, unknown>>, 'total_irr'),
+      outstanding: sumBy(open.data as Array<Record<string, unknown>>, 'amount_due_irr'),
+      walletBalances: sumBy(wallets.data as Array<Record<string, unknown>>, 'available_balance_irr'),
       successfulPayments: payments.count || 0,
+      ...(edition === 'iran' ? {} : { currency: 'USD' }),
       activeSubscriptions: subs.count || 0,
     });
   } catch (e) { fail(res, e); }
@@ -297,6 +353,8 @@ adminBillingRouter.get('/invoices', async (req, res) => {
       .range((page - 1) * pageSize, page * pageSize - 1);
     if (status) q = q.eq('status', status);
     if (search) q = q.ilike('invoice_number', `%${search}%`);
+    // International: Rial documents (cloned Iranian history) are not shown.
+    if ((await getPlatformEdition(cfg(req))) !== 'iran') q = q.neq('currency', 'IRR');
 
     const { data, count, error } = await q;
     if (error) throw new Error(error.message);
@@ -309,11 +367,14 @@ adminBillingRouter.get('/payments', async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page ?? 1) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 20) || 20));
-    const { data, count, error } = await getServiceClient(cfg(req))
+    let q = getServiceClient(cfg(req))
       .from('billing_payments')
       .select('*, workspaces(name, slug)', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
+    // International: Rial payments (cloned Iranian history) are not shown.
+    if ((await getPlatformEdition(cfg(req))) !== 'iran') q = q.neq('currency', 'IRR');
+    const { data, count, error } = await q;
     if (error) throw new Error(error.message);
     res.json({ payments: data || [], total: count || 0, page, pageSize });
   } catch (e) { fail(res, e); }
@@ -333,7 +394,7 @@ adminBillingRouter.get('/customers', async (req, res) => {
     const { data: workspaces, error } = await q;
     if (error) throw new Error(error.message);
 
-    const ids = (workspaces || []).map((w: any) => w.id);
+    const ids = ((workspaces || []) as Array<{ id: string }>).map((w) => w.id);
     const [subs, wallets] = await Promise.all([
       client
         .from('workspace_subscriptions')
@@ -347,23 +408,27 @@ adminBillingRouter.get('/customers', async (req, res) => {
     if (subs.error) throw new Error(subs.error.message);
     if (wallets.error) throw new Error(wallets.error.message);
 
-    const planIds = [...new Set((subs.data || []).map((s: any) => s.plan_id).filter(Boolean))];
+    type SubRow = { workspace_id: string; plan_id: string | null };
+    const subRows = (subs.data || []) as SubRow[];
+    const planIds = [...new Set(subRows.map((s) => s.plan_id).filter(Boolean))];
     const plans = planIds.length
       ? await client.from('billing_plans').select('id, name, slug').in('id', planIds)
-      : { data: [] as any[], error: null };
+      : { data: [] as Array<{ id: string }>, error: null };
     if (plans.error) throw new Error(plans.error.message);
-    const planById = new Map((plans.data || []).map((p: any) => [p.id, p]));
+    const planById = new Map(((plans.data || []) as Array<{ id: string }>).map((p) => [p.id, p]));
 
     const subByWs = new Map(
-      (subs.data || []).map((s: any) => [
+      subRows.map((s) => [
         s.workspace_id,
         { ...s, billing_plans: s.plan_id ? planById.get(s.plan_id) ?? null : null },
       ]),
     );
-    const walletByWs = new Map((wallets.data || []).map((w: any) => [w.workspace_id, w]));
+    // The Rial wallet is an Iranian-edition feature: not shown in International.
+    const walletsShown = (await getPlatformEdition(cfg(req))) === 'iran' ? wallets.data || [] : [];
+    const walletByWs = new Map((walletsShown as Array<{ workspace_id: string }>).map((w) => [w.workspace_id, w]));
 
     res.json({
-      customers: (workspaces || []).map((w: any) => ({
+      customers: ((workspaces || []) as Array<{ id: string }>).map((w) => ({
         ...w,
         subscription: subByWs.get(w.id) || null,
         wallet: walletByWs.get(w.id) || null,

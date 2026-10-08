@@ -13,7 +13,8 @@ import {
   useProviderSummary, PROVIDER_TYPE_KEYS, providerRegistry, getFallbackLog,
   type ProviderTypeKey, type ProviderHealth,
 } from '@/providers';
-import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
+import { PROVIDER_SCHEMAS, getSchemaForEdition } from '@/features/providers/schemas';
+import { useEdition } from '@/hooks/useEdition';
 import { ProviderIcon } from '@/features/providers/ProviderIcon';
 import { AdminProviderWorkspace, ProviderPanelHeader } from '@/features/providers/AdminProviderWorkspace';
 import { AdminSmsProviderCard } from '@/features/providers/AdminSmsProviderCard';
@@ -59,6 +60,8 @@ export default function AdminProvidersPage() {
   const { t, dir } = useI18n();
   const rtl = dir === 'rtl';
   const summary = useProviderSummary();
+  // Vendor counts and search follow the edition (no Iranian vendor in International).
+  const { edition } = useEdition();
   const [searchQuery, setSearchQuery] = useState('');
   const [panel, setPanel] = useState<PanelKey>('overview');
   const [healthOverview, setHealthOverview] = useState<Record<string, Record<string, ProviderHealth>>>({});
@@ -80,12 +83,12 @@ export default function AdminProvidersPage() {
   const configured = Object.entries(summary).filter(([, s]) => s.active !== null).length;
   const withEffective = Object.entries(summary).filter(([, s]) => s.effective !== null).length;
   const totalRegistered = Object.values(summary).reduce((sum, s) => sum + s.registered.length, 0);
-  const totalVendors = PROVIDER_TYPE_KEYS.reduce((sum, type) => sum + (PROVIDER_SCHEMAS[type]?.vendors.length ?? 0), 0);
+  const totalVendors = PROVIDER_TYPE_KEYS.reduce((sum, type) => sum + (getSchemaForEdition(type, edition)?.vendors.length ?? 0), 0);
 
   const matches = useCallback((type: ProviderTypeKey) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.trim().toLowerCase();
-    const schema = PROVIDER_SCHEMAS[type];
+    const schema = getSchemaForEdition(type, edition);
     return (
       type.includes(q) ||
       typeLabel(type).toLowerCase().includes(q) ||
@@ -93,7 +96,7 @@ export default function AdminProvidersPage() {
       (schema?.label.toLowerCase().includes(q) ?? false) ||
       (schema?.vendors.some((v) => v.label.toLowerCase().includes(q) || v.name.includes(q)) ?? false)
     );
-  }, [searchQuery, typeLabel, typeDesc]);
+  }, [searchQuery, typeLabel, typeDesc, edition]);
 
   const visibleGroups = useMemo(
     () =>
@@ -365,7 +368,7 @@ export default function AdminProvidersPage() {
                                   : t('adminProviders.status.none')}
                             </Badge>
                             <Badge variant="secondary" className="text-[10px] font-normal">
-                              {PROVIDER_SCHEMAS[type]?.vendors.length ?? 0} {t('adminProviders.status.vendorsShort')}
+                              {getSchemaForEdition(type, edition)?.vendors.length ?? 0} {t('adminProviders.status.vendorsShort')}
                             </Badge>
                           </div>
                         </button>

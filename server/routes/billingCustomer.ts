@@ -74,6 +74,15 @@ import {
 } from '../services/billing/config/index.js';
 import { isAllowedBillingCallbackUrl, resolvePublicApiOrigin } from '../services/billing/callbackUrl.js';
 import { readTopupConfig } from '../services/billing/topupConfig.js';
+import {
+  assertEditionFeature,
+  assertProviderAllowed,
+  assertCurrencyAllowed,
+  editionErrorResponse,
+  getPlatformEdition,
+  type Edition,
+} from '../services/billing/edition.js';
+import { editionCurrency, isCurrencyAllowedInEdition } from '../../shared/edition.js';
 
 
 export const billingCustomerRouter = Router();
@@ -106,6 +115,8 @@ interface PlanTabSubscriptionRow {
 }
 
 function fail(res: JsonResponse, e: unknown) {
+  const editionError = editionErrorResponse(e);
+  if (editionError) return res.status(editionError.status).json(editionError.body);
   if (e instanceof BillingActionError) {
     return res.status(e.status).json({ error: e.code, message: e.message, details: e.details ?? null });
   }
@@ -218,8 +229,9 @@ billingCustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) 
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   try {
-    const currency = billingCurrencyOf(req.query.currency);
-    const gateways = await invoiceGateways(serverConfigOf(req), req.params.workspaceId, currency);
+    const cfg = serverConfigOf(req);
+    const currency = billingCurrencyOf(req.query.currency, editionCurrency(await getPlatformEdition(cfg)));
+    const gateways = await invoiceGateways(cfg, req.params.workspaceId, currency);
     res.json({
       currency,
       gateways: gateways.map((g) => ({
@@ -240,14 +252,16 @@ billingCustomerRouter.post('/workspaces/:workspaceId/coupons/validate', async (r
   if (!auth) return;
   if (!isManage(auth)) return res.status(403).json({ error: 'FORBIDDEN' });
   try {
+    const edition = await getPlatformEdition(serverConfigOf(req));
     const body = z
       .object({
         code: z.string().min(2).max(40),
-        currency: z.string().length(3).default('IRR'),
+        currency: z.string().length(3).default(editionCurrency(edition)),
         subtotalMinor: z.number().int().nonnegative(),
         planId: z.string().uuid().nullish(),
       })
       .parse(req.body);
+    assertCurrencyAllowed(edition, body.currency);
     const result = await evaluateCoupon(serverConfigOf(req), {
       code: body.code,
       workspaceId: req.params.workspaceId,
@@ -329,6 +343,8 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/pay-wal
   const invoiceId = req.params.invoiceId;
 
   try {
+    // The Rial wallet exists in the Iranian edition only.
+    await assertEditionFeature(cfg, 'wallet');
     const invoice = await getInvoice(cfg, invoiceId);
     if (!invoice || invoice.workspace_id !== workspaceId) return res.status(404).json({ error: 'NOT_FOUND' });
     // The wallet holds Rial. Debiting it by a USD invoice's cents would pay a
@@ -409,8 +425,13 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
     }
 
     // The invoice fixed the currency when it was issued; the gateway must be
-    // able to collect exactly that (an invoice is never re-priced here).
-    const currency = invoiceCurrency(invoice);
+    // able to collect exactly that (an invoice is never re-priced here). In
+    // the International edition neither a Rial invoice nor an Iranian
+    // gateway can be collected.
+    const edition = await getPlatformEdition(cfg);
+    const currency = invoiceCurrency(invoice, editionCurrency(edition));
+    assertCurrencyAllowed(edition, currency);
+    assertProviderAllowed(edition, parsed.data.providerName);
     const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName, currency);
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
     if (!canCollectInvoice(resolved.provider.name, currency, resolved.config)) {
@@ -575,13 +596,18 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
     // Every plan is priced per currency. The catalogue is shown in ONE
     // currency the customer can actually pay in: a visible plan is priced in
     // it and an active gateway can collect an invoice in it.
-    const candidates = new Set<string>(['IRR']);
+    // The International edition never offers Rial (its legacy flat price
+    // columns included); the Iranian edition is unchanged.
+    const edition = await getPlatformEdition(cfg);
+    const candidates = new Set<string>([editionCurrency(edition)]);
     for (const p of catalog) {
       for (const code of Object.keys(p.prices ?? {})) {
         if (/^[A-Za-z]{3}$/.test(code)) candidates.add(code.toUpperCase());
       }
     }
-    const sellable = [...candidates].filter((c) => catalog.some((p) => planSellsIn(p, c)));
+    const sellable = [...candidates].filter(
+      (c) => isCurrencyAllowedInEdition(c, edition) && catalog.some((p) => planSellsIn(p, c)),
+    );
     const collectable = await Promise.all(
       sellable.map(async (c) => (await invoiceGateways(cfg, req.params.workspaceId, c)).length > 0),
     );
@@ -590,6 +616,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
       requested: typeof req.query.currency === 'string' ? req.query.currency : null,
       subscription: await paidSubscriptionCurrency(cfg, req.params.workspaceId),
       locale: typeof req.query.locale === 'string' ? req.query.locale : null,
+      edition,
     });
     const visiblePlans = catalog.filter((p) => planSellsIn(p, currency));
 
@@ -634,9 +661,13 @@ function planSellsIn(p: CatalogPlanRow, currency: string): boolean {
   return catalogPrice(p, currency, 'monthly') > 0 || catalogPrice(p, currency, 'yearly') > 0;
 }
 
-/** The currency people of a UI locale pay in by default (the public pricing page's rule). */
-function localeCurrency(locale: string | null): string {
-  if (locale === 'fa') return 'IRR';
+/**
+ * The currency people of a UI locale pay in by default (the public pricing
+ * page's rule). Persian means Toman only in the Iranian edition: in the
+ * International edition Persian is just Persian text, priced in USD.
+ */
+function localeCurrency(locale: string | null, edition: Edition): string {
+  if (locale === 'fa') return edition === 'iran' ? 'IRR' : editionCurrency(edition);
   if (locale === 'tr') return 'TRY';
   return 'USD';
 }
@@ -644,17 +675,21 @@ function localeCurrency(locale: string | null): string {
 /**
  * The catalogue currency: the customer's explicit choice, else the currency
  * their running paid period was bought in (an upgrade stays in it), else
- * their UI locale's, else Rial, else whatever can be paid at all.
+ * their UI locale's, else the edition's (Rial in Iran, USD in International),
+ * else whatever can be paid at all. `edition` defaults to the Iranian one,
+ * whose rule this was before editions existed.
  */
 export function pickCatalogCurrency(
   currencies: string[],
-  prefs: { requested?: string | null; subscription?: string | null; locale?: string | null },
+  prefs: { requested?: string | null; subscription?: string | null; locale?: string | null; edition?: Edition },
 ): string {
-  const requested = prefs.requested ? billingCurrencyOf(prefs.requested) : null;
-  for (const code of [requested, prefs.subscription, localeCurrency(prefs.locale ?? null), 'IRR']) {
+  const edition = prefs.edition ?? 'iran';
+  const fallback = editionCurrency(edition);
+  const requested = prefs.requested ? billingCurrencyOf(prefs.requested, fallback) : null;
+  for (const code of [requested, prefs.subscription, localeCurrency(prefs.locale ?? null, edition), fallback]) {
     if (code && currencies.includes(code)) return code;
   }
-  return currencies[0] ?? requested ?? 'IRR';
+  return currencies[0] ?? requested ?? fallback;
 }
 
 /** Currency of the invoice that bought the workspace's active service period, if any. */
@@ -730,6 +765,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/wallet', async (req, res) =>
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   try {
+    await assertEditionFeature(serverConfigOf(req), 'wallet');
     res.json(await buildWalletView(serverConfigOf(req), req.params.workspaceId, pageParams(req)));
   } catch (e) {
     fail(res, e);
@@ -742,6 +778,7 @@ billingCustomerRouter.put('/workspaces/:workspaceId/wallet/auto-pay', async (req
   const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
+    await assertEditionFeature(serverConfigOf(req), 'wallet');
     res.json(await setWalletAutoPay(serverConfigOf(req), req.params.workspaceId, parsed.data.enabled));
   } catch (e) {
     fail(res, e);
@@ -762,6 +799,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/invoice', as
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   const cfg = serverConfigOf(req);
   try {
+    await assertEditionFeature(cfg, 'wallet');
     const view = await buildWalletView(cfg, req.params.workspaceId, { page: 1, pageSize: 5 });
     const { minIrr, maxIrr, allowCustom, presetsIrr } = view.deposit;
     const amount = parsed.data.amountIrr;
@@ -794,6 +832,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/preview', as
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   const cfg = serverConfigOf(req);
   try {
+    await assertEditionFeature(cfg, 'wallet');
     const view = await buildWalletView(cfg, req.params.workspaceId, { page: 1, pageSize: 5 });
     const { minIrr, maxIrr, allowCustom, presetsIrr } = view.deposit;
     const amount = parsed.data.amountIrr;
@@ -827,6 +866,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/wallet/deposits/:depositId',
   if (!auth) return;
   const cfg = serverConfigOf(req);
   try {
+    await assertEditionFeature(cfg, 'wallet');
     const sb = getServiceClient(cfg);
     const { data: deposit } = await sb
       .from('billing_wallet_deposits')
@@ -870,6 +910,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
   }
 
   try {
+    await assertEditionFeature(cfg, 'wallet');
     const sb = getServiceClient(cfg);
     const { data: deposit } = await sb
       .from('billing_wallet_deposits')
@@ -956,6 +997,8 @@ billingCustomerRouter.post('/workspaces/:workspaceId/ai-credit/invoice', async (
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   const cfg = serverConfigOf(req);
   try {
+    // Rial AI credit: an Iranian-edition feature only (no USD ledger yet).
+    await assertEditionFeature(cfg, 'aiCreditTopup');
     // The limits Super Admin sets for AI top-ups. platform_settings has no
     // ai_topup_* columns: reading them failed and this path always ran on the
     // defaults below, which it keeps while no limit is stored.

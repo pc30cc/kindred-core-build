@@ -25,6 +25,8 @@ import { assertLegacyPathAllowed, LegacyPathRejectedError } from '../services/bi
 import { createAiCreditTopupIntent, setPaymentIntentProviderRef, markPaymentIntentFailed, IRAN_PROVIDERS, type PaymentIntentRow } from '../services/billing/paymentIntent.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 import { readTopupConfig, TOPUP_CONFIG_KEY, type TopupConfig } from '../services/billing/topupConfig.js';
+import { assertEditionFeature, editionErrorResponse, getPlatformEdition } from '../services/billing/edition.js';
+import { isCurrencyAllowedInEdition } from '../../shared/edition.js';
 
 export const aiBillingRouter = Router();
 
@@ -57,6 +59,23 @@ type DbNumeric = number | string;
 
 function cfg(req: object): ServerConfig {
   return serverConfigOf(req);
+}
+
+/**
+ * Rial AI-credit top-ups exist in the Iranian edition only (no USD ledger
+ * yet): elsewhere the endpoint answers 403 FEATURE_NOT_AVAILABLE_IN_EDITION,
+ * or 503 when the edition cannot be read. True when it has answered.
+ */
+async function refusedOutsideIran(config: ServerConfig, res: { status(code: number): { json(body: unknown): unknown } }): Promise<boolean> {
+  try {
+    await assertEditionFeature(config, 'aiCreditTopup');
+    return false;
+  } catch (e) {
+    const answer = editionErrorResponse(e);
+    if (!answer) throw e;
+    res.status(answer.status).json(answer.body);
+    return true;
+  }
 }
 
 function adminIdOf(req: object): string | undefined {
@@ -175,6 +194,7 @@ aiBillingRouter.get('/workspaces/:workspaceId/topup/config', async (req, res) =>
   const config = cfg(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
+  if (await refusedOutsideIran(config, res)) return;
   const topup = await getTopupConfig(config);
   res.json({ ...topup, currency: 'IRR', displayCurrency: 'TOMAN' });
 });
@@ -202,6 +222,7 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', async (req, res) 
   if (!auth) return;
   const workspaceId = req.params.workspaceId;
 
+  if (await refusedOutsideIran(config, res)) return;
   const parsed = topupPreviewSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
   const { amountToman } = parsed.data;
@@ -289,6 +310,7 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res)
   if (!auth) return;
   const workspaceId = req.params.workspaceId;
 
+  if (await refusedOutsideIran(config, res)) return;
   const parsed = topupCheckoutSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
   const { amountToman, callbackUrl } = parsed.data;
@@ -691,7 +713,14 @@ const FX_SOURCES: { key: string; url: string; kind: 'official' | 'market'; pick:
   },
 ];
 
-aiBillingRouter.get('/admin/pricing/fx-quotes', async (_req, res) => {
+aiBillingRouter.get('/admin/pricing/fx-quotes', async (req, res) => {
+  // USD→Rial market quotes (Iranian sources) belong to the Iranian edition.
+  try {
+    if ((await getPlatformEdition(cfg(req))) !== 'iran') return res.json({ quotes: [] });
+  } catch (e) {
+    const answer = editionErrorResponse(e);
+    return res.status(answer?.status ?? 500).json(answer?.body ?? { error: 'edition_read_failed' });
+  }
   const quotes = await Promise.all(
     FX_SOURCES.map(async (s) => {
       const ctrl = new AbortController();
@@ -722,6 +751,15 @@ aiBillingRouter.post('/admin/pricing/exchange-rates', async (req, res) => {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors });
+  try {
+    const edition = await getPlatformEdition(cfg(req));
+    if (!isCurrencyAllowedInEdition(parsed.data.from, edition) || !isCurrencyAllowedInEdition(parsed.data.to, edition)) {
+      return res.status(400).json({ error: 'CURRENCY_NOT_AVAILABLE_IN_EDITION' });
+    }
+  } catch (e) {
+    const answer = editionErrorResponse(e);
+    return res.status(answer?.status ?? 500).json(answer?.body ?? { error: 'edition_read_failed' });
+  }
   const sb = getServiceClient(cfg(req));
   const { data, error } = await sb.rpc('ai_publish_exchange_rate', {
     p_from: parsed.data.from,

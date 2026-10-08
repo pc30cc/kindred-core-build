@@ -37,6 +37,7 @@ import WalletTab from './WalletTab';
 import AiCreditTab from './AiCreditTab';
 import TransactionsTab from './TransactionsTab';
 import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
+import { useEdition } from '@/hooks/useEdition';
 
 const TABS = [
   { value: 'overview', labelKey: 'overview', icon: LayoutGrid },
@@ -49,6 +50,11 @@ const TABS = [
 
 export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: string }) {
   const { t, dir } = useTranslation();
+  // The wallet and AI-credit top-ups are Rial: shown in the Iranian edition only.
+  const { features } = useEdition();
+  const tabs = TABS.filter(
+    (item) => (item.value !== 'wallet' || features.wallet) && (item.value !== 'ai' || features.aiCreditTopup),
+  );
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +154,7 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TABS.map((item) => (
+              {tabs.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   <span className="flex items-center gap-2">
                     <item.icon className="h-4 w-4" />
@@ -161,7 +167,7 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
         </div>
 
         <TabsList className="hidden h-auto w-full flex-wrap justify-start gap-2 rounded-2xl border bg-card p-2 shadow-sm md:flex">
-          {TABS.map((item) => (
+          {tabs.map((item) => (
             <TabsTrigger
               key={item.value}
               value={item.value}
@@ -204,23 +210,27 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
           />
         </TabsContent>
 
-        <TabsContent value="wallet" className="mt-5">
-          <WalletTab
-            workspaceId={workspaceId}
-            canManage={canManage}
-            reloadKey={reloadKey}
-            onChanged={refreshAll}
-          />
-        </TabsContent>
+        {features.wallet && (
+          <TabsContent value="wallet" className="mt-5">
+            <WalletTab
+              workspaceId={workspaceId}
+              canManage={canManage}
+              reloadKey={reloadKey}
+              onChanged={refreshAll}
+            />
+          </TabsContent>
+        )}
 
-        <TabsContent value="ai" className="mt-5">
-          <AiCreditTab
-            workspaceId={workspaceId}
-            canManage={canManage}
-            overview={overview}
-            onChanged={refreshAll}
-          />
-        </TabsContent>
+        {features.aiCreditTopup && (
+          <TabsContent value="ai" className="mt-5">
+            <AiCreditTab
+              workspaceId={workspaceId}
+              canManage={canManage}
+              overview={overview}
+              onChanged={refreshAll}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="transactions" className="mt-5">
           <TransactionsTab workspaceId={workspaceId} reloadKey={reloadKey} />

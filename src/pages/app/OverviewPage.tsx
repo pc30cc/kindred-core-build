@@ -21,6 +21,7 @@ import { planAccessOf } from '@/lib/planAccess';
 import type { DisplayableContact, DisplayGeoInfo } from '@/lib/contact-display';
 import { useAiWalletSummary } from '@/hooks/useAiWalletSummary';
 import { formatToman } from '@/lib/money';
+import { useEdition } from '@/hooks/useEdition';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
@@ -137,6 +138,7 @@ export default function OverviewPage() {
   const { data: effective } = useWorkspaceEffectiveEntitlements(workspace?.id);
   const { data: usageRow } = useWorkspaceUsage(workspace?.id);
   const { data: aiWallet } = useAiWalletSummary(workspace?.id, canSeeBilling);
+  const edition = useEdition();
 
   // Live usage: keep the "Plan & usage" card fresh without a page refresh.
   const queryClient = useQueryClient();
@@ -499,8 +501,12 @@ export default function OverviewPage() {
                 { label: tr('dashboard.usageMessages'), value: fmt(usageNum('messages_count')) },
                 {
                   label: tr('dashboard.usageAiCredits'),
+                  // Toman in the Iranian edition (as before); elsewhere the
+                  // ledger's own number of credits, never a Toman conversion.
                   value: aiWallet
-                    ? formatToman(aiWallet.totalRemainingIrr, numberLocale, { withLabel: false })
+                    ? edition.isIran
+                      ? formatToman(aiWallet.totalRemainingIrr, numberLocale, { withLabel: false })
+                      : fmt(Math.round(Number(aiWallet.totalRemainingIrr) || 0))
                     : '—',
                 },
 

@@ -15,6 +15,7 @@ import { insertWithDocumentNumber } from '../invoiceNumber.js';
 import type { BillingInterval, PlanActionType } from '../periods.js';
 import { addBillingInterval, computeSubscriptionWindow } from '../periods.js';
 import { computeUpgradeProration } from '../proration.js';
+import { resolveEditionCurrency } from '../edition.js';
 import type {
   InvoiceEffectSnapshot,
   InvoiceLineInput,
@@ -108,7 +109,8 @@ export interface IssueSubscriptionInvoiceInput {
   currentPeriodStart?: string | null;
   currentPeriodEnd?: string | null;
   /**
-   * Currency the invoice is issued and collected in (ISO 4217, default IRR).
+   * Currency the invoice is issued and collected in (ISO 4217; default the
+   * edition's: IRR in the Iranian edition, USD in the International one).
    * Both sides of an upgrade proration are priced in it.
    */
   currency?: string;
@@ -138,7 +140,9 @@ export async function issueSubscriptionInvoice(
     .maybeSingle();
   if (planError || !target) throw new Error('unknown_plan');
   const targetPlan = target as PlanRecord;
-  const currency = (input.currency || 'IRR').trim().toUpperCase();
+  // The requested currency, else the edition's (IRR in the Iranian edition,
+  // as before; USD in International, where Rial is refused).
+  const currency = await resolveEditionCurrency(config, input.currency);
   const text = lineText(currency);
 
   const fullPrice = planPriceIn(targetPlan, input.interval, currency);
@@ -356,7 +360,7 @@ export async function issueWalletDepositInvoice(
 interface InsertInvoiceInput {
   workspaceId: string;
   subscriptionId: string | null;
-  /** ISO 4217; the amount columns are minor units of it. Default IRR. */
+  /** ISO 4217; the amount columns are minor units of it. Default: the edition's (IRR in Iran). */
   currency?: string;
   invoiceType: InvoiceType;
   planId: string | null;
@@ -373,6 +377,7 @@ interface InsertInvoiceInput {
 /** Draft → lines → open. The open transition freezes the document. */
 async function insertAndOpen(config: ServerConfig, input: InsertInvoiceInput): Promise<InvoiceRow> {
   const sb = getServiceClient(config);
+  const currency = await resolveEditionCurrency(config, input.currency);
 
   const draft = await insertWithDocumentNumber<InvoiceRow>(async (documentNumber) => {
     const { data, error } = await sb
@@ -383,7 +388,7 @@ async function insertAndOpen(config: ServerConfig, input: InsertInvoiceInput): P
         invoice_number: documentNumber,
         invoice_type: input.invoiceType,
         status: 'draft',
-        currency: input.currency || 'IRR',
+        currency,
         subtotal_irr: input.totalIrr,
         total_irr: input.totalIrr,
         amount_due_irr: input.totalIrr,

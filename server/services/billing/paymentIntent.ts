@@ -25,6 +25,8 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import type { PurchaseActionType } from './periods.js';
+import { IRANIAN_PAYMENT_PROVIDERS } from '../../../shared/edition.js';
+import { assertEditionFeature, assertPaymentAllowedInEdition, resolveEditionCurrency, assertProviderAllowed } from './edition.js';
 import { extractProviderRefCandidates } from './providerBinding.js';
 import {
   GATEWAY_VERIFICATION_METADATA_KEY,
@@ -93,13 +95,13 @@ export function isProcessingInFlight(
   return Number.isFinite(startedAt) && now.getTime() - startedAt < PROCESSING_RECLAIM_MS;
 }
 
-/** Iranian one-time gateways: their checkout amount is fully server-derived. */
-export const IRAN_PROVIDERS = new Set([
-  'zarinpal', 'zarinpal_test', 'idpay', 'idpay_test', 'iranpardakht_sandbox',
-  'nextpay', 'payping', 'zibal', 'sep_shaparak',
-  // Internal simulated gateway: same redirect + intent contract, no real money.
-  'internal_test',
-]);
+/**
+ * Iranian one-time gateways: their checkout amount is fully server-derived.
+ * The canonical list (internal simulated gateway included) lives in
+ * shared/edition.ts, which also decides that none of them exists in the
+ * International edition.
+ */
+export const IRAN_PROVIDERS: ReadonlySet<string> = new Set<string>(IRANIAN_PAYMENT_PROVIDERS);
 
 export async function createSubscriptionIntent(
   config: ServerConfig,
@@ -119,6 +121,8 @@ export async function createSubscriptionIntent(
     metadata?: Record<string, unknown>;
   },
 ): Promise<PaymentIntentRow> {
+  // A legacy subscription attempt is charged in Rial (`amount_irr`).
+  await assertPaymentAllowedInEdition(config, { provider: input.providerName, currency: 'IRR' });
   const supabase = getServiceClient(config);
   const discount = Math.max(0, Math.round(input.discountIrr || 0));
   return insertWithDocumentNumber<PaymentIntentRow>(async (documentNumber) => {
@@ -158,6 +162,9 @@ export async function createAiCreditTopupIntent(
     metadata?: Record<string, unknown>;
   },
 ): Promise<PaymentIntentRow> {
+  // Rial AI credit: an Iranian-edition feature only.
+  const edition = await assertEditionFeature(config, 'aiCreditTopup');
+  assertProviderAllowed(edition, input.providerName);
   const supabase = getServiceClient(config);
   return insertWithDocumentNumber<PaymentIntentRow>(async (documentNumber) => {
     const { data, error } = await supabase
@@ -214,8 +221,11 @@ export async function createInvoiceIntent(
     metadata?: Record<string, unknown>;
   },
 ): Promise<PaymentIntentRow> {
+  // The invoice's currency, else the edition's (IRR in the Iranian edition,
+  // as before); an Iranian gateway or Rial is refused in International.
+  const currency = await resolveEditionCurrency(config, input.currency);
+  await assertPaymentAllowedInEdition(config, { provider: input.providerName, currency });
   const supabase = getServiceClient(config);
-  const currency = (input.currency || 'IRR').trim().toUpperCase();
   const ttlMs = input.ttlMs && input.ttlMs > 0 ? input.ttlMs : INTENT_TTL_MS;
   // The invoice's frozen effect names the business act ('ai_credit_purchase',
   // 'wallet_deposit', 'plan_*'); the attempt stores the canonical purchase
@@ -283,6 +293,9 @@ export async function createWalletDepositIntent(
     metadata?: Record<string, unknown>;
   },
 ): Promise<PaymentIntentRow> {
+  // The wallet holds Rial: an Iranian-edition feature only.
+  const edition = await assertEditionFeature(config, 'wallet');
+  assertProviderAllowed(edition, input.providerName);
   const supabase = getServiceClient(config);
   const { data, error } = await supabase
     .from('billing_payment_intents')

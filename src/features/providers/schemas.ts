@@ -4,6 +4,8 @@
 // for structured form rendering. No raw JSON.
 // ============================================
 
+import { isProviderAllowedInEdition, type Edition } from '../../../shared/edition';
+
 export interface ProviderField {
   key: string;
   label: string;
@@ -1824,4 +1826,32 @@ export function getVendorsForLocale(type: string, locale?: string): ProviderVend
   if (!schema) return [];
   if (!locale) return schema.vendors;
   return schema.vendors.filter(v => !v.locales || v.locales.includes(locale as 'en' | 'fa' | 'tr'));
+}
+
+// =============================================
+// EDITION FILTER
+// =============================================
+// The International edition (shared/edition.ts) lists no Iranian vendor —
+// payment gateways, SMS, CDN or object storage — whatever the UI language.
+// The Iranian edition lists every vendor, as before. Configured instances of a
+// hidden vendor keep working; they are only not offered.
+
+const editionSchemaCache = new Map<string, ProviderTypeSchema>();
+
+/** The vendors of a provider type that this edition may list. */
+export function getVendorsForEdition(type: string, edition: Edition): ProviderVendor[] {
+  return getSchemaForEdition(type, edition)?.vendors ?? [];
+}
+
+/** A provider type's schema with only the vendors this edition may list (same object in the Iranian edition). */
+export function getSchemaForEdition(type: string, edition: Edition): ProviderTypeSchema | undefined {
+  const schema = PROVIDER_SCHEMAS[type];
+  if (!schema || edition === 'iran') return schema;
+  const key = `${edition}:${type}`;
+  let filtered = editionSchemaCache.get(key);
+  if (!filtered) {
+    filtered = { ...schema, vendors: schema.vendors.filter((v) => isProviderAllowedInEdition(v.name, edition)) };
+    editionSchemaCache.set(key, filtered);
+  }
+  return filtered;
 }

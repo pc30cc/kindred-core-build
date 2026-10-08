@@ -27,6 +27,7 @@ import { craftgateProvider } from './providers/craftgate.js';
 import { addBillingInterval } from './periods.js';
 import { recordProviderRefund } from './refunds.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { getPlatformEdition, isProviderAllowedInEdition } from './edition.js';
 
 
 // Provider registry
@@ -166,9 +167,16 @@ export async function resolvePlatformBillingConfig(
   return { ...config, provider: providerName };
 }
 
-export function getAllProviders(): Record<string, { name: string; capabilities: BillingProviderHandler['capabilities'] }> {
+/**
+ * Every registered provider, or — with `edition` — only those that edition
+ * may list (no Iranian gateway in the International edition).
+ */
+export function getAllProviders(
+  edition?: 'iran' | 'international',
+): Record<string, { name: string; capabilities: BillingProviderHandler['capabilities'] }> {
   const result: Record<string, { name: string; capabilities: BillingProviderHandler['capabilities'] }> = {};
   for (const [key, p] of Object.entries(providers)) {
+    if (edition && !isProviderAllowedInEdition(key, edition)) continue;
     result[key] = { name: p.name, capabilities: p.capabilities };
   }
   return result;
@@ -187,6 +195,9 @@ export async function resolveNamedBillingConfig(
 ): Promise<{ provider: BillingProviderHandler; config: BillingProviderConfig } | null> {
   const provider = getProvider(providerName);
   if (!provider) return null;
+  // An Iranian gateway does not exist in the International edition.
+  const edition = await getPlatformEdition({ supabaseUrl, supabaseServiceRoleKey: serviceRoleKey });
+  if (!isProviderAllowedInEdition(providerName, edition)) return null;
   const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
   const [gatewayResult, workspaceResult, globalResult] = await Promise.all([
     supabase.from('billing_gateways').select('config').eq('provider_name', providerName).maybeSingle(),
@@ -236,9 +247,31 @@ export async function resolveNamedBillingConfig(
 
 /**
  * Resolve billing provider config for a workspace.
- * Resolution chain: workspace override → global default
+ * Resolution chain: workspace override → global default.
+ *
+ * In the International edition an Iranian gateway is never the answer: a
+ * workspace or platform default naming one resolves to null ("no provider
+ * configured"), so callers fall back to the payable international gateways.
  */
 export async function resolveBillingConfig(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string
+): Promise<{ provider: BillingProviderHandler; config: BillingProviderConfig } | null> {
+  const edition = await getPlatformEdition({ supabaseUrl, supabaseServiceRoleKey: serviceRoleKey });
+  const resolved = await resolveDefaultBillingConfig(supabaseUrl, serviceRoleKey, workspaceId);
+  if (resolved && !isProviderAllowedInEdition(resolved.provider.name, edition)) {
+    console.warn('[billing] default provider is not available in this edition; ignoring it', {
+      workspaceId,
+      provider: resolved.provider.name,
+      edition,
+    });
+    return null;
+  }
+  return resolved;
+}
+
+async function resolveDefaultBillingConfig(
   supabaseUrl: string,
   serviceRoleKey: string,
   workspaceId: string

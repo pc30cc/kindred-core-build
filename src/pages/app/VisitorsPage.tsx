@@ -277,6 +277,7 @@ export default function VisitorsPage() {
         {/* Left: list (resizable on desktop) */}
         <div
           ref={listPaneRef}
+          data-visitors-panel
           className="relative flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none w-full lg:w-auto shrink-0"
           style={isDesktop ? { width: listWidth } : undefined}
         >
@@ -301,7 +302,7 @@ export default function VisitorsPage() {
             />
           ) : (
           <>
-          <div className="p-3 border-b border-border">
+          <div data-visitors-head className="p-3 border-b border-border">
             {/* Compact title above search */}
             <div data-list-title className="mb-2 px-0.5">
               <h1 className="text-sm font-semibold text-foreground leading-tight">{t('visitors.title')}</h1>
@@ -318,7 +319,7 @@ export default function VisitorsPage() {
               />
             </div>
             {/* Filter chips */}
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <div data-visitors-filters className="mt-2 flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setFilterOnline((v) => !v)}
@@ -496,7 +497,7 @@ export default function VisitorsPage() {
           </div>
 
           {/* Footer controls — refresh, include offline, warm geo */}
-          <div className="border-t border-border p-2.5 space-y-2 bg-muted/20">
+          <div data-visitors-footer className="border-t border-border p-2.5 space-y-2 bg-muted/20">
             <div className="flex items-center justify-between gap-2">
               <label className="flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer select-none">
                 <Switch checked={includeOffline} onCheckedChange={setIncludeOffline} />

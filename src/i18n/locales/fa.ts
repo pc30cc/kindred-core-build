@@ -10371,6 +10371,8 @@ const fa: TranslationKeys = {
   },
   artInbox: {
     backToEmails: 'بازگشت به ایمیل‌ها',
+    replyTo: 'پاسخ به {{name}}',
+    closeReply: 'بستن پاسخ',
   },
 };
 

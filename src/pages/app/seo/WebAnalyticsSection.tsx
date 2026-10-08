@@ -189,7 +189,7 @@ function WebAnalyticsDataView({ workspaceId, subsectionKey, range }: { workspace
 function BreakdownTable({ rows, isLoading, keyLabel, icon: Icon, limit }: { rows: BreakdownRow[]; isLoading: boolean; keyLabel: string; icon: React.ComponentType<{ className?: string }>; limit?: number }) {
   const { t } = useTranslation();
   if (isLoading) return <SkeletonTable rows={8} columns={3} />;
-  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>;
+  if (rows.length === 0) return <p data-report-empty className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>;
   const visibleRows = limit ? rows.slice(0, limit) : rows;
   const max = Math.max(...rows.map((r) => r.sessions), 1);
   return (
@@ -225,9 +225,9 @@ function BreakdownTable({ rows, isLoading, keyLabel, icon: Icon, limit }: { rows
 function ReportCard({ title, description, truncated, children }: { title: string; description?: string; truncated?: boolean; children: React.ReactNode }) {
   const { t } = useTranslation();
   return (
-    <Card>
+    <Card data-report-card>
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
+        <CardTitle data-report-title className="text-base">{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
         {truncated && <Badge variant="outline" className="mt-1 w-fit gap-1 text-[10px] text-amber-600"><AlertTriangle className="h-3 w-3" />{t('seo.webAnalytics.truncatedNotice')}</Badge>}
       </CardHeader>
@@ -339,7 +339,7 @@ function OverviewMiniCard({
 }) {
   const { t } = useTranslation();
   return (
-    <Card>
+    <Card data-report-card="mini">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">{title}</CardTitle>
         {tabs && tabs.length > 1 && (
@@ -354,7 +354,7 @@ function OverviewMiniCard({
       </CardHeader>
       <CardContent className="pt-0">
         {children}
-        <div className="mt-3 text-end">
+        <div data-report-more className="mt-3 text-end">
           <Link to={viewMoreHref} className="text-xs font-medium text-primary hover:underline">{t('seo.webAnalytics.viewMore')}</Link>
         </div>
       </CardContent>
@@ -523,7 +523,7 @@ function BrowsersSystemsView({ workspaceId, range, dimension }: { workspaceId: s
 function PagesTable({ rows, isLoading, icon: Icon, limit }: { rows: Array<{ path: string; views: number }>; isLoading: boolean; icon: React.ComponentType<{ className?: string }>; limit?: number }) {
   const { t } = useTranslation();
   if (isLoading) return <SkeletonTable rows={8} columns={2} />;
-  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>;
+  if (rows.length === 0) return <p data-report-empty className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>;
   const visibleRows = limit ? rows.slice(0, limit) : rows;
   return (
     <Table dir="ltr">
@@ -579,7 +579,7 @@ function ClonedPagesView({ workspaceId, range }: { workspaceId: string; range: {
         {isLoading ? (
           <SkeletonTable rows={4} columns={2} />
         ) : (data?.rows.length || 0) === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.clonedPages.empty')}</p>
+          <p data-report-empty className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.clonedPages.empty')}</p>
         ) : (
           <div className="space-y-4">
             {(data?.rows || []).map((group) => (
@@ -635,7 +635,7 @@ function Possible404View({ workspaceId, range }: { workspaceId: string; range: {
       </CardHeader>
       <CardContent>
         {data.rows.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.possible404.empty')}</p>
+          <p data-report-empty className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.possible404.empty')}</p>
         ) : (
           <Table dir="ltr">
             <TableHeader>
@@ -698,7 +698,7 @@ function SiteStructureView({ workspaceId, range }: { workspaceId: string; range:
         {isLoading ? (
           <SkeletonTable rows={6} columns={1} />
         ) : !data?.root || data.root.views === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>
+          <p data-report-empty className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>
         ) : (
           <div>
             {data.root.children.map((child) => <SiteStructureNodeRow key={child.path} node={child} depth={0} />)}
@@ -714,7 +714,7 @@ function SiteStructureView({ workspaceId, range }: { workspaceId: string; range:
 function TrackedEventsTable({ rows, isLoading, limit }: { rows: TrackedEventRow[]; isLoading: boolean; limit?: number }) {
   const { t } = useTranslation();
   if (isLoading) return <SkeletonTable rows={6} columns={4} />;
-  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty')}</p>;
+  if (rows.length === 0) return <p data-report-empty className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty')}</p>;
   const visibleRows = limit ? rows.slice(0, limit) : rows;
   return (
     <Table dir="ltr">
@@ -773,7 +773,7 @@ function EventPropertiesView({ workspaceId, range }: { workspaceId: string; rang
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {events.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty')}</p>
+          <p data-report-empty className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty')}</p>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2">

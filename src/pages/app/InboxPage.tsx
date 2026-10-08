@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
@@ -1222,7 +1222,7 @@ export default function InboxPage() {
                   className={cn(headTabBase, headTabState(isActive), compactTabs && 'px-2.5')}
                   title={statusLabels[s]}
                 >
-                  <span className="relative flex w-2 h-2 items-center justify-center">
+                  <span data-inbox-tab-dot className="relative flex w-2 h-2 items-center justify-center">
                     {liveTabs[s] && (
                       <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
                     )}
@@ -1231,6 +1231,8 @@ export default function InboxPage() {
                       liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/40',
                     )} />
                   </span>
+                  {/* Art on a phone: the views that are not open show their icon alone (inbox.css). */}
+                  {isArt && !compactTabs && <MessageSquare data-inbox-tab-icon className="hidden w-4 h-4" />}
                   {compactTabs ? <Inbox className="w-4 h-4" /> : statusLabels[s]}
                   <span
                     data-inbox-count
@@ -1335,7 +1337,15 @@ export default function InboxPage() {
 
   if (extraChip === 'colleagues') {
     return (
-      <div data-inbox="page" data-inbox-view="colleagues" className="flex h-full flex-col" dir={dir}>
+      <div
+        data-inbox="page"
+        data-inbox-view="colleagues"
+        className="flex h-full flex-col"
+        dir={dir}
+        // Art: the colleagues list keeps the conversation list's width, so the
+        // column does not jump between the views (inbox.css).
+        style={isArt && isDesktop ? ({ '--art-inbox-list': `${listWidth}px` } as CSSProperties) : undefined}
+      >
         {topBarSummary}
         <div className="flex-1 min-h-0 flex"><TeamChatPanel /></div>
       </div>
@@ -1516,7 +1526,13 @@ export default function InboxPage() {
         </div>
 
         {/* Conversation items */}
-        <ScrollArea data-inbox="rows" className="flex-1 [&>div>div]:!block">
+        <ScrollArea
+          data-inbox="rows"
+          // The status the open view already names (Active): a row's own chip
+          // for it says nothing new, so a theme may leave it out (Art).
+          data-view-status={!isQueueMode && !extraChip && filter !== 'all' ? filter : undefined}
+          className="flex-1 [&>div>div]:!block"
+        >
           {/* While switching tab/queue react-query keeps the previous list as
               placeholder data — showing it would flash the wrong conversations.
               Treat placeholder state as loading and render skeletons instead. */}
@@ -1654,6 +1670,14 @@ export default function InboxPage() {
                           'text-[11px] shrink-0 tabular-nums',
                           hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground',
                         )} dir="auto">
+                          {/* Art: "assigned" beside the time, so a row needs no third line for it. */}
+                          {isArt && conv.assigned_to && (
+                            <UserCheck
+                              data-inbox="row-assigned-mark"
+                              className="w-3.5 h-3.5"
+                              aria-label={t('inbox.assigned') || 'Assigned'}
+                            />
+                          )}
                           {conv.updated_at ? timeAgo(conv.updated_at) : ''}
                         </span>
                       </div>
@@ -1730,8 +1754,8 @@ export default function InboxPage() {
                         )}
                       </div>
                       {/* Row 3: Status + meta */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={cn(
+                      <div data-inbox="row-meta" className="flex items-center gap-1.5 flex-wrap">
+                        <span data-inbox="row-status" data-status={conv.status ?? 'open'} className={cn(
                           'inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium',
                           'bg-secondary/60 text-foreground/70',
                         )}>
@@ -1757,7 +1781,7 @@ export default function InboxPage() {
                           </span>
                         )}
                         {conv.assigned_to && (
-                          <span className="text-[11px] text-muted-foreground/60 flex items-center" title={t('inbox.assigned') || 'Assigned'}>
+                          <span data-inbox="row-assigned" className="text-[11px] text-muted-foreground/60 flex items-center" title={t('inbox.assigned') || 'Assigned'}>
                             <UserCheck className="w-3.5 h-3.5" />
                           </span>
                         )}
@@ -3079,6 +3103,7 @@ export default function InboxPage() {
                       <Button
                         size="sm"
                         variant="outline"
+                        data-inbox="resolve"
                         className="h-8 flex-1 px-2 text-[11.5px] font-semibold bg-success/10 border-success/20 text-success hover:bg-success/20"
                         onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })}
                       >
@@ -3123,8 +3148,10 @@ export default function InboxPage() {
                 </div>
 
 
-                {/* Contact Details */}
-                <div className="rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20">
+                {/* Contact Details (Art leaves the card out when there is no email:
+                    its rows join the profile card, inbox.css). */}
+                {(!isArt || !!selected.contacts?.email) && (
+                <div data-inbox-fact="email" className="rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20">
                   {selected.contacts?.email && (
                     <div className="flex items-center gap-2.5 px-3 py-2.5 group/row hover:bg-secondary/20">
                       <Mail className="w-4 h-4 text-primary shrink-0" />
@@ -3138,6 +3165,7 @@ export default function InboxPage() {
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Provider-side identity (Telegram & other channels). */}
                 <ChannelIdentityCard
@@ -3162,7 +3190,7 @@ export default function InboxPage() {
                 />
 
                 {/* Stats */}
-                <div className="rounded-xl border border-border/50 bg-card/60 p-2.5">
+                <div data-inbox-fact="stats" className="rounded-xl border border-border/50 bg-card/60 p-2.5">
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">
                       <div className="text-lg font-extrabold text-foreground tabular-nums">{rawMessages?.length || 0}</div>

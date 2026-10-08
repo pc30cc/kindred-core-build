@@ -22,13 +22,13 @@ function Divider() {
  * keeps only the workspace, search, alerts and the account; the rest is in
  * the drawer behind the bottom bar's "Menu".
  */
-export function ArtHeader({ nav, compact }: { nav: ArtNav; compact: boolean }) {
+export function ArtHeader({ nav, compact, wide = false }: { nav: ArtNav; compact: boolean; wide?: boolean }) {
   const { t } = useTranslation();
   const searchLabel = t('common.quickSearch') || 'Quick search';
 
   // A round icon at every width: the bar's row is the page column's width
-  // (theme.css), and the room is worth more to the navigation pills. The
-  // shortcut is in the tooltip.
+  // (theme.css; the window's on an edge-to-edge app), and the room is worth
+  // more to the navigation pills. The shortcut is in the tooltip.
   const searchIcon = (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -75,7 +75,7 @@ export function ArtHeader({ nav, compact }: { nav: ArtNav; compact: boolean }) {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <header data-shell="header" className="relative z-30 flex h-16 shrink-0 items-center gap-2 px-3 lg:px-5">
+      <header data-shell="header" data-row={wide ? 'wide' : 'page'} className="relative z-30 flex h-16 shrink-0 items-center gap-2 px-3 lg:px-5">
         <ArtWorkspaceSwitcher isWorkspaceAdmin={nav.isWorkspaceAdmin} className="max-w-[13rem] xl:max-w-[16rem]" />
         <Divider />
         <ArtPrimaryNav items={nav.primary} tools={nav.utility} superAdmin={nav.superAdmin} ready={nav.ready} />

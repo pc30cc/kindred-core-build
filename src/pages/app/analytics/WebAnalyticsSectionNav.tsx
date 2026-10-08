@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { cn } from '@/lib/utils';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { WEB_ANALYTICS_NAV, type WebAnalyticsNavGroup, type WebAnalyticsNavLeaf } from './webAnalyticsNavTree';
@@ -31,12 +32,16 @@ function SubNavGroup({ group, activeSubsectionKey }: { group: WebAnalyticsNavGro
   const { t } = useTranslation();
   const hasActiveChild = group.children.some((c) => c.key === activeSubsectionKey);
   // Desktop expectation: every report group is expanded on arrival, so the
-  // full report tree is visible without extra clicks.
-  const [open, setOpen] = useState(true);
+  // full report tree is visible without extra clicks. Art's list is a
+  // floating panel (a row of pills on a phone) that must fit the screen:
+  // only the open report's group is expanded, the others open on a click.
+  const isArt = usePanelTheme().theme === 'art';
+  const [open, setOpen] = useState(isArt ? hasActiveChild : true);
 
   useEffect(() => {
     if (hasActiveChild) setOpen(true);
-  }, [hasActiveChild]);
+    else if (isArt) setOpen(false);
+  }, [hasActiveChild, isArt]);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>

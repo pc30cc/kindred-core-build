@@ -10389,6 +10389,8 @@ const en = {
   },
   artInbox: {
     backToEmails: 'Back to emails',
+    replyTo: 'Reply to {{name}}',
+    closeReply: 'Close reply',
   },
 };
 

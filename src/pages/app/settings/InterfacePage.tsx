@@ -124,12 +124,13 @@ export default function InterfacePage() {
         </div>
         <div className="shrink-0">
           {savingLocale ? (
-            <span className="inline-flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full">
+            <span data-autosave="saving" className="inline-flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {t('account.saving')}
             </span>
           ) : (
             <span
+              data-autosave
               className={`inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-full transition-opacity ${
                 savedAt ? 'opacity-100' : 'opacity-70'
               } text-emerald-600 bg-emerald-500/10`}

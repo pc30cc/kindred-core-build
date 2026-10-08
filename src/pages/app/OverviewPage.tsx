@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { cn } from '@/lib/utils';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 
 /** English placeholder subjects persisted by the widget/AI — localized in the UI. */
 /** The fields of a conversation the dashboard reads. */
@@ -88,6 +89,8 @@ function formatBytes(bytes: number, numberLocale: string): string {
 
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
+  // Art names the chart's series in its tooltip (Classic shows the bare value).
+  const isArt = usePanelTheme().theme === 'art';
   const workspace = useCurrentWorkspace();
   const { platformName } = useBrandingContext();
   const { user } = useAuth();
@@ -432,7 +435,7 @@ export default function OverviewPage() {
                   }}
                   labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
                 />
-                <Area type="monotone" dataKey="value" stroke="url(#convStroke)" strokeWidth={2.5} fill="url(#convGrad)" />
+                <Area type="monotone" dataKey="value" name={isArt ? tr('dashboard.activityTitle') : undefined} stroke="url(#convStroke)" strokeWidth={2.5} fill="url(#convGrad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -472,7 +475,7 @@ export default function OverviewPage() {
                 {isUnlimited(storageLimitGb) ? ' / ∞' : ` / ${fmt(storageLimitGb)} GB`}
               </span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div data-unlimited={isUnlimited(storageLimitGb) || undefined} className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
                 style={{ width: `${isUnlimited(storageLimitGb) ? 6 : Math.max(storagePct, storageLimitGb === 0 ? 0 : 3)}%` }}
@@ -518,7 +521,7 @@ export default function OverviewPage() {
                       {fmt(row.used)}{unlimited ? ' / ∞' : ` / ${fmt(row.limit)}`}
                     </span>
                   </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <div data-unlimited={unlimited || undefined} className="h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className={cn('h-full rounded-full bg-gradient-to-r transition-all duration-500', row.grad)}
                       style={{ width: `${unlimited ? 6 : row.limit === 0 ? 0 : Math.max(pct, 3)}%` }}
@@ -621,7 +624,7 @@ export default function OverviewPage() {
               </span>
               <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.teamStatus')}</h2>
             </div>
-            <span data-panel-live className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+            <span data-panel-live data-count={teamOnline} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
               {fmt(teamOnline)} {tr('dashboard.liveNow')}
             </span>

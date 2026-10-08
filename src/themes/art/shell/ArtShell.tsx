@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useTranslation } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import DegradedModeBanner from '@/components/realtime/DegradedModeBanner';
 import { MobileBottomNav } from '@/components/layout/MobileBottomNav';
@@ -8,7 +9,7 @@ import { ArtHeader } from './ArtHeader';
 import { ArtContextBar } from './ArtContextBar';
 import { ArtDrawer } from './ArtDrawer';
 import { useArtNav } from './useArtNav';
-import { useRevealCurrentInStrips } from './strips';
+import { useRevealCurrentInStrips, useStripFades } from './strips';
 
 /**
  * The Art panel's frame (AppLayout renders it while the panel wears "art").
@@ -22,18 +23,31 @@ import { useRevealCurrentInStrips } from './strips';
  * Phones get a compact top bar, the classic bottom tab bar and a drawer with
  * the whole menu behind its "Menu" tab.
  */
-export function ArtShell({ fullBleed, notices, children }: { fullBleed: boolean; notices: ReactNode; children: ReactNode }) {
+export function ArtShell({
+  fullBleed,
+  edgeToEdge,
+  notices,
+  children,
+}: {
+  fullBleed: boolean;
+  /** The page's app runs edge to edge: the header's row spans the window too. */
+  edgeToEdge: boolean;
+  notices: ReactNode;
+  children: ReactNode;
+}) {
   const isMobile = useIsMobile();
+  const { locale } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const nav = useArtNav();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // Sideways strips (the inbox's views, a side list turned into pills on a
-  // phone) always show where the member is.
-  useRevealCurrentInStrips();
+  // Strips (the inbox's views, a side list, a phone's row of pills) always
+  // show where the member is, and fade the edge that hides more.
+  useRevealCurrentInStrips(locale);
+  useStripFades();
 
   return (
     <>
-      <ArtHeader nav={nav} compact={isMobile} />
+      <ArtHeader nav={nav} compact={isMobile} wide={edgeToEdge} />
       {/* The trial / free-plan notice, as a slim strip (theme.css). */}
       <div data-shell="plan-strip">
         <PlanStatusBanner workspaceId={workspace?.id} />

@@ -40,29 +40,36 @@ function PillBody({ item }: { item: ArtNavItem }) {
 }
 
 /**
- * Which pills fit in `available` pixels. The current page is kept in view
- * first, then the others in their order until one does not fit; the rest go
- * under "More". Returns null when every pill fits and nothing else needs the
- * "More" menu.
+ * How many pills fit in `available` pixels, always the first ones in their
+ * fixed order: the same destination keeps the same place on every page. The
+ * rest go under "More", which wears the name of the open page when that page
+ * is one of them (or a tool), so room is kept for the widest name it may
+ * wear. Worked out from the widths alone, never from the open page, so
+ * moving between pages never reshuffles the bar. Returns null when every
+ * pill fits and nothing else needs "More".
+ *
+ * `widths[i]`: pill i; `asMore[i]`: "More" wearing pill i's name;
+ * `moreMin`: "More" itself, or wearing a tool's name (the widest).
  */
-function fitPills(widths: number[], moreWidth: number, available: number, activeIndex: number, keepMore: boolean) {
+function fitPills(widths: number[], asMore: number[], moreMin: number, available: number, keepMore: boolean) {
   const total = widths.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, widths.length - 1);
   if (!keepMore && total <= available) return null;
-  const budget = available - moreWidth - GAP;
-  const chosen: number[] = [];
-  let used = 0;
-  const take = (i: number) => {
-    const w = widths[i] + (chosen.length ? GAP : 0);
-    if (used + w > budget) return false;
-    used += w;
-    chosen.push(i);
-    return true;
-  };
-  if (activeIndex >= 0) take(activeIndex);
-  for (let i = 0; i < widths.length; i++) {
-    if (i !== activeIndex && !take(i)) break;
+  let reserve = moreMin;
+  // The room kept for "More" only grows, so this settles in a few rounds.
+  for (;;) {
+    const budget = available - reserve - GAP;
+    let used = 0;
+    let count = 0;
+    while (count < widths.length) {
+      const w = widths[count] + (count ? GAP : 0);
+      if (used + w > budget) break;
+      used += w;
+      count++;
+    }
+    const next = Math.max(reserve, ...asMore.slice(count));
+    if (next <= reserve) return count;
+    reserve = next;
   }
-  return chosen.sort((a, b) => a - b);
 }
 
 /**
@@ -87,29 +94,27 @@ export function ArtPrimaryNav({
   const { t } = useTranslation();
   const navRef = useRef<HTMLElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
-  // '|'-joined keys of the pills in view; null = all of them.
-  const [inView, setInView] = useState<string | null>(null);
+  // How many pills are in view, in their order; null = all of them.
+  const [inView, setInView] = useState<number | null>(null);
 
   const keepMore = tools.length > 0 || superAdmin;
-  const activeKey = items.find((item) => item.active)?.key ?? '';
   // A page that only lives under "More" (the widget, plugins): the trigger
   // then wears its name, so the bar still says where the member is.
   const activeTool = tools.find((item) => item.active);
-  const signature = [...items, ...(activeTool ? [activeTool] : [])]
-    .map((item) => `${item.key}:${item.label}:${item.badge ?? 0}`)
-    .join('|');
+  // What the measurements depend on (not which page is open).
+  const signature = [...items, ...tools].map((item) => `${item.key}:${item.label}:${item.badge ?? 0}`).join('|');
 
   useLayoutEffect(() => {
     const nav = navRef.current;
     const measure = measureRef.current;
     if (!nav || !measure) return;
     const compute = () => {
-      const nodes = Array.from(measure.children) as HTMLElement[];
-      const widths = nodes.map((node) => node.getBoundingClientRect().width);
-      const moreWidth = widths.pop() ?? 0;
-      const keys = nodes.slice(0, -1).map((node) => node.dataset.key ?? '');
-      const fit = fitPills(widths, moreWidth, nav.clientWidth, keys.indexOf(activeKey), keepMore);
-      const next = fit ? fit.map((i) => keys[i]).join('|') : null;
+      const width = (selector: string) =>
+        Array.from(measure.querySelectorAll<HTMLElement>(selector)).map((node) => node.getBoundingClientRect().width);
+      const widths = width('[data-measure="pill"]');
+      const asMore = width('[data-measure="as-more"]');
+      const moreMin = Math.max(0, ...width('[data-measure="more"]'));
+      const next = fitPills(widths, asMore, moreMin, nav.clientWidth, keepMore);
       setInView((prev) => (prev === next ? prev : next));
     };
     compute();
@@ -118,18 +123,17 @@ export function ArtPrimaryNav({
     observer.observe(nav);
     observer.observe(measure);
     return () => observer.disconnect();
-  }, [signature, activeKey, keepMore]);
+  }, [signature, keepMore]);
 
-  const shown = inView === null ? null : new Set(inView.split('|'));
-  const visible = shown ? items.filter((item) => shown.has(item.key)) : items;
-  const folded = shown ? items.filter((item) => !shown.has(item.key)) : [];
+  const visible = inView === null ? items : items.slice(0, inView);
+  const folded = inView === null ? [] : items.slice(inView);
   const activeInMore = activeTool ?? folded.find((item) => item.active);
   const moreLabel = t('artShell.more');
 
   // "More", or the name of the page in it that is open.
   const moreBody = (current: ArtNavItem | undefined) =>
     current ? (
-      <span>
+      <span className="max-w-[11rem] truncate">
         <span className="sr-only">{moreLabel}: </span>
         {current.label}
       </span>
@@ -206,17 +210,26 @@ export function ArtPrimaryNav({
         </DropdownMenu>
       )}
 
-      {/* The same pills, unseen, to measure what fits. */}
+      {/* The same pills, unseen, to measure what fits: each pill, "More"
+          wearing each pill's name, and "More" itself or wearing a tool's. */}
       <div ref={measureRef} aria-hidden className="pointer-events-none invisible absolute start-0 top-0 flex w-max gap-1">
         {items.map((item) => (
-          <span key={item.key} data-key={item.key} className={pill}>
+          <span key={item.key} data-measure="pill" className={pill}>
             <PillBody item={item} />
           </span>
         ))}
-        <span className={cn(pill, 'gap-1')}>
-          {moreBody(activeTool)}
-          <ChevronDown className="h-3.5 w-3.5" />
-        </span>
+        {items.map((item) => (
+          <span key={item.key} data-measure="as-more" className={cn(pill, 'gap-1')}>
+            {moreBody(item)}
+            <ChevronDown className="h-3.5 w-3.5" />
+          </span>
+        ))}
+        {[undefined, ...tools].map((item) => (
+          <span key={item?.key ?? ''} data-measure="more" className={cn(pill, 'gap-1')}>
+            {moreBody(item)}
+            <ChevronDown className="h-3.5 w-3.5" />
+          </span>
+        ))}
       </div>
     </nav>
   );

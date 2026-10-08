@@ -568,7 +568,7 @@ function WidgetPageContent() {
                           className="text-start font-mono text-xs"
                         />
                       </div>
-                      <div className="flex flex-wrap gap-1.5 pt-1">
+                      <div data-swatches className="flex flex-wrap gap-1.5 pt-1">
                         {['#3B82F6', '#6366F1', '#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#111827'].map((c) => (
                           <button
                             key={c}
@@ -659,7 +659,7 @@ function WidgetPageContent() {
                     </div>
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widgetPage.appearance.fabIcon')}</Label>
-                      <div className={cn('flex flex-wrap gap-2', !capAllowed('widget_launcher_icon') && 'pointer-events-none opacity-50')}>
+                      <div data-icon-picker className={cn('flex flex-wrap gap-2', !capAllowed('widget_launcher_icon') && 'pointer-events-none opacity-50')}>
                         {Object.keys(FAB_ICONS).map((key) => (
                           <button
                             key={key}

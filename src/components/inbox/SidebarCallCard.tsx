@@ -21,6 +21,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
+import { Link } from 'react-router-dom';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 import {
   type CallInvitation,
   type InvitationChannel,
@@ -70,6 +73,9 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
     return value && value !== key ? value : fallback;
   };
   const t = (key: string, vars?: Record<string, string>): string => safeT(key, '', vars);
+  // Art: the plan note ends with the way out (a quiet clay link).
+  const isArt = usePanelTheme().theme === 'art';
+  const wsPath = useWorkspacePath();
 
   const {
     surface, creating, loading, live, preview,
@@ -614,7 +620,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
           </div>
 
           {planReady && (planBlocked || !planVoiceEnabled || !planVideoEnabled || limitBlocked) && (
-            <p className="text-[10px] text-warning leading-snug">
+            <p data-inbox="call-note" className="text-[10px] text-warning leading-snug">
               {planBlocked
                 ? safeT('inbox.sidebarCall.planBlocked', 'Voice & Video is not included in your plan')
                 : concurrentReached
@@ -626,6 +632,14 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                       : !planVoiceEnabled
                         ? safeT('inbox.sidebarCall.voiceLocked', 'Voice calls are not included in your plan')
                         : safeT('inbox.sidebarCall.videoLocked', 'Video calls are not included in your plan')}
+              {isArt && (
+                <>
+                  {' '}
+                  <Link data-inbox="call-upgrade" to={wsPath('/billing')}>
+                    {safeT('planBanner.upgradeCta', 'Upgrade plan')}
+                  </Link>
+                </>
+              )}
             </p>
           )}
 

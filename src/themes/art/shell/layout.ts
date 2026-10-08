@@ -26,3 +26,15 @@ const FULL_BLEED = /^\/(inbox|email|settings|visitors|ai-agent|seo|analytics)(\/
 export function isArtFullBleed(subPath: string) {
   return FULL_BLEED.test(subPath);
 }
+
+/**
+ * The full-bleed routes whose app runs edge to edge (the inboxes' columns,
+ * the visitors map). The header's row then spans the window too, so its ends
+ * line up with the app's columns; elsewhere it keeps to the page column, as
+ * a section's page (settings, AI agent, ...) is centred in it as well.
+ */
+const EDGE_TO_EDGE = /^\/(inbox|email|visitors)(\/|$)/;
+
+export function isArtEdgeToEdge(subPath: string) {
+  return EDGE_TO_EDGE.test(subPath);
+}

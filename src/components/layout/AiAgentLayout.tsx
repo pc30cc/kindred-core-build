@@ -97,7 +97,12 @@ export function AiAgentLayout() {
         <nav className="p-3 space-y-4">
           {visibleGroups.map((g) => (
             <div key={g.key}>
-              <p data-section-nav-label className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 mb-1">
+              <p
+                data-section-nav-label
+                // The group that only repeats the list's own title (Art hides it).
+                data-redundant={tr(`section.${g.key}`, g.label) === tr('title', 'AI Agent') || undefined}
+                className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 mb-1"
+              >
                 {tr(`section.${g.key}`, g.label)}
               </p>
               <div className="space-y-1">

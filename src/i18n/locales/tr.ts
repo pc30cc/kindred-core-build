@@ -10374,6 +10374,8 @@ const tr: TranslationKeys = {
   },
   artInbox: {
     backToEmails: 'E-postalara dön',
+    replyTo: 'Yanıtla: {{name}}',
+    closeReply: 'Yanıtı kapat',
   },
 };
 

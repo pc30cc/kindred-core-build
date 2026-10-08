@@ -9,10 +9,13 @@
  * sits on the paper with hairline bubbles and a floating composer with a
  * pill send button, and the contact panel is one family of hairline cards.
  *
- * Hooks: InboxPage.tsx (`data-inbox`, `data-inbox-tab`, ...),
- * EmailInboxPage.tsx (`data-email`), ContactAvatar.tsx
- * (`data-slot="contact-avatar"`), ChannelBadge.tsx (`data-channel-badge`)
- * and `data-avatar-tone` (1-5) on every initials avatar of a person.
+ * Hooks: InboxPage.tsx (`data-inbox`, `data-inbox-tab`, `data-inbox-fact`,
+ * `data-view-status` / `data-status` on the rows, ...), EmailInboxPage.tsx
+ * (`data-email`; Art's reader stylesheet is written there, as the message
+ * lives in a sandboxed frame), ContactAvatar.tsx (`data-slot="contact-avatar"`),
+ * ChannelBadge.tsx (`data-channel-badge`, `data-inbox-fact="channel"`),
+ * SidebarCallCard.tsx (`data-inbox="call-note"`) and `data-avatar-tone`
+ * (1-5, personTone.ts: one per person, by email) on every initials avatar.
  */
 
 /* ── 1. Avatars of people: soft tinted circles ───────────────────────────── */
@@ -218,12 +221,57 @@
   background-color: hsl(var(--primary) / 0.15);
 }
 
+/* A phone: the open view keeps its name, the others are an icon and their
+   count (the name stays their accessible name and tooltip), so the three
+   views and the queues' pill beside them fit on one row with nothing cut
+   off. The active view's dot gives way to its icon there. */
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-inbox="toolbar"] {
+    padding-inline: 0.5rem 0;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox="tabs"] {
+    gap: 0.125rem;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox-tab][aria-selected="true"] {
+    padding-inline: 0.75rem;
+    /* !important: index.css lifts every text-[14px] to 15px with !important. */
+    font-size: 0.875rem !important;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox-tab][aria-selected="false"] {
+    min-width: 2.25rem;
+    justify-content: center;
+    gap: 0.25rem;
+    padding-inline: 0.5rem;
+    font-size: 0 !important;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox-tab][aria-selected="false"] > [data-inbox-tab-dot] {
+    display: none;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox-tab][aria-selected="false"] > [data-inbox-tab-icon] {
+    display: block;
+  }
+}
+
 /* ── 4. Inbox: the conversation list ────────────────────────────────────── */
 
 /* The list is the sheet of paper; the thread and the panel lie on the desk. */
 :root[data-panel-theme="art"] [data-inbox="list"] {
+  container: art-inbox-list / inline-size;
   border-inline-end-color: var(--art-ui-line);
   background-color: hsl(var(--card));
+}
+
+/* The colleagues list as wide as the conversation list (InboxPage passes
+   its width), so the column stays put between the views. */
+@media (min-width: 768px) {
+  :root[data-panel-theme="art"] [data-inbox-view="colleagues"] [data-inbox="list"] {
+    width: var(--art-inbox-list, 340px);
+  }
 }
 
 /* Its header: the title at card-title size, one quiet count, the "new"
@@ -232,8 +280,26 @@
 :root[data-panel-theme="art"] [data-inbox="list-header"] {
   container-type: inline-size;
   border-bottom-color: var(--art-ui-line);
-  padding-block: 0.875rem 0.75rem;
+  padding-block: 0.75rem;
   padding-inline: 1rem 0.75rem;
+}
+
+/* Side by side, the list's header and the thread's are one band: the same
+   height, so their hairlines meet in one line at the column edge (the email
+   inbox's search row and reader header too, section 8). */
+@media (min-width: 768px) {
+  :root[data-panel-theme="art"] [data-inbox="list-header"] {
+    display: flex;
+    min-height: 4.5rem;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox="chat-header"],
+  :root[data-panel-theme="art"] [data-email="list-search"],
+  :root[data-panel-theme="art"] [data-email="reader-header"] {
+    min-height: 4.5rem;
+  }
 }
 
 :root[data-panel-theme="art"] [data-inbox="list-header"] > div:first-child {
@@ -393,6 +459,50 @@
   border-radius: 9999px;
 }
 
+/* Chips only for what the view does not already say: in Active, the
+   "Active" chip on every row goes (InboxPage marks the view's status), and
+   "assigned" is a mark beside the time; a row with nothing else to say has
+   two lines, not three. */
+:root[data-panel-theme="art"] :is(
+  [data-view-status="open"] [data-status="open"],
+  [data-view-status="pending"] [data-status="pending"],
+  [data-view-status="resolved"] [data-status="resolved"],
+  [data-view-status="closed"] [data-status="closed"]
+)[data-inbox="row-status"],
+:root[data-panel-theme="art"] [data-inbox="row-assigned"] {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-view-status="open"] [data-inbox="row-meta"]:not(:has(> :not([data-status="open"], [data-inbox="row-assigned"]))),
+:root[data-panel-theme="art"] [data-view-status="pending"] [data-inbox="row-meta"]:not(:has(> :not([data-status="pending"], [data-inbox="row-assigned"]))),
+:root[data-panel-theme="art"] [data-view-status="resolved"] [data-inbox="row-meta"]:not(:has(> :not([data-status="resolved"], [data-inbox="row-assigned"]))),
+:root[data-panel-theme="art"] [data-view-status="closed"] [data-inbox="row-meta"]:not(:has(> :not([data-status="closed"], [data-inbox="row-assigned"]))) {
+  /* Takes back the preview line's bottom margin. */
+  margin-top: -0.375rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="row-assigned-mark"] {
+  display: inline-block;
+  margin-inline-end: 0.3125rem;
+  vertical-align: -0.1875rem;
+  color: hsl(var(--muted-foreground) / 0.8);
+}
+
+/* A list dragged or squeezed narrow (1024-1280px): the channel chip turns
+   to its icon in a small circle, so the name keeps the room. */
+@container art-inbox-list (max-width: 22.5rem) {
+  :root[data-panel-theme="art"] [data-inbox="row"] [data-channel-badge] {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    /* !important: index.css lifts every text-[10px] to 12px with !important. */
+    font-size: 0 !important;
+  }
+}
+
 /* A preview in the other script reads in its own direction ("Merhaba, …?"
    in a Persian list keeps its question mark at the end). */
 :root[data-panel-theme="art"] [data-inbox="preview"] {
@@ -530,7 +640,15 @@
 }
 
 :root[data-panel-theme="art"].dark [data-inbox="bubble"][data-from="agent"].bg-primary\/10 {
-  background-color: hsl(var(--primary) / 0.14);
+  background-color: var(--art-inbox-ours-dark);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.16);
+}
+
+/* In dark, clay at a low alpha over the ink canvas turns a muddy brown:
+   ours is a lifted stone with a faint clay hairline instead, clean and
+   still ours. */
+:root[data-panel-theme="art"].dark {
+  --art-inbox-ours-dark: hsl(var(--foreground) / 0.075);
 }
 
 :root[data-panel-theme="art"] [data-inbox="bubble"].rounded-br-sm {
@@ -549,7 +667,8 @@
 }
 
 :root[data-panel-theme="art"].dark [data-inbox="bubble"][data-from="agent"].bg-primary {
-  background-color: hsl(var(--primary) / 0.14);
+  background-color: var(--art-inbox-ours-dark);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.16);
 }
 
 :root[data-panel-theme="art"] [data-inbox="bubble"][data-from="agent"].bg-primary .text-primary-foreground\/70 {
@@ -645,6 +764,20 @@
 
 :root[data-panel-theme="art"] [data-inbox="send-split"]:has(> [data-slot="button"]:disabled) > [data-slot="button"]:not(:disabled):hover {
   opacity: 0.75;
+}
+
+/* ... in dark, a quiet stone pill rather than half-faded clay (brown). */
+:root[data-panel-theme="art"].dark [data-inbox="send-split"]:has(> [data-slot="button"]:disabled) > [data-slot="button"] {
+  border-color: hsl(var(--foreground) / 0.1);
+  background-color: hsl(var(--foreground) / 0.08);
+  color: hsl(var(--muted-foreground));
+  opacity: 1;
+}
+
+:root[data-panel-theme="art"].dark [data-inbox="send-split"]:has(> [data-slot="button"]:disabled) > [data-slot="button"]:not(:disabled):hover {
+  background-color: hsl(var(--foreground) / 0.12);
+  color: hsl(var(--foreground));
+  opacity: 1;
 }
 
 :root[data-panel-theme="art"] [data-inbox="composer-hints"] {
@@ -773,6 +906,112 @@
   background-color: hsl(var(--foreground) / 0.055);
 }
 
+/* One profile sheet, not a stack of single-fact cards: the email, the
+   channel and the two figures join the profile card below a hairline each
+   (the next card's own hairline draws the seam), as rows with the label at
+   the start and the value at the end. */
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox="info-hero"]:has(+ [data-inbox-fact]),
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox-fact]:has(+ [data-inbox-fact]) {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > :is([data-inbox="info-hero"], [data-inbox-fact]) + [data-inbox-fact] {
+  margin-top: 0;
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox-fact]:not([data-inbox-fact="stats"]) > div {
+  min-height: 2.75rem;
+  padding-inline: 1rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox-fact="email"] svg {
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox-fact="stats"] {
+  padding: 0;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox-fact="stats"].rounded-xl > .grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+/* Each figure a row: the label first, the value at the end, one size. */
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox-fact="stats"].rounded-xl > .grid > div {
+  display: flex;
+  min-height: 2.75rem;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-width: 0;
+  border-radius: 0;
+  padding-block: 0.5rem;
+  padding-inline: 1rem;
+  background-color: transparent;
+  text-align: start;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox-fact="stats"].rounded-xl > .grid > div + div {
+  box-shadow: inset 0 1px 0 0 var(--art-ui-line);
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox-fact="stats"].rounded-xl > .grid > div > div:first-child {
+  /* !important: index.css lifts text-[13px] with !important. */
+  font-size: 0.875rem !important;
+  font-weight: 600;
+  line-height: 1.5 !important;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > [data-inbox-fact="stats"].rounded-xl > .grid > div > div:last-child {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Resolve is an action, not a state: a neutral pill like "Mark as spam"
+   (the clay primary stays the composer's), the green kept to its check. */
+:root[data-panel-theme="art"] [data-inbox="resolve"] {
+  border-color: var(--art-ui-line-strong);
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground) / 0.85);
+}
+
+:root[data-panel-theme="art"] [data-inbox="resolve"]:hover {
+  border-color: hsl(var(--success) / 0.35);
+  background-color: hsl(var(--success) / 0.06);
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] [data-inbox="resolve"] > svg {
+  color: hsl(var(--success));
+}
+
+/* The call card's plan note: a quiet line, wrapped evenly, not ochre. */
+:root[data-panel-theme="art"] [data-inbox="call-note"] {
+  color: hsl(var(--muted-foreground));
+  text-wrap: balance;
+}
+
+:root[data-panel-theme="art"] [data-inbox="call-upgrade"] {
+  color: var(--art-ui-tint-text, hsl(var(--primary)));
+  font-weight: 600;
+  white-space: nowrap;
+  text-underline-offset: 0.2em;
+}
+
+:root[data-panel-theme="art"] [data-inbox="call-upgrade"]:hover {
+  text-decoration: underline;
+}
+
+:root[data-panel-theme="art"] [data-inbox="call-upgrade"]:focus-visible {
+  outline: none;
+  border-radius: 0.25rem;
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.5);
+}
+
 /* Below 1024px the panel is a drawer over the thread: paper with its inner
    corners rounded, a sheet's shadow and its own close button. */
 @media (max-width: 1023px) {
@@ -785,11 +1024,24 @@
   :root[data-panel-theme="art"] [data-inbox="info-backdrop"] {
     background-color: hsl(var(--art-scrim) / 0.4);
   }
+
+  /* A sheet's close belongs at its top: the tabs (with the close) come
+     first, the call card rests at the foot, in reach of a thumb. */
+  :root[data-panel-theme="art"] [data-inbox="info-tabs"] {
+    order: -1;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox="info-call"] {
+    order: 1;
+    border-top: 1px solid var(--art-ui-line);
+    padding-block: 0.75rem;
+  }
 }
 
-/* A conversation needs room more than the list does: between 1024 and
-   1280px the list narrows so the thread keeps a readable measure. */
-@media (min-width: 1024px) and (max-width: 1279px) {
+/* A conversation needs room more than the list does: on a tablet and up
+   to 1280px the list narrows so the thread keeps a readable measure (its
+   rows' channel chips turn to icons, section 4). */
+@media (min-width: 768px) and (max-width: 1279px) {
   :root[data-panel-theme="art"] [data-inbox="list"] {
     max-width: 20rem;
   }
@@ -804,6 +1056,11 @@
 
   :root[data-panel-theme="art"] [data-inbox="list-header"] > div:first-child > div:last-child {
     gap: 0;
+  }
+
+  /* The list fills the screen: no column edge along it. */
+  :root[data-panel-theme="art"] [data-inbox="list"] {
+    border-inline-end-width: 0;
   }
 
   :root[data-panel-theme="art"] [data-inbox="composer"] {
@@ -832,8 +1089,8 @@
 }
 
 :root[data-panel-theme="art"] [data-email="list-search"] {
-  border-bottom-width: 0;
-  padding-block: 0.75rem 0.5rem;
+  border-bottom-color: var(--art-ui-line);
+  padding-block: 0.75rem;
   padding-inline: 0.75rem;
 }
 
@@ -846,19 +1103,16 @@
   height: 2.5rem;
 }
 
-:root[data-panel-theme="art"] [data-email="list-filter"] {
-  border-bottom-color: var(--art-ui-line);
-  padding-block: 0 0.625rem;
-  padding-inline: 0.75rem;
-}
-
-/* "Unread": a small pill toggle. */
+/* "Unread": a pill beside the search (EmailInboxPage puts it there in Art),
+   as tall as the field and the refresh circle. */
 :root[data-panel-theme="art"] [data-email="unread-toggle"] {
-  min-height: 1.75rem;
+  height: 2.5rem;
+  flex-shrink: 0;
   border-radius: 9999px;
-  padding-inline: 0.75rem;
-  font-size: 0.75rem;
+  padding-inline: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
+  white-space: nowrap;
   user-select: none;
 }
 
@@ -873,7 +1127,21 @@
 
 :root[data-panel-theme="art"] [data-email="unread-toggle"][data-active="true"] {
   border-color: transparent;
+  background-color: hsl(var(--primary) / 0.1);
   color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] [data-email="unread-toggle"][data-active="true"]:hover {
+  background-color: hsl(var(--primary) / 0.15);
+}
+
+/* Each line of a row in the panel's direction: a Latin sender, subject or
+   snippet in a Persian list sits beside the avatar like a Persian one (and
+   the other way round), its letters still in their own order. */
+:root[data-panel-theme="art"] [data-email="row"] [dir="auto"],
+:root[data-panel-theme="art"] [data-email="message-header"] [dir="auto"] {
+  text-align: -webkit-match-parent;
+  text-align: match-parent;
 }
 
 :root[data-panel-theme="art"] [data-email="rows"] [data-radix-scroll-area-viewport] > div {
@@ -968,23 +1236,54 @@
   padding-inline: 1.25rem;
 }
 
-/* The message: a framed sheet (EmailInboxPage paints it in the panel's
-   paper and ink; in dark mode an HTML mail keeps a soft ivory page). */
+/* The message: a sheet of the panel's paper that ends where the text ends
+   (EmailInboxPage draws it inside the frame, with its inset and shadow, on
+   a see-through page; in dark mode an HTML mail keeps a soft ivory page). The
+   frame itself is bare, so what is left below a short message is page. */
 :root[data-panel-theme="art"] [data-email="sheet-frame"] {
-  padding-block: 0.5rem 0.875rem;
-  padding-inline: 1.25rem;
+  padding-block: 0;
+  /* The header's 1.25rem, less the 8px the frame keeps around the sheet. */
+  padding-inline: 0.75rem;
 }
 
 :root[data-panel-theme="art"] [data-email="sheet"] {
-  border-radius: 1rem;
+  border-radius: 0;
   background-color: transparent;
-  box-shadow: var(--art-hairline), var(--art-ui-card-shadow);
+  box-shadow: none;
 }
 
 :root[data-panel-theme="art"] [data-email="reply"] {
   border-top-width: 0;
-  padding-block: 0 1rem;
+  padding-block: 0.25rem 1rem;
   padding-inline: 1.25rem;
+}
+
+/* The reply waiting under the message: one line, a filled pill like the
+   fields; a click opens the editor (EmailInboxPage). */
+:root[data-panel-theme="art"] [data-email="reply-open"] {
+  border: 1px solid var(--art-ui-field-edge);
+  background-color: var(--art-ui-field);
+  color: hsl(var(--muted-foreground));
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-email="reply-open"]:hover {
+  border-color: hsl(var(--input));
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] [data-email="reply-open"]:focus-visible {
+  outline: none;
+  border-color: hsl(var(--ring));
+  box-shadow: var(--art-ui-halo);
+}
+
+:root[data-panel-theme="art"] [data-email="reply-open"][data-draft] {
+  color: hsl(var(--foreground) / 0.85);
+}
+
+:root[data-panel-theme="art"] [data-email="reply-open"] > svg {
+  color: hsl(var(--muted-foreground));
 }
 
 /* The reply: one card holding the recipient, the editor and the actions
@@ -997,9 +1296,37 @@
 }
 
 :root[data-panel-theme="art"] [data-email="composer-to"] {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.5rem;
   border-bottom-color: var(--art-ui-line);
-  padding-block: 0.5rem;
-  padding-inline: 1rem;
+  padding-block: 0.25rem;
+  padding-inline: 1rem 0.375rem;
+}
+
+/* Closes the editor back to its one line (a draft stays). */
+:root[data-panel-theme="art"] [data-email="reply-close"] {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin-inline-start: auto;
+  border-radius: 9999px;
+  color: hsl(var(--muted-foreground));
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-email="reply-close"]:hover {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] [data-email="reply-close"]:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px hsl(var(--ring) / 0.5);
 }
 
 :root[data-panel-theme="art"] [data-email="composer"] > .rounded-xl.border {
@@ -1064,21 +1391,20 @@
   }
 
   :root[data-panel-theme="art"] [data-email="message-header"],
-  :root[data-panel-theme="art"] [data-email="sheet-frame"],
   :root[data-panel-theme="art"] [data-email="reply"] {
     padding-inline: 0.75rem;
   }
 
-  /* The reply leaves the message most of the screen: its tools scroll on
-     one line and the writing area starts short (it grows as you type). */
-  :root[data-panel-theme="art"] [data-email="composer"] > .rounded-xl.border > div:first-child {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
+  :root[data-panel-theme="art"] [data-email="sheet-frame"] {
+    padding-inline: 0.25rem;
   }
 
-  :root[data-panel-theme="art"] [data-email="composer"] > .rounded-xl.border > div:first-child > * {
-    flex-shrink: 0;
+  /* The reply opens only when asked for, so its tools wrap onto a second
+     line as in a new email's editor (every tool in sight, none cut off);
+     the writing area starts short and grows as you type. */
+  :root[data-panel-theme="art"] [data-email="composer"] > .rounded-xl.border > div:first-child {
+    row-gap: 0.125rem;
+    padding-block: 0.25rem;
   }
 
   :root[data-panel-theme="art"] [data-email="composer"] .ProseMirror {

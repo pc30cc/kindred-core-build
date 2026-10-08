@@ -115,7 +115,7 @@ export default function PluginDetailPage() {
           <PluginLogo id={item.id} />
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div data-hero-body className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold">{name}</h1>
             {item.installed && <Badge variant="secondary">{t('plugins.badge.installed')}</Badge>}
@@ -134,7 +134,7 @@ export default function PluginDetailPage() {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div data-hero-tools className="flex items-center gap-2">
           {item.installed ? (
             <Button variant="ghost" disabled={uninstall.isPending} onClick={() => uninstall.mutate()}>
               <Trash2 className="me-1.5 h-4 w-4" />

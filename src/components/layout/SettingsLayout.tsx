@@ -138,6 +138,10 @@ export function SettingsLayout() {
         <div data-section-nav-header className="sticky top-0 z-10 bg-background/70 backdrop-blur-xl border-b border-border/40 px-3 py-3 flex items-center gap-2.5">
           <button
             onClick={() => navigate(wsPath(''))}
+            data-section-nav-back
+            // Art names the bare chevron (it leaves settings for the dashboard).
+            aria-label={isArt ? t('common.back') : undefined}
+            title={isArt ? t('common.back') : undefined}
             className="p-1 rounded-lg hover:bg-accent/50 text-muted-foreground transition-colors"
           >
             <ChevronLeft className="h-4 w-4 rtl:rotate-180" />

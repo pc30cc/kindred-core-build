@@ -53,6 +53,12 @@
   /* How much of its own hue a soft icon tile shows. */
   --art-page-tint: 12%;
 
+  /* An empty state's icon circle: the fields' translucent fill and edge
+     (components.css), which read on the ivory canvas and on a card alike;
+     a solid muted fill is the canvas's own colour and vanished there. */
+  --art-page-empty-fill: var(--art-ui-field, hsl(var(--foreground) / 0.05));
+  --art-page-empty-ring: inset 0 0 0 1px var(--art-ui-field-edge, hsl(var(--foreground) / 0.085)), 0 0 0 0.375rem hsl(var(--foreground) / 0.025);
+
   /* Charts: one faint grid, and the series in Lart's pigments. */
   --art-chart-grid: hsl(var(--foreground) / 0.08);
   --art-chart-cursor: hsl(var(--foreground) / 0.16);
@@ -66,6 +72,8 @@
 :root[data-panel-theme="art"].dark {
   --art-page-wash: hsl(var(--primary) / 0.09);
   --art-page-tint: 17%;
+  --art-page-empty-fill: hsl(var(--muted));
+  --art-page-empty-ring: 0 0 0 0.375rem hsl(var(--muted) / 0.45);
   --art-chart-grid: hsl(var(--foreground) / 0.075);
   --art-chart-cursor: hsl(var(--foreground) / 0.2);
 }
@@ -356,12 +364,23 @@
   display: none;
 }
 
-:root[data-panel-theme="art"] [data-page-hero="ai-agent"],
-:root[data-panel-theme="art"] [data-page-hero="dashboard"],
-:root[data-panel-theme="art"] [data-page-hero="knowledge-base"],
-:root[data-panel-theme="art"] [data-page-hero="plugins"],
 :root[data-panel-theme="art"] [data-page-hero="plugin"] {
   padding: 1.75rem 2rem;
+}
+
+/* A module's own header (the dashboard's greeting, the knowledge base, the
+   AI agent's pages, the plugins) is the page's title on the paper, as the
+   call center's, settings' and contacts' are: no card, no wash, no glow.
+   A plugin's header (an entity with its logo and actions) and the widget
+   editor's (holding its section tabs) stay cards. */
+:root[data-panel-theme="art"] :is([data-page-hero="dashboard"], [data-page-hero="knowledge-base"], [data-page-hero="ai-agent"], [data-page-hero="plugins"]) {
+  overflow: visible;
+  border-width: 0;
+  border-radius: 0;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  padding: 0 0 0.5rem;
 }
 
 /* The widget editor's header: the title and the switch, its section tabs
@@ -420,13 +439,54 @@
     padding: 1.25rem;
   }
 
-  :root[data-panel-theme="art"] [data-page-hero="ai-agent"],
-  :root[data-panel-theme="art"] [data-page-hero="dashboard"],
-  :root[data-panel-theme="art"] [data-page-hero="knowledge-base"],
-  :root[data-panel-theme="art"] [data-page-hero="plugins"],
   :root[data-panel-theme="art"] [data-page-hero="plugin"] {
     padding: 1.25rem;
   }
+
+  /* A plugin's header on a phone: the logo beside the name, then the
+     description across the card's whole width, then the actions under it
+     from the start edge (beside the name they squeezed the description
+     into a 70px column of one word per line). */
+  :root[data-panel-theme="art"] [data-page-hero="plugin"] {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 0.875rem;
+    row-gap: 0.875rem;
+  }
+
+  :root[data-panel-theme="art"] [data-page-hero="plugin"] > [data-hero-body] {
+    display: contents;
+  }
+
+  :root[data-panel-theme="art"] [data-page-hero="plugin"] > [data-hero-body] > p,
+  :root[data-panel-theme="art"] [data-page-hero="plugin"] > [data-hero-tools] {
+    grid-column: 1 / -1;
+  }
+
+  :root[data-panel-theme="art"] [data-page-hero="plugin"] > [data-hero-body] > p {
+    margin-top: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-page-hero="plugin"] > [data-hero-tools] {
+    justify-content: flex-start;
+  }
+
+  /* The knowledge base's two actions: the primary first, both whole. */
+  :root[data-panel-theme="art"] [data-page-hero="knowledge-base"] [data-hero-tools] > [data-slot="button"] {
+    flex: 1 1 auto;
+  }
+
+  :root[data-panel-theme="art"] [data-page-hero="knowledge-base"] [data-hero-tools] > [data-slot="button"][data-variant="default"] {
+    order: -1;
+  }
+}
+
+/* A plugin's page takes the page column like the plugins list it opens
+   from (its own narrower column and padding made the layout jump inward). */
+:root[data-panel-theme="art"] [data-shell="main"] :where(.max-w-5xl.mx-auto):has(> [data-page-hero="plugin"]) {
+  max-width: none;
+  padding: 0;
 }
 
 /* The dashboard's greeting: ink, not a gradient; a muted date pill; the plan
@@ -437,8 +497,8 @@
 
 :root[data-panel-theme="art"] [data-hero-eyebrow] {
   margin-bottom: 0.875rem;
-  border-color: transparent;
-  background-color: hsl(var(--muted));
+  border-color: var(--art-ui-field-edge, transparent);
+  background-color: var(--art-ui-field, hsl(var(--muted)));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: none;
@@ -472,7 +532,8 @@
   gap: 0.625rem;
   border-color: var(--art-page-line);
   border-radius: 9999px;
-  background-color: hsl(var(--background) / 0.7);
+  /* Raised pills of paper on the page (the greeting has no card). */
+  background-color: hsl(var(--card));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: none;
@@ -483,8 +544,27 @@
 }
 
 :root[data-panel-theme="art"] [data-hero-actions] > a:hover {
-  background-color: hsl(var(--muted));
-  box-shadow: none;
+  --tw-translate-y: 0;
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-page-card-shadow);
+}
+
+/* The greeting is the dashboard's page header: on a laptop its shortcuts
+   sit at the far end of the same band, level with the workspace line under
+   the title (no half-empty card above the figures). */
+@media (min-width: 1200px) {
+  :root[data-panel-theme="art"] [data-page-hero="dashboard"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    column-gap: 2rem;
+  }
+
+  :root[data-panel-theme="art"] [data-page-hero="dashboard"] > [data-hero-actions] {
+    max-width: 44rem;
+    justify-content: flex-end;
+    margin-top: 0;
+  }
 }
 
 :root[data-panel-theme="art"] [data-hero-actions] > a > span {
@@ -605,6 +685,19 @@
   display: none;
 }
 
+/* The tiles of a row are as tall as the tallest (a grid stretches them) and
+   each number sits on its tile's bottom line, so a label that wraps onto a
+   second line never drops its number below its neighbours'. */
+:root[data-panel-theme="art"] [data-figure] {
+  display: flex;
+  flex-direction: column;
+}
+
+:root[data-panel-theme="art"] [data-figure] > .relative.flex {
+  flex: 1 1 auto;
+  grid-template-rows: auto 1fr;
+}
+
 :root[data-panel-theme="art"] a[data-figure]:hover {
   --tw-translate-y: -2px;
   box-shadow: var(--art-page-card-shadow-hover);
@@ -627,6 +720,7 @@
 
 :root[data-panel-theme="art"] [data-figure] > .relative.flex > .min-w-0 > :first-child {
   grid-area: value;
+  align-self: end;
   font-size: 1.75rem;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -701,6 +795,16 @@
   border-color: var(--art-page-line);
 }
 
+/* The rows' rules keep to the rows' inset, as lists elsewhere do, instead
+   of cutting the card into strips from edge to edge. */
+:root[data-panel-theme="art"] [data-panel="list"] :where(.divide-y) > :not([hidden]) ~ :not([hidden]) {
+  border-top-color: transparent;
+  background-image: linear-gradient(var(--art-page-line), var(--art-page-line));
+  background-position: top center;
+  background-size: calc(100% - 3rem) 1px;
+  background-repeat: no-repeat;
+}
+
 :root[data-panel-theme="art"] [data-panel="list"] li > a,
 :root[data-panel-theme="art"] [data-panel="list"] li.flex {
   padding-inline: 1.5rem;
@@ -724,11 +828,31 @@
 }
 
 :root[data-panel-theme="art"] [data-plan-usage] .grid > div {
-  border-color: var(--art-page-line);
+  border-color: transparent;
   border-radius: 0.75rem;
-  background-color: hsl(var(--card));
+  background-color: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+  padding-inline: 0.25rem;
+}
+
+/* The counters are plain figures on the inset (not a third level of boxes),
+   their labels on up to two lines rather than cut off. */
+:root[data-panel-theme="art"] [data-plan-usage] .grid > div > :first-child {
+  font-size: 1rem;
+}
+
+:root[data-panel-theme="art"] [data-plan-usage] .grid > div > :last-child {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  line-height: 1.3 !important;
+}
+
+/* An unlimited quota is an empty track (the "/ ∞" beside it says so), not a
+   stub that reads as some usage. */
+:root[data-panel-theme="art"] [data-unlimited] > div {
+  visibility: hidden;
 }
 
 /* One accent on the dashboard: the panels' icon tiles are muted with an ink
@@ -761,13 +885,30 @@
   box-shadow: none;
 }
 
-:root[data-panel-theme="art"] :is([data-status], [data-panel-live]) {
+:root[data-panel-theme="art"] [data-panel] :is([data-status], [data-panel-live]) {
   box-shadow: none;
 }
 
-:root[data-panel-theme="art"] [data-status="open"] {
+:root[data-panel-theme="art"] [data-panel] [data-status="open"] {
   background-color: hsl(var(--primary) / 0.1);
-  color: hsl(var(--primary));
+  color: var(--art-ui-tint-text, hsl(var(--primary)));
+}
+
+/* Waiting on the customer keeps its amber tint, its label a deep amber
+   that reads at 12px (the tint's own amber was about 2.8:1). */
+:root[data-panel-theme="art"]:not(.dark) [data-panel] [data-status="pending"] {
+  color: rgb(var(--palette-amber-800));
+}
+
+/* Nobody online: a quiet stone badge, not a live green one. */
+:root[data-panel-theme="art"] [data-panel-live][data-count="0"] {
+  background-color: var(--art-ui-field, hsl(var(--muted)));
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] [data-panel-live][data-count="0"] > span {
+  animation: none;
+  background-color: hsl(var(--muted-foreground) / 0.6);
 }
 
 /* The usage bars: one clay fill, not a hue per row. */
@@ -833,23 +974,25 @@
   height: 3.5rem;
   border-radius: 9999px;
   /* Lucide "users" in the muted ink (light / dark below). */
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2369625a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E") center / 1.5rem 1.5rem no-repeat, hsl(var(--muted));
-  box-shadow: 0 0 0 0.375rem hsl(var(--muted) / 0.45);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2369625a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E") center / 1.5rem 1.5rem no-repeat, var(--art-page-empty-fill);
+  box-shadow: var(--art-page-empty-ring);
 }
 
 :root[data-panel-theme="art"].dark [data-panel-empty]::before {
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9a49c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E") center / 1.5rem 1.5rem no-repeat, hsl(var(--muted));
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9a49c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E") center / 1.5rem 1.5rem no-repeat, var(--art-page-empty-fill);
 }
 
 /* The activity chart: the zero tick would sit on the first date (the
-   baseline says it), and the tooltip shows the date and the count, not
-   the series' data key. */
+   baseline says it). Its tooltip names the series (OverviewPage.tsx gives
+   it a name under Art) and, in a right-to-left page, sits on the same edge
+   as the date above it (the chart itself is drawn left to right). */
 :root[data-panel-theme="art"] [data-panel="chart"] .recharts-yAxis .recharts-cartesian-axis-tick:first-child {
   display: none;
 }
 
-:root[data-panel-theme="art"] [data-panel="chart"] .recharts-default-tooltip :is(.recharts-tooltip-item-name, .recharts-tooltip-item-separator) {
-  display: none;
+:root[data-panel-theme="art"] [dir="rtl"] [data-panel="chart"] .recharts-default-tooltip {
+  direction: rtl;
+  text-align: start;
 }
 
 /* The get-started guide (GetStartedWizard.tsx): its featured cards are
@@ -865,6 +1008,18 @@
   border-color: transparent;
   background-color: hsl(var(--muted) / 0.8);
   box-shadow: none;
+}
+
+/* In dark the muted inset is barely apart from the panel: a little more of
+   it, and an edge. */
+:root[data-panel-theme="art"].dark [data-wizard-card] {
+  background-color: hsl(var(--muted) / 0.7);
+  box-shadow: inset 0 0 0 1px var(--art-page-line);
+}
+
+:root[data-panel-theme="art"].dark [data-wizard-card]:hover {
+  background-color: hsl(var(--muted));
+  box-shadow: inset 0 0 0 1px var(--art-page-line);
 }
 
 :root[data-panel-theme="art"] [data-wizard-arrow]:dir(rtl) {
@@ -1156,6 +1311,24 @@
     padding-top: 0.5rem;
   }
 
+  /* The AI agent's list reads like the other side lists (analytics, SEO):
+     its pages by name, no tile before each, and no caption that only
+     repeats the list's title. */
+  :root[data-panel-theme="art"] [data-section-nav="ai-agent"] [data-section-nav-item] > [data-section-nav-icon] {
+    display: none;
+  }
+
+  :root[data-panel-theme="art"] [data-section-nav="ai-agent"] [data-section-nav-item]:has(> [data-section-nav-icon]) {
+    min-height: 2.5rem;
+    border-radius: 0.75rem;
+    padding-inline: 0.875rem;
+    font-size: 0.9375rem;
+  }
+
+  :root[data-panel-theme="art"] [data-section-nav="ai-agent"] [data-section-nav-label][data-redundant] {
+    display: none;
+  }
+
   /* SEO: the tools as one row of pills over the list and the report. */
   :root[data-panel-theme="art"] [data-section-layout="seo"] > [data-section-nav-wrap] {
     display: contents;
@@ -1211,6 +1384,23 @@
     max-width: none;
     margin-inline: 0;
     padding: 0;
+  }
+}
+
+/* The AI agent's settings beside the side list on a small laptop: three
+   columns left the live preview 200px wide (a word or two per line); the
+   preview goes under the form there, at the column's width. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root[data-panel-theme="art"] [data-section-layout="ai-agent"] [data-section-content] :where(.grid.lg\:grid-cols-3:has(> .lg\:col-span-2)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="ai-agent"] [data-section-content] :where(.grid.lg\:grid-cols-3) > .lg\:col-span-2 {
+    grid-column: auto;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="ai-agent"] [data-section-content] :where(.grid.lg\:grid-cols-3:has(> .lg\:col-span-2)) > :not(.lg\:col-span-2) > [data-slot="card"].sticky {
+    position: static;
   }
 }
 
@@ -1273,16 +1463,7 @@
   margin-top: 0.5rem;
 }
 
-/* An autosave status: legible (Classic fades it to about 2:1). */
-:root[data-panel-theme="art"] [data-section-content] .text-emerald-600.bg-emerald-500\/10 {
-  opacity: 1;
-  color: hsl(var(--success));
-}
-
-:root[data-panel-theme="art"] [data-section-content] header > [data-slot="badge"].opacity-60 {
-  opacity: 1;
-  color: hsl(var(--muted-foreground));
-}
+/* An autosave status: one quiet pill on every page (section 14). */
 
 /* The call center is a normal page: its masthead, tabs and page run down
    the centred column and the page scrolls as a whole (not a box of the
@@ -1464,6 +1645,12 @@
     transform: rotate(90deg);
   }
 
+  /* Its pages follow the caption at the row's own gap (the panel's indent
+     left a 40px hole after it). */
+  :root[data-panel-theme="art"] [data-section-nav="settings"] [data-section-nav-sublist] {
+    margin-inline-start: 0;
+  }
+
   :root[data-panel-theme="art"] [data-section-nav="settings"] [data-section-nav-group]:not([data-active="true"]) > [data-section-nav-icon] {
     display: flex;
     width: auto;
@@ -1539,8 +1726,8 @@
   height: 3.5rem;
   margin-bottom: 0.5rem;
   border-radius: 9999px;
-  background-color: hsl(var(--muted));
-  box-shadow: 0 0 0 0.375rem hsl(var(--muted) / 0.45);
+  background-color: var(--art-page-empty-fill);
+  box-shadow: var(--art-page-empty-ring);
   padding: 1rem;
 }
 
@@ -1562,12 +1749,78 @@
   height: 3.5rem;
   margin-bottom: 1rem;
   border-radius: 9999px;
-  box-shadow: 0 0 0 0.375rem hsl(var(--muted) / 0.45);
+  box-shadow: var(--art-page-empty-ring);
 }
 
-:root[data-panel-theme="art"] [data-shell="main"] :where(.flex-col.items-center.text-center) > :where(.rounded-2xl.items-center.justify-center):first-child > svg {
-  width: 1.5rem;
-  height: 1.5rem;
+/* ... and a muted box (not a tinted one) takes the same fill. */
+:root[data-panel-theme="art"] [data-shell="main"] :where(.flex-col.items-center.text-center) > :where(.rounded-2xl.items-center.justify-center[class*="bg-muted"]):first-child {
+  --tw-ring-color: transparent;
+  background-color: var(--art-page-empty-fill);
+  color: hsl(var(--muted-foreground));
+}
+
+/* A centred circle a page drew itself (Team's departments and members):
+   the same fill and edge. */
+:root[data-panel-theme="art"] [data-shell="main"] :where(.text-center) > :where(.mx-auto.rounded-full.items-center.justify-center[class*="bg-muted"]):first-child {
+  width: 3.5rem;
+  height: 3.5rem;
+  background-color: var(--art-page-empty-fill);
+  box-shadow: var(--art-page-empty-ring);
+}
+
+/* A report, a list or a page with nothing to show (analytics' report
+   cards, the plugins list, a contact that is gone): the same muted circle,
+   drawn before its sentence, with a chart, a puzzle piece or a person (in
+   the muted ink of each mode). */
+:root[data-panel-theme="art"] :is([data-report-empty], [data-empty-card], [data-page-empty]) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+:root[data-panel-theme="art"] [data-report-empty] {
+  min-height: 10rem;
+  --art-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2369625a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v16a2 2 0 0 0 2 2h16'/%3E%3Cpath d='M18 17V9'/%3E%3Cpath d='M13 17V5'/%3E%3Cpath d='M8 17v-3'/%3E%3C/svg%3E");
+}
+
+:root[data-panel-theme="art"] [data-empty-card] {
+  --art-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2369625a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z'/%3E%3C/svg%3E");
+}
+
+:root[data-panel-theme="art"] [data-page-empty] > p:first-of-type {
+  color: hsl(var(--foreground));
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+:root[data-panel-theme="art"] [data-page-empty] {
+  min-height: 50vh;
+  --art-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2369625a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cline x1='17' x2='22' y1='8' y2='13'/%3E%3Cline x1='22' x2='17' y1='8' y2='13'/%3E%3C/svg%3E");
+}
+
+:root[data-panel-theme="art"].dark [data-report-empty] {
+  --art-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9a49c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v16a2 2 0 0 0 2 2h16'/%3E%3Cpath d='M18 17V9'/%3E%3Cpath d='M13 17V5'/%3E%3Cpath d='M8 17v-3'/%3E%3C/svg%3E");
+}
+
+:root[data-panel-theme="art"].dark [data-empty-card] {
+  --art-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9a49c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z'/%3E%3C/svg%3E");
+}
+
+:root[data-panel-theme="art"].dark [data-page-empty] {
+  --art-empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9a49c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cline x1='17' x2='22' y1='8' y2='13'/%3E%3Cline x1='22' x2='17' y1='8' y2='13'/%3E%3C/svg%3E");
+}
+
+:root[data-panel-theme="art"] :is([data-report-empty], [data-empty-card], [data-page-empty])::before {
+  content: "";
+  width: 3.5rem;
+  height: 3.5rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: var(--art-empty-icon) center / 1.5rem 1.5rem no-repeat, var(--art-page-empty-fill);
+  box-shadow: var(--art-page-empty-ring);
 }
 
 /* ── 7. Contacts ───────────────────────────────────────────────────────── */
@@ -1604,6 +1857,51 @@
   margin-top: 0.625rem;
   column-gap: 1.25rem;
   font-size: 0.8125rem;
+}
+
+/* The header is a grid, so the caption under the title (how many contacts,
+   with an email, with a phone) stays under the title wherever the toolbar
+   goes: beside them on a laptop, under both below it. */
+:root[data-panel-theme="art"] [data-page="contacts"] > [data-page-header] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title actions"
+    "stats actions";
+  align-items: center;
+  column-gap: 1.5rem;
+}
+
+:root[data-panel-theme="art"] [data-page="contacts"] > [data-page-header] > div:first-child {
+  display: contents;
+}
+
+:root[data-panel-theme="art"] [data-page="contacts"] > [data-page-header] > div:first-child > div:first-child {
+  grid-area: title;
+}
+
+:root[data-panel-theme="art"] [data-page="contacts"] > [data-page-header] > [data-page-stats] {
+  grid-area: stats;
+}
+
+:root[data-panel-theme="art"] [data-page="contacts"] > [data-page-header] [data-page-actions] {
+  grid-area: actions;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1023px) {
+  :root[data-panel-theme="art"] [data-page="contacts"] > [data-page-header] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "title"
+      "stats"
+      "actions";
+  }
+
+  :root[data-panel-theme="art"] [data-page="contacts"] > [data-page-header] [data-page-actions] {
+    margin-top: 1.125rem;
+    justify-content: flex-start;
+  }
 }
 
 :root[data-panel-theme="art"] [data-page="contacts"] > [data-page-bulkbar] {
@@ -1684,24 +1982,67 @@
     padding-bottom: 1.25rem;
   }
 
+  /* The toolbar: the search across the screen, then one row: the new
+     contact and the actions at their own width, the filters and the import
+     as round icon buttons at the far end (their names stay their
+     accessible names). */
   :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] {
-    display: grid;
+    display: flex;
     width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.5rem;
   }
 
   :root[data-panel-theme="art"] [data-page="contacts"] [data-page-search] {
-    grid-column: 1 / -1;
+    flex: 1 1 100%;
   }
 
   :root[data-panel-theme="art"] [data-page="contacts"] [data-page-search] > input {
     width: 100%;
   }
 
-  :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] > [data-slot="button"] {
-    width: 100%;
-    min-width: 0;
+  :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] > [data-page-action="new"] {
+    order: 1;
+  }
+
+  :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] > [data-page-action="more"] {
+    order: 2;
+  }
+
+  :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] > [data-page-action="filters"] {
+    order: 3;
+    margin-inline-start: auto;
+  }
+
+  :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] > [data-page-action="import"] {
+    order: 4;
+  }
+
+  :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] > :is([data-page-action="filters"], [data-page-action="import"]) {
+    width: 2.25rem;
+    min-width: 2.25rem;
+    gap: 0;
+    padding: 0;
+    font-size: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] > :is([data-page-action="filters"], [data-page-action="import"]) > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  /* A count of active filters rides on the filter button's corner. */
+  :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] > [data-page-action="filters"] {
+    position: relative;
+    overflow: visible;
+  }
+
+  :root[data-panel-theme="art"] [data-page="contacts"] [data-page-actions] > [data-page-action="filters"] > [data-slot="badge"] {
+    position: absolute;
+    top: -0.25rem;
+    inset-inline-end: -0.25rem;
+    margin: 0;
   }
 
   :root[data-panel-theme="art"] [data-page="contacts"] [data-page-stats] {
@@ -1825,6 +2166,26 @@
   line-height: 1.2;
 }
 
+/* A report's page names the report once: the title above it is the
+   page's own, so its single card does not repeat it (WebAnalyticsSection's
+   ReportCard; the header stays when it says more, a note or a warning). */
+:root[data-panel-theme="art"] [data-section-layout="analytics"] [data-report-card] [data-report-title] {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-section-layout="analytics"] [data-report-card] > [data-slot="card-header"]:not(:has(> :not([data-report-title]))) {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-section-layout="analytics"] [data-report-card] > [data-slot="card-header"]:not(:has(> :not([data-report-title]))) + [data-slot="card-content"] {
+  padding-top: 1.5rem;
+}
+
+/* An empty report card: its "view more" has nothing more to show. */
+:root[data-panel-theme="art"] [data-report-card]:has([data-report-empty]) [data-report-more] {
+  display: none;
+}
+
 /* Stat tiles: three to a row beside the side list (six left each label
    two or three letters), labels on up to two lines instead of cut off. */
 @media (min-width: 1024px) {
@@ -1902,6 +2263,341 @@
   :root[data-panel-theme="art"] [data-banner-actions] > [data-slot="button"] {
     min-width: 0;
     flex: 1 1 0%;
+  }
+}
+
+/* A section heading (callCenterUi.tsx SectionHeading): a card's title at
+   the cards' size over its hint, which wraps rather than being cut (it set
+   the width of the whole page on a phone); its mark a muted tile with an
+   ink icon, as on the dashboard's panels. */
+:root[data-panel-theme="art"] [data-cc-heading] {
+  gap: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-cc-heading-title] {
+  font-size: 1.0625rem;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+:root[data-panel-theme="art"] [data-cc-heading-hint] {
+  margin-top: 0.125rem;
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+:root[data-panel-theme="art"] [data-cc-heading-icon] {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.75rem;
+  --tw-ring-color: transparent;
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground) / 0.8);
+}
+
+:root[data-panel-theme="art"] [data-cc-heading-icon] > svg {
+  width: 1.0625rem;
+  height: 1.0625rem;
+}
+
+/* The module's figures take the figures' pattern and size (the knowledge
+   base's, the dashboard's): the label at the top beside a muted icon tile,
+   the number large under it, whatever size the tile asked for. */
+:root[data-panel-theme="art"] [data-metric-tile] > .flex.items-start {
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-metric-label] {
+  /* Over index.css's floor for its text-[10px]. */
+  font-size: 0.8125rem !important;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+:root[data-panel-theme="art"] [data-metric-value] {
+  margin-top: 0.625rem;
+  font-size: 1.75rem;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+/* Beside an icon tile the label sits level with the tile's middle. */
+:root[data-panel-theme="art"] [data-metric-tile]:has(> .flex > [data-metric-icon]) [data-metric-label] {
+  margin-top: 0.5rem;
+}
+
+:root[data-panel-theme="art"] [data-metric-tile]:has(> .flex > [data-metric-icon]) [data-metric-value] {
+  margin-top: 0.875rem;
+}
+
+:root[data-panel-theme="art"] [data-metric-of] {
+  margin-inline-start: 0.125rem;
+  font-size: 0.6em;
+  opacity: 1;
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] [data-metric-icon] {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.75rem;
+  background-color: hsl(var(--muted));
+  padding: 0.59375rem;
+  opacity: 1;
+  color: hsl(var(--muted-foreground));
+}
+
+/* The service level's eight figures: a step under the tiles'. */
+:root[data-panel-theme="art"] [data-level-value] {
+  font-size: 1.375rem;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+/* A status chip says its state with its tint alone, as Art's badges do (no
+   coloured outline); a neutral one is filled like a field so it shows on a
+   card and on the paper. */
+:root[data-panel-theme="art"] [data-section-content] [data-status-chip] {
+  --tw-ring-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-section-content] [data-status-chip="neutral"] {
+  background-color: var(--art-ui-field, hsl(var(--muted)));
+}
+
+/* The masthead's tools: "Install" an outline pill with its code mark, the
+   settings a round icon button with a hairline, beside the presence menu. */
+:root[data-panel-theme="art"] [data-page-hero="call-center"] [data-hero-tool="install"] {
+  height: 2.25rem;
+  gap: 0.375rem;
+  border: 1px solid var(--art-ui-line-strong, hsl(var(--foreground) / 0.13));
+  border-radius: 9999px;
+  background-color: hsl(var(--card));
+  padding-inline: 0.75rem 0.875rem;
+}
+
+:root[data-panel-theme="art"] [data-page-hero="call-center"] [data-hero-tool="install"]::before {
+  content: "";
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m18 16 4-4-4-4'/%3E%3Cpath d='m6 8-4 4 4 4'/%3E%3Cpath d='m14.5 4-5 16'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m18 16 4-4-4-4'/%3E%3Cpath d='m6 8-4 4 4 4'/%3E%3Cpath d='m14.5 4-5 16'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+:root[data-panel-theme="art"] [data-page-hero="call-center"] [data-hero-tool="install"]:hover {
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] [data-page-hero="call-center"] [data-hero-tool="settings"] {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  box-shadow: inset 0 0 0 1px var(--art-ui-line-strong, hsl(var(--foreground) / 0.13));
+}
+
+/* The masthead's subtitle wraps on a phone rather than being cut. */
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-page-hero="call-center"] h1 + p {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+  }
+}
+
+/* The module's tabs on a phone: a little tighter, so most of them show
+   (ArtShell keeps the open one in view and fades the edge that hides more). */
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-section-tabs] {
+    gap: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-section-tabs] > a {
+    padding-inline: 0.75rem;
+  }
+
+  :root[data-panel-theme="art"] [data-section-tabs] > a > span:last-child {
+    inset-inline: 0.75rem;
+  }
+}
+
+/* The settings: every tab's page has the same width (the column's), so the
+   tabs' row never jumps; a tab of a single form keeps it to a readable
+   measure. Below a laptop its two columns (a form and its live preview)
+   stack, each as wide as the screen; a long hint can no longer push the
+   page sideways. */
+:root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] > :where(.space-y-6.pb-24) {
+  max-width: none;
+}
+
+:root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] > :where(.space-y-6.pb-24) > :where([data-slot="tabs"]) > :where([data-slot="tabs-content"]) > :where([data-slot="card"], .rounded-xl):only-child {
+  max-width: 48rem;
+}
+
+:root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.grid) > * {
+  min-width: 0;
+}
+
+@media (max-width: 1023px) {
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.grid.gap-6.items-start) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The calls' filters on a phone (CallsPage.tsx: a card of two rows, each a
+   label and one segmented tray): the status tray is one row of pills that
+   scrolls sideways, its end edge fading out (the padding there lets the
+   last pill clear the fade), not a tray of three wrapped rows; the search
+   takes its own row. */
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.space-y-2\.5:first-child > div {
+    flex-wrap: nowrap;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.space-y-2\.5:first-child > div > span:first-child {
+    flex-shrink: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.space-y-2\.5:first-child > div:first-child > div.rounded-lg {
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-inline-end: 1.75rem;
+    -webkit-mask-image: linear-gradient(to left, transparent, #000 1.5rem);
+    mask-image: linear-gradient(to left, transparent, #000 1.5rem);
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.space-y-2\.5:first-child > div:first-child > div.rounded-lg:dir(rtl) {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem);
+    mask-image: linear-gradient(to right, transparent, #000 1.5rem);
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.space-y-2\.5:first-child > div:first-child > div.rounded-lg::-webkit-scrollbar {
+    display: none;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.space-y-2\.5:first-child > div > div.rounded-lg > button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.space-y-2\.5:first-child > div:nth-child(2) {
+    flex-wrap: wrap;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.space-y-2\.5:first-child > div:nth-child(2) > .relative {
+    min-width: 0;
+    max-width: none;
+    flex-basis: 100%;
+  }
+}
+
+/* The selection hint over the calls on a phone: the sentence across the
+   screen, the export under it from the start edge (beside it the sentence
+   ran four lines deep). */
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .flex.items-center.justify-between.px-1:has(> [data-slot="button"]) {
+    flex-wrap: wrap;
+    row-gap: 0.625rem;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .flex.items-center.justify-between.px-1:has(> [data-slot="button"]) > span {
+    flex-basis: 100%;
+  }
+}
+
+/* The calls on a phone: each call one card (who, and its state at the end;
+   the type and duration under the name); the captions and the secondary
+   columns (rating, page, time) go, so nothing runs off the screen. The
+   columns, in order: select, visitor, type, state, duration, rating, page,
+   created. */
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) {
+    overflow: visible;
+    border-width: 0;
+    background-color: transparent;
+    box-shadow: none;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table {
+    display: block;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > thead {
+    display: none;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody > tr:has(> td:nth-child(8)) {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 0.625rem;
+    row-gap: 0.125rem;
+    border: 0;
+    border-radius: 1rem;
+    background-color: hsl(var(--card));
+    box-shadow: var(--art-hairline), var(--art-page-card-shadow);
+    padding: 0.75rem 0.875rem;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody > tr:has(> td:nth-child(8)) > td {
+    display: block;
+    min-width: 0;
+    max-width: none;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    padding: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody > tr:has(> td:nth-child(8)) > td:nth-child(n+6) {
+    display: none;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody > tr:has(> td:nth-child(8)) > td:nth-child(1) {
+    grid-row: 1 / span 2;
+    grid-column: 1;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody > tr:has(> td:nth-child(8)) > td:nth-child(2) {
+    grid-row: 1;
+    grid-column: 2 / 4;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody > tr:has(> td:nth-child(8)) > td:nth-child(4) {
+    grid-row: 1;
+    grid-column: 4;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody > tr:has(> td:nth-child(8)) > td:nth-child(3) {
+    grid-row: 2;
+    grid-column: 2;
+    padding-inline-start: 2.25rem;
+    color: hsl(var(--muted-foreground));
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody > tr:has(> td:nth-child(8)) > td:nth-child(5) {
+    grid-row: 2;
+    grid-column: 3;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] [data-section-content] :where(.space-y-4) > .rounded-xl.overflow-x-auto:has(> table) > table > tbody > tr:has(> td:nth-child(8)) > td:nth-child(5)::before {
+    content: "·";
+    margin-inline-end: 0.5rem;
   }
 }
 
@@ -1985,6 +2681,102 @@
 :root[data-panel-theme="art"] [data-list-title] h1 + p {
   margin-top: 0.125rem;
   font-size: 0.8125rem;
+}
+
+/* The live list: a sheet of the cards' paper beside the map with a hairline
+   edge, as the inbox's list is beside its conversation (the two live
+   screens match), its rows inset as soft pills, its header and footer
+   rules kept to the rows' inset. */
+:root[data-panel-theme="art"] [data-visitors-panel] {
+  border-color: var(--art-ui-line, var(--art-page-line));
+  background-color: hsl(var(--card));
+}
+
+:root[data-panel-theme="art"] [data-visitors-panel] [data-visitors-head] {
+  border-bottom-color: transparent;
+  background-image: linear-gradient(var(--art-page-line), var(--art-page-line));
+  background-position: bottom center;
+  background-size: calc(100% - 2rem) 1px;
+  background-repeat: no-repeat;
+  padding: 1rem 1rem 0.875rem;
+}
+
+:root[data-panel-theme="art"] [data-visitors-panel] [role="listbox"] {
+  padding: 0.375rem 0.5rem;
+}
+
+:root[data-panel-theme="art"] [data-visitors-panel] [role="listbox"] > li {
+  border-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-visitors-panel] [role="listbox"] > li > button {
+  border-radius: 0.875rem;
+  padding-inline: 0.625rem;
+}
+
+:root[data-panel-theme="art"] [data-visitors-panel] [data-visitors-footer] {
+  border-top-color: transparent;
+  background-color: transparent;
+  background-image: linear-gradient(var(--art-page-line), var(--art-page-line));
+  background-position: top center;
+  background-size: calc(100% - 2rem) 1px;
+  background-repeat: no-repeat;
+  padding: 0.75rem 1rem;
+}
+
+/* Its filters: pills of the toolbar's family (2rem, a field's fill), not
+   24px chips; an active one is a clay tint. */
+:root[data-panel-theme="art"] [data-visitors-filters] {
+  margin-top: 0.625rem;
+  gap: 0.375rem;
+}
+
+:root[data-panel-theme="art"] [data-visitors-filters] > :is(button, [data-slot="select-trigger"]) {
+  height: 2rem;
+  gap: 0.375rem;
+  border-color: var(--art-ui-field-edge, var(--art-page-line));
+  background-color: var(--art-ui-field, hsl(var(--muted)));
+  padding-inline: 0.75rem;
+  font-size: 0.8125rem !important;
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] [data-visitors-filters] > :is(button, [data-slot="select-trigger"]) > svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+:root[data-panel-theme="art"] [data-visitors-filters] > button[aria-pressed="true"] {
+  border-color: transparent;
+  background-color: hsl(var(--primary) / 0.1);
+  color: var(--art-ui-tint-text, hsl(var(--primary)));
+}
+
+:root[data-panel-theme="art"] [data-visitors-filters] > button:not([aria-pressed]):not([data-slot="select-trigger"]) {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+/* The footer's tools on a phone or tablet, where the list is the whole
+   width: the cache warm-up at its own width at the end, not a pill
+   stretched across the screen. */
+@media (max-width: 1023px) {
+  :root[data-panel-theme="art"] [data-visitors-footer] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  :root[data-panel-theme="art"] [data-visitors-panel] [data-visitors-footer] > * + * {
+    margin-top: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-visitors-footer] > [data-slot="button"].w-full {
+    width: auto;
+    margin-inline-start: auto;
+  }
 }
 
 /* The numbers over the map: paper tiles like the figures, their icons on
@@ -2173,4 +2965,215 @@
     flex: 0 0 auto;
     padding-inline: 0.875rem;
   }
+}
+
+/* ── 14. Settings pages ────────────────────────────────────────────────── */
+
+/* A section's header with an action (Team: Departments + "New department";
+   the invitations card + "Invite"): the text and the button apart, the
+   button at the top; on a phone the button drops under the text at its
+   own width. (Team's sections: TeamDepartmentsPage.tsx, a header row over
+   a card.) */
+:root[data-panel-theme="art"] [data-section-content] section.space-y-3 > .flex.items-center.justify-between:first-child,
+:root[data-panel-theme="art"] [data-testid="invitation-management"] > div:first-child {
+  align-items: flex-start;
+  column-gap: 1.5rem;
+}
+
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-section-content] section.space-y-3 > .flex.items-center.justify-between:first-child,
+  :root[data-panel-theme="art"] [data-testid="invitation-management"] > div:first-child {
+    flex-wrap: wrap;
+    row-gap: 0.875rem;
+  }
+
+  :root[data-panel-theme="art"] [data-section-content] section.space-y-3 > .flex.items-center.justify-between:first-child > div:first-child,
+  :root[data-panel-theme="art"] [data-testid="invitation-management"] > div:first-child > div:first-child {
+    flex-basis: 100%;
+  }
+}
+
+/* The invitations card heads like its sibling sections (a 17px title, no
+   band rule under it). */
+:root[data-panel-theme="art"] [data-testid="invitation-management"] > div:first-child {
+  border-bottom-color: transparent;
+  padding: 1.25rem 1.25rem 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-testid="invitation-management"] > div:first-child h2 {
+  font-size: 1.0625rem;
+  letter-spacing: -0.01em;
+}
+
+:root[data-panel-theme="art"] [data-testid="invitation-management"] > div:first-child h2 + p {
+  font-size: 0.8125rem;
+}
+
+/* The members' toolbar (a count beside a search, over the list): the count
+   never breaks; on a phone the search takes its own row under it. */
+:root[data-panel-theme="art"] [data-section-content] section.space-y-3 > [data-slot="card"] > .flex.items-center.justify-between.border-b:first-child:has(> .relative > [data-slot="input"]) > :first-child {
+  white-space: nowrap;
+}
+
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-section-content] section.space-y-3 > [data-slot="card"] > .flex.items-center.justify-between.border-b:first-child:has(> .relative > [data-slot="input"]) {
+    flex-wrap: wrap;
+    row-gap: 0.625rem;
+  }
+
+  :root[data-panel-theme="art"] [data-section-content] section.space-y-3 > [data-slot="card"] > .flex.items-center.justify-between.border-b:first-child:has(> .relative > [data-slot="input"]) > .relative {
+    max-width: none;
+    flex-basis: 100%;
+  }
+}
+
+/* The owner's crown in the one accent, not a second (amber) one. */
+:root[data-panel-theme="art"] [data-section-content] svg.lucide-crown.text-amber-400 {
+  color: hsl(var(--primary));
+}
+
+/* A settings page's title stands alone, as every Art page title does (the
+   side list already carries the section's mark). */
+:root[data-panel-theme="art"] [data-section-layout="settings"] [data-section-content] h1.flex > svg:first-child {
+  display: none;
+}
+
+/* Profile: the camera button hugs the avatar (the box around them was the
+   card's whole width on a phone, so the button sat at its far edge). */
+:root[data-panel-theme="art"] [data-section-content] .relative:has(> [data-slot="avatar"]) {
+  width: max-content;
+}
+
+:root[data-panel-theme="art"] [data-section-content] .relative:has(> [data-slot="avatar"]) > button.absolute {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+/* The autosave status, one recipe on every page (Interface, General,
+   Profile): a quiet outline pill in muted ink with its check in green.
+   (Interface's carries the hook; General's is the badge in its header,
+   Profile's the bordered pill at its header row's end.) */
+:root[data-panel-theme="art"] [data-autosave],
+:root[data-panel-theme="art"] [data-section-content] header > [data-slot="badge"]:has(> svg.lucide-circle-check),
+:root[data-panel-theme="art"] [data-section-content] .flex.items-start.justify-between > div.shrink-0.rounded-full.border.px-3.text-xs.transition-colors {
+  display: inline-flex;
+  height: 2rem;
+  align-items: center;
+  gap: 0.375rem;
+  border: 0;
+  border-radius: 9999px;
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--art-ui-line-strong, hsl(var(--foreground) / 0.13));
+  padding-block: 0;
+  padding-inline: 0.75rem;
+  opacity: 1;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+:root[data-panel-theme="art"] :is([data-autosave], [data-slot="badge"]) > span {
+  font-size: inherit;
+}
+
+:root[data-panel-theme="art"] [data-autosave]:not([data-autosave="saving"]) > svg,
+:root[data-panel-theme="art"] [data-section-content] header > [data-slot="badge"] > svg.lucide-circle-check,
+:root[data-panel-theme="art"] [data-section-content] .flex.items-start.justify-between > div.shrink-0.rounded-full.border.px-3.text-xs.transition-colors > svg.lucide-circle-check {
+  color: hsl(var(--success));
+}
+
+/* General (GeneralPage.tsx: a header with its save badge, then sections):
+   its two sections are cards like its siblings' (it was the only settings
+   page whose form floated on the paper), without the rule between them.
+   On a phone the save status follows the subtitle, as on the other pages. */
+:root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) > section {
+  border-radius: 1.25rem;
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-hairline), var(--art-page-card-shadow);
+  padding: 1.5rem 1.75rem 1.75rem;
+}
+
+:root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) > hr {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) > section ~ section {
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) > section {
+    padding: 1.25rem;
+  }
+
+  :root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  :root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) > * {
+    order: 2;
+  }
+
+  :root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) > header {
+    display: contents;
+  }
+
+  :root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) > header > :not([data-slot="badge"]),
+  :root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) > header + p {
+    order: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-section-content] .space-y-10:has(> header > [data-slot="badge"]) > header > [data-slot="badge"] {
+    order: 1;
+    align-self: flex-start;
+    margin-top: 0.875rem;
+  }
+}
+
+/* ── 15. Widget editor ─────────────────────────────────────────────────── */
+
+/* The colour presets: each swatch keeps a hairline, so the near-black one
+   still shows on a dark card. */
+:root[data-panel-theme="art"] [data-swatches] > button {
+  box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.14);
+}
+
+@media (max-width: 639px) {
+  /* The subtitle wraps on a phone rather than being cut. */
+  :root[data-panel-theme="art"] [data-page-hero="widget"] h1 + p {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+  }
+
+  /* The launcher's seven icons in one row. */
+  :root[data-panel-theme="art"] [data-icon-picker] {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 2.5rem));
+    gap: 0.375rem;
+  }
+
+  :root[data-panel-theme="art"] [data-icon-picker] > button {
+    width: auto;
+    height: auto;
+    aspect-ratio: 1;
+  }
+}
+
+/* ── 16. Small details ─────────────────────────────────────────────────── */
+
+/* A list card's own title (the knowledge base's articles) at the cards'
+   size. */
+:root[data-panel-theme="art"] [data-shell="main"] [data-card-title] {
+  font-size: 1.0625rem;
+  letter-spacing: -0.01em;
+}
+
+/* A plugin's version: a small Latin label (PluginsPage.tsx keeps its
+   digits Latin under Art), in lower case. */
+:root[data-panel-theme="art"] [data-plugin-version] {
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }

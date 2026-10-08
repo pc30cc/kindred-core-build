@@ -6,9 +6,10 @@ import { useIsMobile } from '@/hooks/use-mobile';
 /**
  * The Art frame drawn as skeleton, shown while the user, the workspace and its
  * plan resolve (see AppShellSkeleton for the rule). It has the real frame's
- * shape, top bar and centred column, so nothing jumps when the panel arrives.
+ * shape, top bar (spanning the window over an edge-to-edge app, as the
+ * real one does) and centred column, so nothing jumps when the panel arrives.
  */
-export function ArtShellSkeleton() {
+export function ArtShellSkeleton({ wide = false }: { wide?: boolean }) {
   const { dir } = useI18n();
   const isMobile = useIsMobile();
 
@@ -20,7 +21,7 @@ export function ArtShellSkeleton() {
       role="status"
       aria-busy="true"
     >
-      <header data-shell="header" className="flex h-14 shrink-0 items-center gap-2.5 px-3 md:h-16 lg:px-5">
+      <header data-shell="header" data-row={wide ? 'wide' : 'page'} className="flex h-14 shrink-0 items-center gap-2.5 px-3 md:h-16 lg:px-5">
         <BrandLogo className="h-9 w-9 rounded-xl" />
         <Skeleton className="h-4 w-28 rounded-full" />
         {!isMobile && (

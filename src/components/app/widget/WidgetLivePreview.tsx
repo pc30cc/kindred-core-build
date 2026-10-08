@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import type { SmartEvalResult } from '@/lib/widget/smartEngine';
 import type { SmartRuleDraft } from '@/lib/widget/smartRules';
+import { useArtPreviewStage } from './useArtPreviewStage';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
 
@@ -189,6 +190,8 @@ function localizedValue(
 }
 
 export interface WidgetLivePreviewProps {
+  // Widget settings are a loose server record read field by field below.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   settings: Record<string, any> | null | undefined;
   prechat?: WidgetPrechatSettings | null;
   /** Workspace identity shown in every widget header. */
@@ -230,6 +233,11 @@ export function WidgetLivePreview({
   settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
   operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent,
 }: WidgetLivePreviewProps) {
+  // The mock page around the widget: the panel theme's own colours under
+  // Art (useArtPreviewStage), the cool slate otherwise.
+  const stage = useArtPreviewStage();
+  const stageBackground = stage?.background ?? '#F1F5F9';
+  const stageBar = stage?.bar ?? '#E2E8F0';
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const isSmart = previewMode === 'smart' && !!smartScenario;
   const smartMode = smartScenario?.rule.presentation_config?.mode || 'launcher_nudge';
@@ -497,12 +505,12 @@ export function WidgetLivePreview({
 
 <style>
   html,body{margin:0;height:100%;}
-  body{background:#F1F5F9;overflow:hidden;font-family:'IRANSans','InterWY',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
+  body{background:${stageBackground};overflow:hidden;font-family:'IRANSans','InterWY',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
   .site{padding:22px;}
-  .site .bar{height:12px;border-radius:6px;background:#E2E8F0;margin-bottom:10px;}
+  .site .bar{height:12px;border-radius:6px;background:${stageBar};margin-bottom:10px;}
   .site .bar.w2{width:62%}.site .bar.w3{width:78%}.site .bar.w4{width:45%}
-  .site .block{height:120px;border-radius:14px;background:#E2E8F0;margin:16px 0;}
-  .site .cards{display:flex;gap:12px}.site .cards div{flex:1;height:64px;border-radius:12px;background:#E2E8F0}
+  .site .block{height:120px;border-radius:14px;background:${stageBar};margin:16px 0;}
+  .site .cards{display:flex;gap:12px}.site .cards div{flex:1;height:64px;border-radius:12px;background:${stageBar}}
   .shell{--gs-primary:${esc(primary)};--gs-secondary:${esc(secondary)};--gs-fab-size:${fabSize}px;${shadowColor ? `--gs-shadow:${esc(shadowColor)};` : ''}color:#1F2937;}
   /* PARITY RULE: the preview provides ONLY the fake page + viewport. It must
      NOT redefine panel geometry or lifecycle — the panel is positioned and
@@ -911,7 +919,7 @@ export function WidgetLivePreview({
   }, [
     settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
-    smartScenario?.rtl,
+    smartScenario?.rtl, stageBackground, stageBar,
   ]);
 
   return (

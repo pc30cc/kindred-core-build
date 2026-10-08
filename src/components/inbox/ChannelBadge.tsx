@@ -177,7 +177,7 @@ export function ChannelIdentityCard({
   if (meta.channel_is_premium) rows.push({ label: 'Premium', value: '✓' });
 
   return (
-    <div className={cn('rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20', className)} dir={dir}>
+    <div data-inbox-fact="channel" className={cn('rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20', className)} dir={dir}>
       <div className="flex items-center justify-between px-3 py-2.5">
         <span className="text-[11.5px] text-muted-foreground">{t('contacts.channel') || 'Channel'}</span>
         <ChannelBadge channel={channel} t={t} />

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
-import { Mail, Star, Paperclip, Send, X, RefreshCw, Loader2, AlertCircle, CheckCircle2, Clock, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Mail, Star, Paperclip, Send, X, RefreshCw, Loader2, AlertCircle, CheckCircle2, Clock, Search, ChevronLeft, ChevronRight, Reply } from 'lucide-react';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,10 @@ import RichTextEditor from '@/components/app/knowledge/RichTextEditor';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { usePanelTheme } from '@/themes/usePanelTheme';
+import { personTone } from '@/components/inbox/personTone';
+import readerFont400 from '@/assets/fonts/iransans-400.woff2?url';
+import readerFont500 from '@/assets/fonts/iransans-500.woff2?url';
+import readerFont700 from '@/assets/fonts/iransans-700.woff2?url';
 import {
   useEmailThreads,
   useEmailThread,
@@ -80,7 +84,8 @@ function avatarColorOf(raw: string): string {
 
 /** A five-slot categorical index (1-5) for themes (`data-avatar-tone`), as ContactAvatar's. */
 function avatarToneOf(raw: string): number {
-  return (addressHash(raw) % 5) + 1;
+  const { name, email } = parseAddress(raw);
+  return personTone(email, name);
 }
 
 // Gmail snippets arrive HTML-escaped ("We&#39;re").
@@ -240,6 +245,21 @@ function ThreadList({
   useEffect(() => {
     onRows(threads);
   }, [threads, onRows]);
+  // Art: one header row like the inbox list's (the search, "Unread" as a
+  // pill beside it, refresh), and the refresh circle's spin says it syncs.
+  const isArt = usePanelTheme().theme === 'art';
+
+  const unreadToggle = (
+    <Badge
+      data-email="unread-toggle"
+      data-active={unreadOnly}
+      variant={unreadOnly ? 'default' : 'outline'}
+      className="cursor-pointer text-xs"
+      onClick={() => setUnreadOnly((v) => !v)}
+    >
+      {t('emailInbox.unreadFilter')}
+    </Badge>
+  );
 
   return (
     <div data-email="list" className="flex h-full w-[360px] min-w-0 shrink-0 flex-col border-e border-border">
@@ -253,20 +273,21 @@ function ThreadList({
             className="h-8 ps-8 text-sm"
           />
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => refetch()} disabled={isFetching}>
+        {isArt && unreadToggle}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          {...(isArt ? { 'aria-label': syncing ? t('emailInbox.syncing') : t('inbox.refresh'), title: syncing ? t('emailInbox.syncing') : t('inbox.refresh') } : null)}
+        >
           <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
         </Button>
       </div>
+      {!isArt && (
       <div data-email="list-filter" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
-        <Badge
-          data-email="unread-toggle"
-          data-active={unreadOnly}
-          variant={unreadOnly ? 'default' : 'outline'}
-          className="cursor-pointer text-xs"
-          onClick={() => setUnreadOnly((v) => !v)}
-        >
-          {t('emailInbox.unreadFilter')}
-        </Badge>
+        {unreadToggle}
         {syncing && threads.length > 0 && (
           <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -274,6 +295,7 @@ function ThreadList({
           </span>
         )}
       </div>
+      )}
       {/* Radix's viewport wraps children in a display:table div, which lets long
           rows overflow instead of truncating; force it back to block. */}
       <ScrollArea data-email="rows" className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
@@ -338,6 +360,16 @@ function ReplyComposer({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sendEmailMutation = useSendEmail(workspaceId, scope);
+  // Art: the reply waits as one line under the message and opens on a click
+  // (the message keeps the room); classic keeps the editor open.
+  const isArt = usePanelTheme().theme === 'art';
+  const [open, setOpen] = useState(false);
+  const composerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isArt || !open) return;
+    const frame = requestAnimationFrame(() => composerRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [isArt, open]);
 
   const plainText = useMemo(() => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), [html]);
 
@@ -388,6 +420,7 @@ function ReplyComposer({
       });
       setHtml('');
       setAttachments([]);
+      setOpen(false);
       requestIdRef.current = crypto.randomUUID();
       toast({ title: t('emailInbox.sent') });
     } catch {
@@ -397,10 +430,40 @@ function ReplyComposer({
     }
   };
 
+  if (isArt && !open) {
+    // A draft left closed shows its first words instead of the prompt.
+    return (
+      <button
+        type="button"
+        data-email="reply-open"
+        data-draft={plainText || attachments.length > 0 ? 'true' : undefined}
+        onClick={() => setOpen(true)}
+        className="flex h-11 w-full min-w-0 items-center gap-2.5 rounded-full px-4 text-start text-sm"
+      >
+        <Reply className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span dir="auto" className="min-w-0 flex-1 truncate">
+          {plainText || t('artInbox.replyTo', { name: defaultTo.join(', ') })}
+        </span>
+        {attachments.length > 0 && <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+      </button>
+    );
+  }
+
   return (
-    <div data-email="composer" className="rounded-lg border border-border bg-card">
+    <div ref={composerRef} data-email="composer" className="rounded-lg border border-border bg-card">
       <div data-email="composer-to" className="border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
         {t('emailInbox.replyingTo')} {defaultTo.join(', ')}
+        {isArt && (
+          <button
+            type="button"
+            data-email="reply-close"
+            onClick={() => setOpen(false)}
+            aria-label={t('artInbox.closeReply')}
+            title={t('artInbox.closeReply')}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        )}
       </div>
       <RichTextEditor value={html} onChange={setHtml} placeholder={t('emailInbox.replyPlaceholder')} minHeightClassName="min-h-[120px]" />
       {attachments.length > 0 && (
@@ -465,8 +528,11 @@ function attachmentHref(att: EmailMessageView['attachments'][number]): string {
 }
 
 function bodyHtml(m: EmailMessageView, t: (k: string) => string): string {
-  const parts: string[] = ['<div class="b" dir="auto">'];
-  if (m.htmlBody && m.htmlBody.trim()) {
+  const isHtml = !!(m.htmlBody && m.htmlBody.trim());
+  // `data-kind`: a theme's reader stylesheet can tell an HTML mail (written
+  // for a light page) from plain text, message by message.
+  const parts: string[] = [`<div class="b" dir="auto" data-kind="${isHtml ? 'html' : 'text'}">`];
+  if (isHtml && m.htmlBody) {
     parts.push(DOMPurify.sanitize(m.htmlBody, { FORCE_BODY: true, ADD_ATTR: ['target'], FORBID_TAGS: ['form', 'input', 'button'] }));
   } else {
     parts.push('<pre>', escapeHtml(m.textBody || m.snippet || ''), '</pre>');
@@ -483,7 +549,14 @@ function bodyHtml(m: EmailMessageView, t: (k: string) => string): string {
   return parts.join('');
 }
 
-function readerDocument(messages: EmailMessageView[], dir: string, locale: string, t: (k: string) => string, extraCss = ''): string {
+/**
+ * Art's reader (`readerDocument`'s `art`): the message on its own sheet that
+ * ends where the text ends, the earlier messages' count in the locale's
+ * digits and their senders as initials in the person's tone.
+ */
+type ArtReader = { css: string };
+
+function readerDocument(messages: EmailMessageView[], dir: string, locale: string, t: (k: string) => string, extraCss = '', art?: ArtReader): string {
   const css = [
     'html,body{background:#ffffff}',
     "body{margin:0;padding:14px 18px 20px;font-family:'Segoe UI Variable Text','Segoe UI',Vazirmatn,Tahoma,system-ui,sans-serif;font-size:14px;line-height:1.55;color:#1f2633}",
@@ -511,12 +584,14 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
     '.file:hover{background:#e6ebf3}',
   ].join('');
   const out: string[] = [
-    `<!doctype html><html dir="${dir}"><head><meta charset="utf-8"><base target="_blank"><style>${css}${extraCss}</style></head><body>`,
+    `<!doctype html><html dir="${dir}"><head><meta charset="utf-8"><base target="_blank"><style>${css}${extraCss}${art ? art.css : ''}</style></head><body>`,
   ];
+  if (art) out.push('<div class="sheet">');
   const latest = messages[messages.length - 1];
   if (latest) out.push(bodyHtml(latest, t));
   if (messages.length > 1) {
-    out.push(`<div class="earlier"><div class="et">${escapeHtml(t('emailInbox.earlierMessages').replace('{n}', String(messages.length - 1)))}</div>`);
+    const count = art ? new Intl.NumberFormat(locale).format(messages.length - 1) : String(messages.length - 1);
+    out.push(`<div class="earlier"><div class="et">${escapeHtml(t('emailInbox.earlierMessages').replace('{n}', count))}</div>`);
     for (let i = messages.length - 2; i >= 0; i--) {
       const m = messages[i];
       const from = parseAddress(m.fromAddress);
@@ -524,7 +599,9 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
       const snippet = decodeEntities(m.snippet || m.textBody || '').replace(/\s+/g, ' ').trim();
       out.push(
         '<details><summary>',
-        `<span class="av"><i style="background:${tint}"></i><svg viewBox="0 0 24 24"><path fill="${tint}" d="${PERSON_PATH}"/></svg></span>`,
+        art
+          ? `<span class="av" data-tone="${avatarToneOf(m.fromAddress)}">${escapeHtml(initialsOf(m.fromAddress))}</span>`
+          : `<span class="av"><i style="background:${tint}"></i><svg viewBox="0 0 24 24"><path fill="${tint}" d="${PERSON_PATH}"/></svg></span>`,
         `<span class="who" dir="auto">${escapeHtml(from.name)}</span>`,
         `<span class="sn" dir="auto">${escapeHtml(snippet)}</span>`,
         `<span class="dt">${escapeHtml(formatListDate(m.sentAt, locale))}</span>`,
@@ -537,6 +614,7 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
     }
     out.push('</div>');
   }
+  if (art) out.push('</div>');
   out.push('</body></html>');
   return out.join('');
 }
@@ -569,67 +647,123 @@ function LatestMessageHeader({ message }: { message: EmailMessageView }) {
   );
 }
 
-// Art: the sheet in the panel's own paper and ink instead of a white page.
+// Art: the message in the panel's own paper and ink instead of a white page.
 // The frame cannot see the app's CSS variables, so their current values are
-// written into its stylesheet. In dark mode a plain-text thread is set on the
-// dark card; one with HTML mail (written for a light page) stays on a soft
-// ivory sheet rather than glaring white.
-function artReaderCss(messages: EmailMessageView[]): string {
+// written into its stylesheet. The frame itself is see-through (its colour
+// scheme matches the panel's) and the message lies on it as a sheet that ends
+// where the text ends, so a short message is a short sheet on the page, not
+// an empty box. In dark mode an HTML mail (written for a light page) keeps a
+// soft ivory page of its own, message by message; the reader around it, the
+// earlier messages and plain-text mail stay on the dark sheet.
+function artReaderCss(): string {
   const root = document.documentElement;
   const style = getComputedStyle(root);
-  const token = (name: string, alpha?: number) => {
-    const raw = style.getPropertyValue(name).trim();
-    return alpha === undefined ? `hsl(${raw})` : `hsl(${raw} / ${alpha})`;
-  };
-  if (!style.getPropertyValue('--card').trim()) return '';
-  const hasHtml = messages.some((m) => !!(m.htmlBody && m.htmlBody.trim()));
-  if (root.classList.contains('dark') && hasHtml) {
-    return [
-      'html,body,details[open]{background:#f4f1ea}a{color:#a14e2c}',
-      'details{border-color:#e0d9cb;background:#ece7dc}summary:hover{background:#e6e0d3}',
-      '.earlier,.in{border-top-color:#e0d9cb}.av,.file{background:#e9e3d7}.file:hover{background:#e1dacb}',
-    ].join('');
-  }
+  const raw = (name: string) => style.getPropertyValue(name).trim();
+  const token = (name: string, alpha?: number) => (alpha === undefined ? `hsl(${raw(name)})` : `hsl(${raw(name)} / ${alpha})`);
+  if (!raw('--card')) return '';
+  const dark = root.classList.contains('dark');
   const line = token('--foreground', 0.08);
+  const shadow = [raw('--art-hairline'), raw('--art-ui-card-shadow')].filter(Boolean).join(', ') || `0 0 0 1px ${line}`;
+  const font = getComputedStyle(document.body).fontFamily || 'system-ui, sans-serif';
+  const tones = [1, 2, 3, 4, 5]
+    .filter((n) => raw(`--plan-${n}`))
+    .map((n) => {
+      const tone = raw(`--plan-${n}`);
+      return `.av[data-tone="${n}"]{background:hsl(${tone} / ${dark ? 0.2 : 0.14});color:color-mix(in oklab, hsl(${tone}) ${dark ? 62 : 70}%, ${token('--foreground')})}`;
+    });
   return [
-    `html,body{background:${token('--card')}}`,
-    `body{color:${token('--foreground')}}`,
+    `:root{color-scheme:${dark ? 'dark' : 'light'}}`,
+    'html,body{background:transparent}',
+    // 8px around the sheet for its hairline and shadow; the frame's own
+    // inline padding (inbox.css) brings its edges in line with the header.
+    `body{padding:4px 8px 24px;color:${token('--foreground')};font-family:${font}}`,
+    `.sheet{background:${token('--card')};border-radius:20px;box-shadow:${shadow};padding:18px 22px 20px}`,
+    '@media (max-width:640px){body{padding-bottom:16px}.sheet{padding:14px 16px 16px}}',
     `a{color:${token('--primary')}}`,
     `.err{background:${token('--destructive', 0.1)};color:${token('--destructive')}}`,
     `.earlier,.in{border-top-color:${line}}`,
+    '.earlier{margin-top:22px}',
     `.et,.sn,.meta,.dt{color:${token('--muted-foreground')}}`,
-    `details{border-color:${line};background:${token('--muted', 0.55)}}`,
+    // A snippet in the other script still starts beside the sender's name.
+    '.sn{text-align:-webkit-match-parent;text-align:match-parent}',
+    `details{border-color:${line};border-radius:14px;background:${token('--muted', 0.55)}}`,
     `details[open]{background:${token('--card')}}`,
     `summary:hover{background:${token('--muted')}}`,
-    `.av{background:${token('--muted')}}`,
+    `.av{background:${token('--muted')};color:${token('--muted-foreground')};font-size:11px;font-weight:600;letter-spacing:.02em}`,
+    ...tones,
     `.who{color:${token('--foreground')}}`,
-    `.file{color:${token('--foreground')};background:${token('--muted')}}`,
+    `.file{color:${token('--foreground')};background:${token('--muted')};border-radius:9999px;padding:4px 12px}`,
     `.file:hover{background:${token('--accent')}}`,
+    ...(dark
+      ? [
+          '.b[data-kind="html"]{color-scheme:light;background:#f4f1ea;color:#1f2633;border-radius:12px;padding:14px 16px}',
+          '.b[data-kind="html"] a{color:#a14e2c}',
+        ]
+      : []),
   ].join('');
 }
 
+let readerFontFaces: Promise<string> | null = null;
+
+/**
+ * The app's typeface for Art's reader. The sandboxed frame has no origin to
+ * fetch the app's font files from, so they go in as data: URLs (fetched once;
+ * the reader falls back to the system face if that fails).
+ */
+function loadReaderFontFaces(): Promise<string> {
+  if (!readerFontFaces) {
+    const faces: Array<[string, string]> = [[readerFont400, '400'], [readerFont500, '500'], [readerFont700, '600 800']];
+    readerFontFaces = Promise.all(
+      faces.map(async ([url, weight]) => {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(String(response.status));
+        const blob = await response.blob();
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(blob);
+        });
+        return `@font-face{font-family:'IRANSans';font-style:normal;font-weight:${weight};font-display:swap;src:url("${data}") format('woff2')}`;
+      }),
+    ).then((list) => list.join(''), () => '');
+  }
+  return readerFontFaces;
+}
+
 /** Art's reader stylesheet, kept in step with light/dark and the theme. */
-function useArtReaderCss(enabled: boolean, messages: EmailMessageView[]): string {
-  const [css, setCss] = useState(() => (enabled ? artReaderCss(messages) : ''));
+function useArtReaderCss(enabled: boolean): string {
+  const [css, setCss] = useState(() => (enabled ? artReaderCss() : ''));
+  const [fonts, setFonts] = useState('');
   useEffect(() => {
     if (!enabled) {
       setCss('');
       return;
     }
-    const update = () => setCss(artReaderCss(messages));
+    const update = () => setCss(artReaderCss());
     update();
     const observer = new MutationObserver(update);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-panel-theme'] });
     return () => observer.disconnect();
-  }, [enabled, messages]);
-  return css;
+  }, [enabled]);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    void loadReaderFontFaces().then((faces) => {
+      if (live) setFonts(faces);
+    });
+    return () => {
+      live = false;
+    };
+  }, [enabled]);
+  return enabled && css ? fonts + css : '';
 }
 
 function ThreadReader({ messages }: { messages: EmailMessageView[] }) {
   const { t, locale, dir } = useTranslation();
-  const artCss = useArtReaderCss(usePanelTheme().theme === 'art', messages);
+  const artCss = useArtReaderCss(usePanelTheme().theme === 'art');
   const doc = useMemo(
-    () => readerDocument(messages, dir || 'ltr', locale, (k) => t(k as TranslationKey), artCss),
+    () => readerDocument(messages, dir || 'ltr', locale, (k) => t(k as TranslationKey), '', artCss ? { css: artCss } : undefined),
     [messages, dir, locale, t, artCss],
   );
   return (

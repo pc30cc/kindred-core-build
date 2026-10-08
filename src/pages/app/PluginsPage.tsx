@@ -20,12 +20,14 @@ import { pluginsApi, type PluginCatalogItem } from '@/lib/plugins-api';
 import { PluginLogo } from '@/components/plugins/PluginLogo';
 import { Link, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 import {
   CheckCircle2, Clock, Lock, Puzzle, Search, Settings2, Trash2, Wrench,
 } from 'lucide-react';
 
 export default function PluginsPage() {
   const { t, dir } = useTranslation();
+  const isArt = usePanelTheme().theme === 'art';
   const { workspace } = useActiveWorkspace();
   const workspaceId = workspace?.id ?? '';
   const qc = useQueryClient();
@@ -179,9 +181,9 @@ export default function PluginsPage() {
           {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-2xl" />)}
         </div>
       ) : items.length === 0 ? (
-        <Card className="p-12 text-center text-sm text-muted-foreground">{t('plugins.catalogEmpty')}</Card>
+        <Card data-empty-card="plugins" className="p-12 text-center text-sm text-muted-foreground">{t('plugins.catalogEmpty')}</Card>
       ) : grouped.length === 0 ? (
-        <Card className="p-12 text-center text-sm text-muted-foreground">{t('plugins.noResults')}</Card>
+        <Card data-empty-card="plugins-search" className="p-12 text-center text-sm text-muted-foreground">{t('plugins.noResults')}</Card>
       ) : (
         grouped.map(([cat, list]) => (
           <section key={cat} className="space-y-3">
@@ -241,7 +243,13 @@ export default function PluginsPage() {
                     </div>
 
                     <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/50 pt-3">
-                      <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      <span
+                        data-plugin-version
+                        // Art keeps the version in Latin digits: a Persian
+                        // seven reads like the "v" before it ("v۱.۲" ~ "۷۱.۲").
+                        data-latin-digits={isArt ? '' : undefined}
+                        className="text-[11px] uppercase tracking-wide text-muted-foreground"
+                      >
                         v{item.version}
                       </span>
                       <div className="flex items-center gap-2">

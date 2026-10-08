@@ -211,9 +211,9 @@ function CallCenterShell() {
             </DropdownMenu>
 
             <Button asChild size="sm" variant="ghost">
-              <Link to={`${base}/install`}>{t('callCenter.layout.install')}</Link>
+              <Link to={`${base}/install`} data-hero-tool="install">{t('callCenter.layout.install')}</Link>
             </Button>
-            <Button asChild size="icon" variant="ghost" className="h-8 w-8">
+            <Button asChild size="icon" variant="ghost" className="h-8 w-8" data-hero-tool="settings">
               <Link to={`${base}/settings`} aria-label={t('callCenter.layout.tabs.settings')}>
                 <SettingsIcon className="h-4 w-4" />
               </Link>

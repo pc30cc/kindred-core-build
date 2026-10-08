@@ -34,7 +34,7 @@ import { useApplyPanelTheme, usePanelTheme } from '@/themes/usePanelTheme';
 import { PanelThemePreviewBar } from '@/themes/PanelThemePreviewBar';
 import { ArtShell } from '@/themes/art/shell/ArtShell';
 import { ArtShellSkeleton } from '@/themes/art/shell/ArtShellSkeleton';
-import { artSubPath, isArtFullBleed } from '@/themes/art/shell/layout';
+import { artSubPath, isArtEdgeToEdge, isArtFullBleed } from '@/themes/art/shell/layout';
 
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
@@ -331,8 +331,12 @@ export function AppLayout() {
   // Hold the chrome back until the workspace and its plan are known, so the
   // sidebar never paints gated items that disappear a moment later.
 
+  // Where the route sits in Art's frame (layout.ts), anchored after the
+  // workspace slug.
+  const artSub = artSubPath(pathname, routeSlug ? `/${routeSlug}` : '');
+
   if (!shellReady) {
-    return panelTheme.theme === 'art' ? <ArtShellSkeleton /> : <AppShellSkeleton />;
+    return panelTheme.theme === 'art' ? <ArtShellSkeleton wide={isArtEdgeToEdge(artSub)} /> : <AppShellSkeleton />;
   }
 
   // Art has a frame of its own (top navigation, no sidebar) around the same
@@ -343,10 +347,10 @@ export function AppLayout() {
         <OperatorCallProvider>
           <CommandPalette />
           <ArtShell
-            // Art's own rule, anchored after the workspace slug (layout.ts):
-            // the email client fills the area too, and `/call-center/settings`
-            // stays a normal page.
-            fullBleed={isArtFullBleed(artSubPath(pathname, routeSlug ? `/${routeSlug}` : ''))}
+            // Art's own rule (layout.ts): the email client fills the area
+            // too, and `/call-center/settings` stays a normal page.
+            fullBleed={isArtFullBleed(artSub)}
+            edgeToEdge={isArtEdgeToEdge(artSub)}
             notices={
               <>
                 {showVerificationBanner && <EmailVerificationBar />}

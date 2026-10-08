@@ -97,7 +97,7 @@ export default function KnowledgeBasePage() {
             </div>
           </div>
           {activeTab === 'articles' && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div data-hero-tools className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={() => navigate(wsPath('/knowledge-base/ai-builder'))} className="gap-2">
                 <Sparkles className="w-4 h-4" />
                 <span>{t('knowledgeBase.aiBuilder.cta')}</span>
@@ -196,7 +196,7 @@ export default function KnowledgeBasePage() {
           {/* Article List */}
           <div className="card-elevated">
             <div className="px-5 py-4 border-b border-border">
-              <h2 className="text-sm font-semibold text-foreground">{t('knowledgeBase.allArticles')}</h2>
+              <h2 data-card-title className="text-sm font-semibold text-foreground">{t('knowledgeBase.allArticles')}</h2>
             </div>
             {isLoading ? (
               <div className="p-8 space-y-3">

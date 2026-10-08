@@ -229,7 +229,7 @@ export default function ContactsPage() {
             {/* Filters */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5">
+                <Button data-page-action="filters" variant="outline" size="sm" className="h-9 text-xs gap-1.5">
                   <Filter className="w-3.5 h-3.5" />
                   {t('contacts.filters')}
                   {activeFilters > 0 && (
@@ -284,6 +284,7 @@ export default function ContactsPage() {
             </DropdownMenu>
 
             <Button
+              data-page-action="import"
               variant="outline"
               size="sm"
               className={cn('h-9 text-xs gap-1.5', !canImport && 'opacity-60')}
@@ -297,12 +298,13 @@ export default function ContactsPage() {
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               {canCreate ? (
                 <DialogTrigger asChild>
-                  <Button size="sm" className="h-9 text-xs gap-1.5">
+                  <Button data-page-action="new" size="sm" className="h-9 text-xs gap-1.5">
                     <Plus className="w-3.5 h-3.5" />{t('contacts.newContact')}
                   </Button>
                 </DialogTrigger>
               ) : (
                 <Button
+                  data-page-action="new"
                   size="sm"
                   className="h-9 text-xs gap-1.5 opacity-60"
                   onClick={() => { lockedToast(); goBilling(); }}
@@ -340,7 +342,7 @@ export default function ContactsPage() {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5">
+                <Button data-page-action="more" variant="outline" size="sm" className="h-9 text-xs gap-1.5">
                   {t('contacts.actions')} <ChevronDown className="w-3.5 h-3.5" />
                 </Button>
               </DropdownMenuTrigger>

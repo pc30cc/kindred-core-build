@@ -11,6 +11,7 @@
 import { cn } from '@/lib/utils';
 import { OsIcon } from '@/components/visitors/OsIcon';
 import { ImageWithSkeleton } from '@/components/common/ImageWithSkeleton';
+import { personTone } from './personTone';
 
 /** OS brand identity used when a contact has no picture but we know the device. */
 type OsKind = 'apple' | 'windows' | 'linux' | 'android' | null;
@@ -57,11 +58,6 @@ const GRADIENT_PALETTE = [
 /** The palette slot a seed lands on. */
 function toneOf(seed: string): number {
   return djb2(seed || '?') % GRADIENT_PALETTE.length;
-}
-
-/** A five-slot categorical index (1-5) for themes (`data-avatar-tone`). */
-function avatarToneOf(seed: string): number {
-  return (toneOf(seed) % 5) + 1;
 }
 
 function gradientFor(seed: string): string {
@@ -147,7 +143,7 @@ export function ContactAvatar({
         // inline gradient.
         data-slot="contact-avatar"
         data-variant={avatarUrl ? 'image' : osKind ? 'os' : 'initials'}
-        data-avatar-tone={avatarUrl || osKind ? undefined : avatarToneOf(seed)}
+        data-avatar-tone={avatarUrl || osKind ? undefined : personTone(email, name)}
         className={cn(
           sz.box,
           'rounded-full overflow-hidden flex items-center justify-center font-semibold text-white select-none',

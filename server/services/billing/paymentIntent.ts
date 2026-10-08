@@ -77,7 +77,21 @@ const INTENT_TTL_MS = 30 * 60 * 1000;
  * (AI credit uses `commandKey`, payments use a unique index on the intent id),
  * so re-running them cannot double-charge anything.
  */
-const PROCESSING_RECLAIM_MS = 60 * 1000;
+export const PROCESSING_RECLAIM_MS = 60 * 1000;
+
+/**
+ * A `processing` intent whose finalization may still be running (claimed less
+ * than PROCESSING_RECLAIM_MS ago). An older one is a crashed finalization that
+ * claimIntentForProcessing re-claims.
+ */
+export function isProcessingInFlight(
+  intent: Pick<PaymentIntentRow, 'status' | 'processing_at'>,
+  now: Date = new Date(),
+): boolean {
+  if (intent.status !== 'processing') return false;
+  const startedAt = intent.processing_at ? new Date(intent.processing_at).getTime() : 0;
+  return Number.isFinite(startedAt) && now.getTime() - startedAt < PROCESSING_RECLAIM_MS;
+}
 
 /** Iranian one-time gateways: their checkout amount is fully server-derived. */
 export const IRAN_PROVIDERS = new Set([
@@ -329,6 +343,38 @@ export async function getPaymentIntent(
     .select('*')
     .eq('id', intentId)
     .maybeSingle();
+  return (data as PaymentIntentRow | null) ?? null;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The intent could not be read (the database answered with an error). Not "absent". */
+export class PaymentIntentReadError extends Error {
+  constructor(message: string) {
+    super(`payment_intent_read_failed:${message}`);
+    this.name = 'PaymentIntentReadError';
+  }
+}
+
+/**
+ * getPaymentIntent for callers that must tell "this database has no such
+ * intent" from "the read failed": resolves null only when the intent is
+ * definitively absent — an id that is not a UUID (never queried: no intent
+ * can have it) or a read that found no row — and throws
+ * PaymentIntentReadError when the read itself failed, so a provider webhook
+ * is answered 5xx and retried instead of being acknowledged and lost.
+ */
+export async function readPaymentIntent(
+  config: ServerConfig,
+  intentId: string,
+): Promise<PaymentIntentRow | null> {
+  if (typeof intentId !== 'string' || !UUID_RE.test(intentId)) return null;
+  const { data, error } = await getServiceClient(config)
+    .from('billing_payment_intents')
+    .select('*')
+    .eq('id', intentId)
+    .maybeSingle();
+  if (error) throw new PaymentIntentReadError(error.message || 'unknown');
   return (data as PaymentIntentRow | null) ?? null;
 }
 

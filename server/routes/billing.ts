@@ -44,6 +44,8 @@ import {
 import {
   createSubscriptionIntent,
   getPaymentIntent,
+  readPaymentIntent,
+  isProcessingInFlight,
   setPaymentIntentProviderRef,
   claimIntentForProcessing,
   markIntentSucceeded,
@@ -1150,11 +1152,17 @@ async function verifyCardCallback(
   if (intent.status === 'succeeded') {
     return res.json({ success: true, verified: true, duplicate: true, receipt: await buildReceipt(cfg, intent) });
   }
-  if (intent.status === 'processing') {
+  // A finalization claimed moments ago may still be running. One claimed
+  // longer ago than PROCESSING_RECLAIM_MS crashed: it is looked up again and
+  // settleVerifiedCardPayment re-claims it (claimIntentForProcessing), so the
+  // customer's return finishes it instead of waiting for a webhook that may
+  // never come.
+  if (isProcessingInFlight(intent)) {
     return res.json({ success: true, verified: true, pending: true });
   }
+  const stalledProcessing = intent.status === 'processing';
   const lapsed = isLapsedCardIntent(intent);
-  if (intent.status !== 'pending') {
+  if (intent.status !== 'pending' && !stalledProcessing) {
     if (await hasUnappliedPayment(cfg, intent)) {
       return res.status(409).json({ error: 'PAYMENT_UNDER_REVIEW' });
     }
@@ -1176,7 +1184,10 @@ async function verifyCardCallback(
   // Webhook-confirmed gateway: nothing to look up — the screen polls the intent.
   if (!provider?.verifyPayment) return res.json({ success: true, verified: false, pending: true });
 
-  if (provider.verifyPaymentCaptures) {
+  // A stalled finalization already holds the provider's confirmation (its
+  // money was taken before the claim): the lookup only reads it back, so the
+  // checks guarding a capture do not apply to it.
+  if (provider.verifyPaymentCaptures && !stalledProcessing) {
     if (!isIntentUsable(intent)) {
       await markPaymentIntentExpired(cfg, intent.id);
       await releaseIntentCollections(cfg, intent.id, 'intent_expired');
@@ -1204,6 +1215,9 @@ async function verifyCardCallback(
   if (!result.verified) {
     // A lapsed attempt's checkout is not paid: nothing to end, it already ended.
     if (lapsed) return res.json({ success: true, verified: false, status: intent.status });
+    // A stalled finalization was verified before it was claimed; a lookup
+    // that does not confirm it now never fails it — it stays recoverable.
+    if (stalledProcessing) return res.json({ success: true, verified: true, pending: true });
     const status = result.status || 'pending';
     if (status === 'canceled' || status === 'failed' || status === 'expired') {
       await markPaymentIntentFailed(cfg, intent.id, `gateway_${status}`);
@@ -1278,6 +1292,8 @@ const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'lemon_squeezy', '
  * it refers to. Both are this server's own records, reached through
  * identifiers inside a payload whose signature already verified.
  * `foreignIntent`: the event names an intent this database does not have.
+ * Throws when a read fails: "not found" is only ever concluded from an
+ * answer, never from an error.
  */
 async function resolveEventWorkspace(
   cfg: ServerConfig,
@@ -1286,18 +1302,19 @@ async function resolveEventWorkspace(
 ): Promise<{ workspaceId: string | null; foreignIntent: boolean }> {
   let foreignIntent = false;
   if (event.intentId) {
-    const intent = await getPaymentIntent(cfg, event.intentId);
+    const intent = await readPaymentIntent(cfg, event.intentId);
     if (intent && intent.provider_name === providerName) return { workspaceId: intent.workspace_id, foreignIntent };
     foreignIntent = !intent;
   }
   if (event.providerPaymentId) {
-    const { data } = await getServiceClient(cfg)
+    const { data, error } = await getServiceClient(cfg)
       .from('billing_payments')
       .select('workspace_id')
       .eq('provider_name', providerName)
       .eq('provider_payment_id', event.providerPaymentId)
       .limit(1)
       .maybeSingle();
+    if (error) throw new Error(`billing payment read failed: ${error.message}`);
     const ws = (data as { workspace_id?: string | null } | null)?.workspace_id;
     if (ws) return { workspaceId: ws, foreignIntent: false };
   }
@@ -1423,7 +1440,15 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
       accepted.push({ event, workspaceId: event.workspaceId });
       continue;
     }
-    const resolvedWorkspace = await resolveEventWorkspace(cfg, providerName, event);
+    let resolvedWorkspace: Awaited<ReturnType<typeof resolveEventWorkspace>>;
+    try {
+      resolvedWorkspace = await resolveEventWorkspace(cfg, providerName, event);
+    } catch {
+      // Whose event this is cannot be known right now: answered 5xx so the
+      // provider retries, never acknowledged as someone else's.
+      logWebhookRejection(providerName, 'intent_read_failed');
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
     if (resolvedWorkspace.workspaceId) accepted.push({ event, workspaceId: resolvedWorkspace.workspaceId });
     else if (resolvedWorkspace.foreignIntent) foreignEvent = event;
     else sawUnresolved = true;
@@ -1464,7 +1489,14 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   // when the intent is this provider's invoice attempt in this workspace.
   let intent: InvoiceIntent | null = null;
   if (event.intentId) {
-    intent = (await getPaymentIntent(cfg, event.intentId)) as InvoiceIntent | null;
+    try {
+      intent = (await readPaymentIntent(cfg, event.intentId)) as InvoiceIntent | null;
+    } catch {
+      // A failed read is not an unknown intent: acknowledging it would lose
+      // the payment. The provider retries a 5xx.
+      logWebhookRejection(providerName, 'intent_read_failed');
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
     if (!intent) {
       logForeignIntentEvent(providerName, event);
       return acknowledge({ received: true, ignored: true });

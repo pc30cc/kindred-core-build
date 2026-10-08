@@ -91,7 +91,10 @@ vi.mock('../../../server/services/billing/invoiceNumber.js', () => ({
   },
 }));
 
-const { previewPlanChange, applyPlanChange, cancelPendingPlanChange, stalePreviewTolerance, BillingActionError, pendingChangeCurrency } = await import(
+const {
+  previewPlanChange, applyPlanChange, cancelPendingPlanChange, stalePreviewTolerance, BillingActionError, pendingChangeCurrency,
+  planPriceInCurrency,
+} = await import(
   '../../../server/services/billing/customer/actions.js'
 );
 const { issueSubscriptionInvoice, planPriceIn } = await import('../../../server/services/billing/invoice/issue.js');
@@ -299,6 +302,80 @@ describe('a next-cycle change keeps the currency the customer chose', () => {
     expect(pendingChangeCurrency(undefined, 'IRR')).toBeNull();
     expect(pendingChangeCurrency('', 'IRR')).toBeNull();
     expect(pendingChangeCurrency('dollars', 'IRR')).toBeNull();
+  });
+});
+
+describe('a plan is sold only in a currency it has a positive price in', () => {
+  // Priced in USD only; its legacy flat Rial columns are stale leftovers.
+  const usdOnlyWithLegacy = () => {
+    plans['usd-legacy'] = { id: 'usd-legacy', name: 'Team', is_active: true, limits: {},
+      prices: { USD: { monthly: 4900, yearly: 49000 } }, price_monthly: 1_500_000, price_yearly: 15_000_000 };
+  };
+  function paidIrrPeriod() {
+    const start = new Date(NOW.getTime() - 15 * DAY).toISOString();
+    const end = new Date(NOW.getTime() + 15 * DAY).toISOString();
+    sub = { id: 'sub-1', status: 'active', plan_id: 'pro-id', billing_interval: 'monthly', current_period_start: start, current_period_end: end };
+    period = { id: 'p-1', period_start: start, period_end: end, billing_interval: 'monthly', plan_id: 'pro-id', invoice_id: 'inv-paid' };
+    invoices = { 'inv-paid': { id: 'inv-paid', currency: 'IRR' } };
+  }
+  const notAvailable = (p: Promise<unknown>) => expect(p).rejects.toMatchObject({ code: 'PRICE_NOT_AVAILABLE', details: { currency: 'IRR' } });
+
+  it('a USD-only plan is not offered in IRR at its stale flat Rial columns (new purchase)', async () => {
+    usdOnlyWithLegacy();
+    await notAvailable(previewPlanChange(CONFIG, WS, { planId: 'usd-legacy', interval: 'monthly', mode: 'immediate', currency: 'IRR' }));
+    await notAvailable(previewPlanChange(CONFIG, WS, { planId: 'usd-only', interval: 'monthly', mode: 'immediate' }));
+    expect(inserted).toEqual([]);
+  });
+
+  it('nor scheduled as a next-cycle change in IRR (it used to read 0, a "downgrade" renewing for nothing)', async () => {
+    paidIrrPeriod();
+    await notAvailable(applyPlanChange(CONFIG, WS, {
+      planId: 'usd-only', interval: 'monthly', mode: 'next_cycle', expectedAmountIrr: 0, currency: 'IRR',
+    }));
+    usdOnlyWithLegacy();
+    await notAvailable(applyPlanChange(CONFIG, WS, {
+      planId: 'usd-legacy', interval: 'monthly', mode: 'next_cycle', expectedAmountIrr: 0, currency: 'IRR',
+    }));
+    expect(updates.filter((u) => u.table === 'workspace_subscriptions')).toEqual([]);
+  });
+
+  it('a zero price, or no price at the requested interval, is no price', async () => {
+    plans['irr0'] = { id: 'irr0', name: 'Studio', is_active: true, limits: {}, prices: { IRR: { monthly: 0 }, USD: { monthly: 2900 } } };
+    plans['monthly-only'] = { id: 'monthly-only', name: 'Lite', is_active: true, limits: {},
+      prices: { IRR: { monthly: 400_000 } }, price_yearly: 4_000_000 };
+    await notAvailable(previewPlanChange(CONFIG, WS, { planId: 'irr0', interval: 'monthly', mode: 'immediate', currency: 'IRR' }));
+    await notAvailable(previewPlanChange(CONFIG, WS, { planId: 'monthly-only', interval: 'yearly', mode: 'immediate', currency: 'IRR' }));
+    expect(await previewPlanChange(CONFIG, WS, { planId: 'monthly-only', interval: 'monthly', mode: 'immediate', currency: 'IRR' }))
+      .toMatchObject({ amountIrr: 400_000 });
+  });
+
+  it('a plan free in every currency is 0 in any currency: a downgrade to it still works', async () => {
+    plans['free-id'] = { id: 'free-id', name: 'Free', is_active: true, limits: {}, prices: { IRR: { monthly: 0, yearly: 0 } } };
+    paidIrrPeriod();
+    invoices = { 'inv-paid': { id: 'inv-paid', currency: 'USD' } };
+    const preview = await previewPlanChange(CONFIG, WS, { planId: 'free-id', interval: 'monthly', mode: 'next_cycle', currency: 'USD' });
+    expect(preview).toMatchObject({ mode: 'next_cycle', direction: 'downgrade', amountIrr: 0, currency: 'USD' });
+  });
+
+  it('a legacy plan with no price map keeps its Rial flat columns, and only Rial', async () => {
+    plans['legacy'] = { id: 'legacy', name: 'Old', is_active: true, limits: {}, prices: null, price_monthly: 700_000, price_yearly: 7_000_000 };
+    expect(await previewPlanChange(CONFIG, WS, { planId: 'legacy', interval: 'yearly', mode: 'immediate', currency: 'IRR' }))
+      .toMatchObject({ amountIrr: 7_000_000, currency: 'IRR' });
+    await expect(previewPlanChange(CONFIG, WS, { planId: 'legacy', interval: 'monthly', mode: 'immediate', currency: 'USD' }))
+      .rejects.toMatchObject({ code: 'PRICE_NOT_AVAILABLE' });
+  });
+
+  it('planPriceInCurrency', () => {
+    const map = { prices: { USD: { monthly: 4900 }, IRR: { monthly: 0, yearly: '' } }, price_monthly: 1_500_000 };
+    expect(planPriceInCurrency(map, 'monthly', 'USD')).toBe(4900);
+    expect(planPriceInCurrency(map, 'yearly', 'USD')).toBeNull();
+    expect(planPriceInCurrency(map, 'monthly', 'IRR')).toBeNull();
+    expect(planPriceInCurrency(map, 'yearly', 'IRR')).toBeNull();
+    expect(planPriceInCurrency(map, 'monthly', 'EUR')).toBeNull();
+    expect(planPriceInCurrency({ prices: { IRR: { monthly: 0 } } }, 'monthly', 'USD')).toBe(0);
+    expect(planPriceInCurrency({ prices: {}, price_monthly: 700_000 }, 'monthly', 'IRR')).toBe(700_000);
+    expect(planPriceInCurrency({ prices: null }, 'monthly', 'IRR')).toBe(0);
+    expect(planPriceInCurrency({ prices: null, price_monthly: 700_000 }, 'monthly', 'USD')).toBeNull();
   });
 });
 

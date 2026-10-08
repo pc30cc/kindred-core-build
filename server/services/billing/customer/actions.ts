@@ -93,26 +93,51 @@ export function pendingChangeCurrency(requested: unknown, previewCurrency: strin
   return /^[A-Z]{3}$/.test(code) ? previewCurrency : null;
 }
 
+/** The price columns of `billing_plans` that pricing reads. */
+export type PricedPlan = Pick<PlanRow, 'prices' | 'price_monthly' | 'price_yearly'>;
+
+/** Whether the plan has a per-currency price map at all (`billing_plans.prices` with any entry). */
+function hasPriceMap(plan: PricedPlan | null | undefined): boolean {
+  return Boolean(plan?.prices && typeof plan.prices === 'object' && Object.keys(plan.prices).length > 0);
+}
+
 /**
  * The plan's price in `currency` for one interval (minor units; whole Rial
- * for IRR). IRR keeps its historic reading (legacy flat columns, missing = 0).
- * Any other currency returns null when the admin set no price in it — such a
- * plan cannot be bought in that currency, it is never "free".
+ * for IRR), or null when the plan is not sold in that currency at that
+ * interval. Not validated: a negative value is returned as it is.
+ *
+ *   - A plan with a price map is sold in a currency only at a POSITIVE price
+ *     set in it. A missing or zero price is never read from another currency
+ *     or from the legacy flat columns: a plan priced only in USD/EUR was
+ *     offered (and charged) in IRR at its stale flat Rial column, or at 0.
+ *     A plan with no positive price anywhere (Free, Trial) is 0 in every
+ *     currency.
+ *   - A plan without any price map (a legacy row) keeps its historic reading:
+ *     IRR from the flat columns (missing = 0), no other currency.
  */
+export function planPriceInCurrency(
+  plan: PricedPlan | null | undefined,
+  interval: 'monthly' | 'yearly',
+  currency: string,
+): number | null {
+  if (!hasPriceMap(plan)) {
+    if (currency !== 'IRR') return null;
+    return Math.round(num(interval === 'yearly' ? plan?.price_yearly : plan?.price_monthly));
+  }
+  const raw = plan?.prices?.[currency]?.[interval];
+  const value = raw === null || raw === undefined || raw === '' ? null : Math.round(num(raw));
+  if (value !== null && value !== 0) return value;
+  return planIsFree(plan) ? 0 : null;
+}
+
+/** planPriceInCurrency, refusing a negative price. */
 function planPrice(
   plan: PlanRow | null | undefined,
   interval: 'monthly' | 'yearly',
   currency: string,
 ): number | null {
-  let raw: unknown;
-  if (currency === 'IRR') {
-    raw = plan?.prices?.IRR?.[interval] ?? (interval === 'yearly' ? plan?.price_yearly : plan?.price_monthly);
-  } else {
-    raw = plan?.prices?.[currency]?.[interval];
-    if (raw === null || raw === undefined || raw === '') return null;
-  }
-  const value = Math.round(num(raw));
-  if (value < 0) throw new BillingActionError('plan price invalid', 500, 'PLAN_PRICE_INVALID');
+  const value = planPriceInCurrency(plan, interval, currency);
+  if (value !== null && value < 0) throw new BillingActionError('plan price invalid', 500, 'PLAN_PRICE_INVALID');
   return value;
 }
 
@@ -188,7 +213,7 @@ async function loadContext(config: ServerConfig, workspaceId: string) {
 }
 
 /** A plan with no positive price in any currency (the Free and Trial tiers). */
-function planIsFree(plan: PlanRow | null | undefined): boolean {
+function planIsFree(plan: PricedPlan | null | undefined): boolean {
   if (!plan) return true;
   for (const byInterval of Object.values(plan.prices ?? {})) {
     if (byInterval && (num(byInterval.monthly) > 0 || num(byInterval.yearly) > 0)) return false;

@@ -84,7 +84,21 @@ vi.mock('../../../server/services/billing/cardInvoice.js', async (importOriginal
 vi.mock('../../../server/services/billing/paymentIntent.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../server/services/billing/paymentIntent.js')>()),
   getPaymentIntent: async (_cfg: unknown, id: string) => intentRows[id] ?? null,
+  // The strict read (see paymentIntentRead.test.ts for the real one): a
+  // non-UUID id is absent without a query; `intentReadFails` stands in for a
+  // database error.
+  readPaymentIntent: async (_cfg: unknown, id: string) => {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+    intentReads.push(id);
+    if (intentReadFails) {
+      const { PaymentIntentReadError } = await import('../../../server/services/billing/paymentIntent.js');
+      throw new PaymentIntentReadError('connection reset');
+    }
+    return intentRows[id] ?? null;
+  },
 }));
+let intentReadFails = false;
+const intentReads: string[] = [];
 
 let wsConfigRows: Array<{ workspace_id: string | null; config: unknown }> = [];
 let globalConfigValue: unknown = null;
@@ -263,6 +277,8 @@ beforeEach(() => {
   cardIntentWebhook.mockClear();
   cardSettle.mockReset();
   intentRows = {};
+  intentReadFails = false;
+  intentReads.length = 0;
   claimedKeys = new Set();
   claimShouldThrow = false;
   claimSpy.mockClear();
@@ -700,6 +716,43 @@ describe('billing webhooks — invoice intents and acknowledgements', () => {
     expect(claimSpy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['names its workspace', { workspaceId: WS }],
+    ['names no workspace', {}],
+  ])('an intent that cannot be READ is not foreign: 500, so the provider retries (event %s)', async (_label, extra) => {
+    globalConfigValue = { provider_name: 'stripe', webhook_secret: 'a' };
+    intentRows[INTENT] = intentRow();
+    intentReadFails = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    stripeVerify.mockResolvedValue({
+      type: 'payment_succeeded', providerEventId: 'evt_read_fail', intentId: INTENT, amount: 2900, currency: 'USD', raw: {}, ...extra,
+    });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(500);
+    expect(intentReads).toContain(INTENT);
+    expect(claimSpy).not.toHaveBeenCalled();
+    expect(cardIntentWebhook).not.toHaveBeenCalled();
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('unknown_intent'))).toBe(false);
+    warn.mockRestore();
+
+    // The retry, once the database answers, settles the payment.
+    intentReadFails = false;
+    const retry = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(retry.status).toBe(200);
+    expect(cardIntentWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  it('an intent id that is not a UUID is foreign: acknowledged without a database read', async () => {
+    globalConfigValue = { provider_name: 'stripe', webhook_secret: 'a' };
+    intentReadFails = true; // would answer 500 if it were read
+    stripeVerify.mockResolvedValue({ type: 'payment_succeeded', providerEventId: 'evt_bad_id', intentId: 'order-42', raw: {} });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ received: true, ignored: true });
+    expect(intentReads).toEqual([]);
+    expect(claimSpy).not.toHaveBeenCalled();
+  });
+
   it('a delivery another request is still processing is not acknowledged: the provider retries it later', async () => {
     globalConfigValue = { provider_name: 'stripe', webhook_secret: 'a' };
     intentRows[INTENT] = intentRow();
@@ -891,6 +944,57 @@ describe('verify-callback — the customer returns from a card gateway', () => {
     const res = await verify({ params: { session_id: 'cs_1' } });
     expect(JSON.parse(res.body)).toEqual({ success: true, verified: false, status: 'expired' });
     expect(cardSettle).not.toHaveBeenCalled();
+  });
+
+  describe('an attempt left in processing', () => {
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+
+    it('claimed moments ago: still finalizing, the provider is not asked again', async () => {
+      intentRows[INTENT] = cardIntent({ status: 'processing', processing_at: ago(10_000) });
+      const res = await verify({ params: { session_id: 'cs_1' } });
+      expect(JSON.parse(res.body)).toEqual({ success: true, verified: true, pending: true });
+      expect(stripeVerifyPayment).not.toHaveBeenCalled();
+      expect(cardSettle).not.toHaveBeenCalled();
+    });
+
+    it('claimed longer ago than the reclaim window: looked up again and settled (re-claimed) from the return page', async () => {
+      intentRows[INTENT] = cardIntent({ status: 'processing', processing_at: ago(5 * 60_000) });
+      stripeVerifyPayment.mockResolvedValue({
+        verified: true, providerRef: 'cs_1', amount: 2900, currency: 'USD', paymentId: 'pi_stripe_1', status: 'paid',
+      });
+      cardSettle.mockImplementation(async () => {
+        intentRows[INTENT] = cardIntent({ status: 'succeeded' });
+        return { outcome: 'succeeded' };
+      });
+      const res = await verify({ params: { session_id: 'cs_1' } });
+      expect(res.status).toBe(200);
+      expect(JSON.parse(res.body)).toMatchObject({ success: true, verified: true });
+      expect(stripeVerifyPayment).toHaveBeenCalledTimes(1);
+      expect(cardSettle.mock.calls[0][1]).toMatchObject({ intent: { status: 'processing' }, paymentId: 'pi_stripe_1', amount: 2900 });
+    });
+
+    it('stalled, and the lookup does not confirm it now: stays pending, never failed', async () => {
+      intentRows[INTENT] = cardIntent({ status: 'processing', processing_at: ago(5 * 60_000) });
+      stripeVerifyPayment.mockResolvedValue({ verified: false, providerRef: 'cs_1', status: 'failed' });
+      const res = await verify({ params: { session_id: 'cs_1' } });
+      expect(JSON.parse(res.body)).toEqual({ success: true, verified: true, pending: true });
+      expect(cardSettle).not.toHaveBeenCalled();
+    });
+
+    it('PayPal, stalled after its capture and past the deadline: read back, not expired', async () => {
+      intentRows[INTENT] = cardIntent({
+        provider_name: 'paypal', provider_ref: 'ORDER-1', status: 'processing', processing_at: ago(5 * 60_000),
+        expires_at: ago(60_000),
+      });
+      paypalVerifyPayment.mockResolvedValue({
+        verified: true, providerRef: 'ORDER-1', amount: 2900, currency: 'USD', paymentId: 'CAP-1', status: 'paid',
+      });
+      cardSettle.mockResolvedValue({ outcome: 'succeeded' });
+      const res = await verify({ provider: 'paypal', params: { token: 'ORDER-1', PayerID: 'P1' } });
+      expect(res.status).toBe(200);
+      expect(paypalVerifyPayment).toHaveBeenCalledTimes(1);
+      expect(cardSettle).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('an attempt the customer canceled before reaching the provider is never looked up', async () => {

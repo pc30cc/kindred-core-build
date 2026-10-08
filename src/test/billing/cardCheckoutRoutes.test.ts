@@ -21,6 +21,8 @@ const createCheckout = vi.fn();
 const beginCollection = vi.fn();
 let pendingIntentRows: Array<Record<string, unknown>> = [];
 let supersededRows: Array<Record<string, unknown>> = [];
+/** Active `billing_plans` rows the catalogue reads. */
+let planRows: Array<Record<string, unknown>> = [];
 
 vi.mock('../../../server/lib/workspaceAuth.js', () => ({
   authorizeWorkspaceAccess: async () => ({ userId: 'u1', isAdmin: false, role: 'owner' }),
@@ -76,6 +78,7 @@ vi.mock('../../../server/supabase.js', () => ({
       const b: Record<string, unknown> = {};
       b.select = () => b;
       b.update = () => b;
+      b.order = () => b;
       b.eq = (column: string, value: unknown) => {
         filters.push([column, value]);
         return b;
@@ -86,7 +89,7 @@ vi.mock('../../../server/supabase.js', () => ({
       };
       b.maybeSingle = async () => ({ data: table === 'profiles' ? { email: 'owner@example.com' } : null, error: null });
       b.then = (resolve: (v: unknown) => void) => {
-        let data: unknown = null;
+        let data: unknown = table === 'billing_plans' ? planRows : null;
         if (table === 'billing_payment_intents') {
           // openCheckoutAttempts reads pending attempts; closeSupersededCheckouts re-reads them by id.
           data = filters.some(([c]) => c === 'id') ? supersededRows : pendingIntentRows;
@@ -133,6 +136,7 @@ beforeEach(() => {
   lemonStoreCurrency = 'USD';
   pendingIntentRows = [];
   supersededRows = [];
+  planRows = [];
   closeCheckout.mockReset();
   createCheckout.mockReset();
   beginCollection.mockReset();
@@ -214,5 +218,54 @@ describe('a new checkout supersedes the previous one', () => {
     });
     expect(res.status).toBe(409);
     expect(closeCheckout).not.toHaveBeenCalled();
+  });
+});
+
+describe('the plan catalogue offers a plan only in a currency it is priced in', () => {
+  type CatalogBody = {
+    currency: string;
+    currencies: string[];
+    plans: Array<{ id: string; monthlyPriceIrr: number; yearlyPriceIrr: number }>;
+  };
+  const rows = (body: unknown) =>
+    (body as CatalogBody).plans.map((p) => [p.id, p.monthlyPriceIrr, p.yearlyPriceIrr]);
+
+  beforeEach(() => {
+    gatewayRows = [gateway('zarinpal'), gateway('stripe')];
+    planRows = [
+      // Priced in USD only, with stale legacy Rial columns: never offered in IRR.
+      { id: 'usd-only', name: 'Team', slug: 'team', prices: { USD: { monthly: 4900, yearly: 49000 } },
+        price_monthly: 1_500_000, price_yearly: 15_000_000 },
+      // A zero IRR price is no IRR price.
+      { id: 'usd-irr0', name: 'Studio', slug: 'studio', prices: { IRR: { monthly: 0 }, USD: { monthly: 2900 } } },
+      { id: 'both', name: 'Pro', slug: 'pro', prices: { IRR: { monthly: 3_000_000 }, USD: { monthly: 2900, yearly: 29000 } } },
+      // A legacy row with no price map keeps its Rial flat columns.
+      { id: 'legacy', name: 'Old', slug: 'old', prices: null, price_monthly: 700_000, price_yearly: 0 },
+    ];
+  });
+
+  it('IRR: only the plans with an IRR price (or a legacy row), at that price', async () => {
+    const res = await call('GET', `/api/billing/workspaces/${WS}/plans?currency=IRR`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ currency: 'IRR', currencies: ['IRR', 'USD'] });
+    expect(rows(res.body)).toEqual([
+      ['both', 3_000_000, 0],
+      ['legacy', 700_000, 0],
+    ]);
+  });
+
+  it('USD: the plans priced in USD, never a legacy row', async () => {
+    const res = await call('GET', `/api/billing/workspaces/${WS}/plans?currency=USD`);
+    expect(rows(res.body)).toEqual([
+      ['usd-only', 4900, 49000],
+      ['usd-irr0', 2900, 0],
+      ['both', 2900, 29000],
+    ]);
+  });
+
+  it('a currency no plan is priced in is not offered at all', async () => {
+    planRows = planRows.filter((p) => p.id === 'usd-only');
+    const res = await call('GET', `/api/billing/workspaces/${WS}/plans?currency=IRR`);
+    expect(res.body).toMatchObject({ currency: 'USD', currencies: ['USD'] });
   });
 });

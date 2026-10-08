@@ -28,11 +28,11 @@ function Count({ value, className }: { value?: number; className?: string }) {
   return <span className={cn(artCount, 'bg-primary text-primary-foreground', className)}>{value > 99 ? '99+' : value}</span>;
 }
 
+// Words only, as in Lart's bar: a third more destinations fit than with
+// icons, and the menus and the phone drawer keep the icons.
 function PillBody({ item }: { item: ArtNavItem }) {
-  const Icon = item.icon;
   return (
     <>
-      <Icon className="h-4 w-4 shrink-0" strokeWidth={2} />
       <span>{item.label}</span>
       <Count value={item.badge} />
     </>
@@ -92,7 +92,12 @@ export function ArtPrimaryNav({
 
   const keepMore = tools.length > 0 || superAdmin;
   const activeKey = items.find((item) => item.active)?.key ?? '';
-  const signature = items.map((item) => `${item.key}:${item.label}:${item.badge ?? 0}`).join('|');
+  // A page that only lives under "More" (the widget, plugins): the trigger
+  // then wears its name, so the bar still says where the member is.
+  const activeTool = tools.find((item) => item.active);
+  const signature = [...items, ...(activeTool ? [activeTool] : [])]
+    .map((item) => `${item.key}:${item.label}:${item.badge ?? 0}`)
+    .join('|');
 
   useLayoutEffect(() => {
     const nav = navRef.current;
@@ -118,7 +123,19 @@ export function ArtPrimaryNav({
   const shown = inView === null ? null : new Set(inView.split('|'));
   const visible = shown ? items.filter((item) => shown.has(item.key)) : items;
   const folded = shown ? items.filter((item) => !shown.has(item.key)) : [];
-  const moreActive = folded.some((item) => item.active) || tools.some((item) => item.active);
+  const activeInMore = activeTool ?? folded.find((item) => item.active);
+  const moreLabel = t('artShell.more');
+
+  // "More", or the name of the page in it that is open.
+  const moreBody = (current: ArtNavItem | undefined) =>
+    current ? (
+      <span>
+        <span className="sr-only">{moreLabel}: </span>
+        {current.label}
+      </span>
+    ) : (
+      <span>{moreLabel}</span>
+    );
 
   const menuRow = (item: ArtNavItem) => (
     <DropdownMenuItem
@@ -159,8 +176,17 @@ export function ArtPrimaryNav({
       {(folded.length > 0 || keepMore) && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" className={cn(pill, pillState(moreActive), 'gap-1 data-[state=open]:bg-muted data-[state=open]:text-foreground')}>
-              <span>{t('artShell.more')}</span>
+            <button
+              type="button"
+              data-active={!!activeInMore}
+              className={cn(
+                pill,
+                pillState(!!activeInMore),
+                'gap-1',
+                !activeInMore && 'data-[state=open]:bg-muted data-[state=open]:text-foreground',
+              )}
+            >
+              {moreBody(activeInMore)}
               <ChevronDown className="h-3.5 w-3.5 opacity-70" />
             </button>
           </DropdownMenuTrigger>
@@ -172,7 +198,7 @@ export function ArtPrimaryNav({
               <DropdownMenuItem asChild className={cn(artMenuItem, 'text-primary [&>svg]:text-primary')}>
                 <Link to="/admin">
                   <Shield />
-                  <span>Super Admin</span>
+                  <span>{t('admin.nav.title')}</span>
                 </Link>
               </DropdownMenuItem>
             )}
@@ -188,7 +214,7 @@ export function ArtPrimaryNav({
           </span>
         ))}
         <span className={cn(pill, 'gap-1')}>
-          <span>{t('artShell.more')}</span>
+          {moreBody(activeTool)}
           <ChevronDown className="h-3.5 w-3.5" />
         </span>
       </div>

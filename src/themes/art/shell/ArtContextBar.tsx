@@ -4,6 +4,7 @@ import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { ArtNav, ArtQueueItem } from './useArtNav';
 import { artCount } from './styles';
+import { useScrollFade } from './strips';
 
 /** Whether `ref`'s element has children; pages portal into it at any time. */
 function useHasChildren(ref: React.RefObject<HTMLElement>) {
@@ -20,6 +21,11 @@ function useHasChildren(ref: React.RefObject<HTMLElement>) {
   return filled;
 }
 
+/**
+ * One view of the inbox, in the header's pill language: 36px, the current
+ * one on a clay tint. The needs-human count is the same clay circle as on the
+ * header's Inbox pill and the phone's tab bar; other counts stay quiet.
+ */
 function QueuePill({ item }: { item: ArtQueueItem }) {
   const Icon = item.icon;
   const count = item.badge ?? 0;
@@ -30,20 +36,22 @@ function QueuePill({ item }: { item: ArtQueueItem }) {
       data-active={item.active}
       aria-current={item.active ? 'page' : undefined}
       className={cn(
-        'inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[13px] font-medium transition-colors',
+        'inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13px] font-medium transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
-        item.active
-          ? 'bg-card text-foreground shadow-[0_1px_2px_0_hsl(var(--art-shadow)/0.08)] ring-1 ring-foreground/[0.08]'
-          : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+        item.active ? 'bg-primary/10 text-primary' : 'text-foreground/70 hover:bg-muted hover:text-foreground',
       )}
     >
-      <Icon className={cn('h-3.5 w-3.5 shrink-0', item.active && 'text-primary')} strokeWidth={2.1} />
+      <Icon className="h-4 w-4 shrink-0" strokeWidth={2} />
       <span>{item.label}</span>
       {count > 0 && (
         <span
           className={cn(
             artCount,
-            item.tone === 'urgent' ? 'bg-destructive text-destructive-foreground' : 'bg-foreground/[0.08] text-foreground/70',
+            item.tone === 'urgent'
+              ? 'bg-primary text-primary-foreground'
+              : item.active
+                ? 'bg-primary/15 text-primary'
+                : 'bg-foreground/[0.08] text-foreground/70',
           )}
         >
           {count > 99 ? '99+' : count}
@@ -62,13 +70,19 @@ function QueuePill({ item }: { item: ArtQueueItem }) {
  */
 export function ArtContextBar({ nav, compact }: { nav: ArtNav; compact: boolean }) {
   const { t } = useTranslation();
+  const barRef = useRef<HTMLDivElement>(null);
   const slotRef = useRef<HTMLDivElement>(null);
+  const viewsRef = useRef<HTMLElement>(null);
   const slotFilled = useHasChildren(slotRef);
   const queues = nav.queues;
   const visible = queues.length > 0 || slotFilled;
+  // Fade the edge that hides more: the whole bar on a phone, the views on a desktop.
+  useScrollFade(barRef, visible && compact);
+  useScrollFade(viewsRef, visible && !compact && queues.length > 0);
 
   return (
     <div
+      ref={barRef}
       data-shell="context-bar"
       className={cn(
         visible ? 'flex' : 'hidden',
@@ -81,6 +95,7 @@ export function ArtContextBar({ nav, compact }: { nav: ArtNav; compact: boolean 
       <div ref={slotRef} id="topbar-page-slot" className="relative z-10 flex min-w-0 shrink-0 items-stretch" />
       {queues.length > 0 && (
         <nav
+          ref={viewsRef}
           aria-label={t('artShell.inboxViews')}
           className={cn(
             'flex items-center gap-1',

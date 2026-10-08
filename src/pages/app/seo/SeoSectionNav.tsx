@@ -60,7 +60,7 @@ export function SeoSectionNav({
   const activeSection = findSection(activeSectionKey);
 
   return (
-    <div className="flex h-full shrink-0">
+    <div data-section-nav-wrap className="flex h-full shrink-0">
       {/* Tool switcher — icons + labels */}
       <TooltipProvider delayDuration={150}>
         <nav data-section-nav="seo-tools" className="flex w-48 flex-col gap-1 border-e border-border/60 bg-muted/30 p-2 py-3">

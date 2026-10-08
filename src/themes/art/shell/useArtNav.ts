@@ -29,6 +29,7 @@ import type { AppSection } from '@/lib/planAccess';
 import { channelInboxVisible, needsHumanQueueVisible } from '@/lib/planAccess';
 import { pluginsApi } from '@/lib/plugins-api';
 import { channelLabel, type ChannelKey } from '@/components/inbox/ChannelBadge';
+import { artSubPath } from './layout';
 
 export interface ArtNavItem {
   key: string;
@@ -48,6 +49,9 @@ export interface ArtQueueItem extends ArtNavItem {
 }
 
 type Entry = { key: string; path: string; icon: LucideIcon; section?: AppSection };
+
+/** Settings' Team & Departments page (and its old aliases), where `/team` leads owners. */
+const TEAM_PAGE = /^\/settings\/(team-departments|team|departments)(\/|$)/;
 
 // Top-level destinations by priority; a plan-gated one carries its section.
 const PRIMARY: Entry[] = [
@@ -89,9 +93,17 @@ export function useArtNav() {
     queryFn: async () => (await pluginsApi.catalog(workspace!.id)).items || [],
   });
 
+  // Anchored on the path after the workspace slug, so `/ai-agent/settings`
+  // or `/call-center/settings` never light up the header's Settings too.
+  // Owners reach Team through `/team`, which lands on Settings' Team &
+  // Departments page: that page belongs to the Team pill, not to Settings.
+  const sub = artSubPath(location.pathname, wsPath(''));
+  const onTeamPage = TEAM_PAGE.test(sub);
   const isActive = (subPath: string) => {
-    if (subPath === '') return location.pathname === wsPath('');
-    return location.pathname.includes(subPath);
+    if (subPath === '') return sub === '';
+    if (subPath === '/team' && onTeamPage) return true;
+    if (subPath === '/settings' && onTeamPage) return false;
+    return sub === subPath || sub.startsWith(`${subPath}/`);
   };
 
   const label = (key: string) => t(`nav.${key}` as TranslationKey);

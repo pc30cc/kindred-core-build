@@ -4,8 +4,8 @@
  * an underline bar, table rows are cards, menus are roomy, tooltips are ink.
  *
  * Every selector starts with :root[data-panel-theme="art"]; see theme.css.
- * (One selector per line, and no commas inside :where() / :is() / :not():
- * src/test/themes/panelThemes.test.ts reads selector lists by their commas.)
+ * (One selector per line. src/test/themes/panelThemes.test.ts splits a
+ * selector list on its top-level commas, so `:is(a, b)` stays one selector.)
  *
  * How the rules are keyed:
  *   - The primitive is named inside :where() (`:where([data-slot="card"])`),
@@ -27,7 +27,12 @@
   --art-ui-line-strong: hsl(var(--foreground) / 0.13);
   /* Unchecked checkbox and radio edges: 3:1 against paper (WCAG 1.4.11). */
   --art-ui-control-edge: hsl(var(--foreground) / 0.5);
-  --art-ui-field: hsl(var(--muted) / 0.6);
+  /* A filled field is a translucent tint with a hairline edge, so it reads
+     on whatever it sits on: the grained canvas, a card, a dialog, a muted
+     panel. (A solid muted fill vanished on the canvas, which is the same
+     ivory.) */
+  --art-ui-field: hsl(var(--art-shadow) / 0.055);
+  --art-ui-field-edge: hsl(var(--foreground) / 0.085);
   --art-ui-halo: 0 0 0 3px hsl(var(--ring) / 0.15);
   /* Clay text on a clay tint: primary, a little deeper so 12px stays AA. */
   --art-ui-tint-text: color-mix(in oklab, hsl(var(--primary)) 80%, hsl(var(--foreground)));
@@ -47,7 +52,8 @@
   --art-ui-line: hsl(var(--foreground) / 0.08);
   --art-ui-line-strong: hsl(var(--foreground) / 0.14);
   --art-ui-control-edge: hsl(var(--foreground) / 0.42);
-  --art-ui-field: hsl(var(--muted) / 0.85);
+  --art-ui-field: hsl(var(--foreground) / 0.055);
+  --art-ui-field-edge: hsl(var(--foreground) / 0.09);
   --art-ui-halo: 0 0 0 3px hsl(var(--ring) / 0.2);
   --art-ui-tint-text: hsl(var(--primary));
   --art-ui-row-hover: hsl(var(--foreground) / 0.045);
@@ -118,6 +124,15 @@
   --tw-shadow: var(--art-ui-solid-shadow-hover);
 }
 
+/* A disabled or locked (faded) solid button lies flat: a raised shadow
+   under a faded pill reads as a pressable one. */
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="default"]:disabled).bg-primary,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="destructive"]:disabled).bg-destructive,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="default"]).bg-primary.opacity-60,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="default"]).bg-primary.opacity-50 {
+  --tw-shadow: 0 0 #0000;
+}
+
 /* Outline: paper with a hairline. Ghost: nothing until hovered. */
 :root[data-panel-theme="art"] :where([data-slot="button"][data-variant="outline"]).bg-background {
   background-color: hsl(var(--card));
@@ -143,6 +158,27 @@
 :root[data-panel-theme="art"] :where([data-slot="button"][data-variant="outline"]).hover\:text-accent-foreground:hover,
 :root[data-panel-theme="art"] :where([data-slot="button"][data-variant="ghost"]).hover\:text-accent-foreground:hover {
   color: hsl(var(--foreground));
+}
+
+/* A segmented control a page built from buttons (a tray of ghost buttons,
+   the current one primary) shows the current one as a clay tint, like the
+   header's navigation pills, not a solid clay slab; the tray is a pill. */
+:root[data-panel-theme="art"] :where(.flex.p-1:has(> [data-slot="button"][data-variant="ghost"])) > :where([data-slot="button"][data-variant="default"]).bg-primary {
+  background-color: hsl(var(--primary) / 0.1);
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-panel-theme="art"] :where(.flex.p-1:has(> [data-slot="button"][data-variant="ghost"])) > :where([data-slot="button"][data-variant="default"]).bg-primary:hover {
+  background-color: hsl(var(--primary) / 0.14);
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-panel-theme="art"] :where(.flex.p-1:has(> [data-slot="button"][data-variant="ghost"])) > :where([data-slot="button"][data-variant="default"]).text-primary-foreground {
+  color: var(--art-ui-tint-text);
+}
+
+:root[data-panel-theme="art"] :where(.flex.p-1:has(> [data-slot="button"][data-variant="ghost"]:not(.h-9):not(.h-10):not(.h-11))).rounded-lg {
+  border-radius: 9999px;
 }
 
 /* A press sinks the pill by a pixel (not on menu triggers: they open on
@@ -171,10 +207,12 @@
   transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* At rest the edge is a hairline (it gives the field its shape on paper);
+   hovered it darkens, focused it turns clay. */
 :root[data-panel-theme="art"] :where([data-slot="input"]).border-input,
 :root[data-panel-theme="art"] :where([data-slot="textarea"]).border-input,
 :root[data-panel-theme="art"] :where([data-slot="select-trigger"]).border-input {
-  border-color: transparent;
+  border-color: var(--art-ui-field-edge);
 }
 
 :root[data-panel-theme="art"] :where([data-slot="input"]:not(:disabled)).border-input:hover,
@@ -189,6 +227,27 @@
 
 :root[data-panel-theme="art"] :where([data-slot="textarea"]).py-2 {
   padding-block: 0.625rem;
+}
+
+/* A button in a row beside a field (an "add" button, a search's action)
+   takes the field's 44px height, so the two line up instead of the button
+   riding 4-8px high. Rows that stack (flex-col) keep their own sizes. */
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="input"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="input"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-10,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> * > [data-slot="input"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> * > [data-slot="input"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-10,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="select-trigger"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="select-trigger"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-10 {
+  height: 2.75rem;
+}
+
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="input"].h-10)) > :where([data-slot="button"].h-9).w-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="input"].h-10)) > :where([data-slot="button"].h-10).w-10,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> * > [data-slot="input"].h-10)) > :where([data-slot="button"].h-9).w-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> * > [data-slot="input"].h-10)) > :where([data-slot="button"].h-10).w-10,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="select-trigger"].h-10)) > :where([data-slot="button"].h-9).w-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="select-trigger"].h-10)) > :where([data-slot="button"].h-10).w-10 {
+  width: 2.75rem;
 }
 
 /* Focus: the field lifts to paper with a clay edge and a soft halo (on any
@@ -226,6 +285,31 @@
   color: hsl(var(--muted-foreground));
 }
 
+/* A field a page built as a group (a bordered box holding a prefix and a
+   borderless input, e.g. "+98 | number") is filled like any other field,
+   and its prefix is a quiet segment instead of a grey block. */
+:root[data-panel-theme="art"] :where(.border.bg-background:has(> [data-slot="input"].border-0)) {
+  border-color: var(--art-ui-field-edge);
+  background-color: var(--art-ui-field);
+  box-shadow: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:root[data-panel-theme="art"] :where(.border.bg-background:has(> [data-slot="input"].border-0)):hover {
+  border-color: hsl(var(--input));
+}
+
+:root[data-panel-theme="art"] :where(.border.bg-background:has(> [data-slot="input"].border-0)):focus-within {
+  border-color: hsl(var(--ring));
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-ui-halo);
+}
+
+:root[data-panel-theme="art"] :where(.border.bg-background:has(> [data-slot="input"].border-0)) > :where(span[class*=" bg-muted"]) {
+  border-color: var(--art-ui-field-edge);
+  background-color: transparent;
+}
+
 /* ── 3. Checkbox, radio, switch ────────────────────────────────────────── */
 
 :root[data-panel-theme="art"] :where([data-slot="checkbox"]).h-4,
@@ -240,6 +324,12 @@
 
 :root[data-panel-theme="art"] :where([data-slot="checkbox"]).rounded-sm {
   border-radius: 0.375rem;
+}
+
+/* A page's small (14px) checkbox keeps a square's corner; Art's 6px would
+   make it a circle, which reads as a radio. */
+:root[data-panel-theme="art"] :where([data-slot="checkbox"].h-3\.5).rounded-sm {
+  border-radius: 0.25rem;
 }
 
 :root[data-panel-theme="art"] :where([data-slot="checkbox"]).border-primary,
@@ -262,6 +352,11 @@
   width: 0.875rem;
   height: 0.875rem;
   stroke-width: 3;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="checkbox"].h-3\.5) svg {
+  width: 0.625rem;
+  height: 0.625rem;
 }
 
 :root[data-panel-theme="art"] :where([data-slot="switch"]).data-\[state\=unchecked\]\:bg-input[data-state="unchecked"] {
@@ -327,10 +422,87 @@
   color: hsl(var(--muted-foreground));
 }
 
+/* The bar runs the full row (a hairline that stopped where the tabs stop
+   would end mid-page), with the tabs from the start. Only a list that sits
+   on its own line under the Tabs root, not one a page put in a toolbar row,
+   and not a compact (h-8) toggle. */
+:root[data-panel-theme="art"] :where([data-slot="tabs"]:not(.flex):not(.grid):not(.inline-flex)) > :where([data-slot="tabs-list"][data-orientation="horizontal"][class*=" bg-muted"]:not([class*=" w-"]):not(.h-8)).inline-flex,
+:root[data-panel-theme="art"] :where([data-slot="tabs"]:not(.flex):not(.grid):not(.inline-flex)) > :where([data-slot="tabs-list"][data-orientation="horizontal"][class*=" bg-muted"]:not(.h-8)).w-full {
+  display: flex;
+  width: 100%;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]).justify-center {
+  justify-content: flex-start;
+}
+
+/* A page's big segmented switch (px-6, text-base) becomes ordinary tabs. */
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).px-6 {
+  padding-inline: 1rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).text-base {
+  font-size: 0.9375rem;
+}
+
+/* A bar wider than a phone scrolls inside itself instead of pushing the
+   page sideways. Its focus ring is drawn inside the tab, so the scroller
+   does not clip it. */
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"])[class*=" bg-muted"]:not(.flex-wrap) {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]:not(.flex-wrap))::-webkit-scrollbar {
+    display: none;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]:not(.flex-wrap)) > :where([data-slot="tabs-trigger"]).ring-offset-background {
+    flex-shrink: 0;
+    --tw-ring-inset: inset;
+    --tw-ring-offset-width: 0px;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).px-6 {
+    padding-inline: 0.625rem;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).gap-2\.5 {
+    gap: 0.375rem;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).text-base {
+    font-size: 0.875rem;
+  }
+}
+
 /* A list a page drew as a rounded pill tray keeps the tray; its tabs become
    pills too. */
 :root[data-panel-theme="art"] :where([data-slot="tabs-list"].rounded-full) > :where([data-slot="tabs-trigger"]).rounded-sm {
   border-radius: 9999px;
+}
+
+/* A tab a page filled with solid clay when active reads like the header's
+   navigation pills instead: a clay tint with clay text (a solid clay tab was
+   the heaviest thing on the page, louder than its call to action). */
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:bg-primary {
+  background-color: hsl(var(--primary) / 0.1);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:text-primary-foreground {
+  color: var(--art-ui-tint-text);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:bg-primary.data-\[state\=active\]\:shadow-sm,
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:bg-primary.data-\[state\=active\]\:shadow-md {
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:border-primary\/30 {
+  border-color: transparent;
 }
 
 :root[data-panel-theme="art"] :where([data-slot="tabs-content"]).mt-2 {
@@ -364,7 +536,7 @@
 :root[data-panel-theme="art"] :where([data-slot="table"]) > thead > tr > th,
 :root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > thead > tr > th {
   height: auto;
-  padding: 0.5rem 1.25rem;
+  padding: 0.5rem 0.75rem;
   border: 0;
   background-color: transparent;
   color: hsl(var(--muted-foreground));
@@ -377,13 +549,13 @@
 /* A sticky header stays readable over the rows scrolling under it. */
 :root[data-panel-theme="art"] :where([data-slot="table"]) > thead.sticky,
 :root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > thead.sticky {
-  background-color: hsl(var(--background) / 0.86);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  background-color: hsl(var(--background) / 0.95);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 :root[data-panel-theme="art"] :where([data-slot="card"] table) > thead.sticky {
-  background-color: hsl(var(--card) / 0.9);
+  background-color: hsl(var(--card) / 0.96);
 }
 
 /* Rows: each one a card. A page's row background (its hover tint) gives way
@@ -441,19 +613,38 @@
   background-color: transparent;
 }
 
-/* Cell spacing. A shadcn cell keeps a page's own padding (only its default
-   p-4 changes); a hand-made table gets Art's rhythm outright. */
+/* Cell spacing: roomy at the row card's two ends, tighter between columns
+   (1.25rem everywhere made a table overflow where Classic's fits). A shadcn
+   cell keeps a page's own padding (only its default p-4 changes); a
+   hand-made table gets Art's rhythm outright. Headers follow the same
+   columns. */
 :root[data-panel-theme="art"] :where([data-slot="table-cell"]:not([class*=" py-"]):not([class*=" pt-"]):not([class*=" pb-"]):not([class*=" px-"]):not([class*=" ps-"]):not([class*=" pe-"]):not([class*=" pl-"]):not([class*=" pr-"])).p-4,
 :root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td {
-  padding: 0.875rem 1.25rem;
+  padding: 0.875rem 0.75rem;
 }
 
 :root[data-panel-theme="art"] :where(table.text-xs:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td {
-  padding: 0.625rem 1rem;
+  padding: 0.625rem 0.625rem;
 }
 
-:root[data-panel-theme="art"] :where([data-slot="table-head"]).px-4 {
-  padding-inline: 1.25rem;
+:root[data-panel-theme="art"] :where([data-slot="table-cell"]:first-child:not([class*=" px-"]):not([class*=" ps-"]):not([class*=" pl-"]):not([class*=" pr-"])).p-4,
+:root[data-panel-theme="art"] :where([data-slot="table"]) > thead > tr > th:first-child,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > :is(thead, tbody) > tr > :first-child {
+  padding-inline-start: 1.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table-cell"]:last-child:not([class*=" px-"]):not([class*=" pe-"]):not([class*=" pl-"]):not([class*=" pr-"])).p-4,
+:root[data-panel-theme="art"] :where([data-slot="table"]) > thead > tr > th:last-child,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > :is(thead, tbody) > tr > :last-child {
+  padding-inline-end: 1.25rem;
+}
+
+:root[data-panel-theme="art"] :where(table.text-xs:not([data-slot]):not([role]):has(> thead):not(.prose table)) > :is(thead, tbody) > tr > :first-child {
+  padding-inline-start: 1rem;
+}
+
+:root[data-panel-theme="art"] :where(table.text-xs:not([data-slot]):not([role]):has(> thead):not(.prose table)) > :is(thead, tbody) > tr > :last-child {
+  padding-inline-end: 1rem;
 }
 
 /* The selection column stays narrow. */
@@ -485,7 +676,58 @@
   padding: 0.25rem 0.75rem 0.5rem;
 }
 
+/* A hand-made panel (a card-coloured box with an edge, not a Card) whose
+   only content is a table gives way: its row cards float on the page
+   instead of sitting flush against the panel's edges inside a second
+   frame. */
+:root[data-panel-theme="art"] :where(.bg-card.border:not([data-slot]):has(> table:only-child:not([data-slot]):not([role]) > thead)).bg-card.border,
+:root[data-panel-theme="art"] :where(.bg-card.border:not([data-slot]):has(> [data-slot="table-container"]:only-child)).bg-card.border {
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+/* A row's own action (a ghost "Preview" or "Open" at its end) is quiet
+   until the row is hovered, so it never outweighs the row's name. */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr > td:last-child :where([data-slot="button"][data-variant="ghost"]:not([class*=" text-destructive"]):not([class*=" text-primary"]):not([class*=" text-success"]):not([class*=" text-warning"])),
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td:last-child :where([data-slot="button"][data-variant="ghost"]:not([class*=" text-destructive"]):not([class*=" text-primary"]):not([class*=" text-success"]):not([class*=" text-warning"])) {
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr:hover > td:last-child :where([data-slot="button"][data-variant="ghost"]:not([class*=" text-destructive"]):not([class*=" text-primary"]):not([class*=" text-success"]):not([class*=" text-warning"])),
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr:hover > td:last-child :where([data-slot="button"][data-variant="ghost"]:not([class*=" text-destructive"]):not([class*=" text-primary"]):not([class*=" text-success"]):not([class*=" text-warning"])) {
+  color: hsl(var(--foreground));
+}
+
+/* A cell's faded placeholder ("Unknown", "No segments") stays legible on
+   the row card (half-strength muted ink fell to about 2:1). */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr > td .text-muted-foreground\/50,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td .text-muted-foreground\/50 {
+  color: hsl(var(--muted-foreground) / 0.8);
+}
+
 /* ── 6. Badges: soft tinted pills ──────────────────────────────────────── */
+
+/* A badge is one line: on a phone it never breaks into a two-line blob. */
+:root[data-panel-theme="art"] :where([data-slot="badge"]).inline-flex {
+  white-space: nowrap;
+}
+
+/* A page's 10px badge comes up to 11px, still compact but legible (Persian
+   at 10px is hard to read). */
+:root[data-panel-theme="art"] :where([data-slot="badge"]).text-\[10px\] {
+  font-size: 0.6875rem;
+}
+
+/* A badge a page tinted with a status colour is a soft pill like Art's
+   own: the tint carries it, without a coloured outline. */
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-success/"])[class*=" border-success/"],
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-warning/"])[class*=" border-warning/"],
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-destructive/"])[class*=" border-destructive/"],
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-primary/"])[class*=" border-primary/"],
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-info/"])[class*=" border-info/"] {
+  border-color: transparent;
+}
 
 :root[data-panel-theme="art"] :where([data-slot="badge"]).px-2\.5 {
   padding-inline: 0.625rem;
@@ -689,12 +931,12 @@
   }
 }
 
-/* The close button: a 36px circle. */
+/* The close button: a 36px circle. Its 16px icon is centred by padding, not
+   by a display value, so a page that hides the default close (its own
+   `[&>button]:hidden`) still hides it. */
 :root[data-panel-theme="art"] :where([data-slot="dialog-close"]).rounded-sm,
 :root[data-panel-theme="art"] :where([data-slot="sheet-close"]).rounded-sm {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  padding: 0.625rem;
   width: 2.25rem;
   height: 2.25rem;
   border-radius: 9999px;
@@ -1075,6 +1317,20 @@
   font-weight: 600;
 }
 
+/* An operator without a photo: a clay tint, the one accent, instead of the
+   violet (rose in Art) figure, which was the loudest thing in the header. */
+:root[data-panel-theme="art"] :where([data-slot="avatar-fallback"]).bg-brand-violet\/15 {
+  background-color: hsl(var(--primary) / 0.1);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="avatar-fallback"]).text-brand-violet {
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="avatar-fallback"]).ring-brand-violet\/30 {
+  --tw-ring-color: hsl(var(--primary) / 0.2);
+}
+
 :root[data-panel-theme="art"] :where([data-slot="skeleton"]).rounded-md {
   border-radius: 0.625rem;
 }
@@ -1149,6 +1405,11 @@
 }
 
 /* ── 15. Details ───────────────────────────────────────────────────────── */
+
+/* Persian has no italic: a synthetic slant only looks broken. */
+:root[data-panel-theme="art"][dir="rtl"] .italic {
+  font-style: normal;
+}
 
 :root[data-panel-theme="art"] ::selection {
   background-color: hsl(var(--primary) / 0.2);

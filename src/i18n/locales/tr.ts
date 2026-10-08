@@ -10372,6 +10372,9 @@ const tr: TranslationKeys = {
     language: 'Dil',
     inboxViews: 'Gelen kutusu görünümleri',
   },
+  artInbox: {
+    backToEmails: 'E-postalara dön',
+  },
 };
 
 export default tr;

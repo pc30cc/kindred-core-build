@@ -31,8 +31,7 @@ export function ArtShellSkeleton() {
           </div>
         )}
         <div className="ms-auto flex items-center gap-1.5">
-          {!isMobile && <Skeleton className="me-1.5 hidden h-10 w-52 rounded-full xl:block" />}
-          {Array.from({ length: isMobile ? 2 : 4 }).map((_, i) => (
+          {Array.from({ length: isMobile ? 3 : 6 }).map((_, i) => (
             <Skeleton key={i} className="h-10 w-10 rounded-full" />
           ))}
         </div>

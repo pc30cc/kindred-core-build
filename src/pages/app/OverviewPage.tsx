@@ -383,7 +383,7 @@ export default function OverviewPage() {
           <div className="pointer-events-none absolute -top-16 -start-10 h-40 w-40 rounded-full bg-indigo-500/15 blur-3xl" />
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25">
+              <span data-panel-icon className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25">
                 <MessageSquare className="h-4 w-4" />
               </span>
               <div>
@@ -392,11 +392,11 @@ export default function OverviewPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+              <span data-panel-stat className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 {tr('dashboard.resolvedConversations')}: <b className="text-foreground">{fmt(resolved)}</b>
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-600 ring-1 ring-amber-500/20 dark:text-amber-300">
+              <span data-panel-stat className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-600 ring-1 ring-amber-500/20 dark:text-amber-300">
                 <Clock className="h-3.5 w-3.5" />
                 {tr('dashboard.avgResponse')}: <b className="text-foreground">{fmt(openConvos)}</b>
               </span>
@@ -444,12 +444,12 @@ export default function OverviewPage() {
           <div className="pointer-events-none absolute -top-16 -end-10 h-40 w-40 rounded-full bg-emerald-500/15 blur-3xl" />
           <div className="relative mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/25">
+              <span data-panel-icon className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/25">
                 <CreditCard className="h-4 w-4" />
               </span>
               <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.planUsage')}</h2>
             </div>
-            <Link to={wsPath('/billing')} className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-300">
+            <Link to={wsPath('/billing')} data-panel-link className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-300">
               <CreditCard className="h-3.5 w-3.5" />
               {tr('dashboard.manageBilling')}
             </Link>
@@ -539,12 +539,12 @@ export default function OverviewPage() {
         <div data-panel="list" className="magic-card spotlight xl:col-span-2">
           <div data-panel-header className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-sky-500/[0.10] to-transparent px-5 py-3.5">
             <div className="flex items-center gap-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-md shadow-sky-500/25">
+              <span data-panel-icon className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-500 text-white shadow-md shadow-sky-500/25">
                 <MessageSquare className="h-4 w-4" />
               </span>
               <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.recentConversations')}</h2>
             </div>
-            <Link to={wsPath('/inbox')} className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-300">
+            <Link to={wsPath('/inbox')} data-panel-link className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-300">
               {tr('dashboard.viewAll')}
             </Link>
           </div>
@@ -588,6 +588,7 @@ export default function OverviewPage() {
                       </div>
 
                       <span
+                        data-status={c.status || 'open'}
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
                           c.status === 'open'
                             ? 'bg-indigo-500/10 text-indigo-600 ring-indigo-500/20 dark:text-indigo-300'
@@ -615,12 +616,12 @@ export default function OverviewPage() {
         <div data-panel="list" className="magic-card spotlight">
           <div data-panel-header className="flex items-center justify-between border-b border-border/60 bg-gradient-to-r from-rose-500/[0.10] to-transparent px-5 py-3.5">
             <div className="flex items-center gap-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-md shadow-rose-500/25">
+              <span data-panel-icon className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-md shadow-rose-500/25">
                 <ShieldCheck className="h-4 w-4" />
               </span>
               <h2 className="text-sm font-semibold text-foreground">{tr('dashboard.teamStatus')}</h2>
             </div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+            <span data-panel-live className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
               {fmt(teamOnline)} {tr('dashboard.liveNow')}
             </span>
@@ -628,7 +629,7 @@ export default function OverviewPage() {
           {teamPending || membersPending ? (
             <IdentityListSkeleton rows={4} avatarClassName="h-8 w-8" rowClassName="px-5 py-2.5" />
           ) : team.length === 0 ? (
-            <div className="px-5 py-10 text-center text-sm text-muted-foreground">{tr('dashboard.noTeam')}</div>
+            <div data-panel-empty="team" className="px-5 py-10 text-center text-sm text-muted-foreground">{tr('dashboard.noTeam')}</div>
           ) : (
             <ul className="max-h-[280px] divide-y divide-border/60 overflow-y-auto">
               {team.slice(0, 8).map((m) => {

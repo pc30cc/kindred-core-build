@@ -118,6 +118,9 @@ export function ChannelBadge({
   const label = channelLabel(channel, t, clientPlatform);
   return (
     <span
+      // Theme hook (src/themes/art/inbox.css): Art draws channel chips as
+      // neutral pills and keeps the channel's colour on the icon only.
+      data-channel-badge={channel}
       className={cn(
         'inline-flex items-center gap-1 rounded-full border font-medium whitespace-nowrap',
         size === 'xs' ? 'px-1.5 py-[1px] text-[10px]' : 'px-2 py-0.5 text-[11px]',

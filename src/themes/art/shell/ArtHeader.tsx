@@ -26,14 +26,24 @@ export function ArtHeader({ nav, compact }: { nav: ArtNav; compact: boolean }) {
   const { t } = useTranslation();
   const searchLabel = t('common.quickSearch') || 'Quick search';
 
+  // A round icon at every width: the bar's row is the page column's width
+  // (theme.css), and the room is worth more to the navigation pills. The
+  // shortcut is in the tooltip.
   const searchIcon = (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button type="button" aria-label={searchLabel} onClick={openCommandPalette} className={cn(artIconButton, !compact && 'xl:hidden')}>
+        <button type="button" data-shell="search" aria-label={searchLabel} aria-keyshortcuts="Meta+K Control+K" onClick={openCommandPalette} className={artIconButton}>
           <Search />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{searchLabel}</TooltipContent>
+      <TooltipContent side="bottom" className="flex items-center gap-2">
+        <span>{searchLabel}</span>
+        {!compact && (
+          <kbd dir="ltr" className="rounded-full bg-background/15 px-1.5 py-px font-sans text-[10.5px] font-medium opacity-80">
+            ⌘K
+          </kbd>
+        )}
+      </TooltipContent>
     </Tooltip>
   );
 
@@ -71,18 +81,6 @@ export function ArtHeader({ nav, compact }: { nav: ArtNav; compact: boolean }) {
         <ArtPrimaryNav items={nav.primary} tools={nav.utility} superAdmin={nav.superAdmin} ready={nav.ready} />
 
         <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            data-shell="search"
-            onClick={openCommandPalette}
-            className="me-1.5 hidden h-10 w-52 items-center gap-2 rounded-full bg-muted/70 pe-1.5 ps-3.5 text-sm text-muted-foreground ring-1 ring-inset ring-foreground/[0.04] transition-colors hover:bg-muted hover:text-foreground xl:inline-flex 2xl:w-64"
-          >
-            <Search className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-start">{searchLabel}</span>
-            <kbd dir="ltr" className="rounded-full bg-background px-2 py-0.5 font-sans text-[11px] font-medium text-muted-foreground ring-1 ring-foreground/[0.08]">
-              ⌘K
-            </kbd>
-          </button>
           {searchIcon}
           <ArtLanguageMenu />
           <ArtThemeToggle />

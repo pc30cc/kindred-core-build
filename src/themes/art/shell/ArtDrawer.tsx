@@ -83,7 +83,7 @@ export function ArtDrawer({ nav, open, onOpenChange }: { nav: ArtNav; open: bool
                 className="flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] font-medium text-primary transition-colors hover:bg-primary/[0.07]"
               >
                 <Shield className="h-[18px] w-[18px] shrink-0" strokeWidth={2} />
-                <span>Super Admin</span>
+                <span>{t('admin.nav.title')}</span>
               </Link>
             )}
           </nav>

@@ -62,7 +62,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
             <span className="relative flex h-6 w-6 items-center justify-center">
               <tab.icon className={cn('h-5 w-5', tab.active ? 'text-primary' : 'text-muted-foreground')} />
               {!!tab.badge && tab.badge > 0 && (
-                <span className="absolute -end-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
+                <span data-nav-count className="absolute -end-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
                   {tab.badge > 99 ? '99+' : tab.badge}
                 </span>
               )}

@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useTranslation, type TranslationKey } from '@/i18n';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 import { SkeletonStats } from '@/components/common/Skeletons';
 import { WebAnalyticsSection } from '@/pages/app/seo/WebAnalyticsSection';
 import { WebAnalyticsSectionNav } from './WebAnalyticsSectionNav';
-import { firstWebAnalyticsLeafKey } from './webAnalyticsNavTree';
+import { findWebAnalyticsLeaf, firstWebAnalyticsLeafKey } from './webAnalyticsNavTree';
 
 export default function WebAnalyticsPage() {
   const { workspace } = useActiveWorkspace();
@@ -12,6 +14,10 @@ export default function WebAnalyticsPage() {
   const wsPath = useWorkspacePath();
   const navigate = useNavigate();
   const { subsection: subsectionParam } = useParams<{ subsection?: string }>();
+  const { t } = useTranslation();
+  // Art gives every page a title of its own; Classic names the report in
+  // its side list only.
+  const isArt = usePanelTheme().theme === 'art';
 
   // Canonicalize the URL: bare /analytics redirects to the first report so
   // the nav's active state is always well-defined.
@@ -26,11 +32,13 @@ export default function WebAnalyticsPage() {
   }
 
   const subsectionKey = subsectionParam || firstWebAnalyticsLeafKey();
+  const leaf = findWebAnalyticsLeaf(subsectionKey);
 
   return (
     <div data-section-layout="analytics" className="flex h-full min-h-0 items-stretch">
       <WebAnalyticsSectionNav activeSubsectionKey={subsectionKey} />
       <div data-section-content className="min-w-0 flex-1 overflow-y-auto bg-background p-6">
+        {isArt && leaf && <h1 data-section-title>{t(leaf.labelKey as TranslationKey)}</h1>}
         <WebAnalyticsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
       </div>
     </div>

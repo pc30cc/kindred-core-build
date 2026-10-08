@@ -378,7 +378,7 @@ function PageHeader({ section, subsectionKey }: { section?: ReturnType<typeof fi
   if (!section) return null;
   const leaf = subsectionKey ? findLeaf(section, subsectionKey) : undefined;
   return (
-    <div className="mb-4 flex items-center gap-2 text-sm">
+    <div data-section-crumbs className="mb-4 flex items-center gap-2 text-sm">
       <span className="font-semibold text-foreground">{t('seo.title')}</span>
       <span className="text-muted-foreground">/</span>
       <span className="font-semibold text-foreground">{t(section.labelKey as TranslationKey)}</span>

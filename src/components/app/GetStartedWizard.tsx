@@ -116,6 +116,7 @@ export default function GetStartedWizard() {
                     {tasks.filter(t => t.featured).map(task => (
                       <div
                         key={task.key}
+                        data-wizard-card
                         className="rounded-xl border border-border bg-background p-5 hover:border-primary/30 hover:shadow-md transition-all group"
                       >
                         {/* Feature icons row */}
@@ -132,7 +133,7 @@ export default function GetStartedWizard() {
                         <p className="text-xs text-muted-foreground leading-relaxed mb-4">{t(task.descKey)}</p>
                         <Button size="sm" asChild className="gap-1.5 shadow-sm">
                           <Link to={task.subPath === '#' ? '#' : wsPath(task.subPath)}>
-                            {t('wizard.getStarted')} <ArrowRight className="w-3 h-3" />
+                            {t('wizard.getStarted')} <ArrowRight data-wizard-arrow className="w-3 h-3" />
                           </Link>
                         </Button>
                       </div>
@@ -158,7 +159,7 @@ export default function GetStartedWizard() {
                     </div>
                     <Button size="sm" variant="outline" asChild className="gap-1 shrink-0">
                       <Link to={task.subPath === '#' ? '#' : wsPath(task.subPath)}>
-                        {t('wizard.getStarted')} <ArrowRight className="w-3 h-3" />
+                        {t('wizard.getStarted')} <ArrowRight data-wizard-arrow className="w-3 h-3" />
                       </Link>
                     </Button>
                   </div>

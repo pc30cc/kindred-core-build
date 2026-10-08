@@ -34,6 +34,7 @@ import { useApplyPanelTheme, usePanelTheme } from '@/themes/usePanelTheme';
 import { PanelThemePreviewBar } from '@/themes/PanelThemePreviewBar';
 import { ArtShell } from '@/themes/art/shell/ArtShell';
 import { ArtShellSkeleton } from '@/themes/art/shell/ArtShellSkeleton';
+import { artSubPath, isArtFullBleed } from '@/themes/art/shell/layout';
 
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
@@ -145,12 +146,12 @@ function EmailVerificationBar() {
       : t('auth.resendEmail');
 
   return (
-    <div className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
+    <div data-shell="notice" data-notice="email" className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
+        <span data-notice-icon className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
           {sentTo ? <MailCheck className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
         </span>
-        <p className="min-w-0 flex-1 text-sm leading-snug text-foreground">
+        <p data-notice-text className="min-w-0 flex-1 text-sm leading-snug text-foreground">
           {sentTo ? (
             <span className="inline-flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -160,7 +161,7 @@ function EmailVerificationBar() {
             <>
               <span className="font-medium">{t('auth.emailNotVerified')}</span>
               {user?.email ? (
-                <span className="ms-1.5 text-muted-foreground">({user.email})</span>
+                <span data-notice-detail className="ms-1.5 text-muted-foreground">({user.email})</span>
               ) : null}
             </>
           )}
@@ -171,6 +172,7 @@ function EmailVerificationBar() {
           <>
             <button
               onClick={() => setOtpOpen(true)}
+              data-notice-action
               className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
             >
               {t('auth.otpVerifyNow')}
@@ -181,6 +183,7 @@ function EmailVerificationBar() {
           <button
             onClick={handleResend}
             disabled={sending || isCoolingDown}
+            data-notice-action
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -191,6 +194,7 @@ function EmailVerificationBar() {
         <button
           onClick={dismiss}
           aria-label="dismiss"
+          data-notice-dismiss
           className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         >
           <X className="h-4 w-4" />
@@ -220,23 +224,24 @@ function PhoneVerificationBar() {
   if (status === 'verified') return null;
 
   return (
-    <div className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
+    <div data-shell="notice" data-notice="phone" className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
+        <span data-notice-icon className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
           <AlertTriangle className="h-4 w-4" />
         </span>
-        <p className="min-w-0 flex-1 text-sm leading-snug text-foreground">
+        <p data-notice-text className="min-w-0 flex-1 text-sm leading-snug text-foreground">
           <span className="font-medium">
             {status === 'no_phone' ? t('auth.phoneNotSet') : t('auth.phoneNotVerified')}
           </span>
           {data.phoneMasked ? (
-            <span className="ms-1.5 font-mono text-muted-foreground" dir="ltr">
+            <span data-notice-detail className="ms-1.5 font-mono text-muted-foreground" dir="ltr">
               ({data.phoneMasked})
             </span>
           ) : null}
         </p>
         <button
           onClick={() => setOpen(true)}
+          data-notice-action
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
         >
           {t('auth.phoneVerifyNow')}
@@ -338,7 +343,10 @@ export function AppLayout() {
         <OperatorCallProvider>
           <CommandPalette />
           <ArtShell
-            fullBleed={isFullBleed}
+            // Art's own rule, anchored after the workspace slug (layout.ts):
+            // the email client fills the area too, and `/call-center/settings`
+            // stays a normal page.
+            fullBleed={isArtFullBleed(artSubPath(pathname, routeSlug ? `/${routeSlug}` : ''))}
             notices={
               <>
                 {showVerificationBanner && <EmailVerificationBar />}

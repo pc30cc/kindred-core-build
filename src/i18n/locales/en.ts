@@ -10387,6 +10387,9 @@ const en = {
     language: 'Language',
     inboxViews: 'Inbox views',
   },
+  artInbox: {
+    backToEmails: 'Back to emails',
+  },
 };
 
 export type TranslationKeys = typeof en;

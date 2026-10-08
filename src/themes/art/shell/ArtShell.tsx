@@ -8,13 +8,16 @@ import { ArtHeader } from './ArtHeader';
 import { ArtContextBar } from './ArtContextBar';
 import { ArtDrawer } from './ArtDrawer';
 import { useArtNav } from './useArtNav';
+import { useRevealCurrentInStrips } from './strips';
 
 /**
  * The Art panel's frame (AppLayout renders it while the panel wears "art").
  * No sidebar: a top bar with the navigation as pills, a slim plan notice and
  * the inbox's views under it, then the page. A normal page is centred in a
  * 1280px column (theme.css, `[data-layout="page"]`); a full-bleed one
- * (inbox, settings, ...) fills everything under the bars without scrolling.
+ * (inbox, email, settings, ...: layout.ts) fills everything under the bars
+ * without scrolling. Notices (email / phone verification) sit under the page
+ * as slim strips (theme.css, `[data-shell="notice"]`).
  *
  * Phones get a compact top bar, the classic bottom tab bar and a drawer with
  * the whole menu behind its "Menu" tab.
@@ -24,6 +27,9 @@ export function ArtShell({ fullBleed, notices, children }: { fullBleed: boolean;
   const { workspace } = useActiveWorkspace();
   const nav = useArtNav();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Sideways strips (the inbox's views, a side list turned into pills on a
+  // phone) always show where the member is.
+  useRevealCurrentInStrips();
 
   return (
     <>

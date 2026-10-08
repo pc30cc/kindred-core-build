@@ -115,7 +115,7 @@ export default function KnowledgeBasePage() {
           content types with different consumers; this must never read as
           a minor filter toggle. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="h-auto w-full sm:w-auto gap-2 rounded-2xl bg-muted/60 p-2">
+        <TabsList data-kb-tabs className="h-auto w-full sm:w-auto gap-2 rounded-2xl bg-muted/60 p-2">
           <TabsTrigger
             value="articles"
             className="flex-1 sm:flex-initial gap-2.5 rounded-xl px-6 py-3.5 text-base font-bold data-[state=active]:shadow-md"
@@ -138,7 +138,7 @@ export default function KnowledgeBasePage() {
 
         <TabsContent value="articles" className="space-y-6 mt-0">
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-2.5">
+          <div data-kb-stats className="grid grid-cols-4 gap-2.5">
             <div className="stat-card flex flex-col items-center text-center px-2 py-3">
               <BookOpen className="w-4 h-4 text-primary mb-1" />
               <div className="text-lg font-bold text-foreground">{articles?.length ?? 0}</div>
@@ -226,7 +226,7 @@ export default function KnowledgeBasePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-foreground truncate">{article.title}</span>
-                        <Badge className={`text-[10px] px-1.5 py-0 ${statusBadge[article.status]}`}>{statusLabel[article.status] || article.status}</Badge>
+                        <Badge data-kb-status={article.status} className={`text-[10px] px-1.5 py-0 ${statusBadge[article.status]}`}>{statusLabel[article.status] || article.status}</Badge>
                       </div>
                     </div>
                     <div className="flex items-center gap-1">

@@ -436,7 +436,7 @@ function WidgetPageContent() {
     <div className="animate-fade-in" dir={dir}>
       <Tabs value={tab} onValueChange={setTab} dir={dir as 'rtl' | 'ltr'}>
         {/* Header: title, live status and the segmented section switcher */}
-        <div className="mb-5 rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm backdrop-blur">
+        <div data-page-hero="widget" className="mb-5 rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm backdrop-blur">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <h1 className="truncate text-lg font-bold leading-tight sm:text-xl">{t('widgetPage.title')}</h1>

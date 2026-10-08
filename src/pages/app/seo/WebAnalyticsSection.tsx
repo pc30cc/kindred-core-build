@@ -120,7 +120,7 @@ function LiveVisitorsBadge({ workspaceId }: { workspaceId: string }) {
   const { data } = useWebAnalyticsLiveVisitors(workspaceId);
   const count = data?.count ?? 0;
   return (
-    <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+    <span data-live-visitors className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
       <span className="relative flex h-2 w-2">
         {count > 0 && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
         <span className={`relative inline-flex h-2 w-2 rounded-full ${count > 0 ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
@@ -137,7 +137,7 @@ function WebAnalyticsInner({ workspaceId, subsectionKey }: { workspaceId: string
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
+      <div data-page-toolbar className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <p className="text-xs text-muted-foreground">{t('seo.webAnalytics.dataSourceNote')}</p>
           <LiveVisitorsBadge workspaceId={workspaceId} />
@@ -271,7 +271,7 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div data-figure-grid className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(data.pageviews)} label={t('seo.webAnalytics.stat.pageviews')} />
         <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatCompact(data.uniqueVisitors)} label={t('seo.webAnalytics.stat.uniqueVisitors')} />
         <GradientStatCard icon={Users} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(data.sessions)} label={t('seo.webAnalytics.stat.sessions')} />
@@ -280,7 +280,7 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
         <GradientStatCard icon={Clock} iconGradient="from-slate-500 to-slate-700" blobColor="bg-slate-500/15" value={formatDuration(data.avgVisitDurationSeconds)} label={t('seo.webAnalytics.stat.visitDuration')} />
       </div>
 
-      <Card>
+      <Card data-chart-card="trend">
         <CardHeader>
           <CardTitle className="text-base">{t('seo.webAnalytics.overview.trendTitle')}</CardTitle>
         </CardHeader>

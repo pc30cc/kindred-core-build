@@ -144,7 +144,7 @@ export default function PluginsPage() {
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <nav className="flex flex-wrap items-center gap-1 border-b border-border/60 pb-px">
+        <nav data-filter-tabs className="flex flex-wrap items-center gap-1 border-b border-border/60 pb-px">
           {[{ key: 'all', label: t('plugins.filterAll') },
             ...categories.map((c) => ({ key: c, label: t(`plugins.category.${c}` as never) }))].map((tab) => {
             const active = category === tab.key;

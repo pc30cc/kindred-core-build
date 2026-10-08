@@ -10369,6 +10369,9 @@ const fa: TranslationKeys = {
     language: 'زبان',
     inboxViews: 'بخش‌های صندوق ورودی',
   },
+  artInbox: {
+    backToEmails: 'بازگشت به ایمیل‌ها',
+  },
 };
 
 export default fa;

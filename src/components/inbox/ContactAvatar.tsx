@@ -46,15 +46,27 @@ function djb2(str: string): number {
   return h >>> 0;
 }
 
+// Cycle through 12 visually distinct hues, all with consistent saturation
+// and lightness so every avatar feels part of the same family.
+const GRADIENT_PALETTE = [
+  [212, 92], [262, 78], [192, 78], [152, 62],
+  [172, 70], [232, 88], [292, 70], [332, 78],
+  [16, 86], [36, 90], [142, 64], [202, 88],
+] as const;
+
+/** The palette slot a seed lands on. */
+function toneOf(seed: string): number {
+  return djb2(seed || '?') % GRADIENT_PALETTE.length;
+}
+
+/** A five-slot categorical index (1-5) for themes (`data-avatar-tone`). */
+function avatarToneOf(seed: string): number {
+  return (toneOf(seed) % 5) + 1;
+}
+
 function gradientFor(seed: string): string {
-  // Cycle through 12 visually distinct hues, all with consistent saturation
-  // and lightness so every avatar feels part of the same family.
-  const palette = [
-    [212, 92], [262, 78], [192, 78], [152, 62],
-    [172, 70], [232, 88], [292, 70], [332, 78],
-    [16, 86], [36, 90], [142, 64], [202, 88],
-  ] as const;
-  const idx = djb2(seed || '?') % palette.length;
+  const palette = GRADIENT_PALETTE;
+  const idx = toneOf(seed);
   const [h, h2off] = [palette[idx][0], 28];
   const s = palette[idx][1];
   const a = `hsl(${h} ${s}% 56%)`;
@@ -130,6 +142,12 @@ export function ContactAvatar({
       style={{ width: sz.px, height: sz.px, minWidth: sz.px, minHeight: sz.px }}
     >
       <div
+        // Theme hooks (src/themes/art/inbox.css): which variant this is and
+        // a categorical slot, so a theme can repaint the disc without the
+        // inline gradient.
+        data-slot="contact-avatar"
+        data-variant={avatarUrl ? 'image' : osKind ? 'os' : 'initials'}
+        data-avatar-tone={avatarUrl || osKind ? undefined : avatarToneOf(seed)}
         className={cn(
           sz.box,
           'rounded-full overflow-hidden flex items-center justify-center font-semibold text-white select-none',

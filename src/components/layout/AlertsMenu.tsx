@@ -113,6 +113,7 @@ export function AlertsMenu() {
       <SheetContent
         side={dir === 'rtl' ? 'left' : 'right'}
         dir={dir}
+        data-shell="alerts-sheet"
         className="flex w-full flex-col gap-0 p-0 sm:max-w-md [&>button.absolute]:hidden"
       >
         {/* Header */}
@@ -139,6 +140,7 @@ export function AlertsMenu() {
                 variant="ghost"
                 size="icon"
                 aria-label={t('common.close')}
+                data-shell="alerts-close"
                 className="h-10 w-10 shrink-0 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
               >
                 <X className="h-5 w-5" />

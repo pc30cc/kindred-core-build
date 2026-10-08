@@ -65,8 +65,8 @@ export default function VisitorsPage() {
         qc.invalidateQueries({ queryKey: ['visitor-intel-live', wsId] });
         qc.invalidateQueries({ queryKey: ['visitor-intel-map', wsId] });
       }
-    } catch (err: any) {
-      const msg = String(err?.message || '');
+    } catch (err: unknown) {
+      const msg = String((err as { message?: unknown } | null)?.message || '');
       toast({
         title: t('visitors.warmGeoCta'),
         description: msg.includes('Cooldown') ? t('visitors.warmGeoCooldown') : msg,
@@ -303,7 +303,7 @@ export default function VisitorsPage() {
           <>
           <div className="p-3 border-b border-border">
             {/* Compact title above search */}
-            <div className="mb-2 px-0.5">
+            <div data-list-title className="mb-2 px-0.5">
               <h1 className="text-sm font-semibold text-foreground leading-tight">{t('visitors.title')}</h1>
               <p className="text-[11px] text-muted-foreground leading-tight">{t('visitors.subtitle')}</p>
             </div>
@@ -576,10 +576,11 @@ export default function VisitorsPage() {
                 onSelect={setSelectedId}
               />
               {/* Stat overlay — Crisp-style floating panel on top of the map */}
-              <div className="pointer-events-none absolute top-3 start-3 z-[400] flex flex-wrap gap-2 max-w-[calc(100%-1.5rem)]">
+              <div data-visitors-stats className="pointer-events-none absolute top-3 start-3 z-[400] flex flex-wrap gap-2 max-w-[calc(100%-1.5rem)]">
                 {statCards.map(s => (
                   <div
                     key={s.label}
+                    data-visitors-stat
                     className="pointer-events-auto flex items-center gap-2 rounded-lg bg-card/95 backdrop-blur-sm border border-border shadow-sm px-3 py-2 min-w-[120px]"
                   >
                     <div className={cn('w-8 h-8 rounded-md flex items-center justify-center shrink-0', s.bg)}>

@@ -6,6 +6,7 @@ import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 import {
   User, CreditCard, Settings, MessageSquare, Inbox,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
@@ -88,6 +89,10 @@ export function SettingsLayout() {
   // The chat widget is a plan channel: its entry follows the sidebar's rule.
   const sections = useWorkspaceSections();
   const widgetVisible = sections.visible('widget');
+  // Art shows the list as a panel (and a row of pills on a phone) that must
+  // always show the open page, even when its group appeared only after the
+  // member's role loaded (Classic keeps its own behaviour).
+  const isArt = usePanelTheme().theme === 'art';
 
   // Build resolved paths
   const settingsGroups = useMemo(() =>
@@ -146,8 +151,8 @@ export function SettingsLayout() {
         {/* Navigation groups */}
         <nav className="p-3 space-y-1">
           {settingsGroups.map(group => {
-            const isExpanded = expandedGroups[group.key] ?? false;
             const hasActiveItem = group.items.some(i => isActive(i.path));
+            const isExpanded = expandedGroups[group.key] ?? (isArt && hasActiveItem);
             const a = AI_ACCENT[group.accent];
 
             return (

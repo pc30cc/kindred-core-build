@@ -208,9 +208,10 @@ export function PhoneVerificationFlow({
           {/* dir=ltr keeps the country prefix pinned to the left even in RTL locales */}
           <div
             dir="ltr"
+            data-phone-field
             className="flex items-stretch overflow-hidden rounded-xl border border-border bg-background shadow-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20"
           >
-            <span className="inline-flex items-center gap-1.5 border-r border-border bg-muted/60 px-3 text-sm font-mono text-muted-foreground select-none">
+            <span data-phone-prefix className="inline-flex items-center gap-1.5 border-r border-border bg-muted/60 px-3 text-sm font-mono text-muted-foreground select-none">
               <Smartphone className="h-3.5 w-3.5" />
               +98
             </span>

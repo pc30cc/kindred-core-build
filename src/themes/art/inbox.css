@@ -2,4 +2,1086 @@
  * Art — the inbox and the email inbox: the conversation list, its header and
  * rows, the thread, the composer, the contact panel and contact avatars.
  * Every selector starts with :root[data-panel-theme="art"]; see theme.css.
+ *
+ * Not the classic inbox recoloured: the list is a sheet of paper whose rows
+ * are inset cards (the open one tinted clay, an unread one in bold with its
+ * count), the views above it are pills like the context bar's, the thread
+ * sits on the paper with hairline bubbles and a floating composer with a
+ * pill send button, and the contact panel is one family of hairline cards.
+ *
+ * Hooks: InboxPage.tsx (`data-inbox`, `data-inbox-tab`, ...),
+ * EmailInboxPage.tsx (`data-email`), ContactAvatar.tsx
+ * (`data-slot="contact-avatar"`), ChannelBadge.tsx (`data-channel-badge`)
+ * and `data-avatar-tone` (1-5) on every initials avatar of a person.
  */
+
+/* ── 1. Avatars of people: soft tinted circles ───────────────────────────── */
+
+/* Lart's categorical set (theme.css: --plan-1..5): clay, teal, ochre,
+   indigo ink and rose, as a pale tint with the initials in the same hue.
+   Used by ContactAvatar (inbox, contacts, visitors, ...) and the email
+   avatars, so a person looks the same everywhere. */
+:root[data-panel-theme="art"] [data-avatar-tone="1"] {
+  --art-tone: var(--plan-1);
+}
+
+:root[data-panel-theme="art"] [data-avatar-tone="2"] {
+  --art-tone: var(--plan-2);
+}
+
+:root[data-panel-theme="art"] [data-avatar-tone="3"] {
+  --art-tone: var(--plan-3);
+}
+
+:root[data-panel-theme="art"] [data-avatar-tone="4"] {
+  --art-tone: var(--plan-4);
+}
+
+:root[data-panel-theme="art"] [data-avatar-tone="5"] {
+  --art-tone: var(--plan-5);
+}
+
+/* The inline gradient (ContactAvatar's style attribute) gives way. */
+:root[data-panel-theme="art"] [data-slot="contact-avatar"][data-avatar-tone] {
+  background-image: none !important;
+  background-color: hsl(var(--art-tone) / 0.14);
+  color: color-mix(in oklab, hsl(var(--art-tone)) 70%, hsl(var(--foreground)));
+  --tw-ring-color: hsl(var(--art-tone) / 0.2);
+}
+
+:root[data-panel-theme="art"] [data-slot="avatar-fallback"][data-avatar-tone] {
+  background-color: hsl(var(--art-tone) / 0.14);
+  color: color-mix(in oklab, hsl(var(--art-tone)) 70%, hsl(var(--foreground)));
+}
+
+:root[data-panel-theme="art"].dark [data-slot="contact-avatar"][data-avatar-tone],
+:root[data-panel-theme="art"].dark [data-slot="avatar-fallback"][data-avatar-tone] {
+  background-color: hsl(var(--art-tone) / 0.2);
+  color: color-mix(in oklab, hsl(var(--art-tone)) 62%, hsl(var(--foreground)));
+}
+
+/* No glossy drop shadow under the initials. */
+:root[data-panel-theme="art"] [data-slot="contact-avatar"] > span {
+  filter: none;
+}
+
+/* A visitor known only by their device: a quiet stone disc with the
+   device's mark in ink, not a glossy brand gradient. */
+:root[data-panel-theme="art"] [data-slot="contact-avatar"][data-variant="os"] {
+  background-image: none !important;
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground) / 0.72);
+  --tw-ring-color: hsl(var(--foreground) / 0.08);
+}
+
+:root[data-panel-theme="art"] [data-slot="contact-avatar"][data-variant="os"] > span > span:first-child {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-slot="contact-avatar"][data-variant="os"] svg {
+  filter: none;
+}
+
+:root[data-panel-theme="art"] [data-slot="contact-avatar"][data-variant="image"] {
+  --tw-ring-color: hsl(var(--foreground) / 0.08);
+}
+
+/* ── 2. Channel chips: neutral pills, the channel's colour on its icon ───── */
+
+:root[data-panel-theme="art"] [data-channel-badge] {
+  --art-channel: var(--muted-foreground);
+  border-color: transparent;
+  background-color: hsl(var(--foreground) / 0.055);
+  color: hsl(var(--foreground) / 0.72);
+}
+
+:root[data-panel-theme="art"] [data-channel-badge] > svg {
+  color: hsl(var(--art-channel));
+}
+
+:root[data-panel-theme="art"] [data-channel-badge="telegram"] {
+  --art-channel: 200 62% 40%;
+}
+
+:root[data-panel-theme="art"] [data-channel-badge="bale"] {
+  --art-channel: 152 45% 32%;
+}
+
+:root[data-panel-theme="art"] [data-channel-badge="whatsapp"] {
+  --art-channel: var(--success);
+}
+
+:root[data-panel-theme="art"] [data-channel-badge="instagram"] {
+  --art-channel: 336 48% 46%;
+}
+
+:root[data-panel-theme="art"] [data-channel-badge="x"] {
+  --art-channel: var(--foreground);
+}
+
+:root[data-panel-theme="art"] [data-channel-badge="platform_support"] {
+  --art-channel: 262 30% 50%;
+}
+
+:root[data-panel-theme="art"] [data-channel-badge="widget"] {
+  --art-channel: var(--primary);
+}
+
+:root[data-panel-theme="art"].dark [data-channel-badge="telegram"] {
+  --art-channel: 200 55% 62%;
+}
+
+:root[data-panel-theme="art"].dark [data-channel-badge="bale"] {
+  --art-channel: 152 40% 55%;
+}
+
+:root[data-panel-theme="art"].dark [data-channel-badge="instagram"] {
+  --art-channel: 336 50% 68%;
+}
+
+:root[data-panel-theme="art"].dark [data-channel-badge="platform_support"] {
+  --art-channel: 262 40% 72%;
+}
+
+/* ── 3. Inbox: the views in the context bar ─────────────────────────────── */
+
+/* InboxPage portals its views (Active, AI, Colleagues) into the context
+   bar's #topbar-page-slot: pills in the bar's own language (36px, the
+   current one on a clay tint), not folder tabs hanging off the list. */
+:root[data-panel-theme="art"] [data-inbox="toolbar"] {
+  align-items: center;
+  padding-inline-start: 0.75rem;
+}
+
+@media (min-width: 1024px) {
+  :root[data-panel-theme="art"] [data-inbox="toolbar"] {
+    padding-inline-start: 1.25rem;
+  }
+}
+
+:root[data-panel-theme="art"] [data-inbox="tabs"] {
+  height: auto;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox-tab] {
+  height: 2.25rem;
+  margin-bottom: 0;
+  gap: 0.375rem;
+  border-width: 0;
+  border-radius: 9999px;
+  padding-inline: 0.875rem;
+  background-color: transparent;
+  box-shadow: none;
+  color: hsl(var(--foreground) / 0.7);
+  font-weight: 500;
+}
+
+:root[data-panel-theme="art"] [data-inbox-tab].px-2\.5 {
+  padding-inline: 0.625rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox-tab]:hover {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] [data-inbox-tab][aria-selected="true"] {
+  background-color: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] [data-inbox-tab]:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px hsl(var(--ring) / 0.5);
+}
+
+/* The folder edge and the seam that joined the tab to the list. */
+:root[data-panel-theme="art"] [data-inbox-tab-deco] {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-inbox-tab] > [data-inbox-count] {
+  height: 1.125rem;
+  min-width: 1.125rem;
+  padding-inline: 0.25rem;
+  font-weight: 600;
+}
+
+:root[data-panel-theme="art"] [data-inbox-tab] > [data-inbox-count].bg-secondary {
+  background-color: hsl(var(--foreground) / 0.08);
+  color: hsl(var(--foreground) / 0.7);
+}
+
+:root[data-panel-theme="art"] [data-inbox-tab] > [data-inbox-count].bg-primary\/20 {
+  background-color: hsl(var(--primary) / 0.15);
+}
+
+/* ── 4. Inbox: the conversation list ────────────────────────────────────── */
+
+/* The list is the sheet of paper; the thread and the panel lie on the desk. */
+:root[data-panel-theme="art"] [data-inbox="list"] {
+  border-inline-end-color: var(--art-ui-line);
+  background-color: hsl(var(--card));
+}
+
+/* Its header: the title at card-title size, one quiet count, the "new"
+   count as a clay tint; the filter a small pill, the actions round. One
+   line on a phone too, and in a list dragged narrow (a container query). */
+:root[data-panel-theme="art"] [data-inbox="list-header"] {
+  container-type: inline-size;
+  border-bottom-color: var(--art-ui-line);
+  padding-block: 0.875rem 0.75rem;
+  padding-inline: 1rem 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-header"] > div:first-child {
+  gap: 0.5rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-header"] > div:first-child > div:first-child {
+  min-width: 0;
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-header"] h2 {
+  /* !important: index.css lifts every text-[15px] to 16px with !important. */
+  font-size: 1.0625rem !important;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-icon"] {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-count"] {
+  flex-shrink: 0;
+  background-color: hsl(var(--foreground) / 0.07);
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-new"] {
+  flex-shrink: 0;
+  padding-inline: 0.5rem;
+  background-color: hsl(var(--primary) / 0.1);
+  box-shadow: none;
+  color: var(--art-ui-tint-text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-all"] {
+  height: 1.75rem;
+  flex-shrink: 0;
+  border-color: var(--art-ui-line-strong);
+  border-radius: 9999px;
+  padding-block: 0;
+  padding-inline: 0.5rem 0.75rem;
+  background-color: transparent;
+  color: hsl(var(--foreground) / 0.72);
+  white-space: nowrap;
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-all"]:hover {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-all"][data-active="true"] {
+  border-color: transparent;
+  background-color: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-action"] {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0;
+}
+
+@container (max-width: 21rem) {
+  :root[data-panel-theme="art"] [data-inbox="list-header"]:has([data-inbox="list-all"]) [data-inbox="list-count"] {
+    display: none;
+  }
+
+  /* "All" keeps its box; the word goes (the box's tooltip names it). */
+  :root[data-panel-theme="art"] [data-inbox="list-all"] {
+    width: 1.75rem;
+    justify-content: center;
+    gap: 0;
+    padding-inline: 0;
+    font-size: 0 !important;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox="list-header"] > div:first-child > div:last-child {
+    gap: 0;
+  }
+}
+
+/* Rows: inset cards with air between them, no ruled lines. */
+:root[data-panel-theme="art"] [data-inbox="rows"] [data-radix-scroll-area-viewport] > div {
+  padding-block: 0.375rem 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="row"] {
+  margin-block: 0.125rem;
+  margin-inline: 0.5rem;
+  border-bottom-width: 0;
+  border-radius: 0.875rem;
+  padding: 0.75rem;
+}
+
+/* A row that is a button (the colleagues list) is full-width by class. */
+:root[data-panel-theme="art"] button[data-inbox="row"] {
+  width: calc(100% - 1rem);
+}
+
+:root[data-panel-theme="art"] [data-inbox="row"]:hover {
+  background-color: var(--art-ui-row-hover);
+}
+
+/* Unread: the bold name and the count say it; no tint, rail or pulse. */
+:root[data-panel-theme="art"] [data-inbox="row"][data-state="unread"] {
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="row"][data-state="unread"]:hover {
+  background-color: var(--art-ui-row-hover);
+}
+
+:root[data-panel-theme="art"] [data-inbox="row"][data-state="unread"] [data-inbox="row-time"] {
+  color: hsl(var(--foreground));
+}
+
+/* Open: a clay tint with a hairline clay edge. */
+:root[data-panel-theme="art"] [data-inbox="row"][data-state="selected"] {
+  background-color: hsl(var(--primary) / 0.09);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.22);
+}
+
+:root[data-panel-theme="art"].dark [data-inbox="row"][data-state="selected"] {
+  background-color: hsl(var(--primary) / 0.12);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.28);
+}
+
+:root[data-panel-theme="art"] [data-inbox="row-rail"],
+:root[data-panel-theme="art"] [data-inbox="row-dot"] {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-inbox="row-count"] {
+  box-shadow: none;
+  font-weight: 600;
+}
+
+/* The status dot on the avatar sits on the row's own colour. */
+:root[data-panel-theme="art"] [data-inbox="row"] .border-card {
+  border-color: hsl(var(--card));
+}
+
+/* Status, priority and AI chips: small pills. */
+:root[data-panel-theme="art"] [data-inbox="row"] span.rounded-md,
+:root[data-panel-theme="art"] [data-inbox="row"] button.rounded-md {
+  border-radius: 9999px;
+}
+
+/* A preview in the other script reads in its own direction ("Merhaba, …?"
+   in a Persian list keeps its question mark at the end). */
+:root[data-panel-theme="art"] [data-inbox="preview"] {
+  unicode-bidi: plaintext;
+}
+
+:root[data-panel-theme="art"] [data-inbox="list-empty"] {
+  border-radius: 9999px;
+  background-color: hsl(var(--foreground) / 0.05);
+  box-shadow: 0 0 0 8px hsl(var(--foreground) / 0.025);
+}
+
+/* The scope switch and the search at the foot of the list. */
+:root[data-panel-theme="art"] [data-inbox="scope"],
+:root[data-panel-theme="art"] [data-inbox="search"] {
+  border-top-color: var(--art-ui-line);
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="scope"] > label {
+  border-radius: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="search"] [data-slot="input"] {
+  height: 2.5rem;
+  border: 1px solid var(--art-ui-field-edge);
+  border-radius: 0.75rem;
+  background-color: var(--art-ui-field);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-inbox="search"] [data-slot="input"]:hover {
+  border-color: hsl(var(--input));
+}
+
+:root[data-panel-theme="art"] [data-inbox="search"] [data-slot="input"]:focus {
+  border-color: hsl(var(--ring));
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-ui-halo);
+}
+
+/* The list's drag handle: invisible until hovered, then a clay hairline. */
+:root[data-panel-theme="art"] [data-inbox="resize"] {
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="resize"]:hover,
+:root[data-panel-theme="art"] [data-inbox="resize"].bg-primary\/40,
+:root[data-panel-theme="art"] [data-inbox="resize"].bg-primary\/60 {
+  background-color: transparent;
+  background-image: linear-gradient(hsl(var(--primary) / 0.45), hsl(var(--primary) / 0.45));
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 2px 100%;
+}
+
+/* ── 5. Inbox: the thread ───────────────────────────────────────────────── */
+
+/* On the paper itself: no bands behind the header, the messages or the
+   composer. */
+:root[data-panel-theme="art"] [data-inbox="thread"],
+:root[data-panel-theme="art"] [data-inbox="empty"],
+:root[data-panel-theme="art"] [data-inbox="messages"] {
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="chat-header"] {
+  border-bottom-color: var(--art-ui-line);
+  padding-block: 0.75rem;
+  padding-inline: 1.25rem 1rem;
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="chat-header"] > div:first-child button {
+  font-weight: 600;
+}
+
+/* The header's icon buttons: 36px circles. */
+:root[data-panel-theme="art"] [data-inbox="chat-action"] {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0;
+}
+
+:root[data-panel-theme="art"] [data-inbox="chat-action"]:hover {
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] [data-inbox="chat-action"][data-active="true"],
+:root[data-panel-theme="art"] [data-inbox="chat-action"][data-active="true"]:hover {
+  background-color: hsl(var(--primary) / 0.1);
+}
+
+:root[data-panel-theme="art"] [data-inbox="chat-header-mobile"] {
+  border-bottom-color: var(--art-ui-line);
+  background-color: hsl(var(--background));
+}
+
+:root[data-panel-theme="art"] [data-inbox="chat-header-mobile"] button.rounded-xl {
+  border-radius: 9999px;
+}
+
+/* The day: a small label between two hairlines. */
+:root[data-panel-theme="art"] [data-inbox="day"] > div {
+  background-color: var(--art-ui-line);
+}
+
+:root[data-panel-theme="art"] [data-inbox="day"] > span {
+  border-color: transparent;
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Bubbles: the visitor's on paper with a hairline, ours on a clay tint;
+   1.25rem corners with a small tail corner towards the sender. */
+:root[data-panel-theme="art"] [data-inbox="bubble"].rounded-2xl {
+  border-radius: 1.25rem;
+  padding-block: 0.625rem;
+  padding-inline: 1rem;
+  box-shadow: none;
+}
+
+:root[data-panel-theme="art"] [data-inbox="bubble"][data-from="contact"].bg-secondary {
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-hairline), var(--art-ui-soft-shadow);
+}
+
+:root[data-panel-theme="art"] [data-inbox="bubble"][data-from="agent"].bg-primary\/10 {
+  border-color: transparent;
+  background-color: hsl(var(--primary) / 0.1);
+}
+
+:root[data-panel-theme="art"].dark [data-inbox="bubble"][data-from="agent"].bg-primary\/10 {
+  background-color: hsl(var(--primary) / 0.14);
+}
+
+:root[data-panel-theme="art"] [data-inbox="bubble"].rounded-br-sm {
+  border-bottom-right-radius: 0.375rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="bubble"].rounded-bl-sm {
+  border-bottom-left-radius: 0.375rem;
+}
+
+/* The colleagues chat: the same two bubbles (its own were solid clay and a
+   bordered card). */
+:root[data-panel-theme="art"] [data-inbox="bubble"][data-from="agent"].bg-primary {
+  background-color: hsl(var(--primary) / 0.1);
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"].dark [data-inbox="bubble"][data-from="agent"].bg-primary {
+  background-color: hsl(var(--primary) / 0.14);
+}
+
+:root[data-panel-theme="art"] [data-inbox="bubble"][data-from="agent"].bg-primary .text-primary-foreground\/70 {
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] [data-inbox="bubble"][data-from="contact"].bg-card {
+  border-color: transparent;
+  box-shadow: var(--art-hairline), var(--art-ui-soft-shadow);
+}
+
+:root[data-panel-theme="art"] [data-inbox="bubble"].rounded-ee-md {
+  border-end-end-radius: 0.375rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="bubble"].rounded-es-md {
+  border-end-start-radius: 0.375rem;
+}
+
+/* Each paragraph in its own direction: Latin in a Persian thread (and the
+   other way round) keeps its punctuation where it belongs. */
+:root[data-panel-theme="art"] [data-inbox="bubble"] p {
+  unicode-bidi: plaintext;
+}
+
+/* Our side's avatar: the clay tint of the header's account avatar; the AI's
+   a stone disc. */
+:root[data-panel-theme="art"] [data-inbox="agent-avatar"] {
+  background-color: hsl(var(--primary) / 0.1);
+  box-shadow: none;
+  color: hsl(var(--primary));
+  --tw-ring-color: hsl(var(--primary) / 0.16);
+}
+
+:root[data-panel-theme="art"] [data-inbox="agent-avatar"][data-ai] {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground) / 0.7);
+  --tw-ring-color: hsl(var(--foreground) / 0.08);
+}
+
+/* The composer floats on the paper: one card with a hairline and a soft
+   shadow, round tool buttons and a pill send button. */
+:root[data-panel-theme="art"] [data-inbox="composer"] {
+  border-top-color: transparent;
+  padding-block: 0.25rem 1rem;
+  padding-inline: 1rem;
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="composer-box"] {
+  border-color: transparent;
+  border-radius: 1.5rem;
+  padding: 0.375rem;
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-hairline), var(--art-ui-card-shadow);
+  transition: box-shadow 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-inbox="composer-box"]:focus-within {
+  box-shadow: 0 0 0 1px hsl(var(--ring) / 0.6), var(--art-ui-halo), var(--art-ui-card-shadow);
+}
+
+:root[data-panel-theme="art"] [data-inbox="composer-box"] > button {
+  border-radius: 9999px;
+}
+
+:root[data-panel-theme="art"] [data-inbox="send-split"] {
+  border-radius: 9999px;
+  box-shadow: var(--art-ui-solid-shadow);
+}
+
+:root[data-panel-theme="art"] [data-inbox="send-split"] > [data-slot="button"] {
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-panel-theme="art"] [data-inbox="send-split"] > [data-slot="button"]:first-child {
+  padding-inline: 0.875rem 0.625rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="send-split"] > [data-slot="button"]:last-child {
+  width: 2rem;
+  padding-inline-end: 0.125rem;
+}
+
+/* Nothing to send yet: the whole pill rests, not just its first half. */
+:root[data-panel-theme="art"] [data-inbox="send-split"]:has(> [data-slot="button"]:disabled) {
+  box-shadow: none;
+}
+
+:root[data-panel-theme="art"] [data-inbox="send-split"]:has(> [data-slot="button"]:disabled) > [data-slot="button"] {
+  opacity: 0.5;
+}
+
+:root[data-panel-theme="art"] [data-inbox="send-split"]:has(> [data-slot="button"]:disabled) > [data-slot="button"]:not(:disabled):hover {
+  opacity: 0.75;
+}
+
+:root[data-panel-theme="art"] [data-inbox="composer-hints"] {
+  padding-inline: 1rem;
+}
+
+/* The conversation pane before one is opened: a calm stone circle. */
+:root[data-panel-theme="art"] [data-inbox="empty-tile"] {
+  border-radius: 9999px;
+  background-color: hsl(var(--foreground) / 0.05);
+  box-shadow: 0 0 0 10px hsl(var(--foreground) / 0.025) !important;
+}
+
+:root[data-panel-theme="art"] [data-inbox="empty-tile"] > svg {
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] [data-inbox="empty-logo"] {
+  border-color: transparent;
+  border-radius: 9999px;
+  box-shadow: var(--art-hairline), 0 0 0 10px hsl(var(--foreground) / 0.025) !important;
+}
+
+/* ── 6. Inbox: the contact panel ────────────────────────────────────────── */
+
+/* On the paper beside the thread, behind a hairline; inside it one family
+   of cards: paper, 1rem corners, a hairline, no shadow. */
+:root[data-panel-theme="art"] [data-inbox="info"] {
+  border-inline-start-color: transparent;
+  background-color: hsl(var(--background));
+}
+
+/* The drag handle between thread and panel: a hairline, clay when held. */
+:root[data-panel-theme="art"] [data-inbox="resize"].bg-border\/40 {
+  background-color: transparent;
+  background-image: linear-gradient(var(--art-ui-line), var(--art-ui-line));
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 1px 100%;
+}
+
+:root[data-panel-theme="art"] [data-inbox="resize"].bg-border\/40:hover,
+:root[data-panel-theme="art"] [data-inbox="resize"].bg-border\/40.bg-primary\/60 {
+  background-image: linear-gradient(hsl(var(--primary) / 0.45), hsl(var(--primary) / 0.45));
+  background-size: 2px 100%;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-call"] {
+  border-bottom-width: 0;
+  padding-block: 0.75rem 0.25rem;
+  padding-inline: 0.75rem;
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info"] [data-slot="card"] {
+  border-color: transparent;
+  border-radius: 1rem;
+  box-shadow: var(--art-hairline);
+}
+
+:root[data-panel-theme="art"] [data-inbox="info"] [data-slot="card-header"].border-b {
+  border-bottom-color: var(--art-ui-line);
+}
+
+/* Info / Activity: an underline, no fill. */
+:root[data-panel-theme="art"] [data-inbox="info-tabs"] {
+  gap: 0.25rem;
+  border-bottom-color: var(--art-ui-line);
+  padding-inline: 0.75rem;
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-tabs"] > button[data-active] {
+  padding-block: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-tabs"] > button[data-active="true"] {
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] {
+  padding: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > .rounded-xl.border {
+  border-color: transparent;
+  border-radius: 1rem;
+  background-color: hsl(var(--card));
+  background-image: none;
+  box-shadow: var(--art-hairline);
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > .rounded-xl.border > .divide-y > *,
+:root[data-panel-theme="art"] [data-inbox="info-body"] > .rounded-xl.border.divide-y > * {
+  border-color: var(--art-ui-line);
+}
+
+/* The details card's header: a plain caption, not a grey band. */
+:root[data-panel-theme="art"] [data-inbox="info-body"] > .rounded-xl.border > div:first-child.bg-secondary\/15 {
+  border-bottom-color: var(--art-ui-line);
+  padding-block: 0.75rem 0.5rem;
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > .rounded-xl.border > div:first-child.bg-secondary\/15 > h4 {
+  color: hsl(var(--foreground) / 0.8);
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* Two figures (messages, duration) as quiet stone tiles. */
+:root[data-panel-theme="art"] [data-inbox="info-body"] > .rounded-xl.border > .grid > div {
+  border-color: transparent;
+  border-radius: 0.75rem;
+  background-color: hsl(var(--muted) / 0.6);
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > .rounded-xl.border > .grid > div > div:first-child {
+  font-weight: 700;
+}
+
+:root[data-panel-theme="art"] [data-inbox="info-body"] > .flex-wrap > span.rounded-lg {
+  border-color: transparent;
+  border-radius: 9999px;
+  background-color: hsl(var(--foreground) / 0.055);
+}
+
+/* Below 1024px the panel is a drawer over the thread: paper with its inner
+   corners rounded, a sheet's shadow and its own close button. */
+@media (max-width: 1023px) {
+  :root[data-panel-theme="art"] [data-inbox="info"] {
+    border-start-start-radius: 1.5rem;
+    border-end-start-radius: 1.5rem;
+    box-shadow: var(--art-ui-dialog-shadow);
+  }
+
+  :root[data-panel-theme="art"] [data-inbox="info-backdrop"] {
+    background-color: hsl(var(--art-scrim) / 0.4);
+  }
+}
+
+/* A conversation needs room more than the list does: between 1024 and
+   1280px the list narrows so the thread keeps a readable measure. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root[data-panel-theme="art"] [data-inbox="list"] {
+    max-width: 20rem;
+  }
+}
+
+/* ── 7. Inbox on a phone ────────────────────────────────────────────────── */
+
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] [data-inbox="list-header"] {
+    padding-inline: 1rem 0.5rem;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox="list-header"] > div:first-child > div:last-child {
+    gap: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-inbox="composer"] {
+    padding-inline: 0.75rem;
+  }
+
+  /* Keyboard hints mean nothing on a touch screen. */
+  :root[data-panel-theme="art"] [data-inbox="composer-hints"] {
+    display: none;
+  }
+}
+
+/* ── 8. Email: the frame ─────────────────────────────────────────────────── */
+
+/* The same paper as the inbox: the list a sheet whose rows are inset cards,
+   the reader on the desk with the message as a framed sheet. */
+:root[data-panel-theme="art"] [data-email="bar"] {
+  border-bottom-color: var(--art-ui-line);
+  padding-block: 0.625rem;
+  padding-inline: 1.25rem 1rem;
+}
+
+:root[data-panel-theme="art"] [data-email="list"] {
+  border-inline-end-color: var(--art-ui-line);
+  background-color: hsl(var(--card));
+}
+
+:root[data-panel-theme="art"] [data-email="list-search"] {
+  border-bottom-width: 0;
+  padding-block: 0.75rem 0.5rem;
+  padding-inline: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-email="list-search"] [data-slot="input"].h-8 {
+  height: 2.5rem;
+}
+
+:root[data-panel-theme="art"] [data-email="list-search"] [data-slot="button"].h-8 {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+:root[data-panel-theme="art"] [data-email="list-filter"] {
+  border-bottom-color: var(--art-ui-line);
+  padding-block: 0 0.625rem;
+  padding-inline: 0.75rem;
+}
+
+/* "Unread": a small pill toggle. */
+:root[data-panel-theme="art"] [data-email="unread-toggle"] {
+  min-height: 1.75rem;
+  border-radius: 9999px;
+  padding-inline: 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  user-select: none;
+}
+
+:root[data-panel-theme="art"] [data-email="unread-toggle"][data-active="false"] {
+  border-color: var(--art-ui-line-strong);
+  color: hsl(var(--foreground) / 0.72);
+}
+
+:root[data-panel-theme="art"] [data-email="unread-toggle"][data-active="false"]:hover {
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] [data-email="unread-toggle"][data-active="true"] {
+  border-color: transparent;
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] [data-email="rows"] [data-radix-scroll-area-viewport] > div {
+  padding-block: 0.375rem 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-email="row"] {
+  width: calc(100% - 1rem);
+  margin-block: 0.125rem;
+  margin-inline: 0.5rem;
+  border-bottom-width: 0;
+  border-radius: 0.875rem;
+  padding: 0.75rem;
+  padding-inline-start: 1rem;
+}
+
+:root[data-panel-theme="art"] [data-email="row"]:hover {
+  background-color: var(--art-ui-row-hover);
+}
+
+:root[data-panel-theme="art"] [data-email="row"][data-state="selected"] {
+  background-color: hsl(var(--primary) / 0.09);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.22);
+}
+
+:root[data-panel-theme="art"].dark [data-email="row"][data-state="selected"] {
+  background-color: hsl(var(--primary) / 0.12);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.28);
+}
+
+:root[data-panel-theme="art"] [data-email="row-dot"] {
+  inset-inline-start: 0.375rem;
+}
+
+:root[data-panel-theme="art"] [data-email="row"][data-state="unread"] [data-email="row-time"] {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+/* Nothing open: a stone circle with a letter above the hint. */
+:root[data-panel-theme="art"] [data-email="empty"] {
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+:root[data-panel-theme="art"] [data-email="empty"]::before {
+  content: "";
+  width: 4rem;
+  height: 4rem;
+  border-radius: 9999px;
+  background-color: hsl(var(--foreground) / 0.05);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23948b80' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='20' height='16' x='2' y='4' rx='2'/%3E%3Cpath d='m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 1.75rem;
+  box-shadow: 0 0 0 10px hsl(var(--foreground) / 0.025);
+}
+
+/* No mailbox yet: the same stone circle, not an indigo tile. */
+:root[data-panel-theme="art"] [data-email="connect-icon"] {
+  border-radius: 9999px;
+  background-color: hsl(var(--foreground) / 0.05);
+  box-shadow: 0 0 0 10px hsl(var(--foreground) / 0.025);
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] [data-email="connect"] {
+  gap: 1.5rem;
+}
+
+/* ── 9. Email: the reader ───────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-email="reader-header"] {
+  border-bottom-color: var(--art-ui-line);
+  padding-block: 0.75rem;
+  padding-inline: 1.25rem 1rem;
+}
+
+:root[data-panel-theme="art"] [data-email="reader-header"] h2 {
+  font-size: 1.0625rem;
+  letter-spacing: -0.01em;
+}
+
+:root[data-panel-theme="art"] [data-email="reader-header"] [data-slot="button"].h-8 {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+:root[data-panel-theme="art"] [data-email="message-header"] {
+  border-bottom-width: 0;
+  padding-block: 0.875rem 0.375rem;
+  padding-inline: 1.25rem;
+}
+
+/* The message: a framed sheet (EmailInboxPage paints it in the panel's
+   paper and ink; in dark mode an HTML mail keeps a soft ivory page). */
+:root[data-panel-theme="art"] [data-email="sheet-frame"] {
+  padding-block: 0.5rem 0.875rem;
+  padding-inline: 1.25rem;
+}
+
+:root[data-panel-theme="art"] [data-email="sheet"] {
+  border-radius: 1rem;
+  background-color: transparent;
+  box-shadow: var(--art-hairline), var(--art-ui-card-shadow);
+}
+
+:root[data-panel-theme="art"] [data-email="reply"] {
+  border-top-width: 0;
+  padding-block: 0 1rem;
+  padding-inline: 1.25rem;
+}
+
+/* The reply: one card holding the recipient, the editor and the actions
+   (the editor's own box and grey toolbar band give way). */
+:root[data-panel-theme="art"] [data-email="composer"] {
+  overflow: hidden;
+  border-color: transparent;
+  border-radius: 1.25rem;
+  box-shadow: var(--art-hairline), var(--art-ui-card-shadow);
+}
+
+:root[data-panel-theme="art"] [data-email="composer-to"] {
+  border-bottom-color: var(--art-ui-line);
+  padding-block: 0.5rem;
+  padding-inline: 1rem;
+}
+
+:root[data-panel-theme="art"] [data-email="composer"] > .rounded-xl.border {
+  border-width: 0;
+  border-radius: 0;
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-email="composer"] > .rounded-xl.border > div:first-child,
+:root[data-panel-theme="art"] [data-email="compose"] .rounded-xl.border > div:first-child {
+  border-bottom-color: var(--art-ui-line);
+  padding-inline: 0.5rem;
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] [data-email="composer"] > .rounded-xl.border > div:first-child button,
+:root[data-panel-theme="art"] [data-email="compose"] .rounded-xl.border > div:first-child button {
+  border-radius: 9999px;
+}
+
+:root[data-panel-theme="art"] [data-email="composer-actions"] {
+  border-top-color: var(--art-ui-line);
+  padding-block: 0.5rem;
+}
+
+/* A new email: the editor is a filled field like To and Subject above it. */
+:root[data-panel-theme="art"] [data-email="compose"] .rounded-xl.border {
+  border-color: var(--art-ui-field-edge);
+  border-radius: 0.75rem;
+  background-color: var(--art-ui-field);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-email="compose"] .rounded-xl.border:focus-within {
+  border-color: hsl(var(--ring));
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-ui-halo);
+}
+
+/* Typed text takes its own direction (a Persian reply in an LTR editor). */
+:root[data-panel-theme="art"] [data-email="composer"] .ProseMirror > *,
+:root[data-panel-theme="art"] [data-email="compose"] .ProseMirror > * {
+  unicode-bidi: plaintext;
+}
+
+/* ── 10. Email on a phone: the list, or the open message ────────────────── */
+
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] [data-email="list"] {
+    width: 100%;
+    border-inline-end-width: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-email-thread-open="true"] [data-email="list"],
+  :root[data-panel-theme="art"] [data-email-thread-open="true"] [data-email="bar"],
+  :root[data-panel-theme="art"] [data-email-thread-open="false"] [data-email="empty"] {
+    display: none;
+  }
+
+  :root[data-panel-theme="art"] [data-email="reader-header"] {
+    padding-inline: 0.5rem 0.75rem;
+  }
+
+  :root[data-panel-theme="art"] [data-email="message-header"],
+  :root[data-panel-theme="art"] [data-email="sheet-frame"],
+  :root[data-panel-theme="art"] [data-email="reply"] {
+    padding-inline: 0.75rem;
+  }
+
+  /* The reply leaves the message most of the screen: its tools scroll on
+     one line and the writing area starts short (it grows as you type). */
+  :root[data-panel-theme="art"] [data-email="composer"] > .rounded-xl.border > div:first-child {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  :root[data-panel-theme="art"] [data-email="composer"] > .rounded-xl.border > div:first-child > * {
+    flex-shrink: 0;
+  }
+
+  :root[data-panel-theme="art"] [data-email="composer"] .ProseMirror {
+    min-height: 4.5rem;
+  }
+}

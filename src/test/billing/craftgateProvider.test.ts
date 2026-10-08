@@ -65,6 +65,22 @@ describe('craftgate createCheckoutSession', () => {
     expect(payload.items).toEqual([{ name: 'Plan plan-pro', price: 149.9 }]);
   });
 
+  it.each([['USD'], ['EUR'], ['gbp']])('charges a %s price in that currency (it was always sent as TRY)', async (currency) => {
+    const fetchMock = mockFetch(200, { data: { pageUrl: 'https://p', token: 't' } });
+    await craftgateProvider.createCheckoutSession(config, { ...req, currency, metadata: { amount: '2900' } });
+    const payload = JSON.parse(lastRequest(fetchMock).init.body as string);
+    expect(payload.currency).toBe(currency.toUpperCase());
+    expect(payload.price).toBe(29);
+  });
+
+  it('refuses a currency Craftgate cannot charge instead of relabelling it', async () => {
+    const fetchMock = mockFetch(200, { data: { pageUrl: 'https://p', token: 't' } });
+    await expect(craftgateProvider.createCheckoutSession(config, { ...req, currency: 'IRR' })).rejects.toThrow(
+      /Craftgate cannot charge IRR/,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('throws the provider error description on a valid error envelope', async () => {
     mockFetch(400, { errors: { errorCode: '1001', errorDescription: 'Invalid price', errorGroup: 'VALIDATION' } });
     await expect(craftgateProvider.createCheckoutSession(config, req)).rejects.toThrow('Invalid price');

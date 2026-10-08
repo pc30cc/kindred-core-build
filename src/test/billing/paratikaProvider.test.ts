@@ -63,6 +63,22 @@ describe('paratika createCheckoutSession', () => {
     expect(params.get('CUSTOMER')).toBe('');
   });
 
+  it.each([['USD'], ['eur']])('charges a %s price in that currency (it was always sent as TRY)', async (currency) => {
+    const fetchMock = mockJson({ responseCode: '00', sessionToken: 'T' });
+    await paratikaProvider.createCheckoutSession(CONFIG, { ...REQ, currency, metadata: { amount: '2900' } });
+    const params = new URLSearchParams(fetchMock.mock.calls[0][1].body);
+    expect(params.get('CURRENCY')).toBe(currency.toUpperCase());
+    expect(params.get('AMOUNT')).toBe('29.00');
+  });
+
+  it('refuses a currency Paratika cannot charge instead of relabelling it', async () => {
+    const fetchMock = mockJson({ responseCode: '00', sessionToken: 'T' });
+    await expect(paratikaProvider.createCheckoutSession(CONFIG, { ...REQ, currency: 'GBP' })).rejects.toThrow(
+      /Paratika cannot charge GBP/,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('throws provider message on error response', async () => {
     mockJson({ responseCode: '99', responseMsg: 'Invalid merchant' });
     await expect(paratikaProvider.createCheckoutSession(CONFIG, REQ)).rejects.toThrow('Invalid merchant');
@@ -149,6 +165,14 @@ describe('paratika refundPayment', () => {
       AMOUNT: '149.90',
       CURRENCY: 'TRY',
     });
+  });
+
+  it('refunds a USD payment in USD', async () => {
+    const fetchMock = mockJson({ responseCode: '00', pgTranId: 'PG_REFUND_U' });
+    await paratikaProvider.refundPayment?.(CONFIG, 'PG_TRAN_ORIGINAL', 2900, 'usd');
+    const params = new URLSearchParams(fetchMock.mock.calls[0][1].body);
+    expect(params.get('AMOUNT')).toBe('29.00');
+    expect(params.get('CURRENCY')).toBe('USD');
   });
 
   it('omits AMOUNT when no amount is passed', async () => {

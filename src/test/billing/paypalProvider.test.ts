@@ -84,18 +84,29 @@ describe('paypal testConnection (OAuth token flow)', () => {
   });
 });
 
-// ── Create subscription (POST /v1/billing/subscriptions) ──
-import { readPayPalSubscriptionError, readPayPalSubscriptionId, readPayPalApprovalUrl } from '../../../server/services/billing/providers/paypal.js';
+// ── Create order (POST /v2/checkout/orders) ──
+import {
+  readPayPalSubscriptionError,
+  readPayPalSubscriptionId,
+  readPayPalApprovalUrl,
+  readPayPalIssue,
+  readPayPalOrderCapture,
+  parsePayPalCustomId,
+} from '../../../server/services/billing/providers/paypal.js';
 
 const checkoutReq = {
   workspaceId: 'ws-1',
-  planId: 'P-PLAN-123',
+  planId: 'plan-uuid',
   interval: 'monthly' as const,
   currency: 'USD',
-  callbackUrl: 'https://app.test/billing/callback',
+  callbackUrl: 'https://app.test/billing/pay/invoice/inv-1?intent=pi-1&provider=paypal',
   customerEmail: 'buyer@example.com',
   customerName: 'Buyer Name',
-  metadata: { brand_name: 'Acme' },
+  intentId: 'pi-1',
+  invoiceId: 'inv-1',
+  description: 'Pro (monthly) — invoice AB12345678',
+  // The invoice due in minor units: $149.90.
+  metadata: { amount: '14990', brand_name: 'Acme' },
 };
 
 function mockTokenThen(body: unknown, ok = true) {
@@ -106,58 +117,91 @@ function mockTokenThen(body: unknown, ok = true) {
   return fn;
 }
 
-describe('paypal createCheckoutSession', () => {
-  it('creates a subscription and returns approval url + id', async () => {
-    const fetchMock = mockTokenThen({
-      id: 'I-SUB-1',
-      links: [
-        { href: 'https://api/self', rel: 'self', method: 'GET' },
-        { href: 'https://paypal/approve', rel: 'approve', method: 'GET' },
-        { href: 'https://api/edit', rel: 'edit', method: 'PATCH' },
-        { href: 'https://api/cancel', rel: 'cancel', method: 'POST' },
-      ],
-    });
+const orderCreated = {
+  id: 'ORDER-1',
+  status: 'PAYER_ACTION_REQUIRED',
+  links: [
+    { href: 'https://api/self', rel: 'self', method: 'GET' },
+    { href: 'https://paypal/checkoutnow?token=ORDER-1', rel: 'payer-action', method: 'GET' },
+  ],
+};
+
+describe('paypal createCheckoutSession (Orders v2)', () => {
+  it('creates a CAPTURE order for exactly the invoice amount, in its currency, naming workspace and intent', async () => {
+    const fetchMock = mockTokenThen(orderCreated);
     const out = await paypalProvider.createCheckoutSession(config, checkoutReq);
-    expect(out).toEqual({ paymentUrl: 'https://paypal/approve', sessionId: 'I-SUB-1' });
+    expect(out).toEqual({ paymentUrl: 'https://paypal/checkoutnow?token=ORDER-1', sessionId: 'ORDER-1' });
 
     const [url, init] = fetchMock.mock.calls[1];
-    expect(url).toBe('https://api-m.sandbox.paypal.com/v1/billing/subscriptions');
+    expect(url).toBe('https://api-m.sandbox.paypal.com/v2/checkout/orders');
     expect(init.method).toBe('POST');
-    expect(init.headers).toEqual({ 'Authorization': 'Bearer tok', 'Content-Type': 'application/json' });
+    expect(init.headers).toEqual({
+      'Authorization': 'Bearer tok',
+      'Content-Type': 'application/json',
+      // Idempotent per payment intent.
+      'PayPal-Request-Id': 'order-pi-1',
+    });
     expect(JSON.parse(init.body)).toEqual({
-      plan_id: 'P-PLAN-123',
-      application_context: {
-        return_url: 'https://app.test/billing/callback?success=true',
-        cancel_url: 'https://app.test/billing/callback?success=false',
-        brand_name: 'Acme',
+      intent: 'CAPTURE',
+      purchase_units: [{
+        reference_id: 'inv-1',
+        custom_id: 'ws-1:pi-1',
+        description: 'Pro (monthly) — invoice AB12345678',
+        // PayPal takes a decimal major amount: 14990 minor units → "149.90".
+        amount: { currency_code: 'USD', value: '149.90' },
+      }],
+      payment_source: {
+        paypal: {
+          experience_context: {
+            return_url: 'https://app.test/billing/pay/invoice/inv-1?intent=pi-1&provider=paypal',
+            cancel_url: 'https://app.test/billing/pay/invoice/inv-1?intent=pi-1&provider=paypal&canceled=1',
+            user_action: 'PAY_NOW',
+            shipping_preference: 'NO_SHIPPING',
+            brand_name: 'Acme',
+          },
+          email_address: 'buyer@example.com',
+        },
       },
-      custom_id: 'ws-1',
-      subscriber: { email_address: 'buyer@example.com' },
     });
   });
 
-  it('omits subscriber when no email and defaults brand name', async () => {
-    const fetchMock = mockTokenThen({ id: 'I-2', links: [{ href: 'https://a', rel: 'approve' }] });
-    await paypalProvider.createCheckoutSession(config, { ...checkoutReq, customerEmail: undefined, metadata: {} });
+  it('prices EUR in EUR and prefers the configured brand name', async () => {
+    const fetchMock = mockTokenThen(orderCreated);
+    await paypalProvider.createCheckoutSession({ ...config, brand_name: 'RESPOK' }, { ...checkoutReq, currency: 'eur' });
     const payload = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(payload.subscriber).toBeUndefined();
-    expect(payload.application_context.brand_name).toBe('Platform');
+    expect(payload.purchase_units[0].amount).toEqual({ currency_code: 'EUR', value: '149.90' });
+    expect(payload.payment_source.paypal.experience_context.brand_name).toBe('RESPOK');
   });
 
-  it('picks the first approve link when several exist', async () => {
-    mockTokenThen({ id: 'I-3', links: [{ href: 'https://first', rel: 'approve' }, { href: 'https://second', rel: 'approve' }] });
-    const out = await paypalProvider.createCheckoutSession(config, checkoutReq);
-    expect(out.paymentUrl).toBe('https://first');
+  it('omits the e-mail and brand name when there are none', async () => {
+    const fetchMock = mockTokenThen(orderCreated);
+    await paypalProvider.createCheckoutSession(config, { ...checkoutReq, customerEmail: undefined, metadata: { amount: '100' } });
+    const payload = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(payload.payment_source.paypal.email_address).toBeUndefined();
+    expect(payload.payment_source.paypal.experience_context.brand_name).toBeUndefined();
+  });
+
+  it.each([['TRY'], ['IRR']])('refuses %s (PayPal cannot charge it) before any request', async (currency) => {
+    const fetchMock = mockTokenThen(orderCreated);
+    await expect(paypalProvider.createCheckoutSession(config, { ...checkoutReq, currency })).rejects.toThrow(/PayPal cannot charge/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a zero amount', async () => {
+    mockTokenThen(orderCreated);
+    await expect(
+      paypalProvider.createCheckoutSession(config, { ...checkoutReq, metadata: { amount: '0' } }),
+    ).rejects.toThrow('PayPal checkout needs a positive amount');
   });
 
   it('throws provider message on HTTP failure', async () => {
-    mockTokenThen({ name: 'UNPROCESSABLE_ENTITY', message: 'Plan not active', debug_id: 'd1' }, false);
-    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).rejects.toThrow('Plan not active');
+    mockTokenThen({ name: 'UNPROCESSABLE_ENTITY', message: 'Invalid amount', debug_id: 'd1' }, false);
+    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).rejects.toThrow('Invalid amount');
   });
 
   it.each([[{}], [[]], ['oops'], [{ message: 42 }]])('falls back to generic error for %#', async (body) => {
     mockTokenThen(body, false);
-    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).rejects.toThrow('PayPal subscription creation failed');
+    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).rejects.toThrow('PayPal order creation failed');
   });
 
   it('throws TypeError on null body', async () => {
@@ -166,21 +210,13 @@ describe('paypal createCheckoutSession', () => {
   });
 
   it.each([
-    [{}, { paymentUrl: '', sessionId: undefined }],
-    [[], { paymentUrl: '', sessionId: undefined }],
-    ['str', { paymentUrl: '', sessionId: undefined }],
-    [{ id: '' }, { paymentUrl: '', sessionId: undefined }],
-    [{ id: 7, links: [{ rel: 'approve', href: 'https://x' }] }, { paymentUrl: 'https://x', sessionId: undefined }],
-    [{ id: { a: 1 } }, { paymentUrl: '', sessionId: undefined }],
-    [{ id: 'I', links: 'nope' }, { paymentUrl: '', sessionId: 'I' }],
-    [{ id: 'I', links: ['x', 5, null] }, { paymentUrl: '', sessionId: 'I' }],
-    [{ id: 'I', links: [{ href: 'https://x' }] }, { paymentUrl: '', sessionId: 'I' }],
-    [{ id: 'I', links: [{ rel: 'approve' }] }, { paymentUrl: '', sessionId: 'I' }],
-    [{ id: 'I', links: [{ rel: 'approve', href: 9 }] }, { paymentUrl: '', sessionId: 'I' }],
-    [{ id: 'I', links: [{ rel: 'Approve', href: 'https://x' }] }, { paymentUrl: '', sessionId: 'I' }],
-  ])('handles malformed success body %#', async (body, expected) => {
+    [{}],
+    [{ id: 'ORDER-1', links: [] }],
+    [{ id: '', links: [{ rel: 'payer-action', href: 'https://x' }] }],
+    [{ links: [{ rel: 'payer-action', href: 'https://x' }] }],
+  ])('a success body without both an order id and an approval link is a failure %#', async (body) => {
     mockTokenThen(body);
-    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).resolves.toEqual(expected);
+    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).rejects.toThrow('PayPal order creation failed');
   });
 
   it('propagates network failure without retrying', async () => {
@@ -192,8 +228,8 @@ describe('paypal createCheckoutSession', () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
-  it('does not leak secrets or subscriber data in errors', async () => {
-    mockTokenThen({ message: 'Plan not active' }, false);
+  it('does not leak secrets or buyer data in errors', async () => {
+    mockTokenThen({ message: 'Invalid amount' }, false);
     const err = await paypalProvider.createCheckoutSession(config, checkoutReq).catch((e: Error) => e);
     const text = String((err as Error).message);
     for (const secret of ['client-secret-mock', 'client-id-mock', 'Basic ', 'tok', 'buyer@example.com', 'Buyer Name']) {
@@ -202,13 +238,212 @@ describe('paypal createCheckoutSession', () => {
   });
 });
 
+describe('paypal verifyPayment (capture on return)', () => {
+  const capturedOrder = (status = 'COMPLETED', value = '149.90', currency = 'USD') => ({
+    id: 'ORDER-1',
+    status: 'COMPLETED',
+    purchase_units: [{ payments: { captures: [{ id: 'CAPTURE-1', status, amount: { currency_code: currency, value } }] } }],
+  });
+
+  function mockSequence(...responses: Array<{ ok: boolean; status?: number; body: unknown }>) {
+    const fn = vi.fn().mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'tok' }) });
+    for (const r of responses) fn.mockResolvedValueOnce({ ok: r.ok, status: r.status ?? (r.ok ? 201 : 422), json: async () => r.body });
+    vi.stubGlobal('fetch', fn);
+    return fn;
+  }
+
+  it('captures the stored order idempotently and reports PayPal’s amount in minor units', async () => {
+    const fn = mockSequence({ ok: true, body: capturedOrder() });
+    const out = await paypalProvider.verifyPayment!(config, { token: 'ORDER-1', PayerID: 'P1', amount: '14990' });
+    const [url, init] = fn.mock.calls[1];
+    expect(url).toBe('https://api-m.sandbox.paypal.com/v2/checkout/orders/ORDER-1/capture');
+    expect(init.method).toBe('POST');
+    expect(init.headers['PayPal-Request-Id']).toBe('capture-ORDER-1');
+    expect(out).toEqual({
+      verified: true, providerRef: 'ORDER-1', amount: 14990, currency: 'USD', paymentId: 'CAPTURE-1', status: 'paid',
+    });
+  });
+
+  it('rounds decimal values instead of truncating them (19.99 → 1999)', async () => {
+    mockSequence({ ok: true, body: capturedOrder('COMPLETED', '19.99') });
+    const out = await paypalProvider.verifyPayment!(config, { token: 'ORDER-1' });
+    expect(out.amount).toBe(1999);
+  });
+
+  it('an order captured earlier is read back, not captured twice', async () => {
+    const fn = mockSequence(
+      { ok: false, body: { name: 'UNPROCESSABLE_ENTITY', details: [{ issue: 'ORDER_ALREADY_CAPTURED' }] } },
+      { ok: true, status: 200, body: capturedOrder() },
+    );
+    const out = await paypalProvider.verifyPayment!(config, { token: 'ORDER-1' });
+    expect(fn.mock.calls[2][0]).toBe('https://api-m.sandbox.paypal.com/v2/checkout/orders/ORDER-1');
+    expect(out.verified).toBe(true);
+    expect(out.paymentId).toBe('CAPTURE-1');
+  });
+
+  it.each([
+    ['ORDER_NOT_APPROVED', 'canceled'],
+    ['INSTRUMENT_DECLINED', 'failed'],
+    ['SOMETHING_ELSE', 'pending'],
+  ])('capture refused with %s → %s', async (issue, status) => {
+    mockSequence({ ok: false, body: { details: [{ issue }] } });
+    const out = await paypalProvider.verifyPayment!(config, { token: 'ORDER-1' });
+    expect(out).toEqual({ verified: false, providerRef: 'ORDER-1', status });
+  });
+
+  it('a PENDING capture is not money yet', async () => {
+    mockSequence({ ok: true, body: capturedOrder('PENDING') });
+    expect((await paypalProvider.verifyPayment!(config, { token: 'ORDER-1' })).status).toBe('pending');
+  });
+
+  it('a DECLINED capture is a failure', async () => {
+    mockSequence({ ok: true, body: capturedOrder('DECLINED') });
+    expect((await paypalProvider.verifyPayment!(config, { token: 'ORDER-1' })).status).toBe('failed');
+  });
+
+  it('a cancel return never captures', async () => {
+    const fn = mockSequence({ ok: true, status: 200, body: { id: 'ORDER-1', status: 'PAYER_ACTION_REQUIRED' } });
+    const out = await paypalProvider.verifyPayment!(config, { token: 'ORDER-1', canceled: '1' });
+    expect(fn.mock.calls[1][0]).toBe('https://api-m.sandbox.paypal.com/v2/checkout/orders/ORDER-1');
+    expect(fn.mock.calls[1][1].method).toBeUndefined();
+    expect(out).toEqual({ verified: false, providerRef: 'ORDER-1', status: 'canceled' });
+  });
+
+  it('without an order reference nothing is called', async () => {
+    const fn = mockSequence();
+    expect(await paypalProvider.verifyPayment!(config, {})).toEqual({ verified: false, providerRef: '', status: 'failed' });
+    expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+describe('paypal verifyWebhook (verify-webhook-signature API)', () => {
+  const webhookConfig = { ...config, webhook_id: 'WH-1' };
+  const transmission = {
+    'paypal-auth-algo': 'SHA256withRSA',
+    'paypal-cert-url': 'https://api.paypal.com/v1/notifications/certs/CERT-1',
+    'paypal-transmission-id': 'tx-1',
+    'paypal-transmission-sig': 'sig==',
+    'paypal-transmission-time': '2026-10-08T10:00:00Z',
+  };
+  const capture = {
+    id: 'WH-EVT-1',
+    event_type: 'PAYMENT.CAPTURE.COMPLETED',
+    resource: {
+      id: 'CAPTURE-1',
+      status: 'COMPLETED',
+      amount: { currency_code: 'USD', value: '149.90' },
+      custom_id: 'ws-1:pi-1',
+      supplementary_data: { related_ids: { order_id: 'ORDER-1' } },
+    },
+  };
+
+  function mockVerification(status: string, ok = true) {
+    const fn = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'tok' }) })
+      .mockResolvedValueOnce({ ok, status: ok ? 200 : 400, json: async () => ({ verification_status: status }) });
+    vi.stubGlobal('fetch', fn);
+    return fn;
+  }
+
+  it('asks PayPal to verify the delivery with the exact raw body spliced in', async () => {
+    const raw = JSON.stringify(capture).replace('"COMPLETED"', '"COMPLETED" ');
+    const fn = mockVerification('SUCCESS');
+    const event = await paypalProvider.verifyWebhook(webhookConfig, transmission, raw);
+    const [url, init] = fn.mock.calls[1];
+    expect(url).toBe('https://api-m.sandbox.paypal.com/v1/notifications/verify-webhook-signature');
+    expect(init.body.endsWith(`"webhook_event":${raw}}`)).toBe(true);
+    expect(JSON.parse(init.body)).toMatchObject({
+      auth_algo: 'SHA256withRSA',
+      cert_url: transmission['paypal-cert-url'],
+      transmission_id: 'tx-1',
+      transmission_sig: 'sig==',
+      transmission_time: '2026-10-08T10:00:00Z',
+      webhook_id: 'WH-1',
+    });
+    expect(event).toMatchObject({
+      type: 'payment_succeeded',
+      providerEventId: 'WH-EVT-1',
+      workspaceId: 'ws-1',
+      intentId: 'pi-1',
+      providerRef: 'ORDER-1',
+      providerPaymentId: 'CAPTURE-1',
+      amount: 14990,
+      currency: 'USD',
+    });
+  });
+
+  it('throws on a FAILURE verdict', async () => {
+    mockVerification('FAILURE');
+    await expect(paypalProvider.verifyWebhook(webhookConfig, transmission, JSON.stringify(capture)))
+      .rejects.toThrow('Invalid PayPal webhook signature');
+  });
+
+  it('is not verified without a configured webhook id or the transmission headers', async () => {
+    const fn = mockVerification('SUCCESS');
+    await expect(paypalProvider.verifyWebhook(config, transmission, JSON.stringify(capture))).resolves.toBeNull();
+    await expect(paypalProvider.verifyWebhook(webhookConfig, {}, JSON.stringify(capture))).resolves.toBeNull();
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('a refund names the capture it refunds and the running refunded total', async () => {
+    mockVerification('SUCCESS');
+    const refund = {
+      id: 'WH-EVT-2',
+      event_type: 'PAYMENT.CAPTURE.REFUNDED',
+      resource: {
+        id: 'REFUND-1',
+        amount: { currency_code: 'USD', value: '50.00' },
+        seller_payable_breakdown: { total_refunded_amount: { currency_code: 'USD', value: '60.00' } },
+        links: [{ rel: 'up', href: 'https://api.paypal.com/v2/payments/captures/CAPTURE-1' }],
+      },
+    };
+    const event = await paypalProvider.verifyWebhook(webhookConfig, transmission, JSON.stringify(refund));
+    expect(event).toMatchObject({
+      type: 'refund_processed',
+      providerPaymentId: 'CAPTURE-1',
+      amount: 5000,
+      refundedTotal: 6000,
+      currency: 'USD',
+    });
+  });
+
+  it('a denied capture fails the intent it names', async () => {
+    mockVerification('SUCCESS');
+    const event = await paypalProvider.verifyWebhook(
+      webhookConfig, transmission, JSON.stringify({ ...capture, event_type: 'PAYMENT.CAPTURE.DENIED' }),
+    );
+    expect(event).toMatchObject({ type: 'payment_failed', intentId: 'pi-1', status: 'failed' });
+  });
+
+  it('other event types are acknowledged as ignored', async () => {
+    mockVerification('SUCCESS');
+    const event = await paypalProvider.verifyWebhook(
+      webhookConfig, transmission, JSON.stringify({ id: 'E', event_type: 'CHECKOUT.ORDER.APPROVED', resource: {} }),
+    );
+    expect(event?.type).toBe('ignored');
+  });
+});
+
 describe('paypal create parsers', () => {
-  it.each([null, [], {}, 'x', { message: '' }, { message: 3 }])('subscription error rejects %#', (b) => expect(readPayPalSubscriptionError(b)).toBeNull());
-  it('subscription error reads message', () => expect(readPayPalSubscriptionError({ message: 'm' })).toBe('m'));
-  it.each([null, [], {}, { id: '' }, { id: 1 }, { id: {} }])('subscription id rejects %#', (b) => expect(readPayPalSubscriptionId(b)).toBeUndefined());
-  it('subscription id reads string', () => expect(readPayPalSubscriptionId({ id: 'I' })).toBe('I'));
+  it.each([null, [], {}, 'x', { message: '' }, { message: 3 }])('error message rejects %#', (b) => expect(readPayPalSubscriptionError(b)).toBeNull());
+  it('error message reads message', () => expect(readPayPalSubscriptionError({ message: 'm' })).toBe('m'));
+  it.each([null, [], {}, { id: '' }, { id: 1 }, { id: {} }])('resource id rejects %#', (b) => expect(readPayPalSubscriptionId(b)).toBeUndefined());
+  it('resource id reads string', () => expect(readPayPalSubscriptionId({ id: 'I' })).toBe('I'));
   it.each([null, {}, { links: {} }, { links: [{ rel: 'self', href: 'h' }] }, { links: [{ rel: 'approve' }] }])('approval url rejects %#', (b) => expect(readPayPalApprovalUrl(b)).toBeUndefined());
   it('approval url reads href', () => expect(readPayPalApprovalUrl({ links: [{ rel: 'approve', href: 'h' }] })).toBe('h'));
+  it('approval url reads the payer-action link of an Orders v2 order', () =>
+    expect(readPayPalApprovalUrl({ links: [{ rel: 'self', href: 's' }, { rel: 'payer-action', href: 'p' }] })).toBe('p'));
+  it('issue reads details[0].issue', () => expect(readPayPalIssue({ details: [{ issue: 'X' }] })).toBe('X'));
+  it.each([null, {}, { details: [] }, { details: 'x' }])('issue rejects %#', (b) => expect(readPayPalIssue(b)).toBeUndefined());
+  it('order capture reads the first capture', () =>
+    expect(readPayPalOrderCapture({ purchase_units: [{ payments: { captures: [{ id: 'C' }] } }] })).toEqual({ id: 'C' }));
+  it.each([null, {}, { purchase_units: [] }, { purchase_units: [{}] }])('order capture rejects %#', (b) =>
+    expect(readPayPalOrderCapture(b)).toBeNull());
+  it('custom_id carries workspace and intent; a bare value is a legacy workspace id', () => {
+    expect(parsePayPalCustomId('ws-1:pi-1')).toEqual({ workspaceId: 'ws-1', intentId: 'pi-1' });
+    expect(parsePayPalCustomId('ws-1')).toEqual({ workspaceId: 'ws-1', intentId: undefined });
+    expect(parsePayPalCustomId(undefined)).toEqual({});
+  });
 });
 
 // ── Refund (POST /v2/payments/captures/{captureId}/refund) ──
@@ -217,13 +452,27 @@ import { readPayPalRefundId } from '../../../server/services/billing/providers/p
 describe('paypal refundPayment', () => {
   it('sends partial refund with amount and returns refund id', async () => {
     const fetchMock = mockTokenThen({ id: 'REF-1', status: 'COMPLETED' });
-    const out = await paypalProvider.refundPayment?.(config, 'CAPTURE-9', 14990);
+    const out = await paypalProvider.refundPayment?.(config, 'CAPTURE-9', 14990, 'USD');
     expect(out).toEqual({ success: true, refundId: 'REF-1' });
     const [url, init] = fetchMock.mock.calls[1];
     expect(url).toBe('https://api-m.sandbox.paypal.com/v2/payments/captures/CAPTURE-9/refund');
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Authorization': 'Bearer tok', 'Content-Type': 'application/json' });
     expect(JSON.parse(init.body)).toEqual({ amount: { value: '149.90', currency_code: 'USD' } });
+  });
+
+  it('refunds a EUR capture in EUR (it used to be labelled USD)', async () => {
+    const fetchMock = mockTokenThen({ id: 'REF-E' });
+    await paypalProvider.refundPayment?.(config, 'CAPTURE-9', 1000, 'eur');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ amount: { value: '10.00', currency_code: 'EUR' } });
+  });
+
+  it('refuses a partial refund without the capture currency instead of guessing USD', async () => {
+    const fetchMock = mockTokenThen({ id: 'REF-1' });
+    await expect(paypalProvider.refundPayment?.(config, 'CAPTURE-9', 1000)).rejects.toThrow(
+      'PayPal partial refund needs the capture currency',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('sends empty body for full refund', async () => {
@@ -272,7 +521,7 @@ describe('paypal refundPayment', () => {
 
   it('does not leak secrets in the refund output', async () => {
     mockTokenThen({ id: 'REF-1' });
-    const serialized = JSON.stringify(await paypalProvider.refundPayment?.(config, 'CAPTURE-9', 14990));
+    const serialized = JSON.stringify(await paypalProvider.refundPayment?.(config, 'CAPTURE-9', 14990, 'USD'));
     for (const secret of ['client-secret-mock', 'client-id-mock', 'Basic ', 'tok', 'buyer@example.com']) {
       expect(serialized).not.toContain(secret);
     }

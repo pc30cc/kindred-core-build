@@ -1,5 +1,17 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import crypto from 'crypto';
+import { minorFromProvider, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
+
+/**
+ * A Lemon Squeezy store sells in ONE currency (set when the store is created)
+ * and `custom_price` is in that currency's cents. These are the `billing_plans.prices`
+ * keys a store can have; the configured `currency` (default USD) is the one
+ * actually charged.
+ */
+export const LEMON_SQUEEZY_CURRENCIES = ['USD', 'EUR', 'GBP'] as const;
+
+/** Checkout links expire with the payment intent they collect for. */
+const CHECKOUT_LINK_TTL_MS = 30 * 60 * 1000;
 
 // --- Local runtime narrowing for Lemon Squeezy JSON:API bodies (no casts, no shared helper) ---
 
@@ -85,20 +97,51 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
     refunds: true, webhooks: true, multiCurrency: false, trialSupport: true,
   },
 
+  supportedCurrencies: LEMON_SQUEEZY_CURRENCIES,
+
+  /**
+   * A checkout of the configured single-payment variant (`variant_id`) at
+   * `custom_price` = exactly the amount being collected (cents of the store
+   * currency). The variant's own price is never charged, so one variant
+   * serves every plan and interval. `checkout_data.custom` carries workspace,
+   * intent and invoice; Lemon Squeezy returns it as `meta.custom_data` on the
+   * order webhooks, which are what confirm the payment (the redirect back
+   * carries no payment reference).
+   */
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
+    const storeCurrency = normalizeCurrencyCode(config.currency) || 'USD';
+    const currency = requireSupportedCurrency('Lemon Squeezy', req.currency, LEMON_SQUEEZY_CURRENCIES);
+    if (currency !== storeCurrency) {
+      throw new Error(`Lemon Squeezy store sells in ${storeCurrency}, not ${currency}`);
+    }
+    const amount = minorFromProvider(req.metadata?.amount);
+    if (!amount) throw new Error('Lemon Squeezy checkout needs a positive amount');
+    const variantId = config.variant_id !== undefined && config.variant_id !== null ? String(config.variant_id).trim() : '';
+    if (!variantId) throw new Error('Lemon Squeezy variant is not configured');
+
+    const custom: Record<string, string> = { workspace_id: req.workspaceId };
+    if (req.intentId) custom.intent_id = req.intentId;
+    if (req.invoiceId) custom.invoice_id = req.invoiceId;
+
     const data: unknown = await lsApi(config, '/checkouts', 'POST', {
       data: {
         type: 'checkouts',
         attributes: {
+          custom_price: amount,
           checkout_data: {
-            email: req.customerEmail,
-            custom: { workspace_id: req.workspaceId },
+            ...(req.customerEmail ? { email: req.customerEmail } : {}),
+            custom,
           },
-          product_options: { redirect_url: req.callbackUrl },
+          product_options: {
+            redirect_url: req.callbackUrl,
+            ...(req.description ? { name: req.description } : {}),
+          },
+          expires_at: new Date(Date.now() + CHECKOUT_LINK_TTL_MS).toISOString(),
+          ...(config.test_mode ? { test_mode: true } : {}),
         },
         relationships: {
-          store: { data: { type: 'stores', id: config.store_id } },
-          variant: { data: { type: 'variants', id: req.planId } },
+          store: { data: { type: 'stores', id: String(config.store_id) } },
+          variant: { data: { type: 'variants', id: variantId } },
         },
       },
     });
@@ -119,26 +162,64 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
     }
 
     const event = JSON.parse(body);
-    const typeMap: Record<string, WebhookEvent['type']> = {
-      'order_created': 'checkout_completed',
+    const meta = asRecord(event?.meta);
+    const customData = asRecord(meta?.custom_data);
+    const data = asRecord(event?.data);
+    const attributes = asRecord(data?.attributes);
+    const eventName = typeof meta?.event_name === 'string' ? meta.event_name : '';
+    const dataId = data?.id !== undefined && data?.id !== null ? String(data.id) : '';
+    const readCustom = (key: string) => {
+      const value = customData?.[key];
+      return typeof value === 'string' && value.length > 0 ? value : undefined;
+    };
+    const base = {
+      // Lemon Squeezy sends no event id: event name + object id is unique per change.
+      providerEventId: `${eventName}_${dataId}`,
+      workspaceId: readCustom('workspace_id'),
+      intentId: readCustom('intent_id'),
+      currency: normalizeCurrencyCode(attributes?.currency),
+      raw: event,
+    };
+
+    if (eventName === 'order_created') {
+      // An order can be created before its payment clears; only `paid` is money.
+      if (attributes?.status !== 'paid') return { ...base, type: 'ignored' };
+      return {
+        ...base,
+        type: 'payment_succeeded',
+        providerPaymentId: dataId || undefined,
+        providerCustomerId: attributes?.customer_id !== undefined ? String(attributes.customer_id) : undefined,
+        // `total` is in cents of the store currency, like `custom_price`.
+        amount: minorFromProvider(attributes?.total),
+      };
+    }
+    if (eventName === 'order_refunded') {
+      return {
+        ...base,
+        type: 'refund_processed',
+        providerPaymentId: dataId || undefined,
+        refundedTotal: minorFromProvider(attributes?.refunded_amount),
+      };
+    }
+
+    // Subscriptions (legacy: this platform no longer creates them).
+    const legacyMap: Record<string, WebhookEvent['type']> = {
       'subscription_created': 'subscription_created',
       'subscription_updated': 'subscription_updated',
       'subscription_cancelled': 'subscription_canceled',
       'subscription_payment_success': 'payment_succeeded',
       'subscription_payment_failed': 'payment_failed',
     };
-    const mapped = typeMap[event.meta?.event_name];
-    if (!mapped) return null;
-
+    const mapped = legacyMap[eventName];
+    if (!mapped) return { ...base, type: 'ignored' };
     return {
+      ...base,
       type: mapped,
-      providerEventId: event.meta?.event_name + '_' + event.data?.id,
-      providerSubscriptionId: event.data?.attributes?.subscription_id?.toString() || event.data?.id?.toString(),
-      providerCustomerId: event.data?.attributes?.customer_id?.toString(),
-      workspaceId: event.meta?.custom_data?.workspace_id,
-      amount: event.data?.attributes?.total,
-      currency: event.data?.attributes?.currency,
-      raw: event,
+      providerSubscriptionId: attributes?.subscription_id !== undefined
+        ? String(attributes.subscription_id)
+        : dataId || undefined,
+      providerCustomerId: attributes?.customer_id !== undefined ? String(attributes.customer_id) : undefined,
+      amount: minorFromProvider(attributes?.total),
     };
   },
 
@@ -160,8 +241,8 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
       const error = readLemonSqueezyError(data);
       if (error !== null) return { success: false, latencyMs: Date.now() - start, error: error.detail };
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

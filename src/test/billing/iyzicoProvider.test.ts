@@ -112,6 +112,20 @@ describe('iyzico createCheckoutSession', () => {
     expect(payload.currency).toBe('TRY');
   });
 
+  it.each([['USD'], ['EUR'], ['gbp']])('charges a %s price in that currency (it was always sent as TRY)', async (currency) => {
+    const fetchMock = mockJson(ok);
+    await iyzicoProvider.createCheckoutSession(config, { ...req, currency, metadata: { amount: '2900' } });
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.currency).toBe(currency.toUpperCase());
+    expect(payload.price).toBe('29.00');
+  });
+
+  it('refuses a currency iyzico cannot charge instead of relabelling it', async () => {
+    const fetchMock = mockJson(ok);
+    await expect(iyzicoProvider.createCheckoutSession(config, { ...req, currency: 'IRR' })).rejects.toThrow(/iyzico cannot charge IRR/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('throws with the provider error message on failure', async () => {
     mockJson({ status: 'failure', errorMessage: 'invalid request' });
     await expect(iyzicoProvider.createCheckoutSession(config, req)).rejects.toThrow('invalid request');
@@ -263,6 +277,12 @@ describe('iyzico refundPayment', () => {
     const fetchMock = mockJson({ status: 'success' });
     await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1');
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).price).toBe('0');
+  });
+
+  it('refunds a USD payment in USD', async () => {
+    const fetchMock = mockJson({ status: 'success' });
+    await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1', 2900, 'usd');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ price: '29.00', currency: 'USD' });
   });
 
   it('keeps provider failures as failures', async () => {

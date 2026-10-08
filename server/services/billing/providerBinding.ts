@@ -47,6 +47,21 @@ const CONTRACTS: Record<string, ProviderReferenceContract> = {
   sep_shaparak:        { requiresPaymentReferenceBinding: true, callbackKeys: ['Token', 'token'] },
   // Local sandbox mirrors ZarinPal's authority contract.
   iranpardakht_sandbox:{ requiresPaymentReferenceBinding: true, callbackKeys: ['authority', 'Authority'] },
+
+  // Card gateways (see cardInvoice.ts). Their payment is confirmed by looking
+  // up the STORED reference at the provider; a callback reference may only
+  // agree with it, never select another checkout.
+  // Stripe returns to success_url with `session_id={CHECKOUT_SESSION_ID}`.
+  stripe:              { requiresPaymentReferenceBinding: true, callbackKeys: ['session_id'] },
+  // PayPal returns with `token=<order id>` (and PayerID).
+  paypal:              { requiresPaymentReferenceBinding: true, callbackKeys: ['token'] },
+  // Paddle.js returns to the success URL carrying `_ptxn=<transaction id>`.
+  paddle:              { requiresPaymentReferenceBinding: true, callbackKeys: ['_ptxn'] },
+  lemon_squeezy: {
+    requiresPaymentReferenceBinding: false,
+    callbackKeys: [],
+    reason: 'webhook_confirmed: the redirect carries no payment reference; the signed order webhook names the intent in custom_data',
+  },
 };
 
 /** Generic fallback keys, used only for providers without a declared contract. */

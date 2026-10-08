@@ -24,6 +24,8 @@ import {
   getInvoiceDetail,
   buildWalletView,
   listTransactions,
+  invoiceCurrency,
+  WALLET_CURRENCY,
   INVOICE_FILTERS,
   type InvoiceFilter,
 } from '../services/billing/customer/readModels.js';
@@ -34,8 +36,15 @@ import {
   setWalletAutoPay,
   issueAiCreditPurchase,
   issueWalletDepositPurchase,
+  billingCurrencyOf,
   BillingActionError,
 } from '../services/billing/customer/actions.js';
+import {
+  canCollectInvoice,
+  isCardInvoiceProvider,
+  CARD_COLLECTION_TTL_SECONDS,
+  CARD_INTENT_TTL_MS,
+} from '../services/billing/cardInvoice.js';
 import {
   settleInvoiceFromWallet,
   applyInvoiceEffects,
@@ -75,7 +84,8 @@ interface CatalogPlanRow {
   slug: string;
   description?: string | null;
   is_hidden?: boolean | null;
-  prices?: { IRR?: { monthly?: unknown; yearly?: unknown } } | null;
+  /** `{ CURRENCY: { monthly, yearly } }` — minor units, whole Rial for IRR. */
+  prices?: Record<string, { monthly?: unknown; yearly?: unknown } | null | undefined> | null;
   price_monthly?: unknown;
   price_yearly?: unknown;
   limits?: Record<string, unknown> | null;
@@ -115,16 +125,32 @@ function isManage(auth: { isAdmin: boolean; role: string | null } | null): boole
 }
 
 /**
+ * Active gateways that can collect a document in `currency`: enabled in
+ * Finance → Gateways for it AND able to collect an invoice in it (Iranian
+ * gateways IRR; card gateways the currencies they charge).
+ */
+async function invoiceGateways(cfg: ServerConfig, currency: string) {
+  const gateways = await listPayableGateways(cfg, currency);
+  return gateways.filter((g) => canCollectInvoice(g.provider_name, currency));
+}
+
+/**
  * Which gateway actually runs this checkout.
  *
  * When the customer picked one of the ACTIVE gateways we honour that choice —
  * but only after re-validating it against the payable list on the server, so a
  * crafted request cannot reach a disabled or unimplemented provider. With no
- * explicit choice we fall back to the configured default resolution.
+ * explicit choice we fall back to the configured default resolution, and to
+ * the first payable gateway when the default cannot take this currency.
  */
-async function resolveCheckoutProvider(cfg: ServerConfig, workspaceId: string, providerName?: string | null) {
+async function resolveCheckoutProvider(
+  cfg: ServerConfig,
+  workspaceId: string,
+  providerName: string | null | undefined,
+  currency: string,
+) {
+  const gateways = await invoiceGateways(cfg, currency);
   if (providerName) {
-    const gateways = await listPayableGateways(cfg, 'IRR');
     const gateway = gateways.find((g) => g.provider_name === providerName);
     if (!gateway) return null;
     return resolveNamedBillingConfig(
@@ -134,7 +160,37 @@ async function resolveCheckoutProvider(cfg: ServerConfig, workspaceId: string, p
       gateway.provider_name,
     );
   }
-  return resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+  const fallback = await resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+  if (fallback && canCollectInvoice(fallback.provider.name, currency)) return fallback;
+  if (gateways.length === 0) return fallback;
+  return resolveNamedBillingConfig(
+    cfg.supabaseUrl,
+    cfg.supabaseServiceRoleKey,
+    workspaceId,
+    gateways[0].provider_name,
+  );
+}
+
+/** What the customer is buying, as the card provider's checkout page shows it. */
+function checkoutDescription(invoice: {
+  plan_name_snapshot?: string | null;
+  billing_interval?: string | null;
+  invoice_type?: string | null;
+  invoice_number: string;
+}): string {
+  const what = invoice.plan_name_snapshot
+    ? `${invoice.plan_name_snapshot}${invoice.billing_interval === 'yearly' ? ' (yearly)' : invoice.billing_interval === 'monthly' ? ' (monthly)' : ''}`
+    : invoice.invoice_type === 'ai_credit_purchase'
+      ? 'AI credit'
+      : 'Subscription';
+  return `${what} — invoice ${invoice.invoice_number}`;
+}
+
+/** The signed-in customer's e-mail, prefilled on the card provider's checkout. */
+async function customerEmailOf(cfg: ServerConfig, userId: string): Promise<string | undefined> {
+  const { data } = await getServiceClient(cfg).from('profiles').select('email').eq('id', userId).maybeSingle();
+  const email = (data as { email?: string | null } | null)?.email;
+  return typeof email === 'string' && email.includes('@') ? email : undefined;
 }
 
 
@@ -143,8 +199,8 @@ billingCustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) 
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   try {
-    const currency = String(req.query.currency || 'IRR').toUpperCase();
-    const gateways = await listPayableGateways(serverConfigOf(req), currency);
+    const currency = billingCurrencyOf(req.query.currency);
+    const gateways = await invoiceGateways(serverConfigOf(req), currency);
     res.json({
       currency,
       gateways: gateways.map((g) => ({
@@ -256,6 +312,11 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/pay-wal
   try {
     const invoice = await getInvoice(cfg, invoiceId);
     if (!invoice || invoice.workspace_id !== workspaceId) return res.status(404).json({ error: 'NOT_FOUND' });
+    // The wallet holds Rial. Debiting it by a USD invoice's cents would pay a
+    // $29 invoice with 2,900 Rial.
+    if (invoiceCurrency(invoice) !== WALLET_CURRENCY) {
+      return res.status(409).json({ error: 'WALLET_CURRENCY_MISMATCH' });
+    }
 
     const settlement = await settleInvoiceFromWallet(cfg, { invoiceId, actorId: auth.userId });
     let application: unknown = null;
@@ -328,11 +389,15 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       return res.status(409).json({ error: 'INVOICE_NOT_PAYABLE' });
     }
 
-    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName);
+    // The invoice fixed the currency when it was issued; the gateway must be
+    // able to collect exactly that (an invoice is never re-priced here).
+    const currency = invoiceCurrency(invoice);
+    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName, currency);
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
-    if (!IRAN_PROVIDERS.has(resolved.provider.name)) {
+    if (!canCollectInvoice(resolved.provider.name, currency)) {
       return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
     }
+    const card = isCardInvoiceProvider(resolved.provider.name);
 
     // Create the attempt first, then bind the reservation to it. The former
     // order created an unowned 15-minute lock whenever execution stopped
@@ -349,6 +414,8 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       actionType: (invoice.effect_snapshot?.action_type as PurchaseActionType) ?? null,
       planNameSnapshot: invoice.plan_name_snapshot ?? null,
       invoiceNumber: invoice.invoice_number,
+      currency,
+      ...(card ? { ttlMs: CARD_INTENT_TTL_MS } : {}),
       metadata: { origin: 'customer_invoice_checkout' },
     });
     intentId = intent.id;
@@ -362,7 +429,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       amountIrr: due,
       commandKey: `customer_checkout:${intent.id}`,
       paymentIntentId: intent.id,
-      ttlSeconds: 900,
+      ttlSeconds: card ? CARD_COLLECTION_TTL_SECONDS : 900,
     });
 
     const apiOrigin = await resolvePublicApiOrigin(cfg.supabaseUrl, cfg.supabaseServiceRoleKey);
@@ -389,12 +456,18 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       .eq('id', intent.id);
     if (returnUrlError) throw new Error(`checkout return URL write failed: ${returnUrlError.message}`);
 
+    // `amount` is the invoice due in minor units of `currency` (Rial for IRR).
     const result = await resolved.provider.createCheckoutSession(resolved.config, {
       workspaceId,
       planId: invoice.plan_id || 'invoice',
       interval: invoice.billing_interval || 'monthly',
-      currency: 'IRR',
+      currency,
       callbackUrl: gatewayCallbackUrl,
+      intentId: intent.id,
+      invoiceId,
+      ...(card
+        ? { description: checkoutDescription(invoice), customerEmail: await customerEmailOf(cfg, auth.userId) }
+        : {}),
       metadata: { amount: String(due), invoiceId },
     });
 
@@ -423,7 +496,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       event_type: 'checkout_initiated',
       provider_name: resolved.provider.name,
       amount: due,
-      currency: 'IRR',
+      currency,
       status: 'pending',
       metadata: { invoiceId, intentId: intent.id },
     });
@@ -471,30 +544,46 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
     // plans it can upgrade to, and its current tier is reported by the
     // overview tab instead.
     const currentPlanId = sub?.plan_id ?? null;
-    const isPaidPlan = (p: CatalogPlanRow) =>
-      Number(p.prices?.IRR?.monthly ?? p.price_monthly ?? 0) > 0 ||
-      Number(p.prices?.IRR?.yearly ?? p.price_yearly ?? 0) > 0;
-    const visiblePlans = (plans || []).filter(
-      (p) => p.is_hidden !== true && p.slug !== 'trial' && p.slug !== 'free' && isPaidPlan(p),
-    );
+    const catalog = (plans || []).filter((p) => p.is_hidden !== true && p.slug !== 'trial' && p.slug !== 'free');
+
+    // Every plan is priced per currency. The catalogue is shown in ONE
+    // currency the customer can actually pay in: a visible plan is priced in
+    // it and an active gateway can collect an invoice in it.
+    const candidates = new Set<string>(['IRR']);
+    for (const p of catalog) {
+      for (const code of Object.keys(p.prices ?? {})) {
+        if (/^[A-Za-z]{3}$/.test(code)) candidates.add(code.toUpperCase());
+      }
+    }
+    const sellable = [...candidates].filter((c) => catalog.some((p) => planSellsIn(p, c)));
+    const collectable = await Promise.all(sellable.map(async (c) => (await invoiceGateways(cfg, c)).length > 0));
+    const currencies = sellable.filter((_c, i) => collectable[i]);
+    const currency = pickCatalogCurrency(currencies, {
+      requested: typeof req.query.currency === 'string' ? req.query.currency : null,
+      subscription: await paidSubscriptionCurrency(cfg, req.params.workspaceId),
+      locale: typeof req.query.locale === 'string' ? req.query.locale : null,
+    });
+    const visiblePlans = catalog.filter((p) => planSellsIn(p, currency));
 
     res.json({
       currentPlanId,
       currentInterval: sub?.billing_interval ?? null,
       pendingPlanId: sub?.next_plan_id ?? null,
+      currency,
+      currencies,
       plans: visiblePlans.map((p) => ({
         id: p.id,
         name: p.name,
         description: p.description ?? null,
-        monthlyPriceIrr: Math.round(Number(p.prices?.IRR?.monthly ?? p.price_monthly ?? 0)) || 0,
-        yearlyPriceIrr: Math.round(Number(p.prices?.IRR?.yearly ?? p.price_yearly ?? 0)) || 0,
+        // Minor units of `currency` (whole Rial for IRR); the field names are historic.
+        monthlyPriceIrr: catalogPrice(p, currency, 'monthly'),
+        yearlyPriceIrr: catalogPrice(p, currency, 'yearly'),
+        currency,
         aiMonthlyAllowanceIrr: Math.round(Number(p.limits?.ai_credits_per_month ?? 0)) || 0,
         limits: p.limits ?? {},
         entitlements: p.entitlements ?? {},
         features: p.features ?? [],
-        isFree:
-          Number(p.prices?.IRR?.monthly ?? p.price_monthly ?? 0) <= 0 &&
-          Number(p.prices?.IRR?.yearly ?? p.price_yearly ?? 0) <= 0,
+        isFree: !planSellsIn(p, currency),
       })),
     });
   } catch (e) {
@@ -502,10 +591,61 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
   }
 });
 
+/** A catalogue price, minor units of `currency`; IRR still honours the legacy flat columns. */
+function catalogPrice(p: CatalogPlanRow, currency: string, interval: 'monthly' | 'yearly'): number {
+  const fromMap = p.prices?.[currency]?.[interval];
+  const raw = currency === 'IRR' ? fromMap ?? (interval === 'yearly' ? p.price_yearly : p.price_monthly) : fromMap;
+  return Math.round(Number(raw ?? 0)) || 0;
+}
+
+function planSellsIn(p: CatalogPlanRow, currency: string): boolean {
+  return catalogPrice(p, currency, 'monthly') > 0 || catalogPrice(p, currency, 'yearly') > 0;
+}
+
+/** The currency people of a UI locale pay in by default (the public pricing page's rule). */
+function localeCurrency(locale: string | null): string {
+  if (locale === 'fa') return 'IRR';
+  if (locale === 'tr') return 'TRY';
+  return 'USD';
+}
+
+/**
+ * The catalogue currency: the customer's explicit choice, else the currency
+ * their running paid period was bought in (an upgrade stays in it), else
+ * their UI locale's, else Rial, else whatever can be paid at all.
+ */
+export function pickCatalogCurrency(
+  currencies: string[],
+  prefs: { requested?: string | null; subscription?: string | null; locale?: string | null },
+): string {
+  const requested = prefs.requested ? billingCurrencyOf(prefs.requested) : null;
+  for (const code of [requested, prefs.subscription, localeCurrency(prefs.locale ?? null), 'IRR']) {
+    if (code && currencies.includes(code)) return code;
+  }
+  return currencies[0] ?? requested ?? 'IRR';
+}
+
+/** Currency of the invoice that bought the workspace's active service period, if any. */
+async function paidSubscriptionCurrency(cfg: ServerConfig, workspaceId: string): Promise<string | null> {
+  const sb = getServiceClient(cfg);
+  const { data: period } = await sb
+    .from('billing_subscription_periods')
+    .select('invoice_id')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'active')
+    .maybeSingle();
+  const invoiceId = (period as { invoice_id?: string | null } | null)?.invoice_id;
+  if (!invoiceId) return null;
+  const { data: invoice } = await sb.from('billing_invoices').select('currency').eq('id', invoiceId).maybeSingle();
+  return invoice ? invoiceCurrency(invoice as { currency?: unknown }) : null;
+}
+
 const planChangeSchema = z.object({
   planId: z.string().uuid(),
   interval: z.enum(['monthly', 'yearly']),
   mode: z.enum(['immediate', 'next_cycle']),
+  /** Currency the catalogue was shown in (ISO 4217); IRR when absent. */
+  currency: z.string().regex(/^[A-Za-z]{3}$/).optional(),
 });
 
 billingCustomerRouter.post('/workspaces/:workspaceId/plan-change/preview', async (req, res) => {
@@ -514,8 +654,8 @@ billingCustomerRouter.post('/workspaces/:workspaceId/plan-change/preview', async
   const parsed = planChangeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    const { planId, interval, mode } = parsed.data;
-    res.json(await previewPlanChange(serverConfigOf(req), req.params.workspaceId, { planId, interval, mode }));
+    const { planId, interval, mode, currency } = parsed.data;
+    res.json(await previewPlanChange(serverConfigOf(req), req.params.workspaceId, { planId, interval, mode, currency }));
   } catch (e) {
     fail(res, e);
   }
@@ -527,13 +667,14 @@ billingCustomerRouter.post('/workspaces/:workspaceId/plan-change', async (req, r
   const parsed = planChangeSchema.extend({ expectedAmountIrr: z.number().int().min(0) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    const { planId, interval, mode, expectedAmountIrr } = parsed.data;
+    const { planId, interval, mode, expectedAmountIrr, currency } = parsed.data;
     res.json(
       await applyPlanChange(serverConfigOf(req), req.params.workspaceId, {
         planId,
         interval,
         mode,
         expectedAmountIrr,
+        currency,
       }),
     );
   } catch (e) {
@@ -707,7 +848,8 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
     if (!deposit) return res.status(404).json({ error: 'NOT_FOUND' });
     if (deposit.status !== 'pending') return res.status(409).json({ error: 'DEPOSIT_NOT_PENDING' });
 
-    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName);
+    // A wallet deposit is Rial: only an Iranian gateway can collect it.
+    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName, WALLET_CURRENCY);
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
     if (!IRAN_PROVIDERS.has(resolved.provider.name)) return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
 

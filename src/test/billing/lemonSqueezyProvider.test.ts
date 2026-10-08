@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import crypto from 'crypto';
 import { lemonSqueezyProvider } from '../../../server/services/billing/providers/lemonsqueezy.js';
 import type { BillingProviderConfig, CheckoutRequest } from '../../../server/services/billing/types.js';
 
@@ -10,16 +11,22 @@ const config: BillingProviderConfig = {
   sandbox: true,
   api_key: MOCK_API_KEY,
   store_id: MOCK_STORE_ID,
+  variant_id: '67890',
 };
 
 const req: CheckoutRequest = {
   workspaceId: 'ws-1',
-  planId: 'var_67890',
+  planId: 'plan-uuid',
   interval: 'monthly',
   currency: 'usd',
-  callbackUrl: 'https://app.test.localhost/callback',
+  callbackUrl: 'https://app.test.localhost/pay?intent=pi-1&provider=lemon_squeezy',
   customerEmail: 'buyer@test.localhost',
   customerName: 'Test Buyer',
+  intentId: 'pi-1',
+  invoiceId: 'inv-1',
+  description: 'Pro (monthly) — invoice AB12345678',
+  // The invoice due, minor units: $29.00.
+  metadata: { amount: '2900' },
 };
 
 function mockFetch(status: number, body: unknown) {
@@ -41,7 +48,8 @@ function firstCall(fn: ReturnType<typeof mockFetch>) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('lemon squeezy createCheckoutSession', () => {
-  it('returns the checkout url and id, request contract unchanged', async () => {
+  it('checks out the configured variant at exactly the invoice amount, naming workspace, intent and invoice', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-08T10:00:00.000Z'));
     const fetchMock = mockFetch(201, {
       data: { type: 'checkouts', id: 'co_01mock', attributes: { url: 'https://store.lemonsqueezy.com/checkout/co_01mock' } },
     });
@@ -63,15 +71,50 @@ describe('lemon squeezy createCheckoutSession', () => {
       data: {
         type: 'checkouts',
         attributes: {
-          checkout_data: { email: 'buyer@test.localhost', custom: { workspace_id: 'ws-1' } },
-          product_options: { redirect_url: 'https://app.test.localhost/callback' },
+          // Cents of the store currency; the variant's own price is never charged.
+          custom_price: 2900,
+          checkout_data: {
+            email: 'buyer@test.localhost',
+            custom: { workspace_id: 'ws-1', intent_id: 'pi-1', invoice_id: 'inv-1' },
+          },
+          product_options: {
+            redirect_url: 'https://app.test.localhost/pay?intent=pi-1&provider=lemon_squeezy',
+            name: 'Pro (monthly) — invoice AB12345678',
+          },
+          expires_at: '2026-10-08T10:30:00.000Z',
         },
         relationships: {
           store: { data: { type: 'stores', id: MOCK_STORE_ID } },
-          variant: { data: { type: 'variants', id: 'var_67890' } },
+          // A platform plan id is not a Lemon Squeezy variant: the configured one is used.
+          variant: { data: { type: 'variants', id: '67890' } },
         },
       },
     });
+    vi.restoreAllMocks();
+  });
+
+  it('marks the checkout as a test in test mode', async () => {
+    const fetchMock = mockFetch(201, { data: { id: 'co_t', attributes: { url: 'https://x' } } });
+    await lemonSqueezyProvider.createCheckoutSession({ ...config, test_mode: true }, req);
+    expect(JSON.parse(firstCall(fetchMock).init.body as string).data.attributes.test_mode).toBe(true);
+  });
+
+  it('refuses a currency other than the store’s (the store charges ONE currency)', async () => {
+    const fetchMock = mockFetch(201, { data: { id: 'co_t', attributes: { url: 'https://x' } } });
+    await expect(lemonSqueezyProvider.createCheckoutSession(config, { ...req, currency: 'EUR' }))
+      .rejects.toThrow('Lemon Squeezy store sells in USD, not EUR');
+    await expect(lemonSqueezyProvider.createCheckoutSession({ ...config, currency: 'EUR' }, { ...req, currency: 'EUR' }))
+      .resolves.toMatchObject({ sessionId: 'co_t' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a checkout without a configured variant or amount', async () => {
+    const fetchMock = mockFetch(201, { data: { id: 'co_t', attributes: { url: 'https://x' } } });
+    await expect(lemonSqueezyProvider.createCheckoutSession({ ...config, variant_id: '' }, req))
+      .rejects.toThrow('Lemon Squeezy variant is not configured');
+    await expect(lemonSqueezyProvider.createCheckoutSession(config, { ...req, metadata: { amount: '0' } }))
+      .rejects.toThrow('Lemon Squeezy checkout needs a positive amount');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('throws with errors[0].detail', async () => {
@@ -226,5 +269,51 @@ describe('lemon squeezy testConnection', () => {
     mockFetch(401, { errors: [{ detail: 'Unauthenticated.' }] });
     const result = await lemonSqueezyProvider.testConnection!(config);
     expect(JSON.stringify(result)).not.toContain(MOCK_API_KEY);
+  });
+});
+
+describe('lemon squeezy verifyWebhook event mapping', () => {
+  const secret = 'ls_webhook_secret';
+  const map = async (event: unknown) => {
+    const body = JSON.stringify(event);
+    const sig = crypto.createHmac('sha256', secret).update(body).digest('hex');
+    return lemonSqueezyProvider.verifyWebhook({ ...config, webhook_secret: secret }, { 'x-signature': sig }, body);
+  };
+  const meta = {
+    event_name: 'order_created',
+    custom_data: { workspace_id: 'ws-1', intent_id: 'pi-1', invoice_id: 'inv-1' },
+  };
+  const order = { type: 'orders', id: '1001', attributes: { status: 'paid', total: 2900, currency: 'USD', customer_id: 77, refunded_amount: 0 } };
+
+  it('a paid order settles the intent in custom_data, in cents', async () => {
+    const event = await map({ meta, data: order });
+    expect(event).toMatchObject({
+      type: 'payment_succeeded',
+      providerEventId: 'order_created_1001',
+      workspaceId: 'ws-1',
+      intentId: 'pi-1',
+      providerPaymentId: '1001',
+      providerCustomerId: '77',
+      amount: 2900,
+      currency: 'USD',
+    });
+  });
+
+  it('an order whose payment has not cleared is acknowledged, not applied', async () => {
+    const event = await map({ meta, data: { ...order, attributes: { ...order.attributes, status: 'pending' } } });
+    expect(event?.type).toBe('ignored');
+  });
+
+  it('a refunded order reports the running refunded total', async () => {
+    const event = await map({
+      meta: { ...meta, event_name: 'order_refunded' },
+      data: { ...order, attributes: { ...order.attributes, status: 'refunded', refunded_amount: 2900 } },
+    });
+    expect(event).toMatchObject({ type: 'refund_processed', providerPaymentId: '1001', refundedTotal: 2900, intentId: 'pi-1' });
+  });
+
+  it('events this platform does not act on are acknowledged as ignored', async () => {
+    const event = await map({ meta: { ...meta, event_name: 'license_key_created' }, data: { id: '5' } });
+    expect(event?.type).toBe('ignored');
   });
 });

@@ -47,7 +47,7 @@ describe('sipay createCheckoutSession', () => {
       hash_key: payload.hash_key,
       invoice_id: `ws-1_${Date.now()}`,
       total: '150.00',
-      currency: 'TRY',
+      currency_code: 'TRY',
       return_url: 'https://app.example.com/cb',
       cancel_url: 'https://app.example.com/cb',
       bill_email: 'a@b.com',
@@ -55,6 +55,22 @@ describe('sipay createCheckoutSession', () => {
       bill_lname: 'User',
       items: JSON.stringify([{ name: 'Plan pro', price: '150.00', quantity: 1 }]),
     });
+  });
+
+  it('charges a USD price in USD and signs that currency (it was always sent as TRY)', async () => {
+    const fetchMock = mockJson({ success: true, paymentUrl: 'https://pay.sipay/1' });
+    await sipayProvider.createCheckoutSession(config, { ...req, currency: 'usd', metadata: { amount: '2900' } });
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.currency_code).toBe('USD');
+    expect(payload.total).toBe('29.00');
+    const expected = crypto.createHmac('sha256', 'APPSECRET_SUPER').update(`MKEY_SECRET29.00USDws-1_${Date.now()}`).digest('base64');
+    expect(payload.hash_key).toBe(expected);
+  });
+
+  it('refuses a currency Sipay cannot charge instead of relabelling it', async () => {
+    const fetchMock = mockJson({ success: true, paymentUrl: 'https://pay.sipay/1' });
+    await expect(sipayProvider.createCheckoutSession(config, { ...req, currency: 'GBP' })).rejects.toThrow(/Sipay cannot charge GBP/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('falls back to url_3d', async () => {

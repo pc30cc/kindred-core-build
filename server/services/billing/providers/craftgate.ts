@@ -1,5 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
-import { minorToMajorString } from './minorAmount.js';
+import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
 import crypto from 'crypto';
 
 // --- Local runtime narrowing for Craftgate JSON bodies (no shared helper, no casts) ---
@@ -65,22 +65,29 @@ function craftgateHeaders(config: BillingProviderConfig, path: string, body?: st
   };
 }
 
+/** Currencies Craftgate's checkout charges (`currency`). */
+export const CRAFTGATE_CURRENCIES = ['TRY', 'USD', 'EUR', 'GBP'] as const;
+
 export const craftgateProvider: BillingProviderHandler = {
   name: 'craftgate',
   capabilities: {
     subscriptions: false, oneTimePayments: true, customerPortal: false,
-    refunds: true, webhooks: true, multiCurrency: false, trialSupport: false,
+    refunds: true, webhooks: true, multiCurrency: true, trialSupport: false,
   },
+  supportedCurrencies: CRAFTGATE_CURRENCIES,
+  fallbackCurrency: 'TRY',
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    // `metadata.amount` is in minor units (kuruş); this API takes a decimal amount.
+    // The amount is priced in `req.currency`; it is sent under that code only.
+    const currency = requireSupportedCurrency('Craftgate', req.currency, CRAFTGATE_CURRENCIES);
+    // `metadata.amount` is in minor units (kuruş / cents); this API takes a decimal amount.
     const amount = Number(minorToMajorString(req.metadata?.amount));
     const orderId = `${req.workspaceId}_${Date.now()}`;
     const path = '/payment/v1/checkout-payments/init';
     const bodyObj = {
       price: amount,
       paidPrice: amount,
-      currency: 'TRY',
+      currency,
       paymentGroup: 'SUBSCRIPTION_PAYMENT',
       conversationId: orderId,
       callbackUrl: req.callbackUrl,
@@ -108,8 +115,8 @@ export const craftgateProvider: BillingProviderHandler = {
         type: 'payment_succeeded',
         providerEventId: data.paymentId?.toString() || data.conversationId,
         providerPaymentId: data.paymentId?.toString(),
-        amount: parseFloat(data.paidPrice || '0') * 100,
-        currency: 'TRY',
+        amount: majorToMinor(data.paidPrice) ?? 0,
+        currency: normalizeCurrencyCode(data.currency) || 'TRY',
         raw: data,
       };
     }

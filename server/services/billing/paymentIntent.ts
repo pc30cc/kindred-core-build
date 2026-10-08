@@ -189,10 +189,20 @@ export async function createInvoiceIntent(
     planNameSnapshot?: string | null;
     workspaceNameSnapshot?: string | null;
     invoiceNumber?: string | null;
+    /**
+     * The invoice's currency. `amountIrr` / `expected_amount_irr` are minor
+     * units of it (whole Rial for IRR); the intent has no currency column, so
+     * it is recorded in `metadata.currency` for verification and receipts.
+     */
+    currency?: string | null;
+    /** Lifetime of the attempt; defaults to the bank-redirect TTL. */
+    ttlMs?: number;
     metadata?: Record<string, unknown>;
   },
 ): Promise<PaymentIntentRow> {
   const supabase = getServiceClient(config);
+  const currency = (input.currency || 'IRR').trim().toUpperCase();
+  const ttlMs = input.ttlMs && input.ttlMs > 0 ? input.ttlMs : INTENT_TTL_MS;
   // The invoice's frozen effect names the business act ('ai_credit_purchase',
   // 'wallet_deposit', 'plan_*'); the attempt stores the canonical purchase
   // vocabulary. Plan-less purchases must never carry a plan or an interval.
@@ -233,8 +243,8 @@ export async function createInvoiceIntent(
         invoice_id: input.invoiceId,
         expected_amount_irr: input.amountIrr,
         billing_engine_version: 'v2',
-        metadata: input.metadata || {},
-        expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
+        metadata: { ...(input.metadata || {}), currency },
+        expires_at: new Date(Date.now() + ttlMs).toISOString(),
       })
       .select('*')
       .single();

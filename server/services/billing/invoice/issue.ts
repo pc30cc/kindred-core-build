@@ -41,15 +41,44 @@ interface PlanRecord {
   [key: string]: unknown;
 }
 
-function planPriceIrr(plan: PlanRecord, interval: BillingInterval): number {
+/**
+ * The plan's price for one interval in the invoice currency: minor units
+ * (cents / kuruş) for USD/EUR/TRY, whole Rial for IRR — exactly as
+ * `billing_plans.prices` stores it. The invoice columns keep their historic
+ * `_irr` names but hold minor units of `billing_invoices.currency`
+ * (migration 126).
+ */
+export function planPriceIn(plan: PlanRecord, interval: BillingInterval, currency = 'IRR'): number {
+  const code = currency.toUpperCase();
+  const fromMap = (plan.prices ?? {})?.[code]?.[interval];
+  if (code !== 'IRR') {
+    // A foreign-currency invoice exists only for a price the admin set; a
+    // missing one is never read as 0 (that would give the plan away).
+    if (fromMap === null || fromMap === undefined || fromMap === '') throw new Error('plan_price_unavailable');
+    const value = Number(fromMap);
+    if (!Number.isFinite(value) || value < 0) throw new Error('plan_price_invalid');
+    return Math.round(value);
+  }
   // `billing_plans.prices` is the schema's real price authority; the flat
   // columns only exist on older deployments and are a fallback, never the
   // silent 0 that would give away paid service.
-  const fromMap = (plan.prices ?? {})?.IRR?.[interval];
   const raw = fromMap ?? (interval === 'yearly' ? plan.price_yearly : plan.price_monthly);
   const value = Number(raw ?? 0);
   if (!Number.isFinite(value) || value < 0) throw new Error('plan_price_invalid');
   return Math.round(value);
+}
+
+/** Line texts: Persian for the Iranian Rial invoices (as before), English for every other currency. */
+function lineText(currency: string) {
+  const persian = currency.toUpperCase() === 'IRR';
+  return {
+    plan: (name: string, interval: BillingInterval) =>
+      persian
+        ? `${name} — ${interval === 'yearly' ? 'سالانه' : 'ماهانه'}`
+        : `${name} — ${interval === 'yearly' ? 'yearly' : 'monthly'}`,
+    upgrade: (name: string) =>
+      persian ? `ارتقا به ${name} برای باقی‌مانده دوره` : `Upgrade to ${name} for the rest of the period`,
+  };
 }
 
 
@@ -78,6 +107,11 @@ export interface IssueSubscriptionInvoiceInput {
   currentInterval?: BillingInterval | null;
   currentPeriodStart?: string | null;
   currentPeriodEnd?: string | null;
+  /**
+   * Currency the invoice is issued and collected in (ISO 4217, default IRR).
+   * Both sides of an upgrade proration are priced in it.
+   */
+  currency?: string;
   now?: Date;
   metadata?: Record<string, unknown>;
 }
@@ -104,8 +138,10 @@ export async function issueSubscriptionInvoice(
     .maybeSingle();
   if (planError || !target) throw new Error('unknown_plan');
   const targetPlan = target as PlanRecord;
+  const currency = (input.currency || 'IRR').trim().toUpperCase();
+  const text = lineText(currency);
 
-  const fullPrice = planPriceIrr(targetPlan, input.interval);
+  const fullPrice = planPriceIn(targetPlan, input.interval, currency);
   const lines: InvoiceLineInput[] = [];
   let proration: InvoiceEffectSnapshot['proration'] = null;
   let periodStart: Date;
@@ -136,7 +172,7 @@ export async function issueSubscriptionInvoice(
       now,
       currentPeriodStart: currentStart,
       currentPeriodEnd: currentEnd,
-      currentPlanPriceIrr: current ? planPriceIrr(current as PlanRecord, paidInterval) : 0,
+      currentPlanPriceIrr: current ? planPriceIn(current as PlanRecord, paidInterval, currency) : 0,
       targetPlanPriceIrr: fullPrice,
       interval: paidInterval,
     });
@@ -156,7 +192,7 @@ export async function issueSubscriptionInvoice(
 
     lines.push({
       lineType: 'upgrade_proration',
-      description: `ارتقا به ${targetPlan.name} برای باقی‌مانده دوره`,
+      description: text.upgrade(targetPlan.name),
       unitAmountIrr: payable,
       amountIrr: payable,
       planId: targetPlan.id,
@@ -173,7 +209,7 @@ export async function issueSubscriptionInvoice(
     periodEnd = window.end;
     lines.push({
       lineType: 'plan',
-      description: `${targetPlan.name} — ${input.interval === 'yearly' ? 'سالانه' : 'ماهانه'}`,
+      description: text.plan(targetPlan.name, input.interval),
       unitAmountIrr: fullPrice,
       amountIrr: fullPrice,
       planId: targetPlan.id,
@@ -197,6 +233,7 @@ export async function issueSubscriptionInvoice(
   return insertAndOpen(config, {
     workspaceId: input.workspaceId,
     subscriptionId: input.subscriptionId ?? null,
+    currency,
     invoiceType: INVOICE_TYPE_BY_ACTION[input.action],
     planId: targetPlan.id,
     planName: targetPlan.name,
@@ -319,6 +356,8 @@ export async function issueWalletDepositInvoice(
 interface InsertInvoiceInput {
   workspaceId: string;
   subscriptionId: string | null;
+  /** ISO 4217; the amount columns are minor units of it. Default IRR. */
+  currency?: string;
   invoiceType: InvoiceType;
   planId: string | null;
   planName: string | null;
@@ -344,6 +383,7 @@ async function insertAndOpen(config: ServerConfig, input: InsertInvoiceInput): P
         invoice_number: documentNumber,
         invoice_type: input.invoiceType,
         status: 'draft',
+        currency: input.currency || 'IRR',
         subtotal_irr: input.totalIrr,
         total_irr: input.totalIrr,
         amount_due_irr: input.totalIrr,

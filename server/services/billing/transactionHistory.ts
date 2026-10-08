@@ -29,7 +29,10 @@ export interface CustomerTransaction {
   purchaseType: 'subscription' | 'ai_credit_topup' | 'wallet_deposit';
   planName: string | null;
   billingInterval: 'monthly' | 'yearly' | null;
+  /** Minor units of `currency` (whole Rial for IRR) — the historic name is kept. */
   amountIrr: number;
+  /** ISO 4217 code of `amountIrr`. */
+  currency: string;
   status: TransactionStatus;
   createdAt: string;
   paidAt: string | null;
@@ -47,6 +50,7 @@ export interface PaymentRowInput {
   payment_intent_id?: string | null;
   invoice_number?: string | null;
   amount?: number | string | null;
+  currency?: string | null;
   status?: string | null;
   action_type?: string | null;
   plan_name_snapshot?: string | null;
@@ -55,7 +59,7 @@ export interface PaymentRowInput {
   provider_payment_id?: string | null;
   paid_at?: string | null;
   created_at: string;
-  metadata?: any;
+  metadata?: { purchase_type?: string | null; currency?: string | null } | null;
 }
 
 export interface IntentRowInput {
@@ -74,7 +78,7 @@ export interface IntentRowInput {
   created_at: string;
   updated_at?: string | null;
   succeeded_at?: string | null;
-  metadata?: any;
+  metadata?: { currency?: string | null } | null;
 }
 
 const KNOWN: TransactionStatus[] = ['pending', 'processing', 'succeeded', 'canceled', 'failed', 'expired', 'refunded'];
@@ -89,6 +93,12 @@ function normalizeStatus(raw: string | null | undefined, settled: boolean): Tran
 function num(v: unknown): number {
   const n = Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** An attempt's currency: card checkouts record it in metadata; Iranian attempts are IRR. */
+function intentCurrency(intent: IntentRowInput | undefined): string {
+  const raw = intent?.metadata?.currency;
+  return typeof raw === 'string' && /^[A-Za-z]{3}$/.test(raw) ? raw.toUpperCase() : 'IRR';
 }
 
 export function buildTransactionHistory(
@@ -117,8 +127,9 @@ export function buildTransactionHistory(
       type: p.action_type || intent?.action_type || null,
       purchaseType,
       planName: p.plan_name_snapshot || intent?.plan_name_snapshot || intent?.billing_plans?.name || null,
-      billingInterval: (p.billing_interval || intent?.billing_interval || null) as any,
+      billingInterval: (p.billing_interval || intent?.billing_interval || null) as CustomerTransaction['billingInterval'],
       amountIrr: num(p.amount ?? intent?.final_amount_irr ?? intent?.amount_irr),
+      currency: (typeof p.currency === 'string' && p.currency ? p.currency.toUpperCase() : intentCurrency(intent)),
       status: normalizeStatus(p.status, true),
       createdAt: p.created_at,
       paidAt: p.paid_at || intent?.succeeded_at || null,
@@ -146,8 +157,9 @@ export function buildTransactionHistory(
             ? 'ai_credit_topup'
             : 'subscription',
       planName: i.plan_name_snapshot || i.billing_plans?.name || null,
-      billingInterval: (i.billing_interval || null) as any,
+      billingInterval: (i.billing_interval || null) as CustomerTransaction['billingInterval'],
       amountIrr: num(i.final_amount_irr ?? i.amount_irr),
+      currency: intentCurrency(i),
       status,
       createdAt: i.created_at,
       paidAt: i.succeeded_at || null,

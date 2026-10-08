@@ -13,7 +13,7 @@ const config = { provider: 'stripe', webhook_secret: SECRET } as unknown as Bill
 const BODY = JSON.stringify({
   id: 'evt_1',
   type: 'checkout.session.completed',
-  data: { object: { id: 'cs_1', customer: 'cus_1', metadata: { workspace_id: 'ws-1' }, amount_total: 1000, currency: 'usd' } },
+  data: { object: { id: 'cs_1', customer: 'cus_1', metadata: { workspace_id: 'ws-1' }, amount_total: 1000, currency: 'usd', payment_status: 'paid' } },
 });
 
 function sign(body: string, ts: number, secret = SECRET) {
@@ -80,7 +80,8 @@ describe('stripeProvider.verifyWebhook', () => {
   it('returns the mapped event for a valid signature', async () => {
     const ts = nowSec();
     const event = await stripeProvider.verifyWebhook(config, { 'stripe-signature': header(BODY, ts) }, BODY);
-    expect(event?.type).toBe('checkout_completed');
+    // A paid one-time Checkout Session is the payment itself.
+    expect(event?.type).toBe('payment_succeeded');
     expect(event?.workspaceId).toBe('ws-1');
   });
 

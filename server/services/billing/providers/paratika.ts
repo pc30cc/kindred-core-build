@@ -1,5 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
-import { minorToMajorString } from './minorAmount.js';
+import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
 
 // ─── Local, minimal parsers (Create/session + testConnection only) ───
 // Deliberately scoped: no shared billing helper, no verify/refund parsing.
@@ -41,15 +41,22 @@ function readParatikaPgTranId(body: unknown): string | undefined {
   return undefined;
 }
 
+/** Currencies Paratika's payment session charges (`CURRENCY`). */
+export const PARATIKA_CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
+
 export const paratikaProvider: BillingProviderHandler = {
   name: 'paratika',
   capabilities: {
     subscriptions: false, oneTimePayments: true, customerPortal: false,
-    refunds: true, webhooks: true, multiCurrency: false, trialSupport: false,
+    refunds: true, webhooks: true, multiCurrency: true, trialSupport: false,
   },
+  supportedCurrencies: PARATIKA_CURRENCIES,
+  fallbackCurrency: 'TRY',
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    // `metadata.amount` is in minor units (kuruş); this API takes a decimal amount.
+    // The amount is priced in `req.currency`; it is sent under that code only.
+    const currency = requireSupportedCurrency('Paratika', req.currency, PARATIKA_CURRENCIES);
+    // `metadata.amount` is in minor units (kuruş / cents); this API takes a decimal amount.
     const amount = minorToMajorString(req.metadata?.amount);
     const orderId = `${req.workspaceId}_${Date.now()}`;
 
@@ -61,7 +68,7 @@ export const paratikaProvider: BillingProviderHandler = {
     params.set('SESSIONTYPE', 'PAYMENTSESSION');
     params.set('RETURNURL', req.callbackUrl);
     params.set('AMOUNT', String(amount));
-    params.set('CURRENCY', 'TRY');
+    params.set('CURRENCY', currency);
     params.set('MERCHANTPAYMENTID', orderId);
     params.set('CUSTOMER', req.customerEmail || '');
 
@@ -89,15 +96,16 @@ export const paratikaProvider: BillingProviderHandler = {
         type: 'payment_succeeded',
         providerEventId: data.pgTranId || data.merchantPaymentId,
         providerPaymentId: data.pgTranId,
-        amount: parseFloat(data.amount || '0') * 100,
-        currency: 'TRY',
+        amount: majorToMinor(data.amount) ?? 0,
+        currency: normalizeCurrencyCode(data.currency) || 'TRY',
         raw: data,
       };
     }
     return null;
   },
 
-  async refundPayment(config: BillingProviderConfig, paymentId: string, amount?: number) {
+  /** `currency` must be the payment's own. Default TRY. */
+  async refundPayment(config: BillingProviderConfig, paymentId: string, amount?: number, currency?: string) {
     const params = new URLSearchParams();
     params.set('ACTION', 'REFUND');
     params.set('MERCHANTUSER', config.merchant_user as string);
@@ -105,7 +113,7 @@ export const paratikaProvider: BillingProviderHandler = {
     params.set('MERCHANT', config.merchant_code as string);
     params.set('PGTRANID', paymentId);
     if (amount) params.set('AMOUNT', (amount / 100).toFixed(2));
-    params.set('CURRENCY', 'TRY');
+    params.set('CURRENCY', normalizeCurrencyCode(currency) || 'TRY');
 
     const res = await fetch('https://entegrasyon.asseco-see.com.tr/fim/api', {
       method: 'POST',

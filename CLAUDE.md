@@ -84,7 +84,8 @@ Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 
 The root disk (72G, Docker included) holds about 50G after a cleanup. A
 deploy round after a merge adds about 12 GB of build cache plus the new images
-(68% to 91% on 2026-10-08), a LimerLanding deploy about 5 GB.
+(68% to 91% on 2026-10-08), a LimerLanding deploy about 5 GB. `/` has no
+reserved blocks, so a full disk stops Postgres too.
 
 - Coolify's Docker cleanup (server `localhost` → Docker Cleanup) checks every
   5 minutes (`*/5 * * * *`, force off, threshold 75%; since 2026-10-08, before
@@ -94,16 +95,16 @@ deploy round after a merge adds about 12 GB of build cache plus the new images
   the running image does not match, so 2 means the running image and one
   before it: a `ROLLBACK=1` further back rebuilds from git. Runs are listed in
   `docker_cleanup_executions` (coolify-db); a failed run alerts Telegram.
-- Keep "delete unused volumes/networks" off: the database volumes depend on it.
+- Keep "delete unused volumes/networks" off; that keeps the database volumes
+  safe.
 - `webyar-whmcs-test:php83` was built on this server and cannot be pulled. If
   its container is removed, the next cleanup deletes it, so stop that stack
   with `docker compose stop`, not `down` (its Dockerfile is in
   `/opt/webyar-whmcs-test/`).
 - Telegram's high-disk alert (Sentinel, checked every minute) fires above 80%,
   at most once a day until usage drops to 75%. Keep the cleanup threshold below
-  it, or every deploy round alerts before the cleanup runs. Not above about
-  82% either: `/` has no reserved blocks, so a full disk stops Postgres too.
-  Changes and manual cleanups: `/root/disk-cleanup-20261008.log`.
+  it, or every deploy round alerts before the cleanup runs. Changes and
+  manual cleanups: `/root/disk-cleanup-20261008.log`.
 
 ### Database
 

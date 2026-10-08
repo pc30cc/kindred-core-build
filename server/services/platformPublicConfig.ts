@@ -47,6 +47,8 @@ const BRANDING_COLUMNS = [
   'default_ui_skin',
   'lock_ui_preferences',
   'workspace_panel_theme',
+  // Its options (Art's layout and colour scheme); absent before migration 254.
+  'workspace_panel_theme_options',
 ];
 
 const LOCALIZED_COLUMNS = [

@@ -31,9 +31,12 @@ server {
     resolver 127.0.0.11 1.1.1.1 8.8.8.8 valid=30s ipv6=off;
     resolver_timeout 5s;
 
-    # Gzip compression
+    # Gzip compression. Build files under /assets/ are served from the
+    # level-9 `.gz` copies the build writes (gzip_static, below); this
+    # on-the-fly gzip covers everything else (index.html, JSON, widget files).
     gzip on;
     gzip_vary on;
+    gzip_comp_level 5;
     gzip_min_length 1024;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript image/svg+xml;
 
@@ -284,11 +287,64 @@ server {
         try_files $uri =404;
     }
 
-    # Cache other static assets
-    location /assets/ {
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-        try_files $uri =404;
+    # ─────────────────────────────────────────────────────────────────────
+    # The panel's build output (dist/assets). Every file name carries a hash
+    # of its content (index-<hash>.js, vendor-react-<hash>.js, one file per
+    # page, fonts, CSS), so a given URL never changes: browsers and
+    # Cloudflare keep it for a year and never ask again (`immutable`). A
+    # deploy changes the names, and index.html (no-cache, below) points at
+    # the new ones.
+    #
+    # One Cache-Control header only: the previous `expires 30d` +
+    # `add_header Cache-Control "public, immutable"` sent two of them.
+    # No `always` on it: a year-long header must never ride on an error.
+    #
+    # gzip_static: the build writes a level-9 `<file>.gz` beside each script
+    # and stylesheet (scripts/build/precompress.mjs); nginx sends it as-is to
+    # clients that accept gzip instead of compressing on every request.
+    # `^~`: a prefix match that no regex location can take over.
+    # ─────────────────────────────────────────────────────────────────────
+    location ^~ /assets/ {
+        root /usr/share/nginx/html;
+        gzip_static on;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        # A missing file is a hard 404 (never the SPA's index.html), from
+        # @missing_asset below.
+        try_files $uri @missing_asset;
+    }
+
+    # A build file this image does not have: a page file an older build
+    # asked for, or a newer one during a rolling deploy, when the old and the
+    # new container both take requests. The 404 must not be stored anywhere
+    # (browser, Cloudflare, the service worker): the same URL may exist a
+    # moment later on the other container, and a stored 404 for the entry
+    # script would blank the panel for everyone behind that cache. It fails
+    # as a script load, which the app handles (src/lib/perf/chunkReload.ts).
+    location @missing_asset {
+        add_header Cache-Control "no-store" always;
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        return 404;
+    }
+
+    # ─────────────────────────────────────────────────────────────────────
+    # The SPA document. `no-cache` = the browser may keep it but must
+    # revalidate (ETag → 304) on every load, so a deploy is picked up at the
+    # next navigation and the hashed file names it lists are always current.
+    # Without a header the browser was free to reuse a stale copy
+    # heuristically — which would point at page files a deploy removed.
+    # Every SPA route reaches this block through the `location /` fallback.
+    # The security headers are repeated: nginx drops server-level
+    # `add_header`s in a location that sets its own.
+    # ─────────────────────────────────────────────────────────────────────
+    location = /index.html {
+        root /usr/share/nginx/html;
+        add_header Cache-Control "no-cache" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        try_files /index.html =404;
     }
 
     # ─────────────────────────────────────────────────────────────────────

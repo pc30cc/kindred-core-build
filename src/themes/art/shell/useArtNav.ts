@@ -15,18 +15,19 @@
 import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AlertCircle, Ban, BarChart3, BookOpen, Check, Clock, Eye, Inbox,
-  LayoutDashboard, Mail, MessageSquare, Package, PhoneCall, Plug, Radar,
+  AlertCircle, Ban, BarChart3, BookOpen, Bot, Check, Clock, Eye, Inbox,
+  LayoutDashboard, Mail, MessageSquare, MessagesSquare, Package, PhoneCall, Plug, Radar,
   Settings, Sparkles, UserCog, Users,
   type LucideIcon,
 } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
-import { useInboxCounts } from '@/hooks/useConversations';
+import { useInboxCounts, useInboxTabCounts } from '@/hooks/useConversations';
+import { useColleagues } from '@/hooks/useTeamChat';
 import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import type { AppSection } from '@/lib/planAccess';
-import { channelInboxVisible, needsHumanQueueVisible } from '@/lib/planAccess';
+import { aiQueueVisible, channelInboxVisible, colleaguesQueueVisible, needsHumanQueueVisible } from '@/lib/planAccess';
 import { pluginsApi } from '@/lib/plugins-api';
 import { channelLabel, type ChannelKey } from '@/components/inbox/ChannelBadge';
 import { artSubPath } from './layout';
@@ -43,8 +44,8 @@ export interface ArtNavItem {
 }
 
 export interface ArtQueueItem extends ArtNavItem {
-  /** Status queues, the internal inbox, then the channel inboxes. */
-  group: 'status' | 'internal' | 'channel';
+  /** InboxPage's own tabs, status queues, the internal inbox, then the channel inboxes. */
+  group: 'tabs' | 'status' | 'internal' | 'channel';
   tone?: 'urgent';
 }
 
@@ -132,11 +133,19 @@ export function useArtNav() {
   };
   const utility = UTILITY.filter(offered).map(toItem);
 
-  // The inbox's other views, shown while the inbox is open. Open, AI and
-  // Colleagues are left out: InboxPage puts its own tabs for those in the
-  // same bar (#topbar-page-slot), right beside these.
+  // The inbox's views, while the inbox is open. `queues`: the status
+  // queues, the internal inbox and the channel inboxes; the top menu's
+  // context bar shows these, and InboxPage puts its own tabs (open, AI,
+  // colleagues) in the same bar (#topbar-page-slot), right beside them.
+  // `inboxTabs`: those tabs of InboxPage's as views too, for the side menu,
+  // which lists every view of the inbox in one place (and hides the slot).
+  // Same queries and cache entries as InboxPage's tabs; asked for only on
+  // the inbox.
   const onInbox = isActive('/inbox');
+  const { data: tabCounts } = useInboxTabCounts(onInbox ? workspace?.id : undefined);
+  const { data: colleagueDir } = useColleagues(onInbox && colleaguesQueueVisible(plan) ? workspace?.id : undefined);
   const queues: ArtQueueItem[] = [];
+  const inboxTabs: ArtQueueItem[] = [];
   if (onInbox) {
     const sp = new URLSearchParams(location.search);
     const q = sp.get('queue');
@@ -159,6 +168,27 @@ export function useArtNav() {
       group: 'status',
       ...extra,
     });
+
+    const isAi = q === 'automated' && aiQueueVisible(sections, inboxCounts?.automated ?? 0);
+    const isColleagues = f === 'colleagues' && colleaguesQueueVisible(plan);
+    const extraFilter = f === 'needs_human' || f === 'assigned_to_me' || isColleagues;
+    inboxTabs.push(queue('open', '', t('inbox.open') || 'Open', MessagesSquare,
+      !isAi && q !== 'spam' && !extraFilter && (!st || st === 'open'), {
+        badge: (tabCounts as Record<string, number> | undefined)?.open ?? 0,
+        group: 'tabs',
+      }));
+    if (aiQueueVisible(sections, inboxCounts?.automated ?? 0)) {
+      inboxTabs.push(queue('automated', '?queue=automated&status=all', t('inbox.aiTab') || 'AI', Bot, isAi, {
+        badge: inboxCounts?.automated ?? 0,
+        group: 'tabs',
+      }));
+    }
+    if (colleaguesQueueVisible(plan)) {
+      inboxTabs.push(queue('colleagues', '?filter=colleagues', t('inbox.colleagues') || 'Colleagues', Users, isColleagues, {
+        badge: colleagueDir?.total_unread ?? 0,
+        group: 'tabs',
+      }));
+    }
 
     if (needsHumanQueueVisible(plan)) {
       queues.push(queue('needs_human', '?filter=needs_human', t('inbox.needsHuman') || 'Needs human', AlertCircle, f === 'needs_human', {
@@ -191,6 +221,8 @@ export function useArtNav() {
     isWorkspaceAdmin: sections.isAdmin,
     onInbox,
     queues,
+    /** InboxPage's own tabs (open, AI, colleagues) as views, for the side menu. */
+    inboxTabs,
   };
 }
 

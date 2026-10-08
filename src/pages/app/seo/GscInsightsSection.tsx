@@ -38,6 +38,10 @@ import {
 } from '@/hooks/useSeo';
 import { SeoApiError, type SeoGscDimension, type SeoGscSearchAnalyticsRow } from '@/lib/seo-api';
 import { GradientStatCard } from './SeoPage';
+import { useArtCharts } from '@/themes/art/charts/useArtCharts';
+import { ArtTrend } from '@/themes/art/charts/ArtTrend';
+import { ArtBarList } from '@/themes/art/charts/ArtBarList';
+import type { ArtChartKit } from '@/themes/art/charts/kit';
 import { prettyUrl } from '@/lib/prettyUrl';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip,
@@ -370,12 +374,15 @@ function GscChartTooltip({ active, payload, label }: ChartTooltipProps) {
 
 function GscTrendChart({ rows }: { rows: SeoGscSearchAnalyticsRow[] }) {
   const { t } = useTranslation();
+  // Art draws clicks and impressions as two plots on one time axis (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   const data = useMemo(
     () => [...rows]
       .sort((a, b) => (a.keys[0] < b.keys[0] ? -1 : 1))
       .map((r) => ({ date: r.keys[0]?.slice(5), clicks: r.clicks, impressions: r.impressions })),
     [rows],
   );
+  if (art) return <GscArtTrend rows={rows} kit={art} />;
   return (
     <div className="h-72">
       <ResponsiveContainer width="100%" height="100%">
@@ -403,6 +410,53 @@ function GscTrendChart({ rows }: { rows: SeoGscSearchAnalyticsRow[] }) {
       <div className="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.gsc.stat.clicks')}</span>
         <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />{t('seo.gsc.stat.impressions')}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Art's clicks-and-impressions chart: the two measures differ by two orders
+ * of magnitude, so instead of two value axes on one plot (which invites
+ * reading the crossing of the lines) each gets its own plot, one over the
+ * other on the same days; the cursor moves through both and one card lists
+ * both values.
+ */
+function GscArtTrend({ rows, kit }: { rows: SeoGscSearchAnalyticsRow[]; kit: ArtChartKit }) {
+  const { t } = useTranslation();
+  const data = [...rows]
+    .sort((a, b) => (a.keys[0] < b.keys[0] ? -1 : 1))
+    .map((r) => ({ date: r.keys[0], clicks: r.clicks, impressions: r.impressions }));
+  const clicksLabel = t('seo.gsc.stat.clicks');
+  const impressionsLabel = t('seo.gsc.stat.impressions');
+  const both = [
+    { key: 'clicks', label: clicksLabel, n: 1 },
+    { key: 'impressions', label: impressionsLabel, n: 2 },
+  ];
+  const total = (key: 'clicks' | 'impressions') => data.reduce((sum, r) => sum + (r[key] || 0), 0);
+  // One width for both value axes, so the two plots share their days.
+  const yWidth = Math.max(kit.axisWidth(data.map((r) => r.clicks)), kit.axisWidth(data.map((r) => r.impressions)));
+  return (
+    <div data-art-chart-multiples="">
+      <div>
+        <div data-art-chart-multiple-head="">
+          <i data-art-chart-key="line" style={{ backgroundColor: kit.color(1) }} aria-hidden />
+          <span>{clicksLabel}</span>
+          <b>{kit.compact(total('clicks'))}</b>
+        </div>
+        <div className="h-36" dir="ltr">
+          <ArtTrend kit={kit} data={data} xKey="date" series={[both[0]]} tooltipSeries={both} syncId={`gsc-${kit.uid}`} yWidth={yWidth} hideXAxis />
+        </div>
+      </div>
+      <div>
+        <div data-art-chart-multiple-head="">
+          <i data-art-chart-key="line" style={{ backgroundColor: kit.color(2) }} aria-hidden />
+          <span>{impressionsLabel}</span>
+          <b>{kit.compact(total('impressions'))}</b>
+        </div>
+        <div className="h-44" dir="ltr">
+          <ArtTrend kit={kit} data={data} xKey="date" series={[both[1]]} syncId={`gsc-${kit.uid}`} yWidth={yWidth} tooltip={false} empty={t('seo.gsc.empty.noData')} />
+        </div>
       </div>
     </div>
   );
@@ -463,6 +517,8 @@ function MiniRankedList({
   title, rows, loading, viewAllHref,
 }: { title: string; rows: SeoGscSearchAnalyticsRow[]; loading: boolean; viewAllHref: string }) {
   const { t } = useTranslation();
+  // Art ranks the rows as bars of their clicks (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -476,6 +532,20 @@ function MiniRankedList({
           <SkeletonTable rows={5} columns={2} withHeader={false} />
         ) : rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
+        ) : art ? (
+          <ArtBarList
+            className="pt-1"
+            locale={art.locale}
+            n={1}
+            items={rows.map((r) => ({
+              key: r.keys[0],
+              label: r.keys[0],
+              title: r.keys[0],
+              labelDir: 'auto' as const,
+              value: r.clicks,
+              display: art.compact(r.clicks),
+            }))}
+          />
         ) : (
           <div className="space-y-1.5">
             {rows.map((r) => (

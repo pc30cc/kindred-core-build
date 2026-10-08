@@ -20,7 +20,17 @@ import { artIconButton, artMenuContent, artMenuItem, artMenuLabel } from './styl
  * than one (as in the classic top bar). `icon`: a round header button;
  * `row`: a labelled row for the phone drawer.
  */
-export function ArtLanguageMenu({ variant = 'icon' }: { variant?: 'icon' | 'row' }) {
+export function ArtLanguageMenu({
+  variant = 'icon',
+  tipSide = 'bottom',
+  menuSide,
+}: {
+  variant?: 'icon' | 'row';
+  /** Where the icon's tooltip opens (the sidebar's rail: towards the page). */
+  tipSide?: 'top' | 'bottom' | 'left' | 'right';
+  /** Where the menu opens (the sidebar's foot: upwards or towards the page). */
+  menuSide?: 'top' | 'bottom' | 'left' | 'right';
+}) {
   const { t, locale, setLocale } = useI18n();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   if (!canSwitchLanguage) return null;
@@ -49,12 +59,12 @@ export function ArtLanguageMenu({ variant = 'icon' }: { variant?: 'icon' | 'row'
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent side="bottom">{label}</TooltipContent>
+          <TooltipContent side={tipSide}>{label}</TooltipContent>
         </Tooltip>
       ) : (
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       )}
-      <DropdownMenuContent align="end" sideOffset={10} className={cn(artMenuContent, 'w-48')}>
+      <DropdownMenuContent side={menuSide} align="end" sideOffset={10} className={cn(artMenuContent, 'w-48')}>
         <DropdownMenuLabel className={artMenuLabel}>{label}</DropdownMenuLabel>
         {allowedLocales.map((l) => (
           <DropdownMenuItem key={l} onSelect={() => setLocale(l as Locale)} className={artMenuItem}>
@@ -68,7 +78,7 @@ export function ArtLanguageMenu({ variant = 'icon' }: { variant?: 'icon' | 'row'
 }
 
 /** Light / dark, per user (next-themes), as in the classic top bar. */
-export function ArtThemeToggle() {
+export function ArtThemeToggle({ tipSide = 'bottom' }: { tipSide?: 'top' | 'bottom' | 'left' | 'right' } = {}) {
   const { t } = useI18n();
   const { theme, resolvedTheme, setTheme } = useTheme();
   const isDark = (resolvedTheme ?? theme) === 'dark';
@@ -81,7 +91,7 @@ export function ArtThemeToggle() {
           {isDark ? <Sun /> : <Moon />}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side={tipSide}>{label}</TooltipContent>
     </Tooltip>
   );
 }

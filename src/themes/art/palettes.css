@@ -1,0 +1,904 @@
+/*
+ * Art's colour schemes (Super Admin → Panel theme → colour). AppLayout puts
+ * <html data-panel-palette="<id>"> next to data-panel-theme="art"; ids are
+ * ART_PALETTES in shared/panelThemes.ts. `clay` is Art's original scheme and
+ * the fallback when the attribute is missing or unknown: its panel tokens are
+ * theme.css's own, and this file only adds its chart series.
+ *
+ * Every selector starts with :root[data-panel-theme="art"] (checked by
+ * src/test/themes/panelThemes.test.ts).
+ *
+ * Contract used by charts.css and the chart code: each scheme defines, for
+ * light and dark, the HSL triplets --art-chart-1 ... --art-chart-6 (series
+ * colours, 1 = the scheme's main colour; read them as hsl(var(--art-chart-N)))
+ * plus the panel tokens it changes.
+ *
+ * How a scheme is made, so a new one fits the family:
+ *   - Paper: clay's paper tokens re-hued in OKLCH with the scheme's own tint,
+ *     at the same perceptual lightness, so every surface, hairline and
+ *     contrast keeps its place. The ink is the scheme's night colour and the
+ *     night's text its paper colour, as clay's are.
+ *   - Accent: one main colour (--primary), a lighter focus ring, a pale tint
+ *     (--accent) and its deep text, and a second hue for gradients.
+ *   - Series: six pigments, the main colour first, then hues that keep apart
+ *     for the common colour-vision deficiencies (they also differ in
+ *     lightness), every one at least 3:1 against the cards.
+ *   - Plans and avatars (--plan-1..5): the series in light mode; in dark mode
+ *     the same hues, deeper, because Billing → Plans sets white text on them.
+ *   - Checked by src/test/themes/artPalettes.test.ts: text on the accent and
+ *     the accent as text 4.5:1 (also on its own 10% tint), the focus ring and
+ *     every series 3:1, muted text 4.5:1, white text on every plan colour
+ *     3:1, in both modes.
+ *
+ * Specificity: a scheme's light block is `:root[...][data-panel-palette]:not(.dark)`
+ * and its dark block `:root[...][data-panel-palette].dark`, both above
+ * theme.css's `:root[...]` and `:root[...].dark`, so a scheme's light
+ * values never leak into dark mode and the other way round.
+ */
+
+/* ── Clay (the default): its series ───────────────────────────────────── */
+
+/* Clay, teal, ochre, indigo ink, rose and olive: Lart's own pigments. */
+:root[data-panel-theme="art"] {
+  --art-chart-1: 17 57% 41%;
+  --art-chart-2: 179 100% 26.2%;
+  --art-chart-3: 44 69% 40.5%;
+  --art-chart-4: 225 41% 41.3%;
+  --art-chart-5: 336 46% 54.7%;
+  --art-chart-6: 84 25% 41.9%;
+}
+
+:root[data-panel-theme="art"].dark {
+  --art-chart-1: 19 69% 60.9%;
+  --art-chart-2: 182 46% 52.3%;
+  --art-chart-3: 45 66% 56.8%;
+  --art-chart-4: 226 60% 69.1%;
+  --art-chart-5: 338 67% 74.1%;
+  --art-chart-6: 94 29% 63.2%;
+}
+
+/* ── Sage ────────────────────────────────────────────────────────── */
+
+/* A muted herbal green on a faintly green linen; a slate-green night. */
+:root[data-panel-theme="art"][data-panel-palette="sage"]:not(.dark) {
+  /* Paper and ink */
+  --background: 75 30% 97.5%;
+  --foreground: 179 34% 7.9%;
+  --card: 75 41% 99.1%;
+  --card-foreground: 179 34% 7.9%;
+  --popover: 75 41% 99.1%;
+  --popover-foreground: 179 34% 7.9%;
+  --secondary: 69 18% 93.2%;
+  --secondary-foreground: 179 23% 11.6%;
+  --muted: 69 16% 94%;
+  --muted-foreground: 55 5% 37.6%;
+  --accent: 155 20% 92.1%;
+  --accent-foreground: 149 16% 26.2%;
+  --border: 62 11% 86.5%;
+  --input: 62 10% 83%;
+  --surface-elevated: 75 41% 99.1%;
+  --surface-sunken: 69 20% 94.8%;
+  --art-shadow: 48 22% 16.7%;
+  --art-hover-from: 75 35% 98.5%;
+  --art-hover-to: 62 18% 94.1%;
+  --art-scrim: 179 35% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 69 23% 95.2%;
+  --sidebar-foreground: 179 18% 16.3%;
+  --sidebar-accent: 62 17% 89.5%;
+  --sidebar-accent-foreground: 179 34% 7.9%;
+  --sidebar-border: 62 11% 87.1%;
+  --sidebar-muted-foreground: 55 6% 39.2%;
+  --sidebar-primary: 150 22% 34%;
+  --sidebar-primary-foreground: 75 30% 98.4%;
+  --sidebar-ring: 149 16% 44.4%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 150 22% 34%;
+  --primary-foreground: 75 30% 98.4%;
+  --gold: 150 22% 34%;
+  --gold-foreground: 75 30% 98.4%;
+  --ring: 149 16% 44.4%;
+
+  /* Status (only where it would read as the accent) */
+  --success: 132 60% 28.5%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 150 19% 39.1%;
+  --brand-sky: 292 31% 33.5%;
+  --brand-violet: 183 36% 40%;
+  --brand-coral: 41 61% 44.4%;
+  --art-grad-from: 150 19% 39.1%;
+  --art-grad-to: 183 36% 40%;
+  --art-brand-from: 150 21% 37.7%;
+  --art-brand-via: 169 29% 38.3%;
+  --art-soft-from: 146 19% 93.6%;
+  --art-soft-to: 182 32% 95.1%;
+
+  /* Categorical: people's avatars and plans (--plan-*), chart series (--art-chart-*) */
+  --plan-1: 150 22% 34%;
+  --plan-2: 292 31% 33.5%;
+  --plan-3: 40 66% 43.1%;
+  --plan-4: 210 43% 48.2%;
+  --plan-5: 16 50% 50%;
+  --art-chart-1: 150 22% 34%;
+  --art-chart-2: 292 31% 33.5%;
+  --art-chart-3: 40 66% 43.1%;
+  --art-chart-4: 210 43% 48.2%;
+  --art-chart-5: 16 50% 50%;
+  --art-chart-6: 181 43% 42.6%;
+}
+
+:root[data-panel-theme="art"][data-panel-palette="sage"].dark {
+  /* Paper and ink */
+  --background: 179 28% 6.3%;
+  --foreground: 75 14% 92.7%;
+  --card: 179 22% 10.3%;
+  --card-foreground: 75 14% 92.7%;
+  --popover: 179 20% 11.1%;
+  --popover-foreground: 75 14% 92.7%;
+  --secondary: 179 16% 13.8%;
+  --secondary-foreground: 75 10% 90.1%;
+  --muted: 179 16% 12.9%;
+  --muted-foreground: 69 4% 63.4%;
+  --accent: 179 18% 15.4%;
+  --accent-foreground: 143 23% 74.4%;
+  --border: 179 14% 15.5%;
+  --input: 179 12% 18.8%;
+  --surface-elevated: 179 22% 11.6%;
+  --surface-sunken: 179 30% 5%;
+  --art-hover-from: 179 22% 10.8%;
+  --art-hover-to: 179 19% 12.7%;
+  --art-scrim: 179 35% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 179 36% 4.3%;
+  --sidebar-foreground: 75 7% 83.5%;
+  --sidebar-accent: 179 17% 12%;
+  --sidebar-accent-foreground: 75 17% 94%;
+  --sidebar-border: 179 17% 10.3%;
+  --sidebar-muted-foreground: 69 3% 57.7%;
+  --sidebar-primary: 145 27% 63%;
+  --sidebar-primary-foreground: 145 28% 7.6%;
+  --sidebar-ring: 145 25% 63.5%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 145 27% 63%;
+  --primary-foreground: 145 28% 7.6%;
+  --gold: 145 27% 63%;
+  --gold-foreground: 145 28% 7.6%;
+  --ring: 145 25% 63.5%;
+
+  /* Status (only where it would read as the accent) */
+  --success: 130 50% 55%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 145 24% 60.8%;
+  --brand-sky: 318 24% 59.9%;
+  --brand-violet: 183 35% 59.5%;
+  --brand-coral: 39 63% 61.8%;
+  --art-grad-from: 145 26% 61.2%;
+  --art-grad-to: 183 35% 59.5%;
+  --art-brand-from: 145 25% 60.6%;
+  --art-brand-via: 167 31% 59.2%;
+  --art-soft-from: 143 11% 12.4%;
+  --art-soft-to: 183 21% 10.9%;
+
+  /* Categorical: people's avatars and plans (--plan-*, deeper than the series:
+     white text on a plan stays at 3:1), chart series (--art-chart-*) */
+  --plan-1: 146 20% 51.5%;
+  --plan-2: 318 22% 56.6%;
+  --plan-3: 41 61% 44.5%;
+  --plan-4: 205 43% 54%;
+  --plan-5: 16 50% 53.7%;
+  --art-chart-1: 145 27% 63%;
+  --art-chart-2: 318 24% 59.9%;
+  --art-chart-3: 40 68% 61%;
+  --art-chart-4: 205 51% 60.9%;
+  --art-chart-5: 16 75% 67.9%;
+  --art-chart-6: 190 57% 63.7%;
+}
+
+/* ── Indigo ────────────────────────────────────────────────────── */
+
+/* Deep blue ink on a cool white paper; a blue-black night. */
+:root[data-panel-theme="art"][data-panel-palette="indigo"]:not(.dark) {
+  /* Paper and ink */
+  --background: 224 59% 98.4%;
+  --foreground: 223 30% 10.8%;
+  --card: 224 100% 99.5%;
+  --card-foreground: 223 30% 10.8%;
+  --popover: 224 100% 99.5%;
+  --popover-foreground: 223 30% 10.8%;
+  --secondary: 221 30% 94.7%;
+  --secondary-foreground: 223 24% 14.6%;
+  --muted: 221 27% 95.2%;
+  --muted-foreground: 214 6% 39.5%;
+  --accent: 232 66% 94.9%;
+  --accent-foreground: 228 35% 33.6%;
+  --border: 217 17% 88.3%;
+  --input: 217 16% 85.1%;
+  --surface-elevated: 224 100% 99.5%;
+  --surface-sunken: 221 34% 96.1%;
+  --art-shadow: 210 22% 19.4%;
+  --art-hover-from: 224 80% 99.2%;
+  --art-hover-to: 217 31% 95.4%;
+  --art-scrim: 223 34% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 221 43% 96.6%;
+  --sidebar-foreground: 223 19% 19.4%;
+  --sidebar-accent: 217 28% 91.6%;
+  --sidebar-accent-foreground: 223 30% 10.8%;
+  --sidebar-border: 217 18% 88.9%;
+  --sidebar-muted-foreground: 214 7% 41.4%;
+  --sidebar-primary: 230 47% 42%;
+  --sidebar-primary-foreground: 224 59% 99%;
+  --sidebar-ring: 228 41% 51.8%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 230 47% 42%;
+  --primary-foreground: 224 59% 99%;
+  --gold: 230 47% 42%;
+  --gold-foreground: 224 59% 99%;
+  --ring: 228 41% 51.8%;
+
+  /* Status (only where it would read as the accent) */
+  --info: 197 70% 32%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 229 43% 47.1%;
+  --brand-sky: 34 70% 44.7%;
+  --brand-violet: 263 31% 49%;
+  --brand-coral: 202 37% 50.7%;
+  --art-grad-from: 229 43% 47.1%;
+  --art-grad-to: 263 31% 49%;
+  --art-brand-from: 230 46% 46.5%;
+  --art-brand-via: 247 34% 49.7%;
+  --art-soft-from: 225 92% 95.9%;
+  --art-soft-to: 258 71% 97.1%;
+
+  /* Categorical: people's avatars and plans (--plan-*), chart series (--art-chart-*) */
+  --plan-1: 230 47% 42%;
+  --plan-2: 34 70% 44.7%;
+  --plan-3: 179 100% 26.3%;
+  --plan-4: 342 47% 54.2%;
+  --plan-5: 202 46% 53.2%;
+  --art-chart-1: 230 47% 42%;
+  --art-chart-2: 34 70% 44.7%;
+  --art-chart-3: 179 100% 26.3%;
+  --art-chart-4: 342 47% 54.2%;
+  --art-chart-5: 202 46% 53.2%;
+  --art-chart-6: 103 28% 32.7%;
+}
+
+:root[data-panel-theme="art"][data-panel-palette="indigo"].dark {
+  /* Paper and ink */
+  --background: 223 27% 8.2%;
+  --foreground: 224 21% 94%;
+  --card: 223 22% 12.7%;
+  --card-foreground: 224 21% 94%;
+  --popover: 223 21% 13.5%;
+  --popover-foreground: 224 21% 94%;
+  --secondary: 223 18% 16.2%;
+  --secondary-foreground: 224 15% 91.4%;
+  --muted: 223 18% 15.2%;
+  --muted-foreground: 221 6% 65.3%;
+  --accent: 223 19% 18.4%;
+  --accent-foreground: 227 66% 82.6%;
+  --border: 223 15% 17.8%;
+  --input: 223 14% 21.3%;
+  --surface-elevated: 223 22% 14.3%;
+  --surface-sunken: 223 29% 6.7%;
+  --art-hover-from: 223 22% 13.3%;
+  --art-hover-to: 223 20% 15.3%;
+  --art-scrim: 223 34% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 223 34% 6%;
+  --sidebar-foreground: 224 10% 85%;
+  --sidebar-accent: 223 19% 14.3%;
+  --sidebar-accent-foreground: 224 26% 95.3%;
+  --sidebar-border: 223 19% 12.2%;
+  --sidebar-muted-foreground: 221 5% 59.5%;
+  --sidebar-primary: 228 70% 74%;
+  --sidebar-primary-foreground: 227 25% 9.8%;
+  --sidebar-ring: 228 63% 73.3%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 228 70% 74%;
+  --primary-foreground: 227 25% 9.8%;
+  --gold: 228 70% 74%;
+  --gold-foreground: 227 25% 9.8%;
+  --ring: 228 63% 73.3%;
+
+  /* Status (only where it would read as the accent) */
+  --info: 195 62% 60%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 228 59% 71.1%;
+  --brand-sky: 33 78% 64.7%;
+  --brand-violet: 261 48% 72.3%;
+  --brand-coral: 202 54% 65.5%;
+  --art-grad-from: 228 65% 72.1%;
+  --art-grad-to: 261 48% 72.3%;
+  --art-brand-from: 228 63% 71.5%;
+  --art-brand-via: 244 54% 73.9%;
+  --art-soft-from: 227 19% 14.3%;
+  --art-soft-to: 260 17% 13.4%;
+
+  /* Categorical: people's avatars and plans (--plan-*, deeper than the series:
+     white text on a plan stays at 3:1), chart series (--art-chart-*) */
+  --plan-1: 228 53% 66.4%;
+  --plan-2: 35 64% 43.5%;
+  --plan-3: 181 58% 40.3%;
+  --plan-4: 337 44% 63.4%;
+  --plan-5: 195 49% 39.6%;
+  --art-chart-1: 228 70% 74%;
+  --art-chart-2: 33 78% 64.7%;
+  --art-chart-3: 181 51% 57.7%;
+  --art-chart-4: 337 50% 67.3%;
+  --art-chart-5: 196 44% 56.5%;
+  --art-chart-6: 106 27% 64.7%;
+}
+
+/* ── Plum ────────────────────────────────────────────────────────── */
+
+/* Aubergine on a blush porcelain; a violet night. */
+:root[data-panel-theme="art"][data-panel-palette="plum"]:not(.dark) {
+  /* Paper and ink */
+  --background: 330 44% 98.3%;
+  --foreground: 266 18% 10.6%;
+  --card: 330 74% 99.5%;
+  --card-foreground: 266 18% 10.6%;
+  --popover: 330 74% 99.5%;
+  --popover-foreground: 266 18% 10.6%;
+  --secondary: 324 21% 94.5%;
+  --secondary-foreground: 266 14% 14.3%;
+  --muted: 324 19% 95.1%;
+  --muted-foreground: 308 3% 39.3%;
+  --accent: 329 41% 93.8%;
+  --accent-foreground: 316 23% 29.7%;
+  --border: 317 11% 88.1%;
+  --input: 317 10% 84.9%;
+  --surface-elevated: 330 74% 99.5%;
+  --surface-sunken: 324 24% 95.9%;
+  --art-shadow: 294 11% 19.6%;
+  --art-hover-from: 330 58% 99.1%;
+  --art-hover-to: 317 20% 95.3%;
+  --art-scrim: 266 23% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 324 30% 96.4%;
+  --sidebar-foreground: 266 11% 19.1%;
+  --sidebar-accent: 317 18% 91.4%;
+  --sidebar-accent-foreground: 266 18% 10.6%;
+  --sidebar-border: 317 11% 88.7%;
+  --sidebar-muted-foreground: 307 4% 41.2%;
+  --sidebar-primary: 314 35% 34%;
+  --sidebar-primary-foreground: 330 44% 98.9%;
+  --sidebar-ring: 315 26% 44.4%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 314 35% 34%;
+  --primary-foreground: 330 44% 98.9%;
+  --gold: 314 35% 34%;
+  --gold-foreground: 330 44% 98.9%;
+  --ring: 315 26% 44.4%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 314 31% 39.2%;
+  --brand-sky: 183 63% 38.6%;
+  --brand-violet: 344 44% 55.3%;
+  --brand-coral: 8 45% 60.7%;
+  --art-grad-from: 314 31% 39.2%;
+  --art-grad-to: 344 44% 55.3%;
+  --art-brand-from: 314 33% 38%;
+  --art-brand-via: 330 35% 46.5%;
+  --art-soft-from: 319 42% 94.9%;
+  --art-soft-to: 349 91% 97%;
+
+  /* Categorical: people's avatars and plans (--plan-*), chart series (--art-chart-*) */
+  --plan-1: 314 35% 34%;
+  --plan-2: 183 63% 38.6%;
+  --plan-3: 40 66% 42.1%;
+  --plan-4: 219 56% 37.7%;
+  --plan-5: 14 56% 42.8%;
+  --art-chart-1: 314 35% 34%;
+  --art-chart-2: 183 63% 38.6%;
+  --art-chart-3: 40 66% 42.1%;
+  --art-chart-4: 219 56% 37.7%;
+  --art-chart-5: 14 56% 42.8%;
+  --art-chart-6: 144 18% 38.3%;
+}
+
+:root[data-panel-theme="art"][data-panel-palette="plum"].dark {
+  /* Paper and ink */
+  --background: 266 16% 8%;
+  --foreground: 330 16% 93.8%;
+  --card: 266 13% 12.5%;
+  --card-foreground: 330 16% 93.8%;
+  --popover: 266 13% 13.3%;
+  --popover-foreground: 330 16% 93.8%;
+  --secondary: 266 10% 15.9%;
+  --secondary-foreground: 330 12% 91.2%;
+  --muted: 266 10% 14.9%;
+  --muted-foreground: 324 4% 65%;
+  --accent: 266 11% 18.1%;
+  --accent-foreground: 319 38% 79.3%;
+  --border: 266 9% 17.5%;
+  --input: 266 8% 21%;
+  --surface-elevated: 266 13% 14.1%;
+  --surface-sunken: 266 17% 6.5%;
+  --art-hover-from: 266 13% 13.1%;
+  --art-hover-to: 266 12% 15.1%;
+  --art-scrim: 266 23% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 266 20% 5.8%;
+  --sidebar-foreground: 330 8% 84.8%;
+  --sidebar-accent: 266 11% 14%;
+  --sidebar-accent-foreground: 330 21% 95.1%;
+  --sidebar-border: 266 11% 12%;
+  --sidebar-muted-foreground: 324 3% 59.3%;
+  --sidebar-primary: 318 42% 70%;
+  --sidebar-primary-foreground: 319 21% 9.2%;
+  --sidebar-ring: 318 38% 69.8%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 318 42% 70%;
+  --primary-foreground: 319 21% 9.2%;
+  --gold: 318 42% 70%;
+  --gold-foreground: 319 21% 9.2%;
+  --ring: 318 38% 69.8%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 318 36% 67.4%;
+  --brand-sky: 172 40% 46.1%;
+  --brand-violet: 346 63% 72.6%;
+  --brand-coral: 9 62% 72.9%;
+  --art-grad-from: 318 39% 68.1%;
+  --art-grad-to: 346 63% 72.6%;
+  --art-brand-from: 318 38% 67.5%;
+  --art-brand-via: 333 50% 70.1%;
+  --art-soft-from: 319 13% 13.5%;
+  --art-soft-to: 347 22% 13.1%;
+
+  /* Categorical: people's avatars and plans (--plan-*, deeper than the series:
+     white text on a plan stays at 3:1), chart series (--art-chart-*) */
+  --plan-1: 318 32% 61.6%;
+  --plan-2: 172 45% 41.5%;
+  --plan-3: 41 81% 38.8%;
+  --plan-4: 227 54% 66.2%;
+  --plan-5: 15 58% 59.4%;
+  --art-chart-1: 318 42% 70%;
+  --art-chart-2: 172 40% 46.1%;
+  --art-chart-3: 38 74% 60.9%;
+  --art-chart-4: 227 62% 70.3%;
+  --art-chart-5: 15 74% 67.5%;
+  --art-chart-6: 138 24% 66.5%;
+}
+
+/* ── Ocean ──────────────────────────────────────────────────────── */
+
+/* Deep teal on a sea-salt paper; a deep-sea night. */
+:root[data-panel-theme="art"][data-panel-palette="ocean"]:not(.dark) {
+  /* Paper and ink */
+  --background: 186 44% 97.6%;
+  --foreground: 202 45% 9.1%;
+  --card: 186 61% 99.1%;
+  --card-foreground: 202 45% 9.1%;
+  --popover: 186 61% 99.1%;
+  --popover-foreground: 202 45% 9.1%;
+  --secondary: 183 24% 93.4%;
+  --secondary-foreground: 202 33% 12.9%;
+  --muted: 183 22% 94.2%;
+  --muted-foreground: 174 6% 37.8%;
+  --accent: 192 35% 92.2%;
+  --accent-foreground: 187 35% 24.3%;
+  --border: 179 14% 86.7%;
+  --input: 179 13% 83.3%;
+  --surface-elevated: 186 61% 99.1%;
+  --surface-sunken: 183 27% 95%;
+  --art-shadow: 170 23% 16.8%;
+  --art-hover-from: 186 53% 98.6%;
+  --art-hover-to: 179 23% 94.3%;
+  --art-scrim: 202 45% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 183 32% 95.4%;
+  --sidebar-foreground: 203 25% 17.6%;
+  --sidebar-accent: 179 21% 89.8%;
+  --sidebar-accent-foreground: 202 45% 9.1%;
+  --sidebar-border: 179 15% 87.3%;
+  --sidebar-muted-foreground: 174 6% 39.5%;
+  --sidebar-primary: 186 72% 25%;
+  --sidebar-primary-foreground: 186 44% 98.5%;
+  --sidebar-ring: 187 41% 37.7%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 186 72% 25%;
+  --primary-foreground: 186 44% 98.5%;
+  --gold: 186 72% 25%;
+  --gold-foreground: 186 44% 98.5%;
+  --ring: 187 41% 37.7%;
+
+  /* Status (only where it would read as the accent): info leaves the teal for a clear blue */
+  --info: 226 60% 42%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 186 54% 31.3%;
+  --brand-sky: 8 48% 50.5%;
+  --brand-violet: 206 54% 40.4%;
+  --brand-coral: 154 26% 50.7%;
+  --art-grad-from: 186 54% 31.3%;
+  --art-grad-to: 206 54% 40.4%;
+  --art-brand-from: 186 65% 28.7%;
+  --art-brand-via: 195 69% 32.6%;
+  --art-soft-from: 187 34% 93.3%;
+  --art-soft-to: 208 69% 96.1%;
+
+  /* Categorical: people's avatars and plans (--plan-*), chart series (--art-chart-*) */
+  --plan-1: 186 72% 25%;
+  --plan-2: 8 48% 50.5%;
+  --plan-3: 43 70% 41.4%;
+  --plan-4: 226 48% 34%;
+  --plan-5: 336 45% 58%;
+  --art-chart-1: 186 72% 25%;
+  --art-chart-2: 8 48% 50.5%;
+  --art-chart-3: 43 70% 41.4%;
+  --art-chart-4: 226 48% 34%;
+  --art-chart-5: 336 45% 58%;
+  --art-chart-6: 92 33% 27.8%;
+}
+
+:root[data-panel-theme="art"][data-panel-palette="ocean"].dark {
+  /* Paper and ink */
+  --background: 202 38% 7.2%;
+  --foreground: 186 20% 92.9%;
+  --card: 202 31% 11.3%;
+  --card-foreground: 186 20% 92.9%;
+  --popover: 202 29% 12.1%;
+  --popover-foreground: 186 20% 92.9%;
+  --secondary: 203 23% 14.9%;
+  --secondary-foreground: 186 14% 90.3%;
+  --muted: 203 23% 13.9%;
+  --muted-foreground: 183 5% 63.6%;
+  --accent: 203 25% 16.7%;
+  --accent-foreground: 184 38% 71.8%;
+  --border: 203 20% 16.5%;
+  --input: 203 18% 19.9%;
+  --surface-elevated: 202 31% 12.8%;
+  --surface-sunken: 203 41% 5.8%;
+  --art-hover-from: 202 31% 11.9%;
+  --art-hover-to: 203 27% 13.9%;
+  --art-scrim: 202 45% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 203 48% 5.1%;
+  --sidebar-foreground: 186 10% 83.7%;
+  --sidebar-accent: 203 25% 13%;
+  --sidebar-accent-foreground: 186 24% 94.2%;
+  --sidebar-border: 203 25% 11.2%;
+  --sidebar-muted-foreground: 183 5% 57.9%;
+  --sidebar-primary: 184 45% 56%;
+  --sidebar-primary-foreground: 184 43% 7.1%;
+  --sidebar-ring: 184 42% 57.3%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 184 45% 56%;
+  --primary-foreground: 184 43% 7.1%;
+  --gold: 184 45% 56%;
+  --gold-foreground: 184 43% 7.1%;
+  --ring: 184 42% 57.3%;
+
+  /* Status (only where it would read as the accent): info leaves the teal for a clear blue */
+  --info: 225 80% 74%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 184 41% 54.3%;
+  --brand-sky: 10 62% 61.6%;
+  --brand-violet: 207 58% 65.3%;
+  --brand-coral: 154 35% 62.9%;
+  --art-grad-from: 184 43% 54.1%;
+  --art-grad-to: 207 58% 65.3%;
+  --art-brand-from: 184 43% 53.4%;
+  --art-brand-via: 195 53% 58.9%;
+  --art-soft-from: 184 21% 11.8%;
+  --art-soft-to: 207 27% 12.2%;
+
+  /* Categorical: people's avatars and plans (--plan-*, deeper than the series:
+     white text on a plan stays at 3:1), chart series (--art-chart-*) */
+  --plan-1: 184 46% 44.5%;
+  --plan-2: 10 51% 54.6%;
+  --plan-3: 45 61% 42.4%;
+  --plan-4: 226 53% 65.8%;
+  --plan-5: 339 49% 63.8%;
+  --art-chart-1: 184 45% 56%;
+  --art-chart-2: 10 62% 61.6%;
+  --art-chart-3: 44 61% 58.8%;
+  --art-chart-4: 226 50% 63.7%;
+  --art-chart-5: 340 72% 74.7%;
+  --art-chart-6: 97 27% 59.9%;
+}
+
+/* ── Saffron ──────────────────────────────────────────────────── */
+
+/* Golden ochre on a warm cream; an ink night where the gold glows. */
+:root[data-panel-theme="art"][data-panel-palette="saffron"]:not(.dark) {
+  /* Paper and ink */
+  --background: 45 56% 97.2%;
+  --foreground: 218 27% 10.4%;
+  --card: 45 74% 99%;
+  --card-foreground: 218 27% 10.4%;
+  --popover: 45 74% 99%;
+  --popover-foreground: 218 27% 10.4%;
+  --secondary: 42 38% 92.9%;
+  --secondary-foreground: 218 21% 14.1%;
+  --muted: 42 34% 93.8%;
+  --muted-foreground: 35 11% 37.7%;
+  --accent: 38 44% 91.5%;
+  --accent-foreground: 36 58% 23.2%;
+  --border: 38 25% 86.5%;
+  --input: 38 23% 83%;
+  --surface-elevated: 45 74% 99%;
+  --surface-sunken: 42 41% 94.6%;
+  --art-shadow: 32 44% 16.9%;
+  --art-hover-from: 45 65% 98.3%;
+  --art-hover-to: 39 41% 94.1%;
+  --art-scrim: 218 31% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 42 49% 95%;
+  --sidebar-foreground: 218 17% 18.9%;
+  --sidebar-accent: 38 37% 89.5%;
+  --sidebar-accent-foreground: 218 27% 10.4%;
+  --sidebar-border: 38 26% 87.1%;
+  --sidebar-muted-foreground: 35 12% 39.3%;
+  --sidebar-primary: 39 92% 29%;
+  --sidebar-primary-foreground: 45 56% 98.2%;
+  --sidebar-ring: 36 53% 45.2%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 39 92% 29%;
+  --primary-foreground: 45 56% 98.2%;
+  --gold: 39 92% 29%;
+  --gold-foreground: 45 56% 98.2%;
+  --ring: 36 53% 45.2%;
+
+  /* Status (only where it would read as the accent) */
+  --warning: 22 82% 36%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 37 68% 38.1%;
+  --brand-sky: 225 43% 42.2%;
+  --brand-violet: 12 52% 49.2%;
+  --brand-coral: 34 63% 51.5%;
+  --art-grad-from: 37 68% 38.1%;
+  --art-grad-to: 12 52% 49.2%;
+  --art-brand-from: 38 85% 34.4%;
+  --art-brand-via: 27 70% 41.3%;
+  --art-soft-from: 33 54% 93.2%;
+  --art-soft-to: 13 99% 96.5%;
+
+  /* Categorical: people's avatars and plans (--plan-*), chart series (--art-chart-*) */
+  --plan-1: 39 92% 29%;
+  --plan-2: 225 43% 42.2%;
+  --plan-3: 178 70% 30.2%;
+  --plan-4: 20 65% 54.3%;
+  --plan-5: 310 30% 37%;
+  --art-chart-1: 39 92% 29%;
+  --art-chart-2: 225 43% 42.2%;
+  --art-chart-3: 178 70% 30.2%;
+  --art-chart-4: 20 65% 54.3%;
+  --art-chart-5: 310 30% 37%;
+  --art-chart-6: 99 17% 50.8%;
+}
+
+:root[data-panel-theme="art"][data-panel-palette="saffron"].dark {
+  /* Paper and ink */
+  --background: 218 24% 7.9%;
+  --foreground: 45 27% 92.4%;
+  --card: 218 20% 12.3%;
+  --card-foreground: 45 27% 92.4%;
+  --popover: 218 19% 13.1%;
+  --popover-foreground: 45 27% 92.4%;
+  --secondary: 219 16% 15.8%;
+  --secondary-foreground: 45 20% 89.8%;
+  --muted: 219 16% 14.8%;
+  --muted-foreground: 42 9% 63.1%;
+  --accent: 218 17% 17.9%;
+  --accent-foreground: 39 51% 71.2%;
+  --border: 219 14% 17.4%;
+  --input: 219 13% 20.9%;
+  --surface-elevated: 218 20% 13.9%;
+  --surface-sunken: 218 26% 6.4%;
+  --art-hover-from: 218 20% 12.9%;
+  --art-hover-to: 218 18% 14.9%;
+  --art-scrim: 218 31% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 218 31% 5.7%;
+  --sidebar-foreground: 45 15% 83.1%;
+  --sidebar-accent: 218 17% 13.9%;
+  --sidebar-accent-foreground: 45 33% 93.7%;
+  --sidebar-border: 219 17% 11.9%;
+  --sidebar-muted-foreground: 42 8% 57.4%;
+  --sidebar-primary: 40 76% 61%;
+  --sidebar-primary-foreground: 39 40% 7.4%;
+  --sidebar-ring: 40 71% 62.7%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 40 76% 61%;
+  --primary-foreground: 39 40% 7.4%;
+  --gold: 40 76% 61%;
+  --gold-foreground: 39 40% 7.4%;
+  --ring: 40 71% 62.7%;
+
+  /* Status (only where it would read as the accent) */
+  --warning: 24 82% 64%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 40 69% 59.5%;
+  --brand-sky: 226 47% 61.3%;
+  --brand-violet: 14 69% 66%;
+  --brand-coral: 33 82% 66.2%;
+  --art-grad-from: 40 72% 59%;
+  --art-grad-to: 14 69% 66%;
+  --art-brand-from: 40 71% 58.3%;
+  --art-brand-via: 28 75% 62.2%;
+  --art-soft-from: 39 34% 11.4%;
+  --art-soft-to: 14 32% 12.4%;
+
+  /* Categorical: people's avatars and plans (--plan-*, deeper than the series:
+     white text on a plan stays at 3:1), chart series (--art-chart-*) */
+  --plan-1: 42 79% 40.7%;
+  --plan-2: 226 54% 65.8%;
+  --plan-3: 180 63% 37.2%;
+  --plan-4: 10 57% 61.5%;
+  --plan-5: 306 26% 60.7%;
+  --art-chart-1: 40 76% 61%;
+  --art-chart-2: 226 47% 61.3%;
+  --art-chart-3: 180 50% 57.4%;
+  --art-chart-4: 10 57% 61.6%;
+  --art-chart-5: 306 29% 64.9%;
+  --art-chart-6: 83 27% 59.6%;
+}
+
+/* ── Graphite ────────────────────────────────────────────────── */
+
+/* Warm charcoal on a stone-white paper; monochrome, with muted pigments only in the charts. */
+:root[data-panel-theme="art"][data-panel-palette="graphite"]:not(.dark) {
+  /* Paper and ink */
+  --background: 34 22% 97.9%;
+  --foreground: 31 10% 9.3%;
+  --card: 34 32% 99.3%;
+  --card-foreground: 31 10% 9.3%;
+  --popover: 34 32% 99.3%;
+  --popover-foreground: 31 10% 9.3%;
+  --secondary: 31 13% 93.9%;
+  --secondary-foreground: 31 8% 13%;
+  --muted: 31 12% 94.6%;
+  --muted-foreground: 26 3% 38.8%;
+  --accent: 32 10% 92.6%;
+  --accent-foreground: 28 4% 27.9%;
+  --border: 29 8% 87.5%;
+  --input: 29 7% 84.2%;
+  --surface-elevated: 34 32% 99.3%;
+  --surface-sunken: 31 14% 95.4%;
+  --art-shadow: 22 10% 18.9%;
+  --art-hover-from: 34 27% 98.8%;
+  --art-hover-to: 29 13% 94.9%;
+  --art-scrim: 31 16% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 31 17% 95.9%;
+  --sidebar-foreground: 31 6% 17.7%;
+  --sidebar-accent: 29 12% 90.7%;
+  --sidebar-accent-foreground: 31 10% 9.3%;
+  --sidebar-border: 29 8% 88.1%;
+  --sidebar-muted-foreground: 26 3% 40.6%;
+  --sidebar-primary: 28 8% 21%;
+  --sidebar-primary-foreground: 34 22% 98.6%;
+  --sidebar-ring: 26 6% 38.7%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 28 8% 21%;
+  --primary-foreground: 34 22% 98.6%;
+  --gold: 28 8% 21%;
+  --gold-foreground: 34 22% 98.6%;
+  --ring: 26 6% 38.7%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 28 7% 25.6%;
+  --brand-sky: 205 40% 52%;
+  --brand-violet: 211 15% 37.5%;
+  --brand-coral: 34 10% 61%;
+  --art-grad-from: 28 7% 25.6%;
+  --art-grad-to: 211 15% 37.5%;
+  --art-brand-from: 28 7% 24.5%;
+  --art-brand-via: 318 7% 31.3%;
+  --art-soft-from: 28 21% 94%;
+  --art-soft-to: 211 24% 96%;
+
+  /* Categorical: people's avatars and plans (--plan-*), chart series (--art-chart-*) */
+  --plan-1: 28 8% 21%;
+  --plan-2: 205 40% 52%;
+  --plan-3: 40 55% 42%;
+  --plan-4: 13 50% 45%;
+  --plan-5: 145 20% 38%;
+  --art-chart-1: 28 8% 21%;
+  --art-chart-2: 205 40% 52%;
+  --art-chart-3: 40 55% 42%;
+  --art-chart-4: 13 50% 45%;
+  --art-chart-5: 145 20% 38%;
+  --art-chart-6: 307 17% 49.4%;
+}
+
+:root[data-panel-theme="art"][data-panel-palette="graphite"].dark {
+  /* Paper and ink */
+  --background: 31 9% 7.2%;
+  --foreground: 34 9% 93.3%;
+  --card: 31 7% 11.4%;
+  --card-foreground: 34 9% 93.3%;
+  --popover: 31 7% 12.1%;
+  --popover-foreground: 34 9% 93.3%;
+  --secondary: 31 5% 14.8%;
+  --secondary-foreground: 34 7% 90.7%;
+  --muted: 31 5% 13.9%;
+  --muted-foreground: 31 3% 64.3%;
+  --accent: 31 6% 16.7%;
+  --accent-foreground: 34 7% 76.4%;
+  --border: 31 5% 16.5%;
+  --input: 31 4% 19.9%;
+  --surface-elevated: 31 7% 12.8%;
+  --surface-sunken: 31 10% 5.8%;
+  --art-hover-from: 31 7% 11.9%;
+  --art-hover-to: 31 6% 13.9%;
+  --art-scrim: 31 16% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 31 11% 5.1%;
+  --sidebar-foreground: 34 5% 84.2%;
+  --sidebar-accent: 31 6% 13%;
+  --sidebar-accent-foreground: 34 11% 94.6%;
+  --sidebar-border: 31 6% 11.1%;
+  --sidebar-muted-foreground: 31 2% 58.6%;
+  --sidebar-primary: 34 14% 81%;
+  --sidebar-primary-foreground: 35 40% 7.7%;
+  --sidebar-ring: 34 11% 71%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 34 14% 81%;
+  --primary-foreground: 35 40% 7.7%;
+  --gold: 34 14% 81%;
+  --gold-foreground: 35 40% 7.7%;
+  --ring: 34 11% 71%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 34 12% 78.5%;
+  --brand-sky: 205 43% 58%;
+  --brand-violet: 211 18% 65.5%;
+  --brand-coral: 34 14% 70.7%;
+  --art-grad-from: 34 13% 79.1%;
+  --art-grad-to: 211 18% 65.5%;
+  --art-brand-from: 34 12% 78.5%;
+  --art-brand-via: 148 10% 70.5%;
+  --art-soft-from: 34 9% 12.6%;
+  --art-soft-to: 211 10% 12.2%;
+
+  /* Categorical: people's avatars and plans (--plan-*, deeper than the series:
+     white text on a plan stays at 3:1), chart series (--art-chart-*) */
+  --plan-1: 34 6% 56.3%;
+  --plan-2: 205 41% 56.3%;
+  --plan-3: 39 52% 47%;
+  --plan-4: 13 37% 50.7%;
+  --plan-5: 140 16% 45.1%;
+  --art-chart-1: 34 14% 81%;
+  --art-chart-2: 205 43% 58%;
+  --art-chart-3: 38 58% 58%;
+  --art-chart-4: 13 50% 62%;
+  --art-chart-5: 139 20% 63%;
+  --art-chart-6: 292 28% 74%;
+}

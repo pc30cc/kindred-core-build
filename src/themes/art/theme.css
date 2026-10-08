@@ -12,7 +12,9 @@
  * How it reaches every page without editing them:
  *   1. Tokens: the panel's colour variables (index.css) get Lart's palette.
  *      `:root[...]` outranks the per-user accent / skin / chroma attributes,
- *      so the theme looks the same for everyone.
+ *      so the theme looks the same for everyone. The values below are the
+ *      clay scheme; the Super Admin's other colour schemes repaint them
+ *      (palettes.css), so colours here are tokens, never literals in rules.
  *   2. Palette: Tailwind's hues (bg-sky-500, from-indigo-500, ...) are
  *      repainted in Lart's earthy tones by src/themes/art/palette.ts.
  *   3. Hooks: the shell and the shadcn primitives carry `data-shell` /
@@ -84,14 +86,23 @@
   --brand-sky: 175 62% 32%;
   --brand-violet: 338 49% 55%;
   --brand-coral: 39 85% 45%;
-  --gradient-primary: linear-gradient(135deg, hsl(17 57% 46%), hsl(338 49% 55%));
-  --gradient-brand: linear-gradient(125deg, hsl(17 60% 45%), hsl(6 52% 50%) 50%, hsl(338 49% 55%));
-  --gradient-soft: linear-gradient(160deg, hsl(26 52% 94%), hsl(338 42% 96%));
+  /* The gradients' stops, as tokens a colour scheme (palettes.css) repaints. */
+  --art-grad-from: 17 57% 46%;
+  --art-grad-to: 338 49% 55%;
+  --art-brand-from: 17 60% 45%;
+  --art-brand-via: 6 52% 50%;
+  --art-soft-from: 26 52% 94%;
+  --art-soft-to: 338 42% 96%;
+  --art-hover-from: 40 60% 98.5%;
+  --art-hover-to: 34 34% 94.5%;
+  --gradient-primary: linear-gradient(135deg, hsl(var(--art-grad-from)), hsl(var(--art-grad-to)));
+  --gradient-brand: linear-gradient(125deg, hsl(var(--art-brand-from)), hsl(var(--art-brand-via)) 50%, hsl(var(--art-grad-to)));
+  --gradient-soft: linear-gradient(160deg, hsl(var(--art-soft-from)), hsl(var(--art-soft-to)));
   --gradient-gold: var(--gradient-primary);
   --gradient-auth-hero: linear-gradient(135deg, hsl(221 26% 10%), hsl(221 23% 15%));
-  --gradient-sidebar: linear-gradient(180deg, hsl(37 42% 95.4%), hsl(37 42% 95.4%));
-  --gradient-card-hover: linear-gradient(135deg, hsl(40 60% 98.5%), hsl(34 34% 94.5%));
-  --gradient-surface: linear-gradient(180deg, hsl(40 69% 99.1%), hsl(40 69% 99.1%));
+  --gradient-sidebar: linear-gradient(180deg, hsl(var(--sidebar-background)), hsl(var(--sidebar-background)));
+  --gradient-card-hover: linear-gradient(135deg, hsl(var(--art-hover-from)), hsl(var(--art-hover-to)));
+  --gradient-surface: linear-gradient(180deg, hsl(var(--card)), hsl(var(--card)));
 
   /* Shadows are warm and low: paper on a desk, not neon. */
   --art-shadow: 28 30% 18%;
@@ -162,13 +173,21 @@
   --brand-sky: 175 60% 42%;
   --brand-violet: 340 55% 63%;
   --brand-coral: 38 70% 55%;
-  --gradient-primary: linear-gradient(135deg, hsl(19 69% 58%), hsl(340 57% 63%));
-  --gradient-brand: linear-gradient(125deg, hsl(19 69% 57%), hsl(8 60% 60%) 50%, hsl(340 57% 63%));
-  --gradient-soft: linear-gradient(160deg, hsl(19 30% 13%), hsl(340 22% 13%));
+  --art-grad-from: 19 69% 58%;
+  --art-grad-to: 340 57% 63%;
+  --art-brand-from: 19 69% 57%;
+  --art-brand-via: 8 60% 60%;
+  --art-soft-from: 19 30% 13%;
+  --art-soft-to: 340 22% 13%;
+  --art-hover-from: 221 19% 13%;
+  --art-hover-to: 221 17% 15%;
+  --gradient-primary: linear-gradient(135deg, hsl(var(--art-grad-from)), hsl(var(--art-grad-to)));
+  --gradient-brand: linear-gradient(125deg, hsl(var(--art-brand-from)), hsl(var(--art-brand-via)) 50%, hsl(var(--art-grad-to)));
+  --gradient-soft: linear-gradient(160deg, hsl(var(--art-soft-from)), hsl(var(--art-soft-to)));
   --gradient-auth-hero: linear-gradient(135deg, hsl(221 29% 6%), hsl(221 23% 11%));
-  --gradient-sidebar: linear-gradient(180deg, hsl(221 29% 5.8%), hsl(221 29% 5.8%));
-  --gradient-card-hover: linear-gradient(135deg, hsl(221 19% 13%), hsl(221 17% 15%));
-  --gradient-surface: linear-gradient(180deg, hsl(221 19% 12.4%), hsl(221 19% 12.4%));
+  --gradient-sidebar: linear-gradient(180deg, hsl(var(--sidebar-background)), hsl(var(--sidebar-background)));
+  --gradient-card-hover: linear-gradient(135deg, hsl(var(--art-hover-from)), hsl(var(--art-hover-to)));
+  --gradient-surface: linear-gradient(180deg, hsl(var(--card)), hsl(var(--card)));
 
   --art-shadow: 220 45% 2%;
   --shadow-card: 0 1px 2px 0 hsl(var(--art-shadow) / 0.45);

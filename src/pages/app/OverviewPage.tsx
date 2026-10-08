@@ -36,7 +36,8 @@ import {
 } from 'lucide-react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { cn } from '@/lib/utils';
-import { usePanelTheme } from '@/themes/usePanelTheme';
+import { useArtCharts } from '@/themes/art/charts/useArtCharts';
+import { ArtColumns } from '@/themes/art/charts/ArtColumns';
 
 /** English placeholder subjects persisted by the widget/AI — localized in the UI. */
 /** The fields of a conversation the dashboard reads. */
@@ -89,8 +90,8 @@ function formatBytes(bytes: number, numberLocale: string): string {
 
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
-  // Art names the chart's series in its tooltip (Classic shows the bare value).
-  const isArt = usePanelTheme().theme === 'art';
+  // Art draws the activity as daily columns (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   const workspace = useCurrentWorkspace();
   const { platformName } = useBrandingContext();
   const { user } = useAuth();
@@ -406,6 +407,16 @@ export default function OverviewPage() {
             </div>
           </div>
           <div className="relative h-[240px] w-full" dir="ltr">
+            {art ? (
+              <ArtColumns
+                kit={art}
+                data={chartData}
+                xKey="key"
+                valueKey="value"
+                name={tr('dashboard.usageConversations')}
+                empty={tr('dashboard.noConversations')}
+              />
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
                 <defs>
@@ -435,9 +446,10 @@ export default function OverviewPage() {
                   }}
                   labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
                 />
-                <Area type="monotone" dataKey="value" name={isArt ? tr('dashboard.activityTitle') : undefined} stroke="url(#convStroke)" strokeWidth={2.5} fill="url(#convGrad)" />
+                <Area type="monotone" dataKey="value" stroke="url(#convStroke)" strokeWidth={2.5} fill="url(#convGrad)" />
               </AreaChart>
             </ResponsiveContainer>
+            )}
           </div>
         </div>
 

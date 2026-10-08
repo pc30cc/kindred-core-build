@@ -33,7 +33,7 @@ import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
 import { reviveFailedWorkspaceDeletion } from '../services/workspaceDeletion/revive.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
-import { PANEL_THEME_IDS } from '../../shared/panelThemes.js';
+import { PANEL_THEME_IDS, isValidPanelThemeOptions, resolvePanelThemeOptions } from '../../shared/panelThemes.js';
 
 
 export const adminManagementRouter = Router();
@@ -819,26 +819,75 @@ adminManagementRouter.put('/platform-branding-localized', async (req, res) => {
 });
 
 // ── Workspace panel theme ("قالب") ─────────────────────────────────────
-// Which theme every workspace panel wears, platform-wide
-// (shared/panelThemes.ts). Everyone reads it through the public config
-// (platform_branding.workspace_panel_theme); only this route writes it.
-const panelThemeSchema = z.object({ theme: z.enum(PANEL_THEME_IDS) });
+// Which theme every workspace panel wears, platform-wide, and that theme's
+// options (Art: its layout and colour scheme), from shared/panelThemes.ts.
+// Everyone reads both through the public config
+// (platform_branding.workspace_panel_theme / workspace_panel_theme_options);
+// only this route writes them.
+//
+// `options` is optional and partial: the values given are merged into the
+// stored entry of `theme`, and every other theme's entry is kept, so saving
+// Art's colour scheme never forgets its layout or another theme's choices.
+// Without options the options column is left alone (and need not exist yet:
+// a database from before migration 254 can still switch themes).
+const PANEL_THEME_OPTIONS_COLUMN = 'workspace_panel_theme_options';
+const panelThemeSchema = z.object({ theme: z.enum(PANEL_THEME_IDS), options: z.unknown().optional() });
+
+type PanelThemeRow = { id: string; workspace_panel_theme?: string; workspace_panel_theme_options?: unknown };
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+const PANEL_THEME_MIGRATION_REQUIRED = {
+  error: 'Saving theme options needs database migration 254 (platform_branding.workspace_panel_theme_options).',
+  code: 'migration_required',
+} as const;
+
+/** The write named the options column and the table has none (before 254). */
+function isMissingOptionsColumn(error: { code?: string; message?: string }): boolean {
+  return (
+    (error.code === 'PGRST204' || error.code === '42703') &&
+    String(error.message ?? '').includes(PANEL_THEME_OPTIONS_COLUMN)
+  );
+}
 
 adminManagementRouter.put('/panel-theme', async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
   if (!actorId) return;
   const parsed = panelThemeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const { theme } = parsed.data;
+  const options = parsed.data.options;
+  if (options !== undefined && !isValidPanelThemeOptions(theme, options)) {
+    return res.status(400).json({ error: 'Invalid theme options' });
+  }
+  const setsOptions = options !== undefined && Object.keys(options).length > 0;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing, error: lookupError } = await sb.from('platform_branding').select('*').limit(1).maybeSingle();
   if (lookupError) return res.status(500).json({ error: lookupError.message });
-  const row = existing as { id: string; workspace_panel_theme?: string } | null;
-  const payload = { workspace_panel_theme: parsed.data.theme, updated_at: new Date().toISOString() };
+  const row = existing as PanelThemeRow | null;
+  // `select('*')` returns every column the table has: no options column
+  // means migration 254 is not applied yet, so options cannot be kept.
+  // (Without a row there is nothing to look at: the insert below tells.)
+  if (setsOptions && row && !(PANEL_THEME_OPTIONS_COLUMN in row)) {
+    return res.status(409).json(PANEL_THEME_MIGRATION_REQUIRED);
+  }
+
+  const storedOptions = asObject(row?.workspace_panel_theme_options);
+  const previousEntry = asObject(storedOptions[theme]);
+  const nextEntry = setsOptions ? { ...previousEntry, ...(options as Record<string, string>) } : previousEntry;
+  const nextOptions = { ...storedOptions, [theme]: nextEntry };
+  const payload: Record<string, unknown> = { workspace_panel_theme: theme, updated_at: new Date().toISOString() };
+  if (setsOptions) payload[PANEL_THEME_OPTIONS_COLUMN] = nextOptions;
   const { error } = row
     ? await sb.from('platform_branding').update(payload).eq('id', row.id).select().maybeSingle()
     : await sb.from('platform_branding').insert(payload).select().maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    if (setsOptions && isMissingOptionsColumn(error)) return res.status(409).json(PANEL_THEME_MIGRATION_REQUIRED);
+    return res.status(500).json({ error: error.message });
+  }
   invalidatePlatformPublicConfig();
   await insertAuditLogRows(config, sb, {
     workspace_id: null,
@@ -846,10 +895,12 @@ adminManagementRouter.put('/panel-theme', async (req, res) => {
     action: 'admin.panel_theme.changed',
     entity_type: 'platform_branding',
     entity_id: row?.id ?? null,
-    old_value: { theme: row?.workspace_panel_theme ?? null },
-    new_value: { theme: parsed.data.theme },
+    old_value: setsOptions
+      ? { theme: row?.workspace_panel_theme ?? null, options: storedOptions[theme] ?? null }
+      : { theme: row?.workspace_panel_theme ?? null },
+    new_value: setsOptions ? { theme, options: nextEntry } : { theme },
   });
-  return res.json({ theme: parsed.data.theme });
+  return res.json({ theme, options: resolvePanelThemeOptions(theme, setsOptions ? nextOptions : storedOptions) });
 });
 
 

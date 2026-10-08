@@ -14,6 +14,8 @@ import {
   Search, Globe2, Link2, TrendingUp, ArrowUpRight, RefreshCw, ExternalLink, Sparkles, Unlink,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip } from 'recharts';
+import { useArtCharts } from '@/themes/art/charts/useArtCharts';
+import { ArtDonut } from '@/themes/art/charts/ArtDonut';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -300,6 +302,8 @@ const LINK_TYPE_COLORS = { dofollow: 'hsl(var(--primary))', nofollow: 'rgb(var(-
 
 function LinkTypeDonut({ dofollow, nofollow }: { dofollow: number; nofollow: number }) {
   const { t } = useTranslation();
+  // Art draws its own donut, with the slices listed beside it (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   const total = dofollow + nofollow;
   const data = useMemo(
     () => [
@@ -318,6 +322,18 @@ function LinkTypeDonut({ dofollow, nofollow }: { dofollow: number; nofollow: num
       <CardContent>
         {total === 0 ? (
           <p className="py-8 text-center text-xs text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
+        ) : art ? (
+          <ArtDonut
+            className="py-2"
+            kit={art}
+            size={136}
+            centerValue={art.percent(dofollow / total)}
+            centerLabel={t('seo.explorer.stat.dofollow')}
+            slices={[
+              { key: 'dofollow', label: t('seo.explorer.stat.dofollow'), value: dofollow, n: 1 },
+              { key: 'nofollow', label: t('seo.backlinks.nofollow'), value: nofollow, color: 'hsl(var(--muted-foreground) / 0.45)' },
+            ]}
+          />
         ) : (
           <div className="relative">
             <div className="h-40">
@@ -339,10 +355,12 @@ function LinkTypeDonut({ dofollow, nofollow }: { dofollow: number; nofollow: num
             </div>
           </div>
         )}
+        {!art && (
         <div className="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.explorer.stat.dofollow')}</span>
           <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-slate-400" />nofollow</span>
         </div>
+        )}
       </CardContent>
     </Card>
   );

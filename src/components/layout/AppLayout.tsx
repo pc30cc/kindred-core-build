@@ -280,9 +280,10 @@ export function AppLayout() {
   const { slug: routeSlug } = useParams<{ slug: string }>();
   // Boot gate: user + workspace + plan only. See useAppShellReady.
   const shellReady = useAppShellReady(workspace?.id, isLoading);
-  // The panel theme the Super Admin chose (or this tab is previewing).
+  // The panel theme the Super Admin chose (or this tab is previewing), with
+  // its options (Art: layout and colour scheme) on <html> as well.
   const panelTheme = usePanelTheme();
-  useApplyPanelTheme(panelTheme.theme);
+  useApplyPanelTheme(panelTheme.theme, panelTheme.options);
   const showVerificationBanner = user && !user.emailVerified;
   // Presence heartbeat → powers the "Operator activity" report.
   useOperatorHeartbeat(workspace?.id);
@@ -336,17 +337,23 @@ export function AppLayout() {
   const artSub = artSubPath(pathname, routeSlug ? `/${routeSlug}` : '');
 
   if (!shellReady) {
-    return panelTheme.theme === 'art' ? <ArtShellSkeleton wide={isArtEdgeToEdge(artSub)} /> : <AppShellSkeleton />;
+    return panelTheme.theme === 'art' ? (
+      <ArtShellSkeleton layout={panelTheme.options.layout} subPath={artSub} wide={isArtEdgeToEdge(artSub)} />
+    ) : (
+      <AppShellSkeleton />
+    );
   }
 
-  // Art has a frame of its own (top navigation, no sidebar) around the same
-  // page, providers and notices: src/themes/art/shell/ArtShell.tsx.
+  // Art has a frame of its own (a top menu, or the side menu, as the Super
+  // Admin chose) around the same page, providers and notices:
+  // src/themes/art/shell/ArtShell.tsx.
   if (panelTheme.theme === 'art') {
     return (
       <div dir={dir} data-shell="app" className="app-scope flex h-screen h-dvh flex-col overflow-hidden bg-background text-foreground">
         <OperatorCallProvider>
           <CommandPalette />
           <ArtShell
+            layout={panelTheme.options.layout}
             // Art's own rule (layout.ts): the email client fills the area
             // too, and `/call-center/settings` stays a normal page.
             fullBleed={isArtFullBleed(artSub)}
@@ -362,7 +369,7 @@ export function AppLayout() {
           </ArtShell>
           <FloatingOperatorCallWindow />
           {panelTheme.preview && (
-            <PanelThemePreviewBar theme={panelTheme.preview} onEnd={panelTheme.endPreview} />
+            <PanelThemePreviewBar preview={panelTheme.preview} onEnd={panelTheme.endPreview} />
           )}
         </OperatorCallProvider>
       </div>
@@ -416,7 +423,7 @@ export function AppLayout() {
             sidebar surface so navigation never disconnects the call. */}
         <FloatingOperatorCallWindow />
         {panelTheme.preview && (
-          <PanelThemePreviewBar theme={panelTheme.preview} onEnd={panelTheme.endPreview} />
+          <PanelThemePreviewBar preview={panelTheme.preview} onEnd={panelTheme.endPreview} />
         )}
       </OperatorCallProvider>
     </div>

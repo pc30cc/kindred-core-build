@@ -43,7 +43,7 @@ Coolify project "WebYar App" (repo `pc30cc/kindred-core-build`, branch
 - 24 WebYar Fronted (`app.webyar.ai`), 25 WebYar Express Backend
   (`api.webyar.ai`), 26 WooCommerce Worker: auto-deploy on every push to
   `main`.
-- 15 Centrifugo, 16 LiveKit Destekly, 17 Intelligence Worker, 18 Source Sync
+- 15 Centrifugo, 16 LiveKit, 17 Intelligence Worker, 18 Source Sync
   Worker, 19 Plugins Channels (`channels.webyar.ai`), 20 Channels-Worker,
   21 AI Runtime (`ai.webyar.ai`), 22 Regression AI Worker, 23 Seo-Crawler:
   auto-deploy off, so a push does not update them; queue them by hand when a

@@ -140,7 +140,13 @@ reserved blocks, so a full disk stops Postgres too.
     `254_workspace_panel_theme_options.sql` (2026-10-08 13:27 UTC).
   - RESPOK's database is migrated automatically: its DB Migrator (app 40)
     runs `scripts/migrate-database.sh` on every push to `main`, then
-    `/data/respok/migrator/overlay.sql`, which re-applies RESPOK's branding.
+    `/data/respok/migrator/overlay.sql`. Since 2026-10-08 the overlay is a
+    guard only: it replaces a value only while it is WebYar's (its name or
+    domains, Persian/Rial defaults) or missing. It never resets what the
+    Super Admin sets (plans and their visibility, logos, texts, site mode,
+    languages); it used to, on every deploy. Before changing it, dry-run it
+    with its `COMMIT;` turned into `ROLLBACK;`
+    (`/root/respok/overlay-guard-test.sh` proves both directions).
   - The database has no public port, so `deploy-migrations.yml` cannot reach
     it; keep the `DATABASE_URL` Actions secret unset.
 - The move kit (import, cutover log, `deploy.php`, `db_action.php`,

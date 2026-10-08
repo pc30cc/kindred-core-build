@@ -84,7 +84,8 @@ describe('paddle verifyWebhook', () => {
       { 'paddle-signature': paddleHeader(SECRET, BODY, ts()) },
       BODY,
     );
-    expect(event).toMatchObject({ type: 'checkout_completed', providerEventId: 'evt_1', workspaceId: 'ws_1' });
+    // A completed transaction is the payment itself.
+    expect(event).toMatchObject({ type: 'payment_succeeded', providerEventId: 'evt_1', workspaceId: 'ws_1', providerRef: 'txn_1' });
   });
 });
 

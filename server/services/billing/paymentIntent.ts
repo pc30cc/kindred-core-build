@@ -189,10 +189,20 @@ export async function createInvoiceIntent(
     planNameSnapshot?: string | null;
     workspaceNameSnapshot?: string | null;
     invoiceNumber?: string | null;
+    /**
+     * The invoice's currency. `amountIrr` / `expected_amount_irr` are minor
+     * units of it (whole Rial for IRR); the intent has no currency column, so
+     * it is recorded in `metadata.currency` for verification and receipts.
+     */
+    currency?: string | null;
+    /** Lifetime of the attempt; defaults to the bank-redirect TTL. */
+    ttlMs?: number;
     metadata?: Record<string, unknown>;
   },
 ): Promise<PaymentIntentRow> {
   const supabase = getServiceClient(config);
+  const currency = (input.currency || 'IRR').trim().toUpperCase();
+  const ttlMs = input.ttlMs && input.ttlMs > 0 ? input.ttlMs : INTENT_TTL_MS;
   // The invoice's frozen effect names the business act ('ai_credit_purchase',
   // 'wallet_deposit', 'plan_*'); the attempt stores the canonical purchase
   // vocabulary. Plan-less purchases must never carry a plan or an interval.
@@ -233,8 +243,8 @@ export async function createInvoiceIntent(
         invoice_id: input.invoiceId,
         expected_amount_irr: input.amountIrr,
         billing_engine_version: 'v2',
-        metadata: input.metadata || {},
-        expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
+        metadata: { ...(input.metadata || {}), currency },
+        expires_at: new Date(Date.now() + ttlMs).toISOString(),
       })
       .select('*')
       .single();
@@ -414,6 +424,50 @@ export async function claimIntentForProcessing(
     .maybeSingle();
   if (retakeError) throw new Error(retakeError.message);
   return retaken ? { claimed: true, resumed: true } : { claimed: false, reason: 'in_flight' };
+}
+
+/**
+ * `failure_reason` of an attempt that billing_begin_collection canceled
+ * because the customer opened a newer checkout for the same invoice.
+ */
+export const SUPERSEDED_BY_NEW_CHECKOUT = 'superseded_by_new_checkout';
+
+/**
+ * Takes an attempt that stopped collecting WITHOUT being paid — superseded by
+ * a newer checkout, or past its deadline — to `processing`, because its
+ * provider has since confirmed money for it (a card checkout outlives that
+ * moment). Atomic: the update only matches the exact state that was read, so
+ * at most one caller revives it; anyone else falls back to the regular claim.
+ * The caller decides whether the invoice can still take this money.
+ */
+export async function claimLapsedIntentForProcessing(
+  config: ServerConfig,
+  intent: Pick<PaymentIntentRow, 'id' | 'status' | 'failure_reason'>,
+  opts: {
+    now?: Date;
+    verification?: GatewayVerificationMarker;
+    baseMetadata?: Record<string, unknown> | null;
+  } = {},
+): Promise<boolean> {
+  if (intent.status !== 'expired' && !(intent.status === 'canceled' && intent.failure_reason === SUPERSEDED_BY_NEW_CHECKOUT)) {
+    return false;
+  }
+  const nowIso = (opts.now ?? new Date()).toISOString();
+  const metadata: Record<string, unknown> = {
+    ...(opts.baseMetadata || {}),
+    revived_from: { status: intent.status, failure_reason: intent.failure_reason ?? null, at: nowIso },
+  };
+  if (opts.verification) metadata[GATEWAY_VERIFICATION_METADATA_KEY] = opts.verification;
+
+  let query = getServiceClient(config)
+    .from('billing_payment_intents')
+    .update({ status: 'processing', processing_at: nowIso, failure_reason: null, metadata, updated_at: nowIso })
+    .eq('id', intent.id)
+    .eq('status', intent.status);
+  if (intent.status === 'canceled') query = query.eq('failure_reason', SUPERSEDED_BY_NEW_CHECKOUT);
+  const { data, error } = await query.select('id').maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data);
 }
 
 /** Final success — written ONLY after the financial side effect landed. */

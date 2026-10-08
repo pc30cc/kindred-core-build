@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { SkeletonTable } from '@/components/common/Skeletons';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { billingInvoices, type InvoiceSummary } from '@/lib/billingApi';
 import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, EmptyState, Pager, errorMessage } from './shared';
 
@@ -59,7 +59,7 @@ export default function InvoicesTab({
                 setPage(1);
               }}
             >
-              {t(`billing.invoices.filters.${f}` as any)}
+              {t(`billing.invoices.filters.${f}` as TranslationKey)}
             </Button>
           ))}
         </div>
@@ -97,11 +97,11 @@ export default function InvoicesTab({
                       <td className="p-2">
                         <InvoiceStatusBadge
                           status={inv.status}
-                          label={t(`billing.invoices.statuses.${inv.status}` as any)}
+                          label={t(`billing.invoices.statuses.${inv.status}` as TranslationKey)}
                         />
                       </td>
-                      <td className="p-2 text-end">{money(inv.totalIrr, locale)}</td>
-                      <td className="p-2 text-end font-medium">{money(inv.amountDueIrr, locale)}</td>
+                      <td className="p-2 text-end">{money(inv.totalIrr, locale, inv.currency)}</td>
+                      <td className="p-2 text-end font-medium">{money(inv.amountDueIrr, locale, inv.currency)}</td>
                       <td className="p-2 text-end">
                         <Button variant="ghost" size="sm" onClick={() => onOpenInvoice(inv.id)}>
                           {t('billing.common.view')}
@@ -125,13 +125,13 @@ export default function InvoicesTab({
                     <Ltr>{inv.invoiceNumber}</Ltr>
                     <InvoiceStatusBadge
                       status={inv.status}
-                      label={t(`billing.invoices.statuses.${inv.status}` as any)}
+                      label={t(`billing.invoices.statuses.${inv.status}` as TranslationKey)}
                     />
                   </div>
                   <p className="text-sm font-medium">{inv.planName || '—'}</p>
                   <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{billingDate(inv.dueAt, locale)}</span>
-                    <span className="font-semibold text-foreground">{money(inv.amountDueIrr, locale)}</span>
+                    <span className="font-semibold text-foreground">{money(inv.amountDueIrr, locale, inv.currency)}</span>
                   </div>
                 </button>
               ))}

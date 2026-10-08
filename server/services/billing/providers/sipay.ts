@@ -1,5 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
-import { minorToMajorString } from './minorAmount.js';
+import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
 import crypto from 'crypto';
 
 // ─── Local response parsers (checkout/create path only) ───────────
@@ -51,19 +51,26 @@ function readSipayRefundId(body: unknown): string | undefined {
   return undefined;
 }
 
+/** Currencies Sipay charges (`currency_code`). */
+export const SIPAY_CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
+
 export const sipayProvider: BillingProviderHandler = {
   name: 'sipay',
   capabilities: {
     subscriptions: false, oneTimePayments: true, customerPortal: false,
-    refunds: true, webhooks: true, multiCurrency: false, trialSupport: false,
+    refunds: true, webhooks: true, multiCurrency: true, trialSupport: false,
   },
+  supportedCurrencies: SIPAY_CURRENCIES,
+  fallbackCurrency: 'TRY',
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    // `metadata.amount` is in minor units (kuruş); this API takes a decimal amount.
+    // The amount is priced in `req.currency`; it is sent under that code only.
+    const currency = requireSupportedCurrency('Sipay', req.currency, SIPAY_CURRENCIES);
+    // `metadata.amount` is in minor units (kuruş / cents); this API takes a decimal amount.
     const amount = minorToMajorString(req.metadata?.amount);
     const orderId = `${req.workspaceId}_${Date.now()}`;
     const hashKey = crypto.createHmac('sha256', config.app_secret as string)
-      .update(`${config.merchant_key}${amount}TRY${orderId}`)
+      .update(`${config.merchant_key}${amount}${currency}${orderId}`)
       .digest('base64');
 
     const res = await fetch('https://app.sipay.com.tr/ccpayment/api/paySmart3D', {
@@ -75,7 +82,8 @@ export const sipayProvider: BillingProviderHandler = {
         hash_key: hashKey,
         invoice_id: orderId,
         total: amount,
-        currency: 'TRY',
+        // Sipay's field is `currency_code`; `currency` was never read by it.
+        currency_code: currency,
         return_url: req.callbackUrl,
         cancel_url: req.callbackUrl,
         bill_email: req.customerEmail,
@@ -101,8 +109,8 @@ export const sipayProvider: BillingProviderHandler = {
         type: 'payment_succeeded',
         providerEventId: data.invoice_id || data.order_id,
         providerPaymentId: data.invoice_id,
-        amount: parseFloat(data.total || '0') * 100,
-        currency: 'TRY',
+        amount: majorToMinor(data.total) ?? 0,
+        currency: normalizeCurrencyCode(data.currency_code) || 'TRY',
         raw: data,
       };
     }

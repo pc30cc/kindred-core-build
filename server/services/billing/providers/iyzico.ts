@@ -1,5 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
-import { minorToMajorString } from './minorAmount.js';
+import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
 import crypto from 'crypto';
 
 // ── Local, iyzico-scoped JSON readers (Create + testConnection only) ──
@@ -69,22 +69,29 @@ function iyzicoAuth(config: BillingProviderConfig, uri: string, body: string): R
   };
 }
 
+/** Currencies iyzico's checkout form charges (its API also lists IRR/NOK/RUB/CHF, never priced here). */
+export const IYZICO_CURRENCIES = ['TRY', 'USD', 'EUR', 'GBP'] as const;
+
 export const iyzicoProvider: BillingProviderHandler = {
   name: 'iyzico',
   capabilities: {
     subscriptions: true, oneTimePayments: true, customerPortal: false,
-    refunds: true, webhooks: true, multiCurrency: false, trialSupport: false,
+    refunds: true, webhooks: true, multiCurrency: true, trialSupport: false,
   },
+  supportedCurrencies: IYZICO_CURRENCIES,
+  fallbackCurrency: 'TRY',
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    // `metadata.amount` is in minor units (kuruş); this API takes a decimal amount.
+    // The amount is priced in `req.currency`; it is sent under that code only.
+    const currency = requireSupportedCurrency('iyzico', req.currency, IYZICO_CURRENCIES);
+    // `metadata.amount` is in minor units (kuruş / cents); this API takes a decimal amount.
     const amount = minorToMajorString(req.metadata?.amount);
     const body = JSON.stringify({
       locale: 'tr',
       conversationId: `${req.workspaceId}_${Date.now()}`,
       price: amount,
       paidPrice: amount,
-      currency: 'TRY',
+      currency,
       basketId: `${req.workspaceId}_${req.planId}`,
       paymentGroup: 'SUBSCRIPTION',
       callbackUrl: req.callbackUrl,
@@ -132,20 +139,21 @@ export const iyzicoProvider: BillingProviderHandler = {
         type: 'payment_succeeded',
         providerEventId: data.paymentId || data.token,
         providerPaymentId: data.paymentId,
-        amount: parseFloat(data.paidPrice || '0') * 100,
-        currency: 'TRY',
+        amount: majorToMinor(data.paidPrice) ?? 0,
+        currency: normalizeCurrencyCode(data.currency) || 'TRY',
         raw: data,
       };
     }
     return null;
   },
 
-  async refundPayment(config: BillingProviderConfig, paymentId: string, amount?: number) {
+  /** `currency` must be the payment's own; iyzico refuses a mismatch. Default TRY. */
+  async refundPayment(config: BillingProviderConfig, paymentId: string, amount?: number, currency?: string) {
     const body = JSON.stringify({
       locale: 'tr',
       paymentTransactionId: paymentId,
       price: amount ? (amount / 100).toFixed(2) : '0',
-      currency: 'TRY',
+      currency: normalizeCurrencyCode(currency) || 'TRY',
       ip: '127.0.0.1',
     });
     const res = await fetch(`${baseUrl(config)}/payment/refund`, {

@@ -1,0 +1,218 @@
+/**
+ * The customer's card checkout routes (server/routes/billingCustomer.ts).
+ *
+ *  - A Lemon Squeezy store sells in the single currency it was created with:
+ *    it is offered, and used, for that currency only.
+ *  - Opening a new checkout for an invoice supersedes the previous attempt;
+ *    the previous provider checkout is closed (best effort), so it cannot be
+ *    paid behind the new one.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import http from 'node:http';
+import express from 'express';
+
+const WS = '11111111-1111-4111-8111-111111111111';
+const INVOICE = 'inv-1';
+
+let gatewayRows: Array<Record<string, unknown>> = [];
+let lemonStoreCurrency = 'USD';
+const closeCheckout = vi.fn();
+const createCheckout = vi.fn();
+const beginCollection = vi.fn();
+let pendingIntentRows: Array<Record<string, unknown>> = [];
+let supersededRows: Array<Record<string, unknown>> = [];
+
+vi.mock('../../../server/lib/workspaceAuth.js', () => ({
+  authorizeWorkspaceAccess: async () => ({ userId: 'u1', isAdmin: false, role: 'owner' }),
+  serverConfigOf: (req: { serverConfig?: unknown }) => req.serverConfig,
+}));
+vi.mock('../../../server/services/billing/config/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/billing/config/index.js')>()),
+  listPayableGateways: async () => gatewayRows,
+}));
+vi.mock('../../../server/services/billing/callbackUrl.js', () => ({
+  isAllowedBillingCallbackUrl: () => true,
+  resolvePublicApiOrigin: async () => 'https://api.test',
+}));
+vi.mock('../../../server/services/billing/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../server/services/billing/index.js')>();
+  const resolve = async (_u: string, _k: string, _ws: string, name: string) => {
+    const real = actual.getProvider(name)!;
+    const provider = {
+      ...real,
+      createCheckoutSession: (...a: unknown[]) => createCheckout(name, ...a),
+      ...(real.closeCheckout ? { closeCheckout: (...a: unknown[]) => closeCheckout(name, ...a) } : {}),
+    };
+    const config = name === 'lemon_squeezy' ? { provider: name, currency: lemonStoreCurrency } : { provider: name };
+    return { provider, config };
+  };
+  return {
+    ...actual,
+    resolveNamedBillingConfig: resolve,
+    resolveBillingConfig: async () => null,
+    logBillingEvent: async () => undefined,
+  };
+});
+vi.mock('../../../server/services/billing/invoice/settle.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/billing/invoice/settle.js')>()),
+  getInvoice: async () => ({
+    id: INVOICE, workspace_id: WS, status: 'open', amount_due_irr: 2900, currency: 'USD',
+    invoice_number: 'AB12345678', plan_id: 'plan-pro', billing_interval: 'monthly', plan_name_snapshot: 'Pro',
+    effect_snapshot: { action_type: 'plan_new' },
+  }),
+  beginCollection: (...a: unknown[]) => beginCollection(...a),
+  releaseCollection: async () => undefined,
+}));
+vi.mock('../../../server/services/billing/paymentIntent.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/billing/paymentIntent.js')>()),
+  createInvoiceIntent: async () => ({ id: 'pi-new', metadata: { currency: 'USD' } }),
+  setPaymentIntentProviderRef: async () => undefined,
+  markPaymentIntentFailed: async () => undefined,
+}));
+vi.mock('../../../server/supabase.js', () => ({
+  getServiceClient: () => ({
+    from: (table: string) => {
+      const filters: Array<[string, unknown]> = [];
+      const b: Record<string, unknown> = {};
+      b.select = () => b;
+      b.update = () => b;
+      b.eq = (column: string, value: unknown) => {
+        filters.push([column, value]);
+        return b;
+      };
+      b.in = () => {
+        filters.push(['id', 'in']);
+        return b;
+      };
+      b.maybeSingle = async () => ({ data: table === 'profiles' ? { email: 'owner@example.com' } : null, error: null });
+      b.then = (resolve: (v: unknown) => void) => {
+        let data: unknown = null;
+        if (table === 'billing_payment_intents') {
+          // openCheckoutAttempts reads pending attempts; closeSupersededCheckouts re-reads them by id.
+          data = filters.some(([c]) => c === 'id') ? supersededRows : pendingIntentRows;
+        }
+        resolve({ data, error: null });
+      };
+      return b;
+    },
+  }),
+}));
+
+const { billingCustomerRouter } = await import('../../../server/routes/billingCustomer.js');
+
+const app = express();
+app.use((req, _res, next) => {
+  (req as unknown as { serverConfig: unknown }).serverConfig = { supabaseUrl: 'http://db', supabaseServiceRoleKey: 'k' };
+  next();
+});
+app.use(express.json());
+app.use('/api/billing', billingCustomerRouter);
+const server = http.createServer(app).listen(0);
+const port = () => (server.address() as { port: number }).port;
+
+function call(method: string, path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: '127.0.0.1', port: port(), path, method, headers: { 'content-type': 'application/json', connection: 'close' } },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => resolve({ status: res.statusCode || 0, body: data ? JSON.parse(data) : {} }));
+      },
+    );
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+const gateway = (provider_name: string) => ({ provider_name, display_name: provider_name, is_test: false, currencies: ['USD', 'EUR'] });
+
+beforeEach(() => {
+  gatewayRows = [];
+  lemonStoreCurrency = 'USD';
+  pendingIntentRows = [];
+  supersededRows = [];
+  closeCheckout.mockReset();
+  createCheckout.mockReset();
+  beginCollection.mockReset();
+  beginCollection.mockResolvedValue({ collection_id: 'col-new', channel: 'gateway', amount_irr: 2900, expires_at: '', replayed: false });
+  createCheckout.mockResolvedValue({ paymentUrl: 'https://checkout.stripe.com/x', sessionId: 'cs_new' });
+});
+
+describe('gateways offered for an invoice currency', () => {
+  it('offers Lemon Squeezy only in the currency its store sells in', async () => {
+    gatewayRows = [gateway('stripe'), gateway('lemon_squeezy')];
+    const usd = await call('GET', `/api/billing/workspaces/${WS}/gateways?currency=USD`);
+    expect((usd.body.gateways as Array<{ provider_name: string }>).map((g) => g.provider_name)).toEqual(['stripe', 'lemon_squeezy']);
+    const eur = await call('GET', `/api/billing/workspaces/${WS}/gateways?currency=EUR`);
+    expect((eur.body.gateways as Array<{ provider_name: string }>).map((g) => g.provider_name)).toEqual(['stripe']);
+
+    lemonStoreCurrency = 'EUR';
+    const eurStore = await call('GET', `/api/billing/workspaces/${WS}/gateways?currency=EUR`);
+    expect((eurStore.body.gateways as Array<{ provider_name: string }>).map((g) => g.provider_name)).toEqual(['stripe', 'lemon_squeezy']);
+  });
+
+  it('refuses a Lemon Squeezy checkout for an invoice in another currency than its store’s', async () => {
+    gatewayRows = [gateway('lemon_squeezy')];
+    lemonStoreCurrency = 'EUR';
+    const res = await call('POST', `/api/billing/workspaces/${WS}/invoices/${INVOICE}/checkout`, {
+      callbackUrl: 'https://app.test/acme/billing/pay/invoice/inv-1',
+      providerName: 'lemon_squeezy',
+    });
+    expect(res.status).toBe(400);
+    expect(createCheckout).not.toHaveBeenCalled();
+  });
+});
+
+describe('a new checkout supersedes the previous one', () => {
+  it('closes the previous provider checkout once the new one holds the invoice', async () => {
+    gatewayRows = [gateway('stripe')];
+    pendingIntentRows = [{ id: 'pi-old', provider_ref: 'cs_old' }, { id: 'pi-unbound', provider_ref: null }];
+    supersededRows = [
+      { id: 'pi-old', provider_name: 'stripe', provider_ref: 'cs_old', status: 'canceled', failure_reason: 'superseded_by_new_checkout' },
+    ];
+    closeCheckout.mockResolvedValue(true);
+    const res = await call('POST', `/api/billing/workspaces/${WS}/invoices/${INVOICE}/checkout`, {
+      callbackUrl: 'https://app.test/acme/billing/pay/invoice/inv-1',
+      providerName: 'stripe',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ success: true, intentId: 'pi-new' });
+    await vi.waitFor(() => expect(closeCheckout).toHaveBeenCalledTimes(1));
+    expect(closeCheckout.mock.calls[0][0]).toBe('stripe');
+    expect(closeCheckout.mock.calls[0][2]).toBe('cs_old');
+    // Closed only after the new attempt held the invoice (which is what supersedes the old one).
+    expect(beginCollection.mock.invocationCallOrder[0]).toBeLessThan(closeCheckout.mock.invocationCallOrder[0]);
+  });
+
+  it('a provider that cannot close the old checkout never fails the new one', async () => {
+    gatewayRows = [gateway('stripe')];
+    pendingIntentRows = [{ id: 'pi-old', provider_ref: 'cs_old' }];
+    supersededRows = [
+      { id: 'pi-old', provider_name: 'stripe', provider_ref: 'cs_old', status: 'canceled', failure_reason: 'superseded_by_new_checkout' },
+    ];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    closeCheckout.mockRejectedValue(new Error('stripe down'));
+    const res = await call('POST', `/api/billing/workspaces/${WS}/invoices/${INVOICE}/checkout`, {
+      callbackUrl: 'https://app.test/acme/billing/pay/invoice/inv-1',
+      providerName: 'stripe',
+    });
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    warn.mockRestore();
+  });
+
+  it('a checkout that could not reserve the invoice closes nothing', async () => {
+    gatewayRows = [gateway('stripe')];
+    pendingIntentRows = [{ id: 'pi-old', provider_ref: 'cs_old' }];
+    const { InvoiceSettlementError } = await import('../../../server/services/billing/invoice/settle.js');
+    beginCollection.mockRejectedValue(new InvoiceSettlementError('collection_locked', 'invoice_collection_locked', 409));
+    const res = await call('POST', `/api/billing/workspaces/${WS}/invoices/${INVOICE}/checkout`, {
+      callbackUrl: 'https://app.test/acme/billing/pay/invoice/inv-1',
+      providerName: 'stripe',
+    });
+    expect(res.status).toBe(409);
+    expect(closeCheckout).not.toHaveBeenCalled();
+  });
+});

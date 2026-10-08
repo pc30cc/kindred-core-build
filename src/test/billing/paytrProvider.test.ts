@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import crypto from 'crypto';
 import {
   paytrProvider,
+  paytrMerchantOid,
+  workspaceIdFromPaytrOid,
   readPayTrRecord,
   readPayTrCreateStatus,
   readPayTrCreateToken,
@@ -78,7 +80,7 @@ describe('paytr createCheckoutSession (success)', () => {
     expect(res.sessionId).toBe('iframe-token-mock');
   });
 
-  it('sends the unchanged endpoint, method and payload', async () => {
+  it('sends the endpoint, method and payload, with the token PayTR actually computes', async () => {
     const fetchMock = mockJson({ status: 'success', token: 'iframe-token-mock' });
     await paytrProvider.createCheckoutSession(config, req);
     const [url, init] = fetchMock.mock.calls[0];
@@ -87,10 +89,15 @@ describe('paytr createCheckoutSession (success)', () => {
     expect(init.body).toBeInstanceOf(URLSearchParams);
 
     const p = init.body as URLSearchParams;
-    const orderId = 'ws1_1700000000000';
-    const expectedHash = `merchant-id-mock10.0.0.1${orderId}buyer@example.com19900subscription0TRY0merchant-salt-mock`;
-    const expectedToken = crypto.createHmac('sha256', 'merchant-key-mock').update(expectedHash).digest('base64');
+    // PayTR order ids are alphanumeric only.
+    const orderId = 'ws11700000000000';
     const expectedBasket = Buffer.from(JSON.stringify([['Plan plan-pro', '199.00', 1]])).toString('base64');
+    // iFrame API: merchant_id + user_ip + merchant_oid + email + payment_amount +
+    // user_basket + no_installment + max_installment + currency + test_mode, then
+    // merchant_salt. (It used to hash 'subscription' / 'TRY' / '0' in the wrong
+    // slots, so PayTR rejected every token.)
+    const expectedHash = `merchant-id-mock10.0.0.1${orderId}buyer@example.com19900${expectedBasket}012TL1merchant-salt-mock`;
+    const expectedToken = crypto.createHmac('sha256', 'merchant-key-mock').update(expectedHash).digest('base64');
 
     expect(p.get('merchant_id')).toBe('merchant-id-mock');
     expect(p.get('user_ip')).toBe('10.0.0.1');
@@ -114,6 +121,61 @@ describe('paytr createCheckoutSession (success)', () => {
       'merchant_oid', 'merchant_ok_url', 'no_installment', 'payment_amount', 'paytr_token',
       'test_mode', 'user_address', 'user_basket', 'user_ip', 'user_name', 'user_phone',
     ]);
+  });
+
+  it('charges a USD price in USD (not labelled TL), without lira installments, and signs that currency', async () => {
+    const fetchMock = mockJson({ status: 'success', token: 'iframe-token-mock' });
+    await paytrProvider.createCheckoutSession(config, { ...req, currency: 'USD', metadata: { ...req.metadata, amount: '2900' } });
+    const p = fetchMock.mock.calls[0][1].body as URLSearchParams;
+    expect(p.get('currency')).toBe('USD');
+    expect(p.get('payment_amount')).toBe('2900');
+    expect(p.get('no_installment')).toBe('1');
+    expect(p.get('max_installment')).toBe('0');
+    const basket = p.get('user_basket');
+    const hash = `merchant-id-mock10.0.0.1ws11700000000000buyer@example.com2900${basket}10USD1merchant-salt-mock`;
+    expect(p.get('paytr_token')).toBe(crypto.createHmac('sha256', 'merchant-key-mock').update(hash).digest('base64'));
+  });
+
+  it.each([['EUR', 'EUR'], ['GBP', 'GBP'], ['try', 'TL']])('sends %s as %s', async (currency, sent) => {
+    const fetchMock = mockJson({ status: 'success', token: 't' });
+    await paytrProvider.createCheckoutSession(config, { ...req, currency });
+    expect((fetchMock.mock.calls[0][1].body as URLSearchParams).get('currency')).toBe(sent);
+  });
+
+  it('refuses a currency PayTR cannot charge instead of relabelling it', async () => {
+    const fetchMock = mockJson({ status: 'success', token: 't' });
+    await expect(paytrProvider.createCheckoutSession(config, { ...req, currency: 'IRR' })).rejects.toThrow(/PayTR cannot charge IRR/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a workspace UUID becomes an alphanumeric order id that maps back to it', async () => {
+    const ws = '2f1c9a3e-7b4d-4c1a-9e2f-0a1b2c3d4e5f';
+    const fetchMock = mockJson({ status: 'success', token: 't' });
+    await paytrProvider.createCheckoutSession(config, { ...req, workspaceId: ws });
+    const oid = (fetchMock.mock.calls[0][1].body as URLSearchParams).get('merchant_oid') as string;
+    expect(oid).toMatch(/^[A-Za-z0-9]+$/);
+    expect(workspaceIdFromPaytrOid(oid)).toBe(ws);
+    expect(paytrMerchantOid(ws, 1)).toBe('2f1c9a3e7b4d4c1a9e2f0a1b2c3d4e5f1');
+  });
+});
+
+describe('paytr callback currency', () => {
+  const key = 'merchant-key-mock';
+  const salt = 'merchant-salt-mock';
+  function callback(fields: Record<string, string>) {
+    const hash = crypto.createHmac('sha256', key)
+      .update(`${fields.merchant_oid}${salt}${fields.status}${fields.total_amount}`)
+      .digest('base64');
+    return new URLSearchParams({ ...fields, hash }).toString();
+  }
+
+  it('records the order currency PayTR reports (TL → TRY) and the workspace from the order id', async () => {
+    const ws = '2f1c9a3e-7b4d-4c1a-9e2f-0a1b2c3d4e5f';
+    const oid = paytrMerchantOid(ws, 1700000000000);
+    const usd = await paytrProvider.verifyWebhook(config, {}, callback({ merchant_oid: oid, status: 'success', total_amount: '2900', currency: 'USD' }));
+    expect(usd).toMatchObject({ amount: 2900, currency: 'USD', workspaceId: ws });
+    const tl = await paytrProvider.verifyWebhook(config, {}, callback({ merchant_oid: oid, status: 'success', total_amount: '19900', currency: 'TL' }));
+    expect(tl?.currency).toBe('TRY');
   });
 });
 

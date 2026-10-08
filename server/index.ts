@@ -134,6 +134,7 @@ import {
   widgetWorkspaceRateLimiter,
   widgetSessionRateLimiter,
   adminRateLimiter,
+  billingWebhookRateLimiter,
   widgetBootstrapRateLimiter,
   widgetBootstrapGlobalCeiling,
   callWidgetBootstrapRateLimiter,
@@ -343,7 +344,8 @@ app.use('/api/calls/livekit/webhook', livekitWebhookRouter);
 
 // Billing provider webhooks — same reason: signature verification needs the
 // exact raw bytes, so this mounts before express.json with its own raw parser.
-app.use('/api/billing/webhook', billingWebhookRouter);
+// Rate-limited per IP: checking a PayPal delivery calls PayPal's API.
+app.use('/api/billing/webhook', billingWebhookRateLimiter, billingWebhookRouter);
 
 // Commerce event ingestion (webyar-woocommerce plugin) — HMAC signature
 // verification needs the exact raw bytes; the router applies its own

@@ -476,6 +476,10 @@ const storageVendors: ProviderVendor[] = [
 // =============================================
 const billingVendors: ProviderVendor[] = [
   // ── International (EN) ──────────────────────────
+  // International card gateways collect an invoice for exactly its amount:
+  // the price comes from the plan (Super Admin → Plans), never from a price
+  // or product mirrored in the provider's dashboard. Webhook URL for each:
+  // https://<api domain>/api/billing/webhook/<provider name>.
   {
     name: 'stripe', label: 'Stripe',
     description: 'Full payment processing — USD / EUR / multi-currency',
@@ -483,14 +487,7 @@ const billingVendors: ProviderVendor[] = [
     locales: ['en'], currency: 'USD/EUR',
     fields: [
       { key: 'secret_key', label: 'Secret Key', type: 'password', required: true, hint: 'sk_live_... or sk_test_...' },
-      { key: 'publishable_key', label: 'Publishable Key', type: 'text', required: true, hint: 'pk_live_... or pk_test_...' },
-      { key: 'webhook_secret', label: 'Webhook Secret', type: 'password', required: true, hint: 'whsec_...' },
-      { key: 'currency', label: 'Default Currency', type: 'select', options: [
-        { value: 'usd', label: 'USD ($)' }, { value: 'eur', label: 'EUR (€)' }, { value: 'gbp', label: 'GBP (£)' },
-      ]},
-      { key: 'price_id_free', label: 'Free Plan Price ID', type: 'text', placeholder: 'price_...' },
-      { key: 'price_id_pro', label: 'Pro Plan Price ID', type: 'text', placeholder: 'price_...' },
-      { key: 'price_id_enterprise', label: 'Enterprise Plan Price ID', type: 'text', placeholder: 'price_...' },
+      { key: 'webhook_secret', label: 'Webhook Signing Secret', type: 'password', required: true, hint: 'whsec_... — events: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, charge.refunded' },
     ],
   },
   {
@@ -500,8 +497,9 @@ const billingVendors: ProviderVendor[] = [
     locales: ['en'], currency: 'USD/EUR',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
-      { key: 'seller_id', label: 'Seller ID', type: 'text', required: true },
-      { key: 'webhook_secret', label: 'Webhook Secret', type: 'password' },
+      { key: 'client_token', label: 'Client-side Token', type: 'text', required: true, hint: 'live_... or test_... — opens the checkout on the payment page (approve the app domain in Paddle)' },
+      { key: 'webhook_secret', label: 'Webhook Secret Key', type: 'password', required: true, hint: 'Notification destination secret — events: transaction.paid, transaction.completed, adjustment.updated' },
+      { key: 'product_id', label: 'Product ID (optional)', type: 'text', placeholder: 'pro_...', hint: 'Catalog product the checkout price is attached to; empty = a one-off product per checkout' },
       { key: 'sandbox', label: 'Sandbox Mode', type: 'toggle' },
     ],
   },
@@ -513,7 +511,12 @@ const billingVendors: ProviderVendor[] = [
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
       { key: 'store_id', label: 'Store ID', type: 'text', required: true },
-      { key: 'webhook_secret', label: 'Webhook Signing Secret', type: 'password' },
+      { key: 'variant_id', label: 'Variant ID', type: 'text', required: true, hint: 'A single-payment product variant; every checkout charges the invoice amount as its custom price' },
+      { key: 'currency', label: 'Store Currency', type: 'select', options: [
+        { value: 'USD', label: 'USD ($)' }, { value: 'EUR', label: 'EUR (€)' }, { value: 'GBP', label: 'GBP (£)' },
+      ], hint: 'The currency the store was created in (default USD)' },
+      { key: 'webhook_secret', label: 'Webhook Signing Secret', type: 'password', required: true, hint: 'events: order_created, order_refunded' },
+      { key: 'test_mode', label: 'Test Mode', type: 'toggle' },
     ],
   },
   {
@@ -524,6 +527,8 @@ const billingVendors: ProviderVendor[] = [
     fields: [
       { key: 'client_id', label: 'Client ID', type: 'text', required: true },
       { key: 'client_secret', label: 'Client Secret', type: 'password', required: true },
+      { key: 'webhook_id', label: 'Webhook ID', type: 'text', required: true, hint: 'From the REST app\'s webhook — events: PAYMENT.CAPTURE.COMPLETED, PAYMENT.CAPTURE.DENIED, PAYMENT.CAPTURE.REFUNDED' },
+      { key: 'brand_name', label: 'Brand Name on PayPal', type: 'text', placeholder: 'RESPOK' },
       { key: 'sandbox', label: 'Sandbox Mode', type: 'toggle' },
     ],
   },

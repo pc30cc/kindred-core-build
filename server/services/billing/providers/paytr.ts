@@ -1,5 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
-import { minorToMajorString } from './minorAmount.js';
+import { minorToMajorString, requireSupportedCurrency } from './minorAmount.js';
 import crypto from 'crypto';
 
 // Local, PayTR-specific parsers for the get-token response only.
@@ -45,26 +45,62 @@ export function timingSafeBase64Equal(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+/** Currencies PayTR's iFrame API charges (`currency`: TL, USD, EUR, GBP). */
+export const PAYTR_CURRENCIES = ['TRY', 'USD', 'EUR', 'GBP'] as const;
+
+/** PayTR spells Turkish lira `TL`; every other code is ISO. */
+function paytrCurrencyParam(code: string): string {
+  return code === 'TRY' ? 'TL' : code;
+}
+
+/**
+ * PayTR order ids must be alphanumeric: the workspace id without its hyphens,
+ * then the timestamp. `workspaceIdFromPaytrOid` reverses it.
+ */
+export function paytrMerchantOid(workspaceId: string, now: number = Date.now()): string {
+  return `${workspaceId.replace(/[^A-Za-z0-9]/g, '')}${now}`;
+}
+
+/** The workspace an order id belongs to (also reads the older `<workspace>_<ts>` form). */
+export function workspaceIdFromPaytrOid(oid: string): string | undefined {
+  if (oid.includes('_')) return oid.split('_')[0] || undefined;
+  const hex = /^([0-9a-f]{32})\d+$/i.exec(oid)?.[1]?.toLowerCase();
+  if (!hex) return undefined;
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export const paytrProvider: BillingProviderHandler = {
   name: 'paytr',
   capabilities: {
     subscriptions: false, oneTimePayments: true, customerPortal: false,
-    refunds: false, webhooks: true, multiCurrency: false, trialSupport: false,
+    refunds: false, webhooks: true, multiCurrency: true, trialSupport: false,
   },
+  supportedCurrencies: PAYTR_CURRENCIES,
+  fallbackCurrency: 'TRY',
+  // PayTR re-sends a notification until the response body is exactly "OK".
+  webhookAckBody: 'OK',
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
     const merchantId = config.merchant_id as string;
     const merchantKey = config.merchant_key as string;
     const merchantSalt = config.merchant_salt as string;
+    // The amount is priced in `req.currency`; it is sent under that code only.
+    const currency = paytrCurrencyParam(requireSupportedCurrency('PayTR', req.currency, PAYTR_CURRENCIES));
     const amount = parseInt(String(req.metadata?.amount || '0'));
-    const orderId = `${req.workspaceId}_${Date.now()}`;
+    const orderId = paytrMerchantOid(req.workspaceId);
     const userIp = req.metadata?.ip || '127.0.0.1';
     const email = req.customerEmail || 'user@example.com';
+    // Installments exist for lira cards only.
+    const noInstallment = currency === 'TL' ? '0' : '1';
+    const maxInstallment = currency === 'TL' ? '12' : '0';
+    const testMode = config.sandbox ? '1' : '0';
 
-    // PayTR hash
-    // `payment_amount` is kuruş (the stored minor units); a basket line price is decimal lira.
+    // `payment_amount` is the minor unit (kuruş / cent); a basket line price is decimal.
     const basketJson = Buffer.from(JSON.stringify([[`Plan ${req.planId}`, minorToMajorString(amount), 1]])).toString('base64');
-    const hashStr = `${merchantId}${userIp}${orderId}${email}${amount}subscription${0}TRY${0}${merchantSalt}`;
+    // PayTR iFrame API token: HMAC-SHA256(merchant_key) over merchant_id, user_ip,
+    // merchant_oid, email, payment_amount, user_basket, no_installment,
+    // max_installment, currency, test_mode — then merchant_salt.
+    const hashStr = `${merchantId}${userIp}${orderId}${email}${amount}${basketJson}${noInstallment}${maxInstallment}${currency}${testMode}${merchantSalt}`;
     const token = crypto.createHmac('sha256', merchantKey).update(hashStr).digest('base64');
 
     const params = new URLSearchParams();
@@ -76,10 +112,10 @@ export const paytrProvider: BillingProviderHandler = {
     params.set('paytr_token', token);
     params.set('user_basket', basketJson);
     params.set('debug_on', config.sandbox ? '1' : '0');
-    params.set('no_installment', '0');
-    params.set('max_installment', '12');
-    params.set('currency', 'TL');
-    params.set('test_mode', config.sandbox ? '1' : '0');
+    params.set('no_installment', noInstallment);
+    params.set('max_installment', maxInstallment);
+    params.set('currency', currency);
+    params.set('test_mode', testMode);
     params.set('merchant_ok_url', req.callbackUrl);
     params.set('merchant_fail_url', req.callbackUrl);
     params.set('user_name', req.customerName || 'User');
@@ -119,13 +155,15 @@ export const paytrProvider: BillingProviderHandler = {
     const expected = crypto.createHmac('sha256', merchantKey).update(hashStr).digest('base64');
     if (!timingSafeBase64Equal(expected, hash)) throw new Error('Invalid PayTR webhook hash');
 
+    const currency = (params.get('currency') || 'TL').toUpperCase();
     return {
       type: status === 'success' ? 'payment_succeeded' : 'payment_failed',
       providerEventId: merchantOid,
       providerPaymentId: merchantOid,
-      workspaceId: merchantOid.split('_')[0],
+      workspaceId: workspaceIdFromPaytrOid(merchantOid),
+      // `total_amount` is in minor units of the order's currency.
       amount: parseInt(totalAmount),
-      currency: 'TRY',
+      currency: currency === 'TL' ? 'TRY' : currency,
       raw: Object.fromEntries(params),
     };
   },

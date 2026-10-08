@@ -1,5 +1,9 @@
-import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent, SubscriptionStatus } from '../types.js';
+import type {
+  BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, PaymentVerification,
+  WebhookEvent, SubscriptionStatus,
+} from '../types.js';
 import crypto from 'crypto';
+import { minorFromProvider, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
 
 /** Local, Stripe-only helpers. Scope: checkout session create, billing portal, test connection. */
 function asStripeRecord(value: unknown): Record<string, unknown> | null {
@@ -96,28 +100,95 @@ export function verifyStripeSignature(
   return parsed.signatures.some((sig) => timingSafeHexEqual(expected, sig));
 }
 
+/** Currencies a checkout may be priced in (the `billing_plans.prices` keys Stripe settles). */
+export const STRIPE_CURRENCIES = ['USD', 'EUR', 'GBP', 'TRY'] as const;
+
+/**
+ * Stripe accepts a Checkout Session expiry between 30 minutes and 24 hours
+ * after creation. The shortest window is used, so a session cannot be paid
+ * after the payment intent it collects for (which outlives it — see
+ * CARD_INTENT_TTL_MS in ../cardInvoice.ts).
+ */
+const CHECKOUT_EXPIRY_SECONDS = 31 * 60;
+
+/** Appends one query pair to a URL that may already carry a query string. */
+function withQuery(url: string, pair: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}${pair}`;
+}
+
+/** The id of an expandable Stripe field (a string id, or an expanded object). */
+function readStripeId(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value;
+  const record = asStripeRecord(value);
+  const id = record ? record.id : undefined;
+  return typeof id === 'string' && id.length > 0 ? id : undefined;
+}
+
+function readStripeMetaString(obj: Record<string, unknown> | null, key: string): string | undefined {
+  const meta = obj ? asStripeRecord(obj.metadata) : null;
+  const value = meta ? meta[key] : undefined;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
 export const stripeProvider: BillingProviderHandler = {
   name: 'stripe',
   capabilities: {
     subscriptions: true, oneTimePayments: true, customerPortal: true,
     refunds: true, webhooks: true, multiCurrency: true, trialSupport: true,
   },
+  supportedCurrencies: STRIPE_CURRENCIES,
 
+  /**
+   * One-time Checkout Session for exactly the amount being collected
+   * (`metadata.amount`, minor units of `req.currency` — the invoice due).
+   * The price is inline `price_data`, so nothing has to be mirrored in the
+   * Stripe dashboard and the charged amount cannot drift from the plan price.
+   * Intent, invoice and workspace ride in the session and PaymentIntent
+   * metadata, which Stripe signs into every webhook about them.
+   */
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
     const sk = config.secret_key as string;
+    const currency = requireSupportedCurrency('Stripe', req.currency, STRIPE_CURRENCIES);
+    const amount = minorFromProvider(req.metadata?.amount);
+    if (!amount) throw new Error('Stripe checkout needs a positive amount');
+
     const params = new URLSearchParams();
-    params.set('mode', 'subscription');
-    params.set('success_url', `${req.callbackUrl}?session_id={CHECKOUT_SESSION_ID}`);
-    params.set('cancel_url', req.callbackUrl);
-    params.set('line_items[0][price]', req.planId);
+    params.set('mode', 'payment');
+    // Cards only: a delayed method (SEPA debit, bank transfer) completes the
+    // session unpaid and settles days later, long after the invoice's
+    // collection window and the payment intent have run out.
+    params.set('payment_method_types[0]', 'card');
     params.set('line_items[0][quantity]', '1');
-    params.set('currency', req.currency.toLowerCase());
+    params.set('line_items[0][price_data][currency]', currency.toLowerCase());
+    params.set('line_items[0][price_data][unit_amount]', String(amount));
+    params.set('line_items[0][price_data][product_data][name]', req.description || 'Subscription');
+    // Stripe substitutes {CHECKOUT_SESSION_ID}; form encoding is only transport.
+    params.set('success_url', withQuery(req.callbackUrl, 'session_id={CHECKOUT_SESSION_ID}'));
+    params.set('cancel_url', withQuery(req.callbackUrl, 'canceled=1'));
+    params.set('expires_at', String(Math.floor(Date.now() / 1000) + CHECKOUT_EXPIRY_SECONDS));
     if (req.customerEmail) params.set('customer_email', req.customerEmail);
-    params.set('metadata[workspace_id]', req.workspaceId);
+    if (req.intentId) params.set('client_reference_id', req.intentId);
+    const metadata: Array<[string, string | undefined]> = [
+      ['workspace_id', req.workspaceId],
+      ['intent_id', req.intentId],
+      ['invoice_id', req.invoiceId],
+    ];
+    for (const [key, value] of metadata) {
+      if (!value) continue;
+      params.set(`metadata[${key}]`, value);
+      params.set(`payment_intent_data[metadata][${key}]`, value);
+    }
+
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${sk}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    };
+    // A retried create for the same payment intent returns the same session.
+    if (req.intentId) headers['Idempotency-Key'] = `checkout:${req.intentId}`;
 
     const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${sk}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers,
       body: params.toString(),
     });
     const data = await res.json();
@@ -126,6 +197,60 @@ export const stripeProvider: BillingProviderHandler = {
     if (!paymentUrl) throw new Error('Stripe checkout failed');
     const sessionId = readStripeString(data, 'id');
     return { paymentUrl, sessionId };
+  },
+
+  /**
+   * Server-to-server confirmation of the session bound to the intent
+   * (`session_id` is always the STORED reference, see buildBoundVerifyParams).
+   * Paid only when Stripe says the session is complete AND paid; the amount
+   * and currency returned are Stripe's, for the caller to compare with the
+   * invoice. A return through `cancel_url` expires the still-open session, so
+   * it can no longer be paid behind the customer's back.
+   */
+  async verifyPayment(config: BillingProviderConfig, params: Record<string, string>): Promise<PaymentVerification> {
+    const sessionId = (params.session_id || '').trim();
+    if (!sessionId) return { verified: false, providerRef: '', status: 'failed' };
+    const path = `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`;
+
+    const res = await fetch(path, { headers: { 'Authorization': `Bearer ${config.secret_key}` } });
+    const body: unknown = await res.json().catch(() => null);
+    // Stripe unreachable or refusing: nothing definitive. The webhook can still
+    // settle a paid session, and the customer's screen keeps polling.
+    if (!res.ok) return { verified: false, providerRef: sessionId, status: 'pending' };
+    const session = asStripeRecord(body);
+    const status = session ? session.status : undefined;
+
+    if (status === 'complete' && session?.payment_status === 'paid') {
+      return {
+        verified: true,
+        providerRef: sessionId,
+        amount: minorFromProvider(session.amount_total),
+        currency: normalizeCurrencyCode(session.currency),
+        paymentId: readStripeId(session.payment_intent),
+        status: 'paid',
+      };
+    }
+    if (status === 'expired') return { verified: false, providerRef: sessionId, status: 'expired' };
+    if (status === 'open' && params.canceled === '1') {
+      const expire = await fetch(`${path}/expire`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+      if (expire.ok) return { verified: false, providerRef: sessionId, status: 'canceled' };
+    }
+    // Still open, or complete with an asynchronous payment not settled yet.
+    return { verified: false, providerRef: sessionId, status: 'pending' };
+  },
+
+  /** Expires a still-open Checkout Session; an expired session can no longer be paid. */
+  async closeCheckout(config: BillingProviderConfig, sessionId: string): Promise<boolean> {
+    const id = (sessionId || '').trim();
+    if (!id) return false;
+    const res = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(id)}/expire`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    return res.ok;
   },
 
   async verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
@@ -140,29 +265,70 @@ export const stripeProvider: BillingProviderHandler = {
     }
 
     const event = JSON.parse(body);
-    const obj = event.data?.object;
-    const typeMap: Record<string, WebhookEvent['type']> = {
-      'checkout.session.completed': 'checkout_completed',
+    const obj = asStripeRecord(asStripeRecord(event?.data)?.object);
+    const eventType = typeof event?.type === 'string' ? event.type : '';
+    const base = {
+      providerEventId: event.id,
+      workspaceId: readStripeMetaString(obj, 'workspace_id'),
+      currency: normalizeCurrencyCode(obj?.currency),
+      raw: event,
+    };
+
+    // Checkout Sessions created by createCheckoutSession above.
+    if (eventType.startsWith('checkout.session.')) {
+      const session = {
+        ...base,
+        intentId: readStripeMetaString(obj, 'intent_id') || readStripeString(obj, 'client_reference_id'),
+        providerRef: readStripeId(obj?.id),
+        providerCustomerId: readStripeId(obj?.customer),
+        providerPaymentId: readStripeId(obj?.payment_intent),
+        amount: minorFromProvider(obj?.amount_total),
+      };
+      if (
+        (eventType === 'checkout.session.completed' && obj?.payment_status === 'paid') ||
+        eventType === 'checkout.session.async_payment_succeeded'
+      ) {
+        return { ...session, type: 'payment_succeeded' };
+      }
+      if (eventType === 'checkout.session.async_payment_failed') {
+        return { ...session, type: 'payment_failed', status: 'failed' };
+      }
+      if (eventType === 'checkout.session.expired') {
+        return { ...session, type: 'payment_failed', status: 'expired' };
+      }
+      // A completed session whose asynchronous payment is still unpaid.
+      return { ...session, type: 'ignored' };
+    }
+
+    if (eventType === 'charge.refunded') {
+      return {
+        ...base,
+        type: 'refund_processed',
+        // Payments are recorded under their PaymentIntent id; the refund is matched by it.
+        providerPaymentId: readStripeId(obj?.payment_intent) || readStripeId(obj?.id),
+        intentId: readStripeMetaString(obj, 'intent_id'),
+        // Cumulative amount refunded on the charge, minor units.
+        refundedTotal: minorFromProvider(obj?.amount_refunded),
+      };
+    }
+
+    // Subscription-mode objects: legacy, this platform no longer creates them.
+    const legacyMap: Record<string, WebhookEvent['type']> = {
       'invoice.paid': 'invoice_paid',
       'invoice.payment_failed': 'invoice_failed',
       'customer.subscription.created': 'subscription_created',
       'customer.subscription.updated': 'subscription_updated',
       'customer.subscription.deleted': 'subscription_canceled',
-      'charge.refunded': 'refund_processed',
     };
-    const mapped = typeMap[event.type];
-    if (!mapped) return null;
-
+    const mapped = legacyMap[eventType];
+    if (!mapped) return { ...base, type: 'ignored' };
     return {
+      ...base,
       type: mapped,
-      providerEventId: event.id,
-      providerCustomerId: obj?.customer,
-      providerSubscriptionId: obj?.subscription || obj?.id,
-      providerPaymentId: obj?.payment_intent || obj?.id,
-      workspaceId: obj?.metadata?.workspace_id,
-      amount: obj?.amount_total || obj?.amount_paid,
-      currency: obj?.currency,
-      raw: event,
+      providerCustomerId: readStripeId(obj?.customer),
+      providerSubscriptionId: readStripeId(obj?.subscription) || readStripeId(obj?.id),
+      providerPaymentId: readStripeId(obj?.payment_intent) || readStripeId(obj?.id),
+      amount: minorFromProvider(obj?.amount_paid),
     };
   },
 
@@ -217,6 +383,7 @@ export const stripeProvider: BillingProviderHandler = {
     return { success: res.ok };
   },
 
+  /** `paymentId` is the PaymentIntent id; Stripe refunds in the charge's own currency. */
   async refundPayment(config: BillingProviderConfig, paymentId: string, amount?: number) {
     const params = new URLSearchParams();
     params.set('payment_intent', paymentId);

@@ -1,5 +1,11 @@
-import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
+import type {
+  BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, PaymentVerification, WebhookEvent,
+} from '../types.js';
 import crypto from 'crypto';
+import { minorFromProvider, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
+
+/** Currencies a transaction may be priced in (the `billing_plans.prices` keys Paddle settles). */
+export const PADDLE_CURRENCIES = ['USD', 'EUR', 'GBP', 'TRY'] as const;
 
 // --- Local runtime narrowing for Paddle JSON bodies (no shared helper, no casts) ---
 
@@ -36,6 +42,29 @@ function readPaddleTransaction(body: unknown): { id: string; checkoutUrl: string
   const checkout = asRecord(data.checkout);
   const url = checkout === null ? undefined : checkout.url;
   return { id, checkoutUrl: typeof url === 'string' && url.length > 0 ? url : null };
+}
+
+function readString(record: Record<string, unknown> | null, key: string): string | undefined {
+  const value = record ? record[key] : undefined;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Amount and currency Paddle collected for a transaction: `details.totals.total`
+ * (lowest denomination, as a string) and `currency_code`. With tax-inclusive
+ * prices (tax_mode `internal`, see createCheckoutSession) the total equals the
+ * price the customer was quoted; Paddle takes its tax out of it.
+ */
+export function readPaddleTransactionTotal(txn: Record<string, unknown> | null): { amount?: number; currency?: string } {
+  const totals = asRecord(asRecord(txn?.details)?.totals);
+  return {
+    amount: minorFromProvider(totals?.total),
+    currency: normalizeCurrencyCode(txn?.currency_code),
+  };
+}
+
+function withQuery(url: string, pair: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}${pair}`;
 }
 
 const baseUrl = (config: BillingProviderConfig) =>
@@ -121,23 +150,103 @@ export const paddleProvider: BillingProviderHandler = {
     refunds: true, webhooks: true, multiCurrency: true, trialSupport: true,
   },
 
+  supportedCurrencies: PADDLE_CURRENCIES,
+
+  /**
+   * Paddle Billing (API v2) transaction for exactly the amount being
+   * collected: one non-catalog, one-time price of `metadata.amount` (lowest
+   * denomination of `req.currency`), tax-INCLUSIVE (`tax_mode: internal`) so
+   * the customer pays the plan price and Paddle, as merchant of record, takes
+   * the tax out of it. `custom_data` carries workspace, intent and invoice.
+   *
+   * Paddle Billing has no redirect checkout of its own: the browser opens the
+   * transaction with Paddle.js (`clientCheckout`), which needs the client-side
+   * token, and `checkout.url` must be on a domain approved in Paddle.
+   */
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    // Paddle Billing API v2 — create a transaction
+    const currency = requireSupportedCurrency('Paddle', req.currency, PADDLE_CURRENCIES);
+    const amount = minorFromProvider(req.metadata?.amount);
+    if (!amount) throw new Error('Paddle checkout needs a positive amount');
+    const clientToken = typeof config.client_token === 'string' ? config.client_token.trim() : '';
+    if (!clientToken) throw new Error('Paddle client-side token is not configured');
+
+    const name = req.description || 'Subscription';
+    const productId = typeof config.product_id === 'string' && config.product_id.trim() ? config.product_id.trim() : '';
+    const customData: Record<string, string> = { workspace_id: req.workspaceId };
+    if (req.intentId) customData.intent_id = req.intentId;
+    if (req.invoiceId) customData.invoice_id = req.invoiceId;
+
     const data = await paddleApi(config, '/transactions', 'POST', {
-      items: [{ price_id: req.planId, quantity: 1 }],
+      items: [{
+        quantity: 1,
+        price: {
+          description: name,
+          name,
+          unit_price: { amount: String(amount), currency_code: currency },
+          tax_mode: 'internal',
+          ...(productId ? { product_id: productId } : { product: { name, tax_category: 'standard' } }),
+        },
+      }],
+      currency_code: currency,
+      collection_mode: 'automatic',
+      custom_data: customData,
       checkout: { url: req.callbackUrl },
-      custom_data: { workspace_id: req.workspaceId },
-      currency_code: req.currency.toUpperCase(),
-      ...(req.customerEmail ? { customer: { email: req.customerEmail } } : {}),
     });
     const error = readPaddleError(data);
     if (error !== null) throw new Error(error.detail || 'Paddle checkout failed');
     const txn = readPaddleTransaction(data);
     if (txn === null) throw new Error('Paddle checkout failed');
     return {
-      paymentUrl: txn.checkoutUrl || `https://checkout.paddle.com/pay/${txn.id}`,
+      paymentUrl: txn.checkoutUrl || withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
       sessionId: txn.id,
+      clientCheckout: {
+        provider: 'paddle',
+        transactionId: txn.id,
+        clientToken,
+        environment: config.sandbox ? 'sandbox' : 'production',
+        // Paddle.js sends the customer back here once the payment completes;
+        // `_ptxn` is the reference the return is verified against.
+        successUrl: withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
+        ...(req.customerEmail ? { customerEmail: req.customerEmail } : {}),
+      },
     };
+  },
+
+  /**
+   * Server-to-server lookup of the transaction bound to the intent (`_ptxn`
+   * is always the STORED transaction id). `paid` and `completed` both mean the
+   * money was collected.
+   */
+  async verifyPayment(config: BillingProviderConfig, params: Record<string, string>): Promise<PaymentVerification> {
+    const txnId = (params._ptxn || '').trim();
+    if (!txnId) return { verified: false, providerRef: '', status: 'failed' };
+    let body: unknown;
+    try {
+      body = await paddleApi(config, `/transactions/${encodeURIComponent(txnId)}`);
+    } catch {
+      return { verified: false, providerRef: txnId, status: 'pending' };
+    }
+    if (readPaddleError(body) !== null) return { verified: false, providerRef: txnId, status: 'pending' };
+    const txn = asRecord(asRecord(body)?.data);
+    const status = readString(txn, 'status');
+    if (status === 'paid' || status === 'completed') {
+      return { verified: true, providerRef: txnId, ...readPaddleTransactionTotal(txn), paymentId: txnId, status: 'paid' };
+    }
+    if (status === 'canceled') return { verified: false, providerRef: txnId, status: 'canceled' };
+    // draft / ready / billed / past_due: the customer may still pay in the open checkout.
+    return { verified: false, providerRef: txnId, status: 'pending' };
+  },
+
+  /**
+   * Cancels a transaction nobody paid yet (`draft` / `ready`), which closes
+   * its checkout. Paddle refuses this for a transaction that is already
+   * billed, paid or completed.
+   */
+  async closeCheckout(config: BillingProviderConfig, transactionId: string): Promise<boolean> {
+    const id = (transactionId || '').trim();
+    if (!id) return false;
+    const data: unknown = await paddleApi(config, `/transactions/${encodeURIComponent(id)}`, 'PATCH', { status: 'canceled' });
+    return readPaddleError(data) === null && readPaddleTransaction(data) !== null;
   },
 
   async verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
@@ -152,26 +261,67 @@ export const paddleProvider: BillingProviderHandler = {
     }
 
     const event = JSON.parse(body);
-    const typeMap: Record<string, WebhookEvent['type']> = {
-      'transaction.completed': 'checkout_completed',
-      'transaction.payment_failed': 'payment_failed',
+    const data = asRecord(event?.data);
+    const customData = asRecord(data?.custom_data);
+    const eventType = typeof event?.event_type === 'string' ? event.event_type : '';
+    const base = {
+      providerEventId: event.event_id,
+      workspaceId: readString(customData, 'workspace_id'),
+      intentId: readString(customData, 'intent_id'),
+      raw: event,
+    };
+
+    // `paid` arrives first, `completed` once Paddle finished processing; either
+    // settles the intent (the second is an idempotent no-op).
+    if (eventType === 'transaction.paid' || eventType === 'transaction.completed') {
+      return {
+        ...base,
+        type: 'payment_succeeded',
+        providerRef: readString(data, 'id'),
+        providerPaymentId: readString(data, 'id'),
+        providerCustomerId: readString(data, 'customer_id'),
+        providerSubscriptionId: readString(data, 'subscription_id'),
+        ...readPaddleTransactionTotal(data),
+      };
+    }
+
+    // A refund is an adjustment with action `refund`; it moves money only once
+    // approved (it is created as `pending_approval`). Both `adjustment.created`
+    // and `adjustment.updated` can report the same approved adjustment, each
+    // under its own event id: the event is keyed by the adjustment instead, so
+    // the second notification is a replay, and the refund is counted once per
+    // adjustment id (refunds.ts).
+    if (eventType === 'adjustment.created' || eventType === 'adjustment.updated') {
+      const adjustmentId = readString(data, 'id');
+      if (readString(data, 'action') !== 'refund' || readString(data, 'status') !== 'approved' || !adjustmentId) {
+        return { ...base, type: 'ignored' };
+      }
+      return {
+        ...base,
+        providerEventId: `adjustment_${adjustmentId}_approved`,
+        type: 'refund_processed',
+        refundId: adjustmentId,
+        providerPaymentId: readString(data, 'transaction_id'),
+        amount: minorFromProvider(asRecord(data?.totals)?.total),
+        currency: normalizeCurrencyCode(data?.currency_code),
+      };
+    }
+
+    // Subscriptions (legacy: this platform no longer creates them).
+    const legacyMap: Record<string, WebhookEvent['type']> = {
       'subscription.created': 'subscription_created',
       'subscription.updated': 'subscription_updated',
       'subscription.canceled': 'subscription_canceled',
-      'adjustment.created': 'refund_processed',
     };
-    const mapped = typeMap[event.event_type];
-    if (!mapped) return null;
-
+    const mapped = legacyMap[eventType];
+    // Includes transaction.payment_failed: the checkout stays open and the
+    // customer can retry, so a declined attempt fails nothing here.
+    if (!mapped) return { ...base, type: 'ignored' };
     return {
+      ...base,
       type: mapped,
-      providerEventId: event.event_id,
-      providerSubscriptionId: event.data?.subscription_id || event.data?.id,
-      providerCustomerId: event.data?.customer_id,
-      workspaceId: event.data?.custom_data?.workspace_id,
-      amount: event.data?.details?.totals?.total ? parseInt(event.data.details.totals.total) : undefined,
-      currency: event.data?.currency_code,
-      raw: event,
+      providerSubscriptionId: readString(data, 'id'),
+      providerCustomerId: readString(data, 'customer_id'),
     };
   },
 
@@ -200,8 +350,8 @@ export const paddleProvider: BillingProviderHandler = {
       const error = readPaddleError(data);
       if (error !== null) return { success: false, latencyMs: Date.now() - start, error: error.detail };
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

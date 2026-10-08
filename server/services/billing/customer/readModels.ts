@@ -13,7 +13,12 @@
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { getRolloutState, type RolloutState } from '../rollout.js';
-import { buildTransactionHistory, type CustomerTransaction } from '../transactionHistory.js';
+import {
+  buildTransactionHistory,
+  type CustomerTransaction,
+  type IntentRowInput,
+  type PaymentRowInput,
+} from '../transactionHistory.js';
 
 export interface EntitlementCycleView {
   id: string;
@@ -35,6 +40,8 @@ export interface InvoiceSummary {
   interval: string | null;
   periodStart: string | null;
   periodEnd: string | null;
+  /** ISO 4217 code of every amount on the invoice (`*Irr` = minor units of it, Rial for IRR). */
+  currency: string;
   totalIrr: number;
   amountPaidIrr: number;
   amountDueIrr: number;
@@ -102,13 +109,145 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Paid renewal whose period has not started yet must NOT look already active. */
-function activationDate(inv: any): string | null {
-  if (inv.status !== 'paid' || !inv.period_start) return null;
-  return new Date(inv.period_start).getTime() > Date.now() ? (inv.period_start as string) : null;
+/** The invoice's currency (column default IRR). */
+export function invoiceCurrency(inv: { currency?: unknown } | null | undefined): string {
+  const code = typeof inv?.currency === 'string' ? inv.currency.trim().toUpperCase() : '';
+  return /^[A-Z]{3}$/.test(code) ? code : 'IRR';
 }
 
-export function toInvoiceSummary(inv: any): InvoiceSummary {
+/** The wallet holds Rial: it can only pay invoices issued in IRR. */
+export const WALLET_CURRENCY = 'IRR';
+
+/** True when a plan has a positive price in ANY currency (or in the legacy flat columns). */
+export function planHasPaidPrice(plan: { prices?: unknown; price_monthly?: unknown; price_yearly?: unknown } | null | undefined): boolean {
+  if (!plan) return false;
+  const prices = plan.prices && typeof plan.prices === 'object' ? (plan.prices as Record<string, unknown>) : {};
+  for (const byInterval of Object.values(prices)) {
+    if (!byInterval || typeof byInterval !== 'object') continue;
+    const b = byInterval as Record<string, unknown>;
+    if (num(b.monthly) > 0 || num(b.yearly) > 0) return true;
+  }
+  return num(plan.price_monthly) > 0 || num(plan.price_yearly) > 0;
+}
+
+// ─── Row shapes (the columns these read models select) ────────────────────
+
+/** `billing_invoices`. Amount columns are minor units of `currency` (Rial for IRR). */
+export interface InvoiceDbRow {
+  id: string;
+  invoice_number: string;
+  invoice_type: string;
+  status: string;
+  currency?: string | null;
+  plan_name_snapshot?: string | null;
+  billing_interval?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  subtotal_irr?: unknown;
+  discount_irr?: unknown;
+  tax_irr?: unknown;
+  total_irr?: unknown;
+  amount_paid_irr?: unknown;
+  amount_due_irr?: unknown;
+  issued_at?: string | null;
+  due_at?: string | null;
+  paid_at?: string | null;
+  created_at?: string;
+}
+
+interface SubscriptionDbRow {
+  status: string | null;
+  plan_id: string | null;
+  billing_interval: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  next_invoice_at: string | null;
+  next_plan_id: string | null;
+  pending_change_type: string | null;
+  cancel_at_period_end: boolean | null;
+  trial_end: string | null;
+}
+
+interface PeriodDbRow {
+  id: string;
+  period_start: string;
+  period_end: string;
+  billing_interval: string;
+  source: string;
+}
+
+interface WalletDbRow {
+  available_balance_irr?: unknown;
+  frozen?: boolean | null;
+  auto_pay_enabled?: boolean | null;
+}
+
+interface EntitlementCycleDbRow {
+  cycle_id?: string | null;
+  cycle_index?: unknown;
+  start: string;
+  end: string;
+  allowance_irr?: unknown;
+  remaining_irr?: unknown;
+  allowance_state?: string | null;
+}
+
+interface AiLotDbRow {
+  source_type: string;
+  remaining_amount: unknown;
+}
+
+interface BillingPolicyRow {
+  reminder_days_before_due?: unknown;
+  grace_period_days?: unknown;
+  wallet_auto_pay_default?: boolean | null;
+}
+
+interface PlanDbRow {
+  name: string;
+  prices?: unknown;
+  limits?: unknown;
+}
+
+interface InvoiceLineDbRow {
+  id: string;
+  line_type: string;
+  description: string;
+  quantity?: unknown;
+  unit_amount_irr?: unknown;
+  amount_irr?: unknown;
+}
+
+interface CollectionDbRow {
+  channel: string | null;
+  expires_at: string | null;
+  status: string;
+}
+
+interface WalletLedgerDbRow {
+  id: string;
+  entry_type: string;
+  amount_irr: unknown;
+  balance_after_irr: unknown;
+  created_at: string;
+  billing_invoices?: { invoice_number?: string | null } | null;
+  billing_wallet_deposits?: { document_number?: string | null } | null;
+}
+
+interface DepositConfigRow {
+  presets_irr?: unknown[] | null;
+  allow_custom?: boolean | null;
+  min_irr?: unknown;
+  max_irr?: unknown;
+}
+
+/** Paid renewal whose period has not started yet must NOT look already active. */
+function activationDate(inv: Pick<InvoiceDbRow, 'status' | 'period_start'>): string | null {
+  if (inv.status !== 'paid' || !inv.period_start) return null;
+  return new Date(inv.period_start).getTime() > Date.now() ? inv.period_start : null;
+}
+
+export function toInvoiceSummary(inv: InvoiceDbRow): InvoiceSummary {
   return {
     id: inv.id,
     invoiceNumber: inv.invoice_number,
@@ -118,6 +257,7 @@ export function toInvoiceSummary(inv: any): InvoiceSummary {
     interval: inv.billing_interval ?? null,
     periodStart: inv.period_start ?? null,
     periodEnd: inv.period_end ?? null,
+    currency: invoiceCurrency(inv),
     totalIrr: num(inv.total_irr),
     amountPaidIrr: num(inv.amount_paid_irr),
     amountDueIrr: num(inv.amount_due_irr),
@@ -169,14 +309,14 @@ export async function buildBillingOverview(
   // made `data` null and the UI quietly rendered "Free".
   if (subRes.error) throw new Error(`billing subscription read failed: ${subRes.error.message}`);
 
-  const sub: any = subRes.data ?? null;
-  const period: any = periodRes.data ?? null;
-  const wallet: any = walletRes.data ?? null;
-  const cycle: any = (cycleRes as any).data ?? null;
+  const sub = (subRes.data ?? null) as SubscriptionDbRow | null;
+  const period = (periodRes.data ?? null) as PeriodDbRow | null;
+  const wallet = (walletRes.data ?? null) as WalletDbRow | null;
+  const cycle = ((cycleRes as { data?: unknown }).data ?? null) as EntitlementCycleDbRow | null;
 
-  const purchasedRemaining = (lotsRes.data || [])
-    .filter((l: any) => l.source_type !== 'PLAN_ALLOWANCE')
-    .reduce((s: number, l: any) => s + num(l.remaining_amount), 0);
+  const purchasedRemaining = ((lotsRes.data || []) as AiLotDbRow[])
+    .filter((l) => l.source_type !== 'PLAN_ALLOWANCE')
+    .reduce((s, l) => s + num(l.remaining_amount), 0);
 
   // The next invoice the customer will actually see. Only SERVICE invoices
   // belong here — a wallet top-up or an AI credit purchase is a one-off
@@ -195,9 +335,9 @@ export async function buildBillingOverview(
   // moment it is issued (that is only a pre-bill), but when its due window
   // opens — the first reminder offset before `due_at`.
   const { data: policyJson } = await sb.rpc('billing_v2_policy_for', { p_workspace_id: workspaceId });
-  const policy: any = policyJson ?? {};
+  const policy = (policyJson ?? {}) as BillingPolicyRow;
   const reminderOffsets: number[] = Array.isArray(policy.reminder_days_before_due)
-    ? policy.reminder_days_before_due.map((d: any) => Number(d)).filter((d: number) => Number.isFinite(d))
+    ? policy.reminder_days_before_due.map((d: unknown) => Number(d)).filter((d: number) => Number.isFinite(d))
     : [5, 1];
   const graceDays = Number.isFinite(Number(policy.grace_period_days)) ? Number(policy.grace_period_days) : 3;
   const leadMs = (reminderOffsets.length ? Math.max(...reminderOffsets) : 5) * 86_400_000;
@@ -205,7 +345,7 @@ export async function buildBillingOverview(
   // An invoice without a due date is a checkout document the customer just
   // generated (first purchase / manual upgrade). It is not a due bill and
   // belongs to the Invoices tab, not to "next due date".
-  const dueWindowOpen = (i: any): boolean => {
+  const dueWindowOpen = (i: InvoiceDbRow): boolean => {
     if (!i.due_at) return false;
     return new Date(i.due_at).getTime() - leadMs <= Date.now();
   };
@@ -213,19 +353,19 @@ export async function buildBillingOverview(
   // Renewal dues only make sense once a service actually runs.
   const hasService = Boolean(sub || period);
 
-  const candidates = (upcoming || []).filter((i: any) =>
+  const candidates = ((upcoming || []) as InvoiceDbRow[]).filter((i) =>
     i.status === 'paid' ? activationDate(i) !== null : hasService && dueWindowOpen(i),
   );
 
-  candidates.sort((a: any, b: any) => {
-    const rank = (i: any) => (i.status === 'paid' ? 1 : 0);
+  candidates.sort((a, b) => {
+    const rank = (i: InvoiceDbRow) => (i.status === 'paid' ? 1 : 0);
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
     const at = new Date(a.due_at || a.period_start || a.created_at).getTime();
     const bt = new Date(b.due_at || b.period_start || b.created_at).getTime();
     return at - bt;
   });
 
-  const headInvoice: any = candidates[0] ?? null;
+  const headInvoice: InvoiceDbRow | null = candidates[0] ?? null;
   let upcomingInvoiceAlert: BillingOverview['upcomingInvoiceAlert'] = null;
   if (headInvoice && headInvoice.status !== 'paid') {
     const { count } = await sb
@@ -261,7 +401,7 @@ export async function buildBillingOverview(
       .select('name')
       .eq('id', sub.next_plan_id)
       .maybeSingle();
-    pendingPlanName = (nextPlan as any)?.name ?? null;
+    pendingPlanName = (nextPlan as { name?: string | null } | null)?.name ?? null;
   }
 
   // Cancelling a scheduled change is only safe while nothing has been paid
@@ -287,7 +427,7 @@ export async function buildBillingOverview(
   // has both plan_id and next_plan_id pointing at billing_plans, so embedded
   // relationship discovery is needlessly fragile and must not decide whether
   // a paying customer appears to be free.
-  let plan: any = null;
+  let plan: PlanDbRow | null = null;
   if (sub?.plan_id) {
     const { data: planRow, error: planError } = await sb
       .from('billing_plans')
@@ -296,13 +436,13 @@ export async function buildBillingOverview(
       .maybeSingle();
     if (planError) throw new Error(`billing plan read failed: ${planError.message}`);
     if (!planRow) throw new Error(`billing plan ${sub.plan_id} was not found`);
-    plan = planRow ?? null;
+    plan = (planRow as PlanDbRow | null) ?? null;
   }
 
   const planName = plan?.name ?? null;
-  const planPrices = (plan?.prices ?? {}) as Record<string, any>;
-  const monthlyPrice = num(planPrices?.IRR?.monthly);
-  const yearlyPrice = num(planPrices?.IRR?.yearly);
+  // Free means free in every currency: a plan sold only in USD has no IRR
+  // price and must not be shown to its paying customer as "Free".
+  const planIsFree = !planHasPaidPrice(plan);
 
 
   return {
@@ -314,7 +454,7 @@ export async function buildBillingOverview(
       planId: sub?.plan_id ?? null,
       planName,
       interval,
-      isFree: monthlyPrice <= 0 && yearlyPrice <= 0,
+      isFree: planIsFree,
       isTrial: sub?.status === 'trialing',
       trialEndsAt: sub?.trial_end ?? null,
       cancelAtPeriodEnd: Boolean(sub?.cancel_at_period_end),
@@ -365,7 +505,7 @@ export async function buildBillingOverview(
       frozen: Boolean(wallet?.frozen),
       autoPayEnabled:
         wallet?.auto_pay_enabled === null || wallet?.auto_pay_enabled === undefined
-          ? Boolean((policyRes.data as any)?.wallet_auto_pay_default ?? true)
+          ? Boolean((policyRes.data as BillingPolicyRow | null)?.wallet_auto_pay_default ?? true)
           : Boolean(wallet.auto_pay_enabled),
     },
     upcomingInvoice: headInvoice ? toInvoiceSummary(headInvoice) : null,
@@ -462,12 +602,13 @@ export async function getInvoiceDetail(
   const sb = getServiceClient(config);
 
   // Ownership is part of the query: a cross-workspace id simply does not exist.
-  const { data: inv } = await sb
+  const { data: invRow } = await sb
     .from('billing_invoices')
     .select('*')
     .eq('id', invoiceId)
     .eq('workspace_id', workspaceId)
     .maybeSingle();
+  const inv = invRow as InvoiceDbRow | null;
   if (!inv) return null;
 
   const [linesRes, walletRes, collectionRes, wsRes] = await Promise.all([
@@ -487,24 +628,26 @@ export async function getInvoiceDetail(
     sb.from('workspaces').select('name').eq('id', workspaceId).maybeSingle(),
   ]);
 
-  const due = num((inv as any).amount_due_irr);
-  const balance = num((walletRes.data as any)?.available_balance_irr);
-  const frozen = Boolean((walletRes.data as any)?.frozen);
-  const collection: any = collectionRes.data ?? null;
-  const payableStatus = ['open', 'partially_paid', 'past_due'].includes((inv as any).status);
+  const wallet = walletRes.data as WalletDbRow | null;
+  const due = num(inv.amount_due_irr);
+  const balance = num(wallet?.available_balance_irr);
+  const frozen = Boolean(wallet?.frozen);
+  const collection = (collectionRes.data ?? null) as CollectionDbRow | null;
+  const payableStatus = ['open', 'partially_paid', 'past_due'].includes(inv.status);
 
   let blockedReason: string | null = null;
   if (!payableStatus) blockedReason = 'not_payable';
   else if (!opts.manage) blockedReason = 'no_permission';
   else if (collection) blockedReason = 'collection_in_progress';
+  const walletCurrency = invoiceCurrency(inv) === WALLET_CURRENCY;
 
   return {
     invoice: {
       ...toInvoiceSummary(inv),
-      workspaceName: (wsRes.data as any)?.name ?? null,
-      createdAt: (inv as any).created_at,
+      workspaceName: (wsRes.data as { name?: string | null } | null)?.name ?? null,
+      createdAt: inv.created_at,
     },
-    lines: (linesRes.data || []).map((l: any) => ({
+    lines: ((linesRes.data || []) as InvoiceLineDbRow[]).map((l) => ({
       id: l.id,
       lineType: l.line_type,
       description: l.description,
@@ -513,19 +656,19 @@ export async function getInvoiceDetail(
       amountIrr: num(l.amount_irr),
     })),
     totals: {
-      subtotalIrr: num((inv as any).subtotal_irr),
-      discountIrr: num((inv as any).discount_irr),
-      taxIrr: num((inv as any).tax_irr),
-      totalIrr: num((inv as any).total_irr),
-      paidIrr: num((inv as any).amount_paid_irr),
+      subtotalIrr: num(inv.subtotal_irr),
+      discountIrr: num(inv.discount_irr),
+      taxIrr: num(inv.tax_irr),
+      totalIrr: num(inv.total_irr),
+      paidIrr: num(inv.amount_paid_irr),
       dueIrr: due,
     },
     actions: {
       payable: payableStatus,
-      canPayWallet: !blockedReason && !frozen && balance >= due && due > 0,
+      canPayWallet: !blockedReason && walletCurrency && !frozen && balance >= due && due > 0,
       canPayGateway: !blockedReason && due > 0,
       walletBalanceIrr: balance,
-      walletShortfallIrr: Math.max(0, due - balance),
+      walletShortfallIrr: walletCurrency ? Math.max(0, due - balance) : 0,
       blockedReason,
     },
     collection: {
@@ -588,8 +731,8 @@ export async function buildWalletView(
       .range((page - 1) * pageSize, page * pageSize - 1),
   ]);
 
-  const account: any = accountRes.data ?? null;
-  const cfgRow: any = (policyRes as any).data ?? {};
+  const account = (accountRes.data ?? null) as WalletDbRow | null;
+  const cfgRow = ((policyRes as { data?: unknown }).data ?? {}) as DepositConfigRow;
 
   const { data: policyDefault } = await sb
     .from('billing_v2_policy')
@@ -601,7 +744,7 @@ export async function buildWalletView(
     frozen: Boolean(account?.frozen),
     autoPayEnabled:
       account?.auto_pay_enabled === null || account?.auto_pay_enabled === undefined
-        ? Boolean((policyDefault as any)?.wallet_auto_pay_default ?? true)
+        ? Boolean((policyDefault as BillingPolicyRow | null)?.wallet_auto_pay_default ?? true)
         : Boolean(account.auto_pay_enabled),
     deposit: {
       presetsIrr: (cfgRow?.presets_irr || []).map((v: unknown) => num(v)),
@@ -610,7 +753,7 @@ export async function buildWalletView(
       maxIrr: num(cfgRow?.max_irr) || 5_000_000_000,
     },
     ledger: {
-      entries: (ledgerRes.data || []).map((e: any) => ({
+      entries: ((ledgerRes.data || []) as WalletLedgerDbRow[]).map((e) => ({
         id: e.id,
         entryType: e.entry_type,
         direction: num(e.amount_irr) >= 0 ? 'credit' : 'debit',
@@ -652,24 +795,26 @@ export async function listTransactions(
     .order('created_at', { ascending: false })
     .range((page - 1) * pageSize, page * pageSize - 1);
 
-  const intentIds = (intents || []).map((i: any) => i.id);
-  const { data: payments } = intentIds.length
+  const intentRows = (intents || []) as IntentRowInput[];
+  const intentIds = intentRows.map((i) => i.id);
+  const { data: paymentData } = intentIds.length
     ? await sb.from('billing_payments').select('*').in('payment_intent_id', intentIds)
-    : { data: [] as any[] };
+    : { data: [] as unknown[] };
+  const payments = (paymentData || []) as Array<PaymentRowInput & { reconciliation_state?: string | null }>;
 
   // Money that really arrived but could not be applied is customer-facing as
   // "under review" — never as a failure, and never as a raw internal enum.
   const underReview = new Set(
-    (payments || [])
+    payments
       // `settled` is the canonical successful invoice allocation state.
       // Only verified money explicitly parked by the settlement pipeline is
       // awaiting reconciliation; older code compared against a nonexistent
       // `applied` state and consequently labelled every healthy payment as
       // "under review".
-      .filter((p: any) => p.reconciliation_state === 'unapplied')
-      .map((p: any) => p.id as string),
+      .filter((p) => p.reconciliation_state === 'unapplied')
+      .map((p) => p.id),
   );
-  const transactions = buildTransactionHistory((payments || []) as any, (intents || []) as any).map(
+  const transactions = buildTransactionHistory(payments, intentRows).map(
     (t) => (underReview.has(t.id) ? { ...t, needsReview: true } : t),
   );
 

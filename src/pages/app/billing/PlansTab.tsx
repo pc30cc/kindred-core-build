@@ -52,6 +52,9 @@ export default function PlansTab({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [interval, setInterval_] = useState<'monthly' | 'yearly'>('monthly');
+  // The customer's explicit currency choice; until then the server picks
+  // (the running subscription's currency, else the locale's, else Rial).
+  const [chosenCurrency, setChosenCurrency] = useState<string | null>(null);
 
   const [busy, setBusy] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -60,7 +63,7 @@ export default function PlansTab({
   const load = () => {
     setLoading(true);
     setError(null);
-    billingPlans(workspaceId)
+    billingPlans(workspaceId, { currency: chosenCurrency ?? undefined, locale })
       .then((res) => {
         setData(res);
         if (res.currentInterval) setInterval_(res.currentInterval);
@@ -72,7 +75,7 @@ export default function PlansTab({
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, reloadKey]);
+  }, [workspaceId, reloadKey, chosenCurrency]);
 
   /**
    * One click = one invoice. Exactly like a wallet top-up: the server prices
@@ -82,19 +85,30 @@ export default function PlansTab({
    */
   async function choosePlan(plan: PlanCard) {
     setBusy(plan.id);
+    // Every price on this tab is in the server-chosen currency; the invoice
+    // is issued in exactly that one.
+    const currency = data?.currency ?? plan.currency;
     try {
       let mode: PlanChangeMode = 'immediate';
       let preview: PlanChangePreview;
       try {
-        preview = await billingPreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
+        preview = await billingPreviewPlanChange(workspaceId, { planId: plan.id, interval, mode, currency });
       } catch (e) {
-        // An interval switch cannot ride on an immediate upgrade, and a
-        // scheduled change would not carry the new interval either — show the
-        // server's reason instead of silently scheduling something else.
-        if ((e as { code?: string })?.code === 'INTERVAL_CHANGE_NOT_IMMEDIATE') throw e;
+        // An interval or currency switch cannot ride on an immediate upgrade,
+        // a scheduled change would not carry it either, and a plan without a
+        // price in this currency cannot be bought in it — show the server's
+        // reason instead of silently scheduling something else.
+        const code = (e as { code?: string })?.code;
+        if (
+          code === 'INTERVAL_CHANGE_NOT_IMMEDIATE' ||
+          code === 'CURRENCY_CHANGE_NOT_IMMEDIATE' ||
+          code === 'PRICE_NOT_AVAILABLE'
+        ) {
+          throw e;
+        }
         // Server refuses an immediate change (typically a downgrade): schedule it.
         mode = 'next_cycle';
-        preview = await billingPreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
+        preview = await billingPreviewPlanChange(workspaceId, { planId: plan.id, interval, mode, currency });
       }
       // The server may resolve the requested mode to another allowed one (a
       // downgrade is always next-cycle); apply exactly what was previewed.
@@ -105,6 +119,7 @@ export default function PlansTab({
         interval,
         mode,
         expectedAmountIrr: preview.amountIrr,
+        currency: preview.currency ?? currency,
       });
       onChanged();
       if (res.invoiceId) {
@@ -125,10 +140,13 @@ export default function PlansTab({
   if (error) return <ErrorState message={error} onRetry={load} retryLabel={t('billing.common.retry')} />;
   if (!data) return null;
 
+  const currency = data.currency || 'IRR';
+  const currencies = data.currencies || [];
+
   return (
     <div className="space-y-6">
       {/* Segmented switch: one control, one visibly selected state. */}
-      <div className="flex justify-center">
+      <div className="flex flex-wrap items-center justify-center gap-3">
         <div className="inline-flex rounded-full border bg-muted/60 p-1 shadow-sm">
           {(['monthly', 'yearly'] as const).map((i) => (
             <button
@@ -145,6 +163,30 @@ export default function PlansTab({
             </button>
           ))}
         </div>
+        {/* Only the currencies a gateway can actually collect are offered. */}
+        {currencies.length > 1 && (
+          <div
+            className="inline-flex rounded-full border bg-muted/60 p-1 shadow-sm"
+            role="group"
+            aria-label={t('billing.plans.currency')}
+          >
+            {currencies.map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setChosenCurrency(code)}
+                aria-pressed={currency === code}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                  currency === code
+                    ? 'bg-background text-foreground shadow'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {code === 'IRR' ? t('billing.plans.currencyToman') : code}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -152,6 +194,8 @@ export default function PlansTab({
           const isCurrent = plan.id === data.currentPlanId && interval === data.currentInterval;
           const isPending = !isCurrent && plan.id === data.pendingPlanId;
           const price = interval === 'yearly' ? plan.yearlyPriceIrr : plan.monthlyPriceIrr;
+          // Priced for the other interval only: not purchasable on this one.
+          const unavailable = !plan.isFree && price <= 0;
           const accent = `var(--plan-${(planIdx % 5) + 1})`;
           return (
             <Card
@@ -204,9 +248,13 @@ export default function PlansTab({
                     className="text-3xl font-extrabold tracking-tight tabular-nums"
                     style={{ color: `hsl(var(--plan-accent))` }}
                   >
-                    {plan.isFree ? t('billing.plans.free') : money(price, locale)}
+                    {plan.isFree
+                      ? t('billing.plans.free')
+                      : unavailable
+                        ? t('billing.plans.notOfferedForInterval')
+                        : money(price, locale, currency)}
                   </span>
-                  {!plan.isFree && (
+                  {!plan.isFree && !unavailable && (
                     <span className="text-xs text-muted-foreground">
                       {interval === 'yearly' ? t('billing.plans.perYear') : t('billing.plans.perMonth')}
                     </span>
@@ -242,7 +290,7 @@ export default function PlansTab({
                       ? { background: 'transparent', color: `hsl(var(--plan-accent))`, border: `1px solid hsl(var(--plan-accent) / 0.5)` }
                       : { background: `linear-gradient(90deg, hsl(var(--plan-accent)), hsl(var(--plan-accent) / 0.8))` }
                   }
-                  disabled={isCurrent || !canManage || busy !== null}
+                  disabled={isCurrent || unavailable || !canManage || busy !== null}
                   onClick={() => choosePlan(plan)}
                 >
                   {busy === plan.id && <Loader2 className="me-2 h-4 w-4 animate-spin" />}

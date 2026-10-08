@@ -191,7 +191,10 @@ describe('Central entitlement-change funnel', () => {
     expect(read('server/routes/plans.ts')).toMatch(/source: 'admin_assign'/);
     expect(read('server/routes/plans.ts')).toMatch(/source: 'admin_revoke'/);
     expect(read('server/routes/billing.ts')).toMatch(/source: 'admin_grant'/);
-    expect(read('server/services/billing/index.ts')).toMatch(/handleWorkspaceEntitlementChanged/);
+    // A provider payment no longer writes the subscription itself: it settles
+    // an invoice, and the card-gateway settlement funnels the change.
+    expect(read('server/services/billing/cardInvoice.ts')).toMatch(/handleWorkspaceEntitlementChanged/);
+    expect(read('server/services/billing/applyPayment.ts')).toMatch(/handleWorkspaceEntitlementChanged/);
   });
 
   it('covers non-workspace-scoped transitions (plan edits, platform toggles)', () => {

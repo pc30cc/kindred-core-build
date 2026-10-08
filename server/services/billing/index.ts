@@ -24,13 +24,8 @@ import { paytrProvider } from './providers/paytr.js';
 import { sipayProvider } from './providers/sipay.js';
 import { paratikaProvider } from './providers/paratika.js';
 import { craftgateProvider } from './providers/craftgate.js';
-import type { ServerConfig } from '../../config.js';
-import {
-  handleWorkspaceEntitlementChanged,
-  type EntitlementChangeSource,
-} from './entitlementChange.js';
 import { addBillingInterval } from './periods.js';
-import { buildCancelAtPeriodEndPatch } from './cancellation.js';
+import { recordProviderRefund } from './refunds.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 
 
@@ -116,6 +111,59 @@ async function withCanonicalCredentials(
   const canonical = data?.config as Record<string, unknown> | null | undefined;
   if (!canonical || Object.keys(canonical).length === 0) return config;
   return { ...config, ...canonical, provider: providerName };
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Keys that only point at a provider and configure nothing. */
+const POINTER_KEYS = new Set(['provider', 'provider_name', 'config']);
+
+/**
+ * The platform-wide configuration of ONE provider, independent of any
+ * workspace and of which provider is the current default. Precedence
+ * (lowest → highest):
+ *   1. billing_gateways.config        — legacy, pre-migration fallback
+ *   2. app_runtime_config value       — legacy, only when it names this provider
+ *                                       (both historical shapes)
+ *   3. billing_provider_credentials   — the canonical Providers-screen store
+ * Resolves null when none of them configures anything.
+ *
+ * Used where no workspace is known yet: webhook verification (a provider
+ * calls in with a signature made with the secret stored here) and the
+ * Super Admin connection test.
+ */
+export async function resolvePlatformBillingConfig(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  providerName: string,
+): Promise<BillingProviderConfig | null> {
+  if (!getProvider(providerName)) return null;
+  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
+  const [gatewayResult, globalResult] = await Promise.all([
+    supabase.from('billing_gateways').select('config').eq('provider_name', providerName).maybeSingle(),
+    supabase
+      .from('app_runtime_config')
+      .select('key, value')
+      .in('key', ['default_billing_provider', 'billing_default_provider']),
+  ]);
+  if (gatewayResult.error) throw new Error(`billing provider config read failed: ${gatewayResult.error.message}`);
+  if (globalResult.error) throw new Error(`billing provider config read failed: ${globalResult.error.message}`);
+
+  let merged: Record<string, unknown> = isPlainRecord(gatewayResult.data?.config) ? { ...gatewayResult.data.config } : {};
+  for (const row of (globalResult.data || []) as Array<{ key: string; value: unknown }>) {
+    if (!isPlainRecord(row.value)) continue;
+    if ((row.value.provider_name || row.value.provider) !== providerName) continue;
+    const inner = isPlainRecord(row.value.config) ? row.value.config : {};
+    merged = { ...merged, ...row.value, ...inner };
+  }
+  const config = await withCanonicalCredentials(supabaseUrl, serviceRoleKey, providerName, {
+    ...merged,
+    provider: providerName,
+  });
+  if (!Object.keys(config).some((k) => !POINTER_KEYS.has(k))) return null;
+  return { ...config, provider: providerName };
 }
 
 export function getAllProviders(): Record<string, { name: string; capabilities: BillingProviderHandler['capabilities'] }> {
@@ -345,7 +393,16 @@ export async function logBillingEvent(
 
 export type BillingEventClaim =
   | { claimed: true; eventRowId: string }
-  | { claimed: false; duplicate: true };
+  | { claimed: false; duplicate: true }
+  /** Another delivery holds the claim right now (`received`, not yet stale). */
+  | { claimed: false; inFlight: true };
+
+/**
+ * A `received` row older than this is a delivery whose processing died (a
+ * crash or a restart between the claim and the outcome): the provider's next
+ * retry may take it over. Processing a webhook takes seconds.
+ */
+export const STALE_WEBHOOK_CLAIM_MS = 5 * 60 * 1000;
 
 /** Postgres unique_violation. */
 const PG_UNIQUE_VIOLATION = '23505';
@@ -371,8 +428,15 @@ export interface BillingWebhookClaimInput {
  *
  * Resolves `{ claimed: true }` exactly once per
  * `(provider_name, provider_event_id)` pair. Resolves
- * `{ claimed: false, duplicate: true }` for a replay. Any other database
- * failure REJECTS — the caller must abort without side effects.
+ * `{ claimed: false, duplicate: true }` for a replay, and
+ * `{ claimed: false, inFlight: true }` while another delivery is processing
+ * it. A row whose processing failed, or that sat in `received` for longer
+ * than STALE_WEBHOOK_CLAIM_MS, is taken over by the provider's retry. Any
+ * other database failure REJECTS — the caller must abort without side effects.
+ *
+ * `created_at` of a row is the time of its latest claim: a take-over moves it
+ * (compare-and-set on the value read), so exactly one retry wins and the new
+ * claim is not itself stale.
  */
 export async function claimBillingWebhookEvent(
   supabaseUrl: string,
@@ -400,7 +464,55 @@ export async function claimBillingWebhookEvent(
     .single();
 
   if (error) {
-    if (isUniqueViolation(error)) return { claimed: false, duplicate: true };
+    if (isUniqueViolation(error)) {
+      // A delivery whose processing FAILED earlier may be re-processed by the
+      // provider's retry: the failed row is taken back atomically (only one
+      // concurrent retry can move it off `failed`). Everything behind it is
+      // idempotent (intent claim, unique payment per intent, settlement
+      // command key), so a retry finishes the job instead of being dropped
+      // as a duplicate.
+      const claimedAt = new Date().toISOString();
+      const { data: retaken, error: retakeError } = await supabase
+        .from('billing_events')
+        .update({ status: 'received', created_at: claimedAt })
+        .eq('provider_name', input.providerName)
+        .eq('provider_event_id', input.providerEventId)
+        .eq('status', 'failed')
+        .select('id')
+        .maybeSingle();
+      const retakenId = (retaken as { id?: unknown } | null)?.id;
+      if (!retakeError && typeof retakenId === 'string' && retakenId.length > 0) {
+        return { claimed: true, eventRowId: retakenId };
+      }
+
+      // Still `received`: being processed, or abandoned by a crashed attempt.
+      // A stale one is taken over the same way, keyed on the claim time read.
+      const { data: current, error: readError } = await supabase
+        .from('billing_events')
+        .select('id, status, created_at')
+        .eq('provider_name', input.providerName)
+        .eq('provider_event_id', input.providerEventId)
+        .maybeSingle();
+      const row = current as { id?: unknown; status?: unknown; created_at?: unknown } | null;
+      if (readError || !row || row.status !== 'received') return { claimed: false, duplicate: true };
+      const claimedBefore = typeof row.created_at === 'string' ? Date.parse(row.created_at) : Number.NaN;
+      if (!Number.isFinite(claimedBefore) || Date.now() - claimedBefore < STALE_WEBHOOK_CLAIM_MS) {
+        return { claimed: false, inFlight: true };
+      }
+      const { data: stolen, error: stealError } = await supabase
+        .from('billing_events')
+        .update({ created_at: claimedAt })
+        .eq('id', row.id as string)
+        .eq('status', 'received')
+        .eq('created_at', row.created_at as string)
+        .select('id')
+        .maybeSingle();
+      const stolenId = (stolen as { id?: unknown } | null)?.id;
+      if (!stealError && typeof stolenId === 'string' && stolenId.length > 0) {
+        return { claimed: true, eventRowId: stolenId };
+      }
+      return { claimed: false, inFlight: true };
+    }
     throw new Error('billing event claim failed');
   }
   const id = (data as { id?: unknown } | null)?.id;
@@ -440,7 +552,20 @@ export function computePeriodEnd(now: Date, interval: WebhookEvent['interval']):
 
 
 /**
- * Process a verified webhook event — update subscription state
+ * A verified webhook event that is NOT bound to a payment intent (events
+ * carrying an intent id are settled through the invoice engine, see
+ * ./cardInvoice.ts).
+ *
+ * Every workspace is on the invoice engine, where only a paid invoice may
+ * change the subscription: `workspace_subscriptions` refuses any other write
+ * to the plan or the period (migration 117's trigger). So an unbound event
+ * never grants, extends, cancels or suspends anything here. What it can do:
+ *
+ *   - a refund is recorded on the payment it refunds;
+ *   - money that arrived without an invoice (e.g. from an old subscription or
+ *     a payment link) is recorded as UNAPPLIED, for finance to reconcile —
+ *     never discarded, never applied;
+ *   - everything else is only logged.
  */
 export async function processWebhookEvent(
   supabaseUrl: string,
@@ -465,123 +590,42 @@ export async function processWebhookEvent(
     metadata: event.raw,
   });
 
-  // Update subscription based on event type
   if (!event.workspaceId) return;
 
   switch (event.type) {
+    case 'refund_processed':
+      await recordProviderRefund(supabase, providerName, event);
+      return;
+
     case 'checkout_completed':
     case 'subscription_created':
     case 'payment_succeeded':
     case 'invoice_paid': {
-      const now = new Date();
-
-      // Early renewal of the SAME plan must not burn the remaining paid days:
-      // the new period starts at the current period end.
-      const { data: existing } = await supabase
-        .from('workspace_subscriptions')
-        .select('plan_id, status, current_period_end')
-        .eq('workspace_id', event.workspaceId)
-        .maybeSingle();
-
-      const sameActivePlan =
-        !!event.planId &&
-        existing?.plan_id === event.planId &&
-        (existing?.status === 'active' || existing?.status === 'trialing');
-      const currentEnd = existing?.current_period_end ? new Date(existing.current_period_end) : null;
-      const stack = sameActivePlan && !!currentEnd && currentEnd.getTime() > now.getTime();
-      const periodStart = stack ? (currentEnd as Date) : now;
-
-      await supabase.from('workspace_subscriptions').upsert({
+      if (!event.amount) return;
+      // Replay-safe via the unique index on (provider_name, provider_payment_id).
+      const { error: paymentError } = await supabase.from('billing_payments').insert({
         workspace_id: event.workspaceId,
         provider_name: providerName,
-        provider_subscription_id: event.providerSubscriptionId || null,
-        provider_customer_id: event.providerCustomerId || null,
-        status: 'active',
-        plan_id: event.planId || null,
-        ...(event.interval === 'monthly' || event.interval === 'yearly'
-          ? { billing_interval: event.interval }
-          : {}),
-        current_period_start: periodStart.toISOString(),
-        current_period_end: computePeriodEnd(periodStart, event.interval).toISOString(),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'workspace_id' });
-
-      // Record payment — customer-facing transaction, replay-safe via the
-      // unique index on (provider_name, provider_payment_id).
-      if (event.amount) {
-        const { error: paymentError } = await supabase.from('billing_payments').insert({
-          workspace_id: event.workspaceId,
-          provider_name: providerName,
-          provider_payment_id: event.providerPaymentId || event.providerEventId,
-          amount: event.amount,
-          currency: event.currency || 'USD',
-          status: 'succeeded',
-          purchase_type: 'subscription',
-          action_type: stack ? 'plan_renewal' : sameActivePlan ? 'plan_renewal' : 'plan_new',
-          plan_id: event.planId || null,
-          billing_interval:
-            event.interval === 'monthly' || event.interval === 'yearly' ? event.interval : null,
-          paid_at: new Date().toISOString(),
-        });
-        // A replayed provider payment id is expected and must not fail the event.
-        if (paymentError && paymentError.code !== '23505') throw new Error(paymentError.message);
-      }
-      break;
+        provider_payment_id: event.providerPaymentId || event.providerEventId,
+        amount: event.amount,
+        currency: event.currency || 'USD',
+        status: 'succeeded',
+        purchase_type: 'subscription',
+        action_type: 'plan_new',
+        paid_at: new Date().toISOString(),
+        reconciliation_state: 'unapplied',
+        reconciliation_reason: 'provider_payment_without_invoice',
+        metadata: { providerEventId: event.providerEventId, eventType: event.type },
+      });
+      // A replayed provider payment id is expected and must not fail the event.
+      if (paymentError && paymentError.code !== '23505') throw new Error(paymentError.message);
+      return;
     }
 
-
-    case 'subscription_canceled': {
-      // Cancel at period end: a still-running paid period stays usable (the
-      // status is kept); the billing tick marks the row 'canceled' once
-      // current_period_end has passed. A period that already ended is
-      // canceled right away. See ./cancellation.ts.
-      const { data: current } = await supabase
-        .from('workspace_subscriptions')
-        .select('status, current_period_end, cancel_at_period_end')
-        .eq('workspace_id', event.workspaceId)
-        .maybeSingle();
-      await supabase.from('workspace_subscriptions')
-        .update(buildCancelAtPeriodEndPatch(current))
-        .eq('workspace_id', event.workspaceId);
-      break;
-    }
-
-    case 'payment_failed':
-    case 'invoice_failed': {
-      await supabase.from('workspace_subscriptions')
-        .update({ status: 'past_due', updated_at: new Date().toISOString() })
-        .eq('workspace_id', event.workspaceId);
-      break;
-    }
-
-    case 'refund_processed': {
-      if (event.providerPaymentId) {
-        await supabase.from('billing_payments')
-          .update({ status: 'refunded' })
-          .eq('provider_payment_id', event.providerPaymentId);
-      }
-      break;
-    }
-  }
-
-  // Every provider-driven subscription transition is an entitlement change:
-  // funnel it so the cache is cleared and KB catch-up is enqueued exactly
-  // once per event, on grants as well as on downgrades.
-  const ENTITLEMENT_CHANGING: Record<string, EntitlementChangeSource | undefined> = {
-    checkout_completed: 'subscription_created',
-    subscription_created: 'subscription_created',
-    payment_succeeded: 'payment_succeeded',
-    invoice_paid: 'subscription_renewed',
-    subscription_canceled: 'subscription_canceled',
-    payment_failed: 'provider_webhook',
-    invoice_failed: 'provider_webhook',
-  };
-  const changeSource = ENTITLEMENT_CHANGING[event.type];
-  if (changeSource) {
-    await handleWorkspaceEntitlementChanged(
-      { supabaseUrl, supabaseServiceRoleKey: serviceRoleKey } as ServerConfig,
-      { workspaceId: event.workspaceId, source: changeSource },
-    );
+    default:
+      // subscription_updated / subscription_canceled / payment_failed /
+      // invoice_failed: the invoice engine owns the subscription; nothing to apply.
+      return;
   }
 }
 

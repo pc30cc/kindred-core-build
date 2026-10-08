@@ -3,12 +3,27 @@ import { z } from 'zod';
 import {
   resolveBillingConfig,
   resolveNamedBillingConfig,
+  resolvePlatformBillingConfig,
   getProvider,
   getAllProviders,
   processWebhookEvent,
   logBillingEvent,
   checkEntitlement,
 } from '../services/billing/index.js';
+import {
+  cardCallbackRefConflicts,
+  handleCardIntentWebhook,
+  hasUnappliedPayment,
+  intentCurrency,
+  invoiceStillCollects,
+  isCardInvoiceProvider,
+  isLapsedCardIntent,
+  releaseIntentCollections,
+  settleVerifiedCardPayment,
+  type InvoiceIntent,
+} from '../services/billing/cardInvoice.js';
+import { resolveChargeCurrency } from '../services/billing/chargeCurrency.js';
+import type { BillingProviderConfig, WebhookEvent } from '../services/billing/types.js';
 import {
   claimBillingWebhookEvent,
   finalizeBillingWebhookEvent,
@@ -69,7 +84,7 @@ import {
   isV2Active,
   LegacyPathRejectedError,
 } from '../services/billing/rollout.js';
-import { releaseCollection, settleAndApply } from '../services/billing/invoice/settle.js';
+import { settleAndApply } from '../services/billing/invoice/settle.js';
 import { applyWalletDeposit } from '../services/billing/wallet/index.js';
 import { recoverUnappliedInvoices } from '../services/billing/worker/recovery.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
@@ -101,7 +116,7 @@ async function buildReceipt(config: ServerConfig, intent: PaymentIntentRow) {
   const supabase = getServiceClient(config);
   const { data: payment } = await supabase
     .from('billing_payments')
-    .select('id, amount, currency, paid_at, provider_payment_id, plan_name_snapshot, action_type, billing_interval, created_at')
+    .select('id, amount, currency, paid_at, provider_payment_id, plan_name_snapshot, action_type, billing_interval, created_at, reconciliation_state')
     .eq('payment_intent_id', intent.id)
     .maybeSingle();
 
@@ -109,7 +124,9 @@ async function buildReceipt(config: ServerConfig, intent: PaymentIntentRow) {
     status: intent.status,
     intentId: intent.id,
     invoiceNumber: intent.invoice_number,
+    // Minor units of `currency` (whole Rial for IRR).
     amountIrr: intent.amount_irr,
+    currency: (payment?.currency as string | null | undefined) || intentCurrency(intent),
     purchaseType: intent.purchase_type,
     actionType: (payment?.action_type as string | null) || intent.action_type || null,
     providerName: intent.provider_name,
@@ -177,23 +194,6 @@ function logBillingSafeError(input: {
   console.error('[billing] verify-callback failure', input);
 }
 
-/** End every active invoice reservation owned by a terminal payment attempt. */
-async function releaseIntentCollections(
-  config: ServerConfig,
-  intentId: string,
-  reason: string,
-): Promise<void> {
-  const supabase = getServiceClient(config);
-  const { data, error } = await supabase
-    .from('billing_invoice_collections')
-    .select('id')
-    .eq('payment_intent_id', intentId)
-    .eq('status', 'active');
-  if (error) throw new Error(`billing collection lookup failed: ${error.message}`);
-  await Promise.all(
-    (data || []).map((row) => releaseCollection(config, row.id as string, reason)),
-  );
-}
 
 
 export const billingRouter = Router();
@@ -552,7 +552,16 @@ billingRouter.post('/checkout', async (req, res) => {
     if (iranProvider && input.currency && input.currency.trim().toUpperCase() !== 'IRR') {
       return res.status(400).json({ error: 'CURRENCY_NOT_SUPPORTED' });
     }
-    const currency = iranProvider ? 'IRR' : (input.currency || 'USD').trim().toUpperCase();
+    // Every other gateway charges the price of the currency it is SENT: the
+    // requested one when it can charge it, else its fallback (Turkish
+    // gateways: TRY) — and then the plan's TRY price, never the requested
+    // currency's number relabelled.
+    let currency = 'IRR';
+    if (!iranProvider) {
+      const charge = resolveChargeCurrency(resolved.provider, input.currency || 'USD');
+      if (!charge) return res.status(400).json({ error: 'CURRENCY_NOT_SUPPORTED' });
+      currency = charge.currency;
+    }
 
     const supabase = serviceClientFor(url, key);
     const { data: plan } = await supabase
@@ -735,7 +744,11 @@ billingRouter.post('/verify-callback', async (req, res) => {
   const { url, key } = getConfig(req);
 
   const provider = getProvider(providerName);
-  if (!provider || !provider.verifyPayment) return res.status(400).json({ error: 'Provider does not support payment verification' });
+  // A card gateway confirmed only by its webhook (Lemon Squeezy) has no
+  // lookup API; its return is answered from the intent's own state.
+  if (!provider || (!provider.verifyPayment && !isCardInvoiceProvider(providerName))) {
+    return res.status(400).json({ error: 'Provider does not support payment verification' });
+  }
 
   try {
     // Use the same workspace/global resolution chain as checkout. Reading only
@@ -750,6 +763,16 @@ billingRouter.post('/verify-callback', async (req, res) => {
         safeErrorCode: 'PROVIDER_NOT_CONFIGURED',
       });
       return res.status(400).json({ error: 'PROVIDER_NOT_CONFIGURED' });
+    }
+
+    if (isCardInvoiceProvider(providerName)) {
+      return await verifyCardCallback(serverConfigOf(req), res, {
+        workspaceId,
+        providerName,
+        config: resolved.config,
+        params,
+        intentId,
+      });
     }
 
     if (IRAN_PROVIDERS.has(providerName)) {
@@ -1072,28 +1095,164 @@ billingRouter.post('/verify-callback', async (req, res) => {
       });
     }
 
-
-    const result = await provider.verifyPayment(
-      resolved.config,
-      params
-    );
-
-    if (result.verified) {
-      await processWebhookEvent(url, key, providerName, {
-        type: 'payment_succeeded',
-        providerEventId: result.providerRef,
-        providerPaymentId: result.providerRef,
-        workspaceId,
-        amount: result.amount,
-        raw: params,
-      });
-    }
-
-    res.json({ success: true, ...result });
+    // Every checkout creates a payment intent bound to an invoice; a provider
+    // outside both branches above has no verified road to a subscription. (A
+    // "verified" answer used to be written straight onto the subscription,
+    // which the invoice engine forbids.)
+    return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
   } catch (e: unknown) {
     res.status(500).json({ error: errorMessageOf(e) });
   }
 });
+
+/**
+ * The customer's return from a card gateway (Stripe, PayPal, Paddle, Lemon
+ * Squeezy) for an invoice payment intent.
+ *
+ * The return URL proves nothing: the payment is confirmed by asking the
+ * provider about the checkout STORED on the intent (its `verifyPayment`), and
+ * the amount and currency it reports must equal the invoice's. A "not paid
+ * yet" answer leaves the intent alone — the customer may still be paying, and
+ * the provider's webhook settles a payment that completes later. Only a
+ * definitive cancel / failure / expiry ends the attempt.
+ *
+ * An attempt that stopped collecting can still have been paid: a superseded
+ * or expired checkout is looked up as well where the lookup only READS
+ * (Stripe, Paddle), and its money settles the invoice while the invoice still
+ * owes exactly that (settleVerifiedCardPayment). A provider whose lookup
+ * TAKES the money (PayPal captures the approved order) is asked only for a
+ * live attempt — before its deadline, for an invoice that still owes exactly
+ * its amount; otherwise nothing is captured and the order lapses at PayPal.
+ * Money already recorded for review is reported as under review, never as a
+ * failed payment.
+ */
+async function verifyCardCallback(
+  cfg: ServerConfig,
+  res: Response,
+  input: {
+    workspaceId: string;
+    providerName: string;
+    config: BillingProviderConfig;
+    params: unknown;
+    intentId: unknown;
+  },
+) {
+  const { workspaceId, providerName } = input;
+  const provider = getProvider(providerName);
+  if (typeof input.intentId !== 'string' || !input.intentId) {
+    return res.status(400).json({ error: 'Missing intentId' });
+  }
+  const intent = (await getPaymentIntent(cfg, input.intentId)) as InvoiceIntent | null;
+  if (!intent || intent.workspace_id !== workspaceId || intent.provider_name !== providerName || !intent.invoice_id) {
+    return res.status(400).json({ error: 'Invalid payment intent' });
+  }
+
+  if (intent.status === 'succeeded') {
+    return res.json({ success: true, verified: true, duplicate: true, receipt: await buildReceipt(cfg, intent) });
+  }
+  if (intent.status === 'processing') {
+    return res.json({ success: true, verified: true, pending: true });
+  }
+  const lapsed = isLapsedCardIntent(intent);
+  if (intent.status !== 'pending') {
+    if (await hasUnappliedPayment(cfg, intent)) {
+      return res.status(409).json({ error: 'PAYMENT_UNDER_REVIEW' });
+    }
+    if (!lapsed || !provider?.verifyPayment || provider.verifyPaymentCaptures) {
+      return res.json({ success: true, verified: false, status: intent.status });
+    }
+  }
+
+  // A return naming another checkout than the one bound to this intent is
+  // refused without touching the intent (its real payment may still arrive).
+  if (cardCallbackRefConflicts(intent, input.params)) {
+    logBillingSafeError({
+      intentId: intent.id, workspaceId, providerName,
+      stage: 'reference_binding', safeErrorCode: 'REFERENCE_MISMATCH',
+    });
+    return res.status(400).json({ error: 'REFERENCE_MISMATCH' });
+  }
+
+  // Webhook-confirmed gateway: nothing to look up — the screen polls the intent.
+  if (!provider?.verifyPayment) return res.json({ success: true, verified: false, pending: true });
+
+  if (provider.verifyPaymentCaptures) {
+    if (!isIntentUsable(intent)) {
+      await markPaymentIntentExpired(cfg, intent.id);
+      await releaseIntentCollections(cfg, intent.id, 'intent_expired');
+      logBillingSafeError({
+        intentId: intent.id, workspaceId, providerName,
+        stage: 'intent_lifecycle', safeErrorCode: 'INTENT_EXPIRED',
+      });
+      return res.json({ success: true, verified: false, status: 'expired' });
+    }
+    if (!(await invoiceStillCollects(cfg, intent))) {
+      await markPaymentIntentFailed(cfg, intent.id, 'invoice_not_payable');
+      await releaseIntentCollections(cfg, intent.id, 'invoice_not_payable');
+      logBillingSafeError({
+        intentId: intent.id, workspaceId, providerName,
+        stage: 'intent_lifecycle', safeErrorCode: 'INVOICE_NOT_PAYABLE',
+      });
+      return res.status(409).json({ error: 'INVOICE_NOT_PAYABLE' });
+    }
+  }
+
+  const result = await provider.verifyPayment(
+    input.config,
+    buildBoundVerifyParams(intent, input.params, expectedIntentAmountIrr(intent)),
+  );
+  if (!result.verified) {
+    // A lapsed attempt's checkout is not paid: nothing to end, it already ended.
+    if (lapsed) return res.json({ success: true, verified: false, status: intent.status });
+    const status = result.status || 'pending';
+    if (status === 'canceled' || status === 'failed' || status === 'expired') {
+      await markPaymentIntentFailed(cfg, intent.id, `gateway_${status}`);
+      await releaseIntentCollections(cfg, intent.id, `gateway_${status}`);
+      logBillingSafeError({
+        intentId: intent.id, workspaceId, providerName,
+        stage: 'gateway_verify', safeErrorCode: status === 'canceled' ? 'GATEWAY_CANCELED' : 'GATEWAY_NOT_VERIFIED',
+      });
+      return res.json({ success: true, verified: false, status });
+    }
+    return res.json({ success: true, verified: false, pending: true });
+  }
+
+  const settlement = await settleVerifiedCardPayment(cfg, {
+    intent,
+    providerName,
+    providerRef: result.providerRef || intent.provider_ref,
+    paymentId: result.paymentId,
+    amount: result.amount,
+    currency: result.currency,
+  });
+  switch (settlement.outcome) {
+    case 'succeeded':
+    case 'duplicate': {
+      const finalIntent = await getPaymentIntent(cfg, intent.id);
+      return res.json({
+        success: true,
+        verified: true,
+        providerRef: result.providerRef,
+        receipt: finalIntent ? await buildReceipt(cfg, finalIntent) : undefined,
+      });
+    }
+    case 'in_flight':
+      return res.json({ success: true, verified: true, pending: true });
+    case 'pending':
+      logBillingSafeError({
+        intentId: intent.id, workspaceId, providerName,
+        stage: 'finalization', safeErrorCode: 'FINALIZATION_PENDING',
+      });
+      return res.status(202).json({ success: true, verified: true, pending: true });
+    default:
+      // Money arrived but cannot settle this invoice: recorded for review.
+      logBillingSafeError({
+        intentId: intent.id, workspaceId, providerName,
+        stage: 'settlement', safeErrorCode: 'PAYMENT_UNDER_REVIEW',
+      });
+      return res.status(409).json({ error: 'PAYMENT_UNDER_REVIEW' });
+  }
+}
 
 // ─── POST /api/billing/webhook/:provider — handle provider webhooks ──
 //
@@ -1106,8 +1265,55 @@ billingRouter.post('/verify-callback', async (req, res) => {
 // signature is computed over the exact bytes the provider signed.
 export const billingWebhookRouter = Router();
 
-/** Providers with a cryptographic webhook signature over the raw body. */
-const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'lemon_squeezy', 'paytr']);
+/**
+ * Providers whose webhook is verified cryptographically: a signature over the
+ * raw body (Stripe, Paddle, Lemon Squeezy, PayTR) or PayPal's own
+ * verify-webhook-signature API against the configured webhook id.
+ */
+const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'lemon_squeezy', 'paytr', 'paypal']);
+
+/**
+ * The workspace a verified platform-level event belongs to when its payload
+ * names none: the payment intent it names (custom metadata), or the payment
+ * it refers to. Both are this server's own records, reached through
+ * identifiers inside a payload whose signature already verified.
+ * `foreignIntent`: the event names an intent this database does not have.
+ */
+async function resolveEventWorkspace(
+  cfg: ServerConfig,
+  providerName: string,
+  event: WebhookEvent,
+): Promise<{ workspaceId: string | null; foreignIntent: boolean }> {
+  let foreignIntent = false;
+  if (event.intentId) {
+    const intent = await getPaymentIntent(cfg, event.intentId);
+    if (intent && intent.provider_name === providerName) return { workspaceId: intent.workspace_id, foreignIntent };
+    foreignIntent = !intent;
+  }
+  if (event.providerPaymentId) {
+    const { data } = await getServiceClient(cfg)
+      .from('billing_payments')
+      .select('workspace_id')
+      .eq('provider_name', providerName)
+      .eq('provider_payment_id', event.providerPaymentId)
+      .limit(1)
+      .maybeSingle();
+    const ws = (data as { workspace_id?: string | null } | null)?.workspace_id;
+    if (ws) return { workspaceId: ws, foreignIntent: false };
+  }
+  return { workspaceId: null, foreignIntent };
+}
+
+/**
+ * An event for a payment intent this database has never had: a provider
+ * account shared with another installation (another copy of this platform
+ * on the same Stripe / PayPal account) receives its events too. It is
+ * acknowledged — refusing it would only make the provider retry it, and
+ * eventually disable the endpoint — and nothing is recorded.
+ */
+function logForeignIntentEvent(providerName: string, event: WebhookEvent) {
+  console.warn(`[billing-webhook] ignored provider=${providerName} reason=unknown_intent intent=${event.intentId} event=${event.providerEventId}`);
+}
 
 type WebhookCandidate = { workspaceId: string | null; config: Record<string, unknown> };
 
@@ -1146,9 +1352,13 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   }
 
   const supabase = serviceClientFor(url, key);
+  const cfg = serverConfigOf(req);
+  // PayTR re-sends a notification until the body is exactly its expected text.
+  const acknowledge = (body: Record<string, unknown>) =>
+    provider.webhookAckBody ? res.type('text/plain').send(provider.webhookAckBody) : res.json(body);
 
-  // Candidate configs: each workspace-scoped config, plus the platform default.
-  // Verification is attempted against each; only the config whose secret
+  // Candidate configs: each workspace-scoped config, plus the platform-wide
+  // one. Verification is attempted against each; only the config whose secret
   // validates the signature is used, which also pins the workspace.
   const candidates: WebhookCandidate[] = [];
   const { data: wsConfigs } = await supabase
@@ -1161,28 +1371,29 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   for (const row of (wsConfigs || []) as Array<{ workspace_id: string | null; config: unknown }>) {
     if (isRecord(row.config)) candidates.push({ workspaceId: row.workspace_id, config: row.config });
   }
-  const { data: globalRows } = await supabase
-    .from('app_runtime_config')
-    .select('key, value')
-    .in('key', ['default_billing_provider', 'billing_default_provider']);
-  for (const row of (globalRows || []) as Array<{ key: string; value: unknown }>) {
-    const globalValue = row.value;
-    if (!isRecord(globalValue)) continue;
-    const name = (globalValue.provider_name || globalValue.provider) as unknown;
-    if (name !== providerName) continue;
-    const inner = isRecord(globalValue.config) ? globalValue.config : {};
-    candidates.push({ workspaceId: null, config: { ...globalValue, ...inner } });
+  // The platform-wide credentials: the Providers screen's canonical store
+  // (billing_provider_credentials) over the legacy layers. Reading only the
+  // default-provider pointer missed every secret saved there — and every
+  // provider that is enabled but not the default.
+  try {
+    const platformConfig = await resolvePlatformBillingConfig(url, key, providerName);
+    if (platformConfig) candidates.push({ workspaceId: null, config: platformConfig });
+  } catch {
+    logWebhookRejection(providerName, 'config_read_failed');
+    return res.status(500).json({ error: 'Webhook processing failed' });
   }
 
   // Evaluate EVERY candidate: stopping at the first verifying config would
   // hide an ambiguous secret collision between two workspaces, and stopping at
   // the first workspace mismatch would drop a later, correct candidate.
-  const accepted: Array<{ event: NonNullable<Awaited<ReturnType<typeof provider.verifyWebhook>>>; workspaceId: string }> = [];
+  const accepted: Array<{ event: WebhookEvent; workspaceId: string }> = [];
   let sawMismatch = false;
   let sawUnresolved = false;
+  let sawIgnored = false;
+  let foreignEvent: WebhookEvent | null = null;
 
   for (const candidate of candidates) {
-    let event;
+    let event: WebhookEvent | null;
     try {
       event = await provider.verifyWebhook(
         { provider: providerName, ...candidate.config },
@@ -1193,6 +1404,11 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
       continue; // signature mismatch / malformed payload for this config
     }
     if (!event) continue;
+    // Genuine, but nothing to act on: acknowledged so the provider stops retrying.
+    if (event.type === 'ignored') {
+      sawIgnored = true;
+      continue;
+    }
 
     // Workspace binding: pin to the workspace that owns the verifying config.
     if (candidate.workspaceId) {
@@ -1201,11 +1417,16 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
         continue;
       }
       accepted.push({ event, workspaceId: candidate.workspaceId });
-    } else if (typeof event.workspaceId === 'string' && event.workspaceId) {
-      accepted.push({ event, workspaceId: event.workspaceId });
-    } else {
-      sawUnresolved = true;
+      continue;
     }
+    if (typeof event.workspaceId === 'string' && event.workspaceId) {
+      accepted.push({ event, workspaceId: event.workspaceId });
+      continue;
+    }
+    const resolvedWorkspace = await resolveEventWorkspace(cfg, providerName, event);
+    if (resolvedWorkspace.workspaceId) accepted.push({ event, workspaceId: resolvedWorkspace.workspaceId });
+    else if (resolvedWorkspace.foreignIntent) foreignEvent = event;
+    else sawUnresolved = true;
   }
 
   if (accepted.length > 1) {
@@ -1213,6 +1434,10 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
     return res.status(400).json({ error: 'Webhook rejected' });
   }
   if (accepted.length === 0) {
+    if ((sawIgnored || foreignEvent) && !sawMismatch && !sawUnresolved) {
+      if (foreignEvent) logForeignIntentEvent(providerName, foreignEvent);
+      return acknowledge({ received: true, ignored: true });
+    }
     if (sawMismatch) {
       logWebhookRejection(providerName, 'workspace_mismatch');
       return res.status(400).json({ error: 'Webhook rejected' });
@@ -1235,6 +1460,21 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
     return res.status(400).json({ error: 'Webhook rejected' });
   }
 
+  // An event naming a payment intent settles THAT intent's invoice — and only
+  // when the intent is this provider's invoice attempt in this workspace.
+  let intent: InvoiceIntent | null = null;
+  if (event.intentId) {
+    intent = (await getPaymentIntent(cfg, event.intentId)) as InvoiceIntent | null;
+    if (!intent) {
+      logForeignIntentEvent(providerName, event);
+      return acknowledge({ received: true, ignored: true });
+    }
+    if (intent.workspace_id !== workspaceId || intent.provider_name !== providerName || !intent.invoice_id) {
+      logWebhookRejection(providerName, 'intent_mismatch');
+      return res.status(400).json({ error: 'Webhook rejected' });
+    }
+  }
+
   // Claim BEFORE any financial side effect. A replay loses the unique index
   // race and is acknowledged without touching subscriptions or payments.
   let claim;
@@ -1253,17 +1493,26 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
     return res.status(500).json({ error: 'Webhook processing failed' });
   }
 
-  if (!claim.claimed) return res.json({ received: true, duplicate: true });
+  if (!claim.claimed) {
+    // Another delivery of this event is being processed right now. Not an
+    // acknowledgement: if that attempt dies, only a later retry can finish
+    // the event (claimBillingWebhookEvent re-claims a stale row).
+    if ('inFlight' in claim) return res.status(409).json({ error: 'Webhook already in progress' });
+    return acknowledge({ received: true, duplicate: true });
+  }
 
   try {
-    await processWebhookEvent(url, key, providerName, event, { alreadyClaimed: true });
+    if (intent) await handleCardIntentWebhook(cfg, providerName, event, intent);
+    else await processWebhookEvent(url, key, providerName, event, { alreadyClaimed: true });
   } catch {
+    // Marked failed, so the provider's retry is processed again (see
+    // claimBillingWebhookEvent); every step behind it is idempotent.
     await finalizeBillingWebhookEvent(url, key, claim.eventRowId, 'failed').catch(() => {});
     logWebhookRejection(providerName, 'processing_failed');
     return res.status(500).json({ error: 'Webhook processing failed' });
   }
   await finalizeBillingWebhookEvent(url, key, claim.eventRowId, 'success').catch(() => {});
-  return res.json({ received: true });
+  return acknowledge({ received: true });
 });
 
 // ─── GET /api/billing/payment-intent/:intentId — status polling ──
@@ -1284,11 +1533,16 @@ billingRouter.get('/payment-intent/:intentId', async (req, res) => {
     intent = (await getPaymentIntent(cfg, req.params.intentId)) ?? intent;
   }
 
+  // An attempt whose money was recorded for review did not fail: the screen
+  // must say so (also after a reload), not "payment failed".
+  const ended = intent.status === 'failed' || intent.status === 'canceled' || intent.status === 'expired';
+  const underReview = ended && (await hasUnappliedPayment(cfg, intent).catch(() => false));
+
   return res.json({
     status: intent.status,
     pending: intent.status === 'pending' || intent.status === 'processing',
     receipt: intent.status === 'succeeded' ? await buildReceipt(cfg, intent) : null,
-    failureReason: safeFailureCode(intent.failure_reason),
+    failureReason: underReview ? 'PAYMENT_UNDER_REVIEW' : safeFailureCode(intent.failure_reason),
   });
 });
 
@@ -1429,7 +1683,13 @@ billingRouter.post('/test', async (req, res) => {
   if (!provider) return res.status(404).json({ error: `Unknown provider: ${providerName}` });
 
   try {
-    const result = await provider.testConnection({ provider: providerName, ...config });
+    // Super Admin → Billing → Test sends no credentials: it tests what is
+    // STORED for the provider. Values sent in the request (an unsaved form)
+    // override the stored ones for this one test.
+    const { url, key } = getConfig(req);
+    const stored = (await resolvePlatformBillingConfig(url, key, providerName)) || {};
+    const supplied = config && typeof config === 'object' && !Array.isArray(config) ? config : {};
+    const result = await provider.testConnection({ ...stored, ...supplied, provider: providerName });
     res.json(result);
   } catch (e: unknown) {
     res.status(500).json({ error: errorMessageOf(e) });

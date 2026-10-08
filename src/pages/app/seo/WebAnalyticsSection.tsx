@@ -51,6 +51,9 @@ import {
   type TrafficSourceDimension, type GeographyDimension, type BrowsersSystemsDimension,
 } from '@/lib/webAnalytics-api';
 import { GradientStatCard } from './SeoPage';
+import { useArtCharts } from '@/themes/art/charts/useArtCharts';
+import { ArtTrend } from '@/themes/art/charts/ArtTrend';
+import { ArtChartLegend } from '@/themes/art/charts/ArtChartLegend';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip,
 } from 'recharts';
@@ -209,8 +212,8 @@ function BreakdownTable({ rows, isLoading, keyLabel, icon: Icon, limit }: { rows
                 <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate font-medium" title={r.label}>{r.label}</span>
               </div>
-              <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary" style={{ width: `${(r.sessions / max) * 100}%` }} />
+              <div data-chart-meter="" className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+                <div data-chart-meter-fill="" data-zero={r.sessions > 0 ? undefined : ''} className="h-full rounded-full bg-primary" style={{ width: `${(r.sessions / max) * 100}%` }} />
               </div>
             </TableCell>
             <TableCell className="text-end tabular-nums">{formatCompact(r.sessions)}</TableCell>
@@ -265,6 +268,8 @@ function OverviewChartTooltip({ active, payload, label }: ChartTooltipProps) {
 function OverviewView({ workspaceId, range }: { workspaceId: string; range: { startDate: string; endDate: string } }) {
   const { t } = useTranslation();
   const { data, isLoading } = useWebAnalyticsOverview(workspaceId, range);
+  // Art draws the trend with its chart kit (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
 
   if (isLoading) return <SkeletonStats count={4} />;
   if (!data) return null;
@@ -280,6 +285,36 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
         <GradientStatCard icon={Clock} iconGradient="from-slate-500 to-slate-700" blobColor="bg-slate-500/15" value={formatDuration(data.avgVisitDurationSeconds)} label={t('seo.webAnalytics.stat.visitDuration')} />
       </div>
 
+      {art ? (
+        <Card data-chart-card="trend">
+          <CardHeader>
+            <div data-art-chart-head="">
+              <CardTitle className="text-base">{t('seo.webAnalytics.overview.trendTitle')}</CardTitle>
+              <ArtChartLegend
+                align="end"
+                items={[
+                  { key: 'sessions', n: 1, label: t('seo.webAnalytics.column.sessions'), value: art.compact(data.sessions) },
+                  { key: 'pageviews', n: 2, label: t('seo.webAnalytics.column.pageviews'), value: art.compact(data.pageviews) },
+                ]}
+              />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72" dir="ltr">
+              <ArtTrend
+                kit={art}
+                data={data.trend}
+                xKey="date"
+                series={[
+                  { key: 'sessions', n: 1, label: t('seo.webAnalytics.column.sessions') },
+                  { key: 'pageviews', n: 2, kind: 'line', label: t('seo.webAnalytics.column.pageviews') },
+                ]}
+                empty={t('seo.webAnalytics.empty.noData')}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
       <Card data-chart-card="trend">
         <CardHeader>
           <CardTitle className="text-base">{t('seo.webAnalytics.overview.trendTitle')}</CardTitle>
@@ -314,6 +349,7 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
           </div>
         </CardContent>
       </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <OverviewTrafficSourcesCard workspaceId={workspaceId} range={range} />
@@ -914,8 +950,8 @@ function FunnelResultsPanel({ workspaceId, funnelId, range }: { workspaceId: str
                 {formatCompact(r.sessions)} · {r.conversionFromStart}%
               </span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(r.sessions / max) * 100}%` }} />
+            <div data-chart-meter="funnel" className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div data-chart-meter-fill="" data-zero={r.sessions > 0 ? undefined : ''} className="h-full rounded-full bg-primary transition-all" style={{ width: `${(r.sessions / max) * 100}%` }} />
             </div>
             {i > 0 && <p className="text-[11px] text-muted-foreground">{t('seo.webAnalytics.funnels.conversionFromPrevious', { percent: r.conversionFromPrevious })}</p>}
           </div>

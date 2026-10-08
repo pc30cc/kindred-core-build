@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { shouldRetryQuery } from "@/lib/queryRetry";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
@@ -10,7 +11,7 @@ import { I18nProvider } from "@/i18n";
 import type { Locale } from "@/i18n/config";
 import type { TranslationKeys } from "@/i18n/locales/en";
 import { ProviderContextProvider } from "@/providers";
-import { AuthContextProvider } from "@/features/auth/AuthContext";
+import { AuthContextProvider, useAuth } from "@/features/auth/AuthContext";
 import { IdentityCacheBoundary } from "@/features/auth/IdentityCacheBoundary";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { RequireAdmin } from "@/features/admin/RequireAdmin";
@@ -18,154 +19,399 @@ import { RequireWorkspaceAdmin } from "@/features/auth/RequireWorkspaceAdmin";
 import { BrandingGate } from "@/features/branding/BrandingGate";
 import { PlatformBrandingGate } from "@/features/branding/PlatformBrandingGate";
 import { WorkspaceRedirect } from "@/features/workspace/WorkspaceRedirect";
-import { MobileRoutes } from "@/mobile/MobileRoutes";
+import { WorkspaceKnowledgeBaseRedirect } from "@/features/workspace/WorkspaceKnowledgeBaseRedirect";
+import { WorkspaceQnaRedirect } from "@/features/workspace/WorkspaceQnaRedirect";
+import { WorkspaceFilesRedirect } from "@/features/workspace/WorkspaceFilesRedirect";
+import { PlanLockedOverlay } from "@/components/plan/PlanLockedOverlay";
+import { AdvancedAiAgentGuard } from "@/features/ai-agent/AdvancedAiAgentGuard";
 import { isNativePlatform } from "@/lib/native";
+import { lazyPage, type Preloadable } from "@/lib/perf/lazyPage";
+import { afterLoadWhenIdle, canPrefetch, installLinkPrefetch, warmServiceWorkerCache } from "@/lib/perf/prefetch";
+import { trackMediaCapture } from "@/lib/perf/chunkReload";
+
+// Layouts and frames stay in the main bundle: they are what remains on screen
+// while a page's own code loads.
+import { AuthLayout } from "@/components/layout/AuthLayout";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { AdminLayout } from "@/components/layout/AdminLayout";
+import { SettingsLayout } from "@/components/layout/SettingsLayout";
+import { AiAgentLayout } from "@/components/layout/AiAgentLayout";
+import { CallCenterLayout } from "@/components/layout/CallCenterLayout";
 
 // The SAME bundle powers web and the Capacitor iOS shell; only the native
 // shell gets the reduced mobile route table.
 const isNativeApp = isNativePlatform();
 
-import { AuthLayout } from "@/components/layout/AuthLayout";
-import { AppLayout } from "@/components/layout/AppLayout";
-import { AdminLayout } from "@/components/layout/AdminLayout";
-import { SettingsLayout } from "@/components/layout/SettingsLayout";
+// ─── Pages ───────────────────────────────────────────────────────────────
+// Every page is its own chunk (src/lib/perf/lazyPage.tsx), so the first
+// visit downloads the app frame plus the one page being opened, not all of
+// them. The route table below is unchanged: same paths, guards and order.
 
-import LoginPage from "@/pages/auth/LoginPage";
-import SignupPage from "@/pages/auth/SignupPage";
-import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
-import ResetPasswordPage from "@/pages/auth/ResetPasswordPage";
-import VerifyEmailPage from "@/pages/auth/VerifyEmailPage";
-import CheckEmailPage from "@/pages/auth/CheckEmailPage";
-import EmailConfirmedPage from "@/pages/auth/EmailConfirmedPage";
-import VerifyOtpPage from "@/pages/auth/VerifyOtpPage";
+// Native (iOS) route table — never downloaded by the web app.
+const MobileRoutes = lazyPage(
+  () => import("@/mobile/MobileRoutes").then((m) => ({ default: m.MobileRoutes })),
+  { fallback: "blank" },
+);
 
-import InvitePage from "@/pages/auth/InvitePage";
+const LoginPage = lazyPage(() => import("@/pages/auth/LoginPage"), { fallback: "blank" });
+const SignupPage = lazyPage(() => import("@/pages/auth/SignupPage"), { fallback: "blank" });
+const ForgotPasswordPage = lazyPage(() => import("@/pages/auth/ForgotPasswordPage"), { fallback: "blank" });
+const ResetPasswordPage = lazyPage(() => import("@/pages/auth/ResetPasswordPage"), { fallback: "blank" });
+const VerifyEmailPage = lazyPage(() => import("@/pages/auth/VerifyEmailPage"), { fallback: "blank" });
+const CheckEmailPage = lazyPage(() => import("@/pages/auth/CheckEmailPage"), { fallback: "blank" });
+const EmailConfirmedPage = lazyPage(() => import("@/pages/auth/EmailConfirmedPage"), { fallback: "blank" });
+const VerifyOtpPage = lazyPage(() => import("@/pages/auth/VerifyOtpPage"), { fallback: "blank" });
 
-import OverviewPage from "@/pages/app/OverviewPage";
-import InboxPage from "@/pages/app/InboxPage";
-import ContactsPage from "@/pages/app/ContactsPage";
-import TeamPage from "@/pages/app/TeamPage";
-import ContactDetailPage from "@/pages/app/ContactDetailPage";
-import VisitorsPage from "@/pages/app/VisitorsPage";
-import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
-import KnowledgeArticleEditorPage from "@/pages/app/knowledge/ArticleEditorPage";
-import KnowledgeAiBuilderPage from "@/pages/app/knowledge/AiBuilderPage";
-import { WorkspaceKnowledgeBaseRedirect } from "@/features/workspace/WorkspaceKnowledgeBaseRedirect";
-import { WorkspaceQnaRedirect } from "@/features/workspace/WorkspaceQnaRedirect";
-import { WorkspaceFilesRedirect } from "@/features/workspace/WorkspaceFilesRedirect";
-import WidgetPage from "@/pages/app/WidgetPage";
-import PluginsPage from "@/pages/app/PluginsPage";
-import PluginDetailPage from "@/pages/app/PluginDetailPage";
-import { PlanLockedOverlay } from "@/components/plan/PlanLockedOverlay";
+const InvitePage = lazyPage(() => import("@/pages/auth/InvitePage"), { fallback: "blank" });
+
+const OverviewPage = lazyPage(() => import("@/pages/app/OverviewPage"));
+const InboxPage = lazyPage(() => import("@/pages/app/InboxPage"), { fallback: "inset" });
+const ContactsPage = lazyPage(() => import("@/pages/app/ContactsPage"));
+const TeamPage = lazyPage(() => import("@/pages/app/TeamPage"));
+const ContactDetailPage = lazyPage(() => import("@/pages/app/ContactDetailPage"));
+const VisitorsPage = lazyPage(() => import("@/pages/app/VisitorsPage"));
+const KnowledgeBasePage = lazyPage(() => import("@/pages/app/KnowledgeBasePage"));
+const KnowledgeArticleEditorPage = lazyPage(() => import("@/pages/app/knowledge/ArticleEditorPage"));
+const KnowledgeAiBuilderPage = lazyPage(() => import("@/pages/app/knowledge/AiBuilderPage"));
+const WidgetPage = lazyPage(() => import("@/pages/app/WidgetPage"));
+const PluginsPage = lazyPage(() => import("@/pages/app/PluginsPage"));
+const PluginDetailPage = lazyPage(() => import("@/pages/app/PluginDetailPage"));
 // AI Agent (Phase 1 foundation)
-import { AiAgentLayout } from "@/components/layout/AiAgentLayout";
-import AiAgentSettingsPage from "@/pages/app/ai-agent/SettingsPage";
-import AiAgentActivationPage from "@/pages/app/ai-agent/ActivationPage";
-import AiAgentPlaygroundPage from "@/pages/app/ai-agent/PlaygroundPage";
-import AiAgentAnalyticsPage from "@/pages/app/ai-agent/AnalyticsPage";
-import AiAgentBillingPage from "@/pages/app/ai-agent/BillingPage";
-import AiAgentRoutingPage from "@/pages/app/ai-agent/RoutingPage";
-import AiAgentInstructionsPage from "@/pages/app/ai-agent/InstructionsPage";
-import AiAgentLearningCandidatesPage from "@/pages/app/ai-agent/LearningCandidatesPage";
-import AiAgentWebPagesPage from "@/pages/app/ai-agent/WebPagesPage";
-import AiAgentTopicsPage from "@/pages/app/ai-agent/TopicsPage";
-import AiAgentWorkflowPage from "@/pages/app/ai-agent/WorkflowPage";
-import AiAgentTriggersPage from "@/pages/app/ai-agent/TriggersPage";
-import AiAgentIntegrationsPage from "@/pages/app/ai-agent/IntegrationsPage";
-import AiAgentGuidancePage from "@/pages/app/ai-agent/GuidancePage";
-import AiAgentOverviewPage from "@/pages/app/ai-agent/OverviewPage";
-import AiAgentTrainPage from "@/pages/app/ai-agent/TrainPage";
-import AiAgentRunInspectorPage from "@/pages/app/ai-agent/RunInspectorPage";
-import AiAgentRetrievalDebuggerPage from "@/pages/app/ai-agent/RetrievalDebuggerPage";
-import AiAgentSourceHealthPage from "@/pages/app/ai-agent/SourceHealthPage";
-import AiAgentTestCasesPage from "@/pages/app/ai-agent/TestCasesPage";
-import AiAgentTestRunDetailPage from "@/pages/app/ai-agent/TestRunDetailPage";
-import AiAgentOperatorAssistAnalyticsPage from "@/pages/app/ai-agent/OperatorAssistAnalyticsPage";
-import AiAgentSuggestedTestsPage from "@/pages/app/ai-agent/SuggestedTestsPage";
-import AiAgentRegressionRunsPage from "@/pages/app/ai-agent/RegressionRunsPage";
-import AiAgentKnowledgePage from "@/pages/app/ai-agent/KnowledgePage";
-import AiAgentBehaviorPage from "@/pages/app/ai-agent/BehaviorPage";
-import AiAgentOperatorAssistPage from "@/pages/app/ai-agent/OperatorAssistPage";
-import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";
-import { AdvancedAiAgentGuard } from "@/features/ai-agent/AdvancedAiAgentGuard";
-import BillingPage from "@/pages/app/BillingPage";
-import BillingPaymentPage from "@/pages/app/billing/PaymentPage";
-import SeoPage from "@/pages/app/seo/SeoPage";
-import WebAnalyticsPage from "@/pages/app/analytics/WebAnalyticsPage";
-import EmailInboxPage from "@/pages/app/email/EmailInboxPage";
-import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
-import SettingsIntegrationsPage from "@/pages/app/settings/IntegrationsPage";
-import SettingsCommercePage from "@/pages/app/settings/CommercePage";
-import CommerceAuthorizePage from "@/pages/CommerceAuthorizePage";
-import SettingsDomainsPage from "@/pages/app/settings/DomainsPage";
-import SettingsProvidersPage from "@/pages/app/settings/ProvidersPage";
-import SettingsTranslationsPage from "@/pages/app/settings/TranslationsPage";
-import SettingsProfilePage from "@/pages/app/settings/ProfilePage";
-import SettingsNotificationsPage from "@/pages/app/settings/NotificationsPage";
-import SettingsAvailabilityPage from "@/pages/app/settings/AvailabilityPage";
-import SettingsSecurityPage from "@/pages/app/settings/SecurityPage";
-import SettingsCannedResponsesPage from "@/pages/app/settings/CannedResponsesPage";
-import SettingsPrivacyPage from "@/pages/app/settings/PrivacyPage";
-import SettingsInterfacePage from "@/pages/app/settings/InterfacePage";
-import TeamDepartmentsPage from "@/pages/app/settings/TeamDepartmentsPage";
-import StaffAccessPage from "@/pages/app/settings/StaffAccessPage";
-import OperatorActivityPage from "@/pages/app/settings/OperatorActivityPage";
-import PrivacyRequestsPage from "@/pages/app/PrivacyRequestsPage";
+const AiAgentSettingsPage = lazyPage(() => import("@/pages/app/ai-agent/SettingsPage"));
+const AiAgentActivationPage = lazyPage(() => import("@/pages/app/ai-agent/ActivationPage"));
+const AiAgentPlaygroundPage = lazyPage(() => import("@/pages/app/ai-agent/PlaygroundPage"));
+const AiAgentAnalyticsPage = lazyPage(() => import("@/pages/app/ai-agent/AnalyticsPage"));
+const AiAgentBillingPage = lazyPage(() => import("@/pages/app/ai-agent/BillingPage"));
+const AiAgentRoutingPage = lazyPage(() => import("@/pages/app/ai-agent/RoutingPage"));
+const AiAgentInstructionsPage = lazyPage(() => import("@/pages/app/ai-agent/InstructionsPage"));
+const AiAgentLearningCandidatesPage = lazyPage(() => import("@/pages/app/ai-agent/LearningCandidatesPage"));
+const AiAgentWebPagesPage = lazyPage(() => import("@/pages/app/ai-agent/WebPagesPage"));
+const AiAgentTopicsPage = lazyPage(() => import("@/pages/app/ai-agent/TopicsPage"));
+const AiAgentWorkflowPage = lazyPage(() => import("@/pages/app/ai-agent/WorkflowPage"));
+const AiAgentTriggersPage = lazyPage(() => import("@/pages/app/ai-agent/TriggersPage"));
+const AiAgentIntegrationsPage = lazyPage(() => import("@/pages/app/ai-agent/IntegrationsPage"));
+const AiAgentGuidancePage = lazyPage(() => import("@/pages/app/ai-agent/GuidancePage"));
+const AiAgentOverviewPage = lazyPage(() => import("@/pages/app/ai-agent/OverviewPage"));
+const AiAgentTrainPage = lazyPage(() => import("@/pages/app/ai-agent/TrainPage"));
+const AiAgentRunInspectorPage = lazyPage(() => import("@/pages/app/ai-agent/RunInspectorPage"));
+const AiAgentRetrievalDebuggerPage = lazyPage(() => import("@/pages/app/ai-agent/RetrievalDebuggerPage"));
+const AiAgentSourceHealthPage = lazyPage(() => import("@/pages/app/ai-agent/SourceHealthPage"));
+const AiAgentTestCasesPage = lazyPage(() => import("@/pages/app/ai-agent/TestCasesPage"));
+const AiAgentTestRunDetailPage = lazyPage(() => import("@/pages/app/ai-agent/TestRunDetailPage"));
+const AiAgentOperatorAssistAnalyticsPage = lazyPage(() => import("@/pages/app/ai-agent/OperatorAssistAnalyticsPage"));
+const AiAgentSuggestedTestsPage = lazyPage(() => import("@/pages/app/ai-agent/SuggestedTestsPage"));
+const AiAgentRegressionRunsPage = lazyPage(() => import("@/pages/app/ai-agent/RegressionRunsPage"));
+const AiAgentKnowledgePage = lazyPage(() => import("@/pages/app/ai-agent/KnowledgePage"));
+const AiAgentBehaviorPage = lazyPage(() => import("@/pages/app/ai-agent/BehaviorPage"));
+const AiAgentOperatorAssistPage = lazyPage(() => import("@/pages/app/ai-agent/OperatorAssistPage"));
+const AiAgentActivityPage = lazyPage(() => import("@/pages/app/ai-agent/ActivityPage"));
+const BillingPage = lazyPage(() => import("@/pages/app/BillingPage"));
+const BillingPaymentPage = lazyPage(() => import("@/pages/app/billing/PaymentPage"));
+const SeoPage = lazyPage(() => import("@/pages/app/seo/SeoPage"));
+const WebAnalyticsPage = lazyPage(() => import("@/pages/app/analytics/WebAnalyticsPage"));
+const EmailInboxPage = lazyPage(() => import("@/pages/app/email/EmailInboxPage"), { fallback: "inset" });
+const SettingsGeneralPage = lazyPage(() => import("@/pages/app/settings/GeneralPage"));
+const SettingsIntegrationsPage = lazyPage(() => import("@/pages/app/settings/IntegrationsPage"));
+const SettingsCommercePage = lazyPage(() => import("@/pages/app/settings/CommercePage"));
+const CommerceAuthorizePage = lazyPage(() => import("@/pages/CommerceAuthorizePage"), { fallback: "blank" });
+const SettingsDomainsPage = lazyPage(() => import("@/pages/app/settings/DomainsPage"));
+const SettingsProvidersPage = lazyPage(() => import("@/pages/app/settings/ProvidersPage"));
+const SettingsTranslationsPage = lazyPage(() => import("@/pages/app/settings/TranslationsPage"));
+const SettingsProfilePage = lazyPage(() => import("@/pages/app/settings/ProfilePage"));
+const SettingsNotificationsPage = lazyPage(() => import("@/pages/app/settings/NotificationsPage"));
+const SettingsAvailabilityPage = lazyPage(() => import("@/pages/app/settings/AvailabilityPage"));
+const SettingsSecurityPage = lazyPage(() => import("@/pages/app/settings/SecurityPage"));
+const SettingsCannedResponsesPage = lazyPage(() => import("@/pages/app/settings/CannedResponsesPage"));
+const SettingsPrivacyPage = lazyPage(() => import("@/pages/app/settings/PrivacyPage"));
+const SettingsInterfacePage = lazyPage(() => import("@/pages/app/settings/InterfacePage"));
+const TeamDepartmentsPage = lazyPage(() => import("@/pages/app/settings/TeamDepartmentsPage"));
+const StaffAccessPage = lazyPage(() => import("@/pages/app/settings/StaffAccessPage"));
+const OperatorActivityPage = lazyPage(() => import("@/pages/app/settings/OperatorActivityPage"));
+const PrivacyRequestsPage = lazyPage(() => import("@/pages/app/PrivacyRequestsPage"));
 
-import AdminDashboardPage from "@/pages/admin/DashboardPage";
-import AdminUsersPage from "@/pages/admin/UsersPage";
-import AdminWorkspacesPage from "@/pages/admin/WorkspacesPage";
-import AdminProvidersPage from "@/pages/admin/ProvidersPage";
-import AdminSystemPage from "@/pages/admin/SystemPage";
-import AdminRetentionPage from "@/pages/admin/RetentionPage";
-import AdminBackupPage from "@/pages/admin/BackupPage";
-import AdminObservabilityPage from "@/pages/admin/ObservabilityPage";
-import AdminFeatureFlagsPage from "@/pages/admin/FeatureFlagsPage";
-import AdminBrandingPage from "@/pages/admin/BrandingPage";
-import AdminDomainsPage from "@/pages/admin/DomainsPage";
-import AdminPlansPage from "@/pages/admin/PlansPage";
-import AdminPluginsPage from "@/pages/admin/PluginsPage";
-import AdminPluginDetailPage from "@/pages/admin/PluginDetailPage";
-import AdminSecurityPage from "@/pages/admin/SecurityPage";
-import AdminVerificationPage from "@/pages/admin/VerificationPage";
-import AdminCoreSettingsPage from "@/pages/admin/CoreSettingsPage";
-import AdminPanelThemePage from "@/pages/admin/PanelThemePage";
-import AdminDatabasePage from "@/pages/admin/DatabasePage";
-import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
-import AdminWidgetSettingsPage from "@/pages/admin/WidgetSettingsPage";
-import AdminMapGeoPage from "@/pages/admin/MapGeoPage";
-import AdminVoiceVideoPage from "@/pages/admin/VoiceVideoPage";
-import AdminAiAgentControlPage from "@/pages/admin/AiAgentControlPage";
-import AdminCallCenterPage from "@/pages/admin/CallCenterPage";
-import AdminSeoIntegrationsPage from "@/pages/admin/SeoIntegrationsPage";
-import AdminFinancePage from "@/pages/admin/FinancePage";
-import AdminMobileAppPage from "@/pages/admin/MobileAppPage";
-import AdminDesktopAppPage from "@/pages/admin/DesktopAppPage";
-import AdminMacosAppPage from "@/pages/admin/MacosAppPage";
-import AdminNotificationsPage from "@/pages/admin/NotificationsPage";
+const AdminDashboardPage = lazyPage(() => import("@/pages/admin/DashboardPage"));
+const AdminUsersPage = lazyPage(() => import("@/pages/admin/UsersPage"));
+const AdminWorkspacesPage = lazyPage(() => import("@/pages/admin/WorkspacesPage"));
+const AdminProvidersPage = lazyPage(() => import("@/pages/admin/ProvidersPage"));
+const AdminSystemPage = lazyPage(() => import("@/pages/admin/SystemPage"));
+const AdminRetentionPage = lazyPage(() => import("@/pages/admin/RetentionPage"));
+const AdminBackupPage = lazyPage(() => import("@/pages/admin/BackupPage"));
+const AdminObservabilityPage = lazyPage(() => import("@/pages/admin/ObservabilityPage"));
+const AdminFeatureFlagsPage = lazyPage(() => import("@/pages/admin/FeatureFlagsPage"));
+const AdminBrandingPage = lazyPage(() => import("@/pages/admin/BrandingPage"));
+const AdminDomainsPage = lazyPage(() => import("@/pages/admin/DomainsPage"));
+const AdminPlansPage = lazyPage(() => import("@/pages/admin/PlansPage"));
+const AdminPluginsPage = lazyPage(() => import("@/pages/admin/PluginsPage"));
+const AdminPluginDetailPage = lazyPage(() => import("@/pages/admin/PluginDetailPage"));
+const AdminSecurityPage = lazyPage(() => import("@/pages/admin/SecurityPage"));
+const AdminVerificationPage = lazyPage(() => import("@/pages/admin/VerificationPage"));
+const AdminCoreSettingsPage = lazyPage(() => import("@/pages/admin/CoreSettingsPage"));
+const AdminPanelThemePage = lazyPage(() => import("@/pages/admin/PanelThemePage"));
+const AdminDatabasePage = lazyPage(() => import("@/pages/admin/DatabasePage"));
+const AdminBootstrapPage = lazyPage(() => import("@/pages/admin/BootstrapPage"), { fallback: "blank" });
+const AdminWidgetSettingsPage = lazyPage(() => import("@/pages/admin/WidgetSettingsPage"));
+const AdminMapGeoPage = lazyPage(() => import("@/pages/admin/MapGeoPage"));
+const AdminVoiceVideoPage = lazyPage(() => import("@/pages/admin/VoiceVideoPage"));
+const AdminAiAgentControlPage = lazyPage(() => import("@/pages/admin/AiAgentControlPage"));
+const AdminCallCenterPage = lazyPage(() => import("@/pages/admin/CallCenterPage"));
+const AdminSeoIntegrationsPage = lazyPage(() => import("@/pages/admin/SeoIntegrationsPage"));
+const AdminFinancePage = lazyPage(() => import("@/pages/admin/FinancePage"));
+const AdminMobileAppPage = lazyPage(() => import("@/pages/admin/MobileAppPage"));
+const AdminDesktopAppPage = lazyPage(() => import("@/pages/admin/DesktopAppPage"));
+const AdminMacosAppPage = lazyPage(() => import("@/pages/admin/MacosAppPage"));
+const AdminNotificationsPage = lazyPage(() => import("@/pages/admin/NotificationsPage"));
 
-import { CallCenterLayout } from "@/components/layout/CallCenterLayout";
-import CallCenterOverviewPage from "@/pages/app/call-center/OverviewPage";
-import CallCenterLiveQueuePage from "@/pages/app/call-center/LiveQueuePage";
-import CallCenterCallsPage from "@/pages/app/call-center/CallsPage";
-import CallCenterCallbacksPage from "@/pages/app/call-center/CallbacksPage";
-import CallCenterInstallPage from "@/pages/app/call-center/InstallPage";
-import CallCenterSettingsPage from "@/pages/app/call-center/SettingsPage";
-import CallCenterRecordingsPage from "@/pages/app/call-center/RecordingsPage";
+const CallCenterOverviewPage = lazyPage(() => import("@/pages/app/call-center/OverviewPage"));
+const CallCenterLiveQueuePage = lazyPage(() => import("@/pages/app/call-center/LiveQueuePage"));
+const CallCenterCallsPage = lazyPage(() => import("@/pages/app/call-center/CallsPage"));
+const CallCenterCallbacksPage = lazyPage(() => import("@/pages/app/call-center/CallbacksPage"));
+const CallCenterInstallPage = lazyPage(() => import("@/pages/app/call-center/InstallPage"));
+const CallCenterSettingsPage = lazyPage(() => import("@/pages/app/call-center/SettingsPage"));
+const CallCenterRecordingsPage = lazyPage(() => import("@/pages/app/call-center/RecordingsPage"));
 // CC-2G-UI-Architecture-Fix — Departments are unified under
 // /settings/team-departments. The old /call-center/departments URL is kept
 // only as a redirect; the standalone CallCenterDepartmentsPage is no
 // longer mounted as a usable route.
 
-import NotFound from "@/pages/NotFound";
+const NotFound = lazyPage(() => import("@/pages/NotFound"), { fallback: "blank" });
 
 // Public Knowledge Base — SPA hydration on top of SSR-rendered first paint.
-import HelpIndexPage from "@/pages/public/kb/HelpIndexPage";
-import LegalPage from "@/pages/public/legal/LegalPage";
-import ContactPage from "@/pages/public/legal/ContactPage";
-import HelpCategoryPage from "@/pages/public/kb/HelpCategoryPage";
-import HelpArticlePage from "@/pages/public/kb/HelpArticlePage";
-import HelpSearchPage from "@/pages/public/kb/HelpSearchPage";
+const HelpIndexPage = lazyPage(() => import("@/pages/public/kb/HelpIndexPage"), { fallback: "blank" });
+const LegalPage = lazyPage(() => import("@/pages/public/legal/LegalPage"), { fallback: "blank" });
+const ContactPage = lazyPage(() => import("@/pages/public/legal/ContactPage"), { fallback: "blank" });
+const HelpCategoryPage = lazyPage(() => import("@/pages/public/kb/HelpCategoryPage"), { fallback: "blank" });
+const HelpArticlePage = lazyPage(() => import("@/pages/public/kb/HelpArticlePage"), { fallback: "blank" });
+const HelpSearchPage = lazyPage(() => import("@/pages/public/kb/HelpSearchPage"), { fallback: "blank" });
+
+// ─── Prefetch ────────────────────────────────────────────────────────────
+// Which page a URL opens, for downloading it early: the current URL at
+// start-up (in parallel with the session and workspace requests instead of
+// after them), the most used pages once the app is idle, and any page whose
+// link is pointed at. Only ever a download hint: a URL missing here still
+// loads normally when it is opened.
+
+const AUTH_PAGES: Record<string, Preloadable> = {
+  login: LoginPage,
+  signup: SignupPage,
+  "forgot-password": ForgotPasswordPage,
+  "reset-password": ResetPasswordPage,
+  "verify-email": VerifyEmailPage,
+  "check-email": CheckEmailPage,
+  "email-confirmed": EmailConfirmedPage,
+  "verify-otp": VerifyOtpPage,
+  invite: InvitePage,
+};
+
+const ADMIN_PAGES: Record<string, Preloadable> = {
+  "": AdminDashboardPage,
+  users: AdminUsersPage,
+  workspaces: AdminWorkspacesPage,
+  providers: AdminProvidersPage,
+  "map-geo": AdminMapGeoPage,
+  "widget-settings": AdminWidgetSettingsPage,
+  "voice-video": AdminVoiceVideoPage,
+  "ai-agent": AdminAiAgentControlPage,
+  "call-center": AdminCallCenterPage,
+  "seo-integrations": AdminSeoIntegrationsPage,
+  "mobile-app": AdminMobileAppPage,
+  "desktop-app": AdminDesktopAppPage,
+  "macos-app": AdminMacosAppPage,
+  notifications: AdminNotificationsPage,
+  system: AdminSystemPage,
+  observability: AdminObservabilityPage,
+  retention: AdminRetentionPage,
+  backup: AdminBackupPage,
+  "feature-flags": AdminFeatureFlagsPage,
+  branding: AdminBrandingPage,
+  domains: AdminDomainsPage,
+  finance: AdminFinancePage,
+  plans: AdminPlansPage,
+  plugins: AdminPluginsPage,
+  database: AdminDatabasePage,
+  security: AdminSecurityPage,
+  verification: AdminVerificationPage,
+  "core-settings": AdminCoreSettingsPage,
+  "panel-theme": AdminPanelThemePage,
+  bootstrap: AdminBootstrapPage,
+};
+
+const WORKSPACE_PAGES: Record<string, Preloadable> = {
+  "": OverviewPage,
+  inbox: InboxPage,
+  contacts: ContactsPage,
+  visitors: VisitorsPage,
+  widget: WidgetPage,
+  plugins: PluginsPage,
+  billing: BillingPage,
+  seo: SeoPage,
+  analytics: WebAnalyticsPage,
+  email: EmailInboxPage,
+  "knowledge-base": KnowledgeBasePage,
+  team: TeamPage,
+};
+
+const SETTINGS_PAGES: Record<string, Preloadable> = {
+  general: SettingsGeneralPage,
+  integrations: SettingsIntegrationsPage,
+  commerce: SettingsCommercePage,
+  domains: SettingsDomainsPage,
+  providers: SettingsProvidersPage,
+  translations: SettingsTranslationsPage,
+  profile: SettingsProfilePage,
+  notifications: SettingsNotificationsPage,
+  availability: SettingsAvailabilityPage,
+  security: SettingsSecurityPage,
+  "canned-responses": SettingsCannedResponsesPage,
+  privacy: SettingsPrivacyPage,
+  interface: SettingsInterfacePage,
+  "team-departments": TeamDepartmentsPage,
+  "staff-access": StaffAccessPage,
+  "operator-activity": OperatorActivityPage,
+  "privacy-requests": PrivacyRequestsPage,
+};
+
+const AI_AGENT_PAGES: Record<string, Preloadable> = {
+  overview: AiAgentOverviewPage,
+  knowledge: AiAgentKnowledgePage,
+  behavior: AiAgentBehaviorPage,
+  "operator-assist": AiAgentOperatorAssistPage,
+  activity: AiAgentActivityPage,
+  settings: AiAgentSettingsPage,
+  guidance: AiAgentGuidancePage,
+  playground: AiAgentPlaygroundPage,
+  analytics: AiAgentAnalyticsPage,
+  activation: AiAgentActivationPage,
+  billing: AiAgentBillingPage,
+  routing: AiAgentRoutingPage,
+  instructions: AiAgentInstructionsPage,
+  "learning-candidates": AiAgentLearningCandidatesPage,
+  train: AiAgentTrainPage,
+  "web-pages": AiAgentWebPagesPage,
+  topics: AiAgentTopicsPage,
+  workflow: AiAgentWorkflowPage,
+  triggers: AiAgentTriggersPage,
+  integrations: AiAgentIntegrationsPage,
+  "operator-assist-analytics": AiAgentOperatorAssistAnalyticsPage,
+  runs: AiAgentRunInspectorPage,
+  debug: AiAgentRetrievalDebuggerPage,
+  "source-health": AiAgentSourceHealthPage,
+  "test-cases": AiAgentTestCasesPage,
+  "test-runs": AiAgentTestRunDetailPage,
+  "suggested-tests": AiAgentSuggestedTestsPage,
+  "regression-runs": AiAgentRegressionRunsPage,
+};
+
+const CALL_CENTER_PAGES: Record<string, Preloadable> = {
+  "": CallCenterOverviewPage,
+  queue: CallCenterLiveQueuePage,
+  calls: CallCenterCallsPage,
+  callbacks: CallCenterCallbacksPage,
+  recordings: CallCenterRecordingsPage,
+  install: CallCenterInstallPage,
+  settings: CallCenterSettingsPage,
+};
+
+/** The pages almost every workspace session opens, fetched once idle. */
+const COMMON_WORKSPACE_PAGES: readonly Preloadable[] = [InboxPage, ContactsPage, OverviewPage];
+
+const own = (table: Record<string, Preloadable>, key: string): Preloadable[] =>
+  Object.prototype.hasOwnProperty.call(table, key) ? [table[key]] : [];
+
+function workspacePagesFor(section: string, sub: string): Preloadable[] {
+  switch (section) {
+    case "contacts": return [sub ? ContactDetailPage : ContactsPage];
+    case "plugins": return [sub ? PluginDetailPage : PluginsPage];
+    case "billing": return [sub === "pay" ? BillingPaymentPage : BillingPage];
+    case "knowledge-base":
+      if (sub === "articles") return [KnowledgeArticleEditorPage];
+      if (sub === "ai-builder") return [KnowledgeAiBuilderPage];
+      return [KnowledgeBasePage];
+    case "settings": return own(SETTINGS_PAGES, sub || "general");
+    case "ai-agent": return own(AI_AGENT_PAGES, sub || "overview");
+    case "call-center": return own(CALL_CENTER_PAGES, sub);
+    default: return own(WORKSPACE_PAGES, section);
+  }
+}
+
+/** The page(s) a pathname opens, for prefetching. */
+function pagesForPath(pathname: string): Preloadable[] {
+  const segments = pathname.split("/").filter(Boolean);
+  const [first = "", second = "", third = ""] = segments;
+  switch (first) {
+    // "/" and "/app" lead a signed-in user to the dashboard and anyone else
+    // to sign-in: RoutePrefetcher fetches the dashboard once that is known.
+    case "": return [];
+    case "app":
+      if (second === "w") return workspacePagesFor(segments[3] ?? "", segments[4] ?? "");
+      return second ? workspacePagesFor(second, third) : [];
+    case "auth": return own(AUTH_PAGES, second);
+    case "invite": return [InvitePage];
+    case "commerce": return second === "authorize" ? [CommerceAuthorizePage] : [];
+    case "privacy":
+    case "terms": return [LegalPage];
+    case "contact": return [ContactPage];
+    case "help":
+      if (!second) return [];
+      if (third === "c") return [HelpCategoryPage];
+      if (third === "a") return [HelpArticlePage];
+      if (third === "search") return [HelpSearchPage];
+      return third ? [] : [HelpIndexPage];
+    case "admin":
+      if (second === "plugins" && third) return [AdminPluginDetailPage];
+      return own(ADMIN_PAGES, second);
+    default: return workspacePagesFor(second, third); // "/<workspace-slug>/…"
+  }
+}
+
+function preloadPath(pathname: string): void {
+  for (const page of pagesForPath(pathname)) void page.preload();
+}
+
+// Start downloading the page being opened right now, alongside the app's
+// own start-up, rather than after sign-in and the workspace have resolved.
+// trackMediaCapture: a missing page file never reloads the tab under a live
+// call (src/lib/perf/chunkReload.ts).
+if (typeof window !== "undefined") {
+  if (isNativeApp) void MobileRoutes.preload();
+  else {
+    trackMediaCapture();
+    preloadPath(window.location.pathname);
+  }
+}
+
+/** URLs that send a signed-in user on to the workspace dashboard. */
+const DASHBOARD_ENTRY_PATHS = new Set(["/", "/app", "/app/"]);
+/** Sign-in and public pages: their visitors may never open the panel. */
+const OUTSIDE_PANEL = /^\/(auth|invite|help|privacy|terms|contact|commerce)(\/|$)/;
+
+/** Idle and link-intent prefetching (src/lib/perf/prefetch.ts). Renders nothing. */
+function RoutePrefetcher() {
+  const { user, isLoading } = useAuth();
+  const { pathname } = useLocation();
+  const signedIn = !isLoading && !!user;
+
+  useEffect(() => installLinkPrefetch(pagesForPath), []);
+
+  // "/" and "/app": the dashboard, as soon as the session shows a user,
+  // while the workspace list is still loading.
+  const toDashboard = signedIn && DASHBOARD_ENTRY_PATHS.has(pathname);
+  useEffect(() => {
+    if (toDashboard) void OverviewPage.preload();
+  }, [toDashboard]);
+
+  // Once idle, for a signed-in user inside the panel only: the most used
+  // pages, then the rest of this build into the service worker's cache.
+  const idleWork = signedIn && !OUTSIDE_PANEL.test(pathname);
+  useEffect(() => {
+    if (!idleWork || !canPrefetch()) return undefined;
+    return afterLoadWhenIdle(() => {
+      for (const page of COMMON_WORKSPACE_PAGES) void page.preload();
+      warmServiceWorkerCache();
+    });
+  }, [idleWork]);
+
+  return null;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: shouldRetryQuery } },
@@ -207,6 +453,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            {!isNativeApp && <RoutePrefetcher />}
             {isNativeApp ? <MobileRoutes /> : (
             <Routes>
               {/* Root redirects to app */}

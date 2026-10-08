@@ -1,13 +1,23 @@
 /**
  * The workspace panel themes as the Super Admin sees them (Super Admin →
  * Panel theme): the colours each theme's preview card is drawn with. Names
- * and descriptions are translated under `admin.panelThemes.themes.<id>`.
+ * and descriptions are translated under `admin.panelThemes.themes.<id>`;
+ * Art's layouts and colour schemes under `admin.panelThemes.layouts.<id>`
+ * and `admin.panelThemes.palettes.<id>` (their colours: art/palettes.ts).
  *
  * A new theme: its id in shared/panelThemes.ts, its stylesheet in
  * src/themes/<id>/theme.css (imported in src/main.tsx), optionally a palette
  * in src/themes/palette.ts, its entry here and its texts in the locales.
  */
-import { PANEL_THEME_IDS, type PanelThemeId } from '../../shared/panelThemes';
+import type { TranslationKey } from '@/i18n';
+import { ART_PALETTE_SWATCHES } from './art/palettes';
+import {
+  PANEL_THEME_IDS,
+  type ArtLayout,
+  type ArtPalette,
+  type PanelThemeId,
+  type PanelThemeSelection,
+} from '../../shared/panelThemes';
 
 /** The colours a preview card paints, as CSS colours. */
 export interface PanelThemeSwatches {
@@ -101,3 +111,48 @@ const PANEL_THEMES: Record<PanelThemeId, PanelThemeInfo> = {
 
 /** Every theme, in the order the admin page lists them. */
 export const panelThemes: PanelThemeInfo[] = PANEL_THEME_IDS.map((id) => PANEL_THEMES[id]);
+
+/**
+ * A theme and its options in words, for the preview bar and the Super Admin
+ * page: "Art · Side menu · Sage".
+ */
+export function panelThemeLabel(t: (key: TranslationKey) => string, selection: PanelThemeSelection) {
+  const parts = [t(`admin.panelThemes.themes.${selection.theme}.name` as TranslationKey)];
+  if (selection.theme === 'art') {
+    parts.push(
+      t(`admin.panelThemes.layouts.${selection.options.layout}.name` as TranslationKey),
+      t(`admin.panelThemes.palettes.${selection.options.palette}` as TranslationKey),
+    );
+  }
+  return parts.join(' · ');
+}
+
+const mix = (color: string, percent: number, base: string) => `color-mix(in srgb, ${color} ${percent}%, ${base})`;
+
+/** Art's options as the preview draws them (the Super Admin page's draft). */
+export interface ArtPreviewOptions {
+  layout: ArtLayout;
+  palette: ArtPalette;
+}
+
+/**
+ * A theme's preview colours, with Art's colour scheme laid over its base:
+ * the scheme's main colour, papers and chart series (art/palettes.ts). A
+ * scheme without swatches yet keeps the base colours.
+ */
+export function previewSwatches(theme: PanelThemeInfo, mode: 'light' | 'dark', palette?: ArtPalette): PanelThemeSwatches {
+  const base = theme[mode];
+  const swatch = theme.id === 'art' && palette ? ART_PALETTE_SWATCHES[palette]?.[mode] : null;
+  if (!swatch) return base;
+  return {
+    ...base,
+    canvas: swatch.canvas,
+    sidebar: mix(base.ink, mode === 'dark' ? 6 : 4, swatch.canvas),
+    surface: swatch.canvas,
+    card: swatch.surface,
+    primary: swatch.primary,
+    primaryInk: swatch.primaryInk,
+    accents: swatch.series,
+    mark: `linear-gradient(135deg, ${swatch.primary}, ${mix(swatch.series[1], 55, swatch.primary)})`,
+  };
+}

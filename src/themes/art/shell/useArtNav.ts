@@ -133,13 +133,15 @@ export function useArtNav() {
   };
   const utility = UTILITY.filter(offered).map(toItem);
 
-  // The inbox's other views, shown while the inbox is open. Open, AI and
-  // Colleagues are left out: InboxPage puts its own tabs for those in the
-  // same bar (#topbar-page-slot), right beside these.
+  // The inbox's views, while the inbox is open. `queues`: the status
+  // queues, the internal inbox and the channel inboxes; the top menu's
+  // context bar shows these, and InboxPage puts its own tabs (open, AI,
+  // colleagues) in the same bar (#topbar-page-slot), right beside them.
+  // `inboxTabs`: those tabs of InboxPage's as views too, for the side menu,
+  // which lists every view of the inbox in one place (and hides the slot).
+  // Same queries and cache entries as InboxPage's tabs; asked for only on
+  // the inbox.
   const onInbox = isActive('/inbox');
-  // Prototype (side-menu frame): InboxPage's own tabs as views too, so the
-  // side menu holds every view of the inbox in one list. Same queries (and
-  // cache entries) as InboxPage's tabs; asked for only on the inbox.
   const { data: tabCounts } = useInboxTabCounts(onInbox ? workspace?.id : undefined);
   const { data: colleagueDir } = useColleagues(onInbox && colleaguesQueueVisible(plan) ? workspace?.id : undefined);
   const queues: ArtQueueItem[] = [];
@@ -219,7 +221,7 @@ export function useArtNav() {
     isWorkspaceAdmin: sections.isAdmin,
     onInbox,
     queues,
-    /** Prototype: InboxPage's own tabs (in progress, AI, colleagues) as views. */
+    /** InboxPage's own tabs (open, AI, colleagues) as views, for the side menu. */
     inboxTabs,
   };
 }

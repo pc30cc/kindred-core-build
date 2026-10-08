@@ -37,6 +37,27 @@
 
     <!-- Runtime deployment config (editable without rebuilding the bundle). -->
     <script src="/runtime-config.js"></script>
+    <!-- The app's first request (the session check) goes to the API. When the
+         API is on another origin (api.<domain>), open that connection now,
+         while the app's scripts download, rather than after them. No
+         `crossorigin`: the API is called with credentials, which use the
+         browser's credentialed connection pool. The build adds font and
+         locale preloads after this (vite.config.ts, bootHints). -->
+    <script>
+      (function () {
+        try {
+          var cfg = window.__APP_RUNTIME_CONFIG__ || {};
+          var base = (typeof cfg.apiBaseUrl === 'string' && cfg.apiBaseUrl.trim()) || '%VITE_API_BASE_URL%';
+          if (!base || base.indexOf('%VITE_') === 0) return;
+          var origin = new URL(base, location.href).origin;
+          if (origin === location.origin) return;
+          var link = document.createElement('link');
+          link.rel = 'preconnect';
+          link.href = origin;
+          document.head.appendChild(link);
+        } catch (e) {}
+      })();
+    </script>
 
 
     <meta name="twitter:card" content="summary_large_image" />

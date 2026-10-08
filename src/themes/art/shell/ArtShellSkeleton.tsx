@@ -1,36 +1,37 @@
-import { useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { useI18n } from '@/i18n';
 import { useIsMobile } from '@/hooks/use-mobile';
+import type { ArtLayout } from '../../../../shared/panelThemes';
+import { ART_SIDE_MIN_WIDTH, initialArtSideCollapsed, useMinWidth } from './sideMenu';
 
 /**
  * The Art frame drawn as skeleton, shown while the user, the workspace and its
  * plan resolve (see AppShellSkeleton for the rule). It has the real frame's
- * shape, top bar (spanning the window over an edge-to-edge app, as the
- * real one does) and centred column, so nothing jumps when the panel arrives.
+ * shape, so nothing jumps when the panel arrives: the layout the Super Admin
+ * chose (AppLayout passes it; the side menu on desktops only, folded as
+ * ArtShell will fold it), or the top bar (spanning the window over an
+ * edge-to-edge app, as the real one does) and the centred column.
  */
-/** Prototype: the side-menu frame's shape (ArtShell, `wy-art-layout`). */
-function sideLayoutWanted() {
-  try {
-    return window.localStorage.getItem('wy-art-layout') === 'sidebar' && window.matchMedia('(min-width: 1024px)').matches;
-  } catch {
-    return false;
-  }
+export function ArtShellSkeleton({
+  layout,
+  subPath,
+  wide = false,
+}: {
+  layout: ArtLayout;
+  /** The route after the workspace slug (layout.ts, artSubPath). */
+  subPath: string;
+  wide?: boolean;
+}) {
+  const isDesktop = useMinWidth(ART_SIDE_MIN_WIDTH);
+  if (layout === 'sidebar' && isDesktop) return <ArtSideSkeleton subPath={subPath} />;
+  return <ArtTopSkeleton wide={wide} />;
 }
 
-function ArtSideSkeleton() {
+/** The side-menu frame: the inset panel, and the page beside it. */
+function ArtSideSkeleton({ subPath }: { subPath: string }) {
   const { dir } = useI18n();
-  // As ArtShell decides it: the member's choice, else a rail under 1280px
-  // and on Settings (its own side list).
-  let collapsed = false;
-  try {
-    const stored = window.localStorage.getItem('wy-art-sidebar-collapsed');
-    collapsed = /\/settings(\/|$)/.test(window.location.pathname)
-      || (stored === '1' ? true : stored === '0' ? false : !window.matchMedia('(min-width: 1280px)').matches);
-  } catch {
-    /* expanded */
-  }
+  const collapsed = initialArtSideCollapsed(subPath);
   return (
     <div
       dir={dir}
@@ -68,6 +69,10 @@ function ArtSideSkeleton() {
                   <Skeleton key={i} className="h-32 rounded-[1.25rem]" />
                 ))}
               </div>
+              <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+                <Skeleton className="h-80 rounded-[1.25rem] lg:col-span-2" />
+                <Skeleton className="h-80 rounded-[1.25rem]" />
+              </div>
             </div>
           </div>
         </div>
@@ -76,11 +81,10 @@ function ArtSideSkeleton() {
   );
 }
 
-export function ArtShellSkeleton({ wide = false }: { wide?: boolean }) {
+/** The top-menu frame: the bar with its pills, and the centred column. */
+function ArtTopSkeleton({ wide }: { wide: boolean }) {
   const { dir } = useI18n();
   const isMobile = useIsMobile();
-  const [side] = useState(sideLayoutWanted);
-  if (side) return <ArtSideSkeleton />;
 
   return (
     <div

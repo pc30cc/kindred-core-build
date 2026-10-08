@@ -16,7 +16,7 @@ import {
   Bot, Sparkles, Search, Wrench, Share2, HelpCircle, UploadCloud, FileText, Trash2,
   AlertTriangle, Globe2, Layers,
 } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +36,9 @@ import {
 } from '@/hooks/useBotAnalytics';
 import { BotAnalyticsApiError } from '@/lib/botAnalytics-api';
 import { GradientStatCard } from './SeoPage';
+import { useArtCharts } from '@/themes/art/charts/useArtCharts';
+import { ArtTrend } from '@/themes/art/charts/ArtTrend';
+import { ArtBarList } from '@/themes/art/charts/ArtBarList';
 import { prettyUrl } from '@/lib/prettyUrl';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip,
@@ -63,14 +66,14 @@ function formatDateTime(iso: string): string {
   try { return new Date(iso).toLocaleString(); } catch { return iso; }
 }
 
-function botAnalyticsErrorMessage(err: unknown, t: (k: any) => string): string {
+function botAnalyticsErrorMessage(err: unknown, t: (k: TranslationKey) => string): string {
   if (err instanceof BotAnalyticsApiError) {
-    if (err.upgradeRequired) return t('seo.botAnalytics.errors.limit_reached' as any);
+    if (err.upgradeRequired) return t('seo.botAnalytics.errors.limit_reached');
     const key = `seo.botAnalytics.errors.${err.code}`;
-    const translated = t(key as any);
+    const translated = t(key as TranslationKey);
     if (translated !== key) return translated;
   }
-  return t('seo.botAnalytics.errors.generic' as any);
+  return t('seo.botAnalytics.errors.generic');
 }
 
 const CATEGORY_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -99,15 +102,15 @@ function BotAnalyticsInner({ workspaceId, subsectionKey }: { workspaceId: string
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">{t('seo.botAnalytics.dataSourceNote' as any)}</p>
+        <p className="text-xs text-muted-foreground">{t('seo.botAnalytics.dataSourceNote')}</p>
         <div className="flex items-center gap-2">
           <ImportLogButton workspaceId={workspaceId} />
           <Select value={preset} onValueChange={(v) => setPreset(v as RangePreset)}>
             <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="7d">{t('seo.webAnalytics.range.last7' as any)}</SelectItem>
-              <SelectItem value="28d">{t('seo.webAnalytics.range.last28' as any)}</SelectItem>
-              <SelectItem value="90d">{t('seo.webAnalytics.range.last90' as any)}</SelectItem>
+              <SelectItem value="7d">{t('seo.webAnalytics.range.last7')}</SelectItem>
+              <SelectItem value="28d">{t('seo.webAnalytics.range.last28')}</SelectItem>
+              <SelectItem value="90d">{t('seo.webAnalytics.range.last90')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -138,8 +141,8 @@ function NoImportsEmptyState({ workspaceId }: { workspaceId: string }) {
         <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <Bot className="h-5 w-5" />
         </span>
-        <h3 className="text-base font-semibold">{t('seo.botAnalytics.empty.noImportsTitle' as any)}</h3>
-        <p className="max-w-md text-sm text-muted-foreground">{t('seo.botAnalytics.empty.noImportsDescription' as any)}</p>
+        <h3 className="text-base font-semibold">{t('seo.botAnalytics.empty.noImportsTitle')}</h3>
+        <p className="max-w-md text-sm text-muted-foreground">{t('seo.botAnalytics.empty.noImportsDescription')}</p>
         <ImportLogButton workspaceId={workspaceId} />
       </CardContent>
     </Card>
@@ -153,7 +156,7 @@ function ReportCard({ title, description, truncated, children }: { title: string
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
-        {truncated && <Badge variant="outline" className="mt-1 w-fit gap-1 text-[10px] text-amber-600"><AlertTriangle className="h-3 w-3" />{t('seo.webAnalytics.truncatedNotice' as any)}</Badge>}
+        {truncated && <Badge variant="outline" className="mt-1 w-fit gap-1 text-[10px] text-amber-600"><AlertTriangle className="h-3 w-3" />{t('seo.webAnalytics.truncatedNotice')}</Badge>}
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
@@ -162,7 +165,14 @@ function ReportCard({ title, description, truncated, children }: { title: string
 
 // ─── Overview ───────────────────────────────────────────────────────────
 
-function OverviewChartTooltip({ active, payload, label }: any) {
+/** What Recharts hands a custom tooltip (only the fields read here). */
+type ChartTooltipProps = {
+  active?: boolean;
+  label?: string;
+  payload?: Array<{ color?: string; value?: number }>;
+};
+
+function OverviewChartTooltip({ active, payload, label }: ChartTooltipProps) {
   const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   return (
@@ -170,7 +180,7 @@ function OverviewChartTooltip({ active, payload, label }: any) {
       <p className="mb-1 text-xs font-medium text-foreground">{label}</p>
       <div className="flex items-center gap-2 text-xs">
         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: payload[0]?.color }} />
-        <span className="text-muted-foreground">{t('seo.botAnalytics.column.visits' as any)}</span>
+        <span className="text-muted-foreground">{t('seo.botAnalytics.column.visits')}</span>
         <span className="ms-auto font-semibold tabular-nums text-foreground">{formatCompact(payload[0]?.value ?? 0)}</span>
       </div>
     </div>
@@ -178,8 +188,10 @@ function OverviewChartTooltip({ active, payload, label }: any) {
 }
 
 function OverviewView({ workspaceId, range }: { workspaceId: string; range: { startDate: string; endDate: string } }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { data, isLoading } = useBotOverview(workspaceId, range);
+  // Art draws the trend and the two top lists with its chart kit (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
 
   if (isLoading) return <SkeletonStats count={4} />;
   if (!data) return null;
@@ -191,24 +203,29 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <GradientStatCard icon={Bot} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(data.totalVisits)} label={t('seo.botAnalytics.stat.totalVisits' as any)} />
-        <GradientStatCard icon={Layers} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(data.uniqueBots)} label={t('seo.botAnalytics.stat.uniqueBots' as any)} />
-        <GradientStatCard icon={Globe2} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCompact(data.uniquePaths)} label={t('seo.botAnalytics.stat.uniquePaths' as any)} />
-        <GradientStatCard icon={Sparkles} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={`${aiShare}%`} label={t('seo.botAnalytics.stat.aiShare' as any)} />
+        <GradientStatCard icon={Bot} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(data.totalVisits)} label={t('seo.botAnalytics.stat.totalVisits')} />
+        <GradientStatCard icon={Layers} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(data.uniqueBots)} label={t('seo.botAnalytics.stat.uniqueBots')} />
+        <GradientStatCard icon={Globe2} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCompact(data.uniquePaths)} label={t('seo.botAnalytics.stat.uniquePaths')} />
+        <GradientStatCard icon={Sparkles} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={`${aiShare}%`} label={t('seo.botAnalytics.stat.aiShare')} />
       </div>
 
       {data.totalVisits === 0 ? (
         <Card>
-          <CardContent className="py-14 text-center text-sm text-muted-foreground">{t('seo.botAnalytics.empty.noVisitsInRange' as any)}</CardContent>
+          <CardContent className="py-14 text-center text-sm text-muted-foreground">{t('seo.botAnalytics.empty.noVisitsInRange')}</CardContent>
         </Card>
       ) : (
         <>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">{t('seo.botAnalytics.overview.trendTitle' as any)}</CardTitle>
-              {data.truncated && <Badge variant="outline" className="mt-1 w-fit gap-1 text-[10px] text-amber-600"><AlertTriangle className="h-3 w-3" />{t('seo.webAnalytics.truncatedNotice' as any)}</Badge>}
+              <CardTitle className="text-base">{t('seo.botAnalytics.overview.trendTitle')}</CardTitle>
+              {data.truncated && <Badge variant="outline" className="mt-1 w-fit gap-1 text-[10px] text-amber-600"><AlertTriangle className="h-3 w-3" />{t('seo.webAnalytics.truncatedNotice')}</Badge>}
             </CardHeader>
             <CardContent>
+              {art ? (
+                <div className="h-64" dir="ltr">
+                  <ArtTrend kit={art} data={data.trend} xKey="date" series={[{ key: 'visits', n: 1, label: t('seo.botAnalytics.column.visits') }]} />
+                </div>
+              ) : (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={data.trend} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -226,13 +243,21 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
+              )}
             </CardContent>
           </Card>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
-              <CardHeader><CardTitle className="text-base">{t('seo.botAnalytics.overview.topBots' as any)}</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-base">{t('seo.botAnalytics.overview.topBots')}</CardTitle></CardHeader>
               <CardContent>
+                {art ? (
+                  <ArtBarList
+                    locale={locale}
+                    n={1}
+                    items={data.topBots.map((b) => ({ key: b.key, label: b.label, value: b.visits, display: art.compact(b.visits), labelDir: 'auto' as const }))}
+                  />
+                ) : (
                 <div className="space-y-1.5">
                   {data.topBots.map((b) => (
                     <div key={b.key} className="flex items-center justify-between text-sm">
@@ -241,11 +266,27 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
                     </div>
                   ))}
                 </div>
+                )}
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle className="text-base">{t('seo.nav.section.botAnalytics' as any)} — {t('seo.botAnalytics.column.category' as any)}</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-base">{t('seo.nav.section.botAnalytics')} — {t('seo.botAnalytics.column.category')}</CardTitle></CardHeader>
               <CardContent>
+                {art ? (
+                  <ArtBarList
+                    locale={locale}
+                    n={2}
+                    items={data.topCategories.map((c) => {
+                      const Icon = CATEGORY_ICON[c.key] || HelpCircle;
+                      return {
+                        key: c.key,
+                        label: <span className="inline-flex items-center gap-2"><Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />{c.label}</span>,
+                        value: c.visits,
+                        display: art.compact(c.visits),
+                      };
+                    })}
+                  />
+                ) : (
                 <div className="space-y-1.5">
                   {data.topCategories.map((c) => {
                     const Icon = CATEGORY_ICON[c.key] || HelpCircle;
@@ -257,6 +298,7 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
                     );
                   })}
                 </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -276,18 +318,18 @@ function CategoriesView({ workspaceId, range }: { workspaceId: string; range: { 
   if (overview && !overview.hasImports) return <NoImportsEmptyState workspaceId={workspaceId} />;
 
   return (
-    <ReportCard title={t('seo.nav.item.categories' as any)} description={t('seo.botAnalytics.categories.description' as any)} truncated={data?.truncated}>
+    <ReportCard title={t('seo.nav.item.categories')} description={t('seo.botAnalytics.categories.description')} truncated={data?.truncated}>
       {isLoading ? (
         <SkeletonTable rows={5} columns={3} />
       ) : (data?.rows.length || 0) === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
+        <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{t('seo.botAnalytics.column.category' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.botAnalytics.column.uniqueBots' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.botAnalytics.column.visits' as any)}</TableHead>
+              <TableHead>{t('seo.botAnalytics.column.category')}</TableHead>
+              <TableHead className="text-end">{t('seo.botAnalytics.column.uniqueBots')}</TableHead>
+              <TableHead className="text-end">{t('seo.botAnalytics.column.visits')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -318,19 +360,19 @@ function CrawledPagesView({ workspaceId, range }: { workspaceId: string; range: 
   if (overview && !overview.hasImports) return <NoImportsEmptyState workspaceId={workspaceId} />;
 
   return (
-    <ReportCard title={t('seo.nav.item.crawledPages' as any)} truncated={data?.truncated}>
+    <ReportCard title={t('seo.nav.item.crawledPages')} truncated={data?.truncated}>
       {isLoading ? (
         <SkeletonTable rows={8} columns={3} />
       ) : (data?.rows.length || 0) === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
+        <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData')}</p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{t('seo.webAnalytics.column.page' as any)}</TableHead>
-              <TableHead>{t('seo.botAnalytics.column.topBot' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.botAnalytics.column.uniqueBots' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.botAnalytics.column.visits' as any)}</TableHead>
+              <TableHead>{t('seo.webAnalytics.column.page')}</TableHead>
+              <TableHead>{t('seo.botAnalytics.column.topBot')}</TableHead>
+              <TableHead className="text-end">{t('seo.botAnalytics.column.uniqueBots')}</TableHead>
+              <TableHead className="text-end">{t('seo.botAnalytics.column.visits')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -363,24 +405,24 @@ function AiBotsView({ workspaceId, range }: { workspaceId: string; range: { star
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <GradientStatCard icon={Sparkles} iconGradient="from-fuchsia-500 to-purple-500" blobColor="bg-fuchsia-500/15" value={formatCompact(data?.totalAiVisits || 0)} label={t('seo.botAnalytics.aiBots.totalAiVisits' as any)} />
-        <GradientStatCard icon={Bot} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={data?.rows.length || 0} label={t('seo.botAnalytics.aiBots.distinctBots' as any)} />
-        <GradientStatCard icon={Layers} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={`${share}%`} label={t('seo.botAnalytics.stat.aiShare' as any)} />
+        <GradientStatCard icon={Sparkles} iconGradient="from-fuchsia-500 to-purple-500" blobColor="bg-fuchsia-500/15" value={formatCompact(data?.totalAiVisits || 0)} label={t('seo.botAnalytics.aiBots.totalAiVisits')} />
+        <GradientStatCard icon={Bot} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={data?.rows.length || 0} label={t('seo.botAnalytics.aiBots.distinctBots')} />
+        <GradientStatCard icon={Layers} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={`${share}%`} label={t('seo.botAnalytics.stat.aiShare')} />
       </div>
 
-      <ReportCard title={t('seo.nav.item.aiBots' as any)} description={t('seo.botAnalytics.aiBots.description' as any)} truncated={data?.truncated}>
+      <ReportCard title={t('seo.nav.item.aiBots')} description={t('seo.botAnalytics.aiBots.description')} truncated={data?.truncated}>
         {isLoading ? (
           <SkeletonTable rows={6} columns={4} />
         ) : (data?.rows.length || 0) === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.botAnalytics.aiBots.empty' as any)}</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.botAnalytics.aiBots.empty')}</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('seo.botAnalytics.column.bot' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.botAnalytics.column.visits' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.botAnalytics.column.uniquePaths' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.botAnalytics.column.lastSeen' as any)}</TableHead>
+                <TableHead>{t('seo.botAnalytics.column.bot')}</TableHead>
+                <TableHead className="text-end">{t('seo.botAnalytics.column.visits')}</TableHead>
+                <TableHead className="text-end">{t('seo.botAnalytics.column.uniquePaths')}</TableHead>
+                <TableHead className="text-end">{t('seo.botAnalytics.column.lastSeen')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -433,7 +475,7 @@ function ImportLogButton({ workspaceId }: { workspaceId: string }) {
     try {
       const base64Data = await readFileAsBase64(selectedFile);
       const result = await uploadLog.mutateAsync({ filename: selectedFile.name, base64Data });
-      toast.success(t('seo.botAnalytics.import.uploaded' as any, { count: result.import.matchedBotLines } as any));
+      toast.success(t('seo.botAnalytics.import.uploaded', { count: result.import.matchedBotLines }));
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
@@ -445,15 +487,15 @@ function ImportLogButton({ workspaceId }: { workspaceId: string }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
-          <UploadCloud className="h-3.5 w-3.5" />{t('seo.botAnalytics.import.button' as any)}
+          <UploadCloud className="h-3.5 w-3.5" />{t('seo.botAnalytics.import.button')}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t('seo.botAnalytics.import.dialogTitle' as any)}</DialogTitle>
+          <DialogTitle>{t('seo.botAnalytics.import.dialogTitle')}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4">
-          <p className="text-sm text-muted-foreground">{t('seo.botAnalytics.import.dialogDescription' as any)}</p>
+          <p className="text-sm text-muted-foreground">{t('seo.botAnalytics.import.dialogDescription')}</p>
 
           <div className="flex flex-col gap-2">
             <input
@@ -464,21 +506,21 @@ function ImportLogButton({ workspaceId }: { workspaceId: string }) {
               className="text-xs file:me-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-xs file:font-medium"
             />
             {maxLines > 0 && (
-              <p className="text-[11px] text-muted-foreground">{t('seo.botAnalytics.import.maxLinesNote' as any, { count: maxLines } as any)}</p>
+              <p className="text-[11px] text-muted-foreground">{t('seo.botAnalytics.import.maxLinesNote', { count: maxLines })}</p>
             )}
           </div>
 
           <Button onClick={handleUpload} disabled={!selectedFile || uploadLog.isPending} className="self-start gap-1.5">
             <UploadCloud className="h-3.5 w-3.5" />
-            {uploadLog.isPending ? t('seo.botAnalytics.import.uploading' as any) : t('seo.botAnalytics.import.upload' as any)}
+            {uploadLog.isPending ? t('seo.botAnalytics.import.uploading') : t('seo.botAnalytics.import.upload')}
           </Button>
 
           <div className="border-t border-border/60 pt-3">
-            <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{t('seo.botAnalytics.import.recentImports' as any)}</h4>
+            <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{t('seo.botAnalytics.import.recentImports')}</h4>
             {importsLoading ? (
               <SkeletonTable rows={2} columns={2} />
             ) : imports.length === 0 ? (
-              <p className="py-4 text-center text-xs text-muted-foreground">{t('seo.botAnalytics.import.noImports' as any)}</p>
+              <p className="py-4 text-center text-xs text-muted-foreground">{t('seo.botAnalytics.import.noImports')}</p>
             ) : (
               <div className="flex flex-col gap-1.5">
                 {imports.map((imp) => (
@@ -494,12 +536,12 @@ function ImportLogButton({ workspaceId }: { workspaceId: string }) {
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>{t('seo.botAnalytics.import.deleteConfirmTitle' as any)}</AlertDialogTitle>
-                          <AlertDialogDescription>{t('seo.botAnalytics.import.deleteConfirmDescription' as any)}</AlertDialogDescription>
+                          <AlertDialogTitle>{t('seo.botAnalytics.import.deleteConfirmTitle')}</AlertDialogTitle>
+                          <AlertDialogDescription>{t('seo.botAnalytics.import.deleteConfirmDescription')}</AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                          <AlertDialogCancel>{t('seo.gsc.disconnectConfirm.cancel' as any)}</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => deleteImport.mutate(imp.id)}>{t('seo.botAnalytics.import.delete' as any)}</AlertDialogAction>
+                          <AlertDialogCancel>{t('seo.gsc.disconnectConfirm.cancel')}</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteImport.mutate(imp.id)}>{t('seo.botAnalytics.import.delete')}</AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
@@ -510,7 +552,7 @@ function ImportLogButton({ workspaceId }: { workspaceId: string }) {
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>{t('seo.botAnalytics.import.close' as any)}</Button>
+          <Button variant="outline" onClick={() => setOpen(false)}>{t('seo.botAnalytics.import.close')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

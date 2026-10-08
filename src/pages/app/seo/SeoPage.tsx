@@ -41,6 +41,12 @@ import {
   PieChart, Pie, Cell, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as ReTooltip, ResponsiveContainer, LineChart as ReLineChart, Line,
 } from 'recharts';
+import { useArtCharts } from '@/themes/art/charts/useArtCharts';
+import { ArtBarList } from '@/themes/art/charts/ArtBarList';
+import { ArtDonut } from '@/themes/art/charts/ArtDonut';
+import { ArtTrend } from '@/themes/art/charts/ArtTrend';
+import { ArtColumns } from '@/themes/art/charts/ArtColumns';
+import { ArtSegmentBar } from '@/themes/art/charts/ArtSegmentBar';
 
 const SEVERITY_CLASS: Record<string, string> = {
   critical: 'bg-destructive/15 text-destructive border-destructive/30',
@@ -909,6 +915,8 @@ function scoreBadgeClass(score: number | null): string {
 
 function PerformanceTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: string }) {
   const { t } = useTranslation();
+  // Art draws the scores as ranked bars in Lighthouse's bands (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   const { data: limitsData } = usePerformanceLimits(workspaceId);
   const { data: latestData, isLoading } = useLatestPerformanceAudit(workspaceId, crawlId);
   const startAudit = useStartPerformanceAudit(workspaceId);
@@ -1043,6 +1051,21 @@ function PerformanceTab({ workspaceId, crawlId }: { workspaceId: string; crawlId
         <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.performance.chartTitle')}</h4>
         {pageScores.length === 0 ? (
           <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">{t('seo.performance.empty.noResults')}</p>
+        ) : art ? (
+          <ArtBarList
+            className="mt-3"
+            locale={art.locale}
+            max={100}
+            items={pageScores.map((p, i) => ({
+              key: `${p.url}-${i}`,
+              label: p.url,
+              title: p.url,
+              labelDir: 'ltr' as const,
+              value: p.score,
+              display: art.number(p.score, 0),
+              tone: p.score >= 90 ? 'good' as const : p.score >= 50 ? 'warn' as const : 'bad' as const,
+            }))}
+          />
         ) : (
           <div className="h-[240px] w-full" dir="ltr">
             <ResponsiveContainer width="100%" height="100%">
@@ -1189,6 +1212,8 @@ function rankTierClass(rank: number | null): string {
 /** Own-site backlink profile (continuous monitoring of a registered site) — distinct from Site Explorer's arbitrary/competitor-domain lookup. */
 function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
   const { t } = useTranslation();
+  // Art draws the link types as its donut and the domains as ranked bars (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   const { data: limitsData } = useBacklinksLimits(workspaceId);
   const { data: latestData, isLoading } = useLatestBacklinkScan(workspaceId, siteId);
   const startScan = useStartBacklinkScan(workspaceId);
@@ -1323,6 +1348,17 @@ function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: st
           <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.backlinks.linkTypeChartTitle')}</h4>
           {linkTypeTotal === 0 ? (
             <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">{t('seo.backlinks.empty.noBacklinks')}</p>
+          ) : art ? (
+            <ArtDonut
+              className="min-h-[200px] pt-2"
+              kit={art}
+              centerValue={art.percent(dofollowCount / linkTypeTotal)}
+              centerLabel={t('seo.backlinks.dofollow')}
+              slices={[
+                { key: 'dofollow', label: t('seo.backlinks.dofollow'), value: dofollowCount, n: 1 },
+                { key: 'nofollow', label: t('seo.backlinks.nofollow'), value: nofollowCount, color: 'hsl(var(--muted-foreground) / 0.45)' },
+              ]}
+            />
           ) : (
             <div className="relative h-[200px] w-full" dir="ltr">
               <ResponsiveContainer width="100%" height="100%">
@@ -1346,6 +1382,14 @@ function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: st
           <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.backlinks.topDomainsChartTitle')}</h4>
           {topDomains.length === 0 ? (
             <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">{t('seo.backlinks.empty.noBacklinks')}</p>
+          ) : art ? (
+            <ArtBarList
+              className="mt-3"
+              locale={art.locale}
+              n={1}
+              max={100}
+              items={topDomains.map((d) => ({ key: d.domain, label: d.domain, title: d.domain, labelDir: 'ltr' as const, value: d.rank, display: art.number(d.rank, 0) }))}
+            />
           ) : (
             <div className="h-[200px] w-full" dir="ltr">
               <ResponsiveContainer width="100%" height="100%">
@@ -1444,6 +1488,8 @@ function competitionBadgeClass(level: string | null): string {
 /** Own-site keyword research (continuous monitoring of a registered site) — distinct from Site Explorer's arbitrary/competitor-domain lookup. */
 function KeywordsTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
   const { t } = useTranslation();
+  // Art draws the top keywords as ranked bars (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   const { data: limitsData } = useKeywordsLimits(workspaceId);
   const { data: latestData, isLoading } = useLatestKeywordRun(workspaceId, siteId);
   const startRun = useStartKeywordRun(workspaceId);
@@ -1587,6 +1633,14 @@ function KeywordsTab({ workspaceId, siteId }: { workspaceId: string; siteId: str
       {topKeywords.length > 0 && (
         <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
           <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.keywords.topKeywordsChartTitle')}</h4>
+          {art ? (
+            <ArtBarList
+              className="mt-3"
+              locale={art.locale}
+              n={1}
+              items={topKeywords.map((k) => ({ key: k.keyword, label: k.keyword, title: k.keyword, labelDir: 'auto' as const, value: k.volume, display: art.compact(k.volume) }))}
+            />
+          ) : (
           <div className="h-[220px] w-full" dir="ltr">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topKeywords} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
@@ -1605,6 +1659,7 @@ function KeywordsTab({ workspaceId, siteId }: { workspaceId: string; siteId: str
               </BarChart>
             </ResponsiveContainer>
           </div>
+          )}
         </div>
       )}
 
@@ -1669,11 +1724,29 @@ function positionBadgeClass(position: number | null): string {
 function RankHistoryChart({ workspaceId, keywordId }: { workspaceId: string; keywordId: string }) {
   const { t } = useTranslation();
   const { data } = useRankChecks(workspaceId, keywordId);
+  // Art draws the history with its chart kit (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   const checks = data?.checks || [];
   const points = checks.map((c) => ({ date: new Date(c.checked_at).toLocaleDateString(), position: c.position }));
 
   if (points.length === 0) {
     return <p className="p-6 text-center text-xs text-muted-foreground">{t('seo.rankTracking.empty.noHistory')}</p>;
+  }
+
+  if (art) {
+    return (
+      <div className="h-[180px] w-full p-4" dir="ltr">
+        <ArtTrend
+          kit={art}
+          data={checks.map((c) => ({ date: c.checked_at, position: c.position }))}
+          xKey="date"
+          series={[{ key: 'position', n: 1, kind: 'line', label: t('seo.rankTracking.columnPosition') }]}
+          reversed
+          yFormat="number"
+          dots
+        />
+      </div>
+    );
   }
 
   return (
@@ -1843,6 +1916,8 @@ function moverDeltaClass(delta: number | null): string {
 
 function RankTrackingOverviewTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
   const { t } = useTranslation();
+  // Art draws the distribution as one bar of its parts (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   const { data: limitsData } = useRankTrackingLimits(workspaceId);
   const { data, isLoading } = useRankTrackingOverview(workspaceId, siteId);
   const maxKeywords = limitsData?.limits.seo_rank_tracking_max_keywords ?? 0;
@@ -1889,6 +1964,18 @@ function RankTrackingOverviewTab({ workspaceId, siteId }: { workspaceId: string;
       <Card>
         <CardHeader><CardTitle className="text-sm">{t('seo.rankTracking.overview.distributionTitle')}</CardTitle></CardHeader>
         <CardContent>
+          {art ? (
+            <ArtSegmentBar
+              kit={art}
+              segments={distributionEntries.map((e, i) => ({
+                key: e.key,
+                label: t(e.labelKey as TranslationKey),
+                value: data.distribution[e.key],
+                // Best to worst: the scheme's main colour in solid, lighter tints; not ranked is a quiet grey.
+                ...(e.key === 'notRanked' ? { color: 'color-mix(in oklab, hsl(var(--muted-foreground)) 40%, hsl(var(--card)))' } : { strength: [1, 0.72, 0.5, 0.34][i] }),
+              }))}
+            />
+          ) : (
           <div className="grid grid-cols-2 gap-3 text-center text-sm sm:grid-cols-5">
             {distributionEntries.map((e) => (
               <div key={e.key}>
@@ -1897,6 +1984,7 @@ function RankTrackingOverviewTab({ workspaceId, siteId }: { workspaceId: string;
               </div>
             ))}
           </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1943,6 +2031,8 @@ function RankTrackingOverviewTab({ workspaceId, siteId }: { workspaceId: string;
 
 function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
   const { t } = useTranslation();
+  // Art draws both trends with its chart kit (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
   const { data: limitsData } = useRankTrackingLimits(workspaceId);
   const { data, isLoading } = useRankTrackingLandscape(workspaceId, siteId, 90);
   const maxKeywords = limitsData?.limits.seo_rank_tracking_max_keywords ?? 0;
@@ -1982,6 +2072,18 @@ function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string
       <Card>
         <CardHeader><CardTitle className="text-sm">{t('seo.rankTracking.landscape.avgPositionTrend')}</CardTitle></CardHeader>
         <CardContent>
+          {art ? (
+            <div className="h-64" dir="ltr">
+              <ArtTrend
+                kit={art}
+                data={points}
+                xKey="date"
+                series={[{ key: 'avgPosition', n: 1, label: t('seo.rankTracking.avgPosition'), kind: 'line' }]}
+                reversed
+                yFormat="number"
+              />
+            </div>
+          ) : (
           <div className="h-64" dir="ltr">
             <ResponsiveContainer width="100%" height="100%">
               <ReLineChart data={chartPoints} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -1993,11 +2095,17 @@ function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string
               </ReLineChart>
             </ResponsiveContainer>
           </div>
+          )}
         </CardContent>
       </Card>
       <Card>
         <CardHeader><CardTitle className="text-sm">{t('seo.rankTracking.landscape.top10Trend')}</CardTitle></CardHeader>
         <CardContent>
+          {art ? (
+            <div className="h-52" dir="ltr">
+              <ArtColumns kit={art} data={points} xKey="date" valueKey="top10Count" n={2} name={t('seo.rankTracking.inTop10')} />
+            </div>
+          ) : (
           <div className="h-52" dir="ltr">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartPoints} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -2009,6 +2117,7 @@ function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string
               </BarChart>
             </ResponsiveContainer>
           </div>
+          )}
         </CardContent>
       </Card>
     </div>

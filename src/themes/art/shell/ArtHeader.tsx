@@ -10,7 +10,7 @@ import { ArtWorkspaceSwitcher } from './ArtWorkspaceSwitcher';
 import { ArtLanguageMenu, ArtThemeToggle } from './ArtPreferences';
 import type { ArtNav } from './useArtNav';
 import { artIconButton } from './styles';
-import { openCommandPalette } from './commandPalette';
+import { commandPaletteShortcut, openCommandPalette } from './commandPalette';
 
 function Divider() {
   return <span aria-hidden className="mx-1 h-6 w-px shrink-0 bg-foreground/10" />;
@@ -40,7 +40,7 @@ export function ArtHeader({ nav, compact, wide = false }: { nav: ArtNav; compact
         <span>{searchLabel}</span>
         {!compact && (
           <kbd dir="ltr" className="rounded-full bg-background/15 px-1.5 py-px font-sans text-[10.5px] font-medium opacity-80">
-            ⌘K
+            {commandPaletteShortcut()}
           </kbd>
         )}
       </TooltipContent>

@@ -13,7 +13,7 @@ import { ArtWorkspaceSwitcher } from './ArtWorkspaceSwitcher';
 import { ArtLanguageMenu, ArtThemeToggle } from './ArtPreferences';
 import type { ArtNav, ArtNavItem, ArtQueueItem } from './useArtNav';
 import { artCount, artIconButton } from './styles';
-import { openCommandPalette } from './commandPalette';
+import { commandPaletteShortcut, openCommandPalette } from './commandPalette';
 
 type Side = 'left' | 'right';
 
@@ -51,6 +51,15 @@ function useArtPlanNotice(workspaceId: string | null | undefined) {
   }
   const isFree = Boolean(plan?.is_free) || plan?.slug === 'free' || !sub?.plan_id || !!sub?.free_fallback_at;
   return isFree ? { kind: 'free' as const } : null;
+}
+
+/** The plan card's line: the trial's days left ("last day" on the last), or the free plan. */
+function planNoticeText(
+  t: ReturnType<typeof useTranslation>['t'],
+  notice: NonNullable<ReturnType<typeof useArtPlanNotice>>,
+) {
+  if (notice.kind !== 'trial') return t('artShell.planFree');
+  return notice.days === 1 ? t('artShell.planTrialLastDay') : t('artShell.planTrial', { days: notice.days });
 }
 
 function countText(value: number) {
@@ -124,7 +133,7 @@ function SideItem({
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
           collapsed ? 'mx-auto w-11 justify-center' : 'pe-2.5 ps-3.5',
           state === 'page'
-            ? 'bg-primary/10 text-primary'
+            ? 'bg-primary/10 text-[color:var(--art-ui-tint-text)]'
             : state === 'section'
               ? 'font-semibold text-foreground hover:bg-foreground/[0.045]'
               : 'text-foreground/75 hover:bg-foreground/[0.045] hover:text-foreground',
@@ -166,7 +175,7 @@ function ViewCount({ item }: { item: ArtQueueItem }) {
         item.tone === 'urgent'
           ? 'bg-primary text-primary-foreground'
           : item.active
-            ? 'bg-primary/15 text-primary'
+            ? 'bg-primary/15 text-[color:var(--art-ui-tint-text)]'
             : 'bg-foreground/[0.07] text-foreground/65',
       )}
     >
@@ -203,7 +212,7 @@ function SideViews({ views, label }: { views: ArtQueueItem[]; label: string }) {
               className={cn(
                 'group flex h-[var(--side-sub)] shrink-0 items-center gap-2.5 rounded-full pe-2 ps-3 text-[0.8125rem] font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
-                item.active ? 'bg-primary/10 text-primary' : 'text-foreground/70 hover:bg-foreground/[0.045] hover:text-foreground',
+                item.active ? 'bg-primary/10 text-[color:var(--art-ui-tint-text)]' : 'text-foreground/70 hover:bg-foreground/[0.045] hover:text-foreground',
               )}
             >
               <Icon
@@ -300,7 +309,7 @@ function PlanCard({ notice }: { notice: NonNullable<ReturnType<typeof useArtPlan
     <div data-shell="side-plan" className="mb-1.5 flex h-8 items-center gap-2 rounded-xl pe-1 ps-3 text-[0.8125rem]">
       <Sparkles aria-hidden className="h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.2} />
       <span className="min-w-0 flex-1 truncate font-medium text-foreground/85">
-        {notice.kind === 'trial' ? t('artShell.planTrial', { days: notice.days }) : t('artShell.planFree')}
+        {planNoticeText(t, notice)}
       </span>
       {notice.kind === 'free' && (
         <Link
@@ -316,13 +325,17 @@ function PlanCard({ notice }: { notice: NonNullable<ReturnType<typeof useArtPlan
   );
 }
 
+/** The side menu's element id, for its fold button's `aria-controls`. */
+const SIDE_MENU_ID = 'art-side-menu';
+
 /**
- * The Art panel's side menu (ArtShell, `wy-art-layout` = "sidebar", desktops):
- * an inset ivory panel on the reading-start side. The workspace and search
- * on top; the destinations grouped by meaning, the inbox opening onto all
- * of its views; Team, Settings and Super Admin pinned under the list; the
- * plan, the account, preferences and alerts at the foot. It folds into a
- * 72px rail of icons with tooltips.
+ * The Art panel's side menu (ArtShell, when the Super Admin chose the
+ * side-menu layout; desktops): an inset panel on the reading-start side, in
+ * the colour scheme's paper. The workspace and search on top; the
+ * destinations grouped by meaning, the inbox opening onto all of its views;
+ * Team, Settings and Super Admin pinned under the list; the plan, the
+ * account, preferences and alerts at the foot. It folds into a 72px rail of
+ * icons with tooltips (the member's choice, kept per browser).
  */
 export function ArtSidebar({
   nav,
@@ -376,6 +389,7 @@ export function ArtSidebar({
           data-shell="side-toggle"
           aria-label={toggleLabel}
           aria-expanded={!collapsed}
+          aria-controls={SIDE_MENU_ID}
           onClick={onToggleCollapsed}
           className={cn(artIconButton, 'h-9 w-9 [&_svg]:h-[18px] [&_svg]:w-[18px]', collapsed && 'h-8 w-8')}
         >
@@ -390,6 +404,7 @@ export function ArtSidebar({
 
   return (
     <aside
+      id={SIDE_MENU_ID}
       data-shell="side"
       data-collapsed={collapsed}
       aria-label={t('artShell.sideNav')}
@@ -415,7 +430,7 @@ export function ArtSidebar({
                   className="pointer-events-none absolute end-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-[hsl(var(--art-side))]"
                 />
                 <span className="sr-only">
-                  {notice.kind === 'trial' ? t('artShell.planTrial', { days: notice.days }) : t('artShell.planFree')}
+                  {planNoticeText(t, notice)}
                 </span>
               </>
             )}
@@ -443,7 +458,7 @@ export function ArtSidebar({
                 <>
                   <span className="min-w-0 flex-1 truncate text-start">{searchLabel}</span>
                   <kbd dir="ltr" data-shell="side-kbd" className="shrink-0 rounded-full px-2 py-0.5 font-sans text-[0.6875rem] font-medium text-muted-foreground">
-                    ⌘K
+                    {commandPaletteShortcut()}
                   </kbd>
                 </>
               )}
@@ -586,7 +601,7 @@ export function ArtSideViewsBar({ nav }: { nav: ArtNav }) {
               className={cn(
                 'inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13px] font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
-                item.active ? 'bg-primary/10 text-primary' : 'text-foreground/70 hover:bg-foreground/[0.045] hover:text-foreground',
+                item.active ? 'bg-primary/10 text-[color:var(--art-ui-tint-text)]' : 'text-foreground/70 hover:bg-foreground/[0.045] hover:text-foreground',
               )}
             >
               <Icon className="h-4 w-4 shrink-0" strokeWidth={2} />

@@ -1,17 +1,19 @@
 import { Link } from 'react-router-dom';
 import { Eye, X } from 'lucide-react';
-import { useTranslation, type TranslationKey } from '@/i18n';
+import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import type { PanelThemeId } from '../../shared/panelThemes';
+import { panelThemeLabel } from './registry';
+import type { PanelThemeSelection } from '../../shared/panelThemes';
 
 /**
- * Floats over the workspace panel while this tab previews a theme the Super
- * Admin has not activated yet (Super Admin → Panel theme → Preview). Only this
- * tab wears it; ending the preview returns to the platform's theme.
+ * Floats over the workspace panel while this tab previews a theme (or a
+ * layout / colour scheme of it) the Super Admin has not activated yet (Super
+ * Admin → Panel theme → Preview). Only this tab wears it; ending the preview
+ * returns to the platform's theme.
  */
-export function PanelThemePreviewBar({ theme, onEnd }: { theme: PanelThemeId; onEnd: () => void }) {
+export function PanelThemePreviewBar({ preview, onEnd }: { preview: PanelThemeSelection; onEnd: () => void }) {
   const { t } = useTranslation();
-  const name = t(`admin.panelThemes.themes.${theme}.name` as TranslationKey);
+  const name = panelThemeLabel(t, preview);
 
   return (
     <div

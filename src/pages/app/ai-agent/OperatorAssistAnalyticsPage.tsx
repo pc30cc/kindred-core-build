@@ -22,10 +22,20 @@ import {
 } from 'recharts';
 
 import { toast } from '@/hooks/use-toast';
+import { useArtCharts } from '@/themes/art/charts/useArtCharts';
+import { ArtTrend } from '@/themes/art/charts/ArtTrend';
+import { ArtChartLegend } from '@/themes/art/charts/ArtChartLegend';
+import { ArtBarList } from '@/themes/art/charts/ArtBarList';
 
 type Range = '7d' | '30d' | '90d';
 
 function pct(n: number) { return `${Math.round(n * 100)}%`; }
+
+/** An error's message, when it has one. */
+function errorMessage(e: unknown): string | undefined {
+  const message = e && typeof e === 'object' && 'message' in e ? (e as { message?: unknown }).message : undefined;
+  return typeof message === 'string' ? message : undefined;
+}
 
 /** Graceful fallback for a code with no translation entry (e.g. a rare
  * internal error path) — "some_code" -> "Some code" — rather than showing
@@ -40,6 +50,8 @@ export default function OperatorAssistAnalyticsPage() {
   const wsPath = useWorkspacePath();
   const { t, dir } = useTranslation();
   const [range, setRange] = useState<Range>('7d');
+  // Art draws the trend and the three breakdowns with its chart kit (src/themes/art/charts); null in Classic.
+  const art = useArtCharts();
 
   const rangeLabels: Record<Range, string> = {
     '7d': t('aiAgent.assistAnalytics.range.d7'),
@@ -87,11 +99,11 @@ export default function OperatorAssistAnalyticsPage() {
       title: t('aiAgent.assistAnalytics.toast.suggestedCreatedTitle'),
       description: t('aiAgent.assistAnalytics.toast.suggestedCreatedDesc'),
     }),
-    onError: (e: any) => toast({
+    onError: (e: unknown) => toast({
       title: t('aiAgent.assistAnalytics.toast.suggestFailedTitle'),
-      description: e?.message?.includes('duplicate')
+      description: errorMessage(e)?.includes('duplicate')
         ? t('aiAgent.assistAnalytics.toast.suggestDuplicate')
-        : (e?.message || t('aiAgent.assistAnalytics.toast.suggestFailedGeneric')),
+        : (errorMessage(e) || t('aiAgent.assistAnalytics.toast.suggestFailedGeneric')),
       variant: 'destructive',
     }),
   });
@@ -138,7 +150,7 @@ export default function OperatorAssistAnalyticsPage() {
       {error && (
         <div className="text-sm text-destructive">
           {t('aiAgent.assistAnalytics.loadError', {
-            message: (error as any)?.message || t('aiAgent.assistAnalytics.unknownError'),
+            message: errorMessage(error) || t('aiAgent.assistAnalytics.unknownError'),
           })}
         </div>
       )}
@@ -174,6 +186,41 @@ export default function OperatorAssistAnalyticsPage() {
             </div>
           )}
 
+          {art ? (
+            <Card>
+              <CardHeader>
+                <div data-art-chart-head="">
+                  <CardTitle className="text-sm">{t('aiAgent.assistAnalytics.dailyTrend.title')}</CardTitle>
+                  <ArtChartLegend
+                    align="end"
+                    items={[
+                      { key: 'suggestions', n: 1, label: t('aiAgent.assistAnalytics.dailyTrend.seriesSuggestions'), value: art.compact(a.summary.total_suggestions) },
+                      { key: 'positive', color: 'hsl(var(--success))', label: t('aiAgent.assistAnalytics.summary.positive'), value: art.compact(a.summary.positive) },
+                      { key: 'negative', color: 'hsl(var(--destructive))', label: t('aiAgent.assistAnalytics.summary.negative'), value: art.compact(a.summary.negative) },
+                    ]}
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="h-[280px]" dir="ltr">
+                {a.by_day.length === 0 ? (
+                  <div className="text-xs text-muted-foreground" dir={dir}>{t('aiAgent.assistAnalytics.dailyTrend.empty')}</div>
+                ) : (
+                  <ArtTrend
+                    kit={art}
+                    data={a.by_day}
+                    xKey="day"
+                    dots={a.by_day.length <= 14}
+                    series={[
+                      { key: 'suggestions', n: 1, label: t('aiAgent.assistAnalytics.dailyTrend.seriesSuggestions') },
+                      // Good and bad feedback wear the panel's state colours, not series colours.
+                      { key: 'positive', n: 2, kind: 'line', color: 'hsl(var(--success))', label: t('aiAgent.assistAnalytics.summary.positive') },
+                      { key: 'negative', n: 5, kind: 'line', color: 'hsl(var(--destructive))', label: t('aiAgent.assistAnalytics.summary.negative') },
+                    ]}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          ) : (
           <Card>
             <CardHeader><CardTitle className="text-sm">{t('aiAgent.assistAnalytics.dailyTrend.title')}</CardTitle></CardHeader>
             <CardContent className="h-[260px]">
@@ -195,6 +242,7 @@ export default function OperatorAssistAnalyticsPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           <div className="grid md:grid-cols-3 gap-4">
             <Card>
@@ -202,6 +250,12 @@ export default function OperatorAssistAnalyticsPage() {
               <CardContent>
                 {a.by_reason.length === 0 ? (
                   <div className="text-xs text-muted-foreground">{t('aiAgent.assistAnalytics.byReason.empty')}</div>
+                ) : art ? (
+                  <ArtBarList
+                    locale={art.locale}
+                    n={1}
+                    items={[...a.by_reason].sort((x, y) => y.count - x.count).map((r) => ({ key: r.reason, label: feedbackReasonLabels[r.reason] || humanizeCode(r.reason), value: r.count }))}
+                  />
                 ) : (
                   <ul className="space-y-1 text-sm">
                     {a.by_reason.sort((x, y) => y.count - x.count).map((r) => (
@@ -219,6 +273,12 @@ export default function OperatorAssistAnalyticsPage() {
               <CardContent>
                 {a.by_action.length === 0 ? (
                   <div className="text-xs text-muted-foreground">{t('aiAgent.assistAnalytics.byAction.empty')}</div>
+                ) : art ? (
+                  <ArtBarList
+                    locale={art.locale}
+                    n={2}
+                    items={[...a.by_action].sort((x, y) => y.count - x.count).map((r) => ({ key: r.action, label: operatorActionLabels[r.action] || humanizeCode(r.action), value: r.count }))}
+                  />
                 ) : (
                   <ul className="space-y-1 text-sm">
                     {a.by_action.sort((x, y) => y.count - x.count).map((r) => (
@@ -236,6 +296,12 @@ export default function OperatorAssistAnalyticsPage() {
               <CardContent>
                 {a.by_source_type.length === 0 ? (
                   <div className="text-xs text-muted-foreground">{t('aiAgent.assistAnalytics.bySourceType.empty')}</div>
+                ) : art ? (
+                  <ArtBarList
+                    locale={art.locale}
+                    n={3}
+                    items={[...a.by_source_type].sort((x, y) => y.runs - x.runs).map((r) => ({ key: r.source_type, label: sourceTypeLabels[r.source_type] || humanizeCode(r.source_type), value: r.runs }))}
+                  />
                 ) : (
                   <ul className="space-y-1 text-sm">
                     {a.by_source_type.sort((x, y) => y.runs - x.runs).map((r) => (

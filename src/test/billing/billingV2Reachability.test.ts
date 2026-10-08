@@ -97,7 +97,9 @@ describe('billing_v2 is reachable from the product, so neither chain may drop it
       expect(app).toMatch(
         /<Route\s+path="billing"\s+element=\{<RequireWorkspaceAdmin><BillingPage\s*\/><\/RequireWorkspaceAdmin>\}\s*\/>/,
       );
-      expect(app).toContain('import BillingPage from "@/pages/app/BillingPage"');
+      // Pages are code-split (src/lib/perf/lazyPage.tsx): the binding is a
+      // lazy page, not a static import, and still names the same module.
+      expect(app).toContain('const BillingPage = lazyPage(() => import("@/pages/app/BillingPage"));');
     });
 
     it('2. that page is the only customer billing experience, with no frontend fallback', () => {

@@ -59,11 +59,28 @@ export function resolvePanelThemeOptions<T extends PanelThemeId>(theme: T, raw: 
   return out as PanelThemeOptions<T>;
 }
 
+/**
+ * A theme together with its options, all resolved. `theme` tells which
+ * options there are: `if (s.theme === 'art') s.options.layout`.
+ */
+export type PanelThemeSelection = { [T in PanelThemeId]: { theme: T; options: PanelThemeOptions<T> } }[PanelThemeId];
+
+/** `theme` with its options resolved from `raw` (the stored object for all themes). */
+export function resolvePanelThemeSelection(theme: PanelThemeId, raw: unknown): PanelThemeSelection {
+  return { theme, options: resolvePanelThemeOptions(theme, raw) } as PanelThemeSelection;
+}
+
+/** Every option name any theme has (`layout`, `palette`, ...), once. */
+export const PANEL_THEME_OPTION_KEYS: readonly string[] = Array.from(
+  new Set(Object.values(PANEL_THEME_OPTIONS).flatMap((spec) => Object.keys(spec))),
+);
+
 /** True when `options` sets only known options of `theme` to accepted values. */
 export function isValidPanelThemeOptions(theme: PanelThemeId, options: unknown): options is Partial<PanelThemeOptions> {
   if (!options || typeof options !== 'object' || Array.isArray(options)) return false;
   const spec = PANEL_THEME_OPTIONS[theme] as Record<string, readonly string[]>;
+  // Own keys only: `'constructor' in spec` is true for any object.
   return Object.entries(options as Record<string, unknown>).every(
-    ([key, value]) => key in spec && typeof value === 'string' && spec[key].includes(value),
+    ([key, value]) => Object.prototype.hasOwnProperty.call(spec, key) && typeof value === 'string' && spec[key].includes(value),
   );
 }

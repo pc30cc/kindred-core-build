@@ -29,6 +29,12 @@ export interface PlatformPublicBranding {
   lock_ui_preferences: boolean | null;
   /** The workspace panel's theme (shared/panelThemes.ts); missing before migration 253. */
   workspace_panel_theme?: string | null;
+  /**
+   * Each theme's options, `{ "<theme>": { "<option>": "<value>" } }`
+   * (shared/panelThemes.ts, resolvePanelThemeOptions); missing before
+   * migration 254.
+   */
+  workspace_panel_theme_options?: Record<string, Record<string, unknown> | null> | null;
 }
 
 export interface PlatformPublicLocalized {

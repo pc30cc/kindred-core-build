@@ -1,10 +1,10 @@
 /*
- * Art — page patterns: charts, page heroes, figures (KPI and stat tiles),
+ * Art — page patterns: page heroes, figures (KPI and stat tiles),
  * the section layouts (settings, AI agent, analytics, SEO, call center),
  * empty states and the panel's decorative classes. Like components.css, this is Art's own
  * shape for them, not a recolour: heroes are calm paper bands, figures are
- * flat tiles with the number as the loudest thing, charts keep one faint grid
- * and an ink tooltip card, section navs are quiet lists of pills.
+ * flat tiles with the number as the loudest thing, section navs are quiet
+ * lists of pills.
  *
  * Every selector starts with :root[data-panel-theme="art"]; see theme.css.
  * (One selector per line, and no commas inside :where() / :is() / :not():
@@ -19,8 +19,6 @@
  *   data-section-layout / -nav / -nav-item / -nav-group / -content
  *     the settings, AI agent, analytics and SEO side lists, the call
  *     center's tab rail (data-section-tabs);
- *   data-chart-gradient  a chart's series gradient (src/pages/app/OverviewPage.tsx);
- *   data-slot="chart | chart-tooltip | chart-legend"  src/components/ui/chart.tsx;
  *   the dashboard's panel parts: data-panel-icon / -link / -stat / -live /
  *     -empty, data-status (a conversation's), data-wizard-card / -arrow
  *     (GetStartedWizard.tsx);
@@ -34,8 +32,7 @@
  *     data-phone-field / -prefix (phone verification), data-banner-actions
  *     (call center), data-page="call-center-live", data-filter-tabs
  *     (plugins), data-page-hero="widget".
- * Recharts itself is styled by its own class names; it writes some styles
- * inline, so those rules carry !important.
+ * The charts themselves (Recharts and Art's chart kit) are charts.css.
  */
 
 /* ── 0. Page tokens ────────────────────────────────────────────────────── */
@@ -58,15 +55,6 @@
      a solid muted fill is the canvas's own colour and vanished there. */
   --art-page-empty-fill: var(--art-ui-field, hsl(var(--foreground) / 0.05));
   --art-page-empty-ring: inset 0 0 0 1px var(--art-ui-field-edge, hsl(var(--foreground) / 0.085)), 0 0 0 0.375rem hsl(var(--foreground) / 0.025);
-
-  /* Charts: one faint grid, and the series in Lart's pigments. */
-  --art-chart-grid: hsl(var(--foreground) / 0.08);
-  --art-chart-cursor: hsl(var(--foreground) / 0.16);
-  --art-chart-1: hsl(var(--primary));
-  --art-chart-2: hsl(var(--plan-2));
-  --art-chart-3: hsl(var(--plan-3));
-  --art-chart-4: hsl(var(--plan-4));
-  --art-chart-5: hsl(var(--plan-5));
 }
 
 :root[data-panel-theme="art"].dark {
@@ -74,141 +62,12 @@
   --art-page-tint: 17%;
   --art-page-empty-fill: hsl(var(--muted));
   --art-page-empty-ring: 0 0 0 0.375rem hsl(var(--muted) / 0.45);
-  --art-chart-grid: hsl(var(--foreground) / 0.075);
-  --art-chart-cursor: hsl(var(--foreground) / 0.2);
 }
 
 /* ── 1. Charts ─────────────────────────────────────────────────────────── */
 
-/* The value grid only: faint and dashed. A chart drawn with both grids keeps
-   its horizontal lines; a horizontal bar chart keeps its vertical ones. */
-:root[data-panel-theme="art"] .recharts-cartesian-grid line {
-  stroke: var(--art-chart-grid) !important;
-  stroke-width: 1px;
-  stroke-dasharray: 2 6 !important;
-}
-
-:root[data-panel-theme="art"] .recharts-cartesian-grid:has(> .recharts-cartesian-grid-horizontal) > .recharts-cartesian-grid-vertical {
-  display: none;
-}
-
-/* No axis rules: the grid and the ticks are enough. */
-:root[data-panel-theme="art"] .recharts-cartesian-axis-line,
-:root[data-panel-theme="art"] .recharts-cartesian-axis-tick-line {
-  stroke: transparent;
-}
-
-:root[data-panel-theme="art"] .recharts-cartesian-axis-tick-value,
-:root[data-panel-theme="art"] .recharts-polar-angle-axis-tick-value,
-:root[data-panel-theme="art"] .recharts-polar-radius-axis-tick-value {
-  font-size: 11px;
-  fill: hsl(var(--muted-foreground));
-}
-
-:root[data-panel-theme="art"] .recharts-area-curve,
-:root[data-panel-theme="art"] .recharts-line-curve {
-  stroke-width: 2.25px;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-/* The point under the pointer sits on a ring of paper. */
-:root[data-panel-theme="art"] .recharts-active-dot .recharts-dot {
-  stroke: hsl(var(--card));
-  stroke-width: 2.5px;
-}
-
-:root[data-panel-theme="art"] .recharts-tooltip-cursor.recharts-curve {
-  stroke: var(--art-chart-cursor);
-  stroke-width: 1px;
-  stroke-dasharray: 3 4;
-}
-
-:root[data-panel-theme="art"] .recharts-tooltip-cursor.recharts-rectangle {
-  fill: hsl(var(--foreground) / 0.045);
-  opacity: 1;
-}
-
-/* Slices are parted by a thin line of the card behind them. */
-:root[data-panel-theme="art"] .recharts-pie-sector .recharts-sector {
-  stroke: hsl(var(--card));
-  stroke-width: 2px;
-}
-
-/* The tooltip: a small card. Recharts' default box (and its contentStyle),
-   the panel's own tooltip contents and chart.tsx's all become the same. */
-:root[data-panel-theme="art"] .recharts-tooltip-wrapper > div,
-:root[data-panel-theme="art"] [data-slot="chart-tooltip"] {
-  border: 0 !important;
-  border-radius: 0.875rem !important;
-  background-color: hsl(var(--popover)) !important;
-  color: hsl(var(--popover-foreground)) !important;
-  padding: 10px 12px !important;
-  font-size: 12.5px !important;
-  line-height: 1.45;
-  box-shadow: 0 0 0 1px var(--art-page-line), var(--art-page-pop-shadow) !important;
-}
-
-:root[data-panel-theme="art"] .recharts-default-tooltip .recharts-tooltip-label {
-  margin-bottom: 0.25rem !important;
-  color: hsl(var(--muted-foreground)) !important;
-  font-weight: 500;
-}
-
-:root[data-panel-theme="art"] .recharts-default-tooltip .recharts-tooltip-item {
-  padding-block: 0.125rem !important;
-}
-
-:root[data-panel-theme="art"] .recharts-default-tooltip .recharts-tooltip-item-value {
-  color: hsl(var(--foreground));
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Legends: small muted labels after a round swatch. */
-:root[data-panel-theme="art"] .recharts-legend-wrapper {
-  font-size: 12px !important;
-}
-
-:root[data-panel-theme="art"] .recharts-default-legend .recharts-legend-item {
-  margin: 0 0.5rem !important;
-}
-
-:root[data-panel-theme="art"] .recharts-default-legend .recharts-legend-item > .recharts-surface {
-  width: 0.625rem;
-  height: 0.625rem;
-  margin: 0 !important;
-  margin-inline-end: 0.375rem !important;
-}
-
-:root[data-panel-theme="art"] .recharts-legend-item-text {
-  color: hsl(var(--muted-foreground)) !important;
-}
-
-:root[data-panel-theme="art"] [data-slot="chart-legend"] {
-  gap: 1rem;
-  font-size: 0.75rem;
-  color: hsl(var(--muted-foreground));
-}
-
-:root[data-panel-theme="art"] [data-slot="chart-legend"] > div > div.rounded-\[2px\],
-:root[data-panel-theme="art"] [data-slot="chart-tooltip"] div.rounded-\[2px\] {
-  border-radius: 9999px;
-}
-
-/* A chart that draws its series through a gradient of the classic palette
-   (the dashboard's) draws it in clay here: a calm line over a light wash. */
-:root[data-panel-theme="art"] [data-chart-gradient] stop {
-  stop-color: var(--art-chart-1) !important;
-}
-
-:root[data-panel-theme="art"] [data-chart-gradient="fill"] stop:first-child {
-  stop-opacity: 0.2 !important;
-}
-
-:root[data-panel-theme="art"] [data-chart-gradient="fill"] stop:nth-child(2) {
-  stop-opacity: 0.06 !important;
-}
+/* Every chart rule (Recharts' parts, the chart kit's tooltip, legends,
+   ranked bars and donuts) lives in charts.css. */
 
 /* ── 2. Surfaces, icon tiles and decorations ───────────────────────────── */
 
@@ -980,19 +839,6 @@
 
 :root[data-panel-theme="art"].dark [data-panel-empty]::before {
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9a49c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E") center / 1.5rem 1.5rem no-repeat, var(--art-page-empty-fill);
-}
-
-/* The activity chart: the zero tick would sit on the first date (the
-   baseline says it). Its tooltip names the series (OverviewPage.tsx gives
-   it a name under Art) and, in a right-to-left page, sits on the same edge
-   as the date above it (the chart itself is drawn left to right). */
-:root[data-panel-theme="art"] [data-panel="chart"] .recharts-yAxis .recharts-cartesian-axis-tick:first-child {
-  display: none;
-}
-
-:root[data-panel-theme="art"] [dir="rtl"] [data-panel="chart"] .recharts-default-tooltip {
-  direction: rtl;
-  text-align: start;
 }
 
 /* The get-started guide (GetStartedWizard.tsx): its featured cards are
@@ -2206,16 +2052,6 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-height: 1.35;
-}
-
-/* The traffic chart's second series in Lart's teal, not a cool sky blue
-   (the variable feeds its line, its fill and its legend dot). */
-:root[data-panel-theme="art"] [data-chart-card="trend"] {
-  --palette-sky-400: 0 137 125;
-}
-
-:root[data-panel-theme="art"].dark [data-chart-card="trend"] {
-  --palette-sky-400: 18 162 150;
 }
 
 /* The report toolbar on a phone: the source note on its own line, then the

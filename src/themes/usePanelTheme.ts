@@ -19,12 +19,19 @@
  * and removes them on leaving, so the Super Admin panel, sign-in and help
  * center keep their own look. Portalled dialogs, menus and toasts sit under
  * <html> too, so they follow the theme.
+ *
+ * A colour scheme for international mode only (Art's `respok`) is worn only
+ * in international mode (src/lib/internationalMode.ts): in Persian, or on a
+ * single-language site, the panel, its preview and its preview bar wear the
+ * default scheme instead, whatever is stored or previewed.
  */
 import { useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from 'react';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { usePlatformPublicConfig } from '@/lib/platformPublicConfig';
+import { useInternationalMode } from '@/lib/internationalMode';
 import {
   PANEL_THEME_OPTION_KEYS,
+  artPaletteFor,
   isPanelThemeId,
   resolvePanelTheme,
   resolvePanelThemeOptions,
@@ -130,6 +137,13 @@ function sameOptions(a: object, b: object) {
   return [...keys].every((key) => x[key] === y[key]);
 }
 
+/** `selection` as it may be worn: an international-only scheme outside international mode is the default. */
+export function wearablePanelTheme<S extends PanelThemeSelection>(selection: S, international: boolean): S {
+  if (selection.theme !== 'art') return selection;
+  const palette = artPaletteFor(selection.options.palette, international);
+  return palette === selection.options.palette ? selection : { ...selection, options: { ...selection.options, palette } };
+}
+
 type PanelThemeState = PanelThemeSelection & {
   /** What the Super Admin activated for everyone. */
   platformTheme: PanelThemeId;
@@ -143,6 +157,7 @@ type PanelThemeState = PanelThemeSelection & {
 export function usePanelTheme(): PanelThemeState {
   const { data } = usePlatformPublicConfig();
   const { data: isAdmin } = useIsGlobalAdmin();
+  const international = useInternationalMode();
 
   // The platform's choice: the public config once it has arrived, the cache
   // before. Kept as JSON strings so the objects stay the same between renders.
@@ -173,12 +188,15 @@ export function usePanelTheme(): PanelThemeState {
     writeStorage(local, OPTIONS_CACHE_KEY, JSON.stringify(platform.options));
   }, [data, platform]);
 
-  const current = preview ?? platform;
+  // What is remembered above is what is stored; what is worn may differ.
+  const worn = wearablePanelTheme(platform, international);
+  const wornPreview = preview && wearablePanelTheme(preview, international);
+  const current = wornPreview ?? worn;
   return {
     ...current,
-    platformTheme: platform.theme,
-    platformOptions: platform.options,
-    preview,
+    platformTheme: worn.theme,
+    platformOptions: worn.options,
+    preview: wornPreview,
     endPreview: endPanelThemePreview,
   } as PanelThemeState;
 }

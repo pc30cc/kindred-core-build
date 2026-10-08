@@ -2,6 +2,11 @@
  * PlatformBrandingGate: Loads platform_branding + platform_branding_localized
  * (GET /api/platform/public/config) and sets document.title, favicon, and CSS
  * custom properties globally.
+ *
+ * In international mode (src/lib/internationalMode.ts) the favicon and the
+ * home-screen icon are the RESPOK kit's (over the operator's own), as
+ * index.html's boot script already set them; leaving it (Persian) puts
+ * back what WebYar shows.
  */
 import React, { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -9,6 +14,10 @@ import { fetchPlatformPublicConfig } from '@/lib/platformPublicConfig';
 import { useI18n } from '@/i18n';
 import { isNativePlatform } from '@/lib/native';
 import { API_BASE } from '@/lib/apiBase';
+import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
+
+/** index.html's own favicon, put back when international mode ends. */
+const DEFAULT_FAVICON = '/favicon.png';
 
 interface PlatformBrandingRow {
   logo_url: string | null;
@@ -45,6 +54,7 @@ function usePlatformBrandingGlobal() {
 export function PlatformBrandingGate({ children }: { children: React.ReactNode }) {
   const { data } = usePlatformBrandingGlobal();
   const { locale } = useI18n();
+  const international = useInternationalMode();
 
   useEffect(() => {
     if (!data) return;
@@ -75,15 +85,22 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     const ogTitle = document.querySelector('meta[property="og:title"]');
     if (ogTitle) ogTitle.setAttribute('content', title);
 
-    // Set favicon
-    if (branding?.favicon_url) {
-      let link = document.querySelector('link[rel="icon"]') as HTMLLinkElement;
+    // Set favicon: the kit's in international mode, else the operator's. A
+    // page that wore the kit's (boot script, or a language switch) gets
+    // index.html's own back when there is no operator favicon.
+    const iconHref = international ? INTL_BRAND.appIcon : branding?.favicon_url;
+    const existingIcon = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+    const woreIntlIcon = existingIcon?.getAttribute('type') === 'image/svg+xml' && existingIcon.href.includes(INTL_BRAND.appIcon);
+    if (iconHref || woreIntlIcon) {
+      let link = existingIcon;
       if (!link) {
         link = document.createElement('link');
         link.rel = 'icon';
         document.head.appendChild(link);
       }
-      link.href = branding.favicon_url;
+      if (international) link.type = 'image/svg+xml';
+      else if (woreIntlIcon) link.type = 'image/png';
+      link.href = iconHref || DEFAULT_FAVICON;
     }
 
     // ── PWA head tags ────────────────────────────────────────────────
@@ -141,7 +158,10 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     // iOS Safari ignores the manifest for "Add to Home Screen" icon/behavior
     // and relies on these tags instead; Android/Chrome mostly reads the
     // manifest but `mobile-web-app-capable` is kept for older engines.
-    setLink('apple-touch-icon', pwaOn ? (branding?.pwa_icon_url || branding?.favicon_url || null) : null);
+    setLink(
+      'apple-touch-icon',
+      pwaOn ? (international ? INTL_BRAND.appleTouchIcon : branding?.pwa_icon_url || branding?.favicon_url || null) : null,
+    );
     setMeta('apple-mobile-web-app-capable', pwaOn ? 'yes' : null);
     setMeta('mobile-web-app-capable', pwaOn ? 'yes' : null);
     setMeta('apple-mobile-web-app-status-bar-style', pwaOn ? 'default' : null);
@@ -149,7 +169,7 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     // <title>) -- prefer the dedicated short_name, then the plain platform
     // name, and only fall back to the (possibly long) full title.
     setMeta('apple-mobile-web-app-title', pwaOn ? (branding?.pwa_short_name || locRow?.platform_name || title || null) : null);
-  }, [data, locale]);
+  }, [data, locale, international]);
 
   return <>{children}</>;
 }

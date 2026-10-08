@@ -2,7 +2,7 @@ import { BrandWordmark } from '@/components/brand/BrandLoader';
 import { toLatinKeyboard } from '@/lib/latinKeyboard';
 import { useState, useEffect, useMemo } from 'react';
 import { AuthHeroPanel } from '@/components/auth/AuthHeroPanel';
-import { BrandLogo } from '@/components/brand/BrandLogo';
+import { BrandLockup } from '@/components/brand/BrandLogo';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -149,14 +149,7 @@ export default function LoginPage() {
     <div className="fixed inset-0 flex" dir={dir}>
       <div className={`auth-aurora flex-1 flex flex-col overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>
         <div className="flex items-center justify-between px-8 py-5 shrink-0">
-          {brandName ? (
-            <div className="flex items-center gap-3">
-              <BrandLogo className="w-9 h-9 rounded-lg" />
-              <span className="text-lg font-semibold text-foreground">{brandName}</span>
-            </div>
-          ) : (
-            <div className="w-9 h-9" />
-          )}
+          <BrandLockup name={brandName} />
           <LanguageSelector />
         </div>
 

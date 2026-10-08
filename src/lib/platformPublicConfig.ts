@@ -10,7 +10,8 @@
  * One request serves every consumer: concurrent callers share the in-flight
  * fetch, and React Query consumers share one cache entry.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useContext } from 'react';
+import { QueryClient, QueryClientContext, useQuery } from '@tanstack/react-query';
 import { API_BASE } from './apiBase';
 
 export interface PlatformPublicBranding {
@@ -56,7 +57,16 @@ export interface PlatformPublicLocalized {
 export interface PlatformPublicConfig {
   branding: PlatformPublicBranding | null;
   localized: PlatformPublicLocalized[];
-  region: { region_mode: string | null; active_locales: string[] | null; default_locale: string | null } | null;
+  region: {
+    region_mode: string | null;
+    active_locales: string[] | null;
+    default_locale: string | null;
+    /**
+     * `single_language` (WebYar) or `multi_language` (RESPOK); missing from an
+     * older backend, which reads as single_language (shared/internationalMode.ts).
+     */
+    site_mode?: string | null;
+  } | null;
   realtime: Record<string, unknown> | null;
 }
 
@@ -77,10 +87,21 @@ export function fetchPlatformPublicConfig(): Promise<PlatformPublicConfig> {
   return inflight;
 }
 
+// For a caller outside any QueryClientProvider (a loader drawn before the
+// app's providers, a test): an idle client, so the hook answers "no data yet"
+// instead of throwing. Nothing is fetched through it.
+let detached: QueryClient | null = null;
+const detachedClient = () => (detached ??= new QueryClient());
+
 export function usePlatformPublicConfig() {
-  return useQuery({
-    queryKey: PLATFORM_PUBLIC_CONFIG_QUERY_KEY,
-    queryFn: fetchPlatformPublicConfig,
-    staleTime: 5 * 60 * 1000,
-  });
+  const client = useContext(QueryClientContext);
+  return useQuery(
+    {
+      queryKey: PLATFORM_PUBLIC_CONFIG_QUERY_KEY,
+      queryFn: fetchPlatformPublicConfig,
+      staleTime: 5 * 60 * 1000,
+      enabled: !!client,
+    },
+    client ?? detachedClient(),
+  );
 }

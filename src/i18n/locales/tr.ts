@@ -3781,6 +3781,7 @@ const tr: TranslationKeys = {
         ocean: 'Okyanus',
         saffron: 'Safran',
         graphite: 'Grafit',
+        respok: 'Respok',
       },
       themes: {
         classic: {

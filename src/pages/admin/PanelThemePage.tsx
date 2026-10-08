@@ -28,10 +28,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { panelThemeLabel, panelThemes, previewSwatches, type ArtPreviewOptions, type PanelThemeInfo } from '@/themes/registry';
 import { ArtLayoutSketch, ThemePreview } from '@/themes/ThemePreview';
 import { ART_PALETTE_SWATCHES } from '@/themes/art/palettes';
-import { endPanelThemePreview, startPanelThemePreview } from '@/themes/usePanelTheme';
+import { endPanelThemePreview, startPanelThemePreview, wearablePanelTheme } from '@/themes/usePanelTheme';
+import { useInternationalMode } from '@/lib/internationalMode';
 import {
   ART_LAYOUTS,
-  ART_PALETTES,
+  artPalettesFor,
   resolvePanelTheme,
   resolvePanelThemeOptions,
   resolvePanelThemeSelection,
@@ -88,12 +89,20 @@ function asObject(value: unknown): Record<string, unknown> {
 
 const sameArt = (a: ArtPreviewOptions, b: ArtPreviewOptions) => a.layout === b.layout && a.palette === b.palette;
 
+/** Art's options as this Super Admin may see them (an international-only scheme outside international mode is clay). */
+const shownArt = (options: ArtPreviewOptions, international: boolean): ArtPreviewOptions =>
+  wearablePanelTheme({ theme: 'art', options }, international).options;
+
 export default function PanelThemePage() {
   const { t } = useTranslation();
   const tk = (key: string, params?: Record<string, string>) => t(key as TranslationKey, params);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [mode, setMode] = useState<Mode>('light');
+  // The international-only colour scheme (respok) is offered, and named, only
+  // in international mode; in Persian or on a single-language site it is
+  // neither listed nor shown, and a stored one reads as clay here too.
+  const international = useInternationalMode();
 
   const { data: branding, isLoading } = useQuery({
     queryKey: BRANDING_QUERY_KEY,
@@ -111,6 +120,14 @@ export default function PanelThemePage() {
   const [artDraft, setArtDraft] = useState<ArtPreviewOptions | null>(null);
   const art = artDraft ?? storedArt;
   const artDirty = !sameArt(art, storedArt);
+  const artShown = shownArt(art, international);
+  // A pick on the card, laid over `art`: a scheme shown as clay in place of a
+  // hidden one stays what it is until another scheme is picked, so changing
+  // only the layout never overwrites it.
+  const pickArt = (next: ArtPreviewOptions): ArtPreviewOptions => ({
+    layout: next.layout,
+    palette: next.palette === artShown.palette ? art.palette : next.palette,
+  });
 
   const refresh = () =>
     Promise.all([
@@ -138,7 +155,10 @@ export default function PanelThemePage() {
       // could not be saved, migration 254 missing.)
       if (variables.options) setArtDraft(null);
       endPanelThemePreview();
-      const name = panelThemeLabel(t, resolvePanelThemeSelection(theme, { [theme]: options ?? variables.options ?? {} }));
+      const name = panelThemeLabel(
+        t,
+        wearablePanelTheme(resolvePanelThemeSelection(theme, { [theme]: options ?? variables.options ?? {} }), international),
+      );
       toast({
         title: wasActive && variables.options ? tk('admin.panelThemes.options.saved', { name }) : tk('admin.panelThemes.activated', { name }),
         description: tk('admin.panelThemes.activatedHint'),
@@ -172,7 +192,11 @@ export default function PanelThemePage() {
   };
 
   const activeLabel =
-    active && panelThemeLabel(t, resolvePanelThemeSelection(active, active === 'art' ? { art: storedArt } : storedOptions));
+    active &&
+    panelThemeLabel(
+      t,
+      wearablePanelTheme(resolvePanelThemeSelection(active, active === 'art' ? { art: storedArt } : storedOptions), international),
+    );
 
   return (
     <div className="space-y-6 p-6">
@@ -229,7 +253,7 @@ export default function PanelThemePage() {
               key={theme.id}
               theme={theme}
               mode={mode}
-              art={isArt ? art : undefined}
+              art={isArt ? artShown : undefined}
               loading={isLoading}
               active={isActive}
               // Art's options can be saved while Art is the active theme.
@@ -242,13 +266,17 @@ export default function PanelThemePage() {
             >
               {isArt && (
                 <ArtOptions
-                  value={art}
+                  value={artShown}
+                  palettes={artPalettesFor(international)}
                   mode={mode}
                   theme={theme}
                   saveable={optionsSaveable}
                   dirty={artDirty}
                   busy={activate.isPending}
-                  onChange={(next) => setArtDraft(sameArt(next, storedArt) ? null : next)}
+                  onChange={(picked) => {
+                    const next = pickArt(picked);
+                    setArtDraft(sameArt(next, storedArt) ? null : next);
+                  }}
                   onReset={() => setArtDraft(null)}
                 />
               )}
@@ -394,6 +422,7 @@ function ThemeCard({
  */
 function ArtOptions({
   value,
+  palettes,
   mode,
   theme,
   saveable,
@@ -403,6 +432,8 @@ function ArtOptions({
   onReset,
 }: {
   value: ArtPreviewOptions;
+  /** The colour schemes offered (artPalettesFor: respok only in international mode). */
+  palettes: readonly ArtPalette[];
   mode: Mode;
   theme: PanelThemeInfo;
   saveable: boolean;
@@ -504,9 +535,9 @@ function ArtOptions({
             aria-labelledby="art-palette-label"
             value={value.palette}
             onValueChange={(palette) => onChange({ ...value, palette: palette as ArtPalette })}
-            className="grid grid-cols-4 gap-1.5 sm:grid-cols-7"
+            className={cn('grid grid-cols-4 gap-1.5', palettes.length > 7 ? 'sm:grid-cols-8' : 'sm:grid-cols-7')}
           >
-            {ART_PALETTES.map((palette) => (
+            {palettes.map((palette) => (
               <PaletteChip key={palette} palette={palette} mode={mode} selected={value.palette === palette} label={tk(`admin.panelThemes.palettes.${palette}`)} />
             ))}
           </RadioGroupPrimitive.Root>

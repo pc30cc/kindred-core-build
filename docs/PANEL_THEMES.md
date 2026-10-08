@@ -12,7 +12,8 @@ too.
 
 Art has **options**, chosen on its card by the Super Admin for everyone too:
 its **layout** (top menu or side menu) and its **colour scheme** (clay, sage,
-indigo, plum, ocean, saffron, graphite). See [Art's options](#arts-options).
+indigo, plum, ocean, saffron, graphite, and in international mode respok). See
+[Art's options](#arts-options) and [International mode](#international-mode).
 
 ## How it works
 
@@ -143,6 +144,12 @@ active). Options are sent only when they differ from what is stored.
 | `ocean` | اقیانوسی | Ocean | Okyanus |
 | `saffron` | زعفرانی | Saffron | Safran |
 | `graphite` | زغالی | Graphite | Grafit |
+| `respok` | (never shown) | Respok | Respok |
+
+`respok` is the RESPOK brand kit's colours (respok.app: Ink `#16142B` on
+Paper `#F5F5F8` and white, Mist hairlines, Slate secondary text, Signal
+`#FF5A3C` as the spark) and exists for [international mode](#international-mode)
+only (`INTERNATIONAL_ART_PALETTES` in `shared/panelThemes.ts`).
 
 `src/themes/art/palettes.css` gives each scheme a light block
 (`:root[data-panel-theme="art"][data-panel-palette="<id>"]:not(.dark)`) and a
@@ -193,6 +200,69 @@ never as done.
 
 After applying 254 by hand, add it to the migration ledger line in
 CLAUDE.md ("Database" → "Migrations").
+
+## International mode
+
+The same build runs WebYar (Persian, `platform_settings.site_mode =
+'single_language'`) and RESPOK, its English rebrand (`'multi_language'`).
+**International mode** is `site_mode = 'multi_language'` *and* a UI language
+other than Persian (`isInternationalMode`, `shared/internationalMode.ts`;
+client hook `useInternationalMode`, `src/lib/internationalMode.ts`). A missing
+or unknown site mode is single_language. In Persian, even on RESPOK, and
+anywhere on WebYar, none of the following ever shows.
+
+- **The site mode** reaches every page in the public config
+  (`region.site_mode`, read from `platform_settings` with the language
+  policy). The last value is kept in localStorage (`wy-site-mode`) so the
+  first paint, and index.html's boot splash, already know it.
+- **The `respok` colour scheme.**
+  - Super Admin → Panel theme lists it only in international mode
+    (`artPalettesFor`); elsewhere it is not listed, and a stored `respok` is
+    shown, previewed and named as clay. Picking another layout there keeps a
+    stored `respok` (only what was picked changes).
+  - The server accepts it like any other scheme, whatever the site mode: the
+    Super Admin's language is not the members', and the fallback below is what
+    keeps Persian from ever wearing it; switching the platform to
+    single_language later needs no clean-up either.
+  - Worn only in international mode: `usePanelTheme` reads a stored or
+    previewed `respok` as clay otherwise (`artPaletteFor`,
+    `wearablePanelTheme`), for the panel, its skeleton and the preview bar.
+    The localStorage cache keeps what is stored.
+- **The sign-in pages.** While the platform wears Art in `respok` and the page
+  is in international mode, `AuthLayout` (login, sign-up, forgot and reset
+  password, and the verify / check-email steps) puts
+  `<html data-auth-palette="respok">` (`src/themes/authPalette.ts`) and
+  `src/themes/authPalette.css` repaints their tokens: Paper and Ink, Signal
+  Deep links (white text), and the call to action in Signal with Ink text
+  (white on Signal is only 3.1:1). Every selector there starts with
+  `:root[data-auth-palette="respok"]` (checked by
+  `src/test/themes/panelThemes.test.ts`); without the attribute the pages are
+  exactly as before.
+- **The brand kit's logos and icons** (`INTL_BRAND`, files in
+  `public/brand/intl/`, from the kit's `1-Logo/SVG` and
+  `2-App-Icons/signal/web`; "color" on light, "reversed" on dark, picked by
+  `.dark`). In international mode the kit wins over any operator logo or
+  favicon (Super Admin → Branding, a workspace's favicon):
+  - `BrandLogo` (the square app mark: panel skeletons of both themes, reset
+    password, legal pages) is the kit's app icon (`favicon.svg`, the Signal
+    tile);
+  - the sign-in headers (`BrandLockup`) show the horizontal logo in place of
+    mark + name; the small mark under the cards (`BrandWordmark`) is the
+    wordmark;
+  - the launch loader (`BrandLoader`, `BrandFooter`, and index.html's
+    `#boot-splash` from the cached site mode) turns in Signal on Paper / Ink
+    with the horizontal logo at its foot;
+  - favicon and apple-touch-icon are swapped at boot (index.html) and kept in
+    step by `PlatformBrandingGate` (leaving international mode puts WebYar's
+    back); the PWA manifest (`server/routes/manifest.ts`) lists the kit's
+    192 / 512 / maskable icons for a non-Persian locale on a multi_language
+    site.
+  - Not changed: the live panel frames show the *workspace's* mark (its own
+    logo, else a building icon), which is the customer's, not the platform's
+    brand. The small inline spinner (`BrandSpinner`) keeps its colours.
+- Tests: `src/test/themes/internationalMode.test.tsx`, plus the scheme's
+  contrasts in `artPalettes.test.ts` and its contract in
+  `panelThemeOptions.test.ts`.
 
 ## Adding a theme
 

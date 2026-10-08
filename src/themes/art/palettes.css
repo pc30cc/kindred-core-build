@@ -902,3 +902,148 @@
   --art-chart-5: 139 20% 63%;
   --art-chart-6: 292 28% 74%;
 }
+
+/* ── Respok (international mode only) ─────────────────────────────── */
+
+/* The RESPOK brand kit's colours (respok.app): Ink #16142B on Paper #F5F5F8
+   and white, Mist hairlines, Slate secondary text, and Signal #FF5A3C as the
+   spark. Offered and worn only in international mode (site_mode
+   multi_language and a UI language other than Persian; src/lib/
+   internationalMode.ts): anywhere else a stored `respok` reads as clay.
+   White text on Signal is only 3.1:1, so in light mode the accent is Signal
+   Deep (a shade deeper than the kit's #D3361A, to keep 4.5:1 as text on Paper
+   and on its own tint) with white text; in dark mode it is Signal itself with
+   Ink text (5.8:1). */
+:root[data-panel-theme="art"][data-panel-palette="respok"]:not(.dark) {
+  /* Paper and ink */
+  --background: 240 18% 96.7%;
+  --foreground: 245 37% 12.4%;
+  --card: 0 0% 100%;
+  --card-foreground: 245 37% 12.4%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 245 37% 12.4%;
+  --secondary: 246 19% 93.6%;
+  --secondary-foreground: 245 32% 15.5%;
+  --muted: 246 18% 94.4%;
+  --muted-foreground: 245 12% 41%;
+  --accent: 9 100% 95.6%;
+  --accent-foreground: 9 78% 36%;
+  --border: 247 19% 90.8%;
+  --input: 247 16% 86.5%;
+  --surface-elevated: 0 0% 100%;
+  --surface-sunken: 240 18% 95%;
+  --art-shadow: 245 32% 16%;
+  --art-hover-from: 0 0% 100%;
+  --art-hover-to: 240 18% 95.6%;
+  --art-scrim: 245 37% 8%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 240 18% 97.6%;
+  --sidebar-foreground: 245 24% 19%;
+  --sidebar-accent: 246 19% 91%;
+  --sidebar-accent-foreground: 245 37% 12.4%;
+  --sidebar-border: 247 19% 90.2%;
+  --sidebar-muted-foreground: 245 10% 41.5%;
+  --sidebar-primary: 9 78% 44%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 9 85% 55%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 9 78% 44%;
+  --primary-foreground: 0 0% 100%;
+  --gold: 9 78% 44%;
+  --gold-foreground: 0 0% 100%;
+  --ring: 9 85% 55%;
+
+  /* Gradients and the frame's light: Signal, running into Ink */
+  --brand-teal: 9 100% 61.8%;
+  --brand-sky: 245 37% 24%;
+  --brand-violet: 9 86% 52%;
+  --brand-coral: 22 100% 62%;
+  --art-grad-from: 9 100% 61.8%;
+  --art-grad-to: 9 78% 44%;
+  --art-brand-from: 9 100% 61.8%;
+  --art-brand-via: 9 86% 52%;
+  --art-soft-from: 9 100% 96.4%;
+  --art-soft-to: 246 24% 95.6%;
+
+  /* Categorical: people's avatars and plans (--plan-*), chart series (--art-chart-*) */
+  --plan-1: 9 78% 44%;
+  --plan-2: 250 41% 28%;
+  --plan-3: 174 72% 34%;
+  --plan-4: 50 68% 37%;
+  --plan-5: 211 58% 41%;
+  --art-chart-1: 9 78% 44%;
+  --art-chart-2: 250 41% 28%;
+  --art-chart-3: 174 72% 34%;
+  --art-chart-4: 50 68% 37%;
+  --art-chart-5: 317 32% 42%;
+  --art-chart-6: 211 58% 41%;
+}
+
+:root[data-panel-theme="art"][data-panel-palette="respok"].dark {
+  /* Paper and ink */
+  --background: 246 38% 7.6%;
+  --foreground: 240 18% 94%;
+  --card: 245 37% 12.4%;
+  --card-foreground: 240 18% 94%;
+  --popover: 245 34% 13.4%;
+  --popover-foreground: 240 18% 94%;
+  --secondary: 245 28% 15.6%;
+  --secondary-foreground: 240 14% 90%;
+  --muted: 245 28% 14.8%;
+  --muted-foreground: 246 14% 69.6%;
+  --accent: 9 32% 16.5%;
+  --accent-foreground: 9 100% 78%;
+  --border: 245 24% 18%;
+  --input: 245 20% 21.5%;
+  --surface-elevated: 245 34% 14%;
+  --surface-sunken: 246 40% 6%;
+  --art-hover-from: 245 36% 13.2%;
+  --art-hover-to: 245 30% 15.2%;
+  --art-scrim: 246 40% 5%;
+
+  /* Sidebar tokens (Art's side menu takes its paper from --secondary / --card) */
+  --sidebar-background: 246 40% 6.2%;
+  --sidebar-foreground: 240 10% 84%;
+  --sidebar-accent: 245 28% 15%;
+  --sidebar-accent-foreground: 240 18% 95%;
+  --sidebar-border: 245 30% 12%;
+  --sidebar-muted-foreground: 246 10% 62%;
+  --sidebar-primary: 9 100% 61.8%;
+  --sidebar-primary-foreground: 245 37% 12.4%;
+  --sidebar-ring: 9 100% 68%;
+
+  /* The accent: buttons, active pills, links, focus rings */
+  --primary: 9 100% 61.8%;
+  --primary-foreground: 245 37% 12.4%;
+  --gold: 9 100% 61.8%;
+  --gold-foreground: 245 37% 12.4%;
+  --ring: 9 100% 68%;
+
+  /* Gradients and the frame's light */
+  --brand-teal: 9 100% 61.8%;
+  --brand-sky: 246 30% 62%;
+  --brand-violet: 9 100% 70%;
+  --brand-coral: 22 100% 64%;
+  --art-grad-from: 9 100% 61.8%;
+  --art-grad-to: 9 100% 70%;
+  --art-brand-from: 9 100% 61.8%;
+  --art-brand-via: 14 100% 66%;
+  --art-soft-from: 9 30% 13%;
+  --art-soft-to: 246 30% 13%;
+
+  /* Categorical: people's avatars and plans (--plan-*, deeper than the series:
+     white text on a plan stays at 3:1), chart series (--art-chart-*) */
+  --plan-1: 9 78% 50%;
+  --plan-2: 246 34% 52%;
+  --plan-3: 187 59% 34%;
+  --plan-4: 39 75% 38%;
+  --plan-5: 204 55% 44%;
+  --art-chart-1: 9 100% 61.8%;
+  --art-chart-2: 246 60% 72%;
+  --art-chart-3: 187 59% 44%;
+  --art-chart-4: 39 81% 58%;
+  --art-chart-5: 331 53% 65%;
+  --art-chart-6: 204 66% 65%;
+}

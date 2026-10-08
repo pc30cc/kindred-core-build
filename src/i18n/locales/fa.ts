@@ -3777,6 +3777,8 @@ const fa: TranslationKeys = {
         ocean: 'اقیانوسی',
         saffron: 'زعفرانی',
         graphite: 'زغالی',
+        // International mode only: never listed in Persian (shared/panelThemes.ts).
+        respok: 'رسپاک',
       },
       themes: {
         classic: {

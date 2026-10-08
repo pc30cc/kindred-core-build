@@ -1,6 +1,8 @@
 /**
- * Money presentation — the platform STORES Iranian Rial (IRR) and DISPLAYS
- * Toman everywhere.
+ * Money presentation. In the Iranian edition the platform STORES Iranian Rial
+ * (IRR) and DISPLAYS Toman everywhere. In the International edition
+ * (src/lib/edition.ts) money is USD in minor units (cents) and Toman is never
+ * shown — formatAmountForEdition is the one formatter that knows both.
  *
  * Rial stays the storage/settlement unit because every financial function,
  * ledger row and FX snapshot is denominated in it, and changing the stored
@@ -8,6 +10,9 @@
  * operators actually read, so the conversion happens ONLY at the presentation
  * boundary — never in the ledger.
  */
+
+import { currentEdition, type Edition } from '@/lib/edition';
+import { editionCurrency, isRialCurrency } from '../../shared/edition';
 
 export const RIAL_PER_TOMAN = 10;
 
@@ -49,9 +54,47 @@ export function formatMoney(
   currency: string | null | undefined,
   locale?: string,
 ): string {
+  // The International edition: USD by default, minor units, never Toman.
+  const edition = currentEdition();
+  if (edition !== 'iran') return formatAmountForEdition(amount, currency, locale, edition);
   const code = (currency || 'IRR').toUpperCase();
   if (code === 'IRR' || code === 'IRT' || code === 'TOMAN') return formatToman(amount, locale);
   const n = Number(amount ?? 0);
   const value = Number.isFinite(n) ? n : 0;
   return `${new Intl.NumberFormat(locale || undefined).format(value)} ${code}`;
+}
+
+/** A minor-unit amount (cents) of `code` as people read it, e.g. "$29.00". */
+function formatMinorUnits(amount: number | string | null | undefined, code: string, locale?: string): string {
+  const n = Number(amount ?? 0);
+  const value = (Number.isFinite(n) ? n : 0) / 100;
+  try {
+    return new Intl.NumberFormat(locale || undefined, { style: 'currency', currency: code }).format(value);
+  } catch {
+    return `${new Intl.NumberFormat(locale || undefined, { maximumFractionDigits: 2 }).format(value)} ${code}`;
+  }
+}
+
+/**
+ * The edition-aware formatter for any stored amount.
+ *
+ *   - Iranian edition: IRR (whole Rial) reads as Toman, exactly as before;
+ *     no currency means IRR.
+ *   - International edition: no currency means USD; every non-Rial amount is
+ *     minor units ("$29.00"). A Rial amount (legacy data) is shown as plain
+ *     IRR — never relabelled as dollars, never as Toman.
+ */
+export function formatAmountForEdition(
+  amount: number | string | null | undefined,
+  currency: string | null | undefined,
+  locale?: string,
+  edition: Edition = currentEdition(),
+): string {
+  const code = (currency || editionCurrency(edition)).toUpperCase();
+  if (isRialCurrency(code)) {
+    if (edition === 'iran') return formatToman(amount, locale);
+    const n = Number(amount ?? 0);
+    return `${new Intl.NumberFormat(locale || undefined, { maximumFractionDigits: 0 }).format(Number.isFinite(n) ? n : 0)} IRR`;
+  }
+  return formatMinorUnits(amount, code, locale);
 }

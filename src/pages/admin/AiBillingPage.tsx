@@ -6,13 +6,21 @@
  * provider cost, FX or the margin multiplier.
  *
  * Presentation rules:
- *  - money is STORED in Rial and SHOWN in Toman (conversion only in money());
+ *  - money is STORED in Rial and SHOWN in Toman (conversion only in money())
+ *    in the Iranian edition. The International edition shows no Toman and no
+ *    USD→IRR exchange-rate card: its ledger amounts are plain numbers until
+ *    the AI ledger is denominated in USD;
  *  - every label goes through i18n and the page follows the document direction;
  *  - health is rendered as explained tables, never raw JSON.
  */
+// The AI billing API answers with free-form JSON (health reports, rate-card
+// components, run rows) that this page renders field by field through txt(),
+// nf() and money(); it has no typed contract yet, so `any` is allowed here.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState, useCallback } from 'react';
 import { API_BASE } from '@/lib/apiBase';
 import { formatToman, tomanLabel } from '@/lib/money';
+import { useEdition } from '@/hooks/useEdition';
 import { useTranslation } from '@/i18n';
 import { formatDateTime } from '@/lib/date';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -51,11 +59,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export default function AiBillingPage() {
   const { t, locale, dir } = useTranslation();
+  const edition = useEdition();
 
   /** Plain counts (runs, tokens). */
   const nf = (n: unknown) => new Intl.NumberFormat(locale).format(Math.round(Number(n) || 0));
-  /** Money — stored IRR, displayed Toman. */
-  const money = (irr: unknown) => formatToman(Number(irr ?? 0), locale);
+  /** Money — stored IRR, displayed Toman (Iranian edition); a plain number elsewhere. */
+  const money = (irr: unknown) =>
+    edition.isIran
+      ? formatToman(Number(irr ?? 0), locale)
+      : new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(Number(irr ?? 0) || 0);
   const usd = (n: unknown, digits = 4) => `$${(Number(n) || 0).toFixed(digits)}`;
   const when = (v?: string | null) => (v ? formatDateTime(v) : '—');
   /** Renders any API value safely — some columns can return JSON objects. */
@@ -329,6 +341,8 @@ export default function AiBillingPage() {
         {/* ───────── Pricing ───────── */}
         <TabsContent value="pricing" className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-2">
+            {/* USD→Rial exchange rate (Iranian market sources): the Iranian edition only. */}
+            {edition.isIran && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">{t('aiBilling.fx')}</CardTitle>
@@ -407,6 +421,7 @@ export default function AiBillingPage() {
                 </div>
               </CardContent>
             </Card>
+            )}
 
             <Card>
               <CardHeader>

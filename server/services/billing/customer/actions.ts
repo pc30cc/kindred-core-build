@@ -18,6 +18,7 @@ import { computeUpgradeProration, resolvePaidInterval } from '../proration.js';
 import { issueSubscriptionInvoice } from '../invoice/issue.js';
 import { isV2Active } from '../rollout.js';
 import type { InvoiceRow } from '../invoice/types.js';
+import { assertEditionFeature, resolveEditionCurrency } from '../edition.js';
 
 export type PlanChangeMode = 'immediate' | 'next_cycle';
 
@@ -76,10 +77,14 @@ interface EntitlementCycleRow {
   end: string;
 }
 
-/** A billing currency code from the client, normalised; IRR when absent. */
-export function billingCurrencyOf(raw: unknown): string {
+/**
+ * A billing currency code from the client, normalised; `fallback` when absent
+ * (IRR by default — callers that know the edition pass its currency, which is
+ * IRR in the Iranian edition and USD in the International one).
+ */
+export function billingCurrencyOf(raw: unknown, fallback = 'IRR'): string {
   const code = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
-  return /^[A-Z]{3}$/.test(code) ? code : 'IRR';
+  return /^[A-Z]{3}$/.test(code) ? code : fallback;
 }
 
 /**
@@ -244,8 +249,10 @@ export async function previewPlanChange(
     : { data: null };
   const current = currentData as PlanRow | null;
 
-  // Every amount below is in this currency (minor units; Rial for IRR).
-  const currency = billingCurrencyOf(input.currency);
+  // Every amount below is in this currency (minor units; Rial for IRR). With
+  // none requested it is the edition's (IRR in Iran, USD in International);
+  // Rial is refused in the International edition.
+  const currency = await resolveEditionCurrency(config, input.currency);
   const interval = input.interval;
   const pricedTarget = planPrice(target, interval, currency);
   if (pricedTarget === null) {
@@ -607,6 +614,8 @@ export async function issueAiCreditPurchase(
   amountIrr: number,
   bounds: { minIrr: number; maxIrr: number },
 ): Promise<InvoiceRow> {
+  // Rial AI credit: an Iranian-edition feature only (no USD ledger yet).
+  await assertEditionFeature(config, 'aiCreditTopup');
   const amount = Math.round(num(amountIrr));
   if (amount < bounds.minIrr || amount > bounds.maxIrr) {
     throw new BillingActionError('amount out of range', 400, 'AMOUNT_OUT_OF_RANGE', bounds);
@@ -626,6 +635,8 @@ export async function issueWalletDepositPurchase(
   amountIrr: number,
   bounds: { minIrr: number; maxIrr: number },
 ): Promise<InvoiceRow> {
+  // The wallet holds Rial: an Iranian-edition feature only.
+  await assertEditionFeature(config, 'wallet');
   const amount = Math.round(num(amountIrr));
   if (amount < bounds.minIrr || amount > bounds.maxIrr) {
     throw new BillingActionError('amount out of range', 400, 'AMOUNT_OUT_OF_RANGE', bounds);

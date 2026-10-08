@@ -19,6 +19,7 @@ import { Plus, Trash2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/i18n';
 import { formatMoney } from '@/lib/money';
+import { useEdition } from '@/hooks/useEdition';
 import {
   adminBillingApi,
   type AdminCurrency,
@@ -335,13 +336,15 @@ export function GatewaysTab() {
 
 export function TaxCouponsTab() {
   const { d, locale } = useDict();
+  // New fixed-amount coupons default to the edition's currency (IRR in Iran, USD elsewhere).
+  const edition = useEdition();
   const [loading, setLoading] = useState(true);
   const [taxRates, setTaxRates] = useState<AdminTaxRate[]>([]);
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
   const [taxDraft, setTaxDraft] = useState({ name: '', rate_percent: 0, country_code: '', currency: '' });
   const [couponDraft, setCouponDraft] = useState({
     code: '', discount_type: 'percent' as 'percent' | 'fixed', percent_off: 10,
-    amount_off_minor: 0, currency: 'IRR', max_redemptions: '', expires_at: '',
+    amount_off_minor: 0, currency: edition.currency as string, max_redemptions: '', expires_at: '',
   });
 
   const load = async () => {

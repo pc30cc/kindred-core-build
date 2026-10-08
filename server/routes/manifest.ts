@@ -10,14 +10,15 @@
  * links to it as `/api/manifest.webmanifest?locale=<current i18n locale>`
  * from PlatformBrandingGate.
  *
- * In international mode (platform_settings.site_mode = multi_language and a
- * locale other than Persian; shared/internationalMode.ts) the icons are the
- * RESPOK brand kit's (public/brand/intl/), over the operator's own.
+ * In the International edition (platform_settings.region_mode is not 'iran';
+ * shared/edition.ts, shared/internationalMode.ts) the icons are the RESPOK
+ * brand kit's (public/brand/intl/), over the operator's own, in every
+ * language. When the edition cannot be read the operator's own icons stay.
  */
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { clampLocaleToPlatformRegion } from '../services/platformRegion.js';
+import { clampLocaleToPlatformRegion, getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { INTL_BRAND, isInternationalMode } from '../../shared/internationalMode.js';
 
 export const manifestRouter = Router();
@@ -40,12 +41,12 @@ manifestRouter.get('/', async (req, res) => {
   const locale = await clampLocaleToPlatformRegion(config, typeof req.query.locale === 'string' ? req.query.locale : undefined);
   const effectiveLocale = locale || 'en';
 
-  const [{ data: branding }, { data: localizedRows }, { data: settings }] = await Promise.all([
+  const [{ data: branding }, { data: localizedRows }, edition] = await Promise.all([
     sb.from('platform_branding').select('*').limit(1).maybeSingle(),
     sb.from('platform_branding_localized').select('locale, platform_name, meta_description').in('locale', [effectiveLocale, 'en']),
-    sb.from('platform_settings').select('site_mode').order('created_at', { ascending: true }).limit(1).maybeSingle(),
+    getPlatformEditionOrNull(config),
   ]);
-  const international = isInternationalMode((settings as { site_mode?: unknown } | null)?.site_mode, effectiveLocale);
+  const international = isInternationalMode(edition, effectiveLocale);
 
   const rows = (localizedRows || []) as { locale: string; platform_name: string | null; meta_description: string | null }[];
   const locRow = rows.find((r) => r.locale === effectiveLocale) || rows.find((r) => r.locale === 'en') || null;

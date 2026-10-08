@@ -13,6 +13,13 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// These tests pin today's Iranian-edition behaviour (shared/edition.ts); the
+// International edition has its own suite (src/test/edition/*).
+vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/services/platformRegion.js')>()),
+  getPlatformEdition: async () => 'iran',
+}));
+
 type Row = Record<string, unknown>;
 
 const DAY = 86_400_000;

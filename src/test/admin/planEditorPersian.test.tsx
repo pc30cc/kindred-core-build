@@ -60,6 +60,9 @@ vi.mock('@/hooks/useEntitlements', async () => {
   };
 });
 vi.mock('@/lib/platformPublicConfig', () => ({
+  // The edition (src/lib/edition.ts) comes from the cache in these tests:
+  // unknown reads as the Iranian one, whose editor shows the Toman price.
+  usePlatformPublicConfig: () => ({ data: undefined }),
   fetchPlatformPublicConfig: async () => ({
     branding: null,
     localized: [],

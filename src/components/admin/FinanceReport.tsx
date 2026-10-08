@@ -34,6 +34,12 @@ function toman(value: number, locale: string): string {
   return new Intl.NumberFormat(l, { maximumFractionDigits: 0 }).format(Math.round(value / 10));
 }
 
+/** A USD minor-unit (cents) amount as dollars, without the currency word. */
+function dollars(value: number, locale: string): string {
+  const l = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
+  return new Intl.NumberFormat(l, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 100);
+}
+
 export default function FinanceReport() {
   const { t, locale } = useTranslation();
   const [months, setMonths] = useState(6);
@@ -72,18 +78,27 @@ export default function FinanceReport() {
     );
   }
 
+  // The server reports in the edition's currency: IRR (read as Toman) in the
+  // Iranian edition, exactly as before; USD minor units in the International
+  // one, which never shows Toman.
+  const usd = String(data.currency || 'IRR').toUpperCase() !== 'IRR';
+  const fmtAmount = (value: number) => (usd ? dollars(value, locale) : toman(value, locale));
+  const currencyLabel = usd ? 'USD' : label('currency', 'تومان');
+  const chartUnit = (value: number) => (usd ? Math.round(value) / 100 : Math.round(value / 10));
+
   const series = data.series.map((s) => ({
     ...s,
     monthLabel: formatDate(`${s.month}-01T00:00:00Z`, { year: '2-digit', month: 'short' }),
-    revenueToman: Math.round(s.revenue / 10),
-    subscriptionToman: Math.round(s.subscription / 10),
-    topupToman: Math.round(s.topup / 10),
+    // Chart values in the unit people read (Toman, or dollars); the keys are historic.
+    revenueToman: chartUnit(s.revenue),
+    subscriptionToman: chartUnit(s.subscription),
+    topupToman: chartUnit(s.topup),
   }));
 
   const kpis = [
-    { key: 'netRevenue', icon: Wallet, value: toman(data.totals.netRevenue, locale), tone: 'text-emerald-600 bg-emerald-500/10' },
-    { key: 'mrr', icon: Repeat, value: toman(data.totals.mrrIrr, locale), tone: 'text-primary bg-primary/10' },
-    { key: 'avgOrder', icon: Receipt, value: toman(data.totals.avgOrderValue, locale), tone: 'text-blue-600 bg-blue-500/10' },
+    { key: 'netRevenue', icon: Wallet, value: fmtAmount(data.totals.netRevenue), tone: 'text-emerald-600 bg-emerald-500/10' },
+    { key: 'mrr', icon: Repeat, value: fmtAmount(data.totals.mrrIrr), tone: 'text-primary bg-primary/10' },
+    { key: 'avgOrder', icon: Receipt, value: fmtAmount(data.totals.avgOrderValue), tone: 'text-blue-600 bg-blue-500/10' },
     { key: 'conversion', icon: Percent, value: `${data.totals.conversionRate}%`, tone: 'text-amber-600 bg-amber-500/10', raw: true },
   ];
 
@@ -113,7 +128,7 @@ export default function FinanceReport() {
                 <div className={`p-2 rounded-lg ${tone}`}><Icon className="w-5 h-5" /></div>
                 <div className="min-w-0">
                   <p className="text-xl font-bold text-foreground truncate">
-                    {value}{!raw && <span className="text-xs font-normal text-muted-foreground ms-1">{label('currency', 'تومان')}</span>}
+                    {value}{!raw && <span className="text-xs font-normal text-muted-foreground ms-1">{currencyLabel}</span>}
                   </p>
                   <p className="text-xs text-muted-foreground">{label(`kpi.${key}`, key)}</p>
                 </div>
@@ -146,7 +161,7 @@ export default function FinanceReport() {
                 tickFormatter={(v) => new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : 'en-US', { notation: 'compact' }).format(v)} />
               <Tooltip
                 contentStyle={{ background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }}
-                formatter={(v: any) => [new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : 'en-US').format(v as number), label('currency', 'تومان')]}
+                formatter={(v: unknown) => [new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : 'en-US').format(v as number), currencyLabel]}
               />
               <Area type="monotone" dataKey="revenueToman" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#revFill)" name={label('charts.revenue', 'درآمد')} />
             </AreaChart>
@@ -191,7 +206,7 @@ export default function FinanceReport() {
                     {data.byStatus.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
                   </Pie>
                   <Legend wrapperStyle={{ fontSize: 12 }}
-                    formatter={(v: any) => (t(`admin.financeReport.status.${v}` as never) as unknown as string)?.replace(/^admin\.financeReport.*/, v)} />
+                    formatter={(v: unknown) => (t(`admin.financeReport.status.${String(v)}` as never) as unknown as string)?.replace(/^admin\.financeReport.*/, String(v))} />
                   <Tooltip contentStyle={{ background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }} />
                 </PieChart>
               </ResponsiveContainer>
@@ -212,7 +227,7 @@ export default function FinanceReport() {
                 <div key={p.provider} className="space-y-1">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-foreground" dir="ltr">{p.provider}</span>
-                    <span className="text-muted-foreground">{toman(p.revenue, locale)} · {p.count}</span>
+                    <span className="text-muted-foreground">{fmtAmount(p.revenue)} · {p.count}</span>
                   </div>
                   <div className="h-2 rounded-full bg-muted overflow-hidden">
                     <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(4, (p.revenue / max) * 100)}%`, background: PALETTE[i % PALETTE.length] }} />
@@ -262,7 +277,7 @@ export default function FinanceReport() {
                 <span className="text-sm text-foreground truncate">{w.name}</span>
               </div>
               <span className="text-sm text-muted-foreground whitespace-nowrap">
-                {toman(w.revenue, locale)} <span className="text-xs">{label('currency', 'تومان')}</span> · {w.count}
+                {fmtAmount(w.revenue)} <span className="text-xs">{currencyLabel}</span> · {w.count}
               </span>
             </div>
           ))}

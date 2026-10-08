@@ -35,6 +35,7 @@ import {
   type PlanChangePreview,
 } from '@/lib/billingApi';
 import { money, ErrorState, errorMessage } from './shared';
+import { useEdition } from '@/hooks/useEdition';
 
 export default function PlansTab({
   workspaceId,
@@ -48,6 +49,7 @@ export default function PlansTab({
   onChanged: () => void;
 }) {
   const { t, locale } = useTranslation();
+  const edition = useEdition();
   const [data, setData] = useState<PlansView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -140,8 +142,10 @@ export default function PlansTab({
   if (error) return <ErrorState message={error} onRetry={load} retryLabel={t('billing.common.retry')} />;
   if (!data) return null;
 
-  const currency = data.currency || 'IRR';
-  const currencies = data.currencies || [];
+  // The server never offers Rial in the International edition; the client
+  // does not either (no Toman button, no Rial fallback).
+  const currency = data.currency || edition.currency;
+  const currencies = (data.currencies || []).filter((code) => edition.allowsCurrency(code));
 
   return (
     <div className="space-y-6">
@@ -182,7 +186,7 @@ export default function PlansTab({
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {code === 'IRR' ? t('billing.plans.currencyToman') : code}
+                {code === 'IRR' && edition.isIran ? t('billing.plans.currencyToman') : code}
               </button>
             ))}
           </div>
@@ -261,7 +265,8 @@ export default function PlansTab({
                   )}
                 </div>
 
-                {plan.aiMonthlyAllowanceIrr > 0 && (
+                {/* The AI allowance is a Rial amount: shown in the Iranian edition only. */}
+                {edition.features.aiCreditTopup && plan.aiMonthlyAllowanceIrr > 0 && (
                   <div
                     className="rounded-xl p-3"
                     style={{

@@ -109,10 +109,10 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** The invoice's currency (column default IRR). */
-export function invoiceCurrency(inv: { currency?: unknown } | null | undefined): string {
+/** The invoice's currency; `fallback` (IRR unless the caller passes the edition's) when the row has none. */
+export function invoiceCurrency(inv: { currency?: unknown } | null | undefined, fallback = 'IRR'): string {
   const code = typeof inv?.currency === 'string' ? inv.currency.trim().toUpperCase() : '';
-  return /^[A-Z]{3}$/.test(code) ? code : 'IRR';
+  return /^[A-Z]{3}$/.test(code) ? code : fallback;
 }
 
 /** The wallet holds Rial: it can only pay invoices issued in IRR. */

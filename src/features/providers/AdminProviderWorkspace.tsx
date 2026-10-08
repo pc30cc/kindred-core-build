@@ -36,7 +36,8 @@ import {
   testProviderConnection, getFallbackLog,
   type ProviderTypeKey, type ProviderHealth,
 } from '@/providers';
-import { PROVIDER_SCHEMAS, type ProviderVendor, type ProviderField } from './schemas';
+import { PROVIDER_SCHEMAS, getSchemaForEdition, type ProviderVendor, type ProviderField } from './schemas';
+import { useEdition } from '@/hooks/useEdition';
 import { ProviderConfigForm } from './ProviderConfigForm';
 import { ProviderHealthBadge, ProviderHealthDot } from './ProviderHealthBadge';
 import { ProviderIcon } from './ProviderIcon';
@@ -163,7 +164,9 @@ export function AdminProviderWorkspace({ type, extra }: Props) {
   const { t, dir } = useI18n();
   const rtl = dir === 'rtl';
   const qc = useQueryClient();
-  const schema = PROVIDER_SCHEMAS[type];
+  // The International edition lists no Iranian vendor (schemas.ts).
+  const { edition } = useEdition();
+  const schema = getSchemaForEdition(type, edition);
   const providers = useRegisteredProviders(type);
   const summary = useProviderSummary();
 
@@ -195,14 +198,16 @@ export function AdminProviderWorkspace({ type, extra }: Props) {
 
   // Open on whatever is actually configured — not on the first vendor in the catalogue.
   useEffect(() => {
-    if (configuredVendor) setSelectedVendor(configuredVendor);
-  }, [configuredVendor]);
+    if (!configuredVendor) return;
+    // A configured vendor hidden in this edition is not opened.
+    if (edition === 'iran' || schema?.vendors.some((v) => v.name === configuredVendor)) setSelectedVendor(configuredVendor);
+  }, [configuredVendor, schema, edition]);
 
   useEffect(() => {
     setSection('vendors');
     setHealthMap({});
-    setSelectedVendor(PROVIDER_SCHEMAS[type]?.vendors[0]?.name ?? '');
-  }, [type]);
+    setSelectedVendor(getSchemaForEdition(type, edition)?.vendors[0]?.name ?? '');
+  }, [type, edition]);
 
   const saveConfig = useMutation({
     mutationFn: async ({ vendor, config }: { vendor: string; config: Record<string, string> }) => {

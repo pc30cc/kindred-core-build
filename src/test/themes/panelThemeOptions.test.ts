@@ -25,7 +25,10 @@ import { panelThemeLabel, panelThemes, previewSwatches } from '@/themes/registry
 import {
   ART_LAYOUTS,
   ART_PALETTES,
+  INTERNATIONAL_ART_PALETTES,
   PANEL_THEME_OPTIONS,
+  artPaletteFor,
+  artPalettesFor,
   PANEL_THEME_OPTION_KEYS,
   isValidPanelThemeOptions,
   resolvePanelThemeOptions,
@@ -37,7 +40,7 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8'
 describe('the options', () => {
   it('Art has a layout and a colour scheme; the first value of each is its default', () => {
     expect(ART_LAYOUTS).toEqual(['topnav', 'sidebar']);
-    expect(ART_PALETTES).toEqual(['clay', 'sage', 'indigo', 'plum', 'ocean', 'saffron', 'graphite']);
+    expect(ART_PALETTES).toEqual(['clay', 'sage', 'indigo', 'plum', 'ocean', 'saffron', 'graphite', 'respok']);
     expect(PANEL_THEME_OPTIONS.art).toEqual({ layout: ART_LAYOUTS, palette: ART_PALETTES });
     expect(PANEL_THEME_OPTIONS.classic).toEqual({});
     expect([...PANEL_THEME_OPTION_KEYS].sort()).toEqual(['layout', 'palette']);
@@ -100,6 +103,28 @@ describe('the options', () => {
   });
 });
 
+describe('the international-only colour scheme', () => {
+  it('is respok, stored and validated like any other (no migration)', () => {
+    expect(INTERNATIONAL_ART_PALETTES).toEqual(['respok']);
+    expect(isValidPanelThemeOptions('art', { palette: 'respok' })).toBe(true);
+    expect(resolvePanelThemeOptions('art', { art: { palette: 'respok' } })).toEqual({ layout: 'topnav', palette: 'respok' });
+  });
+
+  it('is offered only in international mode', () => {
+    expect(artPalettesFor(true)).toEqual(ART_PALETTES);
+    expect(artPalettesFor(false)).toEqual(['clay', 'sage', 'indigo', 'plum', 'ocean', 'saffron', 'graphite']);
+  });
+
+  it('is worn only in international mode; anywhere else it is clay, and every other scheme is itself', () => {
+    expect(artPaletteFor('respok', true)).toBe('respok');
+    expect(artPaletteFor('respok', false)).toBe('clay');
+    for (const palette of ART_PALETTES.filter((id) => id !== 'respok')) {
+      expect(artPaletteFor(palette, false)).toBe(palette);
+      expect(artPaletteFor(palette, true)).toBe(palette);
+    }
+  });
+});
+
 describe('storage', () => {
   it('migration 254 adds a JSON object column defaulting to {} and is re-runnable', () => {
     const sql = read('database/migrations/254_workspace_panel_theme_options.sql');
@@ -157,6 +182,11 @@ describe('Super Admin → Panel theme', () => {
     expect(page).toMatch(/theme === 'art' && artDirty && optionsSaveable \? \{ theme, options: \{ \.\.\.art \} \} : \{ theme \}/);
     // An older backend (mid-deploy) answers 200 without the options.
     expect(page).toMatch(/'options_not_saved'/);
+    // The international-only scheme is listed only in international mode, and
+    // shown (and named) as clay outside it.
+    expect(page).toMatch(/palettes=\{artPalettesFor\(international\)\}/);
+    expect(page).toMatch(/value=\{artShown\}/);
+    expect(page).toMatch(/art=\{isArt \? artShown : undefined\}/);
     expect(page).toMatch(/code === 'migration_required'\s*\? tk\('admin\.panelThemes\.options\.needsMigration'\)/);
   });
 
@@ -237,6 +267,7 @@ describe('Super Admin → Panel theme', () => {
       ocean: 'اقیانوسی',
       saffron: 'زعفرانی',
       graphite: 'زغالی',
+      respok: 'رسپاک',
     });
     expect(tr.admin.panelThemes.palettes).toEqual({
       clay: 'Kil',
@@ -246,6 +277,7 @@ describe('Super Admin → Panel theme', () => {
       ocean: 'Okyanus',
       saffron: 'Safran',
       graphite: 'Grafit',
+      respok: 'Respok',
     });
     expect(tr.admin.panelThemes.layouts).toMatchObject({ topnav: { name: 'Üst menü' }, sidebar: { name: 'Yan menü' } });
   });

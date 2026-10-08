@@ -17,7 +17,7 @@ const req: CheckoutRequest = {
   callbackUrl: 'https://app.example.com/callback',
   customerName: 'Mock Buyer',
   customerEmail: 'mock-buyer@example.com',
-  metadata: { amount: '99.90' },
+  metadata: { amount: '9990' },
 };
 
 const FIXED_NOW = 1700000000000;
@@ -102,7 +102,7 @@ describe('iyzico createCheckoutSession', () => {
     );
   });
 
-  it('keeps amount as-is and defaults it to "0"', async () => {
+  it('converts the minor-unit amount and defaults it to "0"', async () => {
     const fetchMock = mockJson(ok);
     await iyzicoProvider.createCheckoutSession(config, { ...req, metadata: undefined });
     const payload = JSON.parse(fetchMock.mock.calls[0][1].body);

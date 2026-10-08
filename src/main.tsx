@@ -10,6 +10,7 @@ import "./themes/art/inbox.css";
 import "./themes/art/sidebar.css";
 import "./themes/art/palettes.css";
 import "./themes/art/charts.css";
+import "./themes/authPalette.css";
 import { loadFontsForLocale } from "./lib/fonts";
 import { getStoredLocale, loadLocaleMessages } from "./i18n";
 import { installLocalizedDateDefaults, setAppDateLocale } from "./lib/date";

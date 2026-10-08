@@ -48,4 +48,9 @@ export const ART_PALETTE_SWATCHES: Record<ArtPalette, { light: ArtPaletteSwatch;
     light: { primary: 'hsl(28 8% 21%)', primaryInk: 'hsl(34 22% 98.6%)', canvas: 'hsl(34 22% 97.9%)', surface: 'hsl(34 32% 99.3%)', series: ['hsl(28 8% 21%)', 'hsl(205 40% 52%)', 'hsl(40 55% 42%)', 'hsl(13 50% 45%)'] },
     dark: { primary: 'hsl(34 14% 81%)', primaryInk: 'hsl(35 40% 7.7%)', canvas: 'hsl(31 9% 7.2%)', surface: 'hsl(31 7% 11.4%)', series: ['hsl(34 14% 81%)', 'hsl(205 43% 58%)', 'hsl(38 58% 58%)', 'hsl(13 50% 62%)'] },
   },
+  // International mode only (shared/panelThemes.ts, INTERNATIONAL_ART_PALETTES).
+  respok: {
+    light: { primary: 'hsl(9 78% 44%)', primaryInk: 'hsl(0 0% 100%)', canvas: 'hsl(240 18% 96.7%)', surface: 'hsl(0 0% 100%)', series: ['hsl(9 78% 44%)', 'hsl(250 41% 28%)', 'hsl(174 72% 34%)', 'hsl(50 68% 37%)'] },
+    dark: { primary: 'hsl(9 100% 61.8%)', primaryInk: 'hsl(245 37% 12.4%)', canvas: 'hsl(246 38% 7.6%)', surface: 'hsl(245 37% 12.4%)', series: ['hsl(9 100% 61.8%)', 'hsl(246 60% 72%)', 'hsl(187 59% 44%)', 'hsl(39 81% 58%)'] },
+  },
 };

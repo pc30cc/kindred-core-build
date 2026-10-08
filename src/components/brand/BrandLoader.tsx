@@ -6,13 +6,21 @@
  * The styles live in index.html (the `.wy-*` classes) so the static
  * #boot-splash can draw the identical loader on the very first paint, before
  * this bundle loads; these components only reuse them.
+ *
+ * In international mode (src/lib/internationalMode.ts) the arcs turn in the
+ * RESPOK kit's Signal (`.wy-intl`) and the foot carries the kit's horizontal
+ * logo instead of "WEBYAR AI"; index.html's boot splash does the same from
+ * the cached site mode. Persian never shows them.
  */
 import { cn } from '@/lib/utils';
+import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
+import { IntlBrandImage } from './BrandLogo';
 
 /** The two turning arcs on their own. */
 export function BrandLoader({ className }: { className?: string; size?: string; logoUrl?: string | null; label?: string; showLabel?: boolean }) {
+  const international = useInternationalMode();
   return (
-    <div className={cn('wy-loader', className)} role="status" aria-label="Loading">
+    <div className={cn('wy-loader', international && 'wy-intl', className)} role="status" aria-label="Loading">
       <span className="wy-track" aria-hidden />
       <span className="wy-comet" aria-hidden />
       <span className="wy-inner" aria-hidden>
@@ -30,6 +38,15 @@ export function BrandLoader({ className }: { className?: string; size?: string; 
 
 /** "WEBYAR AI" — always Latin and left-to-right: it is the mark, not prose. */
 export function BrandFooter() {
+  const international = useInternationalMode();
+  if (international) {
+    return (
+      <div className="wy-footer wy-intl-footer" aria-hidden>
+        <img className="wy-intl-light" src={INTL_BRAND.horizontal.light} alt="" draggable={false} />
+        <img className="wy-intl-dark" src={INTL_BRAND.horizontal.dark} alt="" draggable={false} />
+      </div>
+    );
+  }
   return (
     <div className="wy-footer" aria-hidden>
       <span className="wy-name">WEBYAR</span>
@@ -40,6 +57,14 @@ export function BrandFooter() {
 
 /** The same "WEBYAR AI" mark, in normal flow (e.g. under the auth cards). */
 export function BrandWordmark({ className }: { className?: string }) {
+  const international = useInternationalMode();
+  if (international) {
+    return (
+      <div dir="ltr" aria-hidden className={cn('flex justify-center opacity-70 select-none', className)}>
+        <IntlBrandImage variant="wordmark" className="h-3.5" />
+      </div>
+    );
+  }
   return (
     <div
       dir="ltr"

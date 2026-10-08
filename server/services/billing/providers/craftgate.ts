@@ -1,4 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
+import { minorToMajorString } from './minorAmount.js';
 import crypto from 'crypto';
 
 // --- Local runtime narrowing for Craftgate JSON bodies (no shared helper, no casts) ---
@@ -72,7 +73,8 @@ export const craftgateProvider: BillingProviderHandler = {
   },
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    const amount = parseFloat(String(req.metadata?.amount || '0'));
+    // `metadata.amount` is in minor units (kuruş); this API takes a decimal amount.
+    const amount = Number(minorToMajorString(req.metadata?.amount));
     const orderId = `${req.workspaceId}_${Date.now()}`;
     const path = '/payment/v1/checkout-payments/init';
     const bodyObj = {
@@ -116,7 +118,7 @@ export const craftgateProvider: BillingProviderHandler = {
 
   async refundPayment(config: BillingProviderConfig, paymentId: string, amount?: number) {
     const path = '/payment/v1/refund-payments';
-    const bodyObj: any = { paymentId: parseInt(paymentId) };
+    const bodyObj: { paymentId: number; refundPrice?: number } = { paymentId: parseInt(paymentId) };
     if (amount) bodyObj.refundPrice = amount / 100;
     const bodyStr = JSON.stringify(bodyObj);
 
@@ -143,8 +145,8 @@ export const craftgateProvider: BillingProviderHandler = {
         return { success: false, latencyMs: Date.now() - start, error: 'Invalid credentials' };
       }
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

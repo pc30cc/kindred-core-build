@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect } from 'react';
 import type { WorkspaceBranding } from '@/types/models';
 import { usePlatformOrigins } from '@/hooks/usePlatformOrigins';
+import { useInternationalMode } from '@/lib/internationalMode';
 
 interface BrandingContextValue {
   branding: WorkspaceBranding | null;
@@ -25,15 +26,17 @@ export function BrandingProvider({
 }) {
   const platformName = (branding?.platform_name || '').trim();
   const { data: origins } = usePlatformOrigins();
+  const international = useInternationalMode();
 
   // NOTE: the browser title is owned exclusively by PlatformBrandingGate
   // (platform_branding_localized). Workspace branding must not overwrite it.
 
 
 
-  // Drive favicon from branding
+  // Drive favicon from branding. In international mode the RESPOK kit's
+  // favicon wins (PlatformBrandingGate sets it).
   useEffect(() => {
-    if (branding?.favicon_url) {
+    if (branding?.favicon_url && !international) {
       let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
       if (!link) {
         link = document.createElement('link');
@@ -42,7 +45,7 @@ export function BrandingProvider({
       }
       link.href = branding.favicon_url;
     }
-  }, [branding?.favicon_url]);
+  }, [branding?.favicon_url, international]);
 
   // Drive meta description
   useEffect(() => {

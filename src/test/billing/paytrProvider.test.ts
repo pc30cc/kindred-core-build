@@ -90,7 +90,7 @@ describe('paytr createCheckoutSession (success)', () => {
     const orderId = 'ws1_1700000000000';
     const expectedHash = `merchant-id-mock10.0.0.1${orderId}buyer@example.com19900subscription0TRY0merchant-salt-mock`;
     const expectedToken = crypto.createHmac('sha256', 'merchant-key-mock').update(expectedHash).digest('base64');
-    const expectedBasket = Buffer.from(JSON.stringify([['Plan plan-pro', '19900', 1]])).toString('base64');
+    const expectedBasket = Buffer.from(JSON.stringify([['Plan plan-pro', '199.00', 1]])).toString('base64');
 
     expect(p.get('merchant_id')).toBe('merchant-id-mock');
     expect(p.get('user_ip')).toBe('10.0.0.1');

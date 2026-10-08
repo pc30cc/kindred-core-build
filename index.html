@@ -112,6 +112,26 @@
         -webkit-background-clip: text; background-clip: text; color: transparent;
       }
       #boot-splash { transition: opacity 0.2s ease; }
+      /* International mode (src/lib/internationalMode.ts; never in Persian):
+         the RESPOK kit's Paper / Ink, the arcs in Signal and its horizontal
+         logo at the foot ("color" on light, "reversed" on dark). */
+      .wy-loader.wy-intl { --wy-deep: #D3361A; --wy-cyan: #FF5A3C; --wy-brand: 255 90 60; }
+      .wy-intl .wy-comet::after { box-shadow: 0 0 6px rgb(255 90 60 / 0.9); }
+      .wy-intl .wy-inner circle { stroke: #FF5A3C; }
+      .wy-launch:has(> .wy-intl) { --wy-bg: #F5F5F8; }
+      .wy-intl-footer img { display: block; height: 22px; width: auto; }
+      .wy-intl-footer .wy-intl-dark { display: none; }
+      @media (prefers-color-scheme: dark) {
+        html:not(.light) .wy-launch:has(> .wy-intl) { --wy-bg: #0E0D1C; }
+        html:not(.light) .wy-intl-footer .wy-intl-light { display: none; }
+        html:not(.light) .wy-intl-footer .wy-intl-dark { display: block; }
+      }
+      html.dark .wy-launch:has(> .wy-intl) { --wy-bg: #0E0D1C; }
+      html.dark .wy-intl-footer .wy-intl-light { display: none; }
+      html.dark .wy-intl-footer .wy-intl-dark { display: block; }
+      html.light .wy-launch:has(> .wy-intl) { --wy-bg: #F5F5F8; }
+      html.light .wy-intl-footer .wy-intl-light { display: block; }
+      html.light .wy-intl-footer .wy-intl-dark { display: none; }
     </style>
   </head>
 
@@ -124,6 +144,36 @@
       </div>
       <div class="wy-footer" aria-hidden="true"><span class="wy-name">WEBYAR</span><span class="wy-ai">AI</span></div>
     </div>
+    <script>
+      // International mode (src/lib/internationalMode.ts): the site mode last
+      // seen is multi_language and the UI language (as getStoredLocale picks
+      // it) is not Persian. Then the first paint already wears the RESPOK kit:
+      // the launch loader as BrandLoaderScreen draws it, the favicon and the
+      // home-screen icon (PlatformBrandingGate keeps them in step afterwards).
+      (function () {
+        try {
+          var ls = window.localStorage;
+          if (ls.getItem('wy-site-mode') !== 'multi_language') return;
+          var ok = { en: 1, fa: 1, tr: 1 };
+          var locale = ls.getItem('app-locale');
+          if (!ok[locale]) {
+            var configured = (window.__APP_RUNTIME_CONFIG__ || {}).defaultLocale;
+            locale = ok[configured] ? configured : 'en';
+          }
+          if (locale === 'fa') return;
+          var splash = document.getElementById('boot-splash');
+          splash.querySelector('.wy-loader').className += ' wy-intl';
+          var foot = splash.querySelector('.wy-footer');
+          foot.className = 'wy-footer wy-intl-footer';
+          foot.innerHTML = '<img class="wy-intl-light" src="/brand/intl/respok-thread-horizontal-color.svg" alt="" />' +
+            '<img class="wy-intl-dark" src="/brand/intl/respok-thread-horizontal-reversed.svg" alt="" />';
+          var icon = document.querySelector('link[rel="icon"]');
+          if (icon) { icon.type = 'image/svg+xml'; icon.href = '/brand/intl/favicon.svg'; }
+          var touch = document.querySelector('link[rel="apple-touch-icon"]');
+          if (touch) touch.href = '/brand/intl/apple-touch-icon.png';
+        } catch (e) {}
+      })();
+    </script>
     <div id="root" style="opacity:0"></div>
     <script type="text/javascript">
       (function () {

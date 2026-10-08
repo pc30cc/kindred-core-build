@@ -1,0 +1,85 @@
+/*
+ * The sign-in pages (login, sign-up, forgot and reset password, and the
+ * verify / check-email steps under AuthLayout) in the colours of Art's
+ * `respok` scheme, while that scheme is the platform's and the page is in
+ * international mode (src/themes/authPalette.ts puts
+ * <html data-auth-palette="respok"> while AuthLayout is mounted). Anywhere
+ * else, and always in Persian, the attribute is absent and none of this
+ * applies: the sign-in pages keep index.css's own colours.
+ *
+ * Every selector starts with :root[data-auth-palette="respok"] (checked by
+ * src/test/themes/panelThemes.test.ts). The values are the scheme's own
+ * (src/themes/art/palettes.css); the light block is :not(.dark) and the dark
+ * one .dark, both above index.css's :root / .dark and the per-user
+ * html[data-ui-*] choices.
+ *
+ * The call to action (.btn-shimmer) is the kit's Signal with Ink text (5.8:1:
+ * white on Signal is only 3.1:1); links and other accents are the scheme's
+ * --primary, Signal Deep with white text in light mode, Signal with Ink text
+ * in dark mode.
+ */
+
+:root[data-auth-palette="respok"]:not(.dark) {
+  --background: 240 18% 96.7%;
+  --foreground: 245 37% 12.4%;
+  --card: 0 0% 100%;
+  --card-foreground: 245 37% 12.4%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 245 37% 12.4%;
+  --secondary: 246 19% 93.6%;
+  --secondary-foreground: 245 32% 15.5%;
+  --muted: 246 18% 94.4%;
+  --muted-foreground: 245 12% 41%;
+  --accent: 9 100% 95.6%;
+  --accent-foreground: 9 78% 36%;
+  --border: 247 19% 90.8%;
+  --input: 247 16% 86.5%;
+  --primary: 9 78% 44%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 9 85% 55%;
+
+  /* The aurora, the card's light border and the call to action: Signal and Ink */
+  --brand-teal: 9 100% 61.8%;
+  --brand-sky: 245 37% 24%;
+  --brand-violet: 9 86% 52%;
+  --brand-coral: 22 100% 62%;
+  --gradient-primary: linear-gradient(120deg, hsl(9 100% 61.8%), hsl(9 78% 44%));
+  --gradient-brand: linear-gradient(120deg, hsl(9 100% 61.8%), hsl(14 100% 64%));
+  --gradient-soft: linear-gradient(160deg, hsl(9 100% 96.4%), hsl(246 24% 95.6%));
+  --shadow-glow: 0 18px 44px -16px hsl(9 100% 61.8% / 0.38);
+  --shadow-card: 0 1px 2px hsl(245 37% 12.4% / 0.06), 0 24px 50px -28px hsl(245 37% 12.4% / 0.28);
+}
+
+:root[data-auth-palette="respok"].dark {
+  --background: 246 38% 7.6%;
+  --foreground: 240 18% 94%;
+  --card: 245 37% 12.4%;
+  --card-foreground: 240 18% 94%;
+  --popover: 245 34% 13.4%;
+  --popover-foreground: 240 18% 94%;
+  --secondary: 245 28% 15.6%;
+  --secondary-foreground: 240 14% 90%;
+  --muted: 245 28% 14.8%;
+  --muted-foreground: 246 14% 69.6%;
+  --accent: 9 32% 16.5%;
+  --accent-foreground: 9 100% 78%;
+  --border: 245 24% 18%;
+  --input: 245 20% 21.5%;
+  --primary: 9 100% 61.8%;
+  --primary-foreground: 245 37% 12.4%;
+  --ring: 9 100% 68%;
+
+  --brand-teal: 9 100% 61.8%;
+  --brand-sky: 246 30% 62%;
+  --brand-violet: 9 100% 70%;
+  --brand-coral: 22 100% 64%;
+  --gradient-primary: linear-gradient(120deg, hsl(9 100% 61.8%), hsl(9 100% 70%));
+  --gradient-brand: linear-gradient(120deg, hsl(9 100% 61.8%), hsl(14 100% 66%));
+  --gradient-soft: linear-gradient(160deg, hsl(9 30% 13%), hsl(246 30% 13%));
+  --shadow-glow: 0 20px 60px -20px hsl(9 100% 61.8% / 0.35);
+}
+
+/* The call to action: Ink on Signal (index.css sets white text on it). */
+:root[data-auth-palette="respok"] .btn-shimmer {
+  color: hsl(245 37% 12.4%) !important;
+}

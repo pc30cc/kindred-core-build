@@ -9,11 +9,16 @@
  * Mounted at /api/manifest.webmanifest (see server/index.ts). The frontend
  * links to it as `/api/manifest.webmanifest?locale=<current i18n locale>`
  * from PlatformBrandingGate.
+ *
+ * In international mode (platform_settings.site_mode = multi_language and a
+ * locale other than Persian; shared/internationalMode.ts) the icons are the
+ * RESPOK brand kit's (public/brand/intl/), over the operator's own.
  */
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { clampLocaleToPlatformRegion } from '../services/platformRegion.js';
+import { INTL_BRAND, isInternationalMode } from '../../shared/internationalMode.js';
 
 export const manifestRouter = Router();
 
@@ -35,10 +40,12 @@ manifestRouter.get('/', async (req, res) => {
   const locale = await clampLocaleToPlatformRegion(config, typeof req.query.locale === 'string' ? req.query.locale : undefined);
   const effectiveLocale = locale || 'en';
 
-  const [{ data: branding }, { data: localizedRows }] = await Promise.all([
+  const [{ data: branding }, { data: localizedRows }, { data: settings }] = await Promise.all([
     sb.from('platform_branding').select('*').limit(1).maybeSingle(),
     sb.from('platform_branding_localized').select('locale, platform_name, meta_description').in('locale', [effectiveLocale, 'en']),
+    sb.from('platform_settings').select('site_mode').order('created_at', { ascending: true }).limit(1).maybeSingle(),
   ]);
+  const international = isInternationalMode((settings as { site_mode?: unknown } | null)?.site_mode, effectiveLocale);
 
   const rows = (localizedRows || []) as { locale: string; platform_name: string | null; meta_description: string | null }[];
   const locRow = rows.find((r) => r.locale === effectiveLocale) || rows.find((r) => r.locale === 'en') || null;
@@ -67,7 +74,19 @@ manifestRouter.get('/', async (req, res) => {
   }
 
   // Relative icon paths belong to the APP origin, not this API host.
-  const icon = iconUrl.startsWith('/') && base !== '/' ? base.replace(/\/$/, '') + iconUrl : iconUrl;
+  const onApp = (url: string) => (url.startsWith('/') && base !== '/' ? base.replace(/\/$/, '') + url : url);
+  const icon = onApp(iconUrl);
+  const icons = international
+    ? [
+        { src: onApp(INTL_BRAND.pwa192), sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: onApp(INTL_BRAND.pwa512), sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: onApp(INTL_BRAND.pwaMaskable), sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ]
+    : [
+        { src: icon, sizes: '192x192', type: guessMimeType(iconUrl), purpose: 'any' },
+        { src: icon, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'any' },
+        { src: icon, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'maskable' },
+      ];
 
   const manifest = {
     name,
@@ -80,11 +99,7 @@ manifestRouter.get('/', async (req, res) => {
     dir: RTL_LOCALES.has(effectiveLocale) ? 'rtl' : 'ltr',
     theme_color: themeColor,
     background_color: backgroundColor,
-    icons: [
-      { src: icon, sizes: '192x192', type: guessMimeType(iconUrl), purpose: 'any' },
-      { src: icon, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'any' },
-      { src: icon, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'maskable' },
-    ],
+    icons,
   };
 
   // Cross-origin manifests are fetched with CORS (the <link> carries

@@ -164,6 +164,30 @@ describe('the Art stylesheets', () => {
   });
 });
 
+describe('the sign-in pages’ international scheme (authPalette.css)', () => {
+  const PATH = 'src/themes/authPalette.css';
+  const strip = () => read(PATH).replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('applies only under <html data-auth-palette="respok">, so the sign-in pages keep their look anywhere else', () => {
+    const selectors: string[] = [];
+    const rule = /([^{}@;]+)\{[^{}]*\}/g;
+    const source = strip();
+    for (let m = rule.exec(source); m; m = rule.exec(source)) selectors.push(...splitSelectors(m[1]));
+    expect(selectors.length).toBeGreaterThanOrEqual(3);
+    for (const selector of selectors) {
+      expect(selector.startsWith(':root[data-auth-palette="respok"]'), selector).toBe(true);
+    }
+    // Light values never leak into dark mode, nor the other way round.
+    expect(source).toContain(':root[data-auth-palette="respok"]:not(.dark) {');
+    expect(source).toContain(':root[data-auth-palette="respok"].dark {');
+  });
+
+  it('is loaded by the app and set only by AuthLayout', () => {
+    expect(read('src/main.tsx')).toContain('import "./themes/authPalette.css";');
+    expect(read('src/components/layout/AuthLayout.tsx')).toMatch(/useApplyAuthPalette\(\)/);
+  });
+});
+
 describe('the themes on Super Admin → Panel theme', () => {
   it('lists every theme the server accepts, once, in order', () => {
     expect(panelThemes.map((t) => t.id)).toEqual([...PANEL_THEME_IDS]);

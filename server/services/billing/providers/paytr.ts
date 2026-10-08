@@ -1,4 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
+import { minorToMajorString } from './minorAmount.js';
 import crypto from 'crypto';
 
 // Local, PayTR-specific parsers for the get-token response only.
@@ -61,7 +62,8 @@ export const paytrProvider: BillingProviderHandler = {
     const email = req.customerEmail || 'user@example.com';
 
     // PayTR hash
-    const basketJson = Buffer.from(JSON.stringify([[`Plan ${req.planId}`, String(amount), 1]])).toString('base64');
+    // `payment_amount` is kuruş (the stored minor units); a basket line price is decimal lira.
+    const basketJson = Buffer.from(JSON.stringify([[`Plan ${req.planId}`, minorToMajorString(amount), 1]])).toString('base64');
     const hashStr = `${merchantId}${userIp}${orderId}${email}${amount}subscription${0}TRY${0}${merchantSalt}`;
     const token = crypto.createHmac('sha256', merchantKey).update(hashStr).digest('base64');
 
@@ -145,8 +147,8 @@ export const paytrProvider: BillingProviderHandler = {
         return { success: false, latencyMs: Date.now() - start, error: 'Invalid merchant credentials' };
       }
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

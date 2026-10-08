@@ -21,7 +21,8 @@
  *
  * Only whitelisted, presentational fields are read into it, so the cache
  * holds nothing private: no platform_settings field beyond the three the
- * language picker needs, and the realtime values come from
+ * language picker needs and `site_mode` (single_language / multi_language,
+ * which decides international mode: shared/internationalMode.ts), and the realtime values come from
  * get_widget_platform_settings(), the projection already safe for anonymous
  * callers.
  */
@@ -106,7 +107,7 @@ async function load(config: ServerConfig): Promise<PlatformPublicConfig | null> 
     sb.from('platform_branding_localized').select('*').order('locale'),
     sb
       .from('platform_settings')
-      .select('region_mode, active_locales, default_locale')
+      .select('region_mode, active_locales, default_locale, site_mode')
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle(),

@@ -29,9 +29,30 @@ export function resolvePanelTheme(value: unknown): PanelThemeId {
 export const ART_LAYOUTS = ['topnav', 'sidebar'] as const;
 export type ArtLayout = (typeof ART_LAYOUTS)[number];
 
-/** Art's colour schemes; `clay` is the original one. */
-export const ART_PALETTES = ['clay', 'sage', 'indigo', 'plum', 'ocean', 'saffron', 'graphite'] as const;
+/**
+ * Art's colour schemes; `clay` is the original one. `respok` (the RESPOK
+ * brand kit's colours) is for international mode only (shared/
+ * internationalMode.ts): offered and worn only there, read as clay anywhere
+ * else (artPaletteFor).
+ */
+export const ART_PALETTES = ['clay', 'sage', 'indigo', 'plum', 'ocean', 'saffron', 'graphite', 'respok'] as const;
 export type ArtPalette = (typeof ART_PALETTES)[number];
+
+/** Colour schemes offered and worn only in international mode. */
+export const INTERNATIONAL_ART_PALETTES: readonly ArtPalette[] = ['respok'];
+
+/** The schemes a Super Admin may pick, in or out of international mode. */
+export function artPalettesFor(international: boolean): readonly ArtPalette[] {
+  return international ? ART_PALETTES : ART_PALETTES.filter((id) => !INTERNATIONAL_ART_PALETTES.includes(id));
+}
+
+/**
+ * The scheme to wear: an international-only scheme outside international
+ * mode (Persian, or a single-language site) is the default, clay.
+ */
+export function artPaletteFor(palette: ArtPalette, international: boolean): ArtPalette {
+  return !international && INTERNATIONAL_ART_PALETTES.includes(palette) ? ART_PALETTES[0] : palette;
+}
 
 /** Every theme's options and the values each accepts (first = default). */
 export const PANEL_THEME_OPTIONS = {

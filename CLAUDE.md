@@ -136,8 +136,9 @@ reserved blocks, so a full disk stops Postgres too.
        then remove `/tmp/m253` from the container.
   - The ledger `public._schema_migrations` is complete: the chain at
     `fa0e79d` (250 files), plus `252_email_sender_placeholders_cleared.sql`,
-    `253_workspace_panel_theme.sql` (2026-10-08 07:08 UTC) and
-    `254_workspace_panel_theme_options.sql` (2026-10-08 13:27 UTC).
+    `253_workspace_panel_theme.sql` (2026-10-08 07:08 UTC),
+    `254_workspace_panel_theme_options.sql` (2026-10-08 13:27 UTC) and
+    `255_billing_v2_renewal_currency.sql` (2026-10-08 21:42 UTC).
   - RESPOK's database is migrated automatically: its DB Migrator (app 40)
     runs `scripts/migrate-database.sh` on every push to `main`, then
     `/data/respok/migrator/overlay.sql`. Since 2026-10-08 the overlay is a

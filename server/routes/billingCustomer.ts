@@ -37,6 +37,7 @@ import {
   issueAiCreditPurchase,
   issueWalletDepositPurchase,
   billingCurrencyOf,
+  planPriceInCurrency,
   BillingActionError,
 } from '../services/billing/customer/actions.js';
 import {
@@ -618,11 +619,15 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
   }
 });
 
-/** A catalogue price, minor units of `currency`; IRR still honours the legacy flat columns. */
+/**
+ * A catalogue price, minor units of `currency`; 0 when the plan is not sold
+ * in it at that interval. The same rule as the plan change that charges it
+ * (planPriceInCurrency): a plan with a price map is sold only at a positive
+ * price set in that currency; only a plan with no price map at all reads the
+ * legacy flat columns, for IRR.
+ */
 function catalogPrice(p: CatalogPlanRow, currency: string, interval: 'monthly' | 'yearly'): number {
-  const fromMap = p.prices?.[currency]?.[interval];
-  const raw = currency === 'IRR' ? fromMap ?? (interval === 'yearly' ? p.price_yearly : p.price_monthly) : fromMap;
-  return Math.round(Number(raw ?? 0)) || 0;
+  return Math.max(0, planPriceInCurrency(p, interval, currency) ?? 0) || 0;
 }
 
 function planSellsIn(p: CatalogPlanRow, currency: string): boolean {

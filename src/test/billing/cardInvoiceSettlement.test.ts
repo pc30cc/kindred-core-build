@@ -38,6 +38,7 @@ vi.mock('../../../server/services/billing/paymentIntent.js', async (importOrigin
   claimIntentForProcessing: (...a: unknown[]) => claim(...a),
   claimLapsedIntentForProcessing: (...a: unknown[]) => claimLapsed(...a),
   getPaymentIntent: (...a: unknown[]) => readIntent(...a),
+  readPaymentIntent: (...a: unknown[]) => readIntent(...a),
   markIntentSucceeded: (...a: unknown[]) => markSucceeded(...a),
   markPaymentIntentFailed: (...a: unknown[]) => markFailed(...a),
   noteIntentFailureAttempt: (...a: unknown[]) => noteFailure(...a),

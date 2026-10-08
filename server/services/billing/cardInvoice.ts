@@ -38,7 +38,7 @@ import {
   SUPERSEDED_BY_NEW_CHECKOUT,
   claimIntentForProcessing,
   claimLapsedIntentForProcessing,
-  getPaymentIntent,
+  readPaymentIntent,
   markIntentSucceeded,
   markPaymentIntentFailed,
   noteIntentFailureAttempt,
@@ -309,12 +309,20 @@ async function parkPayment(
     providerName: input.providerName,
     providerPaymentId: bindToIntent ? input.paymentId || input.providerRef || null : providerPaymentIdOf(input),
     paymentIntentId: bindToIntent ? intent.id : null,
-    invoiceNumber: intent.invoice_number,
+    // The document number is unique among payments
+    // (uq_billing_payments_invoice_number) and belongs to the payment bound
+    // to the intent. An unbound payment carries it in its metadata only, so
+    // the one constraint it can meet is (provider_name, provider_payment_id),
+    // which recordCustomerPayment resolves on a replay.
+    invoiceNumber: bindToIntent ? intent.invoice_number : null,
     amount: typeof input.amount === 'number' && Number.isFinite(input.amount) ? input.amount : 0,
     currency: normalizeCurrencyCode(input.currency) || intentCurrency(intent),
     purchaseType: intent.purchase_type === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
     actionType: intent.action_type || 'plan_new',
-    metadata: paymentMetadata(input, { parked: reason }),
+    metadata: paymentMetadata(input, {
+      parked: reason,
+      ...(bindToIntent ? {} : { invoiceNumber: intent.invoice_number ?? null }),
+    }),
   });
   if (payment.id) {
     await getServiceClient(config)
@@ -401,7 +409,7 @@ export async function settleVerifiedCardPayment(
     // Finalized by someone else meanwhile: a repeat only if THIS payment is
     // the one that settled it. Any other money is recorded for review, never
     // reported as a duplicate and dropped.
-    const current = (await getPaymentIntent(config, intent.id)) as InvoiceIntent | null;
+    const current = (await readPaymentIntent(config, intent.id)) as InvoiceIntent | null;
     if (current?.status === 'succeeded') return settledIntentRepeat(config, input, current);
     return parkPayment(config, { ...input, intent: current ?? intent }, `payment_after_intent_${current?.status ?? 'missing'}`, {
       bindToIntent: false,

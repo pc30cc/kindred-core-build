@@ -7,7 +7,9 @@
 //
 // Amounts are IRR integers formatted with a locale-appropriate grouping, and
 // dates are rendered in the Tehran calendar for `fa` — the same convention the
-// rest of the Iran billing surface uses.
+// rest of the Iran billing surface uses. An amount in another currency (named
+// by `payload.currency`, migration 256) is minor units of it and is printed as
+// that currency.
 // ============================================================
 
 export type BillingNotificationType =
@@ -44,6 +46,36 @@ export function formatIrr(amount: unknown, locale: BillingLocale): string {
     maximumFractionDigits: 0,
   }).format(Math.round(n));
   return locale === 'fa' ? `${grouped} ریال` : locale === 'tr' ? `${grouped} IRR` : `${grouped} IRR`;
+}
+
+/**
+ * The currency a payload's amount is in: `payload.currency`, read the way
+ * invoiceCurrency() reads an invoice (trimmed, upper-cased, IRR unless it is
+ * a three-letter code). A job queued before migration 256 has no currency and
+ * was always Rial.
+ */
+export function payloadCurrency(raw: unknown): string {
+  const code = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+  return /^[A-Z]{3}$/.test(code) ? code : 'IRR';
+}
+
+/**
+ * An amount in `currency`: IRR exactly as formatIrr prints it (whole Rial);
+ * any other currency from minor units (cents / kuruş: 2900 → $29.00).
+ */
+export function formatAmount(amount: unknown, currency: unknown, locale: BillingLocale): string {
+  const code = payloadCurrency(currency);
+  if (code === 'IRR') return formatIrr(amount, locale);
+  const n = Number(amount ?? 0);
+  const major = Number.isFinite(n) ? Math.round(n) / 100 : 0;
+  try {
+    return new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US', {
+      style: 'currency',
+      currency: code,
+    }).format(major);
+  } catch {
+    return `${major.toFixed(2)} ${code}`;
+  }
 }
 
 export function formatDate(value: unknown, locale: BillingLocale): string {
@@ -265,7 +297,7 @@ export function buildBillingTemplateData(
   const loc = normalizeLocale(locale);
   return {
     invoice_number: String(payload.invoice_number ?? '—'),
-    amount: formatIrr(payload.amount_irr, loc),
+    amount: formatAmount(payload.amount_irr, payload.currency, loc),
     due_at: formatDate(payload.due_at, loc),
     grace_ends_at: formatDate(payload.grace_period_ends_at, loc),
     plan_name: String(payload.plan_name ?? (loc === 'fa' ? 'رایگان' : 'Free')),
@@ -284,7 +316,7 @@ export function renderBillingNotification(
   const loc = normalizeLocale(locale);
   const ctx: Ctx = {
     invoiceNumber: String(payload.invoice_number ?? '—'),
-    amount: formatIrr(payload.amount_irr, loc),
+    amount: formatAmount(payload.amount_irr, payload.currency, loc),
     dueAt: formatDate(payload.due_at, loc),
     graceEndsAt: formatDate(payload.grace_period_ends_at, loc),
     planName: String(payload.plan_name ?? (loc === 'fa' ? 'رایگان' : 'Free')),

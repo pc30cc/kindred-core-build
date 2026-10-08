@@ -48,9 +48,13 @@ WebYar's own PostgreSQL 17 + pgvector on the same server:
 - Only `DATABASE_URL` changed in the move: secrets, pools and names are as
   before.
 - The migration ledger `public._schema_migrations` is complete (the chain at
-  `fa0e79d`, 250 files, plus `252_email_sender_placeholders_cleared.sql`).
+  `fa0e79d`, 250 files, plus `252_email_sender_placeholders_cleared.sql` and
+  `253_workspace_panel_theme.sql`, applied 2026-10-08).
   Apply new migrations from the server with `scripts/migrate-database.sh`
-  against `webyar`.
+  against `webyar`. The database container runs on `vps-50cc1602`, not on
+  the Coolify host `analyticsme.site`; there, as `postgres`, inside the
+  container: `docker exec -e DATABASE_URL=postgresql://postgres@/webyar
+  oqzy9q4ovntam9jgf7nxzqun bash <copied scripts/migrate-database.sh>`.
 - Kit, measured cutover, backups and rollback:
   `/root/webyar-rollout/20261007-selfhosted/README.md` (root only).
 - Runbook: `docs/operations/PRODUCTION_DATABASE_MODE.md`.

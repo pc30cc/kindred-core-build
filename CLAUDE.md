@@ -87,8 +87,8 @@ deploy round after a merge adds about 12 GB of build cache plus the new images
 (68% to 91% on 2026-10-08), a LimerLanding deploy about 5 GB.
 
 - Coolify's Docker cleanup (server `localhost` → Docker Cleanup) checks every
-  5 minutes (`*/5 * * * *`, force off, threshold 80%; since 2026-10-08, before
-  that forced once a day at 00:00). At 80% or more it removes the build cache,
+  5 minutes (`*/5 * * * *`, force off, threshold 75%; since 2026-10-08, before
+  that forced once a day at 00:00). At 75% or more it removes the build cache,
   unused images that belong to no app, and each app's images beyond the 2
   newest. Containers are named `<uuid>-<timestamp>`, which Coolify's check for
   the running image does not match, so 2 means the running image and one
@@ -99,8 +99,11 @@ deploy round after a merge adds about 12 GB of build cache plus the new images
   its container is removed, the next cleanup deletes it, so stop that stack
   with `docker compose stop`, not `down` (its Dockerfile is in
   `/opt/webyar-whmcs-test/`).
-- Coolify's disk-usage check alerts Telegram when the disk is at 80% or more at
-  23:00 UTC. Manual cleanups so far: `/root/disk-cleanup-20261008.log`.
+- Telegram's high-disk alert (Sentinel, checked every minute) fires above 80%,
+  at most once a day until usage drops to 75%. Keep the cleanup threshold below
+  it, or every deploy round alerts before the cleanup runs. Not above about
+  82% either: `/` has no reserved blocks, so a full disk stops Postgres too.
+  Changes and manual cleanups: `/root/disk-cleanup-20261008.log`.
 
 ### Database
 

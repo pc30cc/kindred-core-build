@@ -118,8 +118,10 @@ export function SettingsLayout() {
     return initial;
   });
 
-  const toggleGroup = (key: string) => {
-    setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }));
+  // `openByDefault` is how a group the member never toggled shows (Art opens
+  // the current one), so the first click always flips what is on screen.
+  const toggleGroup = (key: string, openByDefault: boolean) => {
+    setExpandedGroups(prev => ({ ...prev, [key]: !(prev[key] ?? openByDefault) }));
   };
 
   const isActive = (path: string) => location.pathname === path;
@@ -162,7 +164,7 @@ export function SettingsLayout() {
             return (
               <div key={group.key}>
                 <button
-                  onClick={() => toggleGroup(group.key)}
+                  onClick={() => toggleGroup(group.key, isArt && hasActiveItem)}
                   data-section-nav-group
                   data-active={hasActiveItem}
                   className={cn(

@@ -82,7 +82,7 @@ function TopBar({ s }: { s: PanelThemeSwatches }) {
       <span className="me-[2%] h-[5px] w-[9%] rounded-full" style={{ background: s.ink, opacity: 0.75 }} />
       {PILL_WIDTHS.map((width, i) => (
         <span
-          key={width + i}
+          key={i}
           className="flex h-[44%] items-center justify-center rounded-full"
           style={{ width: `${width}%`, background: i === 1 ? tint(s.primary, 14) : 'transparent' }}
         >

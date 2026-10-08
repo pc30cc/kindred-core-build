@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useTranslation } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
@@ -40,6 +41,12 @@ export function ArtShell({
   const { workspace } = useActiveWorkspace();
   const nav = useArtNav();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // The phone drawer closes on every navigation, including the ones its
+  // workspace switcher, invite link and upgrade button make (as Classic's).
+  const { pathname, search } = useLocation();
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname, search]);
   // Strips (the inbox's views, a side list, a phone's row of pills) always
   // show where the member is, and fade the edge that hides more.
   useRevealCurrentInStrips(locale);

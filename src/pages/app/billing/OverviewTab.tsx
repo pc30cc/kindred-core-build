@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { CalendarClock, Wallet, Sparkles, Receipt, Info, X, ArrowUpCircle, Plus } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import type { BillingOverview } from '@/lib/billingApi';
 import { billingSetAutoPay } from '@/lib/billingApi';
 import { billingDate, money, InvoiceStatusBadge, errorMessage } from './shared';
@@ -335,7 +335,7 @@ export default function OverviewTab({
                   <span className="font-medium">{upcomingInvoice.planName || '—'}</span>
                   <InvoiceStatusBadge
                     status={upcomingInvoice.status}
-                    label={t(`billing.invoices.statuses.${upcomingInvoice.status}` as any)}
+                    label={t(`billing.invoices.statuses.${upcomingInvoice.status}` as TranslationKey)}
                   />
                 </div>
                 <p className="text-sm text-muted-foreground">
@@ -348,7 +348,7 @@ export default function OverviewTab({
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-lg font-bold">{money(upcomingInvoice.amountDueIrr, locale)}</span>
+                <span className="text-lg font-bold">{money(upcomingInvoice.amountDueIrr, locale, upcomingInvoice.currency)}</span>
                 {upcomingInvoice.amountDueIrr > 0 && canManage && (
                   <Button size="sm" onClick={() => onPayInvoice(upcomingInvoice.id)}>
                     {t('billing.overview.payNow')}

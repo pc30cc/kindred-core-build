@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { SkeletonCard } from '@/components/common/Skeletons';
 import { ArrowRight, CheckCircle2, CreditCard, Loader2, Printer, RefreshCw, Wallet, XCircle } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import {
@@ -30,8 +30,12 @@ import {
 } from '@/lib/billingApi';
 import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, errorMessage } from './shared';
 import { billingGetPaymentIntent, billingVerifyCallback, type BillingReceipt } from '@/lib/api';
+import { openPaddleCheckout } from '@/lib/paddleCheckout';
 
 type Kind = 'invoice' | 'deposit';
+
+/** The server receipt; `currency` names the unit of `amountIrr` (absent from older servers: IRR). */
+type Receipt = BillingReceipt & { currency?: string };
 
 /**
  * The Lovable/local preview proxies API calls as the deployed app origin so
@@ -71,7 +75,7 @@ export default function PaymentPage() {
   const [busy, setBusy] = useState(false);
   const [paymentResult, setPaymentResult] = useState<{
     state: 'processing' | 'succeeded' | 'failed';
-    receipt?: BillingReceipt | null;
+    receipt?: Receipt | null;
     /**
      * Stable diagnostic code (never a raw error message or provider
      * response) — the customer never sees this, but it lets a developer
@@ -89,20 +93,30 @@ export default function PaymentPage() {
     if (!workspaceId || !id) return;
     setLoading(true);
     setError(null);
-    const doc =
+    // The document fixes the currency (a wallet top-up is always Rial); only
+    // gateways that can collect THAT currency are offered.
+    const doc: Promise<string> =
       kind === 'deposit'
-        ? billingDepositDetail(workspaceId, id).then((r) => setDeposit(r.deposit))
-        : billingInvoiceDetail(workspaceId, id).then(setInvoice);
+        ? billingDepositDetail(workspaceId, id).then((r) => {
+            setDeposit(r.deposit);
+            return 'IRR';
+          })
+        : billingInvoiceDetail(workspaceId, id).then((detail) => {
+            setInvoice(detail);
+            return detail.invoice.currency || 'IRR';
+          });
 
-    Promise.all([
-      doc,
-      billingGateways(workspaceId)
-        .then((r) => {
-          setGateways(r.gateways);
-          setSelected((prev) => prev ?? r.gateways[0]?.provider_name ?? null);
-        })
-        .catch(() => setGateways([])),
-    ])
+    doc
+      .then((currency) =>
+        billingGateways(workspaceId, currency)
+          .then((r) => {
+            setGateways(r.gateways);
+            setSelected((prev) =>
+              prev && r.gateways.some((g) => g.provider_name === prev) ? prev : r.gateways[0]?.provider_name ?? null,
+            );
+          })
+          .catch(() => setGateways([])),
+      )
       .catch((e) => setError(errorMessage(e, t)))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,7 +147,7 @@ export default function PaymentPage() {
       window.sessionStorage.setItem(pendingStorageKey, JSON.stringify({ intentId, provider, params: callbackParams }));
     }
 
-    const finish = (receipt?: BillingReceipt | null) => {
+    const finish = (receipt?: Receipt | null) => {
       setPaymentResult({ state: 'succeeded', receipt });
       setCanRetryStatus(false);
       if (pendingStorageKey) window.sessionStorage.removeItem(pendingStorageKey);
@@ -185,7 +199,10 @@ export default function PaymentPage() {
     verifyOrResume
       .then(async (result) => {
         if (result.verified && !result.pending) return finish(result.receipt);
-        if (result.verified && result.pending) return pollFinalState();
+        // Pending with or without a verification: a card payment confirmed by
+        // the provider's webhook, or a finalization still running. The intent
+        // state is the answer — never a guessed failure.
+        if (result.pending) return pollFinalState();
         return markFailed(result.status === 'canceled' ? 'GATEWAY_CANCELED' : 'GATEWAY_NOT_VERIFIED');
       })
       .catch((e) => markFailed(e instanceof Error && e.message ? e.message : 'VERIFY_NETWORK_ERROR'));
@@ -238,6 +255,13 @@ export default function PaymentPage() {
         kind === 'deposit'
           ? await billingDepositCheckout(workspaceId, id, callbackUrl, selected || undefined)
           : await billingInvoiceCheckout(workspaceId, id, callbackUrl, selected || undefined);
+      const clientCheckout = 'clientCheckout' in res ? res.clientCheckout : undefined;
+      if (clientCheckout?.provider === 'paddle') {
+        // Paddle Billing opens on this page (Paddle.js) and returns to the
+        // server-provided URL once paid; closing it leaves the invoice open.
+        await openPaddleCheckout(clientCheckout, { locale, onClosed: () => setBusy(false) });
+        return;
+      }
       const url = res.paymentUrl || res.checkoutUrl || res.url;
       if (!url) throw new Error('NO_PROVIDER_CONFIGURED');
       window.location.href = url;
@@ -279,6 +303,8 @@ export default function PaymentPage() {
 
   const isDeposit = kind === 'deposit';
   const docNumber = isDeposit ? deposit?.documentNumber : invoice?.invoice.invoiceNumber;
+  // A wallet top-up is Rial; an invoice carries its own currency.
+  const docCurrency = isDeposit ? 'IRR' : invoice?.invoice.currency || 'IRR';
   const amountDue = isDeposit ? deposit?.amountIrr ?? 0 : invoice?.totals.dueIrr ?? 0;
   const alreadyPaid = isDeposit
     ? deposit?.status === 'paid'
@@ -317,7 +343,7 @@ export default function PaymentPage() {
             {!isDeposit && invoice && (
               <InvoiceStatusBadge
                 status={invoice.invoice.status}
-                label={t(`billing.invoices.statuses.${invoice.invoice.status}` as any)}
+                label={t(`billing.invoices.statuses.${invoice.invoice.status}` as TranslationKey)}
               />
             )}
           </div>
@@ -358,7 +384,7 @@ export default function PaymentPage() {
                     key={line.id}
                     description={line.description}
                     qty={line.quantity}
-                    amount={money(line.amountIrr, locale)}
+                    amount={money(line.amountIrr, locale, docCurrency)}
                   />
                 ))
               )}
@@ -369,25 +395,25 @@ export default function PaymentPage() {
           <div className="ms-auto w-full max-w-sm space-y-1.5 text-sm">
             {!isDeposit && invoice && (
               <>
-                <Total label={t('billing.invoices.detail.subtotal')} value={money(invoice.totals.subtotalIrr, locale)} />
+                <Total label={t('billing.invoices.detail.subtotal')} value={money(invoice.totals.subtotalIrr, locale, docCurrency)} />
                 {invoice.totals.discountIrr > 0 && (
                   <Total
                     label={t('billing.invoices.detail.discount')}
-                    value={`− ${money(invoice.totals.discountIrr, locale)}`}
+                    value={`− ${money(invoice.totals.discountIrr, locale, docCurrency)}`}
                   />
                 )}
                 {invoice.totals.taxIrr > 0 && (
-                  <Total label={t('billing.invoices.detail.tax')} value={money(invoice.totals.taxIrr, locale)} />
+                  <Total label={t('billing.invoices.detail.tax')} value={money(invoice.totals.taxIrr, locale, docCurrency)} />
                 )}
                 {invoice.totals.paidIrr > 0 && (
-                  <Total label={t('billing.invoices.detail.paid')} value={money(invoice.totals.paidIrr, locale)} />
+                  <Total label={t('billing.invoices.detail.paid')} value={money(invoice.totals.paidIrr, locale, docCurrency)} />
                 )}
               </>
             )}
             <Separator className="my-2" />
             <div className="flex items-center justify-between text-base font-bold">
               <span>{t('billing.checkout.payable')}</span>
-              <span className="text-primary">{money(amountDue, locale)}</span>
+              <span className="text-primary">{money(amountDue, locale, docCurrency)}</span>
             </div>
           </div>
         </CardContent>
@@ -406,7 +432,7 @@ export default function PaymentPage() {
             )}
             <div>
               <h2 className="text-xl font-bold">
-                {t(`billing.paymentResult.${paymentResult.state}Title` as any)}
+                {t(`billing.paymentResult.${paymentResult.state}Title` as TranslationKey)}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 {paymentResult.state === 'succeeded'
@@ -417,13 +443,15 @@ export default function PaymentPage() {
                         : 'billing.paymentResult.successDescription', {
                       plan: paymentResult.receipt?.planName || t('billing.overview.currentPlan'),
                     })
-                  : t(`billing.paymentResult.${paymentResult.state}Description` as any)}
+                  : paymentResult.errorCode === 'PAYMENT_UNDER_REVIEW'
+                    ? t('billing.errors.PAYMENT_UNDER_REVIEW')
+                    : t(`billing.paymentResult.${paymentResult.state}Description` as TranslationKey)}
               </p>
             </div>
             {paymentResult.state === 'succeeded' && paymentResult.receipt && (
               <div className="mx-auto grid max-w-xl gap-2 text-sm sm:grid-cols-2">
                 <Row label={t('billing.paymentResult.receiptNumber')} value={paymentResult.receipt.invoiceNumber || paymentResult.receipt.orderId} />
-                <Row label={t('billing.common.amount')} value={money(paymentResult.receipt.amountIrr, locale)} />
+                <Row label={t('billing.common.amount')} value={money(paymentResult.receipt.amountIrr, locale, paymentResult.receipt.currency)} />
                 <Row label={t('billing.paymentResult.trackingCode')} value={paymentResult.receipt.providerRef || '—'} />
                 <Row label={t('billing.common.date')} value={billingDate(paymentResult.receipt.paidAt, locale)} />
               </div>
@@ -501,7 +529,7 @@ export default function PaymentPage() {
               <Button size="lg" className="gap-2" onClick={payOnline} disabled={busy || gateways.length === 0}>
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />}
                 <CreditCard className="h-4 w-4" />
-                {t('billing.checkout.payNow', { amount: money(amountDue, locale) })}
+                {t('billing.checkout.payNow', { amount: money(amountDue, locale, docCurrency) })}
               </Button>
 
               {!isDeposit && invoice?.actions.canPayWallet && (

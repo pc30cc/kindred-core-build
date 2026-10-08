@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SkeletonTable } from '@/components/common/Skeletons';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { billingTransactions, type CustomerTransaction } from '@/lib/billingApi';
 import { billingDate, money, Ltr, ErrorState, EmptyState, Pager, errorMessage } from './shared';
 
@@ -73,16 +73,16 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
                   {rows.map((row) => (
                     <tr key={row.id} className="border-b last:border-0">
                       <td className="p-2">{billingDate(row.createdAt, locale)}</td>
-                      <td className="p-2">{t(`billing.transactions.purchase.${row.purchaseType}` as any)}</td>
+                      <td className="p-2">{t(`billing.transactions.purchase.${row.purchaseType}` as TranslationKey)}</td>
                       <td className="p-2">{row.providerReference || row.documentNumber ? <Ltr>{row.providerReference || row.documentNumber}</Ltr> : '—'}</td>
                       <td className="p-2">
                         <Badge variant={statusVariant(row.status, row.needsReview)}>
                           {row.needsReview
                             ? t('billing.transactions.statuses.review')
-                            : t(`billing.transactions.statuses.${row.status}` as any)}
+                            : t(`billing.transactions.statuses.${row.status}` as TranslationKey)}
                         </Badge>
                       </td>
-                      <td className="p-2 text-end font-medium">{money(row.amountIrr, locale)}</td>
+                      <td className="p-2 text-end font-medium">{money(row.amountIrr, locale, row.currency)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -94,17 +94,17 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
                 <div key={row.id} className="rounded-lg border p-3">
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <span className="text-sm font-medium">
-                      {t(`billing.transactions.purchase.${row.purchaseType}` as any)}
+                      {t(`billing.transactions.purchase.${row.purchaseType}` as TranslationKey)}
                     </span>
                     <Badge variant={statusVariant(row.status, row.needsReview)}>
                       {row.needsReview
                         ? t('billing.transactions.statuses.review')
-                        : t(`billing.transactions.statuses.${row.status}` as any)}
+                        : t(`billing.transactions.statuses.${row.status}` as TranslationKey)}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>{billingDate(row.createdAt, locale)}</span>
-                    <span className="font-semibold text-foreground">{money(row.amountIrr, locale)}</span>
+                    <span className="font-semibold text-foreground">{money(row.amountIrr, locale, row.currency)}</span>
                   </div>
                   {(row.providerReference || row.documentNumber) && (
                     <p className="mt-1 text-xs text-muted-foreground">

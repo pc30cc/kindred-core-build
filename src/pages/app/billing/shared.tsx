@@ -12,6 +12,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, RefreshCw, Inbox } from 'lucide-react';
 import { formatDate } from '@/lib/date';
 import { formatToman } from '@/lib/money';
+import { formatPlanPrice } from '@/lib/planPrice';
+import type { TranslationKey } from '@/i18n';
 
 /** Jalali in fa, Gregorian elsewhere — a display concern only, never storage. */
 export function billingDate(value: string | null | undefined, locale: string): string {
@@ -19,8 +21,15 @@ export function billingDate(value: string | null | undefined, locale: string): s
   return formatDate(value, { year: 'numeric', month: 'long', day: 'numeric' }, locale);
 }
 
-export function money(irr: number | null | undefined, locale: string): string {
-  return formatToman(irr ?? 0, locale);
+/**
+ * A server amount as people read it. IRR (whole Rial) reads as Toman; every
+ * other currency is in minor units and reads as e.g. "$29.00". AI credit and
+ * the wallet are Rial, so their callers leave `currency` at IRR.
+ */
+export function money(amount: number | null | undefined, locale: string, currency = 'IRR'): string {
+  const code = (currency || 'IRR').toUpperCase();
+  if (code === 'IRR') return formatToman(amount ?? 0, locale);
+  return formatPlanPrice(amount ?? 0, code, locale);
 }
 
 /**
@@ -131,10 +140,11 @@ export function Pager({
 }
 
 /** Server error code → translated message, with a safe generic fallback. */
-export function errorMessage(e: unknown, t: (k: any) => string): string {
-  const code = (e as any)?.code || (e as any)?.message;
+export function errorMessage(e: unknown, t: (k: TranslationKey) => string): string {
+  const err = e as { code?: unknown; message?: unknown } | null | undefined;
+  const code = err?.code || err?.message;
   if (typeof code === 'string' && /^[A-Za-z_]+$/.test(code)) {
-    const translated = t(`billing.errors.${code}`);
+    const translated = t(`billing.errors.${code}` as TranslationKey);
     if (!translated.includes('billing.errors.')) return translated;
   }
   return t('billing.errors.generic');

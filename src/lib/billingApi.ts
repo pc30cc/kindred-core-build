@@ -15,16 +15,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
-  const body = await res.json().catch(() => ({}));
+  const body: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error((body as any)?.error || `API error: ${res.status}`) as Error & {
+    const failure = (body ?? {}) as { error?: string; details?: unknown };
+    const err = new Error(failure.error || `API error: ${res.status}`) as Error & {
       status?: number;
       code?: string;
       details?: unknown;
     };
     err.status = res.status;
-    err.code = (body as any)?.error;
-    err.details = (body as any)?.details;
+    err.code = failure.error;
+    err.details = failure.details;
     throw err;
   }
   return body as T;
@@ -64,6 +65,8 @@ export interface InvoiceSummary {
   interval: string | null;
   periodStart: string | null;
   periodEnd: string | null;
+  /** ISO 4217 code of every amount on the invoice (`*Irr` = minor units of it; whole Rial for IRR). */
+  currency: string;
   totalIrr: number;
   amountPaidIrr: number;
   amountDueIrr: number;
@@ -166,8 +169,10 @@ export interface PlanCard {
   id: string;
   name: string;
   description: string | null;
+  /** Minor units of `currency` (whole Rial for IRR); the field names are historic. */
   monthlyPriceIrr: number;
   yearlyPriceIrr: number;
+  currency: string;
   /** Monthly AI allowance — for a yearly contract this is still per month. */
   aiMonthlyAllowanceIrr: number;
   limits: Record<string, unknown>;
@@ -180,6 +185,10 @@ export interface PlansView {
   currentPlanId: string | null;
   currentInterval: 'monthly' | 'yearly' | null;
   pendingPlanId: string | null;
+  /** The currency every price in this view is in — server-decided. */
+  currency: string;
+  /** Currencies the customer can pay in (a plan is priced in it and a gateway collects it). */
+  currencies: string[];
   plans: PlanCard[];
 }
 
@@ -191,6 +200,8 @@ export interface PlanChangePreview {
   direction: 'upgrade' | 'downgrade' | 'same';
   currentPlan: { id: string | null; name: string | null; interval: 'monthly' | 'yearly' | null };
   targetPlan: { id: string; name: string; interval: 'monthly' | 'yearly'; fullPriceIrr: number };
+  /** Currency of `amountIrr` / `fullPriceIrr` (AI credit amounts stay IRR). */
+  currency: string;
   amountIrr: number;
   aiCycleDeltaIrr: number;
   aiMonthlyAfterIrr: number;
@@ -206,6 +217,7 @@ export interface PlanChangeResult {
   invoiceId: string | null;
   invoiceNumber: string | null;
   amountIrr: number;
+  currency: string;
   effectiveAt: string;
   pending: boolean;
 }
@@ -228,6 +240,8 @@ export interface CustomerTransaction {
   planName: string | null;
   billingInterval: 'monthly' | 'yearly' | null;
   amountIrr: number;
+  /** ISO 4217 code of `amountIrr` (absent from older servers: IRR). */
+  currency?: string;
   status: TransactionStatus;
   createdAt: string;
   paidAt: string | null;
@@ -263,8 +277,17 @@ export function billingInvoiceDetail(workspaceId: string, invoiceId: string) {
   return request<InvoiceDetail>(`${base(workspaceId)}/invoices/${invoiceId}`);
 }
 
-export function billingPlans(workspaceId: string) {
-  return request<PlansView>(`${base(workspaceId)}/plans`);
+/**
+ * The plan catalogue in one payable currency. `currency` is the customer's
+ * explicit choice; `locale` lets the server default to the locale's currency
+ * (fa → IRR, tr → TRY, otherwise USD) when it is payable.
+ */
+export function billingPlans(workspaceId: string, opts: { currency?: string; locale?: string } = {}) {
+  const params = new URLSearchParams();
+  if (opts.currency) params.set('currency', opts.currency);
+  if (opts.locale) params.set('locale', opts.locale);
+  const qs = params.toString();
+  return request<PlansView>(`${base(workspaceId)}/plans${qs ? `?${qs}` : ''}`);
 }
 
 export function billingWallet(workspaceId: string, opts: { page?: number; pageSize?: number } = {}) {
@@ -288,7 +311,7 @@ export function billingTransactions(workspaceId: string, opts: { page?: number; 
 // ─── Writes ────────────────────────────────────────────────────────────────
 
 export function billingPayInvoiceFromWallet(workspaceId: string, invoiceId: string) {
-  return request<{ success: true; settlement: any; application: any }>(
+  return request<{ success: true; settlement: unknown; application: unknown }>(
     `${base(workspaceId)}/invoices/${invoiceId}/pay-wallet`,
     { method: 'POST', body: '{}' },
   );
@@ -321,6 +344,19 @@ export function billingDepositDetail(workspaceId: string, depositId: string) {
   return request<{ deposit: DepositDocument }>(`${base(workspaceId)}/wallet/deposits/${depositId}`);
 }
 
+/**
+ * A checkout the page opens itself (Paddle Billing: Paddle.js overlay for a
+ * server-created transaction). Public values only.
+ */
+export interface ClientCheckout {
+  provider: string;
+  transactionId?: string;
+  clientToken?: string;
+  environment?: 'sandbox' | 'production';
+  successUrl?: string;
+  customerEmail?: string;
+}
+
 export function billingInvoiceCheckout(
   workspaceId: string,
   invoiceId: string,
@@ -332,6 +368,7 @@ export function billingInvoiceCheckout(
     paymentUrl?: string;
     checkoutUrl?: string;
     url?: string;
+    clientCheckout?: ClientCheckout;
     intentId: string;
     invoiceNumber: string;
   }>(
@@ -342,7 +379,7 @@ export function billingInvoiceCheckout(
 
 export function billingPreviewPlanChange(
   workspaceId: string,
-  input: { planId: string; interval: 'monthly' | 'yearly'; mode: PlanChangeMode },
+  input: { planId: string; interval: 'monthly' | 'yearly'; mode: PlanChangeMode; currency?: string },
 ) {
   return request<PlanChangePreview>(`${base(workspaceId)}/plan-change/preview`, {
     method: 'POST',
@@ -362,6 +399,8 @@ export function billingApplyPlanChange(
     interval: 'monthly' | 'yearly';
     mode: PlanChangeMode;
     expectedAmountIrr: number;
+    /** The currency the preview was shown in. */
+    currency?: string;
   },
 ) {
   return request<PlanChangeResult>(`${base(workspaceId)}/plan-change`, {

@@ -80,6 +80,28 @@ catch-all), so plugin events and webhooks are retried.
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 `DATABASE_URL` and `DATABASE_MODE` are set and removed together.
 
+### Disk
+
+The root disk (72G, Docker included) holds about 50G after a cleanup. A
+deploy round after a merge adds about 12 GB of build cache plus the new images
+(68% to 91% on 2026-10-08), a LimerLanding deploy about 5 GB.
+
+- Coolify's Docker cleanup (server `localhost` → Docker Cleanup) checks every
+  5 minutes (`*/5 * * * *`, force off, threshold 80%; since 2026-10-08, before
+  that forced once a day at 00:00). At 80% or more it removes the build cache,
+  unused images that belong to no app, and each app's images beyond the 2
+  newest. Containers are named `<uuid>-<timestamp>`, which Coolify's check for
+  the running image does not match, so 2 means the running image and one
+  before it: a `ROLLBACK=1` further back rebuilds from git. Runs are listed in
+  `docker_cleanup_executions` (coolify-db); a failed run alerts Telegram.
+- Keep "delete unused volumes/networks" off: the database volumes depend on it.
+- `webyar-whmcs-test:php83` was built on this server and cannot be pulled. If
+  its container is removed, the next cleanup deletes it, so stop that stack
+  with `docker compose stop`, not `down` (its Dockerfile is in
+  `/opt/webyar-whmcs-test/`).
+- Coolify's disk-usage check alerts Telegram when the disk is at 80% or more at
+  23:00 UTC. Manual cleanups so far: `/root/disk-cleanup-20261008.log`.
+
 ### Database
 
 - Coolify database `webyar-postgres` (uuid `oqzy9q4ovntam9jgf7nxzqun`,
@@ -95,7 +117,6 @@ Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
   Database → Backup also backs it up (`pg_dump` from the backend as
   `webyar_backup` via `BACKUP_DATABASE_URL`, local copies in the bind volume
   `/data/webyar/db-backups`); see `docs/operations/DATABASE_BACKUPS.md`.
-  The root disk was 86% full on 2026-10-08.
 - Migrations:
   - WebYar's database is never migrated automatically. Apply new files by hand
     on `vps-50cc1602`, before merging the code that needs them:

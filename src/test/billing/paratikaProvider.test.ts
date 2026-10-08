@@ -15,7 +15,7 @@ const REQ = {
   currency: 'TRY',
   callbackUrl: 'https://app.example.com/billing/callback',
   customerEmail: 'mock.customer@example.com',
-  metadata: { amount: '149.90' },
+  metadata: { amount: '14990' },
 };
 
 function mockJson(body: unknown) {

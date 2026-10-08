@@ -20,7 +20,7 @@ const req: CheckoutRequest = {
   callbackUrl: 'https://app.test.localhost/callback',
   customerEmail: 'buyer@test.localhost',
   customerName: 'Test Buyer',
-  metadata: { amount: '149.90' },
+  metadata: { amount: '14990' },
 };
 
 function mockFetch(status: number, body: unknown) {

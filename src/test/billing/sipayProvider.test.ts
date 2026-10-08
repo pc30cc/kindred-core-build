@@ -17,7 +17,7 @@ const req = {
   callbackUrl: 'https://app.example.com/cb',
   customerEmail: 'a@b.com',
   customerName: 'Ali',
-  metadata: { amount: '150.00' },
+  metadata: { amount: '15000' },
 };
 
 function mockJson(body: unknown) {

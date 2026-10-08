@@ -1,4 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
+import { minorToMajorString } from './minorAmount.js';
 import crypto from 'crypto';
 
 // ── Local, iyzico-scoped JSON readers (Create + testConnection only) ──
@@ -76,7 +77,8 @@ export const iyzicoProvider: BillingProviderHandler = {
   },
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    const amount = req.metadata?.amount || '0';
+    // `metadata.amount` is in minor units (kuruş); this API takes a decimal amount.
+    const amount = minorToMajorString(req.metadata?.amount);
     const body = JSON.stringify({
       locale: 'tr',
       conversationId: `${req.workspaceId}_${Date.now()}`,
@@ -169,8 +171,8 @@ export const iyzicoProvider: BillingProviderHandler = {
         return { success: false, latencyMs: Date.now() - start, error: 'Invalid credentials' };
       }
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

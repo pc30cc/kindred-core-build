@@ -1,4 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
+import { minorToMajorString } from './minorAmount.js';
 
 // ─── Local, minimal parsers (Create/session + testConnection only) ───
 // Deliberately scoped: no shared billing helper, no verify/refund parsing.
@@ -48,7 +49,8 @@ export const paratikaProvider: BillingProviderHandler = {
   },
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    const amount = req.metadata?.amount || '0';
+    // `metadata.amount` is in minor units (kuruş); this API takes a decimal amount.
+    const amount = minorToMajorString(req.metadata?.amount);
     const orderId = `${req.workspaceId}_${Date.now()}`;
 
     const params = new URLSearchParams();
@@ -138,8 +140,8 @@ export const paratikaProvider: BillingProviderHandler = {
       const data = await res.json();
       if (readParatikaResponseCode(data) === '99') return { success: false, latencyMs: Date.now() - start, error: 'Auth failed' };
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

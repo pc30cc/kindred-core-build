@@ -629,6 +629,8 @@ billingRouter.post('/checkout', async (req, res) => {
       customerEmail: input.customerEmail,
       customerName: input.customerName,
       metadata: {
+        // The stored price unit: whole Rial for IRR, minor units (cents /
+        // kuruş) for every other currency. Providers convert from it.
         amount: String(amount),
         phone: input.phone || '',
       },

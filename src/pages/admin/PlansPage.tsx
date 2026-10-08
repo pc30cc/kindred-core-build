@@ -70,9 +70,34 @@ import {
   capabilityGroupLabel,
   capabilityUnitLabel,
 } from '@/lib/capability-i18n';
+import {
+  PLAN_PRICE_CURRENCIES,
+  formatPlanPrice,
+  parsePlanPriceInput,
+  planPriceFromDisplay,
+  planPriceInputValue,
+  planPriceUnitLabel,
+} from '@/lib/planPrice';
 
 // ─── Constants ───
-const CURRENCIES = ['USD', 'EUR', 'TRY', 'IRR'];
+const CURRENCIES = PLAN_PRICE_CURRENCIES;
+const PRICE_INTERVALS = ['monthly', 'yearly'] as const;
+type PriceInterval = (typeof PRICE_INTERVALS)[number];
+/** What the admin typed in each price field, in the unit people read. */
+type PriceDrafts = Record<string, Record<PriceInterval, string>>;
+
+/** Price fields seeded from stored amounts (minor units / Rial) as major units / Toman. */
+function priceDraftsFrom(prices: PlanFormData['prices']): PriceDrafts {
+  return Object.fromEntries(
+    CURRENCIES.map((cur) => [
+      cur,
+      {
+        monthly: planPriceInputValue(prices[cur]?.monthly, cur),
+        yearly: planPriceInputValue(prices[cur]?.yearly, cur),
+      },
+    ]),
+  );
+}
 const LOCALE_FLAGS: Record<string, string> = {
   en: '🇬🇧',
   tr: '🇹🇷',
@@ -276,6 +301,7 @@ function PlanFormDialog({
 }) {
   const { t, locale } = useTranslation();
   const [form, setForm] = useState<PlanFormData>(() => buildFormFromRegistry(capabilities, locales, plan));
+  const [priceDrafts, setPriceDrafts] = useState<PriceDrafts>(() => priceDraftsFrom(form.prices));
   const [activeSection, setActiveSection] = useState('general');
   const [issues, setIssues] = useState<PlanValidationIssue[]>([]);
   const createPlan = useCreatePlan();
@@ -302,6 +328,14 @@ function PlanFormDialog({
   async function handleSubmit() {
     if (!form.name || !form.slug) {
       toast.error(t('admin.plans.validation.nameSlugRequired'));
+      return;
+    }
+    const badPrice = CURRENCIES.some((cur) =>
+      PRICE_INTERVALS.some((iv) => parsePlanPriceInput(priceDrafts[cur]?.[iv] ?? '') === null),
+    );
+    if (badPrice) {
+      setActiveSection('pricing');
+      toast.error(t('admin.plans.validation.invalidPrice'));
       return;
     }
     const payload = formToPayload(form);
@@ -340,6 +374,16 @@ function PlanFormDialog({
 
   function setBool(key: string, val: boolean) {
     setForm((f) => ({ ...f, entitlements: { ...f.entitlements, [key]: val } }));
+  }
+  /** Keeps the typed text and stores its value in minor units / Rial. */
+  function setPrice(cur: string, interval: PriceInterval, text: string) {
+    setPriceDrafts((d) => ({ ...d, [cur]: { ...d[cur], [interval]: text } }));
+    const value = parsePlanPriceInput(text);
+    if (value === null) return;
+    setForm((f) => ({
+      ...f,
+      prices: { ...f.prices, [cur]: { ...f.prices[cur], [interval]: planPriceFromDisplay(value, cur) } },
+    }));
   }
   function setLimit(key: string, val: number) {
     setForm((f) => ({ ...f, limits: { ...f.limits, [key]: val } }));
@@ -553,48 +597,58 @@ function PlanFormDialog({
           {activeSection === 'pricing' && (
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground">{t('admin.plans.form.pricingHint')}</p>
-              <div className="grid grid-cols-2 gap-3">
-                {CURRENCIES.map((cur) => (
-                  <Card key={cur} className="bg-muted/20 border-border">
-                    <CardContent className="pt-3 pb-3 space-y-2">
-                      <p className="text-xs font-bold text-foreground">{currencyName(cur, locale)}</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-[11px]">{t('admin.plans.monthly')}</Label>
-                          <Input
-                            type="number"
-                            value={form.prices[cur]?.monthly || 0}
-                            onChange={(e) =>
-                              setForm((f) => ({
-                                ...f,
-                                prices: {
-                                  ...f.prices,
-                                  [cur]: { ...f.prices[cur], monthly: parseInt(e.target.value) || 0 },
-                                },
-                              }))
-                            }
-                          />
+              <p className="text-xs text-muted-foreground">{t('admin.plans.form.priceUnitHint')}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {CURRENCIES.map((cur) => {
+                  const unit = planPriceUnitLabel(cur, locale);
+                  return (
+                    <Card key={cur} className="bg-muted/20 border-border">
+                      <CardContent className="pt-3 pb-3 space-y-2">
+                        <p className="text-xs font-bold text-foreground">{currencyName(cur, locale)}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {PRICE_INTERVALS.map((iv) => {
+                            const id = `plan-price-${cur}-${iv}`;
+                            const text = priceDrafts[cur]?.[iv] ?? '';
+                            const invalid = parsePlanPriceInput(text) === null;
+                            return (
+                              <div key={iv} className="space-y-1">
+                                <Label htmlFor={id} className="text-[11px]">
+                                  {t(iv === 'monthly' ? 'admin.plans.monthly' : 'admin.plans.yearly')} ({unit})
+                                </Label>
+                                <div className="relative" dir="ltr">
+                                  <Input
+                                    id={id}
+                                    type="text"
+                                    inputMode={cur === 'IRR' ? 'numeric' : 'decimal'}
+                                    dir="ltr"
+                                    className={cur === 'IRR' ? 'pe-14' : 'ps-7'}
+                                    aria-invalid={invalid || undefined}
+                                    value={text}
+                                    onChange={(e) => setPrice(cur, iv, e.target.value)}
+                                  />
+                                  <span
+                                    className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-xs text-muted-foreground ${
+                                      cur === 'IRR' ? 'end-3' : 'start-3'
+                                    }`}
+                                    aria-hidden
+                                  >
+                                    {unit}
+                                  </span>
+                                </div>
+                                <p
+                                  className={`text-[10px] ${invalid ? 'text-destructive' : 'text-muted-foreground'}`}
+                                  data-testid={`${id}-preview`}
+                                >
+                                  {invalid ? t('admin.plans.form.priceInvalid') : formatPlanPrice(form.prices[cur]?.[iv], cur, locale)}
+                                </p>
+                              </div>
+                            );
+                          })}
                         </div>
-                        <div>
-                          <Label className="text-[11px]">{t('admin.plans.yearly')}</Label>
-                          <Input
-                            type="number"
-                            value={form.prices[cur]?.yearly || 0}
-                            onChange={(e) =>
-                              setForm((f) => ({
-                                ...f,
-                                prices: {
-                                  ...f.prices,
-                                  [cur]: { ...f.prices[cur], yearly: parseInt(e.target.value) || 0 },
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1533,12 +1587,12 @@ export default function AdminPlansPage() {
                               <div key={cur} className="bg-muted/40 rounded-lg px-3 py-1.5 text-sm">
                                 <span className="font-bold text-foreground">{cur}</span>
                                 <span className="text-muted-foreground ms-1.5">
-                                  {p.monthly?.toLocaleString(locale)}/{t('admin.plans.monthShort')}
+                                  {formatPlanPrice(p.monthly, cur, locale)}/{t('admin.plans.monthShort')}
                                 </span>
                                 {p.yearly > 0 && (
                                   <span className="text-muted-foreground">
                                     {' '}
-                                    · {p.yearly?.toLocaleString(locale)}/{t('admin.plans.yearShort')}
+                                    · {formatPlanPrice(p.yearly, cur, locale)}/{t('admin.plans.yearShort')}
                                   </span>
                                 )}
                               </div>

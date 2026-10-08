@@ -154,6 +154,10 @@ export const stripeProvider: BillingProviderHandler = {
 
     const params = new URLSearchParams();
     params.set('mode', 'payment');
+    // Cards only: a delayed method (SEPA debit, bank transfer) completes the
+    // session unpaid and settles days later, long after the invoice's
+    // collection window and the payment intent have run out.
+    params.set('payment_method_types[0]', 'card');
     params.set('line_items[0][quantity]', '1');
     params.set('line_items[0][price_data][currency]', currency.toLowerCase());
     params.set('line_items[0][price_data][unit_amount]', String(amount));
@@ -236,6 +240,17 @@ export const stripeProvider: BillingProviderHandler = {
     }
     // Still open, or complete with an asynchronous payment not settled yet.
     return { verified: false, providerRef: sessionId, status: 'pending' };
+  },
+
+  /** Expires a still-open Checkout Session; an expired session can no longer be paid. */
+  async closeCheckout(config: BillingProviderConfig, sessionId: string): Promise<boolean> {
+    const id = (sessionId || '').trim();
+    if (!id) return false;
+    const res = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(id)}/expire`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    return res.ok;
   },
 
   async verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {

@@ -22,27 +22,41 @@
 // that is no longer collecting, an invoice that is no longer payable) is
 // recorded as an UNAPPLIED payment for reconciliation — never discarded, never
 // applied to something the customer did not buy.
+//
+// A card checkout can outlive its attempt: the customer opens a second
+// checkout (which supersedes the first), or pays after the attempt's
+// deadline. Money for such an attempt still settles the invoice while the
+// invoice is payable for exactly that amount and currency; the superseded
+// checkout is also closed at the provider where the provider allows it.
 // ============================================================
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { getProvider } from './index.js';
+import { getProvider, resolveNamedBillingConfig } from './index.js';
 import {
   IRAN_PROVIDERS,
+  SUPERSEDED_BY_NEW_CHECKOUT,
   claimIntentForProcessing,
+  claimLapsedIntentForProcessing,
+  getPaymentIntent,
   markIntentSucceeded,
   markPaymentIntentFailed,
   noteIntentFailureAttempt,
+  type ClaimOutcome,
   type PaymentIntentRow,
 } from './paymentIntent.js';
-import { buildGatewayVerificationMarker, evaluateGatewayVerification } from './gatewayVerification.js';
+import {
+  buildGatewayVerificationMarker,
+  evaluateGatewayVerification,
+  expectedIntentAmountIrr,
+} from './gatewayVerification.js';
 import { extractProviderRefCandidates } from './providerBinding.js';
 import { recordCustomerPayment } from './applyPayment.js';
 import { handleWorkspaceEntitlementChanged } from './entitlementChange.js';
 import { InvoiceSettlementError, releaseCollection, settleAndApply } from './invoice/settle.js';
 import { recordProviderRefund } from './refunds.js';
 import { normalizeCurrencyCode } from './providers/minorAmount.js';
-import type { WebhookEvent } from './types.js';
+import type { BillingProviderConfig, ProviderCharge, WebhookEvent } from './types.js';
 
 /** Card gateways that collect invoices (any currency their handler supports). */
 export const CARD_INVOICE_PROVIDERS = new Set(['stripe', 'paypal', 'paddle', 'lemon_squeezy']);
@@ -64,15 +78,25 @@ export function isCardInvoiceProvider(providerName: string): boolean {
 /**
  * Whether a gateway can collect an invoice in this currency: the Iranian
  * gateways collect IRR only; a card gateway, the currencies its handler
- * charges. Anything else (the Turkish gateways, which have no server-side
- * payment confirmation here yet) cannot collect an invoice at all.
+ * charges — and, given the account's `config`, the ones THAT account can
+ * charge (a Lemon Squeezy store sells in one currency). Anything else (the
+ * Turkish gateways, which have no server-side payment confirmation here yet)
+ * cannot collect an invoice at all.
  */
-export function canCollectInvoice(providerName: string, currency: string): boolean {
+export function canCollectInvoice(providerName: string, currency: string, config?: BillingProviderConfig | null): boolean {
   const code = normalizeCurrencyCode(currency);
   if (!code) return false;
   if (IRAN_PROVIDERS.has(providerName)) return code === 'IRR';
   if (!CARD_INVOICE_PROVIDERS.has(providerName)) return false;
-  return Boolean(getProvider(providerName)?.supportedCurrencies?.includes(code));
+  const provider = getProvider(providerName);
+  if (!provider?.supportedCurrencies?.includes(code)) return false;
+  if (config && provider.chargeableCurrencies) return provider.chargeableCurrencies(config).includes(code);
+  return true;
+}
+
+/** Whether a gateway's currencies depend on the account's configuration (see canCollectInvoice). */
+export function collectionDependsOnAccount(providerName: string): boolean {
+  return Boolean(getProvider(providerName)?.chargeableCurrencies);
 }
 
 /** Currency an intent collects: recorded in its metadata by card checkouts; IRR otherwise. */
@@ -96,6 +120,118 @@ export function cardCallbackRefConflicts(intent: Pick<PaymentIntentRow, 'provide
   const stored = (intent.provider_ref || '').trim();
   if (!stored) return false;
   return extractProviderRefCandidates(intent.provider_name, params).some((ref) => ref !== stored);
+}
+
+/**
+ * An attempt that stopped collecting without a payment, but whose card
+ * checkout may still have been paid: superseded by a newer checkout of the
+ * same invoice, or past its deadline.
+ */
+export function isLapsedCardIntent(intent: Pick<PaymentIntentRow, 'status' | 'failure_reason'>): boolean {
+  return intent.status === 'expired' || (intent.status === 'canceled' && intent.failure_reason === SUPERSEDED_BY_NEW_CHECKOUT);
+}
+
+const PAYABLE_INVOICE_STATUSES = new Set(['open', 'partially_paid', 'past_due']);
+
+/**
+ * Whether the intent's invoice can still take exactly the intent's money: it
+ * is payable, it still owes the amount the intent was created for, in the
+ * intent's currency. Throws on a read failure (a retry decides, not a guess).
+ */
+export async function invoiceStillCollects(config: ServerConfig, intent: InvoiceIntent): Promise<boolean> {
+  if (!intent.invoice_id) return false;
+  const { data, error } = await getServiceClient(config)
+    .from('billing_invoices')
+    .select('status, amount_due_irr, currency')
+    .eq('id', intent.invoice_id)
+    .maybeSingle();
+  if (error) throw new Error(`billing invoice read failed: ${error.message}`);
+  const invoice = data as { status?: string; amount_due_irr?: number | string; currency?: string } | null;
+  if (!invoice || !PAYABLE_INVOICE_STATUSES.has(String(invoice.status))) return false;
+  if (Number(invoice.amount_due_irr) !== expectedIntentAmountIrr(intent)) return false;
+  return (normalizeCurrencyCode(invoice.currency) || 'IRR') === intentCurrency(intent);
+}
+
+/**
+ * Whether money for this attempt was recorded for review (an unapplied
+ * payment bound to it, or naming it in its metadata). The return page shows
+ * "under review" for such an attempt, never "payment failed".
+ */
+export async function hasUnappliedPayment(
+  config: ServerConfig,
+  intent: Pick<PaymentIntentRow, 'id' | 'workspace_id'>,
+): Promise<boolean> {
+  const { data, error } = await getServiceClient(config)
+    .from('billing_payments')
+    .select('id')
+    .eq('workspace_id', intent.workspace_id)
+    .eq('reconciliation_state', 'unapplied')
+    .or(`payment_intent_id.eq.${intent.id},metadata->>intentId.eq.${intent.id}`)
+    .limit(1);
+  if (error) throw new Error(`billing payment read failed: ${error.message}`);
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Attempts on an invoice that hold an open provider checkout. Read before a
+ * new checkout is reserved, so the ones it supersedes can be closed after.
+ */
+export async function openCheckoutAttempts(config: ServerConfig, invoiceId: string): Promise<string[]> {
+  const { data, error } = await getServiceClient(config)
+    .from('billing_payment_intents')
+    .select('id, provider_ref')
+    .eq('invoice_id', invoiceId)
+    .eq('status', 'pending');
+  if (error) throw new Error(`billing intent read failed: ${error.message}`);
+  return ((data || []) as Array<{ id: string; provider_ref: string | null }>)
+    .filter((row) => Boolean(row.provider_ref))
+    .map((row) => row.id);
+}
+
+/**
+ * Best effort: closes the provider checkout of every attempt among
+ * `intentIds` that a newer checkout superseded (Stripe expires the session,
+ * Paddle cancels the transaction), so the customer cannot pay a checkout the
+ * invoice no longer waits for. Failures are logged and ignored: money that
+ * still arrives settles the invoice or is recorded for review. Resolves the
+ * number of checkouts the providers confirmed closed.
+ */
+export async function closeSupersededCheckouts(
+  config: ServerConfig,
+  workspaceId: string,
+  intentIds: string[],
+): Promise<number> {
+  if (intentIds.length === 0) return 0;
+  const { data, error } = await getServiceClient(config)
+    .from('billing_payment_intents')
+    .select('id, provider_name, provider_ref, status, failure_reason')
+    .in('id', intentIds);
+  if (error) {
+    console.warn('[billing] superseded checkouts not closed: intent read failed');
+    return 0;
+  }
+  type Row = { id: string; provider_name: string; provider_ref: string | null; status: string; failure_reason: string | null };
+  let closed = 0;
+  for (const row of (data || []) as Row[]) {
+    if (row.status !== 'canceled' || row.failure_reason !== SUPERSEDED_BY_NEW_CHECKOUT || !row.provider_ref) continue;
+    if (!getProvider(row.provider_name)?.closeCheckout) continue;
+    try {
+      const resolved = await resolveNamedBillingConfig(
+        config.supabaseUrl,
+        config.supabaseServiceRoleKey,
+        workspaceId,
+        row.provider_name,
+      );
+      if (resolved?.provider.closeCheckout && (await resolved.provider.closeCheckout(resolved.config, row.provider_ref))) {
+        closed += 1;
+        continue;
+      }
+    } catch {
+      /* logged below */
+    }
+    console.warn('[billing] superseded checkout left open', { intentId: row.id, providerName: row.provider_name });
+  }
+  return closed;
 }
 
 /** Ends every active invoice reservation owned by a payment attempt. */
@@ -130,40 +266,91 @@ export interface VerifiedCardPayment {
   /** Captured amount, minor units of `currency`. */
   amount?: number;
   currency?: string;
+  /** What the provider actually charged, when `amount` is the pre-tax price (recorded only). */
+  charge?: ProviderCharge;
 }
 
 /** Settlement refusals that a retry cannot change. */
 const DETERMINISTIC_REFUSALS = new Set(['amount_mismatch', 'overpayment', 'not_payable', 'unknown_invoice']);
 
+/** The provider id the payment is recorded under (refunds are matched by it). */
+function providerPaymentIdOf(input: VerifiedCardPayment): string | null {
+  return input.paymentId || input.providerRef || input.intent.provider_ref || null;
+}
+
+function paymentMetadata(input: VerifiedCardPayment, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    intentId: input.intent.id,
+    providerRef: input.providerRef ?? null,
+    invoiceId: input.intent.invoice_id ?? null,
+    ...(input.charge ? { providerCharge: input.charge } : {}),
+    ...extra,
+  };
+}
+
+/**
+ * Records verified money that cannot settle this intent as an UNAPPLIED
+ * payment. `bindToIntent: false` keeps it off the intent's unique payment
+ * slot (`uq_billing_payments_intent`), which may already hold another
+ * payment: a second payment is its own row, never merged into that one. A
+ * payment that settled an invoice (`invoice_id` set) is never marked
+ * unapplied, whatever replay reaches it.
+ */
 async function parkPayment(
   config: ServerConfig,
   input: VerifiedCardPayment,
   reason: string,
+  opts: { bindToIntent?: boolean } = {},
 ): Promise<CardSettlement> {
   const { intent } = input;
+  const bindToIntent = opts.bindToIntent !== false;
   const payment = await recordCustomerPayment(config, {
     workspaceId: intent.workspace_id,
     providerName: input.providerName,
-    providerPaymentId: input.paymentId || input.providerRef || null,
-    paymentIntentId: intent.id,
+    providerPaymentId: bindToIntent ? input.paymentId || input.providerRef || null : providerPaymentIdOf(input),
+    paymentIntentId: bindToIntent ? intent.id : null,
     invoiceNumber: intent.invoice_number,
     amount: typeof input.amount === 'number' && Number.isFinite(input.amount) ? input.amount : 0,
     currency: normalizeCurrencyCode(input.currency) || intentCurrency(intent),
     purchaseType: intent.purchase_type === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
     actionType: intent.action_type || 'plan_new',
-    metadata: { intentId: intent.id, providerRef: input.providerRef ?? null, invoiceId: intent.invoice_id ?? null, parked: reason },
+    metadata: paymentMetadata(input, { parked: reason }),
   });
   if (payment.id) {
     await getServiceClient(config)
       .from('billing_payments')
       .update({ reconciliation_state: 'unapplied', reconciliation_reason: reason.slice(0, 500) })
-      .eq('id', payment.id);
+      .eq('id', payment.id)
+      .is('invoice_id', null);
   }
   if (intent.status === 'pending' || intent.status === 'processing') {
     await markPaymentIntentFailed(config, intent.id, reason);
     await releaseIntentCollections(config, intent.id, reason);
   }
   return { outcome: 'parked', reason };
+}
+
+/**
+ * Money confirmed for an intent that already SUCCEEDED: a repeat of the
+ * payment that settled it (same provider payment id) changes nothing; any
+ * other payment is a second charge, recorded as unapplied for review.
+ */
+async function settledIntentRepeat(
+  config: ServerConfig,
+  input: VerifiedCardPayment,
+  intent: InvoiceIntent,
+): Promise<CardSettlement> {
+  // Nothing tells this money apart from the payment already recorded.
+  if (!input.paymentId && !input.providerRef) return { outcome: 'duplicate' };
+  const { data, error } = await getServiceClient(config)
+    .from('billing_payments')
+    .select('provider_payment_id')
+    .eq('payment_intent_id', intent.id)
+    .maybeSingle();
+  if (error) throw new Error(`billing payment read failed: ${error.message}`);
+  const recorded = (data as { provider_payment_id?: string | null } | null)?.provider_payment_id ?? null;
+  if (recorded && recorded === providerPaymentIdOf({ ...input, intent })) return { outcome: 'duplicate' };
+  return parkPayment(config, { ...input, intent }, 'second_payment_for_paid_intent', { bindToIntent: false });
 }
 
 /**
@@ -177,9 +364,10 @@ export async function settleVerifiedCardPayment(
   input: VerifiedCardPayment,
 ): Promise<CardSettlement> {
   const { intent } = input;
-  if (intent.status === 'succeeded') return { outcome: 'duplicate' };
+  if (intent.status === 'succeeded') return settledIntentRepeat(config, input, intent);
   if (!intent.invoice_id) return parkPayment(config, input, 'intent_without_invoice');
-  if (intent.status === 'failed' || intent.status === 'canceled' || intent.status === 'expired') {
+  const lapsed = isLapsedCardIntent(intent);
+  if (intent.status === 'failed' || ((intent.status === 'canceled' || intent.status === 'expired') && !lapsed)) {
     return parkPayment(config, input, `payment_after_intent_${intent.status}`);
   }
   const expectedCurrency = intentCurrency(intent);
@@ -194,19 +382,37 @@ export async function settleVerifiedCardPayment(
   if ('reason' in decision) return parkPayment(config, input, decision.reason);
   const amount = decision.confirmedAmountIrr;
 
-  const claim = await claimIntentForProcessing(config, intent.id, {
+  // A superseded or expired attempt that was paid after all settles while its
+  // invoice still owes exactly this amount in this currency (settlement
+  // itself refuses anything beyond that); otherwise the money is parked.
+  if (lapsed && !(await invoiceStillCollects(config, intent))) {
+    return parkPayment(config, input, `payment_after_intent_${intent.status}`);
+  }
+
+  const claimOpts = {
     verification: buildGatewayVerificationMarker(input.providerRef || null, amount),
     baseMetadata: intent.metadata,
-  });
+  };
+  const claim: ClaimOutcome = lapsed && (await claimLapsedIntentForProcessing(config, intent, claimOpts))
+    ? { claimed: true, resumed: false }
+    : await claimIntentForProcessing(config, intent.id, claimOpts);
   if (claim.claimed === false) {
-    return claim.reason === 'in_flight' ? { outcome: 'in_flight' } : { outcome: 'duplicate' };
+    if (claim.reason === 'in_flight') return { outcome: 'in_flight' };
+    // Finalized by someone else meanwhile: a repeat only if THIS payment is
+    // the one that settled it. Any other money is recorded for review, never
+    // reported as a duplicate and dropped.
+    const current = (await getPaymentIntent(config, intent.id)) as InvoiceIntent | null;
+    if (current?.status === 'succeeded') return settledIntentRepeat(config, input, current);
+    return parkPayment(config, { ...input, intent: current ?? intent }, `payment_after_intent_${current?.status ?? 'missing'}`, {
+      bindToIntent: false,
+    });
   }
 
   try {
     const payment = await recordCustomerPayment(config, {
       workspaceId: intent.workspace_id,
       providerName: input.providerName,
-      providerPaymentId: input.paymentId || input.providerRef || intent.provider_ref || null,
+      providerPaymentId: providerPaymentIdOf(input),
       paymentIntentId: intent.id,
       invoiceNumber: intent.invoice_number,
       amount,
@@ -216,7 +422,7 @@ export async function settleVerifiedCardPayment(
       planId: intent.plan_id,
       planNameSnapshot: intent.plan_name_snapshot,
       billingInterval: intent.billing_interval,
-      metadata: { intentId: intent.id, providerRef: input.providerRef ?? null, invoiceId: intent.invoice_id },
+      metadata: paymentMetadata(input),
     });
     await settleAndApply(config, {
       invoiceId: intent.invoice_id,
@@ -272,6 +478,7 @@ export async function handleCardIntentWebhook(
         paymentId: event.providerPaymentId,
         amount: event.amount,
         currency: event.currency,
+        charge: event.charge,
       });
       if (result.outcome === 'pending' || result.outcome === 'in_flight') {
         throw new Error(`card_settlement_${result.outcome}`);

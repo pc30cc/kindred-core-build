@@ -251,7 +251,18 @@ describe('paddle verifyWebhook event mapping', () => {
       event_type: 'adjustment.updated',
       data: { id: 'adj_1', action: 'refund', status: 'approved', transaction_id: 'txn_1', currency_code: 'EUR', totals: { total: '1000' } },
     });
-    expect(event).toMatchObject({ type: 'refund_processed', providerPaymentId: 'txn_1', amount: 1000, currency: 'EUR' });
+    expect(event).toMatchObject({
+      type: 'refund_processed', providerPaymentId: 'txn_1', amount: 1000, currency: 'EUR', refundId: 'adj_1',
+    });
+  });
+
+  it('created-approved and updated-approved for one adjustment are ONE refund event (keyed by the adjustment)', async () => {
+    const adjustment = { id: 'adj_9', action: 'refund', status: 'approved', transaction_id: 'txn_1', currency_code: 'EUR', totals: { total: '1000' } };
+    const created = await map({ event_id: 'evt_a', event_type: 'adjustment.created', data: adjustment });
+    const updated = await map({ event_id: 'evt_b', event_type: 'adjustment.updated', data: adjustment });
+    expect(created?.providerEventId).toBe('adjustment_adj_9_approved');
+    expect(updated?.providerEventId).toBe(created?.providerEventId);
+    expect(updated).toMatchObject({ type: 'refund_processed', refundId: 'adj_9' });
   });
 
   it.each([
@@ -260,6 +271,22 @@ describe('paddle verifyWebhook event mapping', () => {
   ])('an adjustment that is %s moves no money', async (_label, fields) => {
     const event = await map({ event_id: 'evt_4', event_type: 'adjustment.created', data: { id: 'adj_2', transaction_id: 'txn_1', ...fields } });
     expect(event?.type).toBe('ignored');
+  });
+});
+
+describe('paddle closeCheckout (a superseded checkout)', () => {
+  it('cancels the transaction, which closes its checkout', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'txn_old', status: 'canceled' } });
+    expect(await paddleProvider.closeCheckout!(config, 'txn_old')).toBe(true);
+    const { url, init } = firstCall(fetchMock);
+    expect(url).toBe('https://sandbox-api.paddle.com/transactions/txn_old');
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body as string)).toEqual({ status: 'canceled' });
+  });
+
+  it('reports a transaction Paddle refuses to cancel (already paid) as not closed', async () => {
+    mockFetch(400, { error: { code: 'transaction_immutable', detail: 'Transaction is billed' } });
+    expect(await paddleProvider.closeCheckout!(config, 'txn_paid')).toBe(false);
   });
 });
 

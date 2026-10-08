@@ -1,6 +1,7 @@
 import type {
   BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, PaymentVerification, WebhookEvent,
 } from '../types.js';
+import crypto from 'crypto';
 import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
 
 const baseUrl = (config: BillingProviderConfig) =>
@@ -105,7 +106,33 @@ export function parsePayPalCustomId(raw: unknown): { workspaceId?: string; inten
   return { workspaceId: workspaceId || undefined, intentId: intentId || undefined };
 }
 
-async function getAccessToken(config: BillingProviderConfig): Promise<string> {
+/**
+ * Access tokens by app credentials. PayPal issues them for hours
+ * (`expires_in`, seconds); one is reused until shortly before it expires
+ * instead of being fetched for every call. Without that, every POST to the
+ * public webhook URL that merely carries PayPal's header names cost two
+ * PayPal API calls (token + verify-webhook-signature).
+ */
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+/** Renew this long before PayPal's expiry; never trust a token for longer than the cap. */
+const TOKEN_EXPIRY_MARGIN_MS = 5 * 60 * 1000;
+const TOKEN_MAX_REUSE_MS = 8 * 60 * 60 * 1000;
+
+function tokenCacheKey(config: BillingProviderConfig): string {
+  const secretDigest = crypto.createHash('sha256').update(String(config.client_secret ?? '')).digest('hex');
+  return `${baseUrl(config)}|${String(config.client_id ?? '')}|${secretDigest}`;
+}
+
+/** Forgets every cached PayPal access token (tests; a revoked app). */
+export function clearPayPalTokenCache(): void {
+  tokenCache.clear();
+}
+
+async function getAccessToken(config: BillingProviderConfig, opts: { fresh?: boolean } = {}): Promise<string> {
+  const key = tokenCacheKey(config);
+  const cached = tokenCache.get(key);
+  if (!opts.fresh && cached && cached.expiresAt > Date.now()) return cached.token;
+
   const res = await fetch(`${baseUrl(config)}/v1/oauth2/token`, {
     method: 'POST',
     headers: {
@@ -118,6 +145,9 @@ async function getAccessToken(config: BillingProviderConfig): Promise<string> {
   if (!res.ok) throw new Error(readPayPalOAuthError(data) || 'PayPal auth failed');
   const token = readPayPalAccessToken(data);
   if (!token) throw new Error('PayPal auth failed');
+  const expiresInMs = Number(asRecord(data)?.expires_in) * 1000;
+  const reuseMs = Math.min(expiresInMs - TOKEN_EXPIRY_MARGIN_MS, TOKEN_MAX_REUSE_MS);
+  if (Number.isFinite(reuseMs) && reuseMs > 0) tokenCache.set(key, { token, expiresAt: Date.now() + reuseMs });
   return token;
 }
 
@@ -179,6 +209,8 @@ async function verifyPayPalTransmission(
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body,
   });
+  // A token PayPal no longer accepts is dropped, so the next call fetches a fresh one.
+  if (res.status === 401) tokenCache.delete(tokenCacheKey(config));
   if (!res.ok) return false;
   const data = await res.json().catch(() => null);
   return asRecord(data)?.verification_status === 'SUCCESS';
@@ -191,6 +223,8 @@ export const paypalProvider: BillingProviderHandler = {
     refunds: true, webhooks: true, multiCurrency: true, trialSupport: true,
   },
   supportedCurrencies: PAYPAL_CURRENCIES,
+  // verifyPayment captures the approved order: the money moves only then.
+  verifyPaymentCaptures: true,
 
   /**
    * One PayPal order (Orders v2, intent CAPTURE) for exactly the amount being
@@ -406,7 +440,8 @@ export const paypalProvider: BillingProviderHandler = {
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
     try {
-      await getAccessToken(config);
+      // Tests the credentials themselves: never answered from the cache.
+      await getAccessToken(config, { fresh: true });
       return { success: true, latencyMs: Date.now() - start };
     } catch (e: unknown) {
       return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };

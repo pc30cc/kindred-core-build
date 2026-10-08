@@ -426,6 +426,50 @@ export async function claimIntentForProcessing(
   return retaken ? { claimed: true, resumed: true } : { claimed: false, reason: 'in_flight' };
 }
 
+/**
+ * `failure_reason` of an attempt that billing_begin_collection canceled
+ * because the customer opened a newer checkout for the same invoice.
+ */
+export const SUPERSEDED_BY_NEW_CHECKOUT = 'superseded_by_new_checkout';
+
+/**
+ * Takes an attempt that stopped collecting WITHOUT being paid — superseded by
+ * a newer checkout, or past its deadline — to `processing`, because its
+ * provider has since confirmed money for it (a card checkout outlives that
+ * moment). Atomic: the update only matches the exact state that was read, so
+ * at most one caller revives it; anyone else falls back to the regular claim.
+ * The caller decides whether the invoice can still take this money.
+ */
+export async function claimLapsedIntentForProcessing(
+  config: ServerConfig,
+  intent: Pick<PaymentIntentRow, 'id' | 'status' | 'failure_reason'>,
+  opts: {
+    now?: Date;
+    verification?: GatewayVerificationMarker;
+    baseMetadata?: Record<string, unknown> | null;
+  } = {},
+): Promise<boolean> {
+  if (intent.status !== 'expired' && !(intent.status === 'canceled' && intent.failure_reason === SUPERSEDED_BY_NEW_CHECKOUT)) {
+    return false;
+  }
+  const nowIso = (opts.now ?? new Date()).toISOString();
+  const metadata: Record<string, unknown> = {
+    ...(opts.baseMetadata || {}),
+    revived_from: { status: intent.status, failure_reason: intent.failure_reason ?? null, at: nowIso },
+  };
+  if (opts.verification) metadata[GATEWAY_VERIFICATION_METADATA_KEY] = opts.verification;
+
+  let query = getServiceClient(config)
+    .from('billing_payment_intents')
+    .update({ status: 'processing', processing_at: nowIso, failure_reason: null, metadata, updated_at: nowIso })
+    .eq('id', intent.id)
+    .eq('status', intent.status);
+  if (intent.status === 'canceled') query = query.eq('failure_reason', SUPERSEDED_BY_NEW_CHECKOUT);
+  const { data, error } = await query.select('id').maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data);
+}
+
 /** Final success — written ONLY after the financial side effect landed. */
 export async function markIntentSucceeded(
   config: ServerConfig,

@@ -60,6 +60,17 @@ export interface PaymentVerification {
   status?: string;
 }
 
+/**
+ * What the provider actually took from the customer when that differs from
+ * the amount compared with the invoice (Lemon Squeezy adds tax on top of the
+ * price). Minor units of `currency`; recorded on the payment for reference.
+ */
+export interface ProviderCharge {
+  total?: number;
+  tax?: number;
+  currency?: string;
+}
+
 export interface WebhookEvent {
   /**
    * `ignored`: the signature verified but the event needs no action (an event
@@ -93,6 +104,13 @@ export interface WebhookEvent {
   intentId?: string;
   /** Checkout reference (session / order / transaction id) the event belongs to. */
   providerRef?: string;
+  /**
+   * `refund_processed` only: the provider's id of THIS refund (Paddle
+   * adjustment), when `amount` is per refund. Refunds are counted once per id.
+   */
+  refundId?: string;
+  /** Payment events only: the charged total and tax, when `amount` is the pre-tax price. */
+  charge?: ProviderCharge;
   raw: unknown;
 }
 
@@ -127,6 +145,18 @@ export interface BillingProviderHandler {
    */
   supportedCurrencies?: readonly string[];
   /**
+   * The currencies one configured account can charge, when that is narrower
+   * than `supportedCurrencies` (a Lemon Squeezy store sells in the single
+   * currency it was created with).
+   */
+  chargeableCurrencies?(config: BillingProviderConfig): readonly string[];
+  /**
+   * `verifyPayment` TAKES the money instead of only looking it up (PayPal
+   * captures the approved order). It may only be called for an attempt that
+   * can still settle its invoice; otherwise the order is left to lapse.
+   */
+  verifyPaymentCaptures?: boolean;
+  /**
    * The currency a checkout falls back to when the requested one is not
    * supported (Turkish gateways: TRY). The caller must then charge the plan's
    * price in THIS currency — see ../chargeCurrency.ts.
@@ -141,6 +171,13 @@ export interface BillingProviderHandler {
   createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult>;
   verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null>;
   verifyPayment?(config: BillingProviderConfig, params: Record<string, string>): Promise<PaymentVerification>;
+  /**
+   * Closes a checkout that can no longer settle anything (its attempt was
+   * superseded by a newer checkout), so the customer cannot pay it any more.
+   * Resolves whether the provider confirmed it. Best effort: callers ignore
+   * failures, and money that still arrives is settled or parked as usual.
+   */
+  closeCheckout?(config: BillingProviderConfig, checkoutRef: string): Promise<boolean>;
   getSubscriptionStatus?(config: BillingProviderConfig, subscriptionId: string): Promise<SubscriptionStatus>;
   cancelSubscription?(config: BillingProviderConfig, subscriptionId: string): Promise<{ success: boolean }>;
   resumeSubscription?(config: BillingProviderConfig, subscriptionId: string): Promise<{ success: boolean }>;

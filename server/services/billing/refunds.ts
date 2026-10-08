@@ -18,43 +18,62 @@ export interface RefundablePayment {
   id: string;
   amount: number | string | null;
   refund_amount?: number | string | null;
+  metadata?: Record<string, unknown> | null;
 }
+
+/** Payment metadata key: amount of each provider refund, by refund id (Paddle adjustments). */
+export const PROVIDER_REFUNDS_KEY = 'provider_refunds';
 
 function num(v: unknown): number {
   const n = Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
 }
 
+function refundsById(payment: RefundablePayment): Record<string, number> {
+  const raw = payment.metadata?.[PROVIDER_REFUNDS_KEY];
+  const out: Record<string, number> = {};
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out;
+  for (const [id, amount] of Object.entries(raw as Record<string, unknown>)) out[id] = num(amount);
+  return out;
+}
+
 /**
  * The payment's refund state after this event. Providers that report the
  * running total (Stripe `amount_refunded`, PayPal `total_refunded_amount`,
- * Lemon Squeezy `refunded_amount`) set it absolutely; Paddle reports each
- * refund, which is added. No amount at all → the whole payment.
+ * Lemon Squeezy `refunded_amount`) set it absolutely. Paddle reports each
+ * refund with its own id: the total is the sum over DISTINCT refund ids, so a
+ * refund reported twice (adjustment.created and .updated) counts once. No
+ * amount at all → the whole payment.
  */
 export function nextRefundState(
   payment: RefundablePayment,
-  event: Pick<WebhookEvent, 'amount' | 'refundedTotal'>,
-): { refundAmount: number; status: 'refunded' | 'partially_refunded' } {
+  event: Pick<WebhookEvent, 'amount' | 'refundedTotal' | 'refundId'>,
+): { refundAmount: number; status: 'refunded' | 'partially_refunded'; refunds?: Record<string, number> } {
   const paid = num(payment.amount);
   let total: number;
+  let refunds: Record<string, number> | undefined;
+  const perRefund = typeof event.amount === 'number' && Number.isFinite(event.amount) && event.amount > 0;
   if (typeof event.refundedTotal === 'number' && Number.isFinite(event.refundedTotal)) {
     total = event.refundedTotal;
-  } else if (typeof event.amount === 'number' && Number.isFinite(event.amount) && event.amount > 0) {
-    total = num(payment.refund_amount) + event.amount;
+  } else if (perRefund && event.refundId) {
+    refunds = { ...refundsById(payment), [event.refundId]: event.amount as number };
+    total = Object.values(refunds).reduce((sum, amount) => sum + amount, 0);
+  } else if (perRefund) {
+    total = num(payment.refund_amount) + (event.amount as number);
   } else {
     total = paid;
   }
   const refundAmount = Math.max(0, Math.min(Math.round(total), paid));
-  return { refundAmount, status: refundAmount >= paid ? 'refunded' : 'partially_refunded' };
+  return { refundAmount, status: refundAmount >= paid ? 'refunded' : 'partially_refunded', ...(refunds ? { refunds } : {}) };
 }
 
 /** Applies a provider refund to its payment row. Resolves false when no payment matches. */
 export async function recordProviderRefund(
   sb: SupabaseClient,
   providerName: string,
-  event: Pick<WebhookEvent, 'providerPaymentId' | 'intentId' | 'amount' | 'refundedTotal'>,
+  event: Pick<WebhookEvent, 'providerPaymentId' | 'intentId' | 'amount' | 'refundedTotal' | 'refundId'>,
 ): Promise<boolean> {
-  let query = sb.from('billing_payments').select('id, amount, refund_amount').eq('provider_name', providerName);
+  let query = sb.from('billing_payments').select('id, amount, refund_amount, metadata').eq('provider_name', providerName);
   if (event.providerPaymentId) query = query.eq('provider_payment_id', event.providerPaymentId);
   else if (event.intentId) query = query.eq('payment_intent_id', event.intentId);
   else return false;
@@ -65,9 +84,11 @@ export async function recordProviderRefund(
   if (!payment) return false;
 
   const next = nextRefundState(payment, event);
+  const patch: Record<string, unknown> = { refund_amount: next.refundAmount, status: next.status };
+  if (next.refunds) patch.metadata = { ...(payment.metadata || {}), [PROVIDER_REFUNDS_KEY]: next.refunds };
   const { error: updateError } = await sb
     .from('billing_payments')
-    .update({ refund_amount: next.refundAmount, status: next.status })
+    .update(patch)
     .eq('id', payment.id);
   if (updateError) throw new Error(`refund record failed: ${updateError.message}`);
   return true;

@@ -36,6 +36,7 @@ const tr: TranslationKeys = {
       walletSuccessDescription: 'Ödemeniz kaydedildi ve cüzdan bakiyeniz artırıldı.',
       aiSuccessDescription: 'Ödemeniz kaydedildi ve yapay zekâ krediniz artırıldı.',
       failedTitle: 'Ödeme tamamlanmadı',
+      reviewTitle: 'Ödeme alındı — inceleniyor',
       failedDescription: 'Ödeme doğrulanamadı. Herhangi bir tahsilat kaydedilmedi; tekrar deneyebilirsiniz.',
       dashboard: 'Kontrol paneline git',
       receiptNumber: 'Fatura numarası',

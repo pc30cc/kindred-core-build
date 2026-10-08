@@ -41,7 +41,10 @@ import {
 } from '../services/billing/customer/actions.js';
 import {
   canCollectInvoice,
+  closeSupersededCheckouts,
+  collectionDependsOnAccount,
   isCardInvoiceProvider,
+  openCheckoutAttempts,
   CARD_COLLECTION_TTL_SECONDS,
   CARD_INTENT_TTL_MS,
 } from '../services/billing/cardInvoice.js';
@@ -127,11 +130,26 @@ function isManage(auth: { isAdmin: boolean; role: string | null } | null): boole
 /**
  * Active gateways that can collect a document in `currency`: enabled in
  * Finance → Gateways for it AND able to collect an invoice in it (Iranian
- * gateways IRR; card gateways the currencies they charge).
+ * gateways IRR; card gateways the currencies they charge — for a gateway
+ * whose account fixes the currency, like a Lemon Squeezy store, the one its
+ * configured account charges).
  */
-async function invoiceGateways(cfg: ServerConfig, currency: string) {
+async function invoiceGateways(cfg: ServerConfig, workspaceId: string, currency: string) {
   const gateways = await listPayableGateways(cfg, currency);
-  return gateways.filter((g) => canCollectInvoice(g.provider_name, currency));
+  const collects = await Promise.all(
+    gateways.map(async (g) => {
+      if (!canCollectInvoice(g.provider_name, currency)) return false;
+      if (!collectionDependsOnAccount(g.provider_name)) return true;
+      const resolved = await resolveNamedBillingConfig(
+        cfg.supabaseUrl,
+        cfg.supabaseServiceRoleKey,
+        workspaceId,
+        g.provider_name,
+      ).catch(() => null);
+      return Boolean(resolved && canCollectInvoice(g.provider_name, currency, resolved.config));
+    }),
+  );
+  return gateways.filter((_g, i) => collects[i]);
 }
 
 /**
@@ -149,7 +167,7 @@ async function resolveCheckoutProvider(
   providerName: string | null | undefined,
   currency: string,
 ) {
-  const gateways = await invoiceGateways(cfg, currency);
+  const gateways = await invoiceGateways(cfg, workspaceId, currency);
   if (providerName) {
     const gateway = gateways.find((g) => g.provider_name === providerName);
     if (!gateway) return null;
@@ -161,7 +179,7 @@ async function resolveCheckoutProvider(
     );
   }
   const fallback = await resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
-  if (fallback && canCollectInvoice(fallback.provider.name, currency)) return fallback;
+  if (fallback && canCollectInvoice(fallback.provider.name, currency, fallback.config)) return fallback;
   if (gateways.length === 0) return fallback;
   return resolveNamedBillingConfig(
     cfg.supabaseUrl,
@@ -200,7 +218,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) 
   if (!auth) return;
   try {
     const currency = billingCurrencyOf(req.query.currency);
-    const gateways = await invoiceGateways(serverConfigOf(req), currency);
+    const gateways = await invoiceGateways(serverConfigOf(req), req.params.workspaceId, currency);
     res.json({
       currency,
       gateways: gateways.map((g) => ({
@@ -394,10 +412,14 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
     const currency = invoiceCurrency(invoice);
     const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName, currency);
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
-    if (!canCollectInvoice(resolved.provider.name, currency)) {
+    if (!canCollectInvoice(resolved.provider.name, currency, resolved.config)) {
       return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
     }
     const card = isCardInvoiceProvider(resolved.provider.name);
+
+    // Checkouts this one will supersede: once it holds the invoice, theirs
+    // are closed at the provider where possible (best effort, below).
+    const superseded = await openCheckoutAttempts(cfg, invoiceId).catch(() => [] as string[]);
 
     // Create the attempt first, then bind the reservation to it. The former
     // order created an unowned 15-minute lock whenever execution stopped
@@ -431,6 +453,9 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       paymentIntentId: intent.id,
       ttlSeconds: card ? CARD_COLLECTION_TTL_SECONDS : 900,
     });
+    // Never delays or fails this checkout; a checkout left open is still
+    // settled or recorded for review if it is paid (cardInvoice.ts).
+    void closeSupersededCheckouts(cfg, workspaceId, superseded).catch(() => undefined);
 
     const apiOrigin = await resolvePublicApiOrigin(cfg.supabaseUrl, cfg.supabaseServiceRoleKey);
     const { browserReturnUrl, gatewayCallbackUrl } = paymentReturnUrls(
@@ -556,7 +581,9 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
       }
     }
     const sellable = [...candidates].filter((c) => catalog.some((p) => planSellsIn(p, c)));
-    const collectable = await Promise.all(sellable.map(async (c) => (await invoiceGateways(cfg, c)).length > 0));
+    const collectable = await Promise.all(
+      sellable.map(async (c) => (await invoiceGateways(cfg, req.params.workspaceId, c)).length > 0),
+    );
     const currencies = sellable.filter((_c, i) => collectable[i]);
     const currency = pickCatalogCurrency(currencies, {
       requested: typeof req.query.currency === 'string' ? req.query.currency : null,

@@ -13,6 +13,28 @@ export const LEMON_SQUEEZY_CURRENCIES = ['USD', 'EUR', 'GBP'] as const;
 /** Checkout links expire with the payment intent they collect for. */
 const CHECKOUT_LINK_TTL_MS = 30 * 60 * 1000;
 
+/** The one currency a configured store charges (`config.currency`, default USD); none when unsupported. */
+export function lemonSqueezyStoreCurrencies(config: BillingProviderConfig): readonly string[] {
+  const code = normalizeCurrencyCode(config.currency) || 'USD';
+  return (LEMON_SQUEEZY_CURRENCIES as readonly string[]).includes(code) ? [code] : [];
+}
+
+/**
+ * The price an order charged before tax, in cents of the store currency —
+ * the number that must equal the invoice (`custom_price`). `total` is not:
+ * with tax-exclusive pricing Lemon Squeezy adds the tax on top of the price.
+ * Tax-exclusive: `subtotal` less any discount. Tax-inclusive: `total`, which
+ * then contains the tax. Discount codes are disabled on our checkouts, so a
+ * discount only ever lowers the amount, and lower is parked, never settled.
+ */
+export function lemonSqueezyOrderPrice(attributes: Record<string, unknown> | null): number | undefined {
+  const total = minorFromProvider(attributes?.total);
+  if (attributes?.tax_inclusive === true) return total;
+  const subtotal = minorFromProvider(attributes?.subtotal);
+  if (subtotal === undefined) return undefined;
+  return Math.max(0, subtotal - (minorFromProvider(attributes?.discount_total) ?? 0));
+}
+
 // --- Local runtime narrowing for Lemon Squeezy JSON:API bodies (no casts, no shared helper) ---
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -98,6 +120,7 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
   },
 
   supportedCurrencies: LEMON_SQUEEZY_CURRENCIES,
+  chargeableCurrencies: lemonSqueezyStoreCurrencies,
 
   /**
    * A checkout of the configured single-payment variant (`variant_id`) at
@@ -106,12 +129,13 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
    * serves every plan and interval. `checkout_data.custom` carries workspace,
    * intent and invoice; Lemon Squeezy returns it as `meta.custom_data` on the
    * order webhooks, which are what confirm the payment (the redirect back
-   * carries no payment reference).
+   * carries no payment reference). Discount codes are switched off: the
+   * customer pays the invoice, not a price lowered at the provider.
    */
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
     const storeCurrency = normalizeCurrencyCode(config.currency) || 'USD';
     const currency = requireSupportedCurrency('Lemon Squeezy', req.currency, LEMON_SQUEEZY_CURRENCIES);
-    if (currency !== storeCurrency) {
+    if (!lemonSqueezyStoreCurrencies(config).includes(currency)) {
       throw new Error(`Lemon Squeezy store sells in ${storeCurrency}, not ${currency}`);
     }
     const amount = minorFromProvider(req.metadata?.amount);
@@ -136,6 +160,7 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
             redirect_url: req.callbackUrl,
             ...(req.description ? { name: req.description } : {}),
           },
+          checkout_options: { discount: false },
           expires_at: new Date(Date.now() + CHECKOUT_LINK_TTL_MS).toISOString(),
           ...(config.test_mode ? { test_mode: true } : {}),
         },
@@ -189,16 +214,30 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
         type: 'payment_succeeded',
         providerPaymentId: dataId || undefined,
         providerCustomerId: attributes?.customer_id !== undefined ? String(attributes.customer_id) : undefined,
-        // `total` is in cents of the store currency, like `custom_price`.
-        amount: minorFromProvider(attributes?.total),
+        // The pre-tax price, in cents of the store currency like `custom_price`;
+        // what was actually charged (tax included) is kept for the record.
+        amount: lemonSqueezyOrderPrice(attributes),
+        charge: {
+          total: minorFromProvider(attributes?.total),
+          tax: minorFromProvider(attributes?.tax),
+          currency: base.currency,
+        },
       };
     }
     if (eventName === 'order_refunded') {
+      // Every partial refund re-sends `order_refunded` for the same order:
+      // the running refunded amount tells them apart (a retry of one
+      // delivery carries the same amount, so it is still a replay).
+      const refunded = minorFromProvider(attributes?.refunded_amount);
+      const stamp = refunded !== undefined
+        ? String(refunded)
+        : typeof attributes?.updated_at === 'string' ? attributes.updated_at : '';
       return {
         ...base,
+        providerEventId: stamp ? `${base.providerEventId}_${stamp}` : base.providerEventId,
         type: 'refund_processed',
         providerPaymentId: dataId || undefined,
-        refundedTotal: minorFromProvider(attributes?.refunded_amount),
+        refundedTotal: refunded,
       };
     }
 

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { paypalProvider, readPayPalAccessToken, readPayPalOAuthError } from '../../../server/services/billing/providers/paypal.js';
+import {
+  clearPayPalTokenCache,
+  paypalProvider,
+  readPayPalAccessToken,
+  readPayPalOAuthError,
+} from '../../../server/services/billing/providers/paypal.js';
 
 const config = { provider: 'paypal', client_id: 'client-id-mock', client_secret: 'client-secret-mock', sandbox: true };
 
@@ -9,7 +14,11 @@ function mockJson(body: unknown, ok = true) {
   return fn;
 }
 
-beforeEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  vi.unstubAllGlobals();
+  // Every case scripts its own token call.
+  clearPayPalTokenCache();
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe('readPayPalAccessToken', () => {
@@ -421,6 +430,74 @@ describe('paypal verifyWebhook (verify-webhook-signature API)', () => {
       webhookConfig, transmission, JSON.stringify({ id: 'E', event_type: 'CHECKOUT.ORDER.APPROVED', resource: {} }),
     );
     expect(event?.type).toBe('ignored');
+  });
+});
+
+describe('paypal access token reuse (webhook verification cost)', () => {
+  const webhookConfig = { ...config, webhook_id: 'WH-1' };
+  const headers = {
+    'paypal-auth-algo': 'SHA256withRSA',
+    'paypal-cert-url': 'https://api.paypal.com/v1/notifications/certs/CERT-1',
+    'paypal-transmission-id': 'tx-1',
+    'paypal-transmission-sig': 'sig==',
+    'paypal-transmission-time': '2026-10-08T10:00:00Z',
+  };
+  const body = JSON.stringify({ id: 'WH-EVT-9', event_type: 'CHECKOUT.ORDER.APPROVED', resource: {} });
+  const tokenCalls = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.filter(([url]) => String(url).endsWith('/v1/oauth2/token')).length;
+
+  function mockPayPal(verifyStatus = 200) {
+    const fn = vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/oauth2/token')) {
+        return { ok: true, status: 200, json: async () => ({ access_token: 'tok', expires_in: 32400 }) };
+      }
+      return { ok: verifyStatus === 200, status: verifyStatus, json: async () => ({ verification_status: 'SUCCESS' }) };
+    });
+    vi.stubGlobal('fetch', fn);
+    return fn;
+  }
+
+  it('fetches one token for many deliveries while it is valid', async () => {
+    const fn = mockPayPal();
+    for (let i = 0; i < 3; i += 1) await paypalProvider.verifyWebhook(webhookConfig, headers, body);
+    expect(tokenCalls(fn)).toBe(1);
+    expect(fn).toHaveBeenCalledTimes(4);
+  });
+
+  it('fetches a new token once the cached one is close to expiry', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const fn = mockPayPal();
+    await paypalProvider.verifyWebhook(webhookConfig, headers, body);
+    clock.mockReturnValue(now + 32400 * 1000 - 60 * 1000);
+    await paypalProvider.verifyWebhook(webhookConfig, headers, body);
+    expect(tokenCalls(fn)).toBe(2);
+    clock.mockRestore();
+  });
+
+  it('drops a token PayPal rejects, so the next delivery gets a fresh one', async () => {
+    const fn = mockPayPal(401);
+    await expect(paypalProvider.verifyWebhook(webhookConfig, headers, body)).rejects.toThrow('Invalid PayPal webhook signature');
+    await expect(paypalProvider.verifyWebhook(webhookConfig, headers, body)).rejects.toThrow();
+    expect(tokenCalls(fn)).toBe(2);
+  });
+
+  it('other credentials never reuse the token', async () => {
+    const fn = mockPayPal();
+    await paypalProvider.verifyWebhook(webhookConfig, headers, body);
+    await paypalProvider.verifyWebhook({ ...webhookConfig, client_secret: 'rotated-secret' }, headers, body);
+    expect(tokenCalls(fn)).toBe(2);
+  });
+
+  it('a connection test always asks PayPal for a token', async () => {
+    const fn = mockPayPal();
+    await paypalProvider.verifyWebhook(webhookConfig, headers, body);
+    expect((await paypalProvider.testConnection(config)).success).toBe(true);
+    expect(tokenCalls(fn)).toBe(2);
+  });
+
+  it('declares that its payment lookup captures the money', () => {
+    expect(paypalProvider.verifyPaymentCaptures).toBe(true);
   });
 });
 

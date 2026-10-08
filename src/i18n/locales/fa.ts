@@ -36,6 +36,7 @@ const fa: TranslationKeys = {
       walletSuccessDescription: 'پرداخت با موفقیت ثبت شد و موجودی کیف پول شما افزایش یافت.',
       aiSuccessDescription: 'پرداخت با موفقیت ثبت شد و اعتبار هوش مصنوعی شما افزایش یافت.',
       failedTitle: 'پرداخت تکمیل نشد',
+      reviewTitle: 'پرداخت دریافت شد — در حال بررسی',
       failedDescription: 'پرداخت تأیید نشد. مبلغی کسر نشده است؛ می‌توانید دوباره تلاش کنید.',
       dashboard: 'رفتن به داشبورد',
       receiptNumber: 'شماره فاکتور',

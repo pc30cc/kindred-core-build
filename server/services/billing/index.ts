@@ -393,7 +393,16 @@ export async function logBillingEvent(
 
 export type BillingEventClaim =
   | { claimed: true; eventRowId: string }
-  | { claimed: false; duplicate: true };
+  | { claimed: false; duplicate: true }
+  /** Another delivery holds the claim right now (`received`, not yet stale). */
+  | { claimed: false; inFlight: true };
+
+/**
+ * A `received` row older than this is a delivery whose processing died (a
+ * crash or a restart between the claim and the outcome): the provider's next
+ * retry may take it over. Processing a webhook takes seconds.
+ */
+export const STALE_WEBHOOK_CLAIM_MS = 5 * 60 * 1000;
 
 /** Postgres unique_violation. */
 const PG_UNIQUE_VIOLATION = '23505';
@@ -419,8 +428,15 @@ export interface BillingWebhookClaimInput {
  *
  * Resolves `{ claimed: true }` exactly once per
  * `(provider_name, provider_event_id)` pair. Resolves
- * `{ claimed: false, duplicate: true }` for a replay. Any other database
- * failure REJECTS — the caller must abort without side effects.
+ * `{ claimed: false, duplicate: true }` for a replay, and
+ * `{ claimed: false, inFlight: true }` while another delivery is processing
+ * it. A row whose processing failed, or that sat in `received` for longer
+ * than STALE_WEBHOOK_CLAIM_MS, is taken over by the provider's retry. Any
+ * other database failure REJECTS — the caller must abort without side effects.
+ *
+ * `created_at` of a row is the time of its latest claim: a take-over moves it
+ * (compare-and-set on the value read), so exactly one retry wins and the new
+ * claim is not itself stale.
  */
 export async function claimBillingWebhookEvent(
   supabaseUrl: string,
@@ -455,9 +471,10 @@ export async function claimBillingWebhookEvent(
       // idempotent (intent claim, unique payment per intent, settlement
       // command key), so a retry finishes the job instead of being dropped
       // as a duplicate.
+      const claimedAt = new Date().toISOString();
       const { data: retaken, error: retakeError } = await supabase
         .from('billing_events')
-        .update({ status: 'received' })
+        .update({ status: 'received', created_at: claimedAt })
         .eq('provider_name', input.providerName)
         .eq('provider_event_id', input.providerEventId)
         .eq('status', 'failed')
@@ -467,7 +484,34 @@ export async function claimBillingWebhookEvent(
       if (!retakeError && typeof retakenId === 'string' && retakenId.length > 0) {
         return { claimed: true, eventRowId: retakenId };
       }
-      return { claimed: false, duplicate: true };
+
+      // Still `received`: being processed, or abandoned by a crashed attempt.
+      // A stale one is taken over the same way, keyed on the claim time read.
+      const { data: current, error: readError } = await supabase
+        .from('billing_events')
+        .select('id, status, created_at')
+        .eq('provider_name', input.providerName)
+        .eq('provider_event_id', input.providerEventId)
+        .maybeSingle();
+      const row = current as { id?: unknown; status?: unknown; created_at?: unknown } | null;
+      if (readError || !row || row.status !== 'received') return { claimed: false, duplicate: true };
+      const claimedBefore = typeof row.created_at === 'string' ? Date.parse(row.created_at) : Number.NaN;
+      if (!Number.isFinite(claimedBefore) || Date.now() - claimedBefore < STALE_WEBHOOK_CLAIM_MS) {
+        return { claimed: false, inFlight: true };
+      }
+      const { data: stolen, error: stealError } = await supabase
+        .from('billing_events')
+        .update({ created_at: claimedAt })
+        .eq('id', row.id as string)
+        .eq('status', 'received')
+        .eq('created_at', row.created_at as string)
+        .select('id')
+        .maybeSingle();
+      const stolenId = (stolen as { id?: unknown } | null)?.id;
+      if (!stealError && typeof stolenId === 'string' && stolenId.length > 0) {
+        return { claimed: true, eventRowId: stolenId };
+      }
+      return { claimed: false, inFlight: true };
     }
     throw new Error('billing event claim failed');
   }

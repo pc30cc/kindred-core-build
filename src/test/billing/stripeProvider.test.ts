@@ -49,6 +49,9 @@ describe('stripe createCheckoutSession', () => {
       // One payment per invoice — never a Stripe subscription keyed by a
       // platform plan id Stripe has never heard of.
       mode: 'payment',
+      // Cards only: a delayed method would complete the session unpaid and
+      // settle long after the intent and the invoice reservation ran out.
+      'payment_method_types[0]': 'card',
       'line_items[0][quantity]': '1',
       'line_items[0][price_data][currency]': 'usd',
       'line_items[0][price_data][unit_amount]': '2900',
@@ -155,6 +158,22 @@ describe('stripe createCheckoutSession', () => {
     const result = await stripeProvider.createCheckoutSession(config, checkoutReq);
     expect(result.paymentUrl).toBe('https://checkout.stripe.com/x');
     expect(result.sessionId).toBeUndefined();
+  });
+});
+
+describe('stripe closeCheckout (a superseded checkout)', () => {
+  it('expires the still-open session, so it can no longer be paid', async () => {
+    const fetchMock = mockJson({ id: 'cs_old', status: 'expired' });
+    expect(await stripeProvider.closeCheckout!(config, 'cs_old')).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.stripe.com/v1/checkout/sessions/cs_old/expire');
+    expect(init.method).toBe('POST');
+    expect(init.headers['Authorization']).toBe(`Bearer ${SECRET}`);
+  });
+
+  it('a session Stripe will not expire (already complete) is reported as not closed', async () => {
+    mockJson({ error: { message: 'Only Checkout Sessions with a status of open can be expired.' } }, false);
+    expect(await stripeProvider.closeCheckout!(config, 'cs_paid')).toBe(false);
   });
 });
 

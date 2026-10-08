@@ -11,6 +11,8 @@ const stripeVerify = vi.fn();
 // In-memory stand-in for the `(provider_name, provider_event_id)` unique index.
 let claimedKeys = new Set<string>();
 let claimShouldThrow = false;
+/** Another delivery of the event holds the claim (billing_events row still `received`). */
+let claimInFlight = false;
 const claimSpy = vi.fn();
 const finalizeSpy = vi.fn();
 
@@ -23,6 +25,7 @@ interface ClaimInput {
 async function fakeClaim(_url: string, _key: string, input: ClaimInput) {
   claimSpy(input);
   if (claimShouldThrow) throw new Error('billing event claim failed');
+  if (claimInFlight) return { claimed: false, inFlight: true };
   const k = `${input.providerName}:${input.providerEventId}`;
   if (claimedKeys.has(k)) return { claimed: false, duplicate: true };
   claimedKeys.add(k);
@@ -31,6 +34,7 @@ async function fakeClaim(_url: string, _key: string, input: ClaimInput) {
 
 const paytrVerify = vi.fn();
 const stripeVerifyPayment = vi.fn();
+const paypalVerifyPayment = vi.fn();
 const cardIntentWebhook = vi.fn().mockResolvedValue(undefined);
 const cardSettle = vi.fn();
 let intentRows: Record<string, Record<string, unknown>> = {};
@@ -57,7 +61,9 @@ vi.mock('../../../server/services/billing/index.js', () => ({
           ? { name: 'paytr', capabilities: {}, webhookAckBody: 'OK', verifyWebhook: paytrVerify }
           : name === 'lemon_squeezy'
             ? { name: 'lemon_squeezy', capabilities: {}, verifyWebhook: vi.fn() }
-            : null,
+            : name === 'paypal'
+              ? { name: 'paypal', capabilities: {}, verifyWebhook: vi.fn(), verifyPayment: paypalVerifyPayment, verifyPaymentCaptures: true }
+              : null,
   getAllProviders: () => ({}),
   processWebhookEvent: (...a: unknown[]) => processWebhookEvent(...a),
   logBillingEvent: vi.fn().mockResolvedValue(undefined),
@@ -131,19 +137,27 @@ vi.mock('@supabase/supabase-js', () => ({
 
 let authUser: { id: string } | null = null;
 let memberOf: Record<string, string> = {};
+/** `billing_invoices` rows by id, and the unapplied `billing_payments` rows any lookup finds. */
+let invoiceRows: Record<string, Record<string, unknown>> = {};
+let unappliedPayments: Array<Record<string, unknown>> = [];
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     auth: { getUser: async () => ({ data: { user: authUser }, error: authUser ? null : new Error('bad') }) },
     rpc: async (_fn: string, args: { _workspace_id: string }) => ({ data: Boolean(memberOf[args._workspace_id]) }),
-    from: () => {
+    from: (table: string) => {
       const b: Record<string, unknown> & { _ws?: string } = {
         select: () => b,
         eq: (_c: string, v: string) => {
           if (!b._ws) b._ws = v;
           return b;
         },
-        maybeSingle: async () => ({ data: b._ws && memberOf[b._ws] ? { role: memberOf[b._ws] } : null }),
+        maybeSingle: async () => (table === 'billing_invoices'
+          ? { data: (b._ws && invoiceRows[b._ws]) || null, error: null }
+          : { data: b._ws && memberOf[b._ws] ? { role: memberOf[b._ws] } : null }),
+        // "Money recorded for review" lookups (unapplied payments of an intent).
+        or: () => b,
+        limit: () => b,
         // getRolloutState self-heals a missing billing_v2_rollout row before
         // any legacy-path check runs, so the very first authorized request
         // reaches this. Without it the call rejected outside the request's
@@ -155,7 +169,7 @@ vi.mock('../../../server/supabase.js', () => ({
         update: () => b,
         in: () => b,
         then: (onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) =>
-          Promise.resolve({ data: null, error: null }).then(onOk, onErr),
+          Promise.resolve({ data: table === 'billing_payments' ? unappliedPayments : null, error: null }).then(onOk, onErr),
       };
       return b;
     },
@@ -242,6 +256,10 @@ beforeEach(() => {
   stripeVerify.mockReset();
   paytrVerify.mockReset();
   stripeVerifyPayment.mockReset();
+  paypalVerifyPayment.mockReset();
+  invoiceRows = {};
+  unappliedPayments = [];
+  claimInFlight = false;
   cardIntentWebhook.mockClear();
   cardSettle.mockReset();
   intentRows = {};
@@ -656,6 +674,43 @@ describe('billing webhooks — invoice intents and acknowledgements', () => {
     expect(cardIntentWebhook).not.toHaveBeenCalled();
   });
 
+  it('acknowledges an event for an intent this database never had (a shared provider account), touching nothing', async () => {
+    globalConfigValue = { provider_name: 'stripe', webhook_secret: 'a' };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    stripeVerify.mockResolvedValue({
+      type: 'payment_succeeded', providerEventId: 'evt_foreign', workspaceId: OTHER_WS, intentId: INTENT,
+      amount: 2900, currency: 'USD', raw: {},
+    });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ received: true, ignored: true });
+    expect(claimSpy).not.toHaveBeenCalled();
+    expect(cardIntentWebhook).not.toHaveBeenCalled();
+    expect(processWebhookEvent).not.toHaveBeenCalled();
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('unknown_intent'))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it('also when the foreign event names no workspace at all', async () => {
+    globalConfigValue = { provider_name: 'stripe', webhook_secret: 'a' };
+    stripeVerify.mockResolvedValue({ type: 'refund_processed', providerEventId: 'evt_foreign_2', intentId: INTENT, raw: {} });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ received: true, ignored: true });
+    expect(claimSpy).not.toHaveBeenCalled();
+  });
+
+  it('a delivery another request is still processing is not acknowledged: the provider retries it later', async () => {
+    globalConfigValue = { provider_name: 'stripe', webhook_secret: 'a' };
+    intentRows[INTENT] = intentRow();
+    claimInFlight = true;
+    stripeVerify.mockResolvedValue({ type: 'payment_succeeded', providerEventId: 'evt_busy', workspaceId: WS, intentId: INTENT, raw: {} });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(409);
+    expect(cardIntentWebhook).not.toHaveBeenCalled();
+    expect(finalizeSpy).not.toHaveBeenCalled();
+  });
+
   it('answers 500 and marks the event failed when settling fails, so the retry re-processes it', async () => {
     globalConfigValue = { provider_name: 'stripe', webhook_secret: 'a' };
     intentRows[INTENT] = intentRow();
@@ -797,6 +852,113 @@ describe('verify-callback — the customer returns from a card gateway', () => {
     const res = await verify({ params: { session_id: 'cs_1' } });
     expect(res.status).toBe(400);
     expect(stripeVerifyPayment).not.toHaveBeenCalled();
+  });
+
+  it('money already recorded for review is reported as under review on a reload — never as a failed payment', async () => {
+    intentRows[INTENT] = cardIntent({ status: 'failed', failure_reason: 'gateway_amount_mismatch' });
+    unappliedPayments = [{ id: 'pay-parked' }];
+    const res = await verify({ params: { session_id: 'cs_1' } });
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({ error: 'PAYMENT_UNDER_REVIEW' });
+    expect(stripeVerifyPayment).not.toHaveBeenCalled();
+  });
+
+  it('a failed attempt with no money recorded is reported as it is', async () => {
+    intentRows[INTENT] = cardIntent({ status: 'failed', failure_reason: 'gateway_canceled' });
+    const res = await verify({ params: { session_id: 'cs_1' } });
+    expect(JSON.parse(res.body)).toEqual({ success: true, verified: false, status: 'failed' });
+    expect(stripeVerifyPayment).not.toHaveBeenCalled();
+  });
+
+  it('a checkout superseded by a newer one is still looked up, and its money settles the invoice', async () => {
+    intentRows[INTENT] = cardIntent({ status: 'canceled', failure_reason: 'superseded_by_new_checkout' });
+    stripeVerifyPayment.mockResolvedValue({
+      verified: true, providerRef: 'cs_1', amount: 2900, currency: 'USD', paymentId: 'pi_stripe_1', status: 'paid',
+    });
+    cardSettle.mockImplementation(async () => {
+      intentRows[INTENT] = cardIntent({ status: 'succeeded' });
+      return { outcome: 'succeeded' };
+    });
+    const res = await verify({ params: { session_id: 'cs_1' } });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({ success: true, verified: true });
+    expect(cardSettle.mock.calls[0][1].intent).toMatchObject({ status: 'canceled', failure_reason: 'superseded_by_new_checkout' });
+  });
+
+  it('an expired checkout that was never paid stays expired, untouched', async () => {
+    intentRows[INTENT] = cardIntent({ status: 'expired', failure_reason: 'ttl_expired' });
+    stripeVerifyPayment.mockResolvedValue({ verified: false, providerRef: 'cs_1', status: 'expired' });
+    const res = await verify({ params: { session_id: 'cs_1' } });
+    expect(JSON.parse(res.body)).toEqual({ success: true, verified: false, status: 'expired' });
+    expect(cardSettle).not.toHaveBeenCalled();
+  });
+
+  it('an attempt the customer canceled before reaching the provider is never looked up', async () => {
+    intentRows[INTENT] = cardIntent({ status: 'canceled', failure_reason: 'customer_canceled' });
+    const res = await verify({ params: {} });
+    expect(JSON.parse(res.body)).toEqual({ success: true, verified: false, status: 'canceled' });
+    expect(stripeVerifyPayment).not.toHaveBeenCalled();
+  });
+
+  describe('PayPal: the lookup captures the money, so it only runs for an attempt that can still settle', () => {
+    const FUTURE = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const PAST = new Date(Date.now() - 60 * 1000).toISOString();
+    const paypalIntent = (overrides: Record<string, unknown> = {}) =>
+      cardIntent({ provider_name: 'paypal', provider_ref: 'ORDER-1', expires_at: FUTURE, ...overrides });
+    const verifyPayPal = () => verify({ provider: 'paypal', params: { token: 'ORDER-1', PayerID: 'P1' } });
+
+    it('captures a live attempt for an invoice that still owes exactly its amount', async () => {
+      intentRows[INTENT] = paypalIntent();
+      invoiceRows['inv-1'] = { status: 'open', amount_due_irr: 2900, currency: 'USD' };
+      paypalVerifyPayment.mockResolvedValue({ verified: false, providerRef: 'ORDER-1', status: 'pending' });
+      await verifyPayPal();
+      expect(paypalVerifyPayment).toHaveBeenCalledTimes(1);
+    });
+
+    it('captures nothing after the attempt’s deadline (the order lapses at PayPal)', async () => {
+      intentRows[INTENT] = paypalIntent({ expires_at: PAST });
+      invoiceRows['inv-1'] = { status: 'open', amount_due_irr: 2900, currency: 'USD' };
+      const res = await verifyPayPal();
+      expect(JSON.parse(res.body)).toEqual({ success: true, verified: false, status: 'expired' });
+      expect(paypalVerifyPayment).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['paid meanwhile', { status: 'paid', amount_due_irr: 0, currency: 'USD' }],
+      ['owing another amount', { status: 'partially_paid', amount_due_irr: 1000, currency: 'USD' }],
+    ])('captures nothing for an invoice %s', async (_label, invoice) => {
+      intentRows[INTENT] = paypalIntent();
+      invoiceRows['inv-1'] = invoice;
+      const res = await verifyPayPal();
+      expect(res.status).toBe(409);
+      expect(JSON.parse(res.body)).toEqual({ error: 'INVOICE_NOT_PAYABLE' });
+      expect(paypalVerifyPayment).not.toHaveBeenCalled();
+    });
+
+    it('never captures a superseded attempt', async () => {
+      intentRows[INTENT] = paypalIntent({ status: 'canceled', failure_reason: 'superseded_by_new_checkout' });
+      invoiceRows['inv-1'] = { status: 'open', amount_due_irr: 2900, currency: 'USD' };
+      const res = await verifyPayPal();
+      expect(JSON.parse(res.body)).toEqual({ success: true, verified: false, status: 'canceled' });
+      expect(paypalVerifyPayment).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('status polling', () => {
+    const poll = () => call('GET', `/api/billing/payment-intent/${INTENT}`, { headers: { authorization: 'Bearer good' } });
+
+    it('reports an attempt whose money was recorded for review as PAYMENT_UNDER_REVIEW, not as its failure', async () => {
+      intentRows[INTENT] = cardIntent({ status: 'failed', failure_reason: 'gateway_amount_mismatch' });
+      unappliedPayments = [{ id: 'pay-parked' }];
+      const res = await poll();
+      expect(JSON.parse(res.body)).toMatchObject({ status: 'failed', pending: false, failureReason: 'PAYMENT_UNDER_REVIEW' });
+    });
+
+    it('reports any other ended attempt by its own reason', async () => {
+      intentRows[INTENT] = cardIntent({ status: 'failed', failure_reason: 'gateway_canceled' });
+      const res = await poll();
+      expect(JSON.parse(res.body)).toMatchObject({ status: 'failed', failureReason: 'gateway_canceled' });
+    });
   });
 
   it('an intent that already succeeded answers with its receipt and asks nothing', async () => {

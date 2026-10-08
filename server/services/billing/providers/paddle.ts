@@ -237,6 +237,18 @@ export const paddleProvider: BillingProviderHandler = {
     return { verified: false, providerRef: txnId, status: 'pending' };
   },
 
+  /**
+   * Cancels a transaction nobody paid yet (`draft` / `ready`), which closes
+   * its checkout. Paddle refuses this for a transaction that is already
+   * billed, paid or completed.
+   */
+  async closeCheckout(config: BillingProviderConfig, transactionId: string): Promise<boolean> {
+    const id = (transactionId || '').trim();
+    if (!id) return false;
+    const data: unknown = await paddleApi(config, `/transactions/${encodeURIComponent(id)}`, 'PATCH', { status: 'canceled' });
+    return readPaddleError(data) === null && readPaddleTransaction(data) !== null;
+  },
+
   async verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
     const sig = headers['paddle-signature'];
     const secret = typeof config.webhook_secret === 'string' ? config.webhook_secret : '';
@@ -274,14 +286,21 @@ export const paddleProvider: BillingProviderHandler = {
     }
 
     // A refund is an adjustment with action `refund`; it moves money only once
-    // approved (it is created as `pending_approval`).
+    // approved (it is created as `pending_approval`). Both `adjustment.created`
+    // and `adjustment.updated` can report the same approved adjustment, each
+    // under its own event id: the event is keyed by the adjustment instead, so
+    // the second notification is a replay, and the refund is counted once per
+    // adjustment id (refunds.ts).
     if (eventType === 'adjustment.created' || eventType === 'adjustment.updated') {
-      if (readString(data, 'action') !== 'refund' || readString(data, 'status') !== 'approved') {
+      const adjustmentId = readString(data, 'id');
+      if (readString(data, 'action') !== 'refund' || readString(data, 'status') !== 'approved' || !adjustmentId) {
         return { ...base, type: 'ignored' };
       }
       return {
         ...base,
+        providerEventId: `adjustment_${adjustmentId}_approved`,
         type: 'refund_processed',
+        refundId: adjustmentId,
         providerPaymentId: readString(data, 'transaction_id'),
         amount: minorFromProvider(asRecord(data?.totals)?.total),
         currency: normalizeCurrencyCode(data?.currency_code),

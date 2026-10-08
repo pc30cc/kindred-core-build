@@ -453,6 +453,29 @@ export const adminRateLimiter = rateLimit({
   },
 });
 
+/**
+ * Billing provider webhooks (/api/billing/webhook/:provider): public by
+ * necessity, and checking one can cost outbound calls (PayPal's
+ * verify-webhook-signature API). The ceiling is far above any provider's real
+ * delivery rate from one address, and providers retry a 429, so nothing
+ * genuine is lost.
+ */
+export function createBillingWebhookRateLimiter(max = 120) {
+  return rateLimit({
+    windowMs: 60_000,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `billing-webhook:${ipBucket(req)}`,
+    handler: async (req, res) => {
+      logRateLimited(req, 'warn', { endpoint: '/api/billing/webhook', limit: `${max}/min` });
+      res.status(429).json({ error: 'Webhook rate limit exceeded.' });
+    },
+  });
+}
+
+export const billingWebhookRateLimiter = createBillingWebhookRateLimiter();
+
 // ─── Brute Force Protection ─────────────────────────────────────
 
 const loginAttemptTracker = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();

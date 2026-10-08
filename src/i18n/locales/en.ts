@@ -34,6 +34,7 @@ const en = {
       walletSuccessDescription: 'Your payment was recorded and your wallet balance has been increased.',
       aiSuccessDescription: 'Your payment was recorded and your AI credit has been increased.',
       failedTitle: 'Payment incomplete',
+      reviewTitle: 'Payment received — under review',
       failedDescription: 'The payment could not be verified. No charge was recorded; you can try again.',
       dashboard: 'Go to dashboard',
       receiptNumber: 'Invoice number',

@@ -81,6 +81,9 @@ describe('lemon squeezy createCheckoutSession', () => {
             redirect_url: 'https://app.test.localhost/pay?intent=pi-1&provider=lemon_squeezy',
             name: 'Pro (monthly) — invoice AB12345678',
           },
+          // No discount code field: the customer pays the invoice, not a
+          // price lowered at Lemon Squeezy.
+          checkout_options: { discount: false },
           expires_at: '2026-10-08T10:30:00.000Z',
         },
         relationships: {
@@ -283,7 +286,15 @@ describe('lemon squeezy verifyWebhook event mapping', () => {
     event_name: 'order_created',
     custom_data: { workspace_id: 'ws-1', intent_id: 'pi-1', invoice_id: 'inv-1' },
   };
-  const order = { type: 'orders', id: '1001', attributes: { status: 'paid', total: 2900, currency: 'USD', customer_id: 77, refunded_amount: 0 } };
+  const order = {
+    type: 'orders',
+    id: '1001',
+    attributes: {
+      status: 'paid', subtotal: 2900, discount_total: 0, tax: 0, total: 2900, tax_inclusive: false,
+      currency: 'USD', customer_id: 77, refunded_amount: 0,
+    },
+  };
+  const withAttributes = (attributes: Record<string, unknown>) => ({ ...order, attributes: { ...order.attributes, ...attributes } });
 
   it('a paid order settles the intent in custom_data, in cents', async () => {
     const event = await map({ meta, data: order });
@@ -297,6 +308,45 @@ describe('lemon squeezy verifyWebhook event mapping', () => {
       amount: 2900,
       currency: 'USD',
     });
+  });
+
+  it('tax added on top of the price is not compared with the invoice: the pre-tax subtotal is, the charge is recorded', async () => {
+    const event = await map({ meta, data: withAttributes({ subtotal: 2900, tax: 580, total: 3480 }) });
+    expect(event).toMatchObject({
+      type: 'payment_succeeded',
+      amount: 2900,
+      charge: { total: 3480, tax: 580, currency: 'USD' },
+    });
+  });
+
+  it('with tax-inclusive pricing the total is the price the invoice asked for', async () => {
+    const event = await map({ meta, data: withAttributes({ subtotal: 2417, tax: 483, total: 2900, tax_inclusive: true }) });
+    expect(event).toMatchObject({ amount: 2900, charge: { total: 2900, tax: 483 } });
+  });
+
+  it('a discount lowers the amount compared with the invoice (so it can never settle it in full)', async () => {
+    const event = await map({ meta, data: withAttributes({ subtotal: 2900, discount_total: 500, tax: 480, total: 2880 }) });
+    expect(event).toMatchObject({ amount: 2400 });
+  });
+
+  it('an order without a readable subtotal reports no amount (recorded for review, never settled)', async () => {
+    const event = await map({ meta, data: withAttributes({ subtotal: 'n/a' }) });
+    expect(event?.type).toBe('payment_succeeded');
+    expect(event?.amount).toBeUndefined();
+  });
+
+  it('every partial refund of an order is its own event; a retry of one is the same event', async () => {
+    const refund = (refunded: number) => map({
+      meta: { ...meta, event_name: 'order_refunded' },
+      data: withAttributes({ status: 'partial_refund', refunded_amount: refunded }),
+    });
+    const first = await refund(1000);
+    const second = await refund(1500);
+    const retry = await refund(1000);
+    expect(first?.providerEventId).toBe('order_refunded_1001_1000');
+    expect(second?.providerEventId).toBe('order_refunded_1001_1500');
+    expect(retry?.providerEventId).toBe(first?.providerEventId);
+    expect(second).toMatchObject({ type: 'refund_processed', refundedTotal: 1500 });
   });
 
   it('an order whose payment has not cleared is acknowledged, not applied', async () => {

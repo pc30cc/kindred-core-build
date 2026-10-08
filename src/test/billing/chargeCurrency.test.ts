@@ -16,7 +16,7 @@ import {
   normalizeCurrencyCode,
   requireSupportedCurrency,
 } from '../../../server/services/billing/providers/minorAmount.js';
-import { nextRefundState } from '../../../server/services/billing/refunds.js';
+import { nextRefundState, recordProviderRefund } from '../../../server/services/billing/refunds.js';
 import { iyzicoProvider } from '../../../server/services/billing/providers/iyzico.js';
 import { paytrProvider } from '../../../server/services/billing/providers/paytr.js';
 import { sipayProvider } from '../../../server/services/billing/providers/sipay.js';
@@ -91,6 +91,44 @@ describe('refund accounting', () => {
   it('a per-refund amount (Paddle) is added to what was refunded before', () => {
     expect(nextRefundState({ ...payment, refund_amount: 1000 }, { amount: 900 })).toEqual({
       refundAmount: 1900, status: 'partially_refunded',
+    });
+  });
+
+  it('a refund reported under its id counts once, however often it is reported (Paddle adjustments)', () => {
+    const first = nextRefundState(payment, { amount: 1000, refundId: 'adj_1' });
+    expect(first).toEqual({ refundAmount: 1000, status: 'partially_refunded', refunds: { adj_1: 1000 } });
+    const again = nextRefundState({ ...payment, refund_amount: 1000, metadata: { provider_refunds: first.refunds } }, {
+      amount: 1000, refundId: 'adj_1',
+    });
+    expect(again.refundAmount).toBe(1000);
+    const second = nextRefundState({ ...payment, refund_amount: 1000, metadata: { provider_refunds: first.refunds } }, {
+      amount: 1900, refundId: 'adj_2',
+    });
+    expect(second).toEqual({ refundAmount: 2900, status: 'refunded', refunds: { adj_1: 1000, adj_2: 1900 } });
+  });
+
+  it('keeps the per-refund amounts on the payment, next to its other metadata', async () => {
+    const patches: unknown[] = [];
+    const builder: Record<string, unknown> = {};
+    builder.select = () => builder;
+    builder.eq = () => builder;
+    builder.limit = () => builder;
+    builder.maybeSingle = async () => ({
+      data: { id: 'p', amount: 2900, refund_amount: 1000, metadata: { intentId: 'pi-1', provider_refunds: { adj_1: 1000 } } },
+      error: null,
+    });
+    builder.update = (patch: unknown) => {
+      patches.push(patch);
+      return builder;
+    };
+    builder.then = (resolve: (v: unknown) => void) => resolve({ error: null });
+    const sb = { from: () => builder };
+    // The same adjustment reported again: nothing is added.
+    await recordProviderRefund(sb as never, 'paddle', { providerPaymentId: 'txn_1', amount: 1000, refundId: 'adj_1' });
+    expect(patches[0]).toEqual({
+      refund_amount: 1000,
+      status: 'partially_refunded',
+      metadata: { intentId: 'pi-1', provider_refunds: { adj_1: 1000 } },
     });
   });
 

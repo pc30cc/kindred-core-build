@@ -110,8 +110,9 @@ Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
        `docker exec -e DATABASE_URL=postgresql://postgres@/webyar -e PGOPTIONS='-c lock_timeout=5s' oqzy9q4ovntam9jgf7nxzqun bash /tmp/m253/scripts/migrate-database.sh`,
        then remove `/tmp/m253` from the container.
   - The ledger `public._schema_migrations` is complete: the chain at
-    `fa0e79d` (250 files), plus `252_email_sender_placeholders_cleared.sql`
-    and `253_workspace_panel_theme.sql` (applied 2026-10-08 07:08 UTC).
+    `fa0e79d` (250 files), plus `252_email_sender_placeholders_cleared.sql`,
+    `253_workspace_panel_theme.sql` (2026-10-08 07:08 UTC) and
+    `254_workspace_panel_theme_options.sql` (2026-10-08 13:27 UTC).
   - RESPOK's database is migrated automatically: its DB Migrator (app 40)
     runs `scripts/migrate-database.sh` on every push to `main`, then
     `/data/respok/migrator/overlay.sql`, which re-applies RESPOK's branding.

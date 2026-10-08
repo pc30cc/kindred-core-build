@@ -29,7 +29,10 @@ vi.mock('../../../server/supabase.js', () => {
       from(name: string) {
         const rows = table(name);
         let match: (r: Row) => boolean = () => true;
-        const one = () => ({ data: rows.find(match) ?? null, error: null });
+        // Reads return copies, as a real client does: a later update must not
+        // rewrite a row the route has already read.
+        const copy = (r: Row | undefined) => (r ? { ...r } : null);
+        const one = () => ({ data: copy(rows.find(match)), error: null });
         const builder = {
           select: () => builder,
           limit: () => builder,
@@ -42,7 +45,7 @@ vi.mock('../../../server/supabase.js', () => {
             return {
               eq(col: string, val: unknown) {
                 for (const r of rows) if (r[col] === val) Object.assign(r, patch);
-                return { select: () => ({ maybeSingle: async () => ({ data: rows.find((r) => r[col] === val) ?? null, error: null }) }) };
+                return { select: () => ({ maybeSingle: async () => ({ data: copy(rows.find((r) => r[col] === val)), error: null }) }) };
               },
             };
           },

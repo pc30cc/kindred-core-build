@@ -202,6 +202,7 @@ export default function PluginsPage() {
                 return (
                   <Card
                     key={item.id}
+                    data-plugin-blocked={blocked ? '' : undefined}
                     className={cn(
                       'group relative flex flex-col gap-4 overflow-hidden rounded-2xl border-border/60 p-5 shadow-sm transition-all',
                       blocked ? 'opacity-75' : 'hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md',

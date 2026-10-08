@@ -133,6 +133,23 @@
   --tw-shadow: 0 0 #0000;
 }
 
+/* A locked upsell button (classic fades it and puts a lock before the
+   label; it still opens the upgrade path): a calm field pill with muted ink,
+   readable (AA) in both modes instead of faded clay. */
+:root[data-panel-theme="art"] [data-slot="button"].opacity-60:has(> svg.lucide-lock) {
+  opacity: 1;
+  border-color: transparent;
+  background-color: var(--art-ui-field);
+  color: hsl(var(--muted-foreground));
+  --tw-shadow: 0 0 #0000;
+  box-shadow: inset 0 0 0 1px var(--art-ui-field-edge);
+}
+
+:root[data-panel-theme="art"] [data-slot="button"].opacity-60:has(> svg.lucide-lock):hover {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
 /* In dark, half-faded clay over the ink canvas turns a muddy brown with an
    unreadable label: a disabled solid button is a quiet stone pill instead
    (not a segment of a joined group, e.g. a split send button, which rests

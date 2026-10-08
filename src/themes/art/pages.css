@@ -1867,9 +1867,14 @@
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
     "title actions"
-    "stats actions";
+    "stats stats";
   align-items: center;
   column-gap: 1.5rem;
+}
+
+/* Each count stays whole ("۸ با ایمیل"), never broken over two lines. */
+:root[data-panel-theme="art"] [data-page="contacts"] [data-page-stats] > * {
+  white-space: nowrap;
 }
 
 :root[data-panel-theme="art"] [data-page="contacts"] > [data-page-header] > div:first-child {
@@ -2322,6 +2327,27 @@
   font-size: 1.75rem;
   letter-spacing: -0.02em;
   line-height: 1.1;
+}
+
+/* In the call center's six-up row a label may take two lines rather than be
+   cut ("درخواست‌های تماس در انتظار"); the reserved second line keeps the
+   figures of a row on one baseline. */
+:root[data-panel-theme="art"] [data-section-layout="call-center"] [data-metric-label] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-height: 2.7em;
+  white-space: normal;
+  text-overflow: clip;
+  line-height: 1.35;
+}
+
+/* On laptops the six-up row is three-up, so each label has room. */
+@media (min-width: 1024px) and (max-width: 1535px) {
+  :root[data-panel-theme="art"] [data-section-layout="call-center"] .lg\:grid-cols-6:has(> [data-metric-tile]) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 /* Beside an icon tile the label sits level with the tile's middle. */
@@ -3176,4 +3202,34 @@
   text-transform: none;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Unavailable plugins and embed snippets ── */
+
+/* A plugin that can't be used yet (coming soon, not in the plan, under
+   maintenance): classic fades the whole card, which turns its clay button a
+   muddy brown. Art keeps the card solid, dims its text, and quiets the
+   button to a field pill, so clay stays for what can be used. */
+:root[data-panel-theme="art"] [data-plugin-blocked].opacity-75 {
+  opacity: 1;
+}
+
+:root[data-panel-theme="art"] [data-plugin-blocked] p,
+:root[data-panel-theme="art"] [data-plugin-blocked] [data-plugin-version] {
+  opacity: 0.75;
+}
+
+:root[data-panel-theme="art"] [data-plugin-blocked] [data-slot="button"][data-variant="default"] {
+  background-color: var(--art-ui-field, hsl(var(--muted)));
+  color: hsl(var(--foreground));
+  box-shadow: inset 0 0 0 1px var(--art-ui-field-edge, hsl(var(--border)));
+}
+
+/* Embed snippets on a phone wrap instead of being cut at the well's edge;
+   the copy button copies the raw text, so wrapping changes nothing. */
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] [data-shell="main"] pre.font-mono.whitespace-pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 }

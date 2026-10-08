@@ -190,6 +190,9 @@ suite('postgres-only acceptance: the main paths with nothing of Supabase', () =>
     // and 1 GB. Plans are data — a move brings production's rows — so the
     // seeded rows are set to production's values rather than tested as seeded.
     await chain.db.query(`UPDATE public.platform_settings SET signup_default_plan_mode = 'trial'`);
+    // This is WebYar's install, the Iranian edition (shared/edition.ts): its
+    // Rial wallet and AI-credit top-ups exist only there.
+    await chain.db.query(`UPDATE public.platform_settings SET region_mode = 'iran'`);
     await chain.db.query(
       `UPDATE public.billing_plans SET limits = coalesce(limits, '{}'::jsonb) || '{"max_workspaces": 1, "max_agents": 2, "storage_gb": 1}'::jsonb
         WHERE slug = 'trial'`,

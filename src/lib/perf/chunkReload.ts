@@ -1,22 +1,27 @@
 /**
- * Recovery from a page chunk that no longer exists on the server.
+ * Recovery from a page chunk that cannot be loaded.
  *
  * Pages are separate JS files with content hashes in their names (see
- * src/App.tsx and src/lib/perf/lazyPage.tsx). A tab opened before a deploy
- * still runs the old entry script, which asks for the OLD page files; the new
- * image no longer has them, so `import()` rejects. The cure is to load the
- * new index.html, which names the new files: one automatic reload.
+ * src/App.tsx and src/lib/perf/lazyPage.tsx). Two things make `import()` of
+ * one fail:
+ *  - a deploy: a tab opened before it still runs the old entry script, which
+ *    asks for the OLD page files, and the new image no longer has them;
+ *  - the network: a page file (or one it imports) failed to download, e.g.
+ *    a prefetch during a Wi-Fi drop. Browsers remember a failed module for
+ *    the life of the page (Chromium keeps the failure in its module map and
+ *    never requests that URL again), so every later `import()` of it fails
+ *    at once, even after the connection is back.
+ * Either way only loading the page again cures it: one automatic reload.
  *
  * Usually it never comes to that: the service worker keeps this build's page
  * files (it fills its cache in the background, see warmServiceWorkerCache in
  * src/lib/perf/prefetch.ts), so an old tab goes on opening its own pages
- * after a deploy, as it did when the app was one file.
+ * after a deploy, as it did when the app was one file; and prefetching stands
+ * down while the browser is offline (canPrefetch).
  *
  * The reload happens only when all of these hold (confirmStaleBuild):
- *  - the browser is online and the server's index.html no longer loads this
- *    tab's entry script, i.e. a deploy really replaced this build. A Wi-Fi
- *    drop also makes `import()` fail; reloading then could land on the
- *    browser's offline page, so it shows "try again" instead;
+ *  - the browser is online. Offline, a reload could land on the browser's
+ *    own offline page, so the page area shows "try again" instead;
  *  - nothing live would be cut off: no microphone, camera or screen capture
  *    is running in this tab (an operator's call keeps going across
  *    navigations, see trackMediaCapture);
@@ -59,8 +64,8 @@ export interface ChunkReloadEnv {
   now: () => number;
   reload: () => void;
   /**
-   * Resolves true when a reload is both useful and safe right now (see the
-   * list above). Left out, a missing chunk always counts as a deploy.
+   * Resolves true when a reload is safe right now (see the list above).
+   * Left out, a reload is always allowed.
    */
   confirm?: () => Promise<boolean>;
 }
@@ -106,7 +111,10 @@ export function trackMediaCapture(
       const result = original.apply(media, args);
       if (result && typeof result.then === 'function') {
         result.then((stream) => {
-          if (stream && typeof stream.getTracks === 'function') capturedStreams.add(stream);
+          if (stream && typeof stream.getTracks === 'function') {
+            hasLiveMediaCapture(); // drops streams that have ended, so the set stays small
+            capturedStreams.add(stream);
+          }
         }, () => {});
       }
       return result;
@@ -128,44 +136,10 @@ export function hasLiveMediaCapture(): boolean {
   return false;
 }
 
-/**
- * True when the server's index.html no longer loads the entry script this
- * tab runs, i.e. a deploy has replaced this build. False when it still does
- * (the failure was something else), when that cannot be told (the dev
- * server's entry is not a built file), and when index.html cannot be fetched.
- * `cache: 'no-store'` keeps the browser cache and the service worker
- * (scripts/pwa/service-worker-template.js) out of the answer.
- */
-export async function newBuildDeployed(
-  doc: Document = document,
-  fetchImpl: typeof fetch = (input, init) => fetch(input, init),
-  timeoutMs = 5000,
-): Promise<boolean> {
-  const entry = doc.querySelector('script[type="module"][src*="/assets/"]')?.getAttribute('src');
-  if (!entry) return false;
-  const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
-  try {
-    const response = await fetchImpl('/index.html', {
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal: controller?.signal,
-    });
-    if (!response.ok) return false;
-    const html = await response.text();
-    return /<script\b/i.test(html) && !html.includes(entry);
-  } catch {
-    return false;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
 /** The browser's answer to ChunkReloadEnv.confirm: see the list at the top. */
 export async function confirmStaleBuild(): Promise<boolean> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
-  if (hasLiveMediaCapture()) return false;
-  return newBuildDeployed();
+  return !hasLiveMediaCapture();
 }
 
 /**
@@ -191,11 +165,12 @@ export function reloadOnceForStaleChunk(env: ChunkReloadEnv = browserEnv()): boo
 }
 
 /**
- * Runs `load`; when it fails because its chunk is gone, and a reload is
- * confirmed (see above), reloads the page once and keeps the returned promise
- * pending, so the loading state stays up until the new page replaces it. Any
- * other failure, an unconfirmed one, and a second chunk failure inside the
- * window reject as before (the page area then offers "try again").
+ * Runs `load`; when it fails because a chunk could not be loaded, and a
+ * reload is confirmed (see above), reloads the page once and keeps the
+ * returned promise pending, so the loading state stays up until the new page
+ * replaces it. Any other failure, an unconfirmed one, and a second chunk
+ * failure inside the window reject as before (the page area then offers
+ * "try again").
  */
 export function loadWithChunkRecovery<T>(
   load: () => Promise<T>,

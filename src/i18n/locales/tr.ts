@@ -2026,6 +2026,7 @@ const tr: TranslationKeys = {
     createFailed: 'Çalışma alanı oluşturulamadı',
     connectionFailed: 'Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.',
     tryAgain: 'Tekrar dene',
+    reloadEndsCall: 'Sayfayı yeniden yüklemek aramanızı sonlandırır. Yine de yeniden yüklensin mi?',
     signOut: 'Çıkış yap',
     help: 'Yardım mı lazım? Yöneticinizle iletişime geçin.',
   },

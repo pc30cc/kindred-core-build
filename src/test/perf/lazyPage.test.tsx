@@ -132,6 +132,10 @@ describe('lazyPage', () => {
   });
 
   it('downloads the page again the next time it is opened after a failure', async () => {
+    // Offline at the failure: no automatic reload, so the page area offers
+    // "try again" and (in browsers that retry a failed module) a later
+    // attempt downloads the page again.
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     let attempts = 0;
     const Page = lazyPage<typeof Hello>(() => {
       attempts += 1;
@@ -148,6 +152,10 @@ describe('lazyPage', () => {
   });
 
   it('clears "try again" when the URL moves to another one served by the same page', async () => {
+    // Offline at the failure: no automatic reload, so the page area offers
+    // "try again" and (in browsers that retry a failed module) a later
+    // attempt downloads the page again.
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     let attempts = 0;
     const Page = lazyPage<typeof Hello>(() => {
       attempts += 1;

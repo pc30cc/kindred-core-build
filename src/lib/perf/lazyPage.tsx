@@ -11,10 +11,11 @@
  *    top bar, Art's frame, the admin menu) stays on screen and only the page
  *    area shows a light skeleton. The skeleton fades in after a short delay,
  *    so a fast load shows no flash at all;
- *  - recovers from a page file that vanished in a deploy with one guarded
- *    reload (src/lib/perf/chunkReload.ts), and otherwise offers "try again"
- *    in place of the page. A later visit to the page, or another URL served
- *    by the same page, tries the download again.
+ *  - recovers from a page file that cannot be loaded (gone after a deploy,
+ *    or remembered as failed by the browser after a network drop) with one
+ *    guarded reload (src/lib/perf/chunkReload.ts), and otherwise offers
+ *    "try again" in place of the page. Browsers that retry a failed module
+ *    also get a fresh attempt on the next visit to the page.
  *
  * `Page.preload()` starts the download early and never rejects.
  * The loading and error states are in ./PageLoadStates.tsx.

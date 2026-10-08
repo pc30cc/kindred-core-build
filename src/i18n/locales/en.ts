@@ -2034,6 +2034,7 @@ const en = {
     createFailed: 'Failed to create workspace',
     connectionFailed: 'Could not reach the server. Check your connection and try again.',
     tryAgain: 'Try again',
+    reloadEndsCall: 'Reloading the page will end your call. Reload anyway?',
     signOut: 'Sign out',
     help: 'Need help? Contact your administrator.',
   },

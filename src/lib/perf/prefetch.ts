@@ -12,7 +12,10 @@
  *    document covers every menu (Classic, Art's top menu and side menu, the
  *    admin menu) without those components knowing about it.
  *
- * Both stand down when the browser asks to save data or the connection is 2G.
+ * Both stand down when the browser asks to save data, the connection is 2G,
+ * or the browser is offline: a page file that fails to download is remembered
+ * as failed for the life of the page (see src/lib/perf/chunkReload.ts), so a
+ * speculative download during a drop would only make the page fail later.
  */
 
 export type PreloadFn = () => Promise<void>;
@@ -22,8 +25,9 @@ interface NetworkInformationLike {
   effectiveType?: string;
 }
 
-/** False on Save-Data and on 2G connections, where speculative downloads hurt. */
+/** False offline, on Save-Data and on 2G connections, where speculative downloads hurt. */
 export function canPrefetch(nav: Navigator | undefined = typeof navigator !== 'undefined' ? navigator : undefined): boolean {
+  if (nav?.onLine === false) return false;
   const connection = (nav as (Navigator & { connection?: NetworkInformationLike }) | undefined)?.connection;
   if (!connection) return true;
   if (connection.saveData) return false;

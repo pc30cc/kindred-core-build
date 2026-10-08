@@ -22,6 +22,9 @@ describe('canPrefetch', () => {
     expect(canPrefetch(nav({ saveData: true, effectiveType: '4g' }))).toBe(false);
     expect(canPrefetch(nav({ effectiveType: '2g' }))).toBe(false);
     expect(canPrefetch(nav({ effectiveType: 'slow-2g' }))).toBe(false);
+    // Offline: a failed speculative download would poison the page until a reload.
+    expect(canPrefetch({ onLine: false } as Navigator)).toBe(false);
+    expect(canPrefetch({ onLine: true } as Navigator)).toBe(true);
   });
 });
 

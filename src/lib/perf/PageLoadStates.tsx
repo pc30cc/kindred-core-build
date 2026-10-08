@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { BrandFooter, BrandLoader } from '@/components/brand/BrandLoader';
 import { useI18n } from '@/i18n';
-import { isChunkLoadError } from './chunkReload';
+import { hasLiveMediaCapture, isChunkLoadError } from './chunkReload';
 import { hasShownPage } from './pageShown';
 
 /** The page-area skeleton. Token colours only, so Classic and Art both fit. */
@@ -67,7 +67,16 @@ export function PageLoadError() {
     >
       <WifiOff className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
       <p className="max-w-sm text-sm text-muted-foreground">{t('workspaceRedirect.connectionFailed')}</p>
-      <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          // A reload is the only cure (see chunkReload.ts), but it would end a
+          // live call: ask first.
+          if (hasLiveMediaCapture() && !window.confirm(t('workspaceRedirect.reloadEndsCall'))) return;
+          window.location.reload();
+        }}
+      >
         <RefreshCw aria-hidden="true" />
         {t('workspaceRedirect.tryAgain')}
       </Button>

@@ -17,7 +17,6 @@ import {
   hasLiveMediaCapture,
   isChunkLoadError,
   loadWithChunkRecovery,
-  newBuildDeployed,
   reloadOnceForStaleChunk,
   trackMediaCapture,
   type ChunkReloadEnv,
@@ -299,62 +298,20 @@ describe('loadWithChunkRecovery', () => {
 
 // ─── Is a reload safe and useful? ─────────────────────────────────────────
 
-describe('newBuildDeployed', () => {
-  const ENTRY = '/assets/index-OLD111.js';
-
-  function docWith(entrySrc: string | null): Document {
-    const doc = document.implementation.createHTMLDocument('app');
-    if (entrySrc) {
-      const script = doc.createElement('script');
-      script.type = 'module';
-      script.setAttribute('src', entrySrc);
-      doc.head.appendChild(script);
-    }
-    return doc;
-  }
-
-  const served = (html: string, status = 200) =>
-    vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        ({ ok: status >= 200 && status < 300, status, text: async () => html }) as Response,
-    );
-
-  it('is true when index.html now loads another entry script', async () => {
-    const fetchImpl = served('<script type="module" crossorigin src="/assets/index-NEW222.js"></script>');
-    expect(await newBuildDeployed(docWith(ENTRY), fetchImpl)).toBe(true);
-    const [url, init] = fetchImpl.mock.calls[0];
-    expect(url).toBe('/index.html');
-    // Past the browser cache and the service worker.
-    expect(init?.cache).toBe('no-store');
+describe('confirmStaleBuild', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  it('is false while index.html still loads this tab\'s entry (the failure was something else)', async () => {
-    const fetchImpl = served(`<script type="module" crossorigin src="${ENTRY}"></script>`);
-    expect(await newBuildDeployed(docWith(ENTRY), fetchImpl)).toBe(false);
-  });
-
-  it('is false when it cannot tell', async () => {
-    const newHtml = '<script type="module" src="/assets/index-NEW222.js"></script>';
-    // Dev server: the entry is not a built file.
-    expect(await newBuildDeployed(docWith('/src/main.tsx'), served(newHtml))).toBe(false);
-    expect(await newBuildDeployed(docWith(null), served(newHtml))).toBe(false);
-    // index.html unreachable, or not the app's page.
-    expect(await newBuildDeployed(docWith(ENTRY), served(newHtml, 502))).toBe(false);
-    expect(await newBuildDeployed(docWith(ENTRY), served('Bad gateway'))).toBe(false);
-    const offline = vi.fn(async () => {
-      throw new TypeError('Failed to fetch');
-    });
-    expect(await newBuildDeployed(docWith(ENTRY), offline)).toBe(false);
-  });
-
-  it('gives up on a request that hangs', async () => {
-    const hanging = vi.fn(
-      (_input: RequestInfo | URL, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-        }),
-    );
-    expect(await newBuildDeployed(docWith(ENTRY), hanging, 5)).toBe(false);
+  it('allows the reload when online with no live call, without asking the server', async () => {
+    // A failed module stays failed in the browser until the page reloads,
+    // whether a deploy removed it or the network dropped it.
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    expect(await confirmStaleBuild()).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -65,8 +65,8 @@ export default function VisitorsPage() {
         qc.invalidateQueries({ queryKey: ['visitor-intel-live', wsId] });
         qc.invalidateQueries({ queryKey: ['visitor-intel-map', wsId] });
       }
-    } catch (err: any) {
-      const msg = String(err?.message || '');
+    } catch (err: unknown) {
+      const msg = String((err as { message?: unknown } | null)?.message || '');
       toast({
         title: t('visitors.warmGeoCta'),
         description: msg.includes('Cooldown') ? t('visitors.warmGeoCooldown') : msg,
@@ -277,6 +277,7 @@ export default function VisitorsPage() {
         {/* Left: list (resizable on desktop) */}
         <div
           ref={listPaneRef}
+          data-visitors-panel
           className="relative flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none w-full lg:w-auto shrink-0"
           style={isDesktop ? { width: listWidth } : undefined}
         >
@@ -301,9 +302,9 @@ export default function VisitorsPage() {
             />
           ) : (
           <>
-          <div className="p-3 border-b border-border">
+          <div data-visitors-head className="p-3 border-b border-border">
             {/* Compact title above search */}
-            <div className="mb-2 px-0.5">
+            <div data-list-title className="mb-2 px-0.5">
               <h1 className="text-sm font-semibold text-foreground leading-tight">{t('visitors.title')}</h1>
               <p className="text-[11px] text-muted-foreground leading-tight">{t('visitors.subtitle')}</p>
             </div>
@@ -318,7 +319,7 @@ export default function VisitorsPage() {
               />
             </div>
             {/* Filter chips */}
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <div data-visitors-filters className="mt-2 flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setFilterOnline((v) => !v)}
@@ -496,7 +497,7 @@ export default function VisitorsPage() {
           </div>
 
           {/* Footer controls — refresh, include offline, warm geo */}
-          <div className="border-t border-border p-2.5 space-y-2 bg-muted/20">
+          <div data-visitors-footer className="border-t border-border p-2.5 space-y-2 bg-muted/20">
             <div className="flex items-center justify-between gap-2">
               <label className="flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer select-none">
                 <Switch checked={includeOffline} onCheckedChange={setIncludeOffline} />
@@ -576,10 +577,11 @@ export default function VisitorsPage() {
                 onSelect={setSelectedId}
               />
               {/* Stat overlay — Crisp-style floating panel on top of the map */}
-              <div className="pointer-events-none absolute top-3 start-3 z-[400] flex flex-wrap gap-2 max-w-[calc(100%-1.5rem)]">
+              <div data-visitors-stats className="pointer-events-none absolute top-3 start-3 z-[400] flex flex-wrap gap-2 max-w-[calc(100%-1.5rem)]">
                 {statCards.map(s => (
                   <div
                     key={s.label}
+                    data-visitors-stat
                     className="pointer-events-auto flex items-center gap-2 rounded-lg bg-card/95 backdrop-blur-sm border border-border shadow-sm px-3 py-2 min-w-[120px]"
                   >
                     <div className={cn('w-8 h-8 rounded-md flex items-center justify-center shrink-0', s.bg)}>

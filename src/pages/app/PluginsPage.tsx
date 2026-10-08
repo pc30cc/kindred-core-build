@@ -20,12 +20,14 @@ import { pluginsApi, type PluginCatalogItem } from '@/lib/plugins-api';
 import { PluginLogo } from '@/components/plugins/PluginLogo';
 import { Link, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 import {
   CheckCircle2, Clock, Lock, Puzzle, Search, Settings2, Trash2, Wrench,
 } from 'lucide-react';
 
 export default function PluginsPage() {
   const { t, dir } = useTranslation();
+  const isArt = usePanelTheme().theme === 'art';
   const { workspace } = useActiveWorkspace();
   const workspaceId = workspace?.id ?? '';
   const qc = useQueryClient();
@@ -45,7 +47,7 @@ export default function PluginsPage() {
       toast({ title: t('plugins.telegram.disconnected') });
       qc.invalidateQueries({ queryKey: ['plugins'] });
     },
-    onError: (err: any) =>
+    onError: (err: Error) =>
       toast({ variant: 'destructive', title: t('plugins.error.generic'), description: err?.message }),
   });
 
@@ -120,12 +122,12 @@ export default function PluginsPage() {
   return (
     <div className="space-y-6 animate-fade-in" dir={dir}>
       {/* Hero header — same language as Knowledge Base */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
+      <div data-page-hero="plugins" className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
         <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30">
+            <div data-hero-icon className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30">
               <Puzzle className="h-6 w-6 text-primary-foreground" />
             </div>
             <div>
@@ -144,7 +146,7 @@ export default function PluginsPage() {
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <nav className="flex flex-wrap items-center gap-1 border-b border-border/60 pb-px">
+        <nav data-filter-tabs className="flex flex-wrap items-center gap-1 border-b border-border/60 pb-px">
           {[{ key: 'all', label: t('plugins.filterAll') },
             ...categories.map((c) => ({ key: c, label: t(`plugins.category.${c}` as never) }))].map((tab) => {
             const active = category === tab.key;
@@ -179,9 +181,9 @@ export default function PluginsPage() {
           {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-2xl" />)}
         </div>
       ) : items.length === 0 ? (
-        <Card className="p-12 text-center text-sm text-muted-foreground">{t('plugins.catalogEmpty')}</Card>
+        <Card data-empty-card="plugins" className="p-12 text-center text-sm text-muted-foreground">{t('plugins.catalogEmpty')}</Card>
       ) : grouped.length === 0 ? (
-        <Card className="p-12 text-center text-sm text-muted-foreground">{t('plugins.noResults')}</Card>
+        <Card data-empty-card="plugins-search" className="p-12 text-center text-sm text-muted-foreground">{t('plugins.noResults')}</Card>
       ) : (
         grouped.map(([cat, list]) => (
           <section key={cat} className="space-y-3">
@@ -200,6 +202,7 @@ export default function PluginsPage() {
                 return (
                   <Card
                     key={item.id}
+                    data-plugin-blocked={blocked ? '' : undefined}
                     className={cn(
                       'group relative flex flex-col gap-4 overflow-hidden rounded-2xl border-border/60 p-5 shadow-sm transition-all',
                       blocked ? 'opacity-75' : 'hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md',
@@ -241,7 +244,13 @@ export default function PluginsPage() {
                     </div>
 
                     <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/50 pt-3">
-                      <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      <span
+                        data-plugin-version
+                        // Art keeps the version in Latin digits: a Persian
+                        // seven reads like the "v" before it ("v۱.۲" ~ "۷۱.۲").
+                        data-latin-digits={isArt ? '' : undefined}
+                        className="text-[11px] uppercase tracking-wide text-muted-foreground"
+                      >
                         v{item.version}
                       </span>
                       <div className="flex items-center gap-2">

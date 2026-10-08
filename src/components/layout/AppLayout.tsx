@@ -30,6 +30,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { PhoneVerificationFlow } from '@/features/phone-verification/PhoneVerificationFlow';
 import { usePhoneVerificationStatus } from '@/features/phone-verification/hooks';
 import { resolvePhoneStatus } from '@/features/phone-verification/status';
+import { useApplyPanelTheme, usePanelTheme } from '@/themes/usePanelTheme';
+import { PanelThemePreviewBar } from '@/themes/PanelThemePreviewBar';
+import { ArtShell } from '@/themes/art/shell/ArtShell';
+import { ArtShellSkeleton } from '@/themes/art/shell/ArtShellSkeleton';
+import { artSubPath, isArtEdgeToEdge, isArtFullBleed } from '@/themes/art/shell/layout';
 
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
@@ -141,12 +146,12 @@ function EmailVerificationBar() {
       : t('auth.resendEmail');
 
   return (
-    <div className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
+    <div data-shell="notice" data-notice="email" className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
+        <span data-notice-icon className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
           {sentTo ? <MailCheck className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
         </span>
-        <p className="min-w-0 flex-1 text-sm leading-snug text-foreground">
+        <p data-notice-text className="min-w-0 flex-1 text-sm leading-snug text-foreground">
           {sentTo ? (
             <span className="inline-flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -156,7 +161,7 @@ function EmailVerificationBar() {
             <>
               <span className="font-medium">{t('auth.emailNotVerified')}</span>
               {user?.email ? (
-                <span className="ms-1.5 text-muted-foreground">({user.email})</span>
+                <span data-notice-detail className="ms-1.5 text-muted-foreground">({user.email})</span>
               ) : null}
             </>
           )}
@@ -167,6 +172,7 @@ function EmailVerificationBar() {
           <>
             <button
               onClick={() => setOtpOpen(true)}
+              data-notice-action
               className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
             >
               {t('auth.otpVerifyNow')}
@@ -177,6 +183,7 @@ function EmailVerificationBar() {
           <button
             onClick={handleResend}
             disabled={sending || isCoolingDown}
+            data-notice-action
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -187,6 +194,7 @@ function EmailVerificationBar() {
         <button
           onClick={dismiss}
           aria-label="dismiss"
+          data-notice-dismiss
           className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         >
           <X className="h-4 w-4" />
@@ -216,23 +224,24 @@ function PhoneVerificationBar() {
   if (status === 'verified') return null;
 
   return (
-    <div className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
+    <div data-shell="notice" data-notice="phone" className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
+        <span data-notice-icon className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
           <AlertTriangle className="h-4 w-4" />
         </span>
-        <p className="min-w-0 flex-1 text-sm leading-snug text-foreground">
+        <p data-notice-text className="min-w-0 flex-1 text-sm leading-snug text-foreground">
           <span className="font-medium">
             {status === 'no_phone' ? t('auth.phoneNotSet') : t('auth.phoneNotVerified')}
           </span>
           {data.phoneMasked ? (
-            <span className="ms-1.5 font-mono text-muted-foreground" dir="ltr">
+            <span data-notice-detail className="ms-1.5 font-mono text-muted-foreground" dir="ltr">
               ({data.phoneMasked})
             </span>
           ) : null}
         </p>
         <button
           onClick={() => setOpen(true)}
+          data-notice-action
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
         >
           {t('auth.phoneVerifyNow')}
@@ -271,6 +280,9 @@ export function AppLayout() {
   const { slug: routeSlug } = useParams<{ slug: string }>();
   // Boot gate: user + workspace + plan only. See useAppShellReady.
   const shellReady = useAppShellReady(workspace?.id, isLoading);
+  // The panel theme the Super Admin chose (or this tab is previewing).
+  const panelTheme = usePanelTheme();
+  useApplyPanelTheme(panelTheme.theme);
   const showVerificationBanner = user && !user.emailVerified;
   // Presence heartbeat → powers the "Operator activity" report.
   useOperatorHeartbeat(workspace?.id);
@@ -319,12 +331,46 @@ export function AppLayout() {
   // Hold the chrome back until the workspace and its plan are known, so the
   // sidebar never paints gated items that disappear a moment later.
 
+  // Where the route sits in Art's frame (layout.ts), anchored after the
+  // workspace slug.
+  const artSub = artSubPath(pathname, routeSlug ? `/${routeSlug}` : '');
+
   if (!shellReady) {
-    return <AppShellSkeleton />;
+    return panelTheme.theme === 'art' ? <ArtShellSkeleton wide={isArtEdgeToEdge(artSub)} /> : <AppShellSkeleton />;
+  }
+
+  // Art has a frame of its own (top navigation, no sidebar) around the same
+  // page, providers and notices: src/themes/art/shell/ArtShell.tsx.
+  if (panelTheme.theme === 'art') {
+    return (
+      <div dir={dir} data-shell="app" className="app-scope flex h-screen h-dvh flex-col overflow-hidden bg-background text-foreground">
+        <OperatorCallProvider>
+          <CommandPalette />
+          <ArtShell
+            // Art's own rule (layout.ts): the email client fills the area
+            // too, and `/call-center/settings` stays a normal page.
+            fullBleed={isArtFullBleed(artSub)}
+            edgeToEdge={isArtEdgeToEdge(artSub)}
+            notices={
+              <>
+                {showVerificationBanner && <EmailVerificationBar />}
+                <PhoneVerificationBar />
+              </>
+            }
+          >
+            <Outlet />
+          </ArtShell>
+          <FloatingOperatorCallWindow />
+          {panelTheme.preview && (
+            <PanelThemePreviewBar theme={panelTheme.preview} onEnd={panelTheme.endPreview} />
+          )}
+        </OperatorCallProvider>
+      </div>
+    );
   }
 
   return (
-    <div dir={dir} className="app-scope app-aurora flex h-screen h-dvh overflow-hidden bg-background text-foreground">
+    <div dir={dir} data-shell="app" className="app-scope app-aurora flex h-screen h-dvh overflow-hidden bg-background text-foreground">
       <OperatorCallProvider>
         <CommandPalette />
         {isMobile ? (
@@ -337,10 +383,11 @@ export function AppLayout() {
         ) : (
           <AppSidebar />
         )}
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div data-shell="frame" className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />
           <DegradedModeBanner />
           <main
+            data-shell="main"
             className={
               isFullBleed
                 ? 'flex-1 overflow-hidden p-0'
@@ -368,6 +415,9 @@ export function AppLayout() {
         {/* Survives route changes — reads the same LiveKit room as the
             sidebar surface so navigation never disconnects the call. */}
         <FloatingOperatorCallWindow />
+        {panelTheme.preview && (
+          <PanelThemePreviewBar theme={panelTheme.preview} onEnd={panelTheme.endPreview} />
+        )}
       </OperatorCallProvider>
     </div>
   );

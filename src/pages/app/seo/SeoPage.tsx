@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { SEO_SECTIONS, findSection, firstLeafKey, findLeaf } from './seoNavTree';
 import { SeoSectionNav } from './SeoSectionNav';
@@ -70,7 +70,7 @@ const ISSUE_TEXT_PARAMS: Record<string, Record<string, number>> = {
  */
 function localizedIssueTypeTitle(t: (key: string, opts?: Record<string, unknown>) => string, issueType: string, fallback: string): string {
   const key = `seo.issues.types.${issueType}.title`;
-  const translated = t(key as any);
+  const translated = t(key);
   return translated === key ? fallback : translated;
 }
 
@@ -85,13 +85,13 @@ function localizedIssueDescription(t: (key: string, opts?: Record<string, unknow
     const match = /(\d+)/.exec(issue.description || '');
     params.count = match ? parseInt(match[1], 10) : issue.affected_count;
   }
-  const translated = t(key as any, params);
+  const translated = t(key, params);
   return translated === key ? issue.description : translated;
 }
 
 function localizedIssueRecommendation(t: (key: string, opts?: Record<string, unknown>) => string, issue: SeoIssue): string {
   const key = `seo.issues.types.${issue.issue_type}.recommendation`;
-  const translated = t(key as any, ISSUE_TEXT_PARAMS[issue.issue_type] || {});
+  const translated = t(key, ISSUE_TEXT_PARAMS[issue.issue_type] || {});
   return translated === key ? issue.recommendation : translated;
 }
 
@@ -101,16 +101,16 @@ export function startCrawlErrorMessage(t: (key: string, opts?: Record<string, un
     switch (err.code) {
       case 'workspace_concurrency_limit':
       case 'site_concurrency_limit':
-        return t(`seo.limits.${err.code}` as any);
+        return t(`seo.limits.${err.code}`);
       case 'frequency_limit': {
         const minutes = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 60));
-        return `${t('seo.limits.frequency_limit' as any)} ${t('seo.limits.retryAfter' as any, { minutes })}`;
+        return `${t('seo.limits.frequency_limit')} ${t('seo.limits.retryAfter', { minutes })}`;
       }
-      case 'site_not_found': return t('seo.errors.siteNotFound' as any);
-      default: return t('seo.errors.startFailed' as any);
+      case 'site_not_found': return t('seo.errors.siteNotFound');
+      default: return t('seo.errors.startFailed');
     }
   }
-  return t('seo.errors.startFailed' as any);
+  return t('seo.errors.startFailed');
 }
 
 function ScoreRing({ score }: { score: number | null }) {
@@ -170,9 +170,9 @@ export default function SeoPage() {
   const subsectionKey = subsectionParam || firstLeafKey(activeSection);
 
   return (
-    <div className="flex h-full min-h-0 items-stretch">
+    <div data-section-layout="seo" className="flex h-full min-h-0 items-stretch">
       <SeoSectionNav activeSectionKey={activeSection.key} activeSubsectionKey={subsectionKey} />
-      <div className="flex-1 overflow-y-auto bg-background p-6">
+      <div data-section-content className="flex-1 overflow-y-auto bg-background p-6">
         <PageHeader section={activeSection} subsectionKey={subsectionKey} />
 
         {activeSection.needsSite ? (
@@ -193,7 +193,7 @@ export default function SeoPage() {
         ) : activeSection.key === 'brand-radar' ? (
           <BrandRadarSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
         ) : (
-          <SeoRoadmapPlaceholder label={t(findLeaf(activeSection, subsectionKey)?.labelKey as any || activeSection.labelKey as any)} />
+          <SeoRoadmapPlaceholder label={t((findLeaf(activeSection, subsectionKey)?.labelKey || activeSection.labelKey) as TranslationKey)} />
         )}
       </div>
     </div>
@@ -257,7 +257,7 @@ function RankTrackerSection({ workspaceId, siteId, subsectionKey }: { workspaceI
     return <PlanLockedOverlay moduleKey="seo_rank_tracking"><RankTrackingCompetitorsTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
   }
   const leaf = findLeaf(findSection('rank-tracker'), subsectionKey);
-  return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.rankTracker') as any)} />;
+  return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.rankTracker') as TranslationKey)} />;
 }
 
 
@@ -313,7 +313,7 @@ function SiteAuditSection({ workspaceId, siteId, subsectionKey }: { workspaceId:
           <div className="w-full max-w-sm space-y-2">
             <Progress value={crawl.progress} />
             <p className="text-xs text-muted-foreground">
-              {crawl.progress_stage ? (t(`seo.stage.${crawl.progress_stage.split(':')[0]}` as any) || crawl.progress_stage) : t('seo.stage.preparing')}
+              {crawl.progress_stage ? (t(`seo.stage.${crawl.progress_stage.split(':')[0]}` as TranslationKey) || crawl.progress_stage) : t('seo.stage.preparing')}
               {crawl.pages_crawled > 0 ? ` · ${crawl.pages_crawled}` : ''}
             </p>
           </div>
@@ -378,15 +378,15 @@ function PageHeader({ section, subsectionKey }: { section?: ReturnType<typeof fi
   if (!section) return null;
   const leaf = subsectionKey ? findLeaf(section, subsectionKey) : undefined;
   return (
-    <div className="mb-4 flex items-center gap-2 text-sm">
-      <span className="font-semibold text-foreground">{t('seo.title' as any)}</span>
+    <div data-section-crumbs className="mb-4 flex items-center gap-2 text-sm">
+      <span className="font-semibold text-foreground">{t('seo.title')}</span>
       <span className="text-muted-foreground">/</span>
-      <span className="font-semibold text-foreground">{t(section.labelKey as any)}</span>
+      <span className="font-semibold text-foreground">{t(section.labelKey as TranslationKey)}</span>
 
       {leaf && (
         <>
           <span className="text-muted-foreground">/</span>
-          <span className="text-muted-foreground">{t(leaf.labelKey as any)}</span>
+          <span className="text-muted-foreground">{t(leaf.labelKey as TranslationKey)}</span>
         </>
       )}
     </div>
@@ -483,10 +483,10 @@ function OverviewTab({ crawl, issues }: { crawl: SeoCrawl; issues: SeoIssue[] })
               {breakdown.slice(0, 8).map((e) => (
                 <li key={e.issueType} className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-2">
-                    <Badge className={`shrink-0 ${SEVERITY_CLASS[e.severity]}`}>{t(`seo.severity.${e.severity}` as any)}</Badge>
+                    <Badge className={`shrink-0 ${SEVERITY_CLASS[e.severity]}`}>{t(`seo.severity.${e.severity}` as TranslationKey)}</Badge>
                     <span className="truncate">{localizedIssueTypeTitle(t, e.issueType, e.label)}</span>
                   </span>
-                  <span className="shrink-0 text-muted-foreground">{t('seo.overview.pointsDeducted' as any, { points: e.penalty, count: e.affectedCount })}</span>
+                  <span className="shrink-0 text-muted-foreground">{t('seo.overview.pointsDeducted', { points: e.penalty, count: e.affectedCount })}</span>
                 </li>
               ))}
             </ul>
@@ -504,7 +504,7 @@ function OverviewTab({ crawl, issues }: { crawl: SeoCrawl; issues: SeoIssue[] })
               {topIssues.map((i) => (
                 <li key={i.id} className="flex items-center justify-between gap-2 text-sm">
                   <span className="flex items-center gap-2">
-                    <Badge className={SEVERITY_CLASS[i.severity]}>{t(`seo.severity.${i.severity}` as any)}</Badge>
+                    <Badge className={SEVERITY_CLASS[i.severity]}>{t(`seo.severity.${i.severity}` as TranslationKey)}</Badge>
                     {localizedIssueTitle(t, i)}
                   </span>
                   <span className="text-muted-foreground">{i.affected_count}</span>
@@ -583,9 +583,9 @@ function AffectedUrlsPanel({
   async function copyAll() {
     try {
       await navigator.clipboard.writeText(filtered.map((u) => u.url).join('\n'));
-      toast.success(t('seo.issues.urlsCopied' as any));
+      toast.success(t('seo.issues.urlsCopied'));
     } catch {
-      toast.error(t('common.error' as any));
+      toast.error(t('common.error'));
     }
   }
 
@@ -595,7 +595,7 @@ function AffectedUrlsPanel({
         <div className="font-medium">
           {t('seo.issues.affectedUrls')}{' '}
           <span className="text-muted-foreground">
-            ({t('seo.issues.urlsShown' as any, { shown: filtered.length, total })})
+            ({t('seo.issues.urlsShown', { shown: filtered.length, total })})
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -604,13 +604,13 @@ function AffectedUrlsPanel({
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={t('seo.issues.searchUrls' as any)}
+              placeholder={t('seo.issues.searchUrls')}
               className="h-8 w-48 ps-7 text-xs"
               dir="ltr"
             />
           </div>
           <Button variant="outline" size="sm" className="h-8 gap-1" onClick={copyAll} disabled={filtered.length === 0}>
-            <Copy className="h-3.5 w-3.5" /> {t('seo.issues.copyAll' as any)}
+            <Copy className="h-3.5 w-3.5" /> {t('seo.issues.copyAll')}
           </Button>
         </div>
       </div>
@@ -619,7 +619,7 @@ function AffectedUrlsPanel({
         <SkeletonTable rows={5} />
       ) : filtered.length === 0 ? (
         <p className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
-          {t('seo.issues.noUrls' as any)}
+          {t('seo.issues.noUrls')}
         </p>
       ) : (
         <ul className="max-h-[26rem] divide-y overflow-auto rounded-md border">
@@ -634,11 +634,11 @@ function AffectedUrlsPanel({
                 </div>
                 <Button
                   variant="ghost" size="icon" className="h-7 w-7 shrink-0"
-                  title={t('seo.issues.copyUrl' as any)}
+                  title={t('seo.issues.copyUrl')}
                   onClick={() => {
                     navigator.clipboard.writeText(u.url).then(
-                      () => toast.success(t('seo.issues.urlCopied' as any)),
-                      () => toast.error(t('common.error' as any)),
+                      () => toast.success(t('seo.issues.urlCopied')),
+                      () => toast.error(t('common.error')),
                     );
                   }}
                 >
@@ -647,7 +647,7 @@ function AffectedUrlsPanel({
                 <a
                   href={u.url} target="_blank" rel="noopener noreferrer"
                   className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title={t('seo.issues.openUrl' as any)}
+                  title={t('seo.issues.openUrl')}
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
@@ -659,7 +659,7 @@ function AffectedUrlsPanel({
 
       {urls.length < total && (
         <Button variant="outline" size="sm" className="w-full" onClick={() => setLimit((n) => n + PAGE)}>
-          {t('seo.issues.loadMoreUrls' as any)}
+          {t('seo.issues.loadMoreUrls')}
         </Button>
       )}
     </div>
@@ -682,7 +682,7 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
             <ArrowLeft className="h-4 w-4" /> {t('seo.issues.backToList')}
           </Button>
           <CardTitle className="flex items-center gap-2">
-            <Badge className={SEVERITY_CLASS[selected.severity]}>{t(`seo.severity.${selected.severity}` as any)}</Badge>
+            <Badge className={SEVERITY_CLASS[selected.severity]}>{t(`seo.severity.${selected.severity}` as TranslationKey)}</Badge>
             {localizedIssueTitle(t, selected)}
           </CardTitle>
         </CardHeader>
@@ -705,7 +705,7 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
           <SelectContent>
             <SelectItem value="all">{t('seo.issues.allSeverities')}</SelectItem>
             {['critical', 'high', 'medium', 'low', 'info'].map((s) => (
-              <SelectItem key={s} value={s}>{t(`seo.severity.${s}` as any)}</SelectItem>
+              <SelectItem key={s} value={s}>{t(`seo.severity.${s}` as TranslationKey)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -714,7 +714,7 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
           <SelectContent>
             <SelectItem value="all">{t('seo.issues.allCategories')}</SelectItem>
             {['crawlability', 'indexability', 'http', 'metadata', 'content', 'links', 'images', 'canonical', 'sitemap', 'robots', 'security', 'performance', 'structured_data', 'social'].map((c) => (
-              <SelectItem key={c} value={c}>{t(`seo.category.${c}` as any)}</SelectItem>
+              <SelectItem key={c} value={c}>{t(`seo.category.${c}` as TranslationKey)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -735,9 +735,9 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
             )}
             {issues.map((i) => (
               <TableRow key={i.id} className="cursor-pointer" onClick={() => setSelected(i)}>
-                <TableCell><Badge className={SEVERITY_CLASS[i.severity]}>{t(`seo.severity.${i.severity}` as any)}</Badge></TableCell>
+                <TableCell><Badge className={SEVERITY_CLASS[i.severity]}>{t(`seo.severity.${i.severity}` as TranslationKey)}</Badge></TableCell>
                 <TableCell className="font-medium">{localizedIssueTitle(t, i)}</TableCell>
-                <TableCell className="text-muted-foreground">{t(`seo.category.${i.category}` as any)}</TableCell>
+                <TableCell className="text-muted-foreground">{t(`seo.category.${i.category}` as TranslationKey)}</TableCell>
                 <TableCell>{i.affected_count}</TableCell>
               </TableRow>
             ))}
@@ -883,21 +883,21 @@ function SitemapTab({ workspaceId, crawlId, crawl }: { workspaceId: string; craw
 
 function startPerformanceAuditErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof SeoApiError) {
-    if (err.upgradeRequired) return t('seo.performance.limits.module_not_available' as any);
+    if (err.upgradeRequired) return t('seo.performance.limits.module_not_available');
     switch (err.code) {
       case 'module_not_available':
-        return t('seo.performance.limits.module_not_available' as any);
+        return t('seo.performance.limits.module_not_available');
       case 'frequency_limit': {
         const hours = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 3600));
-        return `${t('seo.performance.limits.frequency_limit' as any)} ${t('seo.performance.limits.retryAfter' as any, { hours })}`;
+        return `${t('seo.performance.limits.frequency_limit')} ${t('seo.performance.limits.retryAfter', { hours })}`;
       }
       case 'crawl_not_found':
-        return t('seo.performance.errors.crawlNotFound' as any);
+        return t('seo.performance.errors.crawlNotFound');
       default:
-        return t('seo.performance.errors.startFailed' as any);
+        return t('seo.performance.errors.startFailed');
     }
   }
-  return t('seo.performance.errors.startFailed' as any);
+  return t('seo.performance.errors.startFailed');
 }
 
 function scoreBadgeClass(score: number | null): string {
@@ -1048,9 +1048,10 @@ function PerformanceTab({ workspaceId, crawlId }: { workspaceId: string; crawlId
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={pageScores} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                 <defs>
+                  {/* Red-500 to amber-500 through the palette variables, so a panel theme can repaint them. */}
                   <linearGradient id="perfScoreGrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#ef4444" />
-                    <stop offset="100%" stopColor="#f59e0b" />
+                    <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-red-500))' }} />
+                    <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-amber-500))' }} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
@@ -1114,10 +1115,10 @@ export function GradientStatCard({
   label: string;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+    <div data-figure="stat" className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
       <div className={`pointer-events-none absolute -top-10 -end-8 h-24 w-24 rounded-full ${blobColor} blur-2xl`} />
       <div className="relative flex items-center gap-3">
-        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${iconGradient} text-white shadow-md`}>
+        <span data-figure-icon className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${iconGradient} text-white shadow-md`}>
           <Icon className="h-4.5 w-4.5" />
         </span>
         <div className="min-w-0">
@@ -1155,26 +1156,27 @@ function BacklinksEmptyState({
 
 function startBacklinkScanErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof SeoApiError) {
-    if (err.upgradeRequired) return t('seo.backlinks.limits.module_not_available' as any);
+    if (err.upgradeRequired) return t('seo.backlinks.limits.module_not_available');
     switch (err.code) {
       case 'workspace_concurrency_limit':
-        return t('seo.backlinks.limits.workspace_concurrency_limit' as any);
+        return t('seo.backlinks.limits.workspace_concurrency_limit');
       case 'module_not_available':
-        return t('seo.backlinks.limits.module_not_available' as any);
+        return t('seo.backlinks.limits.module_not_available');
       case 'frequency_limit': {
         const hours = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 3600));
-        return `${t('seo.backlinks.limits.frequency_limit' as any)} ${t('seo.backlinks.limits.retryAfter' as any, { hours })}`;
+        return `${t('seo.backlinks.limits.frequency_limit')} ${t('seo.backlinks.limits.retryAfter', { hours })}`;
       }
       case 'site_not_found':
-        return t('seo.errors.siteNotFound' as any);
+        return t('seo.errors.siteNotFound');
       default:
-        return t('seo.backlinks.errors.startFailed' as any);
+        return t('seo.backlinks.errors.startFailed');
     }
   }
-  return t('seo.backlinks.errors.startFailed' as any);
+  return t('seo.backlinks.errors.startFailed');
 }
 
-const DOFOLLOW_COLOR = '#10b981';
+// Emerald-500 through the palette variable, so a panel theme can repaint it.
+const DOFOLLOW_COLOR = 'rgb(var(--palette-emerald-500))';
 const NOFOLLOW_COLOR = 'hsl(var(--muted-foreground))';
 
 function rankTierClass(rank: number | null): string {
@@ -1349,9 +1351,10 @@ function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: st
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topDomains} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                   <defs>
+                    {/* Indigo-500 to violet-500 through the palette variables, so a panel theme can repaint them. */}
                     <linearGradient id="domainRankGrad" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%" stopColor="#6366f1" />
-                      <stop offset="100%" stopColor="#8b5cf6" />
+                      <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-indigo-500))' }} />
+                      <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-violet-500))' }} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
@@ -1410,25 +1413,25 @@ function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: st
 
 function startKeywordRunErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof SeoApiError) {
-    if (err.upgradeRequired) return t('seo.keywords.limits.module_not_available' as any);
+    if (err.upgradeRequired) return t('seo.keywords.limits.module_not_available');
     switch (err.code) {
       case 'workspace_concurrency_limit':
-        return t('seo.keywords.limits.workspace_concurrency_limit' as any);
+        return t('seo.keywords.limits.workspace_concurrency_limit');
       case 'module_not_available':
-        return t('seo.keywords.limits.module_not_available' as any);
+        return t('seo.keywords.limits.module_not_available');
       case 'too_many_keywords':
-        return t('seo.keywords.limits.too_many_keywords' as any);
+        return t('seo.keywords.limits.too_many_keywords');
       case 'frequency_limit': {
         const hours = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 3600));
-        return `${t('seo.keywords.limits.frequency_limit' as any)} ${t('seo.keywords.limits.retryAfter' as any, { hours })}`;
+        return `${t('seo.keywords.limits.frequency_limit')} ${t('seo.keywords.limits.retryAfter', { hours })}`;
       }
       case 'site_not_found':
-        return t('seo.errors.siteNotFound' as any);
+        return t('seo.errors.siteNotFound');
       default:
-        return t('seo.keywords.errors.startFailed' as any);
+        return t('seo.keywords.errors.startFailed');
     }
   }
-  return t('seo.keywords.errors.startFailed' as any);
+  return t('seo.keywords.errors.startFailed');
 }
 
 function competitionBadgeClass(level: string | null): string {
@@ -1511,7 +1514,7 @@ function KeywordsTab({ workspaceId, siteId }: { workspaceId: string; siteId: str
           <Button onClick={handleRun} disabled={startRun.isPending || !seedInput.trim()} className="gap-2">
             <Search className="h-4 w-4" /> {t('seo.keywords.runLookup')}
           </Button>
-          {run && <Button variant="ghost" onClick={() => setShowForm(false)}>{t('seo.keywords.cancel' as any)}</Button>}
+          {run && <Button variant="ghost" onClick={() => setShowForm(false)}>{t('seo.keywords.cancel')}</Button>}
         </div>
       </CardContent>
     </Card>
@@ -1588,9 +1591,10 @@ function KeywordsTab({ workspaceId, siteId }: { workspaceId: string; siteId: str
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topKeywords} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                 <defs>
+                  {/* Indigo-500 to violet-500 through the palette variables, so a panel theme can repaint them. */}
                   <linearGradient id="keywordVolumeGrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#6366f1" />
-                    <stop offset="100%" stopColor="#8b5cf6" />
+                    <stop offset="0%" style={{ stopColor: 'rgb(var(--palette-indigo-500))' }} />
+                    <stop offset="100%" style={{ stopColor: 'rgb(var(--palette-violet-500))' }} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
@@ -1642,16 +1646,16 @@ function KeywordsTab({ workspaceId, siteId }: { workspaceId: string; siteId: str
 
 function addTrackedKeywordErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof SeoApiError) {
-    if (err.upgradeRequired) return t('seo.rankTracking.limits.module_not_available' as any);
+    if (err.upgradeRequired) return t('seo.rankTracking.limits.module_not_available');
     switch (err.code) {
-      case 'module_not_available': return t('seo.rankTracking.limits.module_not_available' as any);
-      case 'max_keywords_reached': return t('seo.rankTracking.limits.max_keywords_reached' as any);
-      case 'duplicate_keyword': return t('seo.rankTracking.limits.duplicate_keyword' as any);
-      case 'site_not_found': return t('seo.errors.siteNotFound' as any);
-      default: return t('seo.rankTracking.errors.addFailed' as any);
+      case 'module_not_available': return t('seo.rankTracking.limits.module_not_available');
+      case 'max_keywords_reached': return t('seo.rankTracking.limits.max_keywords_reached');
+      case 'duplicate_keyword': return t('seo.rankTracking.limits.duplicate_keyword');
+      case 'site_not_found': return t('seo.errors.siteNotFound');
+      default: return t('seo.rankTracking.errors.addFailed');
     }
   }
-  return t('seo.rankTracking.errors.addFailed' as any);
+  return t('seo.rankTracking.errors.addFailed');
 }
 
 function positionBadgeClass(position: number | null): string {
@@ -1683,7 +1687,7 @@ function RankHistoryChart({ workspaceId, keywordId }: { workspaceId: string; key
             contentStyle={{ background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12, color: 'hsl(var(--popover-foreground))' }}
             labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
           />
-          <Line type="monotone" dataKey="position" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
+          <Line type="monotone" dataKey="position" stroke="rgb(var(--palette-indigo-500))" strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
         </ReLineChart>
       </ResponsiveContainer>
     </div>
@@ -1797,7 +1801,7 @@ function RankTrackingTab({ workspaceId, siteId }: { workspaceId: string; siteId:
                       onClick={(e) => {
                         e.stopPropagation();
                         checkNow.mutate(k.id, {
-                          onError: () => toast.error(t('seo.rankTracking.errors.checkFailed' as any)),
+                          onError: () => toast.error(t('seo.rankTracking.errors.checkFailed')),
                         });
                       }}
                     >
@@ -1889,7 +1893,7 @@ function RankTrackingOverviewTab({ workspaceId, siteId }: { workspaceId: string;
             {distributionEntries.map((e) => (
               <div key={e.key}>
                 <div className={`text-lg font-semibold ${e.color}`}>{data.distribution[e.key]}</div>
-                <div className="text-xs text-muted-foreground">{t(e.labelKey as any)}</div>
+                <div className="text-xs text-muted-foreground">{t(e.labelKey as TranslationKey)}</div>
               </div>
             ))}
           </div>
@@ -1985,7 +1989,7 @@ function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
                 <YAxis reversed allowDecimals={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={32} />
                 <ReTooltip {...tooltipStyle} />
-                <Line type="monotone" dataKey="avgPosition" stroke="#6366f1" strokeWidth={2.5} dot={false} connectNulls />
+                <Line type="monotone" dataKey="avgPosition" stroke="rgb(var(--palette-indigo-500))" strokeWidth={2.5} dot={false} connectNulls />
               </ReLineChart>
             </ResponsiveContainer>
           </div>
@@ -2001,7 +2005,7 @@ function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={28} />
                 <ReTooltip {...tooltipStyle} />
-                <Bar dataKey="top10Count" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={24} />
+                <Bar dataKey="top10Count" fill="rgb(var(--palette-emerald-500))" radius={[4, 4, 0, 0]} maxBarSize={24} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -2105,7 +2109,7 @@ function HistoryTab({ workspaceId, crawl, history }: { workspaceId: string; craw
                 <TableCell>{new Date(h.created_at).toLocaleString()}</TableCell>
                 <TableCell>{h.score ?? '—'}</TableCell>
                 <TableCell>{h.pages_crawled}</TableCell>
-                <TableCell>{t(`seo.status.${h.status}` as any)}</TableCell>
+                <TableCell>{t(`seo.status.${h.status}` as TranslationKey)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

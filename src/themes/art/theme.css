@@ -1,0 +1,682 @@
+/*
+ * Art — a workspace panel theme ("قالب") after the Lart design: warm ivory
+ * paper, deep ink text and a refined terracotta (clay) accent, in a calm,
+ * premium frame of its own: no sidebar, a top bar with the navigation as
+ * pills (src/themes/art/shell), and pages centred on the paper; surfaces are
+ * hairline-ringed paper.
+ *
+ * Everything here applies only under <html data-panel-theme="art">, which the
+ * workspace panel sets while it is open (src/themes/usePanelTheme.ts). The
+ * classic theme has no rules: it is the panel's own index.css, untouched.
+ *
+ * How it reaches every page without editing them:
+ *   1. Tokens: the panel's colour variables (index.css) get Lart's palette.
+ *      `:root[...]` outranks the per-user accent / skin / chroma attributes,
+ *      so the theme looks the same for everyone.
+ *   2. Palette: Tailwind's hues (bg-sky-500, from-indigo-500, ...) are
+ *      repainted in Lart's earthy tones by src/themes/art/palette.ts.
+ *   3. Hooks: the shell and the shadcn primitives carry `data-shell` /
+ *      `data-slot` attributes; the rules below style those. Where a page set
+ *      its own size, radius or shadow on a primitive, the rule is keyed to the
+ *      primitive's default class (e.g. `.rounded-lg`), so the page's own
+ *      choice still wins.
+ */
+
+/* ── 1. Tokens ─────────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] {
+  --background: 40 50% 97.5%;
+  --foreground: 221 26% 10.5%;
+  --card: 40 69% 99.1%;
+  --card-foreground: 221 26% 10.5%;
+  --popover: 40 69% 99.1%;
+  --popover-foreground: 221 26% 10.5%;
+
+  /* Clay, a touch deeper than Lart's 43.5% so clay text on its own /10 tint
+     still meets WCAG AA (4.7:1); warning and destructive likewise. */
+  --primary: 17 57% 41%;
+  --primary-foreground: 40 50% 98.4%;
+  --secondary: 37 32% 93.4%;
+  --secondary-foreground: 221 20% 14.2%;
+  --muted: 37 29% 94.2%;
+  --muted-foreground: 31 8% 38.3%;
+  --accent: 26 49% 92.5%;
+  --accent-foreground: 17 45% 28%;
+  --gold: 17 57% 41%;
+  --gold-foreground: 40 50% 98.4%;
+
+  --destructive: 357 68% 45%;
+  --destructive-foreground: 40 50% 98.4%;
+  --success: 148 59% 28.9%;
+  --success-foreground: 40 50% 98.4%;
+  --warning: 33 85% 32%;
+  --warning-foreground: 40 50% 98.4%;
+  --info: 210 51% 39.9%;
+  --info-foreground: 40 50% 98.4%;
+
+  /* Lart's categorical set: clay, teal, ochre, indigo ink, rose. */
+  --plan-1: 16 63% 46.5%;
+  --plan-2: 175 100% 26.8%;
+  --plan-3: 39 94% 40%;
+  --plan-4: 228 44% 44.3%;
+  --plan-5: 338 49% 54.9%;
+
+  --border: 34 20% 87%;
+  --input: 34 19% 83.6%;
+  --ring: 16 49% 52.6%;
+  --radius: 0.75rem;
+
+  --sidebar-background: 37 42% 95.4%;
+  --sidebar-foreground: 221 16% 19%;
+  --sidebar-primary: 17 57% 41%;
+  --sidebar-primary-foreground: 40 50% 98.4%;
+  --sidebar-accent: 34 31% 90.1%;
+  --sidebar-accent-foreground: 221 26% 10.5%;
+  --sidebar-border: 34 21% 87.6%;
+  --sidebar-ring: 16 49% 52.6%;
+  --sidebar-muted-foreground: 31 9% 40%;
+
+  --surface-elevated: 40 69% 99.1%;
+  --surface-sunken: 37 35% 95%;
+
+  /* The panel's "brand" hues become clay, teal, rose and ochre. */
+  --brand-teal: 17 57% 46%;
+  --brand-sky: 175 62% 32%;
+  --brand-violet: 338 49% 55%;
+  --brand-coral: 39 85% 45%;
+  --gradient-primary: linear-gradient(135deg, hsl(17 57% 46%), hsl(338 49% 55%));
+  --gradient-brand: linear-gradient(125deg, hsl(17 60% 45%), hsl(6 52% 50%) 50%, hsl(338 49% 55%));
+  --gradient-soft: linear-gradient(160deg, hsl(26 52% 94%), hsl(338 42% 96%));
+  --gradient-gold: var(--gradient-primary);
+  --gradient-auth-hero: linear-gradient(135deg, hsl(221 26% 10%), hsl(221 23% 15%));
+  --gradient-sidebar: linear-gradient(180deg, hsl(37 42% 95.4%), hsl(37 42% 95.4%));
+  --gradient-card-hover: linear-gradient(135deg, hsl(40 60% 98.5%), hsl(34 34% 94.5%));
+  --gradient-surface: linear-gradient(180deg, hsl(40 69% 99.1%), hsl(40 69% 99.1%));
+
+  /* Shadows are warm and low: paper on a desk, not neon. */
+  --art-shadow: 28 30% 18%;
+  --art-scrim: 221 30% 8%;
+  --shadow-card: 0 1px 2px 0 hsl(var(--art-shadow) / 0.06);
+  --shadow-glow: 0 8px 20px -8px hsl(var(--art-shadow) / 0.16), 0 2px 4px -2px hsl(var(--art-shadow) / 0.06);
+  --shadow-elevated: 0 14px 34px -14px hsl(var(--art-shadow) / 0.22);
+  --art-hairline: 0 0 0 1px hsl(var(--foreground) / 0.075);
+  --art-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.15 0 0 0 0 0.15 0 0 0 0 0.15 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  /* The width of a normal page's column (ArtShell). */
+  --art-content-max: 80rem;
+
+  color-scheme: light;
+}
+
+:root[data-panel-theme="art"].dark {
+  --background: 221 23% 8%;
+  --foreground: 40 23% 92.8%;
+  --card: 221 19% 12.4%;
+  --card-foreground: 40 23% 92.8%;
+  --popover: 221 18% 13.2%;
+  --popover-foreground: 40 23% 92.8%;
+
+  --primary: 19 69% 60.9%;
+  --primary-foreground: 15 33% 8.9%;
+  --secondary: 221 15% 15.9%;
+  --secondary-foreground: 40 17% 90.2%;
+  --muted: 221 15% 14.9%;
+  --muted-foreground: 37 7% 63.7%;
+  --accent: 221 16% 18%;
+  --accent-foreground: 22 55% 80%;
+  --gold: 19 69% 60.9%;
+  --gold-foreground: 15 33% 8.9%;
+
+  --destructive: 359 81% 66.7%;
+  --destructive-foreground: 0 35% 9%;
+  --success: 144 47% 58%;
+  --success-foreground: 150 40% 8%;
+  --warning: 39 78% 61.8%;
+  --warning-foreground: 35 50% 9%;
+  --info: 210 70% 69.2%;
+  --info-foreground: 215 40% 9%;
+
+  --plan-1: 16 69% 56.9%;
+  --plan-2: 175 80% 35.2%;
+  --plan-3: 38 69% 45.3%;
+  --plan-4: 227 44% 53.6%;
+  --plan-5: 340 57% 63.2%;
+
+  --border: 221 13% 17.5%;
+  --input: 221 12% 21%;
+  --ring: 19 64% 61.3%;
+
+  --sidebar-background: 221 29% 5.8%;
+  --sidebar-foreground: 40 12% 83.6%;
+  --sidebar-primary: 19 69% 60.9%;
+  --sidebar-primary-foreground: 15 33% 8.9%;
+  --sidebar-accent: 221 16% 14%;
+  --sidebar-accent-foreground: 40 28% 94.1%;
+  --sidebar-border: 221 16% 12%;
+  --sidebar-ring: 19 64% 61.3%;
+  --sidebar-muted-foreground: 37 6% 58%;
+
+  --surface-elevated: 221 19% 14%;
+  --surface-sunken: 221 25% 6.5%;
+
+  --brand-teal: 19 65% 58%;
+  --brand-sky: 175 60% 42%;
+  --brand-violet: 340 55% 63%;
+  --brand-coral: 38 70% 55%;
+  --gradient-primary: linear-gradient(135deg, hsl(19 69% 58%), hsl(340 57% 63%));
+  --gradient-brand: linear-gradient(125deg, hsl(19 69% 57%), hsl(8 60% 60%) 50%, hsl(340 57% 63%));
+  --gradient-soft: linear-gradient(160deg, hsl(19 30% 13%), hsl(340 22% 13%));
+  --gradient-auth-hero: linear-gradient(135deg, hsl(221 29% 6%), hsl(221 23% 11%));
+  --gradient-sidebar: linear-gradient(180deg, hsl(221 29% 5.8%), hsl(221 29% 5.8%));
+  --gradient-card-hover: linear-gradient(135deg, hsl(221 19% 13%), hsl(221 17% 15%));
+  --gradient-surface: linear-gradient(180deg, hsl(221 19% 12.4%), hsl(221 19% 12.4%));
+
+  --art-shadow: 220 45% 2%;
+  --shadow-card: 0 1px 2px 0 hsl(var(--art-shadow) / 0.45);
+  --shadow-glow: 0 10px 26px -10px hsl(var(--art-shadow) / 0.75), 0 2px 4px -2px hsl(var(--art-shadow) / 0.4);
+  --shadow-elevated: 0 16px 38px -14px hsl(var(--art-shadow) / 0.8);
+  --art-hairline: 0 0 0 1px hsl(0 0% 100% / 0.08);
+  /* Cards lift off the canvas: a fainter grain than light mode's (it would
+     raise the canvas to the cards' lightness) and cards a step lighter. */
+  --art-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+
+  color-scheme: dark;
+}
+
+/* The call stage stays dark in both modes: its status colours are the dark
+   mode's, so they read on it. */
+:root[data-panel-theme="art"] .bg-call-stage {
+  --success: 144 47% 58%;
+  --warning: 39 78% 61.8%;
+  --destructive: 359 81% 66.7%;
+  --info: 210 70% 69.2%;
+}
+
+/* ── 2. The frame ──────────────────────────────────────────────────────── */
+
+/* Art has its own frame, src/themes/art/shell/ArtShell.tsx: no sidebar, a top
+   bar with the navigation as pills, then the page on ivory paper. */
+:root[data-panel-theme="art"] body,
+:root[data-panel-theme="art"] [data-shell="app"] {
+  background-color: hsl(var(--background));
+  background-image: none;
+}
+
+/* Glows and aurora blobs: Art is calm. */
+:root[data-panel-theme="art"] [data-shell-decor] {
+  display: none !important;
+}
+
+/* Everything under the bars: the paper, lit faintly with clay from the top
+   end, with a grain. Painted as background layers of the frame itself, not as
+   pseudo-elements: the frame must not become a stacking context, or a page's
+   own fixed overlay (the phone inbox's contact drawer, z-50) would sink under
+   the bottom tab bar (z-40) that sits outside it. */
+:root[data-panel-theme="art"] [data-shell="frame"] {
+  --art-light-start: 100%;
+  --art-light-end: 0%;
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(60rem 22rem at var(--art-light-start) -7rem, hsl(var(--primary) / 0.075), transparent 70%),
+    radial-gradient(44rem 18rem at var(--art-light-end) -9rem, hsl(var(--brand-coral) / 0.05), transparent 70%),
+    var(--art-grain);
+}
+
+/* The light sits at the top end: right in LTR, left in RTL. */
+:root[data-panel-theme="art"] [dir="rtl"] [data-shell="frame"] {
+  --art-light-start: 0%;
+  --art-light-end: 100%;
+}
+
+/* A normal page: one centred column with room to breathe. Full-bleed pages
+   (inbox, settings, ...) fill the frame edge to edge instead. */
+:root[data-panel-theme="art"] [data-shell="main"][data-layout="page"] {
+  padding-block: 2rem 3rem;
+  padding-inline: max(2rem, calc((100% - var(--art-content-max)) / 2));
+}
+
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] [data-shell="main"][data-layout="page"] {
+    padding-block: 1.25rem 2rem;
+    padding-inline: 1rem;
+  }
+}
+
+/* ── 3. The bars ───────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] [data-shell="header"] {
+  background-color: hsl(var(--background));
+  box-shadow: 0 1px 0 0 hsl(var(--foreground) / 0.07);
+}
+
+/* The bar's row lines up with the page column (section 2): the workspace
+   and the account sit on the same edges as the page under them. Over an app
+   that runs edge to edge (the inboxes, visitors: ArtShell's `data-row`), it
+   spans the window like the context bar and the app's columns under it. */
+@media (min-width: 1024px) {
+  :root[data-panel-theme="art"] [data-shell="header"] {
+    padding-inline: max(2rem, calc((100% - var(--art-content-max)) / 2));
+  }
+
+  :root[data-panel-theme="art"] [data-shell="header"][data-row="wide"] {
+    padding-inline: 1.25rem;
+  }
+
+  /* ... while the pills keep the room they have over a page, so the same
+     ones are in view on every page (ArtPrimaryNav measures what fits). */
+  :root[data-panel-theme="art"] [data-shell="header"][data-row="wide"] > [data-shell="primary-nav"] {
+    margin-inline-end: calc(2 * (max(2rem, (100vw - var(--art-content-max)) / 2) - 1.25rem));
+  }
+}
+
+/* A tablet's bar: the workspace by its mark alone (its name is in the
+   switcher's menu and its label), so the pills get the room. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root[data-panel-theme="art"] [data-shell="header"] [data-shell="workspace-switcher"] {
+    padding-inline-end: 0.5rem;
+  }
+
+  :root[data-panel-theme="art"] [data-shell="header"] [data-shell="workspace-switcher"] > [data-shell="workspace-mark"] + span {
+    display: none;
+  }
+}
+
+:root[data-panel-theme="art"] [data-shell="context-bar"] {
+  background-color: hsl(var(--background));
+  box-shadow: inset 0 -1px 0 0 hsl(var(--foreground) / 0.07);
+}
+
+/* AlertsMenu (classic) as one of the bar's round icon buttons. */
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"] {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"]:hover,
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"][data-state="open"] {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"] > svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"] > span {
+  inset-block-start: 0.3125rem;
+  inset-inline-end: 0.3125rem;
+  box-shadow: 0 0 0 2px hsl(var(--background));
+}
+
+/* UserMenu (classic): only the avatar in the bar; its panel as an Art menu.
+   Keyed to its markup: button > [avatar wrapper, name block, chevron]. */
+:root[data-panel-theme="art"] [data-shell="account"] > div > button {
+  border-radius: 9999px;
+  padding: 0.125rem;
+  transition: background-color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > button:hover {
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > button > div:first-child > :first-child {
+  width: 2.25rem;
+  height: 2.25rem;
+  box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.08);
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] [data-slot="avatar-fallback"] {
+  background-color: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  --tw-ring-color: hsl(var(--primary) / 0.18);
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > button > div:nth-child(2),
+:root[data-panel-theme="art"] [data-shell="account"] > div > button > svg {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div {
+  margin-top: 0.625rem;
+  border-color: transparent;
+  border-radius: 1rem;
+  padding: 0.375rem;
+  box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.07), 0 18px 40px -16px hsl(var(--art-shadow) / 0.28), 0 2px 6px -2px hsl(var(--art-shadow) / 0.08);
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > a,
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > button {
+  min-height: 2.5rem;
+  border-radius: 0.625rem;
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > a:hover,
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > button:hover {
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > a > svg,
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > button > svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > div.border-t,
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > div.border-b {
+  border-color: hsl(var(--foreground) / 0.07);
+}
+
+:root[data-panel-theme="art"] [data-shell="account"] > div > div > div.border-b {
+  margin-bottom: 0.25rem;
+  padding-inline: 0.75rem;
+}
+
+/* PlanStatusBanner (classic) as one slim, centred line under the bar.
+   Keyed to its markup: box > row > [icon, text block > title, text, link]. */
+:root[data-panel-theme="art"] [data-shell="plan-strip"]:empty {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div {
+  margin: 0;
+  border-width: 0;
+  border-radius: 0;
+  padding-block: 0.4375rem;
+  padding-inline: 1rem;
+  background-color: hsl(var(--primary) / 0.065);
+  box-shadow: inset 0 -1px 0 0 hsl(var(--primary) / 0.12);
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div {
+  align-items: center;
+  justify-content: center;
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > svg {
+  margin-top: 0;
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.625rem;
+  row-gap: 0.125rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > * {
+  margin-top: 0;
+  font-size: 0.8125rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > p:first-child {
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > a {
+  color: hsl(var(--primary));
+  font-weight: 600;
+}
+
+/* "Upgrade ↗" points outwards in RTL too. */
+:root[data-panel-theme="art"] [dir="rtl"] [data-shell="plan-strip"] a > svg {
+  transform: scaleX(-1);
+}
+
+/* On a phone: the title and the way to upgrade, on one line. */
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > p:nth-child(2) {
+    display: none;
+  }
+}
+
+/* Strips that scroll sideways when they do not fit (the context bar's views,
+   a page's row of pills or tabs): the edge that hides more fades out
+   (strips.ts sets `data-art-fade`). */
+:root[data-panel-theme="art"] [data-art-fade="start"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem);
+  mask-image: linear-gradient(to right, transparent, #000 1.5rem);
+}
+
+:root[data-panel-theme="art"] [data-art-fade="end"] {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 1.5rem);
+  mask-image: linear-gradient(to left, transparent, #000 1.5rem);
+}
+
+:root[data-panel-theme="art"] [dir="rtl"] [data-art-fade="start"] {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 1.5rem);
+  mask-image: linear-gradient(to left, transparent, #000 1.5rem);
+}
+
+:root[data-panel-theme="art"] [dir="rtl"] [data-art-fade="end"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem);
+  mask-image: linear-gradient(to right, transparent, #000 1.5rem);
+}
+
+:root[data-panel-theme="art"] [data-art-fade="both"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
+}
+
+/* A side list taller than the screen (a floating panel): a veil of the
+   panel's own paper over the edge that hides more (strips.ts sets
+   `data-art-fade-y` and the --art-veil-* values). Sticky veils rather than a
+   mask, which would also cut off the panel's hairline and shadow. They reach
+   over the list's padding to its very edge (a sticky box otherwise stops
+   inside it), take no room (the negative margin, its flex gap included) and
+   let clicks through. */
+:root[data-panel-theme="art"] :is([data-art-fade-y="start"], [data-art-fade-y="both"])::before,
+:root[data-panel-theme="art"] :is([data-art-fade-y="end"], [data-art-fade-y="both"])::after {
+  --art-veil-color: var(--art-veil-paper, hsl(var(--card)));
+  content: "";
+  position: sticky;
+  z-index: 1;
+  display: block;
+  flex-shrink: 0;
+  height: 2.75rem;
+  pointer-events: none;
+}
+
+:root[data-panel-theme="art"] :is([data-art-fade-y="start"], [data-art-fade-y="both"])::before {
+  top: calc(-1 * var(--art-veil-start, 0px));
+  margin-bottom: calc(-2.75rem - var(--art-veil-gap, 0px));
+  background-image: linear-gradient(to top, transparent, var(--art-veil-color) 85%);
+}
+
+:root[data-panel-theme="art"] :is([data-art-fade-y="end"], [data-art-fade-y="both"])::after {
+  bottom: calc(-1 * var(--art-veil-end, 0px));
+  margin-top: calc(-2.75rem - var(--art-veil-gap, 0px));
+  background-image: linear-gradient(to bottom, transparent, var(--art-veil-color) 85%);
+}
+
+/* The alerts sheet's own close (AlertsMenu): a round icon button. */
+:root[data-panel-theme="art"] [data-shell="alerts-close"] {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-color: transparent;
+  border-radius: 9999px;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="alerts-close"]:hover {
+  border-color: transparent;
+  background-color: hsl(var(--muted));
+}
+
+/* Its heading's bell and the all-clear mark: circles, as Art's icon buttons
+   and empty states are; the all-clear a calm stone circle with a halo, the
+   green kept to the check itself. */
+:root[data-panel-theme="art"] [data-shell="alerts-sheet"] [data-alerts="icon"] {
+  border-color: var(--art-ui-field-edge, transparent);
+  border-radius: 9999px;
+  background-color: var(--art-ui-field, hsl(var(--muted)));
+}
+
+:root[data-panel-theme="art"] [data-shell="alerts-sheet"] [data-alerts="icon"][data-critical] {
+  border-color: transparent;
+  background-color: hsl(var(--destructive) / 0.1);
+}
+
+:root[data-panel-theme="art"] [data-shell="alerts-sheet"] [data-alerts="clear"] {
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 9999px;
+  /* The fields' fill and edge (components.css), which read on paper and on
+     a dark sheet alike. */
+  background-color: var(--art-ui-field, hsl(var(--muted)));
+  box-shadow: inset 0 0 0 1px var(--art-ui-field-edge, transparent), 0 0 0 0.375rem hsl(var(--foreground) / 0.025);
+  color: hsl(var(--success));
+}
+
+:root[data-panel-theme="art"] [data-shell="alerts-sheet"] [data-alerts="clear"] > svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* Verification notices (AppLayout: EmailVerificationBar, PhoneVerificationBar)
+   under the page: slim strips in the plan strip's clay, with a pill. The
+   phone's is left out while the page itself asks for the same thing
+   (PhoneVerificationGate, with its own form): one call to action at a time. */
+:root[data-panel-theme="art"] [data-shell="app"]:has([data-shell="main"] [data-gate="owner"]) [data-shell="notice"][data-notice="phone"] {
+  display: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="notice"] {
+  border-top-width: 0;
+  padding-block: 0.4375rem;
+  padding-inline: 1rem;
+  background-color: hsl(var(--primary) / 0.065);
+  box-shadow: inset 0 1px 0 0 hsl(var(--primary) / 0.12);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-panel-theme="art"] [data-shell="notice"] > div {
+  flex-wrap: nowrap;
+  justify-content: center;
+  column-gap: 0.625rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-icon] {
+  width: auto;
+  height: auto;
+  background-color: transparent;
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-icon] > svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-text] {
+  flex: 0 1 auto;
+  font-size: 0.8125rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-action] {
+  height: 2rem;
+  padding-block: 0;
+  padding-inline: 0.875rem;
+  border-radius: 9999px;
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-action]:hover:not(:disabled) {
+  background-color: hsl(var(--primary) / 0.9);
+}
+
+:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-action]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.6);
+}
+
+:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-dismiss] {
+  border-radius: 9999px;
+  padding: 0.375rem;
+}
+
+/* On a phone: the sentence (up to two lines) and the pill, on one row. */
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] [data-shell="notice"] > div {
+    justify-content: space-between;
+  }
+
+  :root[data-panel-theme="art"] [data-shell="notice"] [data-notice-text] {
+    flex: 1 1 auto;
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: 0.75rem;
+  }
+
+  :root[data-panel-theme="art"] [data-shell="notice"] [data-notice-detail] {
+    display: none;
+  }
+}
+
+/* ── 4. Phones ─────────────────────────────────────────────────────────── */
+
+/* MobileBottomNav (classic): the current tab sits on a clay pill. */
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] {
+  background-color: hsl(var(--background) / 0.94);
+  border-top-color: hsl(var(--foreground) / 0.07);
+}
+
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] > a > span:first-child,
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] > button > span:first-child {
+  width: 3.5rem;
+  height: 2rem;
+  border-radius: 9999px;
+  transition: background-color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] > a > span:last-child,
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] > button > span:last-child {
+  font-size: 0.6875rem;
+}
+
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] [data-active="true"] > span:first-child {
+  background-color: hsl(var(--primary) / 0.12);
+}
+
+/* The needs-human count: the same clay circle as on the header's Inbox pill
+   and the context bar, not a red alarm. */
+:root[data-panel-theme="art"] [data-shell="bottom-nav"] [data-nav-count] {
+  top: -0.3125rem;
+  inset-inline-end: 0.375rem;
+  height: 1.125rem;
+  min-width: 1.125rem;
+  padding-inline: 0.3125rem;
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 0 0 2px hsl(var(--background));
+  font-size: 0.65625rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* While a conversation is open on a phone, it gets the room: the inbox's
+   tabs and views come back with the list (InboxPage marks the open thread). */
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] [data-shell="app"]:has([data-inbox-thread-open="true"]) [data-shell="context-bar"] {
+    display: none;
+  }
+}
+
+:root[data-panel-theme="art"] [data-shell="drawer"] {
+  background-color: hsl(var(--background));
+}

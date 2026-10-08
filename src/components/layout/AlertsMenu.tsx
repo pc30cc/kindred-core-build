@@ -113,12 +113,15 @@ export function AlertsMenu() {
       <SheetContent
         side={dir === 'rtl' ? 'left' : 'right'}
         dir={dir}
+        data-shell="alerts-sheet"
         className="flex w-full flex-col gap-0 p-0 sm:max-w-md [&>button.absolute]:hidden"
       >
         {/* Header */}
         <div className="border-b border-border/60 bg-gradient-to-b from-muted/50 to-background px-5 py-4">
           <div className="flex items-center gap-3">
             <span
+              data-alerts="icon"
+              data-critical={hasCritical || undefined}
               className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-2xl border',
                 hasCritical
@@ -139,6 +142,7 @@ export function AlertsMenu() {
                 variant="ghost"
                 size="icon"
                 aria-label={t('common.close')}
+                data-shell="alerts-close"
                 className="h-10 w-10 shrink-0 rounded-2xl border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
               >
                 <X className="h-5 w-5" />
@@ -169,7 +173,7 @@ export function AlertsMenu() {
           </div>
         ) : total === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
-            <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <span data-alerts="clear" className="flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <ShieldCheck className="h-8 w-8" />
             </span>
             <p className="text-sm font-medium">{t('alerts.empty.title')}</p>

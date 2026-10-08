@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
-import { Mail, Star, Paperclip, Send, X, RefreshCw, Loader2, AlertCircle, CheckCircle2, Clock, Search } from 'lucide-react';
+import { Mail, Star, Paperclip, Send, X, RefreshCw, Loader2, AlertCircle, CheckCircle2, Clock, Search, ChevronLeft, ChevronRight, Reply } from 'lucide-react';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import RichTextEditor from '@/components/app/knowledge/RichTextEditor';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { usePanelTheme } from '@/themes/usePanelTheme';
+import { personTone } from '@/components/inbox/personTone';
+import readerFont400 from '@/assets/fonts/iransans-400.woff2?url';
+import readerFont500 from '@/assets/fonts/iransans-500.woff2?url';
+import readerFont700 from '@/assets/fonts/iransans-700.woff2?url';
 import {
   useEmailThreads,
   useEmailThread,
@@ -66,11 +71,21 @@ const AVATAR_COLORS = [
   'bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300',
 ];
 
-function avatarColorOf(raw: string): string {
+function addressHash(raw: string): number {
   const key = parseAddress(raw).email.toLowerCase();
   let hash = 0;
   for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  return Math.abs(hash);
+}
+
+function avatarColorOf(raw: string): string {
+  return AVATAR_COLORS[addressHash(raw) % AVATAR_COLORS.length];
+}
+
+/** A five-slot categorical index (1-5) for themes (`data-avatar-tone`), as ContactAvatar's. */
+function avatarToneOf(raw: string): number {
+  const { name, email } = parseAddress(raw);
+  return personTone(email, name);
 }
 
 // Gmail snippets arrive HTML-escaped ("We&#39;re").
@@ -118,8 +133,8 @@ function ConnectEmailCard({ workspaceId }: { workspaceId: string }) {
   };
 
   return (
-    <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-300">
+    <div data-email="connect" className="flex h-full flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+      <div data-email="connect-icon" className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-300">
         <Mail className="h-8 w-8" />
       </div>
       <div className="max-w-md space-y-1.5">
@@ -154,14 +169,16 @@ function ThreadListItem({
       type="button"
       onClick={onClick}
       title={sender.email}
+      data-email="row"
+      data-state={active ? 'selected' : unread ? 'unread' : undefined}
       className={cn(
         'relative flex w-full min-w-0 items-start gap-3 border-b border-border/60 px-3 py-3 text-start transition-colors hover:bg-accent/60',
         active && 'bg-accent',
       )}
     >
-      {unread && <span className="absolute start-1 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-primary" />}
+      {unread && <span data-email="row-dot" className="absolute start-1 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-primary" />}
       <Avatar className="mt-0.5 h-9 w-9 shrink-0">
-        <AvatarFallback className={cn('text-xs font-semibold', avatarColorOf(raw || '?'))}>{initialsOf(raw || '?')}</AvatarFallback>
+        <AvatarFallback data-avatar-tone={avatarToneOf(raw || '?')} className={cn('text-xs font-semibold', avatarColorOf(raw || '?'))}>{initialsOf(raw || '?')}</AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -169,7 +186,7 @@ function ThreadListItem({
             {sender.name}
           </span>
           {thread.isStarred && <Star className="h-3.5 w-3.5 shrink-0 self-center fill-amber-400 text-amber-400" />}
-          <span className={cn('shrink-0 text-[11px] tabular-nums', unread ? 'font-medium text-primary' : 'text-muted-foreground')}>
+          <span data-email="row-time" className={cn('shrink-0 text-[11px] tabular-nums', unread ? 'font-medium text-primary' : 'text-muted-foreground')}>
             {formatListDate(thread.lastMessageAt, locale)}
           </span>
         </div>
@@ -228,10 +245,25 @@ function ThreadList({
   useEffect(() => {
     onRows(threads);
   }, [threads, onRows]);
+  // Art: one header row like the inbox list's (the search, "Unread" as a
+  // pill beside it, refresh), and the refresh circle's spin says it syncs.
+  const isArt = usePanelTheme().theme === 'art';
+
+  const unreadToggle = (
+    <Badge
+      data-email="unread-toggle"
+      data-active={unreadOnly}
+      variant={unreadOnly ? 'default' : 'outline'}
+      className="cursor-pointer text-xs"
+      onClick={() => setUnreadOnly((v) => !v)}
+    >
+      {t('emailInbox.unreadFilter')}
+    </Badge>
+  );
 
   return (
-    <div className="flex h-full w-[360px] min-w-0 shrink-0 flex-col border-e border-border">
-      <div className="flex items-center gap-2 border-b border-border p-3">
+    <div data-email="list" className="flex h-full w-[360px] min-w-0 shrink-0 flex-col border-e border-border">
+      <div data-email="list-search" className="flex items-center gap-2 border-b border-border p-3">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -241,18 +273,21 @@ function ThreadList({
             className="h-8 ps-8 text-sm"
           />
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => refetch()} disabled={isFetching}>
+        {isArt && unreadToggle}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          {...(isArt ? { 'aria-label': syncing ? t('emailInbox.syncing') : t('inbox.refresh'), title: syncing ? t('emailInbox.syncing') : t('inbox.refresh') } : null)}
+        >
           <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
         </Button>
       </div>
-      <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
-        <Badge
-          variant={unreadOnly ? 'default' : 'outline'}
-          className="cursor-pointer text-xs"
-          onClick={() => setUnreadOnly((v) => !v)}
-        >
-          {t('emailInbox.unreadFilter')}
-        </Badge>
+      {!isArt && (
+      <div data-email="list-filter" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
+        {unreadToggle}
         {syncing && threads.length > 0 && (
           <span className="ms-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -260,9 +295,10 @@ function ThreadList({
           </span>
         )}
       </div>
+      )}
       {/* Radix's viewport wraps children in a display:table div, which lets long
           rows overflow instead of truncating; force it back to block. */}
-      <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
+      <ScrollArea data-email="rows" className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
         {isLoading && threads.length === 0 ? (
           <ThreadListSkeleton />
         ) : isError && threads.length === 0 ? (
@@ -324,6 +360,16 @@ function ReplyComposer({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sendEmailMutation = useSendEmail(workspaceId, scope);
+  // Art: the reply waits as one line under the message and opens on a click
+  // (the message keeps the room); classic keeps the editor open.
+  const isArt = usePanelTheme().theme === 'art';
+  const [open, setOpen] = useState(false);
+  const composerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isArt || !open) return;
+    const frame = requestAnimationFrame(() => composerRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [isArt, open]);
 
   const plainText = useMemo(() => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), [html]);
 
@@ -374,6 +420,7 @@ function ReplyComposer({
       });
       setHtml('');
       setAttachments([]);
+      setOpen(false);
       requestIdRef.current = crypto.randomUUID();
       toast({ title: t('emailInbox.sent') });
     } catch {
@@ -383,10 +430,40 @@ function ReplyComposer({
     }
   };
 
+  if (isArt && !open) {
+    // A draft left closed shows its first words instead of the prompt.
+    return (
+      <button
+        type="button"
+        data-email="reply-open"
+        data-draft={plainText || attachments.length > 0 ? 'true' : undefined}
+        onClick={() => setOpen(true)}
+        className="flex h-11 w-full min-w-0 items-center gap-2.5 rounded-full px-4 text-start text-sm"
+      >
+        <Reply className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span dir="auto" className="min-w-0 flex-1 truncate">
+          {plainText || t('artInbox.replyTo', { name: defaultTo.join(', ') })}
+        </span>
+        {attachments.length > 0 && <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+      </button>
+    );
+  }
+
   return (
-    <div className="rounded-lg border border-border bg-card">
-      <div className="border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
+    <div ref={composerRef} data-email="composer" className="rounded-lg border border-border bg-card">
+      <div data-email="composer-to" className="border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
         {t('emailInbox.replyingTo')} {defaultTo.join(', ')}
+        {isArt && (
+          <button
+            type="button"
+            data-email="reply-close"
+            onClick={() => setOpen(false)}
+            aria-label={t('artInbox.closeReply')}
+            title={t('artInbox.closeReply')}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        )}
       </div>
       <RichTextEditor value={html} onChange={setHtml} placeholder={t('emailInbox.replyPlaceholder')} minHeightClassName="min-h-[120px]" />
       {attachments.length > 0 && (
@@ -402,7 +479,7 @@ function ReplyComposer({
           ))}
         </div>
       )}
-      <div className="flex items-center justify-between border-t border-border px-3 py-2">
+      <div data-email="composer-actions" className="flex items-center justify-between border-t border-border px-3 py-2">
         <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => handleFiles(e.target.files)} />
         <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
@@ -451,8 +528,11 @@ function attachmentHref(att: EmailMessageView['attachments'][number]): string {
 }
 
 function bodyHtml(m: EmailMessageView, t: (k: string) => string): string {
-  const parts: string[] = ['<div class="b" dir="auto">'];
-  if (m.htmlBody && m.htmlBody.trim()) {
+  const isHtml = !!(m.htmlBody && m.htmlBody.trim());
+  // `data-kind`: a theme's reader stylesheet can tell an HTML mail (written
+  // for a light page) from plain text, message by message.
+  const parts: string[] = [`<div class="b" dir="auto" data-kind="${isHtml ? 'html' : 'text'}">`];
+  if (isHtml && m.htmlBody) {
     parts.push(DOMPurify.sanitize(m.htmlBody, { FORCE_BODY: true, ADD_ATTR: ['target'], FORBID_TAGS: ['form', 'input', 'button'] }));
   } else {
     parts.push('<pre>', escapeHtml(m.textBody || m.snippet || ''), '</pre>');
@@ -469,7 +549,14 @@ function bodyHtml(m: EmailMessageView, t: (k: string) => string): string {
   return parts.join('');
 }
 
-function readerDocument(messages: EmailMessageView[], dir: string, locale: string, t: (k: string) => string): string {
+/**
+ * Art's reader (`readerDocument`'s `art`): the message on its own sheet that
+ * ends where the text ends, the earlier messages' count in the locale's
+ * digits and their senders as initials in the person's tone.
+ */
+type ArtReader = { css: string };
+
+function readerDocument(messages: EmailMessageView[], dir: string, locale: string, t: (k: string) => string, extraCss = '', art?: ArtReader): string {
   const css = [
     'html,body{background:#ffffff}',
     "body{margin:0;padding:14px 18px 20px;font-family:'Segoe UI Variable Text','Segoe UI',Vazirmatn,Tahoma,system-ui,sans-serif;font-size:14px;line-height:1.55;color:#1f2633}",
@@ -497,12 +584,14 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
     '.file:hover{background:#e6ebf3}',
   ].join('');
   const out: string[] = [
-    `<!doctype html><html dir="${dir}"><head><meta charset="utf-8"><base target="_blank"><style>${css}</style></head><body>`,
+    `<!doctype html><html dir="${dir}"><head><meta charset="utf-8"><base target="_blank"><style>${css}${extraCss}${art ? art.css : ''}</style></head><body>`,
   ];
+  if (art) out.push('<div class="sheet">');
   const latest = messages[messages.length - 1];
   if (latest) out.push(bodyHtml(latest, t));
   if (messages.length > 1) {
-    out.push(`<div class="earlier"><div class="et">${escapeHtml(t('emailInbox.earlierMessages').replace('{n}', String(messages.length - 1)))}</div>`);
+    const count = art ? new Intl.NumberFormat(locale).format(messages.length - 1) : String(messages.length - 1);
+    out.push(`<div class="earlier"><div class="et">${escapeHtml(t('emailInbox.earlierMessages').replace('{n}', count))}</div>`);
     for (let i = messages.length - 2; i >= 0; i--) {
       const m = messages[i];
       const from = parseAddress(m.fromAddress);
@@ -510,7 +599,9 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
       const snippet = decodeEntities(m.snippet || m.textBody || '').replace(/\s+/g, ' ').trim();
       out.push(
         '<details><summary>',
-        `<span class="av"><i style="background:${tint}"></i><svg viewBox="0 0 24 24"><path fill="${tint}" d="${PERSON_PATH}"/></svg></span>`,
+        art
+          ? `<span class="av" data-tone="${avatarToneOf(m.fromAddress)}">${escapeHtml(initialsOf(m.fromAddress))}</span>`
+          : `<span class="av"><i style="background:${tint}"></i><svg viewBox="0 0 24 24"><path fill="${tint}" d="${PERSON_PATH}"/></svg></span>`,
         `<span class="who" dir="auto">${escapeHtml(from.name)}</span>`,
         `<span class="sn" dir="auto">${escapeHtml(snippet)}</span>`,
         `<span class="dt">${escapeHtml(formatListDate(m.sentAt, locale))}</span>`,
@@ -523,6 +614,7 @@ function readerDocument(messages: EmailMessageView[], dir: string, locale: strin
     }
     out.push('</div>');
   }
+  if (art) out.push('</div>');
   out.push('</body></html>');
   return out.join('');
 }
@@ -535,9 +627,9 @@ function LatestMessageHeader({ message }: { message: EmailMessageView }) {
   const { t, locale } = useTranslation();
   const from = parseAddress(message.fromAddress);
   return (
-    <div className="flex items-start gap-3 border-b border-border px-4 py-3">
+    <div data-email="message-header" className="flex items-start gap-3 border-b border-border px-4 py-3">
       <Avatar className="h-9 w-9 shrink-0">
-        <AvatarFallback className={cn('text-xs font-semibold', avatarColorOf(message.fromAddress))}>{initialsOf(message.fromAddress)}</AvatarFallback>
+        <AvatarFallback data-avatar-tone={avatarToneOf(message.fromAddress)} className={cn('text-xs font-semibold', avatarColorOf(message.fromAddress))}>{initialsOf(message.fromAddress)}</AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -555,14 +647,128 @@ function LatestMessageHeader({ message }: { message: EmailMessageView }) {
   );
 }
 
+// Art: the message in the panel's own paper and ink instead of a white page.
+// The frame cannot see the app's CSS variables, so their current values are
+// written into its stylesheet. The frame itself is see-through (its colour
+// scheme matches the panel's) and the message lies on it as a sheet that ends
+// where the text ends, so a short message is a short sheet on the page, not
+// an empty box. In dark mode an HTML mail (written for a light page) keeps a
+// soft ivory page of its own, message by message; the reader around it, the
+// earlier messages and plain-text mail stay on the dark sheet.
+function artReaderCss(): string {
+  const root = document.documentElement;
+  const style = getComputedStyle(root);
+  const raw = (name: string) => style.getPropertyValue(name).trim();
+  const token = (name: string, alpha?: number) => (alpha === undefined ? `hsl(${raw(name)})` : `hsl(${raw(name)} / ${alpha})`);
+  if (!raw('--card')) return '';
+  const dark = root.classList.contains('dark');
+  const line = token('--foreground', 0.08);
+  const shadow = [raw('--art-hairline'), raw('--art-ui-card-shadow')].filter(Boolean).join(', ') || `0 0 0 1px ${line}`;
+  const font = getComputedStyle(document.body).fontFamily || 'system-ui, sans-serif';
+  const tones = [1, 2, 3, 4, 5]
+    .filter((n) => raw(`--plan-${n}`))
+    .map((n) => {
+      const tone = raw(`--plan-${n}`);
+      return `.av[data-tone="${n}"]{background:hsl(${tone} / ${dark ? 0.2 : 0.14});color:color-mix(in oklab, hsl(${tone}) ${dark ? 62 : 70}%, ${token('--foreground')})}`;
+    });
+  return [
+    `:root{color-scheme:${dark ? 'dark' : 'light'}}`,
+    'html,body{background:transparent}',
+    // 8px around the sheet for its hairline and shadow; the frame's own
+    // inline padding (inbox.css) brings its edges in line with the header.
+    `body{padding:4px 8px 24px;color:${token('--foreground')};font-family:${font}}`,
+    `.sheet{background:${token('--card')};border-radius:20px;box-shadow:${shadow};padding:18px 22px 20px}`,
+    '@media (max-width:640px){body{padding-bottom:16px}.sheet{padding:14px 16px 16px}}',
+    `a{color:${token('--primary')}}`,
+    `.err{background:${token('--destructive', 0.1)};color:${token('--destructive')}}`,
+    `.earlier,.in{border-top-color:${line}}`,
+    '.earlier{margin-top:22px}',
+    `.et,.sn,.meta,.dt{color:${token('--muted-foreground')}}`,
+    // A snippet in the other script still starts beside the sender's name.
+    '.sn{text-align:-webkit-match-parent;text-align:match-parent}',
+    `details{border-color:${line};border-radius:14px;background:${token('--muted', 0.55)}}`,
+    `details[open]{background:${token('--card')}}`,
+    `summary:hover{background:${token('--muted')}}`,
+    `.av{background:${token('--muted')};color:${token('--muted-foreground')};font-size:11px;font-weight:600;letter-spacing:.02em}`,
+    ...tones,
+    `.who{color:${token('--foreground')}}`,
+    `.file{color:${token('--foreground')};background:${token('--muted')};border-radius:9999px;padding:4px 12px}`,
+    `.file:hover{background:${token('--accent')}}`,
+    ...(dark
+      ? [
+          '.b[data-kind="html"]{color-scheme:light;background:#f4f1ea;color:#1f2633;border-radius:12px;padding:14px 16px}',
+          '.b[data-kind="html"] a{color:#a14e2c}',
+        ]
+      : []),
+  ].join('');
+}
+
+let readerFontFaces: Promise<string> | null = null;
+
+/**
+ * The app's typeface for Art's reader. The sandboxed frame has no origin to
+ * fetch the app's font files from, so they go in as data: URLs (fetched once;
+ * the reader falls back to the system face if that fails).
+ */
+function loadReaderFontFaces(): Promise<string> {
+  if (!readerFontFaces) {
+    const faces: Array<[string, string]> = [[readerFont400, '400'], [readerFont500, '500'], [readerFont700, '600 800']];
+    readerFontFaces = Promise.all(
+      faces.map(async ([url, weight]) => {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(String(response.status));
+        const blob = await response.blob();
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(blob);
+        });
+        return `@font-face{font-family:'IRANSans';font-style:normal;font-weight:${weight};font-display:swap;src:url("${data}") format('woff2')}`;
+      }),
+    ).then((list) => list.join(''), () => '');
+  }
+  return readerFontFaces;
+}
+
+/** Art's reader stylesheet, kept in step with light/dark and the theme. */
+function useArtReaderCss(enabled: boolean): string {
+  const [css, setCss] = useState(() => (enabled ? artReaderCss() : ''));
+  const [fonts, setFonts] = useState('');
+  useEffect(() => {
+    if (!enabled) {
+      setCss('');
+      return;
+    }
+    const update = () => setCss(artReaderCss());
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-panel-theme'] });
+    return () => observer.disconnect();
+  }, [enabled]);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    void loadReaderFontFaces().then((faces) => {
+      if (live) setFonts(faces);
+    });
+    return () => {
+      live = false;
+    };
+  }, [enabled]);
+  return enabled && css ? fonts + css : '';
+}
+
 function ThreadReader({ messages }: { messages: EmailMessageView[] }) {
   const { t, locale, dir } = useTranslation();
+  const artCss = useArtReaderCss(usePanelTheme().theme === 'art');
   const doc = useMemo(
-    () => readerDocument(messages, dir || 'ltr', locale, (k) => t(k as TranslationKey)),
-    [messages, dir, locale, t],
+    () => readerDocument(messages, dir || 'ltr', locale, (k) => t(k as TranslationKey), '', artCss ? { css: artCss } : undefined),
+    [messages, dir, locale, t, artCss],
   );
   return (
     <iframe
+      data-email="sheet"
       title="email"
       srcDoc={doc}
       // No scripts, no same-origin: the email can neither run code nor reach
@@ -585,7 +791,10 @@ function ThreadView({
   threadId: string;
   row: { isRead: boolean; isStarred: boolean; version: string | null } | null;
 }) {
-  const { t } = useTranslation();
+  const { t, dir } = useTranslation();
+  const isArt = usePanelTheme().theme === 'art';
+  const navigate = useNavigate();
+  const wsPath = useWorkspacePath();
   const { data, isLoading } = useEmailThread(workspaceId, scope, threadId, row);
   const setRead = useSetEmailThreadRead(workspaceId, scope);
   const setStarred = useSetEmailThreadStarred(workspaceId, scope);
@@ -599,7 +808,7 @@ function ThreadView({
 
   if (isLoading || !data) {
     return (
-      <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
+      <div data-email="reader" className="flex min-w-0 flex-1 flex-col gap-4 p-4">
         <Skeleton className="h-6 w-2/3" />
         <div className="flex items-center gap-3"><Skeleton className="h-8 w-8 rounded-full" /><Skeleton className="h-4 w-48" /></div>
         <Skeleton className="h-40 w-full" />
@@ -614,8 +823,22 @@ function ThreadView({
   const replyTo = lastInbound ? [parseAddress(lastInbound.fromAddress).email] : (thread.participants[0] ? [parseAddress(thread.participants[0].email).email] : []);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+    <div data-email="reader" className="flex min-w-0 flex-1 flex-col">
+      <div data-email="reader-header" className="flex items-center gap-2 border-b border-border px-4 py-3">
+        {/* Art on a phone: the reader replaces the list, so it needs a way back. */}
+        {isArt && (
+          <Button
+            variant="ghost"
+            size="icon"
+            data-email="back"
+            className="h-9 w-9 shrink-0 md:hidden"
+            aria-label={t('artInbox.backToEmails')}
+            title={t('artInbox.backToEmails')}
+            onClick={() => navigate(wsPath('/email'))}
+          >
+            {dir === 'rtl' ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+          </Button>
+        )}
         <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">{thread.subject || t('emailInbox.noSubject')}</h2>
         <Button
           variant="ghost"
@@ -627,11 +850,11 @@ function ThreadView({
         </Button>
       </div>
       {messages.length > 0 && <LatestMessageHeader message={messages[messages.length - 1]} />}
-      <div className="flex min-h-0 flex-1">
+      <div data-email="sheet-frame" className="flex min-h-0 flex-1">
         <ThreadReader messages={messages} />
       </div>
       {replyTo.length > 0 && (
-        <div className="border-t border-border p-4">
+        <div data-email="reply" className="border-t border-border p-4">
           <ReplyComposer workspaceId={workspaceId} scope={scope} live={live} threadId={threadId} defaultTo={replyTo} defaultSubject={thread.subject || ''} />
         </div>
       )}
@@ -677,7 +900,7 @@ function ComposeDialog({ workspaceId, scope, open, onOpenChange }: { workspaceId
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent data-email="compose" className="max-w-xl">
         <DialogHeader>
           <DialogTitle>{t('emailInbox.compose')}</DialogTitle>
         </DialogHeader>
@@ -782,8 +1005,13 @@ export default function EmailInboxPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-3 border-b border-border px-4 py-2.5">
+    <div
+      data-email="page"
+      // On a phone the open thread replaces the list (Art: inbox.css).
+      data-email-thread-open={threadId ? 'true' : 'false'}
+      className="flex h-full min-h-0 flex-col"
+    >
+      <div data-email="bar" className="flex items-center gap-3 border-b border-border px-4 py-2.5">
         <Mail className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium text-foreground">{connectedAccount}</span>
         <Button size="sm" className="ms-auto gap-1.5" onClick={() => setComposeOpen(true)}>
@@ -809,7 +1037,7 @@ export default function EmailInboxPage() {
             row={openRowView}
           />
         ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('emailInbox.selectThread')}</div>
+          <div data-email="empty" className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('emailInbox.selectThread')}</div>
         )}
       </div>
       <ComposeDialog workspaceId={workspaceId} scope={scope} open={composeOpen} onOpenChange={setComposeOpen} />

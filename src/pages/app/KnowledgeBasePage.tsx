@@ -65,7 +65,7 @@ export default function KnowledgeBasePage() {
   );
 
   const totalViews = 0; // Placeholder — data model can be extended
-  const publishedCount = articles?.filter((a: any) => a.status === 'published').length ?? 0;
+  const publishedCount = articles?.filter((a) => a.status === 'published').length ?? 0;
 
   const statusBadge: Record<string, string> = {
     draft: 'bg-muted text-muted-foreground',
@@ -81,12 +81,12 @@ export default function KnowledgeBasePage() {
   return (
     <div className="space-y-6 animate-fade-in" dir={dir}>
       {/* Hero header */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
+      <div data-page-hero="knowledge-base" className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
         <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
         <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
+            <div data-hero-icon className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
               <BookMarked className="h-6 w-6 text-primary-foreground" />
             </div>
             <div>
@@ -97,7 +97,7 @@ export default function KnowledgeBasePage() {
             </div>
           </div>
           {activeTab === 'articles' && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div data-hero-tools className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={() => navigate(wsPath('/knowledge-base/ai-builder'))} className="gap-2">
                 <Sparkles className="w-4 h-4" />
                 <span>{t('knowledgeBase.aiBuilder.cta')}</span>
@@ -115,7 +115,7 @@ export default function KnowledgeBasePage() {
           content types with different consumers; this must never read as
           a minor filter toggle. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="h-auto w-full sm:w-auto gap-2 rounded-2xl bg-muted/60 p-2">
+        <TabsList data-kb-tabs className="h-auto w-full sm:w-auto gap-2 rounded-2xl bg-muted/60 p-2">
           <TabsTrigger
             value="articles"
             className="flex-1 sm:flex-initial gap-2.5 rounded-xl px-6 py-3.5 text-base font-bold data-[state=active]:shadow-md"
@@ -138,7 +138,7 @@ export default function KnowledgeBasePage() {
 
         <TabsContent value="articles" className="space-y-6 mt-0">
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-2.5">
+          <div data-kb-stats className="grid grid-cols-4 gap-2.5">
             <div className="stat-card flex flex-col items-center text-center px-2 py-3">
               <BookOpen className="w-4 h-4 text-primary mb-1" />
               <div className="text-lg font-bold text-foreground">{articles?.length ?? 0}</div>
@@ -196,7 +196,7 @@ export default function KnowledgeBasePage() {
           {/* Article List */}
           <div className="card-elevated">
             <div className="px-5 py-4 border-b border-border">
-              <h2 className="text-sm font-semibold text-foreground">{t('knowledgeBase.allArticles')}</h2>
+              <h2 data-card-title className="text-sm font-semibold text-foreground">{t('knowledgeBase.allArticles')}</h2>
             </div>
             {isLoading ? (
               <div className="p-8 space-y-3">
@@ -226,7 +226,7 @@ export default function KnowledgeBasePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-foreground truncate">{article.title}</span>
-                        <Badge className={`text-[10px] px-1.5 py-0 ${statusBadge[article.status]}`}>{statusLabel[article.status] || article.status}</Badge>
+                        <Badge data-kb-status={article.status} className={`text-[10px] px-1.5 py-0 ${statusBadge[article.status]}`}>{statusLabel[article.status] || article.status}</Badge>
                       </div>
                     </div>
                     <div className="flex items-center gap-1">

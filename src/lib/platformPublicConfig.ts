@@ -27,6 +27,8 @@ export interface PlatformPublicBranding {
   default_ui_chroma: string | null;
   default_ui_skin: string | null;
   lock_ui_preferences: boolean | null;
+  /** The workspace panel's theme (shared/panelThemes.ts); missing before migration 253. */
+  workspace_panel_theme?: string | null;
 }
 
 export interface PlatformPublicLocalized {

@@ -200,23 +200,23 @@ export default function ContactsPage() {
   const withPhone = contacts?.filter((c) => c.phone).length || 0;
 
   return (
-    <div className="flex flex-col h-full bg-background" dir={dir}>
+    <div data-page="contacts" className="flex flex-col h-full bg-background" dir={dir}>
       {/* ── Header ── */}
-      <div className="border-b border-border bg-card px-5 py-3">
+      <div data-page-header className="border-b border-border bg-card px-5 py-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-primary" />
-              <h1 className="text-base font-bold text-foreground">
+              <h1 data-page-title className="text-base font-bold text-foreground">
                 {t('contacts.title')}
               </h1>
             </div>
             <Badge variant="secondary" className="text-xs">{filtered.length}</Badge>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div data-page-actions className="flex items-center gap-2 flex-wrap">
             {/* Search */}
-            <div className="relative">
+            <div data-page-search className="relative">
               <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <Input
                 placeholder={t('contacts.searchPlaceholder')}
@@ -229,7 +229,7 @@ export default function ContactsPage() {
             {/* Filters */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5">
+                <Button data-page-action="filters" variant="outline" size="sm" className="h-9 text-xs gap-1.5">
                   <Filter className="w-3.5 h-3.5" />
                   {t('contacts.filters')}
                   {activeFilters > 0 && (
@@ -284,6 +284,7 @@ export default function ContactsPage() {
             </DropdownMenu>
 
             <Button
+              data-page-action="import"
               variant="outline"
               size="sm"
               className={cn('h-9 text-xs gap-1.5', !canImport && 'opacity-60')}
@@ -297,12 +298,13 @@ export default function ContactsPage() {
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               {canCreate ? (
                 <DialogTrigger asChild>
-                  <Button size="sm" className="h-9 text-xs gap-1.5">
+                  <Button data-page-action="new" size="sm" className="h-9 text-xs gap-1.5">
                     <Plus className="w-3.5 h-3.5" />{t('contacts.newContact')}
                   </Button>
                 </DialogTrigger>
               ) : (
                 <Button
+                  data-page-action="new"
                   size="sm"
                   className="h-9 text-xs gap-1.5 opacity-60"
                   onClick={() => { lockedToast(); goBilling(); }}
@@ -340,7 +342,7 @@ export default function ContactsPage() {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5">
+                <Button data-page-action="more" variant="outline" size="sm" className="h-9 text-xs gap-1.5">
                   {t('contacts.actions')} <ChevronDown className="w-3.5 h-3.5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -365,7 +367,7 @@ export default function ContactsPage() {
         </div>
 
         {/* Stat strip */}
-        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+        <div data-page-stats className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
             <Users className="w-3.5 h-3.5" /><span>{t('contacts.statTotal', { count: String(contacts?.length || 0) })}</span>
           </div>
@@ -380,7 +382,7 @@ export default function ContactsPage() {
 
       {/* Bulk action bar — a plan feature (bulk_contact_actions). */}
       {canBulk && selected.size > 0 && (
-        <div className="bg-primary/10 border-b border-primary/20 px-5 py-2 flex items-center justify-between">
+        <div data-page-bulkbar className="bg-primary/10 border-b border-primary/20 px-5 py-2 flex items-center justify-between">
           <span className="text-xs font-medium text-foreground">
             {t('contacts.selectedCount', { count: String(selected.size) })}
           </span>
@@ -396,7 +398,7 @@ export default function ContactsPage() {
       )}
 
       {/* ── Table ── */}
-      <div className="flex-1 overflow-auto">
+      <div data-page-scroller className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-24">
             <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -413,22 +415,22 @@ export default function ContactsPage() {
             <thead className="bg-card sticky top-0 z-10 border-b border-border">
               <tr className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
                 {canBulk && (
-                  <th className="w-10 p-3">
+                  <th data-col="select" className="w-10 p-3">
                     <Checkbox
                       checked={selected.size > 0 && selected.size === filtered.length}
                       onCheckedChange={toggleSelectAll}
                     />
                   </th>
                 )}
-                <Th label={t('contacts.colName')} sortKey="name" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Users} />
-                <Th label={t('contacts.colEmail')} sortKey="email" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Mail} />
-                <th className="text-start p-3 font-semibold">{t('contacts.colSource')}</th>
-                <th className="text-start p-3 font-semibold">{t('contacts.colLocation')}</th>
-                <Th label={t('contacts.colCompany')} sortKey="company" current={sortBy} dir={sortDir} onClick={toggleSort} />
-                {canTags && <th className="text-start p-3 font-semibold">{t('contacts.colSegments')}</th>}
-                <Th label={t('contacts.colLastActive')} sortKey="last_active" current={sortBy} dir={sortDir} onClick={toggleSort} />
-                <Th label={t('contacts.colScore')} sortKey="score" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Star} />
-                <th className="w-16 text-center p-3 font-semibold">{t('contacts.colPreview')}</th>
+                <Th col="name" label={t('contacts.colName')} sortKey="name" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Users} />
+                <Th col="email" label={t('contacts.colEmail')} sortKey="email" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Mail} />
+                <th data-col="source" className="text-start p-3 font-semibold">{t('contacts.colSource')}</th>
+                <th data-col="location" className="text-start p-3 font-semibold">{t('contacts.colLocation')}</th>
+                <Th col="company" label={t('contacts.colCompany')} sortKey="company" current={sortBy} dir={sortDir} onClick={toggleSort} />
+                {canTags && <th data-col="segments" className="text-start p-3 font-semibold">{t('contacts.colSegments')}</th>}
+                <Th col="last-active" label={t('contacts.colLastActive')} sortKey="last_active" current={sortBy} dir={sortDir} onClick={toggleSort} />
+                <Th col="score" label={t('contacts.colScore')} sortKey="score" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Star} />
+                <th data-col="preview" className="w-16 text-center p-3 font-semibold">{t('contacts.colPreview')}</th>
               </tr>
             </thead>
             <tbody>
@@ -449,11 +451,11 @@ export default function ContactsPage() {
                     onClick={() => openContact(c.id)}
                   >
                     {canBulk && (
-                      <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                      <td data-col="select" className="p-3" onClick={(e) => e.stopPropagation()}>
                         <Checkbox checked={isSel} onCheckedChange={() => toggleSelect(c.id)} />
                       </td>
                     )}
-                    <td className="p-3">
+                    <td data-col="name" className="p-3">
                       <div className="flex items-center gap-2.5">
                         {identityLoading ? (
                           <>
@@ -477,11 +479,11 @@ export default function ContactsPage() {
                         )}
                       </div>
                     </td>
-                    <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>
-                    <td className="p-3">
+                    <td data-col="email" className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>
+                    <td data-col="source" className="p-3">
                       <SourceBadge info={channels?.[c.id]} metadata={(c as { metadata?: Record<string, unknown> | null }).metadata} t={t} />
                     </td>
-                    <td className="p-3 text-muted-foreground">
+                    <td data-col="location" className="p-3 text-muted-foreground">
                       {identityLoading ? (
                         <Skeleton className="h-4 w-24" />
                       ) : loc.label ? (
@@ -494,11 +496,11 @@ export default function ContactsPage() {
                       )}
                     </td>
 
-                    <td className="p-3 text-muted-foreground">
+                    <td data-col="company" className="p-3 text-muted-foreground">
                       {company || <span className="text-muted-foreground/50 italic text-xs">{t('contacts.unknown')}</span>}
                     </td>
                     {canTags && (
-                    <td className="p-3">
+                    <td data-col="segments" className="p-3">
                       {(c.tags ?? []).length === 0 ? (
                         <span className="text-muted-foreground/50 italic text-xs">{t('contacts.noSegments')}</span>
                       ) : (
@@ -513,8 +515,8 @@ export default function ContactsPage() {
                       )}
                     </td>
                     )}
-                    <td className="p-3 text-muted-foreground text-xs">{timeAgo(c.updated_at ?? c.created_at)}</td>
-                    <td className="p-3">
+                    <td data-col="last-active" className="p-3 text-muted-foreground text-xs">{timeAgo(c.updated_at ?? c.created_at)}</td>
+                    <td data-col="score" className="p-3">
                       <div className="flex items-center gap-0.5">
                         {[1, 2, 3, 4, 5].map((n) => (
                           <Star
@@ -527,7 +529,7 @@ export default function ContactsPage() {
                         ))}
                       </div>
                     </td>
-                    <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    <td data-col="preview" className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                       <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={() => openContact(c.id)}>
                         <Eye className="w-3 h-3" />{t('contacts.preview')}
                       </Button>
@@ -564,12 +566,14 @@ export default function ContactsPage() {
   );
 }
 
-function Th({ label, sortKey, current, dir, onClick, icon: Icon }: {
+function Th({ col, label, sortKey, current, dir, onClick, icon: Icon }: {
+  /** A hook for the Art theme's narrow layouts (which columns a phone shows). */
+  col?: string;
   label: string; sortKey: SortKey; current: SortKey; dir: 'asc' | 'desc'; onClick: (k: SortKey) => void; icon?: React.ElementType;
 }) {
   const active = current === sortKey;
   return (
-    <th className="text-start p-3 font-semibold">
+    <th data-col={col} className="text-start p-3 font-semibold">
       <button
         className={cn(
           'flex items-center gap-1.5 hover:text-foreground transition-colors',

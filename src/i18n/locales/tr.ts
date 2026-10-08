@@ -1926,6 +1926,7 @@ const tr: TranslationKeys = {
     unknownOs: 'Bilinmeyen işletim sistemi',
   },
   interface: {
+    themeNotice: 'Panelin renkleri ve yüzeyleri, platform için seçilen “{{name}}” temasından gelir. Açık/koyu mod ve yazı boyutu hâlâ sizin elinizde.',
     title: 'Arayüz',
     subtitle: 'Kişiselleştirilmiş bir deneyim için arayüz tercihlerinizi yönetin.',
     autoSaved: 'Otomatik olarak kaydedildi',
@@ -3725,6 +3726,47 @@ const tr: TranslationKeys = {
     },
   },
   admin: {
+    panelThemes: {
+      title: 'Çalışma alanı panel teması',
+      subtitle: 'Tüm kullanıcılar için her çalışma alanı panelinin görünümünü tek tıkla değiştirin. Hiçbir tema silinmez; istediğiniz zaman geri dönebilirsiniz.',
+      current: 'Etkin tema: {{name}}',
+      light: 'Açık',
+      dark: 'Koyu',
+      previewMode: 'Önizleme modu',
+      active: 'Etkin',
+      activate: 'Herkes için kullan',
+      inUse: 'Kullanımda',
+      previewAction: 'Panelimde önizle',
+      preview: {
+        banner: '“{{name}}” teması önizleniyor — yalnızca siz görüyorsunuz',
+        settings: 'Tema ayarları',
+        end: 'Önizlemeyi bitir',
+      },
+      activated: '“{{name}}” artık herkes için panel teması',
+      activatedHint: 'Kullanıcılar yeni görünümü panelleri bir sonraki yüklendiğinde görür.',
+      failed: 'Tema değiştirilemedi',
+      howTitle: 'Tema değiştirme nasıl çalışır',
+      how1: 'Tek tık, tüm kullanıcılar için her çalışma alanı panelinin görünümünü değiştirir. Veriler, ayarlar ve özellikler olduğu gibi kalır.',
+      how2: 'Kullanıcılar yeni görünümü panelleri bir sonraki yüklendiğinde görür; açık sekmeler birkaç dakika içinde.',
+      how3: 'Açık/koyu mod ve yazı boyutu kişisel kalır. Klasik dışında bir tema etkinken Ayarlar → Arayüz bölümündeki renk seçenekleri devre dışı kalır.',
+      how4: 'Klasik tema asla silinmez. Platforma eklenen yeni temalar burada otomatik olarak görünür.',
+      themes: {
+        classic: {
+          name: 'Klasik',
+          description: 'Panelin mevcut tasarımı: bulut beyazı, camgöbeği ve yumuşak parıltılı renkli simgeler.',
+          trait1: 'Renkli kenar çubuğu simgeleri',
+          trait2: 'Gradyanlar ve aurora ışığı',
+          trait3: 'Her kullanıcının kendi vurgu renkleri',
+        },
+        art: {
+          name: 'Art',
+          description: 'Lart’tan ilham: kenar çubuğu yerine üst menü; sıcak fildişi kâğıt üzerinde koyu mürekkep ve kil rengiyle sakin, ortalanmış bir sayfa.',
+          trait1: 'Hap biçimli üst menü, kenar çubuğu yok',
+          trait2: 'Hap düğmeler, dolgulu alanlar, alt çizgili sekmeler ve kart satırlı tablolar',
+          trait3: 'Sakin grafikler ve açık ile koyu modda tek uyumlu palet',
+        },
+      },
+    },
     mobileApp: {
       title: 'Mobil uygulama (iOS ve Android)',
       subtitle: 'Yerel iOS ve Android uygulamaları için kimlik, derleme, yayın ve uygulama içi davranış; tüm mağaza gereksinimleri denetlenir.',
@@ -5713,6 +5755,7 @@ const tr: TranslationKeys = {
       controlCenter: 'Platform Kontrol Merkezi',
       verification: 'Doğrulama ve OTP',
       coreSettings: 'Temel ayarlar',
+      panelTheme: 'Panel teması',
       controlCenterSubtitle: 'Altyapı, güvenlik ve ürün operasyonları',
       superAdmin: 'Süper Yönetici',
       platformManagement: 'Platform yönetimi',
@@ -10320,6 +10363,19 @@ const tr: TranslationKeys = {
       noPrevious: 'Bu, bu site için tamamlanan ilk denetim.',
       empty: 'Henüz önceki denetim yok.',
     },
+  },
+  artShell: {
+    primaryNav: 'Ana menü',
+    more: 'Daha fazla',
+    workspaces: 'Çalışma alanları',
+    switchWorkspace: 'Çalışma alanını değiştir',
+    language: 'Dil',
+    inboxViews: 'Gelen kutusu görünümleri',
+  },
+  artInbox: {
+    backToEmails: 'E-postalara dön',
+    replyTo: 'Yanıtla: {{name}}',
+    closeReply: 'Yanıtı kapat',
   },
 };
 

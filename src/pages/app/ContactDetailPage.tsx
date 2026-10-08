@@ -167,7 +167,7 @@ export default function ContactDetailPage() {
 
   if (!contact) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 gap-3" dir={dir}>
+      <div data-page-empty="contact" className="flex flex-col items-center justify-center py-24 gap-3" dir={dir}>
         <p className="text-muted-foreground">{t('contacts.notFound')}</p>
         <Link to={`/${wsSlug}/contacts`}>
           <Button variant="outline">{t('contacts.backToContacts')}</Button>

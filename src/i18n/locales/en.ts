@@ -1934,6 +1934,7 @@ const en = {
     unknownOs: 'Unknown OS',
   },
   interface: {
+    themeNotice: 'The panel’s colours and surfaces come from the “{{name}}” theme chosen for the platform. Light/dark mode and text size are still yours.',
     title: 'Interface',
     subtitle: 'Manage your interface preferences for a personalized experience.',
     autoSaved: 'Automatically saved',
@@ -3736,6 +3737,47 @@ const en = {
     },
   },
   admin: {
+    panelThemes: {
+      title: 'Workspace panel theme',
+      subtitle: 'Change the look of every workspace panel, for every user, with one click. No theme is ever removed — switch back any time.',
+      current: 'Active theme: {{name}}',
+      light: 'Light',
+      dark: 'Dark',
+      previewMode: 'Preview in',
+      active: 'Active',
+      activate: 'Use for everyone',
+      inUse: 'In use',
+      previewAction: 'Preview in my panel',
+      preview: {
+        banner: 'Previewing the “{{name}}” theme — only you can see it',
+        settings: 'Theme settings',
+        end: 'End preview',
+      },
+      activated: '“{{name}}” is now the panel theme for everyone',
+      activatedHint: 'Users see the new look the next time their panel loads.',
+      failed: 'Couldn’t switch the theme',
+      howTitle: 'How theme switching works',
+      how1: 'One click changes the look of every workspace panel for all users. Data, settings and features stay exactly as they are.',
+      how2: 'Users get the new look the next time their panel loads; open tabs within a few minutes.',
+      how3: 'Light/dark mode and text size stay personal. While a theme other than Classic is active, the colour choices in Settings → Interface rest.',
+      how4: 'Classic is never removed. New themes added to the platform appear here automatically.',
+      themes: {
+        classic: {
+          name: 'Classic',
+          description: 'The panel’s current design: cloud white, teal and colourful icon chips with a soft glow.',
+          trait1: 'Colourful sidebar icon chips',
+          trait2: 'Gradients and aurora light',
+          trait3: 'Each user’s own accent colours',
+        },
+        art: {
+          name: 'Art',
+          description: 'Inspired by Lart: a top bar instead of the sidebar, and a calm centred page on warm ivory paper with deep ink and clay.',
+          trait1: 'Top navigation with pills, no sidebar',
+          trait2: 'Pill buttons, filled fields, underline tabs and card-row tables',
+          trait3: 'Calm charts and one harmonious palette, light and dark',
+        },
+      },
+    },
     mobileApp: {
       title: 'Mobile app (iOS and Android)',
       subtitle: 'Identity, build, release and in-app behaviour for the native iOS and Android apps, with every store requirement checked.',
@@ -5727,6 +5769,7 @@ const en = {
       controlCenter: 'Platform Control Center',
       verification: 'Verification & OTP',
       coreSettings: 'Core settings',
+      panelTheme: 'Panel theme',
       controlCenterSubtitle: 'Infrastructure, security and product operations',
       superAdmin: 'Super Admin',
       platformManagement: 'Platform management',
@@ -10335,6 +10378,19 @@ const en = {
       noPrevious: 'This is the first completed audit for this site.',
       empty: 'No previous audits yet.',
     },
+  },
+  artShell: {
+    primaryNav: 'Main navigation',
+    more: 'More',
+    workspaces: 'Workspaces',
+    switchWorkspace: 'Switch workspace',
+    language: 'Language',
+    inboxViews: 'Inbox views',
+  },
+  artInbox: {
+    backToEmails: 'Back to emails',
+    replyTo: 'Reply to {{name}}',
+    closeReply: 'Close reply',
   },
 };
 

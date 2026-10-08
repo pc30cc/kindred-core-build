@@ -6,6 +6,7 @@ import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 import {
   User, CreditCard, Settings, MessageSquare, Inbox,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
@@ -88,6 +89,10 @@ export function SettingsLayout() {
   // The chat widget is a plan channel: its entry follows the sidebar's rule.
   const sections = useWorkspaceSections();
   const widgetVisible = sections.visible('widget');
+  // Art shows the list as a panel (and a row of pills on a phone) that must
+  // always show the open page, even when its group appeared only after the
+  // member's role loaded (Classic keeps its own behaviour).
+  const isArt = usePanelTheme().theme === 'art';
 
   // Build resolved paths
   const settingsGroups = useMemo(() =>
@@ -113,8 +118,10 @@ export function SettingsLayout() {
     return initial;
   });
 
-  const toggleGroup = (key: string) => {
-    setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }));
+  // `openByDefault` is how a group the member never toggled shows (Art opens
+  // the current one), so the first click always flips what is on screen.
+  const toggleGroup = (key: string, openByDefault: boolean) => {
+    setExpandedGroups(prev => ({ ...prev, [key]: !(prev[key] ?? openByDefault) }));
   };
 
   const isActive = (path: string) => location.pathname === path;
@@ -126,18 +133,22 @@ export function SettingsLayout() {
   const HeroIcon = activeGroup?.icon ?? Settings;
 
   return (
-    <div className="flex h-full min-h-0">
+    <div data-section-layout="settings" className="flex h-full min-h-0">
       {/* Settings secondary sidebar */}
-      <div className="w-[252px] shrink-0 border-e border-border/60 bg-gradient-to-b from-primary/[0.06] via-violet-500/[0.03] to-transparent overflow-y-auto">
+      <div data-section-nav="settings" className="w-[252px] shrink-0 border-e border-border/60 bg-gradient-to-b from-primary/[0.06] via-violet-500/[0.03] to-transparent overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-background/70 backdrop-blur-xl border-b border-border/40 px-3 py-3 flex items-center gap-2.5">
+        <div data-section-nav-header className="sticky top-0 z-10 bg-background/70 backdrop-blur-xl border-b border-border/40 px-3 py-3 flex items-center gap-2.5">
           <button
             onClick={() => navigate(wsPath(''))}
+            data-section-nav-back
+            // Art names the bare chevron (it leaves settings for the dashboard).
+            aria-label={isArt ? t('common.back') : undefined}
+            title={isArt ? t('common.back') : undefined}
             className="p-1 rounded-lg hover:bg-accent/50 text-muted-foreground transition-colors"
           >
             <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
           </button>
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-indigo-500 to-violet-500 text-white shadow-lg shadow-primary/25">
+          <div data-section-nav-mark className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-indigo-500 to-violet-500 text-white shadow-lg shadow-primary/25">
             <Settings className="h-4 w-4" />
           </div>
           <h2 className="text-[15px] font-semibold text-foreground">{t('settings.title')}</h2>
@@ -146,14 +157,16 @@ export function SettingsLayout() {
         {/* Navigation groups */}
         <nav className="p-3 space-y-1">
           {settingsGroups.map(group => {
-            const isExpanded = expandedGroups[group.key] ?? false;
             const hasActiveItem = group.items.some(i => isActive(i.path));
+            const isExpanded = expandedGroups[group.key] ?? (isArt && hasActiveItem);
             const a = AI_ACCENT[group.accent];
 
             return (
               <div key={group.key}>
                 <button
-                  onClick={() => toggleGroup(group.key)}
+                  onClick={() => toggleGroup(group.key, isArt && hasActiveItem)}
+                  data-section-nav-group
+                  data-active={hasActiveItem}
                   className={cn(
                     'group w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-[13px] font-medium transition-all duration-200',
                     hasActiveItem
@@ -161,7 +174,7 @@ export function SettingsLayout() {
                       : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
                   )}
                 >
-                  <span className={cn(
+                  <span data-section-nav-icon className={cn(
                     'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-200',
                     hasActiveItem
                       ? cn('bg-gradient-to-br text-white shadow-md', a.grad)
@@ -179,11 +192,13 @@ export function SettingsLayout() {
                 </button>
 
                 {isExpanded && (
-                  <div className="ms-[34px] space-y-0.5 mt-1 mb-1.5 border-s border-border/50 ps-2">
+                  <div data-section-nav-sublist className="ms-[34px] space-y-0.5 mt-1 mb-1.5 border-s border-border/50 ps-2">
                     {group.items.map(item => (
                       <Link
                         key={item.key}
                         to={item.path}
+                        data-section-nav-item
+                        data-active={isActive(item.path)}
                         className={cn(
                           'block px-3 py-1.5 rounded-lg text-[13px] transition-all',
                           isActive(item.path)
@@ -203,16 +218,16 @@ export function SettingsLayout() {
       </div>
 
       {/* Settings content area */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
+      <div data-section-content className="flex-1 min-w-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-6 py-5 space-y-5">
           {activeItem && (
-            <div className={cn(
+            <div data-page-hero="settings" className={cn(
               'relative overflow-hidden rounded-2xl border border-border/60 p-5 bg-gradient-to-br to-transparent',
               heroAccent.soft,
             )}>
               <div className={cn('pointer-events-none absolute -top-16 -end-12 h-44 w-44 rounded-full blur-3xl', heroAccent.glow)} />
               <div className="relative flex items-center gap-3.5">
-                <div className={cn(
+                <div data-hero-icon className={cn(
                   'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg',
                   heroAccent.grad,
                 )}>

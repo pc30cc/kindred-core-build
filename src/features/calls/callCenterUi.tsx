@@ -100,22 +100,22 @@ export function SectionHeading({
   className?: string;
 }) {
   return (
-    <div className={cn('flex items-center gap-2.5', className)}>
+    <div data-cc-heading className={cn('flex items-center gap-2.5', className)}>
       {Icon && (
-        <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1', TONE_SOFT[tone])}>
+        <span data-cc-heading-icon className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1', TONE_SOFT[tone])}>
           <Icon className="h-4 w-4" />
         </span>
       )}
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <h3 className="truncate text-sm font-semibold leading-tight">{title}</h3>
+          <h3 data-cc-heading-title className="truncate text-sm font-semibold leading-tight">{title}</h3>
           {count !== undefined && count !== null && (
             <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
               {count}
             </span>
           )}
         </div>
-        {hint && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{hint}</p>}
+        {hint && <p data-cc-heading-hint className="mt-0.5 truncate text-[11px] text-muted-foreground">{hint}</p>}
       </div>
       {action && <div className="ms-auto flex shrink-0 items-center gap-1.5">{action}</div>}
     </div>
@@ -150,6 +150,8 @@ export function MetricTile({
   const valueSize = size === 'lg' ? 'text-3xl' : size === 'sm' ? 'text-lg' : 'text-2xl';
   return (
     <div
+      data-metric-tile={size}
+      data-tone={tone}
       className={cn(
         'relative overflow-hidden rounded-xl border border-border/70 bg-card p-3.5',
         'shadow-[var(--shadow-card)] transition-colors',
@@ -160,15 +162,15 @@ export function MetricTile({
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <div data-metric-label className="truncate text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             {label}
           </div>
-          <div className={cn('mt-1 font-semibold leading-none tabular-nums', valueSize, TONE_TEXT[tone])}>
+          <div data-metric-value className={cn('mt-1 font-semibold leading-none tabular-nums', valueSize, TONE_TEXT[tone])}>
             {value}
           </div>
           {foot && <div className="mt-1.5 text-[11px] text-muted-foreground">{foot}</div>}
         </div>
-        {Icon && <Icon className={cn('h-4 w-4 shrink-0 opacity-70', TONE_TEXT[tone])} />}
+        {Icon && <Icon data-metric-icon className={cn('h-4 w-4 shrink-0 opacity-70', TONE_TEXT[tone])} />}
       </div>
     </div>
   );
@@ -192,6 +194,7 @@ export function StatusChip({
 }) {
   return (
     <span
+      data-status-chip={tone}
       className={cn(
         'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5',
         'text-[11px] font-medium ring-1',

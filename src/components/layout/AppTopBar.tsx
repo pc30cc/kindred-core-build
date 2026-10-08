@@ -54,9 +54,9 @@ export function AppTopBar() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <header className="sticky top-0 z-30 flex flex-col border-b border-border/60 bg-background/70 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">
+      <header data-shell="topbar" className="sticky top-0 z-30 flex flex-col border-b border-border/60 bg-background/70 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">
         {/* Accent hairline */}
-        <span className="pointer-events-none absolute inset-x-0 top-[59px] z-20 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+        <span data-shell-decor className="pointer-events-none absolute inset-x-0 top-[59px] z-20 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 
         <div
           className={`flex h-[60px] shrink-0 items-center gap-4 pe-5 ${
@@ -67,6 +67,7 @@ export function AppTopBar() {
         {!isInbox && (
         <button
           type="button"
+          data-shell="search"
           onClick={() =>
             document.dispatchEvent(
               new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }),

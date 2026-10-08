@@ -135,8 +135,9 @@ function CallCenterShell() {
   const active = overview?.active_calls ?? 0;
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div data-section-layout="call-center" className="flex h-full flex-col bg-background">
       <header
+        data-page-hero="call-center"
         className={cn(
           'relative shrink-0 overflow-hidden border-b border-border/60',
           // A single wash from the brand accent rather than a second palette.
@@ -149,7 +150,7 @@ function CallCenterShell() {
 
         <div className="relative flex flex-wrap items-center gap-x-4 gap-y-3 px-5 pb-3 pt-4">
           <div className="flex min-w-[220px] flex-1 items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-[var(--shadow-glow)]">
+            <span data-hero-icon className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-[var(--shadow-glow)]">
               <Headset className="h-5 w-5" />
             </span>
             <div className="min-w-0">
@@ -210,9 +211,9 @@ function CallCenterShell() {
             </DropdownMenu>
 
             <Button asChild size="sm" variant="ghost">
-              <Link to={`${base}/install`}>{t('callCenter.layout.install')}</Link>
+              <Link to={`${base}/install`} data-hero-tool="install">{t('callCenter.layout.install')}</Link>
             </Button>
-            <Button asChild size="icon" variant="ghost" className="h-8 w-8">
+            <Button asChild size="icon" variant="ghost" className="h-8 w-8" data-hero-tool="settings">
               <Link to={`${base}/settings`} aria-label={t('callCenter.layout.tabs.settings')}>
                 <SettingsIcon className="h-4 w-4" />
               </Link>
@@ -222,7 +223,7 @@ function CallCenterShell() {
 
         {/* Tab rail — a single segmented track, so the tabs read as one
             control instead of seven separately-coloured buttons. */}
-        <nav className="relative flex gap-1 overflow-x-auto px-4 pb-2">
+        <nav data-section-tabs className="relative flex gap-1 overflow-x-auto px-4 pb-2">
           {tabs.map((tab) => (
             <NavLink
               key={tab.to}
@@ -257,7 +258,7 @@ function CallCenterShell() {
         </nav>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-5">
+      <main data-section-content className="flex-1 overflow-y-auto p-5">
         <Outlet />
       </main>
     </div>

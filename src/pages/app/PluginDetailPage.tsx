@@ -109,13 +109,13 @@ export default function PluginDetailPage() {
         </Link>
       </Button>
 
-      <header className="relative flex flex-wrap items-start gap-4 overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6">
+      <header data-page-hero="plugin" className="relative flex flex-wrap items-start gap-4 overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6">
         <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
         <div className="relative">
           <PluginLogo id={item.id} />
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div data-hero-body className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold">{name}</h1>
             {item.installed && <Badge variant="secondary">{t('plugins.badge.installed')}</Badge>}
@@ -134,7 +134,7 @@ export default function PluginDetailPage() {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div data-hero-tools className="flex items-center gap-2">
           {item.installed ? (
             <Button variant="ghost" disabled={uninstall.isPending} onClick={() => uninstall.mutate()}>
               <Trash2 className="me-1.5 h-4 w-4" />

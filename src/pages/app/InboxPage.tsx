@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
@@ -86,6 +86,7 @@ import { useOperatorBrowserNotifications } from '@/features/notifications/operat
 import { Volume2, VolumeX } from 'lucide-react';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { usePanelTheme } from '@/themes/usePanelTheme';
 import {
   systemMessageText, invitationStatusText, attachmentPreviewText,
   type SystemMessageMeta, type AttachmentPreviewKind,
@@ -333,7 +334,12 @@ export default function InboxPage() {
   const scope: 'mine' | 'all' = canSwitchScope && inboxScope === 'all' ? 'all' : 'mine';
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
-  const [showSidebar, setShowSidebar] = useState(true);
+  const isArt = usePanelTheme().theme === 'art';
+  // Art: below 1024px the details are a drawer over the thread, so they wait
+  // to be asked for instead of covering every conversation that is opened.
+  const [showSidebar, setShowSidebar] = useState(
+    () => !(isArt && typeof window !== 'undefined' && !window.matchMedia('(min-width: 1024px)').matches),
+  );
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('info');
   const [showMobileList, setShowMobileList] = useState(true);
 
@@ -1195,6 +1201,7 @@ export default function InboxPage() {
   const toolbarTabsNode = (
           <div
             ref={tabsRowRef}
+            data-inbox="tabs"
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
             className="flex h-full items-end gap-1"
@@ -1211,10 +1218,11 @@ export default function InboxPage() {
                   role="tab"
                   aria-selected={isActive}
                   onClick={() => { setExtraChip(null); setQueueTab(null); setFilter(s); }}
+                  data-inbox-tab
                   className={cn(headTabBase, headTabState(isActive), compactTabs && 'px-2.5')}
                   title={statusLabels[s]}
                 >
-                  <span className="relative flex w-2 h-2 items-center justify-center">
+                  <span data-inbox-tab-dot className="relative flex w-2 h-2 items-center justify-center">
                     {liveTabs[s] && (
                       <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
                     )}
@@ -1223,13 +1231,16 @@ export default function InboxPage() {
                       liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/40',
                     )} />
                   </span>
+                  {/* Art on a phone: the views that are not open show their icon alone (inbox.css). */}
+                  {isArt && !compactTabs && <MessageSquare data-inbox-tab-icon className="hidden w-4 h-4" />}
                   {compactTabs ? <Inbox className="w-4 h-4" /> : statusLabels[s]}
                   <span
+                    data-inbox-count
                     aria-hidden={count === 0}
                     className={cn(pillCount(isActive), count === 0 && 'hidden')}
                   >{count}</span>
-                  <span className={headTabAccent(isActive)} />
-                  <span className={headTabSeam(isActive)} />
+                  <span data-inbox-tab-deco className={headTabAccent(isActive)} />
+                  <span data-inbox-tab-deco className={headTabSeam(isActive)} />
                 </button>
               );
             })}
@@ -1249,16 +1260,18 @@ export default function InboxPage() {
               aria-selected={queue === 'automated'}
               onClick={() => setQueueTab(queue === 'automated' ? null : 'automated')}
               title={t('inbox.automatedInbox') || 'AI'}
+              data-inbox-tab
               className={cn(headTabBase, headTabState(queue === 'automated'), compactTabs && 'px-2.5')}
             >
               <Bot className="w-4 h-4" />
               {!compactTabs && (t('inbox.aiTab') || t('inbox.automatedInbox') || 'AI')}
               <span
+                data-inbox-count
                 aria-hidden={(stableCounts.automated || 0) === 0}
                 className={cn(pillCount(queue === 'automated'), (stableCounts.automated || 0) === 0 && 'hidden')}
               >{stableCounts.automated || 0}</span>
-              <span className={headTabAccent(queue === 'automated')} />
-              <span className={headTabSeam(queue === 'automated')} />
+              <span data-inbox-tab-deco className={headTabAccent(queue === 'automated')} />
+              <span data-inbox-tab-deco className={headTabSeam(queue === 'automated')} />
             </button>
             ) : null}
 
@@ -1273,6 +1286,7 @@ export default function InboxPage() {
               role="tab"
               aria-selected={extraChip === 'colleagues'}
               onClick={() => setExtraChip(extraChip === 'colleagues' ? null : 'colleagues')}
+              data-inbox-tab
               className={cn(headTabBase, headTabState(extraChip === 'colleagues'), compactTabs && 'px-2.5')}
               title={t('inbox.colleagues') || 'Colleagues'}
             >
@@ -1286,6 +1300,7 @@ export default function InboxPage() {
               )}
               {!compactTabs && (t('inbox.colleagues') || 'Colleagues')}
               <span
+                data-inbox-count
                 aria-hidden={colleagueUnread === 0}
                 className={cn(
                   'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums',
@@ -1293,8 +1308,8 @@ export default function InboxPage() {
                   extraChip === 'colleagues' ? 'bg-primary/20 text-primary' : 'bg-primary text-primary-foreground',
                 )}
               >{colleagueUnread > 99 ? '99+' : colleagueUnread}</span>
-              <span className={headTabAccent(extraChip === 'colleagues')} />
-              <span className={headTabSeam(extraChip === 'colleagues')} />
+              <span data-inbox-tab-deco className={headTabAccent(extraChip === 'colleagues')} />
+              <span data-inbox-tab-deco className={headTabSeam(extraChip === 'colleagues')} />
             </button>
             ) : null}
 
@@ -1308,6 +1323,7 @@ export default function InboxPage() {
   const topBarSummary = (
     <ToolbarPortal>
       <div
+        data-inbox="toolbar"
         className="flex h-full shrink-0 items-end gap-2 overflow-hidden ps-0 pe-1 pb-0"
         style={isDesktop ? { width: listWidth } : undefined}
         dir={dir}
@@ -1321,7 +1337,15 @@ export default function InboxPage() {
 
   if (extraChip === 'colleagues') {
     return (
-      <div className="flex h-full flex-col" dir={dir}>
+      <div
+        data-inbox="page"
+        data-inbox-view="colleagues"
+        className="flex h-full flex-col"
+        dir={dir}
+        // Art: the colleagues list keeps the conversation list's width, so the
+        // column does not jump between the views (inbox.css).
+        style={isArt && isDesktop ? ({ '--art-inbox-list': `${listWidth}px` } as CSSProperties) : undefined}
+      >
         {topBarSummary}
         <div className="flex-1 min-h-0 flex"><TeamChatPanel /></div>
       </div>
@@ -1331,11 +1355,19 @@ export default function InboxPage() {
 
 
   return (
-    <div className="flex h-full" dir={dir}>
+    <div
+      data-inbox="page"
+      // On a phone the open thread replaces the list (theme.css hides Art's
+      // context bar meanwhile).
+      data-inbox-thread-open={selectedId && !showMobileList ? 'true' : 'false'}
+      className="flex h-full"
+      dir={dir}
+    >
       {topBarSummary}
 
       {/* ═══════ LEFT: Conversation List ═══════ */}
       <div
+        data-inbox="list"
         className={cn(
           'w-full shrink-0 border-e border-border flex flex-col bg-card relative',
           selectedId && !showMobileList ? 'hidden md:flex' : 'flex'
@@ -1344,6 +1376,7 @@ export default function InboxPage() {
       >
         {/* Resize handle (desktop) */}
         <div
+          data-inbox="resize"
           onMouseDown={() => setIsResizing(true)}
           onDoubleClick={() => setListWidth(340)}
           className={cn(
@@ -1356,16 +1389,17 @@ export default function InboxPage() {
         />
 
         {/* Header */}
-        <div className="p-3 border-b border-border space-y-2.5">
+        <div data-inbox="list-header" className="p-3 border-b border-border space-y-2.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Inbox className="w-[18px] h-[18px] text-primary" />
+              <Inbox data-inbox="list-icon" className="w-[18px] h-[18px] text-primary" />
               <h2 className="text-[15px] font-bold text-foreground">{t('inbox.title') || 'Inbox'}</h2>
-              <span className="text-[11px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
+              <span data-inbox="list-count" className="text-[11px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
                 {conversations?.length || 0}
               </span>
               {totalUnread > 0 && (
                 <span
+                  data-inbox="list-new"
                   className="text-[11px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold shadow-sm animate-fade-in"
                   title={`${totalUnread} ${t('inbox.unread') || 'Unread'}`}
                 >
@@ -1375,6 +1409,8 @@ export default function InboxPage() {
             </div>
             <div className="flex items-center gap-1">
               <label
+                data-inbox="list-all"
+                data-active={filter === 'all'}
                 title={t('inbox.all') || 'All'}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] font-medium cursor-pointer transition-colors',
@@ -1396,6 +1432,7 @@ export default function InboxPage() {
                 {t('inbox.all') || 'All'}
               </label>
               <button
+                data-inbox="list-action"
                 aria-label={t('inbox.refresh') || 'Refresh'}
                 title={t('inbox.refresh') || 'Refresh'}
                 onClick={() => qc.invalidateQueries({ queryKey: ['conversations'] })}
@@ -1405,6 +1442,7 @@ export default function InboxPage() {
               </button>
 
               <button
+                data-inbox="list-action"
                 aria-label={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
                 title={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
                 onClick={() => {
@@ -1423,6 +1461,7 @@ export default function InboxPage() {
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <button
+                    data-inbox="list-action"
                     title={t('inbox.deleteAllTip') || 'Delete all conversations'}
                     aria-label={t('inbox.deleteAllTip') || 'Delete all conversations'}
                     disabled={!conversations?.length || deleteAll.isPending}
@@ -1487,7 +1526,13 @@ export default function InboxPage() {
         </div>
 
         {/* Conversation items */}
-        <ScrollArea className="flex-1 [&>div>div]:!block">
+        <ScrollArea
+          data-inbox="rows"
+          // The status the open view already names (Active): a row's own chip
+          // for it says nothing new, so a theme may leave it out (Art).
+          data-view-status={!isQueueMode && !extraChip && filter !== 'all' ? filter : undefined}
+          className="flex-1 [&>div>div]:!block"
+        >
           {/* While switching tab/queue react-query keeps the previous list as
               placeholder data — showing it would flash the wrong conversations.
               Treat placeholder state as loading and render skeletons instead. */}
@@ -1505,7 +1550,7 @@ export default function InboxPage() {
             </div>
           ) : !filteredConvos?.length ? (
             <div className="py-16 px-6 text-center flex flex-col items-center gap-3">
-              <div className="w-14 h-14 rounded-2xl bg-secondary/40 flex items-center justify-center">
+              <div data-inbox="list-empty" className="w-14 h-14 rounded-2xl bg-secondary/40 flex items-center justify-center">
                 {queue === 'automated' ? (
                   <Bot className="w-7 h-7 text-muted-foreground/40" />
                 ) : queue === 'spam' ? (
@@ -1552,6 +1597,8 @@ export default function InboxPage() {
                 <div
                   key={conv.id}
                   data-conv-id={conv.id}
+                  data-inbox="row"
+                  data-state={isActive ? 'selected' : hasUnread ? 'unread' : undefined}
                   onClick={() => { setSelectedId(conv.id); setShowMobileList(false); }}
                   className={cn(
                     'group/item relative px-3 py-3 cursor-pointer transition-colors border-b border-border/30',
@@ -1565,7 +1612,7 @@ export default function InboxPage() {
                 >
                   {/* Active / unread indicator rail (LTR/RTL aware) */}
                   {(isActive || hasUnread) && (
-                    <div className={cn(
+                    <div data-inbox="row-rail" className={cn(
                       'absolute top-0 bottom-0 w-[3px] rounded-full',
                       isActive ? 'bg-primary' : 'bg-primary/70',
                       dir === 'rtl' ? 'right-0' : 'left-0',
@@ -1606,6 +1653,7 @@ export default function InboxPage() {
                         )}>
                           {hasUnread && (
                             <span
+                              data-inbox="row-dot"
                               className="w-2 h-2 rounded-full bg-primary shrink-0 shadow-[0_0_0_3px_hsl(var(--primary)/0.18)] animate-pulse"
                               aria-label={t('inbox.unread') || 'Unread'}
                             />
@@ -1618,16 +1666,24 @@ export default function InboxPage() {
                             return <ChannelBadge channel={ch} t={t} clientPlatform={app} size="xs" className="shrink-0" />;
                           })()}
                         </span>
-                        <span className={cn(
+                        <span data-inbox="row-time" className={cn(
                           'text-[11px] shrink-0 tabular-nums',
                           hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground',
                         )} dir="auto">
+                          {/* Art: "assigned" beside the time, so a row needs no third line for it. */}
+                          {isArt && conv.assigned_to && (
+                            <UserCheck
+                              data-inbox="row-assigned-mark"
+                              className="w-3.5 h-3.5"
+                              aria-label={t('inbox.assigned') || 'Assigned'}
+                            />
+                          )}
                           {conv.updated_at ? timeAgo(conv.updated_at) : ''}
                         </span>
                       </div>
                       {/* Row 2: Subject / preview */}
                       <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <p className={cn(
+                        <p data-inbox="preview" className={cn(
                           'text-[12.5px] truncate leading-snug flex-1 min-w-0',
                           hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground',
                         )}>
@@ -1689,6 +1745,7 @@ export default function InboxPage() {
                         </p>
                         {hasUnread && unreadCount > 0 && (
                           <span
+                            data-inbox="row-count"
                             className="shrink-0 inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full bg-primary text-primary-foreground text-[11px] font-bold tabular-nums shadow-sm"
                             aria-label={`${unreadCount} ${t('inbox.unreadAria') || 'unread messages'}`}
                           >
@@ -1697,8 +1754,8 @@ export default function InboxPage() {
                         )}
                       </div>
                       {/* Row 3: Status + meta */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={cn(
+                      <div data-inbox="row-meta" className="flex items-center gap-1.5 flex-wrap">
+                        <span data-inbox="row-status" data-status={conv.status ?? 'open'} className={cn(
                           'inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium',
                           'bg-secondary/60 text-foreground/70',
                         )}>
@@ -1724,7 +1781,7 @@ export default function InboxPage() {
                           </span>
                         )}
                         {conv.assigned_to && (
-                          <span className="text-[11px] text-muted-foreground/60 flex items-center" title={t('inbox.assigned') || 'Assigned'}>
+                          <span data-inbox="row-assigned" className="text-[11px] text-muted-foreground/60 flex items-center" title={t('inbox.assigned') || 'Assigned'}>
                             <UserCheck className="w-3.5 h-3.5" />
                           </span>
                         )}
@@ -1834,7 +1891,7 @@ export default function InboxPage() {
 
         {/* Owner-only workspace scope switch, pinned right above search. */}
         {canSwitchScope ? (
-          <div className="px-3 pt-2.5 border-t border-border/60 bg-card/60">
+          <div data-inbox="scope" className="px-3 pt-2.5 border-t border-border/60 bg-card/60">
             <label
               className={cn(
                 'flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-[11.5px] font-medium cursor-pointer transition-colors',
@@ -1860,7 +1917,7 @@ export default function InboxPage() {
 
         {/* Search — pinned at the bottom of the conversation list.
             Hidden on mobile/PWA: the bottom tab bar owns that space there. */}
-        <div className="hidden md:block p-3 border-t border-border/60 bg-card/60">
+        <div data-inbox="search" className="hidden md:block p-3 border-t border-border/60 bg-card/60">
           <div className="relative">
             <Search className={cn('absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground', dir === 'rtl' ? 'right-2.5' : 'left-2.5')} />
             <Input
@@ -1876,21 +1933,22 @@ export default function InboxPage() {
 
 
       {/* ═══════ CENTER: Chat Panel ═══════ */}
-      <div className={cn(
+      <div data-inbox="thread" className={cn(
         'flex-1 flex flex-col min-w-0',
         !selectedId || showMobileList ? 'hidden md:flex' : 'flex'
       )}>
         {!selected ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-background px-6 text-center">
+          <div data-inbox="empty" className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-background px-6 text-center">
             {wsBranding?.logo_url ? (
               <img
+                data-inbox="empty-logo"
                 src={wsBranding.logo_url}
                 alt={workspace?.name || 'workspace logo'}
                 className="w-16 h-16 mb-4 rounded-2xl object-contain bg-card p-2 border border-border"
                 style={{ boxShadow: 'var(--shadow-glow)' }}
               />
             ) : (
-              <div className="w-16 h-16 rounded-2xl bg-primary mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
+              <div data-inbox="empty-tile" className="w-16 h-16 rounded-2xl bg-primary mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
                 <MessageCircle className="h-8 w-8 text-primary-foreground" />
               </div>
             )}
@@ -1902,7 +1960,7 @@ export default function InboxPage() {
         ) : (
           <>
             {/* ── Chat Header — Desktop ── */}
-            <div className="hidden md:flex px-4 py-2.5 border-b border-border items-center justify-between shrink-0 bg-card/50">
+            <div data-inbox="chat-header" className="hidden md:flex px-4 py-2.5 border-b border-border items-center justify-between shrink-0 bg-card/50">
               <div className="flex items-center gap-2.5">
                 <div className="relative">
                   <ContactAvatar
@@ -2038,6 +2096,8 @@ export default function InboxPage() {
                   </Badge>
                 )}
                 <button
+                  data-inbox="chat-action"
+                  data-active={showSidebar}
                   aria-label={showSidebar ? (t('inbox.hideDetails') || 'Hide details') : (t('inbox.showDetails') || 'Show details')}
                   title={showSidebar ? (t('inbox.hideDetails') || 'Hide details') : (t('inbox.showDetails') || 'Show details')}
                   onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(!showSidebar)}
@@ -2048,14 +2108,14 @@ export default function InboxPage() {
                 >
                   <Eye className="w-4 h-4" />
                 </button>
-                <button className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+                <button data-inbox="chat-action" className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
                   <MoreHorizontal className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
             {/* ── Chat Header — Mobile ── */}
-            <div className="md:hidden flex items-center gap-2 px-2 py-2 bg-card/60 border-b border-border/50 shrink-0">
+            <div data-inbox="chat-header-mobile" className="md:hidden flex items-center gap-2 px-2 py-2 bg-card/60 border-b border-border/50 shrink-0">
               <button
                 aria-label={t('inbox.back') || 'Back to conversations'}
                 onClick={() => { setSelectedId(null); setShowMobileList(true); }}
@@ -2063,6 +2123,17 @@ export default function InboxPage() {
               >
                 {dir === 'rtl' ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
               </button>
+              {/* Art: the same tinted avatar as the list and the thread. */}
+              {isArt ? (
+                <ContactAvatar
+                  name={selected.contacts?.name}
+                  email={selected.contacts?.email}
+                  avatarUrl={selected.contacts?.avatar_url}
+                  os={selected?.visitor_os}
+                  device={selected?.visitor_device}
+                  size="md"
+                />
+              ) : (
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
                 {selected.contacts?.avatar_url ? (
                   <img src={selected.contacts.avatar_url} alt="" className="w-full h-full object-cover" />
@@ -2072,6 +2143,7 @@ export default function InboxPage() {
                 </span>
                 )}
               </div>
+              )}
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] font-bold text-foreground truncate">
                   {conversationTitle(selected, t, locale)}
@@ -2125,6 +2197,7 @@ export default function InboxPage() {
                 Mirrors WhatsApp/Intercom/Crisp behavior so operators read their
                 own replies on the side closest to the composer. */}
             <div
+              data-inbox="messages"
               className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 bg-background overscroll-contain"
               ref={messagesContainerRef}
               role="log"
@@ -2321,7 +2394,7 @@ export default function InboxPage() {
                 return (
                   <div key={msg.id}>
                   {showDaySeparator && (
-                    <div className="flex items-center gap-3 my-3">
+                    <div data-inbox="day" className="flex items-center gap-3 my-3">
                       <div className="h-px flex-1 bg-border/70" />
                       <span className="text-[11px] font-medium text-muted-foreground px-2.5 py-0.5 rounded-full bg-muted/60 border border-border/50">
                         {dayLabel}
@@ -2340,7 +2413,7 @@ export default function InboxPage() {
                     {/* Avatar column — beside the last bubble of each streak */}
                     {showAvatar ? (
                       isAgent ? (
-                        <div className={cn(
+                        <div data-inbox="agent-avatar" data-ai={isAi || undefined} className={cn(
                           'w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-5 shadow-sm ring-1 overflow-hidden text-[12px] font-bold',
                           isAi
                             ? 'bg-accent/30 text-accent-foreground ring-accent/40'
@@ -2374,7 +2447,7 @@ export default function InboxPage() {
                     )}
                     <div className={cn('max-w-[82%] sm:max-w-[75%] flex flex-col min-w-0', isAgent ? 'items-end' : 'items-start')}>
                       <div className={cn('flex items-center gap-1 min-w-0 max-w-full', isAgent ? 'flex-row-reverse' : 'flex-row')}>
-                      <div dir={dir} className={cn(
+                      <div dir={dir} data-inbox="bubble" data-from={isAgent ? 'agent' : 'contact'} className={cn(
                         'text-[14px] leading-[1.7]',
                         (() => {
                           const m = msg as { attachment?: unknown; attachments?: unknown[] | null };
@@ -2518,6 +2591,7 @@ export default function InboxPage() {
 
             {/* ── Input Area ── */}
             <div
+              data-inbox="composer"
               className="border-t border-border px-3 py-3 bg-card/60 shrink-0"
               style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
               dir={dir}
@@ -2647,7 +2721,7 @@ export default function InboxPage() {
                   </button>
                 </div>
               )}
-              <div className={cn(
+              <div data-inbox="composer-box" className={cn(
                 'relative flex gap-1 items-end rounded-xl border bg-background p-1.5 transition-shadow shadow-sm',
                 'border-border focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15',
               )}>
@@ -2734,7 +2808,7 @@ export default function InboxPage() {
                   dir={dir}
                 />
                 {/* Send — split button: main action + mode chooser. */}
-                <div className="flex items-stretch shrink-0 rounded-lg overflow-hidden">
+                <div data-inbox="send-split" className="flex items-stretch shrink-0 rounded-lg overflow-hidden">
                   <Button
                     onClick={() => handleSend()}
                     disabled={sendDisabled}
@@ -2804,7 +2878,7 @@ export default function InboxPage() {
 
 
               </div>
-              <div className="text-[10px] text-muted-foreground/60 mt-1.5 px-1 flex items-center gap-2">
+              <div data-inbox="composer-hints" className="text-[10px] text-muted-foreground/60 mt-1.5 px-1 flex items-center gap-2">
                 <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">Enter</kbd>
                 <span>{t('inbox.enterToSend') || 'to send'}</span>
                 <span className="opacity-30">·</span>
@@ -2832,10 +2906,12 @@ export default function InboxPage() {
             type="button"
             aria-label={t('inbox.closePanel') || 'Close panel'}
             onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(false)}
+            data-inbox="info-backdrop"
             className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] animate-in fade-in"
           />
           {/* Resize divider (desktop only) — real flex column so the whole panel resizes */}
           <div
+            data-inbox="resize"
             onPointerDown={(event) => {
               event.preventDefault();
               (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
@@ -2861,6 +2937,7 @@ export default function InboxPage() {
             aria-orientation="vertical"
           />
           <div
+            data-inbox="info"
             className={cn(
               'flex max-w-[88vw] border-s border-border flex-col bg-card shrink-0 overflow-hidden relative',
               // Mobile/tablet: drawer
@@ -2883,7 +2960,7 @@ export default function InboxPage() {
 
           {/* Invitation-first call entry point (replaces legacy queue dock + panel) */}
           {workspace?.id && selectedId && (
-            <div className="p-2.5 border-b border-border bg-card/40">
+            <div data-inbox="info-call" className="p-2.5 border-b border-border bg-card/40">
               <SidebarCallCard
                 workspaceId={workspace.id}
                 conversationId={selectedId}
@@ -2893,13 +2970,14 @@ export default function InboxPage() {
             </div>
           )}
           {/* Sidebar tabs */}
-          <div className="flex border-b border-border bg-card/60">
+          <div data-inbox="info-tabs" className="flex border-b border-border bg-card/60">
             {([
               { id: 'info' as SidebarTab, label: t('inbox.info') || 'Info', icon: User },
               { id: 'activity' as SidebarTab, label: t('inbox.activity') || 'Activity', icon: Clock },
             ]).map(tab => (
               <button
                 key={tab.id}
+                data-active={sidebarTab === tab.id}
                 onClick={() => setSidebarTab(tab.id)}
                 className={cn(
                   'flex-1 flex items-center justify-center gap-1.5 py-3 text-[12.5px] font-semibold transition-all border-b-2',
@@ -2912,13 +2990,26 @@ export default function InboxPage() {
                 {tab.label}
               </button>
             ))}
+            {/* Art: the drawer (below 1024px) closes from its own corner too. */}
+            {isArt && !isLgDesktop && (
+              <button
+                type="button"
+                data-inbox="info-close"
+                aria-label={t('inbox.closePanel') || 'Close panel'}
+                title={t('inbox.closePanel') || 'Close panel'}
+                onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(false)}
+                className="mx-1.5 my-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
           <ScrollArea className="flex-1 [&>div>div]:!block">
             {sidebarTab === 'info' && (
-              <div className="p-3 space-y-2.5" dir={dir}>
+              <div data-inbox="info-body" className="p-3 space-y-2.5" dir={dir}>
                 {/* Contact Hero */}
-                <div className="rounded-xl bg-gradient-to-b from-primary/5 to-transparent border border-border/50 p-4">
+                <div data-inbox="info-hero" className="rounded-xl bg-gradient-to-b from-primary/5 to-transparent border border-border/50 p-4">
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
                       <ContactAvatar
@@ -3012,6 +3103,7 @@ export default function InboxPage() {
                       <Button
                         size="sm"
                         variant="outline"
+                        data-inbox="resolve"
                         className="h-8 flex-1 px-2 text-[11.5px] font-semibold bg-success/10 border-success/20 text-success hover:bg-success/20"
                         onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })}
                       >
@@ -3056,8 +3148,10 @@ export default function InboxPage() {
                 </div>
 
 
-                {/* Contact Details */}
-                <div className="rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20">
+                {/* Contact Details (Art leaves the card out when there is no email:
+                    its rows join the profile card, inbox.css). */}
+                {(!isArt || !!selected.contacts?.email) && (
+                <div data-inbox-fact="email" className="rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20">
                   {selected.contacts?.email && (
                     <div className="flex items-center gap-2.5 px-3 py-2.5 group/row hover:bg-secondary/20">
                       <Mail className="w-4 h-4 text-primary shrink-0" />
@@ -3071,6 +3165,7 @@ export default function InboxPage() {
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Provider-side identity (Telegram & other channels). */}
                 <ChannelIdentityCard
@@ -3095,7 +3190,7 @@ export default function InboxPage() {
                 />
 
                 {/* Stats */}
-                <div className="rounded-xl border border-border/50 bg-card/60 p-2.5">
+                <div data-inbox-fact="stats" className="rounded-xl border border-border/50 bg-card/60 p-2.5">
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">
                       <div className="text-lg font-extrabold text-foreground tabular-nums">{rawMessages?.length || 0}</div>

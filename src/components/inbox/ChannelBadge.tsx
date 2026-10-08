@@ -118,6 +118,9 @@ export function ChannelBadge({
   const label = channelLabel(channel, t, clientPlatform);
   return (
     <span
+      // Theme hook (src/themes/art/inbox.css): Art draws channel chips as
+      // neutral pills and keeps the channel's colour on the icon only.
+      data-channel-badge={channel}
       className={cn(
         'inline-flex items-center gap-1 rounded-full border font-medium whitespace-nowrap',
         size === 'xs' ? 'px-1.5 py-[1px] text-[10px]' : 'px-2 py-0.5 text-[11px]',
@@ -174,7 +177,7 @@ export function ChannelIdentityCard({
   if (meta.channel_is_premium) rows.push({ label: 'Premium', value: '✓' });
 
   return (
-    <div className={cn('rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20', className)} dir={dir}>
+    <div data-inbox-fact="channel" className={cn('rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20', className)} dir={dir}>
       <div className="flex items-center justify-between px-3 py-2.5">
         <span className="text-[11.5px] text-muted-foreground">{t('contacts.channel') || 'Channel'}</span>
         <ChannelBadge channel={channel} t={t} />

@@ -2,7 +2,7 @@ import { Outlet, NavLink, useLocation, Navigate } from 'react-router-dom';
 import { useWorkspacePath, useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon, Power, ScrollText } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
@@ -35,7 +35,7 @@ export function AiAgentLayout() {
   const { data: capabilities, isLoading, isError } = useAiAgentCapabilities(workspace?.id || null);
   const { data: isAdmin } = useIsGlobalAdmin();
   const tr = (k: string, fb: string) => {
-    const v = t(`aiAgent.${k}` as any);
+    const v = t(`aiAgent.${k}` as TranslationKey);
     return !v || v === `aiAgent.${k}` ? fb : v;
   };
 
@@ -83,10 +83,10 @@ export function AiAgentLayout() {
   // inner AI sidebar), so nothing AI-related mounts without `ai_assistant`.
   return (
     <PlanAccessGate moduleKey="ai_assistant">
-    <div className="flex h-full">
-      <div className="w-[264px] shrink-0 border-e border-border/60 bg-gradient-to-b from-indigo-500/[0.06] via-violet-500/[0.03] to-transparent overflow-y-auto">
-        <div className="sticky top-0 z-10 bg-background/70 backdrop-blur-xl border-b border-border/40 px-5 py-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 shadow-lg shadow-violet-500/25 flex items-center justify-center">
+    <div data-section-layout="ai-agent" className="flex h-full">
+      <div data-section-nav="ai-agent" className="w-[264px] shrink-0 border-e border-border/60 bg-gradient-to-b from-indigo-500/[0.06] via-violet-500/[0.03] to-transparent overflow-y-auto">
+        <div data-section-nav-header className="sticky top-0 z-10 bg-background/70 backdrop-blur-xl border-b border-border/40 px-5 py-4 flex items-center gap-3">
+          <div data-section-nav-mark className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 shadow-lg shadow-violet-500/25 flex items-center justify-center">
             <Bot className="h-5 w-5 text-white" />
           </div>
           <div className="min-w-0">
@@ -97,7 +97,12 @@ export function AiAgentLayout() {
         <nav className="p-3 space-y-4">
           {visibleGroups.map((g) => (
             <div key={g.key}>
-              <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 mb-1">
+              <p
+                data-section-nav-label
+                // The group that only repeats the list's own title (Art hides it).
+                data-redundant={tr(`section.${g.key}`, g.label) === tr('title', 'AI Agent') || undefined}
+                className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 mb-1"
+              >
                 {tr(`section.${g.key}`, g.label)}
               </p>
               <div className="space-y-1">
@@ -109,6 +114,8 @@ export function AiAgentLayout() {
                     <NavLink
                       key={item.key}
                       to={path}
+                      data-section-nav-item
+                      data-active={active}
                       className={cn(
                         'group relative flex items-center gap-3 px-2.5 py-2 rounded-xl text-[13px] transition-all duration-200',
                         active
@@ -116,7 +123,7 @@ export function AiAgentLayout() {
                           : 'text-muted-foreground hover:text-foreground hover:bg-background/60',
                       )}
                     >
-                      <span className={cn(
+                      <span data-section-nav-icon className={cn(
                         'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-200',
                         active
                           ? cn('bg-gradient-to-br text-white shadow-md', a.grad)
@@ -133,7 +140,7 @@ export function AiAgentLayout() {
           ))}
         </nav>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div data-section-content className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto p-8">
           <Outlet />
         </div>

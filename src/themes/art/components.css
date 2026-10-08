@@ -1,0 +1,1719 @@
+/*
+ * Art — components: the shadcn primitives in Art's own shapes and sizes.
+ * Not a recolour of Classic: buttons are pills, fields are filled, tabs are
+ * an underline bar, table rows are cards, menus are roomy, tooltips are ink.
+ *
+ * Every selector starts with :root[data-panel-theme="art"]; see theme.css.
+ * (One selector per line. src/test/themes/panelThemes.test.ts splits a
+ * selector list on its top-level commas, so `:is(a, b)` stays one selector.)
+ *
+ * How the rules are keyed:
+ *   - The primitive is named inside :where() (`:where([data-slot="card"])`),
+ *     so it adds no weight: a shell or page rule in theme.css / pages.css
+ *     that names the same primitive inside its own context still wins.
+ *   - A size, radius, padding or colour is keyed to the primitive's DEFAULT
+ *     class (`.rounded-lg`, `.h-10`, `.bg-background`, ...). A page that set
+ *     its own value made tailwind-merge drop that class, so the rule stops
+ *     matching and the page's choice stays.
+ *   - Where Art draws a shadow on something that also shows Tailwind's focus
+ *     ring, it goes through `--tw-shadow` with the ring variables still in
+ *     the stack, so the keyboard focus ring is never lost.
+ */
+
+/* ── 0. Component tokens ───────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] {
+  --art-ui-line: hsl(var(--foreground) / 0.075);
+  --art-ui-line-strong: hsl(var(--foreground) / 0.13);
+  /* Unchecked checkbox and radio edges: 3:1 against paper (WCAG 1.4.11). */
+  --art-ui-control-edge: hsl(var(--foreground) / 0.5);
+  /* A filled field is a translucent tint with a hairline edge, so it reads
+     on whatever it sits on: the grained canvas, a card, a dialog, a muted
+     panel. (A solid muted fill vanished on the canvas, which is the same
+     ivory.) */
+  --art-ui-field: hsl(var(--art-shadow) / 0.055);
+  --art-ui-field-edge: hsl(var(--foreground) / 0.085);
+  --art-ui-halo: 0 0 0 3px hsl(var(--ring) / 0.15);
+  /* Clay text on a clay tint: primary, a little deeper so 12px stays AA. */
+  --art-ui-tint-text: color-mix(in oklab, hsl(var(--primary)) 80%, hsl(var(--foreground)));
+  --art-ui-row-hover: hsl(var(--muted) / 0.4);
+  --art-ui-row-selected: hsl(var(--primary) / 0.07);
+
+  --art-ui-card-shadow: 0 1px 2px 0 hsl(var(--art-shadow) / 0.04), 0 6px 20px -12px hsl(var(--art-shadow) / 0.14);
+  --art-ui-card-shadow-hover: 0 2px 4px 0 hsl(var(--art-shadow) / 0.05), 0 18px 36px -18px hsl(var(--art-shadow) / 0.26);
+  --art-ui-pop-shadow: 0 2px 6px -2px hsl(var(--art-shadow) / 0.08), 0 18px 40px -16px hsl(var(--art-shadow) / 0.28);
+  --art-ui-dialog-shadow: 0 2px 8px -2px hsl(var(--art-shadow) / 0.1), 0 32px 80px -24px hsl(var(--art-shadow) / 0.42);
+  --art-ui-solid-shadow: inset 0 1px 0 0 hsl(0 0% 100% / 0.16), 0 1px 2px 0 hsl(var(--art-shadow) / 0.18), 0 6px 14px -8px hsl(var(--art-shadow) / 0.4);
+  --art-ui-solid-shadow-hover: inset 0 1px 0 0 hsl(0 0% 100% / 0.18), 0 2px 4px 0 hsl(var(--art-shadow) / 0.18), 0 10px 20px -10px hsl(var(--art-shadow) / 0.5);
+  --art-ui-soft-shadow: 0 1px 2px 0 hsl(var(--art-shadow) / 0.05);
+}
+
+:root[data-panel-theme="art"].dark {
+  --art-ui-line: hsl(var(--foreground) / 0.08);
+  --art-ui-line-strong: hsl(var(--foreground) / 0.14);
+  --art-ui-control-edge: hsl(var(--foreground) / 0.42);
+  --art-ui-field: hsl(var(--foreground) / 0.055);
+  --art-ui-field-edge: hsl(var(--foreground) / 0.09);
+  --art-ui-halo: 0 0 0 3px hsl(var(--ring) / 0.2);
+  --art-ui-tint-text: hsl(var(--primary));
+  --art-ui-row-hover: hsl(var(--foreground) / 0.045);
+  --art-ui-row-selected: hsl(var(--primary) / 0.1);
+
+  --art-ui-card-shadow: 0 1px 2px 0 hsl(var(--art-shadow) / 0.5), 0 8px 24px -12px hsl(var(--art-shadow) / 0.6);
+  --art-ui-card-shadow-hover: 0 2px 4px 0 hsl(var(--art-shadow) / 0.5), 0 20px 40px -18px hsl(var(--art-shadow) / 0.85);
+  --art-ui-pop-shadow: 0 2px 6px -2px hsl(var(--art-shadow) / 0.5), 0 22px 48px -16px hsl(var(--art-shadow) / 0.85);
+  --art-ui-dialog-shadow: 0 2px 8px -2px hsl(var(--art-shadow) / 0.5), 0 36px 90px -24px hsl(var(--art-shadow) / 0.95);
+  --art-ui-solid-shadow: inset 0 1px 0 0 hsl(0 0% 100% / 0.2), 0 1px 2px 0 hsl(var(--art-shadow) / 0.5);
+  --art-ui-solid-shadow-hover: inset 0 1px 0 0 hsl(0 0% 100% / 0.24), 0 4px 12px -4px hsl(var(--art-shadow) / 0.7);
+  --art-ui-soft-shadow: 0 1px 2px 0 hsl(var(--art-shadow) / 0.4);
+}
+
+/* ── 1. Buttons: pills ─────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="button"]).transition-colors {
+  transition-property: color, background-color, border-color, box-shadow, transform;
+}
+
+/* A soft corner by default; a full pill wherever the button keeps a fixed
+   height, so a tall free-height button (a tile) never turns into a capsule. */
+:root[data-panel-theme="art"] :where([data-slot="button"]:not([data-variant="link"])).rounded-md {
+  border-radius: 0.875rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-size="icon"]).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="button"]:not([data-variant="link"]).h-6).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="button"]:not([data-variant="link"]).h-7).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="button"]:not([data-variant="link"]).h-8).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="button"]:not([data-variant="link"]).h-9).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="button"]:not([data-variant="link"]).h-10).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="button"]:not([data-variant="link"]).h-11).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="button"]:not([data-variant="link"]).h-12).rounded-md {
+  border-radius: 9999px;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-size="default"]).px-4 {
+  padding-inline: 1.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-size="sm"]).px-3 {
+  padding-inline: 1rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-size="lg"]).h-11 {
+  height: 3rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-size="lg"]).px-8 {
+  padding-inline: 1.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-size="lg"]).text-sm {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+/* Primary and destructive: a quiet top highlight and a soft warm shadow. */
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="default"]).bg-primary,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="destructive"]).bg-destructive {
+  --tw-shadow: var(--art-ui-solid-shadow);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="default"]:not(:disabled)).bg-primary:hover,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="destructive"]:not(:disabled)).bg-destructive:hover {
+  --tw-shadow: var(--art-ui-solid-shadow-hover);
+}
+
+/* A disabled or locked (faded) solid button lies flat: a raised shadow
+   under a faded pill reads as a pressable one. */
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="default"]:disabled).bg-primary,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="destructive"]:disabled).bg-destructive,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="default"]).bg-primary.opacity-60,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="default"]).bg-primary.opacity-50 {
+  --tw-shadow: 0 0 #0000;
+}
+
+/* A locked upsell button (classic fades it and puts a lock before the
+   label; it still opens the upgrade path): a calm field pill with muted ink,
+   readable (AA) in both modes instead of faded clay. */
+:root[data-panel-theme="art"] [data-slot="button"].opacity-60:has(> svg.lucide-lock) {
+  opacity: 1;
+  border-color: transparent;
+  background-color: var(--art-ui-field);
+  color: hsl(var(--muted-foreground));
+  --tw-shadow: 0 0 #0000;
+  box-shadow: inset 0 0 0 1px var(--art-ui-field-edge);
+}
+
+:root[data-panel-theme="art"] [data-slot="button"].opacity-60:has(> svg.lucide-lock):hover {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+/* In dark, half-faded clay over the ink canvas turns a muddy brown with an
+   unreadable label: a disabled solid button is a quiet stone pill instead
+   (not a segment of a joined group, e.g. a split send button, which rests
+   as one piece with its neighbour). */
+:root[data-panel-theme="art"].dark :where([data-slot="button"][data-variant="default"]:disabled:not(.rounded-none)).bg-primary,
+:root[data-panel-theme="art"].dark :where([data-slot="button"][data-variant="destructive"]:disabled:not(.rounded-none)).bg-destructive {
+  background-color: hsl(var(--foreground) / 0.08);
+  color: hsl(var(--muted-foreground));
+  opacity: 1;
+}
+
+/* Outline: paper with a hairline. Ghost: nothing until hovered. */
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="outline"]).bg-background {
+  background-color: hsl(var(--card));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="outline"]).border-input {
+  border-color: var(--art-ui-line-strong);
+  --tw-shadow: var(--art-ui-soft-shadow);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="outline"]).border-input:hover {
+  border-color: hsl(var(--foreground) / 0.18);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="outline"]).hover\:bg-accent:hover,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="ghost"]).hover\:bg-accent:hover,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="outline"][data-state="open"]).hover\:bg-accent,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="ghost"][data-state="open"]).hover\:bg-accent {
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="outline"]).hover\:text-accent-foreground:hover,
+:root[data-panel-theme="art"] :where([data-slot="button"][data-variant="ghost"]).hover\:text-accent-foreground:hover {
+  color: hsl(var(--foreground));
+}
+
+/* A segmented control a page built from buttons (a tray of ghost buttons,
+   the current one primary) shows the current one as a clay tint, like the
+   header's navigation pills, not a solid clay slab; the tray is a pill. */
+:root[data-panel-theme="art"] :where(.flex.p-1:has(> [data-slot="button"][data-variant="ghost"])) > :where([data-slot="button"][data-variant="default"]).bg-primary {
+  background-color: hsl(var(--primary) / 0.1);
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-panel-theme="art"] :where(.flex.p-1:has(> [data-slot="button"][data-variant="ghost"])) > :where([data-slot="button"][data-variant="default"]).bg-primary:hover {
+  background-color: hsl(var(--primary) / 0.14);
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-panel-theme="art"] :where(.flex.p-1:has(> [data-slot="button"][data-variant="ghost"])) > :where([data-slot="button"][data-variant="default"]).text-primary-foreground {
+  color: var(--art-ui-tint-text);
+}
+
+:root[data-panel-theme="art"] :where(.flex.p-1:has(> [data-slot="button"][data-variant="ghost"]:not(.h-9):not(.h-10):not(.h-11))).rounded-lg {
+  border-radius: 9999px;
+}
+
+/* A page's icon-only delete (a ghost button with a red bin) is quiet ink at
+   rest and turns red only when pointed at or focused, so a list of rows does
+   not carry a column of red icons, louder than anything else on the page. */
+:root[data-panel-theme="art"] [data-shell="main"] :where([data-slot="button"][data-variant="ghost"][data-size="icon"]) > svg.text-destructive,
+:root[data-panel-theme="art"] [data-shell="main"] :where([data-slot="button"][data-variant="ghost"][data-size="icon"]).text-destructive {
+  color: hsl(var(--muted-foreground));
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] [data-shell="main"] :where([data-slot="button"][data-variant="ghost"][data-size="icon"]:is(:hover, :focus-visible)) > svg.text-destructive,
+:root[data-panel-theme="art"] [data-shell="main"] :where([data-slot="button"][data-variant="ghost"][data-size="icon"]:is(:hover, :focus-visible)).text-destructive {
+  color: hsl(var(--destructive));
+}
+
+:root[data-panel-theme="art"] [data-shell="main"] :where([data-slot="button"][data-variant="ghost"][data-size="icon"]:has(> svg.text-destructive)).hover\:bg-accent:hover,
+:root[data-panel-theme="art"] [data-shell="main"] :where([data-slot="button"][data-variant="ghost"][data-size="icon"].text-destructive).hover\:bg-accent:hover {
+  background-color: hsl(var(--destructive) / 0.08);
+}
+
+/* A press sinks the pill by a pixel (not on menu triggers: they open on
+   press and would jump). */
+:root[data-panel-theme="art"] :where([data-slot="button"]:not(:disabled):not([aria-haspopup])).transition-colors:active {
+  transform: translateY(1px);
+}
+
+/* ── 2. Fields: filled ─────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="input"]).h-10,
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"]).h-10 {
+  height: 2.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="input"]).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="textarea"]).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"]).rounded-md {
+  border-radius: 0.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="input"]).bg-background,
+:root[data-panel-theme="art"] :where([data-slot="textarea"]).bg-background,
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"]).bg-background {
+  background-color: var(--art-ui-field);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* At rest the edge is a hairline (it gives the field its shape on paper);
+   hovered it darkens, focused it turns clay. */
+:root[data-panel-theme="art"] :where([data-slot="input"]).border-input,
+:root[data-panel-theme="art"] :where([data-slot="textarea"]).border-input,
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"]).border-input {
+  border-color: var(--art-ui-field-edge);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="input"]:not(:disabled)).border-input:hover,
+:root[data-panel-theme="art"] :where([data-slot="textarea"]:not(:disabled)).border-input:hover,
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"]:not(:disabled)).border-input:hover {
+  border-color: hsl(var(--input));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="textarea"]).min-h-\[80px\] {
+  min-height: 6rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="textarea"]).py-2 {
+  padding-block: 0.625rem;
+}
+
+/* A button in a row beside a field (an "add" button, a search's action)
+   takes the field's 44px height, so the two line up instead of the button
+   riding 4-8px high. Rows that stack (flex-col) keep their own sizes. */
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="input"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="input"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-10,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> * > [data-slot="input"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> * > [data-slot="input"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-10,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="select-trigger"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="select-trigger"].h-10)) > :where([data-slot="button"]:not([data-variant="link"])).h-10 {
+  height: 2.75rem;
+}
+
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="input"].h-10)) > :where([data-slot="button"].h-9).w-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="input"].h-10)) > :where([data-slot="button"].h-10).w-10,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> * > [data-slot="input"].h-10)) > :where([data-slot="button"].h-9).w-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> * > [data-slot="input"].h-10)) > :where([data-slot="button"].h-10).w-10,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="select-trigger"].h-10)) > :where([data-slot="button"].h-9).w-9,
+:root[data-panel-theme="art"] :where(.flex:not(.flex-col):not(.flex-col-reverse):has(> [data-slot="select-trigger"].h-10)) > :where([data-slot="button"].h-10).w-10 {
+  width: 2.75rem;
+}
+
+/* Focus: the field lifts to paper with a clay edge and a soft halo (on any
+   focus: a text field takes typing however it was reached). A borderless
+   field (a composer inside its own frame) keeps its own look. */
+:root[data-panel-theme="art"] :where([data-slot="input"]).bg-background:focus,
+:root[data-panel-theme="art"] :where([data-slot="textarea"]).bg-background:focus,
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"]).bg-background:focus-visible,
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"][data-state="open"]).bg-background {
+  background-color: hsl(var(--card));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="input"].border).border-input:focus,
+:root[data-panel-theme="art"] :where([data-slot="textarea"].border).border-input:focus,
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"].border).border-input:focus-visible,
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"].border[data-state="open"]).border-input {
+  border-color: hsl(var(--ring));
+  box-shadow: var(--art-ui-halo);
+  outline: none;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="input"])[aria-invalid="true"],
+:root[data-panel-theme="art"] :where([data-slot="textarea"])[aria-invalid="true"],
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"])[aria-invalid="true"] {
+  border-color: hsl(var(--destructive) / 0.6);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="input"])[aria-invalid="true"]:focus,
+:root[data-panel-theme="art"] :where([data-slot="textarea"])[aria-invalid="true"]:focus {
+  border-color: hsl(var(--destructive));
+  box-shadow: 0 0 0 3px hsl(var(--destructive) / 0.15);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="select-trigger"]) > svg:last-child {
+  color: hsl(var(--muted-foreground));
+}
+
+/* A field a page built as a group (a bordered box holding a prefix and a
+   borderless input, e.g. "+98 | number") is filled like any other field,
+   and its prefix is a quiet segment instead of a grey block. */
+:root[data-panel-theme="art"] :where(.border.bg-background:has(> [data-slot="input"].border-0)) {
+  border-color: var(--art-ui-field-edge);
+  background-color: var(--art-ui-field);
+  box-shadow: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:root[data-panel-theme="art"] :where(.border.bg-background:has(> [data-slot="input"].border-0)):hover {
+  border-color: hsl(var(--input));
+}
+
+:root[data-panel-theme="art"] :where(.border.bg-background:has(> [data-slot="input"].border-0)):focus-within {
+  border-color: hsl(var(--ring));
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-ui-halo);
+}
+
+:root[data-panel-theme="art"] :where(.border.bg-background:has(> [data-slot="input"].border-0)) > :where(span[class*=" bg-muted"]) {
+  border-color: var(--art-ui-field-edge);
+  background-color: transparent;
+}
+
+/* ── 3. Checkbox, radio, switch ────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="checkbox"]).h-4,
+:root[data-panel-theme="art"] :where([data-slot="radio"]).h-4 {
+  height: 1.125rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="checkbox"]).w-4,
+:root[data-panel-theme="art"] :where([data-slot="radio"]).w-4 {
+  width: 1.125rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="checkbox"]).rounded-sm {
+  border-radius: 0.375rem;
+}
+
+/* A page's small (14px) checkbox keeps a square's corner; Art's 6px would
+   make it a circle, which reads as a radio. */
+:root[data-panel-theme="art"] :where([data-slot="checkbox"].h-3\.5).rounded-sm {
+  border-radius: 0.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="checkbox"]).border-primary,
+:root[data-panel-theme="art"] :where([data-slot="radio"]).border-primary {
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="checkbox"][data-state="unchecked"]).border-primary,
+:root[data-panel-theme="art"] :where([data-slot="radio"][data-state="unchecked"]).border-primary {
+  border-color: var(--art-ui-control-edge);
+  background-color: hsl(var(--card));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="checkbox"][data-state="unchecked"]:not(:disabled)).border-primary:hover,
+:root[data-panel-theme="art"] :where([data-slot="radio"][data-state="unchecked"]:not(:disabled)).border-primary:hover {
+  border-color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="checkbox"]) svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  stroke-width: 3;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="checkbox"].h-3\.5) svg {
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="switch"]).data-\[state\=unchecked\]\:bg-input[data-state="unchecked"] {
+  background-color: hsl(var(--foreground) / 0.2);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="switch-thumb"]).bg-background {
+  background-color: hsl(var(--card));
+}
+
+:root[data-panel-theme="art"].dark :where([data-slot="switch-thumb"]).bg-background {
+  background-color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="switch-thumb"]).shadow-lg {
+  --tw-shadow: 0 1px 3px 0 hsl(var(--art-shadow) / 0.28), 0 0 0 0.5px hsl(var(--art-shadow) / 0.08);
+}
+
+/* ── 4. Tabs: an underline bar ─────────────────────────────────────────── */
+
+/* The segmented list (the default muted tray, and pages' lighter variants of
+   it) becomes a hairline with the current tab underlined in clay. */
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"])[class*=" bg-muted"] {
+  gap: 0.25rem;
+  padding: 0;
+  border-radius: 0;
+  background-color: transparent;
+  box-shadow: inset 0 -1px 0 0 var(--art-ui-line-strong);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]).h-10 {
+  height: auto;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).ring-offset-background {
+  border-radius: 0;
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+  --tw-shadow: 0 0 #0000;
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+  transition: color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"].h-10) > :where([data-slot="tabs-trigger"]).ring-offset-background,
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"].h-auto) > :where([data-slot="tabs-trigger"]).ring-offset-background {
+  min-height: 2.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).px-3 {
+  padding-inline: 0.875rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]:not([data-state="active"]):not(:disabled)).ring-offset-background:hover {
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"][data-state="active"]).ring-offset-background {
+  color: hsl(var(--foreground));
+  --tw-shadow: inset 0 -2px 0 0 hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]:not([data-state="active"])) > svg:not([class*="text-"]) {
+  color: hsl(var(--muted-foreground));
+}
+
+/* The bar runs the full row (a hairline that stopped where the tabs stop
+   would end mid-page), with the tabs from the start. Only a list that sits
+   on its own line under the Tabs root, not one a page put in a toolbar row,
+   and not a compact (h-8) toggle. */
+:root[data-panel-theme="art"] :where([data-slot="tabs"]:not(.flex):not(.grid):not(.inline-flex)) > :where([data-slot="tabs-list"][data-orientation="horizontal"][class*=" bg-muted"]:not([class*=" w-"]):not(.h-8)).inline-flex,
+:root[data-panel-theme="art"] :where([data-slot="tabs"]:not(.flex):not(.grid):not(.inline-flex)) > :where([data-slot="tabs-list"][data-orientation="horizontal"][class*=" bg-muted"]:not(.h-8)).w-full {
+  display: flex;
+  width: 100%;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]).justify-center {
+  justify-content: flex-start;
+}
+
+/* A page's big segmented switch (px-6, text-base) becomes ordinary tabs. */
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).px-6 {
+  padding-inline: 1rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).text-base {
+  font-size: 0.9375rem;
+}
+
+/* A bar wider than a phone scrolls inside itself instead of pushing the
+   page sideways. Its focus ring is drawn inside the tab, so the scroller
+   does not clip it. */
+@media (max-width: 767px) {
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"])[class*=" bg-muted"]:not(.flex-wrap) {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]:not(.flex-wrap))::-webkit-scrollbar {
+    display: none;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]:not(.flex-wrap)) > :where([data-slot="tabs-trigger"]).ring-offset-background {
+    flex-shrink: 0;
+    --tw-ring-inset: inset;
+    --tw-ring-offset-width: 0px;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).px-6 {
+    padding-inline: 0.625rem;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).gap-2\.5 {
+    gap: 0.375rem;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"]) > :where([data-slot="tabs-trigger"]).text-base {
+    font-size: 0.875rem;
+  }
+}
+
+/* A list a page drew as a rounded pill tray keeps the tray; its tabs become
+   pills too. */
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"].rounded-full) > :where([data-slot="tabs-trigger"]).rounded-sm {
+  border-radius: 9999px;
+}
+
+/* A tab a page filled with solid clay when active reads like the header's
+   navigation pills instead: a clay tint with clay text (a solid clay tab was
+   the heaviest thing on the page, louder than its call to action). */
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:bg-primary {
+  background-color: hsl(var(--primary) / 0.1);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:text-primary-foreground {
+  color: var(--art-ui-tint-text);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:bg-primary.data-\[state\=active\]\:shadow-sm,
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:bg-primary.data-\[state\=active\]\:shadow-md {
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-trigger"][data-state="active"]).data-\[state\=active\]\:border-primary\/30 {
+  border-color: transparent;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-content"]).mt-2 {
+  margin-top: 1.25rem;
+}
+
+/* Secondary tabs: a second row of tabs under a first one (a module's
+   sub-pages under its tab strip, tabs inside a tab's panel) and a card's
+   compact (h-8) view switch are a row of soft pills, the current one a
+   stone fill in ink, so two stacked rows never carry the same clay
+   underline and hairline with no hierarchy between them. */
+:root[data-panel-theme="art"] :where([data-section-layout]:has([data-section-tabs]) [data-section-content] [data-slot="tabs-list"], [data-slot="tabs-content"] [data-slot="tabs-list"], [data-slot="tabs-list"].h-8)[class*=" bg-muted"] {
+  gap: 0.375rem;
+  box-shadow: none;
+}
+
+:root[data-panel-theme="art"] :where([data-section-layout]:has([data-section-tabs]) [data-section-content] [data-slot="tabs-list"][class*=" bg-muted"], [data-slot="tabs-content"] [data-slot="tabs-list"][class*=" bg-muted"], [data-slot="tabs-list"][class*=" bg-muted"].h-8) > :where([data-slot="tabs-trigger"]).ring-offset-background {
+  min-height: 2.25rem;
+  border-radius: 9999px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tabs-list"][class*=" bg-muted"].h-8) > :where([data-slot="tabs-trigger"]).ring-offset-background {
+  min-height: 2rem;
+}
+
+:root[data-panel-theme="art"] :where([data-section-layout]:has([data-section-tabs]) [data-section-content] [data-slot="tabs-list"][class*=" bg-muted"], [data-slot="tabs-content"] [data-slot="tabs-list"][class*=" bg-muted"], [data-slot="tabs-list"][class*=" bg-muted"].h-8) > :where([data-slot="tabs-trigger"]:not([data-state="active"]):not(:disabled)).ring-offset-background:hover {
+  background-color: hsl(var(--foreground) / 0.045);
+}
+
+:root[data-panel-theme="art"] :where([data-section-layout]:has([data-section-tabs]) [data-section-content] [data-slot="tabs-list"][class*=" bg-muted"], [data-slot="tabs-content"] [data-slot="tabs-list"][class*=" bg-muted"], [data-slot="tabs-list"][class*=" bg-muted"].h-8) > :where([data-slot="tabs-trigger"][data-state="active"]).ring-offset-background {
+  background-color: hsl(var(--foreground) / 0.075);
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  --tw-shadow: 0 0 #0000;
+}
+
+:root[data-panel-theme="art"].dark :where([data-section-layout]:has([data-section-tabs]) [data-section-content] [data-slot="tabs-list"][class*=" bg-muted"], [data-slot="tabs-content"] [data-slot="tabs-list"][class*=" bg-muted"], [data-slot="tabs-list"][class*=" bg-muted"].h-8) > :where([data-slot="tabs-trigger"][data-state="active"]).ring-offset-background {
+  background-color: hsl(var(--foreground) / 0.1);
+}
+
+/* A pill tray with icon and label tabs (the widget editor's sections) that
+   would wrap to a second row (a ragged lozenge) keeps one row: the tabs show
+   their icon only and the current one keeps its label. The tray's box is a
+   size container, so the switch follows the room the tray really has (the
+   member's text size included), not the window: all seven labels need about
+   51rem in Persian, 54rem in English and 56rem in Turkish (or any other
+   language). The hidden labels stay the tabs' accessible names (and each tab
+   keeps its title); on a phone the page shows icons only anyway. */
+:root[data-panel-theme="art"] :where(div:has(> [data-slot="tabs-list"].rounded-full.flex-wrap)) {
+  container: art-tab-tray / inline-size;
+}
+
+@container art-tab-tray (max-width: 51rem) {
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"].rounded-full.flex-wrap) > :where([data-slot="tabs-trigger"]:not([data-state="active"]):has(> svg)) > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"].rounded-full.flex-wrap) {
+    flex-wrap: nowrap;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="tabs-list"].rounded-full.flex-wrap) > :where([data-slot="tabs-trigger"]) {
+    min-width: 0;
+  }
+}
+
+@container art-tab-tray (max-width: 54rem) {
+  :root[data-panel-theme="art"]:not([lang="fa"]) :where([data-slot="tabs-list"].rounded-full.flex-wrap) > :where([data-slot="tabs-trigger"]:not([data-state="active"]):has(> svg)) > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  :root[data-panel-theme="art"]:not([lang="fa"]) :where([data-slot="tabs-list"].rounded-full.flex-wrap) {
+    flex-wrap: nowrap;
+  }
+
+  :root[data-panel-theme="art"]:not([lang="fa"]) :where([data-slot="tabs-list"].rounded-full.flex-wrap) > :where([data-slot="tabs-trigger"]) {
+    min-width: 0;
+  }
+}
+
+@container art-tab-tray (max-width: 56rem) {
+  :root[data-panel-theme="art"]:not([lang="fa"]):not([lang="en"]) :where([data-slot="tabs-list"].rounded-full.flex-wrap) > :where([data-slot="tabs-trigger"]:not([data-state="active"]):has(> svg)) > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  :root[data-panel-theme="art"]:not([lang="fa"]):not([lang="en"]) :where([data-slot="tabs-list"].rounded-full.flex-wrap) {
+    flex-wrap: nowrap;
+  }
+
+  :root[data-panel-theme="art"]:not([lang="fa"]):not([lang="en"]) :where([data-slot="tabs-list"].rounded-full.flex-wrap) > :where([data-slot="tabs-trigger"]) {
+    min-width: 0;
+  }
+}
+
+/* ── 5. Tables: card rows ──────────────────────────────────────────────── */
+
+/* The shadcn table, and the panel's own hand-made data tables (a <table>
+   with a <thead>; not a calendar grid, not rendered markdown). */
+:root[data-panel-theme="art"] :where([data-slot="table"]),
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) {
+  border-collapse: separate;
+  border-spacing: 0 0.375rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Header: no band, a small muted caption over each column. */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > thead,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > thead {
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table"]) > thead > tr,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > thead > tr {
+  background-color: transparent;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table"]) > thead > tr > th,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > thead > tr > th {
+  height: auto;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.78125rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  white-space: nowrap;
+}
+
+/* A sticky header stays readable over the rows scrolling under it. */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > thead.sticky,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > thead.sticky {
+  background-color: hsl(var(--background) / 0.95);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="card"] table) > thead.sticky {
+  background-color: hsl(var(--card) / 0.96);
+}
+
+/* Rows: each one a card. A page's row background (its hover tint) gives way
+   to the cells, which carry the paper, the hairline and the corners. */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr:not([class*=" bg-"]),
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr:not([class*=" bg-"]) {
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr > td,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td {
+  border-block: 1px solid var(--art-ui-line);
+  background-color: hsl(var(--card));
+  background-image: linear-gradient(var(--art-ui-row-tint, transparent), var(--art-ui-row-tint, transparent));
+  vertical-align: middle;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr > td:first-child,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td:first-child {
+  border-inline-start: 1px solid var(--art-ui-line);
+  border-start-start-radius: 0.875rem;
+  border-end-start-radius: 0.875rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr > td:last-child,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td:last-child {
+  border-inline-end: 1px solid var(--art-ui-line);
+  border-start-end-radius: 0.875rem;
+  border-end-end-radius: 0.875rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr:hover,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr:hover {
+  --art-ui-row-tint: var(--art-ui-row-hover);
+}
+
+/* A selected row (shadcn's data-state, or a page's clay tint) reads as one. */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr[data-state="selected"],
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr[class*=" bg-primary"],
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr[class*=" bg-primary"] {
+  --art-ui-row-tint: var(--art-ui-row-selected);
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr[data-state="selected"] > td,
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr[class*=" bg-primary"] > td,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr[class*=" bg-primary"] > td {
+  border-color: hsl(var(--primary) / 0.22);
+}
+
+/* Any other row a page tinted (a warning, an archived row) shows its own
+   colour through transparent cells. */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr[class*=" bg-"]:not([class*=" bg-primary"]) > td,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr[class*=" bg-"]:not([class*=" bg-primary"]) > td {
+  background-color: transparent;
+}
+
+/* Cell spacing: roomy at the row card's two ends, tighter between columns
+   (1.25rem everywhere made a table overflow where Classic's fits). A shadcn
+   cell keeps a page's own padding (only its default p-4 changes); a
+   hand-made table gets Art's rhythm outright. Headers follow the same
+   columns. */
+:root[data-panel-theme="art"] :where([data-slot="table-cell"]:not([class*=" py-"]):not([class*=" pt-"]):not([class*=" pb-"]):not([class*=" px-"]):not([class*=" ps-"]):not([class*=" pe-"]):not([class*=" pl-"]):not([class*=" pr-"])).p-4,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td {
+  padding: 0.875rem 0.75rem;
+}
+
+:root[data-panel-theme="art"] :where(table.text-xs:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td {
+  padding: 0.625rem 0.625rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table-cell"]:first-child:not([class*=" px-"]):not([class*=" ps-"]):not([class*=" pl-"]):not([class*=" pr-"])).p-4,
+:root[data-panel-theme="art"] :where([data-slot="table"]) > thead > tr > th:first-child,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > :is(thead, tbody) > tr > :first-child {
+  padding-inline-start: 1.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table-cell"]:last-child:not([class*=" px-"]):not([class*=" pe-"]):not([class*=" pl-"]):not([class*=" pr-"])).p-4,
+:root[data-panel-theme="art"] :where([data-slot="table"]) > thead > tr > th:last-child,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > :is(thead, tbody) > tr > :last-child {
+  padding-inline-end: 1.25rem;
+}
+
+:root[data-panel-theme="art"] :where(table.text-xs:not([data-slot]):not([role]):has(> thead):not(.prose table)) > :is(thead, tbody) > tr > :first-child {
+  padding-inline-start: 1rem;
+}
+
+:root[data-panel-theme="art"] :where(table.text-xs:not([data-slot]):not([role]):has(> thead):not(.prose table)) > :is(thead, tbody) > tr > :last-child {
+  padding-inline-end: 1rem;
+}
+
+/* The selection column stays narrow. */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > thead > tr > th:has(> [role="checkbox"]),
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr > td:has(> [role="checkbox"]),
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > thead > tr > th:has(> [role="checkbox"]),
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td:has(> [role="checkbox"]) {
+  width: 1%;
+  padding-inline-end: 0.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table-footer"]).bg-muted\/50 {
+  background-color: transparent;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table-footer"]) > tr > td {
+  padding: 0.75rem 1.25rem;
+  font-weight: 600;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table-caption"]).text-sm {
+  font-size: 0.8125rem;
+}
+
+/* A table set straight on a card (or on a card's unpadded content) gets an
+   inset, so its rows float inside the card instead of touching its edges. */
+:root[data-panel-theme="art"] :where([data-slot="card"]) > :where([data-slot="table-container"]),
+:root[data-panel-theme="art"] :where([data-slot="card-content"].p-0) > :where([data-slot="table-container"]) {
+  padding: 0.25rem 0.75rem 0.5rem;
+}
+
+/* A hand-made panel (a card-coloured box with an edge, not a Card) whose
+   only content is a table gives way: its row cards float on the page
+   instead of sitting flush against the panel's edges inside a second
+   frame. */
+:root[data-panel-theme="art"] :where(.bg-card.border:not([data-slot]):has(> table:only-child:not([data-slot]):not([role]) > thead)).bg-card.border,
+:root[data-panel-theme="art"] :where(.bg-card.border:not([data-slot]):has(> [data-slot="table-container"]:only-child)).bg-card.border {
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+/* A row's own action (a ghost "Preview" or "Open" at its end) is quiet
+   until the row is hovered, so it never outweighs the row's name. */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr > td:last-child :where([data-slot="button"][data-variant="ghost"]:not([class*=" text-destructive"]):not([class*=" text-primary"]):not([class*=" text-success"]):not([class*=" text-warning"])),
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td:last-child :where([data-slot="button"][data-variant="ghost"]:not([class*=" text-destructive"]):not([class*=" text-primary"]):not([class*=" text-success"]):not([class*=" text-warning"])) {
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr:hover > td:last-child :where([data-slot="button"][data-variant="ghost"]:not([class*=" text-destructive"]):not([class*=" text-primary"]):not([class*=" text-success"]):not([class*=" text-warning"])),
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr:hover > td:last-child :where([data-slot="button"][data-variant="ghost"]:not([class*=" text-destructive"]):not([class*=" text-primary"]):not([class*=" text-success"]):not([class*=" text-warning"])) {
+  color: hsl(var(--foreground));
+}
+
+/* A cell's faded placeholder ("Unknown", "No segments") stays legible on
+   the row card (half-strength muted ink fell to about 2:1). */
+:root[data-panel-theme="art"] :where([data-slot="table"]) > tbody > tr > td .text-muted-foreground\/50,
+:root[data-panel-theme="art"] :where(table:not([data-slot]):not([role]):has(> thead):not(.prose table)) > tbody > tr > td .text-muted-foreground\/50 {
+  color: hsl(var(--muted-foreground) / 0.8);
+}
+
+/* ── 6. Badges: soft tinted pills ──────────────────────────────────────── */
+
+/* A badge is one line: on a phone it never breaks into a two-line blob. */
+:root[data-panel-theme="art"] :where([data-slot="badge"]).inline-flex {
+  white-space: nowrap;
+}
+
+/* A page's 10px badge comes up to 11px, still compact but legible (Persian
+   at 10px is hard to read). */
+:root[data-panel-theme="art"] :where([data-slot="badge"]).text-\[10px\] {
+  font-size: 0.6875rem;
+}
+
+/* A badge a page tinted with a status colour is a soft pill like Art's
+   own: the tint carries it, without a coloured outline. */
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-success/"])[class*=" border-success/"],
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-warning/"])[class*=" border-warning/"],
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-destructive/"])[class*=" border-destructive/"],
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-primary/"])[class*=" border-primary/"],
+:root[data-panel-theme="art"] :where([data-slot="badge"][class*=" bg-info/"])[class*=" border-info/"] {
+  border-color: transparent;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"]).px-2\.5 {
+  padding-inline: 0.625rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"]).py-0\.5 {
+  min-height: 1.5rem;
+  padding-block: 0.125rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"]).text-xs {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"]).font-semibold {
+  font-weight: 500;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="default"]).bg-primary {
+  background-color: hsl(var(--primary) / 0.1);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="default"]).text-primary-foreground {
+  color: var(--art-ui-tint-text);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="default"]).hover\:bg-primary\/80:hover {
+  background-color: hsl(var(--primary) / 0.16);
+}
+
+/* A secondary badge (a count beside a title, a quiet tag) is filled like a
+   field: a translucent tint with a hairline, so it shows on the ivory canvas
+   as well as on a card (a solid muted fill is the canvas's own colour). */
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="secondary"]).bg-secondary {
+  background-color: var(--art-ui-field);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="secondary"].bg-secondary).border-transparent {
+  border-color: var(--art-ui-field-edge);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="secondary"]).hover\:bg-secondary\/80:hover {
+  background-color: hsl(var(--foreground) / 0.08);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="destructive"]).bg-destructive {
+  background-color: hsl(var(--destructive) / 0.1);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="destructive"]).text-destructive-foreground {
+  color: hsl(var(--destructive));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="destructive"]).hover\:bg-destructive\/80:hover {
+  background-color: hsl(var(--destructive) / 0.16);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="badge"][data-variant="outline"]).border {
+  border-color: var(--art-ui-line-strong);
+}
+
+/* ── 7. Cards ──────────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="card"]).rounded-lg {
+  border-radius: 1.25rem;
+}
+
+/* The default edge becomes a hairline; a page's own border colour stays. */
+:root[data-panel-theme="art"] :where([data-slot="card"]:not([class*=" border-"])).border {
+  border-color: var(--art-ui-line);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="card"]).shadow-sm {
+  --tw-shadow: var(--art-ui-card-shadow);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="card"][class*="hover:shadow"]).shadow-sm:hover {
+  --tw-shadow: var(--art-ui-card-shadow-hover);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="card-title"]).text-2xl {
+  font-size: 1.0625rem;
+  letter-spacing: -0.012em;
+}
+
+/* A page's 16px card title comes to the same 17px, so every card heads
+   with one size (a smaller one a page chose for a compact tile stays). */
+:root[data-panel-theme="art"] :where([data-slot="card-title"]).text-base {
+  font-size: 1.0625rem;
+  letter-spacing: -0.012em;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="card-title"]).leading-none {
+  line-height: 1.4;
+}
+
+/* A card header that puts an action beside its title (a "Generate" or
+   "Add" button) lets the action drop under the title on a phone, at its own
+   width and from the start edge, instead of squeezing the title onto two
+   lines beside a half-width pill. */
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] :where([data-slot="card-header"]) > :where(.flex.items-center.justify-between:has(> [data-slot="card-title"]):has(> [data-slot="button"]:not([data-size="icon"]))) {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+}
+
+:root[data-panel-theme="art"] :where([data-slot="card-description"]).text-sm {
+  line-height: 1.55;
+}
+
+/* ── 8. Dialogs and sheets ─────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-overlay"]).bg-black\/80 {
+  background-color: hsl(var(--art-scrim) / 0.4);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-content"]).bg-background,
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"]).bg-background {
+  background-color: hsl(var(--card));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-content"]).border,
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"]).border-l,
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"]).border-r,
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"]).border-t,
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"]).border-b {
+  border-color: var(--art-ui-line);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-content"]).shadow-lg {
+  --tw-shadow: var(--art-ui-dialog-shadow);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"]).shadow-lg {
+  --tw-shadow: 0 0 64px -16px hsl(var(--art-shadow) / 0.35);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-content"]).p-6 {
+  padding: 1.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-content"]).gap-4 {
+  gap: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  :root[data-panel-theme="art"] :where([data-slot="dialog-content"]).sm\:rounded-lg {
+    border-radius: 1.5rem;
+  }
+}
+
+/* On a phone the dialog floats inside the screen instead of touching it. */
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] :where([data-slot="dialog-content"]).w-full {
+    width: calc(100% - 1.5rem);
+    border-radius: 1.5rem;
+  }
+}
+
+/* A sheet is rounded on the edge that faces the page. */
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"][data-side="right"]).border-l {
+  border-top-left-radius: 1.5rem;
+  border-bottom-left-radius: 1.5rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"][data-side="left"]).border-r {
+  border-top-right-radius: 1.5rem;
+  border-bottom-right-radius: 1.5rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"][data-side="bottom"]).border-t {
+  border-top-left-radius: 1.5rem;
+  border-top-right-radius: 1.5rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"][data-side="top"]).border-b {
+  border-bottom-left-radius: 1.5rem;
+  border-bottom-right-radius: 1.5rem;
+}
+
+/* The rounded corners clip a header band drawn edge to edge (only where the
+   panel does not scroll itself). */
+:root[data-panel-theme="art"] :where([data-slot="sheet-content"]:not([class*="overflow-"])).bg-background,
+:root[data-panel-theme="art"] :where([data-slot="dialog-content"]:not([class*="overflow-"])).p-0 {
+  overflow: hidden;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-title"]).text-lg,
+:root[data-panel-theme="art"] :where([data-slot="sheet-title"]).text-lg {
+  font-size: 1.25rem;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-description"]).text-sm,
+:root[data-panel-theme="art"] :where([data-slot="sheet-description"]).text-sm {
+  line-height: 1.6;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-header"]).pe-8,
+:root[data-panel-theme="art"] :where([data-slot="sheet-header"]).pe-8 {
+  padding-inline-end: 2.75rem;
+}
+
+/* Footer buttons: an even gap in either direction (the default's space-x
+   margins sit on the wrong side in RTL). Auto margins a page set stay. */
+:root[data-panel-theme="art"] :where([data-slot="dialog-footer"]).sm\:space-x-2,
+:root[data-panel-theme="art"] :where([data-slot="sheet-footer"]).sm\:space-x-2 {
+  gap: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  :root[data-panel-theme="art"] :where([data-slot="dialog-footer"]).sm\:space-x-2,
+  :root[data-panel-theme="art"] :where([data-slot="sheet-footer"]).sm\:space-x-2 {
+    gap: 0.625rem;
+  }
+
+  :root[data-panel-theme="art"] :where([data-slot="dialog-footer"]).sm\:space-x-2 > :not([class*="-auto"]),
+  :root[data-panel-theme="art"] :where([data-slot="sheet-footer"]).sm\:space-x-2 > :not([class*="-auto"]) {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
+
+/* The close button: a 36px circle. Its 16px icon is centred by padding, not
+   by a display value, so a page that hides the default close (its own
+   `[&>button]:hidden`) still hides it. */
+:root[data-panel-theme="art"] :where([data-slot="dialog-close"]).rounded-sm,
+:root[data-panel-theme="art"] :where([data-slot="sheet-close"]).rounded-sm {
+  padding: 0.625rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  color: hsl(var(--muted-foreground));
+  opacity: 1;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-close"]).rounded-sm {
+  top: 1.25rem;
+  inset-inline-end: 1.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="sheet-close"]).rounded-sm {
+  top: 1rem;
+  inset-inline-end: 1rem;
+}
+
+/* An unpadded dialog (the command palette) centres it on its first row. */
+:root[data-panel-theme="art"] :where([data-slot="dialog-content"].p-0) > :where([data-slot="dialog-close"]).rounded-sm {
+  top: 0.625rem;
+  inset-inline-end: 0.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="dialog-close"]).rounded-sm:hover,
+:root[data-panel-theme="art"] :where([data-slot="sheet-close"]).rounded-sm:hover {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+/* ── 9. Menus, select lists, popovers ──────────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="menu-content"]).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="select-content"]).rounded-md,
+:root[data-panel-theme="art"] :where([data-slot="popover-content"]).rounded-md {
+  border-radius: 1rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-content"]).border,
+:root[data-panel-theme="art"] :where([data-slot="select-content"]).border,
+:root[data-panel-theme="art"] :where([data-slot="popover-content"]).border {
+  border-color: var(--art-ui-line);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-content"]).shadow-md,
+:root[data-panel-theme="art"] :where([data-slot="menu-content"]).shadow-lg,
+:root[data-panel-theme="art"] :where([data-slot="select-content"]).shadow-md,
+:root[data-panel-theme="art"] :where([data-slot="popover-content"]).shadow-md {
+  --tw-shadow: var(--art-ui-pop-shadow);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-content"]).p-1,
+:root[data-panel-theme="art"] :where([data-slot="select-viewport"]).p-1 {
+  padding: 0.375rem;
+}
+
+/* Rows: 40px, an icon in muted ink before the label. */
+:root[data-panel-theme="art"] :where([data-slot="menu-item"]).rounded-sm,
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]).rounded-sm,
+:root[data-panel-theme="art"] :where([data-slot="menu-checkbox-item"]).rounded-sm,
+:root[data-panel-theme="art"] :where([data-slot="menu-radio-item"]).rounded-sm,
+:root[data-panel-theme="art"] :where([data-slot="select-item"]).rounded-sm {
+  border-radius: 0.625rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-item"]).py-1\.5,
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]).py-1\.5,
+:root[data-panel-theme="art"] :where([data-slot="menu-checkbox-item"]).py-1\.5,
+:root[data-panel-theme="art"] :where([data-slot="menu-radio-item"]).py-1\.5,
+:root[data-panel-theme="art"] :where([data-slot="select-item"]).py-1\.5 {
+  min-height: 2.5rem;
+  padding-block: 0.375rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-item"]).px-2,
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]).px-2 {
+  padding-inline: 0.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-item"]),
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]),
+:root[data-panel-theme="art"] :where([data-slot="menu-checkbox-item"]),
+:root[data-panel-theme="art"] :where([data-slot="menu-radio-item"]) {
+  gap: 0.625rem;
+}
+
+/* The gap spaces the icon; its own physical margin would double it (and
+   sits on the wrong side in RTL). */
+:root[data-panel-theme="art"] :where([data-slot="menu-item"]) > svg:first-child,
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]) > svg:first-child {
+  margin-inline: 0;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-item"]:not([class*="svg]:text-"])) > svg:not([class*="text-"]),
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]) > svg:not([class*="text-"]) {
+  color: hsl(var(--muted-foreground));
+  transition: color 0.15s ease;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-item"]:not([class*="svg]:text-"])):focus > svg:not([class*="text-"]),
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]):focus > svg:not([class*="text-"]),
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"])[data-state="open"] > svg:not([class*="text-"]) {
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-item"]).focus\:bg-accent:focus,
+:root[data-panel-theme="art"] :where([data-slot="menu-checkbox-item"]).focus\:bg-accent:focus,
+:root[data-panel-theme="art"] :where([data-slot="menu-radio-item"]).focus\:bg-accent:focus,
+:root[data-panel-theme="art"] :where([data-slot="select-item"]).focus\:bg-accent:focus,
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]).focus\:bg-accent:focus,
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"][data-state="open"]).focus\:bg-accent {
+  background-color: hsl(var(--muted));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-item"]).focus\:text-accent-foreground:focus,
+:root[data-panel-theme="art"] :where([data-slot="menu-checkbox-item"]).focus\:text-accent-foreground:focus,
+:root[data-panel-theme="art"] :where([data-slot="menu-radio-item"]).focus\:text-accent-foreground:focus,
+:root[data-panel-theme="art"] :where([data-slot="select-item"]).focus\:text-accent-foreground:focus {
+  color: hsl(var(--foreground));
+}
+
+/* The submenu chevron sits at the inline end and points the reading way. */
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]) > svg.ml-auto:last-child {
+  margin-left: 0;
+  margin-inline-start: auto;
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-sub-trigger"]:dir(rtl)) > svg.ml-auto:last-child {
+  transform: scaleX(-1);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-shortcut"]).ml-auto {
+  margin-left: 0;
+  margin-inline-start: auto;
+}
+
+/* Check and radio rows: the mark at the inline start, in either direction. */
+:root[data-panel-theme="art"] :where([data-slot="menu-checkbox-item"]).pl-8,
+:root[data-panel-theme="art"] :where([data-slot="menu-radio-item"]).pl-8 {
+  padding-inline-start: 2.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-checkbox-item"]).pr-2,
+:root[data-panel-theme="art"] :where([data-slot="menu-radio-item"]).pr-2 {
+  padding-inline-end: 0.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-checkbox-item"]) > span.left-2,
+:root[data-panel-theme="art"] :where([data-slot="menu-radio-item"]) > span.left-2 {
+  left: auto;
+  right: auto;
+  inset-inline-start: 0.75rem;
+  color: hsl(var(--primary));
+}
+
+/* Select rows: the label first, the check at the inline end. */
+:root[data-panel-theme="art"] :where([data-slot="select-item"]).pl-8 {
+  padding-inline-start: 0.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="select-item"]).pr-2 {
+  padding-inline-end: 2.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="select-item"]) > span.left-2 {
+  left: auto;
+  right: auto;
+  inset-inline-end: 0.75rem;
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="select-item"])[data-state="checked"] {
+  font-weight: 500;
+}
+
+/* Group labels: a small muted heading. */
+:root[data-panel-theme="art"] :where([data-slot="menu-label"]).font-semibold,
+:root[data-panel-theme="art"] :where([data-slot="select-label"]).font-semibold {
+  padding-block: 0.5rem 0.25rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-label"]).px-2,
+:root[data-panel-theme="art"] :where([data-slot="select-label"]).pl-8 {
+  padding-inline: 0.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-separator"]).-mx-1,
+:root[data-panel-theme="art"] :where([data-slot="select-separator"]).-mx-1 {
+  margin-inline: -0.375rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-separator"]).my-1,
+:root[data-panel-theme="art"] :where([data-slot="select-separator"]).my-1 {
+  margin-block: 0.375rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="menu-separator"]).bg-muted,
+:root[data-panel-theme="art"] :where([data-slot="select-separator"]).bg-muted {
+  background-color: var(--art-ui-line);
+}
+
+/* ── 10. Tooltips: ink ─────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"]).bg-popover {
+  background-color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"]).text-popover-foreground {
+  color: hsl(var(--background));
+}
+
+/* Text a tooltip's content coloured for a paper surface turns to paper. */
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"].bg-popover) .text-muted-foreground {
+  color: hsl(var(--background) / 0.72);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"].bg-popover) .text-foreground,
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"].bg-popover) .text-popover-foreground {
+  color: hsl(var(--background));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"]).border {
+  border-color: transparent;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"]).rounded-md {
+  border-radius: 0.5rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"]).px-3 {
+  padding-inline: 0.625rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"]).py-1\.5 {
+  padding-block: 0.3125rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"]).text-sm {
+  font-size: 0.78125rem;
+  line-height: 1.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="tooltip-content"]).shadow-md {
+  --tw-shadow: 0 8px 20px -8px hsl(var(--art-shadow) / 0.4);
+}
+
+/* ── 11. Command palette ───────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="command"]) [cmdk-input-wrapper] {
+  padding-inline: 1.25rem;
+  border-color: var(--art-ui-line);
+}
+
+/* In the palette dialog the input row leaves room for the close button. */
+:root[data-panel-theme="art"] :where([data-slot="dialog-content"] [data-slot="command"]) [cmdk-input-wrapper] {
+  padding-inline-end: 3.5rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="command-input"]).h-11 {
+  height: 3.5rem;
+  font-size: 0.9375rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="command-group"]).p-1 {
+  padding: 0.375rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="command-group"]) [cmdk-group-heading] {
+  padding: 0.625rem 0.75rem 0.375rem;
+  font-size: 0.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="command-item"]).rounded-sm {
+  min-height: 2.75rem;
+  gap: 0.75rem;
+  padding-inline: 0.75rem;
+  border-radius: 0.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="command-item"]) > svg:first-child {
+  margin-inline: 0;
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="command-item"])[data-selected="true"] {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="command-item"])[data-selected="true"] > svg:first-child {
+  color: hsl(var(--primary));
+}
+
+/* ── 12. Accordion, alert, progress, slider ────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="accordion-item"]).border-b {
+  border-color: var(--art-ui-line);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="accordion-trigger"]).py-4 {
+  padding-block: 1.125rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="accordion-trigger"]).hover\:underline:hover {
+  text-decoration: none;
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="accordion-trigger"]) > svg:last-child {
+  color: hsl(var(--muted-foreground));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="alert"]).rounded-lg {
+  border-radius: 1rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="alert"]).p-4 {
+  padding: 1rem 1.125rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="alert"][data-variant="default"]).bg-background {
+  border-color: var(--art-ui-line);
+  background-color: hsl(var(--muted) / 0.55);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="alert"][data-variant="destructive"]).border-destructive\/50 {
+  border-color: hsl(var(--destructive) / 0.25);
+  background-color: hsl(var(--destructive) / 0.06);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="alert-title"]).font-medium {
+  font-weight: 600;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="progress"]).h-4 {
+  height: 0.5rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="progress"]).bg-secondary,
+:root[data-panel-theme="art"] :where([data-slot="slider-track"]).bg-secondary {
+  background-color: hsl(var(--foreground) / 0.08);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="progress-indicator"]).bg-primary {
+  border-radius: 9999px;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="slider-track"]).h-2 {
+  height: 0.375rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="slider-thumb"]).bg-background {
+  background-color: hsl(var(--card));
+  --tw-shadow: 0 1px 3px 0 hsl(var(--art-shadow) / 0.25);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+/* ── 13. Avatar, skeleton, separator ───────────────────────────────────── */
+
+/* A hairline inside the circle, so a photo's light edge never melts into
+   the paper. */
+:root[data-panel-theme="art"] :where([data-slot="avatar"]).rounded-full::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.07);
+  pointer-events: none;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="avatar-fallback"]).bg-muted {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  font-weight: 600;
+}
+
+/* An operator without a photo: a clay tint, the one accent, instead of the
+   violet (rose in Art) figure, which was the loudest thing in the header. */
+:root[data-panel-theme="art"] :where([data-slot="avatar-fallback"]).bg-brand-violet\/15 {
+  background-color: hsl(var(--primary) / 0.1);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="avatar-fallback"]).text-brand-violet {
+  color: hsl(var(--primary));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="avatar-fallback"]).ring-brand-violet\/30 {
+  --tw-ring-color: hsl(var(--primary) / 0.2);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="skeleton"]).rounded-md {
+  border-radius: 0.625rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="skeleton"]).bg-muted {
+  background-color: hsl(var(--foreground) / 0.06);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="separator"]).bg-border {
+  background-color: var(--art-ui-line);
+}
+
+/* ── 14. Toasts ────────────────────────────────────────────────────────── */
+
+:root[data-panel-theme="art"] :where([data-slot="toast"]).rounded-md {
+  border-radius: 1rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="toast"][data-variant="default"]).bg-background {
+  border-color: var(--art-ui-line);
+  background-color: hsl(var(--card));
+}
+
+:root[data-panel-theme="art"] :where([data-slot="toast"]).shadow-lg {
+  --tw-shadow: var(--art-ui-pop-shadow);
+}
+
+:root[data-panel-theme="art"] :where([data-slot="toast"]).p-6 {
+  padding: 1rem 1.25rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="toast"]).pr-8 {
+  padding-right: 1.25rem;
+  padding-inline-end: 2.75rem;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="toast-close"]).right-2 {
+  right: auto;
+  top: 0.75rem;
+  inset-inline-end: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+}
+
+:root[data-panel-theme="art"] :where([data-slot="toast-action"]).rounded-md {
+  border-radius: 9999px;
+  padding-inline: 0.875rem;
+}
+
+:root[data-panel-theme="art"] [data-sonner-toaster] {
+  --border-radius: 1rem;
+}
+
+:root[data-panel-theme="art"] [data-sonner-toast][data-styled="true"] {
+  gap: 0.625rem;
+  padding: 0.875rem 1rem;
+  border-color: var(--art-ui-line);
+  background-color: hsl(var(--card));
+  box-shadow: var(--art-ui-pop-shadow);
+  font-size: 0.875rem;
+}
+
+:root[data-panel-theme="art"] [data-sonner-toast][data-styled="true"] [data-button],
+:root[data-panel-theme="art"] [data-sonner-toast][data-styled="true"] [data-cancel] {
+  height: 1.75rem;
+  padding-inline: 0.75rem;
+  border-radius: 9999px;
+}
+
+/* ── 15. Code blocks ───────────────────────────────────────────────────── */
+
+/* A snippet a page set in a muted box is a filled well with a hairline (the
+   field's translucent tint, so it reads on a card and on the canvas) with
+   roomier lines. */
+:root[data-panel-theme="art"] :where(pre[class*="bg-muted"]) {
+  background-color: var(--art-ui-field);
+  color: hsl(var(--foreground));
+  line-height: 1.7;
+}
+
+:root[data-panel-theme="art"] :where(pre[class*="bg-muted"]).border {
+  border-color: var(--art-ui-field-edge);
+}
+
+:root[data-panel-theme="art"] :where(pre[class*="bg-muted"]):not(.border) {
+  box-shadow: inset 0 0 0 1px var(--art-ui-field-edge);
+}
+
+:root[data-panel-theme="art"] :where(pre[class*="bg-muted"]).rounded-lg {
+  border-radius: 1rem;
+}
+
+:root[data-panel-theme="art"] :where(pre[class*="bg-muted"]).rounded {
+  border-radius: 0.75rem;
+}
+
+/* A <pre> a page left without a direction (a JSON dump, a message body)
+   takes each line's direction from the line itself: on a Persian page JSON
+   reads left to right with its braces in place, and a Persian line still
+   reads right to left. */
+:root[data-panel-theme="art"] :where(pre:not([dir])) {
+  unicode-bidi: plaintext;
+}
+
+/* A snippet a page left to its default white-space (an embed line to copy,
+   a JSON dump) wraps its long lines inside the well instead of running out
+   of it, cut at the edge of the card (on a phone most of a one-line embed
+   code was hidden). Indentation is kept; a page that chose its own
+   white-space (a code block that scrolls) keeps it. */
+:root[data-panel-theme="art"] :where(pre[class*="bg-muted"]:not([class*="whitespace-"])) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Code (a left-to-right snippet) is set in a real monospace, so its
+   indentation and braces line up; index.css gives every .font-mono under an
+   RTL page the Persian face for its digits, which a code snippet does not
+   have. */
+:root[data-panel-theme="art"] :where(pre[dir="ltr"]).font-mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace !important;
+  font-variant-ligatures: none;
+}
+
+:root[data-panel-theme="art"] :where(pre[dir="ltr"][class*="bg-muted"]).text-xs {
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 639px) {
+  :root[data-panel-theme="art"] :where(pre[dir="ltr"][class*="bg-muted"]).text-xs {
+    font-size: 0.75rem;
+  }
+}
+
+/* A snippet with a copy button over its corner (a page's `absolute top-2
+   end-2` button beside the <pre>) gets a header band for it: the code starts
+   under a hairline, so the button never covers the first line. */
+:root[data-panel-theme="art"] :where(.relative:has(> pre[class*="bg-muted"] + [data-slot="button"].absolute)) > :where(pre).p-4 {
+  padding: 3.75rem 1.25rem 1.25rem;
+  background-image: linear-gradient(var(--art-ui-field-edge), var(--art-ui-field-edge));
+  background-position: 0 2.75rem;
+  background-size: 100% 1px;
+  background-repeat: no-repeat;
+}
+
+:root[data-panel-theme="art"] :where(.relative:has(> pre[class*="bg-muted"] + [data-slot="button"].absolute)) > :where([data-slot="button"]).absolute {
+  top: 0.4375rem;
+  inset-inline-end: 0.5rem;
+  height: 1.875rem;
+  gap: 0.25rem;
+  padding-inline: 0.75rem;
+}
+
+/* An embedded preview a page set on a muted backdrop (a srcdoc iframe whose
+   document is light, like the call widget's) takes that light scheme in dark
+   mode. With the panel dark and the document light the browser paints an
+   opaque white canvas behind the frame, a glaring slab on the dark card;
+   with the two schemes matching the frame stays transparent and the
+   page's muted backdrop shows through. */
+:root[data-panel-theme="art"].dark :where(iframe[srcdoc][class*="bg-muted"]) {
+  color-scheme: light;
+}
+
+/* ── 16. Notices in a centred block ────────────────────────────────────── */
+
+/* A notice's full-width retry (an outline pill across a wide card) hugs its
+   label from a tablet up; a stretched pill reads as a text field. */
+@media (min-width: 640px) {
+  :root[data-panel-theme="art"] [data-shell="main"] :where(.text-center) > :where([data-slot="button"]).w-full {
+    width: auto;
+    min-width: 13rem;
+  }
+}
+
+/* ── 17. Details ───────────────────────────────────────────────────────── */
+
+/* Persian has no italic: a synthetic slant only looks broken. */
+:root[data-panel-theme="art"][dir="rtl"] .italic {
+  font-style: normal;
+}
+
+:root[data-panel-theme="art"] ::selection {
+  background-color: hsl(var(--primary) / 0.2);
+}
+
+:root[data-panel-theme="art"] ::-webkit-scrollbar-thumb {
+  background: hsl(var(--foreground) / 0.14);
+}
+
+:root[data-panel-theme="art"] ::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground) / 0.24);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-panel-theme="art"] :where([data-slot="button"]).transition-colors:active {
+    transform: none;
+  }
+}

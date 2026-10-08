@@ -2,6 +2,11 @@ import { installKeyboardInset } from '@/lib/keyboardInset';
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+// Workspace panel themes (src/themes): inert until the panel sets data-panel-theme.
+import "./themes/art/theme.css";
+import "./themes/art/components.css";
+import "./themes/art/pages.css";
+import "./themes/art/inbox.css";
 import { loadFontsForLocale } from "./lib/fonts";
 import { getStoredLocale, loadLocaleMessages } from "./i18n";
 import { installLocalizedDateDefaults, setAppDateLocale } from "./lib/date";

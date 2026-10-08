@@ -44,6 +44,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
 
   return (
     <nav
+      data-shell="bottom-nav"
       // `fixed` and pinned to the true visual viewport bottom — NOT a normal
       // flex-column child. Relying on flex sizing meant this bar's visibility
       // depended on every single page correctly respecting the shell's
@@ -61,7 +62,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
             <span className="relative flex h-6 w-6 items-center justify-center">
               <tab.icon className={cn('h-5 w-5', tab.active ? 'text-primary' : 'text-muted-foreground')} />
               {!!tab.badge && tab.badge > 0 && (
-                <span className="absolute -end-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
+                <span data-nav-count className="absolute -end-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
                   {tab.badge > 99 ? '99+' : tab.badge}
                 </span>
               )}
@@ -73,7 +74,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
         );
         const className = 'flex flex-1 flex-col items-center justify-center gap-0.5';
         return tab.to ? (
-          <Link key={tab.key} to={tab.to} className={className}>{content}</Link>
+          <Link key={tab.key} to={tab.to} data-active={tab.active} className={className}>{content}</Link>
         ) : (
           <button key={tab.key} type="button" onClick={tab.onClick} className={className}>{content}</button>
         );

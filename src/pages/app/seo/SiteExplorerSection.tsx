@@ -14,7 +14,7 @@ import {
   Search, Globe2, Link2, TrendingUp, ArrowUpRight, RefreshCw, ExternalLink, Sparkles, Unlink,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip } from 'recharts';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,14 +38,14 @@ import { GradientStatCard } from './SeoPage';
 import { findSection, findLeaf } from './seoNavTree';
 import { prettyUrl } from '@/lib/prettyUrl';
 
-function explorerErrorMessage(err: unknown, t: (k: any) => string): string {
+function explorerErrorMessage(err: unknown, t: (k: TranslationKey) => string): string {
   if (err instanceof SeoApiError) {
-    if (err.upgradeRequired) return t('seo.explorer.errors.module_not_available' as any);
+    if (err.upgradeRequired) return t('seo.explorer.errors.module_not_available');
     const key = `seo.explorer.errors.${err.code}`;
-    const translated = t(key as any);
+    const translated = t(key as TranslationKey);
     if (translated !== key) return translated;
   }
-  return t('seo.explorer.errors.generic' as any);
+  return t('seo.explorer.errors.generic');
 }
 
 function formatCompact(v: number): string {
@@ -82,12 +82,12 @@ function SiteExplorerInner({ workspaceId, subsectionKey }: { workspaceId: string
                 value={ownDomain || ''}
                 readOnly
                 dir="ltr"
-                placeholder={t('seo.explorer.search.placeholder' as any)}
+                placeholder={t('seo.explorer.search.placeholder')}
                 className="ps-9 text-start"
               />
             </div>
             <Button type="submit" className="gap-2" disabled={!ownDomain || sitesLoading}>
-              <Search className="h-4 w-4" />{t('seo.explorer.search.cta' as any)}
+              <Search className="h-4 w-4" />{t('seo.explorer.search.cta')}
             </Button>
           </form>
         </CardContent>
@@ -101,8 +101,8 @@ function SiteExplorerInner({ workspaceId, subsectionKey }: { workspaceId: string
             <span className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-lg">
               <Globe2 className="h-6 w-6" />
             </span>
-            <h3 className="relative text-lg font-semibold">{t('seo.explorer.empty.title' as any)}</h3>
-            <p className="relative max-w-md text-sm text-muted-foreground">{t('seo.explorer.empty.description' as any)}</p>
+            <h3 className="relative text-lg font-semibold">{t('seo.explorer.empty.title')}</h3>
+            <p className="relative max-w-md text-sm text-muted-foreground">{t('seo.explorer.empty.description')}</p>
           </CardContent>
         </Card>
       ) : (
@@ -131,7 +131,7 @@ function SiteExplorerDataView({ workspaceId, domain, subsectionKey }: { workspac
       return <ExplorerCompetingDomainsView workspaceId={workspaceId} domain={domain} />;
     default: {
       const leaf = findLeaf(findSection('site-explorer'), subsectionKey);
-      return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.siteExplorer') as any)} />;
+      return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.siteExplorer') as TranslationKey)} />;
     }
   }
 }
@@ -161,11 +161,11 @@ function ExplorerScanCta({
   return (
     <Card>
       <CardContent className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-        <h4 className="text-sm font-semibold">{t(titleKey as any)}</h4>
-        <p className="max-w-sm text-xs text-muted-foreground">{t(descriptionKey as any)}</p>
+        <h4 className="text-sm font-semibold">{t(titleKey as TranslationKey)}</h4>
+        <p className="max-w-sm text-xs text-muted-foreground">{t(descriptionKey as TranslationKey)}</p>
         <Button size="sm" onClick={onStart} disabled={pending} className="gap-1.5">
           <RefreshCw className={pending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-          {t(ctaKey as any)}
+          {t(ctaKey as TranslationKey)}
         </Button>
       </CardContent>
     </Card>
@@ -179,7 +179,7 @@ function ExplorerScanProgress({ progressStage }: { progressStage: string | null 
       <CardContent className="flex items-center gap-3 py-6">
         <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-primary" />
         <p className="text-sm text-muted-foreground">
-          {progressStage === 'fetching' ? t('seo.explorer.progress.fetching' as any) : t('seo.explorer.progress.working' as any)}
+          {progressStage === 'fetching' ? t('seo.explorer.progress.fetching') : t('seo.explorer.progress.working')}
         </p>
       </CardContent>
     </Card>
@@ -212,19 +212,19 @@ function ExplorerOverview({ workspaceId, domain }: { workspaceId: string; domain
       <DomainHeading domain={domain} />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <GradientStatCard icon={Link2} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={backlinkScan?.status === 'completed' ? formatCompact(backlinkScan.total_backlinks ?? 0) : '—'} label={t('seo.explorer.stat.backlinks' as any)} />
-        <GradientStatCard icon={Globe2} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={backlinkScan?.status === 'completed' ? formatCompact(backlinkScan.referring_domains ?? 0) : '—'} label={t('seo.explorer.stat.referringDomains' as any)} />
-        <GradientStatCard icon={Search} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={keywordScan?.status === 'completed' ? formatCompact(keywordScan.total_keywords ?? 0) : '—'} label={t('seo.explorer.stat.organicKeywords' as any)} />
-        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={keywordScan?.status === 'completed' ? formatCompact(keywordScan.total_traffic_estimate ?? 0) : '—'} label={t('seo.explorer.stat.trafficEstimate' as any)} />
+        <GradientStatCard icon={Link2} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={backlinkScan?.status === 'completed' ? formatCompact(backlinkScan.total_backlinks ?? 0) : '—'} label={t('seo.explorer.stat.backlinks')} />
+        <GradientStatCard icon={Globe2} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={backlinkScan?.status === 'completed' ? formatCompact(backlinkScan.referring_domains ?? 0) : '—'} label={t('seo.explorer.stat.referringDomains')} />
+        <GradientStatCard icon={Search} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={keywordScan?.status === 'completed' ? formatCompact(keywordScan.total_keywords ?? 0) : '—'} label={t('seo.explorer.stat.organicKeywords')} />
+        <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={keywordScan?.status === 'completed' ? formatCompact(keywordScan.total_traffic_estimate ?? 0) : '—'} label={t('seo.explorer.stat.trafficEstimate')} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-base">{t('seo.nav.item.backlinks' as any)}</CardTitle>
+            <CardTitle className="text-base">{t('seo.nav.item.backlinks')}</CardTitle>
             {backlinkScan?.status === 'completed' && (
               <Button asChild variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
-                <a href={wsPath('/seo/site-explorer/backlinks')}>{t('seo.gsc.overview.viewAll' as any)}<ArrowUpRight className="h-3 w-3" /></a>
+                <a href={wsPath('/seo/site-explorer/backlinks')}>{t('seo.gsc.overview.viewAll')}<ArrowUpRight className="h-3 w-3" /></a>
               </Button>
             )}
           </CardHeader>
@@ -241,22 +241,22 @@ function ExplorerOverview({ workspaceId, domain }: { workspaceId: string; domain
               <ExplorerScanProgress progressStage={backlinkScan.progress_stage} />
             ) : backlinkScan.status === 'completed' ? (
               <div className="space-y-1.5 text-sm">
-                <Row label={t('seo.explorer.stat.dofollow' as any)} value={formatCompact(backlinkScan.dofollow_count ?? 0)} />
-                <Row label={t('seo.explorer.stat.new' as any)} value={formatCompact(backlinkScan.new_backlinks ?? 0)} />
-                <Row label={t('seo.explorer.stat.lost' as any)} value={formatCompact(backlinkScan.lost_backlinks ?? 0)} />
+                <Row label={t('seo.explorer.stat.dofollow')} value={formatCompact(backlinkScan.dofollow_count ?? 0)} />
+                <Row label={t('seo.explorer.stat.new')} value={formatCompact(backlinkScan.new_backlinks ?? 0)} />
+                <Row label={t('seo.explorer.stat.lost')} value={formatCompact(backlinkScan.lost_backlinks ?? 0)} />
               </div>
             ) : (
-              <p className="text-sm text-destructive">{backlinkScan.error_message || t('seo.explorer.errors.generic' as any)}</p>
+              <p className="text-sm text-destructive">{backlinkScan.error_message || t('seo.explorer.errors.generic')}</p>
             )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-base">{t('seo.nav.item.organicKeywords' as any)}</CardTitle>
+            <CardTitle className="text-base">{t('seo.nav.item.organicKeywords')}</CardTitle>
             {keywordScan?.status === 'completed' && (
               <Button asChild variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
-                <a href={wsPath('/seo/site-explorer/organicKeywords')}>{t('seo.gsc.overview.viewAll' as any)}<ArrowUpRight className="h-3 w-3" /></a>
+                <a href={wsPath('/seo/site-explorer/organicKeywords')}>{t('seo.gsc.overview.viewAll')}<ArrowUpRight className="h-3 w-3" /></a>
               </Button>
             )}
           </CardHeader>
@@ -273,11 +273,11 @@ function ExplorerOverview({ workspaceId, domain }: { workspaceId: string; domain
               <ExplorerScanProgress progressStage={keywordScan.progress_stage} />
             ) : keywordScan.status === 'completed' ? (
               <div className="space-y-1.5 text-sm">
-                <Row label={t('seo.explorer.stat.organicKeywords' as any)} value={formatCompact(keywordScan.total_keywords ?? 0)} />
-                <Row label={t('seo.explorer.stat.trafficEstimate' as any)} value={formatCompact(keywordScan.total_traffic_estimate ?? 0)} />
+                <Row label={t('seo.explorer.stat.organicKeywords')} value={formatCompact(keywordScan.total_keywords ?? 0)} />
+                <Row label={t('seo.explorer.stat.trafficEstimate')} value={formatCompact(keywordScan.total_traffic_estimate ?? 0)} />
               </div>
             ) : (
-              <p className="text-sm text-destructive">{keywordScan.error_message || t('seo.explorer.errors.generic' as any)}</p>
+              <p className="text-sm text-destructive">{keywordScan.error_message || t('seo.explorer.errors.generic')}</p>
             )}
           </CardContent>
         </Card>
@@ -295,7 +295,8 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-const LINK_TYPE_COLORS = { dofollow: 'hsl(var(--primary))', nofollow: '#94a3b8' };
+// Nofollow is slate-400 through the palette variable, so a panel theme can repaint it.
+const LINK_TYPE_COLORS = { dofollow: 'hsl(var(--primary))', nofollow: 'rgb(var(--palette-slate-400))' };
 
 function LinkTypeDonut({ dofollow, nofollow }: { dofollow: number; nofollow: number }) {
   const { t } = useTranslation();
@@ -312,11 +313,11 @@ function LinkTypeDonut({ dofollow, nofollow }: { dofollow: number; nofollow: num
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{t('seo.explorer.linkTypes' as any)}</CardTitle>
+        <CardTitle className="text-sm">{t('seo.explorer.linkTypes')}</CardTitle>
       </CardHeader>
       <CardContent>
         {total === 0 ? (
-          <p className="py-8 text-center text-xs text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+          <p className="py-8 text-center text-xs text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
         ) : (
           <div className="relative">
             <div className="h-40">
@@ -326,7 +327,7 @@ function LinkTypeDonut({ dofollow, nofollow }: { dofollow: number; nofollow: num
                     {data.map((d) => <Cell key={d.key} fill={LINK_TYPE_COLORS[d.key as keyof typeof LINK_TYPE_COLORS]} />)}
                   </Pie>
                   <ReTooltip
-                    formatter={(value: number, _name, entry) => [formatCompact(value), (entry?.payload as any)?.label]}
+                    formatter={(value: number, _name, entry) => [formatCompact(value), (entry?.payload as { label?: string } | undefined)?.label]}
                     contentStyle={{ fontSize: 12, borderRadius: 8 }}
                   />
                 </PieChart>
@@ -339,7 +340,7 @@ function LinkTypeDonut({ dofollow, nofollow }: { dofollow: number; nofollow: num
           </div>
         )}
         <div className="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.explorer.stat.dofollow' as any)}</span>
+          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.explorer.stat.dofollow')}</span>
           <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-slate-400" />nofollow</span>
         </div>
       </CardContent>
@@ -366,7 +367,7 @@ function ExplorerBacklinksView({ workspaceId, domain }: { workspaceId: string; d
         <DomainHeading domain={domain} />
         <Button size="sm" variant="outline" className="gap-1.5" onClick={handleStart} disabled={startScan.isPending}>
           <RefreshCw className={startScan.isPending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-          {scan ? t('seo.explorer.cta.refresh' as any) : t('seo.explorer.cta.analyze' as any)}
+          {scan ? t('seo.explorer.cta.refresh') : t('seo.explorer.cta.analyze')}
         </Button>
       </div>
 
@@ -381,21 +382,21 @@ function ExplorerBacklinksView({ workspaceId, domain }: { workspaceId: string; d
       ) : scan.status !== 'completed' && scan.status !== 'failed' && scan.status !== 'cancelled' ? (
         <ExplorerScanProgress progressStage={scan.progress_stage} />
       ) : scan.status !== 'completed' ? (
-        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic' as any)}</p>
+        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic')}</p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <GradientStatCard icon={Link2} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(scan.total_backlinks ?? 0)} label={t('seo.explorer.stat.backlinks' as any)} />
-            <GradientStatCard icon={Globe2} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(scan.referring_domains ?? 0)} label={t('seo.explorer.stat.referringDomains' as any)} />
-            <GradientStatCard icon={TrendingUp} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCompact(scan.dofollow_count ?? 0)} label={t('seo.explorer.stat.dofollow' as any)} />
-            <GradientStatCard icon={Sparkles} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatCompact(scan.new_backlinks ?? 0)} label={t('seo.explorer.stat.new' as any)} />
+            <GradientStatCard icon={Link2} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(scan.total_backlinks ?? 0)} label={t('seo.explorer.stat.backlinks')} />
+            <GradientStatCard icon={Globe2} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(scan.referring_domains ?? 0)} label={t('seo.explorer.stat.referringDomains')} />
+            <GradientStatCard icon={TrendingUp} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCompact(scan.dofollow_count ?? 0)} label={t('seo.explorer.stat.dofollow')} />
+            <GradientStatCard icon={Sparkles} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatCompact(scan.new_backlinks ?? 0)} label={t('seo.explorer.stat.new')} />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
             <LinkTypeDonut dofollow={scan.dofollow_count ?? 0} nofollow={scan.nofollow_count ?? 0} />
             <Card className="lg:col-span-1">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">{t('seo.explorer.linkChanges' as any)}</CardTitle>
+                <CardTitle className="text-sm">{t('seo.explorer.linkChanges')}</CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-4">
                 <div className="flex items-center gap-3">
@@ -404,7 +405,7 @@ function ExplorerBacklinksView({ workspaceId, domain }: { workspaceId: string; d
                   </span>
                   <div>
                     <p className="text-lg font-bold tabular-nums leading-tight">{formatCompact(scan.new_backlinks ?? 0)}</p>
-                    <p className="text-xs text-muted-foreground">{t('seo.explorer.stat.new' as any)}</p>
+                    <p className="text-xs text-muted-foreground">{t('seo.explorer.stat.new')}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -413,7 +414,7 @@ function ExplorerBacklinksView({ workspaceId, domain }: { workspaceId: string; d
                   </span>
                   <div>
                     <p className="text-lg font-bold tabular-nums leading-tight">{formatCompact(scan.lost_backlinks ?? 0)}</p>
-                    <p className="text-xs text-muted-foreground">{t('seo.explorer.stat.lost' as any)}</p>
+                    <p className="text-xs text-muted-foreground">{t('seo.explorer.stat.lost')}</p>
                   </div>
                 </div>
               </CardContent>
@@ -425,15 +426,15 @@ function ExplorerBacklinksView({ workspaceId, domain }: { workspaceId: string; d
               {resultsQuery.isLoading ? (
                 <SkeletonTable rows={8} columns={4} />
               ) : (resultsQuery.data?.backlinks.length || 0) === 0 ? (
-                <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+                <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('seo.explorer.column.sourceDomain' as any)}</TableHead>
-                      <TableHead>{t('seo.explorer.column.anchorText' as any)}</TableHead>
-                      <TableHead className="text-end">{t('seo.explorer.column.domainRank' as any)}</TableHead>
-                      <TableHead className="text-end">{t('seo.explorer.column.type' as any)}</TableHead>
+                      <TableHead>{t('seo.explorer.column.sourceDomain')}</TableHead>
+                      <TableHead>{t('seo.explorer.column.anchorText')}</TableHead>
+                      <TableHead className="text-end">{t('seo.explorer.column.domainRank')}</TableHead>
+                      <TableHead className="text-end">{t('seo.explorer.column.type')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -483,7 +484,7 @@ function ExplorerBacklinkRollupShell({
         <DomainHeading domain={domain} />
         <Button size="sm" variant="outline" className="gap-1.5" onClick={handleStart} disabled={startScan.isPending}>
           <RefreshCw className={startScan.isPending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-          {scan ? t('seo.explorer.cta.refresh' as any) : t('seo.explorer.cta.analyze' as any)}
+          {scan ? t('seo.explorer.cta.refresh') : t('seo.explorer.cta.analyze')}
         </Button>
       </div>
 
@@ -498,7 +499,7 @@ function ExplorerBacklinkRollupShell({
       ) : scan.status !== 'completed' && scan.status !== 'failed' && scan.status !== 'cancelled' ? (
         <ExplorerScanProgress progressStage={scan.progress_stage} />
       ) : scan.status !== 'completed' ? (
-        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic' as any)}</p>
+        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic')}</p>
       ) : children(scan)}
     </div>
   );
@@ -521,15 +522,15 @@ function ExplorerReferringDomainsTable({ workspaceId, scanId }: { workspaceId: s
         {isLoading ? (
           <SkeletonTable rows={8} columns={3} />
         ) : (data?.rows.length || 0) === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('seo.explorer.column.sourceDomain' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.explorer.column.backlinks' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.explorer.column.dofollow' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.explorer.column.domainRank' as any)}</TableHead>
+                <TableHead>{t('seo.explorer.column.sourceDomain')}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.backlinks')}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.dofollow')}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.domainRank')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -568,15 +569,15 @@ function ExplorerTopPagesTable({ workspaceId, scanId }: { workspaceId: string; s
         {isLoading ? (
           <SkeletonTable rows={8} columns={3} />
         ) : (data?.rows.length || 0) === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('seo.explorer.column.page' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.explorer.column.backlinks' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.explorer.stat.referringDomains' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.explorer.column.pageRank' as any)}</TableHead>
+                <TableHead>{t('seo.explorer.column.page')}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.backlinks')}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.stat.referringDomains')}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.pageRank')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -617,7 +618,7 @@ function ExplorerKeywordsView({ workspaceId, domain }: { workspaceId: string; do
         <DomainHeading domain={domain} />
         <Button size="sm" variant="outline" className="gap-1.5" onClick={handleStart} disabled={startScan.isPending}>
           <RefreshCw className={startScan.isPending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-          {scan ? t('seo.explorer.cta.refresh' as any) : t('seo.explorer.cta.analyze' as any)}
+          {scan ? t('seo.explorer.cta.refresh') : t('seo.explorer.cta.analyze')}
         </Button>
       </div>
 
@@ -632,28 +633,28 @@ function ExplorerKeywordsView({ workspaceId, domain }: { workspaceId: string; do
       ) : scan.status !== 'completed' && scan.status !== 'failed' && scan.status !== 'cancelled' ? (
         <ExplorerScanProgress progressStage={scan.progress_stage} />
       ) : scan.status !== 'completed' ? (
-        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic' as any)}</p>
+        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic')}</p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <GradientStatCard icon={Search} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(scan.total_keywords ?? 0)} label={t('seo.explorer.stat.organicKeywords' as any)} />
-            <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatCompact(scan.total_traffic_estimate ?? 0)} label={t('seo.explorer.stat.trafficEstimate' as any)} />
+            <GradientStatCard icon={Search} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(scan.total_keywords ?? 0)} label={t('seo.explorer.stat.organicKeywords')} />
+            <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatCompact(scan.total_traffic_estimate ?? 0)} label={t('seo.explorer.stat.trafficEstimate')} />
           </div>
           <Card>
             <CardContent className="pt-6">
               {resultsQuery.isLoading ? (
                 <SkeletonTable rows={8} columns={5} />
               ) : (resultsQuery.data?.results.length || 0) === 0 ? (
-                <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+                <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('seo.gsc.column.query' as any)}</TableHead>
-                      <TableHead className="text-end">{t('seo.explorer.column.volume' as any)}</TableHead>
-                      <TableHead className="text-end">{t('seo.explorer.column.position' as any)}</TableHead>
-                      <TableHead className="text-end">{t('seo.explorer.column.traffic' as any)}</TableHead>
-                      <TableHead>{t('seo.gsc.column.page' as any)}</TableHead>
+                      <TableHead>{t('seo.gsc.column.query')}</TableHead>
+                      <TableHead className="text-end">{t('seo.explorer.column.volume')}</TableHead>
+                      <TableHead className="text-end">{t('seo.explorer.column.position')}</TableHead>
+                      <TableHead className="text-end">{t('seo.explorer.column.traffic')}</TableHead>
+                      <TableHead>{t('seo.gsc.column.page')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -700,7 +701,7 @@ function ExplorerCompetingDomainsView({ workspaceId, domain }: { workspaceId: st
         <DomainHeading domain={domain} />
         <Button size="sm" variant="outline" className="gap-1.5" onClick={handleStart} disabled={startScan.isPending}>
           <RefreshCw className={startScan.isPending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-          {scan ? t('seo.explorer.cta.refresh' as any) : t('seo.explorer.cta.analyze' as any)}
+          {scan ? t('seo.explorer.cta.refresh') : t('seo.explorer.cta.analyze')}
         </Button>
       </div>
 
@@ -715,25 +716,25 @@ function ExplorerCompetingDomainsView({ workspaceId, domain }: { workspaceId: st
       ) : scan.status !== 'completed' && scan.status !== 'failed' && scan.status !== 'cancelled' ? (
         <ExplorerScanProgress progressStage={scan.progress_stage} />
       ) : scan.status !== 'completed' ? (
-        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic' as any)}</p>
+        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic')}</p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <GradientStatCard icon={Globe2} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(scan.total_domains ?? 0)} label={t('seo.explorer.stat.competingDomains' as any)} />
+            <GradientStatCard icon={Globe2} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(scan.total_domains ?? 0)} label={t('seo.explorer.stat.competingDomains')} />
           </div>
           <Card>
             <CardContent className="pt-6">
               {resultsQuery.isLoading ? (
                 <SkeletonTable rows={8} columns={3} />
               ) : (resultsQuery.data?.results.length || 0) === 0 ? (
-                <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+                <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData')}</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('seo.explorer.column.sourceDomain' as any)}</TableHead>
-                      <TableHead className="text-end">{t('seo.explorer.column.intersections' as any)}</TableHead>
-                      <TableHead className="text-end">{t('seo.explorer.column.avgPosition' as any)}</TableHead>
+                      <TableHead>{t('seo.explorer.column.sourceDomain')}</TableHead>
+                      <TableHead className="text-end">{t('seo.explorer.column.intersections')}</TableHead>
+                      <TableHead className="text-end">{t('seo.explorer.column.avgPosition')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

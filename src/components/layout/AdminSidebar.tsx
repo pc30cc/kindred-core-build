@@ -5,7 +5,7 @@ import {
   Database, Crown, MessageSquare, MapPin, PhoneCall,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight, Activity, Video, Sparkles,
   KeyRound, X, ShieldCheck, Radar, SlidersHorizontal, DatabaseBackup,
-  Smartphone, Bell, Monitor, Apple,
+  Smartphone, Bell, Monitor, Apple, Brush,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -35,6 +35,7 @@ const adminNav = [
   { group: 'operations', key: 'featureFlags', path: '/admin/feature-flags', icon: Flag },
   { group: 'operations', key: 'plugins', path: '/admin/plugins', icon: Plug },
   { group: 'governance', key: 'branding', path: '/admin/branding', icon: Palette },
+  { group: 'governance', key: 'panelTheme', path: '/admin/panel-theme', icon: Brush },
   { group: 'governance', key: 'domains', path: '/admin/domains', icon: Globe },
   { group: 'governance', key: 'finance', path: '/admin/finance', icon: FileText },
   { group: 'governance', key: 'plans', path: '/admin/plans', icon: Crown },

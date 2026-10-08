@@ -53,11 +53,11 @@ function LevelStat({
   tone?: Tone;
 }) {
   return (
-    <div className="min-w-0">
+    <div data-level-stat className="min-w-0">
       <div className="truncate text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
-      <div className={cn('mt-1 text-xl font-semibold leading-none tabular-nums', TONE_TEXT[tone])}>
+      <div data-level-value className={cn('mt-1 text-xl font-semibold leading-none tabular-nums', TONE_TEXT[tone])}>
         {value}
       </div>
     </div>
@@ -162,7 +162,7 @@ export default function CallCenterOverviewPage() {
             </div>
             <div className="mt-0.5 truncate text-xl font-semibold leading-tight">{statusText}</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div data-banner-actions className="flex items-center gap-2">
             {callbackOn && (
               <Button asChild variant="outline" size="sm">
                 <Link to="callbacks">
@@ -214,7 +214,7 @@ export default function CallCenterOverviewPage() {
           value={
             <span className="inline-flex items-baseline">
               {agentStats.available}
-              <span className="text-[0.5em] font-normal opacity-60">/{agentStats.total}</span>
+              <span data-metric-of className="text-[0.5em] font-normal opacity-60">/{agentStats.total}</span>
             </span>
           }
           tone={agentStats.available > 0 ? 'success' : 'warning'}

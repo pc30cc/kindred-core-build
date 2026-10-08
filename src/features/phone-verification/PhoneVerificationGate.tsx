@@ -60,12 +60,12 @@ export function PhoneVerificationGate({
   if (!data?.canVerify) {
     return (
       <div className={mode === 'full_page' ? 'max-w-xl mx-auto py-16' : 'py-6'}>
-        <Card className="card-elevated overflow-hidden border-warning/30">
-          <div className="h-1 w-full bg-gradient-to-r from-warning/70 via-warning to-warning/70" />
+        <Card data-gate="member" className="card-elevated overflow-hidden border-warning/30">
+          <div data-gate-strip className="h-1 w-full bg-gradient-to-r from-warning/70 via-warning to-warning/70" />
           <CardHeader className="items-center text-center pt-8 pb-8">
             <div className="relative mb-3">
-              <div className="absolute inset-0 rounded-2xl bg-warning/20 blur-xl" aria-hidden />
-              <div className="relative p-4 rounded-2xl bg-warning/10 ring-1 ring-warning/30">
+              <div data-gate-halo className="absolute inset-0 rounded-2xl bg-warning/20 blur-xl" aria-hidden />
+              <div data-gate-icon className="relative p-4 rounded-2xl bg-warning/10 ring-1 ring-warning/30">
                 <ShieldAlert className="h-7 w-7 text-warning" />
               </div>
             </div>
@@ -79,12 +79,12 @@ export function PhoneVerificationGate({
 
   return (
     <div className={mode === 'full_page' ? 'max-w-xl mx-auto py-12' : 'py-6'}>
-      <Card className="card-elevated overflow-hidden">
-        <div className="h-1 w-full bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+      <Card data-gate="owner" className="card-elevated overflow-hidden">
+        <div data-gate-strip className="h-1 w-full bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
         <CardHeader className="items-center text-center pt-8 pb-4">
           <div className="relative mb-3">
-            <div className="absolute inset-0 rounded-2xl bg-primary/25 blur-xl" aria-hidden />
-            <div className="relative p-4 rounded-2xl bg-primary/10 ring-1 ring-primary/25">
+            <div data-gate-halo className="absolute inset-0 rounded-2xl bg-primary/25 blur-xl" aria-hidden />
+            <div data-gate-icon className="relative p-4 rounded-2xl bg-primary/10 ring-1 ring-primary/25">
               <ShieldCheck className="h-7 w-7 text-primary" />
             </div>
           </div>

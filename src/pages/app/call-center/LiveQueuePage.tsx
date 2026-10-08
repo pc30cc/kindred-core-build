@@ -509,7 +509,7 @@ export default function LiveQueuePage() {
     : '';
   return (
     <TooltipProvider delayDuration={200}>
-    <div className="flex h-full flex-col gap-3">
+    <div data-page="call-center-live" className="flex h-full flex-col gap-3">
       {/* ── Top rail ───────────────────────────────────────────────────
           Identity of the room on the left, the numbers that decide what an
           operator does next on the right. Everything else on this page is

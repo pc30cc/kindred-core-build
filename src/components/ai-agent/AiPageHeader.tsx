@@ -73,7 +73,7 @@ interface Props {
 export function AiPageHeader({ icon: Icon, title, subtitle, accent = 'indigo', actions, meta }: Props) {
   const a = AI_ACCENT[accent];
   return (
-    <div className={cn(
+    <div data-page-hero="ai-agent" className={cn(
       'relative overflow-hidden rounded-2xl border border-border/60 p-6 sm:p-7 bg-gradient-to-br to-transparent',
       a.soft,
     )}>
@@ -81,7 +81,7 @@ export function AiPageHeader({ icon: Icon, title, subtitle, accent = 'indigo', a
       <div className={cn('pointer-events-none absolute -bottom-24 -start-12 h-52 w-52 rounded-full blur-3xl opacity-60', a.glow)} />
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-4">
-          <div className={cn(
+          <div data-hero-icon className={cn(
             'h-12 w-12 shrink-0 rounded-2xl bg-gradient-to-br shadow-lg flex items-center justify-center text-white',
             a.grad,
           )}>

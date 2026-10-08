@@ -20,7 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { OperatorAvatarFallback } from '@/components/ui/operator-avatar-fallback';
 import { cn } from '@/lib/utils';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
@@ -155,11 +155,12 @@ export default function TeamChatPanel() {
         onProgress: (pct) => setAtt((s) => ({ ...s, progress: Math.max(s.progress, pct) })),
       });
       setAtt((s) => ({ ...s, status: 'ready', progress: 100 }));
-    } catch (e: any) {
-      setAtt((s) => ({ ...s, status: 'error', error: e?.message || 'Upload failed' }));
+    } catch (e) {
+      const message = (e as { message?: string } | null)?.message;
+      setAtt((s) => ({ ...s, status: 'error', error: message || 'Upload failed' }));
       toast({
         title: t('inbox.attachUploadFailed') || 'Upload failed',
-        description: e?.message || '',
+        description: message || '',
         variant: 'destructive',
       });
     }
@@ -206,7 +207,7 @@ export default function TeamChatPanel() {
 
   // Internal presence: active / away / disconnected / offline. `isOnline`
   // stays for spots that only need a boolean.
-  const stateOf = (id: string) => presenceStateOf(pMap.get(id) as any);
+  const stateOf = (id: string) => presenceStateOf(pMap.get(id));
   const isOnline = (id: string) => {
     const s = stateOf(id);
     return s === 'active' || s === 'away';
@@ -216,19 +217,19 @@ export default function TeamChatPanel() {
   return (
     <div className="flex h-full w-full" dir={dir}>
       {/* ─── Directory ─── */}
-      <div className={cn(
+      <div data-inbox="list" className={cn(
         'w-full md:w-[300px] lg:w-[340px] shrink-0 border-e border-border flex flex-col bg-card',
         peerId ? 'hidden md:flex' : 'flex',
       )}>
-        <div className="p-3 border-b border-border space-y-2.5">
+        <div data-inbox="list-header" className="p-3 border-b border-border space-y-2.5">
           <div className="flex items-center gap-2">
-            <Users className="w-[18px] h-[18px] text-primary" />
+            <Users data-inbox="list-icon" className="w-[18px] h-[18px] text-primary" />
             <h2 className="text-[15px] font-bold text-foreground">{t('inbox.colleagues') || 'Colleagues'}</h2>
-            <span className="text-[11px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
+            <span data-inbox="list-count" className="text-[11px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold tabular-nums">
               {colleagues.length}
             </span>
           </div>
-          <div className="relative">
+          <div data-inbox="search" className="relative">
             <Search className={cn('absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground', dir === 'rtl' ? 'right-2.5' : 'left-2.5')} />
             <Input
               value={search}
@@ -240,7 +241,7 @@ export default function TeamChatPanel() {
           </div>
         </div>
 
-        <ScrollArea className="flex-1 [&>div>div]:!block">
+        <ScrollArea data-inbox="rows" className="flex-1 [&>div>div]:!block">
           {isLoading ? (
             <div className="p-3 space-y-2" dir={dir}>
               {Array.from({ length: 5 }).map((_, i) => (
@@ -255,7 +256,7 @@ export default function TeamChatPanel() {
             </div>
           ) : !filtered.length ? (
             <div className="py-16 px-6 text-center flex flex-col items-center gap-3">
-              <div className="w-14 h-14 rounded-2xl bg-secondary/40 flex items-center justify-center">
+              <div data-inbox="list-empty" className="w-14 h-14 rounded-2xl bg-secondary/40 flex items-center justify-center">
                 <Users className="w-7 h-7 text-muted-foreground/40" />
               </div>
               <p className="text-[13px] font-medium text-foreground">{t('inbox.noColleagues') || 'No colleagues yet'}</p>
@@ -268,6 +269,8 @@ export default function TeamChatPanel() {
               return (
                 <button
                   key={c.user_id}
+                  data-inbox="row"
+                  data-state={active ? 'selected' : c.unread > 0 ? 'unread' : undefined}
                   onClick={() => setPeerId(c.user_id)}
                   className={cn(
                     'w-full text-start flex gap-3 px-3 py-3 border-b border-border/30 transition-colors',
@@ -322,10 +325,10 @@ export default function TeamChatPanel() {
       </div>
 
       {/* ─── Thread ─── */}
-      <div className={cn('flex-1 flex flex-col bg-background min-w-0', peerId ? 'flex' : 'hidden md:flex')}>
+      <div data-inbox="thread" className={cn('flex-1 flex flex-col bg-background min-w-0', peerId ? 'flex' : 'hidden md:flex')}>
         {!peer ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-6">
-            <div className="w-16 h-16 rounded-2xl bg-secondary/40 flex items-center justify-center">
+            <div data-inbox="list-empty" className="w-16 h-16 rounded-2xl bg-secondary/40 flex items-center justify-center">
               <MessageSquare className="w-8 h-8 text-muted-foreground/40" />
             </div>
             <p className="text-[14px] font-semibold text-foreground">{t('inbox.selectColleague') || 'Select a colleague'}</p>
@@ -335,7 +338,7 @@ export default function TeamChatPanel() {
           </div>
         ) : (
           <>
-            <div className="h-14 px-3 border-b border-border flex items-center gap-3 bg-card">
+            <div data-inbox="chat-header" className="h-14 px-3 border-b border-border flex items-center gap-3 bg-card">
               <button
                 className="md:hidden p-2 rounded-md hover:bg-secondary text-muted-foreground"
                 onClick={() => setPeerId(null)}
@@ -351,12 +354,12 @@ export default function TeamChatPanel() {
                 <span className={cn(
                   'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
                   PRESENCE_DOT_CLASS[stateOf(peer.user_id)],
-                )} title={t(presenceHintKey(stateOf(peer.user_id)) as any) || undefined} />
+                )} title={t(presenceHintKey(stateOf(peer.user_id)) as TranslationKey) || undefined} />
               </div>
               <div className="min-w-0">
                 <p className="text-[13.5px] font-semibold text-foreground truncate">{peer.full_name || peer.email}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
-                  {t(`presenceState.${stateOf(peer.user_id)}` as any) || (isOnline(peer.user_id) ? 'Online' : 'Offline')}
+                  {t(`presenceState.${stateOf(peer.user_id)}` as TranslationKey) || (isOnline(peer.user_id) ? 'Online' : 'Offline')}
                 </p>
               </div>
               <span className="ms-auto text-[10.5px] px-2 py-1 rounded-full bg-secondary text-muted-foreground font-medium">
@@ -389,7 +392,7 @@ export default function TeamChatPanel() {
                           </div>
                         )}
                         <div className={cn('flex', mine ? 'justify-end' : 'justify-start', grouped ? 'mt-0.5' : 'mt-3')}>
-                          <div className={cn(
+                          <div data-inbox="bubble" data-from={mine ? 'agent' : 'contact'} className={cn(
                             'max-w-[75%] rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed shadow-sm',
                             mine
                               ? 'bg-primary text-primary-foreground rounded-ee-md'
@@ -400,7 +403,7 @@ export default function TeamChatPanel() {
                                 sides of the thread. */}
                             {m.attachment && (
                               <div className={cn(m.body ? 'mb-1.5' : '')}>
-                                <MessageAttachmentView att={m.attachment} t={t as any} isAgent={mine} />
+                                <MessageAttachmentView att={m.attachment} t={t} isAgent={mine} />
                               </div>
                             )}
                             {!!m.body && (
@@ -419,7 +422,7 @@ export default function TeamChatPanel() {
               </div>
             </ScrollArea>
 
-            <div className="border-t border-border bg-card p-3">
+            <div data-inbox="composer" className="border-t border-border bg-card p-3">
               <div className="max-w-3xl mx-auto">
                 {/* Pending attachment chip */}
                 {att.status !== 'idle' && (
@@ -464,7 +467,7 @@ export default function TeamChatPanel() {
                 )}
 
                 {/* Composer bar — same geometry as the Inbox composer. */}
-                <div className={cn(
+                <div data-inbox="composer-box" className={cn(
                   'relative flex gap-1 items-end rounded-xl border bg-background p-1.5 transition-shadow shadow-sm',
                   'border-border focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15',
                 )}>

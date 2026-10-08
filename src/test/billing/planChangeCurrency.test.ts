@@ -24,6 +24,8 @@ let period: Row | null = null;
 let invoices: Record<string, Row> = {};
 const inserted: Row[] = [];
 const insertedLines: Row[] = [];
+const updates: Array<{ table: string; patch: Row; filters: Row }> = [];
+const rpcCalls: Array<{ fn: string; args: Row }> = [];
 
 function fakeClient() {
   const make = (table: string) => {
@@ -44,7 +46,11 @@ function fakeClient() {
       b._insert = row as Row;
       return b;
     };
-    b.update = (patch: Row) => { b._update = patch; return b; };
+    b.update = (patch: Row) => {
+      b._update = patch;
+      if (table !== 'billing_invoices') updates.push({ table, patch, filters: b._filters });
+      return b;
+    };
     b.maybeSingle = async () => {
       if (table === 'billing_plans') return { data: plans[b._filters.id as string] ?? null, error: null };
       if (table === 'workspace_subscriptions') return { data: sub, error: null };
@@ -66,7 +72,13 @@ function fakeClient() {
     };
     return b;
   };
-  return { from: (t: string) => make(t), rpc: async () => ({ data: null, error: null }) };
+  return {
+    from: (t: string) => make(t),
+    rpc: async (fn: string, args: Row) => {
+      rpcCalls.push({ fn, args });
+      return { data: null, error: null };
+    },
+  };
 }
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient() }));
@@ -79,7 +91,7 @@ vi.mock('../../../server/services/billing/invoiceNumber.js', () => ({
   },
 }));
 
-const { previewPlanChange, applyPlanChange, stalePreviewTolerance, BillingActionError } = await import(
+const { previewPlanChange, applyPlanChange, cancelPendingPlanChange, stalePreviewTolerance, BillingActionError, pendingChangeCurrency } = await import(
   '../../../server/services/billing/customer/actions.js'
 );
 const { issueSubscriptionInvoice, planPriceIn } = await import('../../../server/services/billing/invoice/issue.js');
@@ -108,6 +120,8 @@ beforeEach(() => {
   invoices = {};
   inserted.length = 0;
   insertedLines.length = 0;
+  updates.length = 0;
+  rpcCalls.length = 0;
 });
 
 describe('a new workspace buys in USD', () => {
@@ -213,6 +227,78 @@ describe('a paid period is never prorated across currencies', () => {
     await applyPlanChange(CONFIG, WS, { planId: 'pro-id', interval: 'monthly', mode: 'immediate', expectedAmountIrr: 1000, currency: 'USD' });
     expect(inserted[0]).toMatchObject({ currency: 'USD', invoice_type: 'plan_upgrade', amount_due_irr: 1000 });
     expect(insertedLines[0].description).toBe('Upgrade to Pro for the rest of the period');
+  });
+});
+
+describe('a next-cycle change keeps the currency the customer chose', () => {
+  // The renewal that starts the new plan is issued later, in SQL
+  // (billing_v2_issue_renewal_invoice), which reads the currency from
+  // workspace_subscriptions.pending_change_currency (migration 255).
+  function paidProMonthly(currency: string) {
+    plans['pro-multi'] = { id: 'pro-multi', name: 'Pro', is_active: true, limits: {},
+      prices: { IRR: { monthly: 3_000_000 }, USD: { monthly: 2900 }, EUR: { monthly: 2700 } } };
+    plans['basic-multi'] = { id: 'basic-multi', name: 'Basic', is_active: true, limits: {},
+      prices: { IRR: { monthly: 1_000_000 }, USD: { monthly: 900 }, EUR: { monthly: 800 } } };
+    const start = new Date(NOW.getTime() - 15 * DAY).toISOString();
+    const end = new Date(NOW.getTime() + 15 * DAY).toISOString();
+    sub = { id: 'sub-1', status: 'active', plan_id: 'pro-multi', billing_interval: 'monthly', current_period_start: start, current_period_end: end };
+    period = { id: 'p-1', period_start: start, period_end: end, billing_interval: 'monthly', plan_id: 'pro-multi', invoice_id: 'inv-paid' };
+    invoices = { 'inv-paid': { id: 'inv-paid', currency } };
+  }
+  const subscriptionUpdates = () => updates.filter((u) => u.table === 'workspace_subscriptions').map((u) => u.patch);
+  const issuerCalls = () => rpcCalls.filter((c) => c.fn === 'billing_v2_issue_renewal_invoice');
+
+  it('records the chosen currency with the downgrade, then lets the issuer re-derive the renewal', async () => {
+    paidProMonthly('USD');
+    const res = await applyPlanChange(CONFIG, WS, {
+      planId: 'basic-multi', interval: 'monthly', mode: 'next_cycle', expectedAmountIrr: 0, currency: 'eur',
+    });
+    expect(res).toMatchObject({ mode: 'next_cycle', pending: true, currency: 'EUR', amountIrr: 0 });
+    expect(subscriptionUpdates()).toEqual([
+      { pending_change_type: 'downgrade', next_plan_id: 'basic-multi', pending_change_currency: 'EUR' },
+    ]);
+    expect(issuerCalls()).toEqual([{ fn: 'billing_v2_issue_renewal_invoice', args: { p_workspace_id: WS, p_force: false } }]);
+  });
+
+  it('records the paid currency when the customer stays in it', async () => {
+    paidProMonthly('USD');
+    await applyPlanChange(CONFIG, WS, {
+      planId: 'basic-multi', interval: 'monthly', mode: 'next_cycle', expectedAmountIrr: 0, currency: 'USD',
+    });
+    expect(subscriptionUpdates()[0]).toMatchObject({ pending_change_currency: 'USD' });
+  });
+
+  it('records none when the request names no currency: the renewal stays in the paid currency, not Rial', async () => {
+    paidProMonthly('USD');
+    await applyPlanChange(CONFIG, WS, { planId: 'basic-multi', interval: 'monthly', mode: 'next_cycle', expectedAmountIrr: 0 });
+    expect(subscriptionUpdates()).toEqual([
+      { pending_change_type: 'downgrade', next_plan_id: 'basic-multi', pending_change_currency: null },
+    ]);
+  });
+
+  it('refuses a currency the new plan has no price in, and records nothing', async () => {
+    paidProMonthly('USD');
+    plans['basic-multi'] = { ...plans['basic-multi'], prices: { IRR: { monthly: 1_000_000 }, USD: { monthly: 900 } } };
+    await expect(applyPlanChange(CONFIG, WS, {
+      planId: 'basic-multi', interval: 'monthly', mode: 'next_cycle', expectedAmountIrr: 0, currency: 'EUR',
+    })).rejects.toMatchObject({ code: 'PRICE_NOT_AVAILABLE' });
+    expect(subscriptionUpdates()).toEqual([]);
+    expect(issuerCalls()).toEqual([]);
+  });
+
+  it('cancelling the change clears its currency with it', async () => {
+    paidProMonthly('USD');
+    sub = { ...sub, pending_change_type: 'downgrade', next_plan_id: 'basic-multi', pending_change_currency: 'EUR' };
+    expect(await cancelPendingPlanChange(CONFIG, WS)).toEqual({ canceled: true });
+    expect(subscriptionUpdates()).toEqual([{ pending_change_type: null, next_plan_id: null, pending_change_currency: null }]);
+    expect(issuerCalls()).toHaveLength(1);
+  });
+
+  it('pendingChangeCurrency: the chosen currency, or null when none was named', () => {
+    expect(pendingChangeCurrency('eur', 'EUR')).toBe('EUR');
+    expect(pendingChangeCurrency(undefined, 'IRR')).toBeNull();
+    expect(pendingChangeCurrency('', 'IRR')).toBeNull();
+    expect(pendingChangeCurrency('dollars', 'IRR')).toBeNull();
   });
 });
 

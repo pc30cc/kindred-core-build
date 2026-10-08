@@ -83,6 +83,17 @@ export function billingCurrencyOf(raw: unknown): string {
 }
 
 /**
+ * What a scheduled plan change records as its currency
+ * (`workspace_subscriptions.pending_change_currency`): the currency the
+ * customer chose, or null when the request named none — the renewal then
+ * stays in the currency the running period was paid in, never Rial by default.
+ */
+export function pendingChangeCurrency(requested: unknown, previewCurrency: string): string | null {
+  const code = typeof requested === 'string' ? requested.trim().toUpperCase() : '';
+  return /^[A-Z]{3}$/.test(code) ? previewCurrency : null;
+}
+
+/**
  * The plan's price in `currency` for one interval (minor units; whole Rial
  * for IRR). IRR keeps its historic reading (legacy flat columns, missing = 0).
  * Any other currency returns null when the admin set no price in it — such a
@@ -456,11 +467,17 @@ export async function applyPlanChange(
   // Next-cycle change: record the intent, then let the CANONICAL renewal
   // issuer re-derive the document (it voids and reissues an unpaid renewal
   // invoice itself — the client never edits an invoice).
+  //
+  // The currency goes with it: the renewal that starts the new plan is
+  // invoiced in the currency the customer chose here (migration 255). With no
+  // currency in the request, none is recorded and the renewal stays in the
+  // currency the running period was paid in.
   const { error } = await sb
     .from('workspace_subscriptions')
     .update({
       pending_change_type: preview.direction === 'downgrade' ? 'downgrade' : 'upgrade',
       next_plan_id: input.planId,
+      pending_change_currency: pendingChangeCurrency(input.currency, preview.currency),
     })
     .eq('workspace_id', workspaceId);
   if (error) throw new BillingActionError(error.message, 500, 'PLAN_CHANGE_FAILED');
@@ -523,7 +540,7 @@ export async function cancelPendingPlanChange(
 
   await sb
     .from('workspace_subscriptions')
-    .update({ pending_change_type: null, next_plan_id: null })
+    .update({ pending_change_type: null, next_plan_id: null, pending_change_currency: null })
     .eq('workspace_id', workspaceId);
 
   // Re-derive the renewal document for the unchanged plan (void + reissue is

@@ -70,8 +70,9 @@ kit's `/root/webyar-move/deploy.php` (`DEPLOY_UUID`, `DEPLOY_COMMIT`;
 `ROLLBACK=1` reuses the existing image). Never use Coolify's API
 create-and-deploy endpoints or the MCP `Deploy` tool. To stop an app for
 maintenance, use Coolify's `StopApplication` with `dockerCleanup=false,
-removeContainers=false`; the defaults remove the container and prune its
-image, and this server has no helper script for it yet. The kit's
+removeContainers=false`; the defaults remove the container (`docker rm -f`)
+and queue Coolify's Docker cleanup, which prunes build cache, unused images
+and older app images. This server has no helper script for it yet. The kit's
 `db_action.php` stop removes the database container (the volume stays).
 While the backend is stopped, `https://api.webyar.ai` answers 503 (Coolify's
 catch-all), so plugin events and webhooks are retried.
@@ -97,12 +98,17 @@ Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
   The root disk was 86% full on 2026-10-08.
 - Migrations:
   - WebYar's database is never migrated automatically. Apply new files by hand
-    on `vps-50cc1602`, before merging the code that needs them: copy
-    `scripts/migrate-database.sh` and the new files there (e.g.
-    `/root/webyar-migrate-253/`), dry-run the SQL inside
-    `BEGIN ... ROLLBACK`, then run the script as `postgres` inside the
-    container:
-    `docker exec -e DATABASE_URL=postgresql://postgres@/webyar -e PGOPTIONS='-c lock_timeout=5s' oqzy9q4ovntam9jgf7nxzqun bash <copied script>`.
+    on `vps-50cc1602`, before merging the code that needs them:
+    1. Put `scripts/migrate-database.sh` and the new files in a folder with
+       the repo's layout (`scripts/`, `database/migrations/`), e.g.
+       `/root/webyar-migrate-253/`.
+    2. Dry-run the SQL inside `BEGIN ... ROLLBACK`.
+    3. Copy the folder into the container (the host folder is not visible
+       there, and the script reads `../database/migrations` next to itself):
+       `docker cp /root/webyar-migrate-253 oqzy9q4ovntam9jgf7nxzqun:/tmp/m253`.
+    4. Run it as `postgres`:
+       `docker exec -e DATABASE_URL=postgresql://postgres@/webyar -e PGOPTIONS='-c lock_timeout=5s' oqzy9q4ovntam9jgf7nxzqun bash /tmp/m253/scripts/migrate-database.sh`,
+       then remove `/tmp/m253` from the container.
   - The ledger `public._schema_migrations` is complete: the chain at
     `fa0e79d` (250 files), plus `252_email_sender_placeholders_cleared.sql`
     and `253_workspace_panel_theme.sql` (applied 2026-10-08 07:08 UTC).

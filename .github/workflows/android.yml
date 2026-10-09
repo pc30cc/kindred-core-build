@@ -34,6 +34,12 @@ jobs:
 
     env:
       GRADLE_OPTS: -Dorg.gradle.daemon=false
+      # android/gradle.properties caps the build at 1g for the old shared CI
+      # host. This GitHub-hosted runner has 16 GB, and compiling both brands
+      # in one build ran the Kotlin compiler out of heap at 1g. Passed on every
+      # Gradle call below; keeps the properties file's other JVM flags,
+      # preferIPv4Stack above all (see the note there).
+      GRADLE_JVMARGS: -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -Djava.net.preferIPv4Stack=true
 
     steps:
       - name: Checkout
@@ -108,7 +114,7 @@ jobs:
       # (`testDebugUnitTest`, `lintDebug`) no longer exist.
       - name: Build debug (WebYar and RESPOK)
         working-directory: android
-        run: ./gradlew :app:assembleWebyarDebug :app:assembleRespokDebug --stacktrace
+        run: ./gradlew "$GRADLE_JVMARGS" :app:assembleWebyarDebug :app:assembleRespokDebug --stacktrace
 
       # The Room cache's schema, as the build just exported it. Uploaded so a
       # schema change can be committed from any machine, including one that
@@ -154,7 +160,7 @@ jobs:
       # one brand still reports the other's.
       - name: Unit tests (JVM, WebYar and RESPOK)
         working-directory: android
-        run: ./gradlew --continue :app:testWebyarDebugUnitTest :app:testRespokDebugUnitTest --stacktrace
+        run: ./gradlew "$GRADLE_JVMARGS" --continue :app:testWebyarDebugUnitTest :app:testRespokDebugUnitTest --stacktrace
 
       - name: Test report
         if: ${{ !cancelled() }}
@@ -177,7 +183,7 @@ jobs:
 
       - name: Lint (WebYar and RESPOK)
         working-directory: android
-        run: ./gradlew --continue :app:lintWebyarDebug :app:lintRespokDebug --stacktrace
+        run: ./gradlew "$GRADLE_JVMARGS" --continue :app:lintWebyarDebug :app:lintRespokDebug --stacktrace
 
       - name: APK
         working-directory: android
@@ -204,7 +210,7 @@ jobs:
         working-directory: android
         run: |
           set -eu
-          ./gradlew :app:assembleWebyarMinified :app:assembleRespokMinified --stacktrace
+          ./gradlew "$GRADLE_JVMARGS" :app:assembleWebyarMinified :app:assembleRespokMinified --stacktrace
           find app/build/outputs/apk -path '*minified*' -name '*.apk' -exec ls -lh {} \;
 
 # NO EMULATOR JOB YET, and that is a measurement rather than an omission.

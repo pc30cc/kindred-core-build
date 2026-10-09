@@ -2,9 +2,10 @@
 <resources>
     <!-- RESPOK's launch loader (src/main/res/drawable/launch_loader.xml and
          ui/components/LaunchLoader.kt, through BrandPalette): its brand kit's
-         Ink for the deep colour and Signal for the bright one, over the
-         shared launch colour. -->
-    <color name="brand_deep">#FF16142B</color>
+         Signal Deep for the deep colour and Signal for the bright one, as the
+         iOS RESPOK loader draws it. Both read on the light and the dark launch
+         colour (Ink would vanish on the dark one). -->
+    <color name="brand_deep">#FFD3361A</color>
     <color name="brand_bright">#FFFF5A3C</color>
-    <color name="brand_deep_clear">#0016142B</color>
+    <color name="brand_deep_clear">#00D3361A</color>
 </resources>

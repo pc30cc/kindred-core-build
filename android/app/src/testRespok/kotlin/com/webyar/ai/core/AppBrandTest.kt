@@ -116,11 +116,11 @@ class AppBrandTest {
     }
 
     @Test
-    fun `the launcher says RESPOK and the loader is Ink and Signal`() {
+    fun `the launcher says RESPOK and the loader is Signal Deep and Signal`() {
         assertEquals("RESPOK", context.getString(R.string.app_name))
-        assertEquals(0xFF16142B.toInt(), context.getColor(R.color.brand_deep))
+        assertEquals(0xFFD3361A.toInt(), context.getColor(R.color.brand_deep))
         assertEquals(0xFFFF5A3C.toInt(), context.getColor(R.color.brand_bright))
-        assertEquals(0x0016142B, context.getColor(R.color.brand_deep_clear))
+        assertEquals(0x00D3361A, context.getColor(R.color.brand_deep_clear))
         assertEquals(0xFFFF5A3C.toInt(), context.getColor(R.color.ic_launcher_background))
     }
 }

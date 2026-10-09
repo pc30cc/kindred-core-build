@@ -36,7 +36,8 @@ import com.webyar.ai.ui.design.Space
  * The brand's two colours, as the launch loader draws them (`BrandPalette`
  * in the iOS app): a deep one and a bright one. WebYar's are its brand kit's
  * turquoise, Deep Turquoise #0B7D6C and Turquoise #16C7A8; RESPOK's are its
- * kit's Ink #16142B and Signal #FF5A3C.
+ * kit's Signal Deep #D3361A and Signal #FF5A3C (as on iOS; Ink would vanish on
+ * the dark launch colour).
  *
  * Read from the resources (`brand_deep`, `brand_bright` in
  * res/values/colors.xml, and in src/respok/res for RESPOK), which the splash

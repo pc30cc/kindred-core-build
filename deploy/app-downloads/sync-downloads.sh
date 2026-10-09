@@ -70,8 +70,18 @@ PY
     echo "$1: a package is missing; the update index is left as it was" >&2
     return 1
   fi
+  # Both index files, or neither: the packages below are pruned only once the index on disk
+  # is this run's, so a failed download never leaves an index naming a removed package.
+  rm -f "$TMP/idxfail"
   grep '^index ' "$TMP/plan.txt" | while read -r _ n s u; do
-    curl -fsSL "$u" -o "$TMP/$n.new" && [ "$(stat -c %s "$TMP/$n.new")" = "$s" ] && mv "$TMP/$n.new" "$FEED/$n"
+    { curl -fsSL --retry 2 "$u" -o "$TMP/$n.new" && [ "$(stat -c %s "$TMP/$n.new")" = "$s" ]; } || : > "$TMP/idxfail"
+  done
+  if [ -e "$TMP/idxfail" ]; then
+    echo "$1: the update index did not download; it and the packages are left as they were" >&2
+    return 1
+  fi
+  for n in releases.win.json RELEASES; do
+    if [ -e "$TMP/$n.new" ]; then mv "$TMP/$n.new" "$FEED/$n"; fi
   done
   # Only the packages planned above stay: exactly what the index (and the one before) can name.
   for f in "$FEED"/*.nupkg; do

@@ -155,4 +155,7 @@ Two other ways to publish, both through `scripts/publish-feed.sh`:
   with `publish_now`: the same as a merge, numbered the same way. It needs
   the secrets listed at its top, including that same private key as
   `SPARKLE_PRIVATE_KEY`. (There is no tag flow: a hand-picked version could
-  sort below the automatic ones or carry a lower build number.)
+  sort below the automatic ones or carry a lower build number.) After adding a
+  missing secret, use `publish_now`, or re-run only the brand's own job:
+  re-running every job keeps the run number, so the brand that already
+  published would try to publish the same version again and fail.

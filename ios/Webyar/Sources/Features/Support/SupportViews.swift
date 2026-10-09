@@ -145,7 +145,7 @@ struct SupportChatView: View {
                 EmptyStateView(
                     systemImage: "bubble.left.and.text.bubble.right",
                     title: SupportStr.greeting(language),
-                    message: SupportStr.greetingBody(language)
+                    message: BrandStr.greetingBody(language)
                 )
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(A11y.supportGreeting)

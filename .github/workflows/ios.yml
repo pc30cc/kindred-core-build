@@ -1,0 +1,141 @@
+name: iOS app
+
+# Public repository: standard GitHub-hosted runners are used.
+
+# Builds the native iPhone app (ios/Webyar, SwiftUI) on a macOS runner — it
+# cannot compile anywhere else — once per brand: the Xcode targets `Webyar`
+# (WebYar, com.webyar.ai) and `Respok` (RESPOK, com.respok.app, BRAND_RESPOK)
+# share every source file (project.yml). Every push or pull request that
+# touches the app, its bootstrap config or its scripts builds both for the
+# iOS Simulator, and runs WebYar's unit tests (WebyarTests) on one.
+#
+# A check, not a release: nothing is signed (CODE_SIGNING_ALLOWED=NO), no
+# secret is read and nothing is published. Archives and App Store uploads are
+# made from Xcode on the owner's Mac (Super Admin → Mobile app → Build guide).
+# The UI tests (WebyarUITests) are not run here: they drive the sample backend
+# screen by screen and take far longer than the rest of this job together.
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'ios/**'
+      - 'config/mobile-runtime*.json'
+      - 'scripts/ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'config/mobile-runtime*.json'
+      - 'scripts/ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.scheme }})${{ matrix.test && ' and test' || '' }}
+    runs-on: macos-26
+    timeout-minutes: 60
+    strategy:
+      # One brand failing never hides whether the other builds.
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: Webyar
+            app: Webyar
+            display: Webyar
+            bundle_id: com.webyar.ai
+            test: true
+          - scheme: Respok
+            app: RESPOK
+            display: RESPOK
+            bundle_id: com.respok.app
+            test: false
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
+        working-directory: ios/Webyar
+    env:
+      SCHEME: ${{ matrix.scheme }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: brew install xcodegen
+
+      # GeneratedConfig.swift is committed; it must say what both brands' config files say.
+      - name: Bootstrap config is in sync
+        working-directory: .
+        run: node scripts/ios/write-ios-config.mjs --offline --check
+
+      - name: Generate project
+        run: xcodegen generate
+
+      # The Webyar scheme runs the unit tests (they `@testable import Webyar`); both targets
+      # compile the same Swift files, so this covers RESPOK's code paths except its #if branches,
+      # which the Respok builds below compile.
+      - name: Unit tests (WebyarTests, Debug)
+        if: matrix.test
+        run: |
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, re, sys
+          best = None
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              m = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              if not m:
+                  continue
+              for d in devices:
+                  if d.get("isAvailable") and d["name"].startswith("iPhone"):
+                      key = (int(m.group(1)), int(m.group(2)), d["name"])
+                      if best is None or key > best[0]:
+                          best = (key, d["udid"])
+          print(best[1] if best else "")
+          ')
+          [ -n "$udid" ] || { echo "::error::no available iPhone simulator on this runner"; xcrun simctl list devices available; exit 1; }
+          echo "Testing on $(xcrun simctl list devices | grep "$udid" | head -1 | sed 's/^ *//')"
+          xcodebuild test -project Webyar.xcodeproj -scheme Webyar -only-testing:WebyarTests \
+            -destination "id=$udid" -derivedDataPath build/test CODE_SIGNING_ALLOWED=NO | xcbeautify
+
+      - name: Build (Debug, iOS Simulator)
+        if: '!matrix.test'
+        run: |
+          xcodebuild build -project Webyar.xcodeproj -scheme "$SCHEME" -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build/dd CODE_SIGNING_ALLOWED=NO | xcbeautify
+
+      - name: Build (Release, iOS Simulator)
+        run: |
+          xcodebuild build -project Webyar.xcodeproj -scheme "$SCHEME" -configuration Release \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build/dd CODE_SIGNING_ALLOWED=NO | xcbeautify
+
+      # The app that came out is the brand it should be: its id, its name under the icon in
+      # every language it ships, and its own art in the asset catalog.
+      - name: Check the built app
+        run: |
+          app="build/dd/Build/Products/Release-iphonesimulator/${{ matrix.app }}.app"
+          [ -d "$app" ] || { echo "::error::$app was not built"; ls build/dd/Build/Products/Release-iphonesimulator; exit 1; }
+          id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Info.plist")
+          name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$app/Info.plist")
+          echo "$name ($id)"
+          [ "$id" = "${{ matrix.bundle_id }}" ] || { echo "::error::built $id, expected ${{ matrix.bundle_id }}"; exit 1; }
+          [ "$name" = "${{ matrix.display }}" ] || { echo "::error::built $name, expected ${{ matrix.display }}"; exit 1; }
+          for lang in en fa tr ar; do
+            strings="$app/$lang.lproj/InfoPlist.strings"
+            [ -f "$strings" ] || { echo "::error::$strings is missing"; exit 1; }
+            plutil -p "$strings"
+            if [ "$SCHEME" = Respok ] && plutil -p "$strings" | grep -iqE 'webyar|وب‌یار|وبیار'; then
+              echo "::error::RESPOK's $lang home-screen strings name WebYar"; exit 1
+            fi
+            plutil -p "$strings" | grep -q "\"CFBundleDisplayName\" => \"" || { echo "::error::$strings has no display name"; exit 1; }
+          done
+          catalog=$(xcrun assetutil --info "$app/Assets.car")
+          for set in AppIcon AccentColor LaunchBackground LaunchLoader BrandMark; do
+            echo "$catalog" | grep -qE "\"Name\"[[:space:]]*:[[:space:]]*\"$set\"" \
+              || { echo "::error::$set is missing from ${{ matrix.app }}'s asset catalog"; exit 1; }
+          done
+          echo "${{ matrix.display }} ($id) builds for Debug and Release" >> "$GITHUB_STEP_SUMMARY"

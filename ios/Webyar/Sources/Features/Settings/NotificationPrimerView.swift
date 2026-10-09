@@ -33,7 +33,7 @@ struct NotificationPrimerView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, Theme.Space.xl)
 
-            Text(Str.pushPrimerBody(language))
+            Text(BrandStr.pushPrimerBody(language))
                 .font(.app(.subheadline))
                 .foregroundStyle(Theme.Palette.labelSecondary)
                 .multilineTextAlignment(.center)

@@ -218,20 +218,22 @@ struct LaunchView: View {
         // The name at the foot, where sign in and password reset have it too.
         .brandFooter()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Str.appName(appState.language))
+        .accessibilityLabel(BrandStr.appName(appState.language))
         .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
-/// Two arcs turning against each other: an outer comet of the brand's blue
-/// running into cyan, with a bright bead at its head, and a fainter inner one
-/// going the other way. Small — the size of a large spinner, not of a logo.
+/// Two arcs turning against each other: an outer comet of the brand's deep
+/// colour running into its bright one, with a bright bead at its head, and a
+/// fainter inner one going the other way. Small — the size of a large
+/// spinner, not of a logo. The colours are the brand kit's (`BrandPalette`):
+/// WebYar's turquoise, RESPOK's Signal and Ink.
 ///
 /// Its resting pose — `spin` still false — is exactly the `LaunchLoader`
 /// launch image (`scripts/ios/render-launch-loader.py` draws it from these
 /// numbers), so the handoff from the system's launch screen shows nothing but
 /// the loader starting to turn. Change a size, a colour or a starting angle
-/// here and run the script again.
+/// here and run the script again, for both brands.
 private struct LaunchLoader: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spin = false
@@ -245,7 +247,7 @@ private struct LaunchLoader: View {
         ZStack {
             // Where the outer arc runs, barely there.
             Circle()
-                .stroke(Theme.Palette.brand.opacity(0.10), lineWidth: outerLine)
+                .stroke(BrandPalette.track.opacity(0.10), lineWidth: outerLine)
                 .frame(width: outer, height: outer)
 
             comet
@@ -261,7 +263,7 @@ private struct LaunchLoader: View {
             Circle()
                 .trim(from: 0, to: 0.22)
                 .stroke(
-                    BrandPalette.cyan.opacity(0.55),
+                    BrandPalette.second.opacity(0.55),
                     style: StrokeStyle(lineWidth: innerLine, lineCap: .round)
                 )
                 .frame(width: inner, height: inner)
@@ -281,8 +283,8 @@ private struct LaunchLoader: View {
         }
     }
 
-    /// Bright cyan at its head, fading to nothing at its tail, with a small
-    /// glowing bead leading it.
+    /// The bright colour at its head, fading to nothing at its tail, with a
+    /// small glowing bead leading it.
     private var comet: some View {
         let arc: CGFloat = 0.32
         return ZStack {
@@ -293,7 +295,7 @@ private struct LaunchLoader: View {
                         gradient: Gradient(stops: [
                             .init(color: BrandPalette.deep.opacity(0), location: 0),
                             .init(color: BrandPalette.deep, location: 0.55),
-                            .init(color: BrandPalette.cyan, location: 1),
+                            .init(color: BrandPalette.bright, location: 1),
                         ]),
                         center: .center,
                         startAngle: .degrees(0),
@@ -303,9 +305,9 @@ private struct LaunchLoader: View {
                 )
 
             Circle()
-                .fill(BrandPalette.cyan)
+                .fill(BrandPalette.bright)
                 .frame(width: outerLine * 1.9, height: outerLine * 1.9)
-                .shadow(color: BrandPalette.cyan.opacity(0.9), radius: 3)
+                .shadow(color: BrandPalette.bright.opacity(0.9), radius: 3)
                 .offset(x: outer / 2)
                 .rotationEffect(.degrees(arc * 360))
         }
@@ -315,27 +317,27 @@ private struct LaunchLoader: View {
 /// A square mark for the places that need one: the icon-shaped fallback
 /// behind a promotion with no artwork of its own.
 ///
+/// The brand kit's symbol on the app icon's own ground, drawn from vector:
+/// the asset catalog's `BrandMark` (WebYar's white speech bubble, whose dots
+/// show the turquoise through; RESPOK's Thread pills, white and Ink) over
+/// `BrandPalette.tile`, at the size the icon gives it — so the fallback is
+/// the icon the operator tapped, not a letter in a box.
+///
 /// Not the launch screen and not the login screen any more — both show the
-/// name itself, which says more than a letter in a box.
+/// name itself, which says more than a mark.
 struct BrandMark: View {
-    @Environment(AppState.self) private var appState
     var size: CGFloat = 64
-
-    /// The wordmark's first letter, not the translated name's. Same reason
-    /// `BrandFooter` does not translate: this is the mark, and a "و" in the
-    /// box where every other surface shows a "W" is a different logo.
-    private var letter: String {
-        String(Str.brandWordmark.prefix(1))
-    }
 
     var body: some View {
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-            .fill(Theme.Palette.brand)
+            .fill(BrandPalette.tile)
             .frame(width: size, height: size)
             .overlay(
-                Text(letter)
-                    .font(.system(size: size * 0.46, weight: .bold))
-                    .foregroundStyle(.white)
+                Image("BrandMark")
+                    .resizable()
+                    .renderingMode(.original)
+                    .scaledToFit()
+                    .frame(width: size * BrandPalette.markScale.width, height: size * BrandPalette.markScale.height)
             )
             .accessibilityHidden(true)
     }

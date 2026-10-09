@@ -89,6 +89,13 @@ APNS_BUNDLE_ID=com.webyar.ai
 # APNS_ENVIRONMENT=sandbox only for builds run straight from Xcode
 ```
 
+That is WebYar's backend. RESPOK's backend (the International edition) serves
+the RESPOK app, the `Respok` target of `ios/Webyar` with its own bundle id, so
+it needs `APNS_BUNDLE_ID=com.respok.app` (and `APNS_NATIVE_BUNDLE_ID`, where
+set, the same). A value copied from WebYar's makes Apple refuse every RESPOK
+push (`DeviceTokenNotForTopic`). The same `.p8` key works for both apps only
+while both are under the same Apple team.
+
 If neither transport is configured, dispatch turns into a no-op — the rest of
 the product is unaffected. Super Admin → Mobile app → Overview shows whether
 the server holds each key.
@@ -98,7 +105,7 @@ the server holds each key.
 ```bash
 cd ios/Webyar
 xcodegen generate        # the Xcode project is generated from project.yml
-open Webyar.xcodeproj   # Run on a physical device
+open Webyar.xcodeproj   # scheme Webyar or Respok; run on a physical device
 ```
 
 Push does **not** work in the iOS Simulator; use a real device.

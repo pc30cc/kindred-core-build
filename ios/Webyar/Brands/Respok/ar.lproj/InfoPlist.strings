@@ -1,0 +1,8 @@
+/* اسم RESPOK تحت الأيقونة، والجمل التي يعرضها iOS نفسه أول مرة يطلب فيها
+   التطبيق الكاميرا أو الميكروفون أو الحفظ في الصور. يكتبها النظام لا التطبيق،
+   لذا لا يصل إليها `BrandStr`. يضمّ هدف Respok (project.yml) هذه الملفات بدلًا من
+   Resources/<lang>.lproj/InfoPlist.strings. يُكتب الاسم بحروف لاتينية ولا يأخذ لاحقة. */
+"CFBundleDisplayName" = "RESPOK";
+"NSMicrophoneUsageDescription" = "يستخدم RESPOK الميكروفون عندما تتصل بزائر، وعندما تسجّل رسالة صوتية لإرسالها في محادثة.";
+"NSCameraUsageDescription" = "يستخدم RESPOK الكاميرا عندما تبدأ مكالمة فيديو مع زائر.";
+"NSPhotoLibraryAddUsageDescription" = "يحفظ RESPOK الصورة أو الفيديو في مكتبتك عندما تختار «حفظ» على ملف فتحته من محادثة أو رسالة بريد إلكتروني.";

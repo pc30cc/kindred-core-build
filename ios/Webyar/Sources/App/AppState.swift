@@ -152,7 +152,7 @@ final class AppState {
         let chosen = LanguageChoice.starting(
             stored: UserDefaults.standard.string(forKey: Self.languageKey),
             platformDefault: UserDefaults.standard.string(forKey: Self.platformLanguageKey),
-            compiled: GeneratedConfig.defaultLanguage
+            compiled: AppBrand.defaultLanguage
         )
         #if DEBUG
         self.language = LanguageOverride.current ?? chosen

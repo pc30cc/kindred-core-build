@@ -56,7 +56,7 @@ enum Typeface {
     /// not the three faces it should be, which leaves Persian in the system
     /// face, which still reads.
     fileprivate static let faces: [Face: String] = {
-        let log = Logger(subsystem: "com.webyar.ai", category: "font")
+        let log = Logger(subsystem: AppBrand.logSubsystem, category: "font")
         guard let url = Bundle.main.url(forResource: "fa", withExtension: "ttc") else {
             log.error("fa.ttc is missing from the bundle")
             return [:]

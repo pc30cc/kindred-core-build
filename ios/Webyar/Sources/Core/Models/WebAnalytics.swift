@@ -316,6 +316,8 @@ struct MobileAppConfig: Hashable, Sendable {
               ["https", "mailto", "tel"].contains(scheme)
         else { return nil }
         if scheme == "https", url.host?.isEmpty ?? true { return nil }
+        // RESPOK links to no WebYar site, whatever its Super Admin says (`AppBrand.accepts`).
+        if scheme == "https", !AppBrand.accepts(url) { return nil }
         return url
     }
 }

@@ -14,7 +14,9 @@ import Security
 /// not travel to a restored backup on another device, so it is device-only.
 enum TokenStore {
 
-    private static let service = "com.webyar.ai.session"
+    /// `com.webyar.ai.session` for WebYar, as it always was — every signed-in
+    /// phone holds its session under that name — and RESPOK's own (`AppBrand`).
+    private static let service = AppBrand.keychainService
     private static let account = "sessionToken"
 
     /// The Keychain refuses every write from an app without an
@@ -26,7 +28,7 @@ enum TokenStore {
     /// This file used to discard every status code, so that failure was
     /// invisible. It is now logged: whatever else goes wrong with a session,
     /// it will not be a mystery.
-    private static let log = Logger(subsystem: "com.webyar.ai", category: "keychain")
+    private static let log = Logger(subsystem: AppBrand.logSubsystem, category: "keychain")
 
     static func save(_ token: String) {
         guard let data = token.data(using: .utf8) else { return }

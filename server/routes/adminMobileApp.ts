@@ -31,9 +31,10 @@ import {
   mobileSettingsForEdition,
 } from '../services/mobileApp/settings.js';
 import { getPlatformEdition } from '../services/platformRegion.js';
+import type { Edition } from '../../shared/edition.js';
 import { readEditionSettingsRow, respondEditionUnavailable, saveEditionSettingsRow } from '../services/editionSettings.js';
 import { evaluateReadiness, summarize } from '../services/mobileApp/readiness.js';
-import { inspectNativeProject } from '../services/mobileApp/project.js';
+import { inspectNativeProject, nativeBrandForEdition } from '../services/mobileApp/project.js';
 import { firebaseClientFields, firebaseProjectsMatch } from '../services/mobileApp/firebaseClient.js';
 import { androidLanguageMaintenanceFields } from '../services/mobileApp/androidMaintenance.js';
 import { readShippedAndroidRelease, withShippedVersion } from '../services/mobileApp/androidRelease.js';
@@ -232,8 +233,9 @@ function apnsStatus(): {
   };
 }
 
-function readinessFor(settings: ReturnType<typeof normalize>) {
-  const project = inspectNativeProject();
+/** The edition's own native project facts: WebYar's app for Iran, RESPOK's for the International edition. */
+function readinessFor(settings: ReturnType<typeof normalize>, edition: Edition) {
+  const project = inspectNativeProject(nativeBrandForEdition(edition));
   const apns = apnsStatus();
   const checks = evaluateReadiness({
     settings,
@@ -279,7 +281,7 @@ adminMobileAppRouter.get('/settings', async (req, res) => {
       row ? mobileSettingsForEdition(normalize(row, edition), edition) : { ...mobileAppDefaults(edition) },
       shipped,
     );
-    const { checks, summary, project, apns } = readinessFor(settings);
+    const { checks, summary, project, apns } = readinessFor(settings, edition);
     return res.json({
       settings,
       checks,
@@ -327,7 +329,7 @@ adminMobileAppRouter.put('/settings', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     invalidateMobileAppSettingsCache();
     const settings = mobileSettingsForEdition(normalize(data as Record<string, unknown>, edition), edition);
-    const { checks, summary } = readinessFor(settings);
+    const { checks, summary } = readinessFor(settings, edition);
     return res.json({ success: true, settings, checks, summary });
   } catch (err) {
     if (respondEditionUnavailable(res, err)) return;
@@ -368,7 +370,7 @@ adminMobileAppRouter.post('/checklist', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     invalidateMobileAppSettingsCache();
     const settings = mobileSettingsForEdition(normalize(data as Record<string, unknown>, edition), edition);
-    const { checks, summary } = readinessFor(settings);
+    const { checks, summary } = readinessFor(settings, edition);
     return res.json({ success: true, settings, checks, summary });
   } catch (err) {
     if (respondEditionUnavailable(res, err)) return;

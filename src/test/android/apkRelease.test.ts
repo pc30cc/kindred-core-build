@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   parseShippedRelease,
   readShippedAndroidRelease,
   SHIPPED_RELEASE_FILES,
+  shippedReleaseFiles,
   withShippedVersion,
 } from '../../../server/services/mobileApp/androidRelease';
 
@@ -56,7 +57,26 @@ describe('the server finds the sidecar', () => {
 
   it('in its Docker image, where the version is read in production', () => {
     const dockerfile = readFileSync(resolve(__dirname, '../../../Dockerfile.server'), 'utf8');
-    expect(dockerfile).toContain('COPY public/downloads/Webyar-Android.json ./public/downloads/Webyar-Android.json');
+    // Both editions' sidecars; the wildcard always matches WebYar's, so a
+    // missing RESPOK-Android.json does not fail the build.
+    expect(dockerfile).toContain('COPY public/downloads/*-Android.json ./public/downloads/');
     expect(dockerfile).toContain('test -f /app/public/downloads/Webyar-Android.json');
+    expect(dockerfile).not.toContain('test -f /app/public/downloads/RESPOK-Android.json');
+  });
+});
+
+describe('each edition reads its own sidecar', () => {
+  it("Iran (and an unknown edition) reads WebYar's, exactly as before", () => {
+    expect(shippedReleaseFiles('iran')).toEqual(SHIPPED_RELEASE_FILES);
+    expect(shippedReleaseFiles(null)).toEqual(SHIPPED_RELEASE_FILES);
+    expect(readShippedAndroidRelease('iran')).toEqual(readShippedAndroidRelease());
+  });
+
+  it("the International edition reads RESPOK's, and has no shipped release while it is missing", () => {
+    const files = shippedReleaseFiles('international');
+    expect(files[0]).toBe(resolve(dir, 'RESPOK-Android.json'));
+    const respok = resolve(dir, 'RESPOK-Android.json');
+    const expected = existsSync(respok) ? parseShippedRelease(JSON.parse(readFileSync(respok, 'utf8'))) : null;
+    expect(readShippedAndroidRelease('international')).toEqual(expected);
   });
 });

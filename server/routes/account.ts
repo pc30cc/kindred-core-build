@@ -595,6 +595,11 @@ export function parseUserAgent(ua: string | null): { browser: string; os: string
   if (/^webyar(native)?\/\S+ cfnetwork\//.test(lower)) {
     return { browser: 'Webyar', os: 'iOS', device: 'Mobile' };
   }
+  // RESPOK's build of the same app (the International edition's) names
+  // itself the same way: `RESPOK/<build> CFNetwork/… Darwin/…`.
+  if (/^respok\/\S+ cfnetwork\//.test(lower)) {
+    return { browser: 'RESPOK', os: 'iOS', device: 'Mobile' };
+  }
 
   let browser = 'Unknown';
   // The iOS builds first. Every browser on iOS is WebKit underneath and says

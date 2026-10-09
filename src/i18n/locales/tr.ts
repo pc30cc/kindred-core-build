@@ -4698,7 +4698,7 @@ const tr: TranslationKeys = {
           versionNameHint: 'Operatörlerin gördüğü, örneğin 1.4.0.',
           versionCode: 'Sürüm kodu',
           versionCodeHint: 'Play’in daha önce görmediği bir tam sayı; her yükleme daha büyük bir sayı ister.',
-          versionShippedHint: "Web sitesinin sunduğu uygulamanın sürümü (Webyar-Android.apk); her yayınla kendiliğinden güncellenir.",
+          versionShippedHint: "Web sitesinin sunduğu uygulamanın sürümü ({{apkFile}}); her yayınla kendiliğinden güncellenir.",
           minSdk: 'Minimum SDK',
           minSdkHint: 'Uygulamanın kurulabildiği en eski Android (24, Android 7.0’dır).',
           targetSdk: 'Hedef SDK',

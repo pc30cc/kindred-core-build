@@ -14,6 +14,10 @@
  * The test send deliberately targets ONLY the calling admin's own registered
  * devices. An endpoint that could push arbitrary copy to another operator's
  * phone would be a broadcast weapon, not a diagnostic.
+ *
+ * The policy is the running edition's (one row per edition, migration 257;
+ * server/services/editionSettings.ts): reads and writes answer 503 while the
+ * edition cannot be told.
  */
 import { Router } from 'express';
 import type { Request } from 'express';
@@ -37,7 +41,8 @@ import {
   pushPlatformDefaults,
 } from '../services/push/platformSettings.js';
 import { pushBrandTokens } from '../services/push/dispatch.js';
-import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { getPlatformEdition } from '../services/platformRegion.js';
+import { readEditionSettingsRow, respondEditionUnavailable, saveEditionSettingsRow } from '../services/editionSettings.js';
 
 export const adminNotificationsRouter = Router();
 
@@ -104,18 +109,6 @@ const settingsSchema = z.object({
   templates: z.record(templateSchema).optional(),
 });
 
-async function readRow(config: ServerConfig) {
-  const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('push_platform_settings')
-    .select('*')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data as Record<string, unknown> | null;
-}
-
 /**
  * Transport health. `projectId` is the only credential-derived value exposed
  * — it is a public Firebase identifier, not a secret, and without it an
@@ -151,13 +144,16 @@ function maskEmail(email: string): string {
 adminNotificationsRouter.get('/settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    const row = await readRow(serverConfigOf(req));
-    // The shipped templates follow the edition: WebYar's in Iran (as
-    // always), the platform's own `{{brand}}` in the International edition.
-    const edition = await getPlatformEditionOrNull(serverConfigOf(req));
+    const config = serverConfigOf(req);
+    // The running edition's row. The shipped templates follow the edition
+    // too: WebYar's in Iran (as always), the platform's own `{{brand}}` in
+    // the International edition.
+    const edition = await getPlatformEdition(config);
+    const row = await readEditionSettingsRow(config, 'push_platform_settings', edition);
     const settings = row ? normalizePushSettings(row, edition) : { ...pushPlatformDefaults(edition) };
     return res.json({ settings, transport: transportStatus(), provisioned: Boolean(row) });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -171,23 +167,22 @@ adminNotificationsRouter.put('/settings', async (req, res) => {
       .json({ error: 'Invalid input', issues: parsed.error.issues.map((i) => i.path.join('.')) });
   }
   const config = serverConfigOf(req);
-  const sb = getServiceClient(config);
   const payload = { ...parsed.data, updated_at: new Date().toISOString() };
   try {
-    const existing = await readRow(config);
-    const query = existing
-      ? sb.from('push_platform_settings').update(payload).eq('id', existing.id as string).select('*').single()
-      : sb.from('push_platform_settings').insert(payload).select('*').single();
-    const { data, error } = await query;
+    // Never written into a guessed edition: unknown answers 503.
+    const edition = await getPlatformEdition(config);
+    const existing = await readEditionSettingsRow(config, 'push_platform_settings', edition);
+    const { data, error } = await saveEditionSettingsRow(config, 'push_platform_settings', edition, existing, payload);
     if (error) return res.status(500).json({ error: error.message });
     // Dispatch memoizes the policy for 30s — drop it so the next notification
     // already uses what was just saved.
     invalidatePushPlatformSettingsCache();
     return res.json({
       success: true,
-      settings: normalizePushSettings(data as Record<string, unknown>, await getPlatformEditionOrNull(config)),
+      settings: normalizePushSettings(data as Record<string, unknown>, edition),
     });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -282,6 +277,7 @@ adminNotificationsRouter.get('/log/stats', async (req, res) => {
   try {
     return res.json(await dispatchLogStats(serverConfigOf(req), parsed.data.days));
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -309,6 +305,9 @@ adminNotificationsRouter.post('/log/purge', purgeLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const config = serverConfigOf(req);
   try {
+    // The retention and the record of the run are the running edition's:
+    // nothing is removed while it cannot be told (503).
+    await getPlatformEdition(config);
     const days = parsed.data.days ?? (await dispatchLogStats(config)).retentionDays;
     const removed = await purgeDispatchLog(config, days);
     // Deleting is recorded, whoever did it.
@@ -323,6 +322,7 @@ adminNotificationsRouter.post('/log/purge', purgeLimiter, async (req, res) => {
     }).then(() => {}, () => {});
     return res.json({ success: true, removed, days, stats: await dispatchLogStats(config, days) });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });

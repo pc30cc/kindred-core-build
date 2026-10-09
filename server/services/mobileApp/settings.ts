@@ -1,18 +1,28 @@
 /**
  * NATIVE APP (iOS) PLATFORM SETTINGS.
  *
- * The singleton `mobile_app_settings` row is the one source of truth for the
+ * The edition's `mobile_app_settings` row (one per edition, migration 257;
+ * server/services/editionSettings.ts) is the one source of truth for the
  * native shell's identity, build, capabilities, privacy strings and App Store
  * metadata. It is read by Super Admin → Mobile App
  * (server/routes/adminMobileApp.ts) and the public config the apps fetch.
  *
+ * Each edition's apps are their own: WebYar's in Iran (MOBILE_APP_DEFAULTS,
+ * as they always were), RESPOK's abroad (com.respok.app, shared/
+ * nativeAppBrands.ts), and the International edition is never served a value
+ * that names WebYar (mobileSettingsForEdition).
+ *
  * Nothing about the WEB build reads this row — a deployment that never ships
  * a native app is unaffected by every value here.
  *
- * Never throws: a missing row or a read failure resolves to DEFAULTS.
+ * Never throws: a missing row, a read failure or an edition that cannot be
+ * told resolves to the edition's defaults.
  */
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
+import type { Edition } from '../../../shared/edition.js';
+import { NATIVE_APP_BRANDS, pointsAtWebyar } from '../../../shared/nativeAppBrands.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
+import { editionSettingsRow } from '../editionSettings.js';
 import { readShippedAndroidRelease, withShippedVersion } from './androidRelease.js';
 
 /** The languages the Android app is written in. */
@@ -207,9 +217,25 @@ export interface MobileAppSettings {
   updated_at?: string | null;
 }
 
+/** The privacy strings the apps ship with, worded for one brand. */
+function usageStrings(name: string): Pick<MobileAppSettings, 'usage_camera' | 'usage_microphone' | 'usage_photo_library'> {
+  return {
+    usage_camera: `${name} needs camera access so you can capture and send photos or videos in a conversation.`,
+    usage_microphone: `${name} needs microphone access so you can record and send voice messages to your customers.`,
+    usage_photo_library: `${name} needs photo library access so you can send images and videos in a conversation.`,
+  };
+}
+
+/**
+ * The Iranian edition's defaults (WebYar's apps): exactly the values it always
+ * had, which are also the table's column defaults (migrations 195–247). The
+ * bundle id stays the one it always was here (the Capacitor app's
+ * `com.webyar.app`; the native app is NATIVE_APP_BRANDS.iran.iosBundleId),
+ * so the Iranian edition shows and saves what it always did.
+ */
 export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
-  app_name: 'Webyar',
-  display_name: 'Webyar',
+  app_name: NATIVE_APP_BRANDS.iran.name,
+  display_name: NATIVE_APP_BRANDS.iran.name,
   bundle_id: 'com.webyar.app',
   apple_team_id: null,
   apple_team_name: null,
@@ -244,12 +270,7 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   cap_location: false,
   cap_face_id: false,
 
-  usage_camera:
-    'Webyar needs camera access so you can capture and send photos or videos in a conversation.',
-  usage_microphone:
-    'Webyar needs microphone access so you can record and send voice messages to your customers.',
-  usage_photo_library:
-    'Webyar needs photo library access so you can send images and videos in a conversation.',
+  ...usageStrings(NATIVE_APP_BRANDS.iran.name),
   usage_photo_library_add: null,
   usage_location: null,
   usage_face_id: null,
@@ -299,8 +320,8 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   testflight_group: null,
   release_notes: null,
 
-  android_package_name: 'com.webyar.ai',
-  android_app_name: 'Webyar',
+  android_package_name: NATIVE_APP_BRANDS.iran.androidPackage,
+  android_app_name: NATIVE_APP_BRANDS.iran.name,
   android_play_store_url: null,
   android_version_name: '1.0.0',
   android_version_code: 1,
@@ -345,8 +366,113 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   updated_at: null,
 };
 
+/**
+ * The International edition's defaults (RESPOK's apps): RESPOK's name, iOS
+ * bundle id, Android package and privacy strings, and English as the
+ * language the Android app opens in (WebYar's opens in Persian); everything
+ * else as in Iran, none of which names WebYar.
+ */
+export const MOBILE_APP_INTERNATIONAL_DEFAULTS: MobileAppSettings = {
+  ...MOBILE_APP_DEFAULTS,
+  app_name: NATIVE_APP_BRANDS.international.name,
+  display_name: NATIVE_APP_BRANDS.international.name,
+  bundle_id: NATIVE_APP_BRANDS.international.iosBundleId,
+  ...usageStrings(NATIVE_APP_BRANDS.international.name),
+  android_package_name: NATIVE_APP_BRANDS.international.androidPackage,
+  android_app_name: NATIVE_APP_BRANDS.international.name,
+  android_default_language: 'en',
+  ios_default_language: 'en',
+};
+
+/** What an edition that has no row yet is served: WebYar's apps in Iran (and when unknown), RESPOK's abroad. */
+export function mobileAppDefaults(edition: Edition | null): MobileAppSettings {
+  return edition === 'international' ? MOBILE_APP_INTERNATIONAL_DEFAULTS : MOBILE_APP_DEFAULTS;
+}
+
+/**
+ * What an edition's first row is created with, under the saved patch. The
+ * table's column defaults are WebYar's (migrations 195, 224, 231, 237), so
+ * RESPOK's row is created with every one of its defaults written out; the
+ * Iranian edition's with nothing extra, exactly as before.
+ */
+export function mobileInsertDefaults(edition: Edition): Partial<MobileAppSettings> {
+  if (edition !== 'international') return {};
+  const { updated_at: _updatedAt, ...defaults } = MOBILE_APP_INTERNATIONAL_DEFAULTS;
+  return defaults;
+}
+
+/**
+ * The account Apple's App Review signs in with (migration 248). It is one real
+ * account per database, in either edition, so the App Store record keeps it
+ * (docs/operations/EDITIONS.md lists it among the names of real things).
+ */
+export const APP_REVIEW_ACCOUNT_EMAIL = 'apple@webyar.ai';
+
+/**
+ * What the International edition's scrub may touch: words, names and links
+ * that people read or open (the apps, App Store and Play listings, App
+ * Review). Never an identifier the apps or the stores work by — the bundle id,
+ * the package, the URL scheme, associated domains, the app group, Firebase's
+ * client ids, team and app ids, the provisioning profile: rewriting one of
+ * those would break sign-in links, pushes or the build, not rebrand anything.
+ * The push policy's channel id and category ids are not here either.
+ */
+const MOBILE_PEOPLE_TEXT_KEYS = [
+  // Names (a required one becomes RESPOK's).
+  'app_name', 'display_name', 'android_app_name', 'apple_team_name', 'app_sku',
+  // Privacy strings iOS shows when it asks for a permission.
+  'usage_camera', 'usage_microphone', 'usage_photo_library', 'usage_photo_library_add',
+  'usage_location', 'usage_face_id', 'usage_tracking',
+  // Links people open.
+  'privacy_policy_url', 'terms_url', 'support_url', 'marketing_url', 'account_deletion_url',
+  'android_play_store_url', 'ios_app_support_url', 'ios_app_website_url',
+  // Notes and contacts on the store records.
+  'copyright', 'release_notes', 'review_contact_name', 'review_contact_email', 'review_contact_phone',
+  'review_notes', 'demo_account_username', 'demo_account_notes', 'encryption_notes',
+] as const satisfies readonly (keyof MobileAppSettings)[];
+/** Language maps (`{ fa, en, tr }`): a language whose text names WebYar is dropped. */
+const MOBILE_LANGUAGE_MAP_KEYS = ['android_release_notes', 'android_maintenance_message', 'ios_app_website_label'] as const;
+/** In-app promotions: a creative that names WebYar anywhere (link, image, text) is not served at all. */
+const MOBILE_CREATIVE_KEYS = ['ads_banner', 'ads_fullscreen'] as const;
+
+/**
+ * The settings as this edition's apps may use them (see desktopSettingsForEdition).
+ * The Iranian edition (or an unknown one) gets them untouched. In the
+ * International edition RESPOK's apps and store records are shown nothing of
+ * WebYar's: a name, privacy string, link or note that names or points at
+ * WebYar (shared/nativeAppBrands.ts pointsAtWebyar — a database cloned from
+ * WebYar's) is replaced by RESPOK's default for it (the names and the
+ * required privacy strings) or cleared; a language map keeps its other
+ * languages, and a promotion naming WebYar is dropped whole. Identifiers are
+ * never rewritten (MOBILE_PEOPLE_TEXT_KEYS). Saving the Super Admin page then
+ * stores the clean values.
+ */
+export function mobileSettingsForEdition(s: MobileAppSettings, edition: Edition | null): MobileAppSettings {
+  if (edition !== 'international') return s;
+  const defaults = MOBILE_APP_INTERNATIONAL_DEFAULTS as unknown as Record<string, unknown>;
+  const out = { ...s } as unknown as Record<string, unknown>;
+  for (const key of MOBILE_PEOPLE_TEXT_KEYS) {
+    const value = out[key];
+    if (typeof value !== 'string') continue;
+    // The App Review account is one real account in either edition (migration 248).
+    if (key === 'demo_account_username' && value.trim().toLowerCase() === APP_REVIEW_ACCOUNT_EMAIL) continue;
+    if (pointsAtWebyar(value)) out[key] = defaults[key] ?? null;
+  }
+  for (const key of MOBILE_LANGUAGE_MAP_KEYS) {
+    const map = out[key];
+    if (map && typeof map === 'object' && !Array.isArray(map)) {
+      out[key] = Object.fromEntries(Object.entries(map).filter(([, text]) => !pointsAtWebyar(text)));
+    }
+  }
+  for (const key of MOBILE_CREATIVE_KEYS) {
+    if (pointsAtWebyar(JSON.stringify(out[key] ?? {}))) out[key] = {};
+  }
+  return out as unknown as MobileAppSettings;
+}
+
 const CACHE_TTL_MS = 30_000;
-let cache: { value: MobileAppSettings; ts: number } | null = null;
+/** Memoized per edition: a switch of edition reads that edition's row at once. */
+let cache: { edition: Edition | null; value: MobileAppSettings; ts: number } | null = null;
 
 /** Test/route seam: drop the memoized row after a write. */
 export function invalidateMobileAppSettingsCache(): void {
@@ -354,25 +480,23 @@ export function invalidateMobileAppSettingsCache(): void {
 }
 
 export async function loadMobileAppSettings(config: ServerConfig): Promise<MobileAppSettings> {
+  const edition = await getPlatformEditionOrNull(config);
   const now = Date.now();
-  if (cache && now - cache.ts < CACHE_TTL_MS) return cache.value;
+  if (cache && cache.edition === edition && now - cache.ts < CACHE_TTL_MS) return cache.value;
 
-  let value = MOBILE_APP_DEFAULTS;
-  try {
-    const sb = getServiceClient(config);
-    const { data, error } = await sb
-      .from('mobile_app_settings')
-      .select('*')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (!error && data) value = normalize(data as Record<string, unknown>);
-    // The Android version is the one the website hands out, not a number typed.
-    value = withShippedVersion(value, readShippedAndroidRelease());
-  } catch {
-    // A deployment that has not applied migration 195 yet still boots.
+  // While the edition cannot be told, neither can its row: the defaults.
+  let value = mobileAppDefaults(edition);
+  if (edition) {
+    try {
+      const { data, error } = await editionSettingsRow(config, 'mobile_app_settings', edition);
+      if (!error && data) value = mobileSettingsForEdition(normalize(data as Record<string, unknown>, edition), edition);
+      // The Android version is the one the website hands out, not a number typed.
+      value = withShippedVersion(value, readShippedAndroidRelease(edition));
+    } catch {
+      // A deployment that has not applied migration 195 yet still boots.
+    }
   }
-  cache = { value, ts: now };
+  cache = { edition, value, ts: now };
   return value;
 }
 
@@ -387,39 +511,43 @@ function maintenanceMessage(raw: unknown): AndroidMaintenanceMessage {
   return out;
 }
 
-/** Fills every missing field from DEFAULTS so callers never see undefined. */
-export function normalize(row: Record<string, unknown>): MobileAppSettings {
-  const out = { ...MOBILE_APP_DEFAULTS } as Record<string, unknown>;
-  for (const key of Object.keys(MOBILE_APP_DEFAULTS) as (keyof MobileAppSettings)[]) {
+/**
+ * Fills every missing field from the edition's defaults (DEFAULTS in Iran and
+ * when not given) so callers never see undefined.
+ */
+export function normalize(row: Record<string, unknown>, edition: Edition | null = null): MobileAppSettings {
+  const defaults = mobileAppDefaults(edition);
+  const out = { ...defaults } as Record<string, unknown>;
+  for (const key of Object.keys(defaults) as (keyof MobileAppSettings)[]) {
     const raw = row[key];
     if (raw === undefined || raw === null) continue;
     out[key] = raw;
   }
   out.orientations = Array.isArray(row.orientations)
     ? (row.orientations as string[])
-    : MOBILE_APP_DEFAULTS.orientations;
+    : defaults.orientations;
   out.associated_domains = Array.isArray(row.associated_domains)
     ? (row.associated_domains as string[])
     : [];
   out.third_party_sdks = Array.isArray(row.third_party_sdks)
     ? (row.third_party_sdks as string[])
-    : MOBILE_APP_DEFAULTS.third_party_sdks;
-  out.build_number = Number(row.build_number ?? MOBILE_APP_DEFAULTS.build_number) || 1;
-  out.android_version_code = Number(row.android_version_code ?? MOBILE_APP_DEFAULTS.android_version_code) || 1;
+    : defaults.third_party_sdks;
+  out.build_number = Number(row.build_number ?? defaults.build_number) || 1;
+  out.android_version_code = Number(row.android_version_code ?? defaults.android_version_code) || 1;
   out.android_release_notes =
     row.android_release_notes && typeof row.android_release_notes === 'object' && !Array.isArray(row.android_release_notes)
       ? (row.android_release_notes as Record<string, string>)
       : {};
   out.android_default_language = (ANDROID_LANGUAGES as readonly unknown[]).includes(row.android_default_language)
     ? row.android_default_language
-    : MOBILE_APP_DEFAULTS.android_default_language;
+    : defaults.android_default_language;
   out.android_maintenance_enabled = row.android_maintenance_enabled === true;
   out.android_maintenance_message = maintenanceMessage(row.android_maintenance_message);
   // The same shape: a few words per language, blanks dropped.
   out.ios_app_website_label = maintenanceMessage(row.ios_app_website_label);
   out.ios_default_language = (ANDROID_LANGUAGES as readonly unknown[]).includes(row.ios_default_language)
     ? row.ios_default_language
-    : MOBILE_APP_DEFAULTS.ios_default_language;
+    : defaults.ios_default_language;
   out.android_maintenance_until =
     typeof row.android_maintenance_until === 'string' && !Number.isNaN(Date.parse(row.android_maintenance_until))
       ? row.android_maintenance_until

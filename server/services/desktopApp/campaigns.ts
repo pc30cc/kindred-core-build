@@ -1,13 +1,17 @@
 /**
  * DESKTOP APP CAMPAIGNS — ads and announcements for the Windows and Mac apps.
  *
- * Rows live in `desktop_app_campaigns` (database/migrations/208). This module
- * owns the vocabulary (placements, severities), normalises rows, and
- * resolves what one workspace should see: active, inside its schedule,
- * targeted at the workspace's plan (or at every plan), in one locale.
+ * Rows live in `desktop_app_campaigns` (database/migrations/208), each for
+ * one edition (257): the running edition's apps see its own campaigns only,
+ * and Super Admin lists and edits only those. This module owns the
+ * vocabulary (placements, severities), normalises rows, and resolves what one
+ * workspace should see: active, inside its schedule, targeted at the
+ * workspace's plan (or at every plan), in one locale.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import type { Edition } from '../../../shared/edition.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
 import type { DesktopPlatform } from './live.js';
 
 /** Where the Windows app can draw a campaign. */
@@ -44,6 +48,8 @@ export interface CampaignRow {
   ends_at: string | null;
   created_at: string;
   updated_at: string;
+  /// The edition that shows it (migration 257).
+  edition?: Edition;
 }
 
 export interface ClientCampaign {
@@ -117,23 +123,31 @@ export function toClient(row: CampaignRow, locale: Locale): ClientCampaign | nul
 }
 
 const TTL_MS = 60_000;
-let cache: { rows: CampaignRow[]; at: number } | null = null;
+/** Per edition: a switch of edition shows that edition's campaigns at once. */
+let cache: { edition: Edition; rows: CampaignRow[]; at: number } | null = null;
 
 export function invalidateCampaignCache(): void {
   cache = null;
 }
 
-/** Every live row, cached briefly: asked by every running copy every few minutes. */
+/**
+ * Every live row of the running edition, cached briefly: asked by every
+ * running copy every few minutes. None while the edition cannot be told —
+ * which edition's campaigns to show is then unknown.
+ */
 export async function loadLiveCampaigns(config: ServerConfig): Promise<CampaignRow[]> {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.rows.filter((r) => isLive(r));
+  const edition = await getPlatformEditionOrNull(config);
+  if (!edition) return [];
+  if (cache && cache.edition === edition && Date.now() - cache.at < TTL_MS) return cache.rows.filter((r) => isLive(r));
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('desktop_app_campaigns')
     .select('*')
+    .eq('edition', edition)
     .eq('active', true)
     .order('priority', { ascending: false })
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
-  cache = { rows: (data ?? []) as CampaignRow[], at: Date.now() };
+  cache = { edition, rows: (data ?? []) as CampaignRow[], at: Date.now() };
   return cache.rows.filter((r) => isLive(r));
 }

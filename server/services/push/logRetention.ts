@@ -19,9 +19,16 @@
  * at risk — the retention is at least one day — so a provider retrying a
  * delivery an hour later still finds its row and stays silent. Never throws
  * out of the janitor.
+ *
+ * The retention, the switch and the record of the last run are the running
+ * edition's (push_platform_settings, one row per edition since migration
+ * 257). While the edition cannot be told nothing is removed automatically —
+ * that would be at a guessed retention — and Super Admin's screen answers 503.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { getPlatformEdition, getPlatformEditionOrNull } from '../platformRegion.js';
+import { readEditionSettingsRow } from '../editionSettings.js';
 import { loadPushPlatformSettings } from './platformSettings.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -72,22 +79,15 @@ export async function purgeDispatchLog(config: ServerConfig, days: number): Prom
   return removed;
 }
 
-/** When the last cleanup ran and what it took, for Super Admin to show. */
+/** When the last cleanup ran and what it took, for Super Admin to show: on the running edition's row. */
 async function recordRun(config: ServerConfig, removed: number): Promise<void> {
   try {
-    const sb = getServiceClient(config);
-    const { data } = await sb
-      .from('push_platform_settings')
-      .select('id')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    const id = (data as { id?: string } | null)?.id;
-    if (!id) return;
-    await sb
+    const edition = await getPlatformEditionOrNull(config);
+    if (!edition) return;
+    await getServiceClient(config)
       .from('push_platform_settings')
       .update({ dispatch_log_purged_at: new Date().toISOString(), dispatch_log_purged_count: removed })
-      .eq('id', id);
+      .eq('edition', edition);
   } catch {
     // Only a record of the run; the rows are already gone.
   }
@@ -105,17 +105,15 @@ export interface DispatchLogStats {
 }
 
 /**
- * What the log holds, and what a cleanup would take — at the saved
- * retention, or at `days` when the screen is showing one not saved yet.
+ * What the log holds, and what a cleanup would take — at the running
+ * edition's saved retention, or at `days` when the screen is showing one not
+ * saved yet. Throws EditionUnavailableError (503) while the edition cannot be
+ * told: "Clean up now" must not go by a guessed retention.
  */
 export async function dispatchLogStats(config: ServerConfig, days?: number): Promise<DispatchLogStats> {
   const sb = getServiceClient(config);
-  const { data: row } = await sb
-    .from('push_platform_settings')
-    .select('*')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  const edition = await getPlatformEdition(config);
+  const row = await readEditionSettingsRow(config, 'push_platform_settings', edition).catch(() => null);
   const settings = (row ?? {}) as Record<string, unknown>;
   const retentionDays = clampRetentionDays(days ?? settings.dispatch_log_retention_days ?? 30);
 
@@ -140,9 +138,10 @@ export async function dispatchLogStats(config: ServerConfig, days?: number): Pro
   };
 }
 
-/** One automatic pass: nothing while the switch is off. */
+/** One automatic pass: nothing while the switch is off, or while the edition (whose retention it is) cannot be told. */
 export async function runDispatchLogJanitorOnce(config: ServerConfig): Promise<number | null> {
   try {
+    if (!(await getPlatformEditionOrNull(config))) return null;
     const policy = await loadPushPlatformSettings(config);
     if (policy.dispatch_log_auto_purge === false) return null;
     const removed = await purgeDispatchLog(config, policy.dispatch_log_retention_days);

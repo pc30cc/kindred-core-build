@@ -1,8 +1,9 @@
 /**
  * DESKTOP APP (macOS) PLATFORM SETTINGS.
  *
- * The singleton `macos_app_settings` row (database/migrations/211) is the one
- * source of truth for what the platform decides about the Mac app: where
+ * The edition's `macos_app_settings` row (database/migrations/211; one per
+ * edition since 257, server/services/editionSettings.ts) is the one source of
+ * truth for what the platform decides about the Mac app: where
  * Sparkle looks for updates and which builds are still allowed, realtime and
  * polling, which sections of the app are on, what it may do on the Mac, the
  * defaults of a first launch, a maintenance notice, and the help links.
@@ -12,14 +13,15 @@
  *   • GET /api/platform/macos-app (server/routes/desktopAppPublic.ts), which
  *     the Mac app asks on launch and every hour.
  *
- * Never throws: a missing row or a failed read resolves to DEFAULTS, which
- * reproduce what the Mac app did before the table existed.
+ * Never throws: a missing row, a failed read or an edition that cannot be
+ * told resolves to the edition's defaults (DEFAULTS in Iran, which reproduce
+ * what the Mac app did before the table existed; RESPOK's appcast abroad).
  */
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
 import type { Edition } from '../../../shared/edition.js';
 import { NATIVE_APP_BRANDS, pointsAtWebyar } from '../../../shared/nativeAppBrands.js';
 import { getPlatformEditionOrNull } from '../platformRegion.js';
+import { editionSettingsRow } from '../editionSettings.js';
 
 export type MacUpdateChannel = 'stable' | 'beta';
 export type MacDefaultLanguage = 'system' | 'fa' | 'en' | 'tr';
@@ -187,37 +189,48 @@ export const MACOS_MAX_BLOCKED_VERSIONS = 50;
 export const VERSION_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
 const CACHE_TTL_MS = 30_000;
-let cache: { value: MacosAppSettings; ts: number } | null = null;
+/** Memoized per edition: a switch of edition reads that edition's row at once. */
+let cache: { edition: Edition | null; value: MacosAppSettings; ts: number } | null = null;
 
 export function invalidateMacosAppSettingsCache(): void {
   cache = null;
 }
 
 export async function loadMacosAppSettings(config: ServerConfig): Promise<MacosAppSettings> {
+  const edition = await getPlatformEditionOrNull(config);
   const now = Date.now();
-  if (cache && now - cache.ts < CACHE_TTL_MS) return cache.value;
+  if (cache && cache.edition === edition && now - cache.ts < CACHE_TTL_MS) return cache.value;
 
-  let value = MACOS_APP_DEFAULTS;
-  try {
-    const sb = getServiceClient(config);
-    const { data, error } = await sb
-      .from('macos_app_settings')
-      .select('*')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (!error && data) value = normalizeMacos(data as Record<string, unknown>);
-  } catch {
-    // A deployment that has not applied migration 211 yet still boots.
+  // While the edition cannot be told, neither can its row: the defaults.
+  let value = macosAppDefaults(edition);
+  if (edition) {
+    try {
+      const { data, error } = await editionSettingsRow(config, 'macos_app_settings', edition);
+      if (!error && data) value = macosSettingsForEdition(normalizeMacos(data as Record<string, unknown>), edition);
+    } catch {
+      // A deployment that has not applied migration 211 yet still boots.
+    }
   }
-  value = macosSettingsForEdition(value, await getPlatformEditionOrNull(config));
-  cache = { value, ts: now };
+  cache = { edition, value, ts: now };
   return value;
 }
 
 /** The default appcast of an edition: WebYar's in Iran (and when unknown), RESPOK's abroad. */
 export function macosDefaultAppcastUrl(edition: Edition | null): string {
   return edition === 'international' ? NATIVE_APP_BRANDS.international.macAppcastUrl : MACOS_APP_DEFAULT_APPCAST_URL;
+}
+
+/** What an edition that has no row yet is served: DEFAULTS in Iran (and when unknown), with RESPOK's appcast abroad. */
+export function macosAppDefaults(edition: Edition | null): MacosAppSettings {
+  return macosSettingsForEdition(MACOS_APP_DEFAULTS, edition);
+}
+
+/**
+ * The columns an edition's first row is created with where its defaults
+ * differ from the table's own (WebYar's): RESPOK's appcast abroad, nothing in Iran.
+ */
+export function macosInsertDefaults(edition: Edition): Partial<MacosAppSettings> {
+  return edition === 'international' ? { appcast_url: macosDefaultAppcastUrl(edition) } : {};
 }
 
 /**

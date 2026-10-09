@@ -1,7 +1,7 @@
 /**
  * IN-APP PROMOTIONS — what the native app is allowed to show.
  *
- * The creative lives on the `mobile_app_settings` singleton (Super Admin →
+ * The creative lives on the running edition's `mobile_app_settings` row (Super Admin →
  * Mobile App → Promotions). WHO sees it is a plan question the app already
  * has an answer to, from `/api/plans/workspace/:id/effective` —
  * `mobile_promo_banner` and `mobile_promo_fullscreen`. This route only ships
@@ -29,12 +29,14 @@ import type { ServerConfig } from '../config.js';
 import { authorizeWorkspaceAccess, requireUser } from '../lib/workspaceAuth.js';
 import {
   loadMobileAppSettings,
+  mobileAppDefaults,
   toAndroidAppConfig,
   toAndroidPublicConfig,
   toIosPublicConfig,
   toIosAppConfig,
-  MOBILE_APP_DEFAULTS,
+  type MobileAppSettings,
 } from '../services/mobileApp/settings.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 
 export const mobilePromotionsRouter = Router();
 
@@ -151,7 +153,7 @@ mobilePromotionsRouter.get('/config', async (req, res) => {
     const settings = await loadMobileAppSettings(serverConfigOf(req));
     return res.json(shape(settings));
   } catch {
-    return res.json(shape(MOBILE_APP_DEFAULTS));
+    return res.json(shape(mobileAppDefaults(await getPlatformEditionOrNull(serverConfigOf(req)))));
   }
 });
 
@@ -183,12 +185,12 @@ mobilePromotionsRouter.get('/public-config', async (req, res) => {
   if (platform !== 'android' && platform !== 'ios') {
     return res.status(400).json({ error: 'Unknown platform' });
   }
-  const shape = (settings: typeof MOBILE_APP_DEFAULTS) =>
+  const shape = (settings: MobileAppSettings) =>
     platform === 'ios' ? toIosPublicConfig(settings) : toAndroidPublicConfig(settings);
   try {
     const settings = await loadMobileAppSettings(serverConfigOf(req));
     return res.json(shape(settings));
   } catch {
-    return res.json(shape(MOBILE_APP_DEFAULTS));
+    return res.json(shape(mobileAppDefaults(await getPlatformEditionOrNull(serverConfigOf(req)))));
   }
 });

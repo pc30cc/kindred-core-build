@@ -1,16 +1,20 @@
 /**
  * The Android build the website hands out.
  *
- * `public/downloads/Webyar-Android.apk` ships with a sidecar,
- * `Webyar-Android.json`, written by the same release that builds the APK:
- * its version name and code, its SHA-256 and size. Super Admin's Android
- * version is read from here rather than typed, so the number in Mobile App →
- * Android is always the number of the app people download
+ * Each edition's site hands out its own app (shared/nativeAppBrands.ts):
+ * `public/downloads/Webyar-Android.apk` in Iran, `RESPOK-Android.apk` in the
+ * International edition. Each ships with a sidecar (`Webyar-Android.json`,
+ * `RESPOK-Android.json`) written by the same release that builds the APK: its
+ * version name and code, its SHA-256 and size. Super Admin's Android version
+ * is read from the running edition's sidecar rather than typed, so the number
+ * in Mobile App → Android is always the number of the app people download
  * (src/test/android/apkRelease.test.ts keeps the two files in step).
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Edition } from '../../../shared/edition.js';
+import { nativeAppBrand } from '../../../shared/nativeAppBrands.js';
 
 export interface ShippedAndroidRelease {
   versionName: string;
@@ -44,29 +48,47 @@ export function parseShippedRelease(raw: unknown): ShippedAndroidRelease | null 
 // copies it there), then under the working directory. Same order as the
 // Call Widget assets in server/index.ts.
 const SERVER_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const SHIPPED_RELEASE_FILES = [
-  resolve(SERVER_DIR, '..', 'public', 'downloads', 'Webyar-Android.json'),
-  resolve(SERVER_DIR, 'public', 'downloads', 'Webyar-Android.json'),
-  resolve(process.cwd(), 'public', 'downloads', 'Webyar-Android.json'),
-];
 
-function shippedReleaseFile(): string {
-  return SHIPPED_RELEASE_FILES.find((path) => existsSync(path)) ?? SHIPPED_RELEASE_FILES[0];
+/** Where an edition's sidecar may sit, in that order; an unknown edition (null) is Iran, as everywhere. */
+export function shippedReleaseFiles(edition: Edition | null = null): string[] {
+  const file = nativeAppBrand(edition).androidReleaseFile;
+  return [
+    resolve(SERVER_DIR, '..', 'public', 'downloads', file),
+    resolve(SERVER_DIR, 'public', 'downloads', file),
+    resolve(process.cwd(), 'public', 'downloads', file),
+  ];
 }
 
-let cache: { path: string; mtimeMs: number; value: ShippedAndroidRelease | null } | null = null;
+/** The Iranian edition's: WebYar's sidecar, `Webyar-Android.json`. */
+export const SHIPPED_RELEASE_FILES = shippedReleaseFiles('iran');
+
+function shippedReleaseFile(edition: Edition | null): string {
+  const files = shippedReleaseFiles(edition);
+  return files.find((path) => existsSync(path)) ?? files[0];
+}
+
+/** Per file: each edition's sidecar is cached on its own. */
+const cache = new Map<string, { mtimeMs: number; value: ShippedAndroidRelease | null }>();
 
 /**
- * The shipped release, read again only when the file changes. Null when the
- * deployment carries no sidecar (a self-host without the download, say):
- * the version stays what Super Admin typed.
+ * The edition's shipped release (Iran's when the edition is not given or not
+ * known), read again only when the file changes. Null when the deployment
+ * carries no sidecar for it (a self-host without the download, say, or
+ * before RESPOK's first APK is committed): the version stays what Super
+ * Admin typed.
  */
-export function readShippedAndroidRelease(path: string = shippedReleaseFile()): ShippedAndroidRelease | null {
+export function readShippedAndroidRelease(edition: Edition | null = null): ShippedAndroidRelease | null {
+  return readShippedReleaseFile(shippedReleaseFile(edition));
+}
+
+/** One sidecar file, cached per path until it changes; null when it is missing or malformed. */
+export function readShippedReleaseFile(path: string): ShippedAndroidRelease | null {
   try {
     const { mtimeMs } = statSync(path);
-    if (cache && cache.path === path && cache.mtimeMs === mtimeMs) return cache.value;
+    const cached = cache.get(path);
+    if (cached && cached.mtimeMs === mtimeMs) return cached.value;
     const value = parseShippedRelease(JSON.parse(readFileSync(path, 'utf8')));
-    cache = { path, mtimeMs, value };
+    cache.set(path, { mtimeMs, value });
     return value;
   } catch {
     return null;

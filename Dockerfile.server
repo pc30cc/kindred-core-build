@@ -72,7 +72,10 @@ COPY public/widget/vendor ./public/widget/vendor
 # The version of the Android app the website hands out (its APK ships with the
 # frontend image). Super Admin reads the Android version from this file
 # (server/services/mobileApp/androidRelease.ts); only the small JSON, not the APK.
-COPY public/downloads/Webyar-Android.json ./public/downloads/Webyar-Android.json
+# One per edition: Webyar-Android.json (required, checked below) and
+# RESPOK-Android.json, copied when the repository has it — the wildcard always
+# matches WebYar's, so a missing RESPOK sidecar does not fail the build.
+COPY public/downloads/*-Android.json ./public/downloads/
 
 # Build-time verification — fail fast if the image is missing the
 # standalone widget assets the API is expected to serve.

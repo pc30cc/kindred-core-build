@@ -26,16 +26,18 @@
 import { Router } from 'express';
 import type { Request } from 'express';
 import type { ServerConfig } from '../config.js';
+import type { Edition } from '../../shared/edition.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import {
   loadDesktopAppSettings,
   toPublicDesktopAppConfig,
-  DESKTOP_APP_DEFAULTS,
+  desktopAppDefaults,
   type DesktopAppPublicConfig,
 } from '../services/desktopApp/settings.js';
 import {
   loadMacosAppSettings,
   toPublicMacosAppConfig,
-  MACOS_APP_DEFAULTS,
+  macosAppDefaults,
   type MacosAppPublicConfig,
 } from '../services/desktopApp/macosSettings.js';
 
@@ -46,37 +48,38 @@ function serverConfigOf(req: Request): ServerConfig {
 }
 
 const TTL_MS = 60_000;
-let cache: DesktopAppPublicConfig | null = null;
-let cachedAt = 0;
-
-let macCache: MacosAppPublicConfig | null = null;
-let macCachedAt = 0;
+/**
+ * Each answer is the running edition's (migration 257), so each cache
+ * remembers whose it is: after a switch of edition the apps are told the
+ * other edition's settings on their next ask, not a minute later.
+ */
+let cache: { edition: Edition | null; value: DesktopAppPublicConfig; at: number } | null = null;
+let macCache: { edition: Edition | null; value: MacosAppPublicConfig; at: number } | null = null;
 
 /** Called by the admin PUT so a saved change is served on the next launch. */
 export function invalidateDesktopAppPublicCache(): void {
   cache = null;
-  cachedAt = 0;
 }
 
 /** Called by the macOS admin PUT. */
 export function invalidateMacosAppPublicCache(): void {
   macCache = null;
-  macCachedAt = 0;
 }
 
 desktopAppPublicRouter.get('/desktop-app', async (req, res) => {
+  const config = serverConfigOf(req);
+  const edition = await getPlatformEditionOrNull(config);
   // Cached in process: asked once per launch (and per update check) by every
   // installed copy, for a row that changes once per release.
-  if (cache && Date.now() - cachedAt < TTL_MS) {
-    return res.json(cache);
+  if (cache && cache.edition === edition && Date.now() - cache.at < TTL_MS) {
+    return res.json(cache.value);
   }
   try {
-    const settings = await loadDesktopAppSettings(serverConfigOf(req));
-    cache = toPublicDesktopAppConfig(settings);
-    cachedAt = Date.now();
-    return res.json(cache);
+    const settings = await loadDesktopAppSettings(config);
+    cache = { edition, value: toPublicDesktopAppConfig(settings), at: Date.now() };
+    return res.json(cache.value);
   } catch {
-    return res.json(toPublicDesktopAppConfig(DESKTOP_APP_DEFAULTS));
+    return res.json(toPublicDesktopAppConfig(desktopAppDefaults(edition)));
   }
 });
 
@@ -89,15 +92,16 @@ desktopAppPublicRouter.get('/desktop-app', async (req, res) => {
  * secret, never 5xx — the defaults are what the app shipped with.
  */
 desktopAppPublicRouter.get('/macos-app', async (req, res) => {
-  if (macCache && Date.now() - macCachedAt < TTL_MS) {
-    return res.json(macCache);
+  const config = serverConfigOf(req);
+  const edition = await getPlatformEditionOrNull(config);
+  if (macCache && macCache.edition === edition && Date.now() - macCache.at < TTL_MS) {
+    return res.json(macCache.value);
   }
   try {
-    const settings = await loadMacosAppSettings(serverConfigOf(req));
-    macCache = toPublicMacosAppConfig(settings);
-    macCachedAt = Date.now();
-    return res.json(macCache);
+    const settings = await loadMacosAppSettings(config);
+    macCache = { edition, value: toPublicMacosAppConfig(settings), at: Date.now() };
+    return res.json(macCache.value);
   } catch {
-    return res.json(toPublicMacosAppConfig(MACOS_APP_DEFAULTS));
+    return res.json(toPublicMacosAppConfig(macosAppDefaults(edition)));
   }
 });

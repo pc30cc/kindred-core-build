@@ -1,7 +1,8 @@
 /**
  * Build & ship: the end-to-end procedure from an empty Apple Developer account
  * to a submitted build, and the commands that build the native app
- * (ios/Webyar) on a Mac.
+ * (ios/Webyar) on a Mac — the edition's own app: the `Webyar` scheme in Iran,
+ * `Respok` in the International edition (nativeBuild.ts).
  *
  * The Xcode project is generated from ios/Webyar/project.yml by
  * XcodeGen and is not committed; the version and build number go in on the
@@ -12,8 +13,10 @@ import { Check, Copy, Terminal, ListOrdered } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useTranslation, type TranslationKey } from '@/i18n';
+import { useEdition } from '@/hooks/useEdition';
 import { SettingsSection, CodeBlock } from '@/components/admin/settings/SettingsFields';
 import type { MobileAppSettings } from '@/hooks/useMobileApp';
+import { iosBuildCommands } from './nativeBuild';
 
 /** The ordered procedure; the copy for each step lives in i18n. */
 const STEPS = [
@@ -21,24 +24,10 @@ const STEPS = [
   'appStoreConnect', 'configure', 'build', 'archive', 'upload', 'testflight', 'submit',
 ] as const;
 
-/** What a Mac with Xcode runs, from a fresh checkout to an archive. */
-function buildCommands(settings: Pick<MobileAppSettings, 'marketing_version' | 'build_number'>): string[] {
-  return [
-    'brew install xcodegen',
-    'cd ios/Webyar',
-    'xcodegen generate',
-    'open Webyar.xcodeproj',
-    [
-      'xcodebuild -project Webyar.xcodeproj -scheme Webyar -configuration Release',
-      '-destination "generic/platform=iOS" -archivePath build/Webyar.xcarchive',
-      `MARKETING_VERSION=${settings.marketing_version} CURRENT_PROJECT_VERSION=${settings.build_number} archive`,
-    ].join(' \\\n  '),
-  ];
-}
-
 export function MobileBuildGuideTab({ settings }: { settings: MobileAppSettings }) {
   const { t } = useTranslation();
-  const commands = buildCommands(settings).join('\n');
+  const { edition } = useEdition();
+  const commands = iosBuildCommands(settings, edition).join('\n');
 
   return (
     <div className="space-y-4">

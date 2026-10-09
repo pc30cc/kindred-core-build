@@ -1,23 +1,26 @@
 /**
  * PLATFORM-WIDE PUSH POLICY (Super Admin → Notifications).
  *
- * The singleton `push_platform_settings` row holds POLICY only — defaults for
- * users who never touched their own preferences, APNs delivery semantics, the
- * iOS notification categories and the per-event copy templates.
+ * The edition's `push_platform_settings` row (one per edition, migration 257;
+ * server/services/editionSettings.ts) holds POLICY only — defaults for users
+ * who never touched their own preferences, APNs delivery semantics, the iOS
+ * notification categories and the per-event copy templates. Each edition's
+ * apps are their own (WebYar's, RESPOK's), so each keeps its own policy.
  *
  * Credentials are deliberately NOT here. The FCM service account stays in the
  * server environment (`server/services/push/fcm.ts`); that separation is what
  * makes it safe to expose this row to an admin UI at all.
  *
- * Read on the dispatch hot path, so it is memoized for 30s and NEVER throws:
- * a missing row, an unapplied migration or a database blip resolves to
- * DEFAULTS, which reproduce the behaviour that was hardcoded before this
- * table existed.
+ * Read on the dispatch hot path, so it is memoized for 30s (per edition) and
+ * NEVER throws: a missing row, an unapplied migration, a database blip or an
+ * edition that cannot be told resolves to the edition's DEFAULTS, which
+ * reproduce the behaviour that was hardcoded before this table existed.
  */
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
 import type { Edition } from '../../../shared/edition.js';
+import { pointsAtWebyar } from '../../../shared/nativeAppBrands.js';
 import { getPlatformEditionOrNull } from '../platformRegion.js';
+import { editionSettingsRow } from '../editionSettings.js';
 
 export type PushScope = 'all' | 'assigned' | 'mentions' | 'none';
 export type InterruptionLevel = 'passive' | 'active' | 'time-sensitive' | 'critical';
@@ -283,7 +286,8 @@ export function pushPlatformDefaults(edition: Edition | null | undefined): PushP
 }
 
 const CACHE_TTL_MS = 30_000;
-let cache: { value: PushPlatformSettings; ts: number } | null = null;
+/** Memoized per edition: a switch of edition reads that edition's row at once. */
+let cache: { edition: Edition | null; value: PushPlatformSettings; ts: number } | null = null;
 
 export function invalidatePushPlatformSettingsCache(): void {
   cache = null;
@@ -292,25 +296,58 @@ export function invalidatePushPlatformSettingsCache(): void {
 export async function loadPushPlatformSettings(
   config: ServerConfig,
 ): Promise<PushPlatformSettings> {
-  const now = Date.now();
-  if (cache && now - cache.ts < CACHE_TTL_MS) return cache.value;
-
   const edition = await getPlatformEditionOrNull(config);
+  const now = Date.now();
+  if (cache && cache.edition === edition && now - cache.ts < CACHE_TTL_MS) return cache.value;
+
+  // While the edition cannot be told, neither can its row: the defaults.
   let value = pushPlatformDefaults(edition);
-  try {
-    const sb = getServiceClient(config);
-    const { data, error } = await sb
-      .from('push_platform_settings')
-      .select('*')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (!error && data) value = normalizePushSettings(data as Record<string, unknown>, edition);
-  } catch {
-    // Push policy must never take the dispatch path down.
+  if (edition) {
+    try {
+      const { data, error } = await editionSettingsRow(config, 'push_platform_settings', edition);
+      if (!error && data) value = normalizePushSettings(data as Record<string, unknown>, edition);
+    } catch {
+      // Push policy must never take the dispatch path down.
+    }
   }
-  cache = { value, ts: now };
+  cache = { edition, value, ts: now };
   return value;
+}
+
+const TEMPLATE_FIELDS = ['title', 'body', 'privateTitle', 'privateBody'] as const;
+
+/**
+ * Stored templates as the International edition may send them: a line that
+ * names WebYar (a database cloned from WebYar's, where the shipped private
+ * title "Webyar" was saved) becomes that edition's shipped line for the same
+ * event, field and language — the platform's own name (`{{brand}}`) for a
+ * private title. Iran (and an unknown edition): untouched.
+ */
+function templatesForEdition(
+  templates: Record<string, PushTemplate>,
+  edition: Edition | null,
+): Record<string, PushTemplate> {
+  if (edition !== 'international') return templates;
+  const shipped = defaultPushTemplates(edition);
+  const out: Record<string, PushTemplate> = {};
+  for (const [event, template] of Object.entries(templates)) {
+    const own = shipped[event] ?? shipped.new_message;
+    const clean = { ...template } as PushTemplate;
+    for (const field of TEMPLATE_FIELDS) {
+      const map = template?.[field];
+      if (!map || typeof map !== 'object') continue;
+      clean[field] = Object.fromEntries(
+        Object.entries(map).map(([locale, text]) => [
+          locale,
+          pointsAtWebyar(text)
+            ? own[field]?.[locale] ?? own[field]?.default ?? (field === 'privateTitle' ? '{{brand}}' : '')
+            : text,
+        ]),
+      );
+    }
+    out[event] = clean;
+  }
+  return out;
 }
 
 export function normalizePushSettings(
@@ -332,7 +369,7 @@ export function normalizePushSettings(
     : DEFAULT_CATEGORIES;
   const templates = row.templates as Record<string, unknown> | null;
   out.templates = templates && Object.keys(templates).length
-    ? (templates as Record<string, PushTemplate>)
+    ? templatesForEdition(templates as Record<string, PushTemplate>, edition)
     : defaultPushTemplates(edition);
   out.relevance_score = Number(row.relevance_score ?? PUSH_PLATFORM_DEFAULTS.relevance_score);
   out.critical_alert_volume = Number(

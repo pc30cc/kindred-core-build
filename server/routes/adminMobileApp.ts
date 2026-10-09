@@ -8,6 +8,11 @@
  * readiness verdicts are computed (never stored), so a value an operator
  * changes is reflected in the checklist on the very next read instead of
  * drifting behind a cached score.
+ *
+ * Each edition has its own row (migration 257, server/services/
+ * editionSettings.ts): WebYar's apps in Iran, RESPOK's abroad. Every read and
+ * write here is the running edition's, and answers 503 while the edition
+ * cannot be told.
  */
 import { Router } from 'express';
 import type { Request } from 'express';
@@ -20,9 +25,13 @@ import { getApnsCredentialProblem, getApnsCredentials } from '../services/push/a
 import {
   invalidateMobileAppSettingsCache,
   normalize,
-  MOBILE_APP_DEFAULTS,
   ANDROID_LANGUAGES,
+  mobileAppDefaults,
+  mobileInsertDefaults,
+  mobileSettingsForEdition,
 } from '../services/mobileApp/settings.js';
+import { getPlatformEdition } from '../services/platformRegion.js';
+import { readEditionSettingsRow, respondEditionUnavailable, saveEditionSettingsRow } from '../services/editionSettings.js';
 import { evaluateReadiness, summarize } from '../services/mobileApp/readiness.js';
 import { inspectNativeProject } from '../services/mobileApp/project.js';
 import { firebaseClientFields, firebaseProjectsMatch } from '../services/mobileApp/firebaseClient.js';
@@ -204,18 +213,6 @@ const settingsSchema = z.object({
   { message: 'app id and project number are from different Firebase projects', path: ['android_firebase_sender_id'] },
 );
 
-async function readRow(config: ServerConfig) {
-  const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('mobile_app_settings')
-    .select('*')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data as Record<string, unknown> | null;
-}
-
 /**
  * The readiness verdicts for the CURRENT settings. Computed on every read so
  * a change an operator just saved cannot be masked by a stale score.
@@ -261,10 +258,12 @@ adminMobileAppRouter.get('/settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
     const config = serverConfigOf(req);
-    const row = await readRow(config);
-    // The Android version is the one the website hands out: a row that says
-    // otherwise is brought up to it, so every reader of the row agrees.
-    const shipped = readShippedAndroidRelease();
+    const edition = await getPlatformEdition(config);
+    const row = await readEditionSettingsRow(config, 'mobile_app_settings', edition);
+    // The Android version is the one this edition's website hands out: its
+    // row, when it says otherwise, is brought up to it (never the other
+    // edition's row, whose app is another APK), so every reader agrees.
+    const shipped = readShippedAndroidRelease(edition);
     if (
       row && shipped &&
       (row.android_version_name !== shipped.versionName || Number(row.android_version_code) !== shipped.versionCode)
@@ -272,10 +271,14 @@ adminMobileAppRouter.get('/settings', async (req, res) => {
       await getServiceClient(config)
         .from('mobile_app_settings')
         .update({ android_version_name: shipped.versionName, android_version_code: shipped.versionCode })
-        .eq('id', row.id as string);
+        .eq('id', row.id as string)
+        .eq('edition', edition);
       invalidateMobileAppSettingsCache();
     }
-    const settings = withShippedVersion(row ? normalize(row) : { ...MOBILE_APP_DEFAULTS }, shipped);
+    const settings = withShippedVersion(
+      row ? mobileSettingsForEdition(normalize(row, edition), edition) : { ...mobileAppDefaults(edition) },
+      shipped,
+    );
     const { checks, summary, project, apns } = readinessFor(settings);
     return res.json({
       settings,
@@ -292,6 +295,7 @@ adminMobileAppRouter.get('/settings', async (req, res) => {
       },
     });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -304,28 +308,29 @@ adminMobileAppRouter.put('/settings', async (req, res) => {
     return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues.map((i) => i.path.join('.')) });
   }
   const config = serverConfigOf(req);
-  const sb = getServiceClient(config);
-  // The shipped APK decides the Android version; a typed one is ignored.
-  const payload = withShippedVersion(
-    { ...parsed.data, updated_at: new Date().toISOString() } as typeof parsed.data & {
-      updated_at: string;
-      android_version_name: string;
-      android_version_code: number;
-    },
-    readShippedAndroidRelease(),
-  );
   try {
-    const existing = await readRow(config);
-    const query = existing
-      ? sb.from('mobile_app_settings').update(payload).eq('id', existing.id as string).select('*').single()
-      : sb.from('mobile_app_settings').insert(payload).select('*').single();
-    const { data, error } = await query;
+    // Never written into a guessed edition: unknown answers 503.
+    const edition = await getPlatformEdition(config);
+    // The edition's shipped APK decides the Android version; a typed one is ignored.
+    const payload = withShippedVersion(
+      { ...parsed.data, updated_at: new Date().toISOString() } as typeof parsed.data & {
+        updated_at: string;
+        android_version_name: string;
+        android_version_code: number;
+      },
+      readShippedAndroidRelease(edition),
+    );
+    const existing = await readEditionSettingsRow(config, 'mobile_app_settings', edition);
+    const { data, error } = await saveEditionSettingsRow(
+      config, 'mobile_app_settings', edition, existing, payload, mobileInsertDefaults(edition),
+    );
     if (error) return res.status(500).json({ error: error.message });
     invalidateMobileAppSettingsCache();
-    const settings = normalize(data as Record<string, unknown>);
+    const settings = mobileSettingsForEdition(normalize(data as Record<string, unknown>, edition), edition);
     const { checks, summary } = readinessFor(settings);
     return res.json({ success: true, settings, checks, summary });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -346,9 +351,9 @@ adminMobileAppRouter.post('/checklist', async (req, res) => {
   const parsed = checklistSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const config = serverConfigOf(req);
-  const sb = getServiceClient(config);
   try {
-    const existing = await readRow(config);
+    const edition = await getPlatformEdition(config);
+    const existing = await readEditionSettingsRow(config, 'mobile_app_settings', edition);
     const current = (existing?.checklist as Record<string, unknown>) ?? {};
     const checklist = {
       ...current,
@@ -357,16 +362,16 @@ adminMobileAppRouter.post('/checklist', async (req, res) => {
         : { done: false },
     };
     const payload = { checklist, updated_at: new Date().toISOString() };
-    const query = existing
-      ? sb.from('mobile_app_settings').update(payload).eq('id', existing.id as string).select('*').single()
-      : sb.from('mobile_app_settings').insert(payload).select('*').single();
-    const { data, error } = await query;
+    const { data, error } = await saveEditionSettingsRow(
+      config, 'mobile_app_settings', edition, existing, payload, mobileInsertDefaults(edition),
+    );
     if (error) return res.status(500).json({ error: error.message });
     invalidateMobileAppSettingsCache();
-    const settings = normalize(data as Record<string, unknown>);
+    const settings = mobileSettingsForEdition(normalize(data as Record<string, unknown>, edition), edition);
     const { checks, summary } = readinessFor(settings);
     return res.json({ success: true, settings, checks, summary });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });

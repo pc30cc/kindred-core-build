@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 
 const ROOT = process.cwd();
 const SOURCES = join(ROOT, 'ios', 'Webyar', 'Sources');
@@ -110,6 +111,27 @@ describe('what the binary declares about itself', () => {
     expect(project).toContain('aps-environment: $(APS_ENVIRONMENT)');
     expect(project).toMatch(/Debug:\s*\n\s*APS_ENVIRONMENT: development/);
     expect(project).toMatch(/Release:\s*\n\s*APS_ENVIRONMENT: production/);
+  });
+
+  it('declares them in both apps, WebYar and RESPOK', () => {
+    // The Respok target (project.yml) is a second app with its own
+    // entitlements and Info.plist: the same rules hold for it.
+    type Target = {
+      type: string;
+      info: { properties: Record<string, unknown> };
+      entitlements?: { properties: Record<string, unknown> };
+      settings: { configs?: Record<string, Record<string, unknown>> };
+    };
+    const targets = (parseYaml(project) as { targets: Record<string, Target> }).targets;
+    const apps = Object.entries(targets).filter(([, target]) => target.type === 'application');
+    expect(apps.map(([name]) => name).sort()).toEqual(['Respok', 'Webyar']);
+    for (const [name, target] of apps) {
+      expect(target.entitlements?.properties, name).toEqual({ 'aps-environment': '$(APS_ENVIRONMENT)' });
+      expect(target.settings.configs?.Debug?.APS_ENVIRONMENT, name).toBe('development');
+      expect(target.settings.configs?.Release?.APS_ENVIRONMENT, name).toBe('production');
+      expect(target.info.properties.UIBackgroundModes, name).toEqual(['audio']);
+      expect(target.info.properties, name).not.toHaveProperty('NSUserTrackingUsageDescription');
+    }
   });
 
   it('does not declare a background mode it never uses', () => {

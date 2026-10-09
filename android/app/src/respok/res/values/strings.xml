@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launcher's name for RESPOK's build, the same in every language,
+         as on its desktop apps. WebYar's is src/main/res/values/strings.xml. -->
+    <string name="app_name">RESPOK</string>
+</resources>

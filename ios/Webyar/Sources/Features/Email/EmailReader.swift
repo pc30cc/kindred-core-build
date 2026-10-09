@@ -19,13 +19,15 @@ import Foundation
 /// (`attachmentScheme` opens a file; anything else goes to the browser).
 enum EmailReader {
 
-    /// A file chip's link: `webyar-attachment:<id>`. The web view never loads it; the app opens the file.
-    static let attachmentScheme = "webyar-attachment"
+    /// A file chip's link: `webyar-attachment:<id>` (RESPOK: `respok-attachment:`, so a
+    /// long-pressed link never shows the other brand's name). The web view never loads it;
+    /// the app opens the file.
+    static let attachmentScheme = "\(AppBrand.id)-attachment"
 
     /// Where an inline picture (`cid:`) is fetched from: a scheme of the
     /// app's own, answered from the signed-in API rather than from anywhere
-    /// on the network.
-    static let inlineScheme = "webyar-inline"
+    /// on the network. `webyar-inline`, or `respok-inline` in RESPOK.
+    static let inlineScheme = "\(AppBrand.id)-inline"
 
     static func attachmentLink(_ id: String) -> String { "\(attachmentScheme):\(encode(id))" }
 

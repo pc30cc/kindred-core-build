@@ -13,6 +13,19 @@ const rpc = vi.fn(async (_name: string, _args?: Record<string, unknown>) => rpcR
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({ rpc }),
 }));
+
+// The seed records itself on the running edition's settings row (migrations 257, 258).
+let edition: 'iran' | 'international' = 'iran';
+let settingsRow: Record<string, unknown> | null = { id: 'row-1' };
+const saveRow = vi.fn(async (..._args: unknown[]) => ({ data: { id: 'new-row' }, error: null }));
+vi.mock('../../../server/services/platformRegion.js', () => ({
+  getPlatformEdition: async () => edition,
+}));
+vi.mock('../../../server/services/editionSettings.js', () => ({
+  readEditionSettingsRow: async () => settingsRow,
+  saveEditionSettingsRow: (...args: unknown[]) => saveRow(...args),
+  respondEditionUnavailable: () => false,
+}));
 vi.mock('../../../server/lib/workspaceAuth.js', () => ({
   requirePlatformAdmin: async (_req: unknown, res: { status: (n: number) => { json: (b: unknown) => void } }) => {
     if (isAdmin) return 'admin-1';
@@ -40,6 +53,9 @@ beforeEach(() => {
   isAdmin = true;
   rpcResult = { data: STATUS, error: null };
   rpc.mockClear();
+  edition = 'iran';
+  settingsRow = { id: 'row-1' };
+  saveRow.mockClear();
 });
 
 describe('App Review account routes', () => {
@@ -70,6 +86,27 @@ describe('App Review account routes', () => {
     const hash = rpc.mock.calls[0][1]?._password_hash as string;
     expect(hash).toMatch(/^\$argon2id\$v=19\$m=19456,t=2,p=1\$/);
     expect(hash).not.toContain('power%10');
+  });
+
+  it("creates the running edition's settings row before seeding when it has none, from that edition's defaults", async () => {
+    edition = 'international';
+    settingsRow = null;
+    const res = await request(app()).post('/api/admin/mobile-app/app-review/seed').send({});
+    expect(res.status).toBe(200);
+    expect(saveRow).toHaveBeenCalledTimes(1);
+    const [, table, savedEdition, existing, , defaults] = saveRow.mock.calls[0] as unknown[];
+    expect(table).toBe('mobile_app_settings');
+    expect(savedEdition).toBe('international');
+    expect(existing).toBeNull();
+    expect(defaults).toMatchObject({ bundle_id: 'com.respok.app', android_package_name: 'com.respok.app' });
+    expect(saveRow.mock.invocationCallOrder[0]).toBeLessThan(rpc.mock.invocationCallOrder[0]);
+  });
+
+  it('leaves an existing row alone and just seeds', async () => {
+    const res = await request(app()).post('/api/admin/mobile-app/app-review/seed').send({});
+    expect(res.status).toBe(200);
+    expect(saveRow).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith('app_review_seed', { _password_hash: null });
   });
 
   it('refuses a password under eight characters', async () => {

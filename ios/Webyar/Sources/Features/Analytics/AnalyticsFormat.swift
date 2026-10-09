@@ -52,12 +52,13 @@ enum AnalyticsFormat {
     }
 
     /// "12 Mehr" / "4 Oct": a trend day on the chart's axis. Persian reads it
-    /// in the Persian calendar, like every other date in the app. In UTC,
+    /// in the Persian calendar, like every other date in the app — in WebYar;
+    /// RESPOK's Persian dates are Gregorian (`AppBrand.jalaliDates`). In UTC,
     /// because that is the day the server counted it in.
     static func dayLabel(_ date: Date, _ language: Language, long: Bool = false) -> String {
         let formatter = DateFormatter()
         formatter.locale = language.locale
-        var calendar = Calendar(identifier: language == .fa ? .persian : .gregorian)
+        var calendar = Calendar(identifier: language == .fa && AppBrand.jalaliDates ? .persian : .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? calendar.timeZone
         formatter.calendar = calendar
         formatter.timeZone = calendar.timeZone

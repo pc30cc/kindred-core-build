@@ -45,9 +45,32 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Call widget "powered by" | the localized label with WebYar's Persian logotype in the brand's place (bootstrap `powered_by_logo`, 16px; the words "Powered by Web Yar" / «قدرت گرفته از وب یار» / "Web Yar tarafından desteklenmektedir" if the image fails, the edition is unknown or the backend is older) | the localized label with the platform's logo in the brand's place (the RESPOK kit's horizontal mark, 14px, alt = platform name, the name if the image fails), its link, hidden by the platform switch or the plan gate (as the chat widget) | `server/routes/callWidget.ts`, `public/call-widget/runtime.js` |
 | Chat widget credit | the label and WebYar's Persian logotype (`poweredBy.logo`, absolute from the widget asset base, 16px; the name if the image fails); an unknown edition keeps the English `platform_name` as text | the label and the platform's logo (`poweredBy.logo`, absolute from the widget asset base; the name if the image fails) | `server/routes/widget.ts` |
 | Widget dates (Persian) | Jalali, Tehran day boundaries | Gregorian, the visitor's zone | `calendar` / `timeZone` hints in the bootstrap |
-| Push notification copy | "Webyar", "New message in Webyar", «پیام جدید در وب‌یار» | the platform's name | `server/services/push/dispatch.ts`, `platformSettings.ts` `defaultPushTemplates` |
+| Push notification copy | "Webyar", "New message in Webyar", «پیام جدید در وب‌یار» | the platform's name (also in place of a stored line that names WebYar) | `server/services/push/dispatch.ts`, `platformSettings.ts` `defaultPushTemplates` |
 | Legal pages (/privacy, /terms, /contact) | "Webyar", info@webyar.ai | the platform's name and support address | `src/pages/public/legal` |
 | Desktop apps (Windows, Mac) | WebYar's builds: `Webyar.exe` / `Webyar.app`, feeds `pc30cc/webyar-desktop-releases` and `pc30cc/mac-os`, downloads on app.webyar.ai | RESPOK's builds of the same source: `Respok.exe` / `RESPOK.app`, feeds in `pc30cc/respok-releases`, downloads on app.respok.app; Super Admin → Windows app / macOS app default to them and never serve a WebYar feed, link or note (a cloned value is replaced) | `shared/nativeAppBrands.ts`, `windows-native/src/Webyar.Core/Config/Brand.cs`, `macos/Webyar/Core/Config/AppBrand.swift`, `deploy/app-downloads/` |
+| Mobile apps (iOS, Android) | WebYar's: `com.webyar.ai` (the native iOS and Android apps; Super Admin's iOS record keeps its old default `com.webyar.app`), name "Webyar", Xcode scheme `Webyar`, Gradle flavor `webyar` (`-Pwebyar.version…`), the Android app opens in Persian, `Webyar-Android.apk` / `.json` | RESPOK's: `com.respok.app`, name "RESPOK", scheme `Respok`, flavor `respok` (`-Prespok.version…`), opens in English, `RESPOK-Android.apk` / `.json` (no shipped version until that sidecar exists); Super Admin → Mobile app defaults to them (a new RESPOK row is written with all of them, the columns' defaults being WebYar's) and never shows a name, privacy string, link or note that names WebYar (a cloned one is replaced by RESPOK's default or cleared). Identifiers (bundle id, package, URL scheme, associated domains, Firebase ids, push channel and category ids) are never rewritten, and the App Review account `apple@webyar.ai` is kept | `shared/nativeAppBrands.ts`, `server/services/mobileApp/settings.ts` (`mobileAppDefaults`, `mobileSettingsForEdition`), `androidRelease.ts`, `src/components/admin/mobile/nativeBuild.ts` |
+| Native apps' settings (Super Admin → Windows app, macOS app, Mobile app, Notifications; desktop ads and announcements) | the Iranian edition's own rows | the International edition's own rows | one row per edition, see below |
+
+### The native apps' settings are kept per edition
+
+`desktop_app_settings`, `macos_app_settings`, `mobile_app_settings` and
+`push_platform_settings` hold one row per edition, and every
+`desktop_app_campaigns` row belongs to one edition (`edition` column,
+`database/migrations/257_app_settings_per_edition.sql`). A switch of
+`region_mode` therefore shows Super Admin and the apps that edition's own
+settings, never the other's; switching back finds the first edition's
+settings as they were left. An edition that has saved nothing yet is served
+its own brand's defaults (above), and the first save of its Super Admin page
+creates its row. Every server read and write names the edition
+(`server/services/editionSettings.ts`): the apps' loaders serve the defaults
+without a read while the edition cannot be told, and Super Admin answers 503
+(`EDITION_UNAVAILABLE`) rather than show or write a guessed edition's row.
+Caches are kept per edition. 257 put the rows that existed in the edition the
+deployment ran when it was applied; `public.platform_edition()` (the same
+rule as `resolveEdition`) is the column's default, for code that does not name
+the edition. The App Review demo account is one per database: its status
+reports the latest seed of either edition, and a seed records the account in
+the running edition's App Store record only.
 
 ### WebYar's brand kit (Iranian edition only)
 

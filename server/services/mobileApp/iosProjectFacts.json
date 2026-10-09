@@ -1,24 +1,50 @@
 {
-  "available": true,
-  "appIcon1024": true,
-  "privacyManifestFile": true,
-  "privacyApiTypes": [
-    "UserDefaults",
-    "FileTimestamp",
-    "DiskSpace"
-  ],
-  "privacyDataTypes": [
-    "EmailAddress",
-    "Name",
-    "UserID",
-    "PhotosorVideos",
-    "AudioData",
-    "CustomerSupport",
-    "DeviceID",
-    "OtherUserContent"
-  ],
-  "pushEntitlement": true,
-  "backgroundModes": [
-    "audio"
-  ]
+  "webyar": {
+    "available": true,
+    "appIcon1024": true,
+    "privacyManifestFile": true,
+    "privacyApiTypes": [
+      "UserDefaults",
+      "FileTimestamp",
+      "DiskSpace"
+    ],
+    "privacyDataTypes": [
+      "EmailAddress",
+      "Name",
+      "UserID",
+      "PhotosorVideos",
+      "AudioData",
+      "CustomerSupport",
+      "DeviceID",
+      "OtherUserContent"
+    ],
+    "pushEntitlement": true,
+    "backgroundModes": [
+      "audio"
+    ]
+  },
+  "respok": {
+    "available": true,
+    "appIcon1024": true,
+    "privacyManifestFile": true,
+    "privacyApiTypes": [
+      "UserDefaults",
+      "FileTimestamp",
+      "DiskSpace"
+    ],
+    "privacyDataTypes": [
+      "EmailAddress",
+      "Name",
+      "UserID",
+      "PhotosorVideos",
+      "AudioData",
+      "CustomerSupport",
+      "DeviceID",
+      "OtherUserContent"
+    ],
+    "pushEntitlement": true,
+    "backgroundModes": [
+      "audio"
+    ]
+  }
 }

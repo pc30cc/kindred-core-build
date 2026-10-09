@@ -4,13 +4,16 @@
  * and the "What's new" text in each of the app's three languages.
  *
  * The build does not read this row — Gradle takes its version from
- * `-Pwebyar.versionName` / `-Pwebyar.versionCode` (see
- * `android/app/build.gradle.kts`). So the tab ends with the exact command,
- * which is what keeps the number recorded here and the number uploaded to
- * Play the same number.
+ * `-Pwebyar.versionName` / `-Pwebyar.versionCode` (RESPOK's flavor:
+ * `-Prespok.…`; see `android/app/build.gradle.kts`). So the tab ends with the
+ * exact commands — the edition's own product flavor, WebYar's in Iran and
+ * RESPOK's abroad (nativeBuild.ts) — which is what keeps the number recorded
+ * here and the number uploaded to Play the same number.
  */
 import { Rocket, ScrollText, Terminal } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
+import { useEdition } from '@/hooks/useEdition';
+import { androidApkFile, androidReleaseCommands } from '../nativeBuild';
 import {
   SettingsSection, FieldGrid, TextField, TextAreaField, SelectField, CodeBlock,
 } from '@/components/admin/settings/SettingsFields';
@@ -35,11 +38,10 @@ export function AndroidReleaseTab({
   shipped?: ShippedAndroidRelease | null;
 }) {
   const { t } = useTranslation();
+  const { edition } = useEdition();
   const notes = draft.android_release_notes ?? {};
-  const command = [
-    'cd android',
-    `./gradlew :app:bundleRelease -Pwebyar.versionName=${draft.android_version_name} -Pwebyar.versionCode=${draft.android_version_code}`,
-  ].join('\n');
+  const command = androidReleaseCommands(draft, edition);
+  const shippedHint = t('admin.mobileApp.android.release.versionShippedHint', { apkFile: androidApkFile(edition) });
 
   return (
     <div className="space-y-4">
@@ -51,7 +53,7 @@ export function AndroidReleaseTab({
         <FieldGrid>
           <TextField
             label={t('admin.mobileApp.android.release.versionName')}
-            hint={t(shipped ? 'admin.mobileApp.android.release.versionShippedHint' : 'admin.mobileApp.android.release.versionNameHint')}
+            hint={shipped ? shippedHint : t('admin.mobileApp.android.release.versionNameHint')}
             value={shipped ? shipped.versionName : draft.android_version_name}
             dir="ltr"
             disabled={Boolean(shipped)}
@@ -60,7 +62,7 @@ export function AndroidReleaseTab({
           />
           <TextField
             label={t('admin.mobileApp.android.release.versionCode')}
-            hint={t(shipped ? 'admin.mobileApp.android.release.versionShippedHint' : 'admin.mobileApp.android.release.versionCodeHint')}
+            hint={shipped ? shippedHint : t('admin.mobileApp.android.release.versionCodeHint')}
             value={String(shipped ? shipped.versionCode : draft.android_version_code)}
             type="number"
             dir="ltr"

@@ -8,7 +8,7 @@ plugins {
     // Room's annotation processor, and the plugin that exports its schema.
     alias(libs.plugins.ksp)
     alias(libs.plugins.androidx.room)
-    // Screenshot tests: `recordRoborazziDebug` writes the PNGs.
+    // Screenshot tests: `recordRoborazziWebyarDebug` writes the PNGs.
     alias(libs.plugins.roborazzi)
 }
 
@@ -25,12 +25,38 @@ fun releaseString(property: String, variable: String): String? =
 fun releaseInt(property: String, variable: String): Int? =
     releaseString(property, variable)?.toIntOrNull()
 
+/** A Kotlin/Java string literal, for `buildConfigField`. */
+fun literal(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+/**
+ * Firebase's client configuration — for push — from the build, never from a
+ * committed google-services.json, under the brand's own names:
+ * `-Pwebyar.firebase.appId` or `WEBYAR_FIREBASE_APP_ID` for WebYar,
+ * `-Prespok.firebase.appId` or `RESPOK_FIREBASE_APP_ID` for RESPOK, and so on.
+ *
+ * A build without these is a build without push of its own: the app then
+ * takes the project Super Admin names, which is what every release, every
+ * fork, every CI run and every debug build on a laptop wants. A value set
+ * here wins over Super Admin's (`core/push/PushConfig.kt`), which is why each
+ * brand reads only its own: WebYar's exported in a shell must never send
+ * RESPOK's phones to WebYar's Firebase project.
+ */
+fun com.android.build.api.dsl.VariantDimension.firebase(brand: String, env: String) {
+    fun value(property: String, variable: String) =
+        literal(releaseString("$brand.firebase.$property", "${env}_FIREBASE_$variable") ?: "")
+    buildConfigField("String", "FIREBASE_APP_ID", value("appId", "APP_ID"))
+    buildConfigField("String", "FIREBASE_API_KEY", value("apiKey", "API_KEY"))
+    buildConfigField("String", "FIREBASE_PROJECT_ID", value("projectId", "PROJECT_ID"))
+    buildConfigField("String", "FIREBASE_SENDER_ID", value("senderId", "SENDER_ID"))
+}
+
 /**
  * Whether this invocation is producing an App Bundle rather than APKs.
  *
  * Read from the tasks actually asked for, because the two cannot both be
  * configured: see the note in `splits`. Only the task's own name is matched,
- * so a path like `:app:bundleRelease` counts and an unrelated `:app:assemble`
+ * so a path like `:app:bundleWebyarRelease` counts and an unrelated `:app:assemble`
  * does not.
  */
 val buildingAppBundle: Boolean = gradle.startParameter.taskNames.any {
@@ -38,44 +64,20 @@ val buildingAppBundle: Boolean = gradle.startParameter.taskNames.any {
 }
 
 android {
-    // The same identifier as the iOS app (`PRODUCT_BUNDLE_IDENTIFIER` in
-    // ios/Webyar/project.yml): one name for the product on both stores.
-    // Releases up to 1.0.1 are `com.webyar.operator`, which Android treats as
-    // a different app: a phone with one installs this beside it rather than
-    // over it, and the old one is removed by hand.
+    // The code's package, the same for both brands: R, BuildConfig, the
+    // ProGuard keep rules, the Room schema folder and the baseline profile
+    // all name classes by it. What a phone knows an app by is the
+    // applicationId, which each brand sets below.
     namespace = "com.webyar.ai"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.webyar.ai"
         // Android 7.0. The market this ships to keeps devices far longer than
         // the Play Store's own charts suggest (ADR-003).
         minSdk = 24
         targetSdk = 37
-        // Play refuses an upload whose versionCode it has seen before, and
-        // it never forgets one — so the number cannot live only in this file,
-        // where two releases cut from the same commit would collide and a
-        // hotfix would mean editing source to ship it.
-        //
-        // The default is what a developer building locally wants: a stable
-        // number they never have to think about. A release pipeline passes
-        // its own, and `RELEASE.md` says which.
-        versionCode = releaseInt("webyar.versionCode", "WEBYAR_VERSION_CODE") ?: 1
-        versionName = releaseString("webyar.versionName", "WEBYAR_VERSION_NAME") ?: "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // Firebase's client configuration — for push — from the build, never
-        // from a committed google-services.json. A build without these is a
-        // build without push, which is what every fork, every CI run and
-        // every debug build on a laptop wants; a release pipeline that sets
-        // them gets FCM. See `core/push/PushConfig.kt`.
-        fun firebase(property: String, variable: String) =
-            "\"" + (releaseString(property, variable) ?: "") + "\""
-        buildConfigField("String", "FIREBASE_APP_ID", firebase("webyar.firebase.appId", "WEBYAR_FIREBASE_APP_ID"))
-        buildConfigField("String", "FIREBASE_API_KEY", firebase("webyar.firebase.apiKey", "WEBYAR_FIREBASE_API_KEY"))
-        buildConfigField("String", "FIREBASE_PROJECT_ID", firebase("webyar.firebase.projectId", "WEBYAR_FIREBASE_PROJECT_ID"))
-        buildConfigField("String", "FIREBASE_SENDER_ID", firebase("webyar.firebase.senderId", "WEBYAR_FIREBASE_SENDER_ID"))
 
         ndk {
             // The four ABIs that exist.
@@ -95,22 +97,101 @@ android {
 
     signingConfigs {
         /**
-         * The real one, from the environment.
+         * Each brand's release key, from the environment: `WEBYAR_KEYSTORE`,
+         * `WEBYAR_KEYSTORE_PASSWORD`, `WEBYAR_KEY_ALIAS`, `WEBYAR_KEY_PASSWORD`,
+         * and the same four with `RESPOK_`.
          *
          * No keystore, no password and no alias is committed. A release build
          * on a machine without them produces an unsigned APK, which is the
          * correct outcome: an unsigned artifact cannot be installed by
          * accident, whereas one signed with a key from the repository can be
          * installed by anybody who has ever cloned it.
+         *
+         * WebYar's is the key every WebYar release so far was signed with,
+         * and must stay so: a phone refuses an update signed by another.
          */
-        create("release") {
-            val store = System.getenv("WEBYAR_KEYSTORE")
-            if (store != null && file(store).exists()) {
-                storeFile = file(store)
-                storePassword = System.getenv("WEBYAR_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("WEBYAR_KEY_ALIAS")
-                keyPassword = System.getenv("WEBYAR_KEY_PASSWORD")
+        for ((brand, env) in listOf("webyar" to "WEBYAR", "respok" to "RESPOK")) {
+            create("${brand}Release") {
+                val store = System.getenv("${env}_KEYSTORE")
+                if (store != null && file(store).exists()) {
+                    storeFile = file(store)
+                    storePassword = System.getenv("${env}_KEYSTORE_PASSWORD")
+                    keyAlias = System.getenv("${env}_KEY_ALIAS")
+                    keyPassword = System.getenv("${env}_KEY_PASSWORD")
+                }
             }
+        }
+    }
+
+    /**
+     * Two apps from one source, installable side by side: WebYar (the Iranian
+     * edition, webyar.ai) and RESPOK (the International edition, respok.app).
+     * The Windows app makes the same split with `Brand.cs`, the Mac app with
+     * its `Respok` target; `core/AppBrand.kt` reads what is set here.
+     *
+     * Everything that differs is in these two blocks or in `src/respok`
+     * (name, icons, launch colours); the rest is shared. Every task names its
+     * brand: `assembleWebyarRelease`, `bundleRespokRelease`,
+     * `testRespokDebugUnitTest`.
+     */
+    flavorDimensions += "brand"
+    productFlavors {
+        create("webyar") {
+            dimension = "brand"
+            // The same identifier as the iOS app (`PRODUCT_BUNDLE_IDENTIFIER`
+            // in ios/Webyar/project.yml): one name for the product on both
+            // stores. Releases up to 1.0.1 are `com.webyar.operator`, which
+            // Android treats as a different app: a phone with one installs
+            // this beside it rather than over it, and the old one is removed
+            // by hand.
+            applicationId = "com.webyar.ai"
+            // Play refuses an upload whose versionCode it has seen before, and
+            // it never forgets one — so the number cannot live only in this
+            // file, where two releases cut from the same commit would collide
+            // and a hotfix would mean editing source to ship it.
+            //
+            // The default is what a developer building locally wants: a stable
+            // number they never have to think about. A release pipeline passes
+            // its own, and docs/ANDROID_RELEASE.md says which.
+            versionCode = releaseInt("webyar.versionCode", "WEBYAR_VERSION_CODE") ?: 1
+            versionName = releaseString("webyar.versionName", "WEBYAR_VERSION_NAME") ?: "0.1.0"
+            signingConfig = signingConfigs.getByName("webyarRelease").takeIf { it.storeFile != null }
+
+            buildConfigField("String", "BRAND_ID", literal("webyar"))
+            buildConfigField("String", "BRAND_NAME", literal("Webyar"))
+            // The first request of a fresh install; the platform moves it
+            // later (/api/platform/origins, core/storage/Settings.kt).
+            buildConfigField("String", "API_BASE_URL", literal("https://api.webyar.ai"))
+            buildConfigField("String", "DEFAULT_LANGUAGE", literal("fa"))
+            buildConfigField("boolean", "JALALI_DATES", "true")
+            buildConfigField("String", "REALTIME_CLIENT_NAME", literal("webyar-android"))
+            firebase("webyar", "WEBYAR")
+        }
+        create("respok") {
+            dimension = "brand"
+            // RESPOK's own: mobile_app_settings.android_package_name in its
+            // database, which Super Admin uses to pick this app's client out
+            // of a google-services.json.
+            applicationId = "com.respok.app"
+            // RESPOK's own numbers first; then the ones a WebYar-shaped
+            // command passes (Super Admin's build command uses
+            // -Pwebyar.versionCode for both brands), so either builds the
+            // version asked for.
+            versionCode = releaseInt("respok.versionCode", "RESPOK_VERSION_CODE")
+                ?: releaseInt("webyar.versionCode", "WEBYAR_VERSION_CODE") ?: 1
+            versionName = releaseString("respok.versionName", "RESPOK_VERSION_NAME")
+                ?: releaseString("webyar.versionName", "WEBYAR_VERSION_NAME") ?: "1.0.0"
+            signingConfig = signingConfigs.getByName("respokRelease").takeIf { it.storeFile != null }
+
+            buildConfigField("String", "BRAND_ID", literal("respok"))
+            buildConfigField("String", "BRAND_NAME", literal("RESPOK"))
+            buildConfigField("String", "API_BASE_URL", literal("https://api.respok.app"))
+            // The International edition: Persian is a language to pick, never
+            // the default, and its dates stay Gregorian (in Persian digits).
+            buildConfigField("String", "DEFAULT_LANGUAGE", literal("en"))
+            buildConfigField("boolean", "JALALI_DATES", "false")
+            buildConfigField("String", "REALTIME_CLIENT_NAME", literal("respok-android"))
+            firebase("respok", "RESPOK")
         }
     }
 
@@ -123,9 +204,11 @@ android {
             vcsInfo.include = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
-            signingConfig = signingConfigs.getByName("release").takeIf {
-                it.storeFile != null
-            }
+            // NO signingConfig here, ever: each brand's flavor names its own
+            // key. A build type's signingConfig wins over a flavor's, so one
+            // set here would sign both apps with it — RESPOK with WebYar's key
+            // or the other way round, which Play then binds to that app for
+            // good. The check after this block refuses that build.
         }
 
         /**
@@ -144,6 +227,11 @@ android {
             applicationIdSuffix = ".minified"
             isDebuggable = false
         }
+    }
+
+    // See the note in `release`: a key there would sign both brands with it.
+    check(buildTypes.getByName("release").signingConfig == null) {
+        "buildTypes.release must not set a signingConfig: each brand's flavor names its own release key"
     }
 
     /**

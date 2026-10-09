@@ -108,7 +108,7 @@ actor AttachmentStore {
             // Bytes already in memory (a photo opened full screen) are not fetched twice.
             let temporary: URL
             if let inMemory = self.memoryHit(key) {
-                temporary = FileManager.default.temporaryDirectory.appendingPathComponent("webyar-\(UUID().uuidString)")
+                temporary = FileManager.default.temporaryDirectory.appendingPathComponent("\(AppBrand.tempPrefix)-\(UUID().uuidString)")
                 try inMemory.write(to: temporary, options: .atomic)
             } else {
                 temporary = try await Self.fetchFile(attachment, api: api)
@@ -120,7 +120,7 @@ actor AttachmentStore {
             // Not kept (the disk is full, or the scope moved on): a file of
             // its own in the temporary directory, for this one use.
             let loose = FileManager.default.temporaryDirectory
-                .appendingPathComponent("webyar-\(UUID().uuidString)")
+                .appendingPathComponent("\(AppBrand.tempPrefix)-\(UUID().uuidString)")
                 .appendingPathExtension(AttachmentDiskCache.sanitizedExtension(ext))
             if FileManager.default.fileExists(atPath: temporary.path) {
                 try FileManager.default.moveItem(at: temporary, to: loose)
@@ -161,7 +161,7 @@ actor AttachmentStore {
             // Not kept (no account, a full disk, or the scope moved on): a
             // file of its own in the temporary directory, for this one use.
             let loose = FileManager.default.temporaryDirectory
-                .appendingPathComponent("webyar-\(UUID().uuidString)")
+                .appendingPathComponent("\(AppBrand.tempPrefix)-\(UUID().uuidString)")
                 .appendingPathExtension(AttachmentDiskCache.sanitizedExtension(fileExtension))
             try data.write(to: loose, options: .atomic)
             return loose

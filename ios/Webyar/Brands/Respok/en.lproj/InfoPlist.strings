@@ -1,0 +1,10 @@
+/* RESPOK's name under the icon, and the sentences iOS itself puts in front of
+   someone the first time the app asks for the camera, the microphone or to
+   save to Photos. They are drawn by the system, not by the app, so
+   `BrandStr` cannot reach them — they are localized here or they are English
+   for everybody. The Respok target (project.yml) bundles these files in place
+   of Resources/<lang>.lproj/InfoPlist.strings, the other brand's. */
+"CFBundleDisplayName" = "RESPOK";
+"NSMicrophoneUsageDescription" = "RESPOK uses the microphone when you call a visitor, and when you record a voice note to send into a conversation.";
+"NSCameraUsageDescription" = "RESPOK uses the camera when you start a video call with a visitor.";
+"NSPhotoLibraryAddUsageDescription" = "RESPOK saves a photo or video to your library when you choose Save on a file opened from a conversation or an email.";

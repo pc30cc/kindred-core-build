@@ -80,7 +80,7 @@ private fun knownCodeText(code: String?, language: Language): String? = when (co
     "email_missing_recipient" -> StrEmail.needsRecipient(language)
     "email_attachment_upload_failed" -> StrEmail.uploadFailed(language)
     // A sign-in refused while Super Admin has the platform down.
-    "maintenance" -> StrAndroid.maintenanceTitle(language)
+    "maintenance" -> BrandStr.maintenanceTitle(language)
     else -> null
 }
 

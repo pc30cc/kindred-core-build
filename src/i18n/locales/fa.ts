@@ -4695,7 +4695,7 @@ const fa: TranslationKeys = {
           versionNameHint: 'آنچه اپراتورها می‌بینند، مثلاً 1.4.0.',
           versionCode: 'کد نسخه',
           versionCodeHint: 'عدد صحیحی که گوگل پلی قبلاً ندیده؛ هر آپلود به عددی بزرگ‌تر نیاز دارد.',
-          versionShippedHint: "همان نسخهٔ اپی که از سایت دانلود می‌شود (Webyar-Android.apk)؛ با هر انتشار خودکار به‌روز می‌شود.",
+          versionShippedHint: "همان نسخهٔ اپی که از سایت دانلود می‌شود ({{apkFile}})؛ با هر انتشار خودکار به‌روز می‌شود.",
           minSdk: 'حداقل SDK',
           minSdkHint: 'قدیمی‌ترین اندرویدی که اپ روی آن نصب می‌شود (۲۴ یعنی اندروید ۷).',
           targetSdk: 'SDK هدف',

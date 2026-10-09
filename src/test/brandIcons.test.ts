@@ -18,28 +18,45 @@
  *
  * And the whole point: they all have to be the same picture. That one is
  * checked by comparing the pixels, because it is the claim that decays.
+ *
+ * Per brand, since the iPhone app is two apps (ios/Webyar/project.yml):
+ * WebYar's icon is the one its site wears in the Iranian edition
+ * (public/brand/webyar, the WebYar brand kit), RESPOK's the one its site wears
+ * in the International edition (public/brand/intl, the Thread / Signal kit).
+ * The site's default icons, for the other region modes, are a pair of their
+ * own. Each app icon set also carries the iOS 18 dark and tinted variants.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
+import { parse as parseYaml } from 'yaml';
 
-/** An app-icon catalog: masked by the system, so square and opaque. */
-const CATALOGS = [
-  'ios/Webyar/Resources/Assets.xcassets/AppIcon.appiconset',
-];
-/** Masked by the system too, but a plain file rather than a catalog. */
+/** Each iPhone app (its Xcode target), its icon set, and the icon its site wears. */
+const IOS_APPS = {
+  Webyar: {
+    catalog: 'ios/Webyar/Resources/Assets.xcassets/AppIcon.appiconset',
+    site: 'public/brand/webyar/apple-touch-icon.png',
+  },
+  Respok: {
+    catalog: 'ios/Webyar/Brands/Respok/Assets.xcassets/AppIcon.appiconset',
+    site: 'public/brand/intl/apple-touch-icon.png',
+  },
+} as const;
+type IosApp = keyof typeof IOS_APPS;
+/** RESPOK's Signal #FF5A3C: the flat ground its icon bleeds to every edge with. */
+const SIGNAL = [0xff, 0x5a, 0x3c];
+/** The site's default icons (no edition's kit): masked by the system, and masked by nothing. */
 const SQUARE_FILES = ['public/apple-touch-icon.png'];
-/** Masked by nothing. */
 const ROUNDED_FILES = ['public/favicon.png'];
 
 type Png = {
   width: number;
   height: number;
   depth: number;
-  /** PNG colour type: 2 is RGB, 6 is RGBA. */
+  /** PNG colour type: 0 is grey, 2 is RGB, 4 is grey with alpha, 6 is RGBA. */
   colour: number;
-  /** Row-major RGB, three bytes per pixel. */
+  /** Row-major RGB, three bytes per pixel (grey is spread over all three). */
   pixels: Uint8Array;
   /** Row-major alpha, one byte per pixel; all 255 when the image has none. */
   alpha: Uint8Array;
@@ -79,7 +96,12 @@ function decodePng(bytes: Buffer): Png {
     at += 12 + length;
   }
 
-  const channels = colour === 6 ? 4 : 3;
+  const CHANNELS: Record<number, number> = { 0: 1, 2: 3, 4: 2, 6: 4 };
+  const channels = CHANNELS[colour];
+  expect(channels, `PNG colour type ${colour} is not decoded here`).toBeDefined();
+  expect(depth, 'only 8-bit PNGs are decoded here').toBe(8);
+  const grey = colour === 0 || colour === 4;
+  const hasAlpha = colour === 4 || colour === 6;
   const stride = width * channels;
   const raw = inflateSync(Buffer.concat(idat));
   const pixels = new Uint8Array(width * height * 3);
@@ -117,10 +139,11 @@ function decodePng(bytes: Buffer): Png {
     }
     at += stride;
     for (let x = 0; x < width; x += 1) {
-      pixels[(y * width + x) * 3 + 0] = line[x * channels + 0];
-      pixels[(y * width + x) * 3 + 1] = line[x * channels + 1];
-      pixels[(y * width + x) * 3 + 2] = line[x * channels + 2];
-      if (channels === 4) alpha[y * width + x] = line[x * channels + 3];
+      const p = y * width + x;
+      for (let c = 0; c < 3; c += 1) {
+        pixels[p * 3 + c] = line[x * channels + (grey ? 0 : c)];
+      }
+      if (hasAlpha) alpha[p] = line[x * channels + channels - 1];
     }
     above.set(line);
   }
@@ -187,19 +210,84 @@ function difference(a: Float64Array, b: Float64Array): number {
   return total / a.length;
 }
 
-/** Every icon in a catalog that names a file, as repo-relative paths. */
-function catalogFiles(catalog: string): string[] {
+/** Nine levels out of 255. Resampling between a 1024 and a 180 moves a
+ *  gradient by a level or two, and rounding the corners off a favicon moves
+ *  those corners a long way — over a 24x24 average that lands around five. A
+ *  genuinely different picture is nowhere near this. */
+const SAME = 9;
+
+/** A margin shows up as an edge of one flat colour; artwork that reaches the
+ *  edge varies along it. Eight is far below anything real and far above the
+ *  couple of levels of noise in a PNG. */
+const FLAT = 8;
+
+type IconImage = { filename?: string; size?: string; idiom?: string; appearances?: { appearance: string; value: string }[] };
+
+/** Every icon in a catalog, as repo-relative paths with the appearance each is for. */
+function catalogImages(catalog: string): Array<{ path: string; appearance: 'any' | 'dark' | 'tinted' | string }> {
   const manifest = JSON.parse(readFileSync(join(catalog, 'Contents.json'), 'utf8'));
-  const images: Array<{ filename?: string; size?: string; idiom?: string }> = manifest.images ?? [];
+  const images: IconImage[] = manifest.images ?? [];
   expect(images.length, `${catalog} declares no images at all`).toBeGreaterThan(0);
   for (const image of images) {
     expect(image.filename, `a ${image.size} ${image.idiom} slot in ${catalog} is empty`).toBeTruthy();
   }
-  return images.map((image) => join(catalog, image.filename!));
+  return images.map((image) => ({
+    path: join(catalog, image.filename!),
+    appearance: image.appearances?.find((a) => a.appearance === 'luminosity')?.value ?? 'any',
+  }));
 }
 
-const squares = [...CATALOGS.flatMap(catalogFiles), ...SQUARE_FILES];
-const all = [...squares, ...ROUNDED_FILES];
+/** The icon App Store Connect and the home screen use by default: the one with no appearance. */
+function marketingIcon(app: IosApp): string {
+  const any = catalogImages(IOS_APPS[app].catalog).filter((image) => image.appearance === 'any');
+  expect(any, `${IOS_APPS[app].catalog} must have exactly one icon for the default appearance`).toHaveLength(1);
+  return any[0].path;
+}
+
+const marketing = (Object.keys(IOS_APPS) as IosApp[]).map((app) => [app, marketingIcon(app)] as const);
+const squares = [...marketing.map(([, path]) => path), ...Object.values(IOS_APPS).map((app) => app.site), ...SQUARE_FILES];
+const all = [
+  ...Object.values(IOS_APPS).flatMap((app) => catalogImages(app.catalog).map((image) => image.path)),
+  ...Object.values(IOS_APPS).map((app) => app.site),
+  ...SQUARE_FILES,
+  ...ROUNDED_FILES,
+];
+
+/** The edges and corners of an icon, as pixel indices. */
+function edgesOf(png: Png): Array<[string, (i: number) => number, number]> {
+  const { width: w, height: h } = png;
+  return [
+    ['top', (x) => x, w],
+    ['bottom', (x) => (h - 1) * w + x, w],
+    ['left', (y) => y * w, h],
+    ['right', (y) => y * w + (w - 1), h],
+  ];
+}
+function cornersOf(png: Png): number[] {
+  const { width: w, height: h } = png;
+  return [0, w - 1, (h - 1) * w, (h - 1) * w + (w - 1)];
+}
+
+/** A full-bleed gradient icon: every edge and the four corners vary. */
+function expectBleedsAsGradient(path: string) {
+  const png = decodePng(readFileSync(path));
+  for (const [side, pick, count] of edgesOf(png)) {
+    expect(
+      spread(png, pick, count),
+      `${path}: the ${side} edge is one flat colour: the artwork has a margin around ` +
+        `it, and the system will mask that margin into the icon`,
+    ).toBeGreaterThan(FLAT);
+  }
+  // And the corners belong to the artwork, not to a backdrop it was drawn
+  // on. A pre-rounded icon leaves its corners the colour of the paper,
+  // the same in all four; a full-bleed gradient does not.
+  const corners = cornersOf(png);
+  expect(
+    spread(png, (i) => corners[i], corners.length),
+    `${path}: all four corners are the same colour: this icon is drawn on a backdrop ` +
+      'rather than bleeding to its own edges',
+  ).toBeGreaterThan(FLAT);
+}
 
 describe('the brand icons', () => {
   it.each(all)('%s exists', (path) => {
@@ -219,46 +307,45 @@ describe('the brand icons', () => {
     expect(png.colour, 'this icon has an alpha channel').toBe(2);
   });
 
-  it.each(squares)('%s bleeds to all four edges', (path) => {
-    const png = decodePng(readFileSync(path));
-    const { width: w, height: h } = png;
+  it.each(marketing)('%s: the App Store icon is 1024 x 1024', (_app, path) => {
+    expect(decodePng(readFileSync(path)).width).toBe(1024);
+  });
 
-    // A margin shows up as an edge of one flat colour. Artwork that reaches
-    // the edge varies along it — this icon's gradient moves by a hundred
-    // levels or so down each side. Eight is far below anything real and far
-    // above the couple of levels of noise in a PNG.
-    const FLAT = 8;
-    const edges: Array<[string, (i: number) => number, number]> = [
-      ['top', (x) => x, w],
-      ['bottom', (x) => (h - 1) * w + x, w],
-      ['left', (y) => y * w, h],
-      ['right', (y) => y * w + (w - 1), h],
-    ];
-    for (const [side, pick, count] of edges) {
-      expect(
-        spread(png, pick, count),
-        `the ${side} edge is one flat colour: the artwork has a margin around ` +
-          `it, and the system will mask that margin into the icon`,
-      ).toBeGreaterThan(FLAT);
+  it('WebYar: the icon bleeds to all four edges', () => {
+    // WebYar's ground is the kit's turquoise gradient: it moves along every edge.
+    expectBleedsAsGradient(marketingIcon('Webyar'));
+    expectBleedsAsGradient(IOS_APPS.Webyar.site);
+  });
+
+  it('RESPOK: the icon is Signal to every edge and corner', () => {
+    // RESPOK's ground is flat Signal, so the gradient rule cannot apply: an
+    // edge of one colour is the design. What still has to hold is that the
+    // colour at the edge is the icon's own ground, not a paper or a
+    // transparent margin the artwork was drawn on.
+    for (const path of [marketingIcon('Respok'), IOS_APPS.Respok.site]) {
+      const png = decodePng(readFileSync(path));
+      const edge = [...edgesOf(png).flatMap(([, pick, count]) => Array.from({ length: count }, (_, i) => pick(i)))];
+      for (const i of edge) {
+        for (let c = 0; c < 3; c += 1) {
+          expect(Math.abs(png.pixels[i * 3 + c] - SIGNAL[c]), `${path}: an edge pixel is not Signal`).toBeLessThanOrEqual(2);
+        }
+      }
+      // And the mark is on it: the diagonal across the middle half is not all ground.
+      const { width: w } = png;
+      const middle = Array.from({ length: w / 2 }, (_, k) => (Math.floor(w / 4) + k) * w + Math.floor(w / 4) + k);
+      expect(spread(png, (i) => middle[i], middle.length), `${path} is a blank Signal square`).toBeGreaterThan(FLAT);
     }
+  });
 
-    // And the corners belong to the artwork, not to a backdrop it was drawn
-    // on. A pre-rounded icon leaves its corners the colour of the paper,
-    // the same in all four; a full-bleed gradient does not.
-    const corners = [0, w - 1, (h - 1) * w, (h - 1) * w + (w - 1)];
-    expect(
-      spread(png, (i) => corners[i], corners.length),
-      'all four corners are the same colour: this icon is drawn on a backdrop ' +
-        'rather than bleeding to its own edges',
-    ).toBeGreaterThan(FLAT);
+  it('the site\'s default touch icon bleeds to all four edges', () => {
+    for (const path of SQUARE_FILES) expectBleedsAsGradient(path);
   });
 
   it.each(ROUNDED_FILES)('%s carries its own rounded corner', (path) => {
     const png = decodePng(readFileSync(path));
     expect(png.colour, 'a favicon needs an alpha channel to round itself').toBe(6);
     const { width: w, height: h } = png;
-    const corners = [0, w - 1, (h - 1) * w, (h - 1) * w + (w - 1)];
-    for (const i of corners) {
+    for (const i of cornersOf(png)) {
       expect(png.alpha[i], 'a corner is opaque: nothing masks a favicon, so ' +
         'the tab would show a hard square where every other surface is rounded')
         .toBeLessThan(8);
@@ -266,15 +353,33 @@ describe('the brand icons', () => {
     expect(png.alpha[(h / 2) * w + w / 2], 'the middle is transparent').toBe(255);
   });
 
-  it('shows the same mark on every surface', () => {
-    const reference = all[0];
+  it.each(Object.keys(IOS_APPS) as IosApp[])('%s: each app carries the light, dark and tinted icon', (app) => {
+    const images = catalogImages(IOS_APPS[app].catalog);
+    expect(images.map((image) => image.appearance).sort()).toEqual(['any', 'dark', 'tinted']);
+    // The tinted icon is a greyscale picture iOS colours itself: no hue of its own.
+    const tinted = decodePng(readFileSync(images.find((image) => image.appearance === 'tinted')!.path));
+    for (let i = 0; i < tinted.width * tinted.height; i += 97) {
+      const [r, g, b] = [tinted.pixels[i * 3], tinted.pixels[i * 3 + 1], tinted.pixels[i * 3 + 2]];
+      expect(Math.max(r, g, b) - Math.min(r, g, b), `${app}'s tinted icon has colour in it`).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it.each(Object.keys(IOS_APPS) as IosApp[])('%s: the app and its site show the same mark', (app) => {
+    const want = thumbnail(decodePng(readFileSync(marketingIcon(app))));
+    const got = difference(want, thumbnail(decodePng(readFileSync(IOS_APPS[app].site))));
+    expect(got, `${IOS_APPS[app].site} is a different picture from ${app}'s app icon`).toBeLessThan(SAME);
+  });
+
+  it('the two apps do not show the same mark', () => {
+    const webyar = thumbnail(decodePng(readFileSync(marketingIcon('Webyar'))));
+    const respok = thumbnail(decodePng(readFileSync(marketingIcon('Respok'))));
+    expect(difference(webyar, respok)).toBeGreaterThan(SAME * 4);
+  });
+
+  it('the site\'s default icons show one mark', () => {
+    const [reference, ...rest] = [...SQUARE_FILES, ...ROUNDED_FILES];
     const want = thumbnail(decodePng(readFileSync(reference)));
-    // Nine levels out of 255. Resampling between a 1024 and a 180 moves a
-    // gradient by a level or two, and rounding the corners off the favicon
-    // moves those corners a long way — over a 24x24 average that lands
-    // around five. A genuinely different picture is nowhere near this.
-    const SAME = 9;
-    for (const path of all.slice(1)) {
+    for (const path of rest) {
       const got = difference(want, thumbnail(decodePng(readFileSync(path))));
       expect(
         got,
@@ -299,23 +404,46 @@ describe('the brand icons', () => {
  */
 describe('the bundles that carry an icon', () => {
   const CATALOG_NAME = 'AppIcon';
+  type Target = {
+    type: string;
+    sources: Array<string | { path: string; excludes?: string[] }>;
+    info: { properties: Record<string, unknown> };
+    settings: { base: Record<string, unknown> };
+  };
+  const project = parseYaml(readFileSync('ios/Webyar/project.yml', 'utf8')) as { targets: Record<string, Target> };
+  const apps = Object.entries(project.targets).filter(([, target]) => target.type === 'application');
 
-  it('the native app names its icon set in the generated Info.plist', () => {
-    const project = readFileSync('ios/Webyar/project.yml', 'utf8');
-    expect(
-      project,
-      'project.yml builds the Info.plist and declares no CFBundleIconName, ' +
-        'so App Store Connect will reject the upload as ITMS-90713',
-    ).toMatch(new RegExp(`^\\s*CFBundleIconName:\\s*${CATALOG_NAME}\\s*$`, 'm'));
+  it('every app target is one of the two brands', () => {
+    expect(apps.map(([name]) => name).sort()).toEqual(Object.keys(IOS_APPS).sort());
   });
 
-  it('the name matches a catalog that exists', () => {
-    for (const catalog of CATALOGS) {
-      expect(
-        catalog.endsWith(`${CATALOG_NAME}.appiconset`),
-        `${catalog} is not the ${CATALOG_NAME} set the plists name`,
-      ).toBe(true);
-      expect(existsSync(join(catalog, 'Contents.json'))).toBe(true);
+  it.each(apps)('%s names its icon set in the generated Info.plist', (_name, target) => {
+    expect(
+      target.info.properties.CFBundleIconName,
+      'project.yml builds the Info.plist and declares no CFBundleIconName, ' +
+        'so App Store Connect will reject the upload as ITMS-90713',
+    ).toBe(CATALOG_NAME);
+    expect(target.settings.base.ASSETCATALOG_COMPILER_APPICON_NAME).toBe(CATALOG_NAME);
+  });
+
+  it.each(apps)('%s bundles exactly its own icon set', (name, target) => {
+    const catalog = IOS_APPS[name as IosApp].catalog;
+    expect(catalog.endsWith(`${CATALOG_NAME}.appiconset`), `${catalog} is not the ${CATALOG_NAME} set the plists name`).toBe(true);
+    expect(existsSync(join(catalog, 'Contents.json'))).toBe(true);
+    // Its catalog is in the target's sources, and the other brand's is not.
+    const catalogDir = catalog.replace(/\/AppIcon\.appiconset$/, '').replace(/^ios\/Webyar\//, '');
+    const included = (path: string) =>
+      target.sources.some((source) => {
+        const entry = typeof source === 'string' ? { path: source } : source;
+        if (!path.startsWith(`${entry.path}/`)) return false;
+        const rest = path.slice(entry.path.length + 1);
+        return !(entry.excludes ?? []).some((pattern) => rest === pattern || rest.startsWith(`${pattern}/`));
+      });
+    expect(included(catalogDir), `${name} does not bundle ${catalogDir}`).toBe(true);
+    for (const [other, app] of Object.entries(IOS_APPS)) {
+      if (other === name) continue;
+      const otherDir = app.catalog.replace(/\/AppIcon\.appiconset$/, '').replace(/^ios\/Webyar\//, '');
+      expect(included(otherDir), `${name} also bundles ${other}'s ${otherDir}`).toBe(false);
     }
   });
 });

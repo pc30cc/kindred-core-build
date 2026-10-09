@@ -1,9 +1,10 @@
 /**
  * DESKTOP APP (WINDOWS) PLATFORM SETTINGS.
  *
- * The singleton `desktop_app_settings` row is the one source of truth for
- * where the desktop app looks for updates and how it tunes itself at
- * runtime. It is read by:
+ * The edition's `desktop_app_settings` row (one per edition, migration 257;
+ * server/services/editionSettings.ts) is the one source of truth for where
+ * the desktop app looks for updates and how it tunes itself at runtime. It
+ * is read by:
  *   • Super Admin → Desktop app (server/routes/adminDesktopApp.ts),
  *   • GET /api/platform/desktop-app (server/routes/desktopAppPublic.ts),
  *     which the desktop app asks on every launch.
@@ -11,14 +12,16 @@
  * Nothing about the WEB build reads this row — a deployment that never ships
  * a desktop app is unaffected by every value here.
  *
- * Never throws: a missing row or a read failure resolves to DEFAULTS, which
- * reproduce the values the desktop app used before this table existed.
+ * Never throws: a missing row, a read failure or an edition that cannot be
+ * told resolves to the edition's defaults (DEFAULTS in Iran, which reproduce
+ * the values the desktop app used before this table existed; RESPOK's feed
+ * abroad).
  */
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
 import type { Edition } from '../../../shared/edition.js';
 import { NATIVE_APP_BRANDS, pointsAtWebyar } from '../../../shared/nativeAppBrands.js';
 import { getPlatformEditionOrNull } from '../platformRegion.js';
+import { editionSettingsRow } from '../editionSettings.js';
 
 export type DesktopUpdateChannel = 'stable' | 'beta';
 
@@ -83,7 +86,8 @@ export const DESKTOP_APP_BOUNDS = {
 } as const;
 
 const CACHE_TTL_MS = 30_000;
-let cache: { value: DesktopAppSettings; ts: number } | null = null;
+/** Memoized per edition: a switch of edition reads that edition's row at once. */
+let cache: { edition: Edition | null; value: DesktopAppSettings; ts: number } | null = null;
 
 /** Test/route seam: drop the memoized row after a write. */
 export function invalidateDesktopAppSettingsCache(): void {
@@ -91,30 +95,40 @@ export function invalidateDesktopAppSettingsCache(): void {
 }
 
 export async function loadDesktopAppSettings(config: ServerConfig): Promise<DesktopAppSettings> {
+  const edition = await getPlatformEditionOrNull(config);
   const now = Date.now();
-  if (cache && now - cache.ts < CACHE_TTL_MS) return cache.value;
+  if (cache && cache.edition === edition && now - cache.ts < CACHE_TTL_MS) return cache.value;
 
-  let value = DESKTOP_APP_DEFAULTS;
-  try {
-    const sb = getServiceClient(config);
-    const { data, error } = await sb
-      .from('desktop_app_settings')
-      .select('*')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (!error && data) value = normalize(data as Record<string, unknown>);
-  } catch {
-    // A deployment that has not applied migration 207 yet still boots.
+  // While the edition cannot be told, neither can its row: the defaults.
+  let value = desktopAppDefaults(edition);
+  if (edition) {
+    try {
+      const { data, error } = await editionSettingsRow(config, 'desktop_app_settings', edition);
+      if (!error && data) value = desktopSettingsForEdition(normalize(data as Record<string, unknown>), edition);
+    } catch {
+      // A deployment that has not applied migration 207 yet still boots.
+    }
   }
-  value = desktopSettingsForEdition(value, await getPlatformEditionOrNull(config));
-  cache = { value, ts: now };
+  cache = { edition, value, ts: now };
   return value;
 }
 
 /** The default update feed of an edition: WebYar's in Iran (and when unknown), RESPOK's abroad. */
 export function desktopDefaultFeedUrl(edition: Edition | null): string {
   return edition === 'international' ? NATIVE_APP_BRANDS.international.windowsFeedUrl : DESKTOP_APP_DEFAULT_FEED_URL;
+}
+
+/** What an edition that has no row yet is served: DEFAULTS in Iran (and when unknown), with RESPOK's feed abroad. */
+export function desktopAppDefaults(edition: Edition | null): DesktopAppSettings {
+  return desktopSettingsForEdition(DESKTOP_APP_DEFAULTS, edition);
+}
+
+/**
+ * The columns an edition's first row is created with where its defaults
+ * differ from the table's own (WebYar's): RESPOK's feed abroad, nothing in Iran.
+ */
+export function desktopInsertDefaults(edition: Edition): Partial<DesktopAppSettings> {
+  return edition === 'international' ? { update_feed_url: desktopDefaultFeedUrl(edition) } : {};
 }
 
 /**

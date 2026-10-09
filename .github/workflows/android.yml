@@ -28,10 +28,18 @@ jobs:
   build:
     name: Build (GitHub-hosted)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Both brands, so twice the build and twice the suite of the single app
+    # this was sized for.
+    timeout-minutes: 50
 
     env:
       GRADLE_OPTS: -Dorg.gradle.daemon=false
+      # android/gradle.properties caps the build at 1g for the old shared CI
+      # host. This GitHub-hosted runner has 16 GB, and compiling both brands
+      # in one build ran the Kotlin compiler out of heap at 1g. Passed on every
+      # Gradle call below; keeps the properties file's other JVM flags,
+      # preferIPv4Stack above all (see the note there).
+      GRADLE_JVMARGS: -Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -Djava.net.preferIPv4Stack=true
 
     steps:
       - name: Checkout
@@ -99,9 +107,14 @@ jobs:
       # host has no device and 2GB to spend. Building it here would download
       # uiautomator and the benchmark runner to produce an artifact nothing
       # on this machine can execute.
-      - name: Build debug
+      #
+      # Both brands, every run: one source makes WebYar (`webyar`) and RESPOK
+      # (`respok`), and a change that only breaks one of them is still a
+      # break. Every task names its flavor; the unflavored ones
+      # (`testDebugUnitTest`, `lintDebug`) no longer exist.
+      - name: Build debug (WebYar and RESPOK)
         working-directory: android
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: ./gradlew "$GRADLE_JVMARGS" :app:assembleWebyarDebug :app:assembleRespokDebug --stacktrace
 
       # The Room cache's schema, as the build just exported it. Uploaded so a
       # schema change can be committed from any machine, including one that
@@ -119,6 +132,8 @@ jobs:
       # written, and tested, against. A build whose export differs from what
       # is committed fails here, so an entity change cannot ship without its
       # schema. The fix is to commit the room-schema artifact of this run.
+      # Both brands export into the same folder, so their entities must stay
+      # in src/main and agree.
       - name: Room schema is committed
         working-directory: android
         run: |
@@ -138,29 +153,37 @@ jobs:
       # KVM, no emulator (ADR-003 §5). Instrumented tests are a separate job
       # on a schedule, because the emulator's ~4GB does not coexist with a
       # build and Supabase at once.
-      - name: Unit tests (JVM)
+      #
+      # The whole suite in both brands — the shared tests (src/test) and each
+      # brand's own (src/testWebyar, src/testRespok: its package, its server,
+      # its language, its calendar, its words). `--continue` so a failure in
+      # one brand still reports the other's.
+      - name: Unit tests (JVM, WebYar and RESPOK)
         working-directory: android
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: ./gradlew "$GRADLE_JVMARGS" --continue :app:testWebyarDebugUnitTest :app:testRespokDebugUnitTest --stacktrace
 
       - name: Test report
         if: ${{ !cancelled() }}
         working-directory: android
         run: |
           set -eu
-          for f in app/build/test-results/testDebugUnitTest/*.xml; do
-            [ -e "$f" ] || continue
-            sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1: \2 tests, \4 failures, \5 errors/p' "$f"
+          for brand in Webyar Respok; do
+            echo "== $brand"
+            for f in app/build/test-results/test${brand}DebugUnitTest/*.xml; do
+              [ -e "$f" ] || continue
+              sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1: \2 tests, \4 failures, \5 errors/p' "$f"
+            done
           done
           # Gradle's console names a failed test and a line number; the
           # reason is only in the XML. Print it, so a red run says why.
-          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+          for f in app/build/test-results/test*DebugUnitTest/*.xml; do
             [ -e "$f" ] || continue
             grep -A12 '<failure' "$f" | head -40 || true
           done
 
-      - name: Lint
+      - name: Lint (WebYar and RESPOK)
         working-directory: android
-        run: ./gradlew :app:lintDebug --stacktrace
+        run: ./gradlew "$GRADLE_JVMARGS" --continue :app:lintWebyarDebug :app:lintRespokDebug --stacktrace
 
       - name: APK
         working-directory: android
@@ -179,13 +202,16 @@ jobs:
       # build alone already peaks at 1537MB. Once a week and on demand is
       # enough to catch a rule that has gone stale; every push is how you
       # take the database down to check a ProGuard file.
-      - name: Minified build (R8)
+      #
+      # Both brands: their shrinkers see different resources (each its own
+      # icons and name), so each gets its own R8 run.
+      - name: Minified build (R8, WebYar and RESPOK)
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         working-directory: android
         run: |
           set -eu
-          ./gradlew :app:assembleMinified --stacktrace
-          find app/build/outputs/apk/minified -name '*.apk' -exec ls -lh {} \;
+          ./gradlew "$GRADLE_JVMARGS" :app:assembleWebyarMinified :app:assembleRespokMinified --stacktrace
+          find app/build/outputs/apk -path '*minified*' -name '*.apk' -exec ls -lh {} \;
 
 # NO EMULATOR JOB YET, and that is a measurement rather than an omission.
 #

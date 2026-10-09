@@ -33,6 +33,7 @@ namespace Webyar.Setup
                 Shutdown(0);
                 return;
             }
+            ApplyBrand();
             ApplyTheme();
             // The copy in the install folder only ever uninstalls, however it is started.
             var uninstall = Has(e, "uninstall") || Installer.IsUninstallerCopy;
@@ -81,6 +82,43 @@ namespace Webyar.Setup
             MainWindow.Show();
         }
 
+        /// <summary>
+        /// Each brand kit's colours: the panel on the left behind the app icon, and the accent of the
+        /// buttons and switches. WebYar: the icon's turquoise, deepened so white text stays readable on it.
+        /// RESPOK: Ink, with Signal Deep for actions.
+        /// </summary>
+        private void ApplyBrand()
+        {
+#if BRAND_RESPOK
+            Panel("#2B2849", "#1F1C3A", "#16142B");
+            Set("BrandPanelTaglineBrush", "#D4D2E3");
+            Set("BrandPanelTextBrush", "#ECEBF4");
+            Set("BrandPanelFooterBrush", "#A9A7BC");
+            Set("BrandBrush", "#D3361A");
+            Set("BrandHoverBrush", "#BC2F16");
+            Set("BrandPressedBrush", "#A52912");
+            Set("BrandSoftBrush", "#1FD3361A");
+#else
+            Panel("#13B89C", "#0B8A78", "#075C51");
+            Set("BrandPanelTaglineBrush", "#DDF7F1");
+            Set("BrandPanelTextBrush", "#F0FCF9");
+            Set("BrandPanelFooterBrush", "#B5E6DC");
+            Set("BrandBrush", "#0B7D6C");
+            Set("BrandHoverBrush", "#0A6E5F");
+            Set("BrandPressedBrush", "#085E51");
+            Set("BrandSoftBrush", "#1F0B7D6C");
+#endif
+        }
+
+        private void Panel(string top, string middle, string bottom)
+        {
+            var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            brush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(top), 0));
+            brush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(middle), 0.55));
+            brush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(bottom), 1));
+            Resources["BrandPanelBrush"] = brush;
+        }
+
         /// <summary>Follows the Windows app theme, as the app does.</summary>
         private void ApplyTheme()
         {
@@ -97,10 +135,17 @@ namespace Webyar.Setup
             Set("TextBrush", "#F2F4F8");
             Set("Text2Brush", "#B2B8C6");
             Set("Text3Brush", "#7C8394");
-            Set("BrandBrush", "#5A94FF");
-            Set("BrandHoverBrush", "#6FA2FF");
-            Set("BrandPressedBrush", "#4A84EF");
-            Set("BrandSoftBrush", "#295A94FF");
+#if BRAND_RESPOK
+            Set("BrandBrush", "#FF5A3C");
+            Set("BrandHoverBrush", "#FF7559");
+            Set("BrandPressedBrush", "#E84E31");
+            Set("BrandSoftBrush", "#29FF5A3C");
+#else
+            Set("BrandBrush", "#16C7A8");
+            Set("BrandHoverBrush", "#2ED3B7");
+            Set("BrandPressedBrush", "#12B396");
+            Set("BrandSoftBrush", "#2916C7A8");
+#endif
             Set("HoverBrush", "#12FFFFFF");
             Set("PressedBrush", "#1FFFFFFF");
             Set("SuccessBrush", "#4ADE80");

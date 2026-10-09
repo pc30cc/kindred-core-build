@@ -1,6 +1,7 @@
 package com.webyar.ai.baseline
 
 import androidx.benchmark.macro.junit4.BaselineProfileRule
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
 import org.junit.Rule
@@ -49,6 +50,12 @@ class StartupProfile {
     }
 
     private companion object {
-        const val PACKAGE = "com.webyar.ai"
+        /**
+         * The brand's package: `com.webyar.ai` or `com.respok.app`, passed by
+         * this module's flavor (`targetAppId` in its build.gradle.kts). The
+         * code's own package is com.webyar.ai in both.
+         */
+        val PACKAGE: String =
+            InstrumentationRegistry.getArguments().getString("targetAppId") ?: "com.webyar.ai"
     }
 }

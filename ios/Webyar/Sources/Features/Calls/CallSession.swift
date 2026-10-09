@@ -196,7 +196,8 @@ final class CallSession {
             guard phase == .connecting else { return }
             relayWarning = credentials.warnings?.contains("turn_missing") == true
 
-            guard let url = credentials.signallingURL else {
+            // RESPOK never joins a call on a WebYar server, whatever its own names (`AppBrand`).
+            guard let url = credentials.signallingURL, AppBrand.accepts(url) else {
                 phase = .ended(.failed("no_server_url"))
                 return
             }

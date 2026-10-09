@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { inspectNativeProject, readNativeProjectFacts, readSnapshot } from './project.js';
+import {
+  inspectNativeProject,
+  nativeBrandForEdition,
+  readAllNativeProjectFacts,
+  readNativeProjectFacts,
+  readSnapshot,
+} from './project.js';
 
 const ROOT = resolve(__dirname, '..', '..', '..');
 
@@ -44,6 +50,63 @@ describe('native iOS project facts', () => {
     // `npm run ios:project-facts` after changing the icon, the privacy
     // manifest, the entitlements or the background modes.
     expect(readSnapshot()).toEqual(readNativeProjectFacts(ROOT));
+    for (const brand of ['webyar', 'respok'] as const) {
+      expect(readSnapshot(undefined, brand), brand).toEqual(readNativeProjectFacts(ROOT, brand));
+    }
+    expect(readAllNativeProjectFacts(ROOT)).toEqual({
+      webyar: readNativeProjectFacts(ROOT, 'webyar'),
+      respok: readNativeProjectFacts(ROOT, 'respok'),
+    });
+  });
+
+  it('has both apps, each with its own icon and the same capabilities', () => {
+    // The project builds WebYar (target Webyar) and RESPOK (target Respok).
+    for (const brand of ['webyar', 'respok'] as const) {
+      expect(readNativeProjectFacts(ROOT, brand), brand).toMatchObject({
+        available: true,
+        appIcon1024: true,
+        privacyManifestFile: true,
+        pushEntitlement: true,
+        backgroundModes: ['audio'],
+      });
+    }
+  });
+
+  it('answers for the app each edition ships', () => {
+    expect(nativeBrandForEdition('international')).toBe('respok');
+    expect(nativeBrandForEdition('iran')).toBe('webyar');
+    expect(nativeBrandForEdition(null)).toBe('webyar');
+    expect(inspectNativeProject('respok').source).toBe('checkout');
+  });
+
+  it('reads a target\'s own entitlements and modes, not another target\'s', () => {
+    const spec = `${SPEC}  Respok:
+    info:
+      properties:
+        UIBackgroundModes:
+          - audio
+          - voip
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.respok.app
+`;
+    const root = fakeProject(spec);
+    expect(readNativeProjectFacts(root, 'webyar')).toMatchObject({ pushEntitlement: true, backgroundModes: ['audio'] });
+    // RESPOK's icon set is its own (Brands/Respok), missing here.
+    expect(readNativeProjectFacts(root, 'respok')).toMatchObject({
+      available: true,
+      appIcon1024: false,
+      pushEntitlement: false,
+      backgroundModes: ['audio', 'voip'],
+    });
+  });
+
+  it('reads a snapshot written before RESPOK, for WebYar only', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ios-facts-'));
+    const legacy = join(dir, 'legacy.json');
+    writeFileSync(legacy, JSON.stringify({ available: true, appIcon1024: true, pushEntitlement: true, backgroundModes: ['audio'] }));
+    expect(readSnapshot(legacy)).toMatchObject({ available: true, appIcon1024: true, pushEntitlement: true });
+    expect(readSnapshot(legacy, 'respok')).toBeNull();
   });
 
   it('finds what App Review needs in this repository', () => {

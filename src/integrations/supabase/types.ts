@@ -8770,6 +8770,7 @@ export type Database = {
           created_at: string
           cta_url: string | null
           dismissible: boolean
+          edition: string
           ends_at: string | null
           id: string
           image_url: string | null
@@ -8789,6 +8790,7 @@ export type Database = {
           created_at?: string
           cta_url?: string | null
           dismissible?: boolean
+          edition?: string
           ends_at?: string | null
           id?: string
           image_url?: string | null
@@ -8808,6 +8810,7 @@ export type Database = {
           created_at?: string
           cta_url?: string | null
           dismissible?: boolean
+          edition?: string
           ends_at?: string | null
           id?: string
           image_url?: string | null
@@ -8833,6 +8836,7 @@ export type Database = {
           contacts_enabled: boolean
           created_at: string
           download_url: string | null
+          edition: string
           id: string
           latest_version: string | null
           minimum_supported_version: string | null
@@ -8855,6 +8859,7 @@ export type Database = {
           contacts_enabled?: boolean
           created_at?: string
           download_url?: string | null
+          edition?: string
           id?: string
           latest_version?: string | null
           minimum_supported_version?: string | null
@@ -8877,6 +8882,7 @@ export type Database = {
           contacts_enabled?: boolean
           created_at?: string
           download_url?: string | null
+          edition?: string
           id?: string
           latest_version?: string | null
           minimum_supported_version?: string | null
@@ -9995,6 +10001,7 @@ export type Database = {
           default_launch_at_login: boolean
           dock_badge_enabled: boolean
           download_url: string | null
+          edition: string
           email_enabled: boolean
           id: string
           latest_version: string | null
@@ -10039,6 +10046,7 @@ export type Database = {
           default_launch_at_login?: boolean
           dock_badge_enabled?: boolean
           download_url?: string | null
+          edition?: string
           email_enabled?: boolean
           id?: string
           latest_version?: string | null
@@ -10083,6 +10091,7 @@ export type Database = {
           default_launch_at_login?: boolean
           dock_badge_enabled?: boolean
           download_url?: string | null
+          edition?: string
           email_enabled?: boolean
           id?: string
           latest_version?: string | null
@@ -10187,6 +10196,7 @@ export type Database = {
           demo_account_username: string | null
           device_family: string
           display_name: string
+          edition: string
           encryption_exempt: boolean
           encryption_notes: string | null
           id: string
@@ -10310,6 +10320,7 @@ export type Database = {
           demo_account_username?: string | null
           device_family?: string
           display_name?: string
+          edition?: string
           encryption_exempt?: boolean
           encryption_notes?: string | null
           id?: string
@@ -10433,6 +10444,7 @@ export type Database = {
           demo_account_username?: string | null
           device_family?: string
           display_name?: string
+          edition?: string
           encryption_exempt?: boolean
           encryption_notes?: string | null
           id?: string
@@ -11930,6 +11942,7 @@ export type Database = {
           dispatch_log_purged_at: string | null
           dispatch_log_purged_count: number | null
           dispatch_log_retention_days: number
+          edition: string
           id: string
           interruption_level: string
           mention_bypasses_quiet_hours: boolean
@@ -11965,6 +11978,7 @@ export type Database = {
           dispatch_log_purged_at?: string | null
           dispatch_log_purged_count?: number | null
           dispatch_log_retention_days?: number
+          edition?: string
           id?: string
           interruption_level?: string
           mention_bypasses_quiet_hours?: boolean
@@ -12000,6 +12014,7 @@ export type Database = {
           dispatch_log_purged_at?: string | null
           dispatch_log_purged_count?: number | null
           dispatch_log_retention_days?: number
+          edition?: string
           id?: string
           interruption_level?: string
           mention_bypasses_quiet_hours?: boolean

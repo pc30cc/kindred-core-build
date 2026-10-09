@@ -8,6 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.webyar.ai.core.AppBrand
 import com.webyar.ai.core.model.InboxFilter
 import com.webyar.ai.core.net.SampleApi
 import com.webyar.ai.core.storage.Appearance
@@ -55,11 +56,12 @@ import org.robolectric.annotation.GraphicsMode
 /**
  * What the main screens look like, as pictures.
  *
- * Not assertions: `./gradlew :app:recordRoborazziDebug` writes one PNG per
- * test to `build/outputs/roborazzi`, and the "Android screenshots" workflow
- * publishes them, so a change to the look can be seen and reviewed without a
- * device. In an ordinary test run nothing is recorded and each test only
- * proves the screen composes.
+ * Not assertions: `./gradlew :app:recordRoborazziWebyarDebug` writes one PNG
+ * per test to `build/outputs/roborazzi/webyar` (RESPOK's build, to
+ * `roborazzi/respok`, so the two never overwrite each other), and the
+ * "Android screenshots" workflow publishes WebYar's, so a change to the look
+ * can be seen and reviewed without a device. In an ordinary test run nothing
+ * is recorded and each test only proves the screen composes.
  *
  * Sample data only — the same [SampleApi] the debug build runs against — so
  * nothing here needs an account or a network.
@@ -72,7 +74,7 @@ class ScreenshotTest {
     private val api = SampleApi()
 
     private fun shot(name: String, language: Language, dark: Boolean, content: @Composable () -> Unit) {
-        captureRoboImage("build/outputs/roborazzi/$name.png") {
+        captureRoboImage("build/outputs/roborazzi/${AppBrand.id}/$name.png") {
             WebyarTheme(language = language, dark = dark) {
                 // Loops hold still: a capture waits for the screen to go
                 // idle, and a shape that turns forever never does.

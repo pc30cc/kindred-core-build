@@ -4,15 +4,25 @@ Each brand's site serves its own desktop apps, from the production host
 (`vps-50cc1602`), not from the frontend image: a ~90 MB binary does not belong
 in git or in every frontend build, and the files must survive redeploys.
 
+People download zips: the Windows one holds the installer (`Webyar-Setup.exe`,
+`RESPOK-Setup.exe`), the Mac one the DMG (`Webyar-Mac.dmg`, `RESPOK-Mac.dmg`).
+
 | | WebYar | RESPOK |
 | --- | --- | --- |
-| Windows installer (newest) | `https://app.webyar.ai/downloads/Webyar-Setup.exe` | `https://app.respok.app/downloads/RESPOK-Setup.exe` |
-| Windows installer (a version) | `…/downloads/Webyar-Setup-<version>.exe` | `…/downloads/RESPOK-Setup-<version>.exe` |
+| Windows (newest) | `https://app.webyar.ai/downloads/Webyar-Windows.zip` | `https://app.respok.app/downloads/RESPOK-Windows.zip` |
+| Windows (a version) | `…/downloads/Webyar-Windows-<version>.zip` | `…/downloads/RESPOK-Windows-<version>.zip` |
 | Windows update feed (Velopack) | `https://app.webyar.ai/downloads/windows` | `https://app.respok.app/downloads/windows` |
-| Mac DMG (newest) | `https://app.webyar.ai/downloads/Webyar-Mac.dmg` | `https://app.respok.app/downloads/RESPOK-Mac.dmg` |
-| Mac DMG (a version) | `…/downloads/Webyar-Mac-<version>.dmg` | `…/downloads/RESPOK-Mac-<version>.dmg` |
+| Mac (newest) | `https://app.webyar.ai/downloads/Webyar-Mac.zip` | `https://app.respok.app/downloads/RESPOK-Mac.zip` |
+| Mac (a version) | `…/downloads/Webyar-Mac-<version>.zip` | `…/downloads/RESPOK-Mac-<version>.zip` |
 | Published by CI to | `pc30cc/webyar-desktop-releases` (Windows), `pc30cc/mac-os` (Mac) | `pc30cc/respok-releases` (Windows releases; Mac under `mac/`) |
 | Files on the host | `/data/app-downloads/webyar/` | `/data/app-downloads/respok/` |
+
+The links of before, to the installer and the DMG themselves
+(`<Prefix>-Setup.exe`, `<Prefix>-Mac.dmg`), answer a redirect (302) to the newest
+zip, so links already given out (sites, Super Admin, docs) keep working. A link
+with a version (`<Prefix>-Setup-<version>.exe`, `<Prefix>-Mac-<version>.dmg`)
+redirects to that version's zip, which exists only while it is kept (below): at
+the switch only each brand's newest version was zipped.
 
 The installed Windows apps update from their own site's feed (they trust only
 their own brand's feed and releases repository: `windows-native/src/Webyar.Core/Config/Brand.cs`).
@@ -27,19 +37,22 @@ macOS app names on each platform.
    `.github/workflows/macos.yml`).
 2. Every 5 minutes `sync-downloads.sh` (systemd timer `app-downloads-sync`)
    copies what is new onto the host, per brand:
-   - the newest installer as `<Prefix>-Setup-<version>.exe`, and moves the
-     `<Prefix>-Setup.exe` symlink to it;
+   - the newest installer, zipped as `<Prefix>-Windows-<version>.zip` (it holds
+     `<Prefix>-Setup.exe`), and moves the `<Prefix>-Windows.zip` symlink to it;
    - the Velopack update feed into `<brand>/windows/`: the packages of the
      newest two releases first (the newest one's index names only its own full
      package and delta; the one before stays for apps halfway through an
      update), then `releases.win.json` and `RELEASES`. If any package fails to
      download, the index is left as it was, so it never names a missing file.
      Packages outside those two releases are removed;
-   - the newest stable Mac version from the brand's appcast, as
-     `<Prefix>-Mac-<version>.dmg` with the `<Prefix>-Mac.dmg` symlink.
+   - the DMG of the newest stable Mac version in the brand's appcast, zipped as
+     `<Prefix>-Mac-<version>.zip` (it holds `<Prefix>-Mac.dmg`), with the
+     `<Prefix>-Mac.zip` symlink.
 
-   Of the installers and DMGs, the symlink's target and the two newest others
-   are kept. A run with nothing new downloads nothing.
+   Each zip is written whole under a hidden name, then renamed, so a download
+   never gets half a zip. Of the zips, the symlink's target and the two newest
+   others are kept. A run with nothing new downloads nothing (a version whose
+   zip is there is not fetched again).
 
 One brand failing (no release yet, GitHub unreachable) never stops the other.
 
@@ -53,8 +66,9 @@ One brand failing (no release yet, GitHub unreachable) never stops the other.
   `/data` (read-only). It picks the brand's folder by host name.
 - Routing: `traefik-app-downloads.yaml` from this folder lives at
   `/data/coolify/proxy/dynamic/app-downloads.yaml`. It matches only each
-  brand's own installer, DMG and update feed on its own host; everything else
-  under `/downloads/` (the plugins, the Android APK) reaches the frontend.
+  brand's own zips, old installer and DMG links, and update feed on its own
+  host; everything else under `/downloads/` (the plugins, the Android APK)
+  reaches the frontend.
 
 Install (or reinstall) everything:
 
@@ -74,8 +88,9 @@ output is in `journalctl -u app-downloads-sync`.
 
 Check:
 
-    curl -sI https://app.webyar.ai/downloads/Webyar-Setup.exe | head -3
-    curl -sI https://app.respok.app/downloads/RESPOK-Setup.exe | head -3
+    curl -sI https://app.webyar.ai/downloads/Webyar-Windows.zip | head -3
+    curl -sI https://app.respok.app/downloads/RESPOK-Windows.zip | head -3
+    curl -sI https://app.respok.app/downloads/RESPOK-Setup.exe | grep -i location   # → the zip
     curl -s https://app.respok.app/downloads/windows/releases.win.json | head -c 200
 
 Things learnt running it:
@@ -91,26 +106,44 @@ Things learnt running it:
   means Traefik never sent the request here.
 - The disk is shared with Docker (see CLAUDE.md, Disk): each brand keeps about
   300-400 MB here.
+- RESPOK's Mac zip appears once a RESPOK Mac version is published (the appcast
+  `pc30cc/respok-releases/mac/appcast.xml` exists); until then
+  `RESPOK-Mac.zip` answers 404 and the sync logs `respok: no appcast`.
 
-## The Android app
+## The Android apps
 
-`https://app.webyar.ai/downloads/Webyar-Android.apk` is **not** served from
-this container. It ships with the site: the file is
-`public/downloads/Webyar-Android.apk` in the repository, beside the plugin
-zips, and the frontend image serves it from `/downloads/` (no caching, a hard
-404 rather than the SPA page — see `nginx.conf.template`). The Traefik rules
-above leave `.apk` alone for that reason; the frontend Dockerfiles fail the
-build if the file is missing.
+Each brand's APK is **not** served from this container. It ships with the
+site: `public/downloads/Webyar-Android.apk` and
+`public/downloads/RESPOK-Android.apk` in the repository, beside the plugin
+zips, each with its `.json` sidecar (the version Super Admin shows for that
+edition), and the frontend image serves them from `/downloads/` (no caching, a
+hard 404 rather than the SPA page — see `nginx.conf.template`). The Traefik
+rules above leave each brand's own `.apk` alone for that reason, and send the
+other brand's (`/downloads/Webyar-*` on app.respok.app, `/downloads/RESPOK-*` on
+app.webyar.ai) here, where it answers 404. The frontend Dockerfiles fail the
+build if WebYar's APK is missing.
 
-The APK is the universal release build (every ABI), signed with the release
-key — see `docs/ANDROID_RELEASE.md`. Publish a new version: replace
-`public/downloads/Webyar-Android.apk` with the new build, merge, and let the
-frontend deploy. Keep the file name: the site's download page (webyar.ai →
-admin → «برنامه‌ها و دانلود» → Android) links to exactly this path.
+| | WebYar | RESPOK |
+| --- | --- | --- |
+| APK | `https://app.webyar.ai/downloads/Webyar-Android.apk` | `https://app.respok.app/downloads/RESPOK-Android.apk` |
+| Package | `com.webyar.ai` | `com.respok.app` |
+| Release key | `webyar-release.jks` (never another: phones only update with it) | `respok-release.jks` |
 
-There is no RESPOK Android or iOS build yet: the mobile apps are WebYar's only.
+An APK is the universal release build (every ABI) of its flavor, signed with
+its brand's release key — see `docs/ANDROID_RELEASE.md`. It is not zipped: a
+phone installs an `.apk` it downloads, not one inside a zip. Publish a new
+version: replace the brand's APK and sidecar with the new build, merge, and let
+the frontend deploy. Keep the file names: WebYar's landing page links to
+exactly `Webyar-Android.apk`.
+
+The iOS apps (WebYar `com.webyar.ai`, RESPOK `com.respok.app`) are distributed
+through the App Store, not from here.
 
 ## History
+
+On 2026-10-09 the downloads became zips (`<Prefix>-Windows.zip`,
+`<Prefix>-Mac.zip`); before, the site served `<Prefix>-Setup.exe` and
+`<Prefix>-Mac.dmg` as they are, and those links now redirect to the zips.
 
 Until 2026-10-07 the WebYar-only mirror (`webyar-downloads`, from
 `deploy/windows-downloads/`) ran on the old server (`analyticsme.site`). It did

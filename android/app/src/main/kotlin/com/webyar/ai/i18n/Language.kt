@@ -1,6 +1,7 @@
 package com.webyar.ai.i18n
 
 import androidx.compose.ui.unit.LayoutDirection
+import com.webyar.ai.core.AppBrand
 import java.util.Locale
 
 /**
@@ -40,8 +41,9 @@ enum class Language(val code: String) {
         /**
          * What the app opens in until the operator picks a language — or
          * until Super Admin names another default (`defaultLanguage` in the
-         * app's config).
+         * app's config). The brand's own: Persian for WebYar, English for
+         * RESPOK ([AppBrand.fallbackLanguage]).
          */
-        val DEFAULT = FA
+        val DEFAULT: Language = AppBrand.fallbackLanguage
     }
 }

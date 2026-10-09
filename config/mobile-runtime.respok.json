@@ -1,0 +1,7 @@
+{
+  "_comment": "Bootstrap values for RESPOK's iOS app (the Respok target of ios/Webyar, BRAND_RESPOK); WebYar's are config/mobile-runtime.json. NOT the source of truth for the API origin: that is platform_domains.api_base_url on RESPOK's own platform (Super Admin → Branding at app.respok.app). scripts/ios/write-ios-config.mjs asks api.respok.app and writes its answer back here, never into WebYar's file, and never takes a WebYar host. The app itself replaces this with the platform's answer on its first launch (see PlatformOrigin.swift). What stays here is the origin a brand-new RESPOK install uses for its very first request. Override for a staging build with MOBILE_API_BASE_URL=... node scripts/ios/write-ios-config.mjs --brand=respok",
+  "apiBaseUrl": "https://api.respok.app",
+  "defaultLocale": "en",
+  "appStoreUrl": "",
+  "supportUrl": ""
+}

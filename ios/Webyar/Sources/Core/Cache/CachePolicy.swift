@@ -16,7 +16,9 @@ enum CachePolicy {
 
     // MARK: - Where
 
-    /// `Library/Caches/Webyar`: never backed up (iCloud or a computer), and
+    /// `Library/Caches/Webyar` (RESPOK: `Respok`, `AppBrand.cacheFolder`;
+    /// WebYar's name is kept, it already holds every phone's cache): never
+    /// backed up (iCloud or a computer), and
     /// the system may empty it when the disk runs low, which only ever costs
     /// a read from the server. Not `Documents` (backed up, shown in Files)
     /// and not `Application Support` (backed up, never purged): everything
@@ -24,7 +26,7 @@ enum CachePolicy {
     static var root: URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("Webyar", isDirectory: true)
+        return base.appendingPathComponent(AppBrand.cacheFolder, isDirectory: true)
     }
 
     // MARK: - Local store (messages and conversation lists)

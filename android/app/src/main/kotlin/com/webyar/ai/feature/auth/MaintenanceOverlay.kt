@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.webyar.ai.core.model.MaintenanceNotice
+import com.webyar.ai.i18n.BrandStr
 import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
@@ -103,7 +104,7 @@ fun MaintenanceOverlay(
             .pointerInput(Unit) { detectTapGestures { } }
             .semantics {
                 isTraversalGroup = true
-                paneTitle = StrAndroid.maintenanceTitle(language)
+                paneTitle = BrandStr.maintenanceTitle(language)
             }
             .testTag(A11y.MAINTENANCE)
             .windowInsetsPadding(WindowInsets.safeDrawing),
@@ -152,7 +153,7 @@ private fun NoticeCard(
             Icon(Glyph.Build, contentDescription = null, tint = warning, modifier = Modifier.size(34.dp))
         }
         Text(
-            StrAndroid.maintenanceTitle(language),
+            BrandStr.maintenanceTitle(language),
             style = WebyarType.titleLargeEmphasized,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = Space.sm),

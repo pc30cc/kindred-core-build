@@ -256,7 +256,7 @@ struct SettingsView: View {
             await support.follow(SyncCoordinator.shared.supportSignals())
         }
         .confirmationDialog(
-            Str.signOutConfirm(language),
+            BrandStr.signOutConfirm(language),
             isPresented: $isConfirmingSignOut,
             titleVisibility: .visible
         ) {

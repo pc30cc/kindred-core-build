@@ -192,7 +192,7 @@ final class ImageCache {
         configuration.urlCache = URLCache(
             memoryCapacity: CachePolicy.remoteImageURLCacheMemory,
             diskCapacity: CachePolicy.remoteImageURLCacheDisk,
-            diskPath: "webyar-images"
+            diskPath: AppBrand.imageCacheFolder
         )
         return URLSession(configuration: configuration)
     }()

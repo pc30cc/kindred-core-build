@@ -19,6 +19,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const read = (p: string) => readFileSync(p, 'utf8');
 
@@ -172,11 +173,43 @@ describe('platform_domains reaches every dynamic consumer', () => {
 
 describe('native iOS API bootstrap defers to the platform', () => {
   const script = read('scripts/ios/write-ios-config.mjs');
-  const cfg = JSON.parse(read('config/mobile-runtime.json'));
+  // The iPhone app is two apps (ios/Webyar/project.yml): WebYar's bootstrap
+  // is config/mobile-runtime.json, RESPOK's config/mobile-runtime.respok.json.
+  const CONFIGS = { webyar: 'config/mobile-runtime.json', respok: 'config/mobile-runtime.respok.json' } as const;
+  const cfg = JSON.parse(read(CONFIGS.webyar));
+  const respokCfg = JSON.parse(read(CONFIGS.respok));
   const origin = read('ios/Webyar/Sources/Core/Networking/PlatformOrigin.swift');
+  const brand = read('ios/Webyar/Sources/Core/Config/AppBrand.swift');
+  const generated = read('ios/Webyar/Sources/Core/Networking/GeneratedConfig.swift');
+  const respokHost = (url: string) => {
+    const host = new URL(url).hostname;
+    return host === 'respok.app' || host.endsWith('.respok.app');
+  };
 
-  it('ships an https bootstrap origin so a fresh install can make its first request', () => {
+  it('ships an https bootstrap origin per brand so a fresh install can make its first request', () => {
     expect(cfg.apiBaseUrl).toMatch(/^https:\/\/[^/]+$/);
+    expect(respokCfg.apiBaseUrl).toMatch(/^https:\/\/[^/]+$/);
+  });
+
+  it('RESPOK\'s bootstrap is one of its own hosts, never a WebYar one', () => {
+    expect(respokHost(respokCfg.apiBaseUrl), respokCfg.apiBaseUrl).toBe(true);
+    const { _comment: _explained, ...values } = respokCfg;
+    expect(JSON.stringify(values).toLowerCase()).not.toContain('webyar');
+    expect(String(respokCfg.supportUrl ?? '').toLowerCase()).not.toContain('webyar');
+  });
+
+  it('compiles each brand\'s bootstrap into its own build, from its own file', () => {
+    // One generated file, both brands: RESPOK's under BRAND_RESPOK.
+    const [, respok, webyar] = generated.match(/#if BRAND_RESPOK([\s\S]*)#else([\s\S]*)#endif/) ?? [];
+    expect(respok, 'GeneratedConfig.swift has no BRAND_RESPOK block').toBeDefined();
+    const api = (block: string) => block.match(/apiBaseURL = URL\(string: "([^"]+)"\)!/)?.[1];
+    expect(api(webyar)).toBe(cfg.apiBaseUrl);
+    expect(api(respok)).toBe(respokCfg.apiBaseUrl);
+    expect(webyar).toContain(`Language.${cfg.defaultLocale}`);
+    expect(respok).toContain('Language.en');
+    // And what was generated is what the two files say (no network).
+    const run = spawnSync(process.execPath, ['scripts/ios/write-ios-config.mjs', '--offline', '--check'], { encoding: 'utf8' });
+    expect(run.status, run.stderr || run.stdout).toBe(0);
   });
 
   it('the build script follows the platform when it disagrees', () => {
@@ -184,6 +217,18 @@ describe('native iOS API bootstrap defers to the platform', () => {
     // apiBaseUrl: platform answer wins and is written back to the config file.
     expect(script).toMatch(/apiBaseUrl = resolved/);
     expect(script).toMatch(/cfg\.apiBaseUrl = resolved/);
+  });
+
+  it('writes each brand\'s answer back to that brand\'s file only', () => {
+    const code = stripTs(script);
+    // The write-backs go to the brand's own cfgPath, never to a named file.
+    for (const write of code.match(/writeFileSync\(([^,]+),/g) ?? []) {
+      expect(write).toMatch(/writeFileSync\((cfgPath|outPath),/);
+    }
+    expect(code).toContain("'config/mobile-runtime.json'");
+    expect(code).toContain("'config/mobile-runtime.respok.json'");
+    // RESPOK's API is held to its own hosts at build time, as the app holds it at runtime.
+    expect(code).toMatch(/host === 'respok\.app' \|\| host\.endsWith\('\.respok\.app'\)/);
   });
 
   it('the platform also overrules a support URL already in the file', () => {
@@ -195,13 +240,26 @@ describe('native iOS API bootstrap defers to the platform', () => {
 
   it('the app replaces the compiled origin with the platform answer at runtime', () => {
     expect(origin).toContain('PlatformOrigins');
-    expect(origin).toContain('GeneratedConfig.apiBaseURL');
+    // The compiled origin is the brand's own: AppBrand.apiOrigin is the
+    // generated bootstrap of the brand being built.
+    expect(stripTs(origin)).toContain('AppBrand.apiOrigin');
+    expect(stripTs(brand)).toMatch(/static var apiOrigin: URL \{ GeneratedConfig\.apiBaseURL \}/);
     // A stored origin that stops answering must be abandoned, or one typo in
     // Super Admin bricks every installed copy.
     expect(origin).toContain('forget()');
     const client = read('ios/Webyar/Sources/Core/Networking/APIClient.swift');
     expect(client).toContain('refreshOrigin');
     expect(client).toContain('PlatformOrigin.forget()');
+    expect(stripTs(client)).toContain('askOrigins(at: AppBrand.apiOrigin)');
+  });
+
+  it('RESPOK moves to no API origin outside respok.app, stored or answered', () => {
+    const code = stripTs(origin);
+    expect(code).toMatch(/AppBrand\.ownsOrigin\(url\)\s*else \{ return AppBrand\.apiOrigin \}/);
+    expect(code).toMatch(/var api: URL\? \{[^\n]*AppBrand\.ownsOrigin/);
+    const rule = stripTs(brand).match(/static func ownsOrigin[\s\S]*?#if BRAND_RESPOK([\s\S]*?)#else([\s\S]*?)#endif/);
+    expect(rule?.[1]).toContain('host == "respok.app" || host.hasSuffix(".respok.app")');
+    expect(rule?.[2]).toContain('return true');
   });
 
   it('only accepts https, so no platform answer can downgrade the transport', () => {
@@ -229,15 +287,18 @@ describe('no active configuration points at the legacy domain', () => {
   });
 
   it('the native bootstrap does not', () => {
-    const raw = read('config/mobile-runtime.json').toLowerCase();
-    expect(raw).not.toContain(LEGACY);
+    for (const file of ['config/mobile-runtime.json', 'config/mobile-runtime.respok.json']) {
+      expect(read(file).toLowerCase(), file).not.toContain(LEGACY);
+    }
     const generated = read('ios/Webyar/Sources/Core/Networking/GeneratedConfig.swift');
     expect(generated.toLowerCase()).not.toContain(LEGACY);
   });
 
   it('no support link does', () => {
-    const cfg = JSON.parse(read('config/mobile-runtime.json'));
-    expect(String(cfg.supportUrl ?? '').toLowerCase()).not.toContain(LEGACY);
+    for (const file of ['config/mobile-runtime.json', 'config/mobile-runtime.respok.json']) {
+      const cfg = JSON.parse(read(file));
+      expect(String(cfg.supportUrl ?? '').toLowerCase(), file).not.toContain(LEGACY);
+    }
     // And the support URL is resolved by the platform, not assembled by a
     // client guessing at a path. `/contact` was such a guess, and it was never
     // a route this app served.
@@ -362,6 +423,12 @@ describe('the legacy domain survives only where it is meant to', () => {
       'guards the historical seeds above; names them by design',
     'src/test/architecture/platformUrlOwnership.test.ts':
       'this file — it searches for the string',
+    'android/app/src/test/kotlin/com/webyar/ai/core/AppBrandRulesTest.kt':
+      "proves RESPOK's Android origin allowlist refuses WebYar's legacy host",
+    'android/app/src/testRespok/kotlin/com/webyar/ai/core/AppBrandTest.kt':
+      'proves the RESPOK build refuses the legacy host as its API origin',
+    'android/app/src/testWebyar/kotlin/com/webyar/ai/core/AppBrandTest.kt':
+      'proves the WebYar build keeps accepting it, as before',
   };
 
   const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next']);

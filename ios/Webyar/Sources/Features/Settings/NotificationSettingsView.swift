@@ -161,14 +161,14 @@ struct NotificationSettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: Theme.Space.sm) {
                     Text(push.authorization == .denied
-                         ? Str.pushDeniedTitle(language)
+                         ? BrandStr.pushDeniedTitle(language)
                          : Str.pushPrimerTitle(language))
                         .font(.app(.headline))
                         .foregroundStyle(Theme.Palette.label)
 
                     Text(push.authorization == .denied
                          ? Str.pushDeniedBody(language)
-                         : Str.pushPrimerBody(language))
+                         : BrandStr.pushPrimerBody(language))
                         .font(.app(.footnote))
                         .foregroundStyle(Theme.Palette.labelSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -325,7 +325,7 @@ struct NotificationSettingsView: View {
                 set: { value in model.change(appState: appState) { $0.pushWhenOffline = value } }
             ))
         } footer: {
-            Text(Str.pushPresenceFooter(language))
+            Text(BrandStr.pushPresenceFooter(language))
         }
     }
 

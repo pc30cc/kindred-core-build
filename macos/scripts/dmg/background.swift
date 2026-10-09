@@ -20,17 +20,18 @@ func persian(_ size: CGFloat, bold: Bool = false) -> NSFont {
 }
 
 let respok = ProcessInfo.processInfo.environment["BRAND"]?.lowercased() == "respok"
-// RESPOK: the brand kit's Signal Deep, Ink, Slate and Paper.
+// Each brand kit's colours. RESPOK: Signal Deep, Ink, Slate, Paper and Mist.
+// WebYar: Deep Turquoise, Night, a neutral grey, Paper and Mist.
 let brand = respok ? NSColor(srgbRed: 0xD3 / 255, green: 0x36 / 255, blue: 0x1A / 255, alpha: 1)
-                   : NSColor(srgbRed: 0x3B / 255, green: 0x7A / 255, blue: 0xF2 / 255, alpha: 1)
+                   : NSColor(srgbRed: 0x0B / 255, green: 0x7D / 255, blue: 0x6C / 255, alpha: 1)
 let ink = respok ? NSColor(srgbRed: 0x16 / 255, green: 0x14 / 255, blue: 0x2B / 255, alpha: 1)
-                 : NSColor(srgbRed: 0.10, green: 0.13, blue: 0.20, alpha: 1)
+                 : NSColor(srgbRed: 0x12 / 255, green: 0x14 / 255, blue: 0x1F / 255, alpha: 1)
 let muted = respok ? NSColor(srgbRed: 0x5E / 255, green: 0x5C / 255, blue: 0x75 / 255, alpha: 1)
-                   : NSColor(srgbRed: 0.38, green: 0.43, blue: 0.52, alpha: 1)
+                   : NSColor(srgbRed: 0.38, green: 0.43, blue: 0.47, alpha: 1)
 let washTop = respok ? NSColor(srgbRed: 0xF5 / 255, green: 0xF5 / 255, blue: 0xF8 / 255, alpha: 1)
-                     : NSColor(srgbRed: 0.975, green: 0.982, blue: 1, alpha: 1)
+                     : NSColor(srgbRed: 0xF4 / 255, green: 0xF6 / 255, blue: 0xF8 / 255, alpha: 1)
 let washBottom = respok ? NSColor(srgbRed: 0xE4 / 255, green: 0xE3 / 255, blue: 0xEC / 255, alpha: 1)
-                        : NSColor(srgbRed: 0.918, green: 0.945, blue: 0.996, alpha: 1)
+                        : NSColor(srgbRed: 0xE3 / 255, green: 0xE6 / 255, blue: 0xEB / 255, alpha: 1)
 let latinName = respok ? "RESPOK" : "Webyar"
 let persianName = respok ? "RESPOK" : "وب‌یار"
 let size = NSSize(width: 660, height: 440)

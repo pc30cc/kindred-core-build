@@ -1,3 +1,16 @@
+# The iPhone app. Generate the Xcode project with XcodeGen (`brew install
+# xcodegen`, then `xcodegen generate` in this folder) and open
+# Webyar.xcodeproj — see docs/IOS_APP_AND_NOTIFICATIONS.md.
+#
+# Two apps from one source, installable side by side, as on the Mac
+# (macos/project.yml): the target `Webyar` (WebYar, com.webyar.ai, exactly as
+# before) and the target `Respok` (RESPOK, com.respok.app: BRAND_RESPOK,
+# Sources/Core/Config/AppBrand.swift, its own name, icons, mark, launch art and
+# home-screen wording from Brands/Respok/). Both share every Swift file, the
+# privacy manifest and the Persian font; keep their `info`, `entitlements`
+# and settings in step (src/test/ios/iosBrands.test.ts checks it). The test
+# targets test WebYar's build (`@testable import Webyar`); CI builds RESPOK's
+# too (.github/workflows/ios.yml).
 name: Webyar
 options:
   bundleIdPrefix: com.webyar
@@ -148,6 +161,79 @@ targets:
         Release:
           APS_ENVIRONMENT: production
 
+  # RESPOK: the same app with BRAND_RESPOK (AppBrand, BrandStr, BrandPalette),
+  # its own bundle id and name, and its own asset catalog and home-screen
+  # wording in place of WebYar's: Resources/Assets.xcassets (WebYar's icon,
+  # mark and launch art) and Resources/<lang>.lproj/InfoPlist.strings (which
+  # override the name and the purpose strings below) are left out, and
+  # Brands/Respok brings RESPOK's — every set the code and the Info.plist name
+  # (AppIcon, AccentColor, LaunchBackground, LaunchLoader, BrandMark). Its
+  # `info` and `entitlements` are WebYar's with RESPOK's name; the plist and
+  # entitlements are generated beside WebYar's, under their own names.
+  Respok:
+    type: application
+    platform: iOS
+    dependencies:
+      - package: LiveKit
+    sources:
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
+        excludes:
+          - "Assets.xcassets"
+          - "*.lproj/InfoPlist.strings"
+      - path: Brands/Respok
+        buildPhase: resources
+    info:
+      path: Generated/Respok-Info.plist
+      properties:
+        CFBundleDisplayName: RESPOK
+        CFBundleIconName: AppIcon
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: LaunchLoader
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+        UIBackgroundModes:
+          - audio
+        NSMicrophoneUsageDescription: >-
+          RESPOK uses the microphone when you call a visitor, and when you
+          record a voice note to send into a conversation.
+        NSCameraUsageDescription: >-
+          RESPOK uses the camera when you start a video call with a visitor.
+        NSPhotoLibraryAddUsageDescription: >-
+          RESPOK saves a photo or video to your library when you choose Save
+          on a file opened from a conversation or an email.
+        CFBundleLocalizations:
+          - en
+          - fa
+          - tr
+          - ar
+    entitlements:
+      path: Generated/Respok.entitlements
+      properties:
+        aps-environment: $(APS_ENVIRONMENT)
+    settings:
+      base:
+        # RESPOK.app, the name iOS and the default User-Agent ("RESPOK/<build>
+        # CFNetwork/…", which the platform's session list recognises) carry.
+        PRODUCT_NAME: RESPOK
+        PRODUCT_BUNDLE_IDENTIFIER: com.respok.app
+        # $(inherited) keeps DEBUG in Debug builds (the sample backend and the
+        # launch arguments the UI tests use depend on it).
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) BRAND_RESPOK
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        Debug:
+          APS_ENVIRONMENT: development
+        Release:
+          APS_ENVIRONMENT: production
+
   # Where the keyboard and the search field get tested.
   #
   # These behaviours have no unit test that could catch them: whether the
@@ -207,3 +293,13 @@ schemes:
       targets:
         - WebyarTests
         - WebyarUITests
+  # RESPOK: build, run and archive. Its tests are WebYar's (the same sources),
+  # run from the Webyar scheme.
+  Respok:
+    build:
+      targets:
+        Respok: all
+    run:
+      config: Debug
+    archive:
+      config: Release

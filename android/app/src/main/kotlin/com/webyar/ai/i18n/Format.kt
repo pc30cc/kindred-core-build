@@ -5,6 +5,7 @@ import android.icu.text.NumberFormat
 import android.icu.text.RelativeDateTimeFormatter
 import android.icu.util.Calendar
 import android.icu.util.ULocale
+import com.webyar.ai.core.AppBrand
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
@@ -30,12 +31,25 @@ object Format {
      *
      * ICU already defaults `fa` to the Persian calendar, but it is named here
      * anyway: a default that is depended on and not stated is a default that
-     * changes in a library upgrade and takes a year to notice.
+     * changes in a library upgrade and takes a year to notice. And it is not
+     * always the one wanted: RESPOK's Persian is Gregorian ([calendarTag]).
      */
-    private fun calendarLocale(language: Language): ULocale = when (language) {
-        Language.FA -> ULocale("fa-IR-u-ca-persian")
-        Language.EN -> ULocale("en-US")
-        Language.TR -> ULocale("tr-TR")
+    private fun calendarLocale(language: Language): ULocale = ULocale(calendarTag(language))
+
+    /**
+     * The locale tag, with its calendar, that every date in [language] is
+     * written in — here and in the analytics charts (`AnalyticsFormat`).
+     *
+     * Persian is the Persian (Jalali) calendar for WebYar. For RESPOK, the
+     * International edition, Persian is only right-to-left text: its dates
+     * are Gregorian in Persian digits, as on its desktop apps. Gregorian has
+     * to be named outright, because ICU's default for `fa` is the Persian
+     * calendar.
+     */
+    fun calendarTag(language: Language, jalali: Boolean = AppBrand.jalaliDates): String = when (language) {
+        Language.FA -> if (jalali) "fa-IR-u-ca-persian" else "fa-IR-u-ca-gregory"
+        Language.EN -> "en-US"
+        Language.TR -> "tr-TR"
     }
 
     // MARK: - Numbers

@@ -1,5 +1,6 @@
 package com.webyar.ai.core.realtime
 
+import com.webyar.ai.core.AppBrand
 import com.webyar.ai.core.Diag
 import com.webyar.ai.core.model.Message
 import com.webyar.ai.core.model.RealtimeConnect
@@ -452,7 +453,8 @@ class RealtimeClient(
         const val AREA = "Realtime"
         const val PLAUSIBLE_MIN_LIFETIME_MS = 4 * 60_000L
         const val PLAUSIBLE_MAX_LIFETIME_MS = 3 * 60 * 60_000L
-        const val CLIENT_NAME = "webyar-android"
+        /** `webyar-android` or `respok-android`; informational, the server does not check it. */
+        const val CLIENT_NAME = AppBrand.realtimeName
     }
 
     /** The socket's end, as distinct from a quiet socket. */

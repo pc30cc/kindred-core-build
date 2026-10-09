@@ -23,6 +23,8 @@ const UA = {
   iphoneApp: 'Webyar/1 CFNetwork/3860.500.112 Darwin/25.6.0',
   /** The same app, built before its project was renamed. */
   iphoneAppBefore: 'WebyarNative/1 CFNetwork/3860.500.112 Darwin/25.6.0',
+  /** RESPOK's build of the same app (the International edition's). */
+  iphoneRespokApp: 'RESPOK/12 CFNetwork/3860.500.112 Darwin/25.6.0',
   iphoneSafari:
     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1',
   iphoneFirefox:
@@ -50,6 +52,12 @@ describe('session device labels', () => {
         device: 'Mobile',
       });
     }
+  });
+
+  it("names RESPOK's iPhone app as RESPOK, on the phone it runs on", () => {
+    expect(parseUserAgent(UA.iphoneRespokApp)).toEqual({ browser: 'RESPOK', os: 'iOS', device: 'Mobile' });
+    // WebYar's is still WebYar's.
+    expect(parseUserAgent(UA.iphoneApp).browser).toBe('Webyar');
   });
 
   it('an iPhone is not a Mac, whatever its user agent says about Mac OS X', () => {

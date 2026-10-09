@@ -9,6 +9,10 @@
  * runtime tuning. The desktop app itself reads the public projection of this
  * row from GET /api/platform/desktop-app (server/routes/desktopAppPublic.ts),
  * whose cache is dropped on every save here.
+ *
+ * Each edition has its own row and its own ads and announcements (migration
+ * 257, server/services/editionSettings.ts): every read and write here is the
+ * running edition's, and answers 503 while the edition cannot be told.
  */
 import { Router } from 'express';
 import type { Request } from 'express';
@@ -19,12 +23,14 @@ import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import {
   invalidateDesktopAppSettingsCache,
   normalize,
-  DESKTOP_APP_DEFAULTS,
   DESKTOP_APP_BOUNDS,
+  desktopAppDefaults,
   desktopDefaultFeedUrl,
+  desktopInsertDefaults,
   desktopSettingsForEdition,
 } from '../services/desktopApp/settings.js';
-import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { getPlatformEdition } from '../services/platformRegion.js';
+import { readEditionSettingsRow, respondEditionUnavailable, saveEditionSettingsRow } from '../services/editionSettings.js';
 import { invalidateDesktopAppPublicCache } from './desktopAppPublic.js';
 import {
   CAMPAIGN_LOCALES,
@@ -89,26 +95,16 @@ export const desktopAppSettingsSchema = z.object({
   call_center_enabled: z.boolean().optional(),
 });
 
-async function readRow(config: ServerConfig) {
-  const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('desktop_app_settings')
-    .select('*')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data as Record<string, unknown> | null;
-}
-
 adminDesktopAppRouter.get('/settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
     const config = serverConfigOf(req);
-    const row = await readRow(config);
-    const settings = desktopSettingsForEdition(row ? normalize(row) : { ...DESKTOP_APP_DEFAULTS }, await getPlatformEditionOrNull(config));
+    const edition = await getPlatformEdition(config);
+    const row = await readEditionSettingsRow(config, 'desktop_app_settings', edition);
+    const settings = row ? desktopSettingsForEdition(normalize(row), edition) : { ...desktopAppDefaults(edition) };
     return res.json({ settings });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -121,24 +117,24 @@ adminDesktopAppRouter.put('/settings', async (req, res) => {
     return res.status(400).json(invalidInput(parsed.error));
   }
   const config = serverConfigOf(req);
-  const sb = getServiceClient(config);
   const payload: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() };
-  // The feed URL is the updater's only lifeline: clearing it restores the
-  // default release feed rather than leaving the app nowhere to look.
-  const edition = await getPlatformEditionOrNull(config);
-  if (payload.update_feed_url === null) payload.update_feed_url = desktopDefaultFeedUrl(edition);
   try {
-    const existing = await readRow(config);
-    const query = existing
-      ? sb.from('desktop_app_settings').update(payload).eq('id', existing.id as string).select('*').single()
-      : sb.from('desktop_app_settings').insert(payload).select('*').single();
-    const { data, error } = await query;
+    // Never written into a guessed edition: unknown answers 503.
+    const edition = await getPlatformEdition(config);
+    // The feed URL is the updater's only lifeline: clearing it restores the
+    // default release feed rather than leaving the app nowhere to look.
+    if (payload.update_feed_url === null) payload.update_feed_url = desktopDefaultFeedUrl(edition);
+    const existing = await readEditionSettingsRow(config, 'desktop_app_settings', edition);
+    const { data, error } = await saveEditionSettingsRow(
+      config, 'desktop_app_settings', edition, existing, payload, desktopInsertDefaults(edition),
+    );
     if (error) return res.status(500).json({ error: error.message });
     invalidateDesktopAppSettingsCache();
     invalidateDesktopAppPublicCache();
     const settings = desktopSettingsForEdition(normalize(data as Record<string, unknown>), edition);
     return res.json({ success: true, settings });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -232,19 +228,30 @@ function platformQuery(raw: unknown): DesktopPlatform | undefined {
   return (DESKTOP_PLATFORMS as readonly string[]).includes(String(raw)) ? (raw as DesktopPlatform) : undefined;
 }
 
+// Each edition's own ads and announcements: listed, created, changed and
+// deleted only within the running edition, so a known id of the other
+// edition's campaign changes nothing (404 / no-op).
+
 adminDesktopAppRouter.get('/campaigns', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const platform = platformQuery(req.query.platform);
-  const sb = getServiceClient(serverConfigOf(req));
-  const { data, error } = await sb
-    .from('desktop_app_campaigns')
-    .select('*')
-    .order('priority', { ascending: false })
-    .order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  const rows = (data ?? []) as Array<{ platforms?: string[] | null }>;
-  const campaigns = platform ? rows.filter((r) => targetsPlatform(r, platform)) : rows;
-  return res.json({ campaigns, placements: DESKTOP_PLACEMENTS, platforms: DESKTOP_PLATFORMS });
+  const config = serverConfigOf(req);
+  try {
+    const edition = await getPlatformEdition(config);
+    const { data, error } = await getServiceClient(config)
+      .from('desktop_app_campaigns')
+      .select('*')
+      .eq('edition', edition)
+      .order('priority', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    const rows = (data ?? []) as Array<{ platforms?: string[] | null }>;
+    const campaigns = platform ? rows.filter((r) => targetsPlatform(r, platform)) : rows;
+    return res.json({ campaigns, placements: DESKTOP_PLACEMENTS, platforms: DESKTOP_PLATFORMS });
+  } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
+    return res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 adminDesktopAppRouter.post('/campaigns', async (req, res) => {
@@ -253,11 +260,21 @@ adminDesktopAppRouter.post('/campaigns', async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json(invalidInput(parsed.error));
   }
-  const sb = getServiceClient(serverConfigOf(req));
-  const { data, error } = await sb.from('desktop_app_campaigns').insert(parsed.data).select('*').single();
-  if (error) return res.status(500).json({ error: error.message });
-  invalidateCampaignCache();
-  return res.json({ success: true, campaign: data });
+  const config = serverConfigOf(req);
+  try {
+    const edition = await getPlatformEdition(config);
+    const { data, error } = await getServiceClient(config)
+      .from('desktop_app_campaigns')
+      .insert({ ...parsed.data, edition })
+      .select('*')
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    invalidateCampaignCache();
+    return res.json({ success: true, campaign: data });
+  } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
+    return res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 adminDesktopAppRouter.put('/campaigns/:id', async (req, res) => {
@@ -267,27 +284,44 @@ adminDesktopAppRouter.put('/campaigns/:id', async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json(invalidInput(parsed.error));
   }
-  const sb = getServiceClient(serverConfigOf(req));
-  const { data, error } = await sb
-    .from('desktop_app_campaigns')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
-    .eq('id', req.params.id)
-    .select('*')
-    .maybeSingle();
-  if (error) return res.status(500).json({ error: error.message });
-  if (!data) return res.status(404).json({ error: 'Not found' });
-  invalidateCampaignCache();
-  return res.json({ success: true, campaign: data });
+  const config = serverConfigOf(req);
+  try {
+    const edition = await getPlatformEdition(config);
+    const { data, error } = await getServiceClient(config)
+      .from('desktop_app_campaigns')
+      .update({ ...parsed.data, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .eq('edition', edition)
+      .select('*')
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'Not found' });
+    invalidateCampaignCache();
+    return res.json({ success: true, campaign: data });
+  } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
+    return res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 adminDesktopAppRouter.delete('/campaigns/:id', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid id' });
-  const sb = getServiceClient(serverConfigOf(req));
-  const { error } = await sb.from('desktop_app_campaigns').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
-  invalidateCampaignCache();
-  return res.json({ success: true });
+  const config = serverConfigOf(req);
+  try {
+    const edition = await getPlatformEdition(config);
+    const { error } = await getServiceClient(config)
+      .from('desktop_app_campaigns')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('edition', edition);
+    if (error) return res.status(500).json({ error: error.message });
+    invalidateCampaignCache();
+    return res.json({ success: true });
+  } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
+    return res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 // ── Live usage and broadcasts (memory only, see services/desktopApp/live.ts) ──

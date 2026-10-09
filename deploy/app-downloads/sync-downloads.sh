@@ -6,13 +6,14 @@
 #   WebYar  https://app.webyar.ai/downloads/   /data/app-downloads/webyar
 #   RESPOK  https://app.respok.app/downloads/  /data/app-downloads/respok
 #
-# Per brand:
-#   <Prefix>-Setup-<version>.exe (+ <Prefix>-Setup.exe -> the newest) and
-#   windows/ — the Velopack update feed (releases.win.json, RELEASES and the
-#   packages of the newest two releases),
-#   from the brand's GitHub releases (CI: .github/workflows/desktop-native.yml);
-#   <Prefix>-Mac-<version>.dmg (+ <Prefix>-Mac.dmg -> the newest), from the
-#   brand's Sparkle appcast (CI: .github/workflows/macos.yml).
+# Per brand, what people download is a zip:
+#   <Prefix>-Windows-<version>.zip (+ <Prefix>-Windows.zip -> the newest): the
+#   installer, <Prefix>-Setup.exe, from the brand's GitHub releases
+#   (CI: .github/workflows/desktop-native.yml);
+#   <Prefix>-Mac-<version>.zip (+ <Prefix>-Mac.zip -> the newest): the DMG,
+#   <Prefix>-Mac.dmg, from the brand's Sparkle appcast (CI: .github/workflows/macos.yml).
+# And windows/: the Velopack update feed the installed apps read (releases.win.json,
+# RELEASES and the packages of the newest two releases), as published.
 # Runs every 5 minutes (systemd timer app-downloads-sync). One brand failing
 # (e.g. no release yet) never stops the other.
 set -u
@@ -35,6 +36,16 @@ fetch() { # name size url dest-dir   (size "-" = unknown: fetch once, keep)
   echo "fetched $4/$1"
 }
 
+pack() { # file name-in-zip dir zip — writes dir/zip whole or not at all
+  python3 - "$1" "$2" "$3/.$4.part" <<'PY' || { rm -f "$3/.$4.part"; echo "zip failed: $4" >&2; return 1; }
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[3], "w", zipfile.ZIP_DEFLATED) as z:
+    z.write(sys.argv[1], sys.argv[2])
+PY
+  mv "$3/.$4.part" "$3/$4"
+  echo "zipped $3/$4"
+}
+
 prune() { # dir glob symlink — keep the symlink's target and the 2 newest others (by download time)
   target=$(readlink "$1/$3" 2>/dev/null || true)
   ( cd "$1" && ls -1t $2 2>/dev/null ) | grep -vxF "${target:-/}" | tail -n +3 | while read -r old; do rm -f "$1/$old"; done
@@ -46,9 +57,9 @@ windows() { # brand repo setup-asset prefix
   curl -fsSL "https://api.github.com/repos/$2/releases?per_page=6" -o "$TMP/releases.json" || { echo "$1: no releases from $2" >&2; return 1; }
   # The packages of the newest two stable releases: the newest one's index names only its own full
   # package and delta, and the one before stays a while for apps that are halfway through an update.
-  python3 - "$TMP/releases.json" "$3" "$4" > "$TMP/plan.txt" <<'PY' || return 1
+  python3 - "$TMP/releases.json" "$3" > "$TMP/plan.txt" <<'PY' || return 1
 import json, sys
-setup, prefix = sys.argv[2], sys.argv[3]
+setup = sys.argv[2]
 rels = [r for r in json.load(open(sys.argv[1])) if not r.get("draft") and not r.get("prerelease")]
 for i, r in enumerate(rels[:2]):
     v = r["tag_name"].lstrip("v")
@@ -59,13 +70,19 @@ for i, r in enumerate(rels[:2]):
         elif i == 0 and n in ("releases.win.json", "RELEASES"):
             print("index", n, a["size"], a["browser_download_url"])
         elif i == 0 and n == setup:
-            print("setup", "%s-Setup-%s.exe" % (prefix, v), a["size"], a["browser_download_url"])
+            print("setup", v, a["size"], a["browser_download_url"])
 PY
   # Packages first, then the index that lists them, so the feed never names a missing file:
   # if any package failed, the index stays as it was until a later run gets them all.
   rm -f "$TMP/pkgfail"
   grep '^pkg ' "$TMP/plan.txt" | while read -r _ n s u; do fetch "$n" "$s" "$u" "$FEED" || : > "$TMP/pkgfail"; done
-  grep '^setup ' "$TMP/plan.txt" | while read -r _ n s u; do fetch "$n" "$s" "$u" "$FILES" && ln -sfn "$n" "$FILES/$4-Setup.exe"; done
+  grep '^setup ' "$TMP/plan.txt" | while read -r _ v s u; do
+    zip="$4-Windows-$v.zip"
+    if [ ! -f "$FILES/$zip" ]; then
+      fetch "$4-Setup.exe" "$s" "$u" "$TMP/dl" && pack "$TMP/dl/$4-Setup.exe" "$4-Setup.exe" "$FILES" "$zip" || continue
+    fi
+    ln -sfn "$zip" "$FILES/$4-Windows.zip"
+  done
   if [ -e "$TMP/pkgfail" ]; then
     echo "$1: a package is missing; the update index is left as it was" >&2
     return 1
@@ -88,7 +105,7 @@ PY
     [ -e "$f" ] || continue
     grep -q "^pkg $(basename "$f") " "$TMP/plan.txt" || rm -f "$f"
   done
-  prune "$FILES" "$4-Setup-*.exe" "$4-Setup.exe"
+  prune "$FILES" "$4-Windows-*.zip" "$4-Windows.zip"
 }
 
 mac() { # brand appcast prefix
@@ -111,17 +128,24 @@ for item in ET.parse(sys.argv[1]).getroot().iter("item"):
         best = (build, version)
 if best:
     v = best[1]
-    print("%s-Mac-%s.dmg %s/releases/%s/%s-%s.dmg" % (prefix, v, base, v, prefix, v))
+    print("%s %s/releases/%s/%s-%s.dmg" % (v, base, v, prefix, v))
 PY
-  read -r name url < "$TMP/mac.txt" || return 0
-  fetch "$name" - "$url" "$FILES" && ln -sfn "$name" "$FILES/$3-Mac.dmg"
-  prune "$FILES" "$3-Mac-*.dmg" "$3-Mac.dmg"
+  read -r v url < "$TMP/mac.txt" || return 0
+  zip="$3-Mac-$v.zip"
+  if [ ! -f "$FILES/$zip" ]; then
+    fetch "$3-Mac.dmg" - "$url" "$TMP/dl" && pack "$TMP/dl/$3-Mac.dmg" "$3-Mac.dmg" "$FILES" "$zip" || return 1
+  fi
+  ln -sfn "$zip" "$FILES/$3-Mac.zip"
+  prune "$FILES" "$3-Mac-*.zip" "$3-Mac.zip"
 }
 
 
 echo "$BRANDS" | while read -r brand repo setup appcast prefix; do
   [ -n "$brand" ] || continue
-  TMP=$(mktemp -d)
+  TMP=$(mktemp -d); mkdir "$TMP/dl"
+  # Until 2026-10-09 the site served the installer and the DMG as they are; now only zips (the
+  # old links redirect to them: nginx.conf), so none of those stays here.
+  rm -f "$ROOT/$brand/$prefix-Setup"*.exe "$ROOT/$brand/$prefix-Mac"*.dmg
   windows "$brand" "$repo" "$setup" "$prefix" || echo "$brand: Windows not mirrored" >&2
   mac "$brand" "$appcast" "$prefix" || echo "$brand: Mac not mirrored" >&2
   rm -rf "$TMP"

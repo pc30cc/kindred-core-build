@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import plist from 'plist';
+import { parse as parseYaml } from 'yaml';
 import { MOBILE_APP_DEFAULTS } from '../../../server/services/mobileApp/settings';
 
 const APP = 'ios/Webyar';
@@ -22,6 +23,21 @@ const MANIFEST = join(APP, 'Resources/PrivacyInfo.xcprivacy');
 const SOURCES = join(APP, 'Sources');
 const PROJECT = join(APP, 'project.yml');
 const LOCALES = ['en', 'fa', 'tr'];
+/**
+ * Where each app target's home-screen name and purpose strings live: the
+ * `Webyar` target bundles Resources/<locale>.lproj, the `Respok` target
+ * leaves those out and bundles Brands/Respok/<locale>.lproj instead
+ * (project.yml). Both ship Arabic too.
+ */
+const STRINGS_DIRS: Record<string, string> = { Webyar: 'Resources', Respok: 'Brands/Respok' };
+type Target = {
+  type: string;
+  sources: Array<string | { path: string; buildPhase?: string; excludes?: string[] }>;
+  info: { properties: Record<string, unknown> };
+};
+const appTargets = Object.entries(
+  (parseYaml(readFileSync(join(APP, 'project.yml'), 'utf8')) as { targets: Record<string, Target> }).targets,
+).filter(([, target]) => target.type === 'application');
 
 /**
  * Apple's five required-reason categories, and the symbols that mean the code
@@ -77,6 +93,22 @@ describe('iOS privacy manifest — placement and shape', () => {
     // is copied verbatim; Apple's tooling only reads the bundle root.
     expect(existsSync(MANIFEST)).toBe(true);
     expect(project).toMatch(/path:\s*Resources\s*\n\s*buildPhase:\s*resources/);
+  });
+
+  it('ships in both apps, WebYar and RESPOK', () => {
+    // RESPOK leaves out WebYar's asset catalog and home-screen strings, and
+    // must not leave out the manifest (or the Persian font) with them.
+    expect(appTargets.map(([name]) => name).sort()).toEqual(Object.keys(STRINGS_DIRS).sort());
+    for (const [name, target] of appTargets) {
+      const resources = target.sources
+        .map((source) => (typeof source === 'string' ? { path: source } : source))
+        .find((source) => source.path === 'Resources');
+      expect(resources?.buildPhase, name).toBe('resources');
+      for (const pattern of resources?.excludes ?? []) {
+        expect(pattern, `${name} excludes the privacy manifest`).not.toMatch(/PrivacyInfo|xcprivacy|^\*$|^\*\*$/);
+        expect(pattern, `${name} excludes the Persian font`).not.toMatch(/fa\.ttc|\.ttc|^\*$/);
+      }
+    }
   });
 
   it('declares all four top-level keys', () => {
@@ -182,6 +214,28 @@ describe('iOS app — permission purpose strings', () => {
       const strings = readFileSync(join(APP, `Resources/${locale}.lproj/InfoPlist.strings`), 'utf8');
       for (const key of keys) {
         expect(strings, `${key} missing from ${locale}`).toContain(`"${key}"`);
+      }
+    }
+  });
+
+  it('localizes them in every language each app declares, under its own name', () => {
+    for (const [name, target] of appTargets) {
+      const declared = target.info.properties.CFBundleLocalizations as string[];
+      expect(declared, name).toEqual(expect.arrayContaining(LOCALES));
+      const ownKeys = Object.keys(target.info.properties).filter((key) => /^NS\w+UsageDescription$/.test(key));
+      expect(ownKeys.sort(), `${name} asks for other permissions than the other app`).toEqual([...keys].sort());
+      for (const locale of declared) {
+        const path = join(APP, `${STRINGS_DIRS[name]}/${locale}.lproj/InfoPlist.strings`);
+        expect(existsSync(path), path).toBe(true);
+        const strings = readFileSync(path, 'utf8');
+        for (const key of ['CFBundleDisplayName', ...ownKeys]) {
+          expect(strings, `${key} missing from ${path}`).toContain(`"${key}"`);
+        }
+        if (name === 'Respok') {
+          // RESPOK's home-screen name and prompts never say WebYar, in any script.
+          expect(strings, path).not.toMatch(/webyar|وب.?یار|وبیار/i);
+          expect(strings, path).toContain('"CFBundleDisplayName" = "RESPOK";');
+        }
       }
     }
   });

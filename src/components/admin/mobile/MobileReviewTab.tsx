@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { UserCheck, Trash2, Lock, Apple } from 'lucide-react';
 import { useTranslation } from '@/i18n';
+import { useEdition } from '@/hooks/useEdition';
 import { Button } from '@/components/ui/button';
 import {
   SettingsSection, FieldGrid, TextField, TextAreaField, SwitchField,
@@ -18,6 +19,7 @@ import {
   useAppReviewAccount, useSeedAppReviewAccount, useSetAppReviewEnabled,
   type MobileAppSettings,
 } from '@/hooks/useMobileApp';
+import { appReviewAccountFallback } from './nativeBuild';
 
 /**
  * The account Apple signs in with (migration 248): whether it may sign in,
@@ -33,6 +35,7 @@ function AppReviewAccountSection() {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
+  const { edition } = useEdition();
   const status = account.data;
   const exists = status?.exists === true;
 
@@ -82,7 +85,7 @@ function AppReviewAccountSection() {
       )}
 
       <div className="space-y-1 text-xs text-muted-foreground">
-        <p dir="ltr" className="text-start font-mono">{status?.email ?? 'apple@webyar.ai'}</p>
+        <p dir="ltr" className="text-start font-mono">{status?.email ?? appReviewAccountFallback(edition)}</p>
         {status?.workspace_name && (
           <p>{t('admin.mobileApp.reviewAccount.workspace')}: {status.workspace_name}</p>
         )}

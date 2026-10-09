@@ -304,6 +304,9 @@ class ApiClient(
 
     private suspend fun adopt(found: PlatformOrigins) {
         val api = found.api ?: return
+        // RESPOK moves only within respok.app, whatever its platform says;
+        // anything else, it keeps the origin it has (PlatformOrigin.adoptable).
+        if (!PlatformOrigin.adoptable(api)) return
         if (api == origin()) return
         origins.remember(api)
         lock.withLock { baseUrl = api }

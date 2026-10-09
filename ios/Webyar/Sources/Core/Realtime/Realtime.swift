@@ -358,7 +358,9 @@ final class InboxRealtime {
     private func connectOnce(intent: String) async throws -> Outcome {
         let connection = try await api.realtimeConnect(workspaceID: workspaceID, intent: intent)
         guard connection.vendor == "centrifugo", let wsURL = connection.wsURL, let token = connection.token,
-              let url = URL(string: wsURL), url.scheme == "wss" || url.scheme == "ws"
+              let url = URL(string: wsURL), url.scheme == "wss" || url.scheme == "ws",
+              // RESPOK never joins a WebYar socket, whatever its server names (`AppBrand`).
+              AppBrand.accepts(url)
         else {
             return Outcome(subscribed: false, refresh: false, retry: Self.policyRetry)
         }
@@ -383,7 +385,7 @@ final class InboxRealtime {
         socket = task
         task.resume()
         defer { task.cancel(with: .normalClosure, reason: nil) }
-        try await task.send(.string(CentrifugoProtocol.connect(id: 1, token: token, name: "webyar-ios")))
+        try await task.send(.string(CentrifugoProtocol.connect(id: 1, token: token, name: AppBrand.realtimeName)))
 
         var subscribed = false
         // Renew the tokens shortly before they expire: closing the socket

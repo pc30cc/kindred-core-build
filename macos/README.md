@@ -123,8 +123,8 @@ Installed apps update through Sparkle from their brand's public feed: WebYar's
 is `pc30cc/mac-os` (`appcast.xml` at its root), RESPOK's is
 `pc30cc/respok-releases` (`mac/appcast.xml`); each has `releases/<version>/`
 with the zip Sparkle downloads and the DMG people download. Each site serves
-its brand's newest DMG (`https://app.webyar.ai/downloads/Webyar-Mac.dmg`,
-`https://app.respok.app/downloads/RESPOK-Mac.dmg`), mirrored from the feed
+its brand's newest DMG in a zip (`https://app.webyar.ai/downloads/Webyar-Mac.zip`,
+`https://app.respok.app/downloads/RESPOK-Mac.zip`), mirrored from the feed
 (`deploy/app-downloads/`). The app itself carries no
 feed address and never reuses a remembered one: Super Admin → macOS app
 tells it where the appcast is (this repository's, by default) on every

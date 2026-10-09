@@ -4709,7 +4709,7 @@ const en = {
           versionNameHint: 'What operators see, e.g. 1.4.0.',
           versionCode: 'Version code',
           versionCodeHint: 'A whole number Play has never seen before; every upload needs a higher one.',
-          versionShippedHint: "The version of the app the website hands out (Webyar-Android.apk); it updates by itself with every release.",
+          versionShippedHint: "The version of the app the website hands out ({{apkFile}}); it updates by itself with every release.",
           minSdk: 'Minimum SDK',
           minSdkHint: 'The oldest Android the app installs on (24 is Android 7.0).',
           targetSdk: 'Target SDK',

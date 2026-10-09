@@ -93,18 +93,20 @@ class PlatformNoticeTest {
 
     private val down = MaintenanceNotice(enabled = true, message = mapOf("fa" to "به‌زودی برمی‌گردیم"))
 
+    /** Persian for WebYar, English for RESPOK (AppBrandTest pins which is which per brand). */
     @Test
-    fun `a first launch speaks Persian when the platform names no language`() = runTest(dispatcher) {
+    fun `a first launch speaks the brand's language when the platform names no language`() = runTest(dispatcher) {
         val app = state(PlatformApi())
         launched(app)
-        assertEquals(Language.FA, app.language.value)
+        assertEquals(Language.DEFAULT, app.language.value)
     }
 
+    /** Turkish, the default of neither brand, so the platform's choice is what is seen. */
     @Test
     fun `a first launch speaks the language Super Admin set`() = runTest(dispatcher) {
-        val app = state(PlatformApi(MobileAppConfig(defaultLanguage = "en")))
+        val app = state(PlatformApi(MobileAppConfig(defaultLanguage = "tr")))
         launched(app)
-        assertEquals(Language.EN, app.language.value)
+        assertEquals(Language.TR, app.language.value)
     }
 
     @Test

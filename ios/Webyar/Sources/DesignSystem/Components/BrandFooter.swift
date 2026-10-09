@@ -1,14 +1,67 @@
 import SwiftUI
 
-/// The brand's two blues, as the launch loader draws them: the deep blue of
-/// the icon's lower edge and the cyan of its highlight.
+/// The brand's own colours, as its art draws them: the launch loader (and the
+/// `LaunchLoader` launch image drawn from it), the "AI" of the footer and the
+/// tile behind `BrandMark`. Each from its brand kit.
+///
+/// Not the interface's tint. That is `Theme.Palette.brand`, mirrored in the
+/// asset catalog's AccentColor, and it is the same blue in both apps — the
+/// Mac's RESPOK target made the same call: buttons and links are the UI's
+/// theme, the icon, mark and loader are the brand's.
 enum BrandPalette {
-    static let deep = Color(red: 0.047, green: 0.314, blue: 0.914)
-    static let cyan = Color(red: 0.180, green: 0.839, blue: 1.000)
+    #if BRAND_RESPOK
+    // RESPOK brand kit, Thread / Signal: Signal #FF5A3C, Signal Deep #D3361A,
+    // Ink #16142B.
+
+    /// Signal Deep: where the loader's comet comes from.
+    static let deep = Color(red: 0.827, green: 0.212, blue: 0.102)
+    /// Signal: the comet's head and its bead.
+    static let bright = Color(red: 1.000, green: 0.353, blue: 0.235)
+    /// The loader's other colour, its inner arc: Ink on a light screen and white
+    /// on a dark one — the symbol's own "color" and "reversed" colourways.
+    static let second = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? .white
+            : UIColor(red: 0.086, green: 0.078, blue: 0.169, alpha: 1)
+    })
+    /// The faint ring the comet runs on (drawn at 10%).
+    static let track = second
+    /// The tile behind the mark: flat Signal, as the app icon.
+    static let tile = LinearGradient(colors: [bright, bright], startPoint: .top, endPoint: .bottom)
+    /// The mark's box inside the tile, as a share of the tile: where the app
+    /// icon puts the symbol (573 × 507 of 1024).
+    static let markScale = CGSize(width: 0.560, height: 0.495)
+    #else
+    // WebYar brand kit: turquoise #16C7A8, deep turquoise #0B7D6C, and the app
+    // icon's gradient #2EDFC0 → #14BFA2 → #0B8A78.
+
+    /// Deep turquoise: where the loader's comet comes from.
+    static let deep = Color(red: 0.043, green: 0.490, blue: 0.424)
+    /// The icon's light turquoise: the comet's head and its bead.
+    static let bright = Color(red: 0.180, green: 0.875, blue: 0.753)
+    /// The loader's inner arc.
+    static let second = bright
+    /// The faint ring the comet runs on (drawn at 10%): the kit's turquoise.
+    static let track = Color(red: 0.086, green: 0.780, blue: 0.659)
+    /// The tile behind the mark: the app icon's own gradient, at its 150°.
+    static let tile = LinearGradient(
+        stops: [
+            .init(color: Color(red: 0.180, green: 0.875, blue: 0.753), location: 0),
+            .init(color: Color(red: 0.078, green: 0.749, blue: 0.635), location: 0.48),
+            .init(color: Color(red: 0.043, green: 0.541, blue: 0.471), location: 1),
+        ],
+        startPoint: UnitPoint(x: 0.158, y: -0.092),
+        endPoint: UnitPoint(x: 0.842, y: 1.092)
+    )
+    /// The mark's box inside the tile, as a share of the tile: where the app
+    /// icon puts the symbol (397 × 524 of 1024), plus the PDF's own hairline margin.
+    static let markScale = CGSize(width: 0.398, height: 0.523)
+    #endif
 }
 
-/// "WEBYAR AI", small and letter-spaced: the name in the label's quiet grey,
-/// the "AI" in the brand's blue.
+/// The product's signature, small and letter-spaced: "WEBYAR AI" — the name
+/// in the label's quiet grey, the "AI" in the brand's turquoise — and for
+/// RESPOK its name alone (`AppBrand.wordmark`, `AppBrand.wordmarkSuffix`).
 ///
 /// The product's signature on the screens that come before the app proper —
 /// the launch screen, sign in and password reset. Placed with `brandFooter()`
@@ -27,15 +80,17 @@ struct BrandFooter: View {
 
     var body: some View {
         HStack(spacing: tracking * 1.6) {
-            Text(Str.brandWordmark)
+            Text(verbatim: BrandStr.brandWordmark)
                 .foregroundStyle(Theme.Palette.labelSecondary)
-            Text(verbatim: "AI")
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [BrandPalette.deep, BrandPalette.cyan],
-                        startPoint: .leading, endPoint: .trailing
+            if let suffix = AppBrand.wordmarkSuffix {
+                Text(verbatim: suffix)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [BrandPalette.deep, BrandPalette.bright],
+                            startPoint: .leading, endPoint: .trailing
+                        )
                     )
-                )
+            }
         }
         .font(.system(size: 12, weight: .semibold, design: .rounded))
         .tracking(tracking)

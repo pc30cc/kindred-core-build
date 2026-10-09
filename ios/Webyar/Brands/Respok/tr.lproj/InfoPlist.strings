@@ -1,0 +1,9 @@
+/* Simgenin altındaki RESPOK adı ve iOS'un kamera, mikrofon ve Fotoğraflar'a
+   kaydetme izni isterken kendi gösterdiği cümleler. Bunları uygulama değil
+   sistem çizer, dolayısıyla `BrandStr` onlara erişemez. Respok hedefi
+   (project.yml) bu dosyaları Resources/<lang>.lproj/InfoPlist.strings yerine
+   paketler. Ad, ek almadığı yerlerde geçer. */
+"CFBundleDisplayName" = "RESPOK";
+"NSMicrophoneUsageDescription" = "RESPOK, bir ziyaretçiyi aradığınızda ve bir görüşmeye göndermek üzere sesli not kaydettiğinizde mikrofonu kullanır.";
+"NSCameraUsageDescription" = "RESPOK, bir ziyaretçiyle görüntülü görüşme başlattığınızda kamerayı kullanır.";
+"NSPhotoLibraryAddUsageDescription" = "Bir konuşmadan veya e-postadan açtığınız dosyada Kaydet'i seçtiğinizde RESPOK fotoğrafı veya videoyu arşivinize kaydeder.";

@@ -23,6 +23,24 @@ android {
     }
 
     targetProjectPath = ":app"
+
+    // The app's brands (app/build.gradle.kts), so each of its variants has
+    // one here to drive: without them variant matching fails. The code is
+    // the same in both, and the profile is merged into the app's src/main,
+    // so generating from WebYar alone is enough; RESPOK's is here so it can
+    // be driven too. `targetAppId` is the package each one starts
+    // (StartupProfile).
+    flavorDimensions += "brand"
+    productFlavors {
+        create("webyar") {
+            dimension = "brand"
+            testInstrumentationRunnerArguments["targetAppId"] = "com.webyar.ai"
+        }
+        create("respok") {
+            dimension = "brand"
+            testInstrumentationRunnerArguments["targetAppId"] = "com.respok.app"
+        }
+    }
 }
 
 baselineProfile {

@@ -5,9 +5,9 @@
     ShutdownMode="OnMainWindowClose">
     <!--
         Fluent styles in the spirit of the WinUI Gallery and the app itself:
-        soft rounded corners, the app's blue, quiet surfaces. Colours are set
-        from code for light or dark (App.ApplyTheme), so everything here uses
-        DynamicResource.
+        soft rounded corners, the brand's colour, quiet surfaces. Colours are set
+        from code for the brand (App.ApplyBrand) and for light or dark
+        (App.ApplyTheme), so everything here uses DynamicResource.
     -->
     <Application.Resources>
         <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
@@ -29,8 +29,17 @@
         <SolidColorBrush x:Key="DangerBrush" Color="#DC2626" />
         <SolidColorBrush x:Key="DangerSoftBrush" Color="#1FDC2626" />
         <SolidColorBrush x:Key="SwitchOffBrush" Color="#8A90A0" />
+        <!-- The brand panel on the left: its background and the text on it (App.ApplyBrand). -->
+        <LinearGradientBrush x:Key="BrandPanelBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#2F6BFF" Offset="0" />
+            <GradientStop Color="#1C47C9" Offset="0.55" />
+            <GradientStop Color="#122E8A" Offset="1" />
+        </LinearGradientBrush>
+        <SolidColorBrush x:Key="BrandPanelTaglineBrush" Color="#D6E1FF" />
+        <SolidColorBrush x:Key="BrandPanelTextBrush" Color="#EAF0FF" />
+        <SolidColorBrush x:Key="BrandPanelFooterBrush" Color="#B9C9F5" />
 
-        <!-- Primary action: the filled blue button. -->
+        <!-- Primary action: the filled button in the brand colour. -->
         <Style x:Key="AccentButton" TargetType="Button">
             <Setter Property="Foreground" Value="White" />
             <Setter Property="Background" Value="{DynamicResource BrandBrush}" />

@@ -12,24 +12,29 @@
  * GET /api/platform/macos-app, whose cache is dropped on every save here.
  * Ads, announcements, live usage and broadcasts are shared with the Windows
  * app under /api/admin/desktop-app, targeted per platform.
+ *
+ * Each edition has its own row (migration 257, server/services/
+ * editionSettings.ts): both routes read and write the running edition's, and
+ * answer 503 while the edition cannot be told.
  */
 import { Router } from 'express';
 import type { Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import {
   invalidateMacosAppSettingsCache,
   normalizeMacos,
   MACOS_APP_BOUNDS,
-  MACOS_APP_DEFAULTS,
   MACOS_MAX_BLOCKED_VERSIONS,
   VERSION_RE,
+  macosAppDefaults,
   macosDefaultAppcastUrl,
+  macosInsertDefaults,
   macosSettingsForEdition,
 } from '../services/desktopApp/macosSettings.js';
-import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { getPlatformEdition } from '../services/platformRegion.js';
+import { readEditionSettingsRow, respondEditionUnavailable, saveEditionSettingsRow } from '../services/editionSettings.js';
 import { invalidateMacosAppPublicCache } from './desktopAppPublic.js';
 import { invalidInput } from './adminDesktopApp.js';
 
@@ -130,26 +135,16 @@ export const macosAppSettingsSchema = z
     { message: 'write the maintenance notice in at least one language', path: ['maintenance_message'] },
   );
 
-async function readRow(config: ServerConfig) {
-  const sb = getServiceClient(config);
-  const { data, error } = await sb
-    .from('macos_app_settings')
-    .select('*')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data as Record<string, unknown> | null;
-}
-
 adminMacosAppRouter.get('/settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
     const config = serverConfigOf(req);
-    const row = await readRow(config);
-    const settings = macosSettingsForEdition(row ? normalizeMacos(row) : { ...MACOS_APP_DEFAULTS }, await getPlatformEditionOrNull(config));
+    const edition = await getPlatformEdition(config);
+    const row = await readEditionSettingsRow(config, 'macos_app_settings', edition);
+    const settings = row ? macosSettingsForEdition(normalizeMacos(row), edition) : { ...macosAppDefaults(edition) };
     return res.json({ settings });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -160,13 +155,13 @@ adminMacosAppRouter.put('/settings', async (req, res) => {
   if (!parsed.success) return res.status(400).json(invalidInput(parsed.error));
 
   const config = serverConfigOf(req);
-  const sb = getServiceClient(config);
   const payload: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() };
-  // The appcast is the updater's only lifeline: clearing it restores the default feed.
-  const edition = await getPlatformEditionOrNull(config);
-  if (payload.appcast_url === null) payload.appcast_url = macosDefaultAppcastUrl(edition);
   try {
-    const existing = await readRow(config);
+    // Never written into a guessed edition: unknown answers 503.
+    const edition = await getPlatformEdition(config);
+    // The appcast is the updater's only lifeline: clearing it restores the default feed.
+    if (payload.appcast_url === null) payload.appcast_url = macosDefaultAppcastUrl(edition);
+    const existing = await readEditionSettingsRow(config, 'macos_app_settings', edition);
     // Maintenance switched on (in this patch or already) needs something to say.
     const merged = normalizeMacos({ ...(existing ?? {}), ...payload });
     if (merged.maintenance_enabled && Object.keys(merged.maintenance_message).length === 0) {
@@ -175,15 +170,15 @@ adminMacosAppRouter.put('/settings', async (req, res) => {
         issues: [{ path: 'maintenance_message', message: 'write the maintenance notice in at least one language' }],
       });
     }
-    const query = existing
-      ? sb.from('macos_app_settings').update(payload).eq('id', existing.id as string).select('*').single()
-      : sb.from('macos_app_settings').insert(payload).select('*').single();
-    const { data, error } = await query;
+    const { data, error } = await saveEditionSettingsRow(
+      config, 'macos_app_settings', edition, existing, payload, macosInsertDefaults(edition),
+    );
     if (error) return res.status(500).json({ error: error.message });
     invalidateMacosAppSettingsCache();
     invalidateMacosAppPublicCache();
     return res.json({ success: true, settings: macosSettingsForEdition(normalizeMacos(data as Record<string, unknown>), edition) });
   } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
     return res.status(500).json({ error: (err as Error).message });
   }
 });

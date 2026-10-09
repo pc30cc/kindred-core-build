@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import com.webyar.ai.StorageUsage
 import com.webyar.ai.core.model.Workspace
 import com.webyar.ai.core.storage.Appearance
+import com.webyar.ai.i18n.BrandStr
 import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
@@ -382,7 +383,7 @@ fun SettingsScreen(
             onDismissRequest = { confirmingSignOut = false },
             icon = { Icon(Icons.AutoMirrored.Outlined.ExitToApp, contentDescription = null) },
             title = { Text(Str.signOut(language)) },
-            text = { Text(Str.signOutConfirm(language)) },
+            text = { Text(BrandStr.signOutConfirm(language)) },
             confirmButton = {
                 TextButton(onClick = { confirmingSignOut = false; onSignOut() }) {
                     Text(Str.signOut(language), color = MaterialTheme.colorScheme.error)

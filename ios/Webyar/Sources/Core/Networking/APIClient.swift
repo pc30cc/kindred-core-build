@@ -114,16 +114,20 @@ actor APIClient {
             adopt(origins)
             return
         }
-        guard PlatformOrigin.isStored, baseURL != GeneratedConfig.apiBaseURL else { return }
+        guard PlatformOrigin.isStored, baseURL != AppBrand.apiOrigin else { return }
         // Forgotten only once the compiled origin answers. Offline, or on a
         // link too slow for either, neither does — and then the remembered
         // origin is not the one at fault.
-        guard let origins = await askOrigins(at: GeneratedConfig.apiBaseURL) else { return }
+        guard let origins = await askOrigins(at: AppBrand.apiOrigin) else { return }
         PlatformOrigin.forget()
-        baseURL = GeneratedConfig.apiBaseURL
+        baseURL = AppBrand.apiOrigin
         adopt(origins)
     }
 
+    /// What the platform answered, taken on. `PlatformOrigins` has already
+    /// dropped any link that is not https or that this brand may not use
+    /// (RESPOK: an API outside respok.app, `AppBrand.ownsOrigin`, or a WebYar
+    /// site, `AppBrand.accepts`).
     private func adopt(_ origins: PlatformOrigins) {
         PlatformOrigin.rememberSupport(origins.support)
         PlatformOrigin.rememberWebsite(origins.website)
@@ -1268,7 +1272,7 @@ actor APIClient {
             throw APIError.server(status: http.statusCode, message: nil)
         }
         let owned = FileManager.default.temporaryDirectory
-            .appendingPathComponent("webyar-download-\(UUID().uuidString)")
+            .appendingPathComponent("\(AppBrand.tempPrefix)-download-\(UUID().uuidString)")
         do {
             try FileManager.default.moveItem(at: location, to: owned)
         } catch {

@@ -41,7 +41,10 @@ enum Language: String, CaseIterable, Identifiable, Sendable {
     var locale: Locale {
         switch self {
         case .en: Locale(identifier: "en_US")
-        case .fa: Locale(identifier: "fa_IR")
+        // Persian digits either way. WebYar's dates are in the Persian (Jalali)
+        // calendar, which `fa_IR` gives; RESPOK's in the Gregorian, as its
+        // desktop apps' are (`AppBrand.jalaliDates`).
+        case .fa: Locale(identifier: AppBrand.jalaliDates ? "fa_IR" : "fa_IR@calendar=gregorian")
         case .tr: Locale(identifier: "tr_TR")
         // Arabic-Indic digits (٠١٢٣) and the Gregorian calendar, spelled out:
         // some Arabic regions default to Latin digits or the Hijri calendar.
@@ -57,6 +60,8 @@ enum Language: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// Persian dates are far more legible to a Persian reader in the Persian
-    /// calendar, and iOS will use it automatically for `fa_IR`.
+    /// calendar, and iOS will use it automatically for `fa_IR` — WebYar's. In
+    /// RESPOK, the International edition, Persian is right-to-left text with
+    /// Gregorian dates (`fa_IR@calendar=gregorian`, `AppBrand.jalaliDates`).
     var calendarLocale: Locale { locale }
 }

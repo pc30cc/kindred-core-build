@@ -45,16 +45,19 @@ jobs:
           java-version: '21'
           cache: gradle
 
+      # WebYar's build (the `webyar` flavor). RESPOK's draws the same screens
+      # with its own name and launch colours; `testRespokDebugUnitTest` with
+      # the same arguments records those into roborazzi/respok.
       - name: Record screenshots
         working-directory: android
-        run: ./gradlew :app:testDebugUnitTest --tests 'com.webyar.ai.screenshots.*' -Proborazzi.test.record=true --stacktrace
+        run: ./gradlew :app:testWebyarDebugUnitTest --tests 'com.webyar.ai.screenshots.*' -Proborazzi.test.record=true --stacktrace
 
       - name: Publish to screenshots/${{ github.ref_name }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
-          out="$GITHUB_WORKSPACE/android/app/build/outputs/roborazzi"
+          out="$GITHUB_WORKSPACE/android/app/build/outputs/roborazzi/webyar"
           ls -la "$out"
           dest=$(mktemp -d)
           cp "$out"/*.png "$dest"/
@@ -97,7 +100,7 @@ jobs:
           cat > "$RUNNER_TEMP/export.init.gradle" <<'GRADLE'
           gradle.projectsEvaluated {
               def p = gradle.rootProject.project(':app')
-              def kt = p.tasks.getByName('compileDebugKotlin')
+              def kt = p.tasks.getByName('compileWebyarDebugKotlin')
               p.tasks.register('exportCompileClasspath') {
                   dependsOn kt
                   doLast {
@@ -120,7 +123,7 @@ jobs:
           }
           GRADLE
           ./gradlew --init-script "$RUNNER_TEMP/export.init.gradle" :app:exportCompileClasspath --stacktrace
-          ./gradlew -q :app:dependencies --configuration debugRuntimeClasspath > app/build/export/dependencies.txt
+          ./gradlew -q :app:dependencies --configuration webyarDebugRuntimeClasspath > app/build/export/dependencies.txt
 
       - name: Assemble the bundle
         env:
@@ -131,10 +134,11 @@ jobs:
           mkdir -p "$bundle/classpath" "$bundle/generated" "$bundle/sources" "$bundle/sdk"
           cp android/app/build/export/classpath/*.jar "$bundle/classpath/"
           cp android/app/build/export/dependencies.txt "$bundle/"
-          for d in android/app/build/generated/ksp/debug android/app/build/generated/source/buildConfig/debug; do
+          # WebYar's variant; RESPOK's differs only in BuildConfig's brand values.
+          for d in android/app/build/generated/ksp/webyarDebug android/app/build/generated/source/buildConfig/webyarDebug; do
             [ -d "$d" ] && mkdir -p "$bundle/generated/$(basename "$(dirname "$d")")" && cp -r "$d" "$bundle/generated/$(basename "$(dirname "$d")")/"
           done
-          find android/app/build/intermediates -name 'R.jar' -path '*debug*' -exec cp {} "$bundle/classpath/zzz_app_R.jar" \; -quit
+          find android/app/build/intermediates -name 'R.jar' -path '*webyarDebug*' -exec cp {} "$bundle/classpath/zzz_app_R.jar" \; -quit
           platform=$(ls -d "$ANDROID_HOME"/platforms/android-* | sort -V | tail -1)
           cp "$platform/android.jar" "$bundle/sdk/"
           echo "$platform" > "$bundle/sdk/platform.txt"

@@ -2,6 +2,13 @@
  * Facts about the native iOS app's project (ios/Webyar), for the
  * readiness checks and Super Admin's "Deployment status" card.
  *
+ * The project builds two apps from one source (project.yml): WebYar (the
+ * `Webyar` target, com.webyar.ai) and RESPOK (the `Respok` target,
+ * com.respok.app), each with its own icon set, entitlements and Info.plist.
+ * So the facts are per brand: `inspectNativeProject(nativeBrandForEdition(edition))`
+ * gives the International edition RESPOK's and every other edition WebYar's.
+ * Called with no brand, it answers for WebYar, as it always has.
+ *
  * The API image does not ship `ios/` (Dockerfile.server copies `server/`
  * only), so a deployed server cannot look at the project itself. It reads
  * iosProjectFacts.json beside this file instead: the same facts, written
@@ -48,6 +55,18 @@ export type NativeProjectSource = 'checkout' | 'snapshot' | 'none';
 
 export const NATIVE_PROJECT_DIR = 'ios/Webyar';
 
+/** The two apps the project builds. */
+export type NativeBrand = 'webyar' | 'respok';
+export const NATIVE_BRANDS: Record<NativeBrand, { target: string; bundleId: string; iconSet: string }> = {
+  webyar: { target: 'Webyar', bundleId: 'com.webyar.ai', iconSet: 'Resources/Assets.xcassets/AppIcon.appiconset' },
+  respok: { target: 'Respok', bundleId: 'com.respok.app', iconSet: 'Brands/Respok/Assets.xcassets/AppIcon.appiconset' },
+};
+
+/** The app an edition ships: RESPOK in the International edition, WebYar in every other. */
+export function nativeBrandForEdition(edition: string | null | undefined): NativeBrand {
+  return edition === 'international' ? 'respok' : 'webyar';
+}
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** server/ in development, /app in the server image. */
 const SERVER_DIR = resolve(HERE, '..', '..');
@@ -63,38 +82,56 @@ const NONE: NativeProjectFacts = {
   backgroundModes: [],
 };
 
-/** Reads the facts from a checkout of the repository at `root`. */
-export function readNativeProjectFacts(root: string): NativeProjectFacts {
+/**
+ * Reads one brand's facts from a checkout of the repository at `root`: its
+ * target's entitlements and background modes, its own icon set, and the
+ * privacy manifest both apps bundle.
+ */
+export function readNativeProjectFacts(root: string, brand: NativeBrand = 'webyar'): NativeProjectFacts {
   const dir = resolve(root, NATIVE_PROJECT_DIR);
   const specPath = resolve(dir, 'project.yml');
   if (!existsSync(specPath)) return { ...NONE };
-  const spec = readFileSync(specPath, 'utf8');
+  const target = targetBlock(readFileSync(specPath, 'utf8'), NATIVE_BRANDS[brand].target);
+  if (target === null) return { ...NONE };
   const manifestPath = resolve(dir, 'Resources/PrivacyInfo.xcprivacy');
   const manifest = existsSync(manifestPath) ? readFileSync(manifestPath, 'utf8') : '';
   return {
     available: true,
-    appIcon1024: hasMarketingIcon(resolve(dir, 'Resources/Assets.xcassets/AppIcon.appiconset')),
+    appIcon1024: hasMarketingIcon(resolve(dir, NATIVE_BRANDS[brand].iconSet)),
     privacyManifestFile: existsSync(manifestPath),
     privacyApiTypes: manifestValues(manifest, 'NSPrivacyAccessedAPIType', 'NSPrivacyAccessedAPICategory'),
     privacyDataTypes: manifestValues(manifest, 'NSPrivacyCollectedDataType', 'NSPrivacyCollectedDataType'),
-    pushEntitlement: declaresPushEntitlement(spec),
-    backgroundModes: backgroundModes(spec),
+    pushEntitlement: declaresPushEntitlement(target),
+    backgroundModes: backgroundModes(target),
   };
 }
 
-/** The facts this server can know, and where they came from. */
-export function inspectNativeProject(): NativeProjectFacts & { source: NativeProjectSource } {
+/** Both brands' facts: what iosProjectFacts.json holds. */
+export function readAllNativeProjectFacts(root: string): Record<NativeBrand, NativeProjectFacts> {
+  return { webyar: readNativeProjectFacts(root, 'webyar'), respok: readNativeProjectFacts(root, 'respok') };
+}
+
+/** The facts this server can know about one brand's app, and where they came from. */
+export function inspectNativeProject(brand: NativeBrand = 'webyar'): NativeProjectFacts & { source: NativeProjectSource } {
   const root = resolve(SERVER_DIR, '..');
   if (existsSync(resolve(root, NATIVE_PROJECT_DIR, 'project.yml'))) {
-    return { ...readNativeProjectFacts(root), source: 'checkout' };
+    return { ...readNativeProjectFacts(root, brand), source: 'checkout' };
   }
-  const snapshot = readSnapshot();
+  const snapshot = readSnapshot(NATIVE_PROJECT_SNAPSHOT, brand);
   return snapshot ? { ...snapshot, source: 'snapshot' } : { ...NONE, source: 'none' };
 }
 
-export function readSnapshot(path: string = NATIVE_PROJECT_SNAPSHOT): NativeProjectFacts | null {
+/**
+ * One brand's facts from the snapshot, which holds `{ webyar, respok }`. A
+ * snapshot written before RESPOK's target existed holds WebYar's facts at its
+ * top level, and nothing for RESPOK.
+ */
+export function readSnapshot(path: string = NATIVE_PROJECT_SNAPSHOT, brand: NativeBrand = 'webyar'): NativeProjectFacts | null {
   try {
-    const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<NativeProjectFacts>;
+    const file = JSON.parse(readFileSync(path, 'utf8')) as Partial<Record<NativeBrand, Partial<NativeProjectFacts>>> &
+      Partial<NativeProjectFacts>;
+    const raw = file[brand] ?? (brand === 'webyar' && 'available' in file ? file : null);
+    if (!raw) return null;
     return {
       available: raw.available === true,
       appIcon1024: raw.appIcon1024 === true,
@@ -136,6 +173,32 @@ function hasMarketingIcon(iconSet: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The lines of one target under `targets:` in the XcodeGen spec, or null when
+ * the spec has no such target: its name at one indentation and everything
+ * indented deeper, up to the next line that is not.
+ */
+function targetBlock(spec: string, target: string): string | null {
+  const lines = spec.split('\n');
+  const start = lines.findIndex((line) => line === 'targets:' || /^targets:[ \t]*$/.test(line));
+  if (start === -1) return null;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^\S/.test(line)) break;
+    const header = line.match(/^([ \t]+)([\w.-]+):[ \t]*$/);
+    if (!header || header[2] !== target) continue;
+    const indent = header[1].length;
+    const body: string[] = [line];
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const next = lines[j];
+      if (next.trim() === '' || (next.match(/^[ \t]*/)![0].length > indent)) body.push(next);
+      else break;
+    }
+    return `${body.join('\n')}\n`;
+  }
+  return null;
 }
 
 /** `entitlements:` → `properties:` → `aps-environment:` in the XcodeGen spec. */

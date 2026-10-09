@@ -20,6 +20,9 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { hashPassword } from '../services/auth/password.js';
+import { getPlatformEdition } from '../services/platformRegion.js';
+import { readEditionSettingsRow, respondEditionUnavailable, saveEditionSettingsRow } from '../services/editionSettings.js';
+import { invalidateMobileAppSettingsCache, mobileInsertDefaults } from '../services/mobileApp/settings.js';
 
 export const adminAppReviewRouter = Router();
 
@@ -54,10 +57,31 @@ adminAppReviewRouter.post('/seed', async (req, res) => {
   const parsed = seedSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'password_too_short' });
 
+  const config = serverConfigOf(req);
+  // The seed records itself on the running edition's mobile settings row
+  // (migrations 257, 258). An edition gets its row on the first save of its
+  // Mobile page; seeding before that creates it here, from that edition's own
+  // defaults, so the seed is never recorded nowhere.
+  try {
+    const edition = await getPlatformEdition(config);
+    const existing = await readEditionSettingsRow(config, 'mobile_app_settings', edition);
+    if (!existing) {
+      const { error: insertError } = await saveEditionSettingsRow(
+        config, 'mobile_app_settings', edition, null,
+        { updated_at: new Date().toISOString() }, mobileInsertDefaults(edition),
+      );
+      if (insertError) return res.status(500).json({ error: insertError.message });
+    }
+  } catch (err) {
+    if (respondEditionUnavailable(res, err)) return;
+    return res.status(500).json({ error: (err as Error).message });
+  }
+
   const passwordHash = parsed.data.password ? await hashPassword(parsed.data.password) : null;
-  const { data, error } = await getServiceClient(serverConfigOf(req)).rpc('app_review_seed', {
+  const { data, error } = await getServiceClient(config).rpc('app_review_seed', {
     _password_hash: passwordHash,
   });
+  invalidateMobileAppSettingsCache();
   if (error) {
     const known = refusal(error.message);
     return res.status(known?.status ?? 500).json({ error: known?.error ?? error.message });

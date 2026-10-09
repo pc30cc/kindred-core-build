@@ -18,6 +18,14 @@ import Foundation
 /// The stored value can always be abandoned. A domain typed wrong in Super
 /// Admin would otherwise brick every installed copy, so a stored origin that
 /// stops answering is forgotten and the compiled one takes over again.
+///
+/// The compiled origin is the brand's own (`AppBrand.apiOrigin`, which is
+/// `GeneratedConfig.apiBaseURL` generated for that brand): api.webyar.ai for
+/// WebYar, api.respok.app for RESPOK. And RESPOK moves to no API outside
+/// respok.app, not even on its own platform's answer (`AppBrand.ownsOrigin`),
+/// nor links to a WebYar site (`AppBrand.accepts`): a RESPOK database cloned
+/// from WebYar's that still names a WebYar host would otherwise carry the
+/// phone over to WebYar's servers without a word.
 enum PlatformOrigin {
     private static let originKey = "platform.apiOrigin"
     private static let supportKey = "platform.supportURL"
@@ -27,8 +35,9 @@ enum PlatformOrigin {
     static var current: URL {
         guard let stored = UserDefaults.standard.string(forKey: originKey),
               let url = URL(string: stored),
-              url.scheme?.lowercased() == "https"
-        else { return GeneratedConfig.apiBaseURL }
+              url.scheme?.lowercased() == "https",
+              AppBrand.ownsOrigin(url)
+        else { return AppBrand.apiOrigin }
         return url
     }
 
@@ -50,7 +59,7 @@ enum PlatformOrigin {
     /// one, its public site otherwise, and only then the compiled fallback.
     static var supportURL: URL? {
         if let stored = UserDefaults.standard.string(forKey: supportKey),
-           let url = URL(string: stored) {
+           let url = URL(string: stored), AppBrand.accepts(url) {
             return url
         }
         return GeneratedConfig.supportURL
@@ -65,7 +74,8 @@ enum PlatformOrigin {
     /// for it: the platform's public site (Branding → Domains).
     static var websiteURL: URL? {
         guard let stored = UserDefaults.standard.string(forKey: websiteKey),
-              let url = URL(string: stored), url.scheme?.lowercased() == "https"
+              let url = URL(string: stored), url.scheme?.lowercased() == "https",
+              AppBrand.accepts(url)
         else { return nil }
         return url
     }
@@ -87,13 +97,17 @@ struct PlatformOrigins: Decodable, Sendable {
     /// that does not exist, and the app opened the bare origin.
     let supportUrl: String?
 
+    /// An https link this brand may use: what the app adopts from the answer.
+    /// Anything else is as if the platform had not named it (`AppBrand.accepts`).
     private static func https(_ raw: String?) -> URL? {
-        guard let raw, let url = URL(string: raw), url.scheme?.lowercased() == "https"
+        guard let raw, let url = URL(string: raw), url.scheme?.lowercased() == "https",
+              AppBrand.accepts(url)
         else { return nil }
         return url
     }
 
-    var api: URL? { Self.https(apiBaseUrl) }
+    /// The API origin to move to: for RESPOK only one of its own (`AppBrand.ownsOrigin`).
+    var api: URL? { Self.https(apiBaseUrl).flatMap { AppBrand.ownsOrigin($0) ? $0 : nil } }
     /// The platform's public site.
     var website: URL? { Self.https(publicBaseUrl) }
     /// Where "Contact support" goes. The server decides; the last two are only

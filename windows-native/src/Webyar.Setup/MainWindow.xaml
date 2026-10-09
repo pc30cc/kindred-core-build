@@ -21,7 +21,7 @@
     <Grid Margin="20">
         <Border x:Name="Shadow" CornerRadius="14" Background="{DynamicResource SurfaceBrush}">
             <Border.Effect>
-                <DropShadowEffect BlurRadius="30" ShadowDepth="6" Direction="270" Opacity="0.28" Color="#0B1A40" />
+                <DropShadowEffect BlurRadius="30" ShadowDepth="6" Direction="270" Opacity="0.28" Color="#0E1420" />
             </Border.Effect>
         </Border>
         <Grid x:Name="Card" ClipToBounds="True" SizeChanged="OnCardSizeChanged">
@@ -31,14 +31,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- Brand panel -->
-            <Grid x:Name="Brand" MouseLeftButtonDown="OnDrag">
-                <Grid.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                        <GradientStop Color="#2F6BFF" Offset="0" />
-                        <GradientStop Color="#1C47C9" Offset="0.55" />
-                        <GradientStop Color="#122E8A" Offset="1" />
-                    </LinearGradientBrush>
-                </Grid.Background>
+            <Grid x:Name="Brand" MouseLeftButtonDown="OnDrag" Background="{DynamicResource BrandPanelBrush}">
                 <Ellipse Width="380" Height="380" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-170,-170,0" Fill="#18FFFFFF" />
                 <Ellipse Width="260" Height="260" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-110,0,0,-100" Fill="#12FFFFFF" />
                 <Ellipse x:Name="Glow" Width="180" Height="180" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,40,0,0" Opacity="0.55">
@@ -53,7 +46,7 @@
                     <StackPanel DockPanel.Dock="Top">
                         <Border x:Name="LogoTile" Width="88" Height="88" CornerRadius="22" Background="White" HorizontalAlignment="Left" RenderTransformOrigin="0.5,0.5">
                             <Border.Effect>
-                                <DropShadowEffect BlurRadius="24" ShadowDepth="6" Direction="270" Opacity="0.35" Color="#081A5C" />
+                                <DropShadowEffect BlurRadius="24" ShadowDepth="6" Direction="270" Opacity="0.35" Color="#0A0F18" />
                             </Border.Effect>
                             <Border.RenderTransform>
                                 <ScaleTransform x:Name="LogoScale" ScaleX="1" ScaleY="1" />
@@ -61,33 +54,33 @@
                             <Image Source="pack://application:,,,/Assets/icon.png" Width="64" Height="64" RenderOptions.BitmapScalingMode="HighQuality" />
                         </Border>
                         <TextBlock x:Name="BrandName" Margin="0,22,0,0" FontSize="32" FontWeight="Bold" Foreground="White" />
-                        <TextBlock x:Name="BrandTagline" Margin="0,8,0,0" FontSize="14" Foreground="#D6E1FF" TextWrapping="Wrap" LineHeight="23" />
+                        <TextBlock x:Name="BrandTagline" Margin="0,8,0,0" FontSize="14" Foreground="{DynamicResource BrandPanelTaglineBrush}" TextWrapping="Wrap" LineHeight="23" />
                     </StackPanel>
                     <StackPanel DockPanel.Dock="Top" Margin="0,26,0,0">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                             <Border Width="30" Height="30" CornerRadius="8" Background="#26FFFFFF">
                                 <TextBlock Text="&#xE8BD;" FontFamily="{StaticResource IconFont}" FontSize="13" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock x:Name="Feature1" Margin="12,0,0,0" FontSize="13" Foreground="#EAF0FF" VerticalAlignment="Center" />
+                            <TextBlock x:Name="Feature1" Margin="12,0,0,0" FontSize="13" Foreground="{DynamicResource BrandPanelTextBrush}" VerticalAlignment="Center" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                             <Border Width="30" Height="30" CornerRadius="8" Background="#26FFFFFF">
                                 <TextBlock Text="&#xE945;" FontFamily="{StaticResource IconFont}" FontSize="13" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock x:Name="Feature2" Margin="12,0,0,0" FontSize="13" Foreground="#EAF0FF" VerticalAlignment="Center" />
+                            <TextBlock x:Name="Feature2" Margin="12,0,0,0" FontSize="13" Foreground="{DynamicResource BrandPanelTextBrush}" VerticalAlignment="Center" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal">
                             <Border Width="30" Height="30" CornerRadius="8" Background="#26FFFFFF">
                                 <TextBlock Text="&#xE717;" FontFamily="{StaticResource IconFont}" FontSize="13" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock x:Name="Feature3" Margin="12,0,0,0" FontSize="13" Foreground="#EAF0FF" VerticalAlignment="Center" />
+                            <TextBlock x:Name="Feature3" Margin="12,0,0,0" FontSize="13" Foreground="{DynamicResource BrandPanelTextBrush}" VerticalAlignment="Center" />
                         </StackPanel>
                     </StackPanel>
                     <Grid DockPanel.Dock="Bottom">
                         <Border HorizontalAlignment="Left" CornerRadius="6" Background="#26FFFFFF" Padding="10,4">
                             <TextBlock x:Name="VersionText" FontSize="12" Foreground="White" />
                         </Border>
-                        <TextBlock x:Name="FooterText" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="#B9C9F5" />
+                        <TextBlock x:Name="FooterText" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource BrandPanelFooterBrush}" />
                     </Grid>
                 </DockPanel>
             </Grid>

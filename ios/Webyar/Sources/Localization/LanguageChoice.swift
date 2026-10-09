@@ -63,9 +63,11 @@ struct LegalLinks: Equatable, Sendable {
 
     var isEmpty: Bool { privacyPolicy == nil && terms == nil }
 
+    /// An https page this brand may link to (RESPOK: never a WebYar one, `AppBrand.accepts`).
     static func https(_ raw: String?) -> URL? {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host() != nil
+              let url = URL(string: raw), url.scheme?.lowercased() == "https", url.host() != nil,
+              AppBrand.accepts(url)
         else { return nil }
         return url
     }

@@ -150,8 +150,11 @@ reserved blocks, so a full disk stops Postgres too.
     `fa0e79d` (250 files), plus `252_email_sender_placeholders_cleared.sql`,
     `253_workspace_panel_theme.sql` (2026-10-08 07:08 UTC),
     `254_workspace_panel_theme_options.sql` (2026-10-08 13:27 UTC),
-    `255_billing_v2_renewal_currency.sql` (2026-10-08 21:42 UTC) and
-    `256_billing_v2_notification_currency.sql` (2026-10-08 22:15 UTC).
+    `255_billing_v2_renewal_currency.sql` (2026-10-08 21:42 UTC),
+    `256_billing_v2_notification_currency.sql` (2026-10-08 22:15 UTC) and
+    `257_app_settings_per_edition.sql` (2026-10-09 16:11 UTC; also applied by
+    hand to RESPOK's database, whose overlay section 5b/5c now touches only its
+    `international` rows).
   - RESPOK's database is migrated automatically: its DB Migrator (app 40)
     runs `scripts/migrate-database.sh` on every push to `main`, then
     `/data/respok/migrator/overlay.sql`. Since 2026-10-08 the overlay is a

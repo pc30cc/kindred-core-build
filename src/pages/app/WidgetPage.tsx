@@ -32,6 +32,7 @@ import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { useWidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { useEdition } from '@/hooks/useEdition';
 import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
 import { SmartRulesTab } from '@/components/app/widget/smart/SmartRulesTab';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
@@ -79,6 +80,7 @@ function isValidDomain(d: string): boolean {
 
 function WidgetPageContent() {
   const { t, dir } = useTranslation();
+  const { isInternational } = useEdition();
   const workspace = useCurrentWorkspace();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
   // Chat bubbles in the preview show a real operator profile picture.
@@ -627,7 +629,7 @@ function WidgetPageContent() {
                       disabled={!capAllowed('widget_launcher_label')}
                       value={capAllowed('widget_launcher_label') ? (live?.fab_label || '') : ''}
                       onChange={e => setField('fab_label', e.target.value)}
-                      placeholder={t('widgetPage.appearance.fabLabelPlaceholder')}
+                      placeholder={t(isInternational ? 'widgetPage.appearance.fabLabelPlaceholderIntl' : 'widgetPage.appearance.fabLabelPlaceholder')}
                     />
                     {capAllowed('widget_launcher_label') ? (
                       <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabLabelHint')}</p>

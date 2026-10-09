@@ -7,7 +7,8 @@ import { readFileSync, existsSync } from 'node:fs';
  * Widget Core (runtime.js) must never build markup itself; the active
  * template renderer is the single source of truth for HTML. These tests
  * pin that boundary so a future patch cannot quietly move markup back
- * into Core, and they lock "default" as the ONLY shipped template.
+ * into Core, and they lock "default" as the Iranian edition's template and
+ * "intl" (a skin over the same renderer) as the International one's.
  */
 
 const RUNTIME = readFileSync('public/widget/runtime.js', 'utf8');
@@ -16,6 +17,14 @@ import {
 } from '../../../server/services/widget/presentationAssets.js';
 
 const REGISTRY_SRC = readFileSync('public/widget/presentation-registry.js', 'utf8');
+
+/** The browser globals these tests read (the registry and the renderer). */
+type Descriptor = { id: string; globalKey: string; script: string; style: string; skin?: string };
+type Renderer = Record<string, (...args: unknown[]) => string>;
+type WidgetWindow = {
+  __gs_presentation_registry: { defaultId: string; resolve: (id: string) => Descriptor; list: () => Descriptor[] };
+} & Record<string, { create: (env: unknown) => Renderer }>;
+const win = () => window as unknown as WidgetWindow;
 const RENDERER_SRC = readFileSync('public/widget/presentation-default.js', 'utf8');
 
 function loadPresentation() {
@@ -23,9 +32,9 @@ function loadPresentation() {
   new Function(REGISTRY_SRC).call(window);
   // eslint-disable-next-line no-new-func
   new Function(RENDERER_SRC).call(window);
-  const registry = (window as any).__gs_presentation_registry;
+  const registry = win().__gs_presentation_registry;
   const desc = registry.resolve('default');
-  const mod = (window as any)[desc.globalKey];
+  const mod = win()[desc.globalKey];
   return mod.create({
     t: (k: string) => k,
     escapeHtml: (v: unknown) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
@@ -44,15 +53,24 @@ function loadPresentation() {
 }
 
 describe('widget presentation — template registry', () => {
-  it('ships default as the only template and resolves unknown ids to it', () => {
+  it('ships default (Iran) and intl (International) and resolves unknown ids to default', () => {
     // eslint-disable-next-line no-new-func
     new Function(REGISTRY_SRC).call(window);
-    const registry = (window as any).__gs_presentation_registry;
+    const registry = win().__gs_presentation_registry;
     expect(registry.defaultId).toBe('default');
     expect(registry.resolve('default').script).toBe('presentation-default.js');
     expect(registry.resolve('default').style).toBe('presentation-default.css');
+    expect(registry.resolve('default').skin).toBeUndefined();
     expect(registry.resolve('does-not-exist').id).toBe('default');
-    expect(registry.list().length).toBe(1);
+    // The International edition's template: a skin over the same renderer.
+    expect(registry.resolve('intl')).toMatchObject({
+      id: 'intl',
+      globalKey: '__gs_presentation_default',
+      script: 'presentation-default.js',
+      style: 'presentation-default.css',
+      skin: 'presentation-intl.css',
+    });
+    expect(registry.list().map((d) => d.id)).toEqual(['default', 'intl']);
   });
 
   it('has no trace of the removed classic template', () => {
@@ -66,7 +84,7 @@ describe('widget presentation — template registry', () => {
 });
 
 describe('widget presentation — default renderer contract', () => {
-  let r: any;
+  let r: Renderer;
   beforeAll(() => { r = loadPresentation(); });
 
   it('exposes every surface Core mounts', () => {
@@ -202,7 +220,7 @@ describe('widget core — no markup left behind', () => {
 });
 
 describe('widget presentation — knowledge base surfaces', () => {
-  let r: any;
+  let r: Renderer;
   beforeAll(() => { r = loadPresentation(); });
 
   it('exposes every KB surface', () => {
@@ -331,6 +349,7 @@ describe('widget build pipeline — template-agnostic', () => {
       script: 'presentation-default.js',
       style: 'presentation-default.css',
       fonts: 'presentation-default-fonts.css',
+      skin: null,
     });
   });
 

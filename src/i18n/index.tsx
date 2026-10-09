@@ -8,6 +8,8 @@ import en, { type TranslationKeys } from './locales/en';
 import { loadFontsForLocale } from '@/lib/fonts';
 import { installPersianDigits, uninstallPersianDigits } from '@/lib/persian-digits';
 import { installLocalizedDateDefaults, setAppDateLocale } from '@/lib/date';
+import { brandTokens, fillBrandTokens, useBrandVersion } from '@/lib/brand';
+import { cachedEdition, cachedPlatformDefaultLocale } from '@/lib/edition';
 
 const localeModules: Record<Locale, () => Promise<{ default: TranslationKeys }>> = {
   en: () => Promise.resolve({ default: en }),
@@ -74,7 +76,16 @@ export function getSiteDefaultLocale(): Locale {
   // Native (iOS) app ships with English as its base language; the user can
   // still pick Türkçe / فارسی on the login screen or in Settings.
   if (isNativePlatform()) return 'en';
-  const configured = (window as any).__APP_RUNTIME_CONFIG__?.defaultLocale;
+  // The International edition starts in the platform's own default language
+  // (Super Admin → Languages, cached by index.html's boot script and the
+  // public config), never in the deployment file's Persian default. The
+  // Iranian edition — and an edition not known yet — keeps the deployment
+  // file's language, exactly as before.
+  if (cachedEdition() === 'international') {
+    const platformDefault = cachedPlatformDefaultLocale();
+    return platformDefault === 'fa' || platformDefault === 'tr' ? platformDefault : 'en';
+  }
+  const configured = (window as Window & { __APP_RUNTIME_CONFIG__?: { defaultLocale?: unknown } }).__APP_RUNTIME_CONFIG__?.defaultLocale;
   if (configured === 'en' || configured === 'fa' || configured === 'tr') return configured as Locale;
   return DEFAULT_LOCALE;
 }
@@ -147,6 +158,11 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     void loadLocale(locale);
   }, [initialLocale, initialTranslations, loadLocale, locale]);
 
+  // The platform's brand in text (src/lib/brand.ts): the Iranian edition's
+  // fixed WebYar strings, or the International platform's own name. A change
+  // (the public config arriving) re-renders every translation.
+  const brandVersion = useBrandVersion();
+
   const t = useCallback((key: TranslationKey, params?: Record<string, string | number>): string => {
     let value = getNestedValue(translations as unknown as Record<string, unknown>, key);
     if (value === key) {
@@ -157,8 +173,10 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
         value = value.replace(`{{${k}}}`, String(v));
       });
     }
-    return value;
-  }, [translations, fallbackTranslations]);
+    // Brand tokens ({{brand}}, {{supportEmail}}, …) the caller did not fill.
+    return fillBrandTokens(value, brandTokens(locale));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- brandVersion invalidates the brand tokens
+  }, [translations, fallbackTranslations, locale, brandVersion]);
 
   // Block rendering until translations are loaded to prevent flash
   if (isLoading) {

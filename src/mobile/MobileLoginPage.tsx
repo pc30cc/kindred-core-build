@@ -14,6 +14,7 @@ import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { normalizeEmail, stripInvisible } from './normalizeCredentials';
+import { brandTokens } from '@/lib/brand';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -42,7 +43,9 @@ export default function MobileLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const brandName = brand?.platform_name || 'Webyar';
+  // Before the platform's name arrives: "Webyar" in the Iranian edition (as
+  // always), the International platform's own name otherwise.
+  const brandName = brand?.platform_name || brandTokens(locale).brandLatin;
   const canSubmit = useMemo(
     () => EMAIL_RE.test(normalizeEmail(email)) && password.length > 0 && !loading,
     [email, password, loading],
@@ -62,8 +65,8 @@ export default function MobileLoginPage() {
         return;
       }
       navigate(destination, { replace: true });
-    } catch (err: any) {
-      toast.error(t('auth.loginFailed'), { description: err?.message });
+    } catch (err: unknown) {
+      toast.error(t('auth.loginFailed'), { description: (err as Error | null)?.message });
     } finally {
       setLoading(false);
     }

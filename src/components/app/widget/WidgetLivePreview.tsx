@@ -12,6 +12,8 @@ import type { WidgetPrechatSettings } from '@/hooks/useWidgetIdentity';
 import type { SmartEvalResult } from '@/lib/widget/smartEngine';
 import type { SmartRuleDraft } from '@/lib/widget/smartRules';
 import { useArtPreviewStage } from './useArtPreviewStage';
+import { useEdition } from '@/hooks/useEdition';
+import { resolveChatWidgetTemplate, widgetDateHints } from '../../../../shared/widgetTemplates';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
 
@@ -236,6 +238,9 @@ export function WidgetLivePreview({
   // The mock page around the widget: the panel theme's own colours under
   // Art (useArtPreviewStage), the cool slate otherwise.
   const stage = useArtPreviewStage();
+  // The International edition previews its own template and dates
+  // (shared/widgetTemplates.ts); the Iranian edition exactly as before.
+  const { isInternational } = useEdition();
   const stageBackground = stage?.background ?? '#F1F5F9';
   const stageBar = stage?.bar ?? '#E2E8F0';
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -403,6 +408,9 @@ export function WidgetLivePreview({
       },
       composer: { emojiEnabled: s.emoji_enabled !== false },
       readReceipts: { enabled: true },
+      // Persian dates: Gregorian in the visitor's zone, as the International
+      // bootstrap says; the Iranian preview sends no hint (Jalali, Tehran).
+      ...(isInternational ? widgetDateHints('international') : {}),
     };
 
     const nowIso = new Date().toISOString();
@@ -414,7 +422,9 @@ export function WidgetLivePreview({
       primary,
       view,
       /** Template id — resolved through the registry inside the frame. */
-      templateId: (s.widget_template_id as string | undefined) || null,
+      templateId: isInternational
+        ? resolveChatWidgetTemplate('international', s.widget_template_id)
+        : (s.widget_template_id as string | undefined) || null,
       smart: { enabled: smartDoc, mode: smartSurface?.mode || smartScenario?.rule.presentation_config?.mode || 'launcher_nudge' },
       smartSurface,
       config: previewConfig,
@@ -604,10 +614,11 @@ export function WidgetLivePreview({
         document.head.appendChild(fl);
       }
       var styleReady = false;
+      var skinReady = !desc.skin;
       var scriptReady = false;
       var mod = null;
       function prepareAndRender() {
-        if (!styleReady || !scriptReady || !mod || !mod.create) return;
+        if (!styleReady || !skinReady || !scriptReady || !mod || !mod.create) return;
         var preparation = typeof mod.prepare === 'function' ? mod.prepare() : null;
         Promise.resolve(preparation).catch(function () {}).then(function () { gsRenderPreview(mod); });
       }
@@ -617,6 +628,15 @@ export function WidgetLivePreview({
       link.onload = function () { styleReady = true; prepareAndRender(); };
       link.onerror = function () { styleReady = true; prepareAndRender(); };
       document.head.appendChild(link);
+      // A skin template's own stylesheet, after the base one (as the loader).
+      if (desc.skin) {
+        var skin = document.createElement('link');
+        skin.rel = 'stylesheet';
+        skin.href = '/widget/' + ((manifest && manifest[desc.skin]) || desc.skin);
+        skin.onload = function () { skinReady = true; prepareAndRender(); };
+        skin.onerror = function () { skinReady = true; prepareAndRender(); };
+        document.head.appendChild(skin);
+      }
 
       var scr = document.createElement('script');
       scr.src = '/widget/' + scriptFile;
@@ -919,7 +939,7 @@ export function WidgetLivePreview({
   }, [
     settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
-    smartScenario?.rtl, stageBackground, stageBar,
+    smartScenario?.rtl, stageBackground, stageBar, isInternational,
   ]);
 
   return (

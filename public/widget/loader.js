@@ -1504,6 +1504,9 @@
     // OPTIONAL generic descriptor asset (currently the template's font
     // stylesheet). Absent → nothing extra is loaded; never required.
     var presentationFontsCss = configData.presentationFontsUrl || "";
+    // OPTIONAL skin stylesheet — a template that restyles another template's
+    // renderer (the International edition's `intl`). Absent → nothing extra.
+    var presentationSkinCss = configData.presentationSkinUrl || "";
 
     var callRuntimeJs = configData.callRuntimeUrl || "";
     // Pass 2 — vendor LiveKit SDK URL (hashed, self-hosted). Set BEFORE
@@ -1530,12 +1533,13 @@
     var cssLoaded = !runtimeCss;
     var jsLoaded = false;
     var templateCssLoaded = false;
+    var templateSkinLoaded = !presentationSkinCss;
     var templateJsLoaded = false;
     var presentationPreparing = false;
     var failed = false;
 
     function done() {
-      if (failed || !cssLoaded || !jsLoaded || !templateCssLoaded || !templateJsLoaded) return;
+      if (failed || !cssLoaded || !jsLoaded || !templateCssLoaded || !templateSkinLoaded || !templateJsLoaded) return;
       if (presentationPreparing) return;
       presentationPreparing = true;
       var registry = window.__gs_presentation_registry;
@@ -1698,6 +1702,23 @@
     tplLink.onload = function () { templateCssLoaded = true; done(); };
     withHashFallback(tplLink, presentationCss, "href", shadowRoot, function () { fail("template-css"); });
     shadowRoot.appendChild(tplLink);
+
+    // Skin stylesheet — after the template stylesheet, so its tokens win.
+    // Never fatal: if it cannot load, the widget still works in the base look.
+    if (presentationSkinCss) {
+      var skinLink = document.createElement("link");
+      skinLink.rel = "stylesheet";
+      skinLink.href = presentationSkinCss;
+      skinLink.setAttribute("data-gs-runtime", "true");
+      skinLink.setAttribute("data-gs-template-skin", "true");
+      skinLink.onload = function () { templateSkinLoaded = true; done(); };
+      withHashFallback(skinLink, presentationSkinCss, "href", shadowRoot, function () {
+        warn("Template skin failed to load; continuing without it");
+        templateSkinLoaded = true;
+        done();
+      });
+      shadowRoot.appendChild(skinLink);
+    }
 
     // Registry first (tiny), then the active template's renderer. The
     // renderer must be registered on window BEFORE runtime.init() runs.

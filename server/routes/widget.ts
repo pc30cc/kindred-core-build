@@ -41,7 +41,8 @@ import {
 } from '../services/widget/public.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
-import { resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
+import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
+import { widgetDateHints } from '../../shared/widgetTemplates.js';
 import { attachmentPreviewKind, type AttachmentPreviewKind } from '../services/attachmentPreviewKind.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from '../services/widget/poweredBy.js';
 import {
@@ -132,7 +133,7 @@ import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js'
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
-import { getPlatformAllowedLocales } from '../services/platformRegion.js';
+import { getPlatformAllowedLocales, getPlatformEditionOrNull } from '../services/platformRegion.js';
 
 /**
  * Internal staffing notices never reach the visitor.
@@ -472,6 +473,9 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
       workspace_name: workspace.name,
       expires_at: tokenInfo.valid && tokenInfo.expiresAt ? new Date(tokenInfo.expiresAt * 1000).toISOString() : null,
       platform_display_name: branding?.platform_name || '',
+      // Additive: the platform's edition (null when it cannot be read; the
+      // widget then behaves as the Iranian edition).
+      edition: await getPlatformEditionOrNull(config),
       visitor_id: visitor.visitorId,
       is_new_visitor: visitor.isNew,
       availability: availabilityPayload,
@@ -874,17 +878,25 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
     // Presentation layer — registry + active template assets. Widget Core
     // ships no markup, so these are part of the required boot payload.
-    // The id is only shape-validated here; the browser registry resolves it
-    // (and falls back to its own default when unknown).
-    const templateId = resolveWidgetTemplateId(
+    // The platform's edition picks the template (shared/widgetTemplates.ts):
+    // the Iranian edition — and an edition that cannot be read — wears
+    // `default`, exactly as before; the International edition wears `intl`.
+    // A requested id is honoured only when the edition offers it; the
+    // browser registry resolves the same ids.
+    const edition = await getPlatformEditionOrNull(config);
+    const templateId = resolveWidgetTemplateId(resolveEditionWidgetTemplateId(
+      edition,
       (ws as { widget_template_id?: string | null }).widget_template_id
         ?? (platformWidget as { widget_template_id?: string | null } | null | undefined)?.widget_template_id,
-    );
+    ));
 
     const templateAssets = widgetTemplateAssetKeys(templateId);
     const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
     const presentationJsName = getWidgetAssetName(templateAssets.script);
     const presentationCssName = getWidgetAssetName(templateAssets.style);
+    // A skin template's own stylesheet, loaded after the base one (none in
+    // the Iranian edition).
+    const presentationSkinCssName = templateAssets.skin ? getOptionalWidgetAssetName(templateAssets.skin) : null;
     // Optional, template-owned font asset (hashed). Resolved existence-aware:
     // templates that ship no font asset yield `null`, so the loader never
     // requests a 404. The loader stays generic either way.
@@ -929,11 +941,34 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const workspaceWantsPoweredBy = workspaceMayHidePoweredBy
       ? ws.show_powered_by !== false
       : true;
+    // The platform's own name (the panel's source, platform_branding_
+    // localized): in the International edition in the widget's language,
+    // else — and in the Iranian edition, which reads nothing more on this hot
+    // path — the English row already read above.
+    const platformBrandName = await (async () => {
+      try {
+        if (edition === 'international' && effectiveLocale && effectiveLocale !== 'en') {
+          const { data } = await supabase
+            .from('platform_branding_localized')
+            .select('platform_name')
+            .eq('locale', effectiveLocale)
+            .maybeSingle();
+          const name = String((data as { platform_name?: unknown } | null)?.platform_name || '').trim();
+          if (name) return name;
+        }
+      } catch { /* the English row below */ }
+      return String(platformBranding?.platform_name || '').trim();
+    })();
     const poweredBy = buildPoweredByConfig(
       platformWidget as Record<string, unknown>,
-      platformBranding?.platform_name || '',
+      // Iran (and an unknown edition) credits the English platform name, as
+      // it always did; International credits it in the widget's language.
+      edition === 'international' ? platformBrandName : platformBranding?.platform_name || '',
       poweredByPlanAllows && workspaceWantsPoweredBy,
     );
+    // Dates: Jalali in Tehran time for Persian in the Iranian edition (as
+    // before); Gregorian in the visitor's own zone in the International one.
+    const dateHints = widgetDateHints(edition);
     const widgetConfig = {
       enabled: true,
       workspaceId,
@@ -952,6 +987,14 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       platformName: poweredBy?.brand || '',
       poweredBy,
       showPoweredBy: !!poweredBy,
+
+      // The platform's edition and identity (additive). `edition` is null
+      // when the platform settings could not be read; the widget then
+      // behaves as the Iranian edition, as it always did.
+      edition,
+      platformBrandName,
+      calendar: dateHints.calendar,
+      timeZone: dateHints.timeZone,
 
 
       primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
@@ -1076,6 +1119,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       presentationRegistryUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationRegistryJsName}` : null),
       presentationUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationJsName}` : null),
       presentationStyleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationCssName}` : null),
+      // Additive: the template's skin stylesheet, loaded after the base one;
+      // null when the template has none (the Iranian `default`).
+      presentationSkinUrl: presentationSkinCssName && assetBase
+        ? versionedAssetUrl(`${assetBase}/widget/${presentationSkinCssName}`)
+        : null,
       presentationFontsUrl: presentationFontsCssName && assetBase
         ? versionedAssetUrl(`${assetBase}/widget/${presentationFontsCssName}`)
         : null,

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
-import { aiAgentApi } from '@/lib/ai-agent-api';
+import { aiAgentApi, type AgentSettings } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Sparkles, Bot, Loader2, Upload, Trash2, Settings as SettingsIcon, User, FileText, Eye, MessageCircle, Languages, Tags, X } from 'lucide-react';
 import { toast } from '@/lib/toast';
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
 const FALLBACK_INTRO_TEMPLATES: Record<string, (name: string) => string> = {
@@ -44,10 +44,10 @@ export default function AiAgentSettingsPage() {
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const activeLocales = allowedLocales.length ? allowedLocales : ['fa', 'en', 'tr'];
   const tr = (k: string, fb: string, vars?: Record<string, string>) => {
-    const v = t(`aiAgent.settings.${k}` as any, vars);
+    const v = t(`aiAgent.settings.${k}` as TranslationKey, vars);
     return !v || v === `aiAgent.settings.${k}` ? fb : v;
   };
-  const [form, setForm] = useState<any>(null);
+  const [form, setForm] = useState<AgentSettings | null>(null);
   const [generating, setGenerating] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [introDrafts, setIntroDrafts] = useState<Record<string, string>>({ fa: '', en: '', tr: '' });
@@ -87,7 +87,7 @@ export default function AiAgentSettingsPage() {
     return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
-  const set = (patch: any) => setForm({ ...form, ...patch });
+  const set = (patch: Partial<AgentSettings>) => setForm({ ...form, ...patch });
   // Used by the controls gated behind the deferred "Save changes" button:
   // updates local form state AND marks each touched key dirty so onSave
   // knows to include it. Controls that save immediately (avatar, enabled
@@ -108,9 +108,9 @@ export default function AiAgentSettingsPage() {
     try {
       await update.mutateAsync({ ai_intro_enabled: v });
       set({ ai_intro_enabled: v });
-      toast.success(v ? 'ارسال پیام معرفی فعال شد' : 'ارسال پیام معرفی غیرفعال شد');
-    } catch (e: any) {
-      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+      toast.success(v ? t('aiAgent.settings.texts.introEnabled') : t('aiAgent.settings.texts.introDisabled'));
+    } catch (e: unknown) {
+      toast.error((e as Error | null)?.message || t('aiAgent.settings.texts.saveFailed'));
     }
   };
 
@@ -121,9 +121,9 @@ export default function AiAgentSettingsPage() {
     try {
       await update.mutateAsync({ intro_message_localized: next });
       set({ intro_message_localized: next });
-      toast.success('پیام معرفی ذخیره شد');
-    } catch (e: any) {
-      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+      toast.success(t('aiAgent.settings.texts.introSaved'));
+    } catch (e: unknown) {
+      toast.error((e as Error | null)?.message || t('aiAgent.settings.texts.saveFailed'));
     }
   };
 
@@ -134,9 +134,9 @@ export default function AiAgentSettingsPage() {
     try {
       await update.mutateAsync({ handoff_message_localized: next });
       set({ handoff_message_localized: next });
-      toast.success('پیام ارجاع به اپراتور ذخیره شد');
-    } catch (e: any) {
-      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+      toast.success(t('aiAgent.settings.texts.handoffSaved'));
+    } catch (e: unknown) {
+      toast.error((e as Error | null)?.message || t('aiAgent.settings.texts.saveFailed'));
     }
   };
 
@@ -147,9 +147,9 @@ export default function AiAgentSettingsPage() {
     try {
       await update.mutateAsync({ handoff_prechat_message_localized: next });
       set({ handoff_prechat_message_localized: next });
-      toast.success('پیام درخواست اطلاعات ذخیره شد');
-    } catch (e: any) {
-      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+      toast.success(t('aiAgent.settings.texts.handoffPrechatSaved'));
+    } catch (e: unknown) {
+      toast.error((e as Error | null)?.message || t('aiAgent.settings.texts.saveFailed'));
     }
   };
 
@@ -159,7 +159,7 @@ export default function AiAgentSettingsPage() {
     const trimmed = newKeyword.trim();
     if (!trimmed) return;
     if (handoffKeywords.some((k) => k.toLowerCase() === trimmed.toLowerCase())) {
-      setKeywordError('این کلمه قبلاً اضافه شده است.');
+      setKeywordError(t('aiAgent.settings.texts.keywordExists'));
       return;
     }
     setKeywordError(null);
@@ -168,8 +168,8 @@ export default function AiAgentSettingsPage() {
       await update.mutateAsync({ handoff_keywords: next });
       set({ handoff_keywords: next });
       setNewKeyword('');
-    } catch (e: any) {
-      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+    } catch (e: unknown) {
+      toast.error((e as Error | null)?.message || t('aiAgent.settings.texts.saveFailed'));
     }
   };
 
@@ -178,8 +178,8 @@ export default function AiAgentSettingsPage() {
     try {
       await update.mutateAsync({ handoff_keywords: next });
       set({ handoff_keywords: next });
-    } catch (e: any) {
-      toast.error(e?.message || 'ذخیره‌سازی ناموفق بود');
+    } catch (e: unknown) {
+      toast.error((e as Error | null)?.message || t('aiAgent.settings.texts.saveFailed'));
     }
   };
 
@@ -202,8 +202,8 @@ export default function AiAgentSettingsPage() {
       await update.mutateAsync(patch);
       setDirty(new Set());
       toast.success(tr('saved', 'Settings saved'));
-    } catch (e: any) {
-      toast.error(e?.message || tr('saveFailed', 'Save failed'));
+    } catch (e: unknown) {
+      toast.error((e as Error | null)?.message || tr('saveFailed', 'Save failed'));
     }
   };
 
@@ -214,8 +214,8 @@ export default function AiAgentSettingsPage() {
       const r = await aiAgentApi.generateBusinessDescription(workspace.id);
       setDirtyField({ business_description: r.description });
       toast.success(r.source === 'ai' ? tr('generated', 'Generated') : tr('generatedOffline', 'Generated (offline stub)'));
-    } catch (e: any) {
-      const msg = String(e?.message || '');
+    } catch (e: unknown) {
+      const msg = String((e as Error | null)?.message || '');
       if (msg.includes('ai_credits_exhausted')) {
         toast.error(tr('creditsExhausted', 'AI credit is exhausted. Top up your AI credit and try again.'));
       } else {
@@ -245,8 +245,8 @@ export default function AiAgentSettingsPage() {
       const r = await aiAgentApi.uploadAvatar(workspace.id, file);
       set({ agent_logo_url: r.avatar_url });
       toast.success(tr('avatarUpdated', 'Avatar updated'));
-    } catch (err: any) {
-      toast.error(err?.message || tr('uploadFailed', 'Upload failed'));
+    } catch (err: unknown) {
+      toast.error((err as Error | null)?.message || tr('uploadFailed', 'Upload failed'));
     } finally {
       setUploadingAvatar(false);
     }
@@ -259,8 +259,8 @@ export default function AiAgentSettingsPage() {
       await aiAgentApi.removeAvatar(workspace.id);
       set({ agent_logo_url: null });
       toast.success(tr('avatarRemoved', 'Avatar removed'));
-    } catch (err: any) {
-      toast.error(err?.message || tr('removeFailed', 'Remove failed'));
+    } catch (err: unknown) {
+      toast.error((err as Error | null)?.message || tr('removeFailed', 'Remove failed'));
     } finally {
       setUploadingAvatar(false);
     }
@@ -410,14 +410,14 @@ export default function AiAgentSettingsPage() {
                   <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-sky-500/10 text-sky-600 ring-sky-500/20">
                     <Languages className="h-4 w-4" />
                   </span>
-                  پیام معرفی (خوش‌آمدگویی)
+                  {t('aiAgent.settings.texts.introTitle')}
                 </CardTitle>
                 <Switch checked={form.ai_intro_enabled !== false} onCheckedChange={toggleIntro} disabled={update.isPending} />
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-xs text-muted-foreground -mt-2">
-                وقتی ویزیتور پیش‌گفتگو را کامل کرد، هوش مصنوعی این پیام را می‌فرستد. فقط در حالت‌های پاسخ خودکار فعال است.
+                {t('aiAgent.settings.texts.introHint')}
               </p>
               {activeLocales.map((code) => (
                 <div key={code}>
@@ -448,12 +448,12 @@ export default function AiAgentSettingsPage() {
                 <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-violet-500/10 text-violet-600 ring-violet-500/20">
                   <MessageCircle className="h-4 w-4" />
                 </span>
-                پیام ارجاع به اپراتور
+                {t('aiAgent.settings.texts.handoffTitle')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-xs text-muted-foreground -mt-2">
-                وقتی هوش مصنوعی گفتگو را به یک کارشناس انسانی ارجاع می‌دهد، این پیام را می‌فرستد.
+                {t('aiAgent.settings.texts.handoffHint')}
               </p>
               {activeLocales.map((code) => (
                 <div key={code}>
@@ -484,12 +484,12 @@ export default function AiAgentSettingsPage() {
                 <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-emerald-500/10 text-emerald-600 ring-emerald-500/20">
                   <User className="h-4 w-4" />
                 </span>
-                پیام درخواست اطلاعات (هنگام ارجاع)
+                {t('aiAgent.settings.texts.handoffPrechatTitle')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-xs text-muted-foreground -mt-2">
-                وقتی هوش مصنوعی گفتگو را به اپراتور ارجاع می‌دهد و فیلدهای نام/ایمیل/تلفن داخل همان چت نمایش داده می‌شوند، این متن بالای آن‌ها نشان داده می‌شود.
+                {t('aiAgent.settings.texts.handoffPrechatHint')}
               </p>
               {activeLocales.map((code) => (
                 <div key={code}>
@@ -515,22 +515,22 @@ export default function AiAgentSettingsPage() {
                 <span className="h-8 w-8 rounded-lg flex items-center justify-center ring-1 bg-amber-500/10 text-amber-600 ring-amber-500/20">
                   <Tags className="h-4 w-4" />
                 </span>
-                کلمات کلیدی ارجاع به انسان
+                {t('aiAgent.settings.texts.keywordsTitle')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-xs text-muted-foreground -mt-2">
-                وقتی ویزیتور یکی از این کلمات را در پیام خود بنویسد (مثلاً «اپراتور» یا «انسان»)، گفتگو به یک کارشناس واقعی ارجاع داده می‌شود.
+                {t('aiAgent.settings.texts.keywordsHint')}
               </p>
               <div className="flex gap-2">
                 <Input
-                  placeholder="مثلاً: پشتیبان"
+                  placeholder={t('aiAgent.settings.texts.keywordPlaceholder')}
                   value={newKeyword}
                   onChange={(e) => { setNewKeyword(e.target.value); setKeywordError(null); }}
                   onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddKeyword())}
                 />
                 <Button onClick={handleAddKeyword} variant="outline" size="sm" className="shrink-0" disabled={update.isPending}>
-                  افزودن
+                  {t('aiAgent.settings.texts.add')}
                 </Button>
               </div>
               {keywordError && <p className="text-xs text-destructive">{keywordError}</p>}
@@ -542,14 +542,14 @@ export default function AiAgentSettingsPage() {
                       type="button"
                       onClick={() => handleRemoveKeyword(word)}
                       className="h-5 w-5 rounded-full flex items-center justify-center hover:bg-destructive/15 hover:text-destructive transition-colors"
-                      aria-label="حذف"
+                      aria-label={t('aiAgent.settings.texts.remove')}
                     >
                       <X className="h-3 w-3" />
                     </button>
                   </div>
                 ))}
                 {handoffKeywords.length === 0 && (
-                  <p className="text-xs text-muted-foreground">هنوز کلمه‌ای اضافه نشده است.</p>
+                  <p className="text-xs text-muted-foreground">{t('aiAgent.settings.texts.noKeywords')}</p>
                 )}
               </div>
             </CardContent>

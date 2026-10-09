@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { LEGAL_CHROME } from './legalDocuments';
+import { useBrandTokens } from '@/lib/brand';
 
 /**
  * The frame of the public English pages — the privacy policy, the terms of
@@ -9,6 +10,8 @@ import { LEGAL_CHROME } from './legalDocuments';
  * page in one readable column between. Laid out as the site's own pages are.
  */
 export function LegalLayout({ children }: { children: ReactNode }) {
+  // The brand per edition: "Webyar" in Iran, the platform's own name abroad.
+  const { fill } = useBrandTokens('en');
   return (
     <div
       dir="ltr"
@@ -20,8 +23,8 @@ export function LegalLayout({ children }: { children: ReactNode }) {
     >
       <header className="border-b border-border/60">
         <div className="mx-auto flex w-full max-w-3xl items-center gap-2.5 px-5 py-4">
-          <BrandLogo className="h-8 w-8 rounded-lg" alt={LEGAL_CHROME.brand} />
-          <span className="text-base font-bold text-foreground">{LEGAL_CHROME.brand}</span>
+          <BrandLogo className="h-8 w-8 rounded-lg" alt={fill(LEGAL_CHROME.brand)} />
+          <span className="text-base font-bold text-foreground">{fill(LEGAL_CHROME.brand)}</span>
         </div>
       </header>
 
@@ -31,7 +34,7 @@ export function LegalLayout({ children }: { children: ReactNode }) {
 
       <footer className="border-t border-border/60">
         <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-3 px-5 py-6 text-xs text-muted-foreground sm:flex-row sm:justify-between">
-          <span>{LEGAL_CHROME.copyright}</span>
+          <span>{fill(LEGAL_CHROME.copyright)}</span>
           <nav className="flex items-center gap-4">
             <Link to="/contact" className="hover:text-foreground">
               {LEGAL_CHROME.contact}

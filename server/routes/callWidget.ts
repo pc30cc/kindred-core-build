@@ -56,6 +56,9 @@ import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
 import { getWidgetAssetName, getOptionalWidgetAssetName } from '../services/widget/manifest.js';
 import { resolveWidgetAssetBase, getLoaderAssetBase } from '../services/widget/public.js';
 import { widgetTemplateAssetKeys, resolveWidgetTemplateId } from '../services/widget/presentationAssets.js';
+import { buildPoweredByConfig, isPoweredByAllowedForPlan } from '../services/widget/poweredBy.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { widgetDateHints } from '../../shared/widgetTemplates.js';
 import {
   callWidgetTemplateAssetKeys,
   normalizeCallWidgetFormSchema,
@@ -695,12 +698,34 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       return base ? `${base}/widget/${name}` : `/widget/${name}`;
     } catch { return null; }
   })();
-  const callTemplateId = resolveCallWidgetTemplateId(ws.widget_template_id);
+  // The platform's edition picks the template (shared/widgetTemplates.ts):
+  // the Iranian edition — and an edition that cannot be read — wears
+  // `default`, exactly as before; the International edition wears `intl`.
+  const edition = await getPlatformEditionOrNull(config);
+  const callTemplateId = resolveCallWidgetTemplateId(ws.widget_template_id, edition);
   const callTemplateAssets = callWidgetTemplateAssetKeys(callTemplateId);
+  // The "powered by" credit. The Iranian edition keeps the runtime's own
+  // words ("Powered by Web Yar"), so nothing is sent for it. The
+  // International edition credits its own platform, by the same rules as the
+  // chat widget (platform switch, brand text, link, plan gate).
+  const intlBrand = edition === 'international'
+    ? await buildCallWidgetBrand(config, ws.workspace_id)
+    : null;
+  const poweredBy = intlBrand ? intlBrand.poweredBy : undefined;
+  // Persian dates: Jalali in Tehran time in Iran (and unknown), Gregorian in
+  // the visitor's zone abroad (shared/widgetTemplates.ts).
+  const dateHints = widgetDateHints(edition);
   res.json({
     status: 'ok',
     session,
     assets_version: CALL_WIDGET_ASSETS_VERSION,
+    // Additive: the platform's edition (null when it cannot be read; the
+    // widget then behaves as the Iranian edition).
+    edition,
+    calendar: dateHints.calendar,
+    time_zone: dateHints.timeZone,
+    ...(intlBrand ? { platform_brand: { names: intlBrand.names } } : {}),
+    ...(poweredBy !== undefined ? { powered_by: poweredBy } : {}),
     assets: {
       font_style_url: fontAssetUrl,
       presentation_registry_url: `/call-widget/${callTemplateAssets.registry}`,
@@ -764,6 +789,44 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     active_call: activeCall,
   });
 });
+
+/**
+ * The International edition's brand for the call widget: the platform's name
+ * per language, and the "powered by" payload:
+ * null (no line) when the platform switch or the workspace's plan hides it;
+ * otherwise the platform's name per widget language (platform_branding_
+ * localized, or widget_platform_settings.powered_by_brand_text for every
+ * language) and the optional link. Read errors keep the line, with whatever
+ * name could be read, like the chat widget's footer.
+ */
+async function buildCallWidgetBrand(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<{
+  names: Record<string, string>;
+  poweredBy: { brand: string; brands: Record<string, string>; url: string | null } | null;
+}> {
+  const sb = getServiceClient(config);
+  const [platformWidget, localized, planAllows] = await Promise.all([
+    sb.from('widget_platform_settings')
+      .select('powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url')
+      .limit(1).maybeSingle()
+      .then((r) => (r.error ? null : (r.data as Record<string, unknown> | null)), () => null),
+    sb.from('platform_branding_localized').select('locale, platform_name')
+      .then((r) => (r.error ? [] : ((r.data ?? []) as Array<{ locale?: unknown; platform_name?: unknown }>)), () => []),
+    isPoweredByAllowedForPlan(sb, workspaceId),
+  ]);
+  const brands: Record<string, string> = {};
+  for (const row of localized) {
+    const name = typeof row.platform_name === 'string' ? row.platform_name.trim() : '';
+    if (typeof row.locale === 'string' && name) brands[row.locale] = name;
+  }
+  const footer = buildPoweredByConfig(platformWidget, brands.en || Object.values(brands)[0] || '', planAllows);
+  if (!footer) return { names: brands, poweredBy: null };
+  // A platform-wide brand text names the platform in every language.
+  const override = String(platformWidget?.powered_by_brand_text || '').trim();
+  return { names: brands, poweredBy: { brand: footer.brand, brands: override ? {} : brands, url: footer.url } };
+}
 
 // Helper: extract widget session
 function getSession(req, config: ServerConfig) {

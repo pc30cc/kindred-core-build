@@ -15,6 +15,8 @@ import { useI18n } from '@/i18n';
 import { isNativePlatform } from '@/lib/native';
 import { API_BASE } from '@/lib/apiBase';
 import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
+import { setPlatformBrand } from '@/lib/brand';
+import { resolveEdition } from '../../../shared/edition';
 
 /** index.html's own favicon, put back when international mode ends. */
 const DEFAULT_FAVICON = '/favicon.png';
@@ -41,10 +43,14 @@ function usePlatformBrandingGlobal() {
   return useQuery({
     queryKey: ['platform_branding_global'],
     queryFn: async () => {
-      const { branding, localized } = await fetchPlatformPublicConfig();
+      const { branding, localized, region, brand } = await fetchPlatformPublicConfig();
       return {
         branding: branding as PlatformBrandingRow | null,
         localized: localized as PlatformBrandingLocalizedRow[],
+        // The edition (shared/edition.ts) and the brand's public contact.
+        edition: resolveEdition(region?.region_mode),
+        siteUrl: brand?.site_url ?? null,
+        supportEmail: brand?.support_email ?? null,
       };
     },
     staleTime: 5 * 60 * 1000,
@@ -60,6 +66,15 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     if (!data) return;
 
     const { branding, localized } = data;
+
+    // The brand in text (src/lib/brand.ts): every `{{brand}}` token follows
+    // the edition — WebYar's own strings in Iran, the platform's name here.
+    setPlatformBrand({
+      edition: data.edition,
+      localized: localized ?? [],
+      siteUrl: data.siteUrl,
+      supportEmail: data.supportEmail,
+    });
 
     // Find locale-specific row, fallback to 'en'
     const locRow = localized.find(r => r.locale === locale) ?? localized.find(r => r.locale === 'en');

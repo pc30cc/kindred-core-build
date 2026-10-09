@@ -68,6 +68,15 @@ export interface PlatformPublicConfig {
     site_mode?: string | null;
   } | null;
   realtime: Record<string, unknown> | null;
+  /**
+   * The edition and the brand's public contact (shared/brand.ts): the site
+   * address and support e-mail. Missing from an older backend.
+   */
+  brand?: {
+    edition?: string | null;
+    site_url?: string | null;
+    support_email?: string | null;
+  } | null;
 }
 
 export const PLATFORM_PUBLIC_CONFIG_QUERY_KEY = ['platform_public_config'] as const;

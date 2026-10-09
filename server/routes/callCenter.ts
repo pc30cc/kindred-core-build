@@ -69,8 +69,11 @@ import {
   normalizeCallWidgetFormSchema,
   normalizeCallWidgetOfflineBehavior,
   normalizeCallWidgetTheme,
+  callWidgetTemplateIdSchema,
+  isCallWidgetTemplateOffered,
   resolveCallWidgetTemplateId,
 } from '../services/callCenter/presentation.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 
 export const callCenterRouter = Router();
 
@@ -414,7 +417,9 @@ callCenterRouter.get('/settings', async (req, res) => {
   const settings = {
     ...storedSettings,
     avatar_url: await resolveCallCenterAvatarUrl(ctx.config, wid, settingsRaw),
-    widget_template_id: resolveCallWidgetTemplateId(settingsRaw.widget_template_id),
+    // The template this edition wears (shared/widgetTemplates.ts): Iran
+    // `default` as always, International `intl`.
+    widget_template_id: resolveCallWidgetTemplateId(settingsRaw.widget_template_id, await getPlatformEditionOrNull(ctx.config)),
     widget_theme: normalizeCallWidgetTheme(settingsRaw.widget_theme),
     pre_call_form_schema: normalizeCallWidgetFormSchema(settingsRaw.pre_call_form_schema),
     offline_behavior: normalizeCallWidgetOfflineBehavior(settingsRaw.offline_behavior),
@@ -426,7 +431,8 @@ const settingsPatchSchema = z.object({
   enabled: z.boolean().optional(),
   allowed_domains: z.array(z.string()).optional(),
   widget_position: z.string().optional(),
-  widget_template_id: z.literal('default').optional(),
+  // A known template id; the edition must also offer it (checked below).
+  widget_template_id: callWidgetTemplateIdSchema.optional(),
   widget_theme: callWidgetThemeSchema.optional(),
   display_name: z.string().nullable().optional(),
   // NO AVATAR FIELD. The call-centre avatar has exactly two mutations —
@@ -459,6 +465,14 @@ callCenterRouter.put('/settings', async (req, res) => {
   if (!ctx) return;
   const parsed = settingsPatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  // Each edition wears only its own templates: the Iranian edition (and an
+  // unknown one) only `default`, exactly as before.
+  if (
+    parsed.data.widget_template_id !== undefined
+    && !isCallWidgetTemplateOffered(await getPlatformEditionOrNull(ctx.config), parsed.data.widget_template_id)
+  ) {
+    return res.status(400).json({ error: 'invalid_body', details: { fieldErrors: { widget_template_id: ['template_not_available_in_edition'] } } });
+  }
   const settingsRaw = await updateWorkspaceSettings(ctx.config, wid, parsed.data);
   // Sanitize: never expose avatar_storage_path to clients; derive the link.
   const { avatar_storage_path: _, ...rest } = settingsRaw;

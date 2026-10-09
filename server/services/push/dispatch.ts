@@ -22,6 +22,9 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { brandTokensFor, fillBrandTokens, type BrandTokens } from '../../../shared/brand.js';
+import type { Edition } from '../../../shared/edition.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
 import { sendFcmMessage, isPushConfigured, type ApnsDelivery } from './fcm.js';
 import { sendApnsAlert, isApnsConfigured, nativeBundleId } from './apns.js';
 import { listActiveDevices, disableToken, type PushDeviceRow } from './devices.js';
@@ -77,11 +80,15 @@ export interface InboundPushInput {
  *
  * The brand is not translated: `Str.brandWordmark` in the app makes the same
  * call for the same reason.
+ *
+ * The brand is a token (shared/brand.ts), filled per edition by copyFor():
+ * the Iranian edition's words exactly as they were ("Webyar", "وب‌یار"),
+ * the International edition's own platform name.
  */
 const COPY = {
   en: {
-    privacyTitle: 'Webyar',
-    privacyBody: 'New message in Webyar',
+    privacyTitle: '{{brandLatin}}',
+    privacyBody: 'New message in {{brand}}',
     customer: 'Customer',
     attachment: '📎 Attachment',
     newMessage: 'New message',
@@ -100,14 +107,14 @@ const COPY = {
     handoffBody: 'The AI handed this conversation to your team',
     handoffPrivacyBody: 'A conversation needs a person',
     emailTitle: 'New email',
-    emailPrivacyBody: 'New email in Webyar',
+    emailPrivacyBody: 'New email in {{brand}}',
     callbackTitle: 'Callback request',
     callbackBody: 'A visitor asked to be called back',
     visitor: 'Website visitor',
   },
   fa: {
-    privacyTitle: 'Webyar',
-    privacyBody: 'پیام جدید در وب‌یار',
+    privacyTitle: '{{brandLatin}}',
+    privacyBody: 'پیام جدید در {{brand}}',
     customer: 'مشتری',
     attachment: '📎 پیوست',
     newMessage: 'پیام جدید',
@@ -126,14 +133,14 @@ const COPY = {
     handoffBody: 'هوش مصنوعی این گفتگو را به تیم شما سپرد',
     handoffPrivacyBody: 'گفتگویی به اپراتور نیاز دارد',
     emailTitle: 'ایمیل تازه',
-    emailPrivacyBody: 'ایمیل تازه در وب‌یار',
+    emailPrivacyBody: 'ایمیل تازه در {{brand}}',
     callbackTitle: 'درخواست تماس',
     callbackBody: 'بازدیدکننده‌ای درخواست تماس داده است',
     visitor: 'بازدیدکننده وب‌سایت',
   },
   tr: {
-    privacyTitle: 'Webyar',
-    privacyBody: "Webyar'da yeni mesaj",
+    privacyTitle: '{{brandLatin}}',
+    privacyBody: "{{brand}}'da yeni mesaj",
     customer: 'Müşteri',
     attachment: '📎 Ek',
     newMessage: 'Yeni mesaj',
@@ -152,7 +159,7 @@ const COPY = {
     handoffBody: 'Yapay zekâ bu görüşmeyi ekibinize devretti',
     handoffPrivacyBody: 'Bir görüşme bir temsilci bekliyor',
     emailTitle: 'Yeni e-posta',
-    emailPrivacyBody: 'Webyar\'da yeni e-posta',
+    emailPrivacyBody: '{{brand}}\'da yeni e-posta',
     callbackTitle: 'Geri arama isteği',
     callbackBody: 'Bir ziyaretçi geri aranmak istedi',
     visitor: 'Web sitesi ziyaretçisi',
@@ -160,6 +167,65 @@ const COPY = {
 } as const;
 
 type CopyLocale = keyof typeof COPY;
+
+/**
+ * The platform's brand for push copy: the edition and, in the International
+ * edition, the platform's name per language (platform_branding_localized).
+ * Refreshed with the push policy (loadDispatchPolicy) and kept for a minute;
+ * until it is known (and in tests) it is the Iranian edition's.
+ */
+let pushBrand: { edition: Edition | null; names: Record<string, string>; at: number } | null = null;
+const PUSH_BRAND_TTL_MS = 60_000;
+
+async function refreshPushBrand(config: ServerConfig): Promise<void> {
+  if (pushBrand && Date.now() - pushBrand.at < PUSH_BRAND_TTL_MS) return;
+  const edition = await getPlatformEditionOrNull(config);
+  const names: Record<string, string> = {};
+  if (edition === 'international') {
+    try {
+      const { data } = await getServiceClient(config).from('platform_branding_localized').select('locale, platform_name');
+      for (const row of (data ?? []) as Array<{ locale?: unknown; platform_name?: unknown }>) {
+        const name = typeof row.platform_name === 'string' ? row.platform_name.trim() : '';
+        if (typeof row.locale === 'string' && name) names[row.locale] = name;
+      }
+    } catch { /* the name stays unknown; brandTokensFor never falls back to WebYar's */ }
+  }
+  pushBrand = { edition, names, at: Date.now() };
+}
+
+/** The push policy plus a fresh brand: every dispatch path loads its policy through here. */
+async function loadDispatchPolicy(config: ServerConfig): Promise<PushPlatformSettings> {
+  await refreshPushBrand(config);
+  return loadPushPlatformSettings(config);
+}
+
+/** Test-only: set (or with null, forget) the brand push copy uses. */
+export function __setPushBrandForTests(value: { edition: Edition | null; names?: Record<string, string> } | null): void {
+  pushBrand = value ? { edition: value.edition, names: value.names ?? {}, at: Date.now() + 10 * PUSH_BRAND_TTL_MS } : null;
+}
+
+function brandFor(lang: CopyLocale): BrandTokens {
+  return brandTokensFor(pushBrand?.edition ?? null, lang, { names: pushBrand?.names ?? {}, siteUrl: null, supportEmail: null });
+}
+
+/** The brand tokens push copy uses for a locale (e.g. an admin's test notification). */
+export async function pushBrandTokens(config: ServerConfig, locale: string): Promise<{ tokens: BrandTokens; edition: Edition | null }> {
+  await refreshPushBrand(config);
+  return { tokens: brandFor(copyLocale(locale)), edition: pushEdition() };
+}
+
+function pushEdition(): Edition | null {
+  return pushBrand?.edition ?? null;
+}
+
+/** COPY for a language with the brand tokens filled for this edition. */
+function copyFor(lang: CopyLocale): (typeof COPY)[CopyLocale] {
+  const tokens = brandFor(lang);
+  const raw = COPY[lang] as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(raw).map(([key, value]) => [key, typeof value === 'string' ? fillBrandTokens(value, tokens) : value]),
+  ) as unknown as (typeof COPY)[CopyLocale];
+}
 
 /** `fa-IR`, `FA`, `fa_IR` and nonsense all land somewhere sensible. */
 function copyLocale(locale: string | null | undefined): CopyLocale {
@@ -217,7 +283,7 @@ export async function notifyInboundMessage(
     // Platform policy (Super Admin → Notifications). The master switch is
     // honoured before any work is done, so turning push off is immediate and
     // does not depend on removing credentials.
-    const policy = await loadPushPlatformSettings(config);
+    const policy = await loadDispatchPolicy(config);
     if (!policy.push_enabled) return;
     const eventType: PushEventType = input.eventType ?? 'new_message';
     const sb = getServiceClient(config);
@@ -377,7 +443,7 @@ export async function notifyTeamMessage(config: ServerConfig, input: TeamPushInp
   try {
     if (!isPushConfigured() && !isApnsConfigured()) return;
     if (input.recipientId === input.senderId) return;
-    const policy = await loadPushPlatformSettings(config);
+    const policy = await loadDispatchPolicy(config);
     if (!policy.push_enabled) return;
     const eventType: PushEventType = 'team_message';
 
@@ -475,7 +541,7 @@ export function renderTeamContent(
   locale = 'en',
 ): { title: string; body: string } {
   const lang = copyLocale(locale);
-  const copy = COPY[lang];
+  const copy = copyFor(lang);
   const mark = (result: { title: string; body: string }) => ({
     title: directed(lang, result.title),
     body: directed(lang, result.body),
@@ -517,7 +583,7 @@ export interface SupportReplyPushInput {
 export async function notifySupportReply(config: ServerConfig, input: SupportReplyPushInput): Promise<void> {
   try {
     if (!isPushConfigured() && !isApnsConfigured()) return;
-    const policy = await loadPushPlatformSettings(config);
+    const policy = await loadDispatchPolicy(config);
     if (!policy.push_enabled) return;
     const eventType: PushEventType = 'support_reply';
 
@@ -590,7 +656,7 @@ export function renderSupportContent(
   locale = 'en',
 ): { title: string; body: string } {
   const lang = copyLocale(locale);
-  const copy = COPY[lang];
+  const copy = copyFor(lang);
   const mark = (result: { title: string; body: string }) => ({
     title: directed(lang, result.title),
     body: directed(lang, result.body),
@@ -667,7 +733,7 @@ async function pushToRecipients(
 /** Push is on at all: a transport, and the platform master switch. */
 async function pushPolicy(config: ServerConfig): Promise<PushPlatformSettings | null> {
   if (!isPushConfigured() && !isApnsConfigured()) return null;
-  const policy = await loadPushPlatformSettings(config);
+  const policy = await loadDispatchPolicy(config);
   return policy.push_enabled ? policy : null;
 }
 
@@ -769,7 +835,7 @@ export function renderAssignmentContent(
   locale = 'en',
 ): { title: string; body: string } {
   const lang = copyLocale(locale);
-  const copy = COPY[lang];
+  const copy = copyFor(lang);
   const mark = (result: { title: string; body: string }) => ({
     title: directed(lang, result.title),
     body: directed(lang, result.body),
@@ -850,7 +916,7 @@ export function renderHandoffContent(
   locale = 'en',
 ): { title: string; body: string } {
   const lang = copyLocale(locale);
-  const copy = COPY[lang];
+  const copy = copyFor(lang);
   const mark = (result: { title: string; body: string }) => ({
     title: directed(lang, result.title),
     body: directed(lang, result.body),
@@ -941,7 +1007,7 @@ export function renderEmailContent(
   locale = 'en',
 ): { title: string; body: string } {
   const lang = copyLocale(locale);
-  const copy = COPY[lang];
+  const copy = copyFor(lang);
   const mark = (result: { title: string; body: string }) => ({
     title: directed(lang, result.title),
     body: directed(lang, result.body),
@@ -986,7 +1052,7 @@ export async function notifyCallbackRequest(config: ServerConfig, input: Callbac
       data: { type: eventType, workspaceId: input.workspaceId, callbackId: input.callbackId },
       render: (recipient) => {
         const lang = copyLocale(recipient.locale);
-        const copy = COPY[lang];
+        const copy = copyFor(lang);
         const name = input.visitorName?.trim();
         return {
           title: directed(lang, copy.callbackTitle),
@@ -1121,7 +1187,7 @@ export function renderContent(
   locale = 'en',
 ): { title: string; body: string } {
   const lang = copyLocale(locale);
-  const copy = COPY[lang];
+  const copy = copyFor(lang);
   const mark = (result: { title: string; body: string }) => ({
     title: directed(lang, result.title),
     body: directed(lang, result.body),
@@ -1135,12 +1201,15 @@ export function renderContent(
     // Templates are keyed by bare language ("fa") and profiles store full
     // tags ("fa-IR"): rendering with the raw tag gave every Persian operator
     // the English template.
+    const brand = brandFor(lang);
     const rendered = renderTemplate(policy, eventType, lang, preview, {
+      // The brand tokens a template may name ({{brand}}, …), then the event's own.
+      ...brand,
       sender: name,
       preview: truncate(text || fallback),
       count: String(input.attachmentCount ?? 0),
-      workspace: (input.workspaceName || '').trim() || 'Webyar',
-    });
+      workspace: (input.workspaceName || '').trim() || brand.brandLatin,
+    }, pushEdition());
     // A template edited down to nothing must not produce a blank banner.
     if (rendered.title.trim() && rendered.body.trim()) return mark(rendered);
   }

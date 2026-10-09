@@ -8154,10 +8154,17 @@
       return Math.min(CONVERSATIONS_RETRY_MAX_MS, CONVERSATIONS_RETRY_BASE_MS * Math.pow(2, exp));
     }
 
-    /** BCP47 tag for the active widget locale (Jalali calendar for fa). */
+    /**
+     * BCP47 tag for the active widget locale. Persian dates are Jalali, or
+     * Gregorian (Persian digits stay) when the bootstrap's calendar hint says
+     * so (the International edition; shared/widgetTemplates.ts).
+     */
     function localeTag(calendar) {
       var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
-      if (l === 'fa') return calendar ? 'fa-IR-u-ca-persian' : 'fa-IR';
+      if (l === 'fa') {
+        if (!calendar) return 'fa-IR';
+        return ctx.config && ctx.config.calendar === 'gregorian' ? 'fa-IR-u-ca-gregory' : 'fa-IR-u-ca-persian';
+      }
       if (l === 'tr') return 'tr-TR';
       return 'en-US';
     }

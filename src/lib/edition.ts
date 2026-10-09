@@ -108,6 +108,23 @@ export function currentCurrency(): RegionCurrency {
   return currencyForEditionRegion(currentEdition(), knownRegionModeOrNull() ?? 'multi');
 }
 
+/** The platform's default language (platform_settings.default_locale), as index.html's boot script and the public config cached it. */
+export const DEFAULT_LOCALE_CACHE_KEY = 'wy-default-locale';
+
+export function cachedPlatformDefaultLocale(): string | null {
+  return read(DEFAULT_LOCALE_CACHE_KEY);
+}
+
+/** Called once the public config has arrived: remembers the platform's default language. */
+export function rememberPlatformDefaultLocale(locale: unknown): void {
+  if (typeof locale !== 'string' || !locale) return;
+  try {
+    window.localStorage.setItem(DEFAULT_LOCALE_CACHE_KEY, locale);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 /** Test-only: forget the in-memory edition. */
 export function __resetEditionForTests(): void {
   known = null;

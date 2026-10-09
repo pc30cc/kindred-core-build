@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { SettingsSection } from '@/components/admin/settings/SettingsFields';
+import { brandTokens } from '@/lib/brand';
 import {
   TEMPLATE_EVENT_TYPES,
   type PushEventType, type PushPlatformSettings, type PushTemplate,
@@ -33,15 +34,19 @@ export function NotificationTemplatesTab({
   draft: PushPlatformSettings;
   set: (patch: Partial<PushPlatformSettings>) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   // The preview is judged in the reader's own language, so the sample values
-  // are translated too rather than pinned to English names.
+  // are translated too rather than pinned to English names. The brand
+  // (shared/brand.ts) is "Webyar" in the Iranian edition, as always, and the
+  // platform's own name in the International one.
+  const brand = brandTokens(locale);
   const sample = {
+    ...brand,
     sender: t('admin.notifications.templates.sampleSender'),
     preview: t('admin.notifications.templates.samplePreview'),
     count: '1',
-    workspace: 'Webyar',
+    workspace: brand.brandLatin,
   };
 
   const update = (eventType: string, patch: Partial<PushTemplate>) =>

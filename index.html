@@ -37,6 +37,53 @@
 
     <!-- Runtime deployment config (editable without rebuilding the bundle). -->
     <script src="/runtime-config.js"></script>
+    <!-- The platform's edition and brand before the first paint
+         (server/routes/platformPublic.ts, GET /api/platform/public/boot.js).
+         Loaded, synchronously, only by a browser that has never seen this
+         platform: one that has keeps its cache (src/lib/edition.ts
+         `wy-edition`, src/lib/brand.ts `wy-brand`) and never waits. So the
+         first paint wears the right brand in both editions — WebYar's in the
+         Iranian one, the platform's own in the International one — with
+         nothing rewritten in the bundle. -->
+    <script>
+      (function () {
+        try {
+          var ls = window.localStorage;
+          var known = ls.getItem('wy-edition');
+          if (known === 'iran' || known === 'international') return;
+          if (ls.getItem('platform-region-mode') === 'iran' || ls.getItem('wy-site-mode') === 'multi_language') return;
+          var cfg = window.__APP_RUNTIME_CONFIG__ || {};
+          var base = (typeof cfg.apiBaseUrl === 'string' && cfg.apiBaseUrl.trim()) || '%VITE_API_BASE_URL%';
+          if (!base || base.indexOf('%VITE_') === 0) base = '';
+          document.write('<script src="' + base.replace(/\/+$/, '').replace(/"/g, '') + '/api/platform/public/boot.js"><\/script>');
+        } catch (e) {}
+      })();
+    </script>
+    <script>
+      // Keep what boot.js said, under the keys the app and the scripts below
+      // read: the edition, the region, the brand, the default language and
+      // the browser title per language.
+      (function () {
+        try {
+          var b = window.__PLATFORM_BOOT__;
+          if (!b || (b.edition !== 'iran' && b.edition !== 'international')) return;
+          var ls = window.localStorage;
+          ls.setItem('wy-edition', b.edition);
+          if (typeof b.regionMode === 'string') ls.setItem('platform-region-mode', b.regionMode);
+          ls.setItem('wy-brand', JSON.stringify({ names: b.names || {}, siteUrl: b.siteUrl || null, supportEmail: b.supportEmail || null }));
+          if (typeof b.defaultLocale === 'string') ls.setItem('wy-default-locale', b.defaultLocale);
+          var titles = b.titles || {};
+          for (var k in titles) {
+            if (Object.prototype.hasOwnProperty.call(titles, k) && !ls.getItem('gs_title:' + k)) ls.setItem('gs_title:' + k, titles[k]);
+          }
+          if (!document.title) {
+            var l = ls.getItem('app-locale') || (b.edition === 'international' && b.defaultLocale) || document.documentElement.lang || 'en';
+            var t = ls.getItem('gs_title:' + l) || ls.getItem('gs_title:en');
+            if (t) document.title = t;
+          }
+        } catch (e) {}
+      })();
+    </script>
     <!-- The app's first request (the session check) goes to the API. When the
          API is on another origin (api.<domain>), open that connection now,
          while the app's scripts download, rather than after them. No
@@ -164,6 +211,13 @@
           }
           if (edition !== 'international') return;
           var splash = document.getElementById('boot-splash');
+          // The platform's own name (src/lib/brand.ts cache), not WebYar's mark.
+          var brand = null;
+          try { brand = JSON.parse(ls.getItem('wy-brand') || 'null'); } catch (e2) {}
+          var names = (brand && brand.names) || {};
+          var name = names.en || Object.keys(names).map(function (k) { return names[k]; })[0] || '';
+          if (name) splash.setAttribute('aria-label', name);
+          else splash.removeAttribute('aria-label');
           splash.querySelector('.wy-loader').className += ' wy-intl';
           var foot = splash.querySelector('.wy-footer');
           foot.className = 'wy-footer wy-intl-footer';

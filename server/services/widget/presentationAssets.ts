@@ -1,16 +1,19 @@
 /**
  * Widget template resolution (server side).
  *
- * The canonical list of templates lives in the browser-side registry
- * (`public/widget/presentation-registry.js`). The server never needs to
- * know WHICH templates exist — it only needs a valid template id so it can
- * name the presentation assets in the bootstrap payload. The browser
- * registry does the real resolution (and falls back to its default when an
- * id is unknown), which keeps a new template a zero-server-change addition.
+ * Which templates exist, and which one each edition wears, is decided in
+ * shared/widgetTemplates.ts (the browser registry,
+ * `public/widget/presentation-registry.js`, lists the same ids). The server
+ * resolves the template for the platform's edition and names its assets in
+ * the bootstrap payload: the Iranian edition always gets `default`, exactly
+ * as before; the International edition gets `intl`.
  *
- * Server responsibility here is purely security: the id becomes part of an
- * asset file name, so its shape is strictly validated.
+ * The id becomes part of asset FILE NAMES, so an id that is not a known
+ * template is still strictly shape-validated before a name is built from it.
  */
+import type { Edition } from '../../../shared/edition.js';
+import { chatWidgetTemplate, resolveChatWidgetTemplate } from '../../../shared/widgetTemplates.js';
+
 export const DEFAULT_WIDGET_TEMPLATE_ID = 'default';
 
 const TEMPLATE_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -35,17 +38,46 @@ export function resolveWidgetTemplateId(input?: string | null): string {
 }
 
 /**
- * Logical manifest keys for a template's renderer, stylesheet and font asset.
- *
- * `fonts` is the single source of the template's font bytes. It is optional
- * at runtime (a template may ship none), so callers must tolerate the
- * manifest lacking the key.
+ * The template the widget wears in this edition (shared/widgetTemplates.ts):
+ * a requested id the edition offers, else the edition's default. An unknown
+ * edition (null) is the Iranian one: `default`.
  */
-export function widgetTemplateAssetKeys(templateId: string) {
+export function resolveEditionWidgetTemplateId(edition: Edition | null, requested?: string | null): string {
+  return resolveChatWidgetTemplate(edition, requested);
+}
+
+/**
+ * Logical manifest keys for a template's renderer, stylesheet, skin and font
+ * asset.
+ *
+ * A known template (shared/widgetTemplates.ts) names its own files — a skin
+ * reuses another template's renderer and base stylesheet and adds `skin`.
+ * Any other shape-safe id follows the file-name convention
+ * `presentation-<id>.js/.css/-fonts.css` with no skin.
+ *
+ * `fonts` and `skin` are optional at runtime (a template may ship none), so
+ * callers must tolerate the manifest lacking the key.
+ */
+export function widgetTemplateAssetKeys(templateId: string): {
+  script: `presentation-${string}.js`;
+  style: `presentation-${string}.css`;
+  fonts: `presentation-${string}.css`;
+  skin: `presentation-${string}.css` | null;
+} {
   const id = resolveWidgetTemplateId(templateId);
+  const known = chatWidgetTemplate(id);
+  if (known) {
+    return {
+      script: known.script,
+      style: known.style,
+      fonts: known.fonts ?? (`presentation-${id}-fonts.css` as const),
+      skin: known.skin,
+    };
+  }
   return {
     script: `presentation-${id}.js` as const,
     style: `presentation-${id}.css` as const,
     fonts: `presentation-${id}-fonts.css` as const,
+    skin: null,
   };
 }

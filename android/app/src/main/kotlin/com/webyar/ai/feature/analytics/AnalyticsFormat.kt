@@ -5,6 +5,7 @@ import android.icu.text.NumberFormat
 import android.icu.util.TimeZone
 import android.icu.util.ULocale
 import com.webyar.ai.core.model.AnalyticsDay
+import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.StrAndroid
 import com.webyar.ai.i18n.StrInsights
@@ -17,15 +18,12 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Numbers, shares, durations and days the way each language writes them —
  * the Mac app's `AnalyticsFormat`. Persian gets its own digits and, for the
- * chart's days, its own calendar.
+ * chart's days, the brand's calendar: the Persian one for WebYar, Gregorian
+ * for RESPOK — the same as every other date in the app ([Format.calendarTag]).
  */
 object AnalyticsFormat {
 
-    private fun locale(l: Language): ULocale = when (l) {
-        Language.FA -> ULocale("fa-IR-u-ca-persian")
-        Language.EN -> ULocale("en-US")
-        Language.TR -> ULocale("tr-TR")
-    }
+    private fun locale(l: Language): ULocale = ULocale(Format.calendarTag(l))
 
     private val counts = ConcurrentHashMap<Language, NumberFormat>()
     private val decimals = ConcurrentHashMap<Language, NumberFormat>()

@@ -28,6 +28,7 @@ object StrAndroid {
 
     // Super Admin's maintenance notice, in the Mac app's words.
 
+    /** WebYar's: screens show it through [BrandStr.maintenanceTitle], which gives RESPOK's build its own. */
     fun maintenanceTitle(l: Language): String = when (l) {
         Language.EN -> "Webyar is under maintenance"
         Language.FA -> "وب‌یار در حال تعمیر و نگهداری است"

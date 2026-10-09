@@ -12,9 +12,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import com.webyar.ai.i18n.BrandStr
 import com.webyar.ai.i18n.Language
-import com.webyar.ai.i18n.Str
-import com.webyar.ai.i18n.StrManual
 import com.webyar.ai.ui.design.Space
 
 /**
@@ -23,8 +22,9 @@ import com.webyar.ai.ui.design.Space
  * The Persian wordmark is written "وبــــ یــار" — with stretched kashida
  * rather than the plain "وب‌یار" the rest of the app uses — because that is
  * the brand's own lettering and a logo is not body copy. It comes from
- * `StrManual.brandWordmark`, so the three languages stay in one place with the rest
- * of the strings.
+ * `BrandStr.brandWordmark` (WebYar's is `StrManual.brandWordmark`, RESPOK's
+ * is its name, Latin in every language), so the three languages stay in one
+ * place with the rest of the strings.
  *
  * A screen reader gets the ordinary spelling instead: the stretched form is a
  * picture of the name, and reading its kashida aloud is nonsense.
@@ -37,13 +37,13 @@ fun BrandWordmark(
 ) {
     Column(
         modifier.semantics(mergeDescendants = true) {
-            contentDescription = Str.appName(language)
+            contentDescription = BrandStr.appName(language)
         },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         Text(
-            text = StrManual.brandWordmark(language),
+            text = BrandStr.brandWordmark(language),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,

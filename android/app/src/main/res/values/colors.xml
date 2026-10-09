@@ -3,6 +3,18 @@
     <!-- The launch colour the iOS app (Webyar's LaunchBackground colour
          set) and the Mac app (Palette.appBackground) open on — light here,
          dark in values-night — so the three platforms start on the same
-         shade. The loading screen after the system splash draws it too. -->
+         shade. The loading screen after the system splash draws it too.
+         The same for both brands. -->
     <color name="launch_background">#F4F6F9</color>
+
+    <!-- The brand's two colours, as the launch loader draws them: the
+         splash and the launch window (drawable/launch_loader.xml) and the
+         app's own loader after them (ui/components/LaunchLoader.kt reads
+         these too, through BrandPalette). WebYar's brand kit: Deep
+         Turquoise and Turquoise. RESPOK's are in src/respok/res. -->
+    <color name="brand_deep">#FF0B7D6C</color>
+    <color name="brand_bright">#FF16C7A8</color>
+    <!-- brand_deep with nothing of it showing: where the comet's tail fades
+         from. A vector's gradient stop takes no alpha of its own. -->
+    <color name="brand_deep_clear">#000B7D6C</color>
 </resources>

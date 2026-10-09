@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -28,14 +29,16 @@ import kotlin.math.sin
 
 /**
  * The iOS app's `LaunchLoader`: two arcs turning against each other — an
- * outer comet of the brand's blue running into cyan, with a bright bead at
- * its head, over a barely-there track, and a fainter cyan arc inside going
- * the other way. The size of a large spinner, not of a logo.
+ * outer comet of the brand's deep colour running into its bright one, with a
+ * bright bead at its head, over a barely-there track, and a fainter bright
+ * arc inside going the other way ([BrandPalette]: WebYar's turquoise,
+ * RESPOK's Ink and Signal). The size of a large spinner, not of a logo.
  *
  * Its resting pose is exactly `res/drawable/launch_loader.xml`, the picture
  * the system splash and the launch window show, so the hand-over from them
- * is the loader starting to turn and nothing else. Change a size, a colour
- * or a starting angle here and change that drawable with it.
+ * is the loader starting to turn and nothing else. Both take their colours
+ * from the same resources; change a size or a starting angle here and change
+ * that drawable with it.
  *
  * It turns the same way in every language — it is a clock, not text — and
  * stands still, parked, for anyone who has turned animations off.
@@ -64,12 +67,14 @@ fun LaunchLoader(modifier: Modifier = Modifier, size: Dp = OUTER) {
         label = "inner",
     )
     val scale = size / OUTER
+    val deep = BrandPalette.deep
+    val bright = BrandPalette.bright
     Canvas(modifier.size(size)) {
-        drawLoader(outerTurn = outerTurn, innerTurn = innerTurn, scale = scale)
+        drawLoader(outerTurn = outerTurn, innerTurn = innerTurn, scale = scale, deep = deep, bright = bright)
     }
 }
 
-private fun DrawScope.drawLoader(outerTurn: Float, innerTurn: Float, scale: Float) {
+private fun DrawScope.drawLoader(outerTurn: Float, innerTurn: Float, scale: Float, deep: Color, bright: Color) {
     val outerLine = OUTER_LINE.toPx() * scale
     val innerLine = INNER_LINE.toPx() * scale
     val outerRadius = OUTER.toPx() * scale / 2
@@ -78,7 +83,7 @@ private fun DrawScope.drawLoader(outerTurn: Float, innerTurn: Float, scale: Floa
 
     // Where the outer arc runs.
     drawCircle(
-        color = BrandPalette.deep.copy(alpha = 0.10f),
+        color = deep.copy(alpha = 0.10f),
         radius = outerRadius,
         center = c,
         style = Stroke(width = outerLine),
@@ -89,10 +94,10 @@ private fun DrawScope.drawLoader(outerTurn: Float, innerTurn: Float, scale: Floa
         val sweep = COMET * 360f
         drawArc(
             brush = Brush.sweepGradient(
-                0f to BrandPalette.deep.copy(alpha = 0f),
-                (COMET * 0.55f) to BrandPalette.deep,
-                COMET to BrandPalette.cyan,
-                1f to BrandPalette.cyan,
+                0f to deep.copy(alpha = 0f),
+                (COMET * 0.55f) to deep,
+                COMET to bright,
+                1f to bright,
                 center = c,
             ),
             startAngle = 0f,
@@ -105,14 +110,14 @@ private fun DrawScope.drawLoader(outerTurn: Float, innerTurn: Float, scale: Floa
         // The bead leading it, with its glow.
         val head = Math.toRadians(sweep.toDouble())
         val bead = Offset(c.x + outerRadius * cos(head).toFloat(), c.y + outerRadius * sin(head).toFloat())
-        drawCircle(BrandPalette.cyan.copy(alpha = 0.28f), radius = outerLine * 1.9f, center = bead)
-        drawCircle(BrandPalette.cyan, radius = outerLine * 0.95f, center = bead)
+        drawCircle(bright.copy(alpha = 0.28f), radius = outerLine * 1.9f, center = bead)
+        drawCircle(bright, radius = outerLine * 0.95f, center = bead)
     }
 
     // The inner arc, the other way.
     rotate(degrees = START_INNER + innerTurn, pivot = c) {
         drawArc(
-            color = BrandPalette.cyan.copy(alpha = 0.55f),
+            color = bright.copy(alpha = 0.55f),
             startAngle = 0f,
             sweepAngle = INNER_ARC * 360f,
             useCenter = false,

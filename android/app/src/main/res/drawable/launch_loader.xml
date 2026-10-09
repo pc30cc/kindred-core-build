@@ -6,6 +6,10 @@
   turn. Drawn on the splash icon's 288dp box, where the system centres it, at
   the loader's own size (40dp): track, comet from the top with its bead, and
   the fainter inner arc from the bottom. Change LaunchLoader, change this.
+
+  The colours are the brand's (values/colors.xml: WebYar's turquoise here,
+  RESPOK's Ink and Signal from src/respok/res), the same ones LaunchLoader
+  reads, so only the geometry lives in this file.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -16,7 +20,8 @@
     <!-- Where the outer arc runs, barely there. -->
     <path
         android:pathData="M164,144 A20,20 0 1,1 124,144 A20,20 0 1,1 164,144 Z"
-        android:strokeColor="#1A0C50E9"
+        android:strokeAlpha="0.1"
+        android:strokeColor="@color/brand_deep"
         android:strokeWidth="2.5" />
     <!-- The comet, tail at the top. -->
     <group
@@ -32,19 +37,20 @@
                     android:type="sweep"
                     android:centerX="144"
                     android:centerY="144">
-                    <item android:offset="0" android:color="#000C50E9" />
-                    <item android:offset="0.176" android:color="#FF0C50E9" />
-                    <item android:offset="0.32" android:color="#FF2ED6FF" />
-                    <item android:offset="1" android:color="#FF2ED6FF" />
+                    <item android:offset="0" android:color="@color/brand_deep_clear" />
+                    <item android:offset="0.176" android:color="@color/brand_deep" />
+                    <item android:offset="0.32" android:color="@color/brand_bright" />
+                    <item android:offset="1" android:color="@color/brand_bright" />
                 </gradient>
             </aapt:attr>
         </path>
         <!-- The bead at its head, and its glow. -->
         <path
-            android:fillColor="#472ED6FF"
+            android:fillAlpha="0.28"
+            android:fillColor="@color/brand_bright"
             android:pathData="M140.234,162.097 A4.75,4.75 0 1,1 130.734,162.097 A4.75,4.75 0 1,1 140.234,162.097 Z" />
         <path
-            android:fillColor="#FF2ED6FF"
+            android:fillColor="@color/brand_bright"
             android:pathData="M137.859,162.097 A2.375,2.375 0 1,1 133.109,162.097 A2.375,2.375 0 1,1 137.859,162.097 Z" />
     </group>
     <!-- The inner arc, from the bottom. -->
@@ -54,7 +60,8 @@
         android:rotation="90">
         <path
             android:pathData="M156,144 A12,12 0 0,1 146.249,155.787"
-            android:strokeColor="#8C2ED6FF"
+            android:strokeAlpha="0.55"
+            android:strokeColor="@color/brand_bright"
             android:strokeLineCap="round"
             android:strokeWidth="2" />
     </group>

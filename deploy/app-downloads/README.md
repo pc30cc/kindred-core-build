@@ -110,23 +110,34 @@ Things learnt running it:
   `pc30cc/respok-releases/mac/appcast.xml` exists); until then
   `RESPOK-Mac.zip` answers 404 and the sync logs `respok: no appcast`.
 
-## The Android app
+## The Android apps
 
-`https://app.webyar.ai/downloads/Webyar-Android.apk` is **not** served from
-this container. It ships with the site: the file is
-`public/downloads/Webyar-Android.apk` in the repository, beside the plugin
-zips, and the frontend image serves it from `/downloads/` (no caching, a hard
-404 rather than the SPA page — see `nginx.conf.template`). The Traefik rules
-above leave `.apk` alone for that reason; the frontend Dockerfiles fail the
-build if the file is missing.
+Each brand's APK is **not** served from this container. It ships with the
+site: `public/downloads/Webyar-Android.apk` and
+`public/downloads/RESPOK-Android.apk` in the repository, beside the plugin
+zips, each with its `.json` sidecar (the version Super Admin shows for that
+edition), and the frontend image serves them from `/downloads/` (no caching, a
+hard 404 rather than the SPA page — see `nginx.conf.template`). The Traefik
+rules above leave each brand's own `.apk` alone for that reason, and send the
+other brand's (`/downloads/Webyar-*` on app.respok.app, `/downloads/RESPOK-*` on
+app.webyar.ai) here, where it answers 404. The frontend Dockerfiles fail the
+build if WebYar's APK is missing.
 
-The APK is the universal release build (every ABI), signed with the release
-key — see `docs/ANDROID_RELEASE.md`. Publish a new version: replace
-`public/downloads/Webyar-Android.apk` with the new build, merge, and let the
-frontend deploy. Keep the file name: the site's download page (webyar.ai →
-admin → «برنامه‌ها و دانلود» → Android) links to exactly this path.
+| | WebYar | RESPOK |
+| --- | --- | --- |
+| APK | `https://app.webyar.ai/downloads/Webyar-Android.apk` | `https://app.respok.app/downloads/RESPOK-Android.apk` |
+| Package | `com.webyar.ai` | `com.respok.app` |
+| Release key | `webyar-release.jks` (never another: phones only update with it) | `respok-release.jks` |
 
-There is no RESPOK Android or iOS build yet: the mobile apps are WebYar's only.
+An APK is the universal release build (every ABI) of its flavor, signed with
+its brand's release key — see `docs/ANDROID_RELEASE.md`. It is not zipped: a
+phone installs an `.apk` it downloads, not one inside a zip. Publish a new
+version: replace the brand's APK and sidecar with the new build, merge, and let
+the frontend deploy. Keep the file names: WebYar's landing page links to
+exactly `Webyar-Android.apk`.
+
+The iOS apps (WebYar `com.webyar.ai`, RESPOK `com.respok.app`) are distributed
+through the App Store, not from here.
 
 ## History
 

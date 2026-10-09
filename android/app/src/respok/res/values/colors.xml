@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- RESPOK's launch loader (src/main/res/drawable/launch_loader.xml and
+         ui/components/LaunchLoader.kt, through BrandPalette): its brand kit's
+         Ink for the deep colour and Signal for the bright one, over the
+         shared launch colour. -->
+    <color name="brand_deep">#FF16142B</color>
+    <color name="brand_bright">#FFFF5A3C</color>
+    <color name="brand_deep_clear">#0016142B</color>
+</resources>

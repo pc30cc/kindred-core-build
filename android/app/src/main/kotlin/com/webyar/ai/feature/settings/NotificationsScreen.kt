@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.webyar.ai.core.model.NotificationPrefs
 import com.webyar.ai.core.model.NotificationPrefsUpdate
+import com.webyar.ai.i18n.BrandStr
 import com.webyar.ai.i18n.Format
 import com.webyar.ai.i18n.Language
 import com.webyar.ai.i18n.Str
@@ -154,7 +155,7 @@ fun NotificationsScreen(
             item {
                 GroupHeader(
                     Str.notifications(language),
-                    Str.pushPresenceFooter(language),
+                    BrandStr.pushPresenceFooter(language),
                 )
             }
         }
@@ -466,7 +467,7 @@ private fun PermissionBanner(language: Language, permission: SystemNotificationP
                     contentDescription = null,
                     modifier = Modifier.padding(end = Space.sm),
                 )
-                Text(Str.pushDeniedTitle(language), style = WebyarType.titleMediumEmphasized)
+                Text(BrandStr.pushDeniedTitle(language), style = WebyarType.titleMediumEmphasized)
             }
             Text(
                 Str.pushDeniedBody(language),

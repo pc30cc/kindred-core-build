@@ -1,20 +1,43 @@
 #!/usr/bin/env bash
 #
-# Creates the release signing key for the Webyar operator app.
+# Creates a release signing key for one brand of the operator app:
 #
-# Run this ONCE, on a machine you control, and then guard what it produces.
-# Play ties an app's identity to this key for as long as the app exists: lose
-# it and you cannot update the app ever again, under any circumstances, and
-# the only way forward is a new listing with a new package name and none of
-# the installs. Leak it and somebody else can sign an update to your app.
+#   ./tools/make-release-keystore.sh webyar   # webyar-release.jks, alias webyar
+#   ./tools/make-release-keystore.sh respok   # respok-release.jks, alias respok
+#
+# (an optional second argument names the keystore file).
+#
+# Each brand has its own key, and the build signs each brand only with its
+# own (WEBYAR_* for the `webyar` flavor, RESPOK_* for `respok`;
+# app/build.gradle.kts). WebYar ALREADY HAS ONE: every WebYar release so far
+# was signed with it, and an APK signed with any other key cannot update a
+# phone that has WebYar installed. Never make a second WebYar key.
+#
+# Run this ONCE per brand, on a machine you control, and then guard what it
+# produces. Play ties an app's identity to this key for as long as the app
+# exists: lose it and you cannot update the app ever again, under any
+# circumstances, and the only way forward is a new listing with a new package
+# name and none of the installs. Leak it and somebody else can sign an update
+# to your app.
 #
 # The password is read from the terminal, never from an argument and never
 # written anywhere. Arguments are visible to every process on the machine
 # (`ps`), and shell history keeps them for years.
 set -euo pipefail
 
-KEYSTORE="${1:-webyar-release.jks}"
-ALIAS="${WEBYAR_KEY_ALIAS:-webyar}"
+BRAND="${1:-}"
+case "$BRAND" in
+  webyar) ENV=WEBYAR; NAME=Webyar; FLAVOR=Webyar ;;
+  respok) ENV=RESPOK; NAME=RESPOK; FLAVOR=Respok ;;
+  *)
+    echo "usage: $0 webyar|respok [keystore-file]" >&2
+    exit 2
+    ;;
+esac
+
+KEYSTORE="${2:-$BRAND-release.jks}"
+alias_var="${ENV}_KEY_ALIAS"
+ALIAS="${!alias_var:-$BRAND}"
 # 10,000 days ≈ 27 years. Play requires a key valid past 2033, and a key that
 # expires is a key you have to replace with all the same pain as losing it.
 DAYS=10000
@@ -31,6 +54,17 @@ command -v keytool >/dev/null 2>&1 || {
   exit 1
 }
 
+if [[ "$BRAND" == webyar ]]; then
+  cat <<'WARN' >&2
+WebYar already has a release key: the one every WebYar version so far was
+signed with. A new one cannot sign an update to any phone that has WebYar
+installed. Find that keystore instead of making another.
+
+WARN
+  read -r -p "Type 'new webyar key' to make one anyway: " CONFIRM
+  [[ "$CONFIRM" == "new webyar key" ]] || { echo "nothing created." >&2; exit 1; }
+fi
+
 cat <<'WARN'
 About to create a release signing key.
 
@@ -40,7 +74,7 @@ About to create a release signing key.
 
 WARN
 
-read -r -p "Organisation name (CN), e.g. Webyar: " CN
+read -r -p "Organisation name (CN), e.g. $NAME: " CN
 : "${CN:?a name is required}"
 
 # -storepass is deliberately absent: keytool prompts, and the prompt does not
@@ -58,22 +92,22 @@ chmod 600 "$KEYSTORE"
 
 cat <<EOF
 
-Created $KEYSTORE (alias: $ALIAS, RSA 4096, valid $DAYS days).
+Created $KEYSTORE (alias: $ALIAS, RSA 4096, valid $DAYS days) for $NAME.
 
-To build a signed bundle, set these in the shell that runs Gradle — from a
-password manager, not from a file in the repository:
+To build a signed $NAME bundle, set these in the shell that runs Gradle — from
+a password manager, not from a file in the repository:
 
-  export WEBYAR_KEYSTORE="\$PWD/$KEYSTORE"
-  export WEBYAR_KEYSTORE_PASSWORD='…'
-  export WEBYAR_KEY_ALIAS='$ALIAS'
-  export WEBYAR_KEY_PASSWORD='…'   # same as the store password unless you chose otherwise
+  export ${ENV}_KEYSTORE="\$PWD/$KEYSTORE"
+  export ${ENV}_KEYSTORE_PASSWORD='…'
+  export ${ENV}_KEY_ALIAS='$ALIAS'
+  export ${ENV}_KEY_PASSWORD='…'   # same as the store password unless you chose otherwise
 
-  ./gradlew :app:bundleRelease -Pwebyar.versionCode=2 -Pwebyar.versionName=1.0.1
+  ./gradlew :app:bundle${FLAVOR}Release -P$BRAND.versionCode=2 -P$BRAND.versionName=1.0.1
 
 Verify what you are about to upload really is signed with this key:
 
   \$ANDROID_HOME/build-tools/*/apksigner verify --print-certs \\
-      app/build/outputs/apk/release/app-arm64-v8a-release.apk
+      app/build/outputs/apk/$BRAND/release/app-$BRAND-universal-release.apk
 
 Back up $KEYSTORE now, before you build anything with it.
 EOF

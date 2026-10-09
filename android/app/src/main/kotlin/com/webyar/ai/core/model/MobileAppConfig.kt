@@ -1,5 +1,6 @@
 package com.webyar.ai.core.model
 
+import com.webyar.ai.core.AppBrand
 import com.webyar.ai.i18n.Language
 import kotlinx.serialization.Serializable
 import java.time.Instant
@@ -104,12 +105,13 @@ data class MaintenanceNotice(
     }
 
     /**
-     * The notice in [language], else in whichever language it was written
-     * in — a notice only in English still says something to a Persian
-     * operator — else null, and the app's own wording.
+     * The notice in [language], else in the brand's own (Persian for WebYar,
+     * English for RESPOK), else in whichever language it was written in — a
+     * notice only in English still says something to a Persian operator —
+     * else null, and the app's own wording. The Mac app's order.
      */
     fun message(language: Language): String? =
-        sequenceOf(language.code, "fa", "en", "tr")
+        sequenceOf(language.code, AppBrand.fallbackLanguage.code, "fa", "en", "tr")
             .mapNotNull { message[it]?.trim()?.takeIf { text -> text.isNotEmpty() } }
             .firstOrNull()
 }

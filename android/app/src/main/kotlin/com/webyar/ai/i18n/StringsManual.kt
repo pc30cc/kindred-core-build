@@ -145,7 +145,11 @@ object StrManual {
     // by hand is wiped the next time the generator runs. A string the iOS app
     // has no use for belongs here instead, where nothing overwrites it.
 
-    /** The wordmark's fallback text, for talkback and for a failed font. */
+    /**
+     * The wordmark's fallback text, for talkback and for a failed font.
+     * WebYar's: screens show it through [BrandStr.brandWordmark], which
+     * gives RESPOK's build its own.
+     */
     fun brandWordmark(l: Language): String = when (l) {
         Language.EN -> "Webyar"
         Language.FA -> "وب یار"

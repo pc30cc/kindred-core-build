@@ -12,8 +12,23 @@ There is no Android Studio requirement for either. From the repo root:
 
 ```
 cd android
-./gradlew assembleDebug          # -> app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest      # 20 JVM tests, Robolectric-backed
+./gradlew :app:assembleWebyarDebug        # -> app/build/outputs/apk/webyar/debug/app-webyar-universal-debug.apk
+./gradlew :app:testWebyarDebugUnitTest    # JVM tests, Robolectric-backed
+./gradlew :app:installWebyarDebug         # onto the running emulator
+```
+
+The app is two apps from one source, WebYar and RESPOK: the `webyar` and
+`respok` product flavors (`docs/ANDROID_RELEASE.md` has the table). Every
+task names one — `assembleRespokDebug`, `testRespokDebugUnitTest`,
+`installRespokDebug` — and the unflavored ones (`testDebugUnitTest`,
+`installDebug`) no longer exist. Both install side by side. RESPOK's package
+is `com.respok.app` while the code's stays `com.webyar.ai`, so the commands
+below read, for RESPOK:
+
+```
+adb shell am start -n com.respok.app/com.webyar.ai.MainActivity
+adb shell setprop wrap.com.respok.app "WEBYAR_SAMPLE=1"
+adb shell pidof com.respok.app
 ```
 
 Gradle needs a JDK 21 to *run*; the app still compiles to Java 17 bytecode.

@@ -92,8 +92,9 @@ class AppState(
     /**
      * Whether the operator has picked a language on this phone. Until they
      * have, the app speaks Super Admin's default ([MobileAppConfig.defaultLanguage],
-     * Persian when the server names none); after, their choice is the only
-     * one that counts.
+     * the brand's own [Language.DEFAULT] when the server names none: Persian
+     * for WebYar, English for RESPOK); after, their choice is the only one
+     * that counts.
      */
     private var languageChosen = false
 

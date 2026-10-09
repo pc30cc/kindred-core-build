@@ -12,12 +12,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -25,22 +27,37 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.webyar.ai.R
+import com.webyar.ai.core.AppBrand
 import com.webyar.ai.ui.A11y
 import com.webyar.ai.ui.design.Space
 
 /**
- * The brand's two blues, as the iOS launch loader draws them
- * (`BrandPalette` in ios/.../BrandFooter.swift): the deep blue of the icon's
- * lower edge and the cyan of its highlight.
+ * The brand's two colours, as the launch loader draws them (`BrandPalette`
+ * in the iOS app): a deep one and a bright one. WebYar's are its brand kit's
+ * turquoise, Deep Turquoise #0B7D6C and Turquoise #16C7A8; RESPOK's are its
+ * kit's Ink #16142B and Signal #FF5A3C.
+ *
+ * Read from the resources (`brand_deep`, `brand_bright` in
+ * res/values/colors.xml, and in src/respok/res for RESPOK), which the splash
+ * and the launch window draw too (drawable/launch_loader.xml): one value per
+ * brand, so the system's picture and the app's loader cannot disagree.
+ *
+ * Brand art, not the interface's theme: the app's own accent stays
+ * `ui/design/Colors.kt`'s, the same for both brands (as on Windows and Mac).
  */
 object BrandPalette {
-    val deep = Color(red = 0.047f, green = 0.314f, blue = 0.914f)
-    val cyan = Color(red = 0.180f, green = 0.839f, blue = 1.000f)
+    val deep: Color
+        @Composable @ReadOnlyComposable get() = colorResource(R.color.brand_deep)
+    val bright: Color
+        @Composable @ReadOnlyComposable get() = colorResource(R.color.brand_bright)
 }
 
 /**
- * "WEBYAR AI", small and letter-spaced: the name in the label's quiet grey,
- * the "AI" in the brand's two blues. The iOS app's `BrandFooter`.
+ * WebYar's "WEBYAR AI", small and letter-spaced: the name in the label's
+ * quiet grey, the "AI" in the brand's two colours. The iOS app's
+ * `BrandFooter`. RESPOK's is its name alone ([AppBrand.wordmark],
+ * [AppBrand.wordmarkSuffix]).
  *
  * The product's signature on the screens that come before the app proper —
  * the loading screen, sign in and password reset — placed with
@@ -63,11 +80,13 @@ fun BrandFooter(modifier: Modifier = Modifier) {
                 .testTag(A11y.BRAND_FOOTER),
             horizontalArrangement = Arrangement.spacedBy((TRACKING * 1.6f).dp),
         ) {
-            Text("WEBYAR", style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                "AI",
-                style = style.copy(brush = Brush.linearGradient(listOf(BrandPalette.deep, BrandPalette.cyan))),
-            )
+            Text(AppBrand.wordmark, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AppBrand.wordmarkSuffix?.let { suffix ->
+                Text(
+                    suffix,
+                    style = style.copy(brush = Brush.linearGradient(listOf(BrandPalette.deep, BrandPalette.bright))),
+                )
+            }
         }
     }
 }

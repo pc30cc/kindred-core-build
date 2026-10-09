@@ -1,8 +1,0 @@
-[Unit]
-Description=Mirror Webyar Windows releases onto app.webyar.ai/downloads
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/data/webyar-downloads/sync-windows.sh

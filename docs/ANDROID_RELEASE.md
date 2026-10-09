@@ -99,7 +99,7 @@ APK (`app-universal-release.apk`, every ABI in one file, so nobody has to know
 which one their phone needs), signed with the release key. It lives in the
 repository as `public/downloads/Webyar-Android.apk` and ships with the site:
 a new version is that file replaced, merged and deployed. Details:
-`deploy/windows-downloads/README.md`.
+`deploy/app-downloads/README.md`.
 
 Build it with a `versionCode` above the last one published (1.0.0 was 1,
 1.0.1 is 2), or phones that have it will refuse the file as a downgrade.

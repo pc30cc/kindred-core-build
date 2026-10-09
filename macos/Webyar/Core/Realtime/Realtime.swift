@@ -271,7 +271,7 @@ final class InboxRealtime {
         socket = task
         task.resume()
         defer { task.cancel(with: .normalClosure, reason: nil) }
-        try await task.send(.string(CentrifugoProtocol.connect(id: 1, token: token, name: "webyar-macos")))
+        try await task.send(.string(CentrifugoProtocol.connect(id: 1, token: token, name: AppBrand.realtimeName)))
 
         var subscribed = false
         // Renew the tokens shortly before they expire.

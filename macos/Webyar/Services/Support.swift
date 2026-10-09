@@ -4,18 +4,18 @@ import CryptoKit
 import Foundation
 import Security
 
-/// A line per event in ~/Library/Logs/Webyar/webyar.log, trimmed when it grows.
+/// A line per event in ~/Library/Logs/Webyar/webyar.log (RESPOK/respok.log), trimmed when it grows.
 enum Log {
     private static let queue = DispatchQueue(label: "webyar.log")
 
     static var folder: URL {
         let base = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let dir = base.appendingPathComponent("Logs/Webyar", isDirectory: true)
+        let dir = base.appendingPathComponent("Logs/" + AppBrand.folder, isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
-    static var file: URL { folder.appendingPathComponent("webyar.log") }
+    static var file: URL { folder.appendingPathComponent(AppBrand.id + ".log") }
 
     static func write(_ line: String) {
         let stamp = ISO8601DateFormatter().string(from: Date())
@@ -46,7 +46,7 @@ enum Log {
 
 /// A generic-password item in the login Keychain.
 enum Keychain {
-    private static let service = "ai.webyar.mac"
+    private static let service = AppBrand.keychainService
 
     static func read(_ account: String) -> Data? {
         let query: [String: Any] = [

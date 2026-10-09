@@ -11,9 +11,10 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <RootNamespace>Webyar.App</RootNamespace>
-    <AssemblyName>Webyar</AssemblyName>
+    <!-- Webyar.exe, or Respok.exe for -p:Brand=Respok (Directory.Build.props). -->
+    <AssemblyName>$(BrandExe)</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets\Webyar.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\Brand\$(Brand)\app.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -54,6 +55,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\**" Exclude="Assets\Brand\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The brand's icons, at the same place in every build: Assets\icon.png, app.ico, app-calls.ico. -->
+    <Content Include="Assets\Brand\$(Brand)\*" Link="Assets\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

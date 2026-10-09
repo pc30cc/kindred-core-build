@@ -100,3 +100,37 @@ describe('desktop app settings — public projection', () => {
     });
   });
 });
+
+describe('desktop app settings — per edition', () => {
+  it('leaves the Iranian edition (and an unknown one) exactly as stored', async () => {
+    const { desktopSettingsForEdition } = await import('./settings.js');
+    const s = normalize({ download_url: 'https://app.webyar.ai/downloads/Webyar-Setup.exe', release_notes: 'Webyar 2.6' });
+    expect(desktopSettingsForEdition(s, 'iran')).toBe(s);
+    expect(desktopSettingsForEdition(s, null)).toBe(s);
+  });
+
+  it("never serves WebYar's feed, link or notes to RESPOK", async () => {
+    const { desktopSettingsForEdition, desktopDefaultFeedUrl } = await import('./settings.js');
+    const cloned = normalize({ download_url: 'https://app.webyar.ai/downloads/Webyar-Setup.exe', release_notes: 'نسخه جدید وب‌یار' });
+    const s = desktopSettingsForEdition(cloned, 'international');
+    expect(s.update_feed_url).toBe('https://github.com/pc30cc/respok-releases/releases/latest/download');
+    expect(desktopDefaultFeedUrl('international')).toBe(s.update_feed_url);
+    expect(desktopDefaultFeedUrl('iran')).toBe(DESKTOP_APP_DEFAULT_FEED_URL);
+    expect(s.download_url).toBeNull();
+    expect(s.release_notes).toBeNull();
+    const own = normalize({ update_feed_url: 'https://app.respok.app/downloads/windows', release_notes: 'RESPOK 2.7' });
+    expect(desktopSettingsForEdition(own, 'international')).toMatchObject({
+      update_feed_url: 'https://app.respok.app/downloads/windows',
+      release_notes: 'RESPOK 2.7',
+    });
+  });
+
+  it('keeps Turkish words that only look like the name', async () => {
+    const { desktopSettingsForEdition } = await import('./settings.js');
+    const notes = 'Web yardım merkezi bağlantısı eklendi.';
+    expect(desktopSettingsForEdition(normalize({ release_notes: notes }), 'international').release_notes).toBe(notes);
+    expect(
+      desktopSettingsForEdition(normalize({ download_url: 'https://x.example/WebyarWindows-win-Setup.exe' }), 'international').download_url,
+    ).toBeNull();
+  });
+});

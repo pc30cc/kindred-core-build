@@ -45,7 +45,7 @@ public static class AvatarImages
         {
             Timeout = TimeSpan.FromSeconds(15),
         };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("WebyarWindows");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(Webyar.Core.Config.Brand.AgentToken);
         return http;
     }
 

@@ -62,6 +62,16 @@ The same server also runs:
   other way round.
 - The landing pages: app 1 `webyar.ai` (repo `pc30cc/webyarlanding`), app 27
   LimerLanding `limer.tr` (repo `pc30cc/lart`), app 28 RESPOK Landing.
+- The desktop downloads of both brands (since 2026-10-09): container
+  `app-downloads` (nginx, outside Coolify), Traefik file
+  `/data/coolify/proxy/dynamic/app-downloads.yaml`, files in
+  `/data/app-downloads/{webyar,respok}`, mirrored every 5 minutes from each
+  brand's release repos by the timer `app-downloads-sync`. It serves
+  `app.webyar.ai/downloads/Webyar-Setup.exe`, `Webyar-Mac.dmg`, `windows/`
+  (the Windows apps' update feed) and the same as `RESPOK-*` on
+  `app.respok.app`. See `deploy/app-downloads/README.md`. RESPOK's overlay
+  section 5b keeps its app settings (feeds, bundle ids) RESPOK's
+  (`/root/respok/overlay-apps-test.sh` proves it).
 
 ### Deploying and stopping
 

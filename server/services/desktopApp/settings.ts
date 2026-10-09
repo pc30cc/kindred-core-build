@@ -16,6 +16,9 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import type { Edition } from '../../../shared/edition.js';
+import { NATIVE_APP_BRANDS, pointsAtWebyar } from '../../../shared/nativeAppBrands.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
 
 export type DesktopUpdateChannel = 'stable' | 'beta';
 
@@ -47,8 +50,7 @@ export interface DesktopAppSettings {
   updated_at?: string | null;
 }
 
-export const DESKTOP_APP_DEFAULT_FEED_URL =
-  'https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download';
+export const DESKTOP_APP_DEFAULT_FEED_URL = NATIVE_APP_BRANDS.iran.windowsFeedUrl;
 
 export const DESKTOP_APP_DEFAULTS: DesktopAppSettings = {
   update_feed_url: DESKTOP_APP_DEFAULT_FEED_URL,
@@ -105,8 +107,31 @@ export async function loadDesktopAppSettings(config: ServerConfig): Promise<Desk
   } catch {
     // A deployment that has not applied migration 207 yet still boots.
   }
+  value = desktopSettingsForEdition(value, await getPlatformEditionOrNull(config));
   cache = { value, ts: now };
   return value;
+}
+
+/** The default update feed of an edition: WebYar's in Iran (and when unknown), RESPOK's abroad. */
+export function desktopDefaultFeedUrl(edition: Edition | null): string {
+  return edition === 'international' ? NATIVE_APP_BRANDS.international.windowsFeedUrl : DESKTOP_APP_DEFAULT_FEED_URL;
+}
+
+/**
+ * The settings as this edition's app may use them. The Iranian edition (or an
+ * unknown one) gets them untouched. In the International edition the RESPOK
+ * app is served nothing of WebYar's: a feed that still points at WebYar (a
+ * database cloned from WebYar's, or the default) becomes RESPOK's, and a
+ * download link or release notes naming WebYar are dropped. Saving the
+ * Super Admin page then stores the clean values.
+ */
+export function desktopSettingsForEdition(s: DesktopAppSettings, edition: Edition | null): DesktopAppSettings {
+  if (edition !== 'international') return s;
+  const out = { ...s };
+  if (pointsAtWebyar(out.update_feed_url)) out.update_feed_url = desktopDefaultFeedUrl(edition);
+  if (pointsAtWebyar(out.download_url)) out.download_url = null;
+  if (pointsAtWebyar(out.release_notes)) out.release_notes = null;
+  return out;
 }
 
 function boundedInt(raw: unknown, key: keyof typeof DESKTOP_APP_BOUNDS): number {

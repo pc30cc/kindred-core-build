@@ -204,11 +204,10 @@ public static class RequesterText
     public static string Number(long value, Language language) =>
         Digits.Localize(value.ToString("#,0", CultureInfo.InvariantCulture), language).Replace(",", language == Language.Fa ? "٬" : language == Language.Tr ? "." : ",");
 
-    /// <summary>"12 Mehr 1405" / "4 October 2026", in the Persian calendar for Persian.</summary>
+    /// <summary>"12 Mehr 1405" / "4 October 2026", in the Persian calendar for Persian (WebYar; Strings.DateCultureOf).</summary>
     public static string Date(DateTimeOffset when, Strings s)
     {
-        var culture = (CultureInfo)s.Culture.Clone();
-        if (s.Language == Language.Fa) culture.DateTimeFormat.Calendar = new PersianCalendar();
+        var culture = Strings.DateCultureOf(s.Language);
         return Digits.Localize(when.ToLocalTime().ToString("d MMMM yyyy", culture), s.Language);
     }
 

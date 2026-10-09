@@ -94,11 +94,14 @@ public static class Display
 
     public static string ShortDate(DateTime date, Language language)
     {
-        if (language == Language.Fa)
+        if (language == Language.Fa && Strings.UsesJalali)
         {
             var pc = new PersianCalendar();
             return Digits.Localize($"{pc.GetYear(date)}/{pc.GetMonth(date):00}/{pc.GetDayOfMonth(date):00}", language);
         }
+        // RESPOK's Persian: the same shape, on the Gregorian calendar.
+        if (language == Language.Fa)
+            return Digits.Localize(date.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture), language);
         return date.ToString("d", Strings.CultureOf(language));
     }
 }

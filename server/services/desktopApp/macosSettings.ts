@@ -17,6 +17,9 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import type { Edition } from '../../../shared/edition.js';
+import { NATIVE_APP_BRANDS, pointsAtWebyar } from '../../../shared/nativeAppBrands.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
 
 export type MacUpdateChannel = 'stable' | 'beta';
 export type MacDefaultLanguage = 'system' | 'fa' | 'en' | 'tr';
@@ -82,8 +85,7 @@ export interface MacosAppSettings {
   updated_at?: string | null;
 }
 
-export const MACOS_APP_DEFAULT_APPCAST_URL =
-  'https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml';
+export const MACOS_APP_DEFAULT_APPCAST_URL = NATIVE_APP_BRANDS.iran.macAppcastUrl;
 
 export const MACOS_APP_DEFAULTS: MacosAppSettings = {
   appcast_url: MACOS_APP_DEFAULT_APPCAST_URL,
@@ -208,8 +210,40 @@ export async function loadMacosAppSettings(config: ServerConfig): Promise<MacosA
   } catch {
     // A deployment that has not applied migration 211 yet still boots.
   }
+  value = macosSettingsForEdition(value, await getPlatformEditionOrNull(config));
   cache = { value, ts: now };
   return value;
+}
+
+/** The default appcast of an edition: WebYar's in Iran (and when unknown), RESPOK's abroad. */
+export function macosDefaultAppcastUrl(edition: Edition | null): string {
+  return edition === 'international' ? NATIVE_APP_BRANDS.international.macAppcastUrl : MACOS_APP_DEFAULT_APPCAST_URL;
+}
+
+/**
+ * The settings as this edition's app may use them (see desktopSettingsForEdition).
+ * In the International edition an appcast that still points at WebYar's feed
+ * becomes RESPOK's; the version it named (WebYar's latest) goes with it, and a
+ * download link, release notes, help or legal link or maintenance notice naming
+ * WebYar are dropped. Iran: untouched.
+ */
+export function macosSettingsForEdition(s: MacosAppSettings, edition: Edition | null): MacosAppSettings {
+  if (edition !== 'international') return s;
+  const out = { ...s };
+  if (pointsAtWebyar(out.appcast_url)) {
+    out.appcast_url = macosDefaultAppcastUrl(edition);
+    out.latest_version = null;
+  }
+  if (pointsAtWebyar(out.download_url)) out.download_url = null;
+  if (pointsAtWebyar(out.release_notes)) out.release_notes = null;
+  // The Help menu and Settings → Help & legal open these, so none of them may lead to WebYar.
+  for (const key of ['support_url', 'status_page_url', 'privacy_url', 'terms_url'] as const) {
+    if (pointsAtWebyar(out[key])) out[key] = null;
+  }
+  out.maintenance_message = Object.fromEntries(
+    Object.entries(out.maintenance_message).filter(([, text]) => !pointsAtWebyar(text)),
+  ) as MacMaintenanceMessage;
+  return out;
 }
 
 function boundedInt(raw: unknown, key: keyof typeof MACOS_APP_BOUNDS): number {

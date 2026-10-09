@@ -53,9 +53,10 @@ struct MacAppConfig: Sendable, Equatable {
         var message: [String: String] = [:]
         var until: Date?
 
-        /// The notice in the UI's language, else Persian, English, Turkish; nil when there is none.
+        /// The notice in the UI's language, else the brand's fallback (Persian for WebYar,
+        /// English for RESPOK), then Persian, English, Turkish; nil when there is none.
         func message(in language: Language) -> String? {
-            for code in [language.code, "fa", "en", "tr"] {
+            for code in [language.code, AppBrand.fallbackLanguage.code, "fa", "en", "tr"] {
                 if let m = message[code] { return m }
             }
             return nil

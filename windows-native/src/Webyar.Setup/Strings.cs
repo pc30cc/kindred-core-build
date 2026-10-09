@@ -4,7 +4,7 @@ using System.Text;
 namespace Webyar.Setup
 {
     /// <summary>The installer's words in the app's three languages; Persian first, as in the app.</summary>
-    public sealed class Strings
+    public sealed partial class Strings
     {
         public string Code { get; }
         public bool IsRightToLeft => Code == "fa";
@@ -31,14 +31,25 @@ namespace Webyar.Setup
         {
             switch (code)
             {
-                case "en": return new Strings("en", En);
-                case "tr": return new Strings("tr", Tr);
-                default: return new Strings("fa", Fa);
+                case "en": return new Strings("en", Branded(En, BrandEn));
+                case "tr": return new Strings("tr", Branded(Tr, BrandTr));
+                default: return new Strings("fa", Branded(Fa, BrandFa));
             }
         }
 
-        /// <summary>Persian, as the app itself starts; the picker in the corner switches.</summary>
+        /// <summary>
+        /// The language the installer opens in, as the app itself starts: Persian for WebYar; for
+        /// RESPOK, Windows' language when it is one of ours, else English. The picker in the corner switches.
+        /// </summary>
+#if BRAND_RESPOK
+        public static string SystemDefault()
+        {
+            var code = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+            return code == "fa" || code == "tr" ? code : "en";
+        }
+#else
         public static string SystemDefault() => "fa";
+#endif
 
         private static readonly Dictionary<string, string> Fa = new Dictionary<string, string>
         {

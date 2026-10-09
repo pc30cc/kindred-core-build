@@ -1,3 +1,4 @@
+using Webyar.Core.Config;
 using Webyar.Core.Localization;
 using Xunit;
 
@@ -44,7 +45,8 @@ public class LocalizationTests
     [InlineData("fa-IR", Language.Fa)]
     [InlineData("tr-TR", Language.Tr)]
     [InlineData("en-US", Language.En)]
-    [InlineData("de-DE", Language.Fa)]
+    // A language that is none of ours: Persian for WebYar, English for RESPOK (Brand.FallbackLanguage).
+    [InlineData("de-DE", Brand.FallbackLanguage)]
     public void First_launch_follows_windows(string culture, Language expected) =>
         Assert.Equal(expected, Strings.FromSystem(System.Globalization.CultureInfo.GetCultureInfo(culture)));
 

@@ -5,10 +5,39 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Company>Webyar</Company>
-    <Product>Webyar</Product>
-    <Copyright>Copyright © Webyar</Copyright>
-    <!-- One version for the whole app; the release workflow checks the tag against it. -->
-    <Version>2.6.3</Version>
+    <!--
+      One version for the whole app. Every release (a merge to main, or the workflow's
+      publish_now) is <Major>.<Minor>.<run number> of the Windows workflow
+      (.github/workflows/desktop-native.yml), so only Major and Minor are read from here:
+      raise them in a merge to start a new series.
+    -->
+    <Version>2.7.0</Version>
   </PropertyGroup>
+
+  <!--
+    The brand a build wears: Webyar (the default, exactly as before) or Respok.
+    One source, two apps that install side by side: each has its own name,
+    icon, exe, install and data folders, server and update feed
+    (src/Webyar.Core/Config/Brand.cs). Build one with -p:Brand=Respok.
+  -->
+  <PropertyGroup>
+    <Brand Condition="'$(Brand)' == ''">Webyar</Brand>
+    <BrandName Condition="'$(Brand)' == 'Webyar'">Webyar</BrandName>
+    <BrandName Condition="'$(Brand)' == 'Respok'">RESPOK</BrandName>
+    <BrandExe Condition="'$(Brand)' == 'Webyar'">Webyar</BrandExe>
+    <BrandExe Condition="'$(Brand)' == 'Respok'">Respok</BrandExe>
+    <BrandSetup Condition="'$(Brand)' == 'Webyar'">Webyar-Setup</BrandSetup>
+    <BrandSetup Condition="'$(Brand)' == 'Respok'">RESPOK-Setup</BrandSetup>
+    <!-- Velopack's package id (Brand.PackId). -->
+    <BrandPackId Condition="'$(Brand)' == 'Webyar'">WebyarWindows</BrandPackId>
+    <BrandPackId Condition="'$(Brand)' == 'Respok'">RespokWindows</BrandPackId>
+    <DefineConstants Condition="'$(Brand)' == 'Respok'">$(DefineConstants);BRAND_RESPOK</DefineConstants>
+    <Company>$(BrandName)</Company>
+    <Product>$(BrandName)</Product>
+    <Copyright>Copyright © $(BrandName)</Copyright>
+  </PropertyGroup>
+
+  <Target Name="CheckBrand" BeforeTargets="BeforeBuild">
+    <Error Condition="'$(Brand)' != 'Webyar' And '$(Brand)' != 'Respok'" Text="Unknown Brand '$(Brand)': use Webyar or Respok." />
+  </Target>
 </Project>

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Webyar.Core.Config;
 
 namespace Webyar.Core.Api;
 
@@ -13,7 +14,7 @@ namespace Webyar.Core.Api;
 public sealed class ApiClient : IDisposable
 {
     /// <summary>The bootstrap the very first request goes to — the same one the iOS build compiles in.</summary>
-    public static readonly Uri DefaultOrigin = new("https://api.webyar.ai");
+    public static readonly Uri DefaultOrigin = new(Brand.ApiOrigin);
 
     private readonly HttpClient _http;
     private readonly ISessionStore _session;
@@ -25,7 +26,7 @@ public sealed class ApiClient : IDisposable
         _origin = origin ?? DefaultOrigin;
         _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
         _http.Timeout = Timeout.InfiniteTimeSpan; // per request, below
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd($"Mozilla/5.0 (Windows NT 10.0; Win64; x64) WebyarWindows/{appVersion ?? "0"}");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd($"Mozilla/5.0 (Windows NT 10.0; Win64; x64) {Brand.AgentToken}/{appVersion ?? "0"}");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         // Which app wrote a message, as the other apps say it: the support team sees "Windows".
         _http.DefaultRequestHeaders.Add("X-Client-Platform", "windows");

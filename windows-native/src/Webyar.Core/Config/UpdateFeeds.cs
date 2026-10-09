@@ -13,16 +13,17 @@ public static class UpdateFeeds
     /// <summary>
     /// GitHub repositories official builds are published to, as owner/repo:
     /// .github/workflows/desktop-native.yml runs `vpk upload github --repoUrl
-    /// https://github.com/pc30cc/webyar-desktop-releases`.
+    /// https://github.com/<see cref="Brand.ReleasesRepo"/>` (pc30cc/webyar-desktop-releases
+    /// for WebYar, pc30cc/respok-releases for RESPOK). A build trusts its own brand's only.
     /// </summary>
-    public static readonly IReadOnlyList<string> GithubRepos = ["pc30cc/webyar-desktop-releases"];
+    public static readonly IReadOnlyList<string> GithubRepos = [Brand.ReleasesRepo];
 
     /// <summary>
     /// The site's copy of the official feed: every release is mirrored from the GitHub
-    /// repository onto https://app.webyar.ai/downloads/windows/ (deploy/windows-downloads/
-    /// sync-windows.sh), and the apps update from there, not from GitHub.
+    /// repository onto the brand's site, e.g. https://app.webyar.ai/downloads/windows/
+    /// (deploy/app-downloads/sync-downloads.sh), and the apps update from there, not from GitHub.
     /// </summary>
-    public const string SiteFeed = "https://app.webyar.ai/downloads/windows";
+    public const string SiteFeed = Brand.SiteFeed;
 
     /// <summary>Web folders every build trusts, besides any added at build time.</summary>
     public static readonly IReadOnlyList<string> BuiltInWebFeeds = [SiteFeed];

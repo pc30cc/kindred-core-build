@@ -439,7 +439,7 @@ final class EmailModel {
                     if panel.runModal() == .OK, let url = panel.url { try data.write(to: url) }
                     return
                 }
-                let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Webyar/mail-\(a.id)", isDirectory: true)
+                let dir = FileManager.default.temporaryDirectory.appendingPathComponent("\(AppBrand.folder)/mail-\(a.id)", isDirectory: true)
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 let file = dir.appendingPathComponent(name)
                 try data.write(to: file)

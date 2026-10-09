@@ -1,6 +1,7 @@
-// Draws the installer window's background: Webyar's name, an arrow from the
+// Draws the installer window's background: the product's name, an arrow from the
 // app to the Applications folder, and the one step to take — in Persian and
-// English — at 1x and 2x. Run by make-dmg.sh: `swift background.swift <out-dir>`.
+// English — at 1x and 2x, in WebYar's or RESPOK's colours (BRAND=webyar|respok).
+// Run by make-dmg.sh: `swift background.swift <out-dir>`.
 import AppKit
 import CoreText
 
@@ -18,9 +19,20 @@ func persian(_ size: CGFloat, bold: Bool = false) -> NSFont {
     return NSFont.systemFont(ofSize: size, weight: bold ? .bold : .regular)
 }
 
-let brand = NSColor(srgbRed: 0x3B / 255, green: 0x7A / 255, blue: 0xF2 / 255, alpha: 1)
-let ink = NSColor(srgbRed: 0.10, green: 0.13, blue: 0.20, alpha: 1)
-let muted = NSColor(srgbRed: 0.38, green: 0.43, blue: 0.52, alpha: 1)
+let respok = ProcessInfo.processInfo.environment["BRAND"]?.lowercased() == "respok"
+// RESPOK: the brand kit's Signal Deep, Ink, Slate and Paper.
+let brand = respok ? NSColor(srgbRed: 0xD3 / 255, green: 0x36 / 255, blue: 0x1A / 255, alpha: 1)
+                   : NSColor(srgbRed: 0x3B / 255, green: 0x7A / 255, blue: 0xF2 / 255, alpha: 1)
+let ink = respok ? NSColor(srgbRed: 0x16 / 255, green: 0x14 / 255, blue: 0x2B / 255, alpha: 1)
+                 : NSColor(srgbRed: 0.10, green: 0.13, blue: 0.20, alpha: 1)
+let muted = respok ? NSColor(srgbRed: 0x5E / 255, green: 0x5C / 255, blue: 0x75 / 255, alpha: 1)
+                   : NSColor(srgbRed: 0.38, green: 0.43, blue: 0.52, alpha: 1)
+let washTop = respok ? NSColor(srgbRed: 0xF5 / 255, green: 0xF5 / 255, blue: 0xF8 / 255, alpha: 1)
+                     : NSColor(srgbRed: 0.975, green: 0.982, blue: 1, alpha: 1)
+let washBottom = respok ? NSColor(srgbRed: 0xE4 / 255, green: 0xE3 / 255, blue: 0xEC / 255, alpha: 1)
+                        : NSColor(srgbRed: 0.918, green: 0.945, blue: 0.996, alpha: 1)
+let latinName = respok ? "RESPOK" : "Webyar"
+let persianName = respok ? "RESPOK" : "وب‌یار"
 let size = NSSize(width: 660, height: 440)
 // Where make-dmg.sh places the two icons (their centres), in window points.
 let appCentre = NSPoint(x: 170, y: 205), appsCentre = NSPoint(x: 490, y: 205)
@@ -36,8 +48,7 @@ func text(_ s: String, _ font: NSFont, _ color: NSColor, centreX: CGFloat, top: 
 
 func draw() {
     // A quiet brand wash, lighter at the top.
-    NSGradient(colors: [NSColor(srgbRed: 0.975, green: 0.982, blue: 1, alpha: 1),
-                        NSColor(srgbRed: 0.918, green: 0.945, blue: 0.996, alpha: 1)])!
+    NSGradient(colors: [washTop, washBottom])!
         .draw(in: NSRect(origin: .zero, size: size), angle: 90)
     // Two soft rings behind the icons.
     for c in [appCentre, appsCentre] {
@@ -50,8 +61,8 @@ func draw() {
         ring.stroke()
     }
 
-    text("Webyar", NSFont.systemFont(ofSize: 26, weight: .bold), ink, centreX: size.width / 2, top: 26)
-    text("نصب وب‌یار برای مک", persian(14), muted, centreX: size.width / 2, top: 62, rtl: true)
+    text(latinName, NSFont.systemFont(ofSize: 26, weight: .bold), ink, centreX: size.width / 2, top: 26)
+    text("نصب \(persianName) برای مک", persian(14), muted, centreX: size.width / 2, top: 62, rtl: true)
 
     // The arrow: from the app towards Applications.
     let y = appCentre.y, from = appCentre.x + 92, to = appsCentre.x - 92
@@ -71,8 +82,8 @@ func draw() {
     brand.setFill()
     head.fill()
 
-    text("وب‌یار را روی پوشهٔ Applications بکشید", persian(15, bold: true), ink, centreX: size.width / 2, top: 318, rtl: true)
-    text("Drag Webyar onto the Applications folder", NSFont.systemFont(ofSize: 12.5, weight: .medium), muted, centreX: size.width / 2, top: 346)
+    text("\(persianName) را روی پوشهٔ Applications بکشید", persian(15, bold: true), ink, centreX: size.width / 2, top: 318, rtl: true)
+    text("Drag \(latinName) onto the Applications folder", NSFont.systemFont(ofSize: 12.5, weight: .medium), muted, centreX: size.width / 2, top: 346)
     text("اگر macOS اجازهٔ باز شدن نداد: System Settings ← Privacy & Security ← Open Anyway",
          persian(10.5), muted, centreX: size.width / 2, top: 390, rtl: true)
     text("If macOS won’t open it: System Settings → Privacy & Security → Open Anyway",

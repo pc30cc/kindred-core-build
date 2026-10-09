@@ -3,155 +3,209 @@ name: macOS app
 # Public repository: standard GitHub-hosted runners are used.
 
 # Builds and tests the native macOS app (macos/, SwiftUI) on a macOS runner —
-# its UI cannot compile anywhere else. Every push that touches it (or the
-# Windows app's strings and font, which it bundles) builds, tests and
-# uploads the app. A tag named mac-v<version> also signs it with Developer ID,
-# notarizes it, and publishes it to pc30cc/mac-os, the public repository the
-# installed apps update from (appcast.xml plus releases/<version>/), through
-# macos/scripts/publish-feed.sh — the same step a release from a Mac uses
-# (macos/scripts/release-local.sh).
+# its UI cannot compile anywhere else — once per brand: the Xcode targets
+# `Webyar` and `Respok` share every source file (project.yml). Every push
+# that touches it (or the Windows app's strings and font, which it bundles)
+# tests, builds and uploads both apps.
 #
-#   1. Bump MARKETING_VERSION (and CURRENT_PROJECT_VERSION) in macos/project.yml.
-#   2. Push a tag mac-v<that version>, e.g. mac-v1.0.0.
+# Publishing (both brands, same version), through macos/scripts/publish-feed.sh
+# — the same step a release from a Mac uses (macos/scripts/release-local.sh) —
+# always numbered <Major>.<Minor>.<run number> (Major.Minor from
+# MARKETING_VERSION in macos/project.yml) with build number 100 + run number,
+# so version and build grow together:
+#   - every push to main that touches the app;
+#   - this workflow run on main with publish_now.
+# A new Major.Minor is released by raising MARKETING_VERSION in the merge itself.
+# Each brand goes to its own public feed, which its installed apps (Sparkle)
+# and its site's download mirror (deploy/app-downloads/) read:
 #
-# Publishing needs these secrets:
-#   MAC_RELEASES_TOKEN            "Contents: Read and write" on pc30cc/mac-os
-#   MAC_CERTIFICATE_P12           base64 of a "Developer ID Application" certificate (.p12)
-#   MAC_CERTIFICATE_PASSWORD      its password
-#   MAC_NOTARY_APPLE_ID / MAC_NOTARY_PASSWORD / MAC_NOTARY_TEAM_ID
-#                                 an Apple ID, an app-specific password and the team id
+#   Webyar  pc30cc/mac-os                    secret MAC_RELEASES_TOKEN
+#   Respok  pc30cc/respok-releases (mac/)    secret RESPOK_RELEASES_TOKEN
+#
+# Secrets (the tokens are fine-grained, "Contents: Read and write" on that repository only):
 #   SPARKLE_PRIVATE_KEY           the EdDSA private key from Sparkle's generate_keys
-#   SPARKLE_PUBLIC_KEY            the matching public key (baked into Info.plist)
+#                                 (generate_keys -x <file> on the Mac that holds it);
+#                                 its public half is SPARKLE_PUBLIC_KEY in project.yml.
+#                                 Without it nothing is published (a warning says so).
+#   MAC_CERTIFICATE_P12, MAC_CERTIFICATE_PASSWORD, MAC_NOTARY_APPLE_ID,
+#   MAC_NOTARY_PASSWORD, MAC_NOTARY_TEAM_ID
+#                                 optional: a "Developer ID Application" certificate (.p12,
+#                                 base64) and notarization. Without them the apps are signed
+#                                 ad hoc, as release-local.sh signs them (a first manual open
+#                                 needs right-click → Open once; updates need nothing).
 on:
   push:
+    branches: ['**']
     paths:
       - 'macos/**'
       - 'windows-native/src/Webyar.Core/Localization/strings.json'
+      - 'windows-native/src/Webyar.Core/Localization/strings.respok.json'
       - 'windows-native/src/Webyar.App/Assets/Fonts/**'
       - '.github/workflows/macos.yml'
-    tags:
-      - 'mac-v*'
   workflow_dispatch:
+    inputs:
+      publish_now:
+        description: 'Build main and publish both brands now (numbered like a merge)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
   group: macos-${{ github.ref }}
-  cancel-in-progress: true
+  # A publishing run on main is never cut off halfway; other branches keep only their newest run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      build: ${{ steps.v.outputs.build }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: macos/project.yml
+          sparse-checkout-cone-mode: false
+      - id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          RUN_NUMBER: ${{ github.run_number }}
+          PUBLISH_NOW: ${{ inputs.publish_now }}
+        run: |
+          base=$(grep -E '^\s+MARKETING_VERSION:' macos/project.yml | head -1 | sed -E 's/.*"(.*)".*/\1/')
+          version="${base%.*}.$RUN_NUMBER"
+          publish=false
+          if [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
+            publish=true
+          elif [ "$PUBLISH_NOW" = true ]; then
+            [ "$REF" = refs/heads/main ] || { echo "::error::A release is built from main only, not $REF"; exit 1; }
+            publish=true
+          fi
+          # Sparkle orders updates by the build number: it grows with every run, whatever triggered it.
+          build=$((100 + RUN_NUMBER))
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Version $version ($build), publish: $publish" >> "$GITHUB_STEP_SUMMARY"
+
   build:
-    name: Build, test and package
+    name: Build, test and package (${{ matrix.brand }})
+    needs: version
     runs-on: macos-26
+    strategy:
+      # One brand failing never stops the other from publishing.
+      fail-fast: false
+      matrix:
+        include:
+          - brand: Webyar
+            app: Webyar
+            prefix: Webyar
+            feed_repo: pc30cc/mac-os
+            token: MAC_RELEASES_TOKEN
+          - brand: Respok
+            app: RESPOK
+            prefix: RESPOK
+            feed_repo: pc30cc/respok-releases
+            token: RESPOK_RELEASES_TOKEN
     defaults:
       run:
         shell: bash -eo pipefail {0}
         working-directory: macos
+    env:
+      BRAND: ${{ matrix.brand }}
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD: ${{ needs.version.outputs.build }}
+      PUBLISH: ${{ needs.version.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Tools
         run: brew install xcodegen
 
-      - name: Version
-        id: version
-        run: |
-          version=$(grep -E '^\s+MARKETING_VERSION:' project.yml | head -1 | sed -E 's/.*"(.*)".*/\1/')
-          if [ "${{ github.ref_type }}" = "tag" ] && [ "${GITHUB_REF_NAME#mac-v}" != "$version" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match MARKETING_VERSION $version"; exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Generate project
-        env:
-          SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_KEY }}
-        run: |
-          if [ -n "$SPARKLE_PUBLIC_KEY" ] && [ "${{ github.ref_type }}" = "tag" ]; then
-            sed -i '' "s|SPARKLE_PUBLIC_KEY: \"\"|SPARKLE_PUBLIC_KEY: \"$SPARKLE_PUBLIC_KEY\"|" project.yml
-          fi
-          xcodegen
+        run: xcodegen
 
+      # The unit tests host in Webyar.app; both targets share every Swift file, so each leg runs
+      # them and a failure stops that brand's publish.
       - name: Test
         run: xcodebuild test -project Webyar.xcodeproj -scheme Webyar -destination 'platform=macOS' -derivedDataPath build/dd | xcbeautify
 
-      - name: Build (unsigned)
-        if: github.ref_type != 'tag'
-        run: |
-          xcodebuild build -project Webyar.xcodeproj -scheme Webyar -configuration Release -destination 'generic/platform=macOS' \
-            -derivedDataPath build/dd ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO | xcbeautify
-          mkdir -p out && ditto -c -k --keepParent build/dd/Build/Products/Release/Webyar.app out/Webyar-${{ steps.version.outputs.version }}-unsigned.zip
-
-      - name: Import certificate
-        if: github.ref_type == 'tag'
+      - name: Signing
+        id: signing
         env:
           P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
           P12_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
-        run: |
-          if [ -z "$P12" ]; then echo "::error::MAC_CERTIFICATE_P12 is not set"; exit 1; fi
-          echo "$P12" | base64 --decode > cert.p12
-          security create-keychain -p ci build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p ci build.keychain
-          security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
-          rm cert.p12
-
-      - name: Archive, sign and notarize
-        if: github.ref_type == 'tag'
-        env:
           APPLE_ID: ${{ secrets.MAC_NOTARY_APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.MAC_NOTARY_PASSWORD }}
           TEAM_ID: ${{ secrets.MAC_NOTARY_TEAM_ID }}
         run: |
-          xcodebuild archive -project Webyar.xcodeproj -scheme Webyar -configuration Release -destination 'generic/platform=macOS' \
-            -archivePath build/Webyar.xcarchive ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGN_IDENTITY="Developer ID Application" DEVELOPMENT_TEAM="$TEAM_ID" OTHER_CODE_SIGN_FLAGS="--timestamp" | xcbeautify
-          cat > export.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>method</key><string>developer-id</string>
-            <key>teamID</key><string>$TEAM_ID</string>
-            <key>signingStyle</key><string>manual</string>
-          </dict></plist>
-          EOF
-          xcodebuild -exportArchive -archivePath build/Webyar.xcarchive -exportOptionsPlist export.plist -exportPath build/export
-          mkdir -p out
-          hdiutil create -volname Webyar -srcfolder build/export/Webyar.app -ov -format UDZO out/Webyar.dmg
-          codesign --sign "Developer ID Application" --timestamp out/Webyar.dmg
-          xcrun notarytool submit out/Webyar.dmg --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
-          xcrun stapler staple out/Webyar.dmg
+          if [ "$PUBLISH" = true ] && [ -n "$P12" ] && [ -n "$APPLE_ID" ]; then
+            echo "$P12" | base64 --decode > cert.p12
+            security create-keychain -p ci build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p ci build.keychain
+            security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+            rm cert.p12
+            xcrun notarytool store-credentials ci-notary --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --keychain build.keychain
+            echo "sign=Developer ID Application" >> "$GITHUB_OUTPUT"
+            echo "team=$TEAM_ID" >> "$GITHUB_OUTPUT"
+            echo "Signed with Developer ID and notarized" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "sign=-" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Sign the update
-        if: github.ref_type == 'tag'
+      # A Universal build of this brand in the installer window people download (make-dmg.sh),
+      # and the zip Sparkle downloads, from the very same app.
+      - name: Build and package
+        env:
+          WEBYAR_SIGN: ${{ steps.signing.outputs.sign }}
+          WEBYAR_TEAM_ID: ${{ steps.signing.outputs.team }}
+          WEBYAR_NOTARY_PROFILE: ci-notary
+        run: |
+          zsh scripts/make-dmg.sh "$VERSION" "$BUILD"
+          app="build/universal/Build/Products/Release/${{ matrix.app }}.app"
+          id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Contents/Info.plist")
+          name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$app/Contents/Info.plist")
+          echo "$name $VERSION ($BUILD), $id"
+          [ "$name" = "${{ matrix.app }}" ] || { echo "::error::built $name, expected ${{ matrix.app }}"; exit 1; }
+          if [ "${{ steps.signing.outputs.sign }}" != "-" ]; then xcrun stapler staple "$app"; fi
+          mkdir -p out
+          ditto -c -k --sequesterRsrc --keepParent "$app" "out/${{ matrix.prefix }}-$VERSION.zip"
+          cp "build/dmg/$BRAND/${{ matrix.prefix }}-$VERSION.dmg" out/
+
+      - name: Sign the update and publish
+        if: env.PUBLISH == 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          VERSION: ${{ steps.version.outputs.version }}
+          TOKEN: ${{ secrets[matrix.token] }}
         run: |
-          sparkle=$(find build ~/Library/Developer/Xcode/DerivedData -path '*artifacts/sparkle/Sparkle/bin' -type d 2>/dev/null | head -1)
-          if [ -z "$sparkle" ]; then echo "::error::Sparkle tools not found"; exit 1; fi
-          xcrun stapler staple build/export/Webyar.app
-          ditto -c -k --sequesterRsrc --keepParent build/export/Webyar.app out/Webyar.zip
-          echo "$SPARKLE_PRIVATE_KEY" | "$sparkle/sign_update" --ed-key-file - out/Webyar.zip > out/signature.txt
+          if [ -z "$SPARKLE_PRIVATE_KEY" ] || [ -z "$TOKEN" ]; then
+            echo "::warning::${{ matrix.app }} for Mac $VERSION was built but not published: set SPARKLE_PRIVATE_KEY and ${{ matrix.token }} (Settings → Secrets and variables → Actions)."
+            echo "Not published: SPARKLE_PRIVATE_KEY or ${{ matrix.token }} is missing" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # make-dmg.sh built into build/universal; SwiftPM keeps Sparkle's tools in its SourcePackages.
+          sparkle=$(find build/universal/SourcePackages -path '*artifacts/sparkle/Sparkle/bin' -type d 2>/dev/null | head -1 || true)
+          [ -n "$sparkle" ] || { echo "::error::Sparkle tools not found"; exit 1; }
+          zip="out/${{ matrix.prefix }}-$VERSION.zip"
+          sig=$(echo "$SPARKLE_PRIVATE_KEY" | "$sparkle/sign_update" --ed-key-file - "$zip")
+          git clone "https://x-access-token:${TOKEN}@github.com/${{ matrix.feed_repo }}" "$RUNNER_TEMP/feed"
+          git -C "$RUNNER_TEMP/feed" config user.name "github-actions[bot]"
+          git -C "$RUNNER_TEMP/feed" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          channel=stable; case "$VERSION" in *-*) channel=beta ;; esac
+          BRAND="$BRAND" FEED_DIR="$RUNNER_TEMP/feed" zsh scripts/publish-feed.sh "$VERSION" "$BUILD" "$channel" \
+            "$zip" "out/${{ matrix.prefix }}-$VERSION.dmg" "$sig" "${{ matrix.app }} for Mac $VERSION"
+          echo "Published ${{ matrix.app }} for Mac $VERSION to ${{ matrix.feed_repo }}" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: webyar-macos-${{ steps.version.outputs.version }}
+          name: ${{ matrix.prefix }}-macos-${{ needs.version.outputs.version }}
           path: macos/out/
           if-no-files-found: error
-
-      - name: Publish to pc30cc/mac-os
-        if: github.ref_type == 'tag'
-        env:
-          TOKEN: ${{ secrets.MAC_RELEASES_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          if [ -z "$TOKEN" ]; then echo "::error::MAC_RELEASES_TOKEN is not set"; exit 1; fi
-          build=$(grep -E '^\s+CURRENT_PROJECT_VERSION:' project.yml | head -1 | sed -E 's/.*"(.*)".*/\1/')
-          channel=stable; case "$VERSION" in *-*) channel=beta ;; esac
-          git clone "https://x-access-token:${TOKEN}@github.com/pc30cc/mac-os" "$RUNNER_TEMP/mac-os"
-          git -C "$RUNNER_TEMP/mac-os" config user.name "github-actions[bot]"
-          git -C "$RUNNER_TEMP/mac-os" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          FEED_DIR="$RUNNER_TEMP/mac-os" scripts/publish-feed.sh "$VERSION" "$build" "$channel" \
-            out/Webyar.zip out/Webyar.dmg "$(cat out/signature.txt)" "Webyar for Mac $VERSION"

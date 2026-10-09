@@ -4,3 +4,5 @@ Webyar/Resources/Webyar.entitlements
 build/
 DerivedData/
 *.xcuserstate
+Brands/Respok/Info.plist
+Brands/Respok/Respok.entitlements

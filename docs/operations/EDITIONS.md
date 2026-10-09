@@ -47,6 +47,7 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Widget dates (Persian) | Jalali, Tehran day boundaries | Gregorian, the visitor's zone | `calendar` / `timeZone` hints in the bootstrap |
 | Push notification copy | "Webyar", "New message in Webyar", «پیام جدید در وب‌یار» | the platform's name | `server/services/push/dispatch.ts`, `platformSettings.ts` `defaultPushTemplates` |
 | Legal pages (/privacy, /terms, /contact) | "Webyar", info@webyar.ai | the platform's name and support address | `src/pages/public/legal` |
+| Desktop apps (Windows, Mac) | WebYar's builds: `Webyar.exe` / `Webyar.app`, feeds `pc30cc/webyar-desktop-releases` and `pc30cc/mac-os`, downloads on app.webyar.ai | RESPOK's builds of the same source: `Respok.exe` / `RESPOK.app`, feeds in `pc30cc/respok-releases`, downloads on app.respok.app; Super Admin → Windows app / macOS app default to them and never serve a WebYar feed, link or note (a cloned value is replaced) | `shared/nativeAppBrands.ts`, `windows-native/src/Webyar.Core/Config/Brand.cs`, `macos/Webyar/Core/Config/AppBrand.swift`, `deploy/app-downloads/` |
 
 ### WebYar's brand kit (Iranian edition only)
 

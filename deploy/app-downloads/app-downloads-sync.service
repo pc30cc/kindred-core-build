@@ -1,0 +1,8 @@
+[Unit]
+Description=Mirror the WebYar and RESPOK desktop releases onto each site's /downloads
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/data/app-downloads/sync-downloads.sh

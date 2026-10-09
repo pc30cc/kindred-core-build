@@ -76,8 +76,13 @@ public class InboxTests
         var now = new DateTimeOffset(2026, 9, 23, 12, 0, 0, TimeSpan.Zero);
         Assert.Equal("۰۹:۰۵", Display.ListStamp(now.AddHours(-2).AddMinutes(-55), now, Fa, utc));
         Assert.Equal(Fa["yesterday"], Display.ListStamp(now.AddDays(-1), now, Fa, utc));
+#if BRAND_RESPOK
+        // RESPOK's Persian: the same shape on the Gregorian calendar.
+        Assert.Equal("۲۰۲۶/۰۸/۰۱", Display.ListStamp(new DateTimeOffset(2026, 8, 1, 10, 0, 0, TimeSpan.Zero), now, Fa, utc));
+#else
         // 2026-08-01 is 1405/05/10 in the Solar Hijri calendar.
         Assert.Equal("۱۴۰۵/۰۵/۱۰", Display.ListStamp(new DateTimeOffset(2026, 8, 1, 10, 0, 0, TimeSpan.Zero), now, Fa, utc));
+#endif
         Assert.Equal("09:05", Display.ListStamp(now.AddHours(-2).AddMinutes(-55), now, En, utc));
     }
 

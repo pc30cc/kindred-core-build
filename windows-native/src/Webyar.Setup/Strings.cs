@@ -37,8 +37,19 @@ namespace Webyar.Setup
             }
         }
 
-        /// <summary>Persian, as the app itself starts; the picker in the corner switches.</summary>
+        /// <summary>
+        /// The language the installer opens in, as the app itself starts: Persian for WebYar; for
+        /// RESPOK, Windows' language when it is one of ours, else English. The picker in the corner switches.
+        /// </summary>
+#if BRAND_RESPOK
+        public static string SystemDefault()
+        {
+            var code = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+            return code == "fa" || code == "tr" ? code : "en";
+        }
+#else
         public static string SystemDefault() => "fa";
+#endif
 
         private static readonly Dictionary<string, string> Fa = new Dictionary<string, string>
         {

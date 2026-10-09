@@ -9,11 +9,13 @@ name: macOS app
 # tests, builds and uploads both apps.
 #
 # Publishing (both brands, same version), through macos/scripts/publish-feed.sh
-# — the same step a release from a Mac uses (macos/scripts/release-local.sh):
-#   - every push to main that touches the app publishes
-#     <Major>.<Minor>.<run number> (Major.Minor from MARKETING_VERSION in
-#     macos/project.yml), build number 100 + run number;
-#   - a tag mac-v<version> publishes that version (it must match MARKETING_VERSION).
+# — the same step a release from a Mac uses (macos/scripts/release-local.sh) —
+# always numbered <Major>.<Minor>.<run number> (Major.Minor from
+# MARKETING_VERSION in macos/project.yml) with build number 100 + run number,
+# so version and build grow together:
+#   - every push to main that touches the app;
+#   - this workflow run on main with publish_now.
+# A new Major.Minor is released by raising MARKETING_VERSION in the merge itself.
 # Each brand goes to its own public feed, which its installed apps (Sparkle)
 # and its site's download mirror (deploy/app-downloads/) read:
 #
@@ -33,7 +35,6 @@ name: macOS app
 #                                 needs right-click → Open once; updates need nothing).
 on:
   push:
-    # Without `branches`, a push trigger that lists `tags` ignores every branch push.
     branches: ['**']
     paths:
       - 'macos/**'
@@ -41,9 +42,13 @@ on:
       - 'windows-native/src/Webyar.Core/Localization/strings.respok.json'
       - 'windows-native/src/Webyar.App/Assets/Fonts/**'
       - '.github/workflows/macos.yml'
-    tags:
-      - 'mac-v*'
   workflow_dispatch:
+    inputs:
+      publish_now:
+        description: 'Build main and publish both brands now (numbered like a merge)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -69,19 +74,18 @@ jobs:
       - id: v
         env:
           EVENT: ${{ github.event_name }}
-          REF_TYPE: ${{ github.ref_type }}
           REF: ${{ github.ref }}
-          REF_NAME: ${{ github.ref_name }}
           RUN_NUMBER: ${{ github.run_number }}
+          PUBLISH_NOW: ${{ inputs.publish_now }}
         run: |
           base=$(grep -E '^\s+MARKETING_VERSION:' macos/project.yml | head -1 | sed -E 's/.*"(.*)".*/\1/')
+          version="${base%.*}.$RUN_NUMBER"
           publish=false
-          version="$base"
-          if [ "$REF_TYPE" = tag ]; then
-            [ "${REF_NAME#mac-v}" = "$base" ] || { echo "::error::Tag $REF_NAME does not match MARKETING_VERSION $base"; exit 1; }
+          if [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
             publish=true
-          elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
-            version="${base%.*}.$RUN_NUMBER"; publish=true
+          elif [ "$PUBLISH_NOW" = true ]; then
+            [ "$REF" = refs/heads/main ] || { echo "::error::A release is built from main only, not $REF"; exit 1; }
+            publish=true
           fi
           # Sparkle orders updates by the build number: it grows with every run, whatever triggered it.
           build=$((100 + RUN_NUMBER))
@@ -127,9 +131,9 @@ jobs:
       - name: Generate project
         run: xcodegen
 
-      # The unit tests run against the Webyar target (they host in Webyar.app); both share every Swift file.
+      # The unit tests host in Webyar.app; both targets share every Swift file, so each leg runs
+      # them and a failure stops that brand's publish.
       - name: Test
-        if: matrix.brand == 'Webyar'
         run: xcodebuild test -project Webyar.xcodeproj -scheme Webyar -destination 'platform=macOS' -derivedDataPath build/dd | xcbeautify
 
       - name: Signing
@@ -151,6 +155,7 @@ jobs:
             rm cert.p12
             xcrun notarytool store-credentials ci-notary --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --keychain build.keychain
             echo "sign=Developer ID Application" >> "$GITHUB_OUTPUT"
+            echo "team=$TEAM_ID" >> "$GITHUB_OUTPUT"
             echo "Signed with Developer ID and notarized" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "sign=-" >> "$GITHUB_OUTPUT"
@@ -161,6 +166,7 @@ jobs:
       - name: Build and package
         env:
           WEBYAR_SIGN: ${{ steps.signing.outputs.sign }}
+          WEBYAR_TEAM_ID: ${{ steps.signing.outputs.team }}
           WEBYAR_NOTARY_PROFILE: ci-notary
         run: |
           zsh scripts/make-dmg.sh "$VERSION" "$BUILD"
@@ -185,7 +191,8 @@ jobs:
             echo "Not published: SPARKLE_PRIVATE_KEY or ${{ matrix.token }} is missing" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          sparkle=$(find build ~/Library/Developer/Xcode/DerivedData -path '*artifacts/sparkle/Sparkle/bin' -type d 2>/dev/null | head -1)
+          # make-dmg.sh built into build/universal; SwiftPM keeps Sparkle's tools in its SourcePackages.
+          sparkle=$(find build/universal/SourcePackages -path '*artifacts/sparkle/Sparkle/bin' -type d 2>/dev/null | head -1 || true)
           [ -n "$sparkle" ] || { echo "::error::Sparkle tools not found"; exit 1; }
           zip="out/${{ matrix.prefix }}-$VERSION.zip"
           sig=$(echo "$SPARKLE_PRIVATE_KEY" | "$sparkle/sign_update" --ed-key-file - "$zip")

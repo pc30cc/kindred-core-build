@@ -20,7 +20,7 @@ namespace Webyar.Setup
         public bool DesktopShortcut = true;
         public bool StartWithWindows = true;
         public bool LaunchWhenDone = true;
-        public string Language = "fa";
+        public string Language = Strings.SystemDefault();
     }
 
     /// <summary>

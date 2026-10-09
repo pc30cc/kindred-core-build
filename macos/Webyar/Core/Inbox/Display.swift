@@ -131,7 +131,8 @@ enum Display {
 
     static func shortDate(_ date: Date, _ language: Language) -> String {
         if language == .fa {
-            var cal = Calendar(identifier: .persian)
+            // Jalali for WebYar; the same shape on the Gregorian calendar for RESPOK (AppBrand.jalaliDates).
+            var cal = Calendar(identifier: AppBrand.jalaliDates ? .persian : .gregorian)
             cal.timeZone = .current
             let c = cal.dateComponents([.year, .month, .day], from: date)
             return Digits.localize(String(format: "%d/%02d/%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0), language)

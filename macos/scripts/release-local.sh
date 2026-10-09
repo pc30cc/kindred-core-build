@@ -21,7 +21,8 @@
 # Keychain; its public half is SPARKLE_PUBLIC_KEY in project.yml. The app is
 # signed ad hoc (no Developer ID here), so a person opening the DMG for the
 # first time right-clicks → Open once; updates through Sparkle need nothing.
-# A Developer ID build with notarization is the CI's job (mac-v* tags).
+# A Developer ID build with notarization is the CI's job (every merge to main).
+# The CI numbers its builds 100 + run number: a local release needs a higher one.
 set -euo pipefail
 
 VERSION="${1:?version, e.g. 1.0.1}"

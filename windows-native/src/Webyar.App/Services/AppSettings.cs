@@ -48,7 +48,7 @@ public sealed class AppSettings
 
     [System.Text.Json.Serialization.JsonIgnore]
     public Language ResolvedLanguage =>
-        Strings.Parse(Language) ?? Core.Localization.Language.Fa;
+        Strings.Parse(Language) ?? Strings.FirstLaunch(System.Globalization.CultureInfo.CurrentUICulture);
 
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 

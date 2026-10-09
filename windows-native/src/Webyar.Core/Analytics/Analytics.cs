@@ -118,11 +118,10 @@ public static class AnalyticsFormat
             ? DateTime.SpecifyKind(d, DateTimeKind.Utc)
             : null;
 
-    /// <summary>"12 Mehr" / "4 Oct" (long: "Saturday 4 October"), in the Persian calendar for Persian.</summary>
+    /// <summary>"12 Mehr" / "4 Oct" (long: "Saturday 4 October"), in the Persian calendar for Persian (WebYar; Strings.DateCultureOf).</summary>
     public static string DayLabel(DateTime date, Strings s, bool longForm = false)
     {
-        var culture = (CultureInfo)s.Culture.Clone();
-        if (s.Language == Language.Fa) culture.DateTimeFormat.Calendar = new PersianCalendar();
+        var culture = Strings.DateCultureOf(s.Language);
         return Digits.Localize(date.ToString(longForm ? "dddd d MMMM" : "d MMM", culture), s.Language);
     }
 

@@ -6,9 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!--
-      One version for the whole app. A merge to main publishes <Major>.<Minor>.<run number>
-      of the Windows workflow (.github/workflows/desktop-native.yml), so only Major and
-      Minor are read from here; a tag native-v<version> publishes exactly that version.
+      One version for the whole app. Every release (a merge to main, or the workflow's
+      publish_now) is <Major>.<Minor>.<run number> of the Windows workflow
+      (.github/workflows/desktop-native.yml), so only Major and Minor are read from here:
+      raise them in a merge to start a new series.
     -->
     <Version>2.7.0</Version>
   </PropertyGroup>

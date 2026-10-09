@@ -20,7 +20,8 @@ enum Language: String, CaseIterable, Sendable, Identifiable {
 
     var locale: Locale {
         switch self {
-        case .fa: return Locale(identifier: "fa_IR")
+        // RESPOK's Persian keeps the Gregorian calendar (AppBrand.jalaliDates).
+        case .fa: return Locale(identifier: AppBrand.jalaliDates ? "fa_IR" : "fa_IR@calendar=gregorian")
         case .tr: return Locale(identifier: "tr_TR")
         case .en: return Locale(identifier: "en_US")
         }
@@ -35,12 +36,13 @@ enum Language: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    /// The first launch follows the Mac's language when it is one of ours, Persian otherwise.
+    /// The first launch follows the Mac's language when it is one of ours, else the brand's
+    /// fallback: Persian for WebYar, English for RESPOK (AppBrand).
     static var system: Language {
         for id in Locale.preferredLanguages {
             if let l = parse(String(id.prefix(2))) { return l }
         }
-        return .fa
+        return AppBrand.fallbackLanguage
     }
 }
 

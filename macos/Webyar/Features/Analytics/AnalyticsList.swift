@@ -196,7 +196,7 @@ enum AnalyticsFormat {
         let f = DateFormatter()
         f.locale = s.language.locale
         f.timeZone = TimeZone(identifier: "UTC")
-        if s.language == .fa { f.calendar = Calendar(identifier: .persian) }
+        if s.language == .fa && AppBrand.jalaliDates { f.calendar = Calendar(identifier: .persian) }
         f.setLocalizedDateFormatFromTemplate(long ? "EEEE d MMMM" : "d MMM")
         return f.string(from: date)
     }

@@ -124,4 +124,13 @@ describe('desktop app settings — per edition', () => {
       release_notes: 'RESPOK 2.7',
     });
   });
+
+  it('keeps Turkish words that only look like the name', async () => {
+    const { desktopSettingsForEdition } = await import('./settings.js');
+    const notes = 'Web yardım merkezi bağlantısı eklendi.';
+    expect(desktopSettingsForEdition(normalize({ release_notes: notes }), 'international').release_notes).toBe(notes);
+    expect(
+      desktopSettingsForEdition(normalize({ download_url: 'https://x.example/WebyarWindows-win-Setup.exe' }), 'international').download_url,
+    ).toBeNull();
+  });
 });

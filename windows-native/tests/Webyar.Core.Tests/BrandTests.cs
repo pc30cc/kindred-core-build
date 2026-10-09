@@ -1,4 +1,7 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
+using Webyar.Core.Analytics;
+using Webyar.Core.Inbox;
 using Webyar.Core.Api;
 using Webyar.Core.Config;
 using Webyar.Core.Localization;
@@ -41,6 +44,28 @@ public partial class BrandTests
     }
 
     [Fact]
+    public void Respok_starts_in_the_systems_language_or_english()
+    {
+        Assert.Equal(Language.Tr, Strings.FirstLaunch(CultureInfo.GetCultureInfo("tr-TR")));
+        Assert.Equal(Language.Fa, Strings.FirstLaunch(CultureInfo.GetCultureInfo("fa-IR")));
+        Assert.Equal(Language.En, Strings.FirstLaunch(CultureInfo.GetCultureInfo("de-DE")));
+        Assert.Equal(Language.En, Strings.FirstLaunch(CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public void Respok_writes_persian_dates_on_the_gregorian_calendar()
+    {
+        var day = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        Assert.Equal("۲۰۲۶/۱۰/۰۹", Display.ShortDate(day, Language.Fa));
+        Assert.IsType<GregorianCalendar>(Strings.CultureOf(Language.Fa).DateTimeFormat.Calendar);
+        Assert.IsType<GregorianCalendar>(Strings.DateCultureOf(Language.Fa).DateTimeFormat.Calendar);
+        // October, not Mehr; the 9th, not the 17th.
+        var label = AnalyticsFormat.DayLabel(day, new Strings(Language.Fa));
+        Assert.StartsWith("۹ ", label);
+        Assert.DoesNotContain("مهر", label);
+    }
+
+    [Fact]
     public void Turkish_suffixes_follow_respok()
     {
         var tr = new Strings(Language.Tr);
@@ -58,6 +83,19 @@ public partial class BrandTests
         Assert.Equal("وب‌یار", new Strings(Language.Fa)["appName"]);
         Assert.Equal("Webyar", new Strings(Language.En)["appName"]);
         Assert.Equal("Webyar'ı aç", new Strings(Language.Tr)["trayOpen"]);
+    }
+
+    [Fact]
+    public void Webyar_starts_in_persian_and_writes_jalali_dates_as_before()
+    {
+        Assert.Equal(Language.Fa, Strings.FirstLaunch(CultureInfo.GetCultureInfo("en-US")));
+        Assert.Equal(Language.En, Strings.FromSystem(CultureInfo.GetCultureInfo("en-US")));
+        Assert.Equal(Language.Fa, Strings.FromSystem(CultureInfo.GetCultureInfo("de-DE")));
+        var day = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        Assert.Equal("۱۴۰۵/۰۷/۱۷", Display.ShortDate(day, Language.Fa));
+        Assert.Same(CultureInfo.GetCultureInfo("fa-IR"), Strings.CultureOf(Language.Fa));
+        Assert.IsType<PersianCalendar>(Strings.DateCultureOf(Language.Fa).DateTimeFormat.Calendar);
+        Assert.StartsWith("۱۷ ", AnalyticsFormat.DayLabel(day, new Strings(Language.Fa)));
     }
 #endif
 

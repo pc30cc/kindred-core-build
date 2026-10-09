@@ -6,9 +6,9 @@
 > publishes both**, as `<Major>.<Minor>.<run number>` (Major.Minor from
 > `<Version>` in `Directory.Build.props`): WebYar to
 > `pc30cc/webyar-desktop-releases` (secret `DESKTOP_RELEASES_TOKEN`), RESPOK to
-> `pc30cc/respok-releases` (secret `RESPOK_RELEASES_TOKEN`). A tag
-> `native-v<version>`, or the workflow run on `main` with `release_version`,
-> publishes exactly that version for both. Within 5 minutes the downloads host
+> `pc30cc/respok-releases` (secret `RESPOK_RELEASES_TOKEN`). The workflow run
+> on `main` with `publish_now` publishes the same way without a merge. There
+> are no hand-picked numbers: a new Major.Minor is a `<Version>` bump in a merge. Within 5 minutes the downloads host
 > mirrors each onto its own site (`https://app.webyar.ai/downloads/`,
 > `https://app.respok.app/downloads/`: installer and update feed; section 5),
 > and installed apps pick it up from there by themselves.
@@ -76,33 +76,27 @@
 - برای امکانات بزرگ، رقم وسط `<Version>` را در همان PR بالا ببرید (مثلاً ۲.۷.۰ → ۲.۸.۰).
 - اگر توکن یک برند تنظیم نشده باشد، آن برند build می‌شود ولی منتشر نمی‌شود و در خلاصه‌ی اجرا هشدار می‌آید؛ برند دیگر منتشر می‌شود.
 
-**راه دستی (اختیاری):**
+**انتشار بدون مرج (اختیاری):** Actions → **Windows app (native)** → «Run workflow»، شاخه‌ی `main`، تیک
+`publish_now`. همان کار مرج را می‌کند و شماره را هم خودش می‌گذارد (مثلاً بعد از رفع مشکل توکن).
 
-1. **تگ بزنید** (بعد از مرج). در
-   <https://github.com/pc30cc/kindred-core-build/releases/new>:
-   - Choose a tag: `native-v2.8.0` → «Create new tag»
-   - Target: **`main`**
-   - «Publish release»
+- شماره‌ی دستی (تگ `native-v…` یا `release_version`) دیگر وجود ندارد: شماره‌ای که دستی انتخاب شود ممکن است از نسخه‌های خودکار کمتر باشد، یا آن‌قدر بیشتر که نسخه‌های بعدی هیچ‌وقت به اپ‌های نصب‌شده نرسند.
 
-   **یا بدون تگ:** Actions → **Windows app (native)** → «Run workflow»، شاخه‌ی `main`، و در فیلد
-   `release_version` شماره را بنویسید. فقط روی `main` اجازه دارد.
-   - شماره باید از همه‌ی نسخه‌های منتشرشده (از جمله نسخه‌های خودکار) بزرگ‌تر باشد.
-2. **CI بقیه را انجام می‌دهد.** workflow به نام **Windows app (native)**
+**هر اجرا:**
+
+1. **CI همه‌چیز را انجام می‌دهد.** workflow به نام **Windows app (native)**
    (`.github/workflows/desktop-native.yml`) برای هر برند جدا: تست‌های Core، build، بسته‌ی Velopack و نصب‌کننده (`Webyar-Setup.exe` / `RESPOK-Setup.exe`)، و انتشار در مخزن ریلیز همان برند.
-3. **بررسی کنید.** در
+2. **بررسی کنید.** در
    <https://github.com/pc30cc/webyar-desktop-releases/releases> و
    <https://github.com/pc30cc/respok-releases/releases>
    ریلیز جدید باید نصب‌کننده، `releases.win.json` و فایل‌های `.nupkg` را داشته باشد.
-4. **حداکثر ۵ دقیقه بعد نسخه روی هر دو سایت است** (بخش ۵).
+3. **حداکثر ۵ دقیقه بعد نسخه روی هر دو سایت است** (بخش ۵).
 
 ## ۴. اگر مشکلی پیش آمد
 
 | مشکل | کار لازم |
 |---|---|
-| تگ قبل از مرج زده شد (روی کد قدیمی) | ریلیز همان کد قدیمی را با آن شماره منتشر می‌کند. بعد از مرج، با شماره‌ی بعدی دوباره تگ بزنید یا «Run workflow» با `release_version`. |
-| مرحله‌ی «Version»: `Not a release version` | تگ باید `native-v<عدد>.<عدد>.<عدد>` باشد، مثلاً `native-v2.4.2`. |
-| مرحله‌ی «Test Core» شکست خورد | باگ را رفع کنید و نسخه را یک پله بالا ببرید (مثلاً ۲.۴.۲ → ۲.۴.۳). تگ قبلی را دوباره استفاده نکنید. |
-| `DESKTOP_RELEASES_TOKEN is not set` یا خطای دسترسی | توکن را بسازید یا تمدید کنید (بخش ۲). بعد در صفحه‌ی همان اجرا «Re-run failed jobs» را بزنید؛ تگ جدید لازم نیست. |
+| مرحله‌ی «Test Core» شکست خورد | باگ را رفع و مرج کنید؛ مرج بعدی با شماره‌ی بعدی منتشر می‌شود. |
+| هشدار «built but not published» (توکن یک برند تنظیم نیست) یا خطای دسترسی | توکن را بسازید یا تمدید کنید (بخش ۲). بعد در صفحه‌ی همان اجرا «Re-run all jobs» را بزنید، یا «Run workflow» با `publish_now`. |
 | ریلیز در `webyar-desktop-releases` به‌صورت **Draft** مانده (آدرسش `untagged-…` است)، یا مرحله‌ی «Publish release» با `The release is still a draft` متوقف شد | مخزن ریلیزها commit ندارد. یک `README.md` به آن اضافه کنید (الان دارد). بعد یا draft را باز کنید و «Publish release» را بزنید، یا در Actions → **Windows app (native)** → «Run workflow» در فیلد `publish_tag` تگ را بنویسید (مثلاً `v2.5.1`) تا بدون build دوباره منتشرش کند. نسخه و تگ جدید لازم نیست. |
 | jobها در چند ثانیه fail شدند و runner نگرفتند | مشکل GitHub است؛ یک بار «Re-run» بزنید. |
 | اپ آپدیت نمی‌شود | ۱) نسخه‌ی منتشرشده از نسخه‌ی نصب‌شده بزرگ‌تر باشد؛ ۲) در سوپر ادمین آپدیت خودکار روشن و فید درست باشد؛ ۳) اپ با `Webyar-Setup.exe` نصب شده باشد، نه کپی دستی یا portable. |

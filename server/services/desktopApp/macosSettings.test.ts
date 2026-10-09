@@ -262,4 +262,19 @@ describe('macOS app settings — per edition', () => {
     const own = normalizeMacos({ appcast_url: s.appcast_url, latest_version: '1.1.7' });
     expect(macosSettingsForEdition(own, 'international').latest_version).toBe('1.1.7');
   });
+
+  it("drops WebYar's help and legal links and notices, and keeps RESPOK's", async () => {
+    const { macosSettingsForEdition } = await import('./macosSettings.js');
+    const cloned = normalizeMacos({
+      privacy_url: 'https://webyar.ai/privacy',
+      terms_url: 'https://respok.app/terms',
+      support_url: 'https://app.webyar.ai/help',
+      maintenance_enabled: true,
+      maintenance_message: { fa: 'وب‌یار در حال به‌روزرسانی است', en: 'Back soon', tr: 'Web yardım merkezi güncelleniyor' },
+    });
+    const s = macosSettingsForEdition(cloned, 'international');
+    expect(s).toMatchObject({ privacy_url: null, support_url: null, terms_url: 'https://respok.app/terms' });
+    expect(s.maintenance_message).toEqual({ en: 'Back soon', tr: 'Web yardım merkezi güncelleniyor' });
+    expect(macosSettingsForEdition(cloned, 'iran')).toBe(cloned);
+  });
 });

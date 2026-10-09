@@ -8,7 +8,8 @@
 #
 # Per brand:
 #   <Prefix>-Setup-<version>.exe (+ <Prefix>-Setup.exe -> the newest) and
-#   windows/ — the Velopack update feed (releases.win.json, RELEASES, *.nupkg),
+#   windows/ — the Velopack update feed (releases.win.json, RELEASES and the
+#   packages of the newest two releases),
 #   from the brand's GitHub releases (CI: .github/workflows/desktop-native.yml);
 #   <Prefix>-Mac-<version>.dmg (+ <Prefix>-Mac.dmg -> the newest), from the
 #   brand's Sparkle appcast (CI: .github/workflows/macos.yml).
@@ -34,15 +35,22 @@ fetch() { # name size url dest-dir   (size "-" = unknown: fetch once, keep)
   echo "fetched $4/$1"
 }
 
+prune() { # dir glob symlink — keep the symlink's target and the 2 newest others (by download time)
+  target=$(readlink "$1/$3" 2>/dev/null || true)
+  ( cd "$1" && ls -1t $2 2>/dev/null ) | grep -vxF "${target:-/}" | tail -n +3 | while read -r old; do rm -f "$1/$old"; done
+}
+
 windows() { # brand repo setup-asset prefix
   FILES=$ROOT/$1; FEED=$FILES/windows
   mkdir -p "$FEED"
   curl -fsSL "https://api.github.com/repos/$2/releases?per_page=6" -o "$TMP/releases.json" || { echo "$1: no releases from $2" >&2; return 1; }
+  # The packages of the newest two stable releases: the newest one's index names only its own full
+  # package and delta, and the one before stays a while for apps that are halfway through an update.
   python3 - "$TMP/releases.json" "$3" "$4" > "$TMP/plan.txt" <<'PY' || return 1
 import json, sys
 setup, prefix = sys.argv[2], sys.argv[3]
 rels = [r for r in json.load(open(sys.argv[1])) if not r.get("draft") and not r.get("prerelease")]
-for i, r in enumerate(rels):
+for i, r in enumerate(rels[:2]):
     v = r["tag_name"].lstrip("v")
     for a in r.get("assets", []):
         n = a["name"]
@@ -53,16 +61,24 @@ for i, r in enumerate(rels):
         elif i == 0 and n == setup:
             print("setup", "%s-Setup-%s.exe" % (prefix, v), a["size"], a["browser_download_url"])
 PY
-  # Packages first, then the index that lists them, so the feed never names a missing file.
-  grep '^pkg ' "$TMP/plan.txt" | while read -r _ n s u; do fetch "$n" "$s" "$u" "$FEED"; done
+  # Packages first, then the index that lists them, so the feed never names a missing file:
+  # if any package failed, the index stays as it was until a later run gets them all.
+  rm -f "$TMP/pkgfail"
+  grep '^pkg ' "$TMP/plan.txt" | while read -r _ n s u; do fetch "$n" "$s" "$u" "$FEED" || : > "$TMP/pkgfail"; done
   grep '^setup ' "$TMP/plan.txt" | while read -r _ n s u; do fetch "$n" "$s" "$u" "$FILES" && ln -sfn "$n" "$FILES/$4-Setup.exe"; done
+  if [ -e "$TMP/pkgfail" ]; then
+    echo "$1: a package is missing; the update index is left as it was" >&2
+    return 1
+  fi
   grep '^index ' "$TMP/plan.txt" | while read -r _ n s u; do
     curl -fsSL "$u" -o "$TMP/$n.new" && [ "$(stat -c %s "$TMP/$n.new")" = "$s" ] && mv "$TMP/$n.new" "$FEED/$n"
   done
-  # Keep the newest 6 packages (the index names the newest full package and its deltas).
-  ls -1 "$FEED"/*.nupkg 2>/dev/null | sort -V | head -n -6 | xargs -r rm -f
-  # And the newest 3 installers.
-  ls -1 "$FILES/$4"-Setup-*.exe 2>/dev/null | sort -V | head -n -3 | xargs -r rm -f
+  # Only the packages planned above stay: exactly what the index (and the one before) can name.
+  for f in "$FEED"/*.nupkg; do
+    [ -e "$f" ] || continue
+    grep -q "^pkg $(basename "$f") " "$TMP/plan.txt" || rm -f "$f"
+  done
+  prune "$FILES" "$4-Setup-*.exe" "$4-Setup.exe"
 }
 
 mac() { # brand appcast prefix
@@ -89,7 +105,7 @@ if best:
 PY
   read -r name url < "$TMP/mac.txt" || return 0
   fetch "$name" - "$url" "$FILES" && ln -sfn "$name" "$FILES/$3-Mac.dmg"
-  ls -1 "$FILES/$3"-Mac-*.dmg 2>/dev/null | sort -V | head -n -3 | xargs -r rm -f
+  prune "$FILES" "$3-Mac-*.dmg" "$3-Mac.dmg"
 }
 
 

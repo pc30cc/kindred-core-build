@@ -36,10 +36,35 @@ public sealed partial class Strings
 
     public static CultureInfo CultureOf(Language language) => language switch
     {
-        Language.Fa => CultureInfo.GetCultureInfo("fa-IR"),
+        Language.Fa => UsesJalali ? CultureInfo.GetCultureInfo("fa-IR") : GregorianPersian.Value,
         Language.Tr => CultureInfo.GetCultureInfo("tr-TR"),
         _ => CultureInfo.GetCultureInfo("en-US"),
     };
+
+    /// <summary>
+    /// Whether Persian dates are Jalali: WebYar's, never RESPOK's (Brand.JalaliDates). A property, so
+    /// the checks that read it stay ordinary code in both builds.
+    /// </summary>
+    public static bool UsesJalali => Config.Brand.JalaliDates;
+
+    /// <summary>fa-IR on the Gregorian calendar: Persian words and digits, Gregorian dates (RESPOK).</summary>
+    private static readonly Lazy<CultureInfo> GregorianPersian = new(() =>
+    {
+        var culture = (CultureInfo)CultureInfo.GetCultureInfo("fa-IR").Clone();
+        culture.DateTimeFormat.Calendar = new GregorianCalendar();
+        return CultureInfo.ReadOnly(culture);
+    });
+
+    /// <summary>
+    /// The culture a date is written in: for Persian, the Persian calendar in WebYar and the
+    /// Gregorian one in RESPOK; the language's own culture otherwise. A copy the caller may change.
+    /// </summary>
+    public static CultureInfo DateCultureOf(Language language)
+    {
+        var culture = (CultureInfo)CultureOf(language).Clone();
+        if (language == Language.Fa && UsesJalali) culture.DateTimeFormat.Calendar = new PersianCalendar();
+        return culture;
+    }
 
     public static string Code(Language language) => language switch
     {
@@ -56,9 +81,16 @@ public sealed partial class Strings
         _ => null,
     };
 
-    /// <summary>The first launch follows Windows' language when it is one of ours, Persian otherwise.</summary>
+    /// <summary>The first launch follows Windows' language when it is one of ours, the brand's fallback otherwise (Persian for WebYar, English for RESPOK).</summary>
     public static Language FromSystem(CultureInfo culture) =>
-        Parse(culture.TwoLetterISOLanguageName) ?? Language.Fa;
+        Parse(culture.TwoLetterISOLanguageName) ?? Config.Brand.FallbackLanguage;
+
+    /// <summary>
+    /// The language of a first launch, before anyone picked one: WebYar starts in Persian, as it
+    /// always has; RESPOK follows Windows' language (English when that is none of ours).
+    /// </summary>
+    public static Language FirstLaunch(CultureInfo culture) =>
+        Config.Brand.FollowsSystemLanguage ? FromSystem(culture) : Config.Brand.FallbackLanguage;
 
     public string this[string key] => Get(key);
 

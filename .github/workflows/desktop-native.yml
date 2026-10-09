@@ -8,11 +8,14 @@ name: Windows app (native)
 # Every push that touches it runs the Core tests and produces both installers
 # as build artifacts.
 #
-# Publishing (both brands, same version):
-#   - every push to main that touches windows-native/ publishes
-#     <Major>.<Minor>.<run number> (Major.Minor from Directory.Build.props);
-#   - a tag native-v<version>, or this workflow run on main with
-#     release_version, publishes exactly that version.
+# Publishing (both brands, same version), always numbered
+# <Major>.<Minor>.<run number> (Major.Minor from <Version> in
+# Directory.Build.props), so every release is newer than the one before:
+#   - every push to main that touches windows-native/;
+#   - this workflow run on main with publish_now (e.g. after a failed publish).
+# A new Major.Minor is released by raising <Version> in the merge itself.
+# (No tags: a hand-picked number could fall below the automatic ones, or
+# jump above them so that later releases never reach the installed apps.)
 # Each brand goes to its own public releases repository, which its installed
 # apps and its site's download mirror read (deploy/app-downloads/):
 #
@@ -23,13 +26,10 @@ name: Windows app (native)
 # repository only.
 on:
   push:
-    # Without `branches`, a push trigger that lists `tags` ignores every branch push.
     branches: ['**']
     paths:
       - 'windows-native/**'
       - '.github/workflows/desktop-native.yml'
-    tags:
-      - 'native-v*'
   workflow_dispatch:
     inputs:
       publish_tag:
@@ -42,10 +42,11 @@ on:
         default: 'Webyar'
         type: choice
         options: [Webyar, Respok]
-      release_version:
-        description: 'Build main and publish it as this version, e.g. 2.5.5 (no tag needed)'
+      publish_now:
+        description: 'Build main and publish both brands now (numbered like a merge)'
         required: false
-        default: ''
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -76,23 +77,19 @@ jobs:
       - id: v
         env:
           EVENT: ${{ github.event_name }}
-          REF_TYPE: ${{ github.ref_type }}
           REF: ${{ github.ref }}
-          REF_NAME: ${{ github.ref_name }}
           RUN_NUMBER: ${{ github.run_number }}
-          RELEASE_VERSION: ${{ inputs.release_version }}
+          PUBLISH_NOW: ${{ inputs.publish_now }}
         run: |
           base=$(grep -oE '<Version>[0-9]+\.[0-9]+\.[0-9]+</Version>' windows-native/Directory.Build.props | head -1 | sed -E 's/<\/?Version>//g')
+          # Numbered by this workflow's run, so it grows with every release of either kind.
+          version="${base%.*}.$RUN_NUMBER"
           publish=false
-          version="$base"
-          if [ "$REF_TYPE" = tag ]; then
-            version="${REF_NAME#native-v}"; publish=true
-          elif [ -n "$RELEASE_VERSION" ]; then
+          if [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
+            publish=true
+          elif [ "$PUBLISH_NOW" = true ]; then
             [ "$REF" = refs/heads/main ] || { echo "::error::A release is built from main only, not $REF"; exit 1; }
-            version="${RELEASE_VERSION#[vV]}"; version="${version// /}"; publish=true
-          elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
-            # Every merge that changes the app: both brands, numbered by this workflow's run.
-            version="${base%.*}.$RUN_NUMBER"; publish=true
+            publish=true
           fi
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Not a release version: $version"; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"

@@ -20,6 +20,12 @@ enum AppBrand {
     /// The User-Agent product token and the realtime client name.
     static let agentToken = "RespokMac"
     static let realtimeName = "respok-macos"
+    /// The language when the Mac's own is none of the app's (fa, en, tr). RESPOK is the
+    /// International edition, where Persian is a language to pick, never the default.
+    static let fallbackLanguage: Language = .en
+    /// Persian dates in the Persian (Jalali) calendar. Not for RESPOK: in the International
+    /// edition Persian is only right-to-left text, so its dates are Gregorian in Persian digits.
+    static let jalaliDates = false
     #else
     static let id = "webyar"
     static let name = "Webyar"
@@ -28,5 +34,7 @@ enum AppBrand {
     static let folder = "Webyar"
     static let agentToken = "WebyarMac"
     static let realtimeName = "webyar-macos"
+    static let fallbackLanguage: Language = .fa
+    static let jalaliDates = true
     #endif
 }

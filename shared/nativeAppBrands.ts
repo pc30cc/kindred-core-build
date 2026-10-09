@@ -47,8 +47,12 @@ export function nativeAppBrand(edition: Edition | null | undefined): Readonly<Na
   return NATIVE_APP_BRANDS[edition === 'international' ? 'international' : 'iran'];
 }
 
-/** WebYar's own places: its name in any spelling, its domains and its feed repositories. */
-const WEBYAR_MARK = /webyar|web yar|وب[‌ ]?یار|وبیار|pc30cc\/mac-os/i;
+/**
+ * WebYar's own places: its name in any spelling, its domains and its feed repositories.
+ * "Web yar" followed by a lowercase letter is a Turkish word ("Web yardım merkezi"), not WebYar;
+ * an uppercase letter still is ("WebyarWindows", WebYar's package id).
+ */
+const WEBYAR_MARK = /[Ww][Ee][Bb] ?[Yy][Aa][Rr](?!\p{Ll})|وب[\u200c ]?یار|وبیار|pc30cc\/mac-os/u;
 
 /** Does this stored value name or point at WebYar? */
 export function pointsAtWebyar(value: unknown): boolean {

@@ -7,8 +7,8 @@
 #
 # Signed ad hoc: without a Developer ID certificate macOS asks once, on first
 # open, to allow it (the window says how). With one in the keychain, pass
-# WEBYAR_SIGN="Developer ID Application" and WEBYAR_NOTARY_PROFILE=<profile>
-# to sign, notarize and staple instead.
+# WEBYAR_SIGN="Developer ID Application", WEBYAR_TEAM_ID=<team> and
+# WEBYAR_NOTARY_PROFILE=<profile> to sign, notarize and staple instead.
 set -euo pipefail
 
 VERSION="${1:?version, e.g. 1.0.2}"
@@ -23,7 +23,7 @@ xcodegen -q
 if [[ "$SIGN" == "-" ]]; then
   SIGNING=(ENABLE_HARDENED_RUNTIME=NO CODE_SIGN_IDENTITY=-)
 else
-  SIGNING=(CODE_SIGN_IDENTITY="$SIGN" OTHER_CODE_SIGN_FLAGS=--timestamp)
+  SIGNING=(CODE_SIGN_IDENTITY="$SIGN" DEVELOPMENT_TEAM="${WEBYAR_TEAM_ID:-}" OTHER_CODE_SIGN_FLAGS=--timestamp)
 fi
 xcodebuild -project Webyar.xcodeproj -scheme "$SCHEME" -configuration Release \
   -derivedDataPath build/universal ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
@@ -31,6 +31,19 @@ xcodebuild -project Webyar.xcodeproj -scheme "$SCHEME" -configuration Release \
   build -quiet
 APP="build/universal/Build/Products/Release/$APP_NAME.app"
 archs=$(lipo -archs "$APP/Contents/MacOS/$APP_NAME")
+if [[ "$SIGN" != "-" ]]; then
+  # A plain build re-signs Sparkle.framework but not the helpers inside it, which keep
+  # Sparkle's own ad hoc signature and fail notarization. Sign them as Sparkle documents
+  # (innermost first), then the framework and the app again, keeping the app's entitlements.
+  SP="$APP/Contents/Frameworks/Sparkle.framework"
+  CS=(codesign -f -s "$SIGN" -o runtime --timestamp)
+  "${CS[@]}" "$SP/Versions/B/XPCServices/Installer.xpc"
+  "${CS[@]}" --preserve-metadata=entitlements "$SP/Versions/B/XPCServices/Downloader.xpc"
+  "${CS[@]}" "$SP/Versions/B/Autoupdate"
+  "${CS[@]}" "$SP/Versions/B/Updater.app"
+  "${CS[@]}" "$SP"
+  "${CS[@]}" --preserve-metadata=entitlements,requirements,flags "$APP"
+fi
 [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "not universal: $archs"; exit 1; }
 codesign --verify --deep --strict "$APP"
 

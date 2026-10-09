@@ -101,10 +101,15 @@ public class AnalyticsTests
         Assert.Equal(new DateTime(2026, 9, 23, 0, 0, 0, DateTimeKind.Utc), day);
         Assert.Null(AnalyticsFormat.ParseDay("not a day"));
         Assert.Equal("23 Sep", AnalyticsFormat.DayLabel(day!.Value, En));
-        // 23 September 2026 is 1 Mehr 1405.
         var fa = AnalyticsFormat.DayLabel(day.Value, Fa);
-        Assert.StartsWith("۱ ", fa);
         Assert.DoesNotContain("Sep", fa);
+#if BRAND_RESPOK
+        // RESPOK's Persian stays on the Gregorian calendar: the 23rd, in Persian digits.
+        Assert.StartsWith("۲۳ ", fa);
+#else
+        // 23 September 2026 is 1 Mehr 1405.
+        Assert.StartsWith("۱ ", fa);
+#endif
     }
 
     [Fact]

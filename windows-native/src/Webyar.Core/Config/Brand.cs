@@ -28,6 +28,18 @@ public static class Brand
     public const string SiteHost = "respok.app";
     /// <summary>The User-Agent product token.</summary>
     public const string AgentToken = "RespokWindows";
+    /// <summary>
+    /// The language when Windows' own is none of the app's (fa, en, tr): English. RESPOK is the
+    /// International edition, where Persian is a language to pick, never the default.
+    /// </summary>
+    public const Localization.Language FallbackLanguage = Localization.Language.En;
+    /// <summary>Whether a first launch follows Windows' language (else <see cref="FallbackLanguage"/>).</summary>
+    public const bool FollowsSystemLanguage = true;
+    /// <summary>
+    /// Persian dates in the Persian (Jalali) calendar. Not for RESPOK: in the International edition
+    /// Persian is only right-to-left text, so its dates are Gregorian in Persian digits.
+    /// </summary>
+    public const bool JalaliDates = false;
 #else
     public const string Id = "webyar";
     public const string Name = "Webyar";
@@ -39,5 +51,8 @@ public static class Brand
     public const string SiteFeed = "https://app.webyar.ai/downloads/windows";
     public const string SiteHost = "webyar.ai";
     public const string AgentToken = "WebyarWindows";
+    public const Localization.Language FallbackLanguage = Localization.Language.Fa;
+    public const bool FollowsSystemLanguage = false;
+    public const bool JalaliDates = true;
 #endif
 }

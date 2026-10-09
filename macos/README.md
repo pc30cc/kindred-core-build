@@ -54,13 +54,17 @@ before) and the target `Respok` (RESPOK), both in `project.yml`. They share
 every Swift file; `Respok` adds `BRAND_RESPOK`, which `Core/Config/AppBrand.swift`
 turns into RESPOK's server (`api.respok.app`), Keychain item, log folder and
 User-Agent, and brings its own bundle id (`com.respok.mac`), name, icons and
-accent colour (`Brands/Respok/Assets.xcassets`, from the brand kit's Thread /
-Signal set the respok.app site uses) and wording: every line that names the
+mark (`Brands/Respok/Assets.xcassets`, from the brand kit's Thread / Signal set
+the respok.app site uses) and wording: every line that names the
 product, from `strings.respok.json` (shared with the Windows app) and
 `Brands/Respok/mac-strings.respok.json`, laid over the shared table
 (`Strings.swift`). `src/test/apps/desktopBrands.test.ts` fails when a new line
 names WebYar without a RESPOK wording, or when the two targets drift apart.
-The two apps install side by side.
+The two apps install side by side. The interface keeps the product's shared
+colours (`DesignSystem/Theme.swift`, as on Windows and in the web console); a
+first launch follows the Mac's language, else Persian for WebYar and English
+for RESPOK, and RESPOK writes Persian dates on the Gregorian calendar
+(`AppBrand.fallbackLanguage`, `AppBrand.jalaliDates`).
 
 Every script takes `BRAND=Respok` (default `Webyar`; `scripts/brand.sh`).
 
@@ -147,7 +151,8 @@ Two other ways to publish, both through `scripts/publish-feed.sh`:
   must grow with every release. Back up the private key once with
   `generate_keys -x <file>` and keep it somewhere safe: without it, no
   update can ever reach the installed apps again.
-- **From CI** — tag `mac-v<version>` (matching `MARKETING_VERSION` in
-  `project.yml`); `.github/workflows/macos.yml` signs with Developer ID,
-  notarizes and publishes. It needs the secrets listed at its top,
-  including that same private key as `SPARKLE_PRIVATE_KEY`.
+- **From CI without a merge** — run `.github/workflows/macos.yml` on `main`
+  with `publish_now`: the same as a merge, numbered the same way. It needs
+  the secrets listed at its top, including that same private key as
+  `SPARKLE_PRIVATE_KEY`. (There is no tag flow: a hand-picked version could
+  sort below the automatic ones or carry a lower build number.)

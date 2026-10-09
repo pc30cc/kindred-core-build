@@ -28,13 +28,18 @@ macOS app names on each platform.
 2. Every 5 minutes `sync-downloads.sh` (systemd timer `app-downloads-sync`)
    copies what is new onto the host, per brand:
    - the newest installer as `<Prefix>-Setup-<version>.exe`, and moves the
-     `<Prefix>-Setup.exe` symlink to it (the newest 3 are kept);
-   - the Velopack update feed into `<brand>/windows/`: the `.nupkg` packages
-     first, then `releases.win.json` and `RELEASES`, so the index never names a
-     missing file (the newest 6 packages are kept);
+     `<Prefix>-Setup.exe` symlink to it;
+   - the Velopack update feed into `<brand>/windows/`: the packages of the
+     newest two releases first (the newest one's index names only its own full
+     package and delta; the one before stays for apps halfway through an
+     update), then `releases.win.json` and `RELEASES`. If any package fails to
+     download, the index is left as it was, so it never names a missing file.
+     Packages outside those two releases are removed;
    - the newest stable Mac version from the brand's appcast, as
-     `<Prefix>-Mac-<version>.dmg` with the `<Prefix>-Mac.dmg` symlink (the
-     newest 3 are kept).
+     `<Prefix>-Mac-<version>.dmg` with the `<Prefix>-Mac.dmg` symlink.
+
+   Of the installers and DMGs, the symlink's target and the two newest others
+   are kept. A run with nothing new downloads nothing.
 
 One brand failing (no release yet, GitHub unreachable) never stops the other.
 
@@ -84,8 +89,8 @@ Things learnt running it:
 - A 404 that carries this container's `Content-Disposition` header means the
   routing works and the file (or its symlink) is missing; a 404 without it
   means Traefik never sent the request here.
-- The disk is shared with Docker (see CLAUDE.md, Disk): both brands together
-  keep about 2 GB here.
+- The disk is shared with Docker (see CLAUDE.md, Disk): each brand keeps about
+  300-400 MB here.
 
 ## The Android app
 

@@ -156,7 +156,7 @@ describe('feeds and downloads agree everywhere', () => {
     expect(workflows).toContain('feed_repo: pc30cc/respok-releases');
   });
 
-  it('each site serves its own brand\'s downloads as zips, and the old links lead to them', () => {
+  it('each site serves its own brand\'s downloads as zips, the old links lead to them, and never the other brand\'s', () => {
     const nginx = read('deploy/app-downloads/nginx.conf');
     const traefik = read('deploy/app-downloads/traefik-app-downloads.yaml');
     for (const [edition, host] of [['iran', 'app.webyar.ai'], ['international', 'app.respok.app']] as const) {
@@ -168,8 +168,14 @@ describe('feeds and downloads agree everywhere', () => {
       expect(brand.macDownloadFile).toBe(`${prefix}-Mac.zip`);
       expect(nginx).toMatch(new RegExp(`^\\s*${host.replace(/\./g, '\\.')}\\s+${edition === 'iran' ? 'webyar' : 'respok'};`, 'm'));
       // Traefik sends this host's zips, old links and update feed to the mirror, and no other brand's.
-      const rules = traefik.split('\n').filter((l) => l.includes(`Host(\`${host}\`)`));
+      const hostRules = traefik.split('\n').filter((l) => l.includes(`Host(\`${host}\`)`));
+      const rules = hostRules.filter((l) => l.includes('PathRegexp'));
       expect(rules).toHaveLength(2);
+      // The other brand's file names on this host (e.g. the frontend's Webyar-Android.apk on
+      // app.respok.app) are sent to app-downloads, which has none for this host: 404.
+      const foreign = hostRules.filter((l) => !l.includes('PathRegexp'));
+      expect(foreign).toHaveLength(2);
+      for (const rule of foreign) expect(rule).toContain(`PathPrefix(\`/downloads/${edition === 'iran' ? 'RESPOK-' : 'Webyar-'}\`)`);
       for (const rule of rules) {
         expect(rule).toContain(`${prefix}-(Windows|Mac)`);
         expect(rule).toContain(`${prefix}-Setup`);

@@ -1930,3 +1930,134 @@ a.wy-powered:hover { color: var(--wy-text); }
   .wy-view-chat .attach-btn,
   .wy-view-chat .emoji-btn { transition: none; }
 }
+
+/* ─── Message layout polish (the WebYar look) ───────────────────────────
+   The same fixes the International skin got in #286, in WebYar's own
+   measures and colours (shared/webyarBrand.ts: ink #12141F, mist #E3E6EB,
+   paper #F4F6F8), right-to-left first. Every selector below is one the
+   International skin (its own stylesheet, loaded after this one) sets
+   itself with the same specificity, so RESPOK's rendering is its own and
+   does not change.
+
+   Markup per message (presentation-default.js messagesHtml):
+     .msg-row.{visitor|operator}[.is-last]
+       [.msg-avatar]                      operator only, real one on .is-last
+       .msg-col
+         .msg-line > .msg + .msg-actions  bubble + quote/copy buttons
+         [.msg-footline > .msg-meta]      time / ticks / AI, on .is-last only
+   Sides are physical in both directions (see Messages above): operator on
+   the left, visitor on the right. */
+:host,
+.shell {
+  /* Persian glyphs need a taller line box than Latin ones. */
+  --wy-msg-line: 22px;
+  --wy-msg-pad-y: 8px;
+  --wy-msg-pad-x: 13px;
+  --wy-msg-radius: 18px;
+  --wy-msg-radius-join: 6px;
+  --wy-msg-avatar: 30px;
+  --wy-msg-meta-h: 16px;
+  --wy-msg-meta-gap: 3px;
+  /* Between the kit's paper and mist: a quiet, borderless operator bubble. */
+  --wy-msg-op-bg: #eef1f4;
+}
+
+/* Rhythm: 12px between authors (and around day dividers and system rows),
+   3px between bubbles of one group. */
+.messages { gap: 12px; }
+.msg-row:not(.is-last) { margin-bottom: -9px; }
+
+.msg-col { gap: var(--wy-msg-meta-gap); max-width: 78%; }
+/* The operator column leaves room for its avatar and, beside the bubble,
+   the quote/copy buttons, so they are never clipped on a phone. */
+.msg-row.operator .msg-col { max-width: min(78%, calc(100% - var(--wy-msg-avatar) - 60px)); }
+
+/* Bubbles shrink-wrap their text; every bubble has the same padding and
+   line box, so a one-word message is as tall as any first line. */
+.msg {
+  min-width: 2.75rem;
+  padding: var(--wy-msg-pad-y) var(--wy-msg-pad-x);
+  border-radius: var(--wy-msg-radius);
+  font-size: 14px;
+  line-height: var(--wy-msg-line);
+  overflow-wrap: anywhere;
+}
+.msg.operator {
+  background: var(--wy-msg-op-bg);
+  border: 0;
+  color: #12141f;
+}
+/* The link chip normally sits on --wy-hover; lift it onto the card colour
+   so it does not melt into the operator bubble. */
+.msg.operator .msg-link { background: var(--wy-card); }
+
+/* Each paragraph takes the direction of its own first letter: English
+   reads left-to-right inside a Persian widget (and Persian right-to-left in
+   an English one), and `start` follows that paragraph, not the panel. */
+.msg-text,
+.msg-quote {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* Grouped corners: the joining side of a group is tighter on every bubble;
+   the bottom one carries the tail, the ones below the first also tighten
+   their top. */
+.msg-row.visitor .msg.visitor { border-bottom-right-radius: var(--wy-msg-radius-join); }
+.msg-row.visitor:not(.is-last) + .msg-row.visitor .msg.visitor { border-top-right-radius: var(--wy-msg-radius-join); }
+.msg-row.operator .msg.operator { border-bottom-left-radius: var(--wy-msg-radius-join); }
+.msg-row.operator:not(.is-last) + .msg-row.operator .msg.operator { border-top-left-radius: var(--wy-msg-radius-join); }
+
+/* The quote/copy buttons float beside the bubble, on its open side, instead
+   of taking layout space: hidden, they still widened the column, so the
+   visitor's time and ticks stuck out past the bubble and the operator's
+   bubble drifted away from its avatar and time. */
+.msg-line { position: relative; }
+.msg-actions { position: absolute; bottom: 0; padding-bottom: 2px; }
+.msg-row.visitor .msg-actions { right: 100%; padding-right: 4px; }
+.msg-row.operator .msg-actions { left: 100%; padding-left: 4px; }
+
+/* One meta line per group, under its last bubble, flush with the bubble's
+   outer edge (right for the visitor, left for the operator). */
+.msg-footline { height: var(--wy-msg-meta-h); min-height: var(--wy-msg-meta-h); }
+.msg-meta {
+  gap: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: var(--wy-msg-meta-h);
+  color: var(--wy-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.msg-time { font-size: 11px; }
+
+/* The operator's avatar sits beside the LAST bubble of the group, centred
+   on its first line — never down beside the time. */
+.msg-avatar {
+  width: var(--wy-msg-avatar);
+  height: var(--wy-msg-avatar);
+  margin-bottom: calc((var(--wy-msg-line) + 2 * var(--wy-msg-pad-y) - var(--wy-msg-avatar)) / 2);
+}
+.msg-row:has(> .msg-col > .msg-footline) > .msg-avatar {
+  margin-bottom: calc(var(--wy-msg-meta-h) + var(--wy-msg-meta-gap)
+    + (var(--wy-msg-line) + 2 * var(--wy-msg-pad-y) - var(--wy-msg-avatar)) / 2);
+}
+
+/* Day divider: a quiet label centred on the list. */
+.msg-day { margin: 4px 0 0; }
+.msg-day span {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--wy-muted);
+  background: var(--wy-hover-2);
+  padding: 5px 10px;
+}
+
+/* Composer: a hairline separates it from the messages, and the credit gets
+   the same breathing room above and below. */
+.wy-view-chat .composer-zone {
+  border-top: 1px solid var(--wy-border);
+  padding-block: 10px 6px;
+}
+.composer-zone .wy-footer { padding: 6px 0 2px; }

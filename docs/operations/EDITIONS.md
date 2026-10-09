@@ -21,8 +21,9 @@ guessing (`EditionUnavailableError`, HTTP 503).
 
 The Iranian edition is frozen: every change behind an edition check leaves
 its output byte-identical, and guard tests pin it (`src/test/edition/`).
-The one deliberate exception is WebYar's own brand kit (below), asked for by
-the owner and pinned by its own tests.
+The deliberate exceptions are WebYar's own brand kit and the chat widget's
+message-layout polish (below), asked for by the owner and pinned by their own
+tests.
 Persian in the International edition is only right-to-left Persian text:
 never the Iranian brand, calendar, currency, gateways or time zone.
 
@@ -34,7 +35,7 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Calendar / time zone | Jalali, Asia/Tehran | Gregorian (Persian digits kept), the viewer's zone or UTC | `src/lib/date.ts`, server formatters |
 | Phone / SMS / Bale | +98, Iranian SMS vendors, Bale | no national default, no SMS verification, no Bale | phase 3 |
 | Brand kit (logos, favicon, PWA icons, launch loader) | WebYar's official kit (`public/brand/webyar`, `WEBYAR_BRAND`; see below) | RESPOK's (`public/brand/intl`, `INTL_BRAND`) | `shared/webyarBrand.ts`, `shared/internationalMode.ts`, `index.html`, `BrandLogo`, `BrandLoader`, `PlatformBrandingGate`, `server/routes/manifest.ts` |
-| Chat widget floating button | WebYar's kit launcher (`default` template, `edition: 'iran'` only) | as before | `public/widget/loader.js`, `shared/webyarLauncher.ts` |
+| Chat widget floating button | WebYar's kit launcher (`default` template, `edition: 'iran'` only) | RESPOK's kit launcher, the Thread chat button (`intl` template, `edition: 'international'` only) | `public/widget/loader.js`, `shared/webyarLauncher.ts`, `shared/respokLauncher.ts` |
 | Panel colour scheme `respok` | never offered | offered | `shared/panelThemes.ts` |
 | Brand in text | WebYar's fixed words ("Webyar", "وب‌یار", "Web Yar", info@webyar.ai, https://webyar.ai) | the platform's own name, site and support address | `shared/brand.ts`, `src/lib/brand.ts` |
 | First paint (before the bundle) | as before | edition, brand, title and default language from `/api/platform/public/boot.js` on a first visit (loaded asynchronously, never blocking; see below), the cache after | `index.html`, `server/routes/platformPublic.ts` |
@@ -80,6 +81,45 @@ The Iranian edition is Persian-only, so only the Persian logotype is used.
   panel opens from the same corner as before, so the launcher still slides
   away while it is open (the chevron is seen during that motion).
 - "Powered by": the Persian logotype in the brand's place in both widgets.
+
+### RESPOK's chat button (International edition only)
+
+The `intl` template wears the RESPOK kit's Thread chat button
+(`Shared/Code/widget/respok-launcher.js` v1.0.0, `style: 'thread'`) when the
+bootstrap says `edition: 'international'` and `templateId: 'intl'`; the
+Iranian edition, an unknown edition and an older backend never do
+(`src/test/widget/respokLauncher.test.ts`). It is ported into the loader's
+own launcher the same way as WebYar's (`shared/respokLauncher.ts`, the same
+strings in `loader.js`, its own `<style data-rpk-kit>` only when worn; no
+extra global, no inline handler, no font request): Ink #16142B ground with the
+white question pill and the Signal #FF5A3C answer pill, 60px at 100%; hover
+scale 1.06, pressed .94, keyboard focus ring (white gap + Signal); open turns
+the glyph away and the chevron in; unread is the Signal Deep #D3361A badge
+(springs in, bumps on the next message) and a new message slides the answer
+pill in; outside working hours the answer pill is an outline in Away #A9A7BC.
+prefers-reduced-motion: no movement, 120ms fades. A workspace colour other
+than `#3B82F6` keeps its own solid colour and the pills are drawn in its icon
+colour (away outlines in that colour); its own icon, image, shape, size,
+label and position work as before. The panel still opens from the same
+corner and the launcher still slides away while it is open. The kit's 48px
+phone size is not used: the loader keeps the configured size on phones.
+
+The call widget has no platform-branded button (its launcher shows the
+workspace's logo or a phone), so it is unchanged. The favicon and PWA icons
+in `public/brand/intl/` are already the kit's Thread `signal` web set,
+byte for byte.
+
+### Message layout (both editions)
+
+The message-list polish of #286 (quote/copy buttons beside the bubble instead
+of in the layout, meta flush with the bubble, grouped corners and rhythm,
+own-direction text with `unicode-bidi: plaintext`, avatar on the last bubble,
+quieter day divider, composer hairline) is in `presentation-intl.css` for
+RESPOK and, in WebYar's measures and colours (ink #12141F, a borderless
+#EEF1F4 operator bubble, a 22px Persian line box), at the end of
+`presentation-default.css` for WebYar. Every selector of the latter is also
+set by the intl skin, which loads after it, so RESPOK's rendering does not
+move (`phase4Widgets.test.ts`).
 
 ### Where the International brand comes from
 

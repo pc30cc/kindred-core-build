@@ -2,8 +2,9 @@
  * WebYar's floating button (the brand kit's floating-button/, ported into the
  * loader's launcher): worn by the chat widget's `default` template ONLY when
  * the bootstrap says the platform is the Iranian edition (`edition: 'iran'`).
- * Every other edition — the International one, an unknown one, an older
- * backend that sends none — keeps the launcher exactly as it was.
+ * An unknown edition and an older backend that sends none keep the launcher
+ * exactly as it was; the International edition wears RESPOK's own button
+ * (respokLauncher.test.ts).
  *
  * Boots the SHIPPED loader.js in jsdom (as publicApiBehavioral.test.ts does)
  * and checks the launcher's markup, classes and badge; and proves the
@@ -84,8 +85,15 @@ describe('the loader carries the kit byte-for-byte', () => {
 });
 
 describe('the launcher per edition', () => {
+  // The International edition wears RESPOK's own button instead
+  // (src/test/widget/respokLauncher.test.ts), never WebYar's.
+  it('international: never WebYar\'s kit', async () => {
+    const { root, launcher } = await boot({ edition: 'international', templateId: 'intl' });
+    expect(launcher.classList.contains('wy-kit')).toBe(false);
+    expect(root.querySelector('style[data-wy-kit]')).toBeNull();
+  });
+
   it.each([
-    ['international', { edition: 'international', templateId: 'intl' }],
     ['unknown (null)', { edition: null }],
     ['an older backend (no edition)', {}],
   ])('%s: exactly the old launcher, no kit style', async (_name, extra) => {

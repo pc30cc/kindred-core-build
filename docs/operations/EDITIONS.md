@@ -72,10 +72,16 @@ The Iranian edition is Persian-only, so only the Persian logotype is used.
   og:image is set by script, which link-preview crawlers do not run.
 - Chat widget launcher: the `default` template wears the kit's button when the
   bootstrap says `edition: 'iran'`: gradient 140deg #22D3B4 → #0B7D6C, the
-  bubble with three dots, hover (lift, dots wave), open (bubble turns away,
-  chevron turns in), unread (saffron badge, Persian digits in Persian, one
-  nudge), offline (ink ground, turquoise bubble), 60px at 100%; motion off
-  with prefers-reduced-motion. A workspace colour other than `#3B82F6` keeps
+  bubble with three dots, entrance (the button springs in, the bubble grows,
+  the dots appear one by one; replaces the slide-up), hover (lift, dots
+  wave), operator typing (the dots bob while the runtime shows "Support is
+  typing…", via the optional `shell.setOperatorTyping` the loader hands the
+  runtime), ping (a turquoise ring spreads twice, once, 6s after the entrance
+  if the chat is still closed), open (bubble turns away, chevron turns in,
+  per the kit's open Lottie, in CSS) and close (the dots arrive again),
+  unread (saffron badge, Persian digits in Persian, one nudge), offline (ink
+  ground, turquoise bubble), 60px at 100%; the kit's timings and easings;
+  motion off with prefers-reduced-motion. A workspace colour other than `#3B82F6` keeps
   its own solid colour (no gradient, no offline recolouring); its icon colour,
   a custom icon, image, shape, size, label and position work as before. The
   panel opens from the same corner as before, so the launcher still slides

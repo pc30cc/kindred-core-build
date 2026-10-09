@@ -10,7 +10,7 @@ case "$BRAND" in
     BRAND=Webyar
     SCHEME=Webyar             # the Xcode target and scheme
     APP_NAME=Webyar           # Webyar.app, its executable
-    FILE_PREFIX=Webyar        # Webyar-<version>.zip / .dmg, Webyar-Mac.dmg on the site
+    FILE_PREFIX=Webyar        # Webyar-<version>.zip / .dmg, Webyar-Mac.zip on the site
     BUNDLE_ID=com.webyar.mac
     FEED_REPO=pc30cc/mac-os   # appcast.xml and releases/<version>/ at the repository's root
     FEED_SUBDIR=

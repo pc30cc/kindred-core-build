@@ -20,9 +20,15 @@ export interface NativeAppBrand {
   windowsFeedUrl: string;
   /** Super Admin → macOS app: the default Sparkle appcast. */
   macAppcastUrl: string;
-  /** The installer and DMG the site serves under /downloads/ (the newest release). */
+  /** The installer CI publishes with each Windows release (a release asset). */
   windowsSetupFile: string;
-  macDmgFile: string;
+  /**
+   * What the site serves under /downloads/ for people to download, as zips: the newest
+   * installer, and the newest DMG (deploy/app-downloads/). The old links to the installer
+   * and the DMG themselves redirect to them.
+   */
+  windowsDownloadFile: string;
+  macDownloadFile: string;
 }
 
 export const NATIVE_APP_BRANDS: Readonly<Record<Edition, Readonly<NativeAppBrand>>> = {
@@ -31,14 +37,16 @@ export const NATIVE_APP_BRANDS: Readonly<Record<Edition, Readonly<NativeAppBrand
     windowsFeedUrl: 'https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download',
     macAppcastUrl: 'https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml',
     windowsSetupFile: 'Webyar-Setup.exe',
-    macDmgFile: 'Webyar-Mac.dmg',
+    windowsDownloadFile: 'Webyar-Windows.zip',
+    macDownloadFile: 'Webyar-Mac.zip',
   },
   international: {
     name: 'RESPOK',
     windowsFeedUrl: 'https://github.com/pc30cc/respok-releases/releases/latest/download',
     macAppcastUrl: 'https://raw.githubusercontent.com/pc30cc/respok-releases/main/mac/appcast.xml',
     windowsSetupFile: 'RESPOK-Setup.exe',
-    macDmgFile: 'RESPOK-Mac.dmg',
+    windowsDownloadFile: 'RESPOK-Windows.zip',
+    macDownloadFile: 'RESPOK-Mac.zip',
   },
 };
 

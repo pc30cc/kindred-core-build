@@ -16,7 +16,7 @@ public static class Brand
     public const string ExeName = "Respok";
     /// <summary>Velopack's package id; also the data folders under %APPDATA% and %LOCALAPPDATA%.</summary>
     public const string PackId = "RespokWindows";
-    /// <summary>The installer people download: https://app.respok.app/downloads/RESPOK-Setup.exe.</summary>
+    /// <summary>The installer, RESPOK-Setup.exe; people download it zipped: https://app.respok.app/downloads/RESPOK-Windows.zip.</summary>
     public const string SetupName = "RESPOK-Setup";
     /// <summary>The API a fresh install signs in to; the platform can move it later (/api/platform/origins).</summary>
     public const string ApiOrigin = "https://api.respok.app";

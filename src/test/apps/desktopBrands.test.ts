@@ -156,6 +156,33 @@ describe('feeds and downloads agree everywhere', () => {
     expect(workflows).toContain('feed_repo: pc30cc/respok-releases');
   });
 
+  it('each site serves its own brand\'s downloads as zips, and the old links lead to them', () => {
+    const nginx = read('deploy/app-downloads/nginx.conf');
+    const traefik = read('deploy/app-downloads/traefik-app-downloads.yaml');
+    for (const [edition, host] of [['iran', 'app.webyar.ai'], ['international', 'app.respok.app']] as const) {
+      const brand = NATIVE_APP_BRANDS[edition];
+      // The sync script's brand line ends with the file prefix it names the zips with.
+      const prefix = sync.match(new RegExp(`^\\w+ \\S+ ${brand.windowsSetupFile} \\S+ (\\S+)$`, 'm'))?.[1];
+      expect(prefix, brand.name).toBeDefined();
+      expect(brand.windowsDownloadFile).toBe(`${prefix}-Windows.zip`);
+      expect(brand.macDownloadFile).toBe(`${prefix}-Mac.zip`);
+      expect(nginx).toMatch(new RegExp(`^\\s*${host.replace(/\./g, '\\.')}\\s+${edition === 'iran' ? 'webyar' : 'respok'};`, 'm'));
+      // Traefik sends this host's zips, old links and update feed to the mirror, and no other brand's.
+      const rules = traefik.split('\n').filter((l) => l.includes(`Host(\`${host}\`)`));
+      expect(rules).toHaveLength(2);
+      for (const rule of rules) {
+        expect(rule).toContain(`${prefix}-(Windows|Mac)`);
+        expect(rule).toContain(`${prefix}-Setup`);
+        expect(rule).toContain('windows/(releases');
+        expect(rule).not.toContain(edition === 'iran' ? 'RESPOK-' : 'Webyar-');
+      }
+    }
+    expect(nginx).toContain('-(Windows|Mac)(-[0-9][A-Za-z0-9.\\-]*)?\\.zip)$');
+    expect(nginx).toContain('return 302 /downloads/$1-Windows$2.zip;');
+    expect(nginx).toContain('return 302 /downloads/$1-Mac$2.zip;');
+    expect(nginx).toContain('absolute_redirect off;');
+  });
+
   it('nothing of RESPOK points at WebYar', () => {
     expect(Object.values(NATIVE_APP_BRANDS.international).some(pointsAtWebyar)).toBe(false);
     expect(respokCs).not.toMatch(/webyar/i);

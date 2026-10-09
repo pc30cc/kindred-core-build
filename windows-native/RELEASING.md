@@ -107,11 +107,13 @@
 
 | | وب‌یار | RESPOK |
 |---|---|---|
-| نصب‌کننده (آخرین نسخه) | `https://app.webyar.ai/downloads/Webyar-Setup.exe` | `https://app.respok.app/downloads/RESPOK-Setup.exe` |
+| دانلود ویندوز (آخرین نسخه، zip حاوی نصب‌کننده) | `https://app.webyar.ai/downloads/Webyar-Windows.zip` | `https://app.respok.app/downloads/RESPOK-Windows.zip` |
+| دانلود مک (آخرین نسخه، zip حاوی DMG) | `https://app.webyar.ai/downloads/Webyar-Mac.zip` | `https://app.respok.app/downloads/RESPOK-Mac.zip` |
 | فید آپدیت اپ‌ها | `https://app.webyar.ai/downloads/windows` | `https://app.respok.app/downloads/windows` |
 
 اسکریپت `/data/app-downloads/sync-downloads.sh` با تایمر systemd به نام `app-downloads-sync` هر ۵ دقیقه
-ریلیزهای جدید هر برند را روی سایت همان برند کپی می‌کند (نسخه‌ی مک هم همین‌طور). برای اجرای فوری روی سرور:
+ریلیزهای جدید هر برند را روی سایت همان برند کپی می‌کند (نسخه‌ی مک هم همین‌طور). سایت فایل‌ها را فقط به‌صورت zip می‌دهد؛
+لینک‌های قدیمی `Webyar-Setup.exe` و `Webyar-Mac.dmg` (و `RESPOK-…`) به همان zip هدایت می‌شوند. برای اجرای فوری روی سرور:
 
 ```sh
 systemctl start app-downloads-sync
@@ -122,7 +124,7 @@ journalctl -u app-downloads-sync -n 20
 
 ## ۶. نصب اولیه روی یک کامپیوتر
 
-- `Webyar-Setup.exe` را از `app.webyar.ai/downloads` یا صفحه‌ی ریلیز اجرا کنید. اجازه‌ی مدیر لازم نیست. برنامه برای همان کاربر نصب می‌شود و در منوی Start، دسکتاپ (اختیاری) و «Apps & features» قرار می‌گیرد.
+- `Webyar-Windows.zip` را از `app.webyar.ai/downloads` بگیرید، باز کنید و `Webyar-Setup.exe` درونش را اجرا کنید (یا همان فایل را از صفحه‌ی ریلیز). اجازه‌ی مدیر لازم نیست. برنامه برای همان کاربر نصب می‌شود و در منوی Start، دسکتاپ (اختیاری) و «Apps & features» قرار می‌گیرد.
 - اگر نسخه‌ی قدیمی در Program Files باشد، نصب‌کننده یک بار اجازه می‌خواهد و آن را پاک می‌کند. تنظیمات و ورود کاربر حفظ می‌شود.
 - اجرای بی‌صدا: `Webyar-Setup.exe /silent /launch`.
   حذف: از «Apps & features»، یا `Webyar-Setup.exe /uninstall /silent`.

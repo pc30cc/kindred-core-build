@@ -60,6 +60,7 @@ import { buildPoweredByConfig, isPoweredByAllowedForPlan } from '../services/wid
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { widgetDateHints } from '../../shared/widgetTemplates.js';
 import { INTL_BRAND } from '../../shared/internationalMode.js';
+import { WEBYAR_BRAND, isWebyarKitEdition } from '../../shared/webyarBrand.js';
 import {
   callWidgetTemplateAssetKeys,
   normalizeCallWidgetFormSchema,
@@ -727,6 +728,12 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     time_zone: dateHints.timeZone,
     ...(intlBrand ? { platform_brand: { names: intlBrand.names } } : {}),
     ...(poweredBy !== undefined ? { powered_by: poweredBy } : {}),
+    // Additive, the Iranian edition only (region_mode = 'iran'; never an
+    // edition that cannot be read): WebYar's Persian logotype for the
+    // runtime's own fixed credit, in the brand's place. A path on the widget's
+    // asset origin (the runtime resolves it against the origin it was loaded
+    // from); the runtime keeps the words if the image cannot load.
+    ...(isWebyarKitEdition(edition) ? { powered_by_logo: WEBYAR_BRAND.logo.light } : {}),
     assets: {
       font_style_url: fontAssetUrl,
       presentation_registry_url: `/call-widget/${callTemplateAssets.registry}`,

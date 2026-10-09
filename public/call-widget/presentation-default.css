@@ -17,3 +17,10 @@
 .ccw-presentation-default[data-density="compact"] .ccw-btn { min-height: 34px; padding-block: 6px; }
 .ccw-presentation-default .ccw-panel { border-radius: var(--ccw-radius-panel, 18px); }
 .ccw-presentation-default .ccw-btn { border-radius: var(--ccw-radius-control, 10px); }
+
+/* The Iranian edition's "powered by" credit names WebYar with its Persian
+ * logotype (bootstrap `powered_by_logo`, runtime poweredByParts): small, on
+ * the label's centre line, label first in reading order (RTL in Persian).
+ * Never the International template's (its root carries both classes). */
+.ccw-presentation-default:not(.ccw-presentation-intl) .ccw-powered { gap: 4px; }
+.ccw-presentation-default:not(.ccw-presentation-intl) .ccw-powered-logo { display: block; height: 16px; width: auto; flex: none; }

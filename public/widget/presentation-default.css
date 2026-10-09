@@ -364,6 +364,16 @@
    but must not pretend to be a link. */
 span.wy-powered { cursor: default; }
 a.wy-powered:hover { color: var(--wy-text); }
+/* The platform's logo in the brand's place (config.poweredBy.logo; the
+   Iranian edition's WebYar logotype): small, on the label's centre line.
+   The International skin sizes its own over this rule. */
+.wy-powered .wy-powered-logo {
+  display: inline-block;
+  height: 16px;
+  width: auto;
+  vertical-align: middle;
+  margin-inline-start: 1px;
+}
 
 /* ─── Connection / loading micro indicator ──────────────────────────────
    The ONE visual loading affordance after the first usable render. It is a

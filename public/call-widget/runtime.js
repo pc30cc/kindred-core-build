@@ -603,13 +603,18 @@
    * The International edition's credit drawn with the platform's logo: the
    * localized label split around the brand ("Powered by ‹logo›",
    * "‹logo› tarafından desteklenmektedir") and the logo's absolute URL.
-   * null — draw the text as before — in the Iranian edition, without a logo,
-   * or when the workspace wrote its own "powered by" text.
+   * The Iranian edition draws WebYar's logotype the same way when the
+   * bootstrap carries `powered_by_logo`. null — draw the text as before —
+   * without a logo, or when the workspace wrote its own "powered by" text.
    */
   CallCenterWidgetCtor.prototype.poweredByParts = function () {
     var b = this.bootstrap || {};
-    if (b.edition !== 'international' || !b.powered_by) return null;
-    var logo = b.powered_by.logo;
+    // The Iranian edition (edition 'iran' exactly, never an unknown one)
+    // draws WebYar's Persian logotype in the brand's place when the server
+    // names it (`powered_by_logo`); without it the words stay as they were.
+    var iranKit = b.edition === 'iran' && typeof b.powered_by_logo === 'string' && !!b.powered_by_logo;
+    if (!iranKit && (b.edition !== 'international' || !b.powered_by)) return null;
+    var logo = iranKit ? b.powered_by_logo : b.powered_by.logo;
     if (typeof logo !== 'string' || !logo) return null;
     if (/^\//.test(logo) && !/^\/\//.test(logo)) logo = String(this.origin || '') + logo;
     if (!/^https?:\/\//i.test(logo)) return null;

@@ -14,12 +14,19 @@
  * shared/edition.ts, shared/internationalMode.ts) the icons are the RESPOK
  * brand kit's (public/brand/intl/), over the operator's own, in every
  * language. When the edition cannot be read the operator's own icons stay.
+ *
+ * In the Iranian edition (region_mode = 'iran' only; shared/webyarBrand.ts)
+ * a deployment without its own icon (pwa_icon_url / favicon_url / logo_url,
+ * in that order, as before) gets WebYar's brand kit icons instead of the old
+ * /favicon.png, and the kit's theme colour #0B7D6C unless the operator chose
+ * a colour (the seeded #3B82F6 was never a choice).
  */
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { clampLocaleToPlatformRegion, getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { INTL_BRAND, isInternationalMode } from '../../shared/internationalMode.js';
+import { WEBYAR_BRAND, isUncustomisedColor, isWebyarKitEdition } from '../../shared/webyarBrand.js';
 
 export const manifestRouter = Router();
 
@@ -55,8 +62,12 @@ manifestRouter.get('/', async (req, res) => {
   const name = (locRow?.platform_name || '').trim() || 'App';
   const shortNameRaw = (b.pwa_short_name as string | null) || name;
   const shortName = shortNameRaw.slice(0, 30);
-  const iconUrl = (b.pwa_icon_url as string | null) || (b.favicon_url as string | null) || (b.logo_url as string | null) || '/favicon.png';
-  const themeColor = (b.primary_color as string | null) || '#3B82F6';
+  const operatorIcon = (b.pwa_icon_url as string | null) || (b.favicon_url as string | null) || (b.logo_url as string | null) || null;
+  const iconUrl = operatorIcon || '/favicon.png';
+  const webyarKit = isWebyarKitEdition(edition);
+  const themeColor = webyarKit && isUncustomisedColor(b.primary_color)
+    ? WEBYAR_BRAND.themeColor
+    : (b.primary_color as string | null) || '#3B82F6';
   const backgroundColor = (b.pwa_background_color as string | null) || '#F4F6F9';
 
   // The app may be served from a different host than this API
@@ -82,6 +93,12 @@ manifestRouter.get('/', async (req, res) => {
         { src: onApp(INTL_BRAND.pwa192), sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: onApp(INTL_BRAND.pwa512), sizes: '512x512', type: 'image/png', purpose: 'any' },
         { src: onApp(INTL_BRAND.pwaMaskable), sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ]
+    : webyarKit && !operatorIcon
+    ? [
+        { src: onApp(WEBYAR_BRAND.pwa192), sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: onApp(WEBYAR_BRAND.pwa512), sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: onApp(WEBYAR_BRAND.pwaMaskable), sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       ]
     : [
         { src: icon, sizes: '192x192', type: guessMimeType(iconUrl), purpose: 'any' },

@@ -7,6 +7,13 @@
  * home-screen icon are the RESPOK kit's (over the operator's own), as
  * index.html's boot script already set them; leaving it (Persian) puts
  * back what WebYar shows.
+ *
+ * In the Iranian edition (src/lib/webyarBrand.ts, `region_mode = 'iran'`
+ * only) the defaults are WebYar's brand kit (favicon, home-screen icon,
+ * Safari mask icon, theme colour #0B7D6C, share image); an operator's own
+ * favicon / PWA icon / colour from Super Admin → Branding still wins, in the
+ * same order as before. Any other region mode, and an edition not known yet,
+ * is unchanged.
  */
 import React, { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -15,6 +22,7 @@ import { useI18n } from '@/i18n';
 import { isNativePlatform } from '@/lib/native';
 import { API_BASE } from '@/lib/apiBase';
 import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
+import { WEBYAR_BRAND, isUncustomisedColor, useWebyarKit } from '@/lib/webyarBrand';
 import { setPlatformBrand } from '@/lib/brand';
 import { resolveEdition } from '../../../shared/edition';
 
@@ -61,6 +69,7 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
   const { data } = usePlatformBrandingGlobal();
   const { locale } = useI18n();
   const international = useInternationalMode();
+  const webyarKit = useWebyarKit() && !international;
 
   useEffect(() => {
     if (!data) return;
@@ -103,10 +112,28 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     // Set favicon: the kit's in international mode, else the operator's. A
     // page that wore the kit's (boot script, or a language switch) gets
     // index.html's own back when there is no operator favicon.
-    const iconHref = international ? INTL_BRAND.appIcon : branding?.favicon_url;
     const existingIcon = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+    if (webyarKit) {
+      // The Iranian edition: the operator's favicon, else the kit's.
+      let link = existingIcon;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      if (branding?.favicon_url) {
+        if (link.getAttribute('type') === 'image/svg+xml') link.removeAttribute('type');
+        link.href = branding.favicon_url;
+      } else {
+        link.type = 'image/svg+xml';
+        link.href = WEBYAR_BRAND.favicon;
+      }
+    }
+    const iconHref = international ? INTL_BRAND.appIcon : branding?.favicon_url;
     const woreIntlIcon = existingIcon?.getAttribute('type') === 'image/svg+xml' && existingIcon.href.includes(INTL_BRAND.appIcon);
-    if (iconHref || woreIntlIcon) {
+    // A page that wore WebYar's kit (the edition changed) gets index.html's own back too.
+    const woreKitIcon = !!existingIcon?.href.includes(WEBYAR_BRAND.favicon);
+    if (!webyarKit && (iconHref || woreIntlIcon || woreKitIcon)) {
       let link = existingIcon;
       if (!link) {
         link = document.createElement('link');
@@ -114,7 +141,7 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
         document.head.appendChild(link);
       }
       if (international) link.type = 'image/svg+xml';
-      else if (woreIntlIcon) link.type = 'image/png';
+      else if (woreIntlIcon || woreKitIcon) link.type = 'image/png';
       link.href = iconHref || DEFAULT_FAVICON;
     }
 
@@ -169,14 +196,36 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
       tag.href = href;
     };
 
-    setMeta('theme-color', pwaOn ? (branding?.primary_color || '#3B82F6') : null);
+    // The Iranian edition's theme colour is the kit's deep turquoise unless the
+    // operator chose one (the seeded #3B82F6 was never a choice).
+    const themeColor = webyarKit
+      ? (isUncustomisedColor(branding?.primary_color) ? WEBYAR_BRAND.themeColor : (branding?.primary_color as string))
+      : (branding?.primary_color || '#3B82F6');
+    setMeta('theme-color', pwaOn ? themeColor : null);
     // iOS Safari ignores the manifest for "Add to Home Screen" icon/behavior
     // and relies on these tags instead; Android/Chrome mostly reads the
     // manifest but `mobile-web-app-capable` is kept for older engines.
     setLink(
       'apple-touch-icon',
-      pwaOn ? (international ? INTL_BRAND.appleTouchIcon : branding?.pwa_icon_url || branding?.favicon_url || null) : null,
+      pwaOn
+        ? (international
+          ? INTL_BRAND.appleTouchIcon
+          : branding?.pwa_icon_url || branding?.favicon_url || (webyarKit ? WEBYAR_BRAND.appleTouchIcon : null))
+        : null,
     );
+    // Safari's pinned-tab icon and the link-preview image: the Iranian
+    // edition's only. Elsewhere they are removed only if they are the kit's
+    // (left by index.html's boot script before the edition changed).
+    if (webyarKit) {
+      setLink('mask-icon', WEBYAR_BRAND.maskIcon);
+      document.querySelector('link[rel="mask-icon"]')?.setAttribute('color', WEBYAR_BRAND.themeColor);
+      setMeta('og:image', WEBYAR_BRAND.ogImage, 'property');
+    } else {
+      const mask = document.querySelector('link[rel="mask-icon"]') as HTMLLinkElement | null;
+      if (mask?.href.includes(WEBYAR_BRAND.maskIcon)) mask.remove();
+      const og = document.querySelector('meta[property="og:image"]');
+      if (og?.getAttribute('content') === WEBYAR_BRAND.ogImage) og.remove();
+    }
     setMeta('apple-mobile-web-app-capable', pwaOn ? 'yes' : null);
     setMeta('mobile-web-app-capable', pwaOn ? 'yes' : null);
     setMeta('apple-mobile-web-app-status-bar-style', pwaOn ? 'default' : null);
@@ -184,7 +233,7 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     // <title>) -- prefer the dedicated short_name, then the plain platform
     // name, and only fall back to the (possibly long) full title.
     setMeta('apple-mobile-web-app-title', pwaOn ? (branding?.pwa_short_name || locRow?.platform_name || title || null) : null);
-  }, [data, locale, international]);
+  }, [data, locale, international, webyarKit]);
 
   return <>{children}</>;
 }

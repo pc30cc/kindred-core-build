@@ -76,10 +76,19 @@ describe('RESPOK wording', () => {
   });
 });
 
+/** The parts of an XcodeGen target these checks read (macos/project.yml). */
+interface XcodeTarget {
+  dependencies: unknown[];
+  sources: (string | { path: string })[];
+  info: { properties: Record<string, unknown> };
+  entitlements: { properties: Record<string, unknown> };
+  settings: { base: Record<string, string | undefined> };
+}
+
 describe('the Mac targets', () => {
   const project = parseYaml(read('macos/project.yml')) as {
-    targets: Record<string, any>;
-    schemes: Record<string, any>;
+    targets: Record<string, XcodeTarget>;
+    schemes: Record<string, { build: { targets: Record<string, unknown> } }>;
   };
   const webyar = project.targets.Webyar;
   const respok = project.targets.Respok;
@@ -99,7 +108,7 @@ describe('the Mac targets', () => {
   it('shares every source, package and entitlement with WebYar', () => {
     expect(respok.dependencies).toEqual(webyar.dependencies);
     expect(respok.entitlements.properties).toEqual(webyar.entitlements.properties);
-    const paths = (t: any) => t.sources.map((s: any) => (typeof s === 'string' ? s : s.path));
+    const paths = (t: XcodeTarget) => t.sources.map((s) => (typeof s === 'string' ? s : s.path));
     for (const p of paths(webyar)) expect(paths(respok)).toContain(p);
     for (const p of [SHARED_RESPOK, MAC_RESPOK]) {
       expect(paths(respok)).toContain(path.relative('macos', p));

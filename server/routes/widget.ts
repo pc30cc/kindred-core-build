@@ -43,6 +43,7 @@ import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
 import { widgetDateHints } from '../../shared/widgetTemplates.js';
+import { INTL_BRAND } from '../../shared/internationalMode.js';
 import { attachmentPreviewKind, type AttachmentPreviewKind } from '../services/attachmentPreviewKind.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from '../services/widget/poweredBy.js';
 import {
@@ -966,6 +967,13 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       edition === 'international' ? platformBrandName : platformBranding?.platform_name || '',
       poweredByPlanAllows && workspaceWantsPoweredBy,
     );
+    // The International template credits the platform with its logo (the
+    // RESPOK kit's horizontal mark, the one the app's launch screen wears;
+    // the "color" variant, drawn for the widget's light surface). Absolute:
+    // the widget runs on customers' sites. The Iranian payload is unchanged.
+    if (poweredBy && edition === 'international' && assetBase) {
+      (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${INTL_BRAND.horizontal.light}`;
+    }
     // Dates: Jalali in Tehran time for Persian in the Iranian edition (as
     // before); Gregorian in the visitor's own zone in the International one.
     const dateHints = widgetDateHints(edition);

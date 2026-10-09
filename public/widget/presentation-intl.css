@@ -40,3 +40,14 @@
 .shell * {
   font-family: 'InterWY', 'IRANSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
+
+/* The "powered by" credit names the platform with its logo (config.poweredBy
+   .logo): small, on the label's centre line, a space after the label in
+   either direction. */
+.wy-powered .wy-powered-logo {
+  display: inline-block;
+  height: 14px;
+  width: auto;
+  vertical-align: middle;
+  margin-inline-start: 1px;
+}

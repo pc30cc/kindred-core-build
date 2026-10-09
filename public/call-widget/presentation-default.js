@@ -220,12 +220,35 @@
     // The "powered by" credit: the Iranian edition's words and dead link as
     // always; the International edition names its own platform (a real link
     // when one is configured, no line when there is no brand to credit).
+    // The International template names its platform with the logo, in the
+    // localized label's own place for the brand; an image that cannot load
+    // becomes the platform's name.
     var poweredText = tr('powered_by');
     var poweredUrl = typeof this.poweredByUrl === 'function' ? this.poweredByUrl() : null;
+    var poweredParts = poweredText && typeof this.poweredByParts === 'function' ? this.poweredByParts() : null;
+    var poweredContent = [poweredText];
+    if (poweredParts) {
+      var logoImg = el('img', {
+        class: 'ccw-powered-logo',
+        src: poweredParts.logo,
+        alt: poweredParts.brand,
+        draggable: 'false',
+        on: {
+          error: function (e) {
+            var img = e.currentTarget;
+            if (img && img.parentNode) img.parentNode.replaceChild(document.createTextNode(poweredParts.brand), img);
+          },
+        },
+      });
+      poweredContent = [];
+      if (poweredParts.before) poweredContent.push(el('span', { class: 'ccw-powered-label' }, [poweredParts.before.replace(/\s+$/, '')]));
+      poweredContent.push(logoImg);
+      if (poweredParts.after) poweredContent.push(el('span', { class: 'ccw-powered-label' }, [poweredParts.after.replace(/^\s+/, '')]));
+    }
     var footer = el('div', { class: 'ccw-footer' }, !poweredText ? [] : [
       poweredUrl
-        ? el('a', { href: poweredUrl, class: 'ccw-powered', target: '_blank', rel: 'noopener noreferrer' }, [poweredText])
-        : el('a', { href: '#', class: 'ccw-powered', on: { click: function (e) { e.preventDefault(); } } }, [poweredText]),
+        ? el('a', { href: poweredUrl, class: 'ccw-powered', target: '_blank', rel: 'noopener noreferrer' }, poweredContent)
+        : el('a', { href: '#', class: 'ccw-powered', on: { click: function (e) { e.preventDefault(); } } }, poweredContent),
     ]);
 
     self._panel.className = 'ccw-panel ' + pos;

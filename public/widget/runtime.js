@@ -4850,6 +4850,19 @@
       return { isOpen: function(){ return false; }, open: function(){ return false; }, close: function(){ return false; }, toggle: function(){ return false; }, setUnread: function(){} };
     }
 
+    // A template's platform logo ([data-wy-brand-logo], the "powered by"
+    // credit of the International template) that cannot load becomes its
+    // alt text — the platform's name. Error events do not bubble, so this
+    // listens in the capture phase; no inline handler (host-page CSP safe).
+    try {
+      shadowRoot.addEventListener('error', function (e) {
+        var img = e && e.target;
+        if (!img || !img.hasAttribute || !img.hasAttribute('data-wy-brand-logo')) return;
+        var name = document.createTextNode(' ' + (img.getAttribute('alt') || ''));
+        if (img.parentNode) img.parentNode.replaceChild(name, img);
+      }, true);
+    } catch (_) { /* noop */ }
+
      // Honor the workspace's "Widget Language" setting. When set to a
      // specific locale (fa/en/tr) it overrides the workspace default
      // locale that drives the rest of the platform. 'auto' falls back

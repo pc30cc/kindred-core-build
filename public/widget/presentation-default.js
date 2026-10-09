@@ -139,7 +139,16 @@
       // still lets the platform see the referring origin in analytics.
       // The connection/loading indicator is a SIBLING of the anchor — never
       // part of the clickable area (SEO + click semantics stay untouched).
-      var inner = '<span>' + esc(label) + ' ' + esc(platform) + '</span>';
+      // A platform logo in place of the name (the International edition's
+      // `intl` template: config.poweredBy.logo, an absolute URL). The name is
+      // its alt text, and Core swaps the image back to the name if it cannot
+      // load ([data-wy-brand-logo]). Without a logo — the Iranian edition —
+      // the markup is exactly as it always was.
+      var logo = pb && typeof pb.logo === 'string' && /^https?:\/\//i.test(pb.logo) ? pb.logo : '';
+      var inner = logo
+        ? '<span>' + esc(label) + '</span><img class="wy-powered-logo" data-wy-brand-logo src="' + esc(logo) +
+          '" alt="' + esc(platform) + '" decoding="async" draggable="false">'
+        : '<span>' + esc(label) + ' ' + esc(platform) + '</span>';
       var body = url
         ? '<a class="wy-powered" href="' + esc(url) + '" target="_blank" rel="noopener nofollow" referrerpolicy="strict-origin-when-cross-origin">' + inner + '</a>'
         : '<span class="wy-powered">' + inner + '</span>';

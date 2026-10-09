@@ -28,6 +28,7 @@ import {
   EDITION_CALL_WIDGET_TEMPLATES,
   resolveCallWidgetTemplateForEdition,
 } from '../../../../shared/widgetTemplates';
+import { INTL_BRAND } from '../../../../shared/internationalMode';
 // CC-2G-UI-Architecture-Fix — read canonical departments from
 // Team & Departments instead of the deprecated Call Center departments
 // hook. Only departments with a Call Center channel enabled are
@@ -794,6 +795,8 @@ function CallWidgetPreview({ settings, online }: { settings: SettingsDraft; onli
             brand: platformBrandName(locale),
             brands: { en: platformBrandName('en'), fa: platformBrandName('fa'), tr: platformBrandName('tr') },
             url: null,
+            // The platform's logo, resolved by the runtime against this origin.
+            logo: INTL_BRAND.horizontal.light,
           },
         }
       : {}),

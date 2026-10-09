@@ -23,6 +23,8 @@ name: Windows app (native)
 # repository only.
 on:
   push:
+    # Without `branches`, a push trigger that lists `tags` ignores every branch push.
+    branches: ['**']
     paths:
       - 'windows-native/**'
       - '.github/workflows/desktop-native.yml'

@@ -33,6 +33,8 @@ name: macOS app
 #                                 needs right-click → Open once; updates need nothing).
 on:
   push:
+    # Without `branches`, a push trigger that lists `tags` ignores every branch push.
+    branches: ['**']
     paths:
       - 'macos/**'
       - 'windows-native/src/Webyar.Core/Localization/strings.json'

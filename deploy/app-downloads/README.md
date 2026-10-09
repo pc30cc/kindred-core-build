@@ -18,9 +18,11 @@ People download zips: the Windows one holds the installer (`Webyar-Setup.exe`,
 | Files on the host | `/data/app-downloads/webyar/` | `/data/app-downloads/respok/` |
 
 The links of before, to the installer and the DMG themselves
-(`<Prefix>-Setup.exe`, `<Prefix>-Setup-<version>.exe`, `<Prefix>-Mac.dmg`,
-`<Prefix>-Mac-<version>.dmg`), answer a redirect (302) to the same version's zip,
-so links already given out (sites, Super Admin, docs) keep working.
+(`<Prefix>-Setup.exe`, `<Prefix>-Mac.dmg`), answer a redirect (302) to the newest
+zip, so links already given out (sites, Super Admin, docs) keep working. A link
+with a version (`<Prefix>-Setup-<version>.exe`, `<Prefix>-Mac-<version>.dmg`)
+redirects to that version's zip, which exists only while it is kept (below): at
+the switch only each brand's newest version was zipped.
 
 The installed Windows apps update from their own site's feed (they trust only
 their own brand's feed and releases repository: `windows-native/src/Webyar.Core/Config/Brand.cs`).

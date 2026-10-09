@@ -69,4 +69,4 @@ SIG=$("$SPARKLE_BIN/sign_update" "$OUT/$FILE_PREFIX-$VERSION.zip")   # sparkle:e
 BRAND="$BRAND" FEED_DIR="$FEED_DIR" scripts/publish-feed.sh "$VERSION" "$BUILD" "$CHANNEL" \
   "$OUT/$FILE_PREFIX-$VERSION.zip" "$OUT/$FILE_PREFIX-$VERSION.dmg" "$SIG" "$NOTES"
 echo "Next: Super Admin → macOS app → Updates on the $BRAND platform: set the latest version to $VERSION."
-echo "The site's download (/downloads/$FILE_PREFIX-Mac.dmg) follows the feed by itself (deploy/app-downloads)."
+echo "The site's download (/downloads/$FILE_PREFIX-Mac.zip) follows the feed by itself (deploy/app-downloads)."

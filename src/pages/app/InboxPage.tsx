@@ -1066,7 +1066,7 @@ export default function InboxPage() {
     const diff = Date.now() - new Date(date).getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return t('inbox.now') || 'now';
-    // Locale-aware relative time (Jalali/Tehran aware for Persian).
+    // Locale-aware relative time (src/lib/date.ts).
     return formatRelative(date);
   };
 

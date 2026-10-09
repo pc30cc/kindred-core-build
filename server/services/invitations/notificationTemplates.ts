@@ -80,6 +80,11 @@ export interface InviteEmailInput {
   expiresAt?: string | null;
   /** IANA timezone of the workspace/site; the environment zone when absent. */
   timeZone?: string | null;
+  /**
+   * The Persian calendar: Jalali in the Iranian edition (the default, as
+   * before), Gregorian in the International one (shared/edition.ts).
+   */
+  calendar?: 'jalali' | 'gregorian' | null;
 }
 
 const CALENDAR_TAG: Record<NotificationLocale, string> = {
@@ -90,13 +95,20 @@ const CALENDAR_TAG: Record<NotificationLocale, string> = {
 
 /**
  * Locale-correct expiry wording. The CALENDAR follows the locale (Jalali for
- * Persian); the CLOCK follows the configured timezone, never the language.
+ * Persian in the Iranian edition, Gregorian for Persian in the International
+ * one); the CLOCK follows the configured timezone, never the language.
  */
-export function formatExpiry(locale: unknown, iso?: string | null, timeZone?: string | null): string | null {
+export function formatExpiry(
+  locale: unknown,
+  iso?: string | null,
+  timeZone?: string | null,
+  calendar?: 'jalali' | 'gregorian' | null,
+): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  const tag = CALENDAR_TAG[normalizeNotificationLocale(locale)];
+  const lc = normalizeNotificationLocale(locale);
+  const tag = lc === 'fa' && calendar === 'gregorian' ? 'fa-IR-u-ca-gregory' : CALENDAR_TAG[lc];
   try {
     return new Intl.DateTimeFormat(tag, {
       year: 'numeric', month: 'long', day: 'numeric',
@@ -110,7 +122,7 @@ export function formatExpiry(locale: unknown, iso?: string | null, timeZone?: st
 
 export function renderInviteEmail(locale: unknown, input: InviteEmailInput): RenderedEmail {
   const lc = normalizeNotificationLocale(locale);
-  const expiry = formatExpiry(lc, input.expiresAt, input.timeZone);
+  const expiry = formatExpiry(lc, input.expiresAt, input.timeZone, input.calendar);
   const name = input.firstName;
   const ws = input.workspaceName;
   const link = input.link;

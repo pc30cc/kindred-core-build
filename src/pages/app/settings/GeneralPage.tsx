@@ -1,5 +1,7 @@
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useEdition } from '@/hooks/useEdition';
+import { isValidIntlPhone, normalizeIntlPhone, sanitizeIntlPhoneInput } from '@/lib/phone-countries';
 import { useBranding, useUpdateBranding } from '@/hooks/useBranding';
 import { API_BASE } from '@/lib/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -41,6 +43,9 @@ type ContactInfo = {
  */
 export default function SettingsGeneralPage() {
   const { t } = useTranslation();
+  // Iran: the Iranian national phone format, as before. International: any
+  // international number in E.164 form (+<country code><number>).
+  const { isIran } = useEdition();
   const workspace = useCurrentWorkspace();
   const qc = useQueryClient();
   const { data: branding } = useBranding(workspace?.id);
@@ -75,20 +80,20 @@ export default function SettingsGeneralPage() {
       qc.invalidateQueries({ queryKey: ['workspaces'] });
       flashSaved();
     },
-    onError: (e: any) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+    onError: (e: Error) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
   });
 
   const flashSaved = () => setSavedFlash(Date.now());
 
   const saveBranding = (patch: Record<string, unknown>) => {
-    updateBranding.mutate(patch as any, {
+    updateBranding.mutate(patch as Parameters<typeof updateBranding.mutate>[0], {
       onSuccess: () => flashSaved(),
-      onError: (e: any) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+      onError: (e: Error) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
     });
   };
 
   const contactInfo: ContactInfo = useMemo(() => {
-    return ((branding as any)?.contact_info || {}) as ContactInfo;
+    return ((branding as { contact_info?: ContactInfo } | null | undefined)?.contact_info || {}) as ContactInfo;
   }, [branding]);
 
   const saveContact = (key: keyof ContactInfo, value: string) => {
@@ -114,8 +119,8 @@ export default function SettingsGeneralPage() {
       flashSaved();
       toast({ title: t('workspaceInfo.iconUpdated') });
       return res;
-    } catch (e: any) {
-      toast({ title: 'Upload failed', description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: 'Upload failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
     } finally {
       setUploading(false);
     }
@@ -128,8 +133,8 @@ export default function SettingsGeneralPage() {
       await removeWorkspaceIcon(workspace.id);
       qc.invalidateQueries({ queryKey: ['branding', workspace.id] });
       flashSaved();
-    } catch (e: any) {
-      toast({ title: 'Remove failed', description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: 'Remove failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
     } finally {
       setUploading(false);
     }
@@ -284,10 +289,12 @@ export default function SettingsGeneralPage() {
           <ContactField
             icon={<Phone className="h-3.5 w-3.5 text-muted-foreground" />}
             label={t('workspaceInfo.phone')}
-            placeholder="۰۲۱۱۲۳۴۵۶۷۸"
+            placeholder={isIran ? '۰۲۱۱۲۳۴۵۶۷۸' : INTL_PHONE_PLACEHOLDER}
             defaultValue={contactInfo.phone}
             onSave={v => saveContact('phone', v)}
-            iranPhone
+            iranPhone={isIran}
+            intlPhone={!isIran}
+            intlPhoneError={t('workspaceInfo.phoneInvalidIntl')}
           />
           <ContactField
             icon={<MessageCircle className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -313,10 +320,12 @@ export default function SettingsGeneralPage() {
           <ContactField
             icon={<MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />}
             label={t('workspaceInfo.whatsapp')}
-            placeholder="۰۹۱۲۳۴۵۶۷۸۹"
+            placeholder={isIran ? '۰۹۱۲۳۴۵۶۷۸۹' : INTL_PHONE_PLACEHOLDER}
             defaultValue={contactInfo.whatsapp}
             onSave={v => saveContact('whatsapp', v)}
-            iranPhone
+            iranPhone={isIran}
+            intlPhone={!isIran}
+            intlPhoneError={t('workspaceInfo.phoneInvalidIntl')}
           />
           <ContactField
             icon={<Instagram className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -366,6 +375,8 @@ function isValidIranPhone(v: string) {
   return /^09\d{9}$/.test(v) || /^0[1-8]\d{9}$/.test(v);
 }
 
+const INTL_PHONE_PLACEHOLDER = '+1 202 555 0143';
+
 /* ── Inline contact field with autosave on blur ─────────────── */
 function ContactField({
   icon,
@@ -375,6 +386,8 @@ function ContactField({
   onSave,
   type = 'text',
   iranPhone = false,
+  intlPhone = false,
+  intlPhoneError,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -383,7 +396,11 @@ function ContactField({
   onSave: (value: string) => void;
   type?: string;
   iranPhone?: boolean;
+  /** International edition: an E.164 number of any country. */
+  intlPhone?: boolean;
+  intlPhoneError?: string;
 }) {
+  const phone = iranPhone || intlPhone;
   const [value, setValue] = useState(defaultValue || '');
   const [error, setError] = useState(false);
   // Sync external changes (e.g., another tab) without clobbering edits.
@@ -400,32 +417,41 @@ function ContactField({
           {icon}
         </span>
         <Input
-          type={iranPhone ? 'tel' : type}
+          type={phone ? 'tel' : type}
           value={value}
           placeholder={placeholder}
-          dir={iranPhone ? 'ltr' : undefined}
-          inputMode={iranPhone ? 'numeric' : undefined}
-          autoComplete={iranPhone ? 'tel-national' : undefined}
-          maxLength={iranPhone ? 11 : undefined}
+          dir={phone ? 'ltr' : undefined}
+          inputMode={iranPhone ? 'numeric' : intlPhone ? 'tel' : undefined}
+          autoComplete={iranPhone ? 'tel-national' : intlPhone ? 'tel' : undefined}
+          maxLength={iranPhone ? 11 : intlPhone ? 18 : undefined}
           onChange={e => {
-            const next = iranPhone ? sanitizeIranInput(e.target.value) : e.target.value;
+            const next = iranPhone
+              ? sanitizeIranInput(e.target.value)
+              : intlPhone
+                ? sanitizeIntlPhoneInput(e.target.value)
+                : e.target.value;
             setValue(next);
             if (error) setError(false);
           }}
           onBlur={() => {
-            const v = iranPhone ? normalizeIranPhone(value) : value.trim();
+            const v = iranPhone ? normalizeIranPhone(value) : intlPhone ? normalizeIntlPhone(value) : value.trim();
             if (iranPhone) {
               setValue(v);
               if (!isValidIranPhone(v)) { setError(true); return; }
             }
+            if (intlPhone) {
+              setValue(v);
+              if (!isValidIntlPhone(v)) { setError(true); return; }
+            }
             if (v !== (defaultValue || '').trim()) onSave(v);
           }}
-          className={`ps-9${iranPhone ? ' text-start' : ''}${error ? ' border-destructive' : ''}`}
+          className={`ps-9${phone ? ' text-start' : ''}${error ? ' border-destructive' : ''}`}
         />
       </div>
-      {error && (
+      {error && iranPhone && (
         <p className="text-[11px] text-destructive">۰۹۱۲۳۴۵۶۷۸۹ — شماره را به‌صورت ایران وارد کنید</p>
       )}
+      {error && intlPhone && <p className="text-[11px] text-destructive">{intlPhoneError}</p>}
     </div>
   );
 }

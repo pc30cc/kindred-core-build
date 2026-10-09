@@ -34,6 +34,7 @@ import {
 } from '@/lib/api';
 import { PHONE_STATUS_CLASS, PHONE_STATUS_LABEL_KEY, resolvePhoneStatus } from './status';
 import { PHONE_COUNTRIES, countryFromE164, defaultPhoneCountry, phoneCountryLabel } from '@/lib/phone-countries';
+import { useEdition } from '@/hooks/useEdition';
 
 const REASON_MIN = 5;
 const REASON_MAX = 500;
@@ -63,12 +64,15 @@ export function AdminPhoneVerificationCard({
   ownerLink = false,
 }: AdminPhoneVerificationCardProps) {
   const { t, locale: uiLocale } = useTranslation();
+  // International: no Iranian default country and no SMS (re)send — its only
+  // SMS vendors are Iranian. Manual verification stays available.
+  const { edition, features } = useEdition();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
   const [confirming, setConfirming] = useState<'resend' | 'manual' | null>(null);
   const [editing, setEditing] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState('');
-  const [countryDraft, setCountryDraft] = useState(defaultPhoneCountry(uiLocale));
+  const [countryDraft, setCountryDraft] = useState(defaultPhoneCountry(uiLocale, edition));
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-phone-verification', userId],
@@ -101,7 +105,7 @@ export function AdminPhoneVerificationCard({
     // completely different fixes.
     onError: (e: PhoneVerificationFailure) => {
       const key = e.detail ? `phoneVerification.adminFailure.${e.detail}` : '';
-      const description = key ? t(key as any) : '';
+      const description = key ? t(key as Parameters<typeof t>[0]) : '';
       toast({
         title: e.message,
         ...(description && description !== key
@@ -241,6 +245,7 @@ export function AdminPhoneVerificationCard({
 
             {!readOnly && (
             <div className="flex flex-wrap items-center gap-2 pt-1">
+              {features.smsVerification && (
               <Button
                 size="sm"
                 variant="outline"
@@ -250,12 +255,13 @@ export function AdminPhoneVerificationCard({
                 {resend.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 <span className="ms-2">{t('admin.users.phoneResend')}</span>
               </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => {
                   setPhoneDraft(data.phone || '');
-                  setCountryDraft(countryFromE164(data.phone) ?? data.country ?? defaultPhoneCountry(uiLocale));
+                  setCountryDraft(countryFromE164(data.phone) ?? data.country ?? defaultPhoneCountry(uiLocale, edition));
                   setEditing((v) => !v);
                 }}
               >

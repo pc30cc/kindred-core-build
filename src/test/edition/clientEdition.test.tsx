@@ -19,7 +19,15 @@ vi.mock('@/i18n', () => ({
 }));
 
 import { useEdition } from '@/hooks/useEdition';
-import { EDITION_CACHE_KEY, __resetEditionForTests, cachedEdition, currentEdition, rememberEdition } from '@/lib/edition';
+import {
+  EDITION_CACHE_KEY,
+  __resetEditionForTests,
+  cachedEdition,
+  currentCurrency,
+  currentEdition,
+  rememberEdition,
+  rememberRegionMode,
+} from '@/lib/edition';
 import { formatAmountForEdition, formatMoney as libFormatMoney, formatToman } from '@/lib/money';
 import { displayCurrency, formatMoney as regionFormatMoney } from '@/lib/region';
 import { money } from '@/pages/app/billing/shared';
@@ -56,7 +64,24 @@ describe('src/lib/region.ts', () => {
       expect(text).not.toContain('تومان');
     }
     expect(displayCurrency('multi', 'en')).toBe('USD');
-    expect(displayCurrency('multi', 'tr')).toBe('TRY');
+  });
+
+  it('region currency × locale: Toman only in iran, Lira only in turkey, USD in multi/global for every language', () => {
+    const expected = { iran: 'IRT', turkey: 'TRY', multi: 'USD', global: 'USD' } as const;
+    for (const mode of ['iran', 'turkey', 'multi', 'global'] as const) {
+      for (const locale of ['fa', 'en', 'tr'] as const) {
+        expect(displayCurrency(mode, locale), `${mode}/${locale}`).toBe(expected[mode]);
+      }
+    }
+    // A record with no currency reads the region's; one with its own keeps it (never relabelled).
+    expect(regionFormatMoney(2900, 'tr', 'multi')).toBe('29 USD');
+    expect(regionFormatMoney(2900, 'tr', 'turkey')).toBe('29 TL');
+    expect(regionFormatMoney(2900, 'tr', 'turkey', { currency: 'USD' })).toBe('29 USD');
+    expect(regionFormatMoney(2900, 'en', 'multi', { currency: 'TRY' })).toBe('29 TRY');
+    // Legacy Rial outside Iran: plain IRR, never Toman.
+    expect(regionFormatMoney(1_000_000, 'fa', 'multi', { currency: 'IRR' })).not.toMatch(/تومان|Toman/);
+    // Iran pins Toman whatever the record says (as before).
+    expect(regionFormatMoney(1_000_000, 'fa', 'iran', { currency: 'USD' })).toBe(`${fa(100_000)} تومان`);
   });
 });
 
@@ -73,6 +98,7 @@ describe('src/lib/money.ts and the billing money() helper', () => {
       expect(libFormatMoney(2900, 'USD', 'en-US')).toBe('2,900 USD');
       expect(money(1_000_000, 'fa')).toBe(formatToman(1_000_000, 'fa'));
       expect(money(2900, 'en', 'USD')).toBe('$29.00');
+      expect(currentCurrency()).toBe('IRR');
     }
   });
 
@@ -84,6 +110,13 @@ describe('src/lib/money.ts and the billing money() helper', () => {
     const persian = money(2900, 'fa');
     expect(persian).not.toMatch(/تومان|Toman/);
     expect(persian).toContain(fa(29, 2));
+    // A Turkish-only site: amounts with no currency are Lira; Multi Region stays USD.
+    rememberRegionMode('turkey');
+    expect(money(2900, 'tr')).toBe(formatAmountForEdition(2900, 'TRY', 'tr', 'international'));
+    expect(currentCurrency()).toBe('TRY');
+    rememberRegionMode('multi');
+    expect(money(2900, 'tr')).toBe(formatAmountForEdition(2900, 'USD', 'tr', 'international'));
+    expect(currentCurrency()).toBe('USD');
     // Legacy Rial data is labelled IRR, never relabelled as dollars or Toman.
     expect(formatAmountForEdition(1_000_000, 'IRR', 'en-US', 'international')).toBe('1,000,000 IRR');
     expect(libFormatMoney(1_000_000, 'IRR', 'en-US')).not.toMatch(/Toman|\$/);
@@ -108,8 +141,8 @@ describe('useEdition()', () => {
     state.data = config('iran');
     const { result } = renderHook(() => useEdition());
     expect(result.current).toMatchObject({
-      edition: 'iran', isIran: true, ready: true, currency: 'IRR', calendar: 'jalali', phoneCountry: 'IR',
-      features: { wallet: true, aiCreditTopup: true, iranianProviders: true },
+      edition: 'iran', isIran: true, ready: true, regionMode: 'iran', currency: 'IRR', calendar: 'jalali', phoneCountry: 'IR',
+      features: { wallet: true, aiCreditTopup: true, iranianProviders: true, smsVerification: true, bale: true },
     });
     expect(result.current.allowsProvider('zarinpal')).toBe(true);
     expect(result.current.allowsCurrency('IRR')).toBe(true);
@@ -117,12 +150,16 @@ describe('useEdition()', () => {
     expect(localStorage.getItem(EDITION_CACHE_KEY)).toBe('iran');
   });
 
-  it.each(['multi', 'global', 'turkey'])('International (%s): USD, no Iranian gateway, no wallet', (mode) => {
+  it.each([
+    ['multi', 'USD'],
+    ['global', 'USD'],
+    ['turkey', 'TRY'],
+  ])('International (%s): %s, no Iranian gateway, no wallet, no SMS verification, no Bale', (mode, currency) => {
     state.data = config(mode);
     const { result } = renderHook(() => useEdition());
     expect(result.current).toMatchObject({
-      edition: 'international', isInternational: true, currency: 'USD', calendar: 'gregorian', phoneCountry: null,
-      features: { wallet: false, aiCreditTopup: false, iranianProviders: false },
+      edition: 'international', isInternational: true, regionMode: mode, currency, calendar: 'gregorian', phoneCountry: null,
+      features: { wallet: false, aiCreditTopup: false, iranianProviders: false, smsVerification: false, bale: false },
     });
     expect(result.current.allowsProvider('zarinpal')).toBe(false);
     expect(result.current.allowsProvider('stripe')).toBe(true);

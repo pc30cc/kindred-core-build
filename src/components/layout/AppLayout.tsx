@@ -28,6 +28,7 @@ import { fetchSignupPolicy } from '@/lib/emailOtp';
 import { EmailOtpDialog } from '@/components/auth/EmailOtpDialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PhoneVerificationFlow } from '@/features/phone-verification/PhoneVerificationFlow';
+import { useEdition } from '@/hooks/useEdition';
 import { usePhoneVerificationStatus } from '@/features/phone-verification/hooks';
 import { resolvePhoneStatus } from '@/features/phone-verification/status';
 import { useApplyPanelTheme, usePanelTheme } from '@/themes/usePanelTheme';
@@ -213,9 +214,14 @@ function PhoneVerificationBar() {
   const { workspace } = useActiveWorkspace();
   const [open, setOpen] = useState(false);
   const ctx = { purpose: 'widget_access' as const, ...(workspace?.slug ? { workspaceSlug: workspace.slug } : {}) };
-  const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(ctx, Boolean(workspace?.slug));
+  // No SMS verification outside the Iranian edition: no notice either.
+  const { features } = useEdition();
+  const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(
+    ctx,
+    Boolean(workspace?.slug) && features.smsVerification,
+  );
 
-  if (!workspace?.slug || isLoading || isError || !data?.canVerify) return null;
+  if (!features.smsVerification || !workspace?.slug || isLoading || isError || !data?.canVerify) return null;
 
   const status = resolvePhoneStatus({
     phoneMasked: data.phoneMasked,

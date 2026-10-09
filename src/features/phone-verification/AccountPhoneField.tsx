@@ -23,6 +23,7 @@ import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { PhoneVerificationFlow } from './PhoneVerificationFlow';
 import { usePhoneVerificationStatus } from './hooks';
 import { PHONE_STATUS_LABEL_KEY, resolvePhoneStatus } from './status';
+import { useEdition } from '@/hooks/useEdition';
 
 interface Props {
   /** Rendered when verification is not available for this user/context. */
@@ -35,9 +36,21 @@ export function AccountPhoneField({ fallback }: Props) {
   const [open, setOpen] = useState(false);
 
   const ctx = { purpose: 'widget_access' as const, ...(workspace?.slug ? { workspaceSlug: workspace.slug } : {}) };
-  const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(ctx, Boolean(workspace?.slug));
+  // SMS verification exists in the Iranian edition only: elsewhere (or when
+  // the server says it is not required) the plain profile-phone field shows.
+  const { features } = useEdition();
+  const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(
+    ctx,
+    Boolean(workspace?.slug) && features.smsVerification,
+  );
 
-  if (!workspace?.slug || isError || (!isLoading && !data?.canVerify && !data?.satisfied)) {
+  if (
+    !features.smsVerification ||
+    data?.required === false ||
+    !workspace?.slug ||
+    isError ||
+    (!isLoading && !data?.canVerify && !data?.satisfied)
+  ) {
     return <>{fallback}</>;
   }
 

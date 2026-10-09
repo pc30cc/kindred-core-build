@@ -12,9 +12,13 @@
  */
 import {
   EDITION_PROFILE,
+  currencyForEditionRegion,
   parseEdition,
+  parseRegionMode,
   resolveEdition,
   type Edition,
+  type RegionCurrency,
+  type RegionMode,
 } from '../../shared/edition';
 
 export { EDITION_PROFILE, parseEdition, resolveEdition, type Edition };
@@ -72,7 +76,40 @@ export function currentEdition(): Edition {
   return knownEdition() ?? 'iran';
 }
 
+let knownRegionMode: RegionMode | null = null;
+
+/**
+ * Called once the public config has arrived: remembers the raw region mode
+ * (the same `platform-region-mode` cache src/lib/region.ts keeps) so money
+ * helpers outside React know the region's currency.
+ */
+export function rememberRegionMode(mode: unknown): void {
+  knownRegionMode = parseRegionMode(mode);
+  try {
+    window.localStorage.setItem(REGION_MODE_CACHE_KEY, knownRegionMode);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** The region mode as far as this page knows it, or null. */
+export function knownRegionModeOrNull(): RegionMode | null {
+  if (knownRegionMode) return knownRegionMode;
+  const cached = read(REGION_MODE_CACHE_KEY);
+  return cached ? parseRegionMode(cached) : null;
+}
+
+/**
+ * The currency money shows and is charged in when a record names none
+ * (shared/edition.ts currencyForEditionRegion): IRR in the Iranian edition,
+ * TRY on a Turkish-only site, USD in Multi Region and Global.
+ */
+export function currentCurrency(): RegionCurrency {
+  return currencyForEditionRegion(currentEdition(), knownRegionModeOrNull() ?? 'multi');
+}
+
 /** Test-only: forget the in-memory edition. */
 export function __resetEditionForTests(): void {
   known = null;
+  knownRegionMode = null;
 }

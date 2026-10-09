@@ -8,9 +8,12 @@
  *     `hsl(var(--art-chart-N))` (palettes.css; 1 = the scheme's main colour);
  *   - numbers wear the reader's digits (Persian digits in Persian), compact on
  *     axes (1.2K, ۱٫۲ هزار), exact in tooltips (1,234, ۱٬۲۳۴);
- *   - dates follow the reader's calendar (the Jalali calendar in Persian),
+ *   - dates follow the reader's calendar (the Jalali calendar in Persian in
+ *     the Iranian edition, Gregorian elsewhere — src/lib/date.ts),
  *     short on axes ("۲۳ شهریور", "Sep 14"), with the weekday in tooltips.
  */
+
+import { getAppCalendar, type AppCalendar } from '@/lib/date';
 
 /** The locales the panel speaks (src/i18n/config.ts). */
 export type ArtChartLocale = 'en' | 'fa' | 'tr';
@@ -52,9 +55,12 @@ export function artNumberTag(locale: string): string {
   return 'en-US';
 }
 
-/** The BCP 47 tag for a locale's calendar (Persian: the Jalali calendar). */
-export function artDateTag(locale: string): string {
-  if (locale === 'fa') return 'fa-IR-u-ca-persian';
+/**
+ * The BCP 47 tag for a locale's calendar. Persian: the Jalali calendar in the
+ * Iranian edition, the Gregorian one (Persian digits) in International.
+ */
+export function artDateTag(locale: string, calendar: AppCalendar = getAppCalendar()): string {
+  if (locale === 'fa') return calendar === 'jalali' ? 'fa-IR-u-ca-persian' : 'fa-IR-u-ca-gregory';
   if (locale === 'tr') return 'tr-TR';
   return 'en-US';
 }

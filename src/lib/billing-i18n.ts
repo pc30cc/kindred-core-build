@@ -6,6 +6,7 @@
 
 import type { CapabilityDefinition } from '@/lib/entitlements-api';
 import { capabilityLabel } from '@/lib/capability-i18n';
+import { currentEdition } from '@/lib/edition';
 
 export type BillingLocale = 'fa' | 'en' | 'tr' | string;
 
@@ -205,8 +206,12 @@ export function billingError(locale: BillingLocale, message?: unknown): string {
       lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('network') ||
       lower.includes('gateway unreachable') || lower.includes('non-json') ||
       lower.includes("unexpected token '<'") || lower.includes('is not valid json')) {
+    // The Iranian edition's hint names Iran (its gateways are Iranian); the
+    // International edition gets the same neutral advice as en/tr.
     return locale === 'fa'
-      ? 'سرور نتوانست به درگاه پرداخت وصل شود (پاسخ نامعتبر یا مسدود شدن دسترسی). معمولاً یعنی سرور شما خارج از ایران است یا کلید API درگاه اشتباه است.'
+      ? currentEdition() === 'iran'
+        ? 'سرور نتوانست به درگاه پرداخت وصل شود (پاسخ نامعتبر یا مسدود شدن دسترسی). معمولاً یعنی سرور شما خارج از ایران است یا کلید API درگاه اشتباه است.'
+        : 'سرور نتوانست به درگاه پرداخت وصل شود (پاسخ نامعتبر یا مسدود شدن دسترسی). تنظیمات ارائه‌دهنده و کلید API را بررسی کنید.'
       : locale === 'tr'
         ? 'Sunucu ödeme sağlayıcısına ulaşamadı (geçersiz yanıt veya engellenmiş erişim). Sağlayıcı ayarlarını ve API anahtarını kontrol edin.'
         : 'The server could not reach the payment gateway (invalid or blocked response). Check the provider settings and API key.';

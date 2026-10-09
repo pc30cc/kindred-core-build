@@ -11,8 +11,13 @@
  * boundary — never in the ledger.
  */
 
-import { currentEdition, type Edition } from '@/lib/edition';
-import { editionCurrency, isRialCurrency } from '../../shared/edition';
+import { currentEdition, knownRegionModeOrNull, type Edition } from '@/lib/edition';
+import { currencyForEditionRegion, isRialCurrency } from '../../shared/edition';
+
+/** The currency an amount with none named is in: IRR in Iran, else the region's (TRY / USD). */
+export function defaultCurrencyFor(edition: Edition): string {
+  return currencyForEditionRegion(edition, knownRegionModeOrNull() ?? 'multi');
+}
 
 export const RIAL_PER_TOMAN = 10;
 
@@ -80,7 +85,8 @@ function formatMinorUnits(amount: number | string | null | undefined, code: stri
  *
  *   - Iranian edition: IRR (whole Rial) reads as Toman, exactly as before;
  *     no currency means IRR.
- *   - International edition: no currency means USD; every non-Rial amount is
+ *   - International edition: no currency means the region's (USD, or TRY on
+ *     a Turkish-only site); every non-Rial amount is
  *     minor units ("$29.00"). A Rial amount (legacy data) is shown as plain
  *     IRR — never relabelled as dollars, never as Toman.
  */
@@ -90,7 +96,7 @@ export function formatAmountForEdition(
   locale?: string,
   edition: Edition = currentEdition(),
 ): string {
-  const code = (currency || editionCurrency(edition)).toUpperCase();
+  const code = (currency || defaultCurrencyFor(edition)).toUpperCase();
   if (isRialCurrency(code)) {
     if (edition === 'iran') return formatToman(amount, locale);
     const n = Number(amount ?? 0);

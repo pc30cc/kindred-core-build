@@ -11,13 +11,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, RefreshCw, Inbox } from 'lucide-react';
 import { formatDate } from '@/lib/date';
-import { formatAmountForEdition, formatToman } from '@/lib/money';
+import { defaultCurrencyFor, formatAmountForEdition, formatToman } from '@/lib/money';
 import { formatPlanPrice } from '@/lib/planPrice';
 import { currentEdition } from '@/lib/edition';
-import { editionCurrency } from '../../../../shared/edition';
 import type { TranslationKey } from '@/i18n';
 
-/** Jalali in fa, Gregorian elsewhere — a display concern only, never storage. */
+/** Jalali in fa in the Iranian edition, Gregorian elsewhere (src/lib/date.ts) — display only, never storage. */
 export function billingDate(value: string | null | undefined, locale: string): string {
   if (!value) return '—';
   return formatDate(value, { year: 'numeric', month: 'long', day: 'numeric' }, locale);
@@ -33,7 +32,7 @@ export function billingDate(value: string | null | undefined, locale: string): s
 export function money(amount: number | null | undefined, locale: string, currency?: string | null): string {
   const edition = currentEdition();
   if (edition !== 'iran') return formatAmountForEdition(amount ?? 0, currency, locale, edition);
-  const code = (currency || editionCurrency(edition)).toUpperCase();
+  const code = (currency || defaultCurrencyFor(edition)).toUpperCase();
   if (code === 'IRR') return formatToman(amount ?? 0, locale);
   return formatPlanPrice(amount ?? 0, code, locale);
 }

@@ -601,8 +601,13 @@ function PlanFormDialog({
 
           {activeSection === 'pricing' && (
             <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">{t('admin.plans.form.pricingHint')}</p>
-              <p className="text-xs text-muted-foreground">{t('admin.plans.form.priceUnitHint')}</p>
+              {/* The Iranian hints name Toman and per-locale gateways; elsewhere neutral wording. */}
+              <p className="text-xs text-muted-foreground">
+                {t(edition.isIran ? 'admin.plans.form.pricingHint' : 'admin.plans.form.pricingHintIntl')}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t(edition.isIran ? 'admin.plans.form.priceUnitHint' : 'admin.plans.form.priceUnitHintIntl')}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {shownCurrencies.map((cur) => {
                   const unit = planPriceUnitLabel(cur, locale);

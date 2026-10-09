@@ -20,6 +20,8 @@ import { pluginsApi, type PluginCatalogItem } from '@/lib/plugins-api';
 import { PluginLogo } from '@/components/plugins/PluginLogo';
 import { Link, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { useEdition } from '@/hooks/useEdition';
+import { isChannelAllowedInEdition } from '../../../shared/edition';
 import { usePanelTheme } from '@/themes/usePanelTheme';
 import {
   CheckCircle2, Clock, Lock, Puzzle, Search, Settings2, Trash2, Wrench,
@@ -27,6 +29,8 @@ import {
 
 export default function PluginsPage() {
   const { t, dir } = useTranslation();
+  // Defense in depth: the server lists no Bale outside the Iranian edition.
+  const { edition } = useEdition();
   const isArt = usePanelTheme().theme === 'art';
   const { workspace } = useActiveWorkspace();
   const workspaceId = workspace?.id ?? '';
@@ -73,9 +77,11 @@ export default function PluginsPage() {
       const i = DISPLAY_ORDER.indexOf(id);
       return i === -1 ? DISPLAY_ORDER.length : i;
     };
-    return [...(data?.items ?? [])].sort((a, b) => rank(a.id) - rank(b.id));
+    return [...(data?.items ?? [])]
+      .filter((item) => isChannelAllowedInEdition(item.id, edition))
+      .sort((a, b) => rank(a.id) - rank(b.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, edition]);
 
 
   const stats = useMemo(() => {

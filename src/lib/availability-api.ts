@@ -13,7 +13,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   };
   const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', ...init, headers });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
+  if (!res.ok) throw new Error((body as { error?: string } | null)?.error || `Request failed: ${res.status}`);
   return body as T;
 }
 
@@ -50,12 +50,23 @@ export interface AvailabilityResponse {
 }
 
 /**
- * `locale` lets the server pick a sensible default timezone for operators who
- * have never saved one (fa → Asia/Tehran, tr → Europe/Istanbul, else UTC).
+ * `locale` and the browser's zone let the server pick a sensible default
+ * timezone for operators who have never saved one: in the Iranian edition by
+ * locale (fa → Asia/Tehran, tr → Europe/Istanbul, else UTC); in the
+ * International edition the browser's zone, else UTC.
  */
 export function fetchAvailability(locale?: string) {
-  const qs = locale ? `?locale=${encodeURIComponent(locale)}` : '';
-  return request<AvailabilityResponse>(`/api/availability${qs}`);
+  const params = new URLSearchParams();
+  if (locale) params.set('locale', locale);
+  let tz = '';
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch {
+    tz = '';
+  }
+  if (locale && tz) params.set('tz', tz);
+  const qs = params.toString();
+  return request<AvailabilityResponse>(`/api/availability${qs ? `?${qs}` : ''}`);
 }
 
 export function updateAvailability(updates: Partial<AvailabilityPrefs>) {

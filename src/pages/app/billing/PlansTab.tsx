@@ -55,7 +55,8 @@ export default function PlansTab({
   const [error, setError] = useState<string | null>(null);
   const [interval, setInterval_] = useState<'monthly' | 'yearly'>('monthly');
   // The customer's explicit currency choice; until then the server picks
-  // (the running subscription's currency, else the locale's, else Rial).
+  // (the running subscription's currency, else the region's: Toman in Iran,
+  // Lira on a Turkish-only site, USD in Multi Region / Global).
   const [chosenCurrency, setChosenCurrency] = useState<string | null>(null);
 
   const [busy, setBusy] = useState<string | null>(null);
@@ -366,6 +367,8 @@ const FEATURE_KEYS = [
  */
 function PlanFeatureList({ plan, accentVar }: { plan: PlanCard; accentVar: string }) {
   const { t, locale } = useTranslation();
+  // Bale (an Iranian messenger) is a plan feature of the Iranian edition only.
+  const { features: editionFeatures } = useEdition();
   const [expanded, setExpanded] = useState(false);
 
   const limits = (plan.limits || {}) as Record<string, unknown>;
@@ -381,6 +384,7 @@ function PlanFeatureList({ plan, accentVar }: { plan: PlanCard; accentVar: strin
   }
   for (const key of FEATURE_KEYS) {
     if (ents[key] !== true) continue;
+    if (key === 'bale' && !editionFeatures.bale) continue;
     items.push(t(`billing.plans.feat.${key}` as TranslationKey));
   }
   // Legacy free-text features, if an admin ever set them.

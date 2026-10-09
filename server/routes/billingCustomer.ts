@@ -79,10 +79,16 @@ import {
   assertProviderAllowed,
   assertCurrencyAllowed,
   editionErrorResponse,
-  getPlatformEdition,
+  getBillingRegion,
   type Edition,
 } from '../services/billing/edition.js';
-import { editionCurrency, isCurrencyAllowedInEdition } from '../../shared/edition.js';
+import {
+  REGION_CURRENCY,
+  currencyForEditionRegion,
+  isCurrencyAllowedInEdition,
+  regionPinsCurrency,
+  type RegionMode,
+} from '../../shared/edition.js';
 
 
 export const billingCustomerRouter = Router();
@@ -230,7 +236,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) 
   if (!auth) return;
   try {
     const cfg = serverConfigOf(req);
-    const currency = billingCurrencyOf(req.query.currency, editionCurrency(await getPlatformEdition(cfg)));
+    const currency = billingCurrencyOf(req.query.currency, (await getBillingRegion(cfg)).currency);
     const gateways = await invoiceGateways(cfg, req.params.workspaceId, currency);
     res.json({
       currency,
@@ -252,11 +258,11 @@ billingCustomerRouter.post('/workspaces/:workspaceId/coupons/validate', async (r
   if (!auth) return;
   if (!isManage(auth)) return res.status(403).json({ error: 'FORBIDDEN' });
   try {
-    const edition = await getPlatformEdition(serverConfigOf(req));
+    const { edition, currency: regionCurrency } = await getBillingRegion(serverConfigOf(req));
     const body = z
       .object({
         code: z.string().min(2).max(40),
-        currency: z.string().length(3).default(editionCurrency(edition)),
+        currency: z.string().length(3).default(regionCurrency),
         subtotalMinor: z.number().int().nonnegative(),
         planId: z.string().uuid().nullish(),
       })
@@ -428,8 +434,8 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
     // able to collect exactly that (an invoice is never re-priced here). In
     // the International edition neither a Rial invoice nor an Iranian
     // gateway can be collected.
-    const edition = await getPlatformEdition(cfg);
-    const currency = invoiceCurrency(invoice, editionCurrency(edition));
+    const { edition, currency: regionCurrency } = await getBillingRegion(cfg);
+    const currency = invoiceCurrency(invoice, regionCurrency);
     assertCurrencyAllowed(edition, currency);
     assertProviderAllowed(edition, parsed.data.providerName);
     const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName, currency);
@@ -597,16 +603,24 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
     // currency the customer can actually pay in: a visible plan is priced in
     // it and an active gateway can collect an invoice in it.
     // The International edition never offers Rial (its legacy flat price
-    // columns included); the Iranian edition is unchanged.
-    const edition = await getPlatformEdition(cfg);
-    const candidates = new Set<string>([editionCurrency(edition)]);
+    // columns included); the Iranian edition is unchanged. The region's own
+    // currency (IRR / TRY / USD) is always a candidate; Multi Region and
+    // Global offer only USD (plus the currency the running paid period was
+    // bought in, so that customer can still upgrade in it).
+    const { edition, regionMode } = await getBillingRegion(cfg);
+    const regionCurrency = currencyForEditionRegion(edition, regionMode);
+    const subscriptionCurrency = await paidSubscriptionCurrency(cfg, req.params.workspaceId);
+    const candidates = new Set<string>([regionCurrency]);
     for (const p of catalog) {
       for (const code of Object.keys(p.prices ?? {})) {
         if (/^[A-Za-z]{3}$/.test(code)) candidates.add(code.toUpperCase());
       }
     }
     const sellable = [...candidates].filter(
-      (c) => isCurrencyAllowedInEdition(c, edition) && catalog.some((p) => planSellsIn(p, c)),
+      (c) =>
+        isCurrencyAllowedInEdition(c, edition) &&
+        catalogOffersCurrency(c, { edition, regionMode, subscription: subscriptionCurrency }) &&
+        catalog.some((p) => planSellsIn(p, c)),
     );
     const collectable = await Promise.all(
       sellable.map(async (c) => (await invoiceGateways(cfg, req.params.workspaceId, c)).length > 0),
@@ -614,9 +628,10 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
     const currencies = sellable.filter((_c, i) => collectable[i]);
     const currency = pickCatalogCurrency(currencies, {
       requested: typeof req.query.currency === 'string' ? req.query.currency : null,
-      subscription: await paidSubscriptionCurrency(cfg, req.params.workspaceId),
+      subscription: subscriptionCurrency,
       locale: typeof req.query.locale === 'string' ? req.query.locale : null,
       edition,
+      regionMode,
     });
     const visiblePlans = catalog.filter((p) => planSellsIn(p, currency));
 
@@ -662,31 +677,59 @@ function planSellsIn(p: CatalogPlanRow, currency: string): boolean {
 }
 
 /**
- * The currency people of a UI locale pay in by default (the public pricing
- * page's rule). Persian means Toman only in the Iranian edition: in the
- * International edition Persian is just Persian text, priced in USD.
+ * May the catalogue offer `currency` in this region? Multi Region and Global
+ * show and charge USD for every language: only the region's currency and the
+ * currency a running paid period was bought in. The Iranian and Turkish
+ * regions offer every currency their edition allows (as before).
  */
-function localeCurrency(locale: string | null, edition: Edition): string {
-  if (locale === 'fa') return edition === 'iran' ? 'IRR' : editionCurrency(edition);
-  if (locale === 'tr') return 'TRY';
-  return 'USD';
+export function catalogOffersCurrency(
+  currency: string,
+  ctx: { edition: Edition; regionMode?: RegionMode | null; subscription?: string | null },
+): boolean {
+  const code = currency.trim().toUpperCase();
+  if (ctx.edition === 'iran' || !regionPinsCurrency(ctx.regionMode ?? 'multi')) return true;
+  return code === currencyForEditionRegion(ctx.edition, ctx.regionMode ?? 'multi') || code === ctx.subscription;
+}
+
+/**
+ * The currency the catalogue opens in when the customer chose none: the
+ * region's (shared/edition.ts editionCurrencyFor). The UI language never
+ * picks it: Persian means Toman only in the Iranian edition (whose only
+ * language it is), Turkish means Lira only on a Turkish-only site; in Multi
+ * Region and Global every language reads USD.
+ */
+function regionDefaultCurrency(edition: Edition, regionMode: RegionMode | null | undefined, locale: string | null): string {
+  // The Iranian edition keeps its rule exactly as before: Rial for Persian
+  // (its only language), the old per-language pick otherwise.
+  if (edition === 'iran') return locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : 'USD';
+  return regionMode ? currencyForEditionRegion(edition, regionMode) : REGION_CURRENCY.multi;
 }
 
 /**
  * The catalogue currency: the customer's explicit choice, else the currency
- * their running paid period was bought in (an upgrade stays in it), else
- * their UI locale's, else the edition's (Rial in Iran, USD in International),
- * else whatever can be paid at all. `edition` defaults to the Iranian one,
- * whose rule this was before editions existed.
+ * their running paid period was bought in (an upgrade stays in it), else the
+ * region's (Rial in Iran, Lira in Turkey, USD in Multi Region / Global), else
+ * whatever can be paid at all. `edition` defaults to the Iranian one, whose
+ * rule this was before editions existed.
  */
 export function pickCatalogCurrency(
   currencies: string[],
-  prefs: { requested?: string | null; subscription?: string | null; locale?: string | null; edition?: Edition },
+  prefs: {
+    requested?: string | null;
+    subscription?: string | null;
+    locale?: string | null;
+    edition?: Edition;
+    regionMode?: RegionMode | null;
+  },
 ): string {
   const edition = prefs.edition ?? 'iran';
-  const fallback = editionCurrency(edition);
+  const fallback = prefs.regionMode
+    ? currencyForEditionRegion(edition, prefs.regionMode)
+    : edition === 'iran'
+      ? 'IRR'
+      : REGION_CURRENCY.multi;
   const requested = prefs.requested ? billingCurrencyOf(prefs.requested, fallback) : null;
-  for (const code of [requested, prefs.subscription, localeCurrency(prefs.locale ?? null, edition), fallback]) {
+  for (const code of [requested, prefs.subscription, regionDefaultCurrency(edition, prefs.regionMode, prefs.locale ?? null), fallback]) {
     if (code && currencies.includes(code)) return code;
   }
   return currencies[0] ?? requested ?? fallback;

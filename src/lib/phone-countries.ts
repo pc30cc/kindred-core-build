@@ -1,3 +1,5 @@
+import type { Edition } from '../../shared/edition';
+
 /**
  * Client-side mirror of the server phone country table
  * (`server/services/phoneVerification/phone.ts`). Keep both in sync.
@@ -19,11 +21,46 @@ export const PHONE_COUNTRIES: PhoneCountry[] = [
   { code: 'DE', dial: '+49', flag: '🇩🇪', labels: { fa: 'آلمان', en: 'Germany', tr: 'Almanya' } },
 ];
 
-/** Farsi UI defaults to Iran, Turkish to Türkiye, everything else to the UK. */
-export function defaultPhoneCountry(locale?: string): string {
-  if (locale === 'fa') return 'IR';
+/**
+ * The country a phone picker opens on. Iranian edition (the default, as
+ * before): Farsi UI → Iran, Turkish → Türkiye, everything else → the UK. The
+ * International edition never defaults to Iran: Turkish → Türkiye, every
+ * other language (Persian included) → the UK.
+ */
+export function defaultPhoneCountry(locale?: string, edition: Edition = 'iran'): string {
+  if (locale === 'fa' && edition === 'iran') return 'IR';
   if (locale === 'tr') return 'TR';
   return 'GB';
+}
+
+const FA_AR_DIGITS = /[۰-۹٠-٩]/g;
+function latinDigits(input: string): string {
+  return input.replace(FA_AR_DIGITS, (d) => {
+    const fa = '۰۱۲۳۴۵۶۷۸۹'.indexOf(d);
+    return String(fa >= 0 ? fa : '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+  });
+}
+
+/** International (E.164) phone input: keeps digits and one leading `+` while typing. */
+export function sanitizeIntlPhoneInput(input: string): string {
+  const v = latinDigits(input).replace(/[^\d+]/g, '');
+  const plus = v.startsWith('+');
+  return (plus ? '+' : '') + v.replace(/\+/g, '').slice(0, 17);
+}
+
+/** The canonical E.164 value (`00` → `+`, a missing `+` added); empty for an empty input. */
+export function normalizeIntlPhone(input: string): string {
+  let v = sanitizeIntlPhoneInput(input);
+  if (!v) return '';
+  if (v.startsWith('00')) v = '+' + v.slice(2);
+  else if (!v.startsWith('+')) v = '+' + v;
+  return v;
+}
+
+/** `+` and 7-15 digits, no leading zero in the country code. Empty is valid (no number). */
+export function isValidIntlPhone(v: string): boolean {
+  if (!v) return true;
+  return /^\+[1-9]\d{6,14}$/.test(v);
 }
 
 export function phoneCountryLabel(code: string, locale: string): string {

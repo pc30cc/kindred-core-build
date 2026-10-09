@@ -39,6 +39,8 @@ import {
   hasOtpKey,
 } from './tokens.js';
 import { IdleBackoff, IntervalGate } from '../jobs/idleBackoff.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
+import { EDITION_PROFILE } from '../../../shared/edition.js';
 
 const WORKER_ID = `invitations-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const POLL_MS = 5_000;
@@ -134,7 +136,7 @@ async function complete(
     _safe_error_message: extra.message ? String(extra.message).slice(0, 300) : null,
     _retry_in_seconds: extra.retryIn ?? 60,
   });
-  if (error || !(data as any)?.applied) {
+  if (error || !applied(data)) {
     throw new Error(error?.message || 'JOB_CLAIM_LOST');
   }
 }
@@ -144,9 +146,50 @@ async function complete(
  * revoked, the delivery row written, the claim cleared and the job marked
  * terminal together, under a claim-token + worker-identity + lease guard.
  */
+/** A claimed `invitation_jobs` row, as `claim_invitation_jobs` returns it. */
+interface InvitationJobRow {
+  id: string;
+  claim_token: string;
+  channel: 'email' | 'sms' | 'otp_email' | string;
+  invitation_id: string;
+  locale?: string | null;
+  attempt_count: number;
+  max_attempts?: number | null;
+  derivation_key_version?: number | null;
+  notification_generation: number;
+  email_token_generation?: number | null;
+}
+
+/** What `wi_prepare_invitation_job` returns for a job that is still to be sent. */
+interface PreparedInvitationJob {
+  cancelled?: boolean;
+  email: string;
+  phone: string;
+  first_name: string;
+  workspace_name: string;
+  workspace_id: string;
+  role?: string | null;
+  locale?: string | null;
+  expires_at?: string | null;
+  time_zone?: string | null;
+}
+
+/** What `wi_otp_job_sendable` returns. */
+interface OtpJobState {
+  sendable?: boolean;
+  key_version?: number | string | null;
+  invitation_id?: string;
+  otp_id?: string;
+  locale?: string | null;
+  workspace_id?: string;
+  email?: string;
+}
+
+const applied = (data: unknown): boolean => Boolean((data as { applied?: boolean } | null)?.applied);
+
 async function failOtpAtomically(
   config: ServerConfig,
-  job: any,
+  job: InvitationJobRow,
   claimToken: string,
   outcome: 'permanently_failed' | 'unconfigured' | 'derivation_key_unavailable',
   extra: { provider?: string; errorCode?: string; message?: string } = {},
@@ -161,12 +204,12 @@ async function failOtpAtomically(
     _error_code: extra.errorCode ?? null,
     _safe_error_message: extra.message ? String(extra.message).slice(0, 300) : null,
   });
-  if (error || !(data as any)?.applied) {
+  if (error || !applied(data)) {
     throw new Error(error?.message || 'JOB_CLAIM_LOST');
   }
 }
 
-async function processJob(config: ServerConfig, job: any): Promise<void> {
+async function processJob(config: ServerConfig, job: InvitationJobRow): Promise<void> {
   const sb = getServiceClient(config);
   const claimToken = job.claim_token as string;
 
@@ -239,9 +282,9 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
     });
     return;
   }
-  if (!prepared || (prepared as any).cancelled) return;
+  if (!prepared || (prepared as { cancelled?: boolean }).cancelled) return;
 
-  const payload = prepared as any;
+  const payload = prepared as PreparedInvitationJob;
 
   // Read-only preflight immediately before submission.
   const { data: sendable } = await sb.rpc('wi_job_still_sendable', {
@@ -258,7 +301,7 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
       _job_id: job.id,
       _claim_token: claimToken,
     });
-    const otpState = (state || {}) as any;
+    const otpState = (state || {}) as OtpJobState;
     if (!otpState.sendable) {
       await failOtpAtomically(config, job, claimToken, 'permanently_failed', {
         errorCode: 'OTP_NO_LONGER_LIVE',
@@ -343,6 +386,8 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
       link,
       expiresAt: payload.expires_at ?? null,
       timeZone: payload.time_zone ?? null,
+      // Jalali in the Iranian edition (and while unknown, as before), Gregorian elsewhere.
+      calendar: EDITION_PROFILE[(await getPlatformEditionOrNull(config)) ?? 'iran'].calendar,
     });
     const result = await sendEmail(config, {
       workspaceId: payload.workspace_id,
@@ -388,17 +433,17 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
     // Stored as E.164; the vendors want the local form (see toProviderFormat).
     to: toProviderFormat(payload.phone),
     body: smsBody,
-  } as any);
+  });
 
   if (smsResult.success) {
     await complete(config, job.id, claimToken, 'provider_accepted', {
       provider: smsResult.provider,
-      messageId: (smsResult as any).messageId,
+      messageId: smsResult.messageId,
     });
   } else {
     await complete(config, job.id, claimToken, 'retry', {
       provider: smsResult.provider,
-      errorCode: (smsResult as any).errorCode || 'SMS_SEND_FAILED',
+      errorCode: smsResult.errorCode || 'SMS_SEND_FAILED',
       message: renderDeliveryFailure(smsLocale, 'SMS_SEND_FAILED'),
       retryIn: backoffSeconds(job.attempt_count),
     });
@@ -451,14 +496,14 @@ export async function drainInvitationJobs(
     }
     if (!Array.isArray(jobs) || jobs.length === 0) return 0;
 
-    for (const job of jobs) {
+    for (const job of jobs as InvitationJobRow[]) {
       try {
         await processJob(config, job);
-      } catch (err: any) {
+      } catch (err: unknown) {
         try {
           await complete(config, job.id, job.claim_token, 'retry', {
             errorCode: 'WORKER_ERROR',
-            message: err?.message || 'worker error',
+            message: (err instanceof Error ? err.message : '') || 'worker error',
             retryIn: backoffSeconds(job.attempt_count),
           });
         } catch { /* the lease reaper will requeue */ }
@@ -495,8 +540,8 @@ async function tick(config: ServerConfig): Promise<boolean> {
   const pass = (async () => {
     try {
       return await drainInvitationJobs(config, { runMaintenance: maintenanceGate.due() });
-    } catch (err: any) {
-      console.warn('[invitationWorker] tick failed:', err?.message || err);
+    } catch (err: unknown) {
+      console.warn('[invitationWorker] tick failed:', (err instanceof Error ? err.message : '') || err);
       // Treated as idle by the caller, so a database that is down is polled
       // progressively less often instead of every 5s for the whole outage.
       return false;

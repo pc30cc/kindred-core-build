@@ -58,6 +58,11 @@
         : Util.escapeHtml(v);
     }
     function isRtl() { return String(ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa'; }
+    // Whether a platform-wide text is written in the widget's language:
+    // Persian script for fa, no Persian script for the other languages.
+    function textFitsLocale(text) {
+      return /[؀-ۿ]/.test(String(text)) === isRtl();
+    }
     function tf(key, fallback) {
       var v = t(key);
       return (v && v !== key) ? v : fallback;
@@ -129,7 +134,10 @@
       if (config && config.showPoweredBy === false) return '';
       var platform = (pb && pb.brand) || (config && config.platformName) || '';
       if (!platform) return '';
-      var label = (pb && pb.text) || tf('poweredBy', 'Powered by');
+      // The platform's wording is one string for every language; it is used
+      // only when written in the widget's language (Persian script for fa,
+      // non-Persian otherwise), else the widget's own translation is.
+      var label = (pb && pb.text && textFitsLocale(pb.text)) ? pb.text : tf('poweredBy', 'Powered by');
       var url = (pb && pb.url) || '';
       // No URL => a genuinely non-interactive element: no href, no data hook,
       // no link semantics. Appearance is identical (same class).

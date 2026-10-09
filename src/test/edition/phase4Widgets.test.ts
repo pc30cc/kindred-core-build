@@ -314,7 +314,7 @@ describe('call widget runtime: template and "powered by"', () => {
 describe('"powered by" with the platform logo (International template)', () => {
   const LOGO = 'https://app.respok.app/brand/intl/respok-thread-horizontal-color.svg';
 
-  function footer(poweredBy: Record<string, unknown>): string {
+  function footer(poweredBy: Record<string, unknown>, locale = 'en', strings: Record<string, string> = {}): string {
     new Function(read('public/widget/presentation-registry.js')).call(window);
     new Function(read('public/widget/presentation-default.js')).call(window);
     const reg = (window as unknown as { __gs_presentation_registry: { resolve: (id: string) => { globalKey: string } } })
@@ -323,10 +323,10 @@ describe('"powered by" with the platform logo (International template)', () => {
       reg.resolve('intl').globalKey
     ];
     const r = mod.create({
-      t: (k: string) => k,
+      t: (k: string) => strings[k] ?? k,
       escapeHtml: (v: unknown) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string),
       config: { attachments: { enabled: false }, composer: {}, readReceipts: { enabled: true }, poweredBy, showPoweredBy: true },
-      locale: 'en',
+      locale,
       primaryColor: '#3B82F6',
     });
     const html = r.homeHtml({
@@ -335,6 +335,18 @@ describe('"powered by" with the platform logo (International template)', () => {
     });
     return /<div class="wy-footer">[\s\S]*?<\/(a|span)><\/div>/.exec(html)?.[0] ?? '';
   }
+
+  it('chat widget: the platform wording is used only in its own language, else the widget\'s translation', () => {
+    // RESPOK's platform text is the Persian one inherited from WebYar; an English widget must not show it.
+    expect(footer({ text: 'قدرت گرفته از', brand: 'RESPOK', url: null })).toContain('<span>Powered by RESPOK</span>');
+    expect(footer({ text: 'قدرت گرفته از', brand: 'RESPOK', url: null }, 'tr', { poweredBy: 'Sağlayan' })).toContain('<span>Sağlayan RESPOK</span>');
+    // A Persian widget keeps the Persian platform text (WebYar's case, unchanged).
+    expect(footer({ text: 'قدرت گرفته از', brand: 'وب یار', url: null }, 'fa', { poweredBy: 'قدرت گرفته از' })).toContain('<span>قدرت گرفته از وب یار</span>');
+    // An English platform text is not shown on a Persian widget.
+    expect(footer({ text: 'Powered by', brand: 'RESPOK', url: null }, 'fa', { poweredBy: 'قدرت گرفته از' })).toContain('<span>قدرت گرفته از RESPOK</span>');
+    // An English platform text on an English widget is used as written.
+    expect(footer({ text: 'Built with', brand: 'RESPOK', url: null })).toContain('<span>Built with RESPOK</span>');
+  });
 
   it('chat widget: Iran\'s credit (no logo) is the text exactly as before', () => {
     const html = footer({ text: '', brand: 'Web Yar', url: null });

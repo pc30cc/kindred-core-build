@@ -249,6 +249,8 @@ describe('index.html and the boot script', () => {
       script,
       pending: () => document.documentElement.classList.contains('wy-boot-pending'),
       intl: () => !!splash().querySelector('.wy-loader.wy-intl'),
+      /** WebYar's brand kit (shared/webyarBrand.ts): the Iranian edition only. */
+      kit: () => !!splash().querySelector('svg.wy-kit-loader'),
       label: () => splash().getAttribute('aria-label'),
     };
   }
@@ -260,11 +262,18 @@ describe('index.html and the boot script', () => {
     expect(iran.script).toBeNull();
     expect(iran.pending()).toBe(false);
     expect(iran.intl()).toBe(false);
-    expect(iran.label()).toBe('WEBYAR AI');
+    // The Iranian edition wears WebYar's brand kit from the first paint.
+    expect(iran.kit()).toBe(true);
+    expect(iran.label()).toBe('وب‌یار');
+    expect(document.querySelector('link[rel="icon"]')!.getAttribute('href')).toBe('/brand/webyar/favicon.svg');
+    expect(document.querySelector('link[rel="apple-touch-icon"]')!.getAttribute('href')).toBe('/brand/webyar/apple-touch-icon.png');
     const intl = page({ [EDITION_CACHE_KEY]: 'international', [BRAND_CACHE_KEY]: JSON.stringify({ names: { en: 'RESPOK' } }) });
     expect(intl.script).toBeNull();
     expect(intl.intl()).toBe(true);
+    expect(intl.kit()).toBe(false);
     expect(intl.label()).toBe('RESPOK');
+    expect(document.body.innerHTML).not.toContain('/brand/webyar/');
+    expect(document.head.innerHTML).not.toContain('/brand/webyar/');
   });
 
   it('a first visit loads boot.js asynchronously — never document.write — and keeps the brand area empty meanwhile', () => {
@@ -289,22 +298,32 @@ describe('index.html and the boot script', () => {
     expect(document.title).toBe('RESPOK');
   });
 
-  it('Iranian boot data shows today\'s splash', () => {
+  it('Iranian boot data dresses the splash with WebYar\'s brand kit', () => {
     const p = page({});
     w.__PLATFORM_BOOT__ = { edition: 'iran', names: { fa: 'وب‌یار' } };
     p.script!.onload!(new Event('load'));
     expect(p.pending()).toBe(false);
     expect(p.intl()).toBe(false);
-    expect(p.label()).toBe('WEBYAR AI');
+    expect(p.kit()).toBe(true);
+    expect(p.label()).toBe('وب‌یار');
+    const foot = document.querySelector('#boot-splash .wy-footer')!;
+    expect([...foot.querySelectorAll('img')].map((i) => i.getAttribute('src'))).toEqual([
+      '/brand/webyar/webyar-logo-fa-color.svg',
+      '/brand/webyar/webyar-logo-fa-on-dark.svg',
+    ]);
+    expect(document.querySelector('meta[property="og:image"]')!.getAttribute('content')).toBe('/brand/webyar/og-image-1200x630.png');
+    expect(document.querySelector('link[rel="mask-icon"]')!.getAttribute('color')).toBe('#0B7D6C');
     expect(localStorage.getItem(EDITION_CACHE_KEY)).toBe('iran');
   });
 
-  it('a failed boot.js falls back to the default splash at once', () => {
+  it('a failed boot.js falls back to the default splash at once (no kit while the edition is unknown)', () => {
     const p = page({});
     p.script!.onerror!(new Event('error'));
     expect(p.pending()).toBe(false);
     expect(p.intl()).toBe(false);
+    expect(p.kit()).toBe(false);
     expect(p.label()).toBe('WEBYAR AI');
+    expect(document.head.innerHTML).not.toContain('/brand/webyar/');
   });
 
   it('a hanging boot.js falls back after the timeout; a late answer is only remembered', () => {

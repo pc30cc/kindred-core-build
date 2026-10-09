@@ -15,6 +15,13 @@ import { useArtPreviewStage } from './useArtPreviewStage';
 import { useEdition } from '@/hooks/useEdition';
 import { resolveChatWidgetTemplate, widgetDateHints } from '../../../../shared/widgetTemplates';
 import { INTL_BRAND } from '../../../../shared/internationalMode';
+import { WEBYAR_BRAND, isUncustomisedColor, useWebyarKit } from '@/lib/webyarBrand';
+import {
+  WEBYAR_LAUNCHER_BASE_SIZE,
+  WEBYAR_LAUNCHER_CHAT_GLYPH,
+  WEBYAR_LAUNCHER_CLOSE_GLYPH,
+  WEBYAR_LAUNCHER_CSS,
+} from '../../../../shared/webyarLauncher';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
 
@@ -242,6 +249,9 @@ export function WidgetLivePreview({
   // The International edition previews its own template and dates
   // (shared/widgetTemplates.ts); the Iranian edition exactly as before.
   const { isInternational } = useEdition();
+  // The Iranian edition (known, never assumed) previews WebYar's floating
+  // button and logo credit, as loader.js / the bootstrap draw them.
+  const webyarKit = useWebyarKit() && !isInternational;
   const stageBackground = stage?.background ?? '#F1F5F9';
   const stageBar = stage?.bar ?? '#E2E8F0';
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -318,7 +328,11 @@ export function WidgetLivePreview({
       1.4,
       Math.max(0.8, !isFinite(rawScale) || rawScale <= 0 ? 1 : rawScale > 3 ? rawScale / 100 : rawScale),
     );
-    const fabSize = Math.round(56 * fabScale);
+    const fabSize = Math.round((webyarKit ? WEBYAR_LAUNCHER_BASE_SIZE : 56) * fabScale);
+    // WebYar's button (shared/webyarLauncher.ts): the kit's gradient unless
+    // the workspace chose its own colour; its bubble unless it chose an icon.
+    const kitBrand = webyarKit && isUncustomisedColor(s.primary_color);
+    const kitBubble = webyarKit && (!s.fab_icon || s.fab_icon === 'chat' || !FAB_ICONS[s.fab_icon as string]);
     const fabRadius = s.fab_shape === 'square' ? '16px' : '50%';
     const fabIconColor = s.fab_icon_color || '#fff';
     const fabIcon = FAB_ICONS[(s.fab_icon as string) || 'chat'] || FAB_ICONS.chat;
@@ -398,9 +412,13 @@ export function WidgetLivePreview({
         ? {
             // The International template credits the platform with its logo,
             // as the widget bootstrap does (server/routes/widget.ts).
+            // The Iranian edition (known, never assumed) credits WebYar with
+            // the kit's Persian logotype the same way.
             poweredBy: isInternational && poweredBy
               ? { ...poweredBy, logo: `${window.location.origin}${INTL_BRAND.horizontal.light}` }
-              : poweredBy,
+              : webyarKit && poweredBy
+                ? { ...poweredBy, logo: `${window.location.origin}${WEBYAR_BRAND.logo.light}` }
+                : poweredBy,
             showPoweredBy: poweredBy !== null,
           }
         : {}),
@@ -574,6 +592,7 @@ export function WidgetLivePreview({
   [data-smart-surface]{transition:opacity .22s ease, transform .22s ease;}
   [data-smart-surface][hidden]{display:none!important;}
   [data-smart-surface].smart-enter{opacity:0;transform:translateY(6px);}
+  ${webyarKit ? WEBYAR_LAUNCHER_CSS : ''}
 </style>
 </head>
 <body>
@@ -584,9 +603,9 @@ export function WidgetLivePreview({
   </div>
   <div class="shell pos-${pos}${s.fab_animation === true ? ' anim-on' : ''}">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
-    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}" id="gs-launcher" aria-label="chat">
-      <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
-      <svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${webyarKit ? ` wy-kit${kitBrand ? ' wy-kit-brand' : ''}` : ''}" id="gs-launcher" aria-label="chat">
+      ${kitBubble ? WEBYAR_LAUNCHER_CHAT_GLYPH : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
+      ${webyarKit ? WEBYAR_LAUNCHER_CLOSE_GLYPH : '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>'}
       ${fabImage ? `<img class="fab-img" alt="" src="${esc(fabImage)}">` : ''}
     </button>
     ${s.fab_label ? `<div class="fab-label"><span class="label-title">${esc(s.fab_label)}</span></div>` : ''}
@@ -953,7 +972,7 @@ export function WidgetLivePreview({
   }, [
     settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
-    smartScenario?.rtl, stageBackground, stageBar, isInternational,
+    smartScenario?.rtl, stageBackground, stageBar, isInternational, webyarKit,
   ]);
 
   return (

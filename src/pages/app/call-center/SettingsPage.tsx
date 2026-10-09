@@ -29,6 +29,7 @@ import {
   resolveCallWidgetTemplateForEdition,
 } from '../../../../shared/widgetTemplates';
 import { INTL_BRAND } from '../../../../shared/internationalMode';
+import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
 // CC-2G-UI-Architecture-Fix — read canonical departments from
 // Team & Departments instead of the deprecated Call Center departments
 // hook. Only departments with a Call Center channel enabled are
@@ -775,6 +776,7 @@ function CallWidgetTemplateSelect({ value, onChange, t }: {
 
 function CallWidgetPreview({ settings, online }: { settings: SettingsDraft; online: boolean }) {
   const { edition, isInternational } = useEdition();
+  const webyarKit = useWebyarKit() && !isInternational;
   const { locale } = useTranslation();
   useBrandVersion();
   const templateId = isInternational
@@ -785,8 +787,7 @@ function CallWidgetPreview({ settings, online }: { settings: SettingsDraft; onli
     provider_ready: true,
     assets_version: 'preview',
     session: 'preview',
-    // The International edition previews its own stylesheet and credit;
-    // the Iranian preview stays exactly as it was.
+    // The International edition previews its own stylesheet and credit.
     ...(isInternational
       ? {
           edition: 'international',
@@ -800,6 +801,9 @@ function CallWidgetPreview({ settings, online }: { settings: SettingsDraft; onli
           },
         }
       : {}),
+    // The Iranian edition (known, never assumed) previews WebYar's logotype
+    // in its credit, as the bootstrap sends it (server/routes/callWidget.ts).
+    ...(webyarKit ? { edition: 'iran', powered_by_logo: WEBYAR_BRAND.logo.light } : {}),
     config: {
       display_name: settings.display_name,
       avatar_url: settings.avatar_url,

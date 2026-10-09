@@ -141,3 +141,86 @@ export function isCurrencyAllowedInEdition(code: unknown, edition: Edition): boo
   if (edition === 'iran') return true;
   return !isRialCurrency(code);
 }
+
+// ─── Region modes and their currency ───────────────────────────────────────
+
+/** `platform_settings.region_mode` values (src/lib/region.ts, server/services/platformRegion.ts). */
+export const REGION_MODES = ['multi', 'iran', 'turkey', 'global'] as const;
+export type RegionMode = (typeof REGION_MODES)[number];
+
+/** A stored region mode, or `multi` (the column default) when it is not one. */
+export function parseRegionMode(value: unknown): RegionMode {
+  return typeof value === 'string' && (REGION_MODES as readonly string[]).includes(value) ? (value as RegionMode) : 'multi';
+}
+
+/** The currency a region shows and charges in (ISO 4217; IRR is displayed as Toman). */
+export type RegionCurrency = 'IRR' | 'TRY' | 'USD';
+
+/**
+ * The display and charge currency per region mode (the owner's rule):
+ *   - `iran`   → IRR (Toman), exactly as before;
+ *   - `turkey` → TRY: a Turkish-only site sells in Turkish Lira;
+ *   - `multi`, `global` → USD for EVERY language, Turkish and Persian included.
+ * The UI language never chooses the currency.
+ */
+export const REGION_CURRENCY: Readonly<Record<RegionMode, RegionCurrency>> = {
+  iran: 'IRR',
+  turkey: 'TRY',
+  multi: 'USD',
+  global: 'USD',
+};
+
+/** `platform_settings.region_mode` → the currency it shows and charges (missing/unknown → `multi` → USD). */
+export function editionCurrencyFor(regionMode: unknown): RegionCurrency {
+  return REGION_CURRENCY[parseRegionMode(regionMode)];
+}
+
+/**
+ * The currency for an edition plus the region mode the platform reported.
+ * The edition wins when the two disagree (an `iran` edition is always IRR;
+ * an International edition is never IRR, even with a stale `iran` mode).
+ */
+export function currencyForEditionRegion(edition: Edition, regionMode: unknown): RegionCurrency {
+  if (edition === 'iran') return 'IRR';
+  const mode = parseRegionMode(regionMode);
+  return mode === 'iran' ? editionCurrency(edition) : REGION_CURRENCY[mode];
+}
+
+/**
+ * Whether a region pins its catalogue to its own currency. `multi` and
+ * `global` show and charge USD only (plus the currency a running paid period
+ * was bought in, so that customer can still upgrade); `iran` and `turkey`
+ * keep offering every currency the edition allows, their own first.
+ */
+export function regionPinsCurrency(regionMode: unknown): boolean {
+  const mode = parseRegionMode(regionMode);
+  return mode === 'multi' || mode === 'global';
+}
+
+// ─── Iranian-only services ─────────────────────────────────────────────────
+
+/** Bale (بله), the Iranian messenger: a channel of the Iranian edition only. */
+export const IRANIAN_CHANNELS = ['bale'] as const;
+
+export function isIranianChannel(id: unknown): boolean {
+  return typeof id === 'string' && (IRANIAN_CHANNELS as readonly string[]).includes(id.trim().toLowerCase());
+}
+
+/** May this channel / plugin be listed or used in this edition? */
+export function isChannelAllowedInEdition(id: unknown, edition: Edition): boolean {
+  return EDITION_PROFILE[edition].allowsIranianProviders || !isIranianChannel(id);
+}
+
+/** The default time zone of each edition: Tehran in Iran, UTC elsewhere (or the browser's on the client). */
+export function editionDefaultTimeZone(edition: Edition): 'Asia/Tehran' | 'UTC' {
+  return edition === 'iran' ? 'Asia/Tehran' : 'UTC';
+}
+
+/**
+ * SMS one-time codes (phone verification and the gates that require it).
+ * The only live SMS runtimes are Iranian (Kavenegar, SMS.ir), so outside the
+ * Iranian edition SMS verification is unavailable: hidden, never required.
+ */
+export function smsVerificationAvailable(edition: Edition): boolean {
+  return EDITION_PROFILE[edition].allowsIranianProviders;
+}

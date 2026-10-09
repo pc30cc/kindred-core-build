@@ -6,14 +6,16 @@
  *   - iran   → Persian only, Toman
  *   - turkey → Turkish only, Turkish Lira
  *   - global → English only, US Dollar
- *   - multi  → every active language, currency follows the active language
+ *   - multi  → every active language, US Dollar for every one of them
  *
  * Only `iran` is the Iranian edition (shared/edition.ts). Every other mode is
- * the International edition, where Persian is just Persian text: a Persian
- * UI there reads US Dollars, never Toman.
+ * the International edition, where Persian is just Persian text and Turkish
+ * just Turkish text: the language never picks the currency (shared/edition.ts
+ * editionCurrencyFor — Lira only on a Turkish-only site).
  */
 import type { Locale } from '@/i18n/config';
 import { SUPPORTED_LOCALES } from '@/i18n/config';
+import { editionCurrencyFor, isRialCurrency } from '../../shared/edition';
 
 export type RegionMode = 'multi' | 'iran' | 'turkey' | 'global';
 
@@ -26,23 +28,16 @@ export const REGION_LOCALES: Record<RegionMode, Locale[]> = {
   global: ['en'],
 };
 
-/** Currency used when the region pins one. `multi` follows the active locale. */
+/**
+ * The value BrandingPage stores as `platform_settings.region_currency` (kept
+ * as it was: `multi` stores none). What money actually shows is
+ * displayCurrency below.
+ */
 export const REGION_CURRENCY: Record<RegionMode, string | null> = {
   multi: null,
   iran: 'IRT',
   turkey: 'TRY',
   global: 'USD',
-};
-
-/**
- * The currency a language reads when the region pins none (`multi`, the
- * International edition). Toman is pinned by the `iran` region only, so
- * Persian here is USD.
- */
-export const LOCALE_CURRENCY: Record<Locale, string> = {
-  fa: 'USD',
-  tr: 'TRY',
-  en: 'USD',
 };
 
 const RIAL_FAMILY = ['IRR', 'IRT', 'RIAL', 'TOMAN', 'TMN'];
@@ -79,9 +74,13 @@ export function allowedLocalesFor(mode: RegionMode, activeLocales?: string[] | n
   return active.length ? active : SUPPORTED_LOCALES;
 }
 
-/** The currency every amount should be displayed in. */
-export function displayCurrency(mode: RegionMode, locale: Locale): string {
-  return REGION_CURRENCY[mode] ?? LOCALE_CURRENCY[locale] ?? 'USD';
+/**
+ * The currency every amount should be displayed in: Toman in `iran`, Lira in
+ * `turkey`, USD in `multi` and `global` — whatever the language (`_locale` is
+ * kept for callers; it no longer decides anything).
+ */
+export function displayCurrency(mode: RegionMode, _locale?: Locale): string {
+  return mode === 'iran' ? 'IRT' : editionCurrencyFor(mode);
 }
 
 export function intlLocaleFor(locale: Locale): string {
@@ -91,12 +90,13 @@ export function intlLocaleFor(locale: Locale): string {
 export interface FormatMoneyOptions {
   /** Amount is stored in minor units (cents / rial). Defaults to true. */
   minor?: boolean;
-  /** Currency stored on the record. Ignored when the region pins a currency. */
+  /** Currency stored on the record. Ignored only in the Iranian region (always Toman). */
   currency?: string | null;
 }
 
 /**
- * Renders a money amount in the region's currency. No currency symbols/icons —
+ * Renders a money amount: in the Iranian region always as Toman (as before);
+ * elsewhere in the record's own currency, else the region's. No currency symbols/icons —
  * a localized number plus the localized currency word.
  */
 export function formatMoney(
@@ -106,9 +106,17 @@ export function formatMoney(
   options: FormatMoneyOptions = {},
 ): string {
   const { minor = true, currency } = options;
-  // Region pins the currency; otherwise the active language decides it.
-  const pinned = REGION_CURRENCY[mode];
-  const code = (pinned ?? LOCALE_CURRENCY[locale] ?? currency ?? 'USD').toUpperCase();
+  // The Iranian region pins Toman (as before). Elsewhere a record keeps its
+  // own currency (never relabelled); one with none reads the region's.
+  const code = (
+    mode === 'iran' ? REGION_CURRENCY.iran! : currency || displayCurrency(mode, locale)
+  ).toUpperCase();
+
+  // Outside Iran a Rial amount (legacy data) is plain IRR, never Toman.
+  if (mode !== 'iran' && isRialCurrency(code)) {
+    const nf = new Intl.NumberFormat(intlLocaleFor(locale), { maximumFractionDigits: 0 });
+    return `${nf.format(Math.round(amount ?? 0))} IRR`;
+  }
 
   const isRial = RIAL_FAMILY.includes(code);
   // Rial-family amounts are ALWAYS stored as a plain whole-Rial integer

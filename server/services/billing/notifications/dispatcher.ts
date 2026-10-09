@@ -26,6 +26,7 @@ import { sendSms } from '../../sms/index.js';
 import { toProviderFormat } from '../../phoneVerification/phone.js';
 import { resolveWorkspaceAppUrl } from '../../auth-email.js';
 import { renderBillingNotification, buildBillingTemplateData, type BillingNotificationType } from './messages.js';
+import { getPlatformEditionOrNull } from '../../platformRegion.js';
 
 export interface NotificationBatchResult {
   claimed: number;
@@ -109,13 +110,20 @@ export async function dispatchBillingNotifications(
 
   const result: NotificationBatchResult = { claimed: jobs.length, sent: 0, skipped: 0, failed: 0 };
 
+  // Dates read Jalali/Tehran in the Iranian edition (and while it is
+  // unknown, as before); Gregorian/UTC in the International one.
+  const edition = jobs.length ? await getPlatformEditionOrNull(config) : null;
+
   for (const job of jobs) {
     try {
       const rcpt = await resolveRecipient(config, job.workspace_id);
       const locale = job.locale || rcpt.locale;
-      const msg = renderBillingNotification(job.notification_type, locale, job.payload || {});
+      const msg = renderBillingNotification(job.notification_type, locale, job.payload || {}, { edition });
 
-      const target = job.channel === 'email' ? rcpt.email : rcpt.phone;
+      // The International edition has no SMS vendor (the only ones are
+      // Iranian): an SMS job is a skip there, never a retry loop.
+      const smsUnavailable = job.channel === 'sms' && edition === 'international';
+      const target = smsUnavailable ? null : job.channel === 'email' ? rcpt.email : rcpt.phone;
       if (!target) {
         // No address is a state of the world, not an error: it must never
         // burn retries and never block the other channel.
@@ -123,7 +131,7 @@ export async function dispatchBillingNotifications(
         await sb.rpc('billing_v2_complete_notification_job', {
           p_job_id: job.id,
           p_status: 'skipped_no_recipient',
-          p_error: `no_${job.channel}_on_file`,
+          p_error: smsUnavailable ? 'sms_not_available_in_edition' : `no_${job.channel}_on_file`,
         });
         continue;
       }
@@ -138,10 +146,14 @@ export async function dispatchBillingNotifications(
               // The rendered fallback below is used verbatim when an admin has
               // not authored a template for this slug/locale yet.
               templateSlug: job.notification_type,
-              templateData: buildBillingTemplateData(locale, {
-                ...(job.payload || {}),
-                action_url: await billingUrlFor(job.workspace_id, job.invoice_id),
-              }),
+              templateData: buildBillingTemplateData(
+                locale,
+                {
+                  ...(job.payload || {}),
+                  action_url: await billingUrlFor(job.workspace_id, job.invoice_id),
+                },
+                { edition },
+              ),
               subject: msg.subject,
               text: msg.text,
               html: `<p>${escapeHtml(msg.text).replace(/\n/g, '<br />')}</p>`,

@@ -13,7 +13,7 @@
  */
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
-import { resolveEdition, type Edition } from '../../shared/edition.js';
+import { parseRegionMode, resolveEdition, type Edition, type RegionMode as SharedRegionMode } from '../../shared/edition.js';
 
 type RegionMode = 'multi' | 'iran' | 'turkey' | 'global';
 
@@ -44,6 +44,7 @@ interface RegionRow {
 let settings: { row: RegionRow | null; ok: boolean; ts: number } | null = null;
 let inflight: Promise<{ row: RegionRow | null; ok: boolean; ts: number }> | null = null;
 let lastEdition: Edition | null = null;
+let lastRegionMode: SharedRegionMode | null = null;
 
 async function readRegionSettings(config: Pick<ServerConfig, 'supabaseUrl' | 'supabaseServiceRoleKey'>) {
   const now = Date.now();
@@ -61,6 +62,7 @@ async function readRegionSettings(config: Pick<ServerConfig, 'supabaseUrl' | 'su
       const row = (data as RegionRow | null) ?? null;
       // No row reads as the column default, `multi` — the International edition.
       lastEdition = resolveEdition(row?.region_mode ?? 'multi');
+      lastRegionMode = parseRegionMode(row?.region_mode);
       settings = { row, ok: true, ts: Date.now() };
     } catch {
       settings = { row: null, ok: false, ts: Date.now() };
@@ -110,6 +112,21 @@ export async function getPlatformEdition(
   return lastEdition;
 }
 
+/**
+ * The platform's region mode (`multi` for a missing row or an unknown value),
+ * from the same cached read as getPlatformEdition, with the same failure
+ * rule: the last successfully read value, else EditionUnavailableError.
+ * Money paths use it for the region's currency (shared/edition.ts
+ * editionCurrencyFor): IRR in `iran`, TRY in `turkey`, USD otherwise.
+ */
+export async function getPlatformRegionMode(
+  config: Pick<ServerConfig, 'supabaseUrl' | 'supabaseServiceRoleKey'>,
+): Promise<SharedRegionMode> {
+  await readRegionSettings(config);
+  if (!lastRegionMode) throw new EditionUnavailableError();
+  return lastRegionMode;
+}
+
 /** Like getPlatformEdition, but null instead of throwing (for non-money presentation such as icons). */
 export async function getPlatformEditionOrNull(
   config: Pick<ServerConfig, 'supabaseUrl' | 'supabaseServiceRoleKey'>,
@@ -151,6 +168,7 @@ export function __resetPlatformRegionCache(): void {
   settings = null;
   inflight = null;
   lastEdition = null;
+  lastRegionMode = null;
 }
 
 /**

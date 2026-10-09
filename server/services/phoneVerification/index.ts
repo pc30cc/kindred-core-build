@@ -15,6 +15,8 @@ import { randomUUID } from 'node:crypto';
 import { getServiceClient } from '../../supabase.js';
 import { insertAuditLogRows } from '../auditLog.js';
 import { sendSmsVerification, type SmsRuntimeOptions } from '../sms/index.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
+import { smsVerificationAvailable } from '../../../shared/edition.js';
 import {
   digestCode,
   generateOtpCode,
@@ -52,6 +54,18 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function str(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
+ * SMS phone verification exists in the Iranian edition only: its only SMS
+ * vendors (Kavenegar, SMS.ir) are Iranian (shared/edition.ts
+ * smsVerificationAvailable). In the International edition nothing is ever
+ * required, so no gate blocks anyone, and no code is ever sent. An unknown
+ * edition behaves as before (required).
+ */
+export async function phoneVerificationEnabled(config: ServerConfig): Promise<boolean> {
+  const edition = await getPlatformEditionOrNull(config);
+  return edition === null || smsVerificationAvailable(edition);
 }
 
 /** Reads `phone_verification_state` and shapes it into the internal state. */
@@ -147,6 +161,10 @@ export async function getStatusForActor(
   input: { purpose: PhoneVerificationPurpose; actorUserId: string; workspaceId?: string; workspaceSlug?: string },
 ): Promise<PhoneVerificationStatusResponse & { workspaceId: string }> {
   const ctx = await resolvePurposeContext(config, input);
+  if (!(await phoneVerificationEnabled(config))) {
+    // International edition: not required, nothing to verify.
+    return { workspaceId: ctx.workspaceId, required: false, satisfied: true, canVerify: false };
+  }
   const state = await getPhoneVerificationState(config, ctx.subjectUserId);
 
   if (!ctx.actorIsSubject) {
@@ -249,6 +267,10 @@ export async function issueChallenge(
     throw new PhoneVerificationError('phone_verification_unavailable', 503, undefined, {
       detail: 'pepper_missing',
     });
+  }
+  if (!(await phoneVerificationEnabled(config))) {
+    // International edition: no SMS vendor, so no code is ever sent.
+    throw new PhoneVerificationError('phone_verification_unavailable', 503);
   }
 
   const client = sb(config);
@@ -651,6 +673,8 @@ export async function isPhoneVerificationSatisfied(
   config: ServerConfig,
   input: { purpose: PhoneVerificationPurpose; workspaceId: string },
 ): Promise<boolean> {
+  // International edition: SMS verification does not exist, so it never gates.
+  if (!(await phoneVerificationEnabled(config))) return true;
   const { data, error } = await sb(config).rpc('workspace_owner_phone_verified', {
     _workspace_id: input.workspaceId,
   });

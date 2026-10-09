@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+import { useEdition } from '@/hooks/useEdition';
 import {
   getBackupOverview, listBackupRuns, listRestoreDrills, requestBackupCommand,
   type BackupOverviewDto, type BackupRunDto, type RestoreDrillDto,
@@ -34,8 +35,11 @@ const fmtBytes = (n: number | null | undefined) => {
 export default function BackupPage() {
   const { t, locale: language } = useTranslation();
   const locale = language === 'fa' ? 'fa-IR' : language === 'tr' ? 'tr-TR' : 'en-GB';
+  // Iran: the Tehran clock, as before. International: the app's clock (the
+  // configured time zone, else the browser's — src/lib/date.ts).
+  const { isIran } = useEdition();
   const fmtTime = (v: string | null | undefined) =>
-    v ? new Date(v).toLocaleString(locale, { timeZone: 'Asia/Tehran' }) : '—';
+    v ? new Date(v).toLocaleString(locale, isIran ? { timeZone: 'Asia/Tehran' } : undefined) : '—';
   const fmtDuration = (s: number | null | undefined) => {
     if (s == null) return '—';
     if (s < 90) return t('admin.backup.secondsAgo' as never, { count: Math.round(s) }) as string;

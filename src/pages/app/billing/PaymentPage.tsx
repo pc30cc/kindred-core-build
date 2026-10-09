@@ -31,8 +31,8 @@ import {
 import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, errorMessage } from './shared';
 import { billingGetPaymentIntent, billingVerifyCallback, type BillingReceipt } from '@/lib/api';
 import { openPaddleCheckout } from '@/lib/paddleCheckout';
-import { currentEdition } from '@/lib/edition';
-import { editionCurrency, isProviderAllowedInEdition } from '../../../../shared/edition';
+import { currentCurrency, currentEdition } from '@/lib/edition';
+import { isProviderAllowedInEdition } from '../../../../shared/edition';
 
 type Kind = 'invoice' | 'deposit';
 
@@ -112,7 +112,7 @@ export default function PaymentPage() {
           })
         : billingInvoiceDetail(workspaceId, id).then((detail) => {
             setInvoice(detail);
-            return detail.invoice.currency || editionCurrency(currentEdition());
+            return detail.invoice.currency || currentCurrency();
           });
 
     doc
@@ -320,7 +320,7 @@ export default function PaymentPage() {
   const isDeposit = kind === 'deposit';
   const docNumber = isDeposit ? deposit?.documentNumber : invoice?.invoice.invoiceNumber;
   // A wallet top-up is Rial; an invoice carries its own currency.
-  const docCurrency = isDeposit ? 'IRR' : invoice?.invoice.currency || editionCurrency(currentEdition());
+  const docCurrency = isDeposit ? 'IRR' : invoice?.invoice.currency || currentCurrency();
   const amountDue = isDeposit ? deposit?.amountIrr ?? 0 : invoice?.totals.dueIrr ?? 0;
   const alreadyPaid = isDeposit
     ? deposit?.status === 'paid'

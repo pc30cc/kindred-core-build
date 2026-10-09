@@ -15,6 +15,8 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
+import { isIranianVendor } from '../../../shared/edition.js';
 import {
   SmsError,
   maskPhone,
@@ -45,6 +47,17 @@ import {
 } from './providers/smsir.js';
 
 const TABLE = 'platform_sms_provider_config';
+
+/**
+ * The live SMS vendors (Kavenegar, SMS.ir) are Iranian: the International
+ * edition (shared/edition.ts) neither lists, saves nor sends through them, so
+ * there a stored Iranian config reads as "not configured" and every SMS
+ * feature reports itself unavailable. An unknown edition behaves as before.
+ */
+async function iranianSmsBlocked(serverConfig: ServerConfig, providerName: unknown): Promise<boolean> {
+  if (!isIranianVendor(providerName)) return false;
+  return (await getPlatformEditionOrNull(serverConfig)) === 'international';
+}
 
 /** Kavenegar template names: letters and digits only, no space/underscore. */
 export const VERIFY_TEMPLATE_PATTERN = /^[A-Za-z0-9]{1,64}$/;
@@ -105,7 +118,8 @@ async function loadRow(serverConfig: ServerConfig): Promise<StoredRow | null> {
 
 /** Redacted status for the admin UI. Never includes the credential. */
 export async function getSmsProviderInfo(serverConfig: ServerConfig): Promise<SmsProviderInfo> {
-  const row = await loadRow(serverConfig);
+  const stored = await loadRow(serverConfig);
+  const row = stored && (await iranianSmsBlocked(serverConfig, stored.provider_name)) ? null : stored;
   if (!row) {
     return {
       providerName: 'disabled',
@@ -179,7 +193,7 @@ export async function saveSmsProviderConfig(
   input: SaveSmsProviderInput,
   adminUserId: string,
 ): Promise<SmsProviderInfo> {
-  if (!isSupportedSmsProvider(input.providerName)) {
+  if (!isSupportedSmsProvider(input.providerName) || (await iranianSmsBlocked(serverConfig, input.providerName))) {
     throw new SmsConfigValidationError('unsupported_provider');
   }
 
@@ -284,6 +298,9 @@ async function resolveProvider(
     throw new SmsError(row ? 'sms_provider_disabled' : 'sms_provider_not_configured');
   }
   if (!isSupportedSmsProvider(row.provider_name)) {
+    throw new SmsError('sms_provider_not_configured');
+  }
+  if (await iranianSmsBlocked(serverConfig, row.provider_name)) {
     throw new SmsError('sms_provider_not_configured');
   }
   if (!row.is_active) throw new SmsError('sms_provider_disabled');

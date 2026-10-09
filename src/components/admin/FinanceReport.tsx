@@ -34,7 +34,7 @@ function toman(value: number, locale: string): string {
   return new Intl.NumberFormat(l, { maximumFractionDigits: 0 }).format(Math.round(value / 10));
 }
 
-/** A USD minor-unit (cents) amount as dollars, without the currency word. */
+/** A minor-unit amount (cents / kuruş) in major units, without the currency word. */
 function dollars(value: number, locale: string): string {
   const l = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
   return new Intl.NumberFormat(l, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 100);
@@ -78,12 +78,13 @@ export default function FinanceReport() {
     );
   }
 
-  // The server reports in the edition's currency: IRR (read as Toman) in the
-  // Iranian edition, exactly as before; USD minor units in the International
-  // one, which never shows Toman.
-  const usd = String(data.currency || 'IRR').toUpperCase() !== 'IRR';
+  // The server reports in the region's currency: IRR (read as Toman) in the
+  // Iranian edition, exactly as before; minor units of USD (Multi Region,
+  // Global) or TRY (a Turkish-only site) elsewhere, which never show Toman.
+  const reportCode = String(data.currency || 'IRR').toUpperCase();
+  const usd = reportCode !== 'IRR';
   const fmtAmount = (value: number) => (usd ? dollars(value, locale) : toman(value, locale));
-  const currencyLabel = usd ? 'USD' : label('currency', 'تومان');
+  const currencyLabel = usd ? reportCode : label('currency', 'تومان');
   const chartUnit = (value: number) => (usd ? Math.round(value) / 100 : Math.round(value / 10));
 
   const series = data.series.map((s) => ({

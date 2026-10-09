@@ -17,7 +17,7 @@ import { PROVIDER_SCHEMAS, getSchemaForEdition } from '@/features/providers/sche
 import { useEdition } from '@/hooks/useEdition';
 import { ProviderIcon } from '@/features/providers/ProviderIcon';
 import { AdminProviderWorkspace, ProviderPanelHeader } from '@/features/providers/AdminProviderWorkspace';
-import { AdminSmsProviderCard } from '@/features/providers/AdminSmsProviderCard';
+import { AdminSmsProviderPanel } from '@/features/providers/AdminSmsProviderCard';
 import { AdminStorageProvidersPanel } from '@/features/providers/AdminStorageProvidersPanel';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
 import { AdminAuthStatusCard } from '@/features/providers/AdminAuthStatusCard';
@@ -43,7 +43,7 @@ const GROUPS: { key: string; types: ProviderTypeKey[] }[] = [
 const CUSTOM_PANELS: Partial<Record<ProviderTypeKey, React.ComponentType>> = {
   auth: AdminAuthStatusCard,
   realtime: AdminRealtimeCard,
-  sms: AdminSmsProviderCard,
+  sms: AdminSmsProviderPanel,
   // Storage runs several vendors at once (primary + mirrors), so it has its
   // own pool panel instead of the single-default vendor workspace.
   storage: AdminStorageProvidersPanel,

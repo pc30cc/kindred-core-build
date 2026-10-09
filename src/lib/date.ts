@@ -2,7 +2,9 @@
  * Central date/time localization.
  *
  * Goal: every date rendered in the app follows the active UI locale —
- * for Persian (fa) that means the **Jalali (Shamsi) calendar**.
+ * for Persian (fa) in the Iranian edition that means the **Jalali (Shamsi)
+ * calendar**. In the International edition (shared/edition.ts) Persian is
+ * only Persian text: Persian digits and words on the Gregorian calendar.
  *
  * CALENDAR AND TIMEZONE ARE INDEPENDENT. Persian selects the Jalali calendar
  * only; it NEVER forces Asia/Tehran. The clock comes from the configured
@@ -23,8 +25,34 @@
 
 export type AppDateLocale = 'en' | 'fa' | 'tr';
 
+import { currentEdition } from '@/lib/edition';
+import { EDITION_PROFILE } from '../../shared/edition';
+
 /** Kept for callers that legitimately need an explicit Tehran clock. */
 export const TEHRAN_TIME_ZONE = 'Asia/Tehran';
+
+export type AppCalendar = 'jalali' | 'gregorian';
+
+/**
+ * The calendar Persian dates use: the edition's (Jalali in Iran, Gregorian
+ * in International). An explicit setAppCalendar (tests, previews) wins.
+ * While the edition is unknown it reads as Iran — the behaviour from before
+ * editions existed.
+ */
+let calendarOverride: AppCalendar | null = null;
+
+export function setAppCalendar(calendar: AppCalendar | null) {
+  calendarOverride = calendar;
+}
+
+export function getAppCalendar(): AppCalendar {
+  return calendarOverride ?? EDITION_PROFILE[currentEdition()].calendar;
+}
+
+/** The BCP 47 tag Persian dates use for the active calendar. */
+function persianTag(): string {
+  return getAppCalendar() === 'jalali' ? 'fa-IR-u-ca-persian' : 'fa-IR-u-ca-gregory';
+}
 
 /**
  * Configured application timezone (workspace → user → site). `null` means
@@ -49,9 +77,14 @@ export function getAppTimeZone(): string | undefined {
 
 const BCP47: Record<AppDateLocale, string> = {
   en: 'en-US',
+  // Resolved per call (persianTag): the calendar follows the edition.
   fa: 'fa-IR-u-ca-persian',
   tr: 'tr-TR',
 };
+
+function bcp47(locale: AppDateLocale): string {
+  return locale === 'fa' ? persianTag() : BCP47[locale];
+}
 
 let activeLocale: AppDateLocale = 'en';
 
@@ -65,9 +98,12 @@ export function getAppDateLocale(): AppDateLocale {
 
 /** Map an app locale (or raw BCP47 tag) to a calendar-correct BCP47 tag. */
 export function resolveDateLocale(locale?: string | string[] | null): string | string[] | undefined {
-  if (locale == null) return BCP47[activeLocale];
+  if (locale == null) return bcp47(activeLocale);
   if (Array.isArray(locale)) return locale.map((l) => resolveDateLocale(l) as string);
   if (locale === 'fa' || locale.startsWith('fa-') || locale.startsWith('fa_')) {
+    // Iran: Jalali (an explicit persian-calendar tag is kept as given).
+    // International: always Gregorian, even for a tag that asks for Jalali.
+    if (getAppCalendar() === 'gregorian') return persianTag();
     return locale.includes('ca-persian') ? locale : BCP47.fa;
   }
   if (locale === 'en') return BCP47.en;
@@ -154,7 +190,7 @@ export function formatPattern(
   if (!d) return '—';
   const resolved = resolveDateLocale(locale);
   const persian = isPersian(resolved);
-  const tag = persian ? 'fa-IR-u-ca-persian-nu-latn' : (Array.isArray(resolved) ? resolved[0] : resolved) || 'en-US';
+  const tag = persian ? `${persianTag()}-nu-latn` : (Array.isArray(resolved) ? resolved[0] : resolved) || 'en-US';
   const parts = new Intl.DateTimeFormat(tag, {
     year: 'numeric',
     month: '2-digit',
@@ -196,7 +232,7 @@ export function formatLongDate(
   if (!persian) {
     return fmt(d, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }, locale);
   }
-  const tag = (Array.isArray(resolved) ? resolved[0] : resolved) || BCP47.fa;
+  const tag = (Array.isArray(resolved) ? resolved[0] : resolved) || persianTag();
   const parts = new Intl.DateTimeFormat(tag, {
     weekday: 'long',
     year: 'numeric',

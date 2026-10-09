@@ -63,9 +63,10 @@ import { classifyPlanAction, computeSubscriptionWindow } from '../services/billi
 import {
   assertCurrencyAllowed,
   editionErrorResponse,
+  getBillingRegion,
   getPlatformEdition,
 } from '../services/billing/edition.js';
-import { editionCurrency, isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
+import { isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
 import { buildCancelAtPeriodEndPatch, decideResume } from '../services/billing/cancellation.js';
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
@@ -281,24 +282,26 @@ billingRouter.get('/plans', async (req, res) => {
     .order('sort_order', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
 
-  // Filter plans based on locale currency display. Persian means Rial only
-  // in the Iranian edition; in the International edition it is priced like
-  // every other language (never in Rial).
-  let edition: Awaited<ReturnType<typeof getPlatformEdition>>;
+  // Filter plans based on locale currency display. The Iranian edition keeps
+  // its rule exactly (Persian → Rial, Turkish → Lira). Elsewhere the region
+  // decides, never the language: Lira on a Turkish-only site, USD in Multi
+  // Region and Global for every language, Turkish and Persian included.
+  let region: Awaited<ReturnType<typeof getBillingRegion>>;
   try {
-    edition = await getPlatformEdition(serverConfigOf(req));
+    region = await getBillingRegion(serverConfigOf(req));
   } catch (e: unknown) {
     return sendBillingError(res, e);
   }
+  const edition = region.edition;
   type PlanListRow = Record<string, unknown> & {
     prices?: Record<string, unknown> | null;
     default_currency?: string | null;
   };
   const displayCurrencyOf = (plan: PlanListRow): string => {
-    if (locale === 'fa' && edition === 'iran') return 'IRR';
+    if (edition !== 'iran') return region.currency;
+    if (locale === 'fa') return 'IRR';
     if (locale === 'tr') return 'TRY';
-    const preferred = plan.default_currency || 'USD';
-    return edition !== 'iran' && isRialCurrency(preferred) ? editionCurrency(edition) : preferred;
+    return plan.default_currency || 'USD';
   };
   const plans = ((data || []) as PlanListRow[]).map((plan) => ({
     ...plan,
@@ -581,7 +584,8 @@ billingRouter.post('/checkout', async (req, res) => {
     }
     // Rial is never charged in the International edition (and the resolver
     // below never returns an Iranian gateway there).
-    assertCurrencyAllowed(await getPlatformEdition(serverConfigOf(req)), input.currency);
+    const edition = await getPlatformEdition(serverConfigOf(req));
+    assertCurrencyAllowed(edition, input.currency);
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
 
@@ -597,7 +601,11 @@ billingRouter.post('/checkout', async (req, res) => {
     // currency's number relabelled.
     let currency = 'IRR';
     if (!iranProvider) {
-      const charge = resolveChargeCurrency(resolved.provider, input.currency || 'USD');
+      // No currency requested: the region's (USD, or TRY on a Turkish-only
+      // site); the Iranian edition keeps its USD default for card gateways.
+      const defaultCurrency =
+        edition === 'iran' ? 'USD' : (await getBillingRegion(serverConfigOf(req))).currency;
+      const charge = resolveChargeCurrency(resolved.provider, input.currency || defaultCurrency);
       if (!charge) return res.status(400).json({ error: 'CURRENCY_NOT_SUPPORTED' });
       currency = charge.currency;
     }
@@ -1881,13 +1889,14 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
   // its totals from USD money; any Rial history (e.g. data cloned from an
   // Iranian deployment) is left out, never summed into dollars.
   let edition: Awaited<ReturnType<typeof getPlatformEdition>>;
+  let reportCurrency: string;
   try {
-    edition = await getPlatformEdition(serverConfigOf(req));
+    // Iran: IRR. Turkish-only site: TRY. Multi Region / Global: USD.
+    ({ edition, currency: reportCurrency } = await getBillingRegion(serverConfigOf(req)));
   } catch (e: unknown) {
     return sendBillingError(res, e);
   }
   const international = edition !== 'iran';
-  const reportCurrency = editionCurrency(edition);
   const inReportCurrency = (code: unknown) =>
     String(code || (international ? '' : 'IRR')).trim().toUpperCase() === reportCurrency;
 

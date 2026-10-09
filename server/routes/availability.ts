@@ -14,19 +14,33 @@
  *     always renders.
  */
 
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { listWorkspacePresence } from '../services/widget/operatorPresence.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import type { Edition } from '../../shared/edition.js';
 
 export const availabilityRouter = Router();
 
-async function requireUser(req: any, res: any, next: any) {
+/** What this router reads off a request (set by the server and by requireUser below). */
+type AvailabilityRequest = Request & { serverConfig: ServerConfig; authUser: { id: string } };
+
+function ctx(req: Request): { config: ServerConfig; user: { id: string } } {
+  const r = req as AvailabilityRequest;
+  return { config: r.serverConfig, user: r.authUser };
+}
+
+function errorMessage(err: unknown): string | undefined {
+  return err instanceof Error ? err.message : undefined;
+}
+
+async function requireUser(req: Request, res: Response, next: NextFunction) {
   const userId = await requireSessionUser(req, res);
   if (!userId) return;
-  req.authUser = { id: userId };
+  (req as AvailabilityRequest).authUser = { id: userId };
   next();
 }
 
@@ -46,8 +60,8 @@ const DEFAULT_WEEKLY = {
 };
 
 /**
- * Default timezone per UI locale. Persian operators default to Tehran,
- * Turkish to Istanbul; everyone else falls back to UTC.
+ * Default timezone per UI locale in the Iranian edition: Persian operators
+ * default to Tehran, Turkish to Istanbul; everyone else falls back to UTC.
  */
 const LOCALE_TIMEZONES: Record<string, string> = {
   fa: 'Asia/Tehran',
@@ -55,9 +69,26 @@ const LOCALE_TIMEZONES: Record<string, string> = {
   en: 'UTC',
 };
 
-function defaultTimezone(locale?: unknown): string {
+/** A valid IANA zone name, or null. */
+function validTimeZone(tz: unknown): string | null {
+  if (typeof tz !== 'string' || !tz.trim() || tz.length > 64) return null;
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: tz.trim() }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The zone of an operator who never saved one. Iranian edition (or an
+ * unknown edition): by UI locale, exactly as before. International: the
+ * browser's zone when the client sent it, else UTC — Persian never means
+ * Tehran there.
+ */
+export function defaultTimezone(locale?: unknown, edition: Edition | null = 'iran', browserTz?: unknown): string {
   const key = typeof locale === 'string' ? locale.slice(0, 2).toLowerCase() : '';
-  return LOCALE_TIMEZONES[key] || 'UTC';
+  if (edition !== 'international') return LOCALE_TIMEZONES[key] || 'UTC';
+  return validTimeZone(browserTz) || 'UTC';
 }
 
 const DEFAULTS = {
@@ -129,7 +160,7 @@ function computeLiveStatus(prefs: typeof DEFAULTS): { state: 'online' | 'offline
 
   const tz = prefs.timezone || 'UTC';
   const { h, m, dow } = partsInTz(new Date(), tz);
-  const day = (prefs.weekly_schedule as any)?.[dow];
+  const day = (prefs.weekly_schedule as Partial<Record<DayKey, { enabled?: boolean; intervals?: Array<{ from: string; to: string }> }>>)?.[dow];
   if (!day || day.enabled === false) {
     return { state: 'offline', reason: 'day_disabled' };
   }
@@ -138,17 +169,26 @@ function computeLiveStatus(prefs: typeof DEFAULTS): { state: 'online' | 'offline
     : { state: 'offline', reason: 'outside_schedule' };
 }
 
-function mergeWithDefaults(row: any, locale?: unknown) {
+/** A stored `user_availability_prefs` row (or nothing yet). */
+interface AvailabilityRow {
+  force_offline?: boolean | null;
+  available_when_using_app?: boolean | null;
+  schedule_enabled?: boolean | null;
+  timezone?: unknown;
+  weekly_schedule?: unknown;
+}
+
+function mergeWithDefaults(row: AvailabilityRow | null | undefined, locale?: unknown, edition: Edition | null = 'iran', browserTz?: unknown) {
   const weekly = (row?.weekly_schedule && typeof row.weekly_schedule === 'object')
-    ? { ...DEFAULT_WEEKLY, ...row.weekly_schedule }
+    ? { ...DEFAULT_WEEKLY, ...(row.weekly_schedule as Partial<typeof DEFAULT_WEEKLY>) }
     : DEFAULT_WEEKLY;
   return {
     force_offline: !!row?.force_offline,
     available_when_using_app: row?.available_when_using_app ?? true,
     schedule_enabled: !!row?.schedule_enabled,
     timezone: typeof row?.timezone === 'string' && row.timezone
-      ? row.timezone
-      : defaultTimezone(locale),
+      ? (row.timezone as string)
+      : defaultTimezone(locale, edition, browserTz),
     weekly_schedule: weekly,
   };
 }
@@ -156,8 +196,7 @@ function mergeWithDefaults(row: any, locale?: unknown) {
 // ── GET /api/availability ─────────────────────────────────────────
 availabilityRouter.get('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const { config, user } = ctx(req);
     const sb = getServiceClient(config);
 
     const { data, error } = await sb
@@ -168,11 +207,13 @@ availabilityRouter.get('/', async (req, res) => {
       .maybeSingle();
 
     if (error) return res.status(500).json({ error: error.message });
-    const prefs = mergeWithDefaults(data, req.query?.locale);
+    // Only an operator with no saved zone needs the edition.
+    const edition = data?.timezone ? 'iran' : await getPlatformEditionOrNull(config);
+    const prefs = mergeWithDefaults(data, req.query?.locale, edition, req.query?.tz);
     const status = computeLiveStatus(prefs);
     return res.json({ prefs, status });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to load availability' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: errorMessage(err) || 'Failed to load availability' });
   }
 });
 
@@ -204,8 +245,7 @@ const updateSchema = z.object({
 
 availabilityRouter.patch('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const { config, user } = ctx(req);
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -253,8 +293,8 @@ availabilityRouter.patch('/', async (req, res) => {
     const prefs = mergeWithDefaults(row);
     const status = computeLiveStatus(prefs);
     return res.json({ prefs, status });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to update availability' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: errorMessage(err) || 'Failed to update availability' });
   }
 });
 
@@ -265,8 +305,7 @@ availabilityRouter.patch('/', async (req, res) => {
 // check below; we use service client for the actual computation).
 availabilityRouter.get('/team/:workspaceId', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const { config, user } = ctx(req);
     const workspaceId = req.params.workspaceId;
     if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
 
@@ -281,7 +320,7 @@ availabilityRouter.get('/team/:workspaceId', async (req, res) => {
 
     const presence = await listWorkspacePresence(config, workspaceId);
     return res.json({ presence, fetched_at: new Date().toISOString() });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to load team presence' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: errorMessage(err) || 'Failed to load team presence' });
   }
 });

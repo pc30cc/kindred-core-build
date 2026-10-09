@@ -93,7 +93,12 @@ async function openPricing() {
   fireEvent.click(edit!);
   const dialog = await screen.findByRole('dialog');
   fireEvent.click(within(dialog).getByRole('button', { name: en.admin.plans.form.sections.pricing }));
-  await screen.findByText(en.admin.plans.form.priceUnitHint);
+  // The Iranian hint names Toman; the International edition has its own neutral hint.
+  await screen.findByText(
+    localStorage.getItem('wy-edition') === 'international'
+      ? en.admin.plans.form.priceUnitHintIntl
+      : en.admin.plans.form.priceUnitHint,
+  );
   return dialog;
 }
 
@@ -173,9 +178,11 @@ describe('Super Admin plan editor prices', () => {
     const dialog = await openPricing();
     expect(field('USD', 'monthly').value).toBe('29');
     expect(field('IRR', 'monthly')).toBeNull();
-    // No Toman price field, label or preview (the shared hint copy is a later i18n phase).
+    // No Toman price field, label, preview or hint.
     const labels = [...dialog.querySelectorAll('label, [data-testid$="-preview"]')].map((n) => n.textContent).join(' ');
     expect(labels).not.toMatch(/Toman/);
+    expect(dialog.textContent).not.toMatch(/Toman|per locale|each locale/);
+    expect(within(dialog).getByText(en.admin.plans.form.pricingHintIntl)).toBeTruthy();
     expect(labels).toMatch(/\(\$\)/);
 
     fireEvent.change(field('USD', 'monthly'), { target: { value: '30' } });

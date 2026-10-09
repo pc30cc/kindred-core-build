@@ -20,6 +20,8 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { useEdition } from '@/hooks/useEdition';
+import { useTranslation } from '@/i18n';
 import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
 import {
   adminGetSmsProvider, adminSaveSmsProvider, adminDeleteSmsProvider, adminTestSmsProvider,
@@ -41,6 +43,30 @@ function normalizeParameterName(raw: string): string {
 }
 
 type RuntimeVendor = 'kavenegar' | 'smsir';
+
+/**
+ * The SMS panel of Super Admin → Providers. The only SMS runtimes (Kavenegar,
+ * SMS.ir) are Iranian, so outside the Iranian edition (shared/edition.ts) no
+ * vendor is offered and the panel says plainly that SMS is not available.
+ */
+export function AdminSmsProviderPanel() {
+  const { features } = useEdition();
+  const { t } = useTranslation();
+  if (features.smsVerification) return <AdminSmsProviderCard />;
+  return (
+    <Card data-sms-unavailable>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Smartphone className="h-4 w-4" />
+          {t('adminProviders.smsUnavailable.title')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground">{t('adminProviders.smsUnavailable.body')}</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function AdminSmsProviderCard() {
   const { toast } = useToast();

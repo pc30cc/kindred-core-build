@@ -32,6 +32,7 @@ import {
 } from '@/lib/api';
 import { adminGetUserDeletionStatus, waitForUserDeletion } from '@/lib/adminUserDeletion';
 import { PHONE_COUNTRIES, countryFromE164, defaultPhoneCountry, phoneCountryLabel } from '@/lib/phone-countries';
+import { useEdition } from '@/hooks/useEdition';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPattern as format } from '@/lib/date';
@@ -266,6 +267,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
   const qc = useQueryClient();
   const uiLocale = (useTranslation() as { locale?: string }).locale ?? 'en';
+  // The phone country never defaults to Iran outside the Iranian edition.
+  const { edition } = useEdition();
 
   const { data: phoneState } = useQuery({
     queryKey: ['admin-phone-verification', userId],
@@ -283,7 +286,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       preferred_locale: pr?.preferred_locale || '',
       phone: phoneState?.phone || '',
       phone_country:
-        countryFromE164(phoneState?.phone) || phoneState?.country || defaultPhoneCountry(uiLocale),
+        countryFromE164(phoneState?.phone) || phoneState?.country || defaultPhoneCountry(uiLocale, edition),
     });
     setEditDialog(true);
   };
@@ -1540,8 +1543,9 @@ function UserFinanceCard({ userId }: { userId: string }) {
   });
 
   const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
-  // Currency follows the platform region (Iran → Toman, Turkey → Lira, Global → USD);
-  // in multi-region mode it follows the active language. No currency symbols/icons.
+  // Iran → Toman (always). Elsewhere the record's own currency, else the
+  // region's: Turkey → Lira, Multi Region and Global → USD for every language.
+  // No currency symbols/icons.
   const money = (amount: number | null | undefined, currency?: string | null) =>
     formatMoney(amount, locale, regionMode, { currency });
 

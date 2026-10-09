@@ -33,6 +33,7 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
 
@@ -111,6 +112,30 @@ async function resolveWorkspaceForHost(config: ServerConfig, req: Request): Prom
 //  WIDGET JSON ROUTES
 // ──────────────────────────────────────────────────────────────────────
 
+/** The server config every request carries (set by the server bootstrap). */
+function configOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
+}
+
+/** The columns of `knowledge_base_categories` / `knowledge_base_articles` these pages read. */
+interface KbCategoryRow {
+  id?: string;
+  name?: string;
+  slug?: string;
+  description?: string | null;
+  locale?: string | null;
+}
+interface KbArticleRow {
+  id?: string;
+  title?: string;
+  slug?: string;
+  excerpt?: string | null;
+  content?: string | null;
+  locale?: string | null;
+  updated_at?: string | null;
+  category_id?: string | null;
+}
+
 export const widgetKbRouter: Router = express.Router();
 
 /**
@@ -120,7 +145,7 @@ export const widgetKbRouter: Router = express.Router();
  * the resolution is the same one already used by the public SSR routes.
  */
 widgetKbRouter.get('/help-host', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = configOf(req);
   const workspaceId = await resolveWorkspaceForHost(config, req);
   if (!workspaceId) return res.status(404).json({ error: 'no_workspace' });
   return res.json({ workspace_id: workspaceId });
@@ -132,7 +157,7 @@ const categoriesSchema = z.object({
 });
 
 widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = configOf(req);
   const parsed = categoriesSchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
 
@@ -173,7 +198,7 @@ const categoryArticlesSchema = z.object({
  * resolved from Host (same rules as the SSR routes).
  */
 widgetKbRouter.get('/category-articles', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = configOf(req);
   const parsed = categoryArticlesSchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const workspaceId = await resolveWorkspaceForHost(config, req);
@@ -184,7 +209,7 @@ widgetKbRouter.get('/category-articles', async (req: Request, res: Response) => 
     .select('id')
     .eq('workspace_id', workspaceId)
     .eq('slug', parsed.data.slug);
-  const catIds = (cats || []).map((c: any) => c.id);
+  const catIds = ((cats || []) as KbCategoryRow[]).map((c) => c.id);
   if (!catIds.length) return res.json({ articles: [] });
   const { data: arts } = await supabase
     .from('knowledge_base_articles')
@@ -204,7 +229,7 @@ const articleSchema = z.object({
 });
 
 widgetKbRouter.get('/article', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = configOf(req);
   const parsed = articleSchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
 
@@ -237,7 +262,7 @@ const searchSchema = z.object({
 });
 
 widgetKbRouter.get('/search', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = configOf(req);
   const parsed = searchSchema.safeParse(req.query);
   if (!parsed.success) return res.json({ results: [] });
 
@@ -276,7 +301,7 @@ interface SsrShellOpts {
   canonical: string;
   locale: Locale;
   hreflangs: Array<{ hreflang: string; href: string }>;
-  jsonLd?: Record<string, any> | Array<Record<string, any>>;
+  jsonLd?: Record<string, unknown> | Array<Record<string, unknown>>;
   bodyHtml: string;
   status?: number;
 }
@@ -351,11 +376,11 @@ async function loadDefaultLocale(config: ServerConfig): Promise<Locale> {
     .select('default_locale')
     .limit(1)
     .maybeSingle();
-  return normalizeLocale((data as any)?.default_locale, 'en');
+  return normalizeLocale((data as { default_locale?: string } | null)?.default_locale, 'en');
 }
 
 publicKbRouter.get('/help', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = configOf(req);
   const def = await loadDefaultLocale(config);
   return res.redirect(302, `/help/${def}`);
 });
@@ -375,7 +400,7 @@ publicKbRouter.get('/help/robots.txt', (_req: Request, res: Response) => {
 });
 
 publicKbRouter.get('/help/sitemap.xml', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = configOf(req);
   const workspaceId = await resolveWorkspaceForHost(config, req);
   res.setHeader('Content-Type', 'application/xml; charset=utf-8');
   if (!workspaceId) {
@@ -400,13 +425,13 @@ publicKbRouter.get('/help/sitemap.xml', async (req: Request, res: Response) => {
   for (const l of SUPPORTED_LOCALES) {
     urls.push(`<url><loc>${escapeHtml(`${base}/help/${l}`)}</loc></url>`);
   }
-  for (const c of cats || []) {
-    const loc = `${base}/help/${(c as any).locale}/c/${(c as any).slug}`;
+  for (const c of (cats || []) as KbCategoryRow[]) {
+    const loc = `${base}/help/${c.locale}/c/${c.slug}`;
     urls.push(`<url><loc>${escapeHtml(loc)}</loc></url>`);
   }
-  for (const a of arts || []) {
-    const loc = `${base}/help/${(a as any).locale}/a/${(a as any).slug}`;
-    const lastmod = (a as any).updated_at ? `<lastmod>${escapeHtml(String((a as any).updated_at))}</lastmod>` : '';
+  for (const a of (arts || []) as KbArticleRow[]) {
+    const loc = `${base}/help/${a.locale}/a/${a.slug}`;
+    const lastmod = a.updated_at ? `<lastmod>${escapeHtml(String(a.updated_at))}</lastmod>` : '';
     urls.push(`<url><loc>${escapeHtml(loc)}</loc>${lastmod}</url>`);
   }
 
@@ -416,8 +441,8 @@ publicKbRouter.get('/help/sitemap.xml', async (req: Request, res: Response) => {
 });
 
 publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const rawLocale = paramStr(req.params.locale as any);
+  const config = configOf(req);
+  const rawLocale = paramStr(req.params.locale);
   const locale = normalizeLocale(rawLocale);
   if (rawLocale !== locale) {
     return res.redirect(302, `/help/${locale}`);
@@ -453,16 +478,16 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
 
   const base = getRequestHostUrl(req);
   const canonical = `${base}/help/${locale}`;
-  const catCards = (cats || [])
-    .map((c: any) =>
+  const catCards = ((cats || []) as KbCategoryRow[])
+    .map((c) =>
       `<a class="kb-card" href="/help/${locale}/c/${escapeAttr(c.slug)}">
          <div class="kb-card-title">${escapeHtml(c.name)}</div>
          ${c.description ? `<div class="kb-card-excerpt">${escapeHtml(c.description)}</div>` : ''}
        </a>`,
     )
     .join('');
-  const featuredCards = (featured || [])
-    .map((a: any) =>
+  const featuredCards = ((featured || []) as KbArticleRow[])
+    .map((a) =>
       `<a class="kb-card" href="/help/${locale}/a/${escapeAttr(a.slug)}">
          <div class="kb-card-title">${escapeHtml(a.title)}</div>
          ${a.excerpt ? `<div class="kb-card-excerpt">${escapeHtml(a.excerpt)}</div>` : ''}
@@ -514,8 +539,8 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
 });
 
 publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const rawLocale = paramStr(req.params.locale as any);
+  const config = configOf(req);
+  const rawLocale = paramStr(req.params.locale);
   const locale = normalizeLocale(rawLocale);
   if (rawLocale !== locale) return res.redirect(302, `/help/${locale}/c/${req.params.slug}`);
 
@@ -529,22 +554,22 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
     .eq('workspace_id', workspaceId)
     .eq('slug', req.params.slug);
 
-  const cat = (catRows && catRows[0]) || null;
+  const cat = ((catRows && catRows[0]) || null) as (KbCategoryRow & { name: string; slug: string }) | null;
   if (!cat) return res.status(404).send('Not found');
 
   const { data: arts } = await supabase
     .from('knowledge_base_articles')
     .select('title, slug, excerpt')
     .eq('workspace_id', workspaceId)
-    .in('category_id', (catRows || []).map((c: any) => c.id))
+    .in('category_id', ((catRows || []) as KbCategoryRow[]).map((c) => c.id))
     .eq('status', 'published')
     .order('sort_order', { ascending: true });
 
 
   const base = getRequestHostUrl(req);
-  const canonical = `${base}/help/${locale}/c/${(cat as any).slug}`;
-  const cards = (arts || [])
-    .map((a: any) =>
+  const canonical = `${base}/help/${locale}/c/${cat.slug}`;
+  const cards = ((arts || []) as KbArticleRow[])
+    .map((a) =>
       `<a class="kb-card" href="/help/${locale}/a/${escapeAttr(a.slug)}">
          <div class="kb-card-title">${escapeHtml(a.title)}</div>
          ${a.excerpt ? `<div class="kb-card-excerpt">${escapeHtml(a.excerpt)}</div>` : ''}
@@ -555,24 +580,24 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
   const body = `
     <nav class="kb-breadcrumb" aria-label="Breadcrumb">
       <a href="/help/${locale}">${escapeHtml(locale === 'fa' ? 'مرکز راهنما' : locale === 'tr' ? 'Yardım merkezi' : 'Help center')}</a>
-      &nbsp;/&nbsp;${escapeHtml((cat as any).name)}
+      &nbsp;/&nbsp;${escapeHtml(cat.name)}
     </nav>
-    <h1>${escapeHtml((cat as any).name)}</h1>
-    ${(cat as any).description ? `<p>${escapeHtml((cat as any).description)}</p>` : ''}
+    <h1>${escapeHtml(cat.name)}</h1>
+    ${cat.description ? `<p>${escapeHtml(cat.description)}</p>` : ''}
     ${cards || '<p class="kb-empty">—</p>'}
   `;
 
   return res.status(200).send(renderShell({
-    title: (cat as any).name,
-    description: (cat as any).description || (cat as any).name,
+    title: cat.name,
+    description: cat.description || cat.name,
     canonical,
     locale,
-    hreflangs: buildHreflangs(req, (l) => `/help/${l}/c/${(cat as any).slug}`),
+    hreflangs: buildHreflangs(req, (l) => `/help/${l}/c/${cat.slug}`),
     jsonLd: [
       {
         '@context': 'https://schema.org',
         '@type': 'CollectionPage',
-        name: (cat as any).name,
+        name: cat.name,
         url: canonical,
         inLanguage: locale,
       },
@@ -581,7 +606,7 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
         '@type': 'BreadcrumbList',
         itemListElement: [
           { '@type': 'ListItem', position: 1, name: 'Help', item: `${base}/help/${locale}` },
-          { '@type': 'ListItem', position: 2, name: (cat as any).name, item: canonical },
+          { '@type': 'ListItem', position: 2, name: cat.name, item: canonical },
         ],
       },
     ],
@@ -590,8 +615,8 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
 });
 
 publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const rawLocale = paramStr(req.params.locale as any);
+  const config = configOf(req);
+  const rawLocale = paramStr(req.params.locale);
   const locale = normalizeLocale(rawLocale);
   if (rawLocale !== locale) return res.redirect(302, `/help/${locale}/a/${req.params.slug}`);
 
@@ -607,7 +632,10 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
     .eq('status', 'published')
     .order('updated_at', { ascending: false })
     .limit(1);
-  const article = (articleRows && articleRows[0]) || null;
+  const article = ((articleRows && articleRows[0]) || null) as (KbArticleRow & { title: string; slug: string }) | null;
+  // Persian dates: Jalali in the Iranian edition (and while unknown, as
+  // before), Gregorian in the International one.
+  const persianDateTag = (await getPlatformEditionOrNull(config)) === 'international' ? 'fa-IR-u-ca-gregory' : 'fa-IR';
 
 
   if (!article) return res.status(404).send(renderShell({
@@ -620,44 +648,44 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
     status: 404,
   }));
 
-  let category: any = null;
-  if ((article as any).category_id) {
+  let category: { name: string; slug: string } | null = null;
+  if (article.category_id) {
     const { data: c } = await supabase
       .from('knowledge_base_categories')
       .select('name, slug')
-      .eq('id', (article as any).category_id)
+      .eq('id', article.category_id)
       .maybeSingle();
-    category = c;
+    category = c as { name: string; slug: string } | null;
   }
 
   const base = getRequestHostUrl(req);
-  const canonical = `${base}/help/${locale}/a/${(article as any).slug}`;
-  const description = ((article as any).excerpt || (article as any).title || '').slice(0, 160);
+  const canonical = `${base}/help/${locale}/a/${article.slug}`;
+  const description = (article.excerpt || article.title || '').slice(0, 160);
 
   const body = `
     <nav class="kb-breadcrumb" aria-label="Breadcrumb">
       <a href="/help/${locale}">${escapeHtml(locale === 'fa' ? 'مرکز راهنما' : locale === 'tr' ? 'Yardım merkezi' : 'Help center')}</a>
       ${category ? `&nbsp;/&nbsp;<a href="/help/${locale}/c/${escapeAttr(category.slug)}">${escapeHtml(category.name)}</a>` : ''}
     </nav>
-    <h1>${escapeHtml((article as any).title)}</h1>
-    <div class="kb-meta">${(article as any).updated_at ? escapeHtml(new Date((article as any).updated_at).toLocaleDateString(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US')) : ''}</div>
-    <article>${sanitizeArticleHtml((article as any).content || '')}</article>
+    <h1>${escapeHtml(article.title)}</h1>
+    <div class="kb-meta">${article.updated_at ? escapeHtml(new Date(article.updated_at).toLocaleDateString(locale === 'fa' ? persianDateTag : locale === 'tr' ? 'tr-TR' : 'en-US')) : ''}</div>
+    <article>${sanitizeArticleHtml(article.content || '')}</article>
   `;
 
   return res.status(200).send(renderShell({
-    title: (article as any).title,
+    title: article.title,
     description,
     canonical,
     locale,
-    hreflangs: buildHreflangs(req, (l) => `/help/${l}/a/${(article as any).slug}`),
+    hreflangs: buildHreflangs(req, (l) => `/help/${l}/a/${article.slug}`),
     jsonLd: [
       {
         '@context': 'https://schema.org',
         '@type': 'Article',
-        headline: (article as any).title,
+        headline: article.title,
         description,
         inLanguage: locale,
-        dateModified: (article as any).updated_at,
+        dateModified: article.updated_at,
         mainEntityOfPage: canonical,
       },
       {
@@ -666,7 +694,7 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
         itemListElement: [
           { '@type': 'ListItem', position: 1, name: 'Help', item: `${base}/help/${locale}` },
           ...(category ? [{ '@type': 'ListItem', position: 2, name: category.name, item: `${base}/help/${locale}/c/${category.slug}` }] : []),
-          { '@type': 'ListItem', position: category ? 3 : 2, name: (article as any).title, item: canonical },
+          { '@type': 'ListItem', position: category ? 3 : 2, name: article.title, item: canonical },
         ],
       },
     ],
@@ -675,8 +703,8 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
 });
 
 publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const rawLocale = paramStr(req.params.locale as any);
+  const config = configOf(req);
+  const rawLocale = paramStr(req.params.locale);
   const locale = normalizeLocale(rawLocale);
   if (rawLocale !== locale) {
     const q = typeof req.query.q === 'string' ? req.query.q : '';
@@ -687,7 +715,7 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
   if (!workspaceId) return res.status(404).send('Not found');
 
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 200) : '';
-  let results: any[] = [];
+  let results: KbArticleRow[] = [];
   if (q.length >= 2) {
     const supabase = getServiceClient(config);
     const like = `%${q.replace(/[%_]/g, ' ')}%`;
@@ -698,7 +726,7 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
       .eq('status', 'published')
       .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
       .limit(20);
-    results = (data as any[]) || [];
+    results = (data as KbArticleRow[] | null) || [];
   }
 
 

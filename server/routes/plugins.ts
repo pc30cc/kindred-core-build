@@ -15,6 +15,8 @@ import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '
 import { redactSecrets } from '../lib/redactSecrets.js';
 import { checkChannelAccess, checkModuleAccess } from '../middleware/featureGating.js';
 import { PLUGIN_REGISTRY, getPluginDefinition } from '../plugins/registry.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { isChannelAllowedInEdition, isIranianChannel } from '../../shared/edition.js';
 import {
   getInstallation,
   getPlatformState,
@@ -131,11 +133,25 @@ async function isPluginAllowedByPlan(
   return true;
 }
 
+/**
+ * Is this plugin part of the platform's edition? Bale (an Iranian messenger)
+ * is listed and usable in the Iranian edition only; an unknown edition lists
+ * everything, as before.
+ */
+async function pluginAllowedInEdition(config: ReturnType<typeof serverConfigOf>, pluginId: string): Promise<boolean> {
+  if (!isIranianChannel(pluginId)) return true;
+  const edition = await getPlatformEditionOrNull(config);
+  return isChannelAllowedInEdition(pluginId, edition ?? 'iran');
+}
+
 /** A plugin is usable only when platform state AND the plan both allow it. */
 async function resolveAvailability(req: Request, workspaceId: string, pluginId: string) {
   const config = serverConfigOf(req);
   const def = getPluginDefinition(pluginId);
   if (!def) return { ok: false as const, reason: 'unknown_plugin' };
+
+  // Iranian-only channels (Bale) do not exist outside the Iranian edition.
+  if (!(await pluginAllowedInEdition(config, pluginId))) return { ok: false as const, reason: 'not_available_in_edition' };
 
   const state = await getPlatformState(config, pluginId);
   if (!state.enabled) return { ok: false as const, reason: 'disabled_by_platform' };
@@ -164,11 +180,12 @@ pluginsRouter.get('/catalog', async (req, res) => {
     ]);
     const stateById = new Map(states.map((s) => [s.plugin_id, s]));
     const installedById = new Map(installations.map((i) => [i.plugin_id, i]));
+    const edition = (await getPlatformEditionOrNull(config)) ?? 'iran';
 
     const items = await Promise.all(
       PLUGIN_REGISTRY.filter((def) => {
         const state = stateById.get(def.id)!;
-        return state.marketplace_visible && state.rollout_status !== 'hidden';
+        return state.marketplace_visible && state.rollout_status !== 'hidden' && isChannelAllowedInEdition(def.id, edition);
       }).map(async (def) => {
         const state = stateById.get(def.id)!;
         const entry = toCatalogEntry(def, state);
@@ -923,12 +940,14 @@ adminPluginsRouter.get('/', async (req, res) => {
   try {
     const states = await listPlatformState(serverConfigOf(req));
     const stateById = new Map(states.map((s) => [s.plugin_id, s]));
+    const edition = (await getPlatformEditionOrNull(serverConfigOf(req))) ?? 'iran';
     res.json({
       // Super Admin edits the RAW platform state, so the switches must mirror
       // the stored row — not the effective value the marketplace computes
       // (which also folds in `workspaceInstallable` and `enabled`, making a
       // coming-soon plugin's switch look permanently off).
-      items: PLUGIN_REGISTRY.map((def) => ({
+      // Bale is not listed outside the Iranian edition.
+      items: PLUGIN_REGISTRY.filter((def) => isChannelAllowedInEdition(def.id, edition)).map((def) => ({
         ...toCatalogEntry(def, stateById.get(def.id)!),
         installable: stateById.get(def.id)!.installable,
         policy: stateById.get(def.id)!.policy,

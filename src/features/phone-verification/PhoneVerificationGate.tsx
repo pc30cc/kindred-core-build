@@ -13,6 +13,7 @@ import type { PhoneVerificationPurpose } from '@/lib/api';
 import { PhoneVerificationFlow } from './PhoneVerificationFlow';
 import { usePhoneVerificationStatus } from './hooks';
 import type { PhoneVerificationMode } from './types';
+import { useEdition } from '@/hooks/useEdition';
 
 export interface PhoneVerificationGateProps {
   purpose: PhoneVerificationPurpose;
@@ -35,7 +36,13 @@ export function PhoneVerificationGate({
     ...(workspaceId ? { workspaceId } : {}),
     ...(workspaceSlug ? { workspaceSlug } : {}),
   };
-  const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(ctx);
+  // SMS verification exists in the Iranian edition only (its only SMS
+  // vendors are Iranian): in International nothing is gated, and the server
+  // never requires it either (server/services/phoneVerification).
+  const { features } = useEdition();
+  const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(ctx, features.smsVerification);
+
+  if (!features.smsVerification) return <>{children}</>;
 
   if (isLoading || (!data && !isError)) {
     return (

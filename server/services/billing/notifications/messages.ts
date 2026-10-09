@@ -6,8 +6,10 @@
 // decided, so this module can never disagree with the ledger.
 //
 // Amounts are IRR integers formatted with a locale-appropriate grouping, and
-// dates are rendered in the Tehran calendar for `fa` — the same convention the
-// rest of the Iran billing surface uses. An amount in another currency (named
+// dates are rendered in the Jalali calendar on the Tehran clock for `fa` in
+// the Iranian edition — the same convention the rest of the Iran billing
+// surface uses. In the International edition (`opts.edition`) dates are
+// Gregorian on UTC for every language, Persian included. An amount in another currency (named
 // by `payload.currency`, migration 256) is minor units of it and is printed as
 // that currency.
 // ============================================================
@@ -28,7 +30,14 @@ export type BillingNotificationType =
   | 'trial_ending_soon'
   | 'trial_expired';
 
+import type { Edition } from '../../../../shared/edition.js';
+
 export type BillingLocale = 'fa' | 'en' | 'tr';
+
+/** Rendering options. A missing edition reads as Iranian (the behaviour from before editions). */
+export interface BillingRenderOptions {
+  edition?: Edition | null;
+}
 
 export interface RenderedMessage {
   subject: string;
@@ -78,14 +87,15 @@ export function formatAmount(amount: unknown, currency: unknown, locale: Billing
   }
 }
 
-export function formatDate(value: unknown, locale: BillingLocale): string {
+export function formatDate(value: unknown, locale: BillingLocale, edition: Edition | null = 'iran'): string {
   if (!value) return '—';
   const d = new Date(String(value));
   if (Number.isNaN(d.getTime())) return '—';
+  const international = edition === 'international';
   try {
     return new Intl.DateTimeFormat(
-      locale === 'fa' ? 'fa-IR-u-ca-persian' : locale === 'tr' ? 'tr-TR' : 'en-US',
-      { dateStyle: 'medium', timeZone: 'Asia/Tehran' },
+      locale === 'fa' ? (international ? 'fa-IR-u-ca-gregory' : 'fa-IR-u-ca-persian') : locale === 'tr' ? 'tr-TR' : 'en-US',
+      { dateStyle: 'medium', timeZone: international ? 'UTC' : 'Asia/Tehran' },
     ).format(d);
   } catch {
     return d.toISOString().slice(0, 10);
@@ -293,16 +303,18 @@ const COPY: Record<BillingLocale, Copy> = { fa: FA, en: EN, tr: TR };
 export function buildBillingTemplateData(
   locale: string | null | undefined,
   payload: Record<string, unknown> = {},
+  opts: BillingRenderOptions = {},
 ): Record<string, string> {
   const loc = normalizeLocale(locale);
+  const edition = opts.edition ?? 'iran';
   return {
     invoice_number: String(payload.invoice_number ?? '—'),
     amount: formatAmount(payload.amount_irr, payload.currency, loc),
-    due_at: formatDate(payload.due_at, loc),
-    grace_ends_at: formatDate(payload.grace_period_ends_at, loc),
+    due_at: formatDate(payload.due_at, loc, edition),
+    grace_ends_at: formatDate(payload.grace_period_ends_at, loc, edition),
     plan_name: String(payload.plan_name ?? (loc === 'fa' ? 'رایگان' : 'Free')),
-    period_end: formatDate(payload.period_end, loc),
-    trial_end: formatDate(payload.trial_end, loc),
+    period_end: formatDate(payload.period_end, loc, edition),
+    trial_end: formatDate(payload.trial_end, loc, edition),
     days_left: String(payload.days_left ?? ''),
     action_url: String(payload.action_url ?? ''),
   };
@@ -312,16 +324,18 @@ export function renderBillingNotification(
   type: BillingNotificationType,
   locale: string | null | undefined,
   payload: Record<string, unknown> = {},
+  opts: BillingRenderOptions = {},
 ): RenderedMessage {
   const loc = normalizeLocale(locale);
+  const edition = opts.edition ?? 'iran';
   const ctx: Ctx = {
     invoiceNumber: String(payload.invoice_number ?? '—'),
     amount: formatAmount(payload.amount_irr, payload.currency, loc),
-    dueAt: formatDate(payload.due_at, loc),
-    graceEndsAt: formatDate(payload.grace_period_ends_at, loc),
+    dueAt: formatDate(payload.due_at, loc, edition),
+    graceEndsAt: formatDate(payload.grace_period_ends_at, loc, edition),
     planName: String(payload.plan_name ?? (loc === 'fa' ? 'رایگان' : 'Free')),
-    periodEnd: formatDate(payload.period_end, loc),
-    trialEnd: formatDate(payload.trial_end, loc),
+    periodEnd: formatDate(payload.period_end, loc, edition),
+    trialEnd: formatDate(payload.trial_end, loc, edition),
     daysLeft: String(payload.days_left ?? ''),
   };
   return COPY[loc][type](ctx);

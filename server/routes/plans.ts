@@ -26,6 +26,8 @@ import {
   USAGE_BACKED_LIMIT_KEYS,
 } from '../services/billing/capabilityRegistry.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { isChannelAllowedInEdition } from '../../shared/edition.js';
 import {
   handleWorkspaceEntitlementChanged,
   handlePlanDefinitionChanged,
@@ -112,13 +114,18 @@ plansRouter.get('/', async (req, res) => {
 // CAPABILITY CATALOG (registry-driven)
 // Read-only. Safe to call from admin & app UI.
 // ─────────────────────────────────────────────────────────────
-plansRouter.get('/capabilities', (req, res) => {
+plansRouter.get('/capabilities', async (req, res) => {
   const { type, group } = req.query as { type?: string; group?: string };
   const filter: { type?: CapabilityType; group?: string } = {};
   if (type === 'feature' || type === 'module' || type === 'channel' || type === 'limit') filter.type = type;
   if (typeof group === 'string' && group) filter.group = group;
+  // Iranian-only channels (Bale) are not offered outside the Iranian edition
+  // (an unknown edition lists everything, as before).
+  const edition = await getPlatformEditionOrNull(serverConfigOf(req));
   res.json({
-    capabilities: listCapabilities(filter),
+    capabilities: listCapabilities(filter).filter(
+      (c) => c.type !== 'channel' || isChannelAllowedInEdition(c.key, edition ?? 'iran'),
+    ),
     total: CAPABILITY_REGISTRY.length,
   });
 });

@@ -15,15 +15,21 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from '@/i18n';
 import { usePlatformPublicConfig } from '@/lib/platformPublicConfig';
-import { cachedEdition, rememberEdition } from '@/lib/edition';
+import { cachedEdition, knownRegionModeOrNull, rememberEdition, rememberRegionMode } from '@/lib/edition';
 import { formatAmountForEdition } from '@/lib/money';
 import {
   EDITION_PROFILE,
+  currencyForEditionRegion,
+  isChannelAllowedInEdition,
   isCurrencyAllowedInEdition,
   isProviderAllowedInEdition,
   resolveEdition,
+  parseRegionMode,
+  smsVerificationAvailable,
   type Edition,
   type EditionProfile,
+  type RegionCurrency,
+  type RegionMode,
 } from '../../shared/edition';
 
 export interface EditionInfo {
@@ -32,11 +38,25 @@ export interface EditionInfo {
   isInternational: boolean;
   /** True once the edition is known (from the config or this browser's cache). */
   ready: boolean;
-  /** The edition's currency: IRR (displayed as Toman) or USD. */
-  currency: EditionProfile['currency'];
+  /** The raw region mode (multi / iran / turkey / global); `multi` while unknown. */
+  regionMode: RegionMode;
+  /**
+   * The currency this region shows and charges (shared/edition.ts
+   * editionCurrencyFor): IRR (displayed as Toman) in Iran, TRY on a
+   * Turkish-only site, USD in Multi Region and Global — for every language.
+   */
+  currency: RegionCurrency;
   calendar: EditionProfile['calendar'];
   phoneCountry: EditionProfile['phoneCountry'];
-  features: { wallet: boolean; aiCreditTopup: boolean; iranianProviders: boolean };
+  features: {
+    wallet: boolean;
+    aiCreditTopup: boolean;
+    iranianProviders: boolean;
+    /** SMS one-time codes (phone verification and its gates): Iranian SMS vendors only, so Iran only. */
+    smsVerification: boolean;
+    /** The Bale messenger channel. */
+    bale: boolean;
+  };
   /** A stored amount as people read it (Toman for IRR in Iran; minor units elsewhere). */
   formatAmount: (amount: number | string | null | undefined, currency?: string | null) => string;
   /** May this gateway / vendor be listed in this edition? */
@@ -49,10 +69,18 @@ export interface EditionInfo {
 export function useKnownEdition(): Edition | null {
   const { data } = usePlatformPublicConfig();
   const fromConfig = data ? resolveEdition(data.region?.region_mode) : null;
+  const regionMode = data ? parseRegionMode(data.region?.region_mode) : null;
   useEffect(() => {
     if (fromConfig) rememberEdition(fromConfig);
-  }, [fromConfig]);
+    if (regionMode) rememberRegionMode(regionMode);
+  }, [fromConfig, regionMode]);
   return fromConfig ?? cachedEdition();
+}
+
+/** The region mode the public config says, else the cached one, else `multi`. */
+function useKnownRegionMode(): RegionMode {
+  const { data } = usePlatformPublicConfig();
+  return data ? parseRegionMode(data.region?.region_mode) : knownRegionModeOrNull() ?? 'multi';
 }
 
 export function useEdition(): EditionInfo {
@@ -60,6 +88,8 @@ export function useEdition(): EditionInfo {
   const { locale } = useTranslation();
   const edition: Edition = known ?? 'iran';
   const profile = EDITION_PROFILE[edition];
+  const regionMode = useKnownRegionMode();
+  const currency = currencyForEditionRegion(edition, regionMode);
 
   const formatAmount = useCallback(
     (amount: number | string | null | undefined, currency?: string | null) =>
@@ -81,18 +111,21 @@ export function useEdition(): EditionInfo {
       isIran: edition === 'iran',
       isInternational: edition === 'international',
       ready: known !== null,
-      currency: profile.currency,
+      regionMode,
+      currency,
       calendar: profile.calendar,
       phoneCountry: profile.phoneCountry,
       features: {
         wallet: profile.wallet,
         aiCreditTopup: profile.aiCreditTopup,
         iranianProviders: profile.allowsIranianProviders,
+        smsVerification: smsVerificationAvailable(edition),
+        bale: isChannelAllowedInEdition('bale', edition),
       },
       formatAmount,
       allowsProvider,
       allowsCurrency,
     }),
-    [edition, known, profile, formatAmount, allowsProvider, allowsCurrency],
+    [edition, known, profile, regionMode, currency, formatAmount, allowsProvider, allowsCurrency],
   );
 }

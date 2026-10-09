@@ -14,17 +14,19 @@
 // ============================================================
 
 import type { ServerConfig } from '../../config.js';
-import { EditionUnavailableError, getPlatformEdition } from '../platformRegion.js';
+import { EditionUnavailableError, getPlatformEdition, getPlatformRegionMode } from '../platformRegion.js';
 import {
   EDITION_PROFILE,
-  editionCurrency,
+  currencyForEditionRegion,
   isCurrencyAllowedInEdition,
   isProviderAllowedInEdition,
   type Edition,
+  type RegionCurrency,
+  type RegionMode,
 } from '../../../shared/edition.js';
 
-export { EditionUnavailableError, getPlatformEdition, isCurrencyAllowedInEdition, isProviderAllowedInEdition };
-export type { Edition };
+export { EditionUnavailableError, getPlatformEdition, getPlatformRegionMode, isCurrencyAllowedInEdition, isProviderAllowedInEdition };
+export type { Edition, RegionCurrency, RegionMode };
 
 type DbConfig = Pick<ServerConfig, 'supabaseUrl' | 'supabaseServiceRoleKey'>;
 
@@ -40,9 +42,28 @@ export class EditionPolicyError extends Error {
   }
 }
 
-/** The currency new documents default to: IRR in the Iranian edition, USD in the International one. */
-export async function billingEditionCurrency(config: DbConfig): Promise<'IRR' | 'USD'> {
-  return editionCurrency(await getPlatformEdition(config));
+/** The edition, the region mode and the currency that region shows and charges (shared/edition.ts). */
+export interface BillingRegion {
+  edition: Edition;
+  regionMode: RegionMode;
+  currency: RegionCurrency;
+}
+
+export async function getBillingRegion(config: DbConfig): Promise<BillingRegion> {
+  const edition = await getPlatformEdition(config);
+  // The Iranian edition IS region `iran` (Rial): nothing more to read.
+  if (edition === 'iran') return { edition, regionMode: 'iran', currency: 'IRR' };
+  // Same cached read as the edition; should it still fail, Multi Region (USD).
+  const regionMode = await getPlatformRegionMode(config).catch(() => 'multi' as const);
+  return { edition, regionMode, currency: currencyForEditionRegion(edition, regionMode) };
+}
+
+/**
+ * The currency new documents default to: IRR in the Iranian edition (as
+ * before), TRY on a Turkish-only site, USD in Multi Region and Global.
+ */
+export async function billingEditionCurrency(config: DbConfig): Promise<RegionCurrency> {
+  return (await getBillingRegion(config)).currency;
 }
 
 export function assertProviderAllowed(edition: Edition, provider: string | null | undefined): void {
@@ -75,11 +96,11 @@ export async function assertPaymentAllowedInEdition(
   return edition;
 }
 
-/** The currency to issue in: the requested one (if the edition allows it), else the edition's. */
+/** The currency to issue in: the requested one (if the edition allows it), else the region's (IRR / TRY / USD). */
 export async function resolveEditionCurrency(config: DbConfig, requested?: string | null): Promise<string> {
-  const edition = await getPlatformEdition(config);
+  const { edition, currency: regionCurrency } = await getBillingRegion(config);
   const code = typeof requested === 'string' ? requested.trim().toUpperCase() : '';
-  const currency = /^[A-Z]{3}$/.test(code) ? code : editionCurrency(edition);
+  const currency = /^[A-Z]{3}$/.test(code) ? code : regionCurrency;
   assertCurrencyAllowed(edition, currency);
   return currency;
 }

@@ -1,7 +1,8 @@
 // @vitest-environment node
 /**
  * GET /api/platform/public/config is asked for on every page load and costs
- * four database operations to build. server/services/platformPublicConfig.ts
+ * five database operations to build (the fifth, platform_domains, feeds the
+ * brand's public contact; shared/brand.ts). server/services/platformPublicConfig.ts
  * keeps the finished response in memory, bounded by a TTL and dropped by every
  * Super Admin write to the settings behind it. These tests count the database
  * operations: what the cache saves, and that it never serves a value a write
@@ -18,6 +19,7 @@ const db = vi.hoisted(() => ({
   localized: [] as Row[],
   settings: {} as Row,
   widget: {} as Row,
+  domains: {} as Row,
 }));
 
 vi.mock('../../../server/supabase.js', () => {
@@ -51,6 +53,7 @@ vi.mock('../../../server/supabase.js', () => {
         platform_branding: db.branding,
         platform_branding_localized: db.localized,
         platform_settings: db.settings,
+        platform_domains: db.domains,
       } as Record<string, unknown>)[table]),
       rpc: (fn: string) => result(() => (fn === 'get_widget_platform_settings' ? db.widget : null)),
     }),
@@ -74,6 +77,7 @@ beforeEach(() => {
   db.branding = { id: 'b1', logo_url: '/logo.svg', primary_color: '#123456', created_by: 'admin-1', internal_note: 'x' };
   db.localized = [{ id: 'l1', locale: 'fa', platform_name: 'وب‌یار', updated_by: 'admin-1' }];
   db.settings = { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa' };
+  db.domains = { id: 'd1', primary_domain: 'webyar.ai', canonical_base_url: null, public_base_url: null, created_by: 'admin-1' };
   db.widget = {
     realtime_pending_max: 50,
     realtime_reconnect_jitter_pct: 20,
@@ -87,17 +91,17 @@ afterEach(() => {
 });
 
 describe('platform public config cache', () => {
-  it('builds the response with four operations, then serves repeats from memory', async () => {
+  it('builds the response with five operations, then serves repeats from memory', async () => {
     const first = await getPlatformPublicConfig(CONFIG);
-    expect(db.ops).toBe(4);
+    expect(db.ops).toBe(5);
     for (let i = 0; i < 50; i++) await getPlatformPublicConfig(CONFIG);
-    expect(db.ops).toBe(4);
+    expect(db.ops).toBe(5);
     expect(await getPlatformPublicConfig(CONFIG)).toEqual(first);
   });
 
   it('a burst on a cold cache shares one database round', async () => {
     const all = await Promise.all(Array.from({ length: 25 }, () => getPlatformPublicConfig(CONFIG)));
-    expect(db.ops).toBe(4);
+    expect(db.ops).toBe(5);
     expect(new Set(all.map((v) => JSON.stringify(v))).size).toBe(1);
   });
 
@@ -108,6 +112,7 @@ describe('platform public config cache', () => {
       localized: [{ locale: 'fa', platform_name: 'وب‌یار' }],
       region: { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa' },
       realtime: { realtime_reconnect_jitter_pct: 20, realtime_pending_max: 50 },
+      brand: { edition: 'iran', site_url: 'https://webyar.ai', support_email: 'support@webyar.ai' },
     });
     expect(JSON.stringify(v)).not.toContain('not-for-the-public');
     expect(JSON.stringify(v)).not.toContain('admin-1');
@@ -118,7 +123,7 @@ describe('platform public config cache', () => {
     db.branding = { ...db.branding, primary_color: '#abcdef' };
     invalidatePlatformPublicConfig();
     expect((await getPlatformPublicConfig(CONFIG))!.branding).toMatchObject({ primary_color: '#abcdef' });
-    expect(db.ops).toBe(8);
+    expect(db.ops).toBe(10);
   });
 
   it('a load already running when a write lands is never stored, even when it finishes last', async () => {
@@ -134,7 +139,7 @@ describe('platform public config cache', () => {
     expect((await stale)!.branding).toMatchObject({ primary_color: '#123456' });
     // the late, stale answer did not overwrite the fresh one
     expect((await getPlatformPublicConfig(CONFIG))!.branding).toMatchObject({ primary_color: '#abcdef' });
-    expect(db.ops).toBe(8);
+    expect(db.ops).toBe(10);
   });
 
   it('expires after the TTL even with no write, which bounds what another replica can show', async () => {
@@ -143,10 +148,10 @@ describe('platform public config cache', () => {
     await getPlatformPublicConfig(CONFIG);
     vi.setSystemTime(new Date(Date.now() + CACHE_TTL_MS - 1));
     await getPlatformPublicConfig(CONFIG);
-    expect(db.ops).toBe(4);
+    expect(db.ops).toBe(5);
     vi.setSystemTime(new Date(Date.now() + 2));
     await getPlatformPublicConfig(CONFIG);
-    expect(db.ops).toBe(8);
+    expect(db.ops).toBe(10);
   });
 
   it('a failed read is reported and not remembered', async () => {
@@ -154,6 +159,6 @@ describe('platform public config cache', () => {
     expect(await getPlatformPublicConfig(CONFIG)).toBeNull();
     db.fail = false;
     expect(await getPlatformPublicConfig(CONFIG)).not.toBeNull();
-    expect(db.ops).toBe(8);
+    expect(db.ops).toBe(10);
   });
 });

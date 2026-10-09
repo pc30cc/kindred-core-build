@@ -9,21 +9,22 @@ import { applySeoHead } from '@/lib/seoHead';
 import { LegalLayout } from './LegalLayout';
 import { contactFormError, contactMailto, type ContactFields as Fields } from './contactForm';
 import { CONTACT_PAGE, LEGAL_CONTACT_EMAIL } from './legalDocuments';
+import { useBrandTokens } from '@/lib/brand';
 
 const ICONS = { email: Mail, help: BookOpen, privacy: ShieldCheck } as const;
 
 /** A sentence with `{email}` drawn as a link to write to. */
-function WithEmail({ text }: { text: string }) {
+function WithEmail({ text, email }: { text: string; email: string }) {
   return (
     <>
       {text.split('{email}').map((part, index) => (
         <Fragment key={index}>
           {index > 0 && (
             <a
-              href={`mailto:${LEGAL_CONTACT_EMAIL}`}
+              href={`mailto:${email}`}
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
-              {LEGAL_CONTACT_EMAIL}
+              {email}
             </a>
           )}
           {part}
@@ -43,18 +44,23 @@ export default function ContactPage() {
   const [fields, setFields] = useState<Fields>({ name: '', email: '', subject: '', message: '' });
   const [error, setError] = useState<string | null>(null);
   const { form } = CONTACT_PAGE;
+  // The brand per edition (shared/brand.ts): WebYar's name and address in
+  // Iran, as always; the platform's own abroad.
+  const { fill, supportEmail } = useBrandTokens('en');
+  const email = supportEmail || LEGAL_CONTACT_EMAIL;
+  const pageTitle = fill(CONTACT_PAGE.pageTitle);
 
   useEffect(() => {
     const url = `${window.location.origin}/contact`;
     applySeoHead({
-      title: CONTACT_PAGE.pageTitle,
+      title: pageTitle,
       description: CONTACT_PAGE.subtitle,
       canonical: url,
       locale: 'en',
       dir: 'ltr',
       jsonLd: { '@context': 'https://schema.org', '@type': 'ContactPage', name: CONTACT_PAGE.title, url, inLanguage: 'en' },
     });
-  }, []);
+  }, [pageTitle]);
 
   const set = (key: keyof Fields) => (value: string) => {
     setFields((current) => ({ ...current, [key]: value }));
@@ -65,7 +71,7 @@ export default function ContactPage() {
     event.preventDefault();
     const problem = contactFormError(fields);
     setError(problem);
-    if (!problem) window.location.href = contactMailto(fields);
+    if (!problem) window.location.href = contactMailto(fields, email);
   }
 
   return (
@@ -132,7 +138,7 @@ export default function ContactPage() {
           {form.send}
         </Button>
         <p className="text-center text-xs text-muted-foreground">
-          <WithEmail text={form.note} />
+          <WithEmail text={form.note} email={email} />
         </p>
       </form>
 
@@ -148,7 +154,7 @@ export default function ContactPage() {
               <div>
                 <h2 className="text-sm font-semibold text-foreground">{card.title}</h2>
                 <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                  <WithEmail text={card.text} />
+                  <WithEmail text={fill(card.text)} email={email} />
                 </p>
               </div>
               {'link' in card && (

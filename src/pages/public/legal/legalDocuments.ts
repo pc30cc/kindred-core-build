@@ -26,11 +26,20 @@ export interface LegalDocument {
   sections: LegalSection[];
 }
 
+/**
+ * The brand in these texts is a token (shared/brand.ts), filled per edition
+ * by useBrandTokens (src/lib/brand.ts): `{{brandLatin}}` is
+ * "Webyar" and `{{supportEmail}}` info@webyar.ai in the Iranian edition, as
+ * always; the platform's own name and support address in the International
+ * one. `{email}` in a paragraph is drawn as a link to that address.
+ */
+
+/** The Iranian edition's contact address (the default the pages fall back to). */
 export const LEGAL_CONTACT_EMAIL = 'info@webyar.ai';
 
 export const LEGAL_CHROME = {
-  brand: 'Webyar',
-  copyright: '© 2026 Webyar — All rights reserved.',
+  brand: '{{brandLatin}}',
+  copyright: '© 2026 {{brandLatin}} — All rights reserved.',
   contact: 'Contact',
   privacy: 'Privacy',
   terms: 'Terms of Use',
@@ -42,7 +51,7 @@ export const LEGAL_CHROME = {
  * email app rather than to a server.
  */
 export const CONTACT_PAGE = {
-  pageTitle: 'Contact | Webyar',
+  pageTitle: 'Contact | {{brandLatin}}',
   title: 'Contact us',
   subtitle: 'Have a question? We’re here to help.',
   form: {
@@ -65,7 +74,7 @@ export const CONTACT_PAGE = {
     {
       kind: 'email',
       title: 'Email',
-      text: 'Write to us about Webyar, your account, billing or the apps: {email}',
+      text: 'Write to us about {{brandLatin}}, your account, billing or the apps: {email}',
     },
     {
       kind: 'help',
@@ -83,14 +92,14 @@ export const CONTACT_PAGE = {
 } as const;
 
 const PRIVACY: LegalDocument = {
-  pageTitle: 'Privacy Policy | Webyar',
+  pageTitle: 'Privacy Policy | {{brandLatin}}',
   title: 'Privacy Policy',
-  effective: 'Effective date: September 1, 2026 · Webyar',
+  effective: 'Effective date: September 1, 2026 · {{brandLatin}}',
   sections: [
     {
       heading: '1. Introduction',
       paragraphs: [
-        'This Privacy Policy explains how Webyar collects, uses, discloses, stores and protects personal information when you use its website, applications and related services (the “Services”).',
+        'This Privacy Policy explains how {{brandLatin}} collects, uses, discloses, stores and protects personal information when you use its website, applications and related services (the “Services”).',
         'By using the Services, you accept this policy. If you do not agree with it, please do not use the Services.',
       ],
     },
@@ -180,14 +189,14 @@ const PRIVACY: LegalDocument = {
 };
 
 const TERMS: LegalDocument = {
-  pageTitle: 'Terms of Use | Webyar',
+  pageTitle: 'Terms of Use | {{brandLatin}}',
   title: 'Terms of Use',
-  effective: 'Effective date: September 1, 2026 · Webyar',
+  effective: 'Effective date: September 1, 2026 · {{brandLatin}}',
   sections: [
     {
       heading: '1. Acceptance of the terms',
       paragraphs: [
-        'These Terms of Use are a binding agreement between you and Webyar about the use of its website, applications and related services (the “Services”). By creating an account or using the Services, you accept these terms.',
+        'These Terms of Use are a binding agreement between you and {{brandLatin}} about the use of its website, applications and related services (the “Services”). By creating an account or using the Services, you accept these terms.',
       ],
     },
     {
@@ -232,7 +241,7 @@ const TERMS: LegalDocument = {
     {
       heading: '8. Intellectual property',
       paragraphs: [
-        'All software, designs, trademarks and content provided by Webyar belong to us or our licensors and are protected by intellectual property laws. Except as expressly stated in these terms, no rights are granted.',
+        'All software, designs, trademarks and content provided by {{brandLatin}} belong to us or our licensors and are protected by intellectual property laws. Except as expressly stated in these terms, no rights are granted.',
       ],
     },
     {
@@ -244,7 +253,7 @@ const TERMS: LegalDocument = {
     {
       heading: '10. Limitation of liability',
       paragraphs: [
-        'To the fullest extent permitted by law, Webyar is not liable for indirect or consequential damages or for lost profits or data. Our total liability for any claim is limited to the amount you paid for the Services in the twelve months before that claim.',
+        'To the fullest extent permitted by law, {{brandLatin}} is not liable for indirect or consequential damages or for lost profits or data. Our total liability for any claim is limited to the amount you paid for the Services in the twelve months before that claim.',
       ],
     },
     {

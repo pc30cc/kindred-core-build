@@ -1,0 +1,614 @@
+{
+ "src/i18n/locales/en.ts": [
+  {
+   "locale": "en",
+   "source": "    micDenied: 'Microphone access is blocked. Enable it in Settings > {{brand}} > Microphone.',",
+   "iran": "    micDenied: 'Microphone access is blocked. Enable it in Settings > Webyar > Microphone.',"
+  },
+  {
+   "locale": "en",
+   "source": "    introWarn: 'The {{brand}} app on your phone keeps a separate set, so silencing one does not silence the other.',",
+   "iran": "    introWarn: 'The Webyar app on your phone keeps a separate set, so silencing one does not silence the other.',"
+  },
+  {
+   "locale": "en",
+   "source": "    permissionNeededHelp: 'Allow notifications and {{brand}} will tell you about a new message while you are in another window.',",
+   "iran": "    permissionNeededHelp: 'Allow notifications and Webyar will tell you about a new message while you are in another window.',"
+  },
+  {
+   "locale": "en",
+   "source": "    introWarnNative: 'The {{brand}} console in your browser keeps a separate set, so silencing one does not silence the other.',",
+   "iran": "    introWarnNative: 'The Webyar console in your browser keeps a separate set, so silencing one does not silence the other.',"
+  },
+  {
+   "locale": "en",
+   "source": "      step1: 'Download the {{brandPlugin}} package for your OpenCart version from Plugins → OpenCart.',",
+   "iran": "      step1: 'Download the Web Yar package for your OpenCart version from Plugins → OpenCart.',"
+  },
+  {
+   "locale": "en",
+   "source": "      step2: 'Upload it in Extensions → Installer, then install \"{{brandPlugin}}\" under Extensions → Modules.',",
+   "iran": "      step2: 'Upload it in Extensions → Installer, then install \"Web Yar\" under Extensions → Modules.',"
+  },
+  {
+   "locale": "en",
+   "source": "        caption: 'The account Apple signs in with: apple@webyar.ai, an admin of the English \"{{brandLatin}} Demo\" workspace with every feature on.',",
+   "iran": "        caption: 'The account Apple signs in with: apple@webyar.ai, an admin of the English \"Webyar Demo\" workspace with every feature on.',"
+  },
+  {
+   "locale": "en",
+   "source": "        invalidUrl: \"The address must start with https:// (e.g. {{siteUrl}}).\",",
+   "iran": "        invalidUrl: \"The address must start with https:// (e.g. https://webyar.ai).\","
+  },
+  {
+   "locale": "en",
+   "source": "        previewApp: '{{brandLatin}}',",
+   "iran": "        previewApp: 'Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "        step2: 'Open Extensions → Extensions → Modules, find \"{{brandPlugin}}\" and click Install, then Edit.',",
+   "iran": "        step2: 'Open Extensions → Extensions → Modules, find \"Web Yar\" and click Install, then Edit.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step4: 'There is no address to enter: the extension already knows {{brandPlugin}}, and while connected it keeps itself up to date (signed releases only; you can turn this off in the module).',",
+   "iran": "        step4: 'There is no address to enter: the extension already knows Web Yar, and while connected it keeps itself up to date (signed releases only; you can turn this off in the module).',"
+  },
+  {
+   "locale": "en",
+   "source": "        step5: 'Click \"Connect to {{brandPlugin}}\" next to the store, sign in if asked, choose this workspace and the permissions, and approve.',",
+   "iran": "        step5: 'Click \"Connect to Web Yar\" next to the store, sign in if asked, choose this workspace and the permissions, and approve.',"
+  },
+  {
+   "locale": "en",
+   "source": "        privacy: '{{brandPlugin}} does not copy your products, customers or orders. Each question is answered live from the store, and only the signed-in customer\\'s own orders in that store can be read.',",
+   "iran": "        privacy: 'Web Yar does not copy your products, customers or orders. Each question is answered live from the store, and only the signed-in customer\\'s own orders in that store can be read.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step3: \"In wp-admin, open the new '{{brandPlugin}}' menu item.\",",
+   "iran": "        step3: \"In wp-admin, open the new 'Web Yar' menu item.\","
+  },
+  {
+   "locale": "en",
+   "source": "        step4: \"In the '{{brandPlugin}} URL' field, enter:\",",
+   "iran": "        step4: \"In the 'Web Yar URL' field, enter:\","
+  },
+  {
+   "locale": "en",
+   "source": "        step5: \"Click 'Connect to {{brandPlugin}}', log in if asked, select this workspace, and approve the permissions you want to grant.\",",
+   "iran": "        step5: \"Click 'Connect to Web Yar', log in if asked, select this workspace, and approve the permissions you want to grant.\","
+  },
+  {
+   "locale": "en",
+   "source": "        troubleshoot: '\"Connect to {{brandPlugin}}\" now shows exactly why it failed (unreachable URL, wrong address, etc.) — double-check the {{brandPlugin}} URL above matches this workspace\\'s address exactly.',",
+   "iran": "        troubleshoot: '\"Connect to Web Yar\" now shows exactly why it failed (unreachable URL, wrong address, etc.) — double-check the Web Yar URL above matches this workspace\\'s address exactly.',"
+  },
+  {
+   "locale": "en",
+   "source": "        disconnectConfirm: 'Disconnect this store from {{brandPlugin}}?',",
+   "iran": "        disconnectConfirm: 'Disconnect this store from Web Yar?',"
+  },
+  {
+   "locale": "en",
+   "source": "        description: 'Download the {{brandPlugin}} addon, upload it to your WHMCS, then connect it to this workspace from the WHMCS admin. There is no API key to copy.',",
+   "iran": "        description: 'Download the Web Yar addon, upload it to your WHMCS, then connect it to this workspace from the WHMCS admin. There is no API key to copy.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step2: 'In WHMCS admin: System Settings → Addon Modules → {{brandPlugin}} → Activate, then Configure and tick the admin roles that may manage it.',",
+   "iran": "        step2: 'In WHMCS admin: System Settings → Addon Modules → Web Yar → Activate, then Configure and tick the admin roles that may manage it.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step3: \"Open Addons → {{brandPlugin}} and verify the displayed {{brandPlugin}} address:\",",
+   "iran": "        step3: \"Open Addons → Web Yar and verify the displayed Web Yar address:\","
+  },
+  {
+   "locale": "en",
+   "source": "        step4: 'Click \\'Connect to {{brandPlugin}}\\', choose this workspace and approve. You return to WHMCS with a Connected status.',",
+   "iran": "        step4: 'Click \\'Connect to Web Yar\\', choose this workspace and approve. You return to WHMCS with a Connected status.',"
+  },
+  {
+   "locale": "en",
+   "source": "        commerce_permission_denied: 'WHMCS rejected {{brandPlugin}}’s signature. Reconnect from Addons → {{brandPlugin}} in WHMCS.',",
+   "iran": "        commerce_permission_denied: 'WHMCS rejected Web Yar’s signature. Reconnect from Addons → Web Yar in WHMCS.',"
+  },
+  {
+   "locale": "en",
+   "source": "        connector_outdated: 'The addon is older than this {{brandPlugin}} version expects. Download and upload the latest addon.',",
+   "iran": "        connector_outdated: 'The addon is older than this Web Yar version expects. Download and upload the latest addon.',"
+  },
+  {
+   "locale": "en",
+   "source": "        live: 'Nothing from WHMCS is copied into the {{brandPlugin}} database. Each answer is read live; results stay in server memory for a few minutes at most.',",
+   "iran": "        live: 'Nothing from WHMCS is copied into the Web Yar database. Each answer is read live; results stay in server memory for a few minutes at most.',"
+  },
+  {
+   "locale": "en",
+   "source": "        disconnectConfirm: 'Disconnect WHMCS from {{brandPlugin}}? The assistant will stop answering account questions.',",
+   "iran": "        disconnectConfirm: 'Disconnect WHMCS from Web Yar? The assistant will stop answering account questions.',"
+  },
+  {
+   "locale": "en",
+   "source": "    expired: 'This pairing link has expired — go back to your WordPress admin and click \"Connect to {{brandPlugin}}\" again.',",
+   "iran": "    expired: 'This pairing link has expired — go back to your WordPress admin and click \"Connect to Web Yar\" again.',"
+  },
+  {
+   "locale": "en",
+   "source": "    description: '{{origin}} wants to connect to a {{brandPlugin}} workspace. Choose which workspace and what the AI Assistant may access.',",
+   "iran": "    description: '{{origin}} wants to connect to a Web Yar workspace. Choose which workspace and what the AI Assistant may access.',"
+  },
+  {
+   "locale": "en",
+   "source": "    expiredOpencart: 'This pairing link has expired — go back to the OpenCart admin and click \"Connect to {{brandPlugin}}\" again.',",
+   "iran": "    expiredOpencart: 'This pairing link has expired — go back to the OpenCart admin and click \"Connect to Web Yar\" again.',"
+  },
+  {
+   "locale": "en",
+   "source": "      description: '{{origin}} wants to connect its WHMCS to a {{brandPlugin}} workspace. Choose the workspace.',",
+   "iran": "      description: '{{origin}} wants to connect its WHMCS to a Web Yar workspace. Choose the workspace.',"
+  },
+  {
+   "locale": "en",
+   "source": "      expired: 'This pairing link has expired — go back to Addons → {{brandPlugin}} in WHMCS and click \"Connect to {{brandPlugin}}\" again.',",
+   "iran": "      expired: 'This pairing link has expired — go back to Addons → Web Yar in WHMCS and click \"Connect to Web Yar\" again.',"
+  },
+  {
+   "locale": "en",
+   "source": "      readOnly: 'Read-only access. Nothing is copied from WHMCS into {{brandPlugin}}.',",
+   "iran": "      readOnly: 'Read-only access. Nothing is copied from WHMCS into Web Yar.',"
+  }
+ ],
+ "src/i18n/locales/fa.ts": [
+  {
+   "locale": "fa",
+   "source": "    micDenied: 'دسترسی به میکروفون مسدود است. از تنظیمات > {{brand}} > میکروفون آن را فعال کنید.',",
+   "iran": "    micDenied: 'دسترسی به میکروفون مسدود است. از تنظیمات > وب‌یار > میکروفون آن را فعال کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "    introWarn: 'اپلیکیشن {{brand}} روی گوشی تنظیمات جداگانه‌ای دارد، پس خاموش‌کردن یکی دیگری را خاموش نمی‌کند.',",
+   "iran": "    introWarn: 'اپلیکیشن وب‌یار روی گوشی تنظیمات جداگانه‌ای دارد، پس خاموش‌کردن یکی دیگری را خاموش نمی‌کند.',"
+  },
+  {
+   "locale": "fa",
+   "source": "    permissionNeededHelp: 'اجازه بدهید تا وقتی در پنجره‌ی دیگری هستید، {{brand}} پیام تازه را به شما اطلاع دهد.',",
+   "iran": "    permissionNeededHelp: 'اجازه بدهید تا وقتی در پنجره‌ی دیگری هستید، وب‌یار پیام تازه را به شما اطلاع دهد.',"
+  },
+  {
+   "locale": "fa",
+   "source": "    introWarnNative: 'کنسول {{brand}} در مرورگر تنظیمات جداگانه‌ای دارد، پس خاموش‌کردن یکی دیگری را خاموش نمی‌کند.',",
+   "iran": "    introWarnNative: 'کنسول وب‌یار در مرورگر تنظیمات جداگانه‌ای دارد، پس خاموش‌کردن یکی دیگری را خاموش نمی‌کند.',"
+  },
+  {
+   "locale": "fa",
+   "source": "      step1: 'بستهٔ {{brand}} مناسب نسخهٔ OpenCart را از «افزونه‌ها ← OpenCart» دانلود کنید.',",
+   "iran": "      step1: 'بستهٔ وب‌یار مناسب نسخهٔ OpenCart را از «افزونه‌ها ← OpenCart» دانلود کنید.',"
+  },
+  {
+   "locale": "en",
+   "source": "      step2: 'آن را در «افزونه‌ها ← نصب‌کننده» بارگذاری و سپس «{{brandPlugin}}» را در «افزونه‌ها ← ماژول‌ها» نصب کنید.',",
+   "iran": "      step2: 'آن را در «افزونه‌ها ← نصب‌کننده» بارگذاری و سپس «Web Yar» را در «افزونه‌ها ← ماژول‌ها» نصب کنید.',"
+  },
+  {
+   "locale": "en",
+   "source": "        caption: 'اکانتی که اپل با آن وارد می‌شود: apple@webyar.ai، مدیر فضای کاری انگلیسی «{{brandLatin}} Demo» با همهٔ امکانات.',",
+   "iran": "        caption: 'اکانتی که اپل با آن وارد می‌شود: apple@webyar.ai، مدیر فضای کاری انگلیسی «Webyar Demo» با همهٔ امکانات.',"
+  },
+  {
+   "locale": "en",
+   "source": "        invalidUrl: \"آدرس باید با https:// شروع شود (مثلاً {{siteUrl}}).\",",
+   "iran": "        invalidUrl: \"آدرس باید با https:// شروع شود (مثلاً https://webyar.ai).\","
+  },
+  {
+   "locale": "en",
+   "source": "        previewApp: '{{brandLatin}}',",
+   "iran": "        previewApp: 'Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "        step2: '«افزونه‌ها ← افزونه‌ها ← ماژول‌ها» را باز کنید، «{{brandPlugin}}» را نصب و سپس ویرایش کنید.',",
+   "iran": "        step2: '«افزونه‌ها ← افزونه‌ها ← ماژول‌ها» را باز کنید، «Web Yar» را نصب و سپس ویرایش کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        step4: 'نیازی به وارد کردن آدرس نیست: افزونه {{brand}} را می‌شناسد و تا وقتی متصل است خودش را به‌روز نگه می‌دارد (فقط نسخه‌های امضاشده؛ در ماژول قابل خاموش کردن است).',",
+   "iran": "        step4: 'نیازی به وارد کردن آدرس نیست: افزونه وب‌یار را می‌شناسد و تا وقتی متصل است خودش را به‌روز نگه می‌دارد (فقط نسخه‌های امضاشده؛ در ماژول قابل خاموش کردن است).',"
+  },
+  {
+   "locale": "fa",
+   "source": "        step5: 'کنار فروشگاه روی «اتصال به {{brand}}» بزنید، در صورت نیاز وارد شوید، این ورک‌اسپیس و مجوزها را انتخاب و تأیید کنید.',",
+   "iran": "        step5: 'کنار فروشگاه روی «اتصال به وب‌یار» بزنید، در صورت نیاز وارد شوید، این ورک‌اسپیس و مجوزها را انتخاب و تأیید کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        privacy: '{{brand}} محصولات، مشتریان و سفارش‌های شما را کپی نمی‌کند. هر سؤال زنده از خود فروشگاه پاسخ داده می‌شود و فقط سفارش‌های خود مشتری واردشده در همان فروشگاه قابل‌خواندن است.',",
+   "iran": "        privacy: 'وب‌یار محصولات، مشتریان و سفارش‌های شما را کپی نمی‌کند. هر سؤال زنده از خود فروشگاه پاسخ داده می‌شود و فقط سفارش‌های خود مشتری واردشده در همان فروشگاه قابل‌خواندن است.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        step3: 'در بخش مدیریت وردپرس، منوی جدید «{{brand}}» را باز کنید.',",
+   "iran": "        step3: 'در بخش مدیریت وردپرس، منوی جدید «وب‌یار» را باز کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        step4: 'در فیلد «آدرس {{brand}}»، این آدرس را وارد کنید:',",
+   "iran": "        step4: 'در فیلد «آدرس وب‌یار»، این آدرس را وارد کنید:',"
+  },
+  {
+   "locale": "fa",
+   "source": "        step5: 'روی «اتصال به {{brand}}» کلیک کنید، در صورت نیاز وارد حساب کاربری شوید، این ورک‌اسپیس را انتخاب کنید و سطوح دسترسی را تأیید کنید.',",
+   "iran": "        step5: 'روی «اتصال به وب‌یار» کلیک کنید، در صورت نیاز وارد حساب کاربری شوید، این ورک‌اسپیس را انتخاب کنید و سطوح دسترسی را تأیید کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        troubleshoot: 'اگر «اتصال به {{brand}}» با خطا مواجه شود، اکنون دلیل دقیق آن (آدرس در دسترس نیست، آدرس اشتباه و…) نمایش داده می‌شود — بررسی کنید آدرس {{brand}} بالا دقیقاً با آدرس این ورک‌اسپیس یکسان باشد.',",
+   "iran": "        troubleshoot: 'اگر «اتصال به وب‌یار» با خطا مواجه شود، اکنون دلیل دقیق آن (آدرس در دسترس نیست، آدرس اشتباه و…) نمایش داده می‌شود — بررسی کنید آدرس وب‌یار بالا دقیقاً با آدرس این ورک‌اسپیس یکسان باشد.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        disconnectConfirm: 'اتصال این فروشگاه به {{brand}} قطع شود؟',",
+   "iran": "        disconnectConfirm: 'اتصال این فروشگاه به وب‌یار قطع شود؟',"
+  },
+  {
+   "locale": "fa",
+   "source": "        description: 'افزونهٔ {{brand}} را دانلود کنید، روی WHMCS خود بارگذاری کنید و از پنل مدیریت WHMCS به این ورک‌اسپیس متصل کنید. نیازی به کپی کلید API نیست.',",
+   "iran": "        description: 'افزونهٔ وب‌یار را دانلود کنید، روی WHMCS خود بارگذاری کنید و از پنل مدیریت WHMCS به این ورک‌اسپیس متصل کنید. نیازی به کپی کلید API نیست.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step2: 'در مدیریت WHMCS: System Settings ← Addon Modules ← {{brandPlugin}} ← Activate؛ سپس با Configure نقش‌های مدیری را که اجازهٔ مدیریت افزونه را دارند انتخاب کنید.',",
+   "iran": "        step2: 'در مدیریت WHMCS: System Settings ← Addon Modules ← Web Yar ← Activate؛ سپس با Configure نقش‌های مدیری را که اجازهٔ مدیریت افزونه را دارند انتخاب کنید.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step3: \"منوی Addons ← {{brandPlugin}} را باز کنید و آدرس نمایش‌داده‌شده را بررسی کنید:\",",
+   "iran": "        step3: \"منوی Addons ← Web Yar را باز کنید و آدرس نمایش‌داده‌شده را بررسی کنید:\","
+  },
+  {
+   "locale": "en",
+   "source": "        step4: 'روی «Connect to {{brandPlugin}}» کلیک کنید، این ورک‌اسپیس را انتخاب و تأیید کنید. به WHMCS بازمی‌گردید و وضعیت «متصل» نمایش داده می‌شود.',",
+   "iran": "        step4: 'روی «Connect to Web Yar» کلیک کنید، این ورک‌اسپیس را انتخاب و تأیید کنید. به WHMCS بازمی‌گردید و وضعیت «متصل» نمایش داده می‌شود.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        commerce_permission_denied: 'WHMCS امضای {{brand}} را نپذیرفت. از مسیر Addons ← {{brandPlugin}} در WHMCS دوباره متصل کنید.',",
+   "iran": "        commerce_permission_denied: 'WHMCS امضای وب‌یار را نپذیرفت. از مسیر Addons ← Web Yar در WHMCS دوباره متصل کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        connector_outdated: 'نسخهٔ افزونه از نسخه‌ای که این {{brand}} انتظار دارد قدیمی‌تر است. آخرین نسخه را دانلود و بارگذاری کنید.',",
+   "iran": "        connector_outdated: 'نسخهٔ افزونه از نسخه‌ای که این وب‌یار انتظار دارد قدیمی‌تر است. آخرین نسخه را دانلود و بارگذاری کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        live: 'هیچ داده‌ای از WHMCS در پایگاه‌دادهٔ {{brand}} کپی نمی‌شود. هر پاسخ به‌صورت زنده خوانده می‌شود و نتیجه حداکثر چند دقیقه در حافظهٔ سرور می‌ماند.',",
+   "iran": "        live: 'هیچ داده‌ای از WHMCS در پایگاه‌دادهٔ وب‌یار کپی نمی‌شود. هر پاسخ به‌صورت زنده خوانده می‌شود و نتیجه حداکثر چند دقیقه در حافظهٔ سرور می‌ماند.',"
+  },
+  {
+   "locale": "fa",
+   "source": "        disconnectConfirm: 'اتصال WHMCS به {{brand}} قطع شود؟ دستیار دیگر به سؤال‌های مربوط به حساب مشتری پاسخ نمی‌دهد.',",
+   "iran": "        disconnectConfirm: 'اتصال WHMCS به وب‌یار قطع شود؟ دستیار دیگر به سؤال‌های مربوط به حساب مشتری پاسخ نمی‌دهد.',"
+  },
+  {
+   "locale": "fa",
+   "source": "    expired: 'زمان این لینک اتصال به پایان رسیده — به وردپرس بازگردید و دوباره روی «اتصال به {{brand}}» کلیک کنید.',",
+   "iran": "    expired: 'زمان این لینک اتصال به پایان رسیده — به وردپرس بازگردید و دوباره روی «اتصال به وب‌یار» کلیک کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "    description: '{{origin}} می‌خواهد به یک ورک‌اسپیس {{brand}} متصل شود. ورک‌اسپیس و دسترسی‌های دستیار هوش مصنوعی را انتخاب کنید.',",
+   "iran": "    description: '{{origin}} می‌خواهد به یک ورک‌اسپیس وب‌یار متصل شود. ورک‌اسپیس و دسترسی‌های دستیار هوش مصنوعی را انتخاب کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "    expiredOpencart: 'این لینک اتصال منقضی شده است؛ به مدیریت OpenCart برگردید و دوباره «اتصال به {{brand}}» را بزنید.',",
+   "iran": "    expiredOpencart: 'این لینک اتصال منقضی شده است؛ به مدیریت OpenCart برگردید و دوباره «اتصال به وب‌یار» را بزنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "      description: '{{origin}} می‌خواهد WHMCS خود را به یک ورک‌اسپیس {{brand}} متصل کند. ورک‌اسپیس را انتخاب کنید.',",
+   "iran": "      description: '{{origin}} می‌خواهد WHMCS خود را به یک ورک‌اسپیس وب‌یار متصل کند. ورک‌اسپیس را انتخاب کنید.',"
+  },
+  {
+   "locale": "en",
+   "source": "      expired: 'زمان این لینک اتصال به پایان رسیده — به Addons ← {{brandPlugin}} در WHMCS بازگردید و دوباره روی «Connect to {{brandPlugin}}» کلیک کنید.',",
+   "iran": "      expired: 'زمان این لینک اتصال به پایان رسیده — به Addons ← Web Yar در WHMCS بازگردید و دوباره روی «Connect to Web Yar» کلیک کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "      readOnly: 'دسترسی فقط‌خواندنی. هیچ داده‌ای از WHMCS در {{brand}} کپی نمی‌شود.',",
+   "iran": "      readOnly: 'دسترسی فقط‌خواندنی. هیچ داده‌ای از WHMCS در وب‌یار کپی نمی‌شود.',"
+  }
+ ],
+ "src/i18n/locales/tr.ts": [
+  {
+   "locale": "en",
+   "source": "    micDenied: 'Mikrofon erişimi engellendi. Ayarlar > {{brand}} > Mikrofon bölümünden izin verin.',",
+   "iran": "    micDenied: 'Mikrofon erişimi engellendi. Ayarlar > Webyar > Mikrofon bölümünden izin verin.',"
+  },
+  {
+   "locale": "en",
+   "source": "    introWarn: 'Telefonunuzdaki {{brand}} uygulaması ayrı bir set tutar; birini susturmak diğerini susturmaz.',",
+   "iran": "    introWarn: 'Telefonunuzdaki Webyar uygulaması ayrı bir set tutar; birini susturmak diğerini susturmaz.',"
+  },
+  {
+   "locale": "en",
+   "source": "    permissionNeededHelp: 'İzin verin; başka bir penceredeyken {{brand}} yeni mesajı size bildirsin.',",
+   "iran": "    permissionNeededHelp: 'İzin verin; başka bir penceredeyken Webyar yeni mesajı size bildirsin.',"
+  },
+  {
+   "locale": "en",
+   "source": "    introWarnNative: 'Tarayıcınızdaki {{brand}} konsolu ayrı bir set tutar; birini susturmak diğerini susturmaz.',",
+   "iran": "    introWarnNative: 'Tarayıcınızdaki Webyar konsolu ayrı bir set tutar; birini susturmak diğerini susturmaz.',"
+  },
+  {
+   "locale": "en",
+   "source": "      step1: 'OpenCart sürümünüze uygun {{brandPlugin}} paketini Eklentiler → OpenCart bölümünden indirin.',",
+   "iran": "      step1: 'OpenCart sürümünüze uygun Web Yar paketini Eklentiler → OpenCart bölümünden indirin.',"
+  },
+  {
+   "locale": "en",
+   "source": "      step2: 'Eklentiler → Yükleyici\\'de yükleyin, ardından Eklentiler → Modüller altında \"{{brandPlugin}}\"ı kurun.',",
+   "iran": "      step2: 'Eklentiler → Yükleyici\\'de yükleyin, ardından Eklentiler → Modüller altında \"Web Yar\"ı kurun.',"
+  },
+  {
+   "locale": "en",
+   "source": "        caption: 'Apple’ın giriş yaptığı hesap: apple@webyar.ai, tüm özellikleri açık İngilizce \"{{brandLatin}} Demo\" çalışma alanının yöneticisi.',",
+   "iran": "        caption: 'Apple’ın giriş yaptığı hesap: apple@webyar.ai, tüm özellikleri açık İngilizce \"Webyar Demo\" çalışma alanının yöneticisi.',"
+  },
+  {
+   "locale": "en",
+   "source": "        invalidUrl: \"Adres https:// ile başlamalıdır (ör. {{siteUrl}}).\",",
+   "iran": "        invalidUrl: \"Adres https:// ile başlamalıdır (ör. https://webyar.ai).\","
+  },
+  {
+   "locale": "en",
+   "source": "        previewApp: '{{brandLatin}}',",
+   "iran": "        previewApp: 'Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "        step2: 'Eklentiler → Eklentiler → Modüller\\'i açın, \"{{brandPlugin}}\"ı bulun, Kur\\'a ve ardından Düzenle\\'ye tıklayın.',",
+   "iran": "        step2: 'Eklentiler → Eklentiler → Modüller\\'i açın, \"Web Yar\"ı bulun, Kur\\'a ve ardından Düzenle\\'ye tıklayın.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step4: 'Adres girmeniz gerekmez: eklenti {{brandPlugin}}’ı zaten tanır ve bağlıyken kendini günceller (yalnızca imzalı sürümler; modülden kapatılabilir).',",
+   "iran": "        step4: 'Adres girmeniz gerekmez: eklenti Web Yar’ı zaten tanır ve bağlıyken kendini günceller (yalnızca imzalı sürümler; modülden kapatılabilir).',"
+  },
+  {
+   "locale": "en",
+   "source": "        step5: 'Mağazanın yanındaki \"{{brandPlugin}}\\'a bağlan\"a tıklayın, istenirse oturum açın, bu çalışma alanını ve izinleri seçip onaylayın.',",
+   "iran": "        step5: 'Mağazanın yanındaki \"Web Yar\\'a bağlan\"a tıklayın, istenirse oturum açın, bu çalışma alanını ve izinleri seçip onaylayın.',"
+  },
+  {
+   "locale": "en",
+   "source": "        privacy: '{{brandPlugin}} ürünlerinizi, müşterilerinizi veya siparişlerinizi kopyalamaz. Her soru mağazadan canlı yanıtlanır ve yalnızca oturum açmış müşterinin o mağazadaki kendi siparişleri okunabilir.',",
+   "iran": "        privacy: 'Web Yar ürünlerinizi, müşterilerinizi veya siparişlerinizi kopyalamaz. Her soru mağazadan canlı yanıtlanır ve yalnızca oturum açmış müşterinin o mağazadaki kendi siparişleri okunabilir.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step3: 'wp-admin içinde yeni açılan “{{brandPlugin}}” menüsünü açın.',",
+   "iran": "        step3: 'wp-admin içinde yeni açılan “Web Yar” menüsünü açın.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step4: '“{{brandPlugin}} URL” alanına şunu girin:',",
+   "iran": "        step4: '“Web Yar URL” alanına şunu girin:',"
+  },
+  {
+   "locale": "en",
+   "source": "        step5: '“{{brandPlugin}}’a bağlan”a tıklayın, istenirse giriş yapın, bu çalışma alanını seçin ve vermek istediğiniz izinleri onaylayın.',",
+   "iran": "        step5: '“Web Yar’a bağlan”a tıklayın, istenirse giriş yapın, bu çalışma alanını seçin ve vermek istediğiniz izinleri onaylayın.',"
+  },
+  {
+   "locale": "en",
+   "source": "        troubleshoot: '“{{brandPlugin}}’a bağlan” artık hatanın nedenini tam olarak gösterir (erişilemeyen adres, yanlış adres vb.) — yukarıdaki {{brandPlugin}} URL’sinin bu çalışma alanının adresiyle birebir aynı olduğundan emin olun.',",
+   "iran": "        troubleshoot: '“Web Yar’a bağlan” artık hatanın nedenini tam olarak gösterir (erişilemeyen adres, yanlış adres vb.) — yukarıdaki Web Yar URL’sinin bu çalışma alanının adresiyle birebir aynı olduğundan emin olun.',"
+  },
+  {
+   "locale": "en",
+   "source": "        disconnectConfirm: 'Bu mağazanın {{brandPlugin}} bağlantısı kesilsin mi?',",
+   "iran": "        disconnectConfirm: 'Bu mağazanın Web Yar bağlantısı kesilsin mi?',"
+  },
+  {
+   "locale": "en",
+   "source": "        description: '{{brandPlugin}} eklentisini indirin, WHMCS’inize yükleyin ve WHMCS yönetim panelinden bu çalışma alanına bağlayın. Kopyalanacak bir API anahtarı yoktur.',",
+   "iran": "        description: 'Web Yar eklentisini indirin, WHMCS’inize yükleyin ve WHMCS yönetim panelinden bu çalışma alanına bağlayın. Kopyalanacak bir API anahtarı yoktur.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step2: 'WHMCS yönetiminde: System Settings → Addon Modules → {{brandPlugin}} → Activate; ardından Configure ile eklentiyi yönetebilecek yönetici rollerini işaretleyin.',",
+   "iran": "        step2: 'WHMCS yönetiminde: System Settings → Addon Modules → Web Yar → Activate; ardından Configure ile eklentiyi yönetebilecek yönetici rollerini işaretleyin.',"
+  },
+  {
+   "locale": "en",
+   "source": "        step3: \"Addons → {{brandPlugin}} menüsünü açın ve gösterilen {{brandPlugin}} adresini doğrulayın:\",",
+   "iran": "        step3: \"Addons → Web Yar menüsünü açın ve gösterilen Web Yar adresini doğrulayın:\","
+  },
+  {
+   "locale": "en",
+   "source": "        step4: '“Connect to {{brandPlugin}}”a tıklayın, bu çalışma alanını seçip onaylayın. WHMCS’e “Bağlı” durumuyla dönersiniz.',",
+   "iran": "        step4: '“Connect to Web Yar”a tıklayın, bu çalışma alanını seçip onaylayın. WHMCS’e “Bağlı” durumuyla dönersiniz.',"
+  },
+  {
+   "locale": "en",
+   "source": "        commerce_permission_denied: 'WHMCS, {{brandPlugin}} imzasını reddetti. WHMCS’te Addons → {{brandPlugin}} üzerinden yeniden bağlanın.',",
+   "iran": "        commerce_permission_denied: 'WHMCS, Web Yar imzasını reddetti. WHMCS’te Addons → Web Yar üzerinden yeniden bağlanın.',"
+  },
+  {
+   "locale": "en",
+   "source": "        connector_outdated: 'Eklenti, bu {{brandPlugin}} sürümünün beklediğinden eski. En son eklentiyi indirip yükleyin.',",
+   "iran": "        connector_outdated: 'Eklenti, bu Web Yar sürümünün beklediğinden eski. En son eklentiyi indirip yükleyin.',"
+  },
+  {
+   "locale": "en",
+   "source": "        live: 'WHMCS’ten hiçbir veri {{brandPlugin}} veritabanına kopyalanmaz. Her yanıt canlı okunur; sonuçlar sunucu belleğinde en fazla birkaç dakika kalır.',",
+   "iran": "        live: 'WHMCS’ten hiçbir veri Web Yar veritabanına kopyalanmaz. Her yanıt canlı okunur; sonuçlar sunucu belleğinde en fazla birkaç dakika kalır.',"
+  },
+  {
+   "locale": "en",
+   "source": "        disconnectConfirm: 'WHMCS’in {{brandPlugin}} ile bağlantısı kesilsin mi? Asistan hesap sorularını yanıtlamayı bırakacak.',",
+   "iran": "        disconnectConfirm: 'WHMCS’in Web Yar ile bağlantısı kesilsin mi? Asistan hesap sorularını yanıtlamayı bırakacak.',"
+  },
+  {
+   "locale": "en",
+   "source": "    expired: 'Bu eşleştirme bağlantısının süresi doldu — WordPress yönetim panelinize dönüp yeniden “{{brandPlugin}}’a bağlan”a tıklayın.',",
+   "iran": "    expired: 'Bu eşleştirme bağlantısının süresi doldu — WordPress yönetim panelinize dönüp yeniden “Web Yar’a bağlan”a tıklayın.',"
+  },
+  {
+   "locale": "en",
+   "source": "    description: '{{origin}} bir {{brandPlugin}} çalışma alanına bağlanmak istiyor. Hangi çalışma alanı olacağını ve yapay zekâ asistanının nelere erişebileceğini seçin.',",
+   "iran": "    description: '{{origin}} bir Web Yar çalışma alanına bağlanmak istiyor. Hangi çalışma alanı olacağını ve yapay zekâ asistanının nelere erişebileceğini seçin.',"
+  },
+  {
+   "locale": "en",
+   "source": "    expiredOpencart: 'Bu eşleştirme bağlantısının süresi doldu — OpenCart yönetimine dönüp \"{{brandPlugin}}\\'a bağlan\"a yeniden tıklayın.',",
+   "iran": "    expiredOpencart: 'Bu eşleştirme bağlantısının süresi doldu — OpenCart yönetimine dönüp \"Web Yar\\'a bağlan\"a yeniden tıklayın.',"
+  },
+  {
+   "locale": "en",
+   "source": "      description: '{{origin}}, WHMCS’ini bir {{brandPlugin}} çalışma alanına bağlamak istiyor. Çalışma alanını seçin.',",
+   "iran": "      description: '{{origin}}, WHMCS’ini bir Web Yar çalışma alanına bağlamak istiyor. Çalışma alanını seçin.',"
+  },
+  {
+   "locale": "en",
+   "source": "      expired: 'Bu eşleştirme bağlantısının süresi doldu — WHMCS’te Addons → {{brandPlugin}} sayfasına dönüp yeniden “Connect to {{brandPlugin}}”a tıklayın.',",
+   "iran": "      expired: 'Bu eşleştirme bağlantısının süresi doldu — WHMCS’te Addons → Web Yar sayfasına dönüp yeniden “Connect to Web Yar”a tıklayın.',"
+  },
+  {
+   "locale": "en",
+   "source": "      readOnly: 'Salt okunur erişim. WHMCS’ten {{brandPlugin}}’a hiçbir veri kopyalanmaz.',",
+   "iran": "      readOnly: 'Salt okunur erişim. WHMCS’ten Web Yar’a hiçbir veri kopyalanmaz.',"
+  }
+ ],
+ "src/pages/public/legal/legalDocuments.ts": [
+  {
+   "locale": "en",
+   "source": "  brand: '{{brandLatin}}',",
+   "iran": "  brand: 'Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "  copyright: '© 2026 {{brandLatin}} — All rights reserved.',",
+   "iran": "  copyright: '© 2026 Webyar — All rights reserved.',"
+  },
+  {
+   "locale": "en",
+   "source": "  pageTitle: 'Contact | {{brandLatin}}',",
+   "iran": "  pageTitle: 'Contact | Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "      text: 'Write to us about {{brandLatin}}, your account, billing or the apps: {email}',",
+   "iran": "      text: 'Write to us about Webyar, your account, billing or the apps: {email}',"
+  },
+  {
+   "locale": "en",
+   "source": "  pageTitle: 'Privacy Policy | {{brandLatin}}',",
+   "iran": "  pageTitle: 'Privacy Policy | Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "  effective: 'Effective date: September 1, 2026 · {{brandLatin}}',",
+   "iran": "  effective: 'Effective date: September 1, 2026 · Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "        'This Privacy Policy explains how {{brandLatin}} collects, uses, discloses, stores and protects personal information when you use its website, applications and related services (the “Services”).',",
+   "iran": "        'This Privacy Policy explains how Webyar collects, uses, discloses, stores and protects personal information when you use its website, applications and related services (the “Services”).',"
+  },
+  {
+   "locale": "en",
+   "source": "  pageTitle: 'Terms of Use | {{brandLatin}}',",
+   "iran": "  pageTitle: 'Terms of Use | Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "  effective: 'Effective date: September 1, 2026 · {{brandLatin}}',",
+   "iran": "  effective: 'Effective date: September 1, 2026 · Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "        'These Terms of Use are a binding agreement between you and {{brandLatin}} about the use of its website, applications and related services (the “Services”). By creating an account or using the Services, you accept these terms.',",
+   "iran": "        'These Terms of Use are a binding agreement between you and Webyar about the use of its website, applications and related services (the “Services”). By creating an account or using the Services, you accept these terms.',"
+  },
+  {
+   "locale": "en",
+   "source": "        'All software, designs, trademarks and content provided by {{brandLatin}} belong to us or our licensors and are protected by intellectual property laws. Except as expressly stated in these terms, no rights are granted.',",
+   "iran": "        'All software, designs, trademarks and content provided by Webyar belong to us or our licensors and are protected by intellectual property laws. Except as expressly stated in these terms, no rights are granted.',"
+  },
+  {
+   "locale": "en",
+   "source": "        'To the fullest extent permitted by law, {{brandLatin}} is not liable for indirect or consequential damages or for lost profits or data. Our total liability for any claim is limited to the amount you paid for the Services in the twelve months before that claim.',",
+   "iran": "        'To the fullest extent permitted by law, Webyar is not liable for indirect or consequential damages or for lost profits or data. Our total liability for any claim is limited to the amount you paid for the Services in the twelve months before that claim.',"
+  }
+ ],
+ "server/services/push/dispatch.ts": [
+  {
+   "locale": "en",
+   "source": "    privacyTitle: '{{brandLatin}}',",
+   "iran": "    privacyTitle: 'Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "    privacyBody: 'New message in {{brand}}',",
+   "iran": "    privacyBody: 'New message in Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "    emailPrivacyBody: 'New email in {{brand}}',",
+   "iran": "    emailPrivacyBody: 'New email in Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "    privacyTitle: '{{brandLatin}}',",
+   "iran": "    privacyTitle: 'Webyar',"
+  },
+  {
+   "locale": "fa",
+   "source": "    privacyBody: 'پیام جدید در {{brand}}',",
+   "iran": "    privacyBody: 'پیام جدید در وب‌یار',"
+  },
+  {
+   "locale": "fa",
+   "source": "    emailPrivacyBody: 'ایمیل تازه در {{brand}}',",
+   "iran": "    emailPrivacyBody: 'ایمیل تازه در وب‌یار',"
+  },
+  {
+   "locale": "en",
+   "source": "    privacyTitle: '{{brandLatin}}',",
+   "iran": "    privacyTitle: 'Webyar',"
+  },
+  {
+   "locale": "en",
+   "source": "    privacyBody: \"{{brand}}'da yeni mesaj\",",
+   "iran": "    privacyBody: \"Webyar'da yeni mesaj\","
+  },
+  {
+   "locale": "en",
+   "source": "    emailPrivacyBody: '{{brand}}\\'da yeni e-posta',",
+   "iran": "    emailPrivacyBody: 'Webyar\\'da yeni e-posta',"
+  }
+ ],
+ "public/call-widget/runtime.js": [
+  {
+   "locale": "en",
+   "source": "      powered_by: 'Powered by {brand}'",
+   "iran": "      powered_by: 'Powered by Web Yar'"
+  },
+  {
+   "locale": "fa",
+   "source": "      powered_by: 'قدرت گرفته از {brand}'",
+   "iran": "      powered_by: 'قدرت گرفته از وب یار'"
+  },
+  {
+   "locale": "en",
+   "source": "      powered_by: '{brand} tarafından desteklenmektedir'",
+   "iran": "      powered_by: 'Web Yar tarafından desteklenmektedir'"
+  }
+ ]
+}

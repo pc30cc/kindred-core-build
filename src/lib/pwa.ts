@@ -11,12 +11,16 @@ import { createElement } from 'react';
 import { isNativePlatform } from '@/lib/native';
 import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
+import { getStoredLocale, loadLocaleMessages } from '@/i18n';
 
 let updateToastShown = false;
 
-function promptForUpdate(registration: ServiceWorkerRegistration) {
+async function promptForUpdate(registration: ServiceWorkerRegistration) {
   if (updateToastShown) return;
   updateToastShown = true;
+  // In the reader's language (i18n `appUpdate`); Persian reads exactly as
+  // it always did.
+  const copy = (await loadLocaleMessages(getStoredLocale())).appUpdate;
 
   const applyUpdate = () => {
     const waiting = registration.waiting;
@@ -28,12 +32,12 @@ function promptForUpdate(registration: ServiceWorkerRegistration) {
   };
 
   toast({
-    title: 'نسخه جدید در دسترس است',
-    description: 'برای دریافت آخرین به‌روزرسانی، صفحه را تازه‌سازی کنید.',
+    title: copy.title,
+    description: copy.description,
     // No auto-dismiss — this app can stay open in the inbox for a full
     // shift, so a self-dismissing toast could easily be missed.
     duration: Infinity,
-    action: createElement(ToastAction, { altText: 'تازه‌سازی', onClick: applyUpdate }, 'تازه‌سازی') as never,
+    action: createElement(ToastAction, { altText: copy.refresh, onClick: applyUpdate }, copy.refresh) as never,
   });
 }
 
@@ -83,7 +87,7 @@ export function registerServiceWorker(): void {
     navigator.serviceWorker.register('/sw.js').then((registration) => {
       // A worker may already be sitting in "waiting" from a previous visit
       // (e.g. this tab was open across a deploy).
-      if (registration.waiting && registration.active) promptForUpdate(registration);
+      if (registration.waiting && registration.active) void promptForUpdate(registration);
 
       registration.addEventListener('updatefound', () => {
         const installing = registration.installing;
@@ -93,7 +97,7 @@ export function registerServiceWorker(): void {
           // already-controlled page, not the very first install (which has
           // nothing to prompt about — there is no older version to leave).
           if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-            promptForUpdate(registration);
+            void promptForUpdate(registration);
           }
         });
       });

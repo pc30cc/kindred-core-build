@@ -13,10 +13,11 @@ import type { CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
 import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
 import webyarLogo from '@/assets/webyar-logo.png';
+import { brandName, useBrandVersion } from '@/lib/brand';
 
 export function BrandLogo({
   src,
-  alt = 'WEBYAR',
+  alt,
   className,
   style,
 }: {
@@ -26,10 +27,12 @@ export function BrandLogo({
   style?: CSSProperties;
 }) {
   const international = useInternationalMode();
+  useBrandVersion();
   return (
     <img
       src={international ? INTL_BRAND.appIcon : src || webyarLogo}
-      alt={alt}
+      // Default text: the WebYar mark's own in Iran, the platform's name abroad.
+      alt={alt ?? (international ? brandName('en') : 'WEBYAR')}
       className={cn('rounded-xl object-cover', className)}
       style={style}
       draggable={false}
@@ -70,7 +73,7 @@ export function BrandLockup({ name, keepMark = false }: { name?: string | null; 
   if (international) {
     return (
       <div className="flex items-center" dir="ltr">
-        <IntlBrandImage variant="horizontal" alt={name || 'RESPOK'} className="h-8" />
+        <IntlBrandImage variant="horizontal" alt={name || brandName('en')} className="h-8" />
       </div>
     );
   }

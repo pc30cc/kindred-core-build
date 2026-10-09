@@ -51,7 +51,7 @@
       rate_submit: 'Submit rating',
       rate_skip: 'Skip',
       rate_thanks: 'Thank you for your feedback!',
-      powered_by: 'Powered by Web Yar'
+      powered_by: 'Powered by {brand}'
     },
     fa: {
       talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی', required: 'الزامی',
@@ -79,7 +79,7 @@
       rate_submit: 'ثبت امتیاز',
       rate_skip: 'رد کردن',
       rate_thanks: 'از بازخورد شما متشکریم!',
-      powered_by: 'قدرت گرفته از وب یار'
+      powered_by: 'قدرت گرفته از {brand}'
     },
     tr: {
       talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek', required: 'Zorunlu',
@@ -107,7 +107,7 @@
       rate_submit: 'Puanı gönder',
       rate_skip: 'Atla',
       rate_thanks: 'Geri bildiriminiz için teşekkürler!',
-      powered_by: 'Web Yar tarafından desteklenmektedir'
+      powered_by: '{brand} tarafından desteklenmektedir'
     },
   };
 
@@ -123,6 +123,13 @@
     str = str.replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[redacted-token]');
     return str;
   }
+
+  /**
+   * The brand the "powered by" line credits in the Iranian edition — and
+   * whenever the bootstrap names no edition (an older backend): exactly the
+   * words it always showed.
+   */
+  var IRAN_POWERED_BY_BRAND = { en: 'Web Yar', fa: 'وب یار', tr: 'Web Yar' };
 
   function normalizeLocale(locale) {
     locale = String(locale || '').toLowerCase().slice(0, 2);
@@ -568,7 +575,36 @@
       }
     } catch (_) {}
     var pack = I18N[this.locale] || I18N.en;
+    if (key === 'powered_by') {
+      var brand = this.poweredByBrand();
+      if (!brand) return '';
+      vars = Object.assign({}, vars || {}, { brand: brand });
+    }
     return formatText(pack[key] || I18N.en[key] || key, vars);
+  };
+
+  /**
+   * The platform the "powered by" line credits. The International edition
+   * takes it from the bootstrap (the platform's own name, the same source
+   * the chat widget uses; none = no line); anything else keeps the Iranian
+   * words exactly.
+   */
+  CallCenterWidgetCtor.prototype.poweredByBrand = function () {
+    var b = this.bootstrap || {};
+    if (b.edition !== 'international') return IRAN_POWERED_BY_BRAND[this.locale] || IRAN_POWERED_BY_BRAND.en;
+    var pb = b.powered_by;
+    if (!pb || typeof pb !== 'object') return '';
+    var names = pb.brands && typeof pb.brands === 'object' ? pb.brands : {};
+    var name = names[this.locale] || pb.brand || '';
+    return typeof name === 'string' ? name.trim() : '';
+  };
+
+  /** The "powered by" link (International edition only; null = not a link). */
+  CallCenterWidgetCtor.prototype.poweredByUrl = function () {
+    var b = this.bootstrap || {};
+    if (b.edition !== 'international' || !b.powered_by) return null;
+    var url = b.powered_by.url;
+    return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : null;
   };
 
   CallCenterWidgetCtor.prototype.setLocale = function (locale) {

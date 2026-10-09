@@ -16,6 +16,8 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import type { Edition } from '../../../shared/edition.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
 
 export type PushScope = 'all' | 'assigned' | 'mentions' | 'none';
 export type InterruptionLevel = 'passive' | 'active' | 'time-sensitive' | 'critical';
@@ -218,6 +220,25 @@ export const DEFAULT_TEMPLATES: Record<string, PushTemplate> = {
   },
 };
 
+/**
+ * The shipped templates for an edition. The Iranian edition (and an unknown
+ * one) gets DEFAULT_TEMPLATES exactly as they always were; the International
+ * edition's private title is the platform's own name — `{{brand}}`, filled at
+ * dispatch from platform_branding_localized (shared/brand.ts) — never WebYar's.
+ */
+export function defaultPushTemplates(edition: Edition | null | undefined): Record<string, PushTemplate> {
+  if (edition !== 'international') return DEFAULT_TEMPLATES;
+  return Object.fromEntries(
+    Object.entries(DEFAULT_TEMPLATES).map(([event, template]) => [
+      event,
+      {
+        ...template,
+        privateTitle: Object.fromEntries(Object.keys(template.privateTitle ?? { default: '' }).map((k) => [k, '{{brand}}'])),
+      },
+    ]),
+  );
+}
+
 export const PUSH_PLATFORM_DEFAULTS: PushPlatformSettings = {
   push_enabled: true,
 
@@ -254,6 +275,13 @@ export const PUSH_PLATFORM_DEFAULTS: PushPlatformSettings = {
   updated_at: null,
 };
 
+/** The platform defaults for an edition (only the templates differ; see defaultPushTemplates). */
+export function pushPlatformDefaults(edition: Edition | null | undefined): PushPlatformSettings {
+  return edition === 'international'
+    ? { ...PUSH_PLATFORM_DEFAULTS, templates: defaultPushTemplates(edition) }
+    : PUSH_PLATFORM_DEFAULTS;
+}
+
 const CACHE_TTL_MS = 30_000;
 let cache: { value: PushPlatformSettings; ts: number } | null = null;
 
@@ -267,7 +295,8 @@ export async function loadPushPlatformSettings(
   const now = Date.now();
   if (cache && now - cache.ts < CACHE_TTL_MS) return cache.value;
 
-  let value = PUSH_PLATFORM_DEFAULTS;
+  const edition = await getPlatformEditionOrNull(config);
+  let value = pushPlatformDefaults(edition);
   try {
     const sb = getServiceClient(config);
     const { data, error } = await sb
@@ -276,7 +305,7 @@ export async function loadPushPlatformSettings(
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
-    if (!error && data) value = normalizePushSettings(data as Record<string, unknown>);
+    if (!error && data) value = normalizePushSettings(data as Record<string, unknown>, edition);
   } catch {
     // Push policy must never take the dispatch path down.
   }
@@ -284,8 +313,11 @@ export async function loadPushPlatformSettings(
   return value;
 }
 
-export function normalizePushSettings(row: Record<string, unknown>): PushPlatformSettings {
-  const out = { ...PUSH_PLATFORM_DEFAULTS } as Record<string, unknown>;
+export function normalizePushSettings(
+  row: Record<string, unknown>,
+  edition: Edition | null = null,
+): PushPlatformSettings {
+  const out = { ...pushPlatformDefaults(edition) } as Record<string, unknown>;
   for (const key of Object.keys(PUSH_PLATFORM_DEFAULTS) as (keyof PushPlatformSettings)[]) {
     const raw = row[key];
     if (raw === undefined || raw === null) continue;
@@ -301,7 +333,7 @@ export function normalizePushSettings(row: Record<string, unknown>): PushPlatfor
   const templates = row.templates as Record<string, unknown> | null;
   out.templates = templates && Object.keys(templates).length
     ? (templates as Record<string, PushTemplate>)
-    : DEFAULT_TEMPLATES;
+    : defaultPushTemplates(edition);
   out.relevance_score = Number(row.relevance_score ?? PUSH_PLATFORM_DEFAULTS.relevance_score);
   out.critical_alert_volume = Number(
     row.critical_alert_volume ?? PUSH_PLATFORM_DEFAULTS.critical_alert_volume,
@@ -321,9 +353,11 @@ export function renderTemplate(
   locale: string,
   preview: boolean,
   vars: Record<string, string>,
+  edition: Edition | null = null,
 ): { title: string; body: string } {
-  const template = settings.templates?.[eventType] ?? DEFAULT_TEMPLATES[eventType] ?? DEFAULT_TEMPLATES.new_message;
-  const fallback = DEFAULT_TEMPLATES[eventType] ?? DEFAULT_TEMPLATES.new_message;
+  const defaults = defaultPushTemplates(edition);
+  const template = settings.templates?.[eventType] ?? defaults[eventType] ?? defaults.new_message;
+  const fallback = defaults[eventType] ?? defaults.new_message;
   const pick = (
     map: Record<string, string> | undefined,
     fallbackMap: Record<string, string> | undefined,

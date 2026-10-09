@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { callCenterApi } from '@/lib/call-center-api';
+import { callCenterApi, type CallCenterPlatformSettings, type CallCenterWorkspaceSettings } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle, ChevronDown, RotateCcw, Save, Languages, Plus, Trash2,
@@ -21,6 +21,13 @@ import { CheckCircle2, XCircle, ShieldCheck, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
+import { useEdition } from '@/hooks/useEdition';
+import { brandName as platformBrandName, useBrandVersion } from '@/lib/brand';
+import {
+  CALL_WIDGET_TEMPLATES,
+  EDITION_CALL_WIDGET_TEMPLATES,
+  resolveCallWidgetTemplateForEdition,
+} from '../../../../shared/widgetTemplates';
 // CC-2G-UI-Architecture-Fix — read canonical departments from
 // Team & Departments instead of the deprecated Call Center departments
 // hook. Only departments with a Call Center channel enabled are
@@ -36,6 +43,13 @@ import { SkeletonForm, SkeletonCard, Skeleton } from '@/components/common/Skelet
  * `icon` is optional so existing call sites keep working; where it is given,
  * the tinted square matches every other section heading in the module.
  */
+/** The settings row as this page edits it (its theme as strings, its form as fields). */
+type SettingsDraft = Omit<CallCenterWorkspaceSettings, 'widget_theme' | 'widget_default_locale' | 'pre_call_form_schema'> & {
+  widget_theme: Record<string, string | undefined>;
+  widget_default_locale?: string | null;
+  pre_call_form_schema: PreCallField[];
+};
+
 function Section({
   title, description, icon, children,
 }: {
@@ -95,15 +109,15 @@ export default function CallCenterSettingsPage() {
   );
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [s, setS] = useState<any>(null);
-  const [original, setOriginal] = useState<any>(null);
+  const [s, setS] = useState<SettingsDraft | null>(null);
+  const [original, setOriginal] = useState<SettingsDraft | null>(null);
   const [previewOnline, setPreviewOnline] = useState(true);
   const [tab, setTab] = useState('general');
 
   useEffect(() => {
     if (data?.settings) {
-      setS({ ...data.settings });
-      setOriginal({ ...data.settings });
+      setS({ ...data.settings } as SettingsDraft);
+      setOriginal({ ...data.settings } as SettingsDraft);
     }
   }, [data?.settings]);
 
@@ -154,7 +168,7 @@ export default function CallCenterSettingsPage() {
       widget_theme: s.widget_theme || {},
       pre_call_form_schema: s.pre_call_form_schema || [],
       default_department_id: s.default_department_id ?? null,
-      widget_default_locale: s.widget_default_locale ?? null,
+      widget_default_locale: (s.widget_default_locale ?? null) as CallCenterWorkspaceSettings['widget_default_locale'],
       widget_enabled_locales: s.widget_enabled_locales ?? null,
       widget_custom_texts: s.widget_custom_texts ?? {},
       operator_video_visible_to_visitor: s.operator_video_visible_to_visitor !== false,
@@ -171,11 +185,11 @@ export default function CallCenterSettingsPage() {
     try {
       const r = await callCenterApi.uploadAvatar(workspace.id, f);
       toast({ title: t('callCenter.settingsPage.avatarUploaded') });
-      setS((p: any) => ({ ...p, avatar_url: r.avatar_url }));
-      setOriginal((p: any) => ({ ...p, avatar_url: r.avatar_url }));
+      setS((p) => (p ? { ...p, avatar_url: r.avatar_url } : p));
+      setOriginal((p) => (p ? { ...p, avatar_url: r.avatar_url } : p));
       qc.invalidateQueries({ queryKey: ['call-center', 'settings'] });
-    } catch (err: any) {
-      toast({ title: t('callCenter.settingsPage.uploadFailed'), description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: t('callCenter.settingsPage.uploadFailed'), description: (err as Error).message, variant: 'destructive' });
     }
   }
 
@@ -183,13 +197,13 @@ export default function CallCenterSettingsPage() {
     if (!workspace) return;
     try {
       await callCenterApi.removeAvatar(workspace.id);
-      setS((p: any) => ({ ...p, avatar_url: null }));
-      setOriginal((p: any) => ({ ...p, avatar_url: null }));
+      setS((p) => (p ? { ...p, avatar_url: null } : p));
+      setOriginal((p) => (p ? { ...p, avatar_url: null } : p));
       if (fileRef.current) fileRef.current.value = '';
       qc.invalidateQueries({ queryKey: ['call-center', 'settings'] });
       toast({ title: t('callCenter.settingsPage.avatarRemoved') });
-    } catch (err: any) {
-      toast({ title: t('callCenter.settingsPage.uploadFailed'), description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: t('callCenter.settingsPage.uploadFailed'), description: (err as Error).message, variant: 'destructive' });
     }
   }
 
@@ -265,15 +279,11 @@ export default function CallCenterSettingsPage() {
           description={t('callCenter.settingsPage.presentationHint')}
         >
           <Row label={t('callCenter.settingsPage.template')}>
-            <Select
-              value={s.widget_template_id || 'default'}
-              onValueChange={(v) => setS({ ...s, widget_template_id: v })}
-            >
-              <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">{t('callCenter.settingsPage.defaultTemplate')}</SelectItem>
-              </SelectContent>
-            </Select>
+            <CallWidgetTemplateSelect
+              value={s.widget_template_id}
+              onChange={(v) => setS({ ...s, widget_template_id: v })}
+              t={t}
+            />
           </Row>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
@@ -354,10 +364,10 @@ export default function CallCenterSettingsPage() {
         // super admin for this feature) with the platform's active
         // region/language mode — the call center can never offer a language
         // the rest of the product doesn't speak on this deployment.
-        const rawPlatformAvail: string[] = (platform as any)?.widget_available_locales || ['en'];
+        const rawPlatformAvail: string[] = (platform as Partial<CallCenterPlatformSettings> | undefined)?.widget_available_locales || ['en'];
         const regionScoped = rawPlatformAvail.filter((c) => (regionLocales as string[]).includes(c));
         const platformAvail: string[] = regionScoped.length ? regionScoped : (regionLocales.length ? regionLocales : rawPlatformAvail);
-        const platformDefault: string = (platform as any)?.widget_default_locale || 'en';
+        const platformDefault: string = (platform as Partial<CallCenterPlatformSettings> | undefined)?.widget_default_locale || 'en';
         const wsEnabled: string[] = (s.widget_enabled_locales && s.widget_enabled_locales.length > 0)
           ? s.widget_enabled_locales
           : platformAvail;
@@ -571,7 +581,7 @@ export default function CallCenterSettingsPage() {
             s={s}
             setS={setS}
             platformRecording={platformRecording}
-            recording={(data as any)?.recording || null}
+            recording={data?.recording || null}
           />
         </TabsContent>
       )}
@@ -733,17 +743,65 @@ function PreCallFormBuilder({
   );
 }
 
-function CallWidgetPreview({ settings, online }: { settings: any; online: boolean }) {
+/**
+ * The call widget templates this edition offers (shared/widgetTemplates.ts):
+ * `default` in the Iranian edition, exactly as before; `intl` in the
+ * International one.
+ */
+function CallWidgetTemplateSelect({ value, onChange, t }: {
+  value: string | undefined;
+  onChange: (value: string) => void;
+  t: (key: string) => string;
+}) {
+  const { edition, isInternational } = useEdition();
+  const offered = EDITION_CALL_WIDGET_TEMPLATES[edition].offered;
+  const label = (id: string) =>
+    id === 'intl' ? t('callCenter.settingsPage.intlTemplate') : t('callCenter.settingsPage.defaultTemplate');
+  return (
+    <Select
+      value={isInternational ? resolveCallWidgetTemplateForEdition(edition, value) : value || 'default'}
+      onValueChange={onChange}
+    >
+      <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        {offered.map((id) => (
+          <SelectItem key={id} value={id}>{label(id)}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function CallWidgetPreview({ settings, online }: { settings: SettingsDraft; online: boolean }) {
+  const { edition, isInternational } = useEdition();
+  const { locale } = useTranslation();
+  useBrandVersion();
+  const templateId = isInternational
+    ? resolveCallWidgetTemplateForEdition(edition, settings.widget_template_id)
+    : settings.widget_template_id || 'default';
   const bootstrap = {
     status: 'ok',
     provider_ready: true,
     assets_version: 'preview',
     session: 'preview',
+    // The International edition previews its own stylesheet and credit;
+    // the Iranian preview stays exactly as it was.
+    ...(isInternational
+      ? {
+          edition: 'international',
+          assets: { presentation_style_url: `/call-widget/${CALL_WIDGET_TEMPLATES[templateId as keyof typeof CALL_WIDGET_TEMPLATES]?.style ?? 'presentation-default.css'}` },
+          powered_by: {
+            brand: platformBrandName(locale),
+            brands: { en: platformBrandName('en'), fa: platformBrandName('fa'), tr: platformBrandName('tr') },
+            url: null,
+          },
+        }
+      : {}),
     config: {
       display_name: settings.display_name,
       avatar_url: settings.avatar_url,
       widget_position: settings.widget_position,
-      widget_template_id: settings.widget_template_id || 'default',
+      widget_template_id: templateId,
       widget_theme: settings.widget_theme || {},
       pre_call_form_enabled: settings.pre_call_form_enabled,
       pre_call_form_schema: settings.pre_call_form_schema || [],
@@ -789,7 +847,7 @@ function CallWidgetPreview({ settings, online }: { settings: any; online: boolea
 
 function LivePreviewSection({ t, settings, previewOnline, setPreviewOnline }: {
   t: (key: string) => string;
-  settings: any;
+  settings: SettingsDraft;
   previewOnline: boolean;
   setPreviewOnline: (v: boolean) => void;
 }) {
@@ -849,8 +907,8 @@ function RecordingSection({
   platformRecording,
   recording,
 }: {
-  s: any;
-  setS: (next: any) => void;
+  s: SettingsDraft;
+  setS: (next: SettingsDraft) => void;
   platformRecording: boolean;
   recording: {
     enabled_by_platform: boolean;
@@ -978,8 +1036,8 @@ function WidgetTextsEditor({
   platform,
   onChange,
 }: {
-  settings: any;
-  platform: any;
+  settings: SettingsDraft;
+  platform: Partial<CallCenterPlatformSettings> | null | undefined;
   onChange: (next: Record<string, Record<string, string>>) => void;
 }) {
   const { t } = useTranslation();

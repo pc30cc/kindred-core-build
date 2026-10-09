@@ -16,10 +16,14 @@
  *                single source of this template's font bytes. Consumers
  *                (loader, live preview) treat it as an opaque stylesheet —
  *                they know nothing about which font families it defines.
+ *     skin:      OPTIONAL stylesheet loaded after `style` — a template that
+ *                reuses another template's renderer and stylesheet and only
+ *                restyles it.
  *   }
  *
- * Adding a template later = add ONE entry here + two asset files.
- * No Core change, no loader change.
+ * Adding a template later = add ONE entry here (and in
+ * shared/widgetTemplates.ts, which says which edition wears it) + its asset
+ * files. No Core change, no loader change.
  */
 (function () {
   'use strict';
@@ -38,6 +42,19 @@
       script: 'presentation-default.js',
       style: 'presentation-default.css',
       // Single source of font bytes for this template (base64-inlined faces).
+      fonts: 'presentation-default-fonts.css',
+    },
+    // The International edition's template (shared/widgetTemplates.ts): a
+    // skin over the default renderer. Same script and base stylesheet, then
+    // its own stylesheet (`skin`) with the international palette. The server
+    // picks it per edition; the Iranian edition never wears it.
+    'intl': {
+      id: 'intl',
+      name: 'International',
+      globalKey: '__gs_presentation_default',
+      script: 'presentation-default.js',
+      style: 'presentation-default.css',
+      skin: 'presentation-intl.css',
       fonts: 'presentation-default-fonts.css',
     },
   };

@@ -12,11 +12,14 @@ export function contactFormError(fields: ContactFields): string | null {
   return null;
 }
 
-/** The message as a `mailto:` link, signed with who wrote it. */
-export function contactMailto(fields: ContactFields): string {
+/**
+ * The message as a `mailto:` link, signed with who wrote it, to the
+ * platform's support address (the Iranian edition's by default).
+ */
+export function contactMailto(fields: ContactFields, to: string = LEGAL_CONTACT_EMAIL): string {
   const signature = CONTACT_PAGE.form.signature
     .replace('{name}', fields.name.trim())
     .replace('{email}', fields.email.trim());
   const body = `${fields.message.trim()}\n\n${signature}`;
-  return `mailto:${LEGAL_CONTACT_EMAIL}?subject=${encodeURIComponent(fields.subject.trim())}&body=${encodeURIComponent(body)}`;
+  return `mailto:${to}?subject=${encodeURIComponent(fields.subject.trim())}&body=${encodeURIComponent(body)}`;
 }

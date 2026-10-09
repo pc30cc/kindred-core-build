@@ -1,5 +1,8 @@
 /*!
- * Default Call Widget presentation — "وب یار" visual language.
+ * Call Widget presentations `default` (the Iranian edition's look) and
+ * `intl` (the International edition's: the same markup, its own stylesheet
+ * presentation-intl.css). shared/widgetTemplates.ts says which edition
+ * wears which.
  * This adapter owns presentation lifecycle and safe design-token application.
  * Transport, media-provider integration and persistence remain in runtime.js.
  */
@@ -214,8 +217,15 @@
     var body = el('div', { class: 'ccw-body ccw-scroll' });
     body.appendChild(renderState.call(this, caps, cfg));
 
-    var footer = el('div', { class: 'ccw-footer' }, [
-      el('a', { href: '#', class: 'ccw-powered', on: { click: function (e) { e.preventDefault(); } } }, [tr('powered_by')]),
+    // The "powered by" credit: the Iranian edition's words and dead link as
+    // always; the International edition names its own platform (a real link
+    // when one is configured, no line when there is no brand to credit).
+    var poweredText = tr('powered_by');
+    var poweredUrl = typeof this.poweredByUrl === 'function' ? this.poweredByUrl() : null;
+    var footer = el('div', { class: 'ccw-footer' }, !poweredText ? [] : [
+      poweredUrl
+        ? el('a', { href: poweredUrl, class: 'ccw-powered', target: '_blank', rel: 'noopener noreferrer' }, [poweredText])
+        : el('a', { href: '#', class: 'ccw-powered', on: { click: function (e) { e.preventDefault(); } } }, [poweredText]),
     ]);
 
     self._panel.className = 'ccw-panel ' + pos;
@@ -707,7 +717,7 @@
     return box;
   }
 
-  registry.register('default', {
+  var implementation = {
     contractVersion: 1,
     createHost: function (context) {
       var host = document.createElement('div');
@@ -756,5 +766,23 @@
     },
     ready: function () { return Promise.resolve(); },
     prepare: function () { return Promise.resolve(); },
+  };
+
+  registry.register('default', implementation);
+
+  // The International edition's template: the same markup and lifecycle,
+  // worn with its own stylesheet (presentation-intl.css, which the bootstrap
+  // names) and its own root class for it to style.
+  registry.register('intl', {
+    contractVersion: implementation.contractVersion,
+    createHost: implementation.createHost,
+    mount: function (context) {
+      context.root.classList.add('ccw-presentation-intl');
+      return implementation.mount(context);
+    },
+    update: implementation.update,
+    destroy: implementation.destroy,
+    ready: implementation.ready,
+    prepare: implementation.prepare,
   });
 })(window);

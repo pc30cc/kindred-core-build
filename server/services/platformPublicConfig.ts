@@ -28,6 +28,8 @@
  */
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { resolveEdition } from '../../shared/edition.js';
+import { brandContactFromDomains } from '../../shared/brand.js';
 
 // Whitelists, applied after a `select('*')`: production and a database built
 // from database/migrations do not have exactly the same optional columns
@@ -82,6 +84,17 @@ export interface PlatformPublicConfig {
   localized: Array<Record<string, unknown> | null>;
   region: Record<string, unknown> | null;
   realtime: Record<string, unknown> | null;
+  /**
+   * The platform's edition and the public contact the brand strings name
+   * (shared/brand.ts): the site address and support e-mail, derived from
+   * platform_domains. The client uses them only in the International
+   * edition; the Iranian one keeps its own fixed strings.
+   */
+  brand: {
+    edition: 'iran' | 'international';
+    site_url: string | null;
+    support_email: string | null;
+  };
 }
 
 function pick(row: Record<string, unknown> | null | undefined, keys: readonly string[]): Record<string, unknown> | null {
@@ -102,7 +115,7 @@ export function invalidatePlatformPublicConfig(): void {
 
 async function load(config: ServerConfig): Promise<PlatformPublicConfig | null> {
   const sb = getServiceClient(config);
-  const [branding, localized, settings, widgetPlatform] = await Promise.all([
+  const [branding, localized, settings, widgetPlatform, domains] = await Promise.all([
     sb.from('platform_branding').select('*').limit(1).maybeSingle(),
     sb.from('platform_branding_localized').select('*').order('locale'),
     sb
@@ -112,6 +125,9 @@ async function load(config: ServerConfig): Promise<PlatformPublicConfig | null> 
       .limit(1)
       .maybeSingle(),
     sb.rpc('get_widget_platform_settings'),
+    // Public addresses only (the site and its domain), for the brand's
+    // contact strings. Optional: a failed read leaves them unknown.
+    sb.from('platform_domains').select('primary_domain, canonical_base_url, public_base_url').limit(1).maybeSingle(),
   ]);
   for (const r of [branding, localized, settings]) {
     if (r.error) {
@@ -125,6 +141,11 @@ async function load(config: ServerConfig): Promise<PlatformPublicConfig | null> 
     localized: ((localized.data ?? []) as Record<string, unknown>[]).map((r) => pick(r, LOCALIZED_COLUMNS)),
     region: (settings.data as Record<string, unknown> | null) ?? null,
     realtime: rawRealtime ? pick(rawRealtime, REALTIME_KEYS) : null,
+    brand: {
+      // No settings row reads as the column default, `multi`: International.
+      edition: resolveEdition((settings.data as { region_mode?: unknown } | null)?.region_mode ?? 'multi'),
+      ...brandContactFromDomains(domains?.error ? null : (domains?.data as Record<string, unknown> | null)),
+    },
   };
 }
 

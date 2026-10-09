@@ -15,6 +15,7 @@
 import { cn } from '@/lib/utils';
 import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
 import { IntlBrandImage } from './BrandLogo';
+import { brandName, useBrandVersion } from '@/lib/brand';
 
 /** The two turning arcs on their own. */
 export function BrandLoader({ className }: { className?: string; size?: string; logoUrl?: string | null; label?: string; showLabel?: boolean }) {
@@ -80,8 +81,11 @@ export function BrandWordmark({ className }: { className?: string }) {
 
 /** Full-viewport loading screen: identical to the iOS launch screen. */
 export function BrandLoaderScreen(_props: { logoUrl?: string | null } = {}) {
+  const international = useInternationalMode();
+  useBrandVersion();
+  // "WEBYAR AI" is the Iranian edition's mark; abroad it is the platform's name.
   return (
-    <div className="wy-launch wy-inline" aria-label="WEBYAR AI">
+    <div className="wy-launch wy-inline" aria-label={international ? brandName('en') : 'WEBYAR AI'}>
       <BrandLoader />
       <BrandFooter />
     </div>

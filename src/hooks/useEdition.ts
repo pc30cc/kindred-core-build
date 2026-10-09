@@ -15,7 +15,13 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from '@/i18n';
 import { usePlatformPublicConfig } from '@/lib/platformPublicConfig';
-import { cachedEdition, knownRegionModeOrNull, rememberEdition, rememberRegionMode } from '@/lib/edition';
+import {
+  cachedEdition,
+  knownRegionModeOrNull,
+  rememberEdition,
+  rememberPlatformDefaultLocale,
+  rememberRegionMode,
+} from '@/lib/edition';
 import { formatAmountForEdition } from '@/lib/money';
 import {
   EDITION_PROFILE,
@@ -70,10 +76,12 @@ export function useKnownEdition(): Edition | null {
   const { data } = usePlatformPublicConfig();
   const fromConfig = data ? resolveEdition(data.region?.region_mode) : null;
   const regionMode = data ? parseRegionMode(data.region?.region_mode) : null;
+  const defaultLocale = data?.region?.default_locale ?? null;
   useEffect(() => {
     if (fromConfig) rememberEdition(fromConfig);
     if (regionMode) rememberRegionMode(regionMode);
-  }, [fromConfig, regionMode]);
+    if (defaultLocale) rememberPlatformDefaultLocale(defaultLocale);
+  }, [fromConfig, regionMode, defaultLocale]);
   return fromConfig ?? cachedEdition();
 }
 

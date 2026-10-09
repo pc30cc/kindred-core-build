@@ -484,10 +484,28 @@
      * Day dividers. Persian renders the Jalali calendar in Tehran time, so a
      * conversation continued the next day shows "امروز" above the new run and
      * keeps the earlier messages under their own dated divider.
+     *
+     * The bootstrap's calendar hints decide this (shared/widgetTemplates.ts
+     * widgetDateHints): `calendar: 'gregorian'` (the International edition)
+     * draws Persian dates in the Gregorian calendar (Persian digits stay) in
+     * the visitor's own zone, or `timeZone` when one is given. Without the
+     * hints — the Iranian edition, an older backend — it is Jalali in Tehran
+     * time, exactly as before.
      */
+    function persianGregorian() {
+      return !!(ctx.config && ctx.config.calendar === 'gregorian');
+    }
+
+    function persianTimeZone() {
+      if (!persianGregorian()) return 'Asia/Tehran';
+      var tz = ctx.config && ctx.config.timeZone;
+      return typeof tz === 'string' && tz ? tz : undefined;
+    }
+
     function dateLocaleTag() {
       var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
-      return l === 'fa' ? 'fa-IR-u-ca-persian' : l === 'tr' ? 'tr-TR' : 'en-US';
+      if (l === 'fa') return persianGregorian() ? 'fa-IR-u-ca-gregory' : 'fa-IR-u-ca-persian';
+      return l === 'tr' ? 'tr-TR' : 'en-US';
     }
 
     function dayKeyOf(d) {
@@ -496,7 +514,7 @@
       try {
         return new Intl.DateTimeFormat('en-CA', {
           year: 'numeric', month: '2-digit', day: '2-digit',
-          timeZone: dateLocaleTag().indexOf('fa') === 0 ? 'Asia/Tehran' : undefined,
+          timeZone: dateLocaleTag().indexOf('fa') === 0 ? persianTimeZone() : undefined,
         }).format(date);
       } catch (_) { return date.toDateString(); }
     }
@@ -513,7 +531,7 @@
       }
       try {
         var opts = { year: 'numeric', month: 'long', day: 'numeric' };
-        if (l === 'fa') opts.timeZone = 'Asia/Tehran';
+        if (l === 'fa' && persianTimeZone()) opts.timeZone = persianTimeZone();
         return new Intl.DateTimeFormat(dateLocaleTag(), opts).format(date);
       } catch (_) { return key; }
     }

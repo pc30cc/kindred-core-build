@@ -34,8 +34,10 @@ import {
   invalidatePushPlatformSettingsCache,
   normalizePushSettings,
   renderTemplate,
-  PUSH_PLATFORM_DEFAULTS,
+  pushPlatformDefaults,
 } from '../services/push/platformSettings.js';
+import { pushBrandTokens } from '../services/push/dispatch.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 
 export const adminNotificationsRouter = Router();
 
@@ -150,7 +152,10 @@ adminNotificationsRouter.get('/settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
     const row = await readRow(serverConfigOf(req));
-    const settings = row ? normalizePushSettings(row) : { ...PUSH_PLATFORM_DEFAULTS };
+    // The shipped templates follow the edition: WebYar's in Iran (as
+    // always), the platform's own `{{brand}}` in the International edition.
+    const edition = await getPlatformEditionOrNull(serverConfigOf(req));
+    const settings = row ? normalizePushSettings(row, edition) : { ...pushPlatformDefaults(edition) };
     return res.json({ settings, transport: transportStatus(), provisioned: Boolean(row) });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
@@ -178,7 +183,10 @@ adminNotificationsRouter.put('/settings', async (req, res) => {
     // Dispatch memoizes the policy for 30s — drop it so the next notification
     // already uses what was just saved.
     invalidatePushPlatformSettingsCache();
-    return res.json({ success: true, settings: normalizePushSettings(data as Record<string, unknown>) });
+    return res.json({
+      success: true,
+      settings: normalizePushSettings(data as Record<string, unknown>, await getPlatformEditionOrNull(config)),
+    });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }
@@ -340,7 +348,8 @@ const testSchema = z.object({
  */
 const testRingSchema = z.object({
   channel: z.enum(['audio', 'video']).default('audio'),
-  caller_name: z.string().min(1).max(60).default('Webyar test call'),
+  // Default: "<brand> test call" — "Webyar test call" in the Iranian edition.
+  caller_name: z.string().min(1).max(60).optional(),
 });
 
 /**
@@ -362,9 +371,11 @@ adminNotificationsRouter.post('/test-ring', testLimiter, async (req, res) => {
 
   const config = serverConfigOf(req);
   try {
+    const callerName = parsed.data.caller_name
+      ?? `${(await pushBrandTokens(config, 'en')).tokens.brandLatin} test call`.slice(0, 60);
     const result = await ringTestDevice(config, {
       userId: actorId,
-      callerName: parsed.data.caller_name,
+      callerName,
       channel: parsed.data.channel,
     });
     if (!result.devices) return res.status(409).json({ error: 'no_voip_devices' });
@@ -389,13 +400,17 @@ adminNotificationsRouter.post('/test', testLimiter, async (req, res) => {
     const devices = await listActiveDevices(config, [actorId]);
     if (!devices.length) return res.status(409).json({ error: 'no_devices' });
 
+    // The brand: "Webyar" in the Iranian edition, as always; the platform's
+    // own name in the International one (shared/brand.ts).
+    const { tokens: brand, edition } = await pushBrandTokens(config, parsed.data.locale);
     const { title, body } = renderTemplate(
       policy,
       parsed.data.event_type,
       // Templates are keyed by bare language: "fa-IR" is "fa".
       parsed.data.locale.toLowerCase().split(/[-_]/)[0],
       parsed.data.preview,
-      { sender: 'Webyar', preview: 'Test notification', count: '0', workspace: 'Webyar' },
+      { ...brand, sender: brand.brandLatin, preview: 'Test notification', count: '0', workspace: brand.brandLatin },
+      edition,
     );
 
     let accepted = 0;
@@ -413,7 +428,7 @@ adminNotificationsRouter.post('/test', testLimiter, async (req, res) => {
       // registration is an APNs token, which Firebase cannot address.
       const message = {
         token: device.push_token,
-        title: title || 'Webyar',
+        title: title || brand.brandLatin,
         body: body || 'Test notification',
         // `type: test` lets the app recognise a diagnostic and skip routing.
         data: { type: 'test' },

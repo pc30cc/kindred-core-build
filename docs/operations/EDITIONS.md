@@ -34,12 +34,12 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Brand kit (logos, favicon, PWA icons, launch loader) | WebYar's (`src/assets`, `public/favicon.png`) | RESPOK's (`public/brand/intl`, `INTL_BRAND`) | `shared/internationalMode.ts`, `index.html`, `BrandLogo`, `BrandLoader`, `PlatformBrandingGate` |
 | Panel colour scheme `respok` | never offered | offered | `shared/panelThemes.ts` |
 | Brand in text | WebYar's fixed words ("Webyar", "وب‌یار", "Web Yar", info@webyar.ai, https://webyar.ai) | the platform's own name, site and support address | `shared/brand.ts`, `src/lib/brand.ts` |
-| First paint (before the bundle) | as before | edition, brand, title and default language from `/api/platform/public/boot.js` on a first visit, the cache after | `index.html`, `server/routes/platformPublic.ts` |
+| First paint (before the bundle) | as before | edition, brand, title and default language from `/api/platform/public/boot.js` on a first visit (loaded asynchronously, never blocking; see below), the cache after | `index.html`, `server/routes/platformPublic.ts` |
 | Default UI language | `runtime-config.js` `defaultLocale` | the platform's `default_locale` (Super Admin → Languages) | `src/i18n/index.tsx` `getSiteDefaultLocale` |
 | Chat widget template | `default` | `intl` (skin over the same renderer) | `shared/widgetTemplates.ts` |
 | Call widget template | `default` | `intl` (own stylesheet, same markup) | `shared/widgetTemplates.ts` |
-| Call widget "powered by" | "Powered by Web Yar" / «قدرت گرفته از وب یار» / "Web Yar tarafından desteklenmektedir", exactly | the platform's name per language, its link, hidden by the platform switch or the plan gate (as the chat widget) | `server/routes/callWidget.ts`, `public/call-widget/runtime.js` |
-| Chat widget credit | English `platform_name` (as before) | `platform_name` in the widget's language | `server/routes/widget.ts` |
+| Call widget "powered by" | "Powered by Web Yar" / «قدرت گرفته از وب یار» / "Web Yar tarafından desteklenmektedir", exactly | the localized label with the platform's logo in the brand's place (the RESPOK kit's horizontal mark, 14px, alt = platform name, the name if the image fails), its link, hidden by the platform switch or the plan gate (as the chat widget) | `server/routes/callWidget.ts`, `public/call-widget/runtime.js` |
+| Chat widget credit | English `platform_name` as text (as before) | the label and the platform's logo (`poweredBy.logo`, absolute from the widget asset base; the name if the image fails) | `server/routes/widget.ts` |
 | Widget dates (Persian) | Jalali, Tehran day boundaries | Gregorian, the visitor's zone | `calendar` / `timeZone` hints in the bootstrap |
 | Push notification copy | "Webyar", "New message in Webyar", «پیام جدید در وب‌یار» | the platform's name | `server/services/push/dispatch.ts`, `platformSettings.ts` `defaultPushTemplates` |
 | Legal pages (/privacy, /terms, /contact) | "Webyar", info@webyar.ai | the platform's name and support address | `src/pages/public/legal` |
@@ -57,6 +57,19 @@ Super Admin already maintains:
   `public_base_url`, else `https://<primary_domain>` (Super Admin → Domains).
 - **Support e-mail** — `support@<site host>` (without `www.`), from the same
   row.
+
+### First paint on a first visit
+
+`index.html` asks for `/api/platform/public/boot.js` only when the browser has
+no cached edition, and never blocks on it: the script is `async`, the page and
+the bundle start at once. Until it answers — at most 1.5 s — the splash keeps
+its brand area hidden (`html.wy-boot-pending`), so neither brand flashes; the
+answer dresses it (RESPOK's kit, or WebYar's as always) and is remembered. A
+failure or a timeout shows today's default splash; an answer after the
+timeout is only remembered (for the app and the next visit). Returning
+visitors read their cache and send no request. If the bundle mounts before a
+late answer, the first screen follows the default until the public config
+arrives.
 
 `shared/brand.ts` (`brandTokensFor`, `brandContactFromDomains`) derives them;
 the public config (`GET /api/platform/public/config`, new `brand` block) and
@@ -193,7 +206,7 @@ the language a first visit should open in (`en`).
 | `info@webyar.ai` → `support@respok.app` | `{{supportEmail}}` = support@<site host> from `platform_domains` | /contact and /privacy show support@respok.app; the form opens a mail to it |
 | `(e.g. https://webyar.ai)` → `(e.g. https://respok.app)` | `{{siteUrl}}` | Super Admin → Mobile app → website URL hint |
 | Persian toasts → English (new version / refresh / intro message on, off, saved / saving failed) | i18n keys `appUpdate.*` and `aiAgent.settings.texts.*` (the whole AI agent settings card, not only its toasts) in the reader's language | AI agent → Settings in English: toggle and save the intro message; the PWA update prompt is English |
-| `runtime-config.js` `defaultLocale` fa → en | the International edition opens in the platform's `default_locale` (from `boot.js` on a first visit, the public config after); the deployment file's value is used by the Iranian edition only | private window → app.respok.app opens in English with no Persian flash |
+| `runtime-config.js` `defaultLocale` fa → en | the International edition opens in the platform's `default_locale` (from `boot.js` on a first visit, the public config after); the deployment file's value is used by the Iranian edition only | private window → app.respok.app opens in English (boot.js answered before the bundle mounted) |
 | favicon / apple-touch → `/storage/brand/respok-icon.svg` | the kit's icons (`public/brand/intl`) from the cached edition, and on a first visit from `boot.js` (`index.html`, `PlatformBrandingGate`) | private window: the tab icon is RESPOK's from the first paint |
 | bundled `webyar-logo` png → `/storage/brand/respok-mark.svg` | `BrandLogo` shows the kit's app icon in the International edition | sidebar fallback, auth screens and legal pages show the RESPOK mark |
 

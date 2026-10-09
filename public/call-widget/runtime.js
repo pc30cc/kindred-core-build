@@ -599,6 +599,33 @@
     return typeof name === 'string' ? name.trim() : '';
   };
 
+  /**
+   * The International edition's credit drawn with the platform's logo: the
+   * localized label split around the brand ("Powered by ‹logo›",
+   * "‹logo› tarafından desteklenmektedir") and the logo's absolute URL.
+   * null — draw the text as before — in the Iranian edition, without a logo,
+   * or when the workspace wrote its own "powered by" text.
+   */
+  CallCenterWidgetCtor.prototype.poweredByParts = function () {
+    var b = this.bootstrap || {};
+    if (b.edition !== 'international' || !b.powered_by) return null;
+    var logo = b.powered_by.logo;
+    if (typeof logo !== 'string' || !logo) return null;
+    if (/^\//.test(logo) && !/^\/\//.test(logo)) logo = String(this.origin || '') + logo;
+    if (!/^https?:\/\//i.test(logo)) return null;
+    try {
+      var ct = b.config && b.config.custom_texts;
+      if (ct && ((ct[this.locale] && ct[this.locale].powered_by) || (ct.en && ct.en.powered_by))) return null;
+    } catch (_) { return null; }
+    var brand = this.poweredByBrand();
+    if (!brand) return null;
+    var pack = I18N[this.locale] || I18N.en;
+    var full = formatText(pack.powered_by || I18N.en.powered_by, { brand: '\u0001' });
+    var at = full.indexOf('\u0001');
+    if (at < 0) return null;
+    return { before: full.slice(0, at), after: full.slice(at + 1), logo: logo, brand: brand };
+  };
+
   /** The "powered by" link (International edition only; null = not a link). */
   CallCenterWidgetCtor.prototype.poweredByUrl = function () {
     var b = this.bootstrap || {};

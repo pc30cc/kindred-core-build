@@ -41,3 +41,9 @@
 .ccw-presentation-intl[data-density="compact"] .ccw-btn { min-height: 34px; padding-block: 6px; }
 .ccw-presentation-intl .ccw-panel { border-radius: var(--ccw-radius-panel, 16px); }
 .ccw-presentation-intl .ccw-btn { border-radius: var(--ccw-radius-control, 8px); }
+
+/* The "powered by" credit names the platform with its logo: small, on the
+   label's centre line, the label's words on either side of it (the order
+   follows the language: "Powered by ‹logo›", "‹logo› tarafından …"). */
+.ccw-presentation-intl .ccw-powered { gap: 5px; }
+.ccw-presentation-intl .ccw-powered-logo { display: block; height: 14px; width: auto; flex: none; }

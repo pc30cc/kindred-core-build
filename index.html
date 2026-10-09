@@ -37,16 +37,46 @@
 
     <!-- Runtime deployment config (editable without rebuilding the bundle). -->
     <script src="/runtime-config.js"></script>
-    <!-- The platform's edition and brand before the first paint
-         (server/routes/platformPublic.ts, GET /api/platform/public/boot.js).
-         Loaded, synchronously, only by a browser that has never seen this
-         platform: one that has keeps its cache (src/lib/edition.ts
-         `wy-edition`, src/lib/brand.ts `wy-brand`) and never waits. So the
-         first paint wears the right brand in both editions — WebYar's in the
-         Iranian one, the platform's own in the International one — with
-         nothing rewritten in the bundle. -->
+    <!-- The platform's edition and brand for a browser that has never seen
+         this platform (server/routes/platformPublic.ts, GET
+         /api/platform/public/boot.js). Loaded ASYNCHRONOUSLY: nothing waits
+         for the API — the page and the bundle start at once. A browser that
+         has seen the platform keeps its cache (src/lib/edition.ts
+         `wy-edition`, src/lib/brand.ts `wy-brand`) and asks for nothing.
+         While a first visit waits (at most BOOT_TIMEOUT_MS) the splash keeps
+         its brand area empty (`wy-boot-pending`), so neither brand flashes;
+         the answer then dresses it (the International kit, or WebYar's as
+         always), and a failure or a timeout shows today's default splash. -->
+    <style>
+      html.wy-boot-pending #boot-splash > * { visibility: hidden; }
+    </style>
     <script>
       (function () {
+        var BOOT_TIMEOUT_MS = 1500;
+        var root = document.documentElement;
+        // Keep what boot.js said, under the keys the app and the splash read:
+        // the edition, the region, the brand, the default language and the
+        // browser title per language.
+        function remember(b) {
+          try {
+            if (!b || (b.edition !== 'iran' && b.edition !== 'international')) return false;
+            var ls = window.localStorage;
+            ls.setItem('wy-edition', b.edition);
+            if (typeof b.regionMode === 'string') ls.setItem('platform-region-mode', b.regionMode);
+            ls.setItem('wy-brand', JSON.stringify({ names: b.names || {}, siteUrl: b.siteUrl || null, supportEmail: b.supportEmail || null }));
+            if (typeof b.defaultLocale === 'string') ls.setItem('wy-default-locale', b.defaultLocale);
+            var titles = b.titles || {};
+            for (var k in titles) {
+              if (Object.prototype.hasOwnProperty.call(titles, k) && !ls.getItem('gs_title:' + k)) ls.setItem('gs_title:' + k, titles[k]);
+            }
+            if (!document.title) {
+              var l = ls.getItem('app-locale') || (b.edition === 'international' && b.defaultLocale) || root.lang || 'en';
+              var t = ls.getItem('gs_title:' + l) || ls.getItem('gs_title:en');
+              if (t) document.title = t;
+            }
+            return true;
+          } catch (e) { return false; }
+        }
         try {
           var ls = window.localStorage;
           var known = ls.getItem('wy-edition');
@@ -55,33 +85,30 @@
           var cfg = window.__APP_RUNTIME_CONFIG__ || {};
           var base = (typeof cfg.apiBaseUrl === 'string' && cfg.apiBaseUrl.trim()) || '%VITE_API_BASE_URL%';
           if (!base || base.indexOf('%VITE_') === 0) base = '';
-          document.write('<script src="' + base.replace(/\/+$/, '').replace(/"/g, '') + '/api/platform/public/boot.js"><\/script>');
-        } catch (e) {}
-      })();
-    </script>
-    <script>
-      // Keep what boot.js said, under the keys the app and the scripts below
-      // read: the edition, the region, the brand, the default language and
-      // the browser title per language.
-      (function () {
-        try {
-          var b = window.__PLATFORM_BOOT__;
-          if (!b || (b.edition !== 'iran' && b.edition !== 'international')) return;
-          var ls = window.localStorage;
-          ls.setItem('wy-edition', b.edition);
-          if (typeof b.regionMode === 'string') ls.setItem('platform-region-mode', b.regionMode);
-          ls.setItem('wy-brand', JSON.stringify({ names: b.names || {}, siteUrl: b.siteUrl || null, supportEmail: b.supportEmail || null }));
-          if (typeof b.defaultLocale === 'string') ls.setItem('wy-default-locale', b.defaultLocale);
-          var titles = b.titles || {};
-          for (var k in titles) {
-            if (Object.prototype.hasOwnProperty.call(titles, k) && !ls.getItem('gs_title:' + k)) ls.setItem('gs_title:' + k, titles[k]);
-          }
-          if (!document.title) {
-            var l = ls.getItem('app-locale') || (b.edition === 'international' && b.defaultLocale) || document.documentElement.lang || 'en';
-            var t = ls.getItem('gs_title:' + l) || ls.getItem('gs_title:en');
-            if (t) document.title = t;
-          }
-        } catch (e) {}
+          root.className += ' wy-boot-pending';
+          var settled = false;
+          var timer = null;
+          // Once: dress the splash from the answer (if any) and show it.
+          var settle = function () {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            remember(window.__PLATFORM_BOOT__);
+            try { if (window.__wyApplySplash) window.__wyApplySplash(); } catch (e) {}
+            root.className = root.className.replace(/(^|\s)wy-boot-pending(?=\s|$)/g, ' ').replace(/\s+$/, '');
+          };
+          var s = document.createElement('script');
+          s.async = true;
+          s.src = base.replace(/\/+$/, '') + '/api/platform/public/boot.js';
+          // A late answer (after the timeout) is still kept for the next
+          // visit and the app, but no longer changes the splash on show.
+          s.onload = function () { if (settled) remember(window.__PLATFORM_BOOT__); else settle(); };
+          s.onerror = settle;
+          timer = setTimeout(settle, BOOT_TIMEOUT_MS);
+          (document.head || root).appendChild(s);
+        } catch (e) {
+          root.className = root.className.replace(/(^|\s)wy-boot-pending(?=\s|$)/g, ' ');
+        }
       })();
     </script>
     <!-- The app's first request (the session check) goes to the API. When the
@@ -201,7 +228,9 @@
       // keeps the page as it is. Before wy-edition was written, a cached
       // 'iran' region mode means Iran and a cached multi-language site mode
       // means International (as cachedEdition() reads them).
-      (function () {
+      // Called again by the head script when a first visit's boot data
+      // arrives after this point.
+      window.__wyApplySplash = function () {
         try {
           var ls = window.localStorage;
           var edition = ls.getItem('wy-edition');
@@ -211,6 +240,7 @@
           }
           if (edition !== 'international') return;
           var splash = document.getElementById('boot-splash');
+          if (!splash || splash.querySelector('.wy-loader.wy-intl')) return;
           // The platform's own name (src/lib/brand.ts cache), not WebYar's mark.
           var brand = null;
           try { brand = JSON.parse(ls.getItem('wy-brand') || 'null'); } catch (e2) {}
@@ -228,7 +258,8 @@
           var touch = document.querySelector('link[rel="apple-touch-icon"]');
           if (touch) touch.href = '/brand/intl/apple-touch-icon.png';
         } catch (e) {}
-      })();
+      };
+      window.__wyApplySplash();
     </script>
     <div id="root" style="opacity:0"></div>
     <script type="text/javascript">

@@ -59,6 +59,7 @@ import { widgetTemplateAssetKeys, resolveWidgetTemplateId } from '../services/wi
 import { buildPoweredByConfig, isPoweredByAllowedForPlan } from '../services/widget/poweredBy.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { widgetDateHints } from '../../shared/widgetTemplates.js';
+import { INTL_BRAND } from '../../shared/internationalMode.js';
 import {
   callWidgetTemplateAssetKeys,
   normalizeCallWidgetFormSchema,
@@ -709,7 +710,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   // International edition credits its own platform, by the same rules as the
   // chat widget (platform switch, brand text, link, plan gate).
   const intlBrand = edition === 'international'
-    ? await buildCallWidgetBrand(config, ws.workspace_id)
+    ? await buildCallWidgetBrand(config, ws.workspace_id, getLoaderAssetBase(req as ExpressRequest))
     : null;
   const poweredBy = intlBrand ? intlBrand.poweredBy : undefined;
   // Persian dates: Jalali in Tehran time in Iran (and unknown), Gregorian in
@@ -802,14 +803,15 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
 async function buildCallWidgetBrand(
   config: ServerConfig,
   workspaceId: string,
+  loaderAssetBase: string | null,
 ): Promise<{
   names: Record<string, string>;
-  poweredBy: { brand: string; brands: Record<string, string>; url: string | null } | null;
+  poweredBy: { brand: string; brands: Record<string, string>; url: string | null; logo: string } | null;
 }> {
   const sb = getServiceClient(config);
   const [platformWidget, localized, planAllows] = await Promise.all([
     sb.from('widget_platform_settings')
-      .select('powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url')
+      .select('powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url, widget_asset_base_url, widget_loader_base_url, widget_public_base_url')
       .limit(1).maybeSingle()
       .then((r) => (r.error ? null : (r.data as Record<string, unknown> | null)), () => null),
     sb.from('platform_branding_localized').select('locale, platform_name')
@@ -825,7 +827,19 @@ async function buildCallWidgetBrand(
   if (!footer) return { names: brands, poweredBy: null };
   // A platform-wide brand text names the platform in every language.
   const override = String(platformWidget?.powered_by_brand_text || '').trim();
-  return { names: brands, poweredBy: { brand: footer.brand, brands: override ? {} : brands, url: footer.url } };
+  // The platform's logo (the RESPOK kit's horizontal mark, "color" variant
+  // for the widget's light surface), from the frontend that serves /brand.
+  // Absolute when the widget asset origin is known; otherwise a path the
+  // runtime resolves against the origin it was loaded from.
+  const assetBase = resolveWidgetAssetBase({
+    widgetBaseUrl: platformWidget?.widget_asset_base_url as string | null | undefined,
+    widgetLoaderBaseUrl: platformWidget?.widget_loader_base_url as string | null | undefined,
+    widgetPublicBaseUrl: platformWidget?.widget_public_base_url as string | null | undefined,
+    assetBaseUrl: null,
+    loaderAssetBase,
+  });
+  const logo = `${assetBase ?? ''}${INTL_BRAND.horizontal.light}`;
+  return { names: brands, poweredBy: { brand: footer.brand, brands: override ? {} : brands, url: footer.url, logo } };
 }
 
 // Helper: extract widget session

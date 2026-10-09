@@ -10,7 +10,7 @@
  * for byte.
  */
 import { act, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
@@ -225,10 +225,100 @@ describe('push copy', () => {
 describe('index.html and the boot script', () => {
   const html = read('index.html');
 
-  it('asks the platform for its edition only when the browser has none cached', () => {
-    expect(html).toContain("document.write('<script src=\"' + base.replace(/\\/+$/, '').replace(/\"/g, '') + '/api/platform/public/boot.js\"><\\/script>');");
-    expect(html).toMatch(/if \(known === 'iran' \|\| known === 'international'\) return;/);
-    expect(html).toContain("ls.setItem('wy-brand', JSON.stringify(");
+  const headScript = /<script>\s*(\(function \(\) \{\s*var BOOT_TIMEOUT_MS[\s\S]*?)<\/script>/.exec(html)![1];
+  const splashScript = /<script>\s*(\/\/ International mode[\s\S]*?)<\/script>/.exec(html)![1];
+  const splashMarkup = /<div id="boot-splash"[\s\S]*?\n {4}<\/div>/.exec(html)![0];
+  type BootWindow = Window & { __PLATFORM_BOOT__?: unknown; __wyApplySplash?: () => void };
+  const w = window as BootWindow;
+
+  /** index.html's head, then its body, as the browser runs them (no network). */
+  function page(storage: Record<string, string>) {
+    localStorage.clear();
+    for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, v);
+    delete w.__PLATFORM_BOOT__;
+    delete w.__wyApplySplash;
+    document.documentElement.className = '';
+    document.title = '';
+    document.head.innerHTML = '<link rel="icon" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">';
+    new Function(headScript)();
+    const script = document.head.querySelector('script[src$="/api/platform/public/boot.js"]') as HTMLScriptElement | null;
+    document.body.innerHTML = splashMarkup;
+    new Function(splashScript)();
+    const splash = () => document.getElementById('boot-splash')!;
+    return {
+      script,
+      pending: () => document.documentElement.classList.contains('wy-boot-pending'),
+      intl: () => !!splash().querySelector('.wy-loader.wy-intl'),
+      label: () => splash().getAttribute('aria-label'),
+    };
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it('a returning visitor uses the cache and never asks the API', () => {
+    const iran = page({ [EDITION_CACHE_KEY]: 'iran' });
+    expect(iran.script).toBeNull();
+    expect(iran.pending()).toBe(false);
+    expect(iran.intl()).toBe(false);
+    expect(iran.label()).toBe('WEBYAR AI');
+    const intl = page({ [EDITION_CACHE_KEY]: 'international', [BRAND_CACHE_KEY]: JSON.stringify({ names: { en: 'RESPOK' } }) });
+    expect(intl.script).toBeNull();
+    expect(intl.intl()).toBe(true);
+    expect(intl.label()).toBe('RESPOK');
+  });
+
+  it('a first visit loads boot.js asynchronously — never document.write — and keeps the brand area empty meanwhile', () => {
+    expect(html).not.toContain('document.write');
+    const p = page({});
+    expect(p.script).not.toBeNull();
+    expect(p.script!.async).toBe(true);
+    expect(p.pending()).toBe(true);
+    expect(html).toContain('html.wy-boot-pending #boot-splash > * { visibility: hidden; }');
+  });
+
+  it('International boot data dresses the splash with the platform brand and is remembered', () => {
+    const p = page({});
+    w.__PLATFORM_BOOT__ = { edition: 'international', names: { en: 'RESPOK' }, titles: { en: 'RESPOK' }, defaultLocale: 'en', siteUrl: 'https://respok.app', supportEmail: 'support@respok.app' };
+    p.script!.onload!(new Event('load'));
+    expect(p.pending()).toBe(false);
+    expect(p.intl()).toBe(true);
+    expect(p.label()).toBe('RESPOK');
+    expect(document.querySelector('link[rel="icon"]')!.getAttribute('href')).toBe('/brand/intl/favicon.svg');
+    expect(localStorage.getItem(EDITION_CACHE_KEY)).toBe('international');
+    expect(localStorage.getItem('wy-default-locale')).toBe('en');
+    expect(document.title).toBe('RESPOK');
+  });
+
+  it('Iranian boot data shows today\'s splash', () => {
+    const p = page({});
+    w.__PLATFORM_BOOT__ = { edition: 'iran', names: { fa: 'وب‌یار' } };
+    p.script!.onload!(new Event('load'));
+    expect(p.pending()).toBe(false);
+    expect(p.intl()).toBe(false);
+    expect(p.label()).toBe('WEBYAR AI');
+    expect(localStorage.getItem(EDITION_CACHE_KEY)).toBe('iran');
+  });
+
+  it('a failed boot.js falls back to the default splash at once', () => {
+    const p = page({});
+    p.script!.onerror!(new Event('error'));
+    expect(p.pending()).toBe(false);
+    expect(p.intl()).toBe(false);
+    expect(p.label()).toBe('WEBYAR AI');
+  });
+
+  it('a hanging boot.js falls back after the timeout; a late answer is only remembered', () => {
+    vi.useFakeTimers();
+    const p = page({});
+    vi.advanceTimersByTime(1499);
+    expect(p.pending()).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(p.pending()).toBe(false);
+    expect(p.intl()).toBe(false);
+    w.__PLATFORM_BOOT__ = { edition: 'international', names: { en: 'RESPOK' } };
+    p.script!.onload!(new Event('load'));
+    expect(p.intl()).toBe(false); // no switch on show
+    expect(localStorage.getItem(EDITION_CACHE_KEY)).toBe('international'); // next visit
   });
 
   it('keeps the Iranian splash markup as it was ("WEBYAR AI", the AI suffix)', () => {

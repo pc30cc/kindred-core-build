@@ -14,6 +14,7 @@ import type { SmartRuleDraft } from '@/lib/widget/smartRules';
 import { useArtPreviewStage } from './useArtPreviewStage';
 import { useEdition } from '@/hooks/useEdition';
 import { resolveChatWidgetTemplate, widgetDateHints } from '../../../../shared/widgetTemplates';
+import { INTL_BRAND } from '../../../../shared/internationalMode';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
 
@@ -394,7 +395,14 @@ export function WidgetLivePreview({
       // Platform-owned footer payload — mirrors the production bootstrap so the
       // preview reflects super-admin wording/link and plan visibility exactly.
       ...(poweredBy !== undefined
-        ? { poweredBy, showPoweredBy: poweredBy !== null }
+        ? {
+            // The International template credits the platform with its logo,
+            // as the widget bootstrap does (server/routes/widget.ts).
+            poweredBy: isInternational && poweredBy
+              ? { ...poweredBy, logo: `${window.location.origin}${INTL_BRAND.horizontal.light}` }
+              : poweredBy,
+            showPoweredBy: poweredBy !== null,
+          }
         : {}),
       replyTimeText: typeof s.reply_time_text === 'string' ? s.reply_time_text.trim() : null,
       welcomeMessage: welcome,
@@ -587,6 +595,12 @@ export function WidgetLivePreview({
      resolved through the registry (no template name is hard-coded here). -->
 <script src="/widget/presentation-registry.js"></script>
 <script>
+  // A platform logo that cannot load becomes its name (as Core does).
+  document.addEventListener('error', function (e) {
+    var img = e.target;
+    if (!img || !img.hasAttribute || !img.hasAttribute('data-wy-brand-logo')) return;
+    if (img.parentNode) img.parentNode.replaceChild(document.createTextNode(' ' + (img.getAttribute('alt') || '')), img);
+  }, true);
   var GS_PREVIEW = ${JSON.stringify(payload)};
   var GS_SMART = GS_PREVIEW.smart;
 

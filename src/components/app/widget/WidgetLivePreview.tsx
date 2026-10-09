@@ -22,6 +22,12 @@ import {
   WEBYAR_LAUNCHER_CLOSE_GLYPH,
   WEBYAR_LAUNCHER_CSS,
 } from '../../../../shared/webyarLauncher';
+import {
+  RESPOK_LAUNCHER_BASE_SIZE,
+  RESPOK_LAUNCHER_CHAT_GLYPH,
+  RESPOK_LAUNCHER_CLOSE_GLYPH,
+  RESPOK_LAUNCHER_CSS,
+} from '../../../../shared/respokLauncher';
 
 export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
 
@@ -252,6 +258,9 @@ export function WidgetLivePreview({
   // The Iranian edition (known, never assumed) previews WebYar's floating
   // button and logo credit, as loader.js / the bootstrap draw them.
   const webyarKit = useWebyarKit() && !isInternational;
+  // The International edition previews RESPOK's floating button (the kit's
+  // Thread chat button), as loader.js draws it for the `intl` template.
+  const respokKit = isInternational;
   const stageBackground = stage?.background ?? '#F1F5F9';
   const stageBar = stage?.bar ?? '#E2E8F0';
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -328,11 +337,15 @@ export function WidgetLivePreview({
       1.4,
       Math.max(0.8, !isFinite(rawScale) || rawScale <= 0 ? 1 : rawScale > 3 ? rawScale / 100 : rawScale),
     );
-    const fabSize = Math.round((webyarKit ? WEBYAR_LAUNCHER_BASE_SIZE : 56) * fabScale);
+    const fabSize = Math.round((webyarKit ? WEBYAR_LAUNCHER_BASE_SIZE : respokKit ? RESPOK_LAUNCHER_BASE_SIZE : 56) * fabScale);
     // WebYar's button (shared/webyarLauncher.ts): the kit's gradient unless
     // the workspace chose its own colour; its bubble unless it chose an icon.
     const kitBrand = webyarKit && isUncustomisedColor(s.primary_color);
     const kitBubble = webyarKit && (!s.fab_icon || s.fab_icon === 'chat' || !FAB_ICONS[s.fab_icon as string]);
+    // RESPOK's button (shared/respokLauncher.ts): Ink + Signal unless the
+    // workspace chose its own colour; the kit's pills unless it chose an icon.
+    const rpkBrand = respokKit && isUncustomisedColor(s.primary_color);
+    const rpkPills = respokKit && (!s.fab_icon || s.fab_icon === 'chat' || !FAB_ICONS[s.fab_icon as string]);
     const fabRadius = s.fab_shape === 'square' ? '16px' : '50%';
     const fabIconColor = s.fab_icon_color || '#fff';
     const fabIcon = FAB_ICONS[(s.fab_icon as string) || 'chat'] || FAB_ICONS.chat;
@@ -593,6 +606,7 @@ export function WidgetLivePreview({
   [data-smart-surface][hidden]{display:none!important;}
   [data-smart-surface].smart-enter{opacity:0;transform:translateY(6px);}
   ${webyarKit ? WEBYAR_LAUNCHER_CSS : ''}
+  ${respokKit ? RESPOK_LAUNCHER_CSS : ''}
 </style>
 </head>
 <body>
@@ -603,9 +617,9 @@ export function WidgetLivePreview({
   </div>
   <div class="shell pos-${pos}${s.fab_animation === true ? ' anim-on' : ''}">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
-    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${webyarKit ? ` wy-kit${kitBrand ? ' wy-kit-brand' : ''}` : ''}" id="gs-launcher" aria-label="chat">
-      ${kitBubble ? WEBYAR_LAUNCHER_CHAT_GLYPH : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
-      ${webyarKit ? WEBYAR_LAUNCHER_CLOSE_GLYPH : '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>'}
+    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${webyarKit ? ` wy-kit${kitBrand ? ' wy-kit-brand' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}` : ''}" id="gs-launcher" aria-label="chat">
+      ${kitBubble ? WEBYAR_LAUNCHER_CHAT_GLYPH : rpkPills ? RESPOK_LAUNCHER_CHAT_GLYPH : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
+      ${webyarKit ? WEBYAR_LAUNCHER_CLOSE_GLYPH : respokKit ? RESPOK_LAUNCHER_CLOSE_GLYPH : '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>'}
       ${fabImage ? `<img class="fab-img" alt="" src="${esc(fabImage)}">` : ''}
     </button>
     ${s.fab_label ? `<div class="fab-label"><span class="label-title">${esc(s.fab_label)}</span></div>` : ''}
@@ -972,7 +986,7 @@ export function WidgetLivePreview({
   }, [
     settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
-    smartScenario?.rtl, stageBackground, stageBar, isInternational, webyarKit,
+    smartScenario?.rtl, stageBackground, stageBar, isInternational, webyarKit, respokKit,
   ]);
 
   return (

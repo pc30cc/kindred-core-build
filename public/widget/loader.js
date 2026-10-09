@@ -663,6 +663,40 @@
 
   ].join("");
 
+  // ─── WebYar's floating button (the brand kit, Iranian edition only) ───
+  // Worn by the `default` template when the bootstrap says the platform is
+  // the Iranian edition (config.edition === "iran" exactly; an older backend
+  // or an unknown edition keeps the launcher above, as does every other
+  // region mode). Byte-identical with shared/webyarLauncher.ts (the operator
+  // preview's copy; src/test/widget/webyarLauncher.test.ts). Injected as its
+  // own <style> only when worn, so other editions' shadow DOM is unchanged.
+  var WEBYAR_KIT_CSS = ".launcher.wy-kit.wy-kit-brand{background:linear-gradient(140deg,#22D3B4,#0B7D6C);box-shadow:0 12px 28px rgba(11,125,108,.36),0 3px 8px rgba(18,20,31,.16);--wy-kit-dot:#18AD94;}.launcher.wy-kit:not(.open):not(.enter):hover{transform:translateY(-3px) scale(1.06);transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease;}.launcher.wy-kit.wy-kit-brand:not(.open):not(.enter):hover{box-shadow:0 18px 36px rgba(11,125,108,.42),0 4px 10px rgba(18,20,31,.16);}.launcher.wy-kit svg.wy-kit-glyph{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:none;overflow:visible;transform-origin:50% 50%;transition:transform .2s cubic-bezier(.4,0,1,1),opacity .16s ease;}.launcher.wy-kit .wy-kit-body{fill:currentColor;transition:fill .25s ease;}.launcher.wy-kit .wy-kit-dot{fill:var(--wy-kit-dot,var(--gs-primary,#0B7D6C));transform-box:fill-box;transform-origin:50% 50%;transition:fill .25s ease;}.launcher.wy-kit .wy-kit-chev{fill:none;stroke:currentColor;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round;}.launcher.wy-kit svg.close-icon.wy-kit-glyph{display:block;opacity:0;transform:rotate(45deg) scale(.6);transition:transform .2s ease,opacity .14s ease;}.launcher.wy-kit.open svg.chat-icon.wy-kit-glyph{display:block;opacity:0;transform:rotate(-35deg) scale(.3);}.launcher.wy-kit.open svg.close-icon.wy-kit-glyph{opacity:1;transform:none;transition:transform .26s cubic-bezier(.2,.9,.3,1.2) .06s,opacity .2s ease .06s;}.launcher.wy-kit.wy-kit-enter .wy-kit-dot{animation:wy-kit-dot-in .32s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.wy-kit.wy-kit-enter .wy-kit-d1{animation-delay:.45s;}.launcher.wy-kit.wy-kit-enter .wy-kit-d2{animation-delay:.65s;}.launcher.wy-kit.wy-kit-enter .wy-kit-d3{animation-delay:.85s;}.launcher.wy-kit:not(.open):hover .wy-kit-dot{animation:wy-kit-wave .62s ease-in-out;}.launcher.wy-kit:not(.open):hover .wy-kit-d2{animation-delay:.08s;}.launcher.wy-kit:not(.open):hover .wy-kit-d3{animation-delay:.16s;}.launcher.wy-kit .badge{top:-6px;right:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;border:0;background:#FFB423;color:#12141F;font:800 13px/24px Vazirmatn,Tahoma,'Segoe UI',sans-serif;box-shadow:0 0 0 3px #fff;animation:wy-kit-badge-in .45s cubic-bezier(.3,1.6,.5,1);}.launcher.wy-kit.open .badge{display:none;}.launcher.wy-kit.wy-kit-nudge:not(.open){animation:wy-kit-nudge .6s ease-in-out;}.launcher.wy-kit.wy-kit-brand.wy-kit-offline{background:#12141F;--wy-kit-dot:#12141F;}.launcher.wy-kit.wy-kit-brand.wy-kit-offline .wy-kit-body{fill:#16C7A8;}@keyframes wy-kit-dot-in{0%{opacity:0;transform:scale(.4);}100%{opacity:1;transform:none;}}@keyframes wy-kit-wave{0%,100%{transform:none;}35%{transform:translateY(-2.5px);}}@keyframes wy-kit-badge-in{0%{transform:scale(0);}60%{transform:scale(1.18);}100%{transform:scale(1);}}@keyframes wy-kit-nudge{0%,100%{transform:none;}20%{transform:rotate(-10deg);}45%{transform:rotate(8deg);}70%{transform:rotate(-4deg);}}@media(prefers-reduced-motion:reduce){.launcher.wy-kit,.launcher.wy-kit *{animation:none!important;}.launcher.wy-kit:not(.open):not(.enter):hover{transform:none;}.launcher.wy-kit svg.wy-kit-glyph,.launcher.wy-kit svg.close-icon.wy-kit-glyph,.launcher.wy-kit.open svg.close-icon.wy-kit-glyph{transition:opacity .15s ease;}.launcher.wy-kit.open svg.chat-icon.wy-kit-glyph,.launcher.wy-kit svg.close-icon.wy-kit-glyph{transform:none;}}";
+  var WEBYAR_KIT_CHAT_GLYPH = "<svg class=\"chat-icon wy-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"wy-kit-body\" d=\"M42.28 27.95A12.4 12.4 0 0 0 21.7 17.01A12.4 12.4 0 0 0 30.43 38.62A7.75 7.75 0 0 0 22.95 46.14A0.43 0.43 0 0 1 22.56 46.56A21.7 21.7 0 0 0 42.28 27.95Z\"/><path class=\"wy-kit-dot wy-kit-d1\" d=\"M35.21 24.12L37.32 26.23L35.21 28.34L33.1 26.23Z\"/><path class=\"wy-kit-dot wy-kit-d2\" d=\"M30 24.12L32.11 26.23L30 28.34L27.89 26.23Z\"/><path class=\"wy-kit-dot wy-kit-d3\" d=\"M24.79 24.12L26.9 26.23L24.79 28.34L22.69 26.23Z\"/></svg>";
+  var WEBYAR_KIT_CLOSE_GLYPH = "<svg class=\"close-icon wy-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"wy-kit-chev\" d=\"M22 27l8 8 8-8\"/></svg>";
+  // The platform colour every deployment was seeded with: never a choice, so
+  // the kit's gradient is shown in its place (shared/webyarBrand.ts).
+  var WEBYAR_KIT_UNCUSTOMISED_COLOR = "#3b82f6";
+  function webyarKitOn(config) {
+    if (!config || config.edition !== "iran") return false;
+    var tpl = config.templateId == null || config.templateId === "" ? "default" : String(config.templateId);
+    return tpl === "default";
+  }
+  function webyarKitBrandColor(config) {
+    var c = String((config && config.primaryColor) || "").trim().toLowerCase();
+    return !c || c === WEBYAR_KIT_UNCUSTOMISED_COLOR;
+  }
+  var PERSIAN_DIGITS = "\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9";
+  function persianDigits(text) {
+    return String(text).replace(/[0-9]/g, function (d) { return PERSIAN_DIGITS.charAt(+d); });
+  }
+  function ensureWebyarKitStyle() {
+    if (!shadowRoot || shadowRoot.querySelector("style[data-wy-kit]")) return;
+    var kitStyle = document.createElement("style");
+    kitStyle.setAttribute("data-wy-kit", "");
+    kitStyle.textContent = WEBYAR_KIT_CSS;
+    shadowRoot.appendChild(kitStyle);
+  }
+
   // ─── <gs-widget> custom element ───
   // Defining it once is safe; if some host page already registered it, we no-op.
   if (!customElements.get(ELEMENT_TAG)) {
@@ -923,7 +957,9 @@
   function applyFabConfig(config, posClass) {
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
-    var size = Math.round(56 * scale);
+    var kit = webyarKitOn(config);
+    // The kit's button is 60px at 100% (the scale still applies).
+    var size = Math.round((kit ? 60 : 56) * scale);
     // ONE source of truth for the launcher box: the CSS variable. The button,
     // its icons (chat AND close) and the panel anchor all derive from it, so
     // the closed and open states can never drift apart in size.
@@ -940,12 +976,29 @@
     var imageUrl = typeof fab.imageUrl === "string" ? fab.imageUrl.trim() : "";
     if (imageUrl && !/^https?:\/\//i.test(imageUrl)) imageUrl = "";
     launcherEl.classList.toggle("has-image", !!imageUrl);
-    launcherEl.innerHTML =
-      '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>' +
-      '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
-      (imageUrl
-        ? '<img class="fab-img" alt="" aria-hidden="true" decoding="async" fetchpriority="low" src="' + imageUrl.replace(/"/g, "&quot;") + '">'
-        : '');
+    var imgHtml = imageUrl
+      ? '<img class="fab-img" alt="" aria-hidden="true" decoding="async" fetchpriority="low" src="' + imageUrl.replace(/"/g, "&quot;") + '">'
+      : '';
+    if (kit) {
+      // WebYar's button: the kit's bubble (or the workspace's own icon when
+      // it picked one other than `chat`) and the kit's chevron for "open".
+      ensureWebyarKitStyle();
+      launcherEl.classList.add("wy-kit");
+      var kitBrand = webyarKitBrandColor(config);
+      launcherEl.classList.toggle("wy-kit-brand", kitBrand);
+      var offline = !!(config.availability && config.availability.state === "offline");
+      launcherEl.classList.toggle("wy-kit-offline", kitBrand && offline);
+      launcherEl.innerHTML =
+        (String(fab.icon || "chat") === "chat" || !FAB_ICONS[fab.icon]
+          ? WEBYAR_KIT_CHAT_GLYPH
+          : '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>') +
+        WEBYAR_KIT_CLOSE_GLYPH + imgHtml;
+    } else {
+      launcherEl.innerHTML =
+        '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>' +
+        '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+        imgHtml;
+    }
 
 
     // Optional text card beside the launcher (title + optional sub-line).
@@ -1020,6 +1073,13 @@
         var labelEl = shellDiv && shellDiv.querySelector(".gs-fab-label");
         playFabEntry(launcherEl);
         playFabEntry(labelEl);
+        // WebYar's button: then its three dots arrive one by one (CSS; none
+        // with reduced motion).
+        if (launcherEl.classList.contains("wy-kit")) {
+          var kitLauncher = launcherEl;
+          kitLauncher.classList.add("wy-kit-enter");
+          setTimeout(function () { kitLauncher.classList.remove("wy-kit-enter"); }, 1400);
+        }
       }
       // The real locale is only known now that /config has resolved — the
       // label built at mount time used the page's `lang` as a guess.
@@ -1831,10 +1891,23 @@
     if (!launcherEl) return;
     var existing = launcherEl.querySelector(".badge");
     if (existing) existing.remove();
+    var kitBadge = launcherEl.classList.contains("wy-kit");
     if (count > 0) {
       var badge = document.createElement("span");
       badge.className = "badge";
       badge.textContent = count > 9 ? "9+" : String(count);
+      // WebYar's button: Persian digits in a Persian widget, and one nudge
+      // when the first unread message arrives.
+      if (kitBadge && String((configData && configData.locale) || "").toLowerCase().split("-")[0] === "fa") {
+        badge.textContent = persianDigits(badge.textContent);
+      }
+      if (kitBadge && !(lastUnreadCount > 0)) {
+        var nudged = launcherEl;
+        nudged.classList.remove("wy-kit-nudge");
+        void nudged.offsetWidth;
+        nudged.classList.add("wy-kit-nudge");
+        setTimeout(function () { nudged.classList.remove("wy-kit-nudge"); }, 700);
+      }
       // The count is carried by the launcher's own accessible name instead.
       badge.setAttribute("aria-hidden", "true");
       launcherEl.appendChild(badge);

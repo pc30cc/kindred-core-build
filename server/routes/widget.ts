@@ -44,6 +44,7 @@ import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, getMa
 import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
 import { widgetDateHints } from '../../shared/widgetTemplates.js';
 import { INTL_BRAND } from '../../shared/internationalMode.js';
+import { WEBYAR_BRAND, isWebyarKitEdition } from '../../shared/webyarBrand.js';
 import { attachmentPreviewKind, type AttachmentPreviewKind } from '../services/attachmentPreviewKind.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from '../services/widget/poweredBy.js';
 import {
@@ -970,9 +971,16 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     // The International template credits the platform with its logo (the
     // RESPOK kit's horizontal mark, the one the app's launch screen wears;
     // the "color" variant, drawn for the widget's light surface). Absolute:
-    // the widget runs on customers' sites. The Iranian payload is unchanged.
+    // the widget runs on customers' sites.
     if (poweredBy && edition === 'international' && assetBase) {
       (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${INTL_BRAND.horizontal.light}`;
+    }
+    // The Iranian edition (region_mode = 'iran' exactly; an edition that
+    // cannot be read keeps the text) credits WebYar with the brand kit's
+    // Persian logotype ("color", for the widget's light surface); its name
+    // stays the alt text and the fallback if the image cannot load.
+    if (poweredBy && isWebyarKitEdition(edition) && assetBase) {
+      (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${WEBYAR_BRAND.logo.light}`;
     }
     // Dates: Jalali in Tehran time for Persian in the Iranian edition (as
     // before); Gregorian in the visitor's own zone in the International one.

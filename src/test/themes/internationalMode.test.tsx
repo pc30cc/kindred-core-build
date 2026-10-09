@@ -223,16 +223,46 @@ describe('the brand marks', () => {
     expect(sources).not.toContain('https://cdn.example.com/operator.png');
     expect(container.querySelector('.wy-loader.wy-intl')).not.toBeNull();
     expect(container.textContent).not.toContain('WEBYAR');
+    // WebYar's brand kit is the Iranian edition's only.
+    expect(container.innerHTML).not.toContain('/brand/webyar/');
+    expect(container.querySelector('.wy-kit-loader')).toBeNull();
   });
 
-  it.each(['fa', 'en'])('never show it in the Iranian edition (%s)', (locale) => {
+  it.each(['fa', 'en'])('never show it in the Iranian edition (%s): WebYar\'s own kit there, the operator\'s logo still first', (locale) => {
     state.data = config('iran');
     state.locale = locale;
     const { container } = render(marks());
     expect(container.innerHTML).not.toContain('/brand/intl/');
     expect(container.querySelector('.wy-intl')).toBeNull();
     expect(container.querySelector('img')?.getAttribute('src')).toBe('https://cdn.example.com/operator.png');
+    // The lockup is the kit's Persian logotype (in every UI language), named by the platform.
+    const sources = [...container.querySelectorAll('img')].map((img) => img.getAttribute('src'));
+    expect(sources).toEqual(expect.arrayContaining(['/brand/webyar/webyar-logo-fa-color.svg', '/brand/webyar/webyar-logo-fa-on-dark.svg']));
+    expect(sources.filter((src) => src?.includes('latin'))).toEqual([]);
+    expect(container.querySelector('img[data-webyar-brand="logo"]')?.getAttribute('alt')).toBe('Platform');
+    expect(container.querySelector('svg.wy-kit-loader')).not.toBeNull();
+    expect(container.querySelector('.wy-kit-footer')).not.toBeNull();
+    expect(container.textContent).not.toContain('WEBYAR');
+  });
+
+  it('keep the old marks while the edition is unknown (no kit is assumed)', () => {
+    state.data = undefined;
+    const { container } = render(marks());
+    expect(container.innerHTML).not.toContain('/brand/webyar/');
+    expect(container.innerHTML).not.toContain('/brand/intl/');
+    expect(container.querySelector('.wy-kit-loader')).toBeNull();
+    expect(container.textContent).toContain('WEBYAR');
     expect(container.textContent).toContain('Platform');
+  });
+
+  it('BrandLogo without an operator logo shows the kit\'s symbol in Iran only', () => {
+    state.data = config('iran');
+    const iran = render(<BrandLogo />).container.querySelector('img')!;
+    expect(iran.getAttribute('src')).toBe('/brand/webyar/webyar-symbol-turquoise.svg');
+    expect(iran.getAttribute('alt')).toBe('وب‌یار');
+    expect(iran.className).toContain('object-contain');
+    state.data = config('multi');
+    expect(render(<BrandLogo />).container.querySelector('img')!.getAttribute('src')).toBe(INTL_BRAND.appIcon);
   });
 
   it('ship only files that exist, with nothing of the WebYar name in their paths', () => {
@@ -290,9 +320,9 @@ describe('the boot splash (index.html)', () => {
     expect(boot({ [SITE_MODE_CACHE_KEY]: 'multi_language', 'app-locale': 'fa' }).intl).toBe(true);
   });
 
-  it('keeps WebYar’s first paint in the Iranian edition and while the edition is unknown', () => {
-    expect(boot({ [EDITION_CACHE_KEY]: 'iran', [SITE_MODE_CACHE_KEY]: 'multi_language' })).toEqual({ intl: false, icon: '/favicon.png' });
-    expect(boot({ 'platform-region-mode': 'iran', [SITE_MODE_CACHE_KEY]: 'multi_language' }).intl).toBe(false);
+  it('wears WebYar’s kit in the Iranian edition and keeps the old first paint while the edition is unknown', () => {
+    expect(boot({ [EDITION_CACHE_KEY]: 'iran', [SITE_MODE_CACHE_KEY]: 'multi_language' })).toEqual({ intl: false, icon: '/brand/webyar/favicon.svg' });
+    expect(boot({ 'platform-region-mode': 'iran', [SITE_MODE_CACHE_KEY]: 'multi_language' })).toEqual({ intl: false, icon: '/brand/webyar/favicon.svg' });
     expect(boot({})).toEqual({ intl: false, icon: '/favicon.png' });
     expect(boot({ [SITE_MODE_CACHE_KEY]: 'single_language', 'app-locale': 'en' }).intl).toBe(false);
   });

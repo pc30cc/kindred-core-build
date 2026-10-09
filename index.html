@@ -206,6 +206,36 @@
       html.light .wy-launch:has(> .wy-intl) { --wy-bg: #F5F5F8; }
       html.light .wy-intl-footer .wy-intl-light { display: block; }
       html.light .wy-intl-footer .wy-intl-dark { display: none; }
+      /* The Iranian edition (WebYar, platform_settings.region_mode = 'iran';
+         shared/webyarBrand.ts), once it is known: the brand kit's loader —
+         the bubble whose three dots arrive one by one, right to left, and
+         leave together (2.6 s) — on the kit's paper / ink, and the Persian
+         logotype at the foot ("color" on light, "on-dark" on dark). Never
+         in any other region mode, nor before the edition is known. */
+      .wy-kit-loader { display: block; width: 64px; height: 64px; }
+      .wy-kit-loader .wy-kit-body { fill: #16C7A8; }
+      .wy-kit-loader .wy-kit-dot { fill: #FFFFFF; transform-box: fill-box; transform-origin: 50% 50%; animation: 2.6s infinite both; opacity: 0; }
+      .wy-kit-loader .wy-kit-d1 { animation-name: wyKitLd1; }
+      .wy-kit-loader .wy-kit-d2 { animation-name: wyKitLd2; }
+      .wy-kit-loader .wy-kit-d3 { animation-name: wyKitLd3; }
+      @keyframes wyKitLd1 { 0%, 7.69% { opacity: 0; transform: scale(0.4); animation-timing-function: cubic-bezier(0.3, 1.45, 0.5, 1); } 19.87% { opacity: 1; transform: scale(1); } 75% { opacity: 1; transform: scale(1); animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0); } 86.54%, 100% { opacity: 0; transform: scale(0.6); } }
+      @keyframes wyKitLd2 { 0%, 23.08% { opacity: 0; transform: scale(0.4); animation-timing-function: cubic-bezier(0.3, 1.45, 0.5, 1); } 35.26% { opacity: 1; transform: scale(1); } 75% { opacity: 1; transform: scale(1); animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0); } 86.54%, 100% { opacity: 0; transform: scale(0.6); } }
+      @keyframes wyKitLd3 { 0%, 38.46% { opacity: 0; transform: scale(0.4); animation-timing-function: cubic-bezier(0.3, 1.45, 0.5, 1); } 50.64% { opacity: 1; transform: scale(1); } 75% { opacity: 1; transform: scale(1); animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0); } 86.54%, 100% { opacity: 0; transform: scale(0.6); } }
+      @media (prefers-reduced-motion: reduce) { .wy-kit-loader .wy-kit-dot { animation: none; opacity: 1; } }
+      .wy-launch:has(> .wy-kit-loader) { --wy-bg: #F4F6F8; }
+      .wy-kit-footer img { display: block; height: 32px; width: auto; }
+      .wy-kit-footer .wy-kit-dark { display: none; }
+      @media (prefers-color-scheme: dark) {
+        html:not(.light) .wy-launch:has(> .wy-kit-loader) { --wy-bg: #12141F; }
+        html:not(.light) .wy-kit-footer .wy-kit-light { display: none; }
+        html:not(.light) .wy-kit-footer .wy-kit-dark { display: block; }
+      }
+      html.dark .wy-launch:has(> .wy-kit-loader) { --wy-bg: #12141F; }
+      html.dark .wy-kit-footer .wy-kit-light { display: none; }
+      html.dark .wy-kit-footer .wy-kit-dark { display: block; }
+      html.light .wy-launch:has(> .wy-kit-loader) { --wy-bg: #F4F6F8; }
+      html.light .wy-kit-footer .wy-kit-light { display: block; }
+      html.light .wy-kit-footer .wy-kit-dark { display: none; }
     </style>
   </head>
 
@@ -224,12 +254,58 @@
       // in every UI language, Persian included. Then the first paint already
       // wears the RESPOK kit: the launch loader as BrandLoaderScreen draws it,
       // the favicon and the home-screen icon (PlatformBrandingGate keeps them
-      // in step afterwards). The Iranian edition, or an edition not known yet,
-      // keeps the page as it is. Before wy-edition was written, a cached
+      // in step afterwards). The Iranian edition wears WebYar's own kit
+      // (applyWebyarKit below); an edition not known yet keeps the page as it
+      // is. Before wy-edition was written, a cached
       // 'iran' region mode means Iran and a cached multi-language site mode
       // means International (as cachedEdition() reads them).
       // Called again by the head script when a first visit's boot data
       // arrives after this point.
+      // The Iranian edition (shared/webyarBrand.ts WEBYAR_BRAND; keep the
+      // paths in step): the WebYar brand kit's loader, Persian logotype,
+      // favicon, home-screen icon, Safari mask icon, theme colour and share
+      // image. PlatformBrandingGate keeps them in step afterwards (an
+      // operator's own favicon / PWA icon from Super Admin → Branding still
+      // wins there, as before).
+      function applyWebyarKit() {
+        var splash = document.getElementById('boot-splash');
+        if (!splash || splash.querySelector('.wy-kit-loader')) return;
+        splash.setAttribute('aria-label', '\u0648\u0628\u200c\u06cc\u0627\u0631');
+        var loader = splash.querySelector('.wy-loader');
+        if (loader) {
+          loader.outerHTML = '<svg class="wy-kit-loader" viewBox="0 0 100 100" aria-hidden="true">' +
+            '<path class="wy-kit-body" d="M79.71 44.57A30 30 0 0 0 29.93 18.1A30 30 0 0 0 51.05 70.37A18.75 18.75 0 0 0 32.97 88.57A1.05 1.05 0 0 1 32 89.58A52.5 52.5 0 0 0 79.71 44.57Z"/>' +
+            '<path class="wy-kit-dot wy-kit-d1" d="M62.6 35.29L67.7 40.39L62.6 45.49L57.5 40.39Z"/>' +
+            '<path class="wy-kit-dot wy-kit-d2" d="M50 35.29L55.1 40.39L50 45.49L44.9 40.39Z"/>' +
+            '<path class="wy-kit-dot wy-kit-d3" d="M37.4 35.29L42.5 40.39L37.4 45.49L32.3 40.39Z"/></svg>';
+        }
+        var foot = splash.querySelector('.wy-footer');
+        if (foot) {
+          foot.className = 'wy-footer wy-kit-footer';
+          foot.innerHTML = '<img class="wy-kit-light" src="/brand/webyar/webyar-logo-fa-color.svg" alt="" />' +
+            '<img class="wy-kit-dark" src="/brand/webyar/webyar-logo-fa-on-dark.svg" alt="" />';
+        }
+        var icon = document.querySelector('link[rel="icon"]');
+        if (icon) { icon.type = 'image/svg+xml'; icon.href = '/brand/webyar/favicon.svg'; }
+        var touch = document.querySelector('link[rel="apple-touch-icon"]');
+        if (touch) touch.href = '/brand/webyar/apple-touch-icon.png';
+        var theme = document.querySelector('meta[name="theme-color"]');
+        if (theme) theme.setAttribute('content', '#0B7D6C');
+        var head = document.head;
+        if (head && !document.querySelector('link[rel="mask-icon"]')) {
+          var mask = document.createElement('link');
+          mask.rel = 'mask-icon';
+          mask.href = '/brand/webyar/safari-pinned-tab.svg';
+          mask.setAttribute('color', '#0B7D6C');
+          head.appendChild(mask);
+        }
+        if (head && !document.querySelector('meta[property="og:image"]')) {
+          var og = document.createElement('meta');
+          og.setAttribute('property', 'og:image');
+          og.setAttribute('content', '/brand/webyar/og-image-1200x630.png');
+          head.appendChild(og);
+        }
+      }
       window.__wyApplySplash = function () {
         try {
           var ls = window.localStorage;
@@ -238,6 +314,7 @@
             if (ls.getItem('platform-region-mode') === 'iran') edition = 'iran';
             else if (ls.getItem('wy-site-mode') === 'multi_language') edition = 'international';
           }
+          if (edition === 'iran') { applyWebyarKit(); return; }
           if (edition !== 'international') return;
           var splash = document.getElementById('boot-splash');
           if (!splash || splash.querySelector('.wy-loader.wy-intl')) return;

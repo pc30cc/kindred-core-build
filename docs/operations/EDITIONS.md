@@ -21,6 +21,8 @@ guessing (`EditionUnavailableError`, HTTP 503).
 
 The Iranian edition is frozen: every change behind an edition check leaves
 its output byte-identical, and guard tests pin it (`src/test/edition/`).
+The one deliberate exception is WebYar's own brand kit (below), asked for by
+the owner and pinned by its own tests.
 Persian in the International edition is only right-to-left Persian text:
 never the Iranian brand, calendar, currency, gateways or time zone.
 
@@ -31,18 +33,53 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 | Money | Toman (stored IRR), Iranian gateways, wallet, AI-credit top-up | USD (TRY on a Turkish-only site), international gateways only | phases 1–3, `shared/edition.ts` |
 | Calendar / time zone | Jalali, Asia/Tehran | Gregorian (Persian digits kept), the viewer's zone or UTC | `src/lib/date.ts`, server formatters |
 | Phone / SMS / Bale | +98, Iranian SMS vendors, Bale | no national default, no SMS verification, no Bale | phase 3 |
-| Brand kit (logos, favicon, PWA icons, launch loader) | WebYar's (`src/assets`, `public/favicon.png`) | RESPOK's (`public/brand/intl`, `INTL_BRAND`) | `shared/internationalMode.ts`, `index.html`, `BrandLogo`, `BrandLoader`, `PlatformBrandingGate` |
+| Brand kit (logos, favicon, PWA icons, launch loader) | WebYar's official kit (`public/brand/webyar`, `WEBYAR_BRAND`; see below) | RESPOK's (`public/brand/intl`, `INTL_BRAND`) | `shared/webyarBrand.ts`, `shared/internationalMode.ts`, `index.html`, `BrandLogo`, `BrandLoader`, `PlatformBrandingGate`, `server/routes/manifest.ts` |
+| Chat widget floating button | WebYar's kit launcher (`default` template, `edition: 'iran'` only) | as before | `public/widget/loader.js`, `shared/webyarLauncher.ts` |
 | Panel colour scheme `respok` | never offered | offered | `shared/panelThemes.ts` |
 | Brand in text | WebYar's fixed words ("Webyar", "وب‌یار", "Web Yar", info@webyar.ai, https://webyar.ai) | the platform's own name, site and support address | `shared/brand.ts`, `src/lib/brand.ts` |
 | First paint (before the bundle) | as before | edition, brand, title and default language from `/api/platform/public/boot.js` on a first visit (loaded asynchronously, never blocking; see below), the cache after | `index.html`, `server/routes/platformPublic.ts` |
 | Default UI language | `runtime-config.js` `defaultLocale` | the platform's `default_locale` (Super Admin → Languages) | `src/i18n/index.tsx` `getSiteDefaultLocale` |
 | Chat widget template | `default` | `intl` (skin over the same renderer) | `shared/widgetTemplates.ts` |
 | Call widget template | `default` | `intl` (own stylesheet, same markup) | `shared/widgetTemplates.ts` |
-| Call widget "powered by" | "Powered by Web Yar" / «قدرت گرفته از وب یار» / "Web Yar tarafından desteklenmektedir", exactly | the localized label with the platform's logo in the brand's place (the RESPOK kit's horizontal mark, 14px, alt = platform name, the name if the image fails), its link, hidden by the platform switch or the plan gate (as the chat widget) | `server/routes/callWidget.ts`, `public/call-widget/runtime.js` |
-| Chat widget credit | English `platform_name` as text (as before) | the label and the platform's logo (`poweredBy.logo`, absolute from the widget asset base; the name if the image fails) | `server/routes/widget.ts` |
+| Call widget "powered by" | the localized label with WebYar's Persian logotype in the brand's place (bootstrap `powered_by_logo`, 16px; the words "Powered by Web Yar" / «قدرت گرفته از وب یار» / "Web Yar tarafından desteklenmektedir" if the image fails, the edition is unknown or the backend is older) | the localized label with the platform's logo in the brand's place (the RESPOK kit's horizontal mark, 14px, alt = platform name, the name if the image fails), its link, hidden by the platform switch or the plan gate (as the chat widget) | `server/routes/callWidget.ts`, `public/call-widget/runtime.js` |
+| Chat widget credit | the label and WebYar's Persian logotype (`poweredBy.logo`, absolute from the widget asset base, 16px; the name if the image fails); an unknown edition keeps the English `platform_name` as text | the label and the platform's logo (`poweredBy.logo`, absolute from the widget asset base; the name if the image fails) | `server/routes/widget.ts` |
 | Widget dates (Persian) | Jalali, Tehran day boundaries | Gregorian, the visitor's zone | `calendar` / `timeZone` hints in the bootstrap |
 | Push notification copy | "Webyar", "New message in Webyar", «پیام جدید در وب‌یار» | the platform's name | `server/services/push/dispatch.ts`, `platformSettings.ts` `defaultPushTemplates` |
 | Legal pages (/privacy, /terms, /contact) | "Webyar", info@webyar.ai | the platform's name and support address | `src/pages/public/legal` |
+
+### WebYar's brand kit (Iranian edition only)
+
+The owner's official kit (v1, Mehr 1405) is worn only when
+`platform_settings.region_mode = 'iran'` — `isWebyarKitEdition()` in
+`shared/webyarBrand.ts`. Every other region mode (multi, global, turkey) and an
+edition that is not known keep exactly what they showed before; guard tests
+prove it (`src/test/edition/webyarBrandKit.test.tsx`,
+`src/test/widget/webyarLauncher.test.ts`, `phase5Brand`, `internationalMode`).
+The Iranian edition is Persian-only, so only the Persian logotype is used.
+
+- Files: `public/brand/webyar/` (favicon.svg, apple-touch-icon, PWA 192/512 and
+  maskable, Safari mask icon, og-image, the Persian logotype for light and dark,
+  the turquoise symbol). The kit's other files (latin logos, PDFs, Lottie,
+  videos, desktop and mobile app icons, social avatars) are not in the repo.
+- Panel: `index.html` dresses the splash (the kit's loader, the logotype at the
+  foot) and the head (favicon, touch icon, mask icon, theme colour #0B7D6C,
+  og:image) once the edition is known to be Iran (cache or `boot.js`);
+  `BrandLogo` shows the symbol, `BrandLockup` / `BrandWordmark` / `BrandFooter`
+  the logotype, `BrandLoader` the kit's loader. An operator's own logo,
+  favicon, PWA icon or colour (Super Admin → Branding) still wins, in the same
+  order as before; the seeded `#3B82F6` counts as "not chosen". Note that
+  og:image is set by script, which link-preview crawlers do not run.
+- Chat widget launcher: the `default` template wears the kit's button when the
+  bootstrap says `edition: 'iran'`: gradient 140deg #22D3B4 → #0B7D6C, the
+  bubble with three dots, hover (lift, dots wave), open (bubble turns away,
+  chevron turns in), unread (saffron badge, Persian digits in Persian, one
+  nudge), offline (ink ground, turquoise bubble), 60px at 100%; motion off
+  with prefers-reduced-motion. A workspace colour other than `#3B82F6` keeps
+  its own solid colour (no gradient, no offline recolouring); its icon colour,
+  a custom icon, image, shape, size, label and position work as before. The
+  panel opens from the same corner as before, so the launcher still slides
+  away while it is open (the chevron is seen during that motion).
+- "Powered by": the Persian logotype in the brand's place in both widgets.
 
 ### Where the International brand comes from
 

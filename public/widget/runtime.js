@@ -9153,7 +9153,19 @@
     // Operator typing renders a small "Support is typing…" indicator above
     // the composer; auto-hides after 3.5s. Visitor self-echo is filtered.
     var typingHideTimer = null;
+    // The loader may draw the same signal on its launcher (WebYar's button:
+    // its dots bob); optional, so an older loader simply ignores it.
+    function launcherTyping(on) {
+      if (shell && typeof shell.setOperatorTyping === 'function') {
+        try { shell.setOperatorTyping(!!on); } catch (_) { /* cosmetic only */ }
+      }
+    }
+    var launcherTypingTimer = null;
     function showOperatorTyping() {
+      // The launcher shows it even while the panel (and its bar) is closed.
+      launcherTyping(true);
+      if (launcherTypingTimer) clearTimeout(launcherTypingTimer);
+      launcherTypingTimer = setTimeout(function () { launcherTyping(false); }, 3500);
       if (!typingRow || !typingLabel) return;
       typingRow.classList.remove('ai-thinking');
       typingLabel.textContent = t('typingOperator') || 'Support is typing…';
@@ -9196,6 +9208,8 @@
       // Also clears a stray operator-typing bar, if one happened to be
       // showing at the same moment — same as the pre-refactor behavior.
       if (typingRow) typingRow.hidden = true;
+      if (launcherTypingTimer) { clearTimeout(launcherTypingTimer); launcherTypingTimer = null; }
+      launcherTyping(false);
       if (chatStore.get().aiThinking) {
         chatStore.set({ aiThinking: false });
         if (shellStore.get().activeTab === 'chat') renderBody();

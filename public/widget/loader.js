@@ -670,11 +670,13 @@
   // region mode). Byte-identical with shared/webyarLauncher.ts (the operator
   // preview's copy; src/test/widget/webyarLauncher.test.ts). Injected as its
   // own <style> only when worn, so other editions' shadow DOM is unchanged.
-  var WEBYAR_KIT_CSS = ".launcher.wy-kit.wy-kit-brand{background:linear-gradient(140deg,#22D3B4,#0B7D6C);box-shadow:0 12px 28px rgba(11,125,108,.36),0 3px 8px rgba(18,20,31,.16);--wy-kit-dot:#18AD94;}.launcher.wy-kit:not(.open):not(.enter):hover{transform:translateY(-3px) scale(1.06);transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease;}.launcher.wy-kit.wy-kit-brand:not(.open):not(.enter):hover{box-shadow:0 18px 36px rgba(11,125,108,.42),0 4px 10px rgba(18,20,31,.16);}.launcher.wy-kit svg.wy-kit-glyph{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:none;overflow:visible;transform-origin:50% 50%;transition:transform .2s cubic-bezier(.4,0,1,1),opacity .16s ease;}.launcher.wy-kit .wy-kit-body{fill:currentColor;transition:fill .25s ease;}.launcher.wy-kit .wy-kit-dot{fill:var(--wy-kit-dot,var(--gs-primary,#0B7D6C));transform-box:fill-box;transform-origin:50% 50%;transition:fill .25s ease;}.launcher.wy-kit .wy-kit-chev{fill:none;stroke:currentColor;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round;}.launcher.wy-kit svg.close-icon.wy-kit-glyph{display:block;opacity:0;transform:rotate(45deg) scale(.6);transition:transform .2s ease,opacity .14s ease;}.launcher.wy-kit.open svg.chat-icon.wy-kit-glyph{display:block;opacity:0;transform:rotate(-35deg) scale(.3);}.launcher.wy-kit.open svg.close-icon.wy-kit-glyph{opacity:1;transform:none;transition:transform .26s cubic-bezier(.2,.9,.3,1.2) .06s,opacity .2s ease .06s;}.launcher.wy-kit.wy-kit-enter .wy-kit-dot{animation:wy-kit-dot-in .32s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.wy-kit.wy-kit-enter .wy-kit-d1{animation-delay:.45s;}.launcher.wy-kit.wy-kit-enter .wy-kit-d2{animation-delay:.65s;}.launcher.wy-kit.wy-kit-enter .wy-kit-d3{animation-delay:.85s;}.launcher.wy-kit:not(.open):hover .wy-kit-dot{animation:wy-kit-wave .62s ease-in-out;}.launcher.wy-kit:not(.open):hover .wy-kit-d2{animation-delay:.08s;}.launcher.wy-kit:not(.open):hover .wy-kit-d3{animation-delay:.16s;}.launcher.wy-kit .badge{top:-6px;right:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;border:0;background:#FFB423;color:#12141F;font:800 13px/24px Vazirmatn,Tahoma,'Segoe UI',sans-serif;box-shadow:0 0 0 3px #fff;animation:wy-kit-badge-in .45s cubic-bezier(.3,1.6,.5,1);}.launcher.wy-kit.open .badge{display:none;}.launcher.wy-kit.wy-kit-nudge:not(.open){animation:wy-kit-nudge .6s ease-in-out;}.launcher.wy-kit.wy-kit-brand.wy-kit-offline{background:#12141F;--wy-kit-dot:#12141F;}.launcher.wy-kit.wy-kit-brand.wy-kit-offline .wy-kit-body{fill:#16C7A8;}@keyframes wy-kit-dot-in{0%{opacity:0;transform:scale(.4);}100%{opacity:1;transform:none;}}@keyframes wy-kit-wave{0%,100%{transform:none;}35%{transform:translateY(-2.5px);}}@keyframes wy-kit-badge-in{0%{transform:scale(0);}60%{transform:scale(1.18);}100%{transform:scale(1);}}@keyframes wy-kit-nudge{0%,100%{transform:none;}20%{transform:rotate(-10deg);}45%{transform:rotate(8deg);}70%{transform:rotate(-4deg);}}@media(prefers-reduced-motion:reduce){.launcher.wy-kit,.launcher.wy-kit *{animation:none!important;}.launcher.wy-kit:not(.open):not(.enter):hover{transform:none;}.launcher.wy-kit svg.wy-kit-glyph,.launcher.wy-kit svg.close-icon.wy-kit-glyph,.launcher.wy-kit.open svg.close-icon.wy-kit-glyph{transition:opacity .15s ease;}.launcher.wy-kit.open svg.chat-icon.wy-kit-glyph,.launcher.wy-kit svg.close-icon.wy-kit-glyph{transform:none;}}";
+  var WEBYAR_KIT_CSS = ".launcher.wy-kit.wy-kit-brand{background:linear-gradient(140deg,#22D3B4,#0B7D6C);box-shadow:0 12px 28px rgba(11,125,108,.36),0 3px 8px rgba(18,20,31,.16);--wy-kit-dot:#18AD94;--wy-kit-ring:#16C7A8;}.launcher.wy-kit:not(.open):not(.enter):hover{transform:translateY(-3px) scale(1.06);transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease;}.launcher.wy-kit.wy-kit-brand:not(.open):not(.enter):hover{box-shadow:0 18px 36px rgba(11,125,108,.42),0 4px 10px rgba(18,20,31,.16);}.launcher.wy-kit svg.wy-kit-glyph{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:none;overflow:visible;transform-origin:50% 50%;transition:transform .2s cubic-bezier(.4,0,1,1),opacity .16s ease;}.launcher.wy-kit .wy-kit-body{fill:currentColor;transition:fill .25s ease;}.launcher.wy-kit .wy-kit-dot{fill:var(--wy-kit-dot,var(--gs-primary,#0B7D6C));transform-box:fill-box;transform-origin:50% 50%;transition:fill .25s ease;}.launcher.wy-kit .wy-kit-chev{fill:none;stroke:currentColor;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round;}.launcher.wy-kit svg.close-icon.wy-kit-glyph{display:block;opacity:0;transform:rotate(45deg) scale(.6);transition:transform .2s ease,opacity .14s ease;}.launcher.wy-kit.open svg.chat-icon.wy-kit-glyph{display:block;opacity:0;transform:rotate(-35deg) scale(.3);}.launcher.wy-kit.open svg.close-icon.wy-kit-glyph{opacity:1;transform:none;transition:transform .26s cubic-bezier(.2,.9,.3,1.2) .06s,opacity .2s ease .06s;}.launcher.wy-kit.wy-kit-enter{animation:wy-kit-fab-in .62s cubic-bezier(.2,1.25,.4,1) backwards;}.launcher.wy-kit.wy-kit-enter .wy-kit-body{transform-box:fill-box;transform-origin:50% 50%;animation:wy-kit-body-in .5s cubic-bezier(.2,1.2,.4,1) .12s backwards;}.launcher.wy-kit.wy-kit-enter .wy-kit-dot{animation:wy-kit-dot-in .32s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.wy-kit.wy-kit-enter .wy-kit-d1{animation-delay:.45s;}.launcher.wy-kit.wy-kit-enter .wy-kit-d2{animation-delay:.65s;}.launcher.wy-kit.wy-kit-enter .wy-kit-d3{animation-delay:.85s;}.launcher.wy-kit:not(.open):hover .wy-kit-dot{animation:wy-kit-wave .62s ease-in-out;}.launcher.wy-kit:not(.open):hover .wy-kit-d2{animation-delay:.08s;}.launcher.wy-kit:not(.open):hover .wy-kit-d3{animation-delay:.16s;}.launcher.wy-kit.wy-kit-closing:not(.open) .wy-kit-dot{animation:wy-kit-dot-in .26s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.wy-kit.wy-kit-closing:not(.open) .wy-kit-d1{animation-delay:.12s;}.launcher.wy-kit.wy-kit-closing:not(.open) .wy-kit-d2{animation-delay:.2s;}.launcher.wy-kit.wy-kit-closing:not(.open) .wy-kit-d3{animation-delay:.28s;}.launcher.wy-kit.wy-kit-typing:not(.open) .wy-kit-dot,.launcher.wy-kit.wy-kit-typing:not(.open):hover .wy-kit-dot{animation:wy-kit-type 1.3s ease-in-out infinite;}.launcher.wy-kit.wy-kit-typing:not(.open) .wy-kit-d2,.launcher.wy-kit.wy-kit-typing:not(.open):hover .wy-kit-d2{animation-delay:.16s;}.launcher.wy-kit.wy-kit-typing:not(.open) .wy-kit-d3,.launcher.wy-kit.wy-kit-typing:not(.open):hover .wy-kit-d3{animation-delay:.32s;}.launcher.wy-kit .wy-kit-ping{position:absolute;inset:0;border-radius:inherit;border:2px solid var(--wy-kit-ring,var(--gs-primary,#16C7A8));opacity:0;pointer-events:none;}.launcher.wy-kit.wy-kit-pinging:not(.open) .wy-kit-ping{animation:wy-kit-ping 1.8s cubic-bezier(.2,.6,.3,1) 2;}.launcher.wy-kit .badge{top:-6px;right:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;border:0;background:#FFB423;color:#12141F;font:800 13px/24px Vazirmatn,Tahoma,'Segoe UI',sans-serif;box-shadow:0 0 0 3px #fff;animation:wy-kit-badge-in .45s cubic-bezier(.3,1.6,.5,1);}.launcher.wy-kit.open .badge{display:none;}.launcher.wy-kit.wy-kit-nudge:not(.open){animation:wy-kit-nudge .6s ease-in-out;}.launcher.wy-kit.wy-kit-brand.wy-kit-offline{background:#12141F;--wy-kit-dot:#12141F;}.launcher.wy-kit.wy-kit-brand.wy-kit-offline .wy-kit-body{fill:#16C7A8;}@keyframes wy-kit-fab-in{0%{opacity:0;transform:translateY(18px) scale(.6);}100%{opacity:1;transform:none;}}@keyframes wy-kit-body-in{0%{opacity:0;transform:scale(.7);}100%{opacity:1;transform:none;}}@keyframes wy-kit-type{0%,60%,100%{transform:none;opacity:.55;}25%{transform:translateY(-2.5px);opacity:1;}}@keyframes wy-kit-ping{0%{opacity:.6;transform:scale(1);}100%{opacity:0;transform:scale(1.75);}}@keyframes wy-kit-dot-in{0%{opacity:0;transform:scale(.4);}100%{opacity:1;transform:none;}}@keyframes wy-kit-wave{0%,100%{transform:none;}35%{transform:translateY(-2.5px);}}@keyframes wy-kit-badge-in{0%{transform:scale(0);}60%{transform:scale(1.18);}100%{transform:scale(1);}}@keyframes wy-kit-nudge{0%,100%{transform:none;}20%{transform:rotate(-10deg);}45%{transform:rotate(8deg);}70%{transform:rotate(-4deg);}}@media(prefers-reduced-motion:reduce){.launcher.wy-kit,.launcher.wy-kit *{animation:none!important;}.launcher.wy-kit:not(.open):not(.enter):hover{transform:none;}.launcher.wy-kit svg.wy-kit-glyph,.launcher.wy-kit svg.close-icon.wy-kit-glyph,.launcher.wy-kit.open svg.close-icon.wy-kit-glyph{transition:opacity .15s ease;}.launcher.wy-kit.open svg.chat-icon.wy-kit-glyph,.launcher.wy-kit svg.close-icon.wy-kit-glyph{transform:none;}}";
   var WEBYAR_KIT_CHAT_GLYPH = "<svg class=\"chat-icon wy-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"wy-kit-body\" d=\"M42.28 27.95A12.4 12.4 0 0 0 21.7 17.01A12.4 12.4 0 0 0 30.43 38.62A7.75 7.75 0 0 0 22.95 46.14A0.43 0.43 0 0 1 22.56 46.56A21.7 21.7 0 0 0 42.28 27.95Z\"/><path class=\"wy-kit-dot wy-kit-d1\" d=\"M35.21 24.12L37.32 26.23L35.21 28.34L33.1 26.23Z\"/><path class=\"wy-kit-dot wy-kit-d2\" d=\"M30 24.12L32.11 26.23L30 28.34L27.89 26.23Z\"/><path class=\"wy-kit-dot wy-kit-d3\" d=\"M24.79 24.12L26.9 26.23L24.79 28.34L22.69 26.23Z\"/></svg>";
   var WEBYAR_KIT_CLOSE_GLYPH = "<svg class=\"close-icon wy-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"wy-kit-chev\" d=\"M22 27l8 8 8-8\"/></svg>";
+  var WEBYAR_KIT_PING = "<span class=\"wy-kit-ping\" aria-hidden=\"true\"></span>";
   // The platform colour every deployment was seeded with: never a choice, so
-  // the kit's gradient is shown in its place (shared/webyarBrand.ts).
+  // the kit's gradient is shown in its place (shared/webyarBrand.ts). RESPOK's
+  // button (below) follows the same rule with its Ink ground.
   var WEBYAR_KIT_UNCUSTOMISED_COLOR = "#3b82f6";
   function webyarKitOn(config) {
     if (!config || config.edition !== "iran") return false;
@@ -689,11 +691,49 @@
   function persianDigits(text) {
     return String(text).replace(/[0-9]/g, function (d) { return PERSIAN_DIGITS.charAt(+d); });
   }
+  // WebYar's button: the attention ring spreads twice (3.6s), once, 6s after
+  // the entrance, only while the chat is closed (the kit's ping()).
+  var WEBYAR_KIT_PING_AFTER = 6000;
+  function webyarKitPing() {
+    if (!launcherEl || isOpen || !launcherEl.classList.contains("wy-kit")) return;
+    var pinged = launcherEl;
+    pinged.classList.add("wy-kit-pinging");
+    setTimeout(function () { pinged.classList.remove("wy-kit-pinging"); }, 3800);
+  }
+  // WebYar's button: the three dots bob while the operator is typing (the
+  // runtime's "Support is typing…" signal, shell.setOperatorTyping).
+  function setOperatorTyping(on) {
+    if (!launcherEl) return;
+    if (launcherEl.classList.contains("wy-kit")) launcherEl.classList.toggle("wy-kit-typing", !!on);
+  }
   function ensureWebyarKitStyle() {
     if (!shadowRoot || shadowRoot.querySelector("style[data-wy-kit]")) return;
     var kitStyle = document.createElement("style");
     kitStyle.setAttribute("data-wy-kit", "");
     kitStyle.textContent = WEBYAR_KIT_CSS;
+    shadowRoot.appendChild(kitStyle);
+  }
+
+  // ─── RESPOK's floating button (the brand kit's Thread chat button,
+  // International edition only) ───
+  // Worn by the `intl` template when the bootstrap says the platform is the
+  // International edition (config.edition === "international" and
+  // config.templateId === "intl" exactly; an unknown edition, an older
+  // backend and the Iranian edition never wear it). Byte-identical with
+  // shared/respokLauncher.ts (the operator preview's copy;
+  // src/test/widget/respokLauncher.test.ts). Injected as its own <style> only
+  // when worn, so the other edition's shadow DOM is unchanged.
+  var RESPOK_KIT_CSS = ".launcher.rpk-kit.rpk-kit-brand{background:#16142B;box-shadow:0 10px 28px rgba(22,20,43,.28);--rpk-kit-accent:#FF5A3C;--rpk-kit-away:#A9A7BC;}.launcher.rpk-kit:not(.open):not(.enter):hover{transform:scale(1.06);transition:transform .16s ease,box-shadow .16s ease;}.launcher.rpk-kit.rpk-kit-brand:not(.open):not(.enter):hover{box-shadow:0 16px 36px rgba(22,20,43,.36);}.launcher.rpk-kit:not(.open):not(.enter):active{transform:scale(.94);transition-duration:.09s;}.launcher.rpk-kit.rpk-kit-brand:not(.open):not(.enter):active{box-shadow:0 5px 14px rgba(22,20,43,.24);}.launcher.rpk-kit:focus-visible{outline:none;box-shadow:0 0 0 3px #fff,0 0 0 6px #FF5A3C,0 10px 28px rgba(22,20,43,.28);}.launcher.rpk-kit svg.rpk-kit-glyph{position:absolute;inset:0;margin:auto;width:50%;height:44.23%;fill:none;stroke:none;overflow:visible;transition:transform .2s ease,opacity .2s ease;}.launcher.rpk-kit .rpk-kit-q{fill:currentColor;}.launcher.rpk-kit .rpk-kit-a{fill:var(--rpk-kit-accent,currentColor);}.launcher.rpk-kit.rpk-kit-away .rpk-kit-a{fill:none;stroke:var(--rpk-kit-away,currentColor);stroke-width:7;}.launcher.rpk-kit svg.close-icon.rpk-kit-glyph{display:block;width:43%;height:43%;opacity:0;transform:rotate(-90deg);}.launcher.rpk-kit .rpk-kit-chev{fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;}.launcher.rpk-kit.open svg.chat-icon.rpk-kit-glyph{display:block;opacity:0;transform:rotate(90deg) scale(.6);}.launcher.rpk-kit.open svg.close-icon.rpk-kit-glyph{opacity:1;transform:none;}.launcher.rpk-kit.rpk-kit-arrive .rpk-kit-a{animation:rpk-kit-answer .36s cubic-bezier(.3,1.4,.5,1);}.launcher.rpk-kit .badge{top:-3px;right:-3px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;border:2px solid #fff;background:#D3361A;color:#fff;font-size:12px;font-weight:700;line-height:18px;box-shadow:none;animation:rpk-kit-badge-in .34s cubic-bezier(.3,1.5,.5,1);}.launcher.rpk-kit .badge.rpk-kit-bump{animation:rpk-kit-bump .32s ease;}.launcher.rpk-kit .badge.rpk-kit-still{animation:none;}.launcher.rpk-kit.open .badge{display:none;}@keyframes rpk-kit-answer{0%{transform:translateX(34px);opacity:0;}70%{transform:translateX(-6px);opacity:1;}100%{transform:none;}}@keyframes rpk-kit-badge-in{0%{transform:scale(0);}100%{transform:scale(1);}}@keyframes rpk-kit-bump{0%,100%{transform:scale(1);}50%{transform:scale(1.15);}}@media(prefers-reduced-motion:reduce){.launcher.rpk-kit,.launcher.rpk-kit *{animation:none!important;}.launcher.rpk-kit:not(.open):not(.enter):hover,.launcher.rpk-kit:not(.open):not(.enter):active{transform:none;}.launcher.rpk-kit svg.rpk-kit-glyph,.launcher.rpk-kit svg.close-icon.rpk-kit-glyph,.launcher.rpk-kit.open svg.close-icon.rpk-kit-glyph{transition:opacity .12s ease;}.launcher.rpk-kit.open svg.chat-icon.rpk-kit-glyph,.launcher.rpk-kit svg.close-icon.rpk-kit-glyph{transform:none;}}";
+  var RESPOK_KIT_CHAT_GLYPH = "<svg class=\"chat-icon rpk-kit-glyph\" viewBox=\"0 0 104 92\" aria-hidden=\"true\" focusable=\"false\"><path class=\"rpk-kit-q\" d=\"M21 0H41A21 21 0 0 1 62 21V21A21 21 0 0 1 41 42H4A4 4 0 0 1 0 38V21A21 21 0 0 1 21 0Z\"/><path class=\"rpk-kit-a\" d=\"M43 50H83A21 21 0 0 1 104 71V88A4 4 0 0 1 100 92H43A21 21 0 0 1 22 71V71A21 21 0 0 1 43 50Z\"/></svg>";
+  var RESPOK_KIT_CLOSE_GLYPH = "<svg class=\"close-icon rpk-kit-glyph\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path class=\"rpk-kit-chev\" d=\"M6 9l6 6 6-6\"/></svg>";
+  function respokKitOn(config) {
+    return !!config && config.edition === "international" && config.templateId === "intl";
+  }
+  function ensureRespokKitStyle() {
+    if (!shadowRoot || shadowRoot.querySelector("style[data-rpk-kit]")) return;
+    var kitStyle = document.createElement("style");
+    kitStyle.setAttribute("data-rpk-kit", "");
+    kitStyle.textContent = RESPOK_KIT_CSS;
     shadowRoot.appendChild(kitStyle);
   }
 
@@ -958,8 +998,9 @@
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
     var kit = webyarKitOn(config);
-    // The kit's button is 60px at 100% (the scale still applies).
-    var size = Math.round((kit ? 60 : 56) * scale);
+    var rpkKit = !kit && respokKitOn(config);
+    // The kits' buttons are 60px at 100% (the scale still applies).
+    var size = Math.round((kit || rpkKit ? 60 : 56) * scale);
     // ONE source of truth for the launcher box: the CSS variable. The button,
     // its icons (chat AND close) and the panel anchor all derive from it, so
     // the closed and open states can never drift apart in size.
@@ -992,7 +1033,21 @@
         (String(fab.icon || "chat") === "chat" || !FAB_ICONS[fab.icon]
           ? WEBYAR_KIT_CHAT_GLYPH
           : '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>') +
-        WEBYAR_KIT_CLOSE_GLYPH + imgHtml;
+        WEBYAR_KIT_CLOSE_GLYPH + WEBYAR_KIT_PING + imgHtml;
+    } else if (rpkKit) {
+      // RESPOK's button: the kit's Thread pills (or the workspace's own icon
+      // when it picked one other than `chat`) and the kit's chevron for
+      // "open". The seeded colour wears Ink + Signal; any other colour keeps
+      // its own ground and draws the pills in its icon colour.
+      ensureRespokKitStyle();
+      launcherEl.classList.add("rpk-kit");
+      launcherEl.classList.toggle("rpk-kit-brand", webyarKitBrandColor(config));
+      launcherEl.classList.toggle("rpk-kit-away", !!(config.availability && config.availability.state === "offline"));
+      launcherEl.innerHTML =
+        (String(fab.icon || "chat") === "chat" || !FAB_ICONS[fab.icon]
+          ? RESPOK_KIT_CHAT_GLYPH
+          : '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>') +
+        RESPOK_KIT_CLOSE_GLYPH + imgHtml;
     } else {
       launcherEl.innerHTML =
         '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>' +
@@ -1071,15 +1126,20 @@
         // Entry: force a genuine below-viewport → resting-position movement.
         // No opacity animation is involved.
         var labelEl = shellDiv && shellDiv.querySelector(".gs-fab-label");
-        playFabEntry(launcherEl);
-        playFabEntry(labelEl);
-        // WebYar's button: then its three dots arrive one by one (CSS; none
-        // with reduced motion).
         if (launcherEl.classList.contains("wy-kit")) {
+          // WebYar's button arrives the kit's way instead (CSS: it springs in,
+          // the bubble grows, then the three dots appear one by one; nothing
+          // moves with reduced motion), and pings once 6s later if the chat
+          // has not been opened.
           var kitLauncher = launcherEl;
+          kitLauncher.classList.remove("enter");
           kitLauncher.classList.add("wy-kit-enter");
           setTimeout(function () { kitLauncher.classList.remove("wy-kit-enter"); }, 1400);
+          setTimeout(function () { webyarKitPing(); }, WEBYAR_KIT_PING_AFTER);
+        } else {
+          playFabEntry(launcherEl);
         }
+        playFabEntry(labelEl);
       }
       // The real locale is only known now that /config has resolved — the
       // label built at mount time used the page's `lang` as a guess.
@@ -1358,6 +1418,16 @@
     }
     if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
     if (fabLabelEl) fabLabelEl.classList.toggle("open", !!isOpen);
+    // WebYar's button: opening ends its entrance and ping; closing brings its
+    // three dots back one by one (the kit's is-closing).
+    if (launcherEl && launcherEl.classList.contains("wy-kit")) {
+      if (isOpen) launcherEl.classList.remove("wy-kit-enter", "wy-kit-pinging", "wy-kit-closing");
+      else if (was) {
+        var closing = launcherEl;
+        closing.classList.add("wy-kit-closing");
+        setTimeout(function () { closing.classList.remove("wy-kit-closing"); }, 700);
+      }
+    }
     syncLauncherLabel();
     applyMobileFullScreen(!!isOpen);
     if (isOpen !== was) emitPublicEvent(isOpen ? "open" : "close");
@@ -1626,6 +1696,7 @@
             shellEl: shellEl,
             launcher: launcherEl,
             setUnread: setUnreadBadge,
+            setOperatorTyping: setOperatorTyping,
           });
           window.__gs_runtime._instance = instance;
           widgetApi = {
@@ -1907,6 +1978,19 @@
         void nudged.offsetWidth;
         nudged.classList.add("wy-kit-nudge");
         setTimeout(function () { nudged.classList.remove("wy-kit-nudge"); }, 700);
+      }
+      // RESPOK's button: the badge springs in the first time, bumps when it
+      // was already showing and a message arrived, and keeps still when the
+      // count only went down; a new message slides the answer pill in.
+      if (launcherEl.classList.contains("rpk-kit")) {
+        if (lastUnreadCount > 0) badge.classList.add(count > lastUnreadCount ? "rpk-kit-bump" : "rpk-kit-still");
+        if (count > lastUnreadCount && !isOpen) {
+          var arriving = launcherEl;
+          arriving.classList.remove("rpk-kit-arrive");
+          void arriving.offsetWidth;
+          arriving.classList.add("rpk-kit-arrive");
+          setTimeout(function () { arriving.classList.remove("rpk-kit-arrive"); }, 420);
+        }
       }
       // The count is carried by the launcher's own accessible name instead.
       badge.setAttribute("aria-hidden", "true");

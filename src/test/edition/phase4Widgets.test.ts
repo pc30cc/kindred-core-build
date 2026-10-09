@@ -161,6 +161,38 @@ describe('chat widget assets on the server', () => {
     // The operator avatar sits beside the last bubble, above the meta line.
     expect(skin).toContain('.msg-row:has(> .msg-col > .msg-footline) > .msg-avatar {');
   });
+
+  // The owner asked for the same message-layout polish in WebYar's `default`
+  // template. It lives at the end of presentation-default.css, and every
+  // selector it sets is one the intl skin sets itself (same specificity,
+  // loaded later), so RESPOK's look cannot move with it.
+  it('default (WebYar) messages get the same polish, without reaching the intl skin', () => {
+    const base = read('public/widget/presentation-default.css');
+    const skin = read('public/widget/presentation-intl.css');
+    const at = base.indexOf('/* ─── Message layout polish (the WebYar look)');
+    expect(at).toBeGreaterThan(-1);
+    const block = base.slice(at);
+    const rule = (selector: string) => {
+      const i = block.indexOf(selector + ' {');
+      expect(i, selector).toBeGreaterThan(-1);
+      return block.slice(i, block.indexOf('}', i));
+    };
+    expect(rule('.msg-quote')).toMatch(/unicode-bidi: plaintext;[\s\S]*text-align: start;/);
+    expect(rule('.msg-actions')).toContain('position: absolute;');
+    expect(rule('.msg-row.visitor .msg-actions')).toContain('right: 100%;');
+    expect(rule('.msg-row.operator .msg-actions')).toContain('left: 100%;');
+    expect(block).toContain('.msg-row:has(> .msg-col > .msg-footline) > .msg-avatar {');
+    // WebYar's own colours (the kit's ink) on the operator bubble.
+    expect(rule('.msg.operator')).toContain('color: #12141f;');
+    // Every selector of the block is overridden by the intl skin.
+    const selectors = (css: string) => new Set(
+      css.replace(/\/\*[\s\S]*?\*\//g, '').split('}')
+        .map((r) => r.split('{')[0]).filter((s) => s.trim() && !/^\s*@/.test(s))
+        .flatMap((s) => s.split(',').map((x) => x.replace(/\s+/g, ' ').trim())),
+    );
+    const own = selectors(skin);
+    for (const sel of selectors(block)) expect(own.has(sel), sel).toBe(true);
+  });
 });
 
 describe('chat widget dates (presentation-default.js)', () => {

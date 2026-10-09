@@ -131,12 +131,35 @@ describe('chat widget assets on the server', () => {
     expect(loader).not.toMatch(/fail\("template-skin"\)/);
   });
 
-  it('the intl skin restyles tokens only and the Iranian stylesheet is untouched', () => {
+  it('the intl skin restyles the shared markup and the Iranian stylesheet is untouched', () => {
     const skin = read('public/widget/presentation-intl.css');
     expect(skin).toContain('--wy-surface: #f5f5f8;');
     expect(skin).toContain('--wy-text: #16142b;');
     expect(skin).not.toMatch(/webyar|web yar|وب/i);
     expect(read('public/widget/presentation-default.css')).not.toContain('presentation-intl');
+    // The skin is pure CSS over the shared renderer: no imports, no rules
+    // that reach outside the widget's shadow root.
+    expect(skin).not.toMatch(/@import|:root\b|\bbody\b|\bhtml\b/);
+  });
+
+  it('intl messages: own-direction text, grouped bubbles, meta flush with the bubble', () => {
+    const skin = read('public/widget/presentation-intl.css');
+    const rule = (selector: string) => {
+      const at = skin.indexOf(selector + ' {');
+      expect(at, selector).toBeGreaterThan(-1);
+      return skin.slice(at, skin.indexOf('}', at));
+    };
+    // Persian in an English widget (and the reverse) reads in its own direction.
+    expect(rule('.msg-quote')).toMatch(/unicode-bidi: plaintext;[\s\S]*text-align: start;/);
+    // Consecutive bubbles of one author tighten the corners on their joining side.
+    expect(skin).toContain('.msg-row.visitor:not(.is-last) + .msg-row.visitor .msg.visitor { border-top-right-radius');
+    expect(skin).toContain('.msg-row.operator:not(.is-last) + .msg-row.operator .msg.operator { border-top-left-radius');
+    // Quote/copy buttons float beside the bubble, so the time aligns to its edge.
+    expect(rule('.msg-actions')).toContain('position: absolute;');
+    expect(rule('.msg-row.visitor .msg-actions')).toContain('right: 100%;');
+    expect(rule('.msg-row.operator .msg-actions')).toContain('left: 100%;');
+    // The operator avatar sits beside the last bubble, above the meta line.
+    expect(skin).toContain('.msg-row:has(> .msg-col > .msg-footline) > .msg-avatar {');
   });
 });
 

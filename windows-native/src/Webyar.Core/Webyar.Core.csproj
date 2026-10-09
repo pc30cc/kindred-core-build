@@ -19,6 +19,8 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Localization\strings.json" LogicalName="Webyar.Core.strings.json" />
+    <!-- The brand's wording for every line that names the product; WebYar's is strings.json itself. -->
+    <EmbeddedResource Include="Localization\strings.respok.json" LogicalName="Webyar.Core.strings.brand.json" Condition="'$(Brand)' == 'Respok'" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Webyar.Core.Tests" />

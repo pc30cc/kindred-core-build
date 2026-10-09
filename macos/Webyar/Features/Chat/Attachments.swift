@@ -187,7 +187,7 @@ final class AttachmentStore {
     /// Opens a file with whatever the Mac opens that kind of file with.
     func open(_ a: AttachmentInfo) async throws {
         let data = try await data(a.id)
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Webyar/" + a.id.replacingOccurrences(of: ":", with: "_"), isDirectory: true)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(AppBrand.folder + "/" + a.id.replacingOccurrences(of: ":", with: "_"), isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         var name = a.fileName.components(separatedBy: CharacterSet(charactersIn: "/:\\")).joined(separator: "_")
         if (name as NSString).pathExtension.isEmpty { name += Mime.ext(a.mimeType) }

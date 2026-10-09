@@ -47,6 +47,23 @@ the menu bar item, open at login, the Dock badge and notifications, the
 defaults of a first launch, a maintenance notice over the window, and the
 help and legal links in the Help menu and Settings.
 
+## Two brands
+
+One source makes two apps: the Xcode target `Webyar` (WebYar, exactly as
+before) and the target `Respok` (RESPOK), both in `project.yml`. They share
+every Swift file; `Respok` adds `BRAND_RESPOK`, which `Core/Config/AppBrand.swift`
+turns into RESPOK's server (`api.respok.app`), Keychain item, log folder and
+User-Agent, and brings its own bundle id (`com.respok.mac`), name, icons and
+accent colour (`Brands/Respok/Assets.xcassets`, from the brand kit's Thread /
+Signal set the respok.app site uses) and wording: every line that names the
+product, from `strings.respok.json` (shared with the Windows app) and
+`Brands/Respok/mac-strings.respok.json`, laid over the shared table
+(`Strings.swift`). `src/test/apps/desktopBrands.test.ts` fails when a new line
+names WebYar without a RESPOK wording, or when the two targets drift apart.
+The two apps install side by side.
+
+Every script takes `BRAND=Respok` (default `Webyar`; `scripts/brand.sh`).
+
 ## How it is built
 
 - `Webyar/Core` — the Windows app's `Webyar.Core`, ported to Swift line for
@@ -98,9 +115,13 @@ expected values.
 
 ## Updates
 
-Installed apps update through Sparkle from `pc30cc/mac-os`, a public
-repository: `appcast.xml` at its root and `releases/<version>/` with the zip
-Sparkle downloads and the DMG people download. The app itself carries no
+Installed apps update through Sparkle from their brand's public feed: WebYar's
+is `pc30cc/mac-os` (`appcast.xml` at its root), RESPOK's is
+`pc30cc/respok-releases` (`mac/appcast.xml`); each has `releases/<version>/`
+with the zip Sparkle downloads and the DMG people download. Each site serves
+its brand's newest DMG (`https://app.webyar.ai/downloads/Webyar-Mac.dmg`,
+`https://app.respok.app/downloads/RESPOK-Mac.dmg`), mirrored from the feed
+(`deploy/app-downloads/`). The app itself carries no
 feed address and never reuses a remembered one: Super Admin → macOS app
 tells it where the appcast is (this repository's, by default) on every
 launch, as it tells it the channel and the DMG link, so the feed can move
@@ -109,9 +130,17 @@ does not look for updates. Every update is signed
 with an EdDSA key; its public half is `SPARKLE_PUBLIC_KEY` in `project.yml`,
 so the apps refuse anything signed with another key.
 
-Two ways to publish, both through `scripts/publish-feed.sh`:
+**Every merge to `main` that changes the app publishes both brands** from CI
+(`.github/workflows/macos.yml`), as `<Major>.<Minor>.<run number>` with build
+number 100 + run number. It needs `SPARKLE_PRIVATE_KEY`, plus
+`MAC_RELEASES_TOKEN` (WebYar) and `RESPOK_RELEASES_TOKEN` (RESPOK); without
+them the apps are built but not published, and the run says so. With the
+Developer ID secrets it signs and notarizes; without them it signs ad hoc, as
+`release-local.sh` does.
 
-- **From a Mac** — `scripts/release-local.sh <version> <build> [stable|beta] ["notes"]`
+Two other ways to publish, both through `scripts/publish-feed.sh`:
+
+- **From a Mac** — `[BRAND=Respok] scripts/release-local.sh <version> <build> [stable|beta] ["notes"]`
   builds, packages, signs with the private key `generate_keys` keeps in that
   Mac's Keychain, and pushes. Signed ad hoc: the first manual install needs
   right-click → Open once; updates after that need nothing. The build number

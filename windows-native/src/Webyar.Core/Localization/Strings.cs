@@ -101,6 +101,18 @@ public sealed partial class Strings
         {
             if (Parse(code) is { } language) table[language] = dict;
         }
+        // A brand other than WebYar lays its own wording over every line that names
+        // the product (strings.<brand>.json, embedded only in that brand's build).
+        using var brand = typeof(Strings).Assembly.GetManifestResourceStream("Webyar.Core.strings.brand.json");
+        if (brand is not null)
+        {
+            var overlay = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(brand) ?? [];
+            foreach (var (code, dict) in overlay)
+            {
+                if (Parse(code) is not { } language || !table.TryGetValue(language, out var lines)) continue;
+                foreach (var (key, value) in dict) lines[key] = value;
+            }
+        }
         return table;
     }
 }

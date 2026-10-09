@@ -53,12 +53,12 @@ public sealed partial class UpdateService : ObservableObject
     private static HttpClient CreateHttp()
     {
         var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("Webyar-Windows");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(Brand.ExeName + "-Windows");
         return http;
     }
 
     /// <summary>Installed by Webyar-Setup (Program Files) rather than by Velopack.</summary>
-    private bool SetupInstalled => _manager is { IsInstalled: false } && File.Exists(Path.Combine(AppContext.BaseDirectory, "Uninstall Webyar.exe"));
+    private bool SetupInstalled => _manager is { IsInstalled: false } && File.Exists(Path.Combine(AppContext.BaseDirectory, $"Uninstall {Brand.ExeName}.exe"));
     private Timer? _timer;
     private int _busy;
     private readonly Action<Action> _ui;
@@ -100,7 +100,7 @@ public sealed partial class UpdateService : ObservableObject
     {
         // https://github.com/<owner>/<repo>, or any page under it such as …/releases/latest/download.
         // The official GitHub feed is read from the site's mirror of it: the apps update from
-        // app.webyar.ai, not GitHub. Beta builds (pre-releases) are not mirrored, so they still come from GitHub.
+        // the brand's own site, not GitHub. Beta builds (pre-releases) are not mirrored, so they still come from GitHub.
         if (UpdateFeeds.TrustedGithubRepo(feed) is { } repo) return prerelease ? new GithubSource(repo, null, true) : new SimpleWebSource(UpdateFeeds.SiteFeed);
         if (UpdateFeeds.IsTrustedWebFeed(feed, ExtraFeeds.Concat(UpdateFeeds.BuiltInWebFeeds))) return new SimpleWebSource(feed);
         return null;
@@ -212,9 +212,9 @@ public sealed partial class UpdateService : ObservableObject
             AvailableVersion = version;
             Status = UpdateStatus.Downloading;
         });
-        var dir = Path.Combine(Path.GetTempPath(), "WebyarUpdate");
+        var dir = Path.Combine(Path.GetTempPath(), Brand.ExeName + "Update");
         Directory.CreateDirectory(dir);
-        var target = Path.Combine(dir, $"Webyar-Setup-{version}.exe");
+        var target = Path.Combine(dir, $"{Brand.SetupName}-{version}.exe");
         var part = target + ".part";
         using (var response = await Http.GetAsync(release.Value.Url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
         {
@@ -259,7 +259,7 @@ public sealed partial class UpdateService : ObservableObject
             if (!rel.TryGetProperty("assets", out var assets)) continue;
             foreach (var asset in assets.EnumerateArray())
             {
-                if (asset.GetProperty("name").GetString() != "Webyar-Setup.exe") continue;
+                if (asset.GetProperty("name").GetString() != Brand.SetupName + ".exe") continue;
                 var url = asset.GetProperty("browser_download_url").GetString() ?? "";
                 if (!url.StartsWith(repo + "/releases/download/", StringComparison.OrdinalIgnoreCase)) continue;
                 return (rel.GetProperty("tag_name").GetString() ?? "", url);

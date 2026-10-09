@@ -47,7 +47,8 @@ enum Language: String, CaseIterable, Sendable, Identifiable {
 /// The app's copy in Persian, English and Turkish — the same sentences the
 /// Windows, iOS and web apps use. The table is the Windows app's own
 /// strings.json (windows-native/src/Webyar.Core/Localization), bundled as is,
-/// with the few Mac-specific lines layered on top (Resources/mac-strings.json).
+/// with the few Mac-specific lines layered on top (Resources/mac-strings.json),
+/// then the brand's own wording (Brands/<Brand>/, RESPOK only; see AppBrand).
 /// `{name}` placeholders are filled in, numbers in the language's own digits.
 struct Strings: Sendable {
     let language: Language
@@ -111,9 +112,17 @@ struct Strings: Sendable {
         let bundle = Bundle.main
         var urls: [URL] = []
         if let base = bundle.url(forResource: "strings", withExtension: "json") { urls.append(base) }
-        urls += (bundle.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
+        let jsons = bundle.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? []
+        urls += jsons
             .filter { $0.deletingPathExtension().lastPathComponent.hasSuffix("-strings") }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        // Last, the brand's wording for every line that names the product
+        // (strings.respok.json, mac-strings.respok.json: bundled only in the Respok target).
+        // The shared table's overlay first, so the Mac's own lines win as they do above.
+        urls += jsons
+            .filter { $0.deletingPathExtension().pathExtension == AppBrand.id }
+            .sorted { ($0.lastPathComponent.hasPrefix("strings.") ? "0" : "1") + $0.lastPathComponent
+                    < ($1.lastPathComponent.hasPrefix("strings.") ? "0" : "1") + $1.lastPathComponent }
         for url in urls {
             guard let data = try? Data(contentsOf: url),
                   let raw = try? JSONSerialization.jsonObject(with: data) as? [String: [String: String]] else { continue }

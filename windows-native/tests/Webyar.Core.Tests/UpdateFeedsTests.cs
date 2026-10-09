@@ -7,29 +7,54 @@ public class UpdateFeedsTests
 {
     private static readonly string[] NoExtras = [];
 
+    // Each build trusts its own brand's repository and site only (Brand.cs).
+    private const string Repo = "https://github.com/" + Brand.ReleasesRepo;
+    private const string RepoName = Brand.ReleasesRepo;
+
+    public static TheoryData<string> OfficialFeeds() => new()
+    {
+        Repo,
+        Repo + "/releases/latest/download",
+        "https://github.com/" + RepoName.ToUpperInvariant() + "/",
+    };
+
     [Theory]
-    [InlineData("https://github.com/pc30cc/webyar-desktop-releases")]
-    [InlineData("https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download")]
-    [InlineData("https://github.com/PC30CC/Webyar-Desktop-Releases/")]
+    [MemberData(nameof(OfficialFeeds))]
     public void The_official_releases_repo_is_trusted(string feed)
     {
-        Assert.Equal("https://github.com/pc30cc/webyar-desktop-releases", UpdateFeeds.TrustedGithubRepo(feed));
+        Assert.Equal(Repo, UpdateFeeds.TrustedGithubRepo(feed));
         Assert.True(UpdateFeeds.IsTrusted(feed, NoExtras));
     }
 
+    public static TheoryData<string> OtherFeeds() => new()
+    {
+        "https://github.com/attacker/" + RepoName.Split('/')[1],
+        Repo + "-evil",
+        "https://github.com.evil.example/" + RepoName,
+        "http://github.com/" + RepoName,
+        "https://user@github.com/" + RepoName,
+        "https://github.com:8443/" + RepoName,
+        "https://updates.self-hosted.example/feed",
+        "not a url",
+    };
+
     [Theory]
-    [InlineData("https://github.com/attacker/webyar-desktop-releases")]
-    [InlineData("https://github.com/pc30cc/webyar-desktop-releases-evil")]
-    [InlineData("https://github.com.evil.example/pc30cc/webyar-desktop-releases")]
-    [InlineData("http://github.com/pc30cc/webyar-desktop-releases")]
-    [InlineData("https://user@github.com/pc30cc/webyar-desktop-releases")]
-    [InlineData("https://github.com:8443/pc30cc/webyar-desktop-releases")]
-    [InlineData("https://updates.self-hosted.example/feed")]
-    [InlineData("not a url")]
+    [MemberData(nameof(OtherFeeds))]
     public void Anything_else_is_not(string feed)
     {
         Assert.Null(UpdateFeeds.TrustedGithubRepo(feed));
         Assert.False(UpdateFeeds.IsTrusted(feed, NoExtras));
+    }
+
+    [Fact]
+    public void The_other_brands_feeds_are_not_trusted()
+    {
+#if BRAND_RESPOK
+        string[] other = ["https://github.com/pc30cc/webyar-desktop-releases", "https://app.webyar.ai/downloads/windows"];
+#else
+        string[] other = ["https://github.com/pc30cc/respok-releases", "https://app.respok.app/downloads/windows"];
+#endif
+        foreach (var feed in other) Assert.False(UpdateFeeds.IsTrusted(feed, NoExtras), feed);
     }
 
     [Fact]
@@ -54,9 +79,9 @@ public class UpdateFeedsTests
     [Fact]
     public void The_site_mirror_is_trusted_without_build_time_extras()
     {
-        Assert.True(UpdateFeeds.IsTrusted("https://app.webyar.ai/downloads/windows", NoExtras));
-        Assert.True(UpdateFeeds.IsTrusted("https://app.webyar.ai/downloads/windows/", NoExtras));
-        Assert.False(UpdateFeeds.IsTrusted("https://app.webyar.ai/downloads/other", NoExtras));
-        Assert.False(UpdateFeeds.IsTrusted("http://app.webyar.ai/downloads/windows", NoExtras));
+        Assert.True(UpdateFeeds.IsTrusted(Brand.SiteFeed, NoExtras));
+        Assert.True(UpdateFeeds.IsTrusted(Brand.SiteFeed + "/", NoExtras));
+        Assert.False(UpdateFeeds.IsTrusted(Brand.SiteFeed.Replace("/windows", "/other"), NoExtras));
+        Assert.False(UpdateFeeds.IsTrusted(Brand.SiteFeed.Replace("https://", "http://"), NoExtras));
     }
 }

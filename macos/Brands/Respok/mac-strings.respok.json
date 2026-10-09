@@ -1,0 +1,32 @@
+{
+ "en": {
+  "closeToTrayOffByPlatform": "The menu bar item is turned off by the platform administrator, so closing the window quits RESPOK.",
+  "maintenanceTitle": "RESPOK is under maintenance",
+  "mediaPermission": "Allow microphone and camera access for RESPOK in System Settings → Privacy & Security.",
+  "menuBarItem": "Show RESPOK in the menu bar",
+  "micBlocked": "macOS is blocking the microphone for RESPOK. Allow it in System Settings → Privacy & Security → Microphone.",
+  "updateBlockedBody": "The platform has stopped this build of RESPOK. Install the update to keep working.",
+  "windowsNotificationsOff": "Notifications are turned off for RESPOK",
+  "windowsNotificationsOffBody": "macOS is hiding RESPOK’s notifications, so new messages and calls cannot reach you. Allow them in System Settings → Notifications → RESPOK."
+ },
+ "fa": {
+  "closeToTrayOffByPlatform": "مدیر پلتفرم آیکون نوار منو را خاموش کرده است؛ برای همین با بستن پنجره، RESPOK بسته می‌شود.",
+  "maintenanceTitle": "RESPOK در حال تعمیر و نگهداری است",
+  "mediaPermission": "در «تنظیمات سیستم ← حریم خصوصی و امنیت»، دسترسی RESPOK به میکروفون و دوربین را روشن کنید.",
+  "menuBarItem": "نمایش RESPOK در نوار منو",
+  "micBlocked": "مک دسترسی RESPOK به میکروفون را بسته است. آن را در «تنظیمات سیستم ← حریم خصوصی و امنیت ← میکروفون» فعال کنید.",
+  "updateBlockedBody": "پلتفرم این نسخه از RESPOK را از رده خارج کرده است. برای ادامهٔ کار، به‌روزرسانی را نصب کنید.",
+  "windowsNotificationsOff": "اعلان‌های RESPOK خاموش است",
+  "windowsNotificationsOffBody": "مک اعلان‌های RESPOK را پنهان می‌کند و پیام‌ها و تماس‌های تازه به شما نمی‌رسد. در «تنظیمات سیستم ← اعلان‌ها ← RESPOK» اجازه دهید."
+ },
+ "tr": {
+  "closeToTrayOffByPlatform": "Platform yöneticisi menü çubuğu öğesini kapattı; bu yüzden pencereyi kapatmak RESPOK’tan çıkar.",
+  "maintenanceTitle": "RESPOK bakımda",
+  "mediaPermission": "Sistem Ayarları → Gizlilik ve Güvenlik bölümünden RESPOK’un mikrofon ve kamera erişimine izin verin.",
+  "menuBarItem": "RESPOK’u menü çubuğunda göster",
+  "micBlocked": "macOS, RESPOK’un mikrofona erişimini engelliyor. Sistem Ayarları → Gizlilik ve Güvenlik → Mikrofon bölümünden izin verin.",
+  "updateBlockedBody": "Platform, RESPOK'un bu sürümünü durdurdu. Çalışmaya devam etmek için güncellemeyi yükleyin.",
+  "windowsNotificationsOff": "RESPOK bildirimleri kapalı",
+  "windowsNotificationsOffBody": "macOS, RESPOK bildirimlerini gizliyor; yeni mesajlar ve aramalar size ulaşamaz. Sistem Ayarları → Bildirimler → RESPOK bölümünden izin verin."
+ }
+}

@@ -1,15 +1,25 @@
 # انتشار نسخه‌ی جدید اپ ویندوز (Releasing the Windows app)
 
-> **English summary.** Merge the change to `main`, then create the tag
-> `native-v<version>` on `main` (GitHub → Releases → *Draft a new release*), or
-> run the workflow on `main` with `release_version`. The number in the tag (or
-> input) is the release's version; `<Version>` in
-> `windows-native/Directory.Build.props` only numbers everyday builds. The **Windows app (native)**
-> workflow tests, builds and publishes the Velopack feed plus
-> `Webyar-Setup.exe` to `pc30cc/webyar-desktop-releases`, using the
-> `DESKTOP_RELEASES_TOKEN` secret. Within 5 minutes the downloads host mirrors
-> it onto `https://app.webyar.ai/downloads/` (installer and update feed;
-> section 5), and installed apps pick it up from there by themselves.
+> **English summary.** One source, two apps: WebYar and RESPOK
+> (`-p:Brand=Webyar|Respok`, `Directory.Build.props`, `src/Webyar.Core/Config/Brand.cs`).
+> **Every merge to `main` that changes `windows-native/` builds, tests and
+> publishes both**, as `<Major>.<Minor>.<run number>` (Major.Minor from
+> `<Version>` in `Directory.Build.props`): WebYar to
+> `pc30cc/webyar-desktop-releases` (secret `DESKTOP_RELEASES_TOKEN`), RESPOK to
+> `pc30cc/respok-releases` (secret `RESPOK_RELEASES_TOKEN`). A tag
+> `native-v<version>`, or the workflow run on `main` with `release_version`,
+> publishes exactly that version for both. Within 5 minutes the downloads host
+> mirrors each onto its own site (`https://app.webyar.ai/downloads/`,
+> `https://app.respok.app/downloads/`: installer and update feed; section 5),
+> and installed apps pick it up from there by themselves.
+
+## ۰. دو برند از یک کد
+
+- اپ ویندوز از یک کد دو برنامه‌ی جدا می‌سازد: **وب‌یار** (پیش‌فرض، دقیقاً مثل قبل) و **RESPOK** (`-p:Brand=Respok`).
+- هر کدام نام، آیکون، فایل اجرایی (`Webyar.exe` / `Respok.exe`)، پوشه‌ی نصب و داده (`WebyarWindows` / `RespokWindows`)، سرور (`api.webyar.ai` / `api.respok.app`) و فید آپدیت خودش را دارد؛ هر دو روی یک کامپیوتر کنار هم نصب می‌شوند.
+- متن‌ها مشترک‌اند؛ هر خطی که نام محصول را دارد، برای RESPOK در `src/Webyar.Core/Localization/strings.respok.json` آمده است (تست‌ها اجازه نمی‌دهند خطی با نام وب‌یار در RESPOK بماند). متن جدیدی که نام محصول را دارد، نسخه‌ی RESPOK اش را هم در همان فایل بگذارید.
+- آیکون‌ها: `src/Webyar.App/Assets/Brand/<Brand>/` (`icon.png`، `app.ico`، `app-calls.ico`)؛ آیکون‌های RESPOK از کیت برند (Thread / Signal)، همان که سایت respok.app دارد.
+- هر اپ فقط به فید برند خودش اعتماد می‌کند. سوپر ادمین هر سایت فید همان برند را نشان می‌دهد؛ اگر در دیتابیس RESPOK هنوز فید وب‌یار باشد، سرور آن را به فید RESPOK تبدیل می‌کند (`shared/nativeAppBrands.ts`).
 
 این راهنما می‌گوید نسخه‌ی جدید اپ ویندوز چطور منتشر می‌شود و اپ‌های نصب‌شده چطور خودشان را آپدیت می‌کنند.
 
@@ -44,7 +54,7 @@
 
 ## ۲. پیش‌نیازها (فقط یک بار)
 
-1. **secret به نام `DESKTOP_RELEASES_TOKEN`** در
+1. **secret به نام `DESKTOP_RELEASES_TOKEN`** (برای وب‌یار؛ برای RESPOK همین کار با `RESPOK_RELEASES_TOKEN` روی مخزن `pc30cc/respok-releases`) در
    `kindred-core-build` → Settings → Secrets and variables → Actions.
    مقدارش یک *fine-grained personal access token* است:
    - Repository access: فقط `pc30cc/webyar-desktop-releases`
@@ -61,25 +71,29 @@
 
 ## ۳. مراحل انتشار هر نسخه
 
-1. **تغییرات را در `main` مرج کنید** (بعد از سبز شدن CI).
-   بهتر است `<Version>` در `windows-native/Directory.Build.props` را هم در همان PR بالا ببرید، ولی اجباری نیست:
-   **شماره‌ی نسخه‌ی ریلیز همان شماره‌ی تگ است.**
-   - شماره باید از همه‌ی نسخه‌هایی که جایی نصب شده‌اند بزرگ‌تر باشد.
-   - برای رفع باگ رقم آخر را بالا ببرید، برای امکانات جدید رقم وسط را.
-2. **تگ بزنید** (بعد از مرج). در
+**راه اصلی: خودکار.** هر مرجی به `main` که چیزی در `windows-native/` را تغییر دهد، هر دو برند را تست، build و منتشر می‌کند. شماره‌ی نسخه `<Major>.<Minor>.<شماره‌ی اجرای workflow>` است (Major و Minor از `<Version>` در `Directory.Build.props`)، پس همیشه بزرگ‌تر از قبلی است. کار دیگری لازم نیست.
+
+- برای امکانات بزرگ، رقم وسط `<Version>` را در همان PR بالا ببرید (مثلاً ۲.۷.۰ → ۲.۸.۰).
+- اگر توکن یک برند تنظیم نشده باشد، آن برند build می‌شود ولی منتشر نمی‌شود و در خلاصه‌ی اجرا هشدار می‌آید؛ برند دیگر منتشر می‌شود.
+
+**راه دستی (اختیاری):**
+
+1. **تگ بزنید** (بعد از مرج). در
    <https://github.com/pc30cc/kindred-core-build/releases/new>:
-   - Choose a tag: `native-v2.4.2` → «Create new tag»
+   - Choose a tag: `native-v2.8.0` → «Create new tag»
    - Target: **`main`**
    - «Publish release»
 
-   **راه دوم، بدون تگ:** Actions → **Windows app (native)** → «Run workflow»، شاخه‌ی `main`، و در فیلد
-   `release_version` شماره را بنویسید (مثلاً `2.4.2`). همان کار تگ را می‌کند. فقط روی `main` اجازه دارد.
-3. **CI خودش بقیه را انجام می‌دهد.** workflow به نام **Windows app (native)**
-   (`.github/workflows/desktop-native.yml`) روی تگ اجرا می‌شود. تست‌های Core، build، ساخت بسته‌ی Velopack و ساخت `Webyar-Setup.exe` را انجام می‌دهد و همه را در `webyar-desktop-releases` منتشر می‌کند. حدود ۴ دقیقه طول می‌کشد.
-4. **بررسی کنید.** در
-   <https://github.com/pc30cc/webyar-desktop-releases/releases>
-   ریلیز «Webyar 2.4.2» باید `Webyar-Setup.exe`، `releases.win.json` و فایل‌های `.nupkg` را داشته باشد.
-5. **کار دیگری لازم نیست:** حداکثر ۵ دقیقه بعد نسخه روی سایت است (بخش ۵).
+   **یا بدون تگ:** Actions → **Windows app (native)** → «Run workflow»، شاخه‌ی `main`، و در فیلد
+   `release_version` شماره را بنویسید. فقط روی `main` اجازه دارد.
+   - شماره باید از همه‌ی نسخه‌های منتشرشده (از جمله نسخه‌های خودکار) بزرگ‌تر باشد.
+2. **CI بقیه را انجام می‌دهد.** workflow به نام **Windows app (native)**
+   (`.github/workflows/desktop-native.yml`) برای هر برند جدا: تست‌های Core، build، بسته‌ی Velopack و نصب‌کننده (`Webyar-Setup.exe` / `RESPOK-Setup.exe`)، و انتشار در مخزن ریلیز همان برند.
+3. **بررسی کنید.** در
+   <https://github.com/pc30cc/webyar-desktop-releases/releases> و
+   <https://github.com/pc30cc/respok-releases/releases>
+   ریلیز جدید باید نصب‌کننده، `releases.win.json` و فایل‌های `.nupkg` را داشته باشد.
+4. **حداکثر ۵ دقیقه بعد نسخه روی هر دو سایت است** (بخش ۵).
 
 ## ۴. اگر مشکلی پیش آمد
 
@@ -93,22 +107,24 @@
 | jobها در چند ثانیه fail شدند و runner نگرفتند | مشکل GitHub است؛ یک بار «Re-run» بزنید. |
 | اپ آپدیت نمی‌شود | ۱) نسخه‌ی منتشرشده از نسخه‌ی نصب‌شده بزرگ‌تر باشد؛ ۲) در سوپر ادمین آپدیت خودکار روشن و فید درست باشد؛ ۳) اپ با `Webyar-Setup.exe` نصب شده باشد، نه کپی دستی یا portable. |
 
-## ۵. انتشار روی سایت (`app.webyar.ai/downloads`)
+## ۵. انتشار روی سایت (`app.webyar.ai/downloads` و `app.respok.app/downloads`)
 
-همه‌چیز از سرور production (`analyticsme.site`) سرو می‌شود و **خودکار** است:
+همه‌چیز از سرور production (`vps-50cc1602`) سرو می‌شود و **خودکار** است:
 
-- `https://app.webyar.ai/downloads/Webyar-Setup.exe` (آخرین نسخه) و `…/Webyar-Setup-<نسخه>.exe`
-- فید آپدیت اپ‌ها: `https://app.webyar.ai/downloads/windows/releases.win.json` و فایل‌های `.nupkg`
+| | وب‌یار | RESPOK |
+|---|---|---|
+| نصب‌کننده (آخرین نسخه) | `https://app.webyar.ai/downloads/Webyar-Setup.exe` | `https://app.respok.app/downloads/RESPOK-Setup.exe` |
+| فید آپدیت اپ‌ها | `https://app.webyar.ai/downloads/windows` | `https://app.respok.app/downloads/windows` |
 
-اسکریپت `/data/webyar-downloads/sync-windows.sh` با تایمر systemd به نام `webyar-windows-sync` هر ۵ دقیقه
-ریلیزهای جدید `webyar-desktop-releases` را روی سایت کپی می‌کند. برای اجرای فوری روی سرور:
+اسکریپت `/data/app-downloads/sync-downloads.sh` با تایمر systemd به نام `app-downloads-sync` هر ۵ دقیقه
+ریلیزهای جدید هر برند را روی سایت همان برند کپی می‌کند (نسخه‌ی مک هم همین‌طور). برای اجرای فوری روی سرور:
 
 ```sh
-systemctl start webyar-windows-sync
-journalctl -u webyar-windows-sync -n 20
+systemctl start app-downloads-sync
+journalctl -u app-downloads-sync -n 20
 ```
 
-جزئیات راه‌اندازی در `deploy/windows-downloads/README.md` است.
+جزئیات راه‌اندازی در `deploy/app-downloads/README.md` است.
 
 ## ۶. نصب اولیه روی یک کامپیوتر
 

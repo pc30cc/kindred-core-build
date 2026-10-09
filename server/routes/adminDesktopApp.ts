@@ -21,7 +21,10 @@ import {
   normalize,
   DESKTOP_APP_DEFAULTS,
   DESKTOP_APP_BOUNDS,
+  desktopDefaultFeedUrl,
+  desktopSettingsForEdition,
 } from '../services/desktopApp/settings.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { invalidateDesktopAppPublicCache } from './desktopAppPublic.js';
 import {
   CAMPAIGN_LOCALES,
@@ -101,8 +104,9 @@ async function readRow(config: ServerConfig) {
 adminDesktopAppRouter.get('/settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    const row = await readRow(serverConfigOf(req));
-    const settings = row ? normalize(row) : { ...DESKTOP_APP_DEFAULTS };
+    const config = serverConfigOf(req);
+    const row = await readRow(config);
+    const settings = desktopSettingsForEdition(row ? normalize(row) : { ...DESKTOP_APP_DEFAULTS }, await getPlatformEditionOrNull(config));
     return res.json({ settings });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
@@ -121,7 +125,8 @@ adminDesktopAppRouter.put('/settings', async (req, res) => {
   const payload: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() };
   // The feed URL is the updater's only lifeline: clearing it restores the
   // default release feed rather than leaving the app nowhere to look.
-  if (payload.update_feed_url === null) payload.update_feed_url = DESKTOP_APP_DEFAULTS.update_feed_url;
+  const edition = await getPlatformEditionOrNull(config);
+  if (payload.update_feed_url === null) payload.update_feed_url = desktopDefaultFeedUrl(edition);
   try {
     const existing = await readRow(config);
     const query = existing
@@ -131,7 +136,7 @@ adminDesktopAppRouter.put('/settings', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     invalidateDesktopAppSettingsCache();
     invalidateDesktopAppPublicCache();
-    const settings = normalize(data as Record<string, unknown>);
+    const settings = desktopSettingsForEdition(normalize(data as Record<string, unknown>), edition);
     return res.json({ success: true, settings });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });

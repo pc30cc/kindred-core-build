@@ -51,7 +51,7 @@ final class MemorySessionStore: SessionStore {
 @MainActor
 final class ApiClient {
     /// The bootstrap the very first request goes to — the same one every native build compiles in.
-    static let defaultOrigin = URL(string: "https://api.webyar.ai")!
+    static let defaultOrigin = AppBrand.apiOrigin
 
     typealias Query = [(String, String?)]
 
@@ -67,7 +67,7 @@ final class ApiClient {
         self.store = store
         self.origin = origin ?? Self.defaultOrigin
         let os = ProcessInfo.processInfo.operatingSystemVersion
-        userAgent = "Mozilla/5.0 (Macintosh; Mac OS X \(os.majorVersion)_\(os.minorVersion)) WebyarMac/\(appVersion)"
+        userAgent = "Mozilla/5.0 (Macintosh; Mac OS X \(os.majorVersion)_\(os.minorVersion)) \(AppBrand.agentToken)/\(appVersion)"
         if let session {
             self.session = session
         } else {

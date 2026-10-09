@@ -3,18 +3,24 @@ name: Windows app (native)
 # Public repository: standard GitHub-hosted runners are used.
 
 # Builds the native Windows app (windows-native/, WinUI 3 + Velopack) on a
-# Windows runner — its UI cannot compile anywhere else. Every push that
-# touches it runs the Core tests and produces an installer as a build
-# artifact. A tag named native-v<version> also publishes that installer and
-# its update feed to the public releases repo the installed apps update from.
+# Windows runner — its UI cannot compile anywhere else — once per brand: WebYar
+# and RESPOK come from the same source (-p:Brand=…, Directory.Build.props).
+# Every push that touches it runs the Core tests and produces both installers
+# as build artifacts.
 #
-#   Either push a tag native-v<version> (e.g. native-v2.0.0) on main, or run
-#   this workflow on main with release_version set (e.g. 2.0.0). The version
-#   named there is the release: it overrides <Version> in
-#   windows-native/Directory.Build.props, which only numbers everyday builds.
+# Publishing (both brands, same version):
+#   - every push to main that touches windows-native/ publishes
+#     <Major>.<Minor>.<run number> (Major.Minor from Directory.Build.props);
+#   - a tag native-v<version>, or this workflow run on main with
+#     release_version, publishes exactly that version.
+# Each brand goes to its own public releases repository, which its installed
+# apps and its site's download mirror read (deploy/app-downloads/):
 #
-# Publishing needs the DESKTOP_RELEASES_TOKEN secret: a fine-grained token
-# with "Contents: Read and write" on pc30cc/webyar-desktop-releases only.
+#   Webyar  pc30cc/webyar-desktop-releases  secret DESKTOP_RELEASES_TOKEN
+#   Respok  pc30cc/respok-releases          secret RESPOK_RELEASES_TOKEN
+#
+# Each secret is a fine-grained token with "Contents: Read and write" on that
+# repository only.
 on:
   push:
     paths:
@@ -28,6 +34,12 @@ on:
         description: 'Only make an existing draft release public, e.g. v2.5.1 (no build)'
         required: false
         default: ''
+      publish_brand:
+        description: 'Brand of that draft (with publish_tag)'
+        required: false
+        default: 'Webyar'
+        type: choice
+        options: [Webyar, Respok]
       release_version:
         description: 'Build main and publish it as this version, e.g. 2.5.5 (no tag needed)'
         required: false
@@ -38,22 +50,86 @@ permissions:
 
 concurrency:
   group: desktop-native-${{ github.ref }}
-  cancel-in-progress: true
+  # A publishing run on main is never cut off halfway; other branches keep only their newest run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  PACK_ID: WebyarWindows
 
 jobs:
-  build:
-    name: Build, test and package
+  # The version and whether this run publishes, decided once for both brands.
+  version:
+    name: Version
     if: inputs.publish_tag == '' || inputs.publish_tag == null
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: windows-native/Directory.Build.props
+          sparse-checkout-cone-mode: false
+      - id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          base=$(grep -oE '<Version>[0-9]+\.[0-9]+\.[0-9]+</Version>' windows-native/Directory.Build.props | head -1 | sed -E 's/<\/?Version>//g')
+          publish=false
+          version="$base"
+          if [ "$REF_TYPE" = tag ]; then
+            version="${REF_NAME#native-v}"; publish=true
+          elif [ -n "$RELEASE_VERSION" ]; then
+            [ "$REF" = refs/heads/main ] || { echo "::error::A release is built from main only, not $REF"; exit 1; }
+            version="${RELEASE_VERSION#[vV]}"; version="${version// /}"; publish=true
+          elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
+            # Every merge that changes the app: both brands, numbered by this workflow's run.
+            version="${base%.*}.$RUN_NUMBER"; publish=true
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Not a release version: $version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Version $version, publish: $publish" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build, test and package (${{ matrix.brand }})
+    needs: version
     runs-on: windows-latest
+    strategy:
+      # One brand failing (e.g. its token is missing) never stops the other from publishing.
+      fail-fast: false
+      matrix:
+        include:
+          - brand: Webyar
+            pack_id: WebyarWindows
+            exe: Webyar
+            title: Webyar
+            setup: Webyar-Setup
+            repo: pc30cc/webyar-desktop-releases
+            token: DESKTOP_RELEASES_TOKEN
+          - brand: Respok
+            pack_id: RespokWindows
+            exe: Respok
+            title: RESPOK
+            setup: RESPOK-Setup
+            repo: pc30cc/respok-releases
+            token: RESPOK_RELEASES_TOKEN
     defaults:
       run:
         shell: pwsh
         working-directory: windows-native
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BRAND: ${{ matrix.brand }}
+      PACK_ID: ${{ matrix.pack_id }}
+      REPO: ${{ matrix.repo }}
+      SETUP: ${{ matrix.setup }}
     steps:
       - uses: actions/checkout@v4
 
@@ -61,35 +137,21 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      # A release takes its number from the tag (or release_version), so a tag
-      # made before <Version> was bumped still publishes what it names.
-      - name: Version
-        id: version
-        env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF: ${{ github.ref }}
-          REF_NAME: ${{ github.ref_name }}
-          RELEASE_VERSION: ${{ inputs.release_version }}
-        run: |
-          $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-          $publish = $false
-          if ($env:REF_TYPE -eq 'tag') {
-            $version = $env:REF_NAME.Substring('native-v'.Length)
-            $publish = $true
-          } elseif ($env:RELEASE_VERSION) {
-            if ($env:REF -ne 'refs/heads/main') { throw "A release is built from main only, not $env:REF" }
-            $version = $env:RELEASE_VERSION.Trim().TrimStart('v', 'V')
-            $publish = $true
-          }
-          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Not a release version: $version" }
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-
       - name: Test Core
-        run: dotnet test tests/Webyar.Core.Tests -c Release
+        run: dotnet test tests/Webyar.Core.Tests -c Release -p:Brand=$env:BRAND
 
       - name: Publish app
-        run: dotnet publish src/Webyar.App/Webyar.App.csproj -c Release -r win-x64 --self-contained -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }} -o publish
+        run: dotnet publish src/Webyar.App/Webyar.App.csproj -c Release -r win-x64 --self-contained -p:Platform=x64 -p:Brand=$env:BRAND -p:Version=$env:VERSION -o publish
+
+      - name: Check the brand
+        run: |
+          # The exe, its icon source and its feed must be this brand's, never the other's.
+          if (-not (Test-Path "publish/${{ matrix.exe }}.exe")) { throw "publish/${{ matrix.exe }}.exe is missing" }
+          foreach ($f in 'icon.png', 'app.ico', 'app-calls.ico') {
+            $built = (Get-FileHash "publish/Assets/$f").Hash
+            $source = (Get-FileHash "src/Webyar.App/Assets/Brand/$env:BRAND/$f").Hash
+            if ($built -ne $source) { throw "Assets/$f is not $env:BRAND's" }
+          }
 
       - name: Package installer
         run: |
@@ -97,39 +159,45 @@ jobs:
           dotnet tool install -g vpk --version $vpkVersion
           # The newest published release, so the pack carries a delta from it: apps then download
           # only what changed. The first release (or a failed download) just ships the full package.
-          vpk download github --repoUrl https://github.com/pc30cc/webyar-desktop-releases --outputDir releases
+          vpk download github --repoUrl "https://github.com/$env:REPO" --outputDir releases
           if ($LASTEXITCODE) { Write-Host "no previous release to make a delta from" }
-          vpk pack --packId $env:PACK_ID --packVersion ${{ steps.version.outputs.version }} --packDir publish --mainExe Webyar.exe --packTitle Webyar --packAuthors Webyar --icon src/Webyar.App/Assets/Webyar.ico --outputDir releases
+          vpk pack --packId $env:PACK_ID --packVersion $env:VERSION --packDir publish --mainExe ${{ matrix.exe }}.exe --packTitle "${{ matrix.title }}" --packAuthors "${{ matrix.title }}" --icon src/Webyar.App/Assets/Brand/$env:BRAND/app.ico --outputDir releases
 
       # The installer people download: our own window around Velopack's per-user
       # setup (src/Webyar.Setup), which also moves an old Program Files copy over.
       - name: Build installer
-        # Program Files installer with its own uninstaller; see build-installer.ps1.
-        run: ./build-installer.ps1 -Version ${{ steps.version.outputs.version }}
+        run: ./build-installer.ps1 -Brand $env:BRAND -Version $env:VERSION
 
       - uses: actions/upload-artifact@v4
         with:
-          name: webyar-windows-${{ steps.version.outputs.version }}
+          name: ${{ matrix.exe }}-windows-${{ needs.version.outputs.version }}
           path: windows-native/releases/
           if-no-files-found: error
 
       - name: Publish release
-        if: steps.version.outputs.publish == 'true'
+        if: needs.version.outputs.publish == 'true'
         env:
-          GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets[matrix.token] }}
         run: |
-          if (-not $env:GH_TOKEN) { throw "DESKTOP_RELEASES_TOKEN is not set" }
+          if (-not $env:GH_TOKEN) {
+            # Built and tested, but nowhere to publish yet: say so loudly, without failing the other brand's run.
+            Write-Output "::warning::${{ matrix.title }} $env:VERSION was built but not published: set ${{ matrix.token }} (Settings → Secrets and variables → Actions; Contents: Read and write on $env:REPO)."
+            "Not published: ${{ matrix.token }} is missing" >> $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
           # The releases repository tags each release v<version>: installed apps read the version from it
           # (apps up to 2.5.0 only understand a tag that is the version, with at most a leading "v").
-          $tag = "v${{ steps.version.outputs.version }}"
-          vpk upload github --repoUrl https://github.com/pc30cc/webyar-desktop-releases --token $env:GH_TOKEN --publish --releaseName "Webyar ${{ steps.version.outputs.version }}" --tag $tag --outputDir releases
-          gh release upload $tag releases/Webyar-Setup.exe --repo pc30cc/webyar-desktop-releases --clobber
+          $tag = "v$env:VERSION"
+          vpk upload github --repoUrl "https://github.com/$env:REPO" --token $env:GH_TOKEN --publish --releaseName "${{ matrix.title }} $env:VERSION" --tag $tag --outputDir releases
+          if ($LASTEXITCODE) { throw "vpk upload failed" }
+          gh release upload $tag "releases/$env:SETUP.exe" --repo $env:REPO --clobber
           # Installed apps never see a draft. GitHub keeps one as a draft when it
           # cannot create the tag, which is what happens in a repository with no commits.
-          $draft = gh release view $tag --repo pc30cc/webyar-desktop-releases --json isDraft --jq .isDraft
-          if ($draft -eq 'true') { gh release edit $tag --repo pc30cc/webyar-desktop-releases --draft=false }
-          $draft = gh release view $tag --repo pc30cc/webyar-desktop-releases --json isDraft --jq .isDraft
-          if ($draft -ne 'false') { throw "The release is still a draft. webyar-desktop-releases needs at least one commit (e.g. a README) before a tag can be created; add one, then publish the draft on GitHub." }
+          $draft = gh release view $tag --repo $env:REPO --json isDraft --jq .isDraft
+          if ($draft -eq 'true') { gh release edit $tag --repo $env:REPO --draft=false }
+          $draft = gh release view $tag --repo $env:REPO --json isDraft --jq .isDraft
+          if ($draft -ne 'false') { throw "The release is still a draft. $env:REPO needs at least one commit (e.g. a README) before a tag can be created; add one, then publish the draft on GitHub." }
+          "Published ${{ matrix.title }} $env:VERSION to https://github.com/$env:REPO/releases/tag/$tag" >> $env:GITHUB_STEP_SUMMARY
 
   # A release GitHub left as a draft (it could not create the tag) is invisible
   # to installed apps. This publishes one that is already uploaded, without a rebuild.
@@ -138,16 +206,17 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.publish_tag != ''
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_TOKEN }}
+      GH_TOKEN: ${{ inputs.publish_brand == 'Respok' && secrets.RESPOK_RELEASES_TOKEN || secrets.DESKTOP_RELEASES_TOKEN }}
       TAG: ${{ inputs.publish_tag }}
-      REPO: pc30cc/webyar-desktop-releases
+      REPO: ${{ inputs.publish_brand == 'Respok' && 'pc30cc/respok-releases' || 'pc30cc/webyar-desktop-releases' }}
+      SETUP: ${{ inputs.publish_brand == 'Respok' && 'RESPOK-Setup.exe' || 'Webyar-Setup.exe' }}
     steps:
       - name: Publish
         run: |
-          [ -n "$GH_TOKEN" ] || { echo "DESKTOP_RELEASES_TOKEN is not set"; exit 1; }
+          [ -n "$GH_TOKEN" ] || { echo "The release token for $REPO is not set"; exit 1; }
           [[ "$TAG" =~ ^(native-)?v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a release tag: $TAG"; exit 1; }
-          gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' | grep -qx 'Webyar-Setup.exe' \
-            || { echo "$TAG has no Webyar-Setup.exe"; exit 1; }
+          gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' | grep -qx "$SETUP" \
+            || { echo "$TAG has no $SETUP"; exit 1; }
           gh release edit "$TAG" --repo "$REPO" --target main --draft=false
           [ "$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft)" = false ] \
             || { echo "$TAG is still a draft"; exit 1; }

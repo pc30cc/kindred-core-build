@@ -6,7 +6,7 @@ namespace Webyar.App.Services;
 public static class StartupRegistration
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string Name = "Webyar";
+    private const string Name = Webyar.Core.Config.Brand.ExeName;
 
     public static void Apply(bool enabled)
     {
@@ -28,7 +28,7 @@ public static class StartupRegistration
     /// </summary>
     private static string LauncherPath()
     {
-        var exe = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Webyar.exe");
+        var exe = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, Webyar.Core.Config.Brand.ExeName + ".exe");
         var dir = Path.GetDirectoryName(exe);
         if (dir is not null && string.Equals(Path.GetFileName(dir), "current", StringComparison.OrdinalIgnoreCase))
         {

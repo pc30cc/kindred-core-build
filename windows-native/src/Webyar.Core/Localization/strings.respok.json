@@ -1,0 +1,52 @@
+{
+ "en": {
+  "appName": "RESPOK",
+  "brandWordmark": "RESPOK",
+  "clearCacheAllConfirm": "Delete everything RESPOK has saved on this PC? You stay signed in and nothing is removed from your conversations.",
+  "mediaPermission": "Allow microphone and camera access for RESPOK in Windows Settings → Privacy.",
+  "pushDeniedTitle": "Notifications are off for RESPOK",
+  "pushPresenceFooter": "RESPOK knows you are at your desk while the web console is open. Turn the first off to keep the phone quiet while you are already answering there.",
+  "pushPrimerBody": "RESPOK can tell you about new messages, mentions and internal notes — even when the app is closed. You choose exactly which, and you can change it any time in Settings.",
+  "quitApp": "Quit RESPOK",
+  "serverAddressHint": "Only for a self-hosted RESPOK. Leave empty for the default.",
+  "signOutConfirm": "Sign out of RESPOK?",
+  "supportChatHint": "Questions about RESPOK go straight to our team.",
+  "trayOpen": "Open RESPOK",
+  "updateReadyBody": "RESPOK {version} has been downloaded.",
+  "updateRequiredBody": "This version of RESPOK is no longer supported. Install the update to keep working.",
+  "windowsNotificationsOffBody": "Windows is hiding notifications from every app, so RESPOK cannot show any. Turn on “Get notifications from apps and other senders”."
+ },
+ "fa": {
+  "appName": "RESPOK",
+  "brandWordmark": "RESPOK",
+  "clearCacheAllConfirm": "همه‌ی داده‌هایی که RESPOK روی این کامپیوتر ذخیره کرده پاک شود؟ از حساب خارج نمی‌شوید و چیزی از گفتگوهایتان حذف نمی‌شود.",
+  "mediaPermission": "در تنظیمات ویندوز ← حریم خصوصی، دسترسی RESPOK به میکروفون و دوربین را روشن کنید.",
+  "pushDeniedTitle": "اعلان‌های RESPOK خاموش است",
+  "pushPresenceFooter": "RESPOK وقتی کنسول وب باز است می‌داند پشت میزتان هستید. اولی را خاموش کنید تا وقتی همان‌جا پاسخ می‌دهید، گوشی ساکت بماند.",
+  "pushPrimerBody": "RESPOK می‌تواند پیام‌های تازه، نام‌بردن‌ها و یادداشت‌های داخلی را به شما خبر دهد — حتی وقتی برنامه بسته است. خودتان انتخاب می‌کنید کدام‌ها، و هر وقت خواستید از تنظیمات عوضش می‌کنید.",
+  "quitApp": "خروج از RESPOK",
+  "serverAddressHint": "فقط برای نسخهٔ خودمیزبان RESPOK. برای سرور پیش‌فرض خالی بگذارید.",
+  "signOutConfirm": "از RESPOK خارج می‌شوید؟",
+  "supportChatHint": "پرسش‌های شما دربارهٔ RESPOK مستقیم به تیم ما می‌رسد.",
+  "trayOpen": "باز کردن RESPOK",
+  "updateReadyBody": "نسخه {version} RESPOK دانلود شد.",
+  "updateRequiredBody": "این نسخه از RESPOK دیگر پشتیبانی نمی‌شود. برای ادامه کار، به‌روزرسانی را نصب کنید.",
+  "windowsNotificationsOffBody": "ویندوز اعلان همه برنامه‌ها را پنهان می‌کند، پس RESPOK هم نمی‌تواند اعلانی نشان دهد. گزینه «دریافت اعلان از برنامه‌ها و فرستنده‌های دیگر» را روشن کنید."
+ },
+ "tr": {
+  "appName": "RESPOK",
+  "brandWordmark": "RESPOK",
+  "clearCacheAllConfirm": "RESPOK'un bu bilgisayarda kaydettiği her şey silinsin mi? Oturumunuz açık kalır ve konuşmalarınızdan hiçbir şey kaldırılmaz.",
+  "mediaPermission": "Windows Ayarları → Gizlilik bölümünden RESPOK’un mikrofon ve kamera erişimine izin verin.",
+  "pushDeniedTitle": "RESPOK için bildirimler kapalı",
+  "pushPrimerBody": "RESPOK yeni mesajları, bahsetmeleri ve dahili notları — uygulama kapalıyken bile — size bildirebilir. Hangilerini istediğinizi siz seçersiniz ve istediğiniz zaman Ayarlar'dan değiştirebilirsiniz.",
+  "quitApp": "RESPOK’tan çık",
+  "serverAddressHint": "Yalnızca kendi sunucunuzdaki RESPOK için. Varsayılan için boş bırakın.",
+  "signOutConfirm": "RESPOK'tan çıkılsın mı?",
+  "supportChatHint": "RESPOK ile ilgili sorularınız doğrudan ekibimize ulaşır.",
+  "trayOpen": "RESPOK'u aç",
+  "updateReadyBody": "RESPOK {version} indirildi.",
+  "updateRequiredBody": "RESPOK'un bu sürümü artık desteklenmiyor. Çalışmaya devam etmek için güncellemeyi yükleyin.",
+  "windowsNotificationsOffBody": "Windows tüm uygulamaların bildirimlerini gizliyor, bu yüzden RESPOK da bildirim gösteremiyor. “Uygulamalardan ve diğer gönderenlerden bildirim al” seçeneğini açın."
+ }
+}

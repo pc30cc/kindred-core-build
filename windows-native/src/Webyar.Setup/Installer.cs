@@ -39,13 +39,23 @@ namespace Webyar.Setup
     /// </summary>
     public static class Installer
     {
+#if BRAND_RESPOK
+        // The RESPOK build (-p:Brand=Respok): a separate app beside WebYar, with nothing shared.
+        public const string ProductName = "RESPOK";
+        /// <summary>The app's exe without ".exe": also its process and main dll name.</summary>
+        public const string ExeBase = "Respok";
+        /// <summary>Velopack's id for the app: its folder under %LOCALAPPDATA% and its Apps entry.</summary>
+        private const string PackId = "RespokWindows";
+#else
         public const string ProductName = "Webyar";
-        public const string ExeName = "Webyar.exe";
-        public const string UninstallerName = "Uninstall Webyar.exe";
+        public const string ExeBase = "Webyar";
         /// <summary>Velopack's id for the app: its folder under %LOCALAPPDATA% and its Apps entry.</summary>
         private const string PackId = "WebyarWindows";
+#endif
+        public const string ExeName = ExeBase + ".exe";
+        public const string UninstallerName = "Uninstall " + ExeBase + ".exe";
         private const string PayloadName = "app-setup.exe";
-        private const string MachineUninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Webyar";
+        private const string MachineUninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\" + ExeBase;
 
         /// <summary>
         /// Where the app lives: Velopack's install root for this user, where Windows keeps
@@ -95,7 +105,7 @@ namespace Webyar.Setup
                 {
                     if (key?.GetValue("DisplayVersion") is string v && v.Length > 0) return v;
                 }
-                foreach (var dll in new[] { Path.Combine(InstallDir, "current", "Webyar.dll"), Path.Combine(MachineDir, "Webyar.dll") })
+                foreach (var dll in new[] { Path.Combine(InstallDir, "current", ExeBase + ".dll"), Path.Combine(MachineDir, ExeBase + ".dll") })
                 {
                     if (!File.Exists(dll)) continue;
                     var version = FileVersionInfo.GetVersionInfo(dll).ProductVersion ?? "";
@@ -123,20 +133,20 @@ namespace Webyar.Setup
         public static bool IsUninstallerCopy =>
             string.Equals(Path.GetFileName(Assembly.GetExecutingAssembly().Location), UninstallerName, StringComparison.OrdinalIgnoreCase);
 
-        public static string LogPath => Path.Combine(Path.GetTempPath(), "Webyar-Setup.log");
+        public static string LogPath => Path.Combine(Path.GetTempPath(), ExeBase + "-Setup.log");
 
         // ── Install / update / repair ────────────────────────────────────────
 
         public static async Task RunAsync(InstallOptions options, IProgress<Tuple<Stage, double>> progress, CancellationToken ct)
         {
-            File.WriteAllText(LogPath, $"Webyar setup {Version} {DateTime.Now:u}{(IsElevated ? " elevated" : "")}{Environment.NewLine}");
+            File.WriteAllText(LogPath, $"{ProductName} setup {Version} {DateTime.Now:u}{(IsElevated ? " elevated" : "")}{Environment.NewLine}");
             progress.Report(Tuple.Create(Stage.Prepare, 0.0));
 
             CloseRunningApp();
             progress.Report(Tuple.Create(Stage.Prepare, 0.08));
 
             // Velopack's setup, as its own file: it installs for this user and registers the app.
-            var setup = Path.Combine(Path.GetTempPath(), "Webyar-AppSetup-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".exe");
+            var setup = Path.Combine(Path.GetTempPath(), ExeBase + "-AppSetup-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".exe");
             using (var src = Assembly.GetExecutingAssembly().GetManifestResourceStream(PayloadName))
             {
                 if (src == null) throw new InvalidOperationException("payload missing");
@@ -268,7 +278,7 @@ namespace Webyar.Setup
 
         public static async Task UninstallAsync(bool removeUserData, IProgress<Tuple<Stage, double>> progress, CancellationToken ct)
         {
-            File.WriteAllText(LogPath, $"Webyar uninstall {Version} {DateTime.Now:u}{Environment.NewLine}");
+            File.WriteAllText(LogPath, $"{ProductName} uninstall {Version} {DateTime.Now:u}{Environment.NewLine}");
             progress.Report(Tuple.Create(Stage.Remove, 0.05));
             CloseRunningApp();
             await Task.Delay(300, ct);
@@ -302,7 +312,7 @@ namespace Webyar.Setup
         {
             var self = Assembly.GetExecutingAssembly().Location;
             if (!self.StartsWith(MachineDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return false;
-            var temp = Path.Combine(Path.GetTempPath(), "Webyar-Uninstall-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".exe");
+            var temp = Path.Combine(Path.GetTempPath(), ExeBase + "-Uninstall-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".exe");
             File.Copy(self, temp, true);
             var rest = string.Join(" ", args.Select(a => a.Contains(' ') ? "\"" + a + "\"" : a));
             if (!args.Any(a => a.TrimStart('/', '-').Equals("uninstall", StringComparison.OrdinalIgnoreCase))) rest = "/uninstall " + rest;
@@ -352,7 +362,7 @@ namespace Webyar.Setup
         /// </summary>
         private static void CloseRunningApp()
         {
-            foreach (var p in Process.GetProcessesByName("Webyar"))
+            foreach (var p in Process.GetProcessesByName(ExeBase))
             {
                 try
                 {
@@ -463,8 +473,8 @@ namespace Webyar.Setup
             {
                 using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
                 {
-                    if (on) key.SetValue("Webyar", "\"" + AppExe + "\" --hidden");
-                    else key.DeleteValue("Webyar", false);
+                    if (on) key.SetValue(ExeBase, "\"" + AppExe + "\" --hidden");
+                    else key.DeleteValue(ExeBase, false);
                 }
             }
             catch (Exception e) { Log("startup: " + e.Message); }

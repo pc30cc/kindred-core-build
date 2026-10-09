@@ -621,7 +621,7 @@ public sealed partial class EmailPage : Page
             {
                 // Our own API needs the session: fetch it here, then open the file with its app.
                 var data = await Host.Client.GetBytesAsync(target.PathAndQuery);
-                var dir = Path.Combine(Path.GetTempPath(), "Webyar", "mail", string.Join("_", a.Id.Split(Path.GetInvalidFileNameChars())));
+                var dir = Path.Combine(Path.GetTempPath(), Webyar.Core.Config.Brand.ExeName, "mail", string.Join("_", a.Id.Split(Path.GetInvalidFileNameChars())));
                 Directory.CreateDirectory(dir);
                 var name = string.Join("_", a.FileName.Split(Path.GetInvalidFileNameChars()));
                 if (!Path.HasExtension(name) && a.ContentType is { Length: > 0 } type) name += Mime.Extension(type);

@@ -17,8 +17,9 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import {
   SettingsSection, FieldGrid, TextField, TextAreaField, SwitchField, SelectField,
 } from '@/components/admin/settings/SettingsFields';
+import { useEdition } from '@/hooks/useEdition';
 import {
-  MACOS_DEFAULT_APPCAST_URL,
+  macosDefaultAppcastUrl,
   MACOS_LIMITS,
   type MacosAppSettings,
 } from '@/hooks/useMacosApp';
@@ -33,6 +34,7 @@ type Props = {
 
 export function MacosUpdatesTab({ draft, set }: Props) {
   const { t } = useTranslation();
+  const { edition } = useEdition();
 
   return (
     <div className="space-y-4">
@@ -46,7 +48,7 @@ export function MacosUpdatesTab({ draft, set }: Props) {
           label={t('admin.macosApp.updates.appcastUrl')}
           hint={t('admin.macosApp.updates.appcastUrlHint')}
           value={draft.appcast_url ?? ''}
-          placeholder={MACOS_DEFAULT_APPCAST_URL}
+          placeholder={macosDefaultAppcastUrl(edition)}
           dir="ltr"
           maxLength={MACOS_LIMITS.url}
           invalid={!isHttpsOrEmpty(draft.appcast_url)}

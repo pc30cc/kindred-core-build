@@ -26,7 +26,10 @@ import {
   MACOS_APP_DEFAULTS,
   MACOS_MAX_BLOCKED_VERSIONS,
   VERSION_RE,
+  macosDefaultAppcastUrl,
+  macosSettingsForEdition,
 } from '../services/desktopApp/macosSettings.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { invalidateMacosAppPublicCache } from './desktopAppPublic.js';
 import { invalidInput } from './adminDesktopApp.js';
 
@@ -142,8 +145,9 @@ async function readRow(config: ServerConfig) {
 adminMacosAppRouter.get('/settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    const row = await readRow(serverConfigOf(req));
-    const settings = row ? normalizeMacos(row) : { ...MACOS_APP_DEFAULTS };
+    const config = serverConfigOf(req);
+    const row = await readRow(config);
+    const settings = macosSettingsForEdition(row ? normalizeMacos(row) : { ...MACOS_APP_DEFAULTS }, await getPlatformEditionOrNull(config));
     return res.json({ settings });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
@@ -159,7 +163,8 @@ adminMacosAppRouter.put('/settings', async (req, res) => {
   const sb = getServiceClient(config);
   const payload: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() };
   // The appcast is the updater's only lifeline: clearing it restores the default feed.
-  if (payload.appcast_url === null) payload.appcast_url = MACOS_APP_DEFAULTS.appcast_url;
+  const edition = await getPlatformEditionOrNull(config);
+  if (payload.appcast_url === null) payload.appcast_url = macosDefaultAppcastUrl(edition);
   try {
     const existing = await readRow(config);
     // Maintenance switched on (in this patch or already) needs something to say.
@@ -177,7 +182,7 @@ adminMacosAppRouter.put('/settings', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     invalidateMacosAppSettingsCache();
     invalidateMacosAppPublicCache();
-    return res.json({ success: true, settings: normalizeMacos(data as Record<string, unknown>) });
+    return res.json({ success: true, settings: macosSettingsForEdition(normalizeMacos(data as Record<string, unknown>), edition) });
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message });
   }

@@ -7,8 +7,8 @@ namespace Webyar.App;
 public static class Program
 {
     /// <summary>Signalled by a second launch so the running copy comes to the front instead.</summary>
-    internal const string ActivateEventName = "Webyar.Windows.Activate";
-    private const string MutexName = "Webyar.Windows.SingleInstance";
+    internal const string ActivateEventName = Webyar.Core.Config.Brand.ExeName + ".Windows.Activate";
+    private const string MutexName = Webyar.Core.Config.Brand.ExeName + ".Windows.SingleInstance";
 
     [STAThread]
     public static int Main(string[] args)

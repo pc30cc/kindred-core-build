@@ -10,10 +10,11 @@ name: macOS app
 #
 # Publishing (both brands, same version), through macos/scripts/publish-feed.sh
 # — the same step a release from a Mac uses (macos/scripts/release-local.sh) —
-# always numbered <Major>.<Minor>.<run number> (Major.Minor from
-# MARKETING_VERSION in macos/project.yml) with build number 100 + run number,
-# so version and build grow together:
-#   - every push to main that touches the app;
+# always numbered <Major>.<Minor>.<count> (Major.Minor from MARKETING_VERSION
+# in macos/project.yml; count = the commits on main's first-parent line, one
+# more with every merge) with build number <count>, so version and build grow
+# together and match the Windows apps (desktop-native.yml) of the same commit:
+#   - every push to main that touches macos/ or windows-native/;
 #   - this workflow run on main with publish_now.
 # A new Major.Minor is released by raising MARKETING_VERSION in the merge itself.
 # Each brand goes to its own public feed, which its installed apps (Sparkle)
@@ -36,8 +37,12 @@ name: macOS app
 on:
   push:
     branches: ['**']
+    # The Windows apps' paths too (desktop-native.yml lists these the other way round): a change
+    # to either desktop app releases all four apps, with one version number.
     paths:
       - 'macos/**'
+      - 'windows-native/**'
+      - '.github/workflows/desktop-native.yml'
       - 'windows-native/src/Webyar.Core/Localization/strings.json'
       - 'windows-native/src/Webyar.Core/Localization/strings.respok.json'
       - 'windows-native/src/Webyar.App/Assets/Fonts/**'
@@ -71,6 +76,9 @@ jobs:
         with:
           sparse-checkout: macos/project.yml
           sparse-checkout-cone-mode: false
+          # The whole history of commits (no file contents): the release number counts them.
+          fetch-depth: 0
+          filter: blob:none
       - id: v
         env:
           EVENT: ${{ github.event_name }}
@@ -79,7 +87,10 @@ jobs:
           PUBLISH_NOW: ${{ inputs.publish_now }}
         run: |
           base=$(grep -E '^\s+MARKETING_VERSION:' macos/project.yml | head -1 | sed -E 's/.*"(.*)".*/\1/')
-          version="${base%.*}.$RUN_NUMBER"
+          # The same number as the Windows apps (desktop-native.yml) for the same commit: the
+          # commits on main's first-parent line, one more with every merge.
+          count=$(git rev-list --count --first-parent HEAD)
+          version="${base%.*}.$count"
           publish=false
           if [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
             publish=true
@@ -87,8 +98,9 @@ jobs:
             [ "$REF" = refs/heads/main ] || { echo "::error::A release is built from main only, not $REF"; exit 1; }
             publish=true
           fi
-          # Sparkle orders updates by the build number: it grows with every run, whatever triggered it.
-          build=$((100 + RUN_NUMBER))
+          # Sparkle orders updates by the build number: the same count (2372 and up, past the
+          # 100 + run number of the releases before 2.8).
+          build=$count
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"

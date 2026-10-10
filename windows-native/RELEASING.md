@@ -2,9 +2,10 @@
 
 > **English summary.** One source, two apps: WebYar and RESPOK
 > (`-p:Brand=Webyar|Respok`, `Directory.Build.props`, `src/Webyar.Core/Config/Brand.cs`).
-> **Every merge to `main` that changes `windows-native/` builds, tests and
-> publishes both**, as `<Major>.<Minor>.<run number>` (Major.Minor from
-> `<Version>` in `Directory.Build.props`): WebYar to
+> **Every merge to `main` that changes `windows-native/` or `macos/` builds,
+> tests and publishes both**, as `<Major>.<Minor>.<count>` (Major.Minor from
+> `<Version>` in `Directory.Build.props`, count = the commits on `main`'s
+> first-parent line; the Mac apps of the same commit get the same version): WebYar to
 > `pc30cc/webyar-desktop-releases` (secret `DESKTOP_RELEASES_TOKEN`), RESPOK to
 > `pc30cc/respok-releases` (secret `RESPOK_RELEASES_TOKEN`). The workflow run
 > on `main` with `publish_now` publishes the same way without a merge. There

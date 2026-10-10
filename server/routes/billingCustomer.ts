@@ -9,13 +9,16 @@
 //   * an invoice id from another workspace simply does not resolve (404);
 //   * purchases are invoice-driven; the wallet deposit is the sole exception;
 //   * a preview the customer confirmed must still be true at submit time,
-//     otherwise the mutation is refused as stale instead of charged.
+//     otherwise the mutation is refused as stale instead of charged;
+//   * while billing v2 is retired (shared/billingMode.ts) every mutation that
+//     changes a plan or moves money answers 410 (billingV2Retired).
 // ============================================================================
 
 import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { billingV2Retired } from '../middleware/billingV2Retired.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveBillingConfig, resolveNamedBillingConfig, logBillingEvent } from '../services/billing/index.js';
 import {
@@ -389,7 +392,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/invoices/:invoiceId', async 
 });
 
 /** Pay an open invoice from the wallet: debit + settle + apply, atomically. */
-billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/pay-wallet', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/pay-wallet', billingV2Retired, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const cfg = serverConfigOf(req);
@@ -455,7 +458,7 @@ export function paymentReturnUrls(browserUrl: string, intentId: string, provider
 
 
 /** Start a gateway collection for an open invoice. */
-billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkout', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkout', billingV2Retired, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = checkoutSchema.safeParse(req.body);
@@ -832,7 +835,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/plan-change/preview', async
   }
 });
 
-billingCustomerRouter.post('/workspaces/:workspaceId/plan-change', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/plan-change', billingV2Retired, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = planChangeSchema.extend({ expectedAmountIrr: z.number().int().min(0) }).safeParse(req.body);
@@ -853,7 +856,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/plan-change', async (req, r
   }
 });
 
-billingCustomerRouter.post('/workspaces/:workspaceId/plan-change/cancel', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/plan-change/cancel', billingV2Retired, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   try {
@@ -876,7 +879,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/wallet', async (req, res) =>
   }
 });
 
-billingCustomerRouter.put('/workspaces/:workspaceId/wallet/auto-pay', async (req, res) => {
+billingCustomerRouter.put('/workspaces/:workspaceId/wallet/auto-pay', billingV2Retired, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
@@ -896,7 +899,7 @@ const depositSchema = z.object({ amountIrr: z.number().int().positive() });
  * purchase. Amount bounds come from server policy, so a hand-crafted request
  * cannot deposit an out-of-policy amount.
  */
-billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/invoice', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/invoice', billingV2Retired, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = depositSchema.safeParse(req.body);
@@ -929,7 +932,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/invoice', as
  * Deposit receipt shown BEFORE the bank. Amount bounds come from server policy,
  * so a hand-crafted request cannot deposit an out-of-policy amount.
  */
-billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/preview', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/preview', billingV2Retired, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = depositSchema.safeParse(req.body);
@@ -996,7 +999,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/wallet/deposits/:depositId',
 
 
 
-billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', billingV2Retired, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = z
@@ -1094,7 +1097,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
 
 // ─── AI credit purchase (invoice-driven) ───────────────────────────────────
 
-billingCustomerRouter.post('/workspaces/:workspaceId/ai-credit/invoice', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/ai-credit/invoice', billingV2Retired, async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = z.object({ amountIrr: z.number().int().positive() }).safeParse(req.body);

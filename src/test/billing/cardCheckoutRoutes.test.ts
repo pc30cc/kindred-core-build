@@ -18,6 +18,10 @@ vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => 
   getPlatformEdition: async () => 'iran',
 }));
 
+// Billing v2's customer mutations answer 410 while v2 is retired
+// (server/middleware/billingV2Retired.ts); this suite covers them with v2 on.
+vi.mock('../../../shared/billingMode.js', () => ({ LEGACY_BILLING_ENABLED: true }));
+
 const WS = '11111111-1111-4111-8111-111111111111';
 const INVOICE = 'inv-1';
 

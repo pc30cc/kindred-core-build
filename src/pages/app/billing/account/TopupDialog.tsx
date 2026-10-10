@@ -4,25 +4,25 @@
  * VAT line and the total. The server recomputes all of it; this only shows
  * what will be charged.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Badge } from '@/components/ui/badge';
 import { useTranslation } from '@/i18n';
-import { parsePlanPriceInput } from '@/lib/planPrice';
-import { openPaddleCheckout } from '@/lib/paddleCheckout';
+import { parsePlanPriceInput, planPriceDecimals } from '@/lib/planPrice';
+import { toast } from '@/lib/toast';
 import { accountBillingApi, type AccountGateway } from '@/lib/accountBillingApi';
 import { money } from '../shared';
 import { TOPUP_LIMITS, chargeFor, topupAmountProblem } from '../../../../../shared/simpleBilling';
+import GatewayPicker from './GatewayPicker';
 import {
   QUICK_TOPUPS,
   accountErrorText,
   billingReturnOrigin,
-  gatewayLabel,
+  followCheckout,
+  toDisplayAmount,
   toMinorAmount,
 } from './accountUi';
 
@@ -35,11 +35,31 @@ export interface TopupDialogProps {
   vatPercent: number | null;
   gateways: AccountGateway[];
   onCurrencyChanged?: () => void;
+  /** Opens with this amount filled in (what a change is missing), never below the minimum. */
+  initialAmountMinor?: number | null;
 }
 
-export default function TopupDialog({ open, onOpenChange, workspaceId, slug, currency, vatPercent, gateways, onCurrencyChanged }: TopupDialogProps) {
+export default function TopupDialog({
+  open,
+  onOpenChange,
+  workspaceId,
+  slug,
+  currency,
+  vatPercent,
+  gateways,
+  onCurrencyChanged,
+  initialAmountMinor = null,
+}: TopupDialogProps) {
   const { t, locale, dir } = useTranslation();
   const [raw, setRaw] = useState('');
+
+  useEffect(() => {
+    if (!open || !initialAmountMinor || initialAmountMinor <= 0) return;
+    const wanted = Math.max(initialAmountMinor, TOPUP_LIMITS[currency]?.min ?? 0);
+    // Rounded up to what can be typed, so it never falls short.
+    const factor = 10 ** planPriceDecimals(currency);
+    setRaw(String(Math.ceil(toDisplayAmount(wanted, currency) * factor - 1e-6) / factor));
+  }, [open, initialAmountMinor, currency]);
   const [provider, setProvider] = useState<string>(gateways[0]?.provider_name ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,17 +83,14 @@ export default function TopupDialog({ open, onOpenChange, workspaceId, slug, cur
         providerName: chosen.provider_name,
         callbackUrl,
       });
-      if (res.clientCheckout?.provider === 'paddle' || res.clientCheckout?.provider === 'paddle_sandbox') {
-        // Paddle's overlay is its own modal: this dialog closes first, or its
-        // focus trap and pointer lock would keep the card form from working.
-        setBusy(false);
-        onOpenChange(false);
-        await openPaddleCheckout(res.clientCheckout, { locale });
-        return;
-      }
-      const url = res.paymentUrl;
-      if (!url) throw Object.assign(new Error('CHECKOUT_PROVIDER_ERROR'), { code: 'CHECKOUT_PROVIDER_ERROR' });
-      window.location.href = url;
+      await followCheckout(res, {
+        locale,
+        closeDialog: () => {
+          setBusy(false);
+          onOpenChange(false);
+        },
+        onError: (e) => toast.error(accountErrorText(e, t)),
+      });
     } catch (e) {
       setError(accountErrorText(e, t));
       setBusy(false);
@@ -129,26 +146,7 @@ export default function TopupDialog({ open, onOpenChange, workspaceId, slug, cur
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label>{t('billing.account.topup.gateway')}</Label>
-            {gateways.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('billing.account.topup.noGateway')}</p>
-            ) : (
-              <RadioGroup value={chosen?.provider_name} onValueChange={setProvider} className="gap-2" dir={dir}>
-                {gateways.map((g) => (
-                  <Label
-                    key={g.provider_name}
-                    htmlFor={`gw-${g.provider_name}`}
-                    className="flex cursor-pointer items-center gap-3 rounded-md border p-3 font-normal has-[[data-state=checked]]:border-primary"
-                  >
-                    <RadioGroupItem id={`gw-${g.provider_name}`} value={g.provider_name} disabled={busy} />
-                    <span className="flex-1">{gatewayLabel(g.display_name, g.provider_name, locale)}</span>
-                    {g.is_test && <Badge variant="secondary">{t('billing.account.topup.testGateway')}</Badge>}
-                  </Label>
-                ))}
-              </RadioGroup>
-            )}
-          </div>
+          <GatewayPicker gateways={gateways} value={chosen?.provider_name} onChange={setProvider} disabled={busy} />
 
           {charge && (
             <dl className="space-y-1.5 rounded-md bg-muted/50 p-3 text-sm">

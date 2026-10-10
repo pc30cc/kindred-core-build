@@ -80,3 +80,33 @@ export function planLabel(name: string | null, localized: Record<string, unknown
   }
   return name || '';
 }
+
+/**
+ * Sends the customer to the checkout the server started: Paddle's overlay
+ * (after the caller's own dialog is closed: two modals would fight over
+ * focus and pointer events), or the gateway's payment page. Paddle failing
+ * to load or open after the dialog closed goes to `onError` (a toast), since
+ * the dialog that would show it is gone.
+ */
+export async function followCheckout(
+  started: { paymentUrl?: string; clientCheckout?: { provider: string; [key: string]: unknown } },
+  options: { locale: string; closeDialog: () => void; onError?: (e: unknown) => void },
+): Promise<void> {
+  const provider = started.clientCheckout?.provider;
+  if (provider === 'paddle' || provider === 'paddle_sandbox') {
+    options.closeDialog();
+    try {
+      const { openPaddleCheckout } = await import('@/lib/paddleCheckout');
+      await openPaddleCheckout(started.clientCheckout as Parameters<typeof openPaddleCheckout>[0], { locale: options.locale });
+    } catch (e) {
+      if (!options.onError) throw e;
+      options.onError(Object.assign(new Error('CHECKOUT_PROVIDER_ERROR'), {
+        code: 'CHECKOUT_PROVIDER_ERROR',
+        details: { providerMessage: e instanceof Error ? e.message : '' },
+      }));
+    }
+    return;
+  }
+  if (!started.paymentUrl) throw Object.assign(new Error('CHECKOUT_PROVIDER_ERROR'), { code: 'CHECKOUT_PROVIDER_ERROR' });
+  window.location.href = started.paymentUrl;
+}

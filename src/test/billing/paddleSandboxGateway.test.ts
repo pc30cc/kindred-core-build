@@ -24,6 +24,10 @@ vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => 
   return { ...actual, getPlatformEdition: async () => state.edition };
 });
 
+// Billing v2's customer mutations answer 410 while v2 is retired
+// (server/middleware/billingV2Retired.ts); this suite covers them with v2 on.
+vi.mock('../../../shared/billingMode.js', () => ({ LEGACY_BILLING_ENABLED: true }));
+
 /** A tiny PostgREST-shaped fake over `state.tables`. */
 function fakeClient() {
   return {

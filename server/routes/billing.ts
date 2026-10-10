@@ -32,6 +32,8 @@ import { serviceClientFor } from '../lib/serviceClient.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
+import { billingV2Retired } from '../middleware/billingV2Retired.js';
+import { afterAdminAssignment } from '../services/billing/account/plans.js';
 import {
   handleWorkspaceEntitlementChanged,
   handlePlanDefinitionChanged,
@@ -396,7 +398,7 @@ const invoicePreviewSchema = z.object({
   currency: z.string().optional(),
 });
 
-billingRouter.post('/invoice-preview', async (req, res) => {
+billingRouter.post('/invoice-preview', billingV2Retired, async (req, res) => {
   const parsed = invoicePreviewSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
   const input = parsed.data;
@@ -565,7 +567,7 @@ const checkoutSchema = z.object({
   intentId: z.string().uuid().optional(),
 });
 
-billingRouter.post('/checkout', async (req, res) => {
+billingRouter.post('/checkout', billingV2Retired, async (req, res) => {
   const parsed = checkoutSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
 
@@ -1698,7 +1700,7 @@ billingRouter.get('/payment-intent/:intentId', async (req, res) => {
 
 
 // ─── POST /api/billing/subscription/cancel ───────────────────────
-billingRouter.post('/subscription/cancel', async (req, res) => {
+billingRouter.post('/subscription/cancel', billingV2Retired, async (req, res) => {
   const { workspaceId } = req.body;
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
@@ -1736,7 +1738,7 @@ billingRouter.post('/subscription/cancel', async (req, res) => {
 });
 
 // ─── POST /api/billing/subscription/resume ───────────────────────
-billingRouter.post('/subscription/resume', async (req, res) => {
+billingRouter.post('/subscription/resume', billingV2Retired, async (req, res) => {
   const { workspaceId } = req.body;
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   if (!(await authorizeWorkspace(req, res, workspaceId, { manage: true }))) return;
@@ -2143,8 +2145,8 @@ billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
   if (!workspaceId || !planId) return res.status(400).json({ error: 'Missing workspaceId or planId' });
 
   // Even an admin grant must not write the subscription window directly once
-  // V2 owns the workspace — the invoice is the only authority. The database
-  // trigger enforces this too; this returns the structured answer.
+  // V2 owns the workspace — the invoice is the only authority. This check is
+  // the only guard left: migration 261 dropped v2's database trigger.
   try {
     await assertLegacyPathAllowed(serverConfigOf(req), {
       workspaceId,
@@ -2170,6 +2172,7 @@ billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
   }, { onConflict: 'workspace_id' }).select().single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
+  await afterAdminAssignment(serverConfigOf(req), workspaceId);
   await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'admin_grant',

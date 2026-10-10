@@ -170,7 +170,8 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     }
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
-        value = value.replace(`{{${k}}}`, String(v));
+        // Every occurrence: a text may use the same value twice.
+        value = value.split(`{{${k}}}`).join(String(v));
       });
     }
     // Brand tokens ({{brand}}, {{supportEmail}}, …) the caller did not fill.

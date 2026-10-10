@@ -27,6 +27,7 @@ import { requiresReferenceBinding } from '../services/billing/providerBinding.js
 import { readTopupConfig, TOPUP_CONFIG_KEY, type TopupConfig } from '../services/billing/topupConfig.js';
 import { assertEditionFeature, editionErrorResponse, getPlatformEdition } from '../services/billing/edition.js';
 import { isCurrencyAllowedInEdition } from '../../shared/edition.js';
+import { LEGACY_BILLING_ENABLED } from '../../shared/billingMode.js';
 
 export const aiBillingRouter = Router();
 
@@ -97,6 +98,9 @@ function cycleEnd(): string {
  * (idempotent by (workspace, cycle, source) both in SQL and by command key).
  */
 async function ensureCycleAllowance(config: ServerConfig, workspaceId: string): Promise<void> {
+  // The simple billing grants each month's AI credit itself (its hourly job,
+  // migration 261); this calendar grant would fund the same month twice.
+  if (!LEGACY_BILLING_ENABLED) return;
   // Billing Engine V2 handover: once the workspace's first invoice-backed
   // service period has activated, the PERIOD grants the allowance and this
   // legacy calendar path must never grant again — otherwise the same month

@@ -17,6 +17,7 @@ import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.j
 import { getWorkspacePlanInfo } from '../middleware/featureGating.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { getPhoneVerificationState } from '../services/phoneVerification/index.js';
+import { renewalDueNotice } from '../services/billing/account/renewalNotice.js';
 
 export const workspaceAlertsRouter = Router();
 
@@ -65,12 +66,12 @@ function daysUntil(iso: string | null | undefined): number | null {
  * Derives the current operational alerts for a workspace.
  * Pure read — no dismissal filtering applied here.
  */
-async function deriveAlerts(req: any, workspaceId: string, userId: string) {
+async function deriveAlerts(req: object, workspaceId: string, userId: string) {
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const period = new Date().toISOString().slice(0, 7);
 
-  const [planInfo, usageRes, overridesRes, paymentsRes, identity] = await Promise.all([
+  const [planInfo, usageRes, overridesRes, paymentsRes, identity, renewal] = await Promise.all([
     getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId).catch(
       () => null,
     ),
@@ -91,6 +92,7 @@ async function deriveAlerts(req: any, workspaceId: string, userId: string) {
       .order('created_at', { ascending: false })
       .limit(5),
     findIdentityById(config, userId).catch(() => null),
+    renewalDueNotice(config, workspaceId).catch(() => null),
   ]);
 
   const alerts: WorkspaceAlert[] = [];
@@ -115,8 +117,8 @@ async function deriveAlerts(req: any, workspaceId: string, userId: string) {
 
 
   // ── 2. Subscription / trial lifecycle ────────────────────
-  const sub = (planInfo as any)?.subscription ?? null;
-  const plan = (planInfo as any)?.plan ?? null;
+  const sub = planInfo?.subscription ?? null;
+  const plan = planInfo?.plan ?? null;
   const planName: string = plan?.name || plan?.slug || '';
 
   if (sub) {
@@ -154,9 +156,22 @@ async function deriveAlerts(req: any, workspaceId: string, userId: string) {
     }
   }
 
+  // Simple billing never sets cancel_at_period_end: a paid period that will
+  // not renew (renewalNotice.ts) ends on Free at the due moment, no grace.
+  if (renewal && !alerts.some((a) => a.kind === 'subscription_ending')) {
+    alerts.push({
+      id: 'renewal_due',
+      // A change to Free the customer chose cannot be renewed: cancelling it keeps the plan.
+      kind: renewal.ends_on_free ? 'change_to_free' : 'renewal_due',
+      severity: renewal.days_left <= 2 ? 'critical' : 'warning',
+      params: { days: String(renewal.days_left), plan: planName },
+      action: '/billing',
+    });
+  }
+
   // ── 3. Failed payment in the last 14 days ────────────────
-  const failed = (paymentsRes.data || []).find(
-    (p: any) =>
+  const failed = ((paymentsRes.data || []) as Array<{ id: string; status: string | null; created_at: string | null }>).find(
+    (p) =>
       ['failed', 'canceled', 'cancelled'].includes(String(p.status)) &&
       Date.now() - Date.parse(p.created_at || '') < 14 * DAY_MS,
   );
@@ -171,10 +186,10 @@ async function deriveAlerts(req: any, workspaceId: string, userId: string) {
 
   // ── 4. Quota pressure (>=80% warn, >=100% critical) ──────
   const overrideMap = new Map<string, number>(
-    (overridesRes.data || []).map((o: any) => [o.limit_key, Number(o.limit_value)]),
+    ((overridesRes.data || []) as Array<{ limit_key: string; limit_value: unknown }>).map((o) => [o.limit_key, Number(o.limit_value)]),
   );
-  const planLimits: Record<string, number> = ((planInfo as any)?.limits || {}) as any;
-  const usage: any = usageRes.data || {};
+  const planLimits: Record<string, number> = planInfo?.limits || {};
+  const usage = (usageRes.data || {}) as Record<string, unknown>;
 
   for (const entry of USAGE_MAP) {
     const limit = overrideMap.has(entry.limitKey)
@@ -232,7 +247,7 @@ workspaceAlertsRouter.get('/:workspaceId', async (req, res) => {
 
     const now = Date.now();
     const dismissed = new Map<string, { signature: string; until: number | null }>(
-      (dismissalsRes.data || []).map((d: any) => [
+      ((dismissalsRes.data || []) as Array<{ alert_key: string; signature: string | null; dismissed_until: string | null }>).map((d) => [
         String(d.alert_key),
         {
           signature: String(d.signature || ''),

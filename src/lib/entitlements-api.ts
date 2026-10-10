@@ -75,6 +75,11 @@ export interface WorkspaceEffectiveEntitlements {
   limits: Record<string, EffectiveState<number | null>>;
   /** The current month's `workspace_usage_counters` row. */
   usage: Record<string, unknown> | null;
+  /**
+   * A paid period ending within 7 days that will not renew (simple billing:
+   * server/services/billing/account/renewalNotice.ts); null otherwise.
+   */
+  renewal_due?: { days_left: number; period_end: string; ends_on_free: boolean } | null;
   raw: { entitlements: Record<string, unknown>; limits: Record<string, unknown> };
   /** 'unlimited' on a self-host install without billing: nothing is enforced. */
   billing?: 'unlimited';

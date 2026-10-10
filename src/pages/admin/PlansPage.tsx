@@ -63,6 +63,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useQuery } from '@tanstack/react-query';
+import BillingSettingsPanel from '@/components/admin/BillingSettingsPanel';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import {
   capabilityLabel,
@@ -1472,7 +1473,14 @@ export default function AdminPlansPage() {
           <TabsTrigger value="diagnostics">
             <SlidersHorizontal className="w-3.5 h-3.5 me-1.5" /> {t('admin.plans.tabs.diagnostics')}
           </TabsTrigger>
+          <TabsTrigger value="billing-settings">
+            <CreditCard className="w-3.5 h-3.5 me-1.5" /> {t('admin.simpleBilling.tab')}
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="billing-settings" className="space-y-4">
+          <BillingSettingsPanel />
+        </TabsContent>
 
         {/* ─── Plans Tab (registry-aware cards) ─── */}
         <TabsContent value="plans" className="space-y-4">

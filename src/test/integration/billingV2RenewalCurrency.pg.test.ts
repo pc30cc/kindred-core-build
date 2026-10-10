@@ -179,8 +179,17 @@ const VOLATILE = new Set([
   'free_fallback_at', 'billing_v2_effective_at', 'command_key', 'applied_at', 'granted_at',
 ]);
 
+// A plan snapshot copies the whole billing_plans row, so a column a later
+// migration adds to the table shows up in it. Only the columns the table had
+// before 255 are compared: a later column is not something 255 changed.
+let planColumnsBefore255: Set<string> | null = null;
+
 function normalize(value: unknown, labels: Map<string, string>, key?: string): unknown {
   if (key && VOLATILE.has(key)) return '<volatile>';
+  if (key === 'plan_snapshot' && planColumnsBefore255 && value && typeof value === 'object' && !Array.isArray(value)) {
+    const kept = Object.entries(value as Row).filter(([k]) => planColumnsBefore255!.has(k));
+    return normalize(Object.fromEntries(kept), labels);
+  }
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'string') {
     if (labels.has(value)) return labels.get(value);
@@ -382,6 +391,9 @@ suite('255 — renewal currency and no free renewal of a paid plan (whole chain,
       await applyMigrationSql(db, readFileSync(resolve(DIR, file), 'utf8'));
     }
 
+    planColumnsBefore255 = new Set((await db.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'billing_plans'`,
+    )).rows.map((r: { column_name: string }) => r.column_name));
     for (const s of IRR_SCENARIOS) before.set(s.name, await s.run());
     attributesBefore = await functionAttributes();
 

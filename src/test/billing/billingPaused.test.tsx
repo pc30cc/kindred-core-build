@@ -1,7 +1,7 @@
 /**
- * Billing v2 is hidden while the simple billing replaces it
- * (shared/billingMode.ts): the workspace page shows the notice instead of the
- * v2 tabs, and the server does not start the v2 scheduler.
+ * Billing v2 is hidden (shared/billingMode.ts): the workspace page is the
+ * simple billing's account page instead of the v2 tabs, and the server does
+ * not start the v2 scheduler.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -17,6 +17,9 @@ vi.mock('@/hooks/useWorkspace', () => ({
 vi.mock('@/pages/app/billing/WorkspaceBillingPage', () => ({
   default: () => <div>v2 billing tabs</div>,
 }));
+vi.mock('@/pages/app/billing/account/AccountBillingPage', () => ({
+  default: ({ workspaceId, slug }: { workspaceId: string; slug: string }) => <div>account billing {workspaceId} {slug}</div>,
+}));
 
 const { LEGACY_BILLING_ENABLED } = await import('../../../shared/billingMode');
 const BillingPage = (await import('@/pages/app/BillingPage')).default;
@@ -26,10 +29,9 @@ describe('billing v2 is hidden', () => {
     expect(LEGACY_BILLING_ENABLED).toBe(false);
   });
 
-  it('the workspace billing page shows the notice, not the v2 tabs', () => {
+  it('the workspace billing page is the account page, not the v2 tabs', () => {
     render(<BillingPage />);
-    expect(screen.getByText('billing.paused.title')).toBeInTheDocument();
-    expect(screen.getByText('billing.paused.body')).toBeInTheDocument();
+    expect(screen.getByText('account billing ws-1 acme')).toBeInTheDocument();
     expect(screen.queryByText('v2 billing tabs')).not.toBeInTheDocument();
   });
 

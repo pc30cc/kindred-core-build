@@ -140,3 +140,58 @@ deletion, pruning of stale payment attempts. Replaces the 5-minute ticker.
 5. AI credit packs.
 6. Super Admin screens.
 7. Move current subscriptions, back up and drop billing v2 code and tables.
+
+## Technical design
+
+Names avoid billing v2's tables (`billing_payments` and `billing_wallet_*`
+exist there until phase 7).
+
+### Which plan a workspace is on
+
+Unchanged: `workspace_subscriptions` (`plan_id`, `status`, `billing_interval`,
+`current_period_start`/`end`) stays the only source the entitlement code
+reads (`planSelection.ts`, `check_workspace_entitlement`). The simple billing
+writes it through one SQL function, and billing v2's guard trigger
+(`trg_billing_v2_block_direct_subscription`) and lifecycle mail trigger are
+dropped, because v2 no longer runs and its mails are not Super Admin
+templates.
+
+### Tables
+
+- `billing_settings` (one row per edition, `iran` | `international`): the
+  seller shown on receipts (legal name, economic code / national id or VAT
+  id, address, phone, email), VAT percent per currency (null = not shown),
+  receipt number prefix, AI credit packs per currency.
+- `billing_accounts` (one row per workspace): `currency` (fixed at creation
+  from the region: IRR / USD / TRY), `balance_minor` (never negative),
+  `auto_renew`, the scheduled change (`scheduled_plan_id`,
+  `scheduled_interval`, `next_period_prepaid_minor`), the saved card
+  (`card_provider`, `card_customer_id`, `card_subscription_id`), the billing
+  profile (company, economic code, national id, VAT id, address, postal code,
+  country, invoice email), and which reminders were sent for which period.
+- `billing_account_ledger` (append-only): `kind` (topup, renewal, upgrade,
+  ai_pack, admin_credit, admin_debit, refund, prepaid_return),
+  `amount_minor` (+ in, − out), `balance_after`, `currency`, the plan and
+  period it paid for, and for money that came through a gateway the receipt:
+  `receipt_number`, `net_minor`, `tax_minor`, `tax_percent`, the buyer and
+  seller snapshot. An `idempotency_key` is unique.
+- `billing_account_payments`: one row per gateway attempt: provider,
+  currency, `amount_minor` (what the gateway charges = net + VAT),
+  `purpose` (topup, renewal, upgrade, ai_pack, plan) with its details,
+  `status`, `provider_ref`, `provider_payment_id`, `ledger_id`. Attempts that
+  never finished are deleted after 30 days.
+- `billing_plans` gains `locked_data_retention_days` (null = never) and
+  `ai_allowance` (per currency, minor units).
+
+### Money flow
+
+- A gateway payment is settled by one SQL function, in one transaction:
+  check amount and currency, credit the net to the balance with a receipt,
+  then perform the purpose (renewal, upgrade, AI pack, plan purchase) from
+  the balance. If the purpose can no longer be done (the plan changed in the
+  meantime), the money stays in the balance.
+- VAT is charged on money coming in (top-up or direct payment) and shown on
+  its receipt; spending the balance later creates no second receipt.
+- Gateways listed are those allowed in the edition, active, accepting the
+  account currency, and able to confirm a payment (a `verifyPayment` or a
+  signed webhook that carries our payment id).

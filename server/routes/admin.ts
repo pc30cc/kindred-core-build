@@ -37,6 +37,7 @@ import { adminDatabaseRouter } from './adminDatabase.js';
 import { adminRetentionRouter } from './adminRetention.js';
 import { adminBackupRouter } from './adminBackup.js';
 import { adminMobileAppRouter } from './adminMobileApp.js';
+import { adminSimpleBillingRouter } from './adminSimpleBilling.js';
 import { adminPlatformSupportRouter } from './adminPlatformSupport.js';
 import { adminDesktopAppRouter } from './adminDesktopApp.js';
 import { adminMacosAppRouter } from './adminMacosApp.js';
@@ -131,6 +132,7 @@ adminRouter.use('/backup', adminBackupRouter);
 
 // Native app (iOS) identity, build, privacy and App Store readiness
 adminRouter.use('/mobile-app', adminMobileAppRouter);
+adminRouter.use('/simple-billing', adminSimpleBillingRouter);
 adminRouter.use('/platform-support', adminPlatformSupportRouter);
 adminRouter.use('/desktop-app', adminDesktopAppRouter);
 adminRouter.use('/macos-app', adminMacosAppRouter);

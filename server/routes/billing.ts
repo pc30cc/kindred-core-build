@@ -72,6 +72,12 @@ import { buildCancelAtPeriodEndPatch, decideResume } from '../services/billing/c
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 import {
+  findAccountPaymentByProviderPayment,
+  handleAccountPaymentWebhook,
+  readAccountPayment,
+  type AccountPaymentRow,
+} from '../services/billing/account/index.js';
+import {
   buildBoundVerifyParams,
   buildGatewayVerificationMarker,
   evaluateGatewayVerification,
@@ -1354,11 +1360,16 @@ async function resolveEventWorkspace(
 ): Promise<{ workspaceId: string | null; foreignIntent: boolean }> {
   let foreignIntent = false;
   if (event.intentId) {
+    // A simple-billing account payment carries its id where an intent's would be.
+    const accountPayment = await readAccountPayment(cfg, event.intentId);
+    if (accountPayment && accountPayment.provider === providerName) return { workspaceId: accountPayment.workspace_id, foreignIntent };
     const intent = await readPaymentIntent(cfg, event.intentId);
     if (intent && intent.provider_name === providerName) return { workspaceId: intent.workspace_id, foreignIntent };
-    foreignIntent = !intent;
+    foreignIntent = !intent && !accountPayment;
   }
   if (event.providerPaymentId) {
+    const accountPayment = await findAccountPaymentByProviderPayment(cfg, providerName, event.providerPaymentId);
+    if (accountPayment) return { workspaceId: accountPayment.workspace_id, foreignIntent: false };
     const { data, error } = await getServiceClient(cfg)
       .from('billing_payments')
       .select('workspace_id')
@@ -1535,6 +1546,61 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   if (!providerEventId) {
     logWebhookRejection(providerName, 'missing_provider_event_id');
     return res.status(400).json({ error: 'Webhook rejected' });
+  }
+
+  // Simple billing: a payment of a workspace account. Its id travels in the
+  // provider's signed custom metadata where an invoice checkout's intent id
+  // does, so it is looked up first; a refund may name only the provider's
+  // transaction. Anything else falls through to the invoice path below.
+  let accountPayment: AccountPaymentRow | null = null;
+  try {
+    if (event.intentId) accountPayment = await readAccountPayment(cfg, event.intentId);
+    if (!accountPayment && event.type === 'refund_processed' && event.providerPaymentId) {
+      accountPayment = await findAccountPaymentByProviderPayment(cfg, providerName, event.providerPaymentId);
+    }
+  } catch {
+    logWebhookRejection(providerName, 'account_payment_read_failed');
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+  if (accountPayment) {
+    if (accountPayment.workspace_id !== workspaceId || accountPayment.provider !== providerName) {
+      logWebhookRejection(providerName, 'account_payment_mismatch');
+      return res.status(400).json({ error: 'Webhook rejected' });
+    }
+    // Only a payment or a refund moves an account's money. Other events about
+    // it are acknowledged WITHOUT being claimed, so nothing is recorded as
+    // processed that was not.
+    if (event.type !== 'payment_succeeded' && event.type !== 'refund_processed') {
+      return acknowledge({ received: true, ignored: true });
+    }
+    let accountClaim;
+    try {
+      accountClaim = await claimBillingWebhookEvent(url, key, {
+        providerName,
+        providerEventId,
+        workspaceId,
+        eventType: event.type,
+        amount: event.amount,
+        currency: event.currency,
+        metadata: event.raw,
+      });
+    } catch {
+      logWebhookRejection(providerName, 'claim_failed');
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
+    if (!accountClaim.claimed) {
+      if ('inFlight' in accountClaim) return res.status(409).json({ error: 'Webhook already in progress' });
+      return acknowledge({ received: true, duplicate: true });
+    }
+    try {
+      await handleAccountPaymentWebhook(cfg, { providerName, workspaceId, event, payment: accountPayment });
+    } catch {
+      await finalizeBillingWebhookEvent(url, key, accountClaim.eventRowId, 'failed').catch(() => {});
+      logWebhookRejection(providerName, 'account_payment_processing_failed');
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
+    await finalizeBillingWebhookEvent(url, key, accountClaim.eventRowId, 'success').catch(() => {});
+    return acknowledge({ received: true });
   }
 
   // An event naming a payment intent settles THAT intent's invoice — and only

@@ -107,6 +107,7 @@ const AiAgentOperatorAssistPage = lazyPage(() => import("@/pages/app/ai-agent/Op
 const AiAgentActivityPage = lazyPage(() => import("@/pages/app/ai-agent/ActivityPage"));
 const BillingPage = lazyPage(() => import("@/pages/app/BillingPage"));
 const BillingPaymentPage = lazyPage(() => import("@/pages/app/billing/PaymentPage"));
+const BillingReceiptPage = lazyPage(() => import("@/pages/app/billing/account/ReceiptPage"));
 const SeoPage = lazyPage(() => import("@/pages/app/seo/SeoPage"));
 const WebAnalyticsPage = lazyPage(() => import("@/pages/app/analytics/WebAnalyticsPage"));
 const EmailInboxPage = lazyPage(() => import("@/pages/app/email/EmailInboxPage"), { fallback: "inset" });
@@ -321,7 +322,7 @@ function workspacePagesFor(section: string, sub: string): Preloadable[] {
   switch (section) {
     case "contacts": return [sub ? ContactDetailPage : ContactsPage];
     case "plugins": return [sub ? PluginDetailPage : PluginsPage];
-    case "billing": return [sub === "pay" ? BillingPaymentPage : BillingPage];
+    case "billing": return [sub === "pay" ? BillingPaymentPage : sub === "receipts" ? BillingReceiptPage : BillingPage];
     case "knowledge-base":
       if (sub === "articles") return [KnowledgeArticleEditorPage];
       if (sub === "ai-builder") return [KnowledgeAiBuilderPage];
@@ -577,6 +578,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="plugins/:pluginId" element={<RequireWorkspaceAdmin><PluginDetailPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing" element={<RequireWorkspaceAdmin><BillingPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing/pay/:kind/:id" element={<RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin>} />
+                <Route path="billing/receipts/:ledgerId" element={<RequireWorkspaceAdmin><BillingReceiptPage /></RequireWorkspaceAdmin>} />
                 {/* Every plan-gated section is gated at its route too (the
                     sidebar only hides the link): PlanLockedOverlay never
                     mounts the page unless the plan snapshot says so. */}

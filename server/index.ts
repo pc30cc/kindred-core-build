@@ -49,6 +49,7 @@ import { commerceGuestVerificationRouter } from './routes/commerce/guestVerifica
 import { commerceIdentityRouter } from './routes/commerce/identity.js';
 import { internalTestGatewayRouter } from './routes/internalTestGateway.js';
 import { billingCustomerRouter } from './routes/billingCustomer.js';
+import { billingAccountRouter } from './routes/billingAccount.js';
 import { adminBillingV2Router } from './routes/adminBillingV2.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
 
@@ -507,6 +508,7 @@ app.use('/api/operator-activity', operatorActivityRouter);
 // Billing — checkout, webhooks, subscription management
 // Simulated in-house gateway page (test provider only; must be mounted first).
 app.use('/api/billing/test-gateway', internalTestGatewayRouter);
+app.use('/api/billing', billingAccountRouter);
 app.use('/api/billing', billingCustomerRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/seo', seoRouter);

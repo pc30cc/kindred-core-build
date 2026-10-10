@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import RetiredV2PaymentRoute from '@/pages/app/billing/RetiredV2PaymentRoute';
+import RetiredV2PaymentRoute from '@/components/billing/RetiredV2PaymentRoute';
 
 function Where() {
   const location = useLocation();

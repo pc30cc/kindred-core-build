@@ -29,7 +29,7 @@ import { lazyPage, type Preloadable } from "@/lib/perf/lazyPage";
 import { afterLoadWhenIdle, canPrefetch, installLinkPrefetch, warmServiceWorkerCache } from "@/lib/perf/prefetch";
 import { trackMediaCapture } from "@/lib/perf/chunkReload";
 import { LEGACY_BILLING_ENABLED } from "../shared/billingMode";
-import RetiredV2PaymentRoute from "@/pages/app/billing/RetiredV2PaymentRoute";
+import RetiredV2PaymentRoute from "@/components/billing/RetiredV2PaymentRoute";
 
 // Layouts and frames stay in the main bundle: they are what remains on screen
 // while a page's own code loads.

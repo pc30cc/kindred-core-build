@@ -7,11 +7,12 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!--
       One version for the whole app. Every release (a merge to main, or the workflow's
-      publish_now) is <Major>.<Minor>.<run number> of the Windows workflow
-      (.github/workflows/desktop-native.yml), so only Major and Minor are read from here:
-      raise them in a merge to start a new series.
+      publish_now) is <Major>.<Minor>.<count>, count being the commits on main's first-parent
+      line (.github/workflows/desktop-native.yml), the same number the Mac apps of that commit
+      get, so only Major and Minor are read from here: raise them in a merge to start a new
+      series, together with MARKETING_VERSION in macos/project.yml.
     -->
-    <Version>2.7.0</Version>
+    <Version>2.8.0</Version>
   </PropertyGroup>
 
   <!--

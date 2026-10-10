@@ -14,7 +14,11 @@ public static class Program
     public static int Main(string[] args)
     {
         // Velopack's install, update and uninstall hooks run before anything else, then return.
-        VelopackApp.Build().Run();
+        // After an install or an update, Explorer is told to drop the icon it cached for the exe.
+        VelopackApp.Build()
+            .OnAfterInstallFastCallback(_ => Services.ShellIcons.Refresh())
+            .OnAfterUpdateFastCallback(_ => Services.ShellIcons.Refresh())
+            .Run();
 
         // Out of the install folder: the WebView2 processes (calls, maps, email) inherit this folder
         // and outlive the app for a few seconds, and while they held the install folder an update

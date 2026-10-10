@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppIconRefresh.afterUpdate()
         app.applyAppearance()
         // Opened at login: stay in the menu bar until the operator asks for the window.
         // Only with a menu bar item to come back through (and signing in shows the window again).

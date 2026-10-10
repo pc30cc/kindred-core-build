@@ -135,8 +135,11 @@ with an EdDSA key; its public half is `SPARKLE_PUBLIC_KEY` in `project.yml`,
 so the apps refuse anything signed with another key.
 
 **Every merge to `main` that changes the app publishes both brands** from CI
-(`.github/workflows/macos.yml`), as `<Major>.<Minor>.<run number>` with build
-number 100 + run number. It needs `SPARKLE_PRIVATE_KEY`, plus
+(`.github/workflows/macos.yml`), as `<Major>.<Minor>.<count>` with build
+number `<count>`, where count is the number of commits on `main`'s
+first-parent line (one more with every merge). The Windows apps of the same
+commit get the same version, and a change to either desktop app releases all
+four apps. It needs `SPARKLE_PRIVATE_KEY`, plus
 `MAC_RELEASES_TOKEN` (WebYar) and `RESPOK_RELEASES_TOKEN` (RESPOK); without
 them the apps are built but not published, and the run says so. With the
 Developer ID secrets it signs and notarizes; without them it signs ad hoc, as
@@ -156,6 +159,6 @@ Two other ways to publish, both through `scripts/publish-feed.sh`:
   the secrets listed at its top, including that same private key as
   `SPARKLE_PRIVATE_KEY`. (There is no tag flow: a hand-picked version could
   sort below the automatic ones or carry a lower build number.) After adding a
-  missing secret, use `publish_now`, or re-run only the brand's own job:
-  re-running every job keeps the run number, so the brand that already
-  published would try to publish the same version again and fail.
+  missing secret, use `publish_now`, or re-run only the brand's own job: the
+  number comes from the commit, so the brand that already published would
+  try to publish the same version again and fail.

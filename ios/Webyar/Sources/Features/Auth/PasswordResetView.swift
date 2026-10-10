@@ -119,6 +119,7 @@ struct PasswordResetView: View {
                 title: Str.sendResetLink(language),
                 isLoading: isSending,
                 isEnabled: canSend,
+                isAuth: true,
                 action: send
             )
             .padding(.top, Theme.Space.xl)
@@ -152,7 +153,7 @@ struct PasswordResetView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, Theme.Space.xxs)
 
-            PrimaryButton(title: Str.backToLogin(language)) { dismiss() }
+            PrimaryButton(title: Str.backToLogin(language), isAuth: true) { dismiss() }
                 .padding(.top, Theme.Space.xl)
         }
         .frame(maxWidth: .infinity)
@@ -165,9 +166,9 @@ struct PasswordResetView: View {
     private func glyph(_ systemName: String) -> some View {
         Image(systemName: systemName)
             .font(.system(size: 26, weight: .semibold))
-            .foregroundStyle(Theme.Palette.brand)
+            .foregroundStyle(AuthPalette.link)
             .frame(width: 64, height: 64)
-            .background(Circle().fill(Theme.Palette.brand.opacity(0.12)))
+            .background(Circle().fill(AuthPalette.glow.opacity(0.12)))
             .padding(.bottom, Theme.Space.xs)
             .accessibilityHidden(true)
     }

@@ -48,6 +48,7 @@ struct LoginView: View {
                             title: Str.logIn(language),
                             isLoading: isSubmitting,
                             isEnabled: canSubmit,
+                            isAuth: true,
                             action: submit
                         )
                         .padding(.top, Theme.Space.xl)
@@ -57,7 +58,7 @@ struct LoginView: View {
                         } label: {
                             Text(Str.forgotPassword(language))
                                 .font(.app(.subheadline))
-                                .foregroundStyle(Theme.Palette.brand)
+                                .foregroundStyle(AuthPalette.link)
                                 .frame(minHeight: Theme.Size.minTouchTarget)
                         }
                         .buttonStyle(.plain)

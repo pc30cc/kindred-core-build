@@ -1,5 +1,9 @@
 const en = {
     billing: {
+    paused: {
+      title: 'Billing is being upgraded',
+      body: 'We are moving to a simpler billing system with a prepaid balance. Your current plan stays active and nothing will be charged until the new billing opens here.',
+    },
     checkout: {
       back: 'Back to billing',
       print: 'Print',

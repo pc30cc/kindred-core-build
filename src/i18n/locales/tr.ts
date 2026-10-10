@@ -2,6 +2,10 @@ import type { TranslationKeys } from './en';
 
 const tr: TranslationKeys = {
     billing: {
+    paused: {
+      title: 'Faturalandırma yenileniyor',
+      body: 'Ön ödemeli bakiyeli, daha basit bir faturalandırma sistemine geçiyoruz. Mevcut planınız aktif kalır ve yeni sistem burada açılana kadar hiçbir ücret alınmaz.',
+    },
     checkout: {
       back: 'Faturalandırmaya dön',
       print: 'Yazdır',

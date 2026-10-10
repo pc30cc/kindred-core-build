@@ -14,6 +14,7 @@ import {
   Landmark, Percent, Gauge, Receipt, Users,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
+import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
 import AdminBillingPage from './BillingPage';
 import AdminAiBillingPage from './AiBillingPage';
 import AdminAuditLogsPage from './AuditLogsPage';
@@ -27,6 +28,15 @@ const TABS = [
   'currencies', 'gateways', 'tax', 'usage', 'ai', 'audit',
 ] as const;
 type TabKey = (typeof TABS)[number];
+
+/**
+ * While billing v2 is hidden (shared/billingMode.ts) only what the simple
+ * billing keeps is shown: gateways, AI cost and the audit trail. Plans are
+ * edited in their own page (/admin/plans).
+ */
+const VISIBLE_TABS: readonly TabKey[] = LEGACY_BILLING_ENABLED
+  ? TABS
+  : ['gateways', 'ai', 'audit'];
 
 const LABELS: Record<'fa' | 'en' | 'tr', Record<TabKey, string>> = {
   fa: {
@@ -56,7 +66,7 @@ export default function AdminFinancePage() {
   const { t, locale } = useTranslation();
   const [params, setParams] = useSearchParams();
   const raw = params.get('tab') as TabKey | null;
-  const tab: TabKey = raw && (TABS as readonly string[]).includes(raw) ? raw : 'overview';
+  const tab: TabKey = raw && VISIBLE_TABS.includes(raw) ? raw : VISIBLE_TABS[0];
   const lang = (['fa', 'en', 'tr'] as const).includes(locale as never) ? (locale as 'fa' | 'en' | 'tr') : 'en';
   const labels = LABELS[lang];
 
@@ -75,7 +85,7 @@ export default function AdminFinancePage() {
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
         <TabsList className="flex w-full flex-wrap justify-start gap-1 h-auto p-1">
-          {TABS.map((key) => {
+          {VISIBLE_TABS.map((key) => {
             const Icon = ICONS[key];
             return (
               <TabsTrigger key={key} value={key} className="gap-2">

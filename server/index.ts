@@ -108,6 +108,7 @@ import { startWorkspaceDeletionWorker } from './services/workspaceDeletion/worke
 import { startUserDeletionWorker } from './services/userDeletion/worker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
 import { startBillingV2Schedulers } from './services/billing/scheduler/ticker.js';
+import { LEGACY_BILLING_ENABLED } from '../shared/billingMode.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
 import { startPerfCollectors } from './services/observability/perf.js';
 import { startAutoActionsTicker } from './services/observability/autoActionsTicker.js';
@@ -730,7 +731,9 @@ const httpServer = app.listen(config.port, () => {
   // AI billing — automatic, idempotent recovery/reconciliation pass.
   startAiBillingRecovery(config);
   // Billing Engine V2 — renewal invoices, wallet auto-pay and period activation.
-  startBillingV2Schedulers(config);
+  // Hidden while the simple billing replaces it (shared/billingMode.ts): it
+  // must not issue invoices or send notices nobody can act on.
+  if (LEGACY_BILLING_ENABLED) startBillingV2Schedulers(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
   // Reporting-only: nothing on a request path reads alert_events, so this

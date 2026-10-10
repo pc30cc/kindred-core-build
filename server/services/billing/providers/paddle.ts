@@ -253,14 +253,19 @@ export const paddleProvider: BillingProviderHandler = {
       currency_code: currency,
       collection_mode: 'automatic',
       custom_data: customData,
-      checkout: { url: req.callbackUrl },
+      // No `checkout.url`: Paddle accepts only an approved domain there
+      // (`transaction_checkout_url_domain_is_not_approved`), and the payment
+      // page opens this transaction with Paddle.js itself (`clientCheckout`),
+      // returning to `successUrl` below. Paddle's own links (e-mails) use the
+      // account's default payment link.
     });
     const error = readPaddleError(data);
     if (error !== null) throw new Error(error.detail || 'Paddle checkout failed');
     const txn = readPaddleTransaction(data);
     if (txn === null) throw new Error('Paddle checkout failed');
     return {
-      paymentUrl: txn.checkoutUrl || withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
+      // Our own payment page, never Paddle's default payment link.
+      paymentUrl: withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
       sessionId: txn.id,
       clientCheckout: {
         provider: 'paddle',

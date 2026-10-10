@@ -228,6 +228,25 @@ describe('a new checkout supersedes the previous one', () => {
   });
 });
 
+describe('a gateway that refuses the checkout', () => {
+  it('answers 502 CHECKOUT_PROVIDER_ERROR with the gateway\'s own reason, not a generic error', async () => {
+    gatewayRows = [gateway('stripe')];
+    pendingIntentRows = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    createCheckout.mockRejectedValueOnce(new Error('The value you passed for `checkout.url` does not contain a domain that has been approved by Paddle'));
+    const res = await call('POST', `/api/billing/workspaces/${WS}/invoices/${INVOICE}/checkout`, {
+      callbackUrl: 'https://app.test/acme/billing/pay/invoice/inv-1',
+      providerName: 'stripe',
+    });
+    expect(res.status).toBe(502);
+    expect(res.body).toMatchObject({
+      error: 'CHECKOUT_PROVIDER_ERROR',
+      details: { provider: 'stripe', providerMessage: expect.stringContaining('not contain a domain that has been approved') },
+    });
+    warn.mockRestore();
+  });
+});
+
 describe('the plan catalogue offers a plan only in a currency it is priced in', () => {
   type CatalogBody = {
     currency: string;

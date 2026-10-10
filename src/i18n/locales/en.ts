@@ -171,6 +171,7 @@ const en = {
       STALE_PREVIEW: 'The amount has changed. Please review the summary again.',
       INTERVAL_CHANGE_NOT_IMMEDIATE: 'You can\'t switch the billing interval during an immediate upgrade. Choose your current interval for this upgrade.',
       INVOICE_NOT_PAYABLE: 'This invoice cannot be paid right now.',
+      CHECKOUT_PROVIDER_ERROR: 'The payment gateway refused to open the checkout:',
       AMOUNT_OUT_OF_RANGE: 'The amount is outside the allowed range.',
       AMOUNT_NOT_ALLOWED: 'Please choose one of the suggested amounts.',
       NO_PROVIDER_CONFIGURED: 'No payment gateway is configured.',

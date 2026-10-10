@@ -173,6 +173,7 @@ const tr: TranslationKeys = {
       STALE_PREVIEW: 'Tutar değişti. Lütfen özeti tekrar inceleyin.',
       INTERVAL_CHANGE_NOT_IMMEDIATE: 'Anında yükseltmede faturalama dönemi değiştirilemez. Bu yükseltme için mevcut döneminizi seçin.',
       INVOICE_NOT_PAYABLE: 'Bu fatura şu anda ödenemez.',
+      CHECKOUT_PROVIDER_ERROR: 'Ödeme sağlayıcısı ödeme sayfasını açmayı reddetti:',
       AMOUNT_OUT_OF_RANGE: 'Tutar izin verilen aralığın dışında.',
       AMOUNT_NOT_ALLOWED: 'Lütfen önerilen tutarlardan birini seçin.',
       NO_PROVIDER_CONFIGURED: 'Tanımlı bir ödeme geçidi yok.',

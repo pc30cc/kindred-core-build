@@ -3871,8 +3871,8 @@ const en = {
       tab: 'Billing settings',
       title: 'Receipts and VAT',
       editing: {
-        iran: 'Settings of the Iranian edition (WebYar). They apply to receipts and payments in Toman.',
-        international: 'Settings of the international edition (RESPOK). They apply to receipts and payments in USD and TRY.',
+        iran: 'Settings of the Iranian edition. They apply to receipts and payments in Toman.',
+        international: 'Settings of the international edition. They apply to receipts and payments in USD and TRY.',
       },
       vat: 'VAT',
       vatHint: 'Percent added to every payment and shown on its receipt. Leave it empty for no VAT line at all. With Paddle leave it empty: Paddle adds the tax itself.',

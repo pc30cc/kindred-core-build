@@ -3860,8 +3860,8 @@ const tr: TranslationKeys = {
       tab: 'Faturalandırma ayarları',
       title: 'Makbuz ve KDV',
       editing: {
-        iran: 'İran sürümünün (WebYar) ayarları. Toman makbuz ve ödemelerine uygulanır.',
-        international: 'Uluslararası sürümün (RESPOK) ayarları. USD ve TRY makbuz ve ödemelerine uygulanır.',
+        iran: 'İran sürümünün ayarları. Toman makbuz ve ödemelerine uygulanır.',
+        international: 'Uluslararası sürümün ayarları. USD ve TRY makbuz ve ödemelerine uygulanır.',
       },
       vat: 'KDV',
       vatHint: 'Her ödemeye eklenen ve makbuzunda gösterilen yüzde. Boş bırakılırsa hiç KDV satırı gösterilmez. Paddle ile boş bırakın: Paddle vergiyi kendisi ekler.',

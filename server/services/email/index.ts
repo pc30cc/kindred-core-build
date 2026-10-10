@@ -11,6 +11,9 @@ import { sendViaResend } from './providers/resend.js';
 import { sendViaSendGrid } from './providers/sendgrid.js';
 import { sendViaSMTP } from './providers/smtp.js';
 import { buildEmailLogMetadata } from './redactLogMetadata.js';
+import { getPlatformAllowedLocales, getPlatformEditionOrNull } from '../platformRegion.js';
+import type { Edition } from '../../../shared/edition.js';
+import { IRAN_BRAND, brandContactFromDomains } from '../../../shared/brand.js';
 
 /**
  * What a caller may ask this service to send.
@@ -179,39 +182,51 @@ async function resolveFromAddress(
 }
 
 /**
- * Resolve email template by slug + locale.
- * Templates are always global (workspace_id IS NULL).
- * Fallback: requested locale → 'en'.
+ * Which edition's templates to send, and in which language.
+ *
+ * Templates are Super Admin rows kept per edition (migration 260): the
+ * Iranian edition's and the International edition's never mix, so a region
+ * switch can never send one brand's mail to the other's customers. The
+ * language is clamped to the languages this platform offers (Iran: Persian
+ * only), the ones Super Admin can edit; the first of them stands in for a
+ * language the platform does not offer.
+ */
+export async function resolveEmailScope(
+  config: ServerConfig,
+  locale: string | undefined,
+): Promise<{ edition: Edition; locales: string[] } | null> {
+  const edition = await getPlatformEditionOrNull(config);
+  if (!edition) return null;
+  const allowed = await getPlatformAllowedLocales(config).catch(() => ['en', 'fa', 'tr']);
+  const requested = String(locale || '').toLowerCase().split('-')[0];
+  const primary = requested && allowed.includes(requested) ? requested : allowed[0] || 'en';
+  const locales = [...new Set([primary, allowed[0] || 'en', 'en'])];
+  return { edition, locales };
+}
+
+/**
+ * Resolve email template by slug, within ONE edition, trying each locale in
+ * order (see resolveEmailScope). Templates are always global
+ * (workspace_id IS NULL). Never falls back to the other edition.
  */
 async function resolveTemplate(
   supabase: SupabaseClient,
-  _workspaceId: string | null,
+  edition: Edition,
   slug: string,
-  locale: string
-): Promise<{ subject: string; html_body: string; text_body: string | null } | null> {
-  const { data: template } = await supabase
-    .from('email_templates')
-    .select('subject, html_body, text_body')
-    .is('workspace_id', null)
-    .eq('slug', slug)
-    .eq('locale', locale)
-    .eq('is_active', true)
-    .maybeSingle();
-
-  if (template) return template;
-
-  if (locale !== 'en') {
-    const { data: fallback } = await supabase
+  locales: string[],
+): Promise<{ subject: string; html_body: string; text_body: string | null; locale: string } | null> {
+  for (const locale of locales) {
+    const { data: template } = await supabase
       .from('email_templates')
       .select('subject, html_body, text_body')
       .is('workspace_id', null)
+      .eq('edition', edition)
       .eq('slug', slug)
-      .eq('locale', 'en')
+      .eq('locale', locale)
       .eq('is_active', true)
       .maybeSingle();
-    return fallback;
+    if (template) return { ...(template as { subject: string; html_body: string; text_body: string | null }), locale };
   }
-
   return null;
 }
 
@@ -257,22 +272,85 @@ async function resolveBrandName(supabase: SupabaseClient, locale: string): Promi
   return 'Platform';
 }
 
+/**
+ * The platform's support address for {support_email}, per edition
+ * (shared/brand.ts): the Iranian edition's fixed address, else
+ * support@<the platform's own site host> from platform_domains. Empty when
+ * unknown — never an address made from the recipient's own domain.
+ */
+async function resolveSupportEmail(supabase: SupabaseClient, edition: Edition): Promise<string> {
+  if (edition === 'iran') return IRAN_BRAND.supportEmail;
+  try {
+    const { data } = await supabase
+      .from('platform_domains')
+      .select('primary_domain, canonical_base_url, public_base_url')
+      .limit(1)
+      .maybeSingle();
+    return brandContactFromDomains(data as Record<string, unknown> | null).support_email || '';
+  } catch {
+    return '';
+  }
+}
+
+type RenderedTemplate =
+  | { status: 'ok'; subject: string; html: string; text: string; locale: string }
+  | { status: 'missing' }
+  | { status: 'edition_unavailable' };
+
+/**
+ * The running edition's Super Admin template for `slug`, filled in. Branding
+ * defaults ({brand}, {year}, {support_email}) are added so every template
+ * renders them, while the caller's templateData always wins.
+ */
+async function renderEditionTemplate(
+  config: ServerConfig,
+  supabase: SupabaseClient,
+  slug: string,
+  templateData: Record<string, string> | undefined,
+  locale: string | undefined,
+): Promise<RenderedTemplate> {
+  const scope = await resolveEmailScope(config, locale);
+  if (!scope) return { status: 'edition_unavailable' };
+  const tpl = await resolveTemplate(supabase, scope.edition, slug, scope.locales);
+  if (!tpl) return { status: 'missing' };
+  const data: Record<string, string> = {
+    brand: await resolveBrandName(supabase, tpl.locale),
+    year: String(new Date().getFullYear()),
+    support_email: await resolveSupportEmail(supabase, scope.edition),
+    ...(templateData || {}),
+  };
+  return {
+    status: 'ok',
+    subject: interpolate(tpl.subject, data),
+    html: interpolate(tpl.html_body, data),
+    text: interpolate(tpl.text_body || '', data),
+    locale: tpl.locale,
+  };
+}
+
 /** Same rule as EmailRequest: the platform provider owns the From header. */
 export interface PlatformEmailRequest {
   to: string;
+  /** The text sent when the template is missing (or no template is named). */
   subject: string;
   html?: string;
   text?: string;
+  /** The running edition's Super Admin template to send, as in EmailRequest. */
+  templateSlug?: string;
+  templateData?: Record<string, string>;
+  locale?: string;
 }
 
 /**
- * Sends an email with NO workspace binding — for future pre-account flows
- * (signup-email-verification, password-reset, email-change) that have no
- * workspace to scope a provider or a log row against. Dormant: nothing in
- * this codebase calls this yet (see
- * docs/GENERIC_VERIFICATION_CORE.md §Workspace-less email). Deliberately
- * does not write to `email_logs` — that table is workspace-scoped
- * delivery history, not applicable to a send with no workspace.
+ * Sends an email with NO workspace binding — the pre-account flows
+ * (the e-mail verification code of sign-up, e-mail change, order lookup)
+ * that have no workspace to scope a provider or a log row against; see
+ * docs/GENERIC_VERIFICATION_CORE.md §Workspace-less email. Only the
+ * platform-default provider is used. With a templateSlug, the running
+ * edition's Super Admin template is sent (the request's own text only when
+ * it is missing). Deliberately does not write to `email_logs` — that table
+ * is workspace-scoped delivery history, not applicable to a send with no
+ * workspace.
  */
 export async function sendPlatformEmail(
   config: ServerConfig,
@@ -283,20 +361,34 @@ export async function sendPlatformEmail(
   const providerConfig = await resolveProviderConfig(supabase);
   const providerName = providerConfig?.provider_name || 'stub';
 
+  let subject = request.subject;
+  let html = request.html || '';
+  let text = request.text || '';
+  let fromLocale = 'en';
+  if (request.templateSlug) {
+    const rendered = await renderEditionTemplate(config, supabase, request.templateSlug, request.templateData, request.locale);
+    if (rendered.status === 'ok') {
+      ({ subject, html, text } = rendered);
+      fromLocale = rendered.locale;
+    } else if (rendered.status === 'edition_unavailable' && !subject && !html) {
+      return { success: false, provider: providerName, error: 'EDITION_UNAVAILABLE' };
+    }
+  }
+
   let fromAddr = '';
   if (providerConfig) {
-    const resolved = await resolveFromAddress(supabase, providerConfig, 'en');
+    const resolved = await resolveFromAddress(supabase, providerConfig, fromLocale);
     if (resolved.error) return { success: false, provider: providerName, error: resolved.error };
     fromAddr = resolved.from;
   }
 
   switch (providerName) {
     case 'resend':
-      return sendViaResend(providerConfig!, request.to, request.subject, request.html || '', request.text || '', fromAddr);
+      return sendViaResend(providerConfig!, request.to, subject, html, text, fromAddr);
     case 'sendgrid':
-      return sendViaSendGrid(providerConfig!, request.to, request.subject, request.html || '', request.text || '', fromAddr);
+      return sendViaSendGrid(providerConfig!, request.to, subject, html, text, fromAddr);
     case 'smtp':
-      return sendViaSMTP(providerConfig!, request.to, request.subject, request.html || '', request.text || '', fromAddr);
+      return sendViaSMTP(providerConfig!, request.to, subject, html, text, fromAddr);
     case 'stub':
       return { success: false, provider: 'stub', error: 'Email provider is not configured' };
     default:
@@ -333,23 +425,16 @@ export async function sendEmail(
   let text = request.text || '';
   let fromAddr = '';
 
+  let tplLocale = locale || 'en';
   if (templateSlug) {
-    const tplLocale = locale || 'en';
-    const tpl = await resolveTemplate(supabase, workspaceId, templateSlug, tplLocale);
-    if (tpl) {
-      subject = tpl.subject;
-      html = tpl.html_body;
-      text = tpl.text_body || '';
-      // Branding defaults so every template renders {brand}/{year} correctly,
-      // while explicit templateData always wins.
-      const data: Record<string, string> = {
-        brand: await resolveBrandName(supabase, tplLocale),
-        year: String(new Date().getFullYear()),
-        ...(templateData || {}),
-      };
-      subject = interpolate(subject, data);
-      html = interpolate(html, data);
-      text = interpolate(text, data);
+    const rendered = await renderEditionTemplate(config, supabase, templateSlug, templateData, locale);
+    if (rendered.status === 'ok') {
+      ({ subject, html, text } = rendered);
+      tplLocale = rendered.locale;
+    } else if (rendered.status === 'edition_unavailable' && !subject && !html) {
+      // Which brand's text to send cannot be told: retry later rather than
+      // guess. With the caller's own text, that text goes out instead.
+      return { success: false, provider: providerName, error: 'EDITION_UNAVAILABLE' };
     }
   }
 
@@ -359,7 +444,7 @@ export async function sendEmail(
 
   // --- Resolve from address ---
   if (providerConfig) {
-    const resolved = await resolveFromAddress(supabase, providerConfig, locale || 'en');
+    const resolved = await resolveFromAddress(supabase, providerConfig, tplLocale);
     if (resolved.error) return { success: false, provider: providerName, error: resolved.error };
     fromAddr = resolved.from;
   }

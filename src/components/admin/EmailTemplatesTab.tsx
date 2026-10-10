@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast';
 import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy, Receipt } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
+import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
+import type { Edition } from '../../../shared/edition';
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -35,26 +37,37 @@ interface DbTemplate {
   is_active: boolean | null;
 }
 
+// Billing v2's mails are listed only while billing v2 runs
+// (shared/billingMode.ts); the simple billing brings its own.
+const LEGACY_BILLING_SLUGS = [
+  'invoice_issued', 'invoice_reminder', 'invoice_due', 'invoice_past_due', 'wallet_autopay_insufficient',
+  'payment_received', 'subscription_restored', 'subscription_free_fallback', 'payment_success', 'payment_failed',
+  'subscription_renewed', 'subscription_cancelled', 'subscription_activated', 'wallet_deposit_received',
+  'ai_credit_purchased', 'trial_ending_soon', 'trial_expired',
+] as const;
+
 const CATEGORIES = [
-  { key: 'auth', icon: Shield, slugs: ['email_verify', 'password_reset', 'magic_link', 'welcome'] },
-  { key: 'transactional', icon: CreditCard, slugs: ['invite_member', 'invite_otp', 'payment_success', 'payment_failed', 'subscription_renewed', 'subscription_cancelled'] },
+  { key: 'auth', icon: Shield, slugs: ['email_verify', 'verification_code', 'password_reset', 'magic_link', 'welcome'] },
+  { key: 'transactional', icon: CreditCard, slugs: ['invite_member', 'invite_otp', 'email_test'] },
   // The operator notification emails, plus the four placeholder slugs that
   // were here before them. `operator_*` are the ones a sender exists for:
   // `services/notificationEmail/producers.ts` renders through each of them.
-  { key: 'notification', icon: Bell, slugs: ['operator_unread_digest', 'operator_conversation_transcript', 'operator_invoice_paid', 'operator_weekly_summary', 'operator_product_update', 'new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
-  { key: 'billing', icon: Receipt, slugs: ['invoice_issued', 'invoice_reminder', 'invoice_due', 'invoice_past_due', 'wallet_autopay_insufficient', 'payment_received', 'subscription_restored', 'subscription_free_fallback'] },
+  { key: 'notification', icon: Bell, slugs: ['operator_unread_digest', 'operator_conversation_transcript', 'operator_invoice_paid', 'operator_weekly_summary', 'operator_product_update', 'offline_message_received', 'new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
+  ...(LEGACY_BILLING_ENABLED ? [{ key: 'billing', icon: Receipt, slugs: LEGACY_BILLING_SLUGS }] : []),
 ] as const;
 
 // Every billing notification renders with the same server-provided context.
 const BILLING_VARIABLES = ['{brand}', '{year}', '{invoice_number}', '{amount}', '{due_at}', '{grace_ends_at}', '{plan_name}', '{action_url}'];
 
 const SLUG_VARIABLES: Record<string, string[]> = {
-  email_verify: ['{name}', '{brand}', '{action_url}', '{expiry_time}'],
-  password_reset: ['{name}', '{brand}', '{action_url}', '{expiry_time}'],
+  email_verify: ['{name}', '{brand}', '{action_url}', '{expiry_time}', '{support_email}'],
+  password_reset: ['{name}', '{brand}', '{action_url}', '{expiry_time}', '{support_email}'],
   magic_link: ['{name}', '{brand}', '{action_url}', '{expiry_time}'],
   welcome: ['{name}', '{brand}', '{action_url}'],
   invite_member: ['{name}', '{brand}', '{inviter}', '{workspace}', '{role}', '{action_url}'],
   invite_otp: ['{code}', '{expiry_minutes}', '{brand}', '{year}'],
+  verification_code: ['{code}', '{minutes}', '{brand}', '{year}'],
+  email_test: ['{brand}', '{year}'],
   payment_success: ['{name}', '{brand}', '{amount}', '{currency}', '{plan}', '{invoice_url}'],
   payment_failed: ['{name}', '{brand}', '{amount}', '{currency}', '{reason}', '{action_url}'],
   subscription_renewed: ['{name}', '{brand}', '{plan}', '{next_date}', '{amount}'],
@@ -89,6 +102,8 @@ export default function EmailTemplatesTab() {
   const activeLocales = allowedLocales.length ? allowedLocales : LOCALES.map(l => l.code);
 
   const [templates, setTemplates] = useState<DbTemplate[]>([]);
+  // The edition whose templates these are (each edition keeps its own).
+  const [edition, setEdition] = useState<Edition | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedSlug, setSelectedSlug] = useState('email_verify');
@@ -114,8 +129,9 @@ export default function EmailTemplatesTab() {
   async function fetchTemplates() {
     setLoading(true);
     try {
-      const { templates } = await adminFetch<{ templates: DbTemplate[] }>('/api/admin/management/email-templates');
-      setTemplates(templates || []);
+      const res = await adminFetch<{ templates: DbTemplate[]; edition?: Edition }>('/api/admin/management/email-templates');
+      setTemplates(res.templates || []);
+      setEdition(res.edition ?? null);
     } catch (err) {
       toast.error(t('admin.brandingPage.emailTemplates.toasts.loadFailed' as TranslationKey));
       console.error(err);
@@ -205,6 +221,11 @@ export default function EmailTemplatesTab() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {edition && (
+        <p className="lg:col-span-3 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground" data-testid="email-templates-edition">
+          {t(`admin.brandingPage.emailTemplates.edition.${edition}` as TranslationKey)}
+        </p>
+      )}
       <div className="space-y-4">
         <Select value={categoryFilter} onValueChange={setCategoryFilter}>
           <SelectTrigger className="w-full"><SelectValue placeholder={t('admin.brandingPage.emailTemplates.filterCategory' as TranslationKey)} /></SelectTrigger>

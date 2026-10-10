@@ -192,21 +192,30 @@ async function sendOtpDirect(
       return { outcome, providerName: result.provider, errorCode: result.errorCode };
     }
 
-    // Workspace-less (pre-account) email path — server/services/email/index.js's
-    // sendPlatformEmail resolves ONLY the platform-default provider
-    // (app_runtime_config.default_email_provider), no workspace lookup at
-    // all. Dormant in production today (no purpose with tenantBinding:
-    // 'none' is enabled — see types.ts), but exercised directly by
-    // src/test/integration/genericVerificationCore.pg.test.ts to prove the
-    // core can send a workspace-less email end-to-end, per
+    // The code is sent with the Super Admin template `verification_code`
+    // (Branding → Email templates, per edition, migration 260), filled with
+    // {code} and {minutes}. The compiled text below is only what is sent if
+    // that template was deleted, so a sign-up is never blocked by it.
+    const rendered = renderOtpEmail(input.locale, input.code, input.ttlSeconds);
+    const template = {
+      templateSlug: 'verification_code',
+      templateData: { code: input.code, minutes: String(Math.round(input.ttlSeconds / 60)) },
+      locale: input.locale,
+    };
+
+    // Workspace-less (pre-account) email path — sendPlatformEmail resolves
+    // ONLY the platform-default provider (app_runtime_config.
+    // default_email_provider), no workspace lookup at all, and writes no
+    // email_logs row. Exercised directly by
+    // src/test/integration/genericVerificationCore.pg.test.ts, per
     // docs/GENERIC_VERIFICATION_CORE.md §Workspace-less email.
     if (!input.workspaceId) {
-      const rendered = renderOtpEmail(input.locale, input.code, input.ttlSeconds);
       const result = await sendPlatformEmail(config, {
         to: input.destinationNormalized,
         subject: rendered.subject,
         html: rendered.html,
         text: rendered.text,
+        ...template,
       });
       if (result.success && result.provider !== 'stub') {
         return { outcome: 'provider_accepted', providerName: result.provider, providerMessageId: result.id };
@@ -217,13 +226,13 @@ async function sendOtpDirect(
       return { outcome: 'retryable_failure', providerName: result.provider, errorCode: result.error };
     }
 
-    const rendered = renderOtpEmail(input.locale, input.code, input.ttlSeconds);
     const result = await sendEmail(config, {
       workspaceId: input.workspaceId,
       to: input.destinationNormalized,
       subject: rendered.subject,
       html: rendered.html,
       text: rendered.text,
+      ...template,
     });
     if (result.success && result.provider !== 'stub') {
       return { outcome: 'provider_accepted', providerName: result.provider, providerMessageId: result.id };

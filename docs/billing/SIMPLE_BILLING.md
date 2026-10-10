@@ -103,6 +103,17 @@ VAT per edition, and **locked-data retention days** (empty = never deleted).
 - Locked data is deleted after the plan's retention days, after notices 30
   and 7 days before.
 
+## Emails
+
+Every email the billing sends (renewal reminders 7/3/1 days, renewed,
+expired to free, receipt, downgrade scheduled, data-deletion notices 30/7
+days, top-up received) comes from the Super Admin's branding and email
+settings, exactly like the rest of the platform: sender, logo, layout and
+the text of each template. Nothing is hard-coded in the billing code.
+Multi Region has its own templates, separate from Iran's, with its own brand
+and languages; an Iran template is never used for a Multi Region workspace or
+the other way round.
+
 ## AI credit
 
 Fixed packs bought with one click from the balance.

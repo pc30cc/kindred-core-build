@@ -134,8 +134,11 @@ deletion, pruning of stale payment attempts. Replaces the 5-minute ticker.
 
 1. Hide billing v2 (workspace page, Super Admin finance tabs) and stop its
    scheduler. Code and data untouched. Everyone keeps their current plan.
-2. Accounts, ledger, payments; top-up and receipts; billing profile.
+2. Accounts, ledger, payments; top-up and receipts; billing profile. (Done:
+   migration 259.)
 3. Renewal, upgrade, downgrade, reminders, hourly job; Paddle saved card.
+   3a (migration 261): everything but the saved card. 3b: the Paddle saved
+   card.
 4. Computed locks, downgrade report, export, retention deletion.
 5. AI credit packs.
 6. Super Admin screens.
@@ -195,3 +198,71 @@ templates.
 - Gateways listed are those allowed in the edition, active, accepting the
   account currency, and able to confirm a payment (a `verifyPayment` or a
   signed webhook that carries our payment id).
+
+### Plans: buy, renew, upgrade, change (phase 3a, migration 261)
+
+Each rule is one SQL function (service_role only), one transaction, keyed so
+that a retry does nothing twice. `workspace_subscriptions` is written only by
+`billing_account_write_subscription`, which also writes `plan_change_log`.
+
+- **Buy** (`billing_account_purchase_plan`): on Free, a trial, or after a plan
+  ran out. The full price from the balance; the period starts now; the
+  month's AI credit is granted. Refused while a paid period runs (that is an
+  upgrade or a change). Idempotent per the browser's key.
+- **Renew** (`billing_account_renew`): pays the next period at the price of
+  the plan and interval it will have (the change scheduled for the period
+  end, if any). Before the due date it is kept as
+  `next_period_prepaid_minor`; the next period starts when the current one
+  ends. One renewal per period (the key is the period end).
+- **The due moment** (`billing_account_process_due`, hourly job): a prepaid
+  next period starts; else, with auto-renew on and enough balance, it is
+  paid from the balance and starts; else (or when Free is scheduled) the
+  subscription becomes `expired` and the workspace is on Free at once. The
+  plan stays on the row, so "renew" can offer it again.
+- **Upgrade** (`billing_account_upgrade`): at once, same interval, same due
+  date. Monthly: the price difference. Yearly: the difference x whole months
+  left / 12 (`billing_account_upgrade_cost`). The month's AI credit
+  difference is granted under its own source. A scheduled change is dropped
+  and a prepaid next period returns to the balance (the renewal then
+  charges the new price).
+- **Change at the period end** (`billing_account_schedule_change`):
+  downgrade, Free, monthly <-> yearly, or a higher plan "from the next
+  period" (offered when fewer than 7 days are left). Choosing the current
+  plan and interval cancels. A prepaid next period is re-priced: the
+  difference returns to the balance, or the missing part is taken from it.
+- **Pay online** for a plan, a renewal or an upgrade: the gateway charges
+  what the balance is missing (at least the top-up minimum), plus VAT; the
+  settlement credits it and spends it on the purpose in the same
+  transaction, or leaves it in the balance if the purpose can no longer be
+  done.
+- **AI credit**: each month of a period (and of a trial) gets the plan's
+  monthly allowance once (`billing_account_grant_month`, cycle id
+  `cycle:account:<month start>`, expiring at that month's end). The amount
+  is the workspace's override, else `billing_plans.ai_allowance.IRR`, else
+  the limit `included_ai_allowance_irr`, else `ai_credits_per_month`. A
+  month another path already funded (billing v2's own cycle) is not funded
+  again. The AI wallet counts in its own unit (Rial).
+- Billing v2's guard and lifecycle-mail triggers on `workspace_subscriptions`
+  are dropped; its other tables and functions stay until phase 7.
+
+### The hourly job (server/services/billing/account/job.ts)
+
+One run an hour (first two minutes after start; `SIMPLE_BILLING_JOB=off`
+turns it off), under the `simple_billing` ticker lease: due periods, the
+month's AI credit, renewal reminders (7, 3, 1 days before; not sent when
+auto-renew will pay or the next period is paid), trial reminders (3 and 1
+days) and the end of a trial, pruning of unfinished payments (30 days). A
+reminder is recorded in `billing_accounts.notices_sent` before it is sent
+and taken back if the mail fails, so it goes out once.
+
+### Billing emails
+
+Templates (Super Admin -> Branding -> Email templates, per edition, fa/en/tr):
+`billing_renewal_reminder`, `billing_renewed`, `billing_expired`,
+`billing_plan_changed`, `billing_change_scheduled`, `billing_payment_receipt`,
+`billing_plan_activated`, `billing_trial_ending`, `billing_trial_ended`.
+The server fills the variables in the edition's way (Toman, Persian digits
+and the Persian calendar in Iran) and adds `billing_url`, `receipt_url`,
+`{brand}`, `{year}`, `{support_email}`. Recipient: the billing profile's
+invoice email, else the owner.
+

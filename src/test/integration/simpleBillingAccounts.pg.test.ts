@@ -66,9 +66,12 @@ async function makePayment(
   return String(row.id);
 }
 
-const settle = (paymentId: string, amount: number, currency: string, ref: string | null = 'txn_1') =>
-  one(`SELECT public.billing_account_settle_payment($1, $2, $3, $4) AS r`, [paymentId, amount, currency, ref])
-    .then((row) => row.r as Row);
+let refSeq = 0;
+/** The gateway confirmed the payment (recorded first), then it is settled. */
+const settle = async (paymentId: string, amount: number, currency: string, ref: string | null = null) => {
+  await q(`SELECT public.billing_account_record_verification($1, $2, $3, $4)`, [paymentId, amount, currency, ref ?? `txn_${++refSeq}`]);
+  return one(`SELECT public.billing_account_settle_payment($1) AS r`, [paymentId]).then((row) => row.r as Row);
+};
 
 const balanceOf = async (ws: string): Promise<number> =>
   Number((await one(`SELECT balance_minor FROM public.billing_accounts WHERE workspace_id = $1`, [ws])).balance_minor);
@@ -146,7 +149,7 @@ suite('259 — simple billing accounts (real PostgreSQL, whole chain)', () => {
     expect(payment.provider_payment_id).toBe('txn_abc');
 
     // A replay (second callback, the webhook after the return) credits nothing.
-    const replay = await settle(pay, 2500, 'USD');
+    const replay = await settle(pay, 2500, 'USD', 'txn_abc');
     expect(replay.replayed).toBe(true);
     expect(replay.ledger_id).toBe(r.ledger_id);
     expect(await balanceOf(ws)).toBe(2500);
@@ -169,16 +172,99 @@ suite('259 — simple billing accounts (real PostgreSQL, whole chain)', () => {
     const pay = await makePayment(ws, { net: 900 });
     await expect(settle(pay, 899, 'USD')).rejects.toThrow(/billing_payment_amount_mismatch/);
     await expect(settle(pay, 900, 'EUR')).rejects.toThrow(/billing_payment_currency_mismatch/);
+    expect((await one(`SELECT verified_at FROM public.billing_account_payments WHERE id = $1`, [pay])).verified_at).toBeNull();
     expect((await one(`SELECT status FROM public.billing_account_payments WHERE id = $1`, [pay])).status).toBe('pending');
     expect(await q(`SELECT 1 FROM public.billing_accounts WHERE workspace_id = $1`, [ws])).toHaveLength(0);
   });
 
-  it('never mixes currencies in one account', async () => {
+  it('never mixes currencies in one account; an account that never moved money takes the first payment\'s', async () => {
     const ws = await makeWorkspace();
     await q(`SELECT public.billing_account_ensure($1, 'TRY')`, [ws]);
-    const pay = await makePayment(ws, { net: 500, currency: 'USD' });
-    await expect(settle(pay, 500, 'USD')).rejects.toThrow(/billing_account_currency_mismatch/);
+    const usd = await makePayment(ws, { net: 500, currency: 'USD' });
+    await settle(usd, 500, 'USD');
+    expect((await one(`SELECT currency FROM public.billing_accounts WHERE workspace_id = $1`, [ws])).currency).toBe('USD');
+    expect(await balanceOf(ws)).toBe(500);
+
+    const tl = await makePayment(ws, { net: 10_000, currency: 'TRY' });
+    await q(`SELECT public.billing_account_record_verification($1, 10000, 'TRY', 'txn_try')`, [tl]);
+    await expect(q(`SELECT public.billing_account_settle_payment($1)`, [tl])).rejects.toThrow(/billing_account_currency_mismatch/);
+    expect(await balanceOf(ws)).toBe(500);
+  });
+
+  it('settles nothing the gateway did not confirm', async () => {
+    const ws = await makeWorkspace();
+    const pay = await makePayment(ws, { net: 800 });
+    await expect(q(`SELECT public.billing_account_settle_payment($1)`, [pay])).rejects.toThrow(/billing_payment_not_verified/);
+    expect(await q(`SELECT 1 FROM public.billing_account_ledger WHERE workspace_id = $1`, [ws])).toHaveLength(0);
+  });
+
+  it('one gateway transaction settles one payment, never a second', async () => {
+    const ws = await makeWorkspace();
+    const a = await makePayment(ws, { net: 1_000_000, currency: 'IRR', provider: 'sep_shaparak' });
+    const b = await makePayment(ws, { net: 1_000_000, currency: 'IRR', provider: 'sep_shaparak' });
+    await settle(a, 1_000_000, 'IRR', 'RefNum-1');
+    await expect(q(`SELECT public.billing_account_record_verification($1, 1000000, 'IRR', 'RefNum-1')`, [b]))
+      .rejects.toThrow(/billing_payment_reference_reused/);
+    // A confirmed payment cannot be re-confirmed with another transaction either.
+    await expect(q(`SELECT public.billing_account_record_verification($1, 1000000, 'IRR', 'RefNum-2')`, [a]))
+      .rejects.toThrow(/billing_payment_reference_reused/);
+    expect(await balanceOf(ws)).toBe(1_000_000);
+    // The same transaction again is a no-op.
+    await q(`SELECT public.billing_account_record_verification($1, 1000000, 'IRR', 'RefNum-1')`, [a]);
+  });
+
+  it('a confirmation whose settlement failed is settled later from the record, without the gateway', async () => {
+    const ws = await makeWorkspace();
+    const pay = await makePayment(ws, { net: 300 });
+    await q(`SELECT public.billing_account_record_verification($1, 300, 'USD', 'txn_late')`, [pay]);
+    // ... the settle call never happened (crash). Later:
+    const r = (await one(`SELECT public.billing_account_settle_payment($1) AS r`, [pay])).r as Row;
+    expect(r.replayed).toBe(false);
+    expect(await balanceOf(ws)).toBe(300);
+  });
+
+  it('a refund takes the credit back in proportion, never below zero, once per refund id', async () => {
+    const ws = await makeWorkspace();
+    const pay = await makePayment(ws, { net: 1_000_000, tax: 100_000, currency: 'IRR', provider: 'zarinpal' });
+    await settle(pay, 1_100_000, 'IRR');
+    // Half refunded (gross 550,000 = net 500,000).
+    const half = (await one(`SELECT public.billing_account_refund_payment($1, 'rf1', 550000) AS r`, [pay])).r as Row;
+    expect(Number(half.debited_minor)).toBe(500_000);
+    expect(Number(half.shortfall_minor)).toBe(0);
+    expect(await balanceOf(ws)).toBe(500_000);
+    const again = (await one(`SELECT public.billing_account_refund_payment($1, 'rf1', 550000) AS r`, [pay])).r as Row;
+    expect(again.replayed).toBe(true);
+    expect(await balanceOf(ws)).toBe(500_000);
+    // Spend some of it, then the rest is refunded: what was spent is a shortfall.
+    await q(`SELECT public.billing_account_admin_adjust($1, -300000, 'IRR', 'spent', NULL, $2)`, [ws, randomUUID()]);
+    const rest = (await one(`SELECT public.billing_account_refund_payment($1, 'rf2', 550000) AS r`, [pay])).r as Row;
+    expect(Number(rest.debited_minor)).toBe(200_000);
+    expect(Number(rest.shortfall_minor)).toBe(300_000);
     expect(await balanceOf(ws)).toBe(0);
+    // Nothing more can be refunded than was credited.
+    const over = (await one(`SELECT public.billing_account_refund_payment($1, 'rf3', 550000) AS r`, [pay])).r as Row;
+    expect(over.ledger_id).toBeNull();
+    expect(await balanceOf(ws)).toBe(0);
+  });
+
+  it('receipt numbers keep growing past six digits', async () => {
+    await q(`SELECT setval('public.billing_receipt_seq', 999999)`);
+    const ws = await makeWorkspace();
+    const p1 = await makePayment(ws, { net: 600 });
+    const p2 = await makePayment(ws, { net: 600 });
+    const r1 = await settle(p1, 600, 'USD');
+    const r2 = await settle(p2, 600, 'USD');
+    expect(r1.receipt_number).toMatch(/^RS\d{4}-1000000$/);
+    expect(r2.receipt_number).toMatch(/^RS\d{4}-1000001$/);
+  });
+
+  it('the ledger cannot be deleted directly, only with its workspace', async () => {
+    const ws = await makeWorkspace();
+    const pay = await makePayment(ws, { net: 700 });
+    const r = await settle(pay, 700, 'USD');
+    await expect(q(`DELETE FROM public.billing_account_ledger WHERE id = $1`, [r.ledger_id])).rejects.toThrow(/append-only/);
+    await q(`DELETE FROM public.workspaces WHERE id = $1`, [ws]);
+    expect(await q(`SELECT 1 FROM public.billing_account_ledger WHERE workspace_id = $1`, [ws])).toHaveLength(0);
   });
 
   it('still credits money confirmed for an attempt that was given up on', async () => {
@@ -200,8 +286,9 @@ suite('259 — simple billing accounts (real PostgreSQL, whole chain)', () => {
       return c;
     }));
     try {
+      await q(`SELECT public.billing_account_record_verification($1, 1200, 'USD', 'txn_conc')`, [pay]);
       const results = await Promise.all(others.map((c) =>
-        c.query(`SELECT public.billing_account_settle_payment($1, 1200, 'USD', NULL) AS r`, [pay])
+        c.query(`SELECT public.billing_account_settle_payment($1) AS r`, [pay])
           .then((res) => res.rows[0].r as Row)));
       expect(results.filter((r) => r.replayed === false)).toHaveLength(1);
       expect(await balanceOf(ws)).toBe(1200);
@@ -249,12 +336,23 @@ suite('259 — simple billing accounts (real PostgreSQL, whole chain)', () => {
     await settle(settled, 100, 'USD');
     await q(`UPDATE public.billing_account_payments SET created_at = now() - interval '45 days' WHERE id = $1`, [settled]);
 
-    await q(`SELECT public.billing_account_prune_payments(30)`);
+    const openCard = await makePayment(ws, { net: 100, status: 'expired', createdDaysAgo: 40 });
+    await q(`UPDATE public.billing_account_payments SET provider_ref = 'txn_open' WHERE id = $1`, [openCard]);
+    const iranOld = await makePayment(ws, { net: 100, status: 'expired', createdDaysAgo: 40, provider: 'zarinpal' });
+    await q(`UPDATE public.billing_account_payments SET provider_ref = 'A0001' WHERE id = $1`, [iranOld]);
+    const confirmed = await makePayment(ws, { net: 100, createdDaysAgo: 40 });
+    await q(`SELECT public.billing_account_record_verification($1, 100, 'USD', 'txn_confirmed')`, [confirmed]);
+
+    await q(`SELECT public.billing_account_prune_payments(30, ARRAY['zarinpal'])`);
     const left = (await q(`SELECT id FROM public.billing_account_payments WHERE workspace_id = $1`, [ws])).map((r) => r.id);
     expect(left).toContain(recent);
     expect(left).toContain(settled);
     expect(left).not.toContain(oldPending);
     expect(left).not.toContain(oldFailed);
+    expect(left).not.toContain(iranOld);
+    // A card checkout that may still be paid, and a confirmed payment, stay.
+    expect(left).toContain(openCard);
+    expect(left).toContain(confirmed);
   });
 
   it('is reachable by service_role only', async () => {
@@ -283,7 +381,7 @@ suite('259 — simple billing accounts (real PostgreSQL, whole chain)', () => {
          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'public' AND p.proname LIKE 'billing_account_%'`,
     );
-    expect(fns.length).toBeGreaterThanOrEqual(5);
+    expect(fns.length).toBeGreaterThanOrEqual(7);
     for (const f of fns) {
       expect(f.auth_exec).toBe(false);
       expect(f.anon_exec).toBe(false);

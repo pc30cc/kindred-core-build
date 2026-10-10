@@ -59,6 +59,7 @@ const tr: TranslationKeys = {
         pending: 'Ödemeniz doğrulanıyor. Doğrulanır doğrulanmaz bakiyeniz güncellenecek.',
         failed: 'Ödeme tamamlanmadı. Bakiyenizde hiçbir değişiklik olmadı.',
         receipt: 'Makbuzu görüntüle',
+        checkAgain: 'Tekrar kontrol et',
         dismiss: 'Kapat',
       },
       profile: {
@@ -110,6 +111,7 @@ const tr: TranslationKeys = {
         CHECKOUT_PROVIDER_ERROR: 'Ödeme sağlayıcısı ödeme sayfasını açmadı:',
         CHECKOUT_REFERENCE_BINDING_FAILED: 'Ödeme sayfası hazırlanamadı. Lütfen tekrar deneyin.',
         INVALID_CALLBACK_URL: 'Bu adresten ödeme alınamaz.',
+        CURRENCY_CHANGED: 'Bu hesabın para birimi değişti. Sayfa yenilendi; lütfen tutarı kontrol edip tekrar deneyin.',
         generic: 'Bir sorun oluştu. Lütfen tekrar deneyin.',
       },
     },
@@ -3864,6 +3866,7 @@ const tr: TranslationKeys = {
         international: 'Uluslararası sürümün ayarları. USD ve TRY makbuz ve ödemelerine uygulanır.',
       },
       vat: 'KDV',
+      vatInvalid: 'KDV 0 ile 99 arasında bir sayı olmalıdır.',
       vatHint: 'Her ödemeye eklenen ve makbuzunda gösterilen yüzde. Boş bırakılırsa hiç KDV satırı gösterilmez. Paddle ile boş bırakın: Paddle vergiyi kendisi ekler.',
       vatFor: { IRR: 'İran (Toman)', USD: 'Çok bölgeli (USD)', TRY: 'Yalnızca Türkiye (TRY)' },
       receiptPrefix: 'Makbuz numarası öneki',

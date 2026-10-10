@@ -114,7 +114,9 @@ CREATE TABLE IF NOT EXISTS public.billing_account_ledger (
   balance_after    bigint NOT NULL,
   currency         text NOT NULL,
   -- What a debit paid for.
-  plan_id          uuid REFERENCES public.billing_plans(id) ON DELETE SET NULL,
+  -- RESTRICT: a plan that paid for something stays (SET NULL would be an
+  -- UPDATE, which the append-only trigger refuses).
+  plan_id          uuid REFERENCES public.billing_plans(id) ON DELETE RESTRICT,
   billing_interval text,
   period_start     timestamptz,
   period_end       timestamptz,
@@ -156,20 +158,24 @@ BEGIN
   END IF;
 END $$;
 
--- Append-only: rows are never changed. They go only with their workspace.
+-- Append-only: rows are never changed, and deleted only with their
+-- workspace (the ON DELETE CASCADE runs this trigger nested, depth > 1).
 CREATE OR REPLACE FUNCTION public.billing_account_ledger_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path TO 'public', 'pg_temp'
 AS $$
 BEGIN
+  IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
+    RETURN OLD;
+  END IF;
   RAISE EXCEPTION 'billing_account_ledger is append-only';
 END;
 $$;
 
 DROP TRIGGER IF EXISTS trg_billing_account_ledger_immutable ON public.billing_account_ledger;
 CREATE TRIGGER trg_billing_account_ledger_immutable
-  BEFORE UPDATE ON public.billing_account_ledger
+  BEFORE UPDATE OR DELETE ON public.billing_account_ledger
   FOR EACH ROW EXECUTE FUNCTION public.billing_account_ledger_immutable();
 
 -- ─── 4. Gateway attempts ──────────────────────────────────────────────────
@@ -196,11 +202,25 @@ CREATE TABLE IF NOT EXISTS public.billing_account_payments (
   created_by           uuid,
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now(),
-  completed_at         timestamptz
+  completed_at         timestamptz,
+  -- The gateway's confirmation, written BEFORE the balance is credited: an
+  -- Iranian gateway takes the money at verify, so a settlement that fails
+  -- afterwards is completed from this record, never by asking again.
+  verified_amount_minor bigint,
+  verified_at          timestamptz,
+  -- Refunded so far (minor units of the net credited), for refunds the
+  -- provider reports.
+  refunded_minor       bigint NOT NULL DEFAULT 0,
+  -- The provider confirmed the checkout can no longer be paid.
+  closed_at            timestamptz
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_billing_account_payments_ref
   ON public.billing_account_payments (provider, provider_ref) WHERE provider_ref IS NOT NULL;
+-- One gateway transaction settles one payment: a reference already used
+-- (SEP RefNum, PayPing refid, a card transaction) cannot settle another.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_billing_account_payments_provider_payment
+  ON public.billing_account_payments (provider, provider_payment_id) WHERE provider_payment_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_billing_account_payments_workspace
   ON public.billing_account_payments (workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_billing_account_payments_open
@@ -269,17 +289,67 @@ BEGIN
 END;
 $$;
 
--- Settles a gateway payment the server has verified with the gateway:
--- credits the net amount to the balance and writes its receipt. Idempotent:
--- a payment settles once; a replay returns the same ledger row.
---
--- p_amount_minor / p_currency are what the GATEWAY confirmed; they must equal
--- what the payment row asked for, or nothing is credited.
-CREATE OR REPLACE FUNCTION public.billing_account_settle_payment(
+-- Records the gateway's confirmation of a payment, before anything is
+-- credited. The gateway's transaction id becomes the payment's
+-- provider_payment_id, which is unique per provider: a transaction already
+-- recorded for ANOTHER payment raises billing_payment_reference_reused, so one
+-- real payment can never settle two attempts. Idempotent for the same
+-- transaction; a different one for an already-confirmed payment is refused.
+CREATE OR REPLACE FUNCTION public.billing_account_record_verification(
   p_payment_id          uuid,
   p_amount_minor        bigint,
   p_currency            text,
-  p_provider_payment_id text DEFAULT NULL
+  p_provider_payment_id text
+) RETURNS public.billing_account_payments
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_pay public.billing_account_payments;
+BEGIN
+  SELECT * INTO v_pay FROM public.billing_account_payments WHERE id = p_payment_id FOR UPDATE;
+  IF v_pay.id IS NULL THEN
+    RAISE EXCEPTION 'billing_payment_not_found';
+  END IF;
+  IF p_amount_minor IS DISTINCT FROM v_pay.amount_minor THEN
+    RAISE EXCEPTION 'billing_payment_amount_mismatch';
+  END IF;
+  IF upper(coalesce(p_currency, '')) <> v_pay.currency THEN
+    RAISE EXCEPTION 'billing_payment_currency_mismatch';
+  END IF;
+  IF coalesce(p_provider_payment_id, '') = '' THEN
+    RAISE EXCEPTION 'billing_payment_reference_missing';
+  END IF;
+  IF v_pay.verified_at IS NOT NULL THEN
+    IF v_pay.provider_payment_id IS DISTINCT FROM p_provider_payment_id THEN
+      RAISE EXCEPTION 'billing_payment_reference_reused';
+    END IF;
+    RETURN v_pay;
+  END IF;
+  BEGIN
+    UPDATE public.billing_account_payments
+       SET provider_payment_id = p_provider_payment_id,
+           verified_amount_minor = p_amount_minor,
+           verified_at = now(),
+           updated_at = now()
+     WHERE id = p_payment_id
+     RETURNING * INTO v_pay;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'billing_payment_reference_reused';
+  END;
+  RETURN v_pay;
+END;
+$$;
+
+-- Settles a payment whose gateway confirmation was recorded
+-- (billing_account_record_verification): credits the net amount to the
+-- balance and writes its numbered receipt, in one transaction. Idempotent: a
+-- payment settles once; a replay returns the same ledger row. Money confirmed
+-- for an attempt that was already given up on is still credited.
+--
+-- An account that has never moved money takes the payment's currency (its
+-- currency is fixed by the first money movement, not by its creation).
+CREATE OR REPLACE FUNCTION public.billing_account_settle_payment(
+  p_payment_id uuid
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
@@ -290,6 +360,8 @@ DECLARE
   v_settings public.billing_settings;
   v_edition  text;
   v_ws_name  text;
+  v_gateway  jsonb;
+  v_seq      text;
   v_receipt  text;
   v_balance  bigint;
 BEGIN
@@ -297,35 +369,35 @@ BEGIN
   IF v_pay.id IS NULL THEN
     RAISE EXCEPTION 'billing_payment_not_found';
   END IF;
-
   IF v_pay.status = 'succeeded' THEN
     RETURN jsonb_build_object('replayed', true, 'ledger_id', v_pay.ledger_id, 'payment_id', v_pay.id);
   END IF;
-  -- A gateway can confirm money for an attempt we already gave up on (the
-  -- customer paid at the last second): the money is real, so it is credited.
-  IF v_pay.status NOT IN ('pending', 'failed', 'canceled', 'expired') THEN
-    RAISE EXCEPTION 'billing_payment_bad_status:%', v_pay.status;
-  END IF;
-  IF p_amount_minor IS DISTINCT FROM v_pay.amount_minor THEN
-    RAISE EXCEPTION 'billing_payment_amount_mismatch';
-  END IF;
-  IF upper(coalesce(p_currency, '')) <> v_pay.currency THEN
-    RAISE EXCEPTION 'billing_payment_currency_mismatch';
+  IF v_pay.verified_at IS NULL OR v_pay.verified_amount_minor IS DISTINCT FROM v_pay.amount_minor THEN
+    RAISE EXCEPTION 'billing_payment_not_verified';
   END IF;
 
-  v_acc := public.billing_account_ensure(v_pay.workspace_id, v_pay.currency);
+  PERFORM public.billing_account_ensure(v_pay.workspace_id, v_pay.currency);
   SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = v_pay.workspace_id FOR UPDATE;
   IF v_acc.currency <> v_pay.currency THEN
-    RAISE EXCEPTION 'billing_account_currency_mismatch';
+    IF v_acc.balance_minor = 0
+       AND NOT EXISTS (SELECT 1 FROM public.billing_account_ledger WHERE workspace_id = v_pay.workspace_id) THEN
+      UPDATE public.billing_accounts SET currency = v_pay.currency, updated_at = now()
+       WHERE workspace_id = v_pay.workspace_id
+       RETURNING * INTO v_acc;
+    ELSE
+      RAISE EXCEPTION 'billing_account_currency_mismatch';
+    END IF;
   END IF;
 
   v_edition := public.platform_edition();
   SELECT * INTO v_settings FROM public.billing_settings WHERE edition = v_edition;
   SELECT name INTO v_ws_name FROM public.workspaces WHERE id = v_pay.workspace_id;
+  SELECT display_name INTO v_gateway FROM public.billing_gateways WHERE provider_name = v_pay.provider;
 
+  v_seq := nextval('public.billing_receipt_seq')::text;
   v_receipt := coalesce(nullif(v_settings.receipt_prefix, ''), 'R')
     || to_char(now() AT TIME ZONE 'UTC', 'YYYY') || '-'
-    || lpad(nextval('public.billing_receipt_seq')::text, 6, '0');
+    || lpad(v_seq, greatest(6, length(v_seq)), '0');
   v_balance := v_acc.balance_minor + v_pay.net_minor;
 
   INSERT INTO public.billing_account_ledger (
@@ -337,7 +409,8 @@ BEGIN
     v_pay.id, v_receipt, v_pay.net_minor, v_pay.tax_minor, v_pay.tax_percent,
     jsonb_build_object('workspace_name', v_ws_name) || coalesce(v_acc.billing_profile, '{}'::jsonb),
     coalesce(v_settings.seller, '{}'::jsonb),
-    jsonb_build_object('purpose', v_pay.purpose, 'provider', v_pay.provider) || coalesce(v_pay.purpose_detail, '{}'::jsonb),
+    jsonb_build_object('purpose', v_pay.purpose, 'provider', v_pay.provider, 'provider_name', coalesce(v_gateway, '{}'::jsonb))
+      || coalesce(v_pay.purpose_detail, '{}'::jsonb),
     v_pay.created_by,
     'payment:' || v_pay.id::text
   ) RETURNING * INTO v_entry;
@@ -349,7 +422,6 @@ BEGIN
   UPDATE public.billing_account_payments
      SET status = 'succeeded',
          ledger_id = v_entry.id,
-         provider_payment_id = coalesce(p_provider_payment_id, provider_payment_id),
          failure_reason = NULL,
          completed_at = now(),
          updated_at = now()
@@ -365,8 +437,96 @@ BEGIN
 END;
 $$;
 
+-- A refund the provider reports for a settled payment (gross amount, in the
+-- payment's currency). The credit it gave is taken back from the balance in
+-- proportion (net of VAT), never below zero; what could not be taken back
+-- because it was already spent is returned as `shortfall_minor` for review.
+-- Idempotent per provider refund id.
+CREATE OR REPLACE FUNCTION public.billing_account_refund_payment(
+  p_payment_id   uuid,
+  p_refund_id    text,
+  p_amount_minor bigint
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_pay       public.billing_account_payments;
+  v_acc       public.billing_accounts;
+  v_entry     public.billing_account_ledger;
+  v_key       text;
+  v_credit    bigint;
+  v_debit     bigint;
+  v_shortfall bigint;
+BEGIN
+  IF coalesce(p_refund_id, '') = '' OR p_amount_minor IS NULL OR p_amount_minor <= 0 THEN
+    RAISE EXCEPTION 'billing_refund_invalid';
+  END IF;
+  SELECT * INTO v_pay FROM public.billing_account_payments WHERE id = p_payment_id FOR UPDATE;
+  IF v_pay.id IS NULL THEN
+    RAISE EXCEPTION 'billing_payment_not_found';
+  END IF;
+  v_key := 'refund:' || v_pay.provider || ':' || p_refund_id;
+  SELECT * INTO v_entry FROM public.billing_account_ledger WHERE idempotency_key = v_key;
+  IF v_entry.id IS NOT NULL OR EXISTS (
+    SELECT 1 FROM public.billing_account_payments
+     WHERE id = p_payment_id AND (purpose_detail -> 'refunds') ? p_refund_id
+  ) THEN
+    RETURN jsonb_build_object('replayed', true, 'ledger_id', v_entry.id);
+  END IF;
+  IF v_pay.status <> 'succeeded' THEN
+    RAISE EXCEPTION 'billing_refund_unsettled_payment';
+  END IF;
+
+  -- The net share of this refund, capped at what is still unrefunded.
+  v_credit := least(
+    (p_amount_minor * v_pay.net_minor) / greatest(v_pay.amount_minor, 1),
+    v_pay.net_minor - v_pay.refunded_minor
+  );
+  IF v_credit <= 0 THEN
+    RETURN jsonb_build_object('replayed', false, 'ledger_id', NULL, 'debited_minor', 0, 'shortfall_minor', 0);
+  END IF;
+
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = v_pay.workspace_id FOR UPDATE;
+  v_debit := least(v_credit, coalesce(v_acc.balance_minor, 0));
+  v_shortfall := v_credit - v_debit;
+
+  IF v_debit > 0 THEN
+    INSERT INTO public.billing_account_ledger (
+      workspace_id, kind, amount_minor, balance_after, currency,
+      payment_id, description, idempotency_key
+    ) VALUES (
+      v_pay.workspace_id, 'refund', -v_debit, v_acc.balance_minor - v_debit, v_acc.currency,
+      v_pay.id,
+      jsonb_build_object('refund_id', p_refund_id, 'provider', v_pay.provider, 'shortfall_minor', v_shortfall),
+      v_key
+    ) RETURNING * INTO v_entry;
+    UPDATE public.billing_accounts
+       SET balance_minor = balance_minor - v_debit, updated_at = now()
+     WHERE workspace_id = v_pay.workspace_id;
+  END IF;
+
+  UPDATE public.billing_account_payments
+     SET refunded_minor = refunded_minor + v_credit,
+         purpose_detail = jsonb_set(
+           coalesce(purpose_detail, '{}'::jsonb), '{refunds}',
+           coalesce(purpose_detail -> 'refunds', '{}'::jsonb)
+             || jsonb_build_object(p_refund_id, jsonb_build_object('amount_minor', p_amount_minor, 'credit_minor', v_credit, 'shortfall_minor', v_shortfall))
+         ),
+         updated_at = now()
+   WHERE id = v_pay.id;
+
+  RETURN jsonb_build_object(
+    'replayed', false,
+    'ledger_id', v_entry.id,
+    'debited_minor', v_debit,
+    'shortfall_minor', v_shortfall
+  );
+END;
+$$;
+
 -- Super Admin credit (+) or debit (−) of a balance, with a reason. A debit
--- never takes the balance below zero. Idempotent per command key.
+-- never takes the balance below zero. Idempotent per command key (checked
+-- again under the account lock, so a double submit replays).
 CREATE OR REPLACE FUNCTION public.billing_account_admin_adjust(
   p_workspace_id uuid,
   p_amount_minor bigint,
@@ -388,13 +548,18 @@ BEGIN
   IF coalesce(p_command_key, '') = '' THEN
     RAISE EXCEPTION 'billing_adjust_missing_key';
   END IF;
-  SELECT * INTO v_entry FROM public.billing_account_ledger WHERE idempotency_key = 'admin:' || p_command_key;
-  IF v_entry.id IS NOT NULL THEN
-    RETURN jsonb_build_object('replayed', true, 'ledger_id', v_entry.id, 'balance_minor', v_entry.balance_after);
-  END IF;
 
   PERFORM public.billing_account_ensure(p_workspace_id, p_currency);
   SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
+
+  SELECT * INTO v_entry FROM public.billing_account_ledger WHERE idempotency_key = 'admin:' || p_command_key;
+  IF v_entry.id IS NOT NULL THEN
+    IF v_entry.workspace_id <> p_workspace_id THEN
+      RAISE EXCEPTION 'billing_adjust_key_reused';
+    END IF;
+    RETURN jsonb_build_object('replayed', true, 'ledger_id', v_entry.id, 'balance_minor', v_entry.balance_after);
+  END IF;
+
   IF v_acc.currency <> upper(p_currency) THEN
     RAISE EXCEPTION 'billing_account_currency_mismatch';
   END IF;
@@ -423,10 +588,16 @@ BEGIN
 END;
 $$;
 
--- Deletes gateway attempts that never completed and are older than the given
--- number of days (30 by default). Settled payments are kept: their receipt
--- refers to them.
-CREATE OR REPLACE FUNCTION public.billing_account_prune_payments(p_days integer DEFAULT 30)
+-- Deletes gateway attempts that never completed and are older than p_days
+-- (30 by default) — but only those that can no longer be paid: no checkout
+-- reference, a checkout the provider confirmed closed, or a provider whose
+-- checkouts expire on their own (p_short_lived: the Iranian bank gateways).
+-- A confirmed-but-unsettled attempt is never deleted. Settled payments are
+-- kept: their receipt refers to them.
+CREATE OR REPLACE FUNCTION public.billing_account_prune_payments(
+  p_days        integer DEFAULT 30,
+  p_short_lived text[] DEFAULT '{}'
+)
 RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
@@ -435,7 +606,9 @@ DECLARE
 BEGIN
   DELETE FROM public.billing_account_payments
    WHERE status <> 'succeeded'
-     AND created_at < now() - make_interval(days => greatest(coalesce(p_days, 30), 1));
+     AND verified_at IS NULL
+     AND created_at < now() - make_interval(days => greatest(coalesce(p_days, 30), 1))
+     AND (provider_ref IS NULL OR closed_at IS NOT NULL OR provider = ANY (coalesce(p_short_lived, '{}')));
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
 END;
@@ -481,9 +654,11 @@ DECLARE f text;
 BEGIN
   FOREACH f IN ARRAY ARRAY[
     'public.billing_account_ensure(uuid, text)',
-    'public.billing_account_settle_payment(uuid, bigint, text, text)',
+    'public.billing_account_record_verification(uuid, bigint, text, text)',
+    'public.billing_account_settle_payment(uuid)',
+    'public.billing_account_refund_payment(uuid, text, bigint)',
     'public.billing_account_admin_adjust(uuid, bigint, text, text, uuid, text)',
-    'public.billing_account_prune_payments(integer)',
+    'public.billing_account_prune_payments(integer, text[])',
     'public.billing_account_ledger_immutable()'
   ] LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);

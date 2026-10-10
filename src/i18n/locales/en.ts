@@ -57,6 +57,7 @@ const en = {
         pending: 'Your payment is being confirmed. Your balance updates as soon as it is.',
         failed: 'The payment was not completed. Nothing was charged to your balance.',
         receipt: 'View receipt',
+        checkAgain: 'Check again',
         dismiss: 'Close',
       },
       profile: {
@@ -108,6 +109,7 @@ const en = {
         CHECKOUT_PROVIDER_ERROR: 'The payment gateway did not open the payment page:',
         CHECKOUT_REFERENCE_BINDING_FAILED: 'The payment page could not be prepared. Please try again.',
         INVALID_CALLBACK_URL: 'This address cannot receive payments.',
+        CURRENCY_CHANGED: 'This account\'s currency changed. The page was refreshed; please check the amount and try again.',
         generic: 'Something went wrong. Please try again.',
       },
     },
@@ -3875,6 +3877,7 @@ const en = {
         international: 'Settings of the international edition. They apply to receipts and payments in USD and TRY.',
       },
       vat: 'VAT',
+      vatInvalid: 'VAT must be a number from 0 to 99.',
       vatHint: 'Percent added to every payment and shown on its receipt. Leave it empty for no VAT line at all. With Paddle leave it empty: Paddle adds the tax itself.',
       vatFor: { IRR: 'Iran (Toman)', USD: 'Multi Region (USD)', TRY: 'Turkey only (TRY)' },
       receiptPrefix: 'Receipt number prefix',

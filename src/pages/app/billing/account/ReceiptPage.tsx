@@ -13,7 +13,7 @@ import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { accountBillingApi, type LedgerEntry } from '@/lib/accountBillingApi';
 import { ErrorState, Ltr, billingDate, money } from '../shared';
-import { accountErrorText } from './accountUi';
+import { accountErrorText, gatewayLabel } from './accountUi';
 import { SELLER_KEYS, BILLING_PROFILE_KEYS } from '../../../../../shared/simpleBilling';
 
 const LTR_KEYS = new Set(['economic_code', 'national_id', 'registration_number', 'vat_id', 'postal_code', 'phone', 'email', 'invoice_email', 'website']);
@@ -72,7 +72,7 @@ export default function ReceiptPage() {
     return (
       <div className="space-y-4 p-4 md:p-6 lg:p-8" dir={dir}>
         {back}
-        <ErrorState message={error} retryLabel={t('common.retry' as TranslationKey)} />
+        <ErrorState message={error} retryLabel={t('billing.common.retry')} />
       </div>
     );
   }
@@ -91,7 +91,11 @@ export default function ReceiptPage() {
   const item = purpose === 'topup'
     ? t('billing.account.receipt.itemTopup')
     : t(`billing.account.history.kinds.${purpose}` as TranslationKey);
-  const provider = typeof receipt.description?.provider === 'string' ? receipt.description.provider : '';
+  const providerId = typeof receipt.description?.provider === 'string' ? receipt.description.provider : '';
+  const providerNames = receipt.description?.provider_name;
+  const provider = providerId
+    ? gatewayLabel(providerNames && typeof providerNames === 'object' ? (providerNames as Record<string, string>) : null, providerId, locale)
+    : '';
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-4 md:p-6 lg:p-8 print:p-0" dir={dir}>
@@ -155,7 +159,7 @@ export default function ReceiptPage() {
 
           {provider && (
             <p className="text-xs text-muted-foreground">
-              {t('billing.account.receipt.paidWith')}: <Ltr>{provider}</Ltr>
+              {t('billing.account.receipt.paidWith')}: <bdi>{provider}</bdi>
             </p>
           )}
         </CardContent>

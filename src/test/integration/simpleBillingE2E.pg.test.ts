@@ -392,6 +392,47 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     expect(await balance(state.intlWs)).toBe(2500);
   });
 
+  it('Multi Region: a Paddle refund takes the credit back from the balance, once', async () => {
+    const ledger = await call('GET', `/api/billing/account/${state.intlWs}/ledger`);
+    const topup = (ledger.json.items as Array<{ kind: string; payment_id: string }>).find((i) => i.kind === 'topup')!;
+    const payment = await chain.db.query(`SELECT provider_payment_id FROM public.billing_account_payments WHERE id = $1`, [topup.payment_id]);
+    const txnId = payment.rows[0].provider_payment_id as string;
+    const before = await balance(state.intlWs);
+    const body = JSON.stringify({
+      event_id: 'evt_refund_1',
+      event_type: 'adjustment.updated',
+      data: { id: 'adj_1', action: 'refund', status: 'approved', transaction_id: txnId, currency_code: 'USD', totals: { total: '1000' } },
+    });
+    const ts = Math.floor(Date.now() / 1000);
+    const h1 = crypto.createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');
+    const hook = await call('POST', '/api/billing/webhook/paddle_sandbox', body, { 'paddle-signature': `ts=${ts};h1=${h1}` });
+    expect(hook.status).toBe(200);
+    expect(await balance(state.intlWs)).toBe(before - 1000);
+    const again = await call('POST', '/api/billing/webhook/paddle_sandbox', body, { 'paddle-signature': `ts=${ts};h1=${h1}` });
+    expect(again.status).toBe(200);
+    expect(await balance(state.intlWs)).toBe(before - 1000);
+    const refundRows = await chain.db.query(`SELECT amount_minor FROM public.billing_account_ledger WHERE workspace_id = $1 AND kind = 'refund'`, [state.intlWs]);
+    expect(refundRows.rows.map((r) => Number(r.amount_minor))).toEqual([-1000]);
+  });
+
+  it('a top-up shown in one currency is never charged in another', async () => {
+    const res = await call('POST', `/api/billing/account/${state.intlWs}/topup`, {
+      amountMinor: 50_000, currency: 'TRY', providerName: 'paddle_sandbox', callbackUrl: `${ORIGIN}/ws2/billing`,
+    });
+    expect(res.status).toBe(409);
+    expect(res.json).toMatchObject({ error: 'CURRENCY_CHANGED', details: { currency: 'USD' } });
+  });
+
+  it('the gateway return hop redirects only to this platform\'s own app', async () => {
+    const start = await call('POST', `/api/billing/account/${state.intlWs}/topup`, {
+      amountMinor: 1000, currency: 'USD', providerName: 'paddle_sandbox', callbackUrl: `${ORIGIN}/ws2/billing`,
+    });
+    const paymentId = String(start.json.paymentId);
+    await chain.db.query(`UPDATE public.billing_account_payments SET return_url = 'https://evil.example/login' WHERE id = $1`, [paymentId]);
+    const hop = await call('GET', `/api/billing/account-return?payment=${paymentId}&provider=paddle_sandbox`);
+    expect(hop.status).toBe(400);
+  });
+
   it('another workspace\'s payment and receipt cannot be read', async () => {
     const ledger = await call('GET', `/api/billing/account/${state.iranWs}/ledger`);
     const iranEntry = (ledger.json.items as Array<{ id: string }>)[0];

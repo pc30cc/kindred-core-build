@@ -81,6 +81,7 @@ function renderAt(url: string) {
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   for (const fn of Object.values(api)) fn.mockReset();
   openPaddle.mockReset();
   api.view.mockResolvedValue(VIEW);
@@ -110,8 +111,10 @@ describe('AccountBillingPage', () => {
     expect(within(dialog).queryByText(/billing\.account\.topup\.vat/)).not.toBeInTheDocument();
     expect(within(dialog).getAllByText('$50.00').length).toBeGreaterThan(0);
     fireEvent.click(within(dialog).getByText('billing.account.topup.pay'));
-    await waitFor(() => expect(api.topup).toHaveBeenCalledWith('ws-1', expect.objectContaining({ amountMinor: 5000, providerName: 'paddle' })));
+    await waitFor(() => expect(api.topup).toHaveBeenCalledWith('ws-1', expect.objectContaining({ amountMinor: 5000, currency: 'USD', providerName: 'paddle' })));
     await waitFor(() => expect(openPaddle).toHaveBeenCalled());
+    // The dialog is closed before Paddle's own overlay opens.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('shows the VAT line and the total when the edition has VAT', async () => {
@@ -144,6 +147,37 @@ describe('AccountBillingPage', () => {
     expect(screen.getByTestId('payment-result')).toHaveTextContent('$25.00');
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/acme\/billing$/);
     expect(api.verify).toHaveBeenCalledTimes(1);
+  });
+
+  it('a return still pending can be checked again, and a reload resumes the check', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      api.verify.mockResolvedValue({ status: 'pending' });
+      api.payment.mockResolvedValue({ id: 'pay3', status: 'pending', net_minor: 5000, ledger_id: null });
+      const first = renderAt('/acme/billing?payment=pay3&provider=zarinpal&Authority=A3&Status=OK');
+      await waitFor(() => expect(api.verify).toHaveBeenCalledWith('ws-1', 'pay3', 'zarinpal', { Authority: 'A3', Status: 'OK' }));
+      for (let i = 0; i < 25; i += 1) await vi.advanceTimersByTimeAsync(3000);
+      await waitFor(() => expect(screen.getByTestId('payment-result')).toHaveTextContent('billing.account.result.pending'));
+      // The gateway's parameters survived the cleaned address bar.
+      expect(JSON.parse(window.sessionStorage.getItem('billing:account-return:ws-1')!)).toMatchObject({ paymentId: 'pay3', params: { Authority: 'A3' } });
+
+      api.verify.mockReset();
+      api.verify.mockResolvedValue({ status: 'succeeded', ledgerId: 'l9' });
+      api.payment.mockResolvedValue({ id: 'pay3', status: 'succeeded', net_minor: 5000, ledger_id: 'l9' });
+      fireEvent.click(screen.getByText('billing.account.result.checkAgain'));
+      await waitFor(() => expect(screen.getByTestId('payment-result')).toHaveTextContent('billing.account.result.succeeded'));
+      expect(api.verify).toHaveBeenCalledWith('ws-1', 'pay3', 'zarinpal', { Authority: 'A3', Status: 'OK' });
+      expect(window.sessionStorage.getItem('billing:account-return:ws-1')).toBeNull();
+      first.unmount();
+
+      // A reload with a check still stored resumes it.
+      window.sessionStorage.setItem('billing:account-return:ws-1', JSON.stringify({ paymentId: 'pay4', provider: 'zarinpal', params: { Authority: 'A4' } }));
+      api.verify.mockResolvedValue({ status: 'succeeded', ledgerId: 'l10' });
+      renderAt('/acme/billing');
+      await waitFor(() => expect(api.verify).toHaveBeenCalledWith('ws-1', 'pay4', 'zarinpal', { Authority: 'A4' }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a failed return says nothing was charged', async () => {

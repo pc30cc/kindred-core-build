@@ -25,7 +25,8 @@ import { accountErrorText, planLabel } from './accountUi';
 
 const PAGE_SIZE = 20;
 
-type Return = { phase: 'checking' } | { phase: 'done'; outcome: VerifyOutcome; amount?: number };
+type PendingReturn = { paymentId: string; provider: string; params: Record<string, string> };
+type Return = { phase: 'checking' } | { phase: 'done'; outcome: VerifyOutcome; amount?: number; pending: PendingReturn };
 
 export default function AccountBillingPage({ workspaceId, slug }: { workspaceId: string; slug: string }) {
   const { t, locale, dir } = useTranslation();
@@ -63,55 +64,92 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
     void load();
   }, [load]);
 
-  // The return from a gateway: confirm, poll while pending, then clean the URL.
-  useEffect(() => {
-    const paymentId = params.get('payment');
-    const provider = params.get('provider');
-    if (!paymentId || !provider || handledReturn.current) return;
-    handledReturn.current = true;
-    const gatewayParams: Record<string, string> = {};
-    params.forEach((value, key) => {
-      if (key !== 'payment' && key !== 'provider') gatewayParams[key] = value;
-    });
-    // Cleaning the address bar re-runs this effect; the ref above makes that
-    // a no-op, and the confirmation below is not tied to this effect's life.
-    setParams(new URLSearchParams(), { replace: true });
-
-    setRet({ phase: 'checking' });
-    (async () => {
-      let outcome: VerifyOutcome;
-      try {
-        outcome = await accountBillingApi.verify(workspaceId, paymentId, provider, gatewayParams);
-      } catch {
-        outcome = { status: 'pending' };
-      }
-      // A card payment may be confirmed by the webhook a moment later.
-      for (let i = 0; i < 20 && outcome.status === 'pending' && mounted.current; i += 1) {
-        await new Promise((r) => setTimeout(r, 3000));
+  // The return from a gateway. Its parameters are kept in this tab's session
+  // storage before the address bar is cleaned, so a check that could not
+  // finish (network, a deploy) can be repeated — by the "check again" button
+  // or a reload — without them. The server confirms with the gateway (or
+  // from the confirmation it already recorded); while the payment is still
+  // pending the page asks again, every few seconds, for about a minute.
+  const stashKey = `billing:account-return:${workspaceId}`;
+  const confirmReturn = useCallback(
+    async (pending: { paymentId: string; provider: string; params: Record<string, string> }) => {
+      setRet({ phase: 'checking' });
+      let outcome: VerifyOutcome = { status: 'pending' };
+      for (let i = 0; i < 20 && mounted.current; i += 1) {
+        if (i > 0) await new Promise((r) => setTimeout(r, 3000));
         try {
-          const status = await accountBillingApi.payment(workspaceId, paymentId);
-          if (status.status === 'succeeded') outcome = { status: 'succeeded', ledgerId: status.ledger_id };
-          else if (status.status !== 'pending') outcome = { status: 'failed', reason: status.failure_reason ?? status.status };
+          // Ask the server to confirm on the first tries and every fifth one;
+          // in between, read the payment (a card's webhook may settle it).
+          if (i < 3 || i % 5 === 0) {
+            outcome = await accountBillingApi.verify(workspaceId, pending.paymentId, pending.provider, pending.params);
+          } else {
+            const status = await accountBillingApi.payment(workspaceId, pending.paymentId);
+            outcome = status.status === 'succeeded'
+              ? { status: 'succeeded', ledgerId: status.ledger_id }
+              : status.status === 'pending'
+                ? { status: 'pending' }
+                : { status: 'failed', reason: status.failure_reason ?? status.status };
+          }
         } catch {
-          /* keep waiting */
+          outcome = { status: 'pending' };
         }
+        if (outcome.status !== 'pending') break;
       }
       if (!mounted.current) return;
+      if (outcome.status !== 'pending') {
+        try {
+          window.sessionStorage.removeItem(stashKey);
+        } catch {
+          /* storage unavailable */
+        }
+      }
       let amount: number | undefined;
       if (outcome.status === 'succeeded') {
-        const status = await accountBillingApi.payment(workspaceId, paymentId).catch(() => null);
+        const status = await accountBillingApi.payment(workspaceId, pending.paymentId).catch(() => null);
         amount = status?.net_minor;
       }
       if (!mounted.current) return;
-      setRet({ phase: 'done', outcome, amount });
+      setRet({ phase: 'done', outcome, amount, pending });
       void load();
-    })();
-  }, [params, setParams, workspaceId, load]);
+    },
+    [workspaceId, stashKey, load],
+  );
+
+  useEffect(() => {
+    if (handledReturn.current) return;
+    const paymentId = params.get('payment');
+    const provider = params.get('provider');
+    let pending: { paymentId: string; provider: string; params: Record<string, string> } | null = null;
+    if (paymentId && provider) {
+      const gatewayParams: Record<string, string> = {};
+      params.forEach((value, key) => {
+        if (key !== 'payment' && key !== 'provider') gatewayParams[key] = value;
+      });
+      pending = { paymentId, provider, params: gatewayParams };
+      try {
+        window.sessionStorage.setItem(stashKey, JSON.stringify(pending));
+      } catch {
+        /* storage unavailable: this check still runs */
+      }
+      // Cleaning the address bar re-runs this effect; the ref makes that a no-op.
+      setParams(new URLSearchParams(), { replace: true });
+    } else {
+      try {
+        const stored = window.sessionStorage.getItem(stashKey);
+        if (stored) pending = JSON.parse(stored);
+      } catch {
+        pending = null;
+      }
+    }
+    if (!pending?.paymentId || !pending.provider) return;
+    handledReturn.current = true;
+    void confirmReturn(pending);
+  }, [params, setParams, stashKey, confirmReturn]);
 
   if (error && !view) {
     return (
       <div className="p-4 md:p-6 lg:p-8" dir={dir}>
-        <ErrorState message={error} onRetry={() => void load()} retryLabel={t('common.retry' as TranslationKey)} />
+        <ErrorState message={error} onRetry={() => void load()} retryLabel={t('billing.common.retry')} />
       </div>
     );
   }
@@ -140,7 +178,15 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
         <p className="text-sm text-muted-foreground">{t('billing.account.subtitle')}</p>
       </header>
 
-      {ret && <ReturnBanner ret={ret} currency={view.currency} slug={slug} onDismiss={() => setRet(null)} />}
+      {ret && (
+        <ReturnBanner
+          ret={ret}
+          currency={view.currency}
+          slug={slug}
+          onDismiss={() => setRet(null)}
+          onCheckAgain={(pending) => void confirmReturn(pending)}
+        />
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -220,10 +266,10 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
                       <TableCell
                         className={`text-end tabular-nums ${entry.amount_minor > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}`}
                       >
-                        <Ltr>
+                        <bdi>
                           {entry.amount_minor > 0 ? '+' : '−'}
                           {money(Math.abs(entry.amount_minor), locale, entry.currency)}
-                        </Ltr>
+                        </bdi>
                       </TableCell>
                       <TableCell className="text-end tabular-nums">{money(entry.balance_after, locale, entry.currency)}</TableCell>
                       <TableCell className="text-end">
@@ -257,13 +303,20 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           currency={view.currency}
           vatPercent={view.vat_percent}
           gateways={view.gateways}
+          onCurrencyChanged={() => void load()}
         />
       )}
     </div>
   );
 }
 
-function ReturnBanner({ ret, currency, slug, onDismiss }: { ret: Return; currency: string; slug: string; onDismiss: () => void }) {
+function ReturnBanner({ ret, currency, slug, onDismiss, onCheckAgain }: {
+  ret: Return;
+  currency: string;
+  slug: string;
+  onDismiss: () => void;
+  onCheckAgain: (pending: PendingReturn) => void;
+}) {
   const { t, locale } = useTranslation();
   if (ret.phase === 'checking') {
     return (
@@ -287,6 +340,11 @@ function ReturnBanner({ ret, currency, slug, onDismiss }: { ret: Return; currenc
       <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
         <span>{text}</span>
         <span className="flex gap-2">
+          {outcome.status === 'pending' && (
+            <Button size="sm" variant="outline" onClick={() => onCheckAgain(ret.pending)}>
+              {t('billing.account.result.checkAgain')}
+            </Button>
+          )}
           {outcome.status === 'succeeded' && outcome.ledgerId && (
             <Button asChild size="sm" variant="outline">
               <Link to={`/${slug}/billing/receipts/${outcome.ledgerId}`}>{t('billing.account.result.receipt')}</Link>

@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/lib/toast';
 import { API_BASE } from '@/lib/apiBase';
+import { parsePlanPriceInput } from '@/lib/planPrice';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { SELLER_KEYS, type SellerKey, type SellerProfile } from '../../../shared/simpleBilling';
 import type { Edition } from '../../../shared/edition';
@@ -62,17 +63,26 @@ export default function BillingSettingsPanel() {
   if (!settings) return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
 
   const vatLabel = (currency: string) => t(`admin.simpleBilling.vatFor.${currency}` as TranslationKey);
-  const vatInvalid = (raw: string) => raw.trim() !== '' && !(Number(raw) >= 0 && Number(raw) < 100);
+  // Persian/Arabic digits and a decimal comma are read as typed (۱۰, 18,5).
+  const vatValue = (raw: string): number | null => {
+    if (!raw.trim()) return null;
+    const n = parsePlanPriceInput(raw);
+    return n !== null && n >= 0 && n < 100 ? n : Number.NaN;
+  };
+  const vatInvalid = (raw: string) => Number.isNaN(vatValue(raw) as number);
 
   const save = async () => {
-    if (Object.values(vatDraft).some(vatInvalid)) return;
+    if (Object.values(vatDraft).some(vatInvalid)) {
+      toast.error(t('admin.simpleBilling.vatInvalid'));
+      return;
+    }
     setSaving(true);
     try {
       const next = await call<Settings>('PUT', {
         seller: settings.seller,
         receipt_prefix: settings.receipt_prefix,
         vat_percent: Object.fromEntries(
-          settings.vat_currencies.map((c) => [c, vatDraft[c]?.trim() ? Number(vatDraft[c]) : null]),
+          settings.vat_currencies.map((c) => [c, vatValue(vatDraft[c] ?? '')]),
         ),
       });
       setSettings(next);

@@ -21,12 +21,15 @@ import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.j
 import { getServiceClient } from '../supabase.js';
 import { logBillingEvent } from '../services/billing/index.js';
 import { isAllowedBillingCallbackUrl, resolvePublicApiOrigin } from '../services/billing/callbackUrl.js';
+import { allowedOrigins } from '../services/platformOrigins.js';
+import { resolveAppBaseUrl } from '../services/auth-email.js';
 import { editionErrorResponse } from '../services/billing/edition.js';
 import {
   AccountBillingError,
   accountCurrency,
   accountPaymentNeedsBinding,
   createAccountPayment,
+  expireAccountPayment,
   failAccountPayment,
   getAccountView,
   getBillingSettings,
@@ -182,6 +185,8 @@ billingAccountRouter.put('/account/:workspaceId/profile', async (req, res) => {
 const topupSchema = z.object({
   /** Credit the customer wants, in minor units of the account currency (VAT is added on top). */
   amountMinor: z.number().int().positive(),
+  /** The currency the page showed; a different account currency is refused, never charged. */
+  currency: z.string().regex(/^[A-Za-z]{3}$/).optional(),
   providerName: z.string().min(2).max(60).optional(),
   callbackUrl: z.string().url(),
 });
@@ -200,6 +205,9 @@ billingAccountRouter.post('/account/:workspaceId/topup', async (req, res) => {
   let paymentId: string | null = null;
   try {
     const currency = await accountCurrency(cfg, workspaceId);
+    if (parsed.data.currency && parsed.data.currency.toUpperCase() !== currency) {
+      return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency } });
+    }
     const problem = topupAmountProblem(parsed.data.amountMinor, currency);
     if (problem) return res.status(400).json({ error: problem });
 
@@ -323,8 +331,8 @@ billingAccountRouter.post('/account/:workspaceId/payments/:paymentId/verify', as
       params: parsed.data.params,
     });
     // An unpaid attempt past its window is ended, so it stops showing as pending.
-    if (outcome.status === 'pending' && payment.status === 'pending' && isAccountPaymentLapsed(payment)) {
-      await failAccountPayment(cfg, payment.id, 'expired', 'expired');
+    if (outcome.status === 'pending' && payment.status === 'pending' && !payment.verified_at && isAccountPaymentLapsed(payment)) {
+      await expireAccountPayment(cfg, payment, resolved.config);
       return res.json({ status: 'failed', reason: 'expired' });
     }
     res.json(outcome);
@@ -333,6 +341,24 @@ billingAccountRouter.post('/account/:workspaceId/payments/:paymentId/verify', as
   }
 });
 
+/** The app origins this server itself knows (configuration, platform domains), never a request's. */
+async function trustedReturnOrigins(cfg: ReturnType<typeof serverConfigOf>): Promise<Set<string>> {
+  const origins = new Set<string>();
+  const add = (raw: unknown) => {
+    if (typeof raw !== 'string' || !raw.trim()) return;
+    try {
+      origins.add(new URL(raw.trim()).origin.toLowerCase());
+    } catch {
+      /* not a URL */
+    }
+  };
+  for (const origin of allowedOrigins(cfg)) add(origin);
+  add(process.env.PUBLIC_APP_URL);
+  add(process.env.APP_URL);
+  add(await resolveAppBaseUrl(cfg).catch(() => ''));
+  return origins;
+}
+
 // ─── Gateway callback hop for a non-https app origin ─────────────────────
 // Forwards the gateway's result to the exact return URL stored on the
 // payment at checkout. Never answers with data; only an allow-listed page.
@@ -340,11 +366,16 @@ billingAccountRouter.get('/account-return', async (req, res) => {
   try {
     const paymentId = typeof req.query.payment === 'string' ? req.query.payment : '';
     const providerName = typeof req.query.provider === 'string' ? req.query.provider : '';
-    const payment = paymentId ? await readAccountPayment(serverConfigOf(req), paymentId) : null;
+    const cfg = serverConfigOf(req);
+    const payment = paymentId ? await readAccountPayment(cfg, paymentId) : null;
     if (!payment || payment.provider !== providerName || !payment.return_url) {
       return res.status(400).type('text/plain').send('Invalid payment return.');
     }
     const destination = new URL(payment.return_url);
+    // Only to this platform's own app: never to an origin a request supplied.
+    if (!(await trustedReturnOrigins(cfg)).has(destination.origin.toLowerCase())) {
+      return res.status(400).type('text/plain').send('Invalid payment return.');
+    }
     for (const [key, value] of Object.entries(req.query)) {
       if (key === 'payment' || key === 'provider') continue;
       if (typeof value === 'string') destination.searchParams.set(key, value);

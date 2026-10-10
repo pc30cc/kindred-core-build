@@ -23,7 +23,8 @@ import {
   buildBoundVerifyParams,
   providerRefMatchesIntent,
 } from '../gatewayVerification.js';
-import { requiresReferenceBinding } from '../providerBinding.js';
+import { extractProviderRefCandidates, requiresReferenceBinding } from '../providerBinding.js';
+import { IRANIAN_PAYMENT_PROVIDERS } from '../../../../shared/edition.js';
 import type { BillingProviderConfig, WebhookEvent } from '../types.js';
 import type { Edition } from '../../../../shared/edition.js';
 import {
@@ -35,6 +36,8 @@ import {
   type BillingProfile,
   type SellerProfile,
 } from '../../../../shared/simpleBilling.js';
+
+const IRANIAN = new Set<string>(IRANIAN_PAYMENT_PROVIDERS);
 
 export class AccountBillingError extends Error {
   constructor(
@@ -90,6 +93,10 @@ export interface AccountPaymentRow {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  verified_amount_minor: number | null;
+  verified_at: string | null;
+  refunded_minor: number;
+  closed_at: string | null;
 }
 
 export interface LedgerRow {
@@ -152,6 +159,8 @@ function toPayment(row: Record<string, unknown>): AccountPaymentRow {
     tax_minor: num(row.tax_minor),
     tax_percent: row.tax_percent === null || row.tax_percent === undefined ? null : num(row.tax_percent),
     purpose_detail: asRecord(row.purpose_detail),
+    verified_amount_minor: row.verified_amount_minor === null || row.verified_amount_minor === undefined ? null : num(row.verified_amount_minor),
+    refunded_minor: num(row.refunded_minor),
   };
 }
 
@@ -407,7 +416,7 @@ export async function readAccountPayment(config: ServerConfig, paymentId: string
 export async function patchAccountPayment(
   config: ServerConfig,
   paymentId: string,
-  patch: Partial<Pick<AccountPaymentRow, 'provider_ref' | 'return_url' | 'status' | 'failure_reason'>>,
+  patch: Partial<Pick<AccountPaymentRow, 'provider_ref' | 'return_url' | 'status' | 'failure_reason' | 'closed_at'>>,
   onlyIfStatus?: AccountPaymentStatus,
 ): Promise<void> {
   let query = getServiceClient(config)
@@ -442,27 +451,50 @@ export interface SettleResult {
   balance_minor?: number;
 }
 
-/** Credits a payment the gateway confirmed (amount and currency as the GATEWAY reported them). */
-export async function settleAccountPayment(
+function rpcError(error: { message?: string }): never {
+  const message = error.message || '';
+  if (message.includes('billing_payment_amount_mismatch')) throw new AccountBillingError('PAYMENT_AMOUNT_MISMATCH', 409);
+  if (message.includes('currency_mismatch')) throw new AccountBillingError('PAYMENT_CURRENCY_MISMATCH', 409);
+  if (message.includes('billing_payment_reference_reused')) throw new AccountBillingError('PAYMENT_REFERENCE_REUSED', 409);
+  if (message.includes('billing_payment_not_verified')) throw new AccountBillingError('PAYMENT_NOT_VERIFIED', 409);
+  throw new Error(message || 'payment settlement failed');
+}
+
+/**
+ * Records what the gateway confirmed (amount and currency as the GATEWAY
+ * reported them, and its own transaction id) before anything is credited.
+ * The transaction id is unique per provider: one real payment can settle
+ * only one attempt.
+ */
+export async function recordAccountPaymentVerification(
   config: ServerConfig,
-  input: { paymentId: string; amountMinor: number; currency: string; providerPaymentId?: string | null },
-): Promise<SettleResult> {
-  const { data, error } = await getServiceClient(config).rpc('billing_account_settle_payment', {
+  input: { paymentId: string; amountMinor: number; currency: string; providerPaymentId: string },
+): Promise<void> {
+  const { error } = await getServiceClient(config).rpc('billing_account_record_verification', {
     p_payment_id: input.paymentId,
     p_amount_minor: input.amountMinor,
     p_currency: input.currency,
-    p_provider_payment_id: input.providerPaymentId ?? null,
+    p_provider_payment_id: input.providerPaymentId,
   });
-  if (error) {
-    const message = error.message || '';
-    if (message.includes('billing_payment_amount_mismatch')) throw new AccountBillingError('PAYMENT_AMOUNT_MISMATCH', 409);
-    if (message.includes('currency_mismatch')) throw new AccountBillingError('PAYMENT_CURRENCY_MISMATCH', 409);
-    dbError(error, 'payment settlement failed');
-  }
+  if (error) rpcError(error);
+}
+
+/** Credits a payment whose confirmation was recorded. Idempotent. */
+export async function settleAccountPayment(config: ServerConfig, paymentId: string): Promise<SettleResult> {
+  const { data, error } = await getServiceClient(config).rpc('billing_account_settle_payment', { p_payment_id: paymentId });
+  if (error) rpcError(error);
   return asRecord(data) as unknown as SettleResult;
 }
 
-// ─── Confirming a payment with the gateway ───────────────────────────────
+/** Records the gateway's confirmation, then credits it. */
+async function confirmAndSettle(
+  config: ServerConfig,
+  payment: AccountPaymentRow,
+  confirmed: { amountMinor: number; currency: string; providerPaymentId: string },
+): Promise<SettleResult> {
+  await recordAccountPaymentVerification(config, { paymentId: payment.id, ...confirmed });
+  return settleAccountPayment(config, payment.id);
+}
 
 export interface VerifyOutcome {
   status: 'succeeded' | 'pending' | 'failed';
@@ -472,32 +504,52 @@ export interface VerifyOutcome {
   balanceMinor?: number;
 }
 
-async function succeededOutcome(config: ServerConfig, payment: AccountPaymentRow): Promise<VerifyOutcome> {
+async function succeededOutcome(config: ServerConfig, ledgerId: string | null): Promise<VerifyOutcome> {
   let receiptNumber: string | null = null;
   let balance: number | undefined;
-  if (payment.ledger_id) {
+  if (ledgerId) {
     const { data } = await getServiceClient(config)
       .from('billing_account_ledger')
       .select('receipt_number, balance_after')
-      .eq('id', payment.ledger_id)
+      .eq('id', ledgerId)
       .maybeSingle();
     const row = asRecord(data);
     receiptNumber = (row.receipt_number as string) ?? null;
     balance = row.balance_after === undefined ? undefined : num(row.balance_after);
   }
-  return { status: 'succeeded', ledgerId: payment.ledger_id, receiptNumber, balanceMinor: balance };
+  return { status: 'succeeded', ledgerId, receiptNumber, balanceMinor: balance };
+}
+
+function settledOutcome(settled: SettleResult): VerifyOutcome {
+  return {
+    status: 'succeeded',
+    ledgerId: settled.ledger_id,
+    receiptNumber: settled.receipt_number ?? null,
+    balanceMinor: settled.balance_minor,
+  };
+}
+
+/** Card gateways send back their own reference; Iranian gateways must echo ours exactly. */
+function isCardGateway(providerName: string): boolean {
+  return !IRANIAN.has(providerName);
 }
 
 /**
  * The customer came back from the gateway: ask the gateway about exactly the
  * checkout bound to this payment (the STORED reference, the SERVER amount),
- * and settle when it confirms the full amount in the payment's currency.
+ * record its confirmation, then credit it.
  *
- *   - a callback naming another checkout fails nothing and settles nothing;
- *   - "not paid yet" stays pending (the customer may still pay); only a
- *     definitive cancel/fail ends the attempt;
- *   - an "already verified" answer settles only a payment the gateway itself
- *     reports with the full amount (Iranian gateways repeat the amount).
+ *   - a payment whose confirmation was already recorded is credited from that
+ *     record, without asking the gateway again (an Iranian gateway takes the
+ *     money at verify; a settlement that failed afterwards is finished here);
+ *   - a callback naming another checkout fails nothing and settles nothing; a
+ *     card return without any reference is looked up by the stored one;
+ *   - "not paid yet" stays pending; only a definitive cancel/fail ends it;
+ *   - an "already verified" answer never settles an attempt that has no
+ *     recorded confirmation of its own: the gateway transaction may be
+ *     another attempt's (SEP / PayPing verify by an unbound reference);
+ *   - a gateway transaction already recorded for another payment is refused
+ *     (unique per provider): one real payment settles one attempt.
  */
 export async function verifyAccountPayment(
   config: ServerConfig,
@@ -508,14 +560,19 @@ export async function verifyAccountPayment(
   },
 ): Promise<VerifyOutcome> {
   const { payment } = input;
-  if (payment.status === 'succeeded') return succeededOutcome(config, payment);
+  if (payment.status === 'succeeded') return succeededOutcome(config, payment.ledger_id);
+  if (payment.verified_at) return settledOutcome(await settleAccountPayment(config, payment.id));
 
   const provider = getProvider(payment.provider);
   if (!provider?.verifyPayment) return { status: 'pending', reason: 'webhook_only' };
 
   const bindable = { provider_name: payment.provider, provider_ref: payment.provider_ref };
-  const binding = providerRefMatchesIntent(bindable, input.params);
-  if (binding.ok === false) return { status: 'failed', reason: 'REFERENCE_MISMATCH' };
+  const card = isCardGateway(payment.provider);
+  const candidates = extractProviderRefCandidates(payment.provider, input.params);
+  if (!(card && candidates.length === 0)) {
+    const binding = providerRefMatchesIntent(bindable, input.params);
+    if (binding.ok === false) return { status: 'failed', reason: 'REFERENCE_MISMATCH' };
+  }
 
   const result = await provider.verifyPayment(
     input.providerConfig,
@@ -532,68 +589,141 @@ export async function verifyAccountPayment(
     return { status: 'pending' };
   }
 
-  const confirmed = typeof result.amount === 'number' && Number.isFinite(result.amount) ? result.amount : null;
-  if (confirmed === null) {
-    // "Already verified" without an amount (a second return to an Iranian
-    // gateway): nothing proves this attempt's money from here. A settled
-    // payment was answered above; anything else waits for review.
-    console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} verified without an amount (status ${result.status ?? '-'})`);
-    return { status: result.status === ALREADY_VERIFIED_STATUS ? 'pending' : 'failed', reason: 'gateway_amount_missing' };
+  if (result.status === ALREADY_VERIFIED_STATUS) {
+    console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} gateway says already verified, but this attempt recorded no confirmation`);
+    return { status: 'pending', reason: 'gateway_already_verified' };
   }
+
+  const confirmed = typeof result.amount === 'number' && Number.isFinite(result.amount) ? result.amount : null;
   // Iranian gateways answer in Rial without naming it; card gateways name it.
   const currency = normalizeCurrencyCode(result.currency) || payment.currency;
-  if (confirmed !== payment.amount_minor || currency !== payment.currency) {
-    console.warn(`[billing-account] payment=${payment.id} provider=${payment.provider} gateway amount ${confirmed} ${currency} != ${payment.amount_minor} ${payment.currency}`);
-    if (payment.status === 'pending') {
-      await failAccountPayment(config, payment.id, 'failed', 'gateway_amount_mismatch');
-    }
+  const gatewayTxn = (result.paymentId || result.providerRef || payment.provider_ref || '').trim();
+  if (confirmed === null || confirmed !== payment.amount_minor || currency !== payment.currency || !gatewayTxn) {
+    console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} gateway ${confirmed} ${currency} ref=${gatewayTxn || '-'} != ${payment.amount_minor} ${payment.currency}`);
+    if (payment.status === 'pending') await failAccountPayment(config, payment.id, 'failed', 'gateway_amount_mismatch');
     return { status: 'failed', reason: 'PAYMENT_AMOUNT_MISMATCH' };
   }
 
-  const settled = await settleAccountPayment(config, {
-    paymentId: payment.id,
-    amountMinor: confirmed,
-    currency,
-    providerPaymentId: result.paymentId || result.providerRef || null,
-  });
-  return {
-    status: 'succeeded',
-    ledgerId: settled.ledger_id,
-    receiptNumber: settled.receipt_number ?? null,
-    balanceMinor: settled.balance_minor,
-  };
+  try {
+    return settledOutcome(await confirmAndSettle(config, payment, { amountMinor: confirmed, currency, providerPaymentId: gatewayTxn }));
+  } catch (e) {
+    if (e instanceof AccountBillingError && e.code === 'PAYMENT_REFERENCE_REUSED') {
+      console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} gateway transaction ${gatewayTxn} already settled another payment`);
+      return { status: 'failed', reason: 'PAYMENT_REFERENCE_REUSED' };
+    }
+    throw e;
+  }
 }
 
 /**
- * A signed provider webhook named one of our payments (its custom metadata
- * carries the payment id where invoices carry an intent id). Only a payment
- * event of this provider, for this workspace, in the full amount settles it.
+ * A signed provider webhook about one of our payments (its custom metadata
+ * carries the payment id where invoices carry an intent id, or a refund names
+ * its transaction): a payment of this provider and workspace in the full
+ * amount is credited; a refund takes its credit back.
  */
 export async function handleAccountPaymentWebhook(
   config: ServerConfig,
   input: { providerName: string; workspaceId: string; event: WebhookEvent; payment: AccountPaymentRow },
-): Promise<'settled' | 'replayed' | 'ignored' | 'mismatch'> {
+): Promise<'settled' | 'replayed' | 'refunded' | 'ignored' | 'mismatch'> {
   const { payment, event } = input;
   if (payment.workspace_id !== input.workspaceId || payment.provider !== input.providerName) {
     throw new AccountBillingError('WEBHOOK_PAYMENT_MISMATCH', 400);
   }
+
+  if (event.type === 'refund_processed') {
+    // Paddle reports each refund (its adjustment id, its amount); Stripe,
+    // PayPal and Lemon Squeezy the running total refunded on the payment, so
+    // the new part is that total minus what was already taken back.
+    let refundId: string;
+    let amount: number | null;
+    if (event.refundId) {
+      refundId = event.refundId;
+      amount = typeof event.amount === 'number' ? event.amount : null;
+    } else if (typeof event.refundedTotal === 'number') {
+      const refunds = asRecord(payment.purpose_detail.refunds);
+      const already = Object.values(refunds).reduce<number>((sum, r) => sum + num(asRecord(r).amount_minor), 0);
+      refundId = `total:${event.refundedTotal}`;
+      amount = event.refundedTotal - already;
+    } else {
+      refundId = (event.providerEventId || '').trim();
+      amount = typeof event.amount === 'number' ? event.amount : null;
+    }
+    if (!refundId || amount === null || !Number.isFinite(amount) || amount <= 0) return 'ignored';
+    const { data, error } = await getServiceClient(config).rpc('billing_account_refund_payment', {
+      p_payment_id: payment.id,
+      p_refund_id: refundId,
+      p_amount_minor: amount,
+    });
+    if (error) throw new Error(error.message || 'refund failed');
+    const res = asRecord(data);
+    if (num(res.shortfall_minor) > 0) {
+      console.error(`[billing-account] REVIEW refund payment=${payment.id} provider=${payment.provider} could not take back ${res.shortfall_minor} (already spent)`);
+    }
+    return res.replayed === true ? 'replayed' : 'refunded';
+  }
+
   if (event.type !== 'payment_succeeded') return 'ignored';
   if (payment.status === 'succeeded') return 'replayed';
+  if (payment.verified_at) {
+    const settled = await settleAccountPayment(config, payment.id);
+    return settled.replayed ? 'replayed' : 'settled';
+  }
   const amount = typeof event.amount === 'number' && Number.isFinite(event.amount) ? event.amount : null;
   const currency = normalizeCurrencyCode(event.currency) || '';
-  if (amount === null || amount !== payment.amount_minor || currency !== payment.currency) {
+  const gatewayTxn = (event.providerPaymentId || event.providerRef || '').trim();
+  if (amount === null || amount !== payment.amount_minor || currency !== payment.currency || !gatewayTxn) {
     // Retrying cannot change what the provider reports: acknowledged, never
     // credited, and logged for review (the money is real but not this amount).
     console.error(`[billing-account] REVIEW webhook payment=${payment.id} provider=${payment.provider} amount ${amount} ${currency} != ${payment.amount_minor} ${payment.currency}`);
     return 'mismatch';
   }
-  const settled = await settleAccountPayment(config, {
-    paymentId: payment.id,
-    amountMinor: amount,
-    currency,
-    providerPaymentId: event.providerPaymentId || event.providerRef || null,
-  });
-  return settled.replayed ? 'replayed' : 'settled';
+  try {
+    const settled = await confirmAndSettle(config, payment, { amountMinor: amount, currency, providerPaymentId: gatewayTxn });
+    return settled.replayed ? 'replayed' : 'settled';
+  } catch (e) {
+    if (e instanceof AccountBillingError && e.code === 'PAYMENT_REFERENCE_REUSED') {
+      console.error(`[billing-account] REVIEW webhook payment=${payment.id} transaction ${gatewayTxn} already settled another payment`);
+      return 'mismatch';
+    }
+    throw e;
+  }
+}
+
+/** The account payment a provider transaction settled (refunds name the transaction, not our id). */
+export async function findAccountPaymentByProviderPayment(
+  config: ServerConfig,
+  providerName: string,
+  providerPaymentId: string,
+): Promise<AccountPaymentRow | null> {
+  if (!providerPaymentId) return null;
+  const { data, error } = await getServiceClient(config)
+    .from('billing_account_payments')
+    .select('*')
+    .eq('provider', providerName)
+    .eq('provider_payment_id', providerPaymentId)
+    .maybeSingle();
+  if (error) dbError(error, 'payment read failed');
+  return data ? toPayment(data as Record<string, unknown>) : null;
+}
+
+/** Iranian bank checkouts expire on their own within minutes; card checkouts may stay payable. */
+export const SHORT_LIVED_CHECKOUT_PROVIDERS: readonly string[] = IRANIAN_PAYMENT_PROVIDERS;
+
+/**
+ * Ends an attempt nobody paid within its window. A card checkout is closed at
+ * the provider first (best effort), so it cannot be paid later from an old
+ * tab; a confirmed close lets the attempt be pruned after 30 days.
+ */
+export async function expireAccountPayment(
+  config: ServerConfig,
+  payment: AccountPaymentRow,
+  providerConfig: BillingProviderConfig | null,
+): Promise<void> {
+  await failAccountPayment(config, payment.id, 'expired', 'expired');
+  const provider = getProvider(payment.provider);
+  if (!payment.provider_ref || !provider?.closeCheckout || !providerConfig) return;
+  const closed = await provider.closeCheckout(providerConfig, payment.provider_ref).catch(() => false);
+  if (closed) await patchAccountPayment(config, payment.id, { closed_at: new Date().toISOString() });
 }
 
 /** Whether a provider's checkout must be bound to a reference before it may be reported as open. */

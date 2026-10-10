@@ -139,7 +139,7 @@ export const accountBillingApi = {
       method: 'PUT',
       body: JSON.stringify({ profile }),
     }),
-  topup: (workspaceId: string, input: { amountMinor: number; providerName?: string; callbackUrl: string }) =>
+  topup: (workspaceId: string, input: { amountMinor: number; currency: string; providerName?: string; callbackUrl: string }) =>
     request<TopupStarted>(`${base(workspaceId)}/topup`, { method: 'POST', body: JSON.stringify(input) }),
   verify: (workspaceId: string, paymentId: string, provider: string, params: Record<string, string>) =>
     request<VerifyOutcome>(`${base(workspaceId)}/payments/${encodeURIComponent(paymentId)}/verify`, {

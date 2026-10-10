@@ -34,9 +34,10 @@ export interface TopupDialogProps {
   currency: string;
   vatPercent: number | null;
   gateways: AccountGateway[];
+  onCurrencyChanged?: () => void;
 }
 
-export default function TopupDialog({ open, onOpenChange, workspaceId, slug, currency, vatPercent, gateways }: TopupDialogProps) {
+export default function TopupDialog({ open, onOpenChange, workspaceId, slug, currency, vatPercent, gateways, onCurrencyChanged }: TopupDialogProps) {
   const { t, locale, dir } = useTranslation();
   const [raw, setRaw] = useState('');
   const [provider, setProvider] = useState<string>(gateways[0]?.provider_name ?? '');
@@ -58,11 +59,16 @@ export default function TopupDialog({ open, onOpenChange, workspaceId, slug, cur
       const callbackUrl = `${billingReturnOrigin()}/${slug}/billing`;
       const res = await accountBillingApi.topup(workspaceId, {
         amountMinor: minor,
+        currency,
         providerName: chosen.provider_name,
         callbackUrl,
       });
       if (res.clientCheckout?.provider === 'paddle' || res.clientCheckout?.provider === 'paddle_sandbox') {
-        await openPaddleCheckout(res.clientCheckout, { locale, onClosed: () => setBusy(false) });
+        // Paddle's overlay is its own modal: this dialog closes first, or its
+        // focus trap and pointer lock would keep the card form from working.
+        setBusy(false);
+        onOpenChange(false);
+        await openPaddleCheckout(res.clientCheckout, { locale });
         return;
       }
       const url = res.paymentUrl;
@@ -71,6 +77,8 @@ export default function TopupDialog({ open, onOpenChange, workspaceId, slug, cur
     } catch (e) {
       setError(accountErrorText(e, t));
       setBusy(false);
+      // The account's currency is not the one shown: the page reloads it.
+      if ((e as { code?: string })?.code === 'CURRENCY_CHANGED') onCurrencyChanged?.();
     }
   };
 

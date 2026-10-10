@@ -94,11 +94,23 @@ const shiftPeriod = async (ws: string, startDaysAgo: number, interval: 'monthly'
             billing_interval = $3
       WHERE workspace_id = $1`, [ws, startDaysAgo, interval]);
 };
+/** Moves only the running period into the past (a prepayment stays for the old one). */
+const makeDueWithoutPrepaid = async (ws: string) => {
+  await q(
+    `UPDATE public.workspace_subscriptions
+        SET current_period_start = now() - interval '31 days', current_period_end = now() - interval '1 hour'
+      WHERE workspace_id = $1`, [ws]);
+};
+/** Moves the running period into the past (and a prepayment made for the next one with it). */
 const makeDue = async (ws: string) => {
   await q(
     `UPDATE public.workspace_subscriptions
         SET current_period_start = now() - interval '31 days', current_period_end = now() - interval '1 hour'
       WHERE workspace_id = $1`, [ws]);
+  await q(
+    `UPDATE public.billing_accounts a SET next_period_start = s.current_period_end
+       FROM public.workspace_subscriptions s
+      WHERE a.workspace_id = $1 AND s.workspace_id = a.workspace_id AND a.next_period_prepaid_minor IS NOT NULL`, [ws]);
 };
 
 suite('261 — simple billing renewals, upgrades and changes (real PostgreSQL, whole chain)', () => {
@@ -326,15 +338,159 @@ suite('261 — simple billing renewals, upgrades and changes (real PostgreSQL, w
     expect(days).toBeGreaterThanOrEqual(365);
   });
 
-  it('an upgrade drops a scheduled downgrade and returns a prepaid next period', async () => {
+  it('an upgrade drops a scheduled downgrade and keeps a prepaid next period paid, at the new price', async () => {
     const ws = await makeWorkspace();
-    await credit(ws, 2900 * 2 + 7000);
+    await credit(ws, 2900 * 2 + 7000 + 7000);
     await purchase(ws, proId);
     await fn(`SELECT public.billing_account_renew($1) AS r`, [ws]);
-    await fn(`SELECT public.billing_account_upgrade($1, $2) AS r`, [ws, bizId]);
-    const acc = await account(ws);
-    expect(acc).toMatchObject({ scheduled_plan_id: null, next_period_prepaid_minor: null });
+    await fn(`SELECT public.billing_account_schedule_change($1, $2, 'monthly') AS r`, [ws, freeId]);
+    // To Free, the prepayment came back; renewing again pays for it again.
+    expect((await account(ws)).next_period_prepaid_minor).toBeNull();
+    await fn(`SELECT public.billing_account_schedule_change($1, $2, 'monthly') AS r`, [ws, proId]);
+    await fn(`SELECT public.billing_account_renew($1) AS r`, [ws]);
+    expect(await balanceOf(ws)).toBe(14_000);
+
+    const quote = await fn(`SELECT public.billing_account_upgrade_cost($1, $2) AS r`, [ws, bizId]);
+    expect(quote).toMatchObject({ cost_minor: 7000, prepaid_minor: 2900, next_price_minor: 9900, reprice_minor: 7000 });
+    const r = await fn(`SELECT public.billing_account_upgrade($1, $2) AS r`, [ws, bizId]);
+    expect(r).toMatchObject({ amount_minor: 7000, reprice_minor: 7000, next_period_prepaid_minor: 9900, balance_minor: 0 });
+    expect(await account(ws)).toMatchObject({ scheduled_plan_id: null, next_period_prepaid_minor: '9900' });
+  });
+
+  it('a renewal is never free: returning a prepayment and renewing again charges again, and no loop makes balance', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900 * 2);
+    await purchase(ws, proId);
+    await fn(`SELECT public.billing_account_renew($1) AS r`, [ws]);
+    for (let i = 0; i < 3; i += 1) {
+      await fn(`SELECT public.billing_account_schedule_change($1, $2, NULL) AS r`, [ws, freeId]);
+      await fn(`SELECT public.billing_account_schedule_change($1, $2, 'monthly') AS r`, [ws, proId]);
+      await fn(`SELECT public.billing_account_renew($1) AS r`, [ws]);
+      expect(await balanceOf(ws)).toBe(0);
+      expect(Number((await account(ws)).next_period_prepaid_minor)).toBe(2900);
+    }
+    const renewals = await q(`SELECT count(*)::int AS n FROM public.billing_account_ledger WHERE workspace_id = $1 AND kind = 'renewal'`, [ws]);
+    expect(renewals[0].n).toBe(4);
+  });
+
+  it('a renewal is for the period it was asked for: a retry after that period changed renews nothing', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900 * 3);
+    await purchase(ws, proId);
+    const seen = (await sub(ws)).current_period_end as string;
+    await makeDue(ws);
+    await expect(fn(`SELECT public.billing_account_renew($1, NULL, $2) AS r`, [ws, seen])).rejects.toThrow(/billing_period_changed/);
+    const due = (await sub(ws)).current_period_end as string;
+    expect(await fn(`SELECT public.billing_account_renew($1, NULL, $2) AS r`, [ws, due])).toMatchObject({ action: 'renewed' });
+    await expect(fn(`SELECT public.billing_account_renew($1, NULL, $2) AS r`, [ws, due])).rejects.toThrow(/billing_period_changed/);
     expect(await balanceOf(ws)).toBe(2900);
+  });
+
+  it('a replayed key must be the same charge', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 5000);
+    await q(`SELECT public.billing_account_debit($1, 'renewal', 1000, NULL, NULL, NULL, NULL, '{}', NULL, 'k-same')`, [ws]);
+    await q(`SELECT public.billing_account_debit($1, 'renewal', 1000, NULL, NULL, NULL, NULL, '{}', NULL, 'k-same')`, [ws]);
+    expect(await balanceOf(ws)).toBe(4000);
+    await expect(q(`SELECT public.billing_account_debit($1, 'renewal', 2000, NULL, NULL, NULL, NULL, '{}', NULL, 'k-same')`, [ws]))
+      .rejects.toThrow(/billing_idempotency_conflict/);
+  });
+
+  it('buying a plan between the due moment and the job first starts the prepaid next period; nothing paid is lost', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900 * 2 + 9900);
+    await purchase(ws, proId);
+    await fn(`SELECT public.billing_account_renew($1) AS r`, [ws]);
+    await makeDue(ws);
+    // The prepaid period is the plan now: the purchase is refused and changes
+    // nothing (the refusal rolls back), and the next pass starts that period.
+    await expect(purchase(ws, bizId)).rejects.toThrow(/billing_plan_active/);
+    expect(Number((await account(ws)).next_period_prepaid_minor)).toBe(2900);
+    expect(await balanceOf(ws)).toBe(9900);
+    expect(await fn(`SELECT public.billing_account_process_due($1) AS r`, [ws])).toMatchObject({ action: 'renewed' });
+    expect(await sub(ws)).toMatchObject({ status: 'active', plan_id: proId });
+    expect((await account(ws)).next_period_prepaid_minor).toBeNull();
+    expect(await balanceOf(ws)).toBe(9900);
+  });
+
+  it('a prepayment made for a period that was replaced (Super Admin) returns to the balance', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900 * 2);
+    await purchase(ws, proId);
+    await fn(`SELECT public.billing_account_renew($1) AS r`, [ws]);
+    // A Super Admin assignment writes a new period.
+    await q(`UPDATE public.workspace_subscriptions SET plan_id = $2, current_period_start = now(),
+               current_period_end = now() + interval '90 days' WHERE workspace_id = $1`, [ws, bizId]);
+    await makeDueWithoutPrepaid(ws);
+    expect(await fn(`SELECT public.billing_account_process_due($1) AS r`, [ws])).toMatchObject({ action: 'expired' });
+    expect(await balanceOf(ws)).toBe(2900);
+  });
+
+  it('a refund of an online renewal takes the prepaid next period back first', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900);
+    await purchase(ws, proId);
+    const end = (await sub(ws)).current_period_end as string;
+    const p = await one(
+      `INSERT INTO public.billing_account_payments (workspace_id, provider, currency, amount_minor, net_minor, purpose, purpose_detail)
+       VALUES ($1, 'paddle_sandbox', 'USD', 2900, 2900, 'renewal', $2) RETURNING id`,
+      [ws, JSON.stringify({ plan_id: proId, billing_interval: 'monthly', period_end: end })]);
+    await q(`SELECT public.billing_account_record_verification($1, 2900, 'USD', $2)`, [p.id, `txn_${randomUUID()}`]);
+    const settled = await fn(`SELECT public.billing_account_settle_payment($1) AS r`, [p.id]);
+    expect(settled.purpose_result).toMatchObject({ action: 'prepaid' });
+    expect((await one(`SELECT purpose_result FROM public.billing_account_payments WHERE id = $1`, [p.id])).purpose_result)
+      .toMatchObject({ action: 'prepaid' });
+    const refund = await fn(`SELECT public.billing_account_refund_payment($1, 're_1', 2900) AS r`, [p.id]);
+    expect(refund).toMatchObject({ debited_minor: 2900, shortfall_minor: 0, released_prepaid_minor: 2900 });
+    expect(await balanceOf(ws)).toBe(0);
+    expect((await account(ws)).next_period_prepaid_minor).toBeNull();
+  });
+
+  it('an online renewal paid after the plan ran out buys that plan again', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900);
+    await purchase(ws, proId);
+    const end = (await sub(ws)).current_period_end as string;
+    await makeDue(ws);
+    await fn(`SELECT public.billing_account_process_due($1) AS r`, [ws]);
+    expect((await sub(ws)).status).toBe('expired');
+    const p = await one(
+      `INSERT INTO public.billing_account_payments (workspace_id, provider, currency, amount_minor, net_minor, purpose, purpose_detail)
+       VALUES ($1, 'paddle_sandbox', 'USD', 2900, 2900, 'renewal', $2) RETURNING id`,
+      [ws, JSON.stringify({ plan_id: proId, billing_interval: 'monthly', period_end: end })]);
+    await q(`SELECT public.billing_account_record_verification($1, 2900, 'USD', $2)`, [p.id, `txn_${randomUUID()}`]);
+    const settled = await fn(`SELECT public.billing_account_settle_payment($1) AS r`, [p.id]);
+    expect(settled.purpose_result).toMatchObject({ action: 'purchase', plan_id: proId });
+    expect(await sub(ws)).toMatchObject({ status: 'active', plan_id: proId });
+  });
+
+  it('a paid period waiting in billing v2 starts at the due moment', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900);
+    await purchase(ws, proId);
+    await makeDue(ws);
+    const s = await sub(ws);
+    await q(
+      `INSERT INTO public.billing_subscription_periods (workspace_id, plan_id, status, period_start, period_end, billing_interval, source)
+       VALUES ($1, $2, 'scheduled', $3, $3::timestamptz + interval '1 month', 'monthly', 'admin')`,
+      [ws, proId, s.current_period_end]);
+    expect(await fn(`SELECT public.billing_account_process_due($1) AS r`, [ws])).toMatchObject({ action: 'renewed', source: 'billing_v2' });
+    expect((await sub(ws)).status).toBe('active');
+    expect(Date.parse(String((await sub(ws)).current_period_end))).toBeGreaterThan(Date.now());
+  });
+
+  it('a change can always be cancelled, even when the current plan is no longer sold', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900);
+    await purchase(ws, proId);
+    await fn(`SELECT public.billing_account_schedule_change($1, $2, NULL) AS r`, [ws, freeId]);
+    await q(`UPDATE public.billing_plans SET prices = '{}' WHERE id = $1`, [proId]);
+    try {
+      expect(await fn(`SELECT public.billing_account_schedule_change($1, $2, 'monthly') AS r`, [ws, proId]))
+        .toMatchObject({ action: 'change_cancelled' });
+    } finally {
+      await q(`UPDATE public.billing_plans SET prices = $2 WHERE id = $1`, [proId, JSON.stringify({ USD: PRO })]);
+    }
   });
 
   it('a gateway payment for a purpose is spent on it; if it can no longer be done, the money stays', async () => {
@@ -418,7 +574,8 @@ suite('261 — simple billing renewals, upgrades and changes (real PostgreSQL, w
   it('only service_role reaches the billing functions', async () => {
     for (const f of [
       'public.billing_account_purchase_plan(uuid, uuid, text, text, uuid)',
-      'public.billing_account_renew(uuid, uuid)',
+      'public.billing_account_renew(uuid, uuid, timestamptz)',
+      'public.billing_account_refund_payment(uuid, text, bigint)',
       'public.billing_account_upgrade(uuid, uuid, uuid)',
       'public.billing_account_schedule_change(uuid, uuid, text, uuid)',
       'public.billing_account_process_due(uuid)',

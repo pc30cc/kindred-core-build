@@ -37,6 +37,14 @@
 DROP TRIGGER IF EXISTS trg_billing_v2_block_direct_subscription ON public.workspace_subscriptions;
 DROP TRIGGER IF EXISTS trg_billing_notify_subscription_lifecycle ON public.workspace_subscriptions;
 
+-- ─── 1b. Columns ──────────────────────────────────────────────────────────
+-- The period a prepaid next period follows (its start = that period's end):
+-- a prepayment is only ever used for the period it was paid for.
+ALTER TABLE public.billing_accounts ADD COLUMN IF NOT EXISTS next_period_start timestamptz;
+-- What spending a gateway payment on its purpose did (or why it could not),
+-- so a later look at the payment can tell the customer.
+ALTER TABLE public.billing_account_payments ADD COLUMN IF NOT EXISTS purpose_result jsonb;
+
 -- ─── 2. Helpers ───────────────────────────────────────────────────────────
 
 -- The currency the region charges (shared/edition.ts REGION_CURRENCY).
@@ -172,7 +180,15 @@ BEGIN
   IF p_period_start IS NULL OR p_period_end IS NULL OR p_at < p_period_start OR p_at >= p_period_end THEN
     RETURN 0;
   END IF;
+  -- The month of the period that contains p_at, on the same boundaries
+  -- billing_add_months draws (month ends clamp).
   v_k := public.billing_whole_months(p_period_start, p_at);
+  WHILE v_k > 0 AND public.billing_add_months(p_period_start, v_k) > p_at LOOP
+    v_k := v_k - 1;
+  END LOOP;
+  WHILE public.billing_add_months(p_period_start, v_k + 1) <= p_at LOOP
+    v_k := v_k + 1;
+  END LOOP;
   v_cycle_start := public.billing_add_months(p_period_start, v_k);
   v_cycle_end := least(public.billing_add_months(p_period_start, v_k + 1), p_period_end);
   v_cycle_id := 'cycle:account:' || to_char(v_cycle_start AT TIME ZONE 'UTC', 'YYYYMMDD"T"HH24MISS');
@@ -189,12 +205,17 @@ BEGIN
   ) THEN
     RETURN 0;
   END IF;
-  -- A plan allowance of another path that covers part of this month.
+  -- A month billing v2 funded itself (its own period or cycle lot covering
+  -- part of this month) is not funded twice. Lots of other paths (a trial,
+  -- the Free plan's calendar month) are another plan's credit and do not
+  -- count.
   IF p_source = 'plan' AND EXISTS (
     SELECT 1 FROM public.workspace_ai_balance_lots
      WHERE workspace_id = p_workspace_id
        AND source_type = 'PLAN_ALLOWANCE'
        AND coalesce(allowance_source, 'plan') = 'plan'
+       AND (billing_cycle_id LIKE 'period:%'
+            OR (billing_cycle_id LIKE 'cycle:%' AND billing_cycle_id NOT LIKE 'cycle:account:%'))
        AND created_at < v_cycle_end
        AND (expires_at IS NULL OR expires_at > v_cycle_start)
   ) THEN
@@ -305,6 +326,10 @@ DECLARE
 BEGIN
   SELECT * INTO v_entry FROM public.billing_account_ledger WHERE idempotency_key = p_key;
   IF v_entry.id IS NOT NULL THEN
+    -- A replay must be the same charge; a key never stands in for another.
+    IF v_entry.workspace_id <> p_workspace_id OR v_entry.kind <> p_kind OR v_entry.amount_minor <> -p_amount THEN
+      RAISE EXCEPTION 'billing_idempotency_conflict';
+    END IF;
     RETURN v_entry;
   END IF;
   IF p_amount IS NULL OR p_amount <= 0 THEN
@@ -346,7 +371,13 @@ DECLARE
   v_entry public.billing_account_ledger;
 BEGIN
   SELECT * INTO v_entry FROM public.billing_account_ledger WHERE idempotency_key = p_key;
-  IF v_entry.id IS NOT NULL OR p_amount IS NULL OR p_amount <= 0 THEN
+  IF v_entry.id IS NOT NULL THEN
+    IF v_entry.workspace_id <> p_workspace_id OR v_entry.kind <> 'prepaid_return' OR v_entry.amount_minor <> p_amount THEN
+      RAISE EXCEPTION 'billing_idempotency_conflict';
+    END IF;
+    RETURN v_entry;
+  END IF;
+  IF p_amount IS NULL OR p_amount <= 0 THEN
     RETURN v_entry;
   END IF;
   SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
@@ -360,6 +391,38 @@ BEGIN
      SET balance_minor = balance_minor + p_amount, updated_at = now()
    WHERE workspace_id = p_workspace_id;
   RETURN v_entry;
+END;
+$$;
+
+-- A prepaid next period belongs to the period it follows (next_period_start
+-- = that period's end). When that period no longer is the running one (it
+-- ended, or a Super Admin assignment or billing v2 replaced it), the
+-- prepayment returns to the balance. Returns what was returned.
+CREATE OR REPLACE FUNCTION public.billing_account_release_stale_prepaid(p_workspace_id uuid)
+RETURNS bigint
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_acc public.billing_accounts;
+  v_sub public.workspace_subscriptions;
+BEGIN
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
+  IF v_acc.workspace_id IS NULL OR v_acc.next_period_prepaid_minor IS NULL THEN
+    RETURN 0;
+  END IF;
+  v_sub := public.billing_account_paid_subscription(p_workspace_id);
+  IF v_sub.id IS NOT NULL AND v_acc.next_period_start IS NOT DISTINCT FROM v_sub.current_period_end THEN
+    RETURN 0;
+  END IF;
+  PERFORM public.billing_account_credit_back(
+    p_workspace_id, v_acc.next_period_prepaid_minor,
+    jsonb_build_object('reason', 'period_changed', 'for_period_start', v_acc.next_period_start), NULL,
+    'prepaid_return:' || p_workspace_id::text || ':stale:' || gen_random_uuid()::text
+  );
+  UPDATE public.billing_accounts
+     SET next_period_prepaid_minor = NULL, next_period_start = NULL, updated_at = now()
+   WHERE workspace_id = p_workspace_id;
+  RETURN v_acc.next_period_prepaid_minor;
 END;
 $$;
 
@@ -389,35 +452,49 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_sub      public.workspace_subscriptions;
+  v_acc      public.billing_accounts;
   v_currency text;
   v_interval text;
   v_new      bigint;
   v_old      bigint;
   v_months   integer;
   v_cost     bigint;
+  v_next     bigint;
+  v_reprice  bigint;
 BEGIN
   v_sub := public.billing_account_paid_subscription(p_workspace_id);
   IF v_sub.id IS NULL OR v_sub.current_period_end <= p_at THEN
     RETURN NULL;
   END IF;
-  SELECT currency INTO v_currency FROM public.billing_accounts WHERE workspace_id = p_workspace_id;
-  v_currency := coalesce(v_currency, public.billing_region_currency());
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id;
+  v_currency := coalesce(v_acc.currency, public.billing_region_currency());
   v_interval := coalesce(v_sub.billing_interval, 'monthly');
   v_new := public.billing_plan_price(p_plan_id, v_currency, v_interval);
   v_old := coalesce(public.billing_plan_price(v_sub.plan_id, v_currency, v_interval), 0);
   IF v_new IS NULL OR v_new <= v_old THEN
     RETURN jsonb_build_object('upgrade', false, 'new_price_minor', v_new, 'old_price_minor', v_old);
   END IF;
+  v_months := public.billing_whole_months(p_at, v_sub.current_period_end);
   IF v_interval = 'yearly' THEN
-    v_months := public.billing_whole_months(p_at, v_sub.current_period_end);
+    -- The yearly difference for the whole months left.
     v_cost := round((v_new - v_old)::numeric * v_months / 12);
   ELSE
-    v_months := NULL;
-    v_cost := v_new - v_old;
+    -- The monthly difference; a window longer than a month (a Super Admin
+    -- grant) pays it for each whole month left.
+    v_cost := (v_new - v_old) * greatest(v_months, 1);
+  END IF;
+  -- A prepaid next period follows the new plan: what it now costs more (or
+  -- less) is taken from (or returned to) the balance with the upgrade.
+  IF v_acc.next_period_prepaid_minor IS NOT NULL THEN
+    v_next := public.billing_plan_price(p_plan_id, v_currency, coalesce(v_acc.scheduled_interval, v_interval));
+    v_reprice := CASE WHEN v_next IS NULL THEN -v_acc.next_period_prepaid_minor ELSE v_next - v_acc.next_period_prepaid_minor END;
   END IF;
   RETURN jsonb_build_object(
     'upgrade', true, 'cost_minor', v_cost, 'new_price_minor', v_new, 'old_price_minor', v_old,
-    'months_left', v_months, 'currency', v_currency, 'billing_interval', v_interval
+    'months_left', CASE WHEN v_interval = 'yearly' THEN v_months END,
+    'currency', v_currency, 'billing_interval', v_interval,
+    'prepaid_minor', v_acc.next_period_prepaid_minor, 'next_price_minor', v_next, 'reprice_minor', v_reprice,
+    'period_end', v_sub.current_period_end
   );
 END;
 $$;
@@ -442,23 +519,38 @@ DECLARE
   v_entry  public.billing_account_ledger;
   v_start  timestamptz := now();
   v_end    timestamptz;
+  v_due    jsonb;
 BEGIN
   IF p_interval NOT IN ('monthly', 'yearly') THEN
     RAISE EXCEPTION 'billing_interval_invalid';
   END IF;
   SELECT * INTO v_entry FROM public.billing_account_ledger WHERE idempotency_key = 'plan:' || p_key;
   IF v_entry.id IS NOT NULL THEN
-    RETURN jsonb_build_object('replayed', true, 'ledger_id', v_entry.id, 'plan_id', v_entry.plan_id,
+    RETURN jsonb_build_object('replayed', true, 'action', 'purchase', 'ledger_id', v_entry.id, 'plan_id', v_entry.plan_id,
       'period_start', v_entry.period_start, 'period_end', v_entry.period_end);
   END IF;
   v_acc := public.billing_account_lock(p_workspace_id);
+  -- A double submit waited for the lock above: it replays the first one.
+  SELECT * INTO v_entry FROM public.billing_account_ledger WHERE idempotency_key = 'plan:' || p_key;
+  IF v_entry.id IS NOT NULL THEN
+    RETURN jsonb_build_object('replayed', true, 'action', 'purchase', 'ledger_id', v_entry.id, 'plan_id', v_entry.plan_id,
+      'period_start', v_entry.period_start, 'period_end', v_entry.period_end);
+  END IF;
+  -- A paid period that is due but not yet processed is processed first: its
+  -- prepaid next period starts (or auto-renew pays), or it ends.
+  v_sub := public.billing_account_paid_subscription(p_workspace_id);
+  IF v_sub.id IS NOT NULL AND v_sub.current_period_end <= now() THEN
+    v_due := public.billing_account_process_due(p_workspace_id);
+    v_sub := public.billing_account_paid_subscription(p_workspace_id);
+  END IF;
+  IF v_sub.id IS NOT NULL AND v_sub.current_period_end > now() THEN
+    RAISE EXCEPTION 'billing_plan_active';
+  END IF;
+  PERFORM public.billing_account_release_stale_prepaid(p_workspace_id);
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
   SELECT * INTO v_plan FROM public.billing_plans WHERE id = p_plan_id;
   IF v_plan.id IS NULL OR NOT coalesce(v_plan.is_active, false) OR v_plan.is_hidden OR v_plan.is_free THEN
     RAISE EXCEPTION 'billing_plan_not_available';
-  END IF;
-  v_sub := public.billing_account_paid_subscription(p_workspace_id);
-  IF v_sub.id IS NOT NULL AND v_sub.current_period_end > now() THEN
-    RAISE EXCEPTION 'billing_plan_active';
   END IF;
   v_price := public.billing_plan_price(p_plan_id, v_acc.currency, p_interval);
   IF v_price IS NULL OR v_price <= 0 THEN
@@ -470,7 +562,8 @@ BEGIN
     jsonb_build_object('plan_slug', v_plan.slug), p_actor, 'plan:' || p_key
   );
   UPDATE public.billing_accounts
-     SET scheduled_plan_id = NULL, scheduled_interval = NULL, next_period_prepaid_minor = NULL, updated_at = now()
+     SET scheduled_plan_id = NULL, scheduled_interval = NULL, next_period_prepaid_minor = NULL,
+         next_period_start = NULL, updated_at = now()
    WHERE workspace_id = p_workspace_id;
   PERFORM public.billing_account_write_subscription(
     p_workspace_id, p_plan_id, p_interval, v_start, v_end, 'active', 'purchase', p_actor,
@@ -480,7 +573,7 @@ BEGIN
   RETURN jsonb_build_object(
     'replayed', false, 'action', 'purchase', 'ledger_id', v_entry.id, 'plan_id', p_plan_id,
     'billing_interval', p_interval, 'period_start', v_start, 'period_end', v_end,
-    'amount_minor', v_price, 'balance_minor', v_entry.balance_after
+    'amount_minor', v_price, 'balance_minor', v_entry.balance_after, 'due_result', v_due
   );
 END;
 $$;
@@ -492,8 +585,9 @@ $$;
 -- (the hourly job has not run yet) the next period starts at once.
 -- One renewal per period: the key is the period it pays for.
 CREATE OR REPLACE FUNCTION public.billing_account_renew(
-  p_workspace_id uuid,
-  p_actor        uuid DEFAULT NULL
+  p_workspace_id        uuid,
+  p_actor               uuid DEFAULT NULL,
+  p_expected_period_end timestamptz DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
@@ -509,9 +603,19 @@ DECLARE
   v_entry    public.billing_account_ledger;
 BEGIN
   v_acc := public.billing_account_lock(p_workspace_id);
+  PERFORM public.billing_account_release_stale_prepaid(p_workspace_id);
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
   v_sub := public.billing_account_paid_subscription(p_workspace_id);
   IF v_sub.id IS NULL THEN
     RAISE EXCEPTION 'billing_no_paid_plan';
+  END IF;
+  -- The renewal is for the period the customer (or the job) saw: once that
+  -- period was renewed or replaced, a retry or a second tab renews nothing.
+  -- (A period end that went through JSON or a browser keeps milliseconds
+  -- only; periods are months apart, so a second's tolerance is exact enough.)
+  IF p_expected_period_end IS NOT NULL
+     AND abs(extract(epoch FROM v_sub.current_period_end - p_expected_period_end)) >= 1 THEN
+    RAISE EXCEPTION 'billing_period_changed';
   END IF;
   IF v_acc.next_period_prepaid_minor IS NOT NULL THEN
     RAISE EXCEPTION 'billing_already_renewed';
@@ -530,14 +634,17 @@ BEGIN
   -- one, unless it ended long ago (then it starts now).
   v_start := CASE WHEN v_sub.current_period_end > now() - interval '1 day' THEN v_sub.current_period_end ELSE now() END;
   v_end := public.billing_period_end(v_start, v_interval);
+  -- Every renewal is its own charge (the guards above keep it to one per
+  -- period); a returned prepayment never lets a later renewal replay it.
   v_entry := public.billing_account_debit(
     p_workspace_id, 'renewal', v_price, v_target, v_interval, v_start, v_end,
     jsonb_build_object('plan_slug', v_plan.slug), p_actor,
     'renewal:' || p_workspace_id::text || ':' || to_char(v_sub.current_period_end AT TIME ZONE 'UTC', 'YYYYMMDD"T"HH24MISS')
+      || ':' || gen_random_uuid()::text
   );
   IF v_sub.current_period_end > now() THEN
     UPDATE public.billing_accounts
-       SET next_period_prepaid_minor = v_price, updated_at = now()
+       SET next_period_prepaid_minor = v_price, next_period_start = v_sub.current_period_end, updated_at = now()
      WHERE workspace_id = p_workspace_id;
     RETURN jsonb_build_object(
       'action', 'prepaid', 'ledger_id', v_entry.id, 'plan_id', v_target, 'billing_interval', v_interval,
@@ -545,7 +652,8 @@ BEGIN
     );
   END IF;
   UPDATE public.billing_accounts
-     SET scheduled_plan_id = NULL, scheduled_interval = NULL, next_period_prepaid_minor = NULL, updated_at = now()
+     SET scheduled_plan_id = NULL, scheduled_interval = NULL, next_period_prepaid_minor = NULL,
+         next_period_start = NULL, updated_at = now()
    WHERE workspace_id = p_workspace_id;
   PERFORM public.billing_account_write_subscription(
     p_workspace_id, v_target, v_interval, v_start, v_end, 'active',
@@ -582,12 +690,35 @@ DECLARE
   v_end      timestamptz;
   v_result   jsonb;
   v_reason   text;
+  v_v2       uuid;
 BEGIN
   v_acc := public.billing_account_lock(p_workspace_id);
   v_sub := public.billing_account_paid_subscription(p_workspace_id);
   IF v_sub.id IS NULL OR v_sub.current_period_end > now() THEN
     RETURN jsonb_build_object('action', 'none');
   END IF;
+
+  -- A next period already paid through billing v2 (its scheduler no longer
+  -- runs) starts now, as v2 would have started it.
+  IF to_regclass('public.billing_subscription_periods') IS NOT NULL THEN
+    SELECT id INTO v_v2 FROM public.billing_subscription_periods
+     WHERE workspace_id = p_workspace_id AND status = 'scheduled' AND period_start <= now()
+     ORDER BY period_start DESC LIMIT 1;
+    IF v_v2 IS NOT NULL THEN
+      PERFORM public.billing_activate_period(v_v2);
+      SELECT * INTO v_sub FROM public.workspace_subscriptions WHERE workspace_id = p_workspace_id;
+      RETURN jsonb_build_object(
+        'action', 'renewed', 'source', 'billing_v2', 'plan_id', v_sub.plan_id, 'billing_interval', v_sub.billing_interval,
+        'period_start', v_sub.current_period_start, 'period_end', v_sub.current_period_end, 'amount_minor', 0,
+        'balance_minor', v_acc.balance_minor
+      );
+    END IF;
+  END IF;
+
+  -- A prepayment made for another period (the period was replaced) returns.
+  PERFORM public.billing_account_release_stale_prepaid(p_workspace_id);
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
+
   v_target := coalesce(v_acc.scheduled_plan_id, v_sub.plan_id);
   v_interval := coalesce(v_acc.scheduled_interval, v_sub.billing_interval, 'monthly');
   SELECT * INTO v_plan FROM public.billing_plans WHERE id = v_target;
@@ -596,7 +727,8 @@ BEGIN
     v_start := v_sub.current_period_end;
     v_end := public.billing_period_end(v_start, v_interval);
     UPDATE public.billing_accounts
-       SET scheduled_plan_id = NULL, scheduled_interval = NULL, next_period_prepaid_minor = NULL, updated_at = now()
+       SET scheduled_plan_id = NULL, scheduled_interval = NULL, next_period_prepaid_minor = NULL,
+           next_period_start = NULL, updated_at = now()
      WHERE workspace_id = p_workspace_id;
     PERFORM public.billing_account_write_subscription(
       p_workspace_id, v_target, v_interval, v_start, v_end, 'active',
@@ -614,7 +746,7 @@ BEGIN
   IF NOT coalesce(v_plan.is_free, true) AND v_acc.auto_renew THEN
     v_price := public.billing_plan_price(v_target, v_acc.currency, v_interval);
     IF v_price IS NOT NULL AND v_price > 0 AND v_acc.balance_minor >= v_price THEN
-      v_result := public.billing_account_renew(p_workspace_id, NULL);
+      v_result := public.billing_account_renew(p_workspace_id, NULL, v_sub.current_period_end);
       RETURN v_result || jsonb_build_object('auto_renew', true);
     END IF;
     v_reason := CASE WHEN v_price IS NULL OR v_price <= 0 THEN 'no_price' ELSE 'insufficient_balance' END;
@@ -630,11 +762,12 @@ BEGIN
     PERFORM public.billing_account_credit_back(
       p_workspace_id, v_acc.next_period_prepaid_minor,
       jsonb_build_object('reason', 'changed_to_free'), NULL,
-      'prepaid_return:' || p_workspace_id::text || ':' || to_char(v_sub.current_period_end AT TIME ZONE 'UTC', 'YYYYMMDD"T"HH24MISS')
+      'prepaid_return:' || p_workspace_id::text || ':due:' || gen_random_uuid()::text
     );
   END IF;
   UPDATE public.billing_accounts
-     SET scheduled_plan_id = NULL, scheduled_interval = NULL, next_period_prepaid_minor = NULL, updated_at = now()
+     SET scheduled_plan_id = NULL, scheduled_interval = NULL, next_period_prepaid_minor = NULL,
+         next_period_start = NULL, updated_at = now()
    WHERE workspace_id = p_workspace_id;
   PERFORM public.billing_account_write_subscription(
     p_workspace_id, v_sub.plan_id, v_sub.billing_interval, v_sub.current_period_start, v_sub.current_period_end,
@@ -666,12 +799,15 @@ DECLARE
   v_plan      public.billing_plans;
   v_quote     jsonb;
   v_cost      bigint;
+  v_reprice   bigint;
+  v_next      bigint;
   v_entry     public.billing_account_ledger;
   v_key       text;
   v_ai_diff   numeric;
-  v_balance   bigint;
 BEGIN
   v_acc := public.billing_account_lock(p_workspace_id);
+  PERFORM public.billing_account_release_stale_prepaid(p_workspace_id);
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
   v_sub := public.billing_account_paid_subscription(p_workspace_id);
   IF v_sub.id IS NULL OR v_sub.current_period_end <= now() THEN
     RAISE EXCEPTION 'billing_no_paid_plan';
@@ -693,30 +829,51 @@ BEGIN
     RAISE EXCEPTION 'billing_not_an_upgrade';
   END IF;
   v_cost := (v_quote ->> 'cost_minor')::bigint;
-  v_balance := v_acc.balance_minor;
+  v_reprice := (v_quote ->> 'reprice_minor')::bigint;
+  v_next := (v_quote ->> 'next_price_minor')::bigint;
+
+  -- This month's credit of the plan it had is granted first (if the job has
+  -- not yet), so the difference below is never added on top of the new
+  -- plan's full allowance.
+  PERFORM public.billing_account_grant_month(
+    p_workspace_id, v_sub.plan_id, v_sub.current_period_start, v_sub.current_period_end
+  );
+
+  -- A prepaid next period follows the new plan. What it now costs less
+  -- returns first, so the balance it frees can pay the upgrade.
+  IF v_reprice IS NOT NULL AND v_reprice < 0 THEN
+    PERFORM public.billing_account_credit_back(
+      p_workspace_id, -v_reprice,
+      jsonb_build_object('reason', 'upgrade', 'plan_id', p_plan_id), p_actor,
+      'prepaid_return:' || v_key || ':' || gen_random_uuid()::text
+    );
+  END IF;
   IF v_cost > 0 THEN
-    v_entry := public.billing_account_debit(
+    PERFORM public.billing_account_debit(
       p_workspace_id, 'upgrade', v_cost, p_plan_id, v_sub.billing_interval,
       now(), v_sub.current_period_end,
       jsonb_build_object('plan_slug', v_plan.slug, 'from_plan_id', v_sub.plan_id, 'months_left', v_quote -> 'months_left'),
       p_actor, v_key
     );
-    v_balance := v_entry.balance_after;
   END IF;
-  IF v_acc.next_period_prepaid_minor IS NOT NULL THEN
-    v_entry := public.billing_account_credit_back(
-      p_workspace_id, v_acc.next_period_prepaid_minor,
-      jsonb_build_object('reason', 'upgrade', 'plan_id', p_plan_id), p_actor,
-      'prepaid_return:' || v_key
+  IF v_reprice IS NOT NULL AND v_reprice > 0 THEN
+    PERFORM public.billing_account_debit(
+      p_workspace_id, 'renewal', v_reprice, p_plan_id, coalesce(v_acc.scheduled_interval, v_sub.billing_interval),
+      v_sub.current_period_end,
+      public.billing_period_end(v_sub.current_period_end, coalesce(v_acc.scheduled_interval, v_sub.billing_interval, 'monthly')),
+      jsonb_build_object('reason', 'upgrade', 'plan_slug', v_plan.slug), p_actor,
+      'renewal_reprice:' || v_key || ':' || gen_random_uuid()::text
     );
-    v_balance := coalesce(v_entry.balance_after, v_balance);
   END IF;
   UPDATE public.billing_accounts
-     SET scheduled_plan_id = NULL, next_period_prepaid_minor = NULL, updated_at = now()
+     SET scheduled_plan_id = NULL,
+         next_period_prepaid_minor = CASE WHEN next_period_prepaid_minor IS NULL OR v_next IS NULL THEN NULL ELSE v_next END,
+         next_period_start = CASE WHEN next_period_prepaid_minor IS NULL OR v_next IS NULL THEN NULL ELSE next_period_start END,
+         updated_at = now()
    WHERE workspace_id = p_workspace_id;
   PERFORM public.billing_account_write_subscription(
     p_workspace_id, p_plan_id, v_sub.billing_interval, v_sub.current_period_start, v_sub.current_period_end,
-    'active', 'upgrade', p_actor, jsonb_build_object('cost_minor', v_cost)
+    'active', 'upgrade', p_actor, jsonb_build_object('cost_minor', v_cost, 'reprice_minor', v_reprice)
   );
   v_ai_diff := public.billing_plan_ai_allowance(p_plan_id, p_workspace_id)
              - public.billing_plan_ai_allowance(v_sub.plan_id, p_workspace_id);
@@ -726,11 +883,12 @@ BEGIN
       'upgrade:' || p_plan_id::text, v_ai_diff
     );
   END IF;
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id;
   RETURN jsonb_build_object(
     'action', 'upgraded', 'replayed', false, 'plan_id', p_plan_id, 'previous_plan_id', v_sub.plan_id,
-    'amount_minor', v_cost, 'months_left', v_quote -> 'months_left',
-    'period_end', v_sub.current_period_end, 'balance_minor', v_balance,
-    'prepaid_returned_minor', v_acc.next_period_prepaid_minor
+    'amount_minor', v_cost, 'months_left', v_quote -> 'months_left', 'reprice_minor', v_reprice,
+    'period_end', v_sub.current_period_end, 'balance_minor', v_acc.balance_minor,
+    'next_period_prepaid_minor', v_acc.next_period_prepaid_minor
   );
 END;
 $$;
@@ -753,39 +911,51 @@ DECLARE
   v_sub       public.workspace_subscriptions;
   v_plan      public.billing_plans;
   v_interval  text;
+  v_current   text;
+  v_cancel    boolean;
   v_new_price bigint;
   v_prepaid   bigint;
+  v_start     timestamptz;
   v_tag       text;
-  v_entry     public.billing_account_ledger;
 BEGIN
   v_acc := public.billing_account_lock(p_workspace_id);
+  PERFORM public.billing_account_release_stale_prepaid(p_workspace_id);
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
   v_sub := public.billing_account_paid_subscription(p_workspace_id);
   IF v_sub.id IS NULL OR v_sub.current_period_end <= now() THEN
     RAISE EXCEPTION 'billing_no_paid_plan';
   END IF;
+  v_current := coalesce(v_sub.billing_interval, 'monthly');
   SELECT * INTO v_plan FROM public.billing_plans WHERE id = p_plan_id;
-  IF v_plan.id IS NULL OR NOT coalesce(v_plan.is_active, false)
-     OR (v_plan.is_hidden AND p_plan_id <> v_sub.plan_id) THEN
+  v_cancel := p_plan_id = v_sub.plan_id AND coalesce(p_interval, v_current) = v_current;
+  IF NOT v_cancel AND (v_plan.id IS NULL OR NOT coalesce(v_plan.is_active, false)
+     OR (v_plan.is_hidden AND p_plan_id <> v_sub.plan_id)) THEN
     RAISE EXCEPTION 'billing_plan_not_available';
   END IF;
-  v_interval := CASE WHEN v_plan.is_free THEN coalesce(v_sub.billing_interval, 'monthly')
-                     ELSE coalesce(p_interval, v_sub.billing_interval, 'monthly') END;
+  v_interval := CASE WHEN v_cancel OR coalesce(v_plan.is_free, false) THEN v_current
+                     ELSE coalesce(p_interval, v_current) END;
   IF v_interval NOT IN ('monthly', 'yearly') THEN
     RAISE EXCEPTION 'billing_interval_invalid';
   END IF;
   v_new_price := public.billing_plan_price(p_plan_id, v_acc.currency, v_interval);
-  IF v_new_price IS NULL THEN
+  -- Cancelling always works; a new change needs a price for the next period.
+  IF v_new_price IS NULL AND NOT v_cancel THEN
     RAISE EXCEPTION 'billing_plan_price_unavailable';
   END IF;
 
-  v_tag := to_char(now() AT TIME ZONE 'UTC', 'YYYYMMDD"T"HH24MISS.US');
+  -- A prepaid next period is re-priced to what it will be. What it costs
+  -- less returns to the balance; the missing part is taken from it. A next
+  -- period that can no longer be priced (the plan is not sold any more)
+  -- returns whole.
+  v_tag := gen_random_uuid()::text;
   v_prepaid := v_acc.next_period_prepaid_minor;
+  v_start := v_acc.next_period_start;
   IF v_prepaid IS NOT NULL THEN
-    IF v_new_price < v_prepaid THEN
+    IF v_new_price IS NULL OR v_new_price < v_prepaid THEN
       PERFORM public.billing_account_credit_back(
-        p_workspace_id, v_prepaid - v_new_price,
+        p_workspace_id, v_prepaid - coalesce(v_new_price, 0),
         jsonb_build_object('reason', 'change', 'plan_id', p_plan_id, 'billing_interval', v_interval), p_actor,
-        'prepaid_return:' || p_workspace_id::text || ':' || v_tag
+        'prepaid_return:' || p_workspace_id::text || ':change:' || v_tag
       );
     ELSIF v_new_price > v_prepaid THEN
       PERFORM public.billing_account_debit(
@@ -795,13 +965,19 @@ BEGIN
         'renewal_change:' || p_workspace_id::text || ':' || v_tag
       );
     END IF;
-    v_prepaid := CASE WHEN v_new_price > 0 THEN v_new_price END;
+    IF coalesce(v_new_price, 0) > 0 THEN
+      v_prepaid := v_new_price;
+    ELSE
+      v_prepaid := NULL;
+      v_start := NULL;
+    END IF;
   END IF;
 
   UPDATE public.billing_accounts
      SET scheduled_plan_id = CASE WHEN p_plan_id = v_sub.plan_id THEN NULL ELSE p_plan_id END,
-         scheduled_interval = CASE WHEN v_interval = coalesce(v_sub.billing_interval, 'monthly') THEN NULL ELSE v_interval END,
+         scheduled_interval = CASE WHEN v_interval = v_current THEN NULL ELSE v_interval END,
          next_period_prepaid_minor = v_prepaid,
+         next_period_start = v_start,
          updated_at = now()
    WHERE workspace_id = p_workspace_id
    RETURNING * INTO v_acc;
@@ -814,9 +990,10 @@ BEGIN
 
   RETURN jsonb_build_object(
     'action', CASE WHEN v_acc.scheduled_plan_id IS NULL AND v_acc.scheduled_interval IS NULL THEN 'change_cancelled' ELSE 'change_scheduled' END,
-    'plan_id', p_plan_id, 'billing_interval', v_interval, 'effective_at', v_sub.current_period_end,
+    'plan_id', p_plan_id, 'previous_plan_id', v_sub.plan_id,
+    'billing_interval', v_interval, 'previous_interval', v_current, 'effective_at', v_sub.current_period_end,
     'price_minor', v_new_price, 'next_period_prepaid_minor', v_acc.next_period_prepaid_minor,
-    'balance_minor', v_acc.balance_minor
+    'balance_minor', v_acc.balance_minor, 'auto_renew', v_acc.auto_renew
   );
 END;
 $$;
@@ -913,13 +1090,29 @@ BEGIN
           v_pay.workspace_id, (v_pay.purpose_detail ->> 'plan_id')::uuid,
           coalesce(v_pay.purpose_detail ->> 'billing_interval', 'monthly'),
           'payment:' || v_pay.id::text, v_pay.created_by)
-        WHEN 'renewal' THEN public.billing_account_renew(v_pay.workspace_id, v_pay.created_by)
+        WHEN 'renewal' THEN public.billing_account_renew(
+          v_pay.workspace_id, v_pay.created_by, (v_pay.purpose_detail ->> 'period_end')::timestamptz)
         WHEN 'upgrade' THEN public.billing_account_upgrade(
           v_pay.workspace_id, (v_pay.purpose_detail ->> 'plan_id')::uuid, v_pay.created_by)
       END;
     EXCEPTION WHEN others THEN
       v_purpose := jsonb_build_object('error', SQLERRM);
     END;
+    -- A renewal paid after the plan already ran out buys that plan again
+    -- (the customer paid for it); the period starts now.
+    IF v_pay.purpose = 'renewal' AND v_purpose ? 'error'
+       AND (public.billing_account_paid_subscription(v_pay.workspace_id)).id IS NULL
+       AND v_pay.purpose_detail ? 'plan_id' THEN
+      BEGIN
+        v_purpose := public.billing_account_purchase_plan(
+          v_pay.workspace_id, (v_pay.purpose_detail ->> 'plan_id')::uuid,
+          coalesce(v_pay.purpose_detail ->> 'billing_interval', 'monthly'),
+          'payment:' || v_pay.id::text, v_pay.created_by);
+      EXCEPTION WHEN others THEN
+        v_purpose := v_purpose || jsonb_build_object('fallback_error', SQLERRM);
+      END;
+    END IF;
+    UPDATE public.billing_account_payments SET purpose_result = v_purpose WHERE id = v_pay.id;
     SELECT balance_minor INTO v_balance FROM public.billing_accounts WHERE workspace_id = v_pay.workspace_id;
   END IF;
 
@@ -931,6 +1124,111 @@ BEGIN
     'balance_minor', v_balance,
     'purpose', v_pay.purpose,
     'purpose_result', v_purpose
+  );
+END;
+$$;
+
+-- 259's refund, now also for a payment spent on its purpose. A renewal paid
+-- online sits as the prepaid next period, outside the balance: a refund the
+-- balance cannot cover first returns that prepayment to the balance (the
+-- next period is unpaid again), then takes the refund from it. What still
+-- cannot be taken back (spent on a period already running) stays
+-- `shortfall_minor`, for review.
+CREATE OR REPLACE FUNCTION public.billing_account_refund_payment(
+  p_payment_id   uuid,
+  p_refund_id    text,
+  p_amount_minor bigint
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_pay       public.billing_account_payments;
+  v_acc       public.billing_accounts;
+  v_entry     public.billing_account_ledger;
+  v_key       text;
+  v_credit    bigint;
+  v_debit     bigint;
+  v_shortfall bigint;
+  v_released  bigint := 0;
+BEGIN
+  IF coalesce(p_refund_id, '') = '' OR p_amount_minor IS NULL OR p_amount_minor <= 0 THEN
+    RAISE EXCEPTION 'billing_refund_invalid';
+  END IF;
+  SELECT * INTO v_pay FROM public.billing_account_payments WHERE id = p_payment_id FOR UPDATE;
+  IF v_pay.id IS NULL THEN
+    RAISE EXCEPTION 'billing_payment_not_found';
+  END IF;
+  v_key := 'refund:' || v_pay.provider || ':' || p_refund_id;
+  SELECT * INTO v_entry FROM public.billing_account_ledger WHERE idempotency_key = v_key;
+  IF v_entry.id IS NOT NULL OR EXISTS (
+    SELECT 1 FROM public.billing_account_payments
+     WHERE id = p_payment_id AND (purpose_detail -> 'refunds') ? p_refund_id
+  ) THEN
+    RETURN jsonb_build_object('replayed', true, 'ledger_id', v_entry.id);
+  END IF;
+  IF v_pay.status <> 'succeeded' THEN
+    RAISE EXCEPTION 'billing_refund_unsettled_payment';
+  END IF;
+
+  -- The net share of this refund, capped at what is still unrefunded.
+  v_credit := least(
+    (p_amount_minor * v_pay.net_minor) / greatest(v_pay.amount_minor, 1),
+    v_pay.net_minor - v_pay.refunded_minor
+  );
+  IF v_credit <= 0 THEN
+    RETURN jsonb_build_object('replayed', false, 'ledger_id', NULL, 'debited_minor', 0, 'shortfall_minor', 0);
+  END IF;
+
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = v_pay.workspace_id FOR UPDATE;
+  IF coalesce(v_acc.balance_minor, 0) < v_credit AND v_acc.next_period_prepaid_minor IS NOT NULL THEN
+    v_released := v_acc.next_period_prepaid_minor;
+    PERFORM public.billing_account_credit_back(
+      v_pay.workspace_id, v_released,
+      jsonb_build_object('reason', 'refund', 'refund_id', p_refund_id), NULL,
+      'prepaid_return:refund:' || v_pay.provider || ':' || p_refund_id
+    );
+    UPDATE public.billing_accounts
+       SET next_period_prepaid_minor = NULL, next_period_start = NULL, updated_at = now()
+     WHERE workspace_id = v_pay.workspace_id
+     RETURNING * INTO v_acc;
+  END IF;
+  v_debit := least(v_credit, coalesce(v_acc.balance_minor, 0));
+  v_shortfall := v_credit - v_debit;
+
+  IF v_debit > 0 THEN
+    INSERT INTO public.billing_account_ledger (
+      workspace_id, kind, amount_minor, balance_after, currency,
+      payment_id, description, idempotency_key, created_at
+    ) VALUES (
+      v_pay.workspace_id, 'refund', -v_debit, v_acc.balance_minor - v_debit, v_acc.currency,
+      v_pay.id,
+      jsonb_build_object('refund_id', p_refund_id, 'provider', v_pay.provider, 'shortfall_minor', v_shortfall,
+                         'released_prepaid_minor', v_released),
+      v_key, clock_timestamp()
+    ) RETURNING * INTO v_entry;
+    UPDATE public.billing_accounts
+       SET balance_minor = balance_minor - v_debit, updated_at = now()
+     WHERE workspace_id = v_pay.workspace_id;
+  END IF;
+
+  UPDATE public.billing_account_payments
+     SET refunded_minor = refunded_minor + v_credit,
+         purpose_detail = jsonb_set(
+           coalesce(purpose_detail, '{}'::jsonb), '{refunds}',
+           coalesce(purpose_detail -> 'refunds', '{}'::jsonb)
+             || jsonb_build_object(p_refund_id, jsonb_build_object(
+                  'amount_minor', p_amount_minor, 'credit_minor', v_credit, 'shortfall_minor', v_shortfall,
+                  'released_prepaid_minor', v_released))
+         ),
+         updated_at = now()
+   WHERE id = v_pay.id;
+
+  RETURN jsonb_build_object(
+    'replayed', false,
+    'ledger_id', v_entry.id,
+    'debited_minor', v_debit,
+    'shortfall_minor', v_shortfall,
+    'released_prepaid_minor', v_released
   );
 END;
 $$;
@@ -957,9 +1255,14 @@ RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_row   record;
-  v_count integer := 0;
+  v_row         record;
+  v_count       integer := 0;
+  v_free        uuid;
+  v_free_base   numeric;
+  v_month_start timestamptz;
+  v_month_end   timestamptz;
 BEGIN
+  -- Paid periods and trials running now: their period's month.
   FOR v_row IN
     SELECT s.workspace_id, s.plan_id, s.status,
            coalesce(s.current_period_start, s.trial_start, s.created_at) AS period_start,
@@ -975,6 +1278,45 @@ BEGIN
       END IF;
     EXCEPTION WHEN others THEN
       RAISE WARNING 'billing_account_grant_due_allowances: % %', v_row.workspace_id, SQLERRM;
+    END;
+  END LOOP;
+
+  -- Workspaces on Free (no paid period or trial applies) whose Free plan, or
+  -- Super Admin override, has a monthly AI credit: the calendar month (UTC),
+  -- as the calendar grant this replaces did. A month that grant already
+  -- funded ('YYYY-MM') is not funded again.
+  SELECT id INTO v_free FROM public.billing_plans WHERE slug = 'free' AND is_active LIMIT 1;
+  IF v_free IS NULL THEN
+    RETURN v_count;
+  END IF;
+  v_free_base := public.billing_plan_ai_allowance(v_free, NULL);
+  v_month_start := date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC';
+  v_month_end := public.billing_add_months(v_month_start, 1);
+  FOR v_row IN
+    SELECT w.id AS workspace_id
+      FROM public.workspaces w
+     WHERE (v_free_base > 0 OR (to_regclass('public.workspace_limit_overrides') IS NOT NULL AND EXISTS (
+              SELECT 1 FROM public.workspace_limit_overrides o
+               WHERE o.workspace_id = w.id AND o.limit_key = 'included_ai_allowance_irr' AND o.limit_value > 0)))
+       AND NOT EXISTS (
+         SELECT 1 FROM public.workspace_subscriptions s
+           JOIN public.billing_plans p ON p.id = s.plan_id
+          WHERE s.workspace_id = w.id AND NOT p.is_free
+            AND (s.status = 'active'
+                 OR (s.status = 'past_due' AND s.free_fallback_at IS NULL)
+                 OR (s.status = 'trialing' AND (s.trial_end IS NULL OR s.trial_end > now()))
+                 OR (s.status IN ('canceled', 'cancelled') AND s.cancel_at_period_end IS TRUE AND s.current_period_end > now())))
+       AND NOT EXISTS (
+         SELECT 1 FROM public.workspace_ai_balance_lots l
+          WHERE l.workspace_id = w.id AND l.source_type = 'PLAN_ALLOWANCE'
+            AND l.billing_cycle_id = to_char(v_month_start AT TIME ZONE 'UTC', 'YYYY-MM'))
+  LOOP
+    BEGIN
+      IF public.billing_account_grant_month(v_row.workspace_id, v_free, v_month_start, v_month_end) > 0 THEN
+        v_count := v_count + 1;
+      END IF;
+    EXCEPTION WHEN others THEN
+      RAISE WARNING 'billing_account_grant_due_allowances (free): % %', v_row.workspace_id, SQLERRM;
     END;
   END LOOP;
   RETURN v_count;
@@ -1010,7 +1352,7 @@ AS $$
    WHERE s.status = 'active' AND NOT p.is_free
      AND s.current_period_end > now()
      AND s.current_period_end <= now() + make_interval(days => greatest(p_days, 1))
-     AND a.next_period_prepaid_minor IS NULL
+     AND NOT (a.next_period_prepaid_minor IS NOT NULL AND a.next_period_start = s.current_period_end)
      AND NOT coalesce(t.is_free, true)
      AND NOT (
        coalesce(a.auto_renew, false)
@@ -1082,19 +1424,20 @@ RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_plan uuid;
+  v_sub public.workspace_subscriptions;
 BEGIN
-  UPDATE public.workspace_subscriptions
-     SET status = 'expired', updated_at = now()
+  SELECT * INTO v_sub FROM public.workspace_subscriptions
    WHERE workspace_id = p_workspace_id
      AND status = 'trialing'
      AND trial_end IS NOT NULL AND trial_end <= now()
-  RETURNING plan_id INTO v_plan;
-  IF NOT FOUND THEN
+   FOR UPDATE;
+  IF v_sub.id IS NULL THEN
     RETURN false;
   END IF;
-  INSERT INTO public.plan_change_log (workspace_id, old_plan_id, new_plan_id, change_type, metadata)
-  VALUES (p_workspace_id, v_plan, v_plan, 'trial_ended', jsonb_build_object('source', 'simple_billing'));
+  PERFORM public.billing_account_write_subscription(
+    p_workspace_id, v_sub.plan_id, v_sub.billing_interval, v_sub.current_period_start, v_sub.current_period_end,
+    'expired', 'trial_ended', NULL, jsonb_build_object('trial_end', v_sub.trial_end)
+  );
   RETURN true;
 END;
 $$;
@@ -1195,15 +1538,15 @@ SELECT pg_temp._email_261_seed('billing_plan_changed', 'tr',
 
 SELECT pg_temp._email_261_seed('billing_change_scheduled', 'fa',
   'تغییر پلن ثبت شد — {brand}', 'تغییر پلن ثبت شد',
-  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">از {effective_at} پلن فضای کاری از {plan_name} به {new_plan_name} تغییر می‌کند.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">تا آن زمان می‌توانید این تغییر را لغو کنید.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">صورت‌حساب</a></p>',
+  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">از {effective_at} پلن فضای کاری از {plan_name} به {new_plan_name} تغییر می‌کند.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">این تغییر با تمدید دوره اعمال می‌شود (از موجودی، پرداخت آنلاین یا تمدید خودکار)؛ اگر دوره تمدید نشود، فضای کاری به پلن رایگان منتقل می‌شود. تا آن زمان می‌توانید تغییر را لغو کنید.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">صورت‌حساب</a></p>',
   'از {effective_at} پلن فضای کاری از {plan_name} به {new_plan_name} تغییر می‌کند. تا آن زمان می‌توانید آن را لغو کنید.');
 SELECT pg_temp._email_261_seed('billing_change_scheduled', 'en',
   'Plan change scheduled — {brand}', 'Plan change scheduled',
-  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">From {effective_at} the workspace moves from {plan_name} to {new_plan_name}.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">You can cancel this change until then.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Billing</a></p>',
+  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">From {effective_at} the workspace moves from {plan_name} to {new_plan_name}.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">It takes effect when the period is renewed (from your balance, online, or by auto-renew); if it is not renewed, the workspace moves to the Free plan. You can cancel this change until then.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Billing</a></p>',
   'From {effective_at} the workspace moves from {plan_name} to {new_plan_name}. You can cancel this change until then.');
 SELECT pg_temp._email_261_seed('billing_change_scheduled', 'tr',
   'Plan değişikliği planlandı — {brand}', 'Plan değişikliği planlandı',
-  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">{effective_at} tarihinden itibaren çalışma alanı {plan_name} planından {new_plan_name} planına geçecek.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">O zamana kadar bu değişikliği iptal edebilirsiniz.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Faturalandırma</a></p>',
+  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">{effective_at} tarihinden itibaren çalışma alanı {plan_name} planından {new_plan_name} planına geçecek.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Değişiklik dönem yenilendiğinde (bakiyeden, çevrimiçi ödemeyle veya otomatik yenilemeyle) uygulanır; yenilenmezse çalışma alanı Ücretsiz plana geçer. O zamana kadar bu değişikliği iptal edebilirsiniz.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Faturalandırma</a></p>',
   '{effective_at} tarihinden itibaren çalışma alanı {plan_name} planından {new_plan_name} planına geçecek.');
 
 SELECT pg_temp._email_261_seed('billing_payment_receipt', 'fa',
@@ -1279,7 +1622,9 @@ BEGIN
     'public.billing_account_paid_subscription(uuid)',
     'public.billing_account_upgrade_cost(uuid, uuid, timestamptz)',
     'public.billing_account_purchase_plan(uuid, uuid, text, text, uuid)',
-    'public.billing_account_renew(uuid, uuid)',
+    'public.billing_account_renew(uuid, uuid, timestamptz)',
+    'public.billing_account_release_stale_prepaid(uuid)',
+    'public.billing_account_refund_payment(uuid, text, bigint)',
     'public.billing_account_process_due(uuid)',
     'public.billing_account_upgrade(uuid, uuid, uuid)',
     'public.billing_account_schedule_change(uuid, uuid, text, uuid)',

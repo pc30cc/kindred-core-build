@@ -156,14 +156,18 @@ describe('feeds and downloads agree everywhere', () => {
     expect(workflows).toContain('feed_repo: pc30cc/respok-releases');
   });
 
-  it('each site serves its own brand\'s downloads as zips, the old links lead to them, and never the other brand\'s', () => {
+  it('each site serves its own brand\'s installer, DMG and zips (Android\'s too), and never the other brand\'s', () => {
     const nginx = read('deploy/app-downloads/nginx.conf');
     const traefik = read('deploy/app-downloads/traefik-app-downloads.yaml');
     for (const [edition, host] of [['iran', 'app.webyar.ai'], ['international', 'app.respok.app']] as const) {
       const brand = NATIVE_APP_BRANDS[edition];
-      // The sync script's brand line ends with the file prefix it names the zips with.
-      const prefix = sync.match(new RegExp(`^\\w+ \\S+ ${brand.windowsSetupFile} \\S+ (\\S+)$`, 'm'))?.[1];
+      // The sync script's brand line ends with the file prefix it names the files with and the
+      // site whose APK it zips.
+      const line = sync.match(new RegExp(`^\\w+ \\S+ ${brand.windowsSetupFile} \\S+ (\\S+) (\\S+)$`, 'm'));
+      const prefix = line?.[1];
       expect(prefix, brand.name).toBeDefined();
+      expect(line?.[2]).toBe(host);
+      expect(brand.windowsSetupFile).toBe(`${prefix}-Setup.exe`);
       expect(brand.windowsDownloadFile).toBe(`${prefix}-Windows.zip`);
       expect(brand.macDownloadFile).toBe(`${prefix}-Mac.zip`);
       expect(nginx).toMatch(new RegExp(`^\\s*${host.replace(/\./g, '\\.')}\\s+${edition === 'iran' ? 'webyar' : 'respok'};`, 'm'));
@@ -177,16 +181,23 @@ describe('feeds and downloads agree everywhere', () => {
       expect(foreign).toHaveLength(2);
       for (const rule of foreign) expect(rule).toContain(`PathPrefix(\`/downloads/${edition === 'iran' ? 'RESPOK-' : 'Webyar-'}\`)`);
       for (const rule of rules) {
-        expect(rule).toContain(`${prefix}-(Windows|Mac)`);
+        expect(rule).toContain(`${prefix}-(Windows|Mac|Android)`);
         expect(rule).toContain(`${prefix}-Setup`);
         expect(rule).toContain('windows/(releases');
         expect(rule).not.toContain(edition === 'iran' ? 'RESPOK-' : 'Webyar-');
       }
     }
-    expect(nginx).toContain('-(Windows|Mac)(-[0-9][A-Za-z0-9.\\-]*)?\\.zip)$');
-    expect(nginx).toContain('return 302 /downloads/$1-Windows$2.zip;');
-    expect(nginx).toContain('return 302 /downloads/$1-Mac$2.zip;');
+    expect(nginx).toContain('-(Windows|Mac|Android)(-[0-9][A-Za-z0-9.\\-]*)?\\.zip)$');
+    // The installer and the DMG are served as they are, not redirected to their zips.
+    expect(nginx).toContain('-Setup(-[0-9][A-Za-z0-9.\\-]*)?\\.exe)$');
+    expect(nginx).toContain('-Mac(-[0-9][A-Za-z0-9.\\-]*)?\\.dmg)$');
+    expect(nginx).not.toContain('return 302');
     expect(nginx).toContain('absolute_redirect off;');
+    // The mirror keeps them, and zips each brand's APK after checking its sha256.
+    expect(sync).toContain('ln -sfn "$exe" "$FILES/$4-Setup.exe"');
+    expect(sync).toContain('ln -sfn "$dmg" "$FILES/$3-Mac.dmg"');
+    expect(sync).toContain('ln -sfn "$zip" "$FILES/$3-Android.zip"');
+    expect(sync).toContain('sha256sum');
   });
 
   it('nothing of RESPOK points at WebYar', () => {

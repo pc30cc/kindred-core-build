@@ -5,7 +5,7 @@
  * the end of the period (downgrade, interval change; cancellable). The
  * server quotes every amount; this only shows it and asks to confirm.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -49,16 +49,29 @@ export default function PlanPickerDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [key, setKey] = useState(newKey);
+  // The effects below run on what they fetch for, not on the translator's
+  // identity: a new `t` must never restart them.
+  const tRef = useRef(t);
+  tRef.current = t;
+  const intervalAtOpen = useRef<BillingInterval>(paid?.billing_interval ?? 'monthly');
+  intervalAtOpen.current = paid?.billing_interval ?? 'monthly';
 
   useEffect(() => {
     if (!open) return;
+    let alive = true;
     setSelected(null);
     setQuote(null);
     setError(null);
     setKey(newKey());
-    setBillingInterval(paid?.billing_interval ?? 'monthly');
-    accountBillingApi.plans(workspaceId).then((r) => setPlans(r.plans)).catch((e) => setError(accountErrorText(e, t)));
-  }, [open, workspaceId, paid?.billing_interval, t]);
+    setBillingInterval(intervalAtOpen.current);
+    accountBillingApi
+      .plans(workspaceId)
+      .then((r) => alive && setPlans(r.plans))
+      .catch((e) => alive && setError(accountErrorText(e, tRef.current)));
+    return () => {
+      alive = false;
+    };
+  }, [open, workspaceId]);
 
   useEffect(() => {
     if (!selected) return;
@@ -68,11 +81,11 @@ export default function PlanPickerDialog({
     accountBillingApi
       .quote(workspaceId, selected, interval)
       .then((q) => alive && setQuote(q))
-      .catch((e) => alive && setError(accountErrorText(e, t)));
+      .catch((e) => alive && setError(accountErrorText(e, tRef.current)));
     return () => {
       alive = false;
     };
-  }, [selected, interval, workspaceId, t]);
+  }, [selected, interval, workspaceId]);
 
   const currentPlanId = paid?.plan_id ?? null;
   const yearlyOffered = useMemo(() => (plans ?? []).some((p) => !p.is_free && p.price_yearly_minor !== null), [plans]);

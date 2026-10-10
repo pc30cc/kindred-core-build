@@ -9,12 +9,12 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
+// Like the real provider, the translator keeps its identity between renders.
+const i18n = vi.hoisted(() => ({
+  t: (k: string, vars?: Record<string, string>) => (vars ? `${k} ${JSON.stringify(vars)}` : k),
+}));
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({
-    t: (k: string, vars?: Record<string, string>) => (vars ? `${k} ${JSON.stringify(vars)}` : k),
-    locale: 'en',
-    dir: 'ltr',
-  }),
+  useTranslation: () => ({ t: i18n.t, locale: 'en', dir: 'ltr' }),
 }));
 vi.mock('@/lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const openPaddle = vi.fn();

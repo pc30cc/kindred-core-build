@@ -8,6 +8,14 @@
 //   POST /api/billing/account/:ws/topup                   start a top-up checkout
 //   POST /api/billing/account/:ws/payments/:id/verify     the return from the gateway
 //   GET  /api/billing/account/:ws/payments/:id            status, for polling
+//   GET  /api/billing/account/:ws/plans                   plans to choose, in the account currency
+//   GET  /api/billing/account/:ws/quote                   what choosing a plan does and costs
+//   POST /api/billing/account/:ws/plan                    buy a plan from the balance
+//   POST /api/billing/account/:ws/renew                   pay the next period from the balance
+//   POST /api/billing/account/:ws/upgrade                 upgrade now from the balance
+//   POST /api/billing/account/:ws/change                  change at the period end (or cancel it)
+//   PUT  /api/billing/account/:ws/auto-renew              auto-renew on/off
+//   POST /api/billing/account/:ws/checkout                pay online for a plan, renewal or upgrade
 //
 // Every GET is read-only. Every money-moving POST needs MANAGE permission on
 // the workspace. Amounts come from the server, never from the browser alone:
@@ -15,6 +23,7 @@
 // and the gateway's own confirmation is compared with the stored payment.
 // ============================================================================
 
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
@@ -42,8 +51,19 @@ import {
   verifyAccountPayment,
 } from '../services/billing/account/index.js';
 import { accountGateways, isIranianGateway, resolveAccountGateway } from '../services/billing/account/gateways.js';
+import {
+  accountPlanState,
+  amountNeededFor,
+  buyPlan,
+  listPlanOptions,
+  quotePlanChange,
+  renewPlan,
+  scheduleChange,
+  setAutoRenew,
+  upgradePlan,
+} from '../services/billing/account/plans.js';
 import { resolveNamedBillingConfig } from '../services/billing/index.js';
-import { chargeFor, topupAmountProblem, vatPercentFor } from '../../shared/simpleBilling.js';
+import { TOPUP_LIMITS, chargeFor, topupAmountProblem, vatPercentFor } from '../../shared/simpleBilling.js';
 
 export const billingAccountRouter = Router();
 
@@ -97,12 +117,16 @@ billingAccountRouter.get('/account/:workspaceId', async (req, res) => {
   if (!auth) return;
   try {
     const cfg = serverConfigOf(req);
-    const view = await getAccountView(cfg, req.params.workspaceId);
+    const [view, planState] = await Promise.all([
+      getAccountView(cfg, req.params.workspaceId),
+      accountPlanState(cfg, req.params.workspaceId),
+    ]);
     const gateways = canManage(auth)
       ? await accountGateways(cfg, req.params.workspaceId, view.currency, viewerOf(auth))
       : [];
     res.json({
       ...view,
+      ...planState,
       can_manage: canManage(auth),
       gateways: gateways.map((g) => ({
         provider_name: g.provider_name,
@@ -191,48 +215,54 @@ const topupSchema = z.object({
   callbackUrl: z.string().url(),
 });
 
-billingAccountRouter.post('/account/:workspaceId/topup', async (req, res) => {
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
-  if (!auth) return;
-  const parsed = topupSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+type CheckoutAuth = NonNullable<Awaited<ReturnType<typeof authorizeWorkspaceAccess>>>;
+
+/**
+ * Starts a gateway checkout for `netMinor` (VAT added on top) and binds it to
+ * a payment row created first. A purpose other than a top-up is spent on in
+ * the same transaction that credits it (billing_account_settle_payment).
+ */
+async function startAccountCheckout(
+  req: Parameters<Parameters<typeof billingAccountRouter.post>[1]>[0],
+  res: Parameters<Parameters<typeof billingAccountRouter.post>[1]>[1],
+  auth: CheckoutAuth,
+  input: {
+    currency: string;
+    netMinor: number;
+    providerName?: string;
+    callbackUrl: string;
+    purpose: 'topup' | 'plan' | 'renewal' | 'upgrade';
+    purposeDetail?: Record<string, unknown>;
+    description: string;
+  },
+) {
   const cfg = serverConfigOf(req);
   const workspaceId = req.params.workspaceId;
-  if (!isAllowedBillingCallbackUrl(req, cfg, parsed.data.callbackUrl)) {
-    return res.status(400).json({ error: 'INVALID_CALLBACK_URL' });
-  }
-
   let paymentId: string | null = null;
   try {
-    const currency = await accountCurrency(cfg, workspaceId);
-    if (parsed.data.currency && parsed.data.currency.toUpperCase() !== currency) {
-      return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency } });
-    }
-    const problem = topupAmountProblem(parsed.data.amountMinor, currency);
-    if (problem) return res.status(400).json({ error: problem });
-
-    const resolved = await resolveAccountGateway(cfg, workspaceId, currency, parsed.data.providerName, viewerOf(auth));
+    const resolved = await resolveAccountGateway(cfg, workspaceId, input.currency, input.providerName, viewerOf(auth));
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
 
     const settings = await getBillingSettings(cfg);
-    const vat = vatPercentFor(settings.vat_percent, currency);
-    const charge = chargeFor(parsed.data.amountMinor, vat);
+    const vat = vatPercentFor(settings.vat_percent, input.currency);
+    const charge = chargeFor(input.netMinor, vat);
 
     const payment = await createAccountPayment(cfg, {
       workspaceId,
       provider: resolved.provider.name,
-      currency,
+      currency: input.currency,
       netMinor: charge.net,
       taxMinor: charge.tax,
       taxPercent: vat,
-      purpose: 'topup',
+      purpose: input.purpose,
+      purposeDetail: input.purposeDetail,
       createdBy: auth.userId,
     });
     paymentId = payment.id;
 
     const apiOrigin = await resolvePublicApiOrigin(cfg.supabaseUrl, cfg.supabaseServiceRoleKey);
     const { browserReturnUrl, gatewayCallbackUrl } = returnUrls(
-      parsed.data.callbackUrl,
+      input.callbackUrl,
       payment.id,
       resolved.provider.name,
       apiOrigin,
@@ -246,13 +276,13 @@ billingAccountRouter.post('/account/:workspaceId/topup', async (req, res) => {
         workspaceId,
         planId: 'account',
         interval: 'monthly',
-        currency,
+        currency: input.currency,
         callbackUrl: gatewayCallbackUrl,
         // Card gateways carry it in their signed custom metadata; the webhook
         // settles exactly this payment (billing.ts webhook route).
         intentId: payment.id,
         ...(card
-          ? { description: 'Account credit', customerEmail: await customerEmailOf(cfg, auth.userId) }
+          ? { description: input.description, customerEmail: await customerEmailOf(cfg, auth.userId) }
           : {}),
         metadata: { amount: String(charge.total) },
       });
@@ -281,16 +311,17 @@ billingAccountRouter.post('/account/:workspaceId/topup', async (req, res) => {
       event_type: 'account_checkout_initiated',
       provider_name: resolved.provider.name,
       amount: charge.total,
-      currency,
+      currency: input.currency,
       status: 'pending',
-      metadata: { paymentId: payment.id, purpose: 'topup' },
+      metadata: { paymentId: payment.id, purpose: input.purpose },
     }).catch(() => undefined);
 
-    res.json({
+    return res.json({
       success: true,
       paymentId: payment.id,
       provider: resolved.provider.name,
-      currency,
+      purpose: input.purpose,
+      currency: input.currency,
       net_minor: charge.net,
       tax_minor: charge.tax,
       amount_minor: charge.total,
@@ -299,6 +330,198 @@ billingAccountRouter.post('/account/:workspaceId/topup', async (req, res) => {
     });
   } catch (e) {
     if (paymentId) await failAccountPayment(cfg, paymentId, 'failed', 'checkout_failed').catch(() => undefined);
+    return fail(res, e);
+  }
+}
+
+billingAccountRouter.post('/account/:workspaceId/topup', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = topupSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  const cfg = serverConfigOf(req);
+  if (!isAllowedBillingCallbackUrl(req, cfg, parsed.data.callbackUrl)) {
+    return res.status(400).json({ error: 'INVALID_CALLBACK_URL' });
+  }
+  try {
+    const currency = await accountCurrency(cfg, req.params.workspaceId);
+    if (parsed.data.currency && parsed.data.currency.toUpperCase() !== currency) {
+      return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency } });
+    }
+    const problem = topupAmountProblem(parsed.data.amountMinor, currency);
+    if (problem) return res.status(400).json({ error: problem });
+    return startAccountCheckout(req, res, auth, {
+      currency,
+      netMinor: parsed.data.amountMinor,
+      providerName: parsed.data.providerName,
+      callbackUrl: parsed.data.callbackUrl,
+      purpose: 'topup',
+      description: 'Account credit',
+    });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// ─── Plans ─────────────────────────────────────────────────────────────────
+
+const intervalSchema = z.enum(['monthly', 'yearly']);
+
+billingAccountRouter.get('/account/:workspaceId/plans', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  try {
+    const cfg = serverConfigOf(req);
+    const currency = await accountCurrency(cfg, req.params.workspaceId);
+    res.json({ currency, plans: await listPlanOptions(cfg, currency) });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+const quoteSchema = z.object({ planId: z.string().uuid(), interval: intervalSchema.default('monthly') });
+
+billingAccountRouter.get('/account/:workspaceId/quote', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const parsed = quoteSchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    res.json(await quotePlanChange(serverConfigOf(req), req.params.workspaceId, parsed.data.planId, parsed.data.interval));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+const buySchema = z.object({
+  planId: z.string().uuid(),
+  interval: intervalSchema,
+  /** The browser's key for this click: a retried request buys once. */
+  key: z.string().min(8).max(100).optional(),
+});
+
+billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = buySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    const result = await buyPlan(serverConfigOf(req), req.params.workspaceId, {
+      planId: parsed.data.planId,
+      interval: parsed.data.interval,
+      key: `${req.params.workspaceId}:${parsed.data.key ?? crypto.randomUUID()}`,
+      actorId: auth.userId,
+    });
+    res.json(result);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+billingAccountRouter.post('/account/:workspaceId/renew', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  try {
+    res.json(await renewPlan(serverConfigOf(req), req.params.workspaceId, auth.userId));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+const upgradeSchema = z.object({ planId: z.string().uuid() });
+
+billingAccountRouter.post('/account/:workspaceId/upgrade', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = upgradeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    res.json(await upgradePlan(serverConfigOf(req), req.params.workspaceId, { planId: parsed.data.planId, actorId: auth.userId }));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+const changeSchema = z.object({ planId: z.string().uuid(), interval: intervalSchema.nullable().optional() });
+
+billingAccountRouter.post('/account/:workspaceId/change', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = changeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    res.json(await scheduleChange(serverConfigOf(req), req.params.workspaceId, {
+      planId: parsed.data.planId,
+      interval: parsed.data.interval ?? null,
+      actorId: auth.userId,
+    }));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+const autoRenewSchema = z.object({ enabled: z.boolean() });
+
+billingAccountRouter.put('/account/:workspaceId/auto-renew', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = autoRenewSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    res.json({ auto_renew: await setAutoRenew(serverConfigOf(req), req.params.workspaceId, parsed.data.enabled) });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+const checkoutSchema = z.object({
+  purpose: z.enum(['plan', 'renewal', 'upgrade']),
+  planId: z.string().uuid().optional(),
+  interval: intervalSchema.optional(),
+  currency: z.string().regex(/^[A-Za-z]{3}$/).optional(),
+  providerName: z.string().min(2).max(60).optional(),
+  callbackUrl: z.string().url(),
+});
+
+/**
+ * Pay online for a plan, a renewal or an upgrade: the gateway charges what
+ * the balance is missing (at least the top-up minimum), the payment is
+ * credited, then spent on the purpose in the same transaction.
+ */
+billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = checkoutSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  const cfg = serverConfigOf(req);
+  if (!isAllowedBillingCallbackUrl(req, cfg, parsed.data.callbackUrl)) {
+    return res.status(400).json({ error: 'INVALID_CALLBACK_URL' });
+  }
+  try {
+    const need = await amountNeededFor(cfg, req.params.workspaceId, {
+      purpose: parsed.data.purpose,
+      planId: parsed.data.planId,
+      interval: parsed.data.interval,
+    });
+    if (parsed.data.currency && parsed.data.currency.toUpperCase() !== need.currency) {
+      return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency: need.currency } });
+    }
+    const shortfall = need.needed - need.balance;
+    if (shortfall <= 0) return res.status(409).json({ error: 'BALANCE_SUFFICIENT' });
+    const limits = TOPUP_LIMITS[need.currency];
+    if (!limits) return res.status(400).json({ error: 'CURRENCY_NOT_SUPPORTED' });
+    const net = Math.max(shortfall, limits.min);
+    if (net > limits.max) return res.status(400).json({ error: 'TOPUP_AMOUNT_TOO_LARGE' });
+    return startAccountCheckout(req, res, auth, {
+      currency: need.currency,
+      netMinor: net,
+      providerName: parsed.data.providerName,
+      callbackUrl: parsed.data.callbackUrl,
+      purpose: parsed.data.purpose,
+      purposeDetail: need.detail,
+      description: parsed.data.purpose === 'renewal' ? 'Plan renewal' : parsed.data.purpose === 'upgrade' ? 'Plan upgrade' : 'Plan',
+    });
+  } catch (e) {
     fail(res, e);
   }
 });

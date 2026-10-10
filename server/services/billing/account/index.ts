@@ -449,6 +449,9 @@ export interface SettleResult {
   payment_id: string;
   receipt_number?: string;
   balance_minor?: number;
+  /** The payment's purpose, and what spending it on that purpose did (migration 261). */
+  purpose?: string;
+  purpose_result?: Record<string, unknown> | null;
 }
 
 function rpcError(error: { message?: string }): never {
@@ -483,7 +486,15 @@ export async function recordAccountPaymentVerification(
 export async function settleAccountPayment(config: ServerConfig, paymentId: string): Promise<SettleResult> {
   const { data, error } = await getServiceClient(config).rpc('billing_account_settle_payment', { p_payment_id: paymentId });
   if (error) rpcError(error);
-  return asRecord(data) as unknown as SettleResult;
+  const settled = asRecord(data) as unknown as SettleResult;
+  if (!settled.replayed) {
+    // The receipt mail, and for a purchase the entitlements and plan mail,
+    // after the money is committed; never in the way of the answer.
+    void import('./effects.js')
+      .then((m) => m.afterAccountSettlement(config, settled))
+      .catch((e) => console.warn('[billing-account] after settlement:', e instanceof Error ? e.message : e));
+  }
+  return settled;
 }
 
 /** Records the gateway's confirmation, then credits it. */

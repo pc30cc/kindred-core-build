@@ -14,6 +14,13 @@
  *   answered by a local fake). The signed webhook credits the payment once;
  *   the customer's return after it finds it already settled.
  *
+ *   Plans (phase 3): a trial buys a plan from the balance, upgrades at once,
+ *   schedules a change and cancels it; a renewal paid online charges only what
+ *   the balance is missing; the hourly job starts the prepaid period, then
+ *   moves an unpaid plan to Free; a plan paid through Paddle is bought by its
+ *   webhook; reminders and trial notices go out once each; every billing
+ *   email is a template, filled in the edition's way (Toman, Persian digits).
+ *
  * Only what lies outside this repository is stood in for: e-mail delivery
  * (captured) and Paddle's HTTP API. Every other outbound request is refused.
  * Driven by TEST_DATABASE_URL; skipped without it.
@@ -33,14 +40,17 @@ if (process.env.REQUIRE_BILLING_DB === '1' && !DSN) {
 }
 const suite = DSN ? describe : describe.skip;
 
-interface EmailRequest { to: string; templateSlug?: string; templateData?: { action_url?: string } }
-const captured = vi.hoisted(() => ({ emails: [] as Array<{ to: string; templateSlug?: string; actionUrl: string | null }> }));
-vi.mock('../../../server/services/email/index.js', () => {
+interface EmailRequest { to: string; templateSlug?: string; templateData?: Record<string, string> }
+const captured = vi.hoisted(() => ({
+  emails: [] as Array<{ to: string; templateSlug?: string; actionUrl: string | null; data: Record<string, string> }>,
+}));
+vi.mock('../../../server/services/email/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../server/services/email/index.js')>();
   const send = async (_config: unknown, req: EmailRequest) => {
-    captured.emails.push({ to: req.to, templateSlug: req.templateSlug, actionUrl: req.templateData?.action_url ?? null });
+    captured.emails.push({ to: req.to, templateSlug: req.templateSlug, actionUrl: req.templateData?.action_url ?? null, data: req.templateData ?? {} });
     return { success: true, provider: 'test-capture', id: `m-${captured.emails.length}` };
   };
-  return { sendEmail: send, sendPlatformEmail: send };
+  return { ...actual, sendEmail: send, sendPlatformEmail: send };
 });
 vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../server/middleware/security.js')>();
@@ -311,6 +321,124 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     expect(save.json.billing_profile).toEqual({ company: 'شرکت نمونه', economic_code: '1234' });
   });
 
+  // ── Plans (phase 3), Iran ───────────────────────────────────────────────
+
+  const plans = { basic: '', plus: '', usd: '' };
+  const mails = (slug: string) => captured.emails.filter((e) => e.templateSlug === slug);
+  const loadServerConfig = async () => (await import('../../../server/config.js')).loadConfig();
+
+  it('Iran: plans are listed in the account currency; a trial buys a plan from the balance, once', async () => {
+    const insertPlan = async (slug: string, name: string, fa: string, monthly: number, ai: number) => String((await chain.db.query(
+      `INSERT INTO public.billing_plans (name, slug, prices, limits, is_active, is_free, is_hidden, sort_order, localized)
+       VALUES ($1, $2, $3, $4, true, false, false, 5, $5) RETURNING id`,
+      [name, slug, JSON.stringify({ IRR: { monthly, yearly: monthly * 10 } }), JSON.stringify({ included_ai_allowance_irr: ai }),
+        JSON.stringify({ fa: { name: fa } })],
+    )).rows[0].id);
+    plans.basic = await insertPlan('e2e-basic', 'Basic', 'پایه', 2_000_000, 100_000);
+    plans.plus = await insertPlan('e2e-plus', 'Plus', 'پلاس', 3_000_000, 200_000);
+    expect((await call('GET', `/api/billing/account/${state.iranWs}`)).json.plan).toMatchObject({ status: 'trialing' });
+
+    const list = await call('GET', `/api/billing/account/${state.iranWs}/plans`);
+    expect(list.json.currency).toBe('IRR');
+    const slugs = (list.json.plans as Array<{ slug: string }>).map((p) => p.slug);
+    expect(slugs).toEqual(expect.arrayContaining(['free', 'e2e-basic', 'e2e-plus']));
+    expect(slugs).not.toContain('trial');
+
+    const quote = await call('GET', `/api/billing/account/${state.iranWs}/quote?planId=${plans.basic}&interval=monthly`);
+    expect(quote.json).toMatchObject({ kind: 'purchase', amount_minor: 2_000_000, shortfall_minor: 0 });
+    const bought = await call('POST', `/api/billing/account/${state.iranWs}/plan`, { planId: plans.basic, interval: 'monthly', key: 'buy-basic-0001' });
+    expect(bought.status).toBe(200);
+    expect(bought.json).toMatchObject({ action: 'purchase', amount_minor: 2_000_000, balance_minor: 3_000_000 });
+    const retried = await call('POST', `/api/billing/account/${state.iranWs}/plan`, { planId: plans.basic, interval: 'monthly', key: 'buy-basic-0001' });
+    expect(retried.json).toMatchObject({ replayed: true });
+    expect(await balance(state.iranWs)).toBe(3_000_000);
+
+    const view = await call('GET', `/api/billing/account/${state.iranWs}`);
+    expect(view.json.plan).toMatchObject({ slug: 'e2e-basic', status: 'active', billing_interval: 'monthly' });
+    expect(view.json.renewal).toEqual({ plan_id: plans.basic, billing_interval: 'monthly', price_minor: 2_000_000 });
+    expect(Number(view.json.days_left)).toBeGreaterThanOrEqual(27);
+
+    const mail = mails('billing_plan_activated').at(-1)!;
+    expect(mail.data.plan_name).toBe('پایه');
+    expect(mail.data.amount).toMatch(/^[۰-۹٬]+ تومان$/);
+    expect(mail.data.amount).toContain('۲۰۰');
+    expect(mail.data.billing_url).toMatch(/\/billing$/);
+  });
+
+  it('Iran: an upgrade is charged the difference at once; a change at the period end is scheduled and cancelled', async () => {
+    const quote = await call('GET', `/api/billing/account/${state.iranWs}/quote?planId=${plans.plus}&interval=monthly`);
+    expect(quote.json).toMatchObject({ kind: 'upgrade', amount_minor: 1_000_000 });
+    const up = await call('POST', `/api/billing/account/${state.iranWs}/upgrade`, { planId: plans.plus });
+    expect(up.status).toBe(200);
+    expect(up.json).toMatchObject({ action: 'upgraded', amount_minor: 1_000_000, balance_minor: 2_000_000 });
+    expect((await call('GET', `/api/billing/account/${state.iranWs}`)).json.plan).toMatchObject({ slug: 'e2e-plus' });
+
+    const down = await call('POST', `/api/billing/account/${state.iranWs}/change`, { planId: plans.basic, interval: 'monthly' });
+    expect(down.json).toMatchObject({ action: 'change_scheduled' });
+    let view = await call('GET', `/api/billing/account/${state.iranWs}`);
+    expect((view.json.scheduled_plan as { id: string }).id).toBe(plans.basic);
+    expect(view.json.renewal).toMatchObject({ plan_id: plans.basic, price_minor: 2_000_000 });
+    expect(mails('billing_change_scheduled').at(-1)!.data).toMatchObject({ plan_name: 'پلاس', new_plan_name: 'پایه' });
+
+    const cancel = await call('POST', `/api/billing/account/${state.iranWs}/change`, { planId: plans.plus, interval: 'monthly' });
+    expect(cancel.json).toMatchObject({ action: 'change_cancelled' });
+    view = await call('GET', `/api/billing/account/${state.iranWs}`);
+    expect(view.json.scheduled_plan).toBeNull();
+  });
+
+  it('Iran: a renewal paid online charges only what the balance is missing, then renews', async () => {
+    const short = await call('POST', `/api/billing/account/${state.iranWs}/renew`);
+    expect(short.status).toBe(409);
+    expect(short.json.error).toBe('INSUFFICIENT_BALANCE');
+
+    const start = await call('POST', `/api/billing/account/${state.iranWs}/checkout`, {
+      purpose: 'renewal', providerName: 'internal_test', callbackUrl: `${ORIGIN}/ws/billing`,
+    });
+    expect(start.status).toBe(200);
+    expect(start.json).toMatchObject({ purpose: 'renewal', net_minor: 1_000_000, tax_minor: 100_000, amount_minor: 1_100_000 });
+    const ref = new URL(String(start.json.paymentUrl)).searchParams.get('ref')!;
+    const { signOutcome } = await import('../../../server/services/billing/providers/internal-test.js');
+    const verify = await call('POST', `/api/billing/account/${state.iranWs}/payments/${start.json.paymentId}/verify`, {
+      provider: 'internal_test', params: { authority: ref, status: 'OK', rsig: signOutcome(ref, 'OK') },
+    });
+    expect(verify.json.status).toBe('succeeded');
+    const view = await call('GET', `/api/billing/account/${state.iranWs}`);
+    expect(view.json).toMatchObject({ balance_minor: 0, next_period_prepaid_minor: 3_000_000 });
+    await vi.waitFor(() => expect(mails('billing_payment_receipt').length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(mails('billing_renewed').length).toBeGreaterThan(0));
+
+    const twice = await call('POST', `/api/billing/account/${state.iranWs}/checkout`, {
+      purpose: 'renewal', providerName: 'internal_test', callbackUrl: `${ORIGIN}/ws/billing`,
+    });
+    expect(twice.json.error).toBe('ALREADY_RENEWED');
+  });
+
+  it('Iran: the hourly job starts the prepaid period at the due moment, then moves an unpaid plan to Free', async () => {
+    const { runSimpleBillingJob } = await import('../../../server/services/billing/account/job.js');
+    const config = await loadServerConfig();
+    const makeDue = () => chain.db.query(
+      `UPDATE public.workspace_subscriptions SET current_period_start = now() - interval '31 days', current_period_end = now() - interval '1 hour'
+        WHERE workspace_id = $1`, [state.iranWs]);
+
+    await makeDue();
+    const first = await runSimpleBillingJob(config);
+    expect(first.errors).toEqual([]);
+    expect(first.due.renewed).toBeGreaterThanOrEqual(1);
+    let view = await call('GET', `/api/billing/account/${state.iranWs}`);
+    expect(view.json.plan).toMatchObject({ slug: 'e2e-plus', status: 'active' });
+    expect(view.json.next_period_prepaid_minor).toBeNull();
+    expect(Date.parse(String((view.json.plan as { current_period_end: string }).current_period_end))).toBeGreaterThan(Date.now());
+
+    expect((await call('PUT', `/api/billing/account/${state.iranWs}/auto-renew`, { enabled: true })).json).toEqual({ auto_renew: true });
+    await makeDue();
+    const second = await runSimpleBillingJob(config);
+    expect(second.due.expired).toBeGreaterThanOrEqual(1);
+    view = await call('GET', `/api/billing/account/${state.iranWs}`);
+    expect(view.json.plan).toMatchObject({ slug: 'free', is_free: true });
+    expect(view.json.paid_period).toBeNull();
+    expect(mails('billing_expired').at(-1)!.data.plan_name).toBe('پلاس');
+  });
+
   // ── Multi Region ────────────────────────────────────────────────────────
 
   it('Multi Region: a second workspace gets a USD account with no VAT and the Paddle sandbox', async () => {
@@ -438,6 +566,76 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const iranEntry = (ledger.json.items as Array<{ id: string }>)[0];
     const cross = await call('GET', `/api/billing/account/${state.intlWs}/receipts/${iranEntry.id}`);
     expect(cross.status).toBe(404);
+  });
+
+  it('Multi Region: a plan paid through Paddle is bought by its signed webhook', async () => {
+    plans.usd = String((await chain.db.query(
+      `INSERT INTO public.billing_plans (name, slug, prices, limits, is_active, is_free, is_hidden, sort_order)
+       VALUES ('Team', 'e2e-usd', '{"USD":{"monthly":2900,"yearly":29000}}', '{}', true, false, false, 6) RETURNING id`,
+    )).rows[0].id);
+    const before = await balance(state.intlWs);
+    const start = await call('POST', `/api/billing/account/${state.intlWs}/checkout`, {
+      purpose: 'plan', planId: plans.usd, interval: 'monthly', providerName: 'paddle_sandbox', callbackUrl: `${ORIGIN}/ws2/billing`,
+    });
+    expect(start.status).toBe(200);
+    expect(start.json).toMatchObject({ purpose: 'plan', net_minor: 2900 - before });
+    const checkout = start.json.clientCheckout as { transactionId: string };
+    const txn = paddle.transactions.get(checkout.transactionId)!;
+    txn.status = 'paid';
+    const body = JSON.stringify({
+      event_id: 'evt_plan_1',
+      event_type: 'transaction.paid',
+      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom, details: { totals: { total: txn.amount } } },
+    });
+    const ts = Math.floor(Date.now() / 1000);
+    const h1 = crypto.createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');
+    expect((await call('POST', '/api/billing/webhook/paddle_sandbox', body, { 'paddle-signature': `ts=${ts};h1=${h1}` })).status).toBe(200);
+    const view = await call('GET', `/api/billing/account/${state.intlWs}`);
+    expect(view.json.plan).toMatchObject({ slug: 'e2e-usd', status: 'active' });
+    expect(view.json.balance_minor).toBe(0);
+    await vi.waitFor(() => expect(mails('billing_plan_activated').some((m) => m.data.amount === '$29.00')).toBe(true));
+  });
+
+  it('Multi Region: renewal reminders go out before the due date, once each', async () => {
+    const { runSimpleBillingJob } = await import('../../../server/services/billing/account/job.js');
+    const config = await loadServerConfig();
+    const endIn = (hours: number) => chain.db.query(
+      `UPDATE public.workspace_subscriptions
+          SET current_period_end = now() + make_interval(hours => $2),
+              current_period_start = public.billing_add_months(now() + make_interval(hours => $2), -1)
+        WHERE workspace_id = $1`, [state.intlWs, hours]);
+    await endIn(50);
+    const count = () => mails('billing_renewal_reminder').length;
+    const before = count();
+    expect((await runSimpleBillingJob(config)).reminders).toBe(1);
+    expect(mails('billing_renewal_reminder').at(-1)!.data).toMatchObject({ days_left: '3', amount: '$29.00', plan_name: 'Team' });
+    await runSimpleBillingJob(config);
+    expect(count()).toBe(before + 1);
+    await endIn(20);
+    expect((await runSimpleBillingJob(config)).reminders).toBe(1);
+    expect(count()).toBe(before + 2);
+  });
+
+  it('a trial is reminded before it ends, then ended, once', async () => {
+    const { runSimpleBillingJob } = await import('../../../server/services/billing/account/job.js');
+    const config = await loadServerConfig();
+    const owner = crypto.randomUUID();
+    const ws = crypto.randomUUID();
+    await chain.db.query(`INSERT INTO public.profiles (id, email) VALUES ($1, 'trial-owner@example.test')`, [owner]);
+    await chain.db.query(`INSERT INTO public.workspaces (id, name, slug, owner_id) VALUES ($1, 'Trial WS', $2, $3)`, [ws, `trial-${ws.slice(0, 8)}`, owner]);
+    const trialPlan = (await chain.db.query(`SELECT id FROM public.billing_plans WHERE slug = 'trial'`)).rows[0].id;
+    await chain.db.query(
+      `INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status, trial_end, current_period_start, current_period_end)
+       VALUES ($1, $2, 'trialing', now() + interval '40 hours', now() - interval '5 days', now() + interval '40 hours')`, [ws, trialPlan]);
+    expect((await runSimpleBillingJob(config)).trials.reminded).toBe(1);
+    expect(mails('billing_trial_ending').at(-1)).toMatchObject({ to: 'trial-owner@example.test' });
+    expect((await runSimpleBillingJob(config)).trials.reminded).toBe(0);
+
+    await chain.db.query(`UPDATE public.workspace_subscriptions SET trial_end = now() - interval '1 hour' WHERE workspace_id = $1`, [ws]);
+    expect((await runSimpleBillingJob(config)).trials.ended).toBe(1);
+    expect(mails('billing_trial_ended').at(-1)).toMatchObject({ to: 'trial-owner@example.test' });
+    expect((await chain.db.query(`SELECT status FROM public.workspace_subscriptions WHERE workspace_id = $1`, [ws])).rows[0].status).toBe('expired');
+    expect((await runSimpleBillingJob(config)).trials.ended).toBe(0);
   });
 
   it('nothing left this machine except to the local Paddle fake', () => {

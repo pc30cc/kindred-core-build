@@ -50,6 +50,15 @@ export interface AccountPlan {
   trial_end: string | null;
 }
 
+export type BillingInterval = 'monthly' | 'yearly';
+
+export interface PaidPeriod {
+  plan_id: string;
+  billing_interval: BillingInterval;
+  current_period_start: string;
+  current_period_end: string;
+}
+
 export interface AccountView {
   edition: Edition;
   currency: string;
@@ -61,7 +70,51 @@ export interface AccountView {
   has_account: boolean;
   can_manage: boolean;
   gateways: AccountGateway[];
+  /** The paid period running now; null on Free, a trial, or after a plan ran out. */
+  paid_period: PaidPeriod | null;
+  /** The change scheduled for the end of the period. */
+  scheduled_plan: { id: string; name: string; localized: Record<string, unknown>; is_free: boolean } | null;
+  scheduled_interval: BillingInterval | null;
+  /** Already paid for the next period (early renewal). */
+  next_period_prepaid_minor: number | null;
+  /** The next period: plan, interval and price (null = not sold in this currency). */
+  renewal: { plan_id: string; billing_interval: BillingInterval; price_minor: number | null } | null;
+  days_left: number | null;
 }
+
+export interface PlanOption {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  localized: Record<string, unknown>;
+  is_free: boolean;
+  sort_order: number;
+  limits: Record<string, unknown>;
+  entitlements: Record<string, unknown>;
+  price_monthly_minor: number | null;
+  price_yearly_minor: number | null;
+}
+
+export type QuoteKind = 'purchase' | 'upgrade' | 'schedule' | 'cancel_change' | 'current' | 'unavailable';
+
+export interface PlanQuote {
+  kind: QuoteKind;
+  plan_id: string;
+  billing_interval: BillingInterval;
+  currency: string;
+  amount_minor: number;
+  returned_minor: number;
+  period_price_minor: number | null;
+  effective_at: string | null;
+  months_left: number | null;
+  balance_minor: number;
+  shortfall_minor: number;
+  next_period_option: boolean;
+  reason?: string;
+}
+
+export type PlanResult = Record<string, unknown> & { action?: string };
 
 export interface LedgerEntry {
   id: string;
@@ -100,6 +153,7 @@ export interface TopupStarted {
   success: true;
   paymentId: string;
   provider: string;
+  purpose?: string;
   currency: string;
   net_minor: number;
   tax_minor: number;
@@ -148,4 +202,20 @@ export const accountBillingApi = {
     }),
   payment: (workspaceId: string, paymentId: string) =>
     request<PaymentStatus>(`${base(workspaceId)}/payments/${encodeURIComponent(paymentId)}`),
+  plans: (workspaceId: string) => request<{ currency: string; plans: PlanOption[] }>(`${base(workspaceId)}/plans`),
+  quote: (workspaceId: string, planId: string, interval: BillingInterval) =>
+    request<PlanQuote>(`${base(workspaceId)}/quote?planId=${encodeURIComponent(planId)}&interval=${interval}`),
+  buyPlan: (workspaceId: string, input: { planId: string; interval: BillingInterval; key: string }) =>
+    request<PlanResult>(`${base(workspaceId)}/plan`, { method: 'POST', body: JSON.stringify(input) }),
+  renew: (workspaceId: string) => request<PlanResult>(`${base(workspaceId)}/renew`, { method: 'POST', body: '{}' }),
+  upgrade: (workspaceId: string, planId: string) =>
+    request<PlanResult>(`${base(workspaceId)}/upgrade`, { method: 'POST', body: JSON.stringify({ planId }) }),
+  change: (workspaceId: string, planId: string, interval: BillingInterval | null) =>
+    request<PlanResult>(`${base(workspaceId)}/change`, { method: 'POST', body: JSON.stringify({ planId, interval }) }),
+  setAutoRenew: (workspaceId: string, enabled: boolean) =>
+    request<{ auto_renew: boolean }>(`${base(workspaceId)}/auto-renew`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  checkout: (
+    workspaceId: string,
+    input: { purpose: 'plan' | 'renewal' | 'upgrade'; planId?: string; interval?: BillingInterval; currency: string; providerName?: string; callbackUrl: string },
+  ) => request<TopupStarted>(`${base(workspaceId)}/checkout`, { method: 'POST', body: JSON.stringify(input) }),
 };

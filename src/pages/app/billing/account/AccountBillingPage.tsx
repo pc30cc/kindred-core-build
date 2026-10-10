@@ -11,7 +11,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Clock, Loader2, Plus, Receipt, Wallet, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -20,8 +19,11 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import { accountBillingApi, type AccountView, type LedgerPage, type VerifyOutcome } from '@/lib/accountBillingApi';
 import { ErrorState, EmptyState, Ltr, Pager, billingDate, money } from '../shared';
 import TopupDialog from './TopupDialog';
+import PlanCard from './PlanCard';
+import PlanPickerDialog from './PlanPickerDialog';
+import PayOnlineDialog, { type PayOnlineRequest } from './PayOnlineDialog';
 import BillingProfileCard from './BillingProfileCard';
-import { accountErrorText, planLabel } from './accountUi';
+import { accountErrorText } from './accountUi';
 
 const PAGE_SIZE = 20;
 
@@ -36,6 +38,8 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [topupOpen, setTopupOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [payOnline, setPayOnline] = useState<PayOnlineRequest | null>(null);
   const [ret, setRet] = useState<Return | null>(null);
   const handledReturn = useRef(false);
   const mounted = useRef(true);
@@ -163,8 +167,6 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
     );
   }
 
-  const plan = view.plan;
-  const planName = plan.is_free && !plan.name ? t('billing.account.plan.free') : planLabel(plan.name, plan.localized, locale);
   const pages = {
     page: `${ledger.page} / ${Math.max(1, Math.ceil(ledger.total / ledger.pageSize))}`,
     prev: dir === 'rtl' ? '›' : '‹',
@@ -210,25 +212,13 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{t('billing.account.plan.title')}</CardDescription>
-            <CardTitle className="flex flex-wrap items-center gap-2 text-2xl">
-              {planName}
-              {plan.billing_interval && !plan.is_free && (
-                <Badge variant="secondary">{t(`billing.account.plan.interval.${plan.billing_interval}` as TranslationKey)}</Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            {plan.status === 'trialing' && plan.trial_end ? (
-              <p>{t('billing.account.plan.trialEndsOn', { date: billingDate(plan.trial_end, locale) })}</p>
-            ) : plan.current_period_end && !plan.is_free ? (
-              <p>{t('billing.account.plan.renewsOn', { date: billingDate(plan.current_period_end, locale) })}</p>
-            ) : null}
-            <p>{t('billing.account.plan.changeSoon')}</p>
-          </CardContent>
-        </Card>
+        <PlanCard
+          workspaceId={workspaceId}
+          view={view}
+          onChanged={() => void load()}
+          onChoosePlan={() => setPickerOpen(true)}
+          onPayOnline={setPayOnline}
+        />
       </div>
 
       <BillingProfileCard
@@ -306,6 +296,27 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           onCurrencyChanged={() => void load()}
         />
       )}
+      {view.can_manage && (
+        <PayOnlineDialog
+          key={payOnline ? `${payOnline.purpose}:${payOnline.planId ?? ''}` : 'closed'}
+          request={payOnline}
+          onOpenChange={(open) => !open && setPayOnline(null)}
+          workspaceId={workspaceId}
+          slug={slug}
+          currency={view.currency}
+          vatPercent={view.vat_percent}
+          gateways={view.gateways}
+          onCurrencyChanged={() => void load()}
+        />
+      )}
+      <PlanPickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        workspaceId={workspaceId}
+        view={view}
+        onDone={() => void load()}
+        onPayOnline={setPayOnline}
+      />
     </div>
   );
 }

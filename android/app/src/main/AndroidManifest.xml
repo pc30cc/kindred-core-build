@@ -169,7 +169,10 @@
             android:value="webyar_messages" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@drawable/ic_stat_message" />
+            android:resource="@drawable/ic_stat_brand" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/brand_deep" />
         <!--
           No token until somebody signs in: the registrar turns this on when
           it first asks for one, and off again at sign-out.

@@ -20,6 +20,14 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { NotificationPrefs } from '@/lib/notifications-api';
+import { knownEdition } from '@/lib/edition';
+import { INTL_BRAND } from '@/lib/internationalMode';
+import { WEBYAR_BRAND } from '@/lib/webyarBrand';
+
+/** The edition's own app icon (there was a shared /favicon-192.png, which never existed). */
+export function notificationIcon(): string {
+  return knownEdition() === 'international' ? INTL_BRAND.pwa192 : WEBYAR_BRAND.pwa192;
+}
 
 /** At most one banner per conversation per this long. */
 const THROTTLE_MS = 4000;
@@ -210,8 +218,8 @@ export function useOperatorBrowserNotifications(options: {
           // replaces its own notification rather than stacking three.
           tag: `webyar-conversation-${key}`,
           renotify: false,
-          icon: '/favicon-192.png',
-          badge: '/favicon-192.png',
+          icon: notificationIcon(),
+          badge: notificationIcon(),
         } as NotificationOptions);
 
         notification.onclick = () => {

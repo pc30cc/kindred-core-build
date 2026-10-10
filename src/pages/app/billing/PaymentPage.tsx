@@ -451,7 +451,11 @@ export default function PaymentPage() {
             )}
             <div>
               <h2 className="text-xl font-bold">
-                {t(`billing.paymentResult.${paymentResult.state}Title` as TranslationKey)}
+                {t(
+                  paymentResult.state === 'succeeded'
+                    ? 'billing.paymentResult.successTitle'
+                    : (`billing.paymentResult.${paymentResult.state}Title` as TranslationKey),
+                )}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 {paymentResult.state === 'succeeded'
@@ -469,7 +473,7 @@ export default function PaymentPage() {
             </div>
             {paymentResult.state === 'succeeded' && paymentResult.receipt && (
               <div className="mx-auto grid max-w-xl gap-2 text-sm sm:grid-cols-2">
-                <Row label={t('billing.paymentResult.receiptNumber')} value={paymentResult.receipt.invoiceNumber || paymentResult.receipt.orderId} />
+                <Row label={t('billing.paymentResult.receiptNumber')} value={docNumber || paymentResult.receipt.invoiceNumber || paymentResult.receipt.orderId} />
                 <Row label={t('billing.common.amount')} value={money(paymentResult.receipt.amountIrr, locale, paymentResult.receipt.currency)} />
                 <Row label={t('billing.paymentResult.trackingCode')} value={paymentResult.receipt.providerRef || '—'} />
                 <Row label={t('billing.common.date')} value={billingDate(paymentResult.receipt.paidAt, locale)} />

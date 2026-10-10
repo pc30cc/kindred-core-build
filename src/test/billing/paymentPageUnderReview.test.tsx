@@ -104,3 +104,18 @@ describe('PaymentPage — money recorded for review', () => {
     expect(screen.getByText('billing.common.retry')).toBeInTheDocument();
   });
 });
+
+describe('PaymentPage — a successful payment', () => {
+  it('shows a translated title (successTitle, never the raw succeededTitle key) and the invoice\'s own number', async () => {
+    verifyCallback.mockResolvedValue({
+      success: true, verified: true, pending: false,
+      receipt: { invoiceNumber: 'EY70602889', orderId: 'pi-1', amountIrr: 2900, currency: 'USD', providerRef: 'txn_1', paidAt: '2026-10-10T08:30:00Z', planName: 'Startup', purchaseType: 'subscription' },
+    });
+    renderAt(`${PAGE}?intent=pi-1&provider=paddle_sandbox&_ptxn=txn_1`);
+    await waitFor(() => expect(screen.getByText('billing.paymentResult.successTitle')).toBeInTheDocument());
+    expect(screen.queryByText('billing.paymentResult.succeededTitle')).not.toBeInTheDocument();
+    // The result card names the invoice on this page, not the payment's own number.
+    expect(screen.getAllByText('AB12345678').length).toBeGreaterThan(1);
+    expect(screen.queryByText('EY70602889')).not.toBeInTheDocument();
+  });
+});

@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
 import { billingAdminFinanceReport, type AdminFinanceReport } from '@/lib/api';
+import { isTestPaymentProvider } from '../../../shared/testGateways';
 import { useTranslation } from '@/i18n';
 import { formatDate } from '@/lib/date';
 import { TrendingUp, Repeat, Percent, Receipt, Wallet, RefreshCcw } from 'lucide-react';
@@ -227,7 +228,10 @@ export default function FinanceReport() {
               return (
                 <div key={p.provider} className="space-y-1">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-foreground" dir="ltr">{p.provider}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-foreground" dir="ltr">{p.provider}</span>
+                      {isTestPaymentProvider(p.provider) && <Badge variant="secondary" className="text-[10px]">{t('billing.checkout.testGateway')}</Badge>}
+                    </span>
                     <span className="text-muted-foreground">{fmtAmount(p.revenue)} · {p.count}</span>
                   </div>
                   <div className="h-2 rounded-full bg-muted overflow-hidden">

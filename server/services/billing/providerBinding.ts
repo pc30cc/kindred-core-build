@@ -57,6 +57,7 @@ const CONTRACTS: Record<string, ProviderReferenceContract> = {
   paypal:              { requiresPaymentReferenceBinding: true, callbackKeys: ['token'] },
   // Paddle.js returns to the success URL carrying `_ptxn=<transaction id>`.
   paddle:              { requiresPaymentReferenceBinding: true, callbackKeys: ['_ptxn'] },
+  paddle_sandbox:      { requiresPaymentReferenceBinding: true, callbackKeys: ['_ptxn'] },
   lemon_squeezy: {
     requiresPaymentReferenceBinding: false,
     callbackKeys: [],

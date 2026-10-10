@@ -12,6 +12,7 @@ const tr: TranslationKeys = {
       chooseGateway: 'Bir ödeme yöntemi seçin',
       chooseGatewayHint: 'Aktif ödeme sağlayıcılarından birini seçin ve ödemeye devam edin.',
       testGateway: 'Test sağlayıcısı',
+      paddleSandboxNote: 'Test modu (Paddle sandbox): gerçek para çekilmez. {{card}} test kartını, ileri bir son kullanma tarihini ve herhangi bir 3 haneli CVC kodunu kullanın.',
       noGateway: 'Şu anda aktif bir ödeme sağlayıcısı yok. Lütfen destek ile iletişime geçin.',
       payNow: '{{amount}} öde',
       alreadyPaid: 'Bu belge zaten ödendi.',

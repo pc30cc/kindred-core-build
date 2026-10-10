@@ -120,9 +120,21 @@ export function isIranianVendor(vendor: unknown): boolean {
   return IRANIAN_VENDOR_SET.has(vendorKey(vendor));
 }
 
+/**
+ * Payment gateways that exist only in the International edition: the Paddle
+ * sandbox (`paddle_sandbox`, a test gateway for the International site). The
+ * Iranian edition never lists, resolves or charges them.
+ */
+export const INTERNATIONAL_ONLY_PAYMENT_PROVIDERS = ['paddle_sandbox'] as const;
+const INTERNATIONAL_ONLY_SET = new Set<string>(INTERNATIONAL_ONLY_PAYMENT_PROVIDERS);
+
+export function isInternationalOnlyProvider(provider: unknown): boolean {
+  return INTERNATIONAL_ONLY_SET.has(vendorKey(provider));
+}
+
 /** May this provider (payment gateway or other vendor) be listed or used in this edition? */
 export function isProviderAllowedInEdition(provider: unknown, edition: Edition): boolean {
-  if (EDITION_PROFILE[edition].allowsIranianProviders) return true;
+  if (EDITION_PROFILE[edition].allowsIranianProviders) return !isInternationalOnlyProvider(provider);
   return !isIranianVendor(provider);
 }
 

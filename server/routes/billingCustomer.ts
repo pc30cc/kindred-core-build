@@ -89,6 +89,8 @@ import {
   regionPinsCurrency,
   type RegionMode,
 } from '../../shared/edition.js';
+import { PADDLE_SANDBOX_PROVIDER } from '../../shared/testGateways.js';
+import { paddleSandboxOpenToCustomers } from '../services/billing/providers/paddle-sandbox.js';
 
 
 export const billingCustomerRouter = Router();
@@ -145,6 +147,34 @@ function isManage(auth: { isAdmin: boolean; role: string | null } | null): boole
   return auth.isAdmin || ['owner', 'admin'].includes(String(auth.role || ''));
 }
 
+/** Who lists or pays with the gateways: a test gateway may be open to platform admins only. */
+type GatewayViewer = { isPlatformAdmin: boolean };
+
+function viewerOf(auth: { isAdmin: boolean }): GatewayViewer {
+  return { isPlatformAdmin: auth.isAdmin };
+}
+
+/**
+ * The Paddle sandbox accepts Paddle's test cards, which would buy a real plan
+ * for nothing: only platform admins see and use it, unless its settings open
+ * it to every customer (`open_to_customers`, Super Admin → Providers).
+ */
+async function testGatewayOpenTo(
+  cfg: ServerConfig,
+  workspaceId: string,
+  providerName: string,
+  viewer: GatewayViewer,
+): Promise<boolean> {
+  if (providerName !== PADDLE_SANDBOX_PROVIDER || viewer.isPlatformAdmin) return true;
+  const resolved = await resolveNamedBillingConfig(
+    cfg.supabaseUrl,
+    cfg.supabaseServiceRoleKey,
+    workspaceId,
+    providerName,
+  ).catch(() => null);
+  return Boolean(resolved && paddleSandboxOpenToCustomers(resolved.config));
+}
+
 /**
  * Active gateways that can collect a document in `currency`: enabled in
  * Finance → Gateways for it AND able to collect an invoice in it (Iranian
@@ -152,11 +182,12 @@ function isManage(auth: { isAdmin: boolean; role: string | null } | null): boole
  * whose account fixes the currency, like a Lemon Squeezy store, the one its
  * configured account charges).
  */
-async function invoiceGateways(cfg: ServerConfig, workspaceId: string, currency: string) {
+async function invoiceGateways(cfg: ServerConfig, workspaceId: string, currency: string, viewer: GatewayViewer) {
   const gateways = await listPayableGateways(cfg, currency);
   const collects = await Promise.all(
     gateways.map(async (g) => {
       if (!canCollectInvoice(g.provider_name, currency)) return false;
+      if (!(await testGatewayOpenTo(cfg, workspaceId, g.provider_name, viewer))) return false;
       if (!collectionDependsOnAccount(g.provider_name)) return true;
       const resolved = await resolveNamedBillingConfig(
         cfg.supabaseUrl,
@@ -184,8 +215,9 @@ async function resolveCheckoutProvider(
   workspaceId: string,
   providerName: string | null | undefined,
   currency: string,
+  viewer: GatewayViewer,
 ) {
-  const gateways = await invoiceGateways(cfg, workspaceId, currency);
+  const gateways = await invoiceGateways(cfg, workspaceId, currency, viewer);
   if (providerName) {
     const gateway = gateways.find((g) => g.provider_name === providerName);
     if (!gateway) return null;
@@ -196,7 +228,10 @@ async function resolveCheckoutProvider(
       gateway.provider_name,
     );
   }
-  const fallback = await resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+  const configured = await resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+  // A platform default this customer may not use (the admin-only sandbox) is no default for them.
+  const fallback =
+    configured && (await testGatewayOpenTo(cfg, workspaceId, configured.provider.name, viewer)) ? configured : null;
   if (fallback && canCollectInvoice(fallback.provider.name, currency, fallback.config)) return fallback;
   if (gateways.length === 0) return fallback;
   return resolveNamedBillingConfig(
@@ -237,7 +272,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) 
   try {
     const cfg = serverConfigOf(req);
     const currency = billingCurrencyOf(req.query.currency, (await getBillingRegion(cfg)).currency);
-    const gateways = await invoiceGateways(cfg, req.params.workspaceId, currency);
+    const gateways = await invoiceGateways(cfg, req.params.workspaceId, currency, viewerOf(auth));
     res.json({
       currency,
       gateways: gateways.map((g) => ({
@@ -438,7 +473,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
     const currency = invoiceCurrency(invoice, regionCurrency);
     assertCurrencyAllowed(edition, currency);
     assertProviderAllowed(edition, parsed.data.providerName);
-    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName, currency);
+    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName, currency, viewerOf(auth));
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
     if (!canCollectInvoice(resolved.provider.name, currency, resolved.config)) {
       return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
@@ -623,7 +658,7 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
         catalog.some((p) => planSellsIn(p, c)),
     );
     const collectable = await Promise.all(
-      sellable.map(async (c) => (await invoiceGateways(cfg, req.params.workspaceId, c)).length > 0),
+      sellable.map(async (c) => (await invoiceGateways(cfg, req.params.workspaceId, c, viewerOf(auth))).length > 0),
     );
     const currencies = sellable.filter((_c, i) => collectable[i]);
     const currency = pickCatalogCurrency(currencies, {
@@ -965,7 +1000,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
     if (deposit.status !== 'pending') return res.status(409).json({ error: 'DEPOSIT_NOT_PENDING' });
 
     // A wallet deposit is Rial: only an Iranian gateway can collect it.
-    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName, WALLET_CURRENCY);
+    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName, WALLET_CURRENCY, viewerOf(auth));
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
     if (!IRAN_PROVIDERS.has(resolved.provider.name)) return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
 

@@ -109,6 +109,7 @@ export default function AdminBillingPage() {
   const ALL_PROVIDERS = [
     { name: 'stripe', label: 'Stripe', region: 'international' },
     { name: 'paddle', label: 'Paddle', region: 'international' },
+    { name: 'paddle_sandbox', label: 'Paddle — Sandbox (test)', region: 'international' },
     { name: 'lemon_squeezy', label: 'Lemon Squeezy', region: 'international' },
     { name: 'paypal', label: 'PayPal', region: 'international' },
     { name: 'internal_test', label: 'Internal Test Gateway (Simulator)', region: 'iran' },

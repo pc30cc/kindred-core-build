@@ -11,6 +11,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { getAllProviders } from '../index.js';
 import { getPlatformEdition, isCurrencyAllowedInEdition, isProviderAllowedInEdition } from '../edition.js';
+import { PADDLE_SANDBOX_PROVIDER, isAlwaysTestGateway } from '../../../../shared/testGateways.js';
 
 export class BillingConfigError extends Error {
   constructor(
@@ -144,6 +145,19 @@ export interface Gateway {
   config: Record<string, unknown>;
 }
 
+/** Display names of shipped gateways that have no seeded `billing_gateways` row. */
+const DEFAULT_DISPLAY_NAMES: Record<string, Record<string, string>> = {
+  [PADDLE_SANDBOX_PROVIDER]: {
+    en: 'Paddle — Sandbox (test)',
+    fa: 'Paddle — سندباکس (تست)',
+    tr: 'Paddle — Sandbox (test)',
+  },
+};
+
+function hasDisplayName(name: unknown): boolean {
+  return typeof name === 'object' && name !== null && Object.values(name).some((v) => typeof v === 'string' && v.trim() !== '');
+}
+
 /** Registered gateways joined with the capabilities of the shipped handler. */
 export async function listGateways(config: ServerConfig): Promise<
   (Gateway & { implemented: boolean; capabilities?: unknown })[]
@@ -155,6 +169,10 @@ export async function listGateways(config: ServerConfig): Promise<
   const handlers = getAllProviders();
   const listed = rows.map((g) => ({
     ...g,
+    // A row created by switching the gateway on has no name yet.
+    display_name: hasDisplayName(g.display_name) ? g.display_name : DEFAULT_DISPLAY_NAMES[g.provider_name] ?? g.display_name,
+    // A sandbox-only gateway is a test gateway whatever its row says.
+    is_test: g.is_test || isAlwaysTestGateway(g.provider_name),
     implemented: g.provider_name === 'manual' || Boolean(handlers[g.provider_name]),
     capabilities: handlers[g.provider_name]?.capabilities,
   }));
@@ -169,9 +187,9 @@ export async function listGateways(config: ServerConfig): Promise<
     listed.push({
       id: `unconfigured:${name}`,
       provider_name: name,
-      display_name: { fa: name, en: name, tr: name },
+      display_name: DEFAULT_DISPLAY_NAMES[name] ?? { fa: name, en: name, tr: name },
       is_active: false,
-      is_test: false,
+      is_test: isAlwaysTestGateway(name),
       currencies: [] as string[],
       countries: [] as string[],
       sort_order: maxSort + extra,

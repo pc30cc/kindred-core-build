@@ -33,6 +33,7 @@ const technicalCopy = new Set([
   // identifier and the label the provider list shows for it. The simulator
   // gateway was added after this list was written.
   'internal_test', 'Internal Test Gateway (Simulator)',
+  'paddle_sandbox', 'Paddle — Sandbox (test)',
   'paratika', 'Paratika', 'craftgate', 'Craftgate',
 ]);
 

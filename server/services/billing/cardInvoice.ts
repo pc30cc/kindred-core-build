@@ -1,5 +1,6 @@
 // ============================================================
-// CARD GATEWAYS ON THE INVOICE ENGINE — Stripe, PayPal, Paddle, Lemon Squeezy.
+// CARD GATEWAYS ON THE INVOICE ENGINE — Stripe, PayPal, Paddle (live and
+// sandbox), Lemon Squeezy.
 //
 // Every workspace is on the invoice engine: a payment never grants anything by
 // itself, it settles an invoice, and only the paid invoice applies its frozen
@@ -59,7 +60,7 @@ import { normalizeCurrencyCode } from './providers/minorAmount.js';
 import type { BillingProviderConfig, ProviderCharge, WebhookEvent } from './types.js';
 
 /** Card gateways that collect invoices (any currency their handler supports). */
-export const CARD_INVOICE_PROVIDERS = new Set(['stripe', 'paypal', 'paddle', 'lemon_squeezy']);
+export const CARD_INVOICE_PROVIDERS = new Set(['stripe', 'paypal', 'paddle', 'paddle_sandbox', 'lemon_squeezy']);
 
 /**
  * A card checkout lives longer than an Iranian bank redirect: Stripe's

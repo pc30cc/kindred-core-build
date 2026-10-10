@@ -42,6 +42,7 @@ import {
 import { isUsageSupported, resolveUsage } from '../services/billing/usageResolvers.js';
 import { adminGrantPlanV2 } from '../services/billing/adminGrant.js';
 import { renewalDueNotice } from '../services/billing/account/renewalNotice.js';
+import { afterAdminAssignment } from '../services/billing/account/plans.js';
 import type { PlanDefinitionLike } from '../services/billing/entitlementFanout.js';
 
 
@@ -470,6 +471,10 @@ plansRouter.post('/admin/assign', async (req, res) => {
   }
 
 
+  // The period was replaced: a prepayment for the old one's next period
+  // returns, a change the customer scheduled no longer applies.
+  await afterAdminAssignment(serverConfigOf(req), workspaceId);
+
   // Log plan change
   await insertPlanChangeLog(req, supabase, {
     workspace_id: workspaceId,
@@ -514,6 +519,7 @@ plansRouter.post('/admin/revoke', async (req, res) => {
 
   const { error } = await supabase.from('workspace_subscriptions').delete().eq('workspace_id', workspaceId);
   if (error) return res.status(500).json({ error: 'Request failed' });
+  await afterAdminAssignment(serverConfigOf(req), workspaceId);
   await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'admin_revoke',

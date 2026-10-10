@@ -344,6 +344,10 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     expect(slugs).toEqual(expect.arrayContaining(['free', 'e2e-basic', 'e2e-plus']));
     expect(slugs).not.toContain('trial');
 
+    // During the trial, Free is what follows it, not the current plan.
+    const freeId = String((await chain.db.query(`SELECT id FROM public.billing_plans WHERE slug = 'free'`)).rows[0].id);
+    const free = await call('GET', `/api/billing/account/${state.iranWs}/quote?planId=${freeId}&interval=monthly`);
+    expect(free.json).toMatchObject({ kind: 'unavailable', reason: 'trial_running' });
     const quote = await call('GET', `/api/billing/account/${state.iranWs}/quote?planId=${plans.basic}&interval=monthly`);
     expect(quote.json).toMatchObject({ kind: 'purchase', amount_minor: 2_000_000, shortfall_minor: 0 });
     const bought = await call('POST', `/api/billing/account/${state.iranWs}/plan`, { planId: plans.basic, interval: 'monthly', key: 'buy-basic-0001' });
@@ -382,6 +386,14 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     expect(down.json).toMatchObject({ action: 'change_scheduled' });
     let view = await call('GET', `/api/billing/account/${state.iranWs}`);
     expect((view.json.scheduled_plan as { id: string }).id).toBe(plans.basic);
+    // The current plan is no longer sold: the change can still be cancelled from the page.
+    await chain.db.query(`UPDATE public.billing_plans SET is_active = false WHERE id = $1`, [plans.plus]);
+    try {
+      const keep = await call('GET', `/api/billing/account/${state.iranWs}/quote?planId=${plans.plus}&interval=monthly`);
+      expect(keep.json).toMatchObject({ kind: 'cancel_change' });
+    } finally {
+      await chain.db.query(`UPDATE public.billing_plans SET is_active = true WHERE id = $1`, [plans.plus]);
+    }
     expect(view.json.renewal).toMatchObject({ plan_id: plans.basic, price_minor: 2_000_000 });
     expect(mails('billing_change_scheduled').at(-1)!.data).toMatchObject({ plan_name: 'پلاس', new_plan_name: 'پایه' });
 
@@ -477,7 +489,11 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const other = await call('POST', `/api/billing/account/${state.iranWs}/renew`, { expectedPeriodEnd: new Date(Date.parse(end) - 86_400_000).toISOString() });
     expect(other.status).toBe(409);
     expect(other.json.error).toBe('PERIOD_CHANGED');
-    const renewed = await call('POST', `/api/billing/account/${state.iranWs}/renew`, { expectedPeriodEnd: end });
+    // A price other than the one shown is never charged.
+    const price = await call('POST', `/api/billing/account/${state.iranWs}/renew`, { expectedPeriodEnd: end, expectedPriceMinor: 2_000_000 });
+    expect(price.status).toBe(409);
+    expect(price.json.error).toBe('QUOTE_CHANGED');
+    const renewed = await call('POST', `/api/billing/account/${state.iranWs}/renew`, { expectedPeriodEnd: end, expectedPriceMinor: 3_000_000 });
     expect(renewed.json).toMatchObject({ action: 'prepaid', amount_minor: 3_000_000 });
     const again = await call('POST', `/api/billing/account/${state.iranWs}/renew`, { expectedPeriodEnd: end });
     expect(again.status).toBe(409);
@@ -500,6 +516,22 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const renewal = (history.json.items as Array<Record<string, unknown>>).find((i) => i.kind === 'renewal')!;
     expect(renewal).toMatchObject({ plan_id: plans.plus, plan_name: 'Plus', plan_localized: { fa: { name: 'پلاس' } } });
     expect(renewal.period_start).toBeTruthy();
+  });
+
+  it('Iran: a prepayment for a period that was replaced shows back in the balance as soon as the page is opened', async () => {
+    await chain.db.query(`SELECT public.billing_account_admin_adjust($1, 3000000, 'IRR', 'e2e credit', NULL, 'e2e-credit-stale')`, [state.iranWs]);
+    const end = String(((await call('GET', `/api/billing/account/${state.iranWs}`)).json.paid_period as { current_period_end: string }).current_period_end);
+    expect((await call('POST', `/api/billing/account/${state.iranWs}/renew`, { expectedPeriodEnd: end })).json).toMatchObject({ action: 'prepaid' });
+    expect(await balance(state.iranWs)).toBe(0);
+    // The period is replaced outside the simple billing (a Super Admin, billing v2).
+    await chain.db.query(
+      `UPDATE public.workspace_subscriptions SET current_period_end = current_period_end + interval '10 days' WHERE workspace_id = $1`, [state.iranWs]);
+    const view = await call('GET', `/api/billing/account/${state.iranWs}`);
+    expect(view.json).toMatchObject({ balance_minor: 3_000_000, next_period_prepaid_minor: null, next_period_paid: false });
+    const history = await call('GET', `/api/billing/account/${state.iranWs}/ledger`);
+    const back = (history.json.items as Array<Record<string, unknown>>).find((i) => i.kind === 'prepaid_return')!;
+    expect(back).toMatchObject({ amount_minor: 3_000_000, plan_name: 'Plus' });
+    expect(back.period_start).toBeTruthy();
   });
 
   // ── Multi Region ────────────────────────────────────────────────────────

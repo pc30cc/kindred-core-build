@@ -12,8 +12,10 @@ import { getServiceClient } from '../../../supabase.js';
 import { handleWorkspaceEntitlementChanged } from '../entitlementChange.js';
 import { getBillingRegion } from '../edition.js';
 import { LEGACY_BILLING_ENABLED } from '../../../../shared/billingMode.js';
+import { assignedPlanApplies } from '../planSelection.js';
 import { AccountBillingError, readAccount, type AccountRow } from './index.js';
 import { billingIntervalLabel, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
+import { v2NextPeriodPaid } from './renewalNotice.js';
 
 export type BillingInterval = 'monthly' | 'yearly';
 
@@ -90,12 +92,14 @@ interface SubscriptionRow {
   current_period_start: string | null;
   current_period_end: string | null;
   trial_end: string | null;
+  free_fallback_at: string | null;
+  cancel_at_period_end: boolean | null;
 }
 
 async function readSubscription(config: ServerConfig, workspaceId: string): Promise<SubscriptionRow | null> {
   const { data, error } = await getServiceClient(config)
     .from('workspace_subscriptions')
-    .select('plan_id, status, billing_interval, current_period_start, current_period_end, trial_end')
+    .select('plan_id, status, billing_interval, current_period_start, current_period_end, trial_end, free_fallback_at, cancel_at_period_end')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   if (error) throw new Error(error.message || 'subscription read failed');
@@ -144,6 +148,21 @@ export async function processDueNow(
   if (LEGACY_BILLING_ENABLED) return null;
   try {
     const sub = await readSubscription(config, workspaceId);
+    // A prepayment made for a period that was replaced (a Super Admin
+    // assignment, billing v2) returns to the balance at once, so the page,
+    // the quote and a checkout see the money where it is.
+    const account = await readAccount(config, workspaceId);
+    if (account?.next_period_prepaid_minor != null) {
+      // The period it follows: the active one, ended or not (a prepayment
+      // for a period that is due but not processed yet starts it below).
+      const running = sub?.status === 'active' && sub.current_period_end
+        ? { current_period_end: sub.current_period_end } as PaidPeriod
+        : null;
+      if (prepaidOf(account, running).stale > 0) {
+        const { error } = await getServiceClient(config).rpc('billing_account_release_stale_prepaid', { p_workspace_id: workspaceId });
+        if (error) throw new Error(error.message || 'prepayment release failed');
+      }
+    }
     if (!sub?.plan_id || sub.status !== 'active' || !sub.current_period_end) return null;
     if (Date.parse(sub.current_period_end) > now) return null;
     const plan = await readPlan(config, sub.plan_id);
@@ -250,7 +269,7 @@ export async function quotePlanChange(
     next_period_amount_minor: 0,
     next_period_returned_minor: stale,
   };
-  if (!plan || !plan.is_active) return { ...base, reason: 'plan_not_available' };
+  if (!plan) return { ...base, reason: 'plan_not_available' };
   const price = plan.is_free ? 0 : priceOf(plan.prices, currency, interval);
   const finish = (q: PlanQuote): PlanQuote => ({
     ...q,
@@ -265,7 +284,16 @@ export async function quotePlanChange(
   const nextPrice = (next: number | null) => (live === null || next === null || next <= 0 ? null : next);
 
   if (!paid) {
-    if (plan.is_free) return { ...base, kind: 'current', period_price_minor: 0 };
+    if (!plan.is_active) return { ...base, reason: 'plan_not_available' };
+    if (plan.is_free) {
+      // During a trial the workspace is on the trial plan; Free comes after it.
+      const sub = await readSubscription(config, workspaceId);
+      const trialEnd = sub?.status === 'trialing' && sub.trial_end ? sub.trial_end : null;
+      if (trialEnd && Date.parse(trialEnd) > Date.now()) {
+        return { ...base, reason: 'trial_running', period_price_minor: 0, effective_at: trialEnd };
+      }
+      return { ...base, kind: 'current', period_price_minor: 0 };
+    }
     if (plan.is_hidden) return { ...base, reason: 'plan_not_available' };
     if (price === null) return { ...base, reason: 'price_unavailable' };
     return finish({ ...base, kind: 'purchase', amount_minor: price, period_price_minor: price, effective_at: new Date().toISOString() });
@@ -289,7 +317,8 @@ export async function quotePlanChange(
       effective_at: paid.current_period_end,
     });
   }
-  if (plan.is_hidden && planId !== paid.plan_id) return { ...base, reason: 'plan_not_available' };
+  // Cancelling (above) always works; anything else needs a plan that is sold.
+  if (!plan.is_active || (plan.is_hidden && planId !== paid.plan_id)) return { ...base, reason: 'plan_not_available' };
   if (price === null) return { ...base, reason: 'price_unavailable' };
 
   const daysLeft = (Date.parse(paid.current_period_end) - Date.now()) / DAY_MS;
@@ -374,6 +403,7 @@ const RPC_ERRORS: Array<[RegExp, string, number]> = [
   [/billing_account_currency_mismatch/, 'CURRENCY_CHANGED', 409],
   [/billing_period_changed/, 'PERIOD_CHANGED', 409],
   [/billing_idempotency_conflict/, 'IDEMPOTENCY_CONFLICT', 409],
+  [/billing_quote_changed/, 'QUOTE_CHANGED', 409],
 ];
 
 export function billingRpcError(error: { message?: string } | null | undefined): never {
@@ -415,6 +445,9 @@ export async function afterPlanChange(
         amount: ctx.money(Number(result.amount_minor ?? 0), currency),
         balance: ctx.money(Number(result.balance_minor ?? 0), currency),
       }));
+    } else if (action === 'renewed' && result.source === 'billing_v2') {
+      // A next period paid through billing v2 started: it was billed and
+      // mailed there; nothing was charged here.
     } else if (action === 'renewed' || action === 'prepaid') {
       const changed = action === 'renewed' && result.previous_plan_id && result.previous_plan_id !== result.plan_id;
       await sendBillingEmail(config, workspaceId, changed ? 'billing_plan_changed' : 'billing_renewed', (ctx) => ({
@@ -483,11 +516,13 @@ export async function renewPlan(
   workspaceId: string,
   actorId: string | null,
   expectedPeriodEnd: string | null = null,
+  expectedPriceMinor: number | null = null,
 ): Promise<Record<string, unknown>> {
   const result = await rpc(config, 'billing_account_renew', {
     p_workspace_id: workspaceId,
     p_actor: actorId,
     p_expected_period_end: expectedPeriodEnd,
+    p_expected_price_minor: expectedPriceMinor,
   });
   await afterPlanChange(config, workspaceId, result);
   return result;
@@ -577,13 +612,18 @@ export async function amountNeededFor(
     const paid = await paidPeriodOf(config, workspaceId);
     if (!paid) throw new AccountBillingError('NO_PAID_PLAN', 409);
     const { live, stale } = prepaidOf(account, paid);
-    if (live !== null) throw new AccountBillingError('ALREADY_RENEWED', 409);
+    if (live !== null || (await v2NextPeriodPaid(config, workspaceId))) throw new AccountBillingError('ALREADY_RENEWED', 409);
     const target = account?.scheduled_plan_id ?? paid.plan_id;
     const interval = (account?.scheduled_interval as BillingInterval | null) ?? paid.billing_interval;
     const plan = await readPlan(config, target);
     if (!plan || plan.is_free) throw new AccountBillingError('RENEWAL_TO_FREE', 409);
     const price = priceOf(plan.prices, currency, interval);
     if (price === null) throw new AccountBillingError('PLAN_PRICE_UNAVAILABLE', 400);
+    // The renewal price the page showed (the next period's plan may have
+    // changed in another tab, or its price).
+    if (input.expectedNetMinor !== undefined && input.expectedNetMinor !== price) {
+      throw new AccountBillingError('QUOTE_CHANGED', 409, { price_minor: price });
+    }
     return {
       needed: price - stale,
       currency,
@@ -627,6 +667,8 @@ export interface AccountPlanState {
   scheduled_interval: BillingInterval | null;
   /** Already paid for the next period (early renewal). */
   next_period_prepaid_minor: number | null;
+  /** The next period is paid for (here, or through billing v2). */
+  next_period_paid: boolean;
   /** The next period: its plan, interval and price. */
   renewal: PlanRef | null;
   /** The paid plan that ran out (the row keeps it), still sold: "renew" buys it again. */
@@ -658,7 +700,7 @@ export async function accountPlanState(config: ServerConfig, workspaceId: string
   if (paid) {
     const target = scheduledPlan ?? (await readPlan(config, paid.plan_id));
     renewal = target && !target.is_free ? ref(target, scheduledInterval ?? paid.billing_interval) : null;
-  } else if (sub?.plan_id && sub.status !== 'trialing') {
+  } else if (sub?.plan_id && !assignedPlanApplies(sub)) {
     const last = await readPlan(config, sub.plan_id);
     const interval: BillingInterval = sub.billing_interval === 'yearly' ? 'yearly' : 'monthly';
     if (last && !last.is_free && last.is_active && !last.is_hidden && !RESERVED_SLUGS.has(last.slug)) {
@@ -666,15 +708,33 @@ export async function accountPlanState(config: ServerConfig, workspaceId: string
       if (option.price_minor !== null) lapsed = option;
     }
   }
+  const prepaid = prepaidOf(account, paid).live;
   return {
     paid_period: paid,
     scheduled_plan: scheduledPlan
       ? { id: scheduledPlan.id, name: scheduledPlan.name, localized: scheduledPlan.localized ?? {}, is_free: scheduledPlan.is_free }
       : null,
     scheduled_interval: scheduledInterval,
-    next_period_prepaid_minor: prepaidOf(account, paid).live,
+    next_period_prepaid_minor: prepaid,
+    next_period_paid: prepaid !== null || (paid !== null && (await v2NextPeriodPaid(config, workspaceId))),
     renewal,
     lapsed,
     days_left: paid ? Math.max(Math.ceil((Date.parse(paid.current_period_end) - Date.now()) / DAY_MS), 0) : null,
   };
+}
+
+/**
+ * After a Super Admin assigned or revoked a plan (which replaces the running
+ * period directly): a prepayment for the old period's next one returns to the
+ * balance and a scheduled change is dropped (billing_account_admin_replaced).
+ * Never throws: the assignment itself is done.
+ */
+export async function afterAdminAssignment(config: ServerConfig, workspaceId: string): Promise<void> {
+  if (LEGACY_BILLING_ENABLED) return;
+  try {
+    const { error } = await getServiceClient(config).rpc('billing_account_admin_replaced', { p_workspace_id: workspaceId });
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    console.warn('[billing-account] after admin assignment:', e instanceof Error ? e.message : e);
+  }
 }

@@ -60,6 +60,8 @@ const en = {
         unavailable: 'This plan cannot be chosen right now.',
         buyTitle: 'Buy {{plan}}',
         upgradeTitle: 'Upgrade to {{plan}}',
+        upgradeMonths: 'Upgrade to {{plan}} now for {{amount}}: the monthly price difference for the {{months}} whole months left. Your renewal date stays the same.',
+        freeAfterTrial: 'Your trial runs until {{date}}; then the workspace moves to the free plan unless you choose a plan.',
         select: 'Select {{plan}}',
         selectShort: 'Select',
         selected: 'Selected',
@@ -188,7 +190,7 @@ const en = {
         QUOTE_CHANGED: 'The price has changed. Please choose again.',
         BALANCE_SUFFICIENT: 'Your balance already covers this. Pay from your balance.',
         CURRENCY_NOT_SUPPORTED: 'Payments in this currency are not available.',
-        PERIOD_CHANGED: 'This period was already renewed or has changed. The plan below shows where it stands now.',
+        PERIOD_CHANGED: 'This period was already renewed or has changed. The plan card now shows where it stands.',
         IDEMPOTENCY_CONFLICT: 'This request was already used for a different charge. Please try again.',
         TOO_MANY_CHECKOUTS: 'Too many payment attempts in the last hour. Please wait a little and try again.',
         generic: 'Something went wrong. Please try again.',
@@ -401,6 +403,8 @@ const en = {
     renewalFreeTitle: 'Your plan ends on {{date}} and the workspace moves to Free',
     renewalDesc: 'Renew it from the billing page to keep it.',
     renewCta: 'Renew plan',
+    renewalFreeDesc: 'You chose to move to the free plan. To keep your plan, cancel the change on the billing page.',
+    manageCta: 'Manage plan',
   },
   billingIran: {
     pageTitle: 'Plan & Payments', pageSubtitle: 'Manage your workspace plan, credit and payments.',
@@ -8326,6 +8330,10 @@ const en = {
         title: 'Your plan is ending',
         desc: 'It ends in {{days}} day(s), then the workspace moves to the Free plan. Renew it from the billing page to keep it.',
       },
+      change_to_free: {
+        title: 'Your plan is ending',
+        desc: 'You chose to move to the free plan in {{days}} day(s). Cancel the change on the billing page to keep your plan.',
+      },
       subscription_past_due: {
         title: 'Subscription payment overdue',
         desc: 'Review your payment details to avoid service interruption.',
@@ -10700,6 +10708,7 @@ const en = {
     planEnds: 'Plan ends in {{days}} days',
     planEndsLastDay: 'Plan, last day',
     planRenew: 'Renew',
+    planManage: 'Manage',
     planNotice: 'Plan status',
   },
   artInbox: {

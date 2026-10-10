@@ -96,7 +96,7 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   payment_received: BILLING_VARIABLES,
   subscription_restored: BILLING_VARIABLES,
   subscription_free_fallback: BILLING_VARIABLES,
-  billing_renewal_reminder: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{amount}', '{balance}', '{period_end}', '{days_left}'],
+  billing_renewal_reminder: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{new_plan_name}', '{amount}', '{balance}', '{period_end}', '{days_left}'],
   billing_renewed: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_expired: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{expired_at}'],
   billing_plan_changed: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{old_plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],

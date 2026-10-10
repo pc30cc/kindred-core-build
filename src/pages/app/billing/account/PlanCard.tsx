@@ -42,7 +42,7 @@ export default function PlanCard({
   const plan = view.plan;
   const paid = view.paid_period;
   const name = plan.is_free && !plan.name ? t('billing.account.plan.free') : planLabel(plan.name, plan.localized, locale);
-  const prepaid = view.next_period_prepaid_minor !== null;
+  const prepaid = view.next_period_prepaid_minor !== null || view.next_period_paid === true;
   const renewalPrice = view.renewal?.price_minor ?? null;
   const canRenewFromBalance = renewalPrice !== null && view.balance_minor >= renewalPrice;
   const willAutoRenew = view.auto_renew && canRenewFromBalance;
@@ -52,7 +52,8 @@ export default function PlanCard({
     : null;
   // The plan the next period is for (a scheduled change's, else this one).
   const renewalName = view.renewal ? planLabel(view.renewal.name, view.renewal.localized, locale) : name;
-  const lapsed = !paid && plan.status !== 'trialing' ? view.lapsed : null;
+  // Only once the workspace is on Free (a canceled or past-due plan that still applies is not over).
+  const lapsed = !paid && plan.is_free ? view.lapsed ?? null : null;
   const lapsedName = lapsed ? planLabel(lapsed.name, lapsed.localized, locale) : '';
 
   const act = async (id: string, action: () => Promise<unknown>) => {
@@ -65,7 +66,7 @@ export default function PlanCard({
       setError(accountErrorText(e, t));
       // The period changed under the page (another tab, the job): show what is true now.
       const code = (e as { code?: string } | null)?.code;
-      if (code === 'PERIOD_CHANGED' || code === 'ALREADY_RENEWED' || code === 'NO_PAID_PLAN') onChanged();
+      if (['PERIOD_CHANGED', 'ALREADY_RENEWED', 'NO_PAID_PLAN', 'QUOTE_CHANGED'].includes(String(code))) onChanged();
     } finally {
       setBusy(null);
     }
@@ -168,7 +169,7 @@ export default function PlanCard({
               canRenewFromBalance ? (
                 <Button
                   disabled={busy !== null}
-                  onClick={() => void act('renew', () => accountBillingApi.renew(workspaceId, paid.current_period_end))}
+                  onClick={() => void act('renew', () => accountBillingApi.renew(workspaceId, paid.current_period_end, renewalPrice))}
                 >
                   {spin('renew')}
                   {t('billing.account.plan.renewFromBalance', { amount: amount(renewalPrice) })}
@@ -180,6 +181,7 @@ export default function PlanCard({
                     purpose: 'renewal',
                     priceMinor: renewalPrice,
                     balanceMinor: view.balance_minor,
+                    expectedNetMinor: renewalPrice,
                     title: t('billing.account.plan.renewOnlineTitle', { plan: renewalName }),
                   })}
                 >

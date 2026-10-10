@@ -33,6 +33,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { billingV2Retired } from '../middleware/billingV2Retired.js';
+import { afterAdminAssignment } from '../services/billing/account/plans.js';
 import {
   handleWorkspaceEntitlementChanged,
   handlePlanDefinitionChanged,
@@ -2171,6 +2172,7 @@ billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
   }, { onConflict: 'workspace_id' }).select().single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
+  await afterAdminAssignment(serverConfigOf(req), workspaceId);
   await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'admin_grant',

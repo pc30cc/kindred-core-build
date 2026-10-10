@@ -80,9 +80,16 @@ describe('renewal_due alert', () => {
   });
 
   it('critical (not dismissible) in the last 2 days', async () => {
-    notice = { days_left: 2, period_end: inDays(1.5), plan_id: 'pro', ends_on_free: true };
+    notice = { days_left: 2, period_end: inDays(1.5), plan_id: 'pro', ends_on_free: false };
     const alert = (await alerts()).find((a) => a.kind === 'renewal_due');
     expect(alert).toMatchObject({ severity: 'critical', dismissible: false });
+  });
+
+  it('a change to Free the customer chose is its own kind (cancelling it keeps the plan; renewing is refused)', async () => {
+    notice = { days_left: 2, period_end: inDays(1.5), plan_id: 'pro', ends_on_free: true };
+    const kinds = (await alerts()).map((a) => a.kind);
+    expect(kinds).toContain('change_to_free');
+    expect(kinds).not.toContain('renewal_due');
   });
 
   it('not twice when subscription_ending already warns', async () => {

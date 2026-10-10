@@ -86,6 +86,8 @@ export interface AccountView {
   scheduled_interval: BillingInterval | null;
   /** Already paid for the next period (early renewal). */
   next_period_prepaid_minor: number | null;
+  /** The next period is paid for (here, or through billing v2). */
+  next_period_paid?: boolean;
   /** The next period: plan, interval and price. */
   renewal: PlanRef | null;
   /** The paid plan that ran out, still sold: "renew" buys it again. */
@@ -244,11 +246,18 @@ export const accountBillingApi = {
     request<PlanQuote>(`${base(workspaceId)}/quote?planId=${encodeURIComponent(planId)}&interval=${interval}`),
   buyPlan: (workspaceId: string, input: { planId: string; interval: BillingInterval; key: string; expectedNetMinor?: number }) =>
     request<PlanResult>(`${base(workspaceId)}/plan`, { method: 'POST', body: JSON.stringify(input) }),
-  /** `expectedPeriodEnd`: the period end the page showed; once that period is renewed, a second click renews nothing. */
-  renew: (workspaceId: string, expectedPeriodEnd?: string | null) =>
+  /**
+   * `expectedPeriodEnd` and `expectedPriceMinor`: the period and price the
+   * page showed; a period renewed meanwhile renews nothing more, and another
+   * price answers QUOTE_CHANGED.
+   */
+  renew: (workspaceId: string, expectedPeriodEnd?: string | null, expectedPriceMinor?: number | null) =>
     request<PlanResult>(`${base(workspaceId)}/renew`, {
       method: 'POST',
-      body: JSON.stringify(expectedPeriodEnd ? { expectedPeriodEnd } : {}),
+      body: JSON.stringify({
+        ...(expectedPeriodEnd ? { expectedPeriodEnd } : {}),
+        ...(expectedPriceMinor ? { expectedPriceMinor } : {}),
+      }),
     }),
   upgrade: (workspaceId: string, planId: string, expectedNetMinor?: number) =>
     request<PlanResult>(`${base(workspaceId)}/upgrade`, { method: 'POST', body: JSON.stringify({ planId, expectedNetMinor }) }),

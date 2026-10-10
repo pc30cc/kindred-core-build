@@ -78,7 +78,10 @@ describe('PlanStatusBanner', () => {
     show();
     expect(screen.getByText(/^planBanner\.renewalFreeTitle /)).toBeInTheDocument();
     expect(screen.getByText(/^planBanner\.renewalFreeTitle /).textContent).toContain(String(new Date(end).getFullYear()));
-    expect(screen.getByRole('link', { name: /planBanner\.renewCta/ })).toBeInTheDocument();
+    // Renewing is refused for a change to Free: the banner points to cancelling it.
+    expect(screen.getByText('planBanner.renewalFreeDesc')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /planBanner\.manageCta/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /planBanner\.renewCta/ })).toBeNull();
   });
 
   it('a due moment that has passed since the snapshot shows nothing about renewing', () => {

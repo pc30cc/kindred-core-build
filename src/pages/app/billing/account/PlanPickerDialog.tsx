@@ -110,10 +110,14 @@ export default function PlanPickerDialog({
   }, [open, selected, interval, workspaceId, quoteNonce]);
 
   const yearlyOffered = useMemo(() => (plans ?? []).some((p) => !p.is_free && p.price_yearly_minor !== null), [plans]);
+  // Opened on the current plan and interval: cancelling a change, which must
+  // stay on that interval whatever is sold.
+  const onCurrent = Boolean(preselect && paid && preselect.planId === paid.plan_id && preselect.interval === paid.billing_interval);
   // A yearly subscriber whose plans are no longer sold yearly still sees the monthly ones.
   useEffect(() => {
-    if (plans && !yearlyOffered && interval === 'yearly') setBillingInterval('monthly');
-  }, [plans, yearlyOffered, interval]);
+    if (plans && !yearlyOffered && interval === 'yearly' && !onCurrent) setBillingInterval('monthly');
+  }, [plans, yearlyOffered, interval, onCurrent]);
+  const showIntervals = yearlyOffered || paid?.billing_interval === 'yearly';
 
   const currentPlanId = paid?.plan_id ?? null;
   const trialing = view.plan.status === 'trialing';
@@ -176,7 +180,7 @@ export default function PlanPickerDialog({
           <DialogDescription>{t('billing.account.picker.description')}</DialogDescription>
         </DialogHeader>
 
-        {yearlyOffered && (
+        {showIntervals && (
           <div className="inline-flex rounded-md border p-0.5" role="radiogroup" aria-label={t('billing.account.picker.interval')}>
             {(['monthly', 'yearly'] as const).map((value) => (
               <button
@@ -375,9 +379,11 @@ function QuoteSummary({
       return (
         <>
           <p className="text-sm">
-            {quote.months_left !== null
+            {quote.billing_interval === 'yearly' && quote.months_left !== null
               ? t('billing.account.picker.upgradeYearly', { plan: planName, amount: amount(cost), months: String(quote.months_left) })
-              : t('billing.account.picker.upgradeNow', { plan: planName, amount: amount(cost) })}
+              : quote.months_left !== null && quote.months_left > 1
+                ? t('billing.account.picker.upgradeMonths', { plan: planName, amount: amount(cost), months: String(quote.months_left) })
+                : t('billing.account.picker.upgradeNow', { plan: planName, amount: amount(cost) })}
           </p>
           {prepaidLines(quote.amount_minor - cost, quote.returned_minor)}
           {actions(onUpgrade, t('billing.account.picker.upgradeFromBalance', { amount: amount(Math.max(net, 0)) }), 'upgrade')}
@@ -434,6 +440,10 @@ function QuoteSummary({
     case 'current':
       return <p className="text-sm text-muted-foreground">{t('billing.account.picker.isCurrent')}</p>;
     default:
+      // During a trial, Free is what follows it, not the current plan.
+      if (quote.reason === 'trial_running' && quote.effective_at) {
+        return <p className="text-sm text-muted-foreground">{t('billing.account.picker.freeAfterTrial', { date: date(quote.effective_at) })}</p>;
+      }
       return <p className="text-sm text-muted-foreground">{t('billing.account.picker.unavailable')}</p>;
   }
 }

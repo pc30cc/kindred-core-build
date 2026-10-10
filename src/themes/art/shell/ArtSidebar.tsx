@@ -52,7 +52,11 @@ function useArtPlanNotice(workspaceId: string | null | undefined) {
   }
   const renewalEndMs = data.renewal_due ? new Date(data.renewal_due.period_end).getTime() : NaN;
   if (Number.isFinite(renewalEndMs) && renewalEndMs > Date.now()) {
-    return { kind: 'renewal' as const, days: Math.max(1, Math.ceil((renewalEndMs - Date.now()) / DAY_MS)) };
+    return {
+      kind: 'renewal' as const,
+      days: Math.max(1, Math.ceil((renewalEndMs - Date.now()) / DAY_MS)),
+      endsOnFree: data.renewal_due?.ends_on_free === true,
+    };
   }
   const isFree = Boolean(plan?.is_free) || plan?.slug === 'free' || !sub?.plan_id || !!sub?.free_fallback_at;
   return isFree ? { kind: 'free' as const } : null;
@@ -326,7 +330,9 @@ function PlanCard({ notice }: { notice: NonNullable<ReturnType<typeof useArtPlan
           data-shell="side-plan-link"
           className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
-          {notice.kind === 'renewal' ? t('artShell.planRenew') : t('artShell.planUpgrade')}
+          {notice.kind === 'renewal'
+            ? t(notice.endsOnFree ? 'artShell.planManage' : 'artShell.planRenew')
+            : t('artShell.planUpgrade')}
           <ArrowUpRight aria-hidden className="h-3.5 w-3.5 rtl:-scale-x-100" strokeWidth={2.2} />
         </Link>
       )}

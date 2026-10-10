@@ -62,6 +62,8 @@ const tr: TranslationKeys = {
         unavailable: 'Bu plan şu anda seçilemez.',
         buyTitle: '{{plan}} satın al',
         upgradeTitle: '{{plan}} planına yükselt',
+        upgradeMonths: 'Şimdi {{amount}} karşılığında {{plan}} planına yükseltin: kalan {{months}} tam ay için aylık fiyat farkı. Yenileme tarihiniz değişmez.',
+        freeAfterTrial: 'Deneme süreniz {{date}} tarihine kadar sürüyor; ardından bir plan seçmezseniz çalışma alanı Ücretsiz plana geçer.',
         select: '{{plan}} planını seç',
         selectShort: 'Seç',
         selected: 'Seçildi',
@@ -190,7 +192,7 @@ const tr: TranslationKeys = {
         QUOTE_CHANGED: 'Fiyat değişti. Lütfen yeniden seçin.',
         BALANCE_SUFFICIENT: 'Bakiyeniz bunu karşılıyor. Bakiyeden ödeyin.',
         CURRENCY_NOT_SUPPORTED: 'Bu para biriminde ödeme yapılamıyor.',
-        PERIOD_CHANGED: 'Bu dönem zaten yenilendi veya değişti. Planın şu anki durumu aşağıda.',
+        PERIOD_CHANGED: 'Bu dönem zaten yenilendi veya değişti. Planın şu anki durumu artık bu kartta.',
         IDEMPOTENCY_CONFLICT: 'Bu istek başka bir ödeme için zaten kullanıldı. Lütfen yeniden deneyin.',
         TOO_MANY_CHECKOUTS: 'Son bir saatte çok fazla ödeme denemesi yapıldı. Biraz bekleyip yeniden deneyin.',
         generic: 'Bir sorun oluştu. Lütfen tekrar deneyin.',
@@ -403,6 +405,8 @@ const tr: TranslationKeys = {
     renewalFreeTitle: 'Planınız {{date}} tarihinde sona eriyor ve çalışma alanı Ücretsiz plana geçiyor',
     renewalDesc: 'Korumak için Faturalandırma sayfasından yenileyin.',
     renewCta: 'Planı yenile',
+    renewalFreeDesc: 'Ücretsiz plana geçmeyi seçtiniz. Planınızı korumak için faturalama sayfasında değişikliği iptal edin.',
+    manageCta: 'Planı yönet',
   },
   billingIran: {
     pageTitle: 'Plan ve Ödeme', pageSubtitle: 'Çalışma alanı planınızı, kredinizi ve ödemelerinizi yönetin.',
@@ -8311,6 +8315,10 @@ const tr: TranslationKeys = {
         title: 'Planınız sona eriyor',
         desc: '{{days}} gün sonra sona erecek ve çalışma alanı Ücretsiz plana geçecek. Korumak için Faturalandırma sayfasından yenileyin.',
       },
+      change_to_free: {
+        title: 'Planınız sona eriyor',
+        desc: '{{days}} gün içinde Ücretsiz plana geçmeyi seçtiniz. Planınızı korumak için faturalama sayfasında değişikliği iptal edin.',
+      },
       subscription_past_due: {
         title: 'Abonelik ödemesi gecikti',
         desc: 'Hizmet kesintisini önlemek için ödeme bilgilerinizi kontrol edin.',
@@ -10685,6 +10693,7 @@ const tr: TranslationKeys = {
     planEnds: 'Plan, {{days}} gün kaldı',
     planEndsLastDay: 'Plan, son gün',
     planRenew: 'Yenile',
+    planManage: 'Yönet',
     planNotice: 'Plan durumu',
   },
   artInbox: {

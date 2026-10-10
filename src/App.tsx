@@ -29,6 +29,7 @@ import { lazyPage, type Preloadable } from "@/lib/perf/lazyPage";
 import { afterLoadWhenIdle, canPrefetch, installLinkPrefetch, warmServiceWorkerCache } from "@/lib/perf/prefetch";
 import { trackMediaCapture } from "@/lib/perf/chunkReload";
 import { LEGACY_BILLING_ENABLED } from "../shared/billingMode";
+import RetiredV2PaymentRoute from "@/pages/app/billing/RetiredV2PaymentRoute";
 
 // Layouts and frames stay in the main bundle: they are what remains on screen
 // while a page's own code loads.
@@ -579,9 +580,10 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="plugins/:pluginId" element={<RequireWorkspaceAdmin><PluginDetailPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing" element={<RequireWorkspaceAdmin><BillingPage /></RequireWorkspaceAdmin>} />
                 {/* Billing v2's payment page; while v2 is retired
-                    (shared/billingMode.ts) its links land on the workspace's
-                    billing page instead. */}
-                <Route path="billing/pay/:kind/:id" element={LEGACY_BILLING_ENABLED ? <RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin> : <Navigate to="../billing" replace />} />
+                    (shared/billingMode.ts) it stays only for a bank's return
+                    of a payment started before, and any other link lands on
+                    the workspace's billing page. */}
+                <Route path="billing/pay/:kind/:id" element={LEGACY_BILLING_ENABLED ? <RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin> : <RetiredV2PaymentRoute page={<RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin>} />} />
                 <Route path="billing/receipts/:ledgerId" element={<RequireWorkspaceAdmin><BillingReceiptPage /></RequireWorkspaceAdmin>} />
                 {/* Every plan-gated section is gated at its route too (the
                     sidebar only hides the link): PlanLockedOverlay never

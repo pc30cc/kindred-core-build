@@ -446,7 +446,11 @@ billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
 });
 
 /** The period the customer renews (its end, as the page showed it): a second click renews nothing more. */
-const renewSchema = z.object({ expectedPeriodEnd: z.string().datetime({ offset: true }).optional() });
+const renewSchema = z.object({
+  expectedPeriodEnd: z.string().datetime({ offset: true }).optional(),
+  /** The renewal price the page showed; another price now answers QUOTE_CHANGED. */
+  expectedPriceMinor: z.number().int().positive().optional(),
+});
 
 billingAccountRouter.post('/account/:workspaceId/renew', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -454,7 +458,13 @@ billingAccountRouter.post('/account/:workspaceId/renew', async (req, res) => {
   const parsed = renewSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json(await renewPlan(serverConfigOf(req), req.params.workspaceId, auth.userId, parsed.data.expectedPeriodEnd ?? null));
+    res.json(await renewPlan(
+      serverConfigOf(req),
+      req.params.workspaceId,
+      auth.userId,
+      parsed.data.expectedPeriodEnd ?? null,
+      parsed.data.expectedPriceMinor ?? null,
+    ));
   } catch (e) {
     fail(res, e);
   }

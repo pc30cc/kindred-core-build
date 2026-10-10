@@ -479,6 +479,113 @@ suite('261 — simple billing renewals, upgrades and changes (real PostgreSQL, w
     expect(Date.parse(String((await sub(ws)).current_period_end))).toBeGreaterThan(Date.now());
   });
 
+  it('a next period already paid through billing v2 is renewed: no reminder, no second renewal, and a prepayment returns', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900 * 2);
+    await purchase(ws, proId);
+    await fn(`SELECT public.billing_account_renew($1) AS r`, [ws]);
+    expect(await balanceOf(ws)).toBe(0);
+    await makeDue(ws);
+    const s = await sub(ws);
+    await q(
+      `INSERT INTO public.billing_subscription_periods (workspace_id, plan_id, status, period_start, period_end, billing_interval, source)
+       VALUES ($1, $2, 'scheduled', $3, $3::timestamptz + interval '1 month', 'monthly', 'admin')`,
+      [ws, proId, s.current_period_end]);
+    expect(await fn(`SELECT public.billing_account_process_due($1) AS r`, [ws])).toMatchObject({ action: 'renewed', source: 'billing_v2' });
+    // The account prepayment for the same next period comes back.
+    expect(await balanceOf(ws)).toBe(2900);
+    expect((await account(ws)).next_period_prepaid_minor).toBeNull();
+
+    const other = await makeWorkspace();
+    await credit(other, 2900 * 2);
+    await purchase(other, proId);
+    const o = await sub(other);
+    await q(
+      `INSERT INTO public.billing_subscription_periods (workspace_id, plan_id, status, period_start, period_end, billing_interval, source)
+       VALUES ($1, $2, 'scheduled', $3, $3::timestamptz + interval '1 month', 'monthly', 'admin')`,
+      [other, proId, o.current_period_end]);
+    expect((await q(`SELECT workspace_id FROM public.billing_account_reminder_candidates(40)`)).map((r) => r.workspace_id)).not.toContain(other);
+    await expect(fn(`SELECT public.billing_account_renew($1) AS r`, [other])).rejects.toThrow(/billing_already_renewed/);
+    expect(await balanceOf(other)).toBe(2900);
+  });
+
+  it('a renewal is charged only at the price the customer was shown', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900 + 9900 * 2);
+    await purchase(ws, proId);
+    // Another tab schedules Biz after the page showed the Pro renewal.
+    await fn(`SELECT public.billing_account_schedule_change($1, $2, 'monthly') AS r`, [ws, bizId]);
+    const before = await balanceOf(ws);
+    await expect(fn(`SELECT public.billing_account_renew($1, NULL, NULL, 2900) AS r`, [ws])).rejects.toThrow(/billing_quote_changed/);
+    expect(await balanceOf(ws)).toBe(before);
+    expect(await fn(`SELECT public.billing_account_renew($1, NULL, NULL, 9900) AS r`, [ws])).toMatchObject({ action: 'prepaid', amount_minor: 9900 });
+  });
+
+  it('a Super Admin assignment returns a prepayment and drops a scheduled change, even with the same end date', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900 * 2);
+    await purchase(ws, proId);
+    await fn(`SELECT public.billing_account_renew($1) AS r`, [ws]);
+    await fn(`SELECT public.billing_account_schedule_change($1, $2, 'yearly') AS r`, [ws, proId]).catch(() => null);
+    // The admin keeps the end date and changes the plan.
+    await q(`UPDATE public.workspace_subscriptions SET plan_id = $2 WHERE workspace_id = $1`, [ws, bizId]);
+    const prepaid = Number((await account(ws)).next_period_prepaid_minor);
+    const balance = await balanceOf(ws);
+    expect(Number((await one(`SELECT public.billing_account_admin_replaced($1) AS n`, [ws])).n)).toBe(prepaid);
+    expect(await balanceOf(ws)).toBe(balance + prepaid);
+    expect(await account(ws)).toMatchObject({ next_period_prepaid_minor: null, next_period_start: null, scheduled_plan_id: null, scheduled_interval: null });
+    // The return names the prepaid period it came from.
+    const back = (await ledger(ws)).filter((r) => r.kind === 'prepaid_return').at(-1)!;
+    expect(back.plan_id).toBeTruthy();
+    expect(back.period_start).toBeTruthy();
+    expect(back.period_end).toBeTruthy();
+  });
+
+  it('a monthly upgrade over a longer window names the months it pays for', async () => {
+    const ws = await makeWorkspace();
+    await credit(ws, 2900);
+    await purchase(ws, proId);
+    await q(`UPDATE public.workspace_subscriptions SET current_period_end = now() + interval '95 days' WHERE workspace_id = $1`, [ws]);
+    const cost = await fn(`SELECT public.billing_account_upgrade_cost($1, $2) AS r`, [ws, bizId]);
+    expect(cost).toMatchObject({ upgrade: true, months_left: 3, cost_minor: 7000 * 3 });
+  });
+
+  it('the old calendar AI grant made in this month of a running period counts; a new period retires what is left of it', async () => {
+    const month = String((await one(`SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM') AS m`)).m);
+    const calendarLot = (ws: string, amount: number) =>
+      q(`SELECT public.ai_grant_allowance($1, $2, $3, 'plan', now() + interval '20 days', $4)`, [ws, amount, month, `legacy-${ws}`]);
+    const accountLots = async (ws: string) => (await lots(ws)).filter((l) => String(l.billing_cycle_id).startsWith('cycle:account:'));
+
+    // A paid period running since before the calendar grant: no second allowance.
+    const paid = await makeWorkspace();
+    await q(
+      `INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status, billing_interval, current_period_start, current_period_end)
+       VALUES ($1, $2, 'active', 'monthly', now() - interval '1 day', public.billing_period_end(now() - interval '1 day', 'monthly'))`,
+      [paid, proId]);
+    await calendarLot(paid, 300_000);
+    await q(`SELECT public.billing_account_grant_due_allowances()`);
+    expect(await accountLots(paid)).toHaveLength(0);
+
+    // A trial that got the calendar grant: no second allowance either.
+    const trial = await makeWorkspace();
+    await q(
+      `INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status, trial_start, trial_end, current_period_start, current_period_end)
+       VALUES ($1, $2, 'trialing', now() - interval '1 day', now() + interval '6 days', now() - interval '1 day', now() + interval '6 days')`,
+      [trial, proId]);
+    await calendarLot(trial, 300_000);
+    await q(`SELECT public.billing_account_grant_due_allowances()`);
+    expect(await accountLots(trial)).toHaveLength(0);
+
+    // That trial buys a plan: its first month is granted in full, and what was
+    // left of the trial's calendar lot expires instead of adding up.
+    await credit(trial, 2900);
+    await purchase(trial, proId);
+    expect(await accountLots(trial)).toHaveLength(1);
+    expect((await one(
+      `SELECT state FROM public.workspace_ai_balance_lots WHERE workspace_id = $1 AND billing_cycle_id = $2`, [trial, month])).state)
+      .toBe('EXPIRED');
+  });
+
   it('a change can always be cancelled, even when the current plan is no longer sold', async () => {
     const ws = await makeWorkspace();
     await credit(ws, 2900);
@@ -574,7 +681,9 @@ suite('261 — simple billing renewals, upgrades and changes (real PostgreSQL, w
   it('only service_role reaches the billing functions', async () => {
     for (const f of [
       'public.billing_account_purchase_plan(uuid, uuid, text, text, uuid)',
-      'public.billing_account_renew(uuid, uuid, timestamptz)',
+      'public.billing_account_renew(uuid, uuid, timestamptz, bigint)',
+      'public.billing_account_v2_next_period(uuid)',
+      'public.billing_account_admin_replaced(uuid)',
       'public.billing_account_refund_payment(uuid, text, bigint)',
       'public.billing_account_upgrade(uuid, uuid, uuid)',
       'public.billing_account_schedule_change(uuid, uuid, text, uuid)',

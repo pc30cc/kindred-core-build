@@ -157,8 +157,11 @@ $$;
 -- plan's monthly allowance once (source 'plan'), expiring at that month's
 -- end; an upgrade adds the difference under its own source. The cycle id
 -- starts with 'cycle:' (billing v2's allowance guard lets those through).
--- A month that another path already funded (billing v2's own cycle, or an
--- earlier calendar grant) is not funded twice.
+-- A month that another path already funded is not funded twice: billing
+-- v2's own cycle, or the old calendar grant ('YYYY-MM') made in this month
+-- of this period. Granting a month retires what is left of older calendar
+-- lots (another plan's, or an earlier month's), as billing v2 did, so they
+-- never add up with it.
 CREATE OR REPLACE FUNCTION public.billing_account_grant_month(
   p_workspace_id uuid,
   p_plan_id      uuid,
@@ -176,6 +179,10 @@ DECLARE
   v_cycle_end   timestamptz;
   v_cycle_id    text;
   v_amount      numeric;
+  v_lot         public.workspace_ai_balance_lots;
+  v_left        numeric;
+  v_entry       uuid;
+  v_retired     integer := 0;
 BEGIN
   IF p_period_start IS NULL OR p_period_end IS NULL OR p_at < p_period_start OR p_at >= p_period_end THEN
     RETURN 0;
@@ -220,6 +227,49 @@ BEGIN
        AND (expires_at IS NULL OR expires_at > v_cycle_start)
   ) THEN
     RETURN 0;
+  END IF;
+  IF p_source = 'plan' THEN
+    -- The old calendar grant funded this month of this period already.
+    IF EXISTS (
+      SELECT 1 FROM public.workspace_ai_balance_lots
+       WHERE workspace_id = p_workspace_id
+         AND source_type = 'PLAN_ALLOWANCE'
+         AND billing_cycle_id ~ '^[0-9]{4}-[0-9]{2}$'
+         AND created_at >= greatest(p_period_start, v_cycle_start)
+         AND created_at < v_cycle_end
+    ) THEN
+      RETURN 0;
+    END IF;
+    -- What is left of older calendar lots expires (what is reserved by a
+    -- reply in flight stays until it settles).
+    PERFORM public.ai_wallet_lock(p_workspace_id);
+    FOR v_lot IN
+      SELECT * FROM public.workspace_ai_balance_lots
+       WHERE workspace_id = p_workspace_id
+         AND source_type = 'PLAN_ALLOWANCE'
+         AND billing_cycle_id ~ '^[0-9]{4}-[0-9]{2}$'
+         AND state IN ('ACTIVE', 'EXPIRING')
+         AND remaining_amount > 0
+       FOR UPDATE
+    LOOP
+      v_left := v_lot.remaining_amount - v_lot.reserved_amount;
+      IF v_left > 0 THEN
+        INSERT INTO public.workspace_ai_ledger (workspace_id, entry_type, amount, billing_cycle_id, reason)
+        VALUES (v_lot.workspace_id, 'EXPIRATION', -v_left, v_lot.billing_cycle_id, 'legacy_allowance_superseded')
+        RETURNING id INTO v_entry;
+        INSERT INTO public.workspace_ai_ledger_allocations (ledger_entry_id, lot_id, amount)
+        VALUES (v_entry, v_lot.id, v_left);
+      END IF;
+      UPDATE public.workspace_ai_balance_lots
+         SET remaining_amount = v_lot.reserved_amount,
+             state = CASE WHEN v_lot.reserved_amount > 0 THEN 'EXPIRING' ELSE 'EXPIRED' END,
+             updated_at = now()
+       WHERE id = v_lot.id;
+      v_retired := v_retired + 1;
+    END LOOP;
+    IF v_retired > 0 THEN
+      PERFORM public.ai_wallet_project(p_workspace_id);
+    END IF;
   END IF;
   PERFORM public.ai_grant_allowance(
     p_workspace_id, v_amount, v_cycle_id, p_source, v_cycle_end,
@@ -356,7 +406,9 @@ END;
 $$;
 
 -- Money back to the balance (a prepaid next period that changed). Idempotent
--- per key.
+-- per key. The row names the prepaid period it comes from (its plan,
+-- interval and dates), for the history: callers return it before they clear
+-- the prepayment.
 CREATE OR REPLACE FUNCTION public.billing_account_credit_back(
   p_workspace_id uuid,
   p_amount       bigint,
@@ -367,8 +419,11 @@ CREATE OR REPLACE FUNCTION public.billing_account_credit_back(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_acc   public.billing_accounts;
-  v_entry public.billing_account_ledger;
+  v_acc      public.billing_accounts;
+  v_entry    public.billing_account_ledger;
+  v_sub      public.workspace_subscriptions;
+  v_plan     uuid;
+  v_interval text;
 BEGIN
   SELECT * INTO v_entry FROM public.billing_account_ledger WHERE idempotency_key = p_key;
   IF v_entry.id IS NOT NULL THEN
@@ -381,16 +436,74 @@ BEGIN
     RETURN v_entry;
   END IF;
   SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
+  IF v_acc.next_period_start IS NOT NULL THEN
+    SELECT * INTO v_sub FROM public.workspace_subscriptions WHERE workspace_id = p_workspace_id;
+    v_plan := coalesce(v_acc.scheduled_plan_id, v_sub.plan_id);
+    v_interval := coalesce(v_acc.scheduled_interval, v_sub.billing_interval, 'monthly');
+  END IF;
   INSERT INTO public.billing_account_ledger (
-    workspace_id, kind, amount_minor, balance_after, currency, description, actor_id, idempotency_key, created_at
+    workspace_id, kind, amount_minor, balance_after, currency, plan_id, billing_interval, period_start, period_end,
+    description, actor_id, idempotency_key, created_at
   ) VALUES (
     p_workspace_id, 'prepaid_return', p_amount, v_acc.balance_minor + p_amount, v_acc.currency,
+    v_plan, v_interval, v_acc.next_period_start,
+    CASE WHEN v_acc.next_period_start IS NOT NULL THEN public.billing_period_end(v_acc.next_period_start, v_interval) END,
     coalesce(p_description, '{}'::jsonb), p_actor, p_key, clock_timestamp()
   ) RETURNING * INTO v_entry;
   UPDATE public.billing_accounts
      SET balance_minor = balance_minor + p_amount, updated_at = now()
    WHERE workspace_id = p_workspace_id;
   RETURN v_entry;
+END;
+$$;
+
+-- A next period already paid through billing v2 (a 'scheduled' service
+-- period; its scheduler no longer runs, so the due moment starts it). Such a
+-- period is renewed: no reminder, no second renewal.
+CREATE OR REPLACE FUNCTION public.billing_account_v2_next_period(p_workspace_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  IF to_regclass('public.billing_subscription_periods') IS NULL THEN
+    RETURN NULL;
+  END IF;
+  SELECT id INTO v_id FROM public.billing_subscription_periods
+   WHERE workspace_id = p_workspace_id AND status = 'scheduled'
+   ORDER BY period_start LIMIT 1;
+  RETURN v_id;
+END;
+$$;
+
+-- A Super Admin assignment (or revocation) replaces the running period: a
+-- prepayment made for the period after the old one returns to the balance,
+-- and a change the customer scheduled for its end no longer applies. (The
+-- period end alone cannot tell: an assignment may keep the same date.)
+CREATE OR REPLACE FUNCTION public.billing_account_admin_replaced(p_workspace_id uuid)
+RETURNS bigint
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_acc public.billing_accounts;
+BEGIN
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
+  IF v_acc.workspace_id IS NULL THEN
+    RETURN 0;
+  END IF;
+  IF v_acc.next_period_prepaid_minor IS NOT NULL THEN
+    PERFORM public.billing_account_credit_back(
+      p_workspace_id, v_acc.next_period_prepaid_minor,
+      jsonb_build_object('reason', 'admin_assignment', 'for_period_start', v_acc.next_period_start), NULL,
+      'prepaid_return:' || p_workspace_id::text || ':admin:' || gen_random_uuid()::text
+    );
+  END IF;
+  UPDATE public.billing_accounts
+     SET next_period_prepaid_minor = NULL, next_period_start = NULL,
+         scheduled_plan_id = NULL, scheduled_interval = NULL, updated_at = now()
+   WHERE workspace_id = p_workspace_id;
+  RETURN coalesce(v_acc.next_period_prepaid_minor, 0);
 END;
 $$;
 
@@ -494,7 +607,7 @@ BEGIN
   END IF;
   RETURN jsonb_build_object(
     'upgrade', true, 'cost_minor', v_cost, 'new_price_minor', v_new, 'old_price_minor', v_old,
-    'months_left', CASE WHEN v_interval = 'yearly' THEN v_months END,
+    'months_left', CASE WHEN v_interval = 'yearly' OR v_months > 1 THEN v_months END,
     'currency', v_currency, 'billing_interval', v_interval,
     'prepaid_minor', v_acc.next_period_prepaid_minor, 'next_price_minor', v_next, 'reprice_minor', v_reprice,
     'period_end', v_sub.current_period_end
@@ -588,9 +701,10 @@ $$;
 -- (the hourly job has not run yet) the next period starts at once.
 -- One renewal per period: the key is the period it pays for.
 CREATE OR REPLACE FUNCTION public.billing_account_renew(
-  p_workspace_id        uuid,
-  p_actor               uuid DEFAULT NULL,
-  p_expected_period_end timestamptz DEFAULT NULL
+  p_workspace_id         uuid,
+  p_actor                uuid DEFAULT NULL,
+  p_expected_period_end  timestamptz DEFAULT NULL,
+  p_expected_price_minor bigint DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
@@ -620,7 +734,7 @@ BEGIN
      AND abs(extract(epoch FROM v_sub.current_period_end - p_expected_period_end)) >= 1 THEN
     RAISE EXCEPTION 'billing_period_changed';
   END IF;
-  IF v_acc.next_period_prepaid_minor IS NOT NULL THEN
+  IF v_acc.next_period_prepaid_minor IS NOT NULL OR public.billing_account_v2_next_period(p_workspace_id) IS NOT NULL THEN
     RAISE EXCEPTION 'billing_already_renewed';
   END IF;
   v_target := coalesce(v_acc.scheduled_plan_id, v_sub.plan_id);
@@ -632,6 +746,11 @@ BEGIN
   v_price := public.billing_plan_price(v_target, v_acc.currency, v_interval);
   IF v_price IS NULL OR v_price <= 0 THEN
     RAISE EXCEPTION 'billing_plan_price_unavailable';
+  END IF;
+  -- The price the customer was shown (the page sends it): a price or a
+  -- scheduled change that moved since is never charged unseen.
+  IF p_expected_price_minor IS NOT NULL AND p_expected_price_minor <> v_price THEN
+    RAISE EXCEPTION 'billing_quote_changed';
   END IF;
   -- Due and not yet processed: the next period follows on from the current
   -- one, unless it ended long ago (then it starts now).
@@ -709,6 +828,9 @@ BEGIN
      ORDER BY period_start DESC LIMIT 1;
     IF v_v2 IS NOT NULL THEN
       PERFORM public.billing_activate_period(v_v2);
+      -- A prepayment made here for the same next period returns.
+      PERFORM public.billing_account_release_stale_prepaid(p_workspace_id);
+      SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id;
       SELECT * INTO v_sub FROM public.workspace_subscriptions WHERE workspace_id = p_workspace_id;
       RETURN jsonb_build_object(
         'action', 'renewed', 'source', 'billing_v2', 'plan_id', v_sub.plan_id, 'billing_interval', v_sub.billing_interval,
@@ -1356,6 +1478,7 @@ AS $$
      AND s.current_period_end > now()
      AND s.current_period_end <= now() + make_interval(days => greatest(p_days, 1))
      AND NOT (a.next_period_prepaid_minor IS NOT NULL AND a.next_period_start = s.current_period_end)
+     AND public.billing_account_v2_next_period(s.workspace_id) IS NULL
      AND NOT coalesce(t.is_free, true)
      AND NOT (
        coalesce(a.auto_renew, false)
@@ -1489,16 +1612,16 @@ $f$;
 
 SELECT pg_temp._email_261_seed('billing_renewal_reminder', 'fa',
   'تمدید پلن {plan_name}: {days_left} روز مانده — {brand}', 'یادآوری تمدید',
-  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">پلن {plan_name} فضای کاری شما در تاریخ {period_end} به پایان می‌رسد ({days_left} روز دیگر).</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">مبلغ تمدید: <strong>{amount}</strong><br>موجودی حساب: {balance}</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">اگر تا آن زمان تمدید نشود، فضای کاری به پلن رایگان منتقل می‌شود.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">تمدید پلن</a></p>',
-  'پلن {plan_name} در تاریخ {period_end} به پایان می‌رسد. مبلغ تمدید: {amount}. موجودی: {balance}. تمدید: {billing_url}');
+  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">پلن {plan_name} فضای کاری شما در تاریخ {period_end} به پایان می‌رسد ({days_left} روز دیگر).</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">مبلغ تمدید ({new_plan_name}): <strong>{amount}</strong><br>موجودی حساب: {balance}</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">اگر تا آن زمان تمدید نشود، فضای کاری به پلن رایگان منتقل می‌شود.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">تمدید پلن</a></p>',
+  'پلن {plan_name} در تاریخ {period_end} به پایان می‌رسد. مبلغ تمدید ({new_plan_name}): {amount}. موجودی: {balance}. تمدید: {billing_url}');
 SELECT pg_temp._email_261_seed('billing_renewal_reminder', 'en',
-  'Your {plan_name} plan ends in {days_left} days — {brand}', 'Renewal reminder',
-  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Your workspace''s {plan_name} plan ends on {period_end} ({days_left} days from now).</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Renewal: <strong>{amount}</strong><br>Your balance: {balance}</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">If it is not renewed by then, the workspace moves to the Free plan.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Renew</a></p>',
-  'Your {plan_name} plan ends on {period_end}. Renewal: {amount}. Balance: {balance}. Renew: {billing_url}');
+  'Your {plan_name} plan ends on {period_end} — {brand}', 'Renewal reminder',
+  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Your workspace''s {plan_name} plan ends on {period_end}.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Renewal ({new_plan_name}): <strong>{amount}</strong><br>Your balance: {balance}</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">If it is not renewed by then, the workspace moves to the Free plan.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Renew</a></p>',
+  'Your {plan_name} plan ends on {period_end}. Renewal ({new_plan_name}): {amount}. Balance: {balance}. Renew: {billing_url}');
 SELECT pg_temp._email_261_seed('billing_renewal_reminder', 'tr',
   '{plan_name} planınız {days_left} gün içinde sona eriyor — {brand}', 'Yenileme hatırlatması',
-  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Çalışma alanınızın {plan_name} planı {period_end} tarihinde sona eriyor ({days_left} gün sonra).</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Yenileme tutarı: <strong>{amount}</strong><br>Bakiyeniz: {balance}</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">O zamana kadar yenilenmezse çalışma alanı Ücretsiz plana geçer.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Yenile</a></p>',
-  '{plan_name} planınız {period_end} tarihinde sona eriyor. Yenileme: {amount}. Bakiye: {balance}. Yenile: {billing_url}');
+  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Çalışma alanınızın {plan_name} planı {period_end} tarihinde sona eriyor ({days_left} gün sonra).</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Yenileme tutarı ({new_plan_name}): <strong>{amount}</strong><br>Bakiyeniz: {balance}</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">O zamana kadar yenilenmezse çalışma alanı Ücretsiz plana geçer.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Yenile</a></p>',
+  '{plan_name} planınız {period_end} tarihinde sona eriyor. Yenileme ({new_plan_name}): {amount}. Bakiye: {balance}. Yenile: {billing_url}');
 
 SELECT pg_temp._email_261_seed('billing_renewed', 'fa',
   'پلن {plan_name} تمدید شد — {brand}', 'تمدید انجام شد',
@@ -1583,7 +1706,7 @@ SELECT pg_temp._email_261_seed('billing_trial_ending', 'fa',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">دوره‌ی آزمایشی فضای کاری شما در تاریخ {trial_end} به پایان می‌رسد.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">برای ادامه‌ی استفاده از همه‌ی امکانات، یک پلن انتخاب کنید.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">انتخاب پلن</a></p>',
   'دوره‌ی آزمایشی در تاریخ {trial_end} به پایان می‌رسد. انتخاب پلن: {billing_url}');
 SELECT pg_temp._email_261_seed('billing_trial_ending', 'en',
-  'Your trial ends in {days_left} days — {brand}', 'Your trial is ending',
+  'Your trial ends on {trial_end} — {brand}', 'Your trial is ending',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Your workspace trial ends on {trial_end}.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Choose a plan to keep every feature.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Choose a plan</a></p>',
   'Your trial ends on {trial_end}. Choose a plan: {billing_url}');
 SELECT pg_temp._email_261_seed('billing_trial_ending', 'tr',
@@ -1625,8 +1748,10 @@ BEGIN
     'public.billing_account_paid_subscription(uuid)',
     'public.billing_account_upgrade_cost(uuid, uuid, timestamptz)',
     'public.billing_account_purchase_plan(uuid, uuid, text, text, uuid)',
-    'public.billing_account_renew(uuid, uuid, timestamptz)',
+    'public.billing_account_renew(uuid, uuid, timestamptz, bigint)',
     'public.billing_account_release_stale_prepaid(uuid)',
+    'public.billing_account_v2_next_period(uuid)',
+    'public.billing_account_admin_replaced(uuid)',
     'public.billing_account_refund_payment(uuid, text, bigint)',
     'public.billing_account_process_due(uuid)',
     'public.billing_account_upgrade(uuid, uuid, uuid)',

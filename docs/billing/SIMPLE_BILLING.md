@@ -207,9 +207,12 @@ that a retry does nothing twice; a replayed key must be the same charge
 (same workspace, kind and amount) or it is refused. Simple billing writes
 `workspace_subscriptions` only through `billing_account_write_subscription`,
 which also writes `plan_change_log`. Super Admin plan assignments still
-write it directly; a prepayment made for a period they replaced returns to
-the balance (`billing_account_release_stale_prepaid`, run before every
-billing action). Billing v2's customer endpoints that would write it (plan
+write it directly; right after one (assign, revoke, grant) a prepayment for
+the old period's next one returns to the balance and a scheduled change is
+dropped (`billing_account_admin_replaced`), whatever the new end date. A
+prepayment made for a period replaced in any other way returns as soon as
+the page, a quote, a checkout or a billing action sees it
+(`billing_account_release_stale_prepaid`). Billing v2's customer endpoints that would write it (plan
 change, invoice and wallet payments, v2 checkout, cancel/resume) answer
 410 `BILLING_V2_RETIRED` while `LEGACY_BILLING_ENABLED` is off.
 
@@ -234,7 +237,11 @@ price, balance or period moved meanwhile the server answers 409
   renewal is its own charge. The page (and the job) name the period they
   renew (`p_expected_period_end`): once it was renewed or replaced, a retry
   or a second tab renews nothing (`PERIOD_CHANGED`); a second renewal of a
-  prepaid period is refused (`ALREADY_RENEWED`).
+  prepaid period is refused (`ALREADY_RENEWED`), as is one whose next period
+  was already paid through billing v2 (a `scheduled` service period, which
+  the due moment starts; no reminder either). The page also sends the price
+  it showed (`p_expected_price_minor`): a price or scheduled change that
+  moved since answers `QUOTE_CHANGED` and charges nothing.
 - **The due moment** (`billing_account_process_due`; the job every 5
   minutes, and the billing page, a quote or a checkout of that workspace at
   once): a next period paid through billing v2 (`scheduled`) starts; else a
@@ -277,8 +284,12 @@ price, balance or period moved meanwhile the server answers 409
   `cycle:account:<month start>`, expiring at that month's end). The amount
   is the workspace's override, else `billing_plans.ai_allowance.IRR`, else
   the limit `included_ai_allowance_irr`, else `ai_credits_per_month`. A
-  month another path already funded (billing v2's own cycle) is not funded
-  again. The AI wallet counts in its own unit (Rial).
+  month another path already funded is not funded again: billing v2's own
+  cycle, or the old calendar grant (`YYYY-MM`) made in that month of the
+  same period. Granting a month retires what is left of older calendar lots
+  (another plan's, such as a trial's, or an earlier month's), as billing v2
+  did, so the two never add up. The AI wallet counts in its own unit
+  (Rial).
 - Billing v2's guard and lifecycle-mail triggers on `workspace_subscriptions`
   are dropped; its other tables and functions stay until phase 7.
 

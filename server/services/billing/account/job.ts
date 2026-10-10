@@ -21,7 +21,7 @@ import { getServiceClient } from '../../../supabase.js';
 import { acquireTickerLease, releaseTickerLease } from '../../observability/tickerLease.js';
 import { handleWorkspaceEntitlementChanged } from '../entitlementChange.js';
 import { SHORT_LIVED_CHECKOUT_PROVIDERS } from './index.js';
-import { localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
+import { billingIntervalLabel, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
 import { afterPlanChange } from './plans.js';
 
 const LEASE_NAME = 'simple_billing';
@@ -174,7 +174,7 @@ export async function runSimpleBillingJob(config: ServerConfig, now: Date = new 
       const { data, error } = await sb.rpc('billing_account_reminder_candidates', { p_days: 7 });
       if (error) throw new Error(error.message);
       const rows = (data ?? []) as Array<{
-        workspace_id: string; plan_id: string; target_plan_id: string; period_end: string;
+        workspace_id: string; plan_id: string; target_plan_id: string; billing_interval: string; period_end: string;
         currency: string; balance_minor: number; price_minor: number | null;
       }>;
       const plans = await planNamesFor(config, rows.flatMap((r) => [r.plan_id, r.target_plan_id]));
@@ -189,7 +189,9 @@ export async function runSimpleBillingJob(config: ServerConfig, now: Date = new 
         if (markError) throw new Error(markError.message);
         if (marked !== true) continue;
         const sent = await sendBillingEmail(config, row.workspace_id, 'billing_renewal_reminder', (ctx) => ({
-          plan_name: localizedPlanName(plans.get(row.target_plan_id), ctx.locale),
+          // The plan that ends, and what the renewal buys (a scheduled change's plan and interval).
+          plan_name: localizedPlanName(plans.get(row.plan_id), ctx.locale),
+          new_plan_name: `${localizedPlanName(plans.get(row.target_plan_id), ctx.locale)} (${billingIntervalLabel(row.billing_interval, ctx.locale)})`,
           amount: row.price_minor === null ? '' : ctx.money(Number(row.price_minor), row.currency),
           balance: ctx.money(Number(row.balance_minor), row.currency),
           period_end: ctx.date(row.period_end),

@@ -135,7 +135,7 @@ describe('the plan card', () => {
     expect(within(card).getByTestId('plan-warning')).toHaveTextContent('billing.account.plan.endsSoon {"days":"3"}');
     expect(within(card).getByTestId('plan-renewal')).toHaveTextContent('$29.00');
     fireEvent.click(within(card).getByText(/billing\.account\.plan\.renewFromBalance/));
-    await waitFor(() => expect(api.renew).toHaveBeenCalledWith('ws-1', PERIOD_END));
+    await waitFor(() => expect(api.renew).toHaveBeenCalledWith('ws-1', PERIOD_END, 2900));
     expect(api.renew).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(api.view).toHaveBeenCalledTimes(2));
   });
@@ -163,8 +163,31 @@ describe('the plan card', () => {
     expect(within(dialog).getByText('billing.account.plan.renewOnlineTitle {"plan":"Business"}')).toBeInTheDocument();
     expect(within(dialog).getByTestId('pay-online-total')).toHaveTextContent('$20.90');
     fireEvent.click(within(dialog).getByText('billing.account.topup.pay'));
-    await waitFor(() => expect(api.checkout).toHaveBeenCalledWith('ws-1', expect.objectContaining({ purpose: 'renewal', currency: 'USD', providerName: 'paddle' })));
+    await waitFor(() => expect(api.checkout).toHaveBeenCalledWith('ws-1', expect.objectContaining({
+      purpose: 'renewal', currency: 'USD', providerName: 'paddle', expectedNetMinor: 2900,
+    })));
     await waitFor(() => expect(openPaddle).toHaveBeenCalled());
+  });
+
+  it('a next period already paid through billing v2 shows as paid, with no renew button', async () => {
+    api.view.mockResolvedValue({ ...PAID, next_period_paid: true });
+    renderPage();
+    const card = await screen.findByTestId('plan-card');
+    expect(within(card).queryByTestId('plan-warning')).toBeNull();
+    expect(within(card).getByText('billing.account.plan.nextPaid')).toBeInTheDocument();
+    expect(within(card).queryByText(/renewFromBalance|renewOnline/)).toBeNull();
+  });
+
+  it('a plan that still applies (canceled at the period end, past due) is not offered as one that ran out', async () => {
+    api.view.mockResolvedValue({
+      ...FREE,
+      plan: { ...PAID.plan, status: 'canceled' },
+      lapsed: { plan_id: 'pro', name: 'Pro', localized: {}, billing_interval: 'monthly', price_minor: 2900 },
+    });
+    renderPage();
+    await screen.findByTestId('plan-card');
+    expect(screen.queryByTestId('plan-lapsed')).toBeNull();
+    expect(screen.queryByText(/billing\.account\.plan\.renewLapsed/)).toBeNull();
   });
 
   it('when Paddle cannot open, says so (the dialog is already closed)', async () => {
@@ -337,6 +360,45 @@ describe('choosing a plan', () => {
     fireEvent.click(await screen.findByText('billing.account.plan.change'));
     fireEvent.click(await screen.findByTestId('plan-option-biz'));
     await waitFor(() => expect(api.quote).toHaveBeenCalledWith('ws-1', 'biz', 'monthly'));
+  });
+
+  it('during a trial, Free is what follows the trial, not the current plan', async () => {
+    const trialEnd = inDays(5);
+    api.view.mockResolvedValue({ ...FREE, plan: { ...FREE.plan, plan_id: 'trial', slug: 'trial', is_free: false, status: 'trialing', trial_end: trialEnd } });
+    api.quote.mockResolvedValue(quoteOf({ kind: 'unavailable', plan_id: 'free', reason: 'trial_running', effective_at: trialEnd }));
+    renderPage();
+    fireEvent.click(await screen.findByText('billing.account.plan.choose'));
+    fireEvent.click(await screen.findByTestId('plan-option-free'));
+    const quote = await screen.findByTestId('plan-quote');
+    expect(await within(quote).findByText(/billing\.account\.picker\.freeAfterTrial/)).toHaveTextContent(billingDate(trialEnd, 'en'));
+    expect(within(quote).queryByText('billing.account.picker.isCurrent')).toBeNull();
+  });
+
+  it('a monthly upgrade over a longer window names the months it pays for', async () => {
+    api.view.mockResolvedValue(PAID);
+    api.quote.mockResolvedValue(quoteOf({ kind: 'upgrade', plan_id: 'biz', amount_minor: 21000, upgrade_cost_minor: 21000, months_left: 3 }));
+    renderPage();
+    fireEvent.click(await screen.findByText('billing.account.plan.change'));
+    fireEvent.click(await screen.findByTestId('plan-option-biz'));
+    const quote = await screen.findByTestId('plan-quote');
+    expect(await within(quote).findByText(/billing\.account\.picker\.upgradeMonths/)).toHaveTextContent('"months":"3"');
+  });
+
+  it('cancelling a change of a yearly plan stays yearly, even when nothing is sold yearly any more', async () => {
+    api.view.mockResolvedValue({
+      ...PAID,
+      paid_period: { ...PAID.paid_period, billing_interval: 'yearly' },
+      scheduled_interval: 'monthly',
+    });
+    api.plans.mockResolvedValue({ currency: 'USD', plans: PLANS.map((p) => ({ ...p, price_yearly_minor: p.is_free ? 0 : null })) });
+    api.quote.mockResolvedValue(quoteOf({ kind: 'cancel_change', billing_interval: 'yearly' }));
+    renderPage();
+    fireEvent.click(within(await screen.findByTestId('plan-scheduled')).getByText('billing.account.plan.cancelChange'));
+    await waitFor(() => expect(api.quote).toHaveBeenCalledWith('ws-1', 'pro', 'yearly'));
+    await screen.findByTestId('plan-quote');
+    expect(api.quote).not.toHaveBeenCalledWith('ws-1', 'pro', 'monthly');
+    // The interval stays reachable for a yearly subscriber.
+    expect(screen.getByRole('radio', { name: 'billing.account.plan.interval.monthly' })).toBeInTheDocument();
   });
 
   it('a price that moved since the quote is refused and the new quote shown', async () => {

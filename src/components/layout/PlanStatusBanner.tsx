@@ -74,12 +74,15 @@ export function PlanStatusBanner({ workspaceId }: { workspaceId: string | null |
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
           <div className="min-w-0 text-start">
             <p className="text-[12px] font-semibold text-destructive">{title}</p>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{t('planBanner.renewalDesc')}</p>
+            {/* A change to Free the customer chose: renewing is refused, cancelling the change keeps the plan. */}
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+              {t(renewal.ends_on_free ? 'planBanner.renewalFreeDesc' : 'planBanner.renewalDesc')}
+            </p>
             <Link
               to={wsPath('/billing')}
               className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-destructive hover:underline"
             >
-              {t('planBanner.renewCta')}
+              {t(renewal.ends_on_free ? 'planBanner.manageCta' : 'planBanner.renewCta')}
               <ArrowUpRight className="h-3 w-3" />
             </Link>
           </div>

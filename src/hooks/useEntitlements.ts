@@ -130,6 +130,14 @@ function subscribeSnapshot(workspaceId: string, notify: () => void) {
 }
 
 /** Forget every snapshot (identity change). Readers still mounted refetch for the new identity. */
+/**
+ * Reads the workspace's snapshot again now (after a billing action changed
+ * the plan or its renewal), so the panel's banners and gating follow at once.
+ */
+export function refreshEffectiveEntitlements(workspaceId: string): Promise<void> {
+  return loadSnapshot(workspaceId, { force: true });
+}
+
 export function clearEffectiveEntitlementsCache() {
   generation += 1;
   inflight.clear();

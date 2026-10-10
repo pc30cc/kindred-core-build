@@ -24,6 +24,7 @@ import PlanPickerDialog, { type PlanPreselect } from './PlanPickerDialog';
 import PayOnlineDialog, { type PayOnlineRequest } from './PayOnlineDialog';
 import BillingProfileCard from './BillingProfileCard';
 import { accountErrorText, planLabel } from './accountUi';
+import { refreshEffectiveEntitlements } from '@/hooks/useEntitlements';
 
 const PAGE_SIZE = 20;
 
@@ -67,6 +68,13 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A plan, renewal or payment changed: the page, and the panel's banners and
+  // gating (the workspace's snapshot) at once.
+  const changed = useCallback(() => {
+    void load();
+    void refreshEffectiveEntitlements(workspaceId).catch(() => undefined);
+  }, [load, workspaceId]);
 
   // The return from a gateway. Its parameters are kept in this tab's session
   // storage before the address bar is cleaned, so a check that could not
@@ -120,9 +128,9 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
       }
       if (!mounted.current) return;
       setRet({ phase: 'done', outcome, amount, pending });
-      void load();
+      changed();
     },
-    [workspaceId, stashKey, load],
+    [workspaceId, stashKey, changed],
   );
 
   useEffect(() => {
@@ -221,7 +229,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
         <PlanCard
           workspaceId={workspaceId}
           view={view}
-          onChanged={() => void load()}
+          onChanged={changed}
           onChoosePlan={(preselect) => setPicker({ open: true, preselect: preselect ?? null })}
           onPayOnline={setPayOnline}
         />
@@ -325,7 +333,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
         preselect={picker.preselect}
         workspaceId={workspaceId}
         view={view}
-        onDone={() => void load()}
+        onDone={changed}
         onPayOnline={setPayOnline}
         onTopup={view.can_manage ? (amountMinor) => setTopup({ open: true, amountMinor }) : undefined}
       />

@@ -50,6 +50,16 @@ async function readPlan(config: ServerConfig, planId: string): Promise<PlanRow |
   return (data as PlanRow | null) ?? null;
 }
 
+/** A next period already paid through billing v2 (billing_account_v2_next_period); false when unknown. */
+export async function v2NextPeriodPaid(config: ServerConfig, workspaceId: string): Promise<boolean> {
+  try {
+    const { data, error } = await getServiceClient(config).rpc('billing_account_v2_next_period', { p_workspace_id: workspaceId });
+    return !error && typeof data === 'string' && data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The paid period that ends within RENEWAL_NOTICE_DAYS and will not renew,
  * or null (nothing to warn of, or billing v2 still runs). Throws on a failed
@@ -104,6 +114,8 @@ export async function renewalDueNotice(
   // replaced period does not count: it returns to the balance).
   const prepaidStart = account?.next_period_start ? Date.parse(account.next_period_start) : NaN;
   if (account?.next_period_prepaid_minor != null && Math.abs(prepaidStart - end) < 1000) return null;
+  // ...or through billing v2 (a scheduled period the due moment starts).
+  if (await v2NextPeriodPaid(config, workspaceId)) return null;
 
   // Auto-renew pays from the balance (an account always has its currency).
   if (account?.auto_renew) {

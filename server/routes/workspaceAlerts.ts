@@ -161,7 +161,8 @@ async function deriveAlerts(req: object, workspaceId: string, userId: string) {
   if (renewal && !alerts.some((a) => a.kind === 'subscription_ending')) {
     alerts.push({
       id: 'renewal_due',
-      kind: 'renewal_due',
+      // A change to Free the customer chose cannot be renewed: cancelling it keeps the plan.
+      kind: renewal.ends_on_free ? 'change_to_free' : 'renewal_due',
       severity: renewal.days_left <= 2 ? 'critical' : 'warning',
       params: { days: String(renewal.days_left), plan: planName },
       action: '/billing',

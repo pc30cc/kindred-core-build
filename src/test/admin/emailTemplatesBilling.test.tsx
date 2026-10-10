@@ -49,7 +49,7 @@ const LOCALES = { en, fa, tr } as const;
 
 /** The variables each mail fills besides the ones every billing mail has. */
 const OWN_VARIABLES: Record<string, string[]> = {
-  billing_renewal_reminder: ['{plan_name}', '{amount}', '{balance}', '{period_end}', '{days_left}'],
+  billing_renewal_reminder: ['{plan_name}', '{new_plan_name}', '{amount}', '{balance}', '{period_end}', '{days_left}'],
   billing_renewed: ['{plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_expired: ['{plan_name}', '{expired_at}'],
   billing_plan_changed: ['{plan_name}', '{old_plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],

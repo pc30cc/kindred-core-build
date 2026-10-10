@@ -135,6 +135,19 @@ function fail(res: JsonResponse, e: unknown) {
   return res.status(500).json({ error: 'INTERNAL_ERROR', message });
 }
 
+/** A gateway refused to open a checkout; carries the gateway's own message. */
+class CheckoutProviderError extends Error {
+  readonly provider: string;
+  readonly providerMessage: string;
+  constructor(provider: string, cause: unknown) {
+    const message = (cause instanceof Error ? cause.message : String(cause || '')).trim() || 'checkout failed';
+    super(message);
+    this.name = 'CheckoutProviderError';
+    this.provider = provider;
+    this.providerMessage = message.slice(0, 300);
+  }
+}
+
 function pageParams(req: { query: Record<string, unknown> }) {
   return {
     page: Number(req.query.page ?? 1) || 1,
@@ -557,6 +570,8 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
         ? { description: checkoutDescription(invoice), customerEmail: await customerEmailOf(cfg, auth.userId) }
         : {}),
       metadata: { amount: String(due), invoiceId },
+    }).catch((providerError: unknown) => {
+      throw new CheckoutProviderError(resolved.provider.name, providerError);
     });
 
     // Fail-closed reference binding: an unbound intent must never be reported
@@ -597,9 +612,20 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       );
     }
     if (intentId) {
-      await markPaymentIntentFailed(serverConfigOf(req), intentId, 'checkout_failed').catch(
+      const reason = e instanceof CheckoutProviderError ? `checkout_failed: ${e.providerMessage}`.slice(0, 500) : 'checkout_failed';
+      await markPaymentIntentFailed(serverConfigOf(req), intentId, reason).catch(
         () => undefined,
       );
+    }
+    if (e instanceof CheckoutProviderError) {
+      // The gateway's own reason (e.g. Paddle's "checkout url domain is not
+      // approved"), so whoever manages billing sees why and can fix it.
+      console.warn(`[billing-checkout] provider=${e.provider} refused: ${e.providerMessage}`);
+      return res.status(502).json({
+        error: 'CHECKOUT_PROVIDER_ERROR',
+        message: e.providerMessage,
+        details: { provider: e.provider, providerMessage: e.providerMessage },
+      });
     }
     fail(res, e);
   }

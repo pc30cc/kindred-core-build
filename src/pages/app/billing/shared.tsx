@@ -146,8 +146,15 @@ export function Pager({
 
 /** Server error code → translated message, with a safe generic fallback. */
 export function errorMessage(e: unknown, t: (k: TranslationKey) => string): string {
-  const err = e as { code?: unknown; message?: unknown } | null | undefined;
+  const err = e as { code?: unknown; message?: unknown; details?: unknown } | null | undefined;
   const code = err?.code || err?.message;
+  // A gateway that refused the checkout: say so, with the gateway's own reason.
+  if (code === 'CHECKOUT_PROVIDER_ERROR') {
+    const details = (err?.details ?? null) as { providerMessage?: unknown } | null;
+    const reason = typeof details?.providerMessage === 'string' ? details.providerMessage.trim() : '';
+    const label = t('billing.errors.CHECKOUT_PROVIDER_ERROR' as TranslationKey);
+    return reason ? `${label} ${reason}` : label;
+  }
   if (typeof code === 'string' && /^[A-Za-z_]+$/.test(code)) {
     const translated = t(`billing.errors.${code}` as TranslationKey);
     if (!translated.includes('billing.errors.')) return translated;

@@ -173,6 +173,7 @@ const fa: TranslationKeys = {
       STALE_PREVIEW: 'مبلغ تغییر کرده است. لطفاً خلاصه را دوباره بررسی کنید.',
       INTERVAL_CHANGE_NOT_IMMEDIATE: 'تغییر دوره صورتحساب (ماهانه/سالانه) در ارتقای فوری ممکن نیست. برای این ارتقا دوره فعلی خود را انتخاب کنید.',
       INVOICE_NOT_PAYABLE: 'این فاکتور در حال حاضر قابل پرداخت نیست.',
+      CHECKOUT_PROVIDER_ERROR: 'درگاه پرداخت صفحه‌ی پرداخت را باز نکرد:',
       AMOUNT_OUT_OF_RANGE: 'مبلغ خارج از محدوده مجاز است.',
       AMOUNT_NOT_ALLOWED: 'لطفاً یکی از مبالغ پیشنهادی را انتخاب کنید.',
       NO_PROVIDER_CONFIGURED: 'درگاه پرداختی تنظیم نشده است.',

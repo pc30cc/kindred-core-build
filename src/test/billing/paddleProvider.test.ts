@@ -72,7 +72,6 @@ describe('paddle createCheckoutSession', () => {
       currency_code: 'USD',
       collection_mode: 'automatic',
       custom_data: { workspace_id: 'ws-1', intent_id: 'pi-1', invoice_id: 'inv-1' },
-      checkout: { url: 'https://app.test.localhost/pay?intent=pi-1&provider=paddle' },
     });
 
     expect(result).toEqual({

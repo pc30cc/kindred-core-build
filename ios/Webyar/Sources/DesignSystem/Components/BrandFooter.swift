@@ -59,6 +59,48 @@ enum BrandPalette {
     #endif
 }
 
+/// The screens before the app proper (sign in, password reset) in each brand's
+/// own colours, as its site's sign-in page wears them: RESPOK's call to action is
+/// Signal running into Signal Deep with Ink text, its links Signal Deep (Signal in
+/// dark mode), as src/themes/authPalette.css on respok.app; WebYar's are the
+/// interface's tint, as before.
+enum AuthPalette {
+    #if BRAND_RESPOK
+    /// hsl(9 78% 44%): the site's Signal Deep, a shade deeper than the kit's to
+    /// keep 4.5:1 as text on Paper.
+    private static let signalDeep = Color(red: 0.783, green: 0.200, blue: 0.097)
+    private static let ink = Color(red: 0.086, green: 0.078, blue: 0.169)
+    /// The primary button: the site's --gradient-primary, at its 120°.
+    static let action = AnyShapeStyle(LinearGradient(
+        colors: [BrandPalette.bright, signalDeep],
+        startPoint: UnitPoint(x: 0.07, y: 0.25), endPoint: UnitPoint(x: 0.93, y: 0.75)
+    ))
+    /// Ink on Signal (5.8:1; white on it is only 3.1:1).
+    static let actionLabel = ink
+    /// While the button is dimmed (nothing to submit yet) its fill lets the
+    /// screen through, and Ink vanishes on a dark one: Ink on light, white on dark.
+    static let actionLabelDimmed = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? .white
+            : UIColor(red: 0.086, green: 0.078, blue: 0.169, alpha: 1)
+    })
+    /// "Forgot password?" and the other links: Signal Deep, Signal in dark mode.
+    static let link = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 1.000, green: 0.353, blue: 0.235, alpha: 1)
+            : UIColor(red: 0.783, green: 0.200, blue: 0.097, alpha: 1)
+    })
+    /// The pool of light behind the form: Signal, as the site's aurora.
+    static let glow = BrandPalette.bright
+    #else
+    static let action = AnyShapeStyle(Theme.Palette.brand)
+    static let actionLabel = Color.white
+    static let actionLabelDimmed = Color.white
+    static let link = Theme.Palette.brand
+    static let glow = Theme.Palette.brand
+    #endif
+}
+
 /// The product's signature, small and letter-spaced: "WEBYAR AI" — the name
 /// in the label's quiet grey, the "AI" in the brand's turquoise — and for
 /// RESPOK its name alone (`AppBrand.wordmark`, `AppBrand.wordmarkSuffix`).
@@ -79,6 +121,21 @@ struct BrandFooter: View {
     private let tracking: CGFloat = 3
 
     var body: some View {
+        #if BRAND_RESPOK
+        // RESPOK signs with its logo (the kit's Thread horizontal lockup,
+        // reversed in dark mode), not with its name set in type.
+        Image("BrandLogo")
+            .resizable()
+            .scaledToFit()
+            .frame(height: 22)
+            .accessibilityLabel(Text(verbatim: BrandStr.brandWordmark))
+            .accessibilityIdentifier(A11y.brandFooter)
+        #else
+        wordmark
+        #endif
+    }
+
+    private var wordmark: some View {
         HStack(spacing: tracking * 1.6) {
             Text(verbatim: BrandStr.brandWordmark)
                 .foregroundStyle(Theme.Palette.labelSecondary)

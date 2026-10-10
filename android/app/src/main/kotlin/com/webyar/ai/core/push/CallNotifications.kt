@@ -119,6 +119,7 @@ object CallNotifications {
 
         val builder = NotificationCompat.Builder(context, CHANNEL_CALLS)
             .setSmallIcon(R.drawable.ic_stat_call)
+            .setColor(ContextCompat.getColor(context, R.color.brand_deep))
             .setContentTitle(name)
             .setContentText(StrAndroid.incomingCall(language, video))
             .setSubText(call.workspaceName)
@@ -201,6 +202,7 @@ object CallNotifications {
         )
         val notification = NotificationCompat.Builder(context, Notifications.CHANNEL_MESSAGES)
             .setSmallIcon(R.drawable.ic_stat_call)
+            .setColor(ContextCompat.getColor(context, R.color.brand_deep))
             .setContentTitle(StrAndroid.missedCall(language))
             .setContentText(name)
             .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)

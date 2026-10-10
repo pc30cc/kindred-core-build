@@ -24,7 +24,7 @@ struct AuthBackdrop: View {
             Color("LaunchBackground")
 
             RadialGradient(
-                colors: [Theme.Palette.brand.opacity(0.13), .clear],
+                colors: [AuthPalette.glow.opacity(0.13), .clear],
                 center: UnitPoint(x: 0.5, y: 0.16),
                 startRadius: 0,
                 endRadius: 420

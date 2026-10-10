@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar notification icon: RESPOK's Thread pills (the kit's symbol, as in
+     ic_launcher_monochrome.xml) as a white silhouette on transparent, as Android requires. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+  <group android:translateX="1.6" android:translateY="2.8" android:scaleX="0.2" android:scaleY="0.2">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M21 0H41A21 21 0 0 1 62 21V21A21 21 0 0 1 41 42H4A4 4 0 0 1 0 38V21A21 21 0 0 1 21 0Z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M43 50H83A21 21 0 0 1 104 71V88A4 4 0 0 1 100 92H43A21 21 0 0 1 22 71V71A21 21 0 0 1 43 50Z"/>
+  </group>
+</vector>

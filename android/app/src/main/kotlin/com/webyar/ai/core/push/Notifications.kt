@@ -107,7 +107,8 @@ object Notifications {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_MESSAGES)
-            .setSmallIcon(R.drawable.ic_stat_message)
+            .setSmallIcon(R.drawable.ic_stat_brand)
+            .setColor(ContextCompat.getColor(context, R.color.brand_deep))
             .setContentTitle(title?.takeIf { it.isNotBlank() } ?: StrAndroid.newMessage(language))
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))

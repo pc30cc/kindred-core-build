@@ -11,7 +11,16 @@ struct PrimaryButton: View {
     let title: String
     var isLoading: Bool = false
     var isEnabled: Bool = true
+    /// Sign in and password reset wear the brand's own call to action
+    /// (`AuthPalette`); everywhere else the interface's tint.
+    var isAuth: Bool = false
     let action: () -> Void
+
+    private var fill: AnyShapeStyle { isAuth ? AuthPalette.action : AnyShapeStyle(Theme.Palette.brand) }
+    private var label: Color {
+        guard isAuth else { return .white }
+        return isEnabled && !isLoading ? AuthPalette.actionLabel : AuthPalette.actionLabelDimmed
+    }
 
     var body: some View {
         Button(action: action) {
@@ -24,19 +33,20 @@ struct PrimaryButton: View {
                 if isLoading {
                     ProgressView()
                         .progressViewStyle(.circular)
-                        .tint(.white)
+                        .tint(label)
                 }
             }
             .frame(maxWidth: .infinity)
             .frame(height: Theme.Size.minTouchTarget + 6)
-            .foregroundStyle(.white)
+            .foregroundStyle(label)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
                     // Fading the whole button takes the white label down with
                     // it and leaves the title barely readable. Dimming only
                     // the fill keeps the text at full contrast, so a disabled
                     // button still says plainly what it will do.
-                    .fill(Theme.Palette.brand.opacity(isEnabled && !isLoading ? 1 : 0.4))
+                    .fill(fill)
+                    .opacity(isEnabled && !isLoading ? 1 : 0.4)
             )
         }
         .disabled(!isEnabled || isLoading)

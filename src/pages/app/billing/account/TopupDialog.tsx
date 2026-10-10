@@ -1,0 +1,176 @@
+/**
+ * Top up the account balance: the amount (in the units people read), the
+ * payment method, and — when the edition has VAT for this currency — the
+ * VAT line and the total. The server recomputes all of it; this only shows
+ * what will be charged.
+ */
+import { useMemo, useState } from 'react';
+import { Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Badge } from '@/components/ui/badge';
+import { useTranslation } from '@/i18n';
+import { parsePlanPriceInput } from '@/lib/planPrice';
+import { openPaddleCheckout } from '@/lib/paddleCheckout';
+import { accountBillingApi, type AccountGateway } from '@/lib/accountBillingApi';
+import { money } from '../shared';
+import { TOPUP_LIMITS, chargeFor, topupAmountProblem } from '../../../../../shared/simpleBilling';
+import {
+  QUICK_TOPUPS,
+  accountErrorText,
+  billingReturnOrigin,
+  gatewayLabel,
+  toMinorAmount,
+} from './accountUi';
+
+export interface TopupDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  workspaceId: string;
+  slug: string;
+  currency: string;
+  vatPercent: number | null;
+  gateways: AccountGateway[];
+}
+
+export default function TopupDialog({ open, onOpenChange, workspaceId, slug, currency, vatPercent, gateways }: TopupDialogProps) {
+  const { t, locale, dir } = useTranslation();
+  const [raw, setRaw] = useState('');
+  const [provider, setProvider] = useState<string>(gateways[0]?.provider_name ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const limits = TOPUP_LIMITS[currency];
+  const display = parsePlanPriceInput(raw);
+  const minor = display === null ? null : toMinorAmount(display, currency);
+  const problem = minor === null ? (raw.trim() ? 'TOPUP_AMOUNT_INVALID' : null) : topupAmountProblem(minor, currency);
+  const charge = useMemo(() => (minor && !problem ? chargeFor(minor, vatPercent) : null), [minor, problem, vatPercent]);
+  const chosen = gateways.find((g) => g.provider_name === provider) ?? gateways[0];
+
+  const pay = async () => {
+    if (!minor || problem || !chosen) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const callbackUrl = `${billingReturnOrigin()}/${slug}/billing`;
+      const res = await accountBillingApi.topup(workspaceId, {
+        amountMinor: minor,
+        providerName: chosen.provider_name,
+        callbackUrl,
+      });
+      if (res.clientCheckout?.provider === 'paddle' || res.clientCheckout?.provider === 'paddle_sandbox') {
+        await openPaddleCheckout(res.clientCheckout, { locale, onClosed: () => setBusy(false) });
+        return;
+      }
+      const url = res.paymentUrl;
+      if (!url) throw Object.assign(new Error('CHECKOUT_PROVIDER_ERROR'), { code: 'CHECKOUT_PROVIDER_ERROR' });
+      window.location.href = url;
+    } catch (e) {
+      setError(accountErrorText(e, t));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+      <DialogContent dir={dir} className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('billing.account.topup.title')}</DialogTitle>
+          {limits && (
+            <DialogDescription>
+              {t('billing.account.topup.amountHint', {
+                min: money(limits.min, locale, currency),
+                max: money(limits.max, locale, currency),
+              })}
+            </DialogDescription>
+          )}
+        </DialogHeader>
+
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="topup-amount">{t('billing.account.topup.amount')}</Label>
+            <Input
+              id="topup-amount"
+              inputMode="decimal"
+              dir="ltr"
+              autoFocus
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+              aria-invalid={Boolean(problem)}
+              disabled={busy}
+            />
+            <div className="flex flex-wrap gap-2" aria-label={t('billing.account.topup.quick')}>
+              {(QUICK_TOPUPS[currency] ?? []).map((amount) => (
+                <Button
+                  key={amount}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setRaw(String(amount))}
+                >
+                  {money(toMinorAmount(amount, currency) ?? 0, locale, currency)}
+                </Button>
+              ))}
+            </div>
+            {problem && raw.trim() && (
+              <p className="text-sm text-destructive">{t(`billing.account.errors.${problem}` as never)}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t('billing.account.topup.gateway')}</Label>
+            {gateways.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('billing.account.topup.noGateway')}</p>
+            ) : (
+              <RadioGroup value={chosen?.provider_name} onValueChange={setProvider} className="gap-2" dir={dir}>
+                {gateways.map((g) => (
+                  <Label
+                    key={g.provider_name}
+                    htmlFor={`gw-${g.provider_name}`}
+                    className="flex cursor-pointer items-center gap-3 rounded-md border p-3 font-normal has-[[data-state=checked]]:border-primary"
+                  >
+                    <RadioGroupItem id={`gw-${g.provider_name}`} value={g.provider_name} disabled={busy} />
+                    <span className="flex-1">{gatewayLabel(g.display_name, g.provider_name, locale)}</span>
+                    {g.is_test && <Badge variant="secondary">{t('billing.account.topup.testGateway')}</Badge>}
+                  </Label>
+                ))}
+              </RadioGroup>
+            )}
+          </div>
+
+          {charge && (
+            <dl className="space-y-1.5 rounded-md bg-muted/50 p-3 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">{t('billing.account.topup.credit')}</dt>
+                <dd className="tabular-nums">{money(charge.net, locale, currency)}</dd>
+              </div>
+              {vatPercent !== null && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">{t('billing.account.topup.vat', { percent: String(vatPercent) })}</dt>
+                  <dd className="tabular-nums">{money(charge.tax, locale, currency)}</dd>
+                </div>
+              )}
+              <div className="flex justify-between gap-4 border-t pt-1.5 font-semibold">
+                <dt>{t('billing.account.topup.total')}</dt>
+                <dd className="tabular-nums">{money(charge.total, locale, currency)}</dd>
+              </div>
+            </dl>
+          )}
+
+          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        </div>
+
+        <DialogFooter>
+          <Button onClick={pay} disabled={busy || !charge || !chosen} className="w-full sm:w-auto">
+            {busy && <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden />}
+            {busy ? t('billing.account.topup.paying') : t('billing.account.topup.pay')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

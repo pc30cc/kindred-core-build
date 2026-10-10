@@ -67,6 +67,7 @@ import {
   getPlatformEdition,
 } from '../services/billing/edition.js';
 import { isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
+import { PADDLE_SANDBOX_PROVIDER, isTestPaymentProvider } from '../../shared/testGateways.js';
 import { buildCancelAtPeriodEndPatch, decideResume } from '../services/billing/cancellation.js';
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
@@ -588,6 +589,11 @@ billingRouter.post('/checkout', async (req, res) => {
     assertCurrencyAllowed(edition, input.currency);
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
+    // The Paddle sandbox is a test gateway on the invoice engine only (see
+    // billingCustomer.ts, which also keeps it to the people allowed to test).
+    if (resolved.provider.name === PADDLE_SANDBOX_PROVIDER) {
+      return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
+    }
 
     const iranProvider = IRAN_PROVIDERS.has(resolved.provider.name);
     // Iranian gateways charge the number as Rial (`amount_irr`), so the price
@@ -1327,9 +1333,10 @@ export const billingWebhookRouter = Router();
 /**
  * Providers whose webhook is verified cryptographically: a signature over the
  * raw body (Stripe, Paddle, Lemon Squeezy, PayTR) or PayPal's own
- * verify-webhook-signature API against the configured webhook id.
+ * verify-webhook-signature API against the configured webhook id. The Paddle
+ * sandbox has its own endpoint (`/paddle_sandbox`) and its own secret.
  */
-const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'lemon_squeezy', 'paytr', 'paypal']);
+const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'paddle_sandbox', 'lemon_squeezy', 'paytr', 'paypal']);
 
 /**
  * The workspace a verified platform-level event belongs to when its payload
@@ -1930,12 +1937,16 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
   }
   const seriesMap = new Map(monthKeys.map((m) => [m, { month: m, revenue: 0, count: 0, subscription: 0, topup: 0, refunded: 0 }]));
 
-  const byProvider = new Map<string, { provider: string; revenue: number; count: number }>();
+  // A test gateway's money (sandbox / simulator, see shared/testGateways.ts)
+  // stays in the totals as before, and is marked: `test` on its provider row
+  // and on each payment, and summed in `totals.testRevenue`.
+  const byProvider = new Map<string, { provider: string; revenue: number; count: number; test: boolean }>();
   const byPlan = new Map<string, { plan: string; revenue: number; count: number }>();
   const byWorkspace = new Map<string, { workspaceId: string; name: string; revenue: number; count: number }>();
 
   let grossRevenue = 0;
   let refundTotal = 0;
+  let testRevenue = 0;
 
   for (const p of paid) {
     const amount = Number(p.amount || 0);
@@ -1952,7 +1963,9 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
       if (isTopup) bucket.topup += amount; else bucket.subscription += amount;
     }
     const provider = p.provider_name || 'unknown';
-    const prov = byProvider.get(provider) || { provider, revenue: 0, count: 0 };
+    const test = isTestPaymentProvider(provider);
+    if (test) testRevenue += amount;
+    const prov = byProvider.get(provider) || { provider, revenue: 0, count: 0, test };
     prov.revenue += amount; prov.count += 1; byProvider.set(provider, prov);
 
     const planName = isTopup ? 'ai_credit_topup' : (p.plan_name_snapshot || planById.get(p.plan_id)?.name || 'unknown');
@@ -2003,6 +2016,7 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
       grossRevenue,
       refundTotal,
       netRevenue: grossRevenue - refundTotal,
+      testRevenue,
       paymentCount: paid.length,
       attempts,
       succeeded,
@@ -2019,6 +2033,7 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
     planDistribution: [...planDistribution.entries()].map(([plan, count]) => ({ plan, count })).sort((a, b) => b.count - a.count),
     recentPayments: paymentRows.slice(0, 50).map((p) => ({
       ...p,
+      is_test: isTestPaymentProvider(p.provider_name),
       workspace_name: workspaceById.get(p.workspace_id)?.name || null,
     })),
   });

@@ -175,10 +175,18 @@ describe('useEdition()', () => {
 });
 
 describe('provider catalogue', () => {
-  it('Iran: every vendor, the very same schema objects', () => {
+  it('Iran: every vendor, the very same schema objects — except billing, which loses the International-only Paddle sandbox', () => {
     for (const type of Object.keys(PROVIDER_SCHEMAS)) {
+      if (type === 'billing') continue;
       expect(getSchemaForEdition(type, 'iran')).toBe(PROVIDER_SCHEMAS[type]);
     }
+    const all = PROVIDER_SCHEMAS.billing.vendors.map((v) => v.name);
+    const iran = getVendorsForEdition('billing', 'iran').map((v) => v.name);
+    expect(all).toContain('paddle_sandbox');
+    expect(iran).toEqual(all.filter((name) => name !== 'paddle_sandbox'));
+    expect(getVendorsForEdition('billing', 'international').map((v) => v.name)).toEqual(
+      expect.arrayContaining(['paddle', 'paddle_sandbox']),
+    );
   });
 
   it('International: no Iranian payment, SMS, CDN or storage vendor', () => {

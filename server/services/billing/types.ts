@@ -185,4 +185,10 @@ export interface BillingProviderHandler {
   refundPayment?(config: BillingProviderConfig, paymentId: string, amount?: number, currency?: string): Promise<{ success: boolean; refundId?: string }>;
   getPortalUrl?(config: BillingProviderConfig, customerId: string, returnUrl: string): Promise<{ url: string }>;
   testConnection(config: BillingProviderConfig): Promise<{ success: boolean; latencyMs: number; error?: string }>;
+  /**
+   * Why this configuration cannot be saved or used (an admin-facing message,
+   * e.g. a sandbox key on a live gateway), or null when it can. Checked when
+   * the Super Admin saves the provider's credentials.
+   */
+  validateConfig?(config: BillingProviderConfig): string | null;
 }

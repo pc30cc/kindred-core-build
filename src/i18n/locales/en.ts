@@ -10,6 +10,7 @@ const en = {
       chooseGateway: 'Choose a payment method',
       chooseGatewayHint: 'Pick one of the active gateways, then continue to payment.',
       testGateway: 'Test gateway',
+      paddleSandboxNote: 'Test mode (Paddle sandbox): no real money is charged. Pay with the test card {{card}}, any future expiry date and any 3-digit CVC.',
       noGateway: 'No active payment gateway is available right now. Please contact support.',
       payNow: 'Pay {{amount}}',
       alreadyPaid: 'This document is already paid.',

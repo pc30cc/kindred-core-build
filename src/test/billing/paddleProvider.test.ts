@@ -112,7 +112,7 @@ describe('paddle createCheckoutSession', () => {
 
   it('uses production for a live configuration', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_live' } });
-    const result = await paddleProvider.createCheckoutSession({ ...config, sandbox: false }, req);
+    const result = await paddleProvider.createCheckoutSession({ ...config, sandbox: false, client_token: 'live_client_token' }, req);
     expect(firstCall(fetchMock).url).toBe('https://api.paddle.com/transactions');
     expect(result.clientCheckout?.environment).toBe('production');
   });

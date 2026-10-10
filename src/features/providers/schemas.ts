@@ -500,9 +500,24 @@ const billingVendors: ProviderVendor[] = [
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
       { key: 'client_token', label: 'Client-side Token', type: 'text', required: true, hint: 'live_... or test_... — opens the checkout on the payment page (approve the app domain in Paddle)' },
-      { key: 'webhook_secret', label: 'Webhook Secret Key', type: 'password', required: true, hint: 'Notification destination secret — events: transaction.paid, transaction.completed, adjustment.updated' },
+      { key: 'webhook_secret', label: 'Webhook Secret Key', type: 'password', required: true, hint: 'Notification destination secret — events: transaction.paid, transaction.completed, adjustment.created, adjustment.updated' },
       { key: 'product_id', label: 'Product ID (optional)', type: 'text', placeholder: 'pro_...', hint: 'Catalog product the checkout price is attached to; empty = a one-off product per checkout' },
-      { key: 'sandbox', label: 'Sandbox Mode', type: 'toggle' },
+      { key: 'sandbox', label: 'Sandbox Mode', type: 'toggle', hint: 'Off for the live account. To test, use the separate "Paddle — Sandbox (test)" gateway instead: sandbox keys (_sdbx / test_) are refused here while this is off' },
+    ],
+  },
+  {
+    // Paddle's sandbox as its own gateway (server/services/billing/providers/paddle-sandbox.ts):
+    // its own account, keys and webhook, so live `paddle` is never touched.
+    name: 'paddle_sandbox', label: 'Paddle — Sandbox (test)',
+    description: 'Test payments with Paddle\'s sandbox — no real money moves (sandbox-api.paddle.com, test card 4242 4242 4242 4242)',
+    docsUrl: 'https://developer.paddle.com/build/tools/sandbox',
+    locales: ['en'], currency: 'USD/EUR',
+    fields: [
+      { key: 'api_key', label: 'Sandbox API Key', type: 'password', required: true, placeholder: 'pdl_sdbx_apikey_...', hint: 'sandbox-vendors.paddle.com → Developer tools → Authentication → API keys. Must contain "_sdbx". Permissions: at least Transactions read + write (checkout, verification, closing an old checkout) and Notification settings read (the Test button); a sandbox key may simply have all of them' },
+      { key: 'client_token', label: 'Sandbox Client-side Token', type: 'text', required: true, placeholder: 'test_...', hint: 'sandbox-vendors.paddle.com → Developer tools → Authentication → Client-side tokens. Must start with "test_"' },
+      { key: 'webhook_secret', label: 'Sandbox Webhook Secret Key', type: 'password', required: true, hint: 'sandbox-vendors.paddle.com → Developer tools → Notifications: destination https://<api domain>/api/billing/webhook/paddle_sandbox — events: transaction.paid, transaction.completed, adjustment.created, adjustment.updated' },
+      { key: 'product_id', label: 'Sandbox Product ID (optional)', type: 'text', placeholder: 'pro_...', hint: 'A product in the SANDBOX catalog; empty = a one-off product per checkout' },
+      { key: 'open_to_customers', label: 'Open to customers', type: 'toggle', hint: 'Off: only Super Admins see and use this gateway on the payment page. On: every customer can pay with a test card (and get the plan for free)' },
     ],
   },
   {
@@ -1833,8 +1848,9 @@ export function getVendorsForLocale(type: string, locale?: string): ProviderVend
 // =============================================
 // The International edition (shared/edition.ts) lists no Iranian vendor —
 // payment gateways, SMS, CDN or object storage — whatever the UI language.
-// The Iranian edition lists every vendor, as before. Configured instances of a
-// hidden vendor keep working; they are only not offered.
+// The Iranian edition lists every vendor except the International-only ones
+// (the Paddle sandbox). Configured instances of a hidden vendor keep working;
+// they are only not offered.
 
 const editionSchemaCache = new Map<string, ProviderTypeSchema>();
 
@@ -1843,10 +1859,11 @@ export function getVendorsForEdition(type: string, edition: Edition): ProviderVe
   return getSchemaForEdition(type, edition)?.vendors ?? [];
 }
 
-/** A provider type's schema with only the vendors this edition may list (same object in the Iranian edition). */
+/** A provider type's schema with only the vendors this edition may list (the same object when it lists them all). */
 export function getSchemaForEdition(type: string, edition: Edition): ProviderTypeSchema | undefined {
   const schema = PROVIDER_SCHEMAS[type];
-  if (!schema || edition === 'iran') return schema;
+  if (!schema) return schema;
+  if (schema.vendors.every((v) => isProviderAllowedInEdition(v.name, edition))) return schema;
   const key = `${edition}:${type}`;
   let filtered = editionSchemaCache.get(key);
   if (!filtered) {

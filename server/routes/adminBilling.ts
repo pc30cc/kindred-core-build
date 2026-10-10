@@ -29,6 +29,7 @@ import {
   getPlatformEdition,
 } from '../services/billing/edition.js';
 import { isCurrencyAllowedInEdition, isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
+import { getProvider } from '../services/billing/index.js';
 
 export const adminBillingRouter = Router();
 
@@ -176,6 +177,14 @@ adminBillingRouter.put('/providers/:providerName', async (req, res) => {
   try {
     const body = z.object({ config: z.record(z.unknown()) }).parse(req.body);
     assertProviderAllowed(await getPlatformEdition(cfg(req)), req.params.providerName);
+    // Credentials of the wrong environment (a live Paddle key on the sandbox
+    // gateway, a sandbox key on the live one) are refused with a message the
+    // Super Admin can act on; `error` is what the Providers screen shows.
+    const problem = getProvider(req.params.providerName)?.validateConfig?.({
+      ...body.config,
+      provider: req.params.providerName,
+    });
+    if (problem) return res.status(400).json({ error: problem, code: 'invalid_provider_credentials' });
     const credentials = await upsertProviderCredentials(cfg(req), req.params.providerName, body.config);
     res.json({ provider_name: credentials.provider_name, config: credentials.config });
   } catch (e) { fail(res, e); }

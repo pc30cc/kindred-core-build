@@ -6,6 +6,7 @@ import { serviceClientFor } from '../../lib/serviceClient.js';
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, WebhookEvent } from './types.js';
 import { stripeProvider } from './providers/stripe.js';
 import { paddleProvider } from './providers/paddle.js';
+import { paddleSandboxProvider } from './providers/paddle-sandbox.js';
 import { lemonSqueezyProvider } from './providers/lemonsqueezy.js';
 import { paypalProvider } from './providers/paypal.js';
 import { zarinpalProvider } from './providers/zarinpal.js';
@@ -34,6 +35,8 @@ import { getPlatformEdition, isProviderAllowedInEdition } from './edition.js';
 const providers: Record<string, BillingProviderHandler> = {
   stripe: stripeProvider,
   paddle: paddleProvider,
+  // Paddle's sandbox account (test payments, International edition only).
+  paddle_sandbox: paddleSandboxProvider,
   lemon_squeezy: lemonSqueezyProvider,
   paypal: paypalProvider,
   zarinpal: zarinpalProvider,

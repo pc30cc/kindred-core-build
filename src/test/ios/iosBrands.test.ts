@@ -130,7 +130,7 @@ describe('the two asset catalogs', () => {
     named.add(launch.UIImageName);
     named.add(respok.settings.base.ASSETCATALOG_COMPILER_APPICON_NAME!);
     named.add(respok.settings.base.ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME!);
-    expect([...named].sort()).toEqual(['AccentColor', 'AppIcon', 'BrandMark', 'LaunchBackground', 'LaunchLoader']);
+    expect([...named].sort()).toEqual(['AccentColor', 'AppIcon', 'BrandLogo', 'BrandMark', 'LaunchBackground', 'LaunchLoader']);
     for (const [brand, catalog] of Object.entries(CATALOGS)) {
       for (const name of named) {
         expect(sets(catalog).some((s) => s.replace(/\.\w+$/, '') === name), `${brand} has no ${name}`).toBe(true);
@@ -321,10 +321,26 @@ describe('BrandStr', () => {
 });
 
 describe('the RESPOK footer and loader', () => {
-  it('signs RESPOK with its name alone, and WebYar as before', () => {
+  it('signs RESPOK with its logo, and WebYar with its wordmark as before', () => {
     const footer = code(read(`${APP}/Sources/DesignSystem/Components/BrandFooter.swift`));
+    expect(footer).toContain('Image("BrandLogo")');
     expect(footer).toContain('Text(verbatim: BrandStr.brandWordmark)');
     expect(footer).toContain('if let suffix = AppBrand.wordmarkSuffix');
+    // Each catalog's BrandLogo is its own kit's logo, light and reversed (dark).
+    for (const dir of ['Brands/Respok/Assets.xcassets', 'Resources/Assets.xcassets']) {
+      const logo = JSON.parse(read(`${APP}/${dir}/BrandLogo.imageset/Contents.json`));
+      expect(logo.images.map((i: { filename: string }) => i.filename)).toEqual(['brandlogo.pdf', 'brandlogo-dark.pdf']);
+    }
+  });
+
+  it('sign in and password reset wear each brand\'s own colours', () => {
+    const footer = code(read(`${APP}/Sources/DesignSystem/Components/BrandFooter.swift`));
+    expect(footer).toContain('enum AuthPalette');
+    const login = code(read(`${APP}/Sources/Features/Auth/LoginView.swift`));
+    expect(login).toContain('isAuth: true');
+    expect(login).toContain('.foregroundStyle(AuthPalette.link)');
+    const reset = code(read(`${APP}/Sources/Features/Auth/PasswordResetView.swift`));
+    expect(reset.match(/isAuth: true/g)?.length).toBe(2);
   });
 
   it('draws the launch image in each brand\'s own catalog', () => {

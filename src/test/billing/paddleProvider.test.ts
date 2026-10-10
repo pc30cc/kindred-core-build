@@ -166,6 +166,84 @@ describe('paddle createCheckoutSession', () => {
   });
 });
 
+describe('paddle createCheckoutSession — card setup (recurring price, simple billing 3b)', () => {
+  const setup: CheckoutRequest = {
+    ...req,
+    intentId: 'pay-setup-1',
+    invoiceId: undefined,
+    description: 'Pro (monthly)',
+    metadata: { amount: '2900' },
+    recurring: { interval: 'monthly' },
+    priceCustomData: { plan_id: 'plan-pro', interval: 'monthly', net_minor: 2900, tax_minor: 0 },
+    cardSetup: true,
+  };
+
+  it('makes the price recur, carries its custom_data and marks the card setup', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'txn_setup' } });
+    const result = await paddleProvider.createCheckoutSession(config, setup);
+    const { url, init } = firstCall(fetchMock);
+    expect(url).toBe('https://sandbox-api.paddle.com/transactions');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      items: [{
+        quantity: 1,
+        price: {
+          description: 'Pro (monthly)',
+          name: 'Pro (monthly)',
+          unit_price: { amount: '2900', currency_code: 'USD' },
+          tax_mode: 'internal',
+          product: { name: 'Pro (monthly)', tax_category: 'standard' },
+          billing_cycle: { interval: 'month', frequency: 1 },
+          custom_data: { plan_id: 'plan-pro', interval: 'monthly', net_minor: 2900, tax_minor: 0 },
+        },
+      }],
+      currency_code: 'USD',
+      collection_mode: 'automatic',
+      custom_data: { workspace_id: 'ws-1', intent_id: 'pay-setup-1', card_setup: '1' },
+    });
+    // Opened by Paddle.js like any checkout.
+    expect(result.clientCheckout).toMatchObject({ provider: 'paddle', transactionId: 'txn_setup', customerEmail: 'buyer@test.localhost' });
+  });
+
+  it('yearly recurs every year and reuses an earlier Paddle customer (no e-mail prefill then)', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'txn_setup_y' } });
+    const result = await paddleProvider.createCheckoutSession(config, {
+      ...setup, recurring: { interval: 'yearly' }, customerId: 'ctm_01hv8wt8nffez4p2t6typn4a5j',
+    });
+    const body = JSON.parse(firstCall(fetchMock).init.body as string);
+    expect(body.items[0].price.billing_cycle).toEqual({ interval: 'year', frequency: 1 });
+    expect(body.customer_id).toBe('ctm_01hv8wt8nffez4p2t6typn4a5j');
+    expect(result.clientCheckout?.customerEmail).toBeUndefined();
+  });
+
+  it('the one-time request is byte-for-byte unchanged without the new options', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'txn_once' } });
+    await paddleProvider.createCheckoutSession(config, req);
+    expect(firstCall(fetchMock).init.body).toBe(JSON.stringify({
+      items: [{
+        quantity: 1,
+        price: {
+          description: 'Pro (monthly) — invoice AB12345678',
+          name: 'Pro (monthly) — invoice AB12345678',
+          unit_price: { amount: '2900', currency_code: 'USD' },
+          tax_mode: 'internal',
+          product: { name: 'Pro (monthly) — invoice AB12345678', tax_category: 'standard' },
+        },
+      }],
+      currency_code: 'USD',
+      collection_mode: 'automatic',
+      custom_data: { workspace_id: 'ws-1', intent_id: 'pi-1', invoice_id: 'inv-1' },
+    }));
+  });
+
+  it('refuses an interval other than monthly or yearly before calling Paddle', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'txn_x' } });
+    await expect(paddleProvider.createCheckoutSession(config, { ...setup, recurring: { interval: 'weekly' as 'monthly' } }))
+      .rejects.toThrow(/monthly or yearly/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('paddle verifyPayment (server-to-server transaction lookup)', () => {
   const txn = (status: string) => ({
     data: { id: 'txn_1', status, currency_code: 'USD', details: { totals: { total: '2900', tax: '483', subtotal: '2417' } } },
@@ -267,9 +345,195 @@ describe('paddle verifyWebhook event mapping', () => {
   it.each([
     ['pending approval', { action: 'refund', status: 'pending_approval' }],
     ['a credit, not a refund', { action: 'credit', status: 'approved' }],
+    ['a chargeback reversal', { action: 'chargeback_reverse', status: 'approved' }],
+    ['a chargeback warning', { action: 'chargeback_warning', status: 'approved' }],
   ])('an adjustment that is %s moves no money', async (_label, fields) => {
     const event = await map({ event_id: 'evt_4', event_type: 'adjustment.created', data: { id: 'adj_2', transaction_id: 'txn_1', ...fields } });
     expect(event?.type).toBe('ignored');
+  });
+
+  it('an approved chargeback takes the money back like a refund, marked as a chargeback', async () => {
+    const event = await map({
+      event_id: 'evt_cb',
+      event_type: 'adjustment.created',
+      data: {
+        id: 'adj_01hvgf2s84dr6reszzg29zbvcm', action: 'chargeback', type: 'full', status: 'approved',
+        transaction_id: 'txn_01hv8wnvvtedwjrhfhpr9vkq9w', subscription_id: 'sub_01hchny8h8r5w9xtb514qs6rdy',
+        customer_id: 'ctm_01hchnxgrh0wcyngy8q9d1hpkz', reason: 'Dispute lost', currency_code: 'USD',
+        totals: { subtotal: '40000', tax: '7600', total: '47600', fee: '2430', earnings: '37570', currency_code: 'USD' },
+      },
+    });
+    expect(event).toMatchObject({
+      type: 'refund_processed',
+      providerEventId: 'adjustment_adj_01hvgf2s84dr6reszzg29zbvcm_approved',
+      refundId: 'adj_01hvgf2s84dr6reszzg29zbvcm',
+      providerPaymentId: 'txn_01hv8wnvvtedwjrhfhpr9vkq9w',
+      amount: 47600,
+      currency: 'USD',
+      chargeback: true,
+    });
+  });
+
+  it('a refund is not marked as a chargeback', async () => {
+    const event = await map({
+      event_id: 'evt_rf', event_type: 'adjustment.updated',
+      data: { id: 'adj_5', action: 'refund', status: 'approved', transaction_id: 'txn_1', currency_code: 'EUR', totals: { total: '1000' } },
+    });
+    expect(event?.chargeback).toBeUndefined();
+  });
+});
+
+describe('paddle verifyWebhook — saved-card events (simple billing 3b)', () => {
+  const secret = 'pdl_ntfset_secret';
+  const map = async (event: unknown) => {
+    const body = JSON.stringify(event);
+    const ts = Math.floor(Date.now() / 1000);
+    const h1 = crypto.createHmac('sha256', secret).update(`${ts}:${body}`).digest('hex');
+    return paddleProvider.verifyWebhook({ ...config, webhook_secret: secret }, { 'paddle-signature': `ts=${ts};h1=${h1}` }, body);
+  };
+  const SUB = 'sub_01hv8x29kz0t586xy6zn1a62ny';
+  // A renewal as Paddle sends it (its example transaction.past_due / completed
+  // payloads, trimmed), carrying the custom_data Paddle copied from the
+  // checkout through the subscription: intent_id included.
+  const renewal = {
+    id: 'txn_01hv8wnvvtedwjrhfhpr9vkq9w',
+    status: 'completed',
+    customer_id: 'ctm_01hv8wt8nffez4p2t6typn4a5j',
+    custom_data: { workspace_id: 'ws-1', intent_id: 'pay-setup-1', card_setup: '1' },
+    currency_code: 'USD',
+    origin: 'subscription_recurring',
+    subscription_id: SUB,
+    billing_period: { starts_at: '2026-11-08T10:00:00Z', ends_at: '2026-12-08T10:00:00Z' },
+    items: [{
+      price: {
+        id: 'pri_01jcardrecurring0000000000', description: 'Pro (monthly)', name: 'Pro (monthly)',
+        billing_cycle: { interval: 'month', frequency: 1 }, tax_mode: 'internal',
+        unit_price: { amount: '2900', currency_code: 'USD' },
+        custom_data: { plan_id: 'plan-pro', interval: 'monthly', net_minor: 2900, tax_minor: 0 },
+      },
+      quantity: 1,
+      proration: null,
+    }],
+    details: { totals: { subtotal: '2417', tax: '483', discount: '0', total: '2900', grand_total: '2900', credit: '0', balance: '0', currency_code: 'USD' } },
+    payments: [{
+      amount: '2900', status: 'captured', error_code: null, created_at: '2026-11-07T10:00:02.10Z', captured_at: '2026-11-07T10:00:04.49Z',
+      method_details: { type: 'card', card: { type: 'visa', last4: '4242', expiry_month: 1, expiry_year: 2028, cardholder_name: 'Test' } },
+    }],
+    created_at: '2026-11-07T10:00:01.64Z',
+    billed_at: '2026-11-07T10:00:01.53Z',
+  };
+
+  it.each([['transaction.paid'], ['transaction.completed'], ['transaction.created'], ['transaction.billed']])(
+    'a renewal %s is a card event of its subscription, never the checkout intent it copied',
+    async (type) => {
+      const event = await map({ event_id: 'evt_r', event_type: type, occurred_at: '2026-11-07T10:00:05.1Z', data: renewal });
+      expect(event).toMatchObject({
+        type: 'card_event',
+        providerEventId: 'evt_r',
+        workspaceId: 'ws-1',
+        providerSubscriptionId: SUB,
+        providerPaymentId: 'txn_01hv8wnvvtedwjrhfhpr9vkq9w',
+        card: {
+          eventType: type,
+          entity: 'transaction',
+          occurredAt: '2026-11-07T10:00:05.100Z',
+          subscriptionId: SUB,
+          transactionId: 'txn_01hv8wnvvtedwjrhfhpr9vkq9w',
+          subscription: null,
+          transaction: {
+            origin: 'subscription_recurring',
+            grandTotalMinor: 2900,
+            itemCustomData: [{ plan_id: 'plan-pro', interval: 'monthly', net_minor: 2900, tax_minor: 0 }],
+            card: { brand: 'visa', last4: '4242', expMonth: 1, expYear: 2028 },
+          },
+        },
+      });
+      expect(event?.intentId).toBeUndefined();
+      expect(event).not.toHaveProperty('intentId');
+    },
+  );
+
+  it.each([['subscription_charge'], ['subscription_update'], ['subscription_payment_method_change']])(
+    'a %s transaction is a card event too',
+    async (origin) => {
+      const event = await map({ event_id: 'evt_o', event_type: 'transaction.paid', data: { ...renewal, origin } });
+      expect(event).toMatchObject({ type: 'card_event', card: { transaction: { origin } } });
+    },
+  );
+
+  it('a declined renewal is a card event carrying the decline (Paddle’s transaction.payment_failed)', async () => {
+    const failed = {
+      ...renewal,
+      status: 'past_due',
+      payments: [{
+        amount: '2900', status: 'error', error_code: 'declined', created_at: '2026-11-07T10:00:02.10Z', captured_at: null,
+        method_details: { type: 'card', card: { type: 'mastercard', last4: '0002', expiry_month: 3, expiry_year: 2027, cardholder_name: 'Test' } },
+      }],
+    };
+    const event = await map({ event_id: 'evt_f', event_type: 'transaction.payment_failed', data: failed });
+    expect(event).toMatchObject({
+      type: 'card_event',
+      card: { transaction: { status: 'past_due', errorCode: 'declined', card: { brand: 'mastercard', last4: '0002' } } },
+    });
+  });
+
+  it('the checkout that saved the card keeps today’s mapping (origin web, now with its subscription)', async () => {
+    const checkout = { ...renewal, id: 'txn_01hv975mbh902hcyb7mks5kt0n', origin: 'web' };
+    const event = await map({ event_id: 'evt_c', event_type: 'transaction.completed', data: checkout });
+    expect(event).toMatchObject({
+      type: 'payment_succeeded',
+      intentId: 'pay-setup-1',
+      providerRef: 'txn_01hv975mbh902hcyb7mks5kt0n',
+      providerPaymentId: 'txn_01hv975mbh902hcyb7mks5kt0n',
+      providerSubscriptionId: SUB,
+      amount: 2900,
+      currency: 'USD',
+    });
+    expect(event?.card).toBeUndefined();
+    // …also when made through the API.
+    expect((await map({ event_id: 'evt_a', event_type: 'transaction.paid', data: { ...checkout, origin: 'api' } }))?.type).toBe('payment_succeeded');
+  });
+
+  it('a failed attempt on a checkout is still ignored (the checkout stays open)', async () => {
+    const checkout = { ...renewal, origin: 'web', subscription_id: null, status: 'ready' };
+    expect((await map({ event_id: 'evt_pf', event_type: 'transaction.payment_failed', data: checkout }))?.type).toBe('ignored');
+  });
+
+  it.each([
+    ['subscription.created'], ['subscription.activated'], ['subscription.updated'], ['subscription.past_due'],
+    ['subscription.paused'], ['subscription.resumed'], ['subscription.canceled'],
+  ])('%s is a card event of that subscription', async (type) => {
+    const subscription = {
+      id: SUB, status: type === 'subscription.canceled' ? 'canceled' : 'active', customer_id: 'ctm_01hv8wt8nffez4p2t6typn4a5j',
+      currency_code: 'USD', next_billed_at: '2026-11-07T10:00:00Z', canceled_at: null,
+      current_billing_period: { starts_at: '2026-10-08T10:00:00Z', ends_at: '2026-11-08T10:00:00Z' },
+      billing_cycle: { interval: 'month', frequency: 1 }, scheduled_change: null,
+      items: [{ status: 'active', quantity: 1, recurring: true, price: renewal.items[0].price }],
+      custom_data: { workspace_id: 'ws-1', intent_id: 'pay-setup-1', card_setup: '1' },
+      ...(type === 'subscription.created' ? { transaction_id: 'txn_01hv975mbh902hcyb7mks5kt0n' } : {}),
+    };
+    const event = await map({ event_id: 'evt_s', event_type: type, occurred_at: '2026-10-08T10:00:01Z', data: subscription });
+    expect(event).toMatchObject({
+      type: 'card_event',
+      providerEventId: 'evt_s',
+      workspaceId: 'ws-1',
+      providerSubscriptionId: SUB,
+      card: {
+        eventType: type,
+        entity: 'subscription',
+        subscriptionId: SUB,
+        customerId: 'ctm_01hv8wt8nffez4p2t6typn4a5j',
+        transactionId: type === 'subscription.created' ? 'txn_01hv975mbh902hcyb7mks5kt0n' : null,
+        transaction: null,
+        subscription: { id: SUB, nextBilledAt: '2026-11-07T10:00:00.000Z', items: [{ amountMinor: 2900, interval: 'month' }] },
+      },
+    });
+    expect(event).not.toHaveProperty('intentId');
+    expect(event?.providerPaymentId).toBeUndefined();
+  });
+
+  it.each([['subscription.trialing'], ['subscription.imported']])('%s is ignored (never started here)', async (type) => {
+    expect((await map({ event_id: 'evt_t', event_type: type, data: { id: SUB, status: 'trialing' } }))?.type).toBe('ignored');
   });
 });
 
@@ -315,6 +579,47 @@ describe('paddle testConnection', () => {
     const result = await paddleProvider.testConnection?.(config);
     expect(result?.success).toBe(false);
     expect(result?.error).not.toContain(MOCK_API_KEY);
+  });
+
+  describe('with automatic card renewal on', () => {
+    const cardConfig = { ...config, card_auto_renew: 'true' };
+    /** event-types answers first, then the subscriptions probe. */
+    function replies(probeStatus: number, probeBody: unknown) {
+      const fn = vi.fn()
+        .mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ data: [] }), text: async () => '{"data":[]}' })
+        .mockResolvedValueOnce({
+          status: probeStatus, ok: probeStatus < 300, json: async () => probeBody, text: async () => JSON.stringify(probeBody),
+        });
+      vi.stubGlobal('fetch', fn);
+      return fn;
+    }
+
+    it('also reads one subscription', async () => {
+      const fetchMock = replies(200, { data: [], meta: { pagination: { per_page: 1 } } });
+      expect(await paddleProvider.testConnection(cardConfig)).toMatchObject({ success: true });
+      expect(fetchMock.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual([
+        'https://sandbox-api.paddle.com/event-types',
+        'https://sandbox-api.paddle.com/subscriptions?per_page=1',
+      ]);
+    });
+
+    it('names the missing Subscriptions permission on a 403', async () => {
+      replies(403, { error: { type: 'request_error', code: 'forbidden', detail: 'You aren\'t permitted to perform this request.' } });
+      const result = await paddleProvider.testConnection(cardConfig);
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/"Subscriptions" read and write permission/);
+    });
+
+    it('reports any other failure of the subscriptions call', async () => {
+      replies(500, { error: { code: 'internal_error', detail: 'Something went wrong' } });
+      expect(await paddleProvider.testConnection(cardConfig)).toMatchObject({ success: false, error: 'Paddle subscriptions: Something went wrong' });
+    });
+
+    it('off (or saved as "false"): only the event types are read', async () => {
+      const fetchMock = replies(403, {});
+      expect(await paddleProvider.testConnection({ ...config, card_auto_renew: 'false' })).toMatchObject({ success: true });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

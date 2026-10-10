@@ -36,8 +36,9 @@ const DAY_MS = 86_400_000;
 /**
  * The plan notice's state, decided exactly as PlanStatusBanner decides it
  * (the backend's effective-entitlement snapshot): a running trial and its
- * days, a paid period ending within 7 days that will not renew and its days,
- * the free plan, or nothing for a renewing / unlimited workspace.
+ * days, a paid period ending within 7 days that will not renew and its days
+ * (or whose saved card could not pay it), the free plan, or nothing for a
+ * renewing / unlimited workspace.
  */
 function useArtPlanNotice(workspaceId: string | null | undefined) {
   const { data } = useWorkspaceEffectiveEntitlements(workspaceId || null);
@@ -56,18 +57,20 @@ function useArtPlanNotice(workspaceId: string | null | undefined) {
       kind: 'renewal' as const,
       days: Math.max(1, Math.ceil((renewalEndMs - Date.now()) / DAY_MS)),
       endsOnFree: data.renewal_due?.ends_on_free === true,
+      cardFailed: data.renewal_due?.card_past_due === true,
     };
   }
   const isFree = Boolean(plan?.is_free) || plan?.slug === 'free' || !sub?.plan_id || !!sub?.free_fallback_at;
   return isFree ? { kind: 'free' as const } : null;
 }
 
-/** The plan card's line: the trial's or the ending plan's days left ("last day" on the last), or the free plan. */
+/** The plan card's line: the trial's or the ending plan's days left ("last day" on the last), a failed card payment, or the free plan. */
 function planNoticeText(
   t: ReturnType<typeof useTranslation>['t'],
   notice: NonNullable<ReturnType<typeof useArtPlanNotice>>,
 ) {
   if (notice.kind === 'renewal') {
+    if (notice.cardFailed) return t('artShell.planCardFailed');
     return notice.days === 1 ? t('artShell.planEndsLastDay') : t('artShell.planEnds', { days: notice.days });
   }
   if (notice.kind !== 'trial') return t('artShell.planFree');
@@ -331,7 +334,7 @@ function PlanCard({ notice }: { notice: NonNullable<ReturnType<typeof useArtPlan
           className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           {notice.kind === 'renewal'
-            ? t(notice.endsOnFree ? 'artShell.planManage' : 'artShell.planRenew')
+            ? t(notice.cardFailed ? 'artShell.planFixCard' : notice.endsOnFree ? 'artShell.planManage' : 'artShell.planRenew')
             : t('artShell.planUpgrade')}
           <ArrowUpRight aria-hidden className="h-3.5 w-3.5 rtl:-scale-x-100" strokeWidth={2.2} />
         </Link>

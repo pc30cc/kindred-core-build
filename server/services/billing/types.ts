@@ -27,6 +27,18 @@ export interface CheckoutRequest {
   /** What the customer is buying, as shown on the provider's checkout page. */
   description?: string;
   metadata?: Record<string, string>;
+  /**
+   * Paddle only: the checkout saves the card. Its price recurs every
+   * `interval` (`billing_cycle`), so paying it creates a Paddle subscription
+   * that later renewals are charged through (simple billing, phase 3b).
+   */
+  recurring?: { interval: 'monthly' | 'yearly' };
+  /** Paddle only: an existing Paddle customer (`ctm_…`) to bill, reused from an earlier card. */
+  customerId?: string;
+  /** Paddle only: the price's own `custom_data` (copied onto every renewal's item). */
+  priceCustomData?: Record<string, unknown>;
+  /** Paddle only: marks the transaction as a card setup (`custom_data.card_setup = '1'`). */
+  cardSetup?: boolean;
 }
 
 export interface CheckoutResult {
@@ -77,9 +89,15 @@ export interface WebhookEvent {
    * type or state this platform does not act on). It is acknowledged, so the
    * provider stops retrying it, and never reaches the financial pipeline.
    */
+  /**
+   * `card_event`: Paddle only, an event about a saved card's subscription (a
+   * `subscription.*` event, or a transaction Paddle made from a subscription:
+   * renewal, one-time charge, card change). Routed by the subscription, never
+   * by `custom_data.intent_id`, which Paddle copies from the checkout.
+   */
   type: 'payment_succeeded' | 'payment_failed' | 'subscription_created' |
         'subscription_updated' | 'subscription_canceled' | 'refund_processed' |
-        'checkout_completed' | 'invoice_paid' | 'invoice_failed' | 'ignored';
+        'checkout_completed' | 'invoice_paid' | 'invoice_failed' | 'card_event' | 'ignored';
   providerEventId: string;
   providerCustomerId?: string;
   providerSubscriptionId?: string;
@@ -111,7 +129,97 @@ export interface WebhookEvent {
   refundId?: string;
   /** Payment events only: the charged total and tax, when `amount` is the pre-tax price. */
   charge?: ProviderCharge;
+  /** `card_event` only: what Paddle reported, read into our shape. */
+  card?: PaddleCardEvent;
+  /** `refund_processed` only: the money was taken back by a chargeback (Paddle adjustment `chargeback`), not a refund. */
+  chargeback?: boolean;
   raw: unknown;
+}
+
+// ─── Paddle subscriptions (saved card, simple billing phase 3b) ─────────
+// Read from Paddle's JSON by providers/paddleSubscriptions.ts. Amounts are
+// integer minor units (Paddle sends them as strings), times are ISO 8601,
+// currencies upper-case ISO 4217; anything Paddle did not send is null.
+
+/** The card of a payment attempt (`payments[].method_details.card`). */
+export interface PaddleCardDetails {
+  /** Paddle's card type: `visa`, `mastercard`, `american_express`, … */
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+}
+
+/** One recurring item of a subscription (`items[].price`). */
+export interface PaddleSubscriptionItem {
+  priceId: string | null;
+  /** `price.unit_price.amount` */
+  amountMinor: number | null;
+  currency: string | null;
+  /** `price.billing_cycle.interval`; null for anything but month / year. */
+  interval: 'month' | 'year' | null;
+  frequency: number | null;
+  /** `price.custom_data`; {} when Paddle has none. */
+  customData: Record<string, unknown>;
+}
+
+export interface PaddleSubscription {
+  id: string;
+  /** 'active' | 'past_due' | 'paused' | 'canceled' | 'trialing' */
+  status: string;
+  customerId: string | null;
+  currency: string | null;
+  /** When Paddle charges next; null once canceled or paused. */
+  nextBilledAt: string | null;
+  /** `current_billing_period.ends_at`; null for paused and canceled subscriptions. */
+  currentPeriodEnd: string | null;
+  /** A cancel / pause / resume Paddle will apply at `effectiveAt`. */
+  scheduledChange: { action: string; effectiveAt: string | null } | null;
+  items: PaddleSubscriptionItem[];
+  customData: Record<string, unknown>;
+  canceledAt: string | null;
+}
+
+export interface PaddleTransaction {
+  id: string;
+  /** 'draft' | 'ready' | 'billed' | 'paid' | 'completed' | 'canceled' | 'past_due' */
+  status: string;
+  /** 'api' | 'web' (checkouts) | 'subscription_recurring' | 'subscription_charge' | 'subscription_update' | 'subscription_payment_method_change' */
+  origin: string | null;
+  subscriptionId: string | null;
+  customerId: string | null;
+  currency: string | null;
+  /** `details.totals.total`: after discount and tax. */
+  totalMinor: number | null;
+  /** `details.totals.grand_total`: what is charged (after Paddle credit). */
+  grandTotalMinor: number | null;
+  /** `details.totals.credit`: Paddle customer credit applied. */
+  creditMinor: number | null;
+  /** items[].price.custom_data, in order ({} for an item without any). */
+  itemCustomData: Record<string, unknown>[];
+  customData: Record<string, unknown>;
+  /** The card of the newest payment attempt that has one (`payments[]` is newest first). */
+  card: PaddleCardDetails | null;
+  /** The newest payment attempt's `error_code` (`declined`, `expired_card`, `authentication_failed`, …). */
+  errorCode: string | null;
+  createdAt: string | null;
+  billedAt: string | null;
+}
+
+export interface PaddleCardEvent {
+  /** Paddle's event type, e.g. 'transaction.paid', 'subscription.updated'. */
+  eventType: string;
+  entity: 'transaction' | 'subscription';
+  occurredAt: string | null;
+  subscriptionId: string | null;
+  customerId: string | null;
+  /** transaction events: the transaction id; subscription.created: data.transaction_id (the checkout's). */
+  transactionId: string | null;
+  /** Transaction events. */
+  transaction: PaddleTransaction | null;
+  /** Subscription events. */
+  subscription: PaddleSubscription | null;
+  customData: Record<string, unknown>;
 }
 
 export interface SubscriptionStatus {

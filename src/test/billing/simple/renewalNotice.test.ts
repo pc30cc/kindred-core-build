@@ -10,7 +10,11 @@
  *   - auto-renew with a balance that pays the next period's price (its
  *     scheduled plan and interval, in the account's currency) → nothing;
  *     a balance short of it, or a plan with no price there → due;
- *   - a change scheduled to Free → due, ending on Free.
+ *   - a change scheduled to Free → due, ending on Free;
+ *   - a saved card (phase 3b) renews, never the balance: an active card with
+ *     auto-renew on and a sold next period → nothing; a card whose renewal
+ *     failed (past_due) → due and card_past_due, whatever the balance; an
+ *     active card with auto-renew off, or nothing sold to renew → due.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -22,11 +26,15 @@ let rows: {
   sub: Record<string, unknown> | null;
   account: Record<string, unknown> | null;
   plans: Record<string, Record<string, unknown>>;
+  /** The workspace's live saved card (billing_account_cards), if any. */
+  card: Record<string, unknown> | null;
 };
+const tablesRead: string[] = [];
 
 vi.mock('../../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from: (table: string) => {
+      tablesRead.push(table);
       const filters: Record<string, unknown> = {};
       const b: Record<string, unknown> = {};
       b.select = () => b;
@@ -34,10 +42,19 @@ vi.mock('../../../../server/supabase.js', () => ({
         filters[col] = value;
         return b;
       };
+      b.in = (col: string, values: unknown[]) => {
+        filters[col] = values;
+        return b;
+      };
       b.maybeSingle = async () => {
         if (table === 'workspace_subscriptions') return { data: rows.sub, error: null };
         if (table === 'billing_accounts') return { data: rows.account, error: null };
         if (table === 'billing_plans') return { data: rows.plans[String(filters.id)] ?? null, error: null };
+        if (table === 'billing_account_cards') {
+          // Only a live card is asked for.
+          const live = (filters.status as string[] | undefined) ?? [];
+          return { data: rows.card && live.includes(String(rows.card.status)) ? rows.card : null, error: null };
+        }
         return { data: null, error: null };
       };
       return b;
@@ -65,12 +82,14 @@ beforeEach(() => {
     sub: { plan_id: 'pro', status: 'active', billing_interval: 'monthly', current_period_end: at(3) },
     account: account(),
     plans: { pro: PRO, lite: LITE, free: FREE },
+    card: null,
   };
+  tablesRead.length = 0;
 });
 
 describe('renewalDueNotice', () => {
   it('a paid period ending within 7 days with auto-renew off is due', async () => {
-    expect(await notice()).toEqual({ days_left: 3, period_end: at(3), plan_id: 'pro', ends_on_free: false });
+    expect(await notice()).toEqual({ days_left: 3, period_end: at(3), plan_id: 'pro', ends_on_free: false, card_past_due: false });
   });
 
   it('counts the days up, never below 1 while the period runs', async () => {
@@ -133,9 +152,66 @@ describe('renewalDueNotice', () => {
 
   it('a change scheduled to Free is due and ends on Free, whatever the balance', async () => {
     rows.account = account({ auto_renew: true, balance_minor: 1_000_000, scheduled_plan_id: 'free' });
-    expect(await notice()).toEqual({ days_left: 3, period_end: at(3), plan_id: 'pro', ends_on_free: true });
+    expect(await notice()).toEqual({ days_left: 3, period_end: at(3), plan_id: 'pro', ends_on_free: true, card_past_due: false });
     // A prepayment does not start a free period either: it returns to the balance.
     rows.account = account({ scheduled_plan_id: 'free', next_period_prepaid_minor: 2900, next_period_start: at(3) });
     expect(await notice()).toMatchObject({ ends_on_free: true });
+  });
+
+  describe('with a saved card', () => {
+    const card = (status: string) => ({ id: 'card-1', status });
+
+    it('an active card with auto-renew on and a sold next period renews it: not due, whatever the balance', async () => {
+      rows.card = card('active');
+      rows.account = account({ auto_renew: true, balance_minor: 0 });
+      expect(await notice()).toBeNull();
+      // Its next period by the scheduled plan and interval.
+      rows.account = account({ auto_renew: true, balance_minor: 0, scheduled_plan_id: 'lite' });
+      expect(await notice()).toBeNull();
+    });
+
+    it('a card whose renewal payment failed is due and says so, even when the balance would cover it', async () => {
+      rows.card = card('past_due');
+      rows.account = account({ auto_renew: true, balance_minor: 1_000_000 });
+      expect(await notice()).toEqual({ days_left: 3, period_end: at(3), plan_id: 'pro', ends_on_free: false, card_past_due: true });
+    });
+
+    it('the balance never renews a card account: auto-renew off with a large balance is due', async () => {
+      rows.card = card('active');
+      rows.account = account({ auto_renew: false, balance_minor: 1_000_000 });
+      expect(await notice()).toEqual({ days_left: 3, period_end: at(3), plan_id: 'pro', ends_on_free: false, card_past_due: false });
+    });
+
+    it('a next period the card cannot charge (no price there) is due', async () => {
+      rows.card = card('active');
+      rows.account = account({ auto_renew: true, balance_minor: 1_000_000, scheduled_plan_id: 'lite', scheduled_interval: 'yearly' });
+      expect(await notice()).toMatchObject({ ends_on_free: false, card_past_due: false });
+    });
+
+    it('a next period already paid (the card renewal settled) is not due, past_due or not', async () => {
+      rows.card = card('past_due');
+      rows.account = account({ auto_renew: true, next_period_prepaid_minor: 2900, next_period_start: at(3) });
+      expect(await notice()).toBeNull();
+    });
+
+    it('a change to Free ends on Free (the card stops with it)', async () => {
+      rows.card = card('past_due');
+      rows.account = account({ auto_renew: true, scheduled_plan_id: 'free' });
+      expect(await notice()).toEqual({ days_left: 3, period_end: at(3), plan_id: 'pro', ends_on_free: true, card_past_due: false });
+    });
+
+    it('a card no longer live counts as none: the balance rule applies', async () => {
+      rows.card = card('canceling');
+      rows.account = account({ auto_renew: true, balance_minor: 2900 });
+      expect(await notice()).toBeNull();
+      rows.account = account({ auto_renew: true, balance_minor: 100 });
+      expect(await notice()).toMatchObject({ ends_on_free: false, card_past_due: false });
+    });
+
+    it('the cards are not read when nothing is due', async () => {
+      rows.sub!.current_period_end = at(20);
+      expect(await notice()).toBeNull();
+      expect(tablesRead).not.toContain('billing_account_cards');
+    });
   });
 });

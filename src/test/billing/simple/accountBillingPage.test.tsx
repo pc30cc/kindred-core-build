@@ -2,6 +2,8 @@
  * Workspace → Billing (simple billing): the balance, the plan, the history
  * with receipts, the top-up dialog's VAT line (only when VAT is set), and the
  * return from a gateway — confirmed with the server, shown, address cleaned.
+ * A payment that saved a card waits for the card to show; the return from
+ * changing the card in Paddle waits for Paddle's confirmation.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
@@ -213,6 +215,80 @@ describe('AccountBillingPage', () => {
     expect(detail).toHaveTextContent('Pro (EN)');
     expect(detail).toHaveTextContent('billing.account.plan.interval.monthly');
     expect(detail).toHaveTextContent('billing.account.history.period');
+  });
+
+  it('a payment that saved a card is confirmed without the card marker, then waits for the card to show', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      api.verify.mockResolvedValue({ status: 'succeeded', ledgerId: 'l7', purpose: 'renewal', purposeResult: { action: 'prepaid' } });
+      api.payment.mockResolvedValue({ id: 'pay7', status: 'succeeded', net_minor: 2900, ledger_id: 'l7', purpose: 'renewal' });
+      renderAt('/acme/billing?card=setup&payment=pay7&provider=paddle&_ptxn=txn_7');
+      await waitFor(() => expect(api.verify).toHaveBeenCalledWith('ws-1', 'pay7', 'paddle', { _ptxn: 'txn_7' }));
+      expect(await screen.findByTestId('payment-result-card')).toHaveTextContent('billing.account.card.return.setupChecking');
+      expect(screen.getByTestId('payment-result')).toHaveTextContent('billing.account.result.purposeDone.renewal');
+      expect(screen.getByTestId('where')).toHaveTextContent(/^\/acme\/billing$/);
+
+      // Paddle's subscription.created arrives: the card shows.
+      api.view.mockResolvedValue({ ...VIEW, card: { id: 'card-1', status: 'active', brand: 'visa', last4: '4242' } });
+      await vi.advanceTimersByTimeAsync(3000);
+      await waitFor(() => expect(screen.getByTestId('payment-result-card')).toHaveTextContent('billing.account.card.return.setupDone'));
+      // Asked once only: the gateway parameters never carried the card marker.
+      expect(api.verify).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a card that takes longer than a minute to show is said to be on its way', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      api.verify.mockResolvedValue({ status: 'succeeded', ledgerId: 'l8', purpose: 'plan', purposeResult: { action: 'purchase' } });
+      api.payment.mockResolvedValue({ id: 'pay8', status: 'succeeded', net_minor: 2900, ledger_id: 'l8', purpose: 'plan' });
+      api.view.mockResolvedValue({ ...VIEW, card: null });
+      renderAt('/acme/billing?card=setup&payment=pay8&provider=paddle&_ptxn=txn_8');
+      await screen.findByTestId('payment-result-card');
+      for (let i = 0; i < 21; i += 1) await vi.advanceTimersByTimeAsync(3000);
+      await waitFor(() => expect(screen.getByTestId('payment-result-card')).toHaveTextContent('billing.account.card.return.setupPending'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('back from changing the card: waits until the new card shows, without a payment to verify', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const old = { id: 'card-1', status: 'active', brand: 'visa', last4: '4242', exp_month: 8, exp_year: 2031 };
+      window.sessionStorage.setItem('billing:card-return:ws-1', JSON.stringify(old));
+      api.view.mockResolvedValue({ ...VIEW, card: old });
+      renderAt('/acme/billing?card=updated');
+      expect(await screen.findByTestId('card-result')).toHaveTextContent('billing.account.card.return.updatedChecking');
+      await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/acme\/billing$/));
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(screen.getByTestId('card-result')).toHaveTextContent('billing.account.card.return.updatedChecking');
+
+      api.view.mockResolvedValue({ ...VIEW, card: { ...old, brand: 'mastercard', last4: '4444' } });
+      await vi.advanceTimersByTimeAsync(3000);
+      await waitFor(() => expect(screen.getByTestId('card-result')).toHaveTextContent('billing.account.card.return.updatedDone'));
+      expect(api.verify).not.toHaveBeenCalled();
+      expect(window.sessionStorage.getItem('billing:card-return:ws-1')).toBeNull();
+      fireEvent.click(screen.getByText('billing.account.result.dismiss'));
+      expect(screen.queryByTestId('card-result')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('back from paying a failed renewal with the card: done once the card is active again, else still being confirmed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      api.view.mockResolvedValue({ ...VIEW, card: { id: 'card-1', status: 'past_due', brand: 'visa', last4: '4242' } });
+      renderAt('/acme/billing?card=paid');
+      expect(await screen.findByTestId('card-result')).toHaveTextContent('billing.account.card.return.paidChecking');
+      for (let i = 0; i < 21; i += 1) await vi.advanceTimersByTimeAsync(3000);
+      await waitFor(() => expect(screen.getByTestId('card-result')).toHaveTextContent('billing.account.card.return.paidPending'));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a member who cannot manage billing sees no top-up button', async () => {

@@ -5,8 +5,9 @@
  *   - a running trial → its days left;
  *   - a paid period that will not renew (the snapshot's `renewal_due`) →
  *     "your plan ends in N days" ("1 day" on the last), or the date it ends
- *     and moves to Free when a change to Free is scheduled, with a link to
- *     the billing page;
+ *     and moves to Free when a change to Free is scheduled, or "your card
+ *     payment failed" when the saved card could not pay the renewal, with a
+ *     link to the billing page;
  *   - the free plan → upgrade;
  *   - a paying workspace that renews, or one whose due moment has passed
  *     (the snapshot is a little old) → nothing about renewing.
@@ -81,6 +82,17 @@ describe('PlanStatusBanner', () => {
     // Renewing is refused for a change to Free: the banner points to cancelling it.
     expect(screen.getByText('planBanner.renewalFreeDesc')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /planBanner\.manageCta/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /planBanner\.renewCta/ })).toBeNull();
+  });
+
+  it('a renewal the saved card could not pay says so, with the date and a link to fix it', () => {
+    const end = inDays(0.8);
+    snapshot = { ...PAID, renewal_due: { days_left: 1, period_end: end, ends_on_free: false, card_past_due: true } };
+    show();
+    expect(screen.getByText('planBanner.cardPastDueTitle')).toBeInTheDocument();
+    expect(screen.getByText(/^planBanner\.cardPastDueDesc /).textContent).toContain(String(new Date(end).getFullYear()));
+    expect(screen.getByRole('link', { name: /planBanner\.cardPastDueCta/ })).toHaveAttribute('href', '/app/w/ws1/billing');
+    expect(screen.queryByText(/planBanner\.renewalTitle/)).toBeNull();
     expect(screen.queryByRole('link', { name: /planBanner\.renewCta/ })).toBeNull();
   });
 

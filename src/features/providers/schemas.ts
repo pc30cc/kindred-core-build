@@ -498,11 +498,12 @@ const billingVendors: ProviderVendor[] = [
     docsUrl: 'https://developer.paddle.com',
     locales: ['en'], currency: 'USD/EUR',
     fields: [
-      { key: 'api_key', label: 'API Key', type: 'password', required: true },
+      { key: 'api_key', label: 'API Key', type: 'password', required: true, hint: 'Permissions: Transactions read + write and Notification settings read; with Automatic card renewal on also Subscriptions read + write' },
       { key: 'client_token', label: 'Client-side Token', type: 'text', required: true, hint: 'live_... or test_... — opens the checkout on the payment page (approve the app domain in Paddle)' },
-      { key: 'webhook_secret', label: 'Webhook Secret Key', type: 'password', required: true, hint: 'Notification destination secret — events: transaction.paid, transaction.completed, adjustment.created, adjustment.updated' },
+      { key: 'webhook_secret', label: 'Webhook Secret Key', type: 'password', required: true, hint: 'Notification destination secret — events: transaction.paid, transaction.completed, adjustment.created, adjustment.updated; with Automatic card renewal on also transaction.created, transaction.billed, transaction.payment_failed, transaction.past_due, transaction.canceled, subscription.created, subscription.activated, subscription.updated, subscription.past_due, subscription.paused, subscription.resumed, subscription.canceled' },
       { key: 'product_id', label: 'Product ID (optional)', type: 'text', placeholder: 'pro_...', hint: 'Catalog product the checkout price is attached to; empty = a one-off product per checkout' },
       { key: 'sandbox', label: 'Sandbox Mode', type: 'toggle', hint: 'Off for the live account. To test, use the separate "Paddle — Sandbox (test)" gateway instead: sandbox keys (_sdbx / test_) are refused here while this is off' },
+      { key: 'card_auto_renew', label: 'Automatic card renewal (Multi Region)', type: 'toggle', hint: 'Off by default. On: Multi Region / Global accounts (USD) can save a card at checkout, and Paddle charges it for each renewal. Needs the Subscriptions read + write permission on the API key and the extra notification events listed under the webhook secret (the Test button checks the permission)' },
     ],
   },
   {
@@ -513,11 +514,12 @@ const billingVendors: ProviderVendor[] = [
     docsUrl: 'https://developer.paddle.com/build/tools/sandbox',
     locales: ['en'], currency: 'USD/EUR',
     fields: [
-      { key: 'api_key', label: 'Sandbox API Key', type: 'password', required: true, placeholder: 'pdl_sdbx_apikey_...', hint: 'sandbox-vendors.paddle.com → Developer tools → Authentication → API keys. Must contain "_sdbx". Permissions: at least Transactions read + write (checkout, verification, closing an old checkout) and Notification settings read (the Test button); a sandbox key may simply have all of them' },
+      { key: 'api_key', label: 'Sandbox API Key', type: 'password', required: true, placeholder: 'pdl_sdbx_apikey_...', hint: 'sandbox-vendors.paddle.com → Developer tools → Authentication → API keys. Must contain "_sdbx". Permissions: at least Transactions read + write (checkout, verification, closing an old checkout) and Notification settings read (the Test button); with Automatic card renewal on also Subscriptions read + write. A sandbox key may simply have all of them' },
       { key: 'client_token', label: 'Sandbox Client-side Token', type: 'text', required: true, placeholder: 'test_...', hint: 'sandbox-vendors.paddle.com → Developer tools → Authentication → Client-side tokens. Must start with "test_"' },
-      { key: 'webhook_secret', label: 'Sandbox Webhook Secret Key', type: 'password', required: true, hint: 'sandbox-vendors.paddle.com → Developer tools → Notifications: destination https://<api domain>/api/billing/webhook/paddle_sandbox — events: transaction.paid, transaction.completed, adjustment.created, adjustment.updated' },
+      { key: 'webhook_secret', label: 'Sandbox Webhook Secret Key', type: 'password', required: true, hint: 'sandbox-vendors.paddle.com → Developer tools → Notifications: destination https://<api domain>/api/billing/webhook/paddle_sandbox — events: transaction.paid, transaction.completed, adjustment.created, adjustment.updated; with Automatic card renewal on also transaction.created, transaction.billed, transaction.payment_failed, transaction.past_due, transaction.canceled, subscription.created, subscription.activated, subscription.updated, subscription.past_due, subscription.paused, subscription.resumed, subscription.canceled' },
       { key: 'product_id', label: 'Sandbox Product ID (optional)', type: 'text', placeholder: 'pro_...', hint: 'A product in the SANDBOX catalog; empty = a one-off product per checkout' },
       { key: 'open_to_customers', label: 'Open to customers', type: 'toggle', hint: 'Off: only Super Admins see and use this gateway on the payment page. On: every customer can pay with a test card (and get the plan for free)' },
+      { key: 'card_auto_renew', label: 'Automatic card renewal (Multi Region)', type: 'toggle', hint: 'Off by default. On: Multi Region / Global accounts (USD) can save a card at checkout, and Paddle charges it for each renewal. Needs the Subscriptions read + write permission on the API key and the extra notification events listed under the webhook secret (the Test button checks the permission). Switch it on here first to test it' },
     ],
   },
   {

@@ -19,6 +19,14 @@ import { PADDLE_SANDBOX_PROVIDER } from '../../../../shared/testGateways.js';
 // Credentials are checked for their environment (paddleCredentialProblem): a
 // live API key or client-side token is refused here, so a sandbox gateway can
 // never charge a real card.
+//
+// Automatic card renewal (simple billing phase 3b) works here exactly as on
+// live Paddle: a card-setup checkout (`recurring` price) goes through
+// createCheckoutSession below, card events through verifyWebhook, the
+// `card_auto_renew` switch is checked by testConnection, and the card code
+// calls the subscription API through paddleSubscriptions.ts with
+// `paddleConfigFor('paddle_sandbox', …)`, which forces the sandbox and refuses
+// live credentials the same way.
 // ─────────────────────────────────────────────────────────────────────
 
 /**

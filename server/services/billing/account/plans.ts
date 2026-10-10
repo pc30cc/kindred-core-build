@@ -16,6 +16,7 @@ import { assignedPlanApplies } from '../planSelection.js';
 import { AccountBillingError, readAccount, type AccountRow } from './index.js';
 import { billingIntervalLabel, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
 import { v2NextPeriodPaid } from './renewalNotice.js';
+import { cancelCardNow, pullCardRenewal, readLiveCard, setCardAutoRenew } from './card.js';
 
 export type BillingInterval = 'monthly' | 'yearly';
 
@@ -167,15 +168,32 @@ export async function processDueNow(
     if (Date.parse(sub.current_period_end) > now) return null;
     const plan = await readPlan(config, sub.plan_id);
     if (!plan || plan.is_free) return null;
-    const { data, error } = await getServiceClient(config).rpc('billing_account_process_due', { p_workspace_id: workspaceId });
-    if (error) throw new Error(error.message || 'due processing failed');
-    const result = (data ?? {}) as Record<string, unknown>;
+    const result = await processDue(config, workspaceId);
     if (result.action && result.action !== 'none') await afterPlanChange(config, workspaceId, result);
     return result;
   } catch (e) {
     console.warn('[billing-account] due now:', e instanceof Error ? e.message : e);
     return null;
   }
+}
+
+/**
+ * billing_account_process_due for one workspace whose paid period ended,
+ * with its saved card around it (phase 3b): a renewal Paddle charged whose
+ * event never reached us is settled first (pullCardRenewal), so the due
+ * moment starts the period it paid; a card the due moment stopped
+ * (card_cancel: nothing paid the next period) is cancelled at Paddle at once,
+ * which ends Paddle's own retries (the job retries a cancel Paddle did not
+ * confirm). Without a card it is the SQL alone. Throws when the SQL fails.
+ */
+export async function processDue(config: ServerConfig, workspaceId: string): Promise<Record<string, unknown>> {
+  if (await readLiveCard(config, workspaceId)) await pullCardRenewal(config, workspaceId);
+  const { data, error } = await getServiceClient(config).rpc('billing_account_process_due', { p_workspace_id: workspaceId });
+  if (error) throw new Error(error.message || 'due processing failed');
+  const result = (data ?? {}) as Record<string, unknown>;
+  const stopped = result.card_cancel as { card_id?: unknown } | null | undefined;
+  if (stopped && typeof stopped.card_id === 'string') await cancelCardNow(config, stopped.card_id);
+  return result;
 }
 
 /**
@@ -420,12 +438,17 @@ async function rpc(config: ServerConfig, name: string, args: Record<string, unkn
   return (data ?? {}) as Record<string, unknown>;
 }
 
-/** After a plan or period changed: entitlements now, and the mail. Never throws. */
+/**
+ * After a plan or period changed: entitlements now, and the mail. Never throws.
+ * `options.card` names the saved card that paid ("Visa •••• 4242") for the
+ * renewal mail's {card}.
+ */
 export async function afterPlanChange(
   config: ServerConfig,
   workspaceId: string,
   result: Record<string, unknown>,
   source: 'payment_succeeded' | 'subscription_renewed' | 'subscription_created' | 'subscription_canceled' = 'subscription_renewed',
+  options: { card?: string } = {},
 ): Promise<void> {
   const action = String(result.action ?? '');
   try {
@@ -435,6 +458,9 @@ export async function afterPlanChange(
         source: action === 'expired' ? 'subscription_canceled' : source,
       });
     }
+    // A next period the saved card paid starts: the card's payment was mailed
+    // when it was settled (billing_renewed, and Paddle's own invoice).
+    if (result.prepaid_card === true) return;
     const currency = (await readAccount(config, workspaceId))?.currency ?? (await getBillingRegion(config)).currency;
     const plans = await planNamesFor(config, [result.plan_id as string, result.previous_plan_id as string]);
     const planName = (locale: string) => localizedPlanName(plans.get(String(result.plan_id ?? '')), locale);
@@ -457,6 +483,8 @@ export async function afterPlanChange(
         balance: ctx.money(Number(result.balance_minor ?? 0), currency),
         period_start: ctx.date(result.period_start as string),
         period_end: ctx.date(result.period_end as string),
+        // Empty when the balance paid, so a template naming it reads cleanly.
+        card: options.card ?? '',
       }));
     } else if (action === 'expired') {
       await sendBillingEmail(config, workspaceId, 'billing_expired', (ctx) => ({
@@ -577,8 +605,13 @@ export async function scheduleChange(
   return result;
 }
 
-/** Auto-renew on or off (the account is created if it has none yet). */
+/**
+ * Auto-renew on or off (the account is created if it has none yet). With a
+ * saved card Paddle is asked first (setCardAutoRenew: off cancels the card at
+ * Paddle's period end, on undoes that).
+ */
 export async function setAutoRenew(config: ServerConfig, workspaceId: string, enabled: boolean): Promise<boolean> {
+  if (await readLiveCard(config, workspaceId)) return setCardAutoRenew(config, workspaceId, enabled);
   const sb = getServiceClient(config);
   const region = await getBillingRegion(config);
   const { error: ensureError } = await sb.rpc('billing_account_ensure', { p_workspace_id: workspaceId, p_currency: region.currency });
@@ -597,12 +630,22 @@ export async function setAutoRenew(config: ServerConfig, workspaceId: string, en
  * What paying online for a purpose must charge: what the balance is missing
  * for exactly what the SQL will do (never below the top-up minimum, applied
  * by the route). The detail travels with the payment to its settlement.
+ * `periodPriceMinor` is the full price of the period it buys (what a card
+ * checkout charges). While a saved card is live it pays the renewal, so a
+ * renewal paid online is refused (CARD_PAYS_RENEWAL), except for the checkout
+ * that saves a card (`forCardSetup`; it then finds the card already saved).
  */
 export async function amountNeededFor(
   config: ServerConfig,
   workspaceId: string,
-  input: { purpose: 'plan' | 'renewal' | 'upgrade'; planId?: string; interval?: BillingInterval; expectedNetMinor?: number },
-): Promise<{ needed: number; currency: string; balance: number; detail: Record<string, unknown> }> {
+  input: {
+    purpose: 'plan' | 'renewal' | 'upgrade';
+    planId?: string;
+    interval?: BillingInterval;
+    expectedNetMinor?: number;
+    forCardSetup?: boolean;
+  },
+): Promise<{ needed: number; currency: string; balance: number; detail: Record<string, unknown>; periodPriceMinor: number | null }> {
   await processDueNow(config, workspaceId);
   const account = await readAccount(config, workspaceId);
   const region = await getBillingRegion(config);
@@ -611,6 +654,7 @@ export async function amountNeededFor(
   if (input.purpose === 'renewal') {
     const paid = await paidPeriodOf(config, workspaceId);
     if (!paid) throw new AccountBillingError('NO_PAID_PLAN', 409);
+    if (!input.forCardSetup && (await readLiveCard(config, workspaceId))) throw new AccountBillingError('CARD_PAYS_RENEWAL', 409);
     const { live, stale } = prepaidOf(account, paid);
     if (live !== null || (await v2NextPeriodPaid(config, workspaceId))) throw new AccountBillingError('ALREADY_RENEWED', 409);
     const target = account?.scheduled_plan_id ?? paid.plan_id;
@@ -631,6 +675,7 @@ export async function amountNeededFor(
       // The renewal is for this period only: paid after it was renewed or
       // replaced, the money stays in the balance (billing_period_changed).
       detail: { plan_id: target, billing_interval: interval, period_end: paid.current_period_end },
+      periodPriceMinor: price,
     };
   }
   if (!input.planId) throw new AccountBillingError('INVALID_REQUEST', 400);
@@ -645,6 +690,7 @@ export async function amountNeededFor(
     currency,
     balance,
     detail: { plan_id: input.planId, billing_interval: quote.billing_interval },
+    periodPriceMinor: quote.period_price_minor,
   };
 }
 

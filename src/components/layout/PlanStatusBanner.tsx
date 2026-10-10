@@ -11,7 +11,9 @@
  *  - renewal   → "your plan ends in N days, renew it to keep it": a paid
  *                period ending within 7 days that will not renew (the
  *                snapshot's `renewal_due`), or "it ends on <date> and the
- *                workspace moves to Free" when a change to Free is scheduled.
+ *                workspace moves to Free" when a change to Free is scheduled,
+ *                or "your card payment failed" when the saved card could not
+ *                pay the renewal (Multi Region).
  *  - free      → "you are on the free plan, upgrade to unlock everything".
  *
  * A paying workspace that renews sees nothing.
@@ -63,11 +65,13 @@ export function PlanStatusBanner({ workspaceId }: { workspaceId: string | null |
   const renewalEndMs = renewal ? new Date(renewal.period_end).getTime() : NaN;
   if (renewal && Number.isFinite(renewalEndMs) && renewalEndMs > Date.now()) {
     const daysLeft = Math.max(1, Math.ceil((renewalEndMs - Date.now()) / DAY_MS));
-    const title = renewal.ends_on_free
-      ? t('planBanner.renewalFreeTitle', {
-          date: formatDate(renewal.period_end, { year: 'numeric', month: 'long', day: 'numeric' }, locale),
-        })
-      : t(daysLeft === 1 ? 'planBanner.renewalTitleOne' : 'planBanner.renewalTitle', { days: daysLeft });
+    const endDate = formatDate(renewal.period_end, { year: 'numeric', month: 'long', day: 'numeric' }, locale);
+    const cardFailed = renewal.card_past_due === true;
+    const title = cardFailed
+      ? t('planBanner.cardPastDueTitle')
+      : renewal.ends_on_free
+        ? t('planBanner.renewalFreeTitle', { date: endDate })
+        : t(daysLeft === 1 ? 'planBanner.renewalTitleOne' : 'planBanner.renewalTitle', { days: daysLeft });
     return (
       <div className="mx-3 mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5">
         <div className="flex items-start gap-2">
@@ -76,13 +80,15 @@ export function PlanStatusBanner({ workspaceId }: { workspaceId: string | null |
             <p className="text-[12px] font-semibold text-destructive">{title}</p>
             {/* A change to Free the customer chose: renewing is refused, cancelling the change keeps the plan. */}
             <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-              {t(renewal.ends_on_free ? 'planBanner.renewalFreeDesc' : 'planBanner.renewalDesc')}
+              {cardFailed
+                ? t('planBanner.cardPastDueDesc', { date: endDate })
+                : t(renewal.ends_on_free ? 'planBanner.renewalFreeDesc' : 'planBanner.renewalDesc')}
             </p>
             <Link
               to={wsPath('/billing')}
               className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-destructive hover:underline"
             >
-              {t(renewal.ends_on_free ? 'planBanner.manageCta' : 'planBanner.renewCta')}
+              {t(cardFailed ? 'planBanner.cardPastDueCta' : renewal.ends_on_free ? 'planBanner.manageCta' : 'planBanner.renewCta')}
               <ArrowUpRight className="h-3 w-3" />
             </Link>
           </div>

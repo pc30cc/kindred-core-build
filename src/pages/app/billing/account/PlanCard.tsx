@@ -6,30 +6,63 @@
  * the due moment the workspace moves to the free plan. Cancelling a change
  * opens the plan picker on the current plan, so what it moves in the
  * balance is shown before it is confirmed.
+ *
+ * With a saved card (Multi Region, docs/billing/SIMPLE_BILLING.md) the card
+ * pays each renewal in full, a day before the period ends: the card block
+ * says when and how much, and offers changing or removing the card. A
+ * renewal the card could not pay shows as a red alert with "update card
+ * and pay" and "renew from balance". Without a card, where one can be
+ * saved, "turn on automatic card payments" pays the next period now with a
+ * card that then renews the plan.
  */
-import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { AlertTriangle, CheckCircle2, CreditCard, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useTranslation, type TranslationKey } from '@/i18n';
-import { accountBillingApi, type AccountView } from '@/lib/accountBillingApi';
+import { accountBillingApi, type AccountView, type CardView } from '@/lib/accountBillingApi';
 import { billingDate, money } from '../shared';
+import { PADDLE_MIN_CHARGE_MINOR, chargeFor } from '../../../../../shared/simpleBilling';
 import type { PayOnlineRequest } from './PayOnlineDialog';
 import type { PlanPreselect } from './PlanPickerDialog';
-import { accountErrorText, planLabel } from './accountUi';
+import {
+  accountErrorText,
+  billingMoment,
+  billingReturnOrigin,
+  cardExpiry,
+  cardFailureKind,
+  cardLabel,
+  followCheckout,
+  isFuture,
+  planLabel,
+  stashCardReturn,
+} from './accountUi';
 
 export default function PlanCard({
   workspaceId,
+  slug,
   view,
   onChanged,
   onChoosePlan,
   onPayOnline,
 }: {
   workspaceId: string;
+  /** The workspace's address, for the return from Paddle after a card change. */
+  slug: string;
   view: AccountView;
   onChanged: () => void;
   /** Opens the plan picker, on a plan when given. */
@@ -39,14 +72,25 @@ export default function PlanCard({
   const { t, locale } = useTranslation();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const plan = view.plan;
   const paid = view.paid_period;
   const name = plan.is_free && !plan.name ? t('billing.account.plan.free') : planLabel(plan.name, plan.localized, locale);
   const prepaid = view.next_period_prepaid_minor !== null || view.next_period_paid === true;
   const renewalPrice = view.renewal?.price_minor ?? null;
   const canRenewFromBalance = renewalPrice !== null && view.balance_minor >= renewalPrice;
-  const willAutoRenew = view.auto_renew && canRenewFromBalance;
-  const warn = Boolean(paid && !prepaid && view.days_left !== null && view.days_left <= 7 && view.renewal && !willAutoRenew);
+  // A live card renews only by its own charge, never from the balance (the
+  // due step leaves a card account alone); without one, the 3a rule.
+  const card: CardView | null = view.card ?? null;
+  const cardPastDue = card?.status === 'past_due';
+  const cardRenews = Boolean(
+    card && card.status === 'active' && card.auto_renew && !card.scheduled_cancel_at && card.next_charge_minor !== null,
+  );
+  const frozen = Boolean(card && isFuture(card.frozen_until));
+  const willAutoRenew = card ? cardRenews : view.auto_renew && canRenewFromBalance;
+  const warn = Boolean(
+    paid && !prepaid && !cardPastDue && view.days_left !== null && view.days_left <= 7 && view.renewal && !willAutoRenew,
+  );
   const scheduledName = view.scheduled_plan
     ? (view.scheduled_plan.is_free ? t('billing.account.plan.free') : planLabel(view.scheduled_plan.name, view.scheduled_plan.localized, locale))
     : null;
@@ -55,6 +99,17 @@ export default function PlanCard({
   // Only once the workspace is on Free (a canceled or past-due plan that still applies is not over).
   const lapsed = !paid && plan.is_free ? view.lapsed ?? null : null;
   const lapsedName = lapsed ? planLabel(lapsed.name, lapsed.localized, locale) : '';
+  // Saving a card pays the next period now (an early renewal), at a price Paddle can charge.
+  const cardSetupOffered = Boolean(
+    !card
+      && view.card_available
+      && view.can_manage
+      && paid
+      && !prepaid
+      && view.renewal
+      && renewalPrice !== null
+      && chargeFor(renewalPrice, view.vat_percent).total >= (PADDLE_MIN_CHARGE_MINOR[view.currency] ?? Number.POSITIVE_INFINITY),
+  );
 
   const act = async (id: string, action: () => Promise<unknown>) => {
     setBusy(id);
@@ -64,15 +119,49 @@ export default function PlanCard({
       onChanged();
     } catch (e) {
       setError(accountErrorText(e, t));
-      // The period changed under the page (another tab, the job): show what is true now.
+      // The period changed under the page (another tab, the job, Paddle): show what is true now.
       const code = (e as { code?: string } | null)?.code;
-      if (['PERIOD_CHANGED', 'ALREADY_RENEWED', 'NO_PAID_PLAN', 'QUOTE_CHANGED'].includes(String(code))) onChanged();
+      if (
+        [
+          'PERIOD_CHANGED', 'ALREADY_RENEWED', 'NO_PAID_PLAN', 'QUOTE_CHANGED',
+          'CARD_NOT_FOUND', 'CARD_PAST_DUE', 'CARD_PAYS_RENEWAL', 'CARD_RENEWAL_IN_PROGRESS', 'CARD_NOT_AVAILABLE',
+        ].includes(String(code))
+      ) onChanged();
     } finally {
       setBusy(null);
     }
   };
   const spin = (id: string) => (busy === id ? <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden /> : null);
   const amount = (minor: number) => money(minor, locale, view.currency);
+
+  // Change the card in Paddle's overlay; for a failed renewal Paddle's
+  // transaction is that renewal, so paying it there also renews the plan.
+  // Completing it returns to this page (?card=…); closing it only refreshes.
+  const updateCard = (id: 'card-update' | 'card-pay') => act(id, async () => {
+    if (!card) return;
+    const started = await accountBillingApi.updateCard(
+      workspaceId,
+      `${billingReturnOrigin()}/${slug}/billing?card=${id === 'card-pay' ? 'paid' : 'updated'}`,
+    );
+    stashCardReturn(workspaceId, card);
+    await followCheckout(started, {
+      locale,
+      closeDialog: () => undefined,
+      onError: (e) => setError(accountErrorText(e, t)),
+      onClosed: onChanged,
+    });
+  });
+
+  const renewFromBalance = paid && renewalPrice !== null && (
+    <Button
+      variant={cardPastDue ? 'outline' : 'default'}
+      disabled={busy !== null || (frozen && !cardPastDue)}
+      onClick={() => void act('renew', () => accountBillingApi.renew(workspaceId, paid.current_period_end, renewalPrice))}
+    >
+      {spin('renew')}
+      {t('billing.account.plan.renewFromBalance', { amount: amount(renewalPrice) })}
+    </Button>
+  );
 
   return (
     <Card data-testid="plan-card">
@@ -148,15 +237,34 @@ export default function PlanCard({
           </Alert>
         )}
 
+        {card && (
+          <CardBlock
+            card={card}
+            paidEnd={paid?.current_period_end ?? null}
+            prepaid={prepaid}
+            frozen={frozen}
+            canManage={view.can_manage}
+            busy={busy}
+            amount={amount}
+            onUpdate={() => void updateCard(cardPastDue ? 'card-pay' : 'card-update')}
+            onRemove={() => setConfirmRemove(true)}
+            renewFromBalance={paid && !prepaid && view.renewal && canRenewFromBalance ? renewFromBalance : null}
+          />
+        )}
+
         {paid && view.can_manage && (
           <div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 p-2">
             <div>
               <Label htmlFor="auto-renew" className="font-medium">{t('billing.account.plan.autoRenew')}</Label>
-              <p className="text-xs text-muted-foreground">{t('billing.account.plan.autoRenewHint')}</p>
+              <p className="text-xs text-muted-foreground">
+                {card
+                  ? t('billing.account.card.autoRenewHint', { card: cardLabel(card, t) })
+                  : t('billing.account.plan.autoRenewHint')}
+              </p>
             </div>
             <Switch
               id="auto-renew"
-              checked={view.auto_renew}
+              checked={card ? card.auto_renew : view.auto_renew}
               disabled={busy !== null}
               onCheckedChange={(enabled) => void act('auto', () => accountBillingApi.setAutoRenew(workspaceId, enabled))}
             />
@@ -165,16 +273,11 @@ export default function PlanCard({
 
         {view.can_manage && (
           <div className="flex flex-wrap gap-2">
-            {paid && !prepaid && view.renewal && renewalPrice !== null && (
+            {/* With a card the card pays the renewal (paying online for it is refused); the past-due alert offers the balance. */}
+            {paid && !prepaid && view.renewal && renewalPrice !== null && !cardPastDue && (
               canRenewFromBalance ? (
-                <Button
-                  disabled={busy !== null}
-                  onClick={() => void act('renew', () => accountBillingApi.renew(workspaceId, paid.current_period_end, renewalPrice))}
-                >
-                  {spin('renew')}
-                  {t('billing.account.plan.renewFromBalance', { amount: amount(renewalPrice) })}
-                </Button>
-              ) : (
+                renewFromBalance
+              ) : !card ? (
                 <Button
                   disabled={busy !== null}
                   onClick={() => onPayOnline({
@@ -182,12 +285,34 @@ export default function PlanCard({
                     priceMinor: renewalPrice,
                     balanceMinor: view.balance_minor,
                     expectedNetMinor: renewalPrice,
+                    fullPriceMinor: renewalPrice,
+                    cardInterval: view.renewal?.billing_interval,
                     title: t('billing.account.plan.renewOnlineTitle', { plan: renewalName }),
                   })}
                 >
                   {t('billing.account.plan.renewOnline')}
                 </Button>
-              )
+              ) : null
+            )}
+            {cardSetupOffered && renewalPrice !== null && (
+              <Button
+                variant="outline"
+                disabled={busy !== null}
+                data-testid="card-setup"
+                onClick={() => onPayOnline({
+                  purpose: 'renewal',
+                  priceMinor: renewalPrice,
+                  balanceMinor: view.balance_minor,
+                  expectedNetMinor: renewalPrice,
+                  fullPriceMinor: renewalPrice,
+                  cardInterval: view.renewal?.billing_interval,
+                  autoRenew: true,
+                  title: t('billing.account.card.setupTitle', { plan: renewalName }),
+                })}
+              >
+                <CreditCard className="me-2 h-4 w-4" aria-hidden />
+                {t('billing.account.card.setup')}
+              </Button>
             )}
             {lapsed && (
               <Button
@@ -204,6 +329,156 @@ export default function PlanCard({
         )}
         {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
       </CardContent>
+
+      {card && (
+        <AlertDialog open={confirmRemove} onOpenChange={(open) => busy !== 'card-remove' && setConfirmRemove(open)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('billing.account.card.removeTitle')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('billing.account.card.removeConfirm', { card: cardLabel(card, t) })}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy === 'card-remove'}>{t('billing.common.cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={busy === 'card-remove'}
+                onClick={(e) => {
+                  // Stays open until Paddle confirmed: a refusal is shown on the card.
+                  e.preventDefault();
+                  void act('card-remove', () => accountBillingApi.removeCard(workspaceId)).finally(() => setConfirmRemove(false));
+                }}
+              >
+                {spin('card-remove')}
+                {t('billing.account.card.remove')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </Card>
+  );
+}
+
+/**
+ * The saved card: which one, when Paddle charges it next and how much, a
+ * scheduled removal, a card that expires before then, the freeze while a
+ * renewal is being charged, and — when the renewal failed — the red alert.
+ */
+function CardBlock({
+  card,
+  paidEnd,
+  prepaid,
+  frozen,
+  canManage,
+  busy,
+  amount,
+  onUpdate,
+  onRemove,
+  renewFromBalance,
+}: {
+  card: CardView;
+  paidEnd: string | null;
+  prepaid: boolean;
+  frozen: boolean;
+  canManage: boolean;
+  busy: string | null;
+  amount: (minor: number) => string;
+  onUpdate: () => void;
+  onRemove: () => void;
+  /** Offered in the past-due alert when the balance covers the renewal. */
+  renewFromBalance: ReactNode;
+}) {
+  const { t, locale } = useTranslation();
+  const label = cardLabel(card, t);
+  const expiry = cardExpiry(card);
+  const pastDue = card.status === 'past_due';
+  const date = (iso: string) => billingDate(iso, locale);
+  const spinner = (id: string) => (busy === id ? <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden /> : null);
+
+  let next: string;
+  if (card.scheduled_cancel_at) {
+    next = t('billing.account.card.removedOn', { card: label, date: date(card.scheduled_cancel_at) });
+  } else if (!card.auto_renew) {
+    next = t('billing.account.card.autoRenewOff', { card: label });
+  } else if (!paidEnd) {
+    next = t('billing.account.card.saving', { card: label });
+  } else if (card.next_charge_minor === null) {
+    next = t('billing.account.card.noCharge', { card: label });
+  } else if (!card.next_charge_at) {
+    next = t('billing.account.card.chargeBeforeRenewal', { card: label, amount: amount(card.next_charge_minor) });
+  } else {
+    next = t(prepaid ? 'billing.account.card.chargeLater' : 'billing.account.card.charge', {
+      card: label,
+      amount: amount(card.next_charge_minor),
+      date: date(card.next_charge_at),
+      renewsOn: date(paidEnd),
+    });
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border p-3" data-testid="plan-card-block">
+      <div className="flex flex-wrap items-center gap-2">
+        <CreditCard className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <span className="font-medium" data-testid="card-label">{label}</span>
+        {expiry && <span className="text-xs text-muted-foreground">{t('billing.account.card.expires', { date: expiry })}</span>}
+      </div>
+
+      {pastDue ? (
+        <Alert variant="destructive" data-testid="card-past-due">
+          <AlertTriangle className="h-4 w-4" aria-hidden />
+          <AlertDescription className="space-y-2">
+            <p className="font-medium">{t('billing.account.card.pastDueTitle')}</p>
+            <p>
+              {t('billing.account.card.pastDue', {
+                card: label,
+                reason: t(`billing.account.card.failure.${cardFailureKind(card.last_failure?.code)}` as TranslationKey),
+              })}
+            </p>
+            {paidEnd && <p>{t('billing.account.card.pastDueDeadline', { date: date(paidEnd) })}</p>}
+            {canManage && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button size="sm" disabled={busy !== null} onClick={onUpdate}>
+                  {spinner('card-pay')}
+                  {t('billing.account.card.updateAndPay')}
+                </Button>
+                {renewFromBalance}
+              </div>
+            )}
+            {canManage && renewFromBalance && (
+              <p className="text-xs">{t('billing.account.card.renewFromBalanceRemoves')}</p>
+            )}
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <p className="text-muted-foreground" data-testid="card-next">{next}</p>
+      )}
+
+      {!pastDue && card.expires_before_next_charge && (
+        <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400" data-testid="card-expiring">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          {t('billing.account.card.expiresSoon', { card: label })}
+        </p>
+      )}
+
+      {frozen && card.frozen_until && (
+        <p className="text-xs text-muted-foreground" data-testid="card-frozen">
+          {t('billing.account.card.frozen', { time: billingMoment(card.frozen_until, locale) })}
+        </p>
+      )}
+
+      {canManage && (
+        <div className="flex flex-wrap gap-2">
+          {!pastDue && (
+            <Button size="sm" variant="outline" disabled={busy !== null} onClick={onUpdate}>
+              {spinner('card-update')}
+              {t('billing.account.card.change')}
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" disabled={busy !== null} onClick={onRemove}>
+            {t('billing.account.card.remove')}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -4,8 +4,10 @@
  * its sender really fills. Every platform mail is edited there, per edition;
  * a billing mail missing from the list could only be changed in SQL.
  *
- * The slugs are read from the sender (notify.ts) and the seed (migration
- * 261), so a mail added there and forgotten here fails in this test.
+ * The slugs are read from the sender (notify.ts) and the seeds (migrations
+ * 261 and 262), so a mail added there and forgotten here fails in this test.
+ * The saved card's mails (262) exist in the International edition only: the
+ * Iranian edition lists neither them nor {card} on the renewal mail.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -50,7 +52,7 @@ const LOCALES = { en, fa, tr } as const;
 /** The variables each mail fills besides the ones every billing mail has. */
 const OWN_VARIABLES: Record<string, string[]> = {
   billing_renewal_reminder: ['{plan_name}', '{new_plan_name}', '{amount}', '{balance}', '{period_end}', '{days_left}'],
-  billing_renewed: ['{plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
+  billing_renewed: ['{plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}', '{card}'],
   billing_expired: ['{plan_name}', '{expired_at}'],
   billing_plan_changed: ['{plan_name}', '{old_plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_change_scheduled: ['{plan_name}', '{new_plan_name}', '{effective_at}'],
@@ -58,7 +60,12 @@ const OWN_VARIABLES: Record<string, string[]> = {
   billing_plan_activated: ['{plan_name}', '{amount}', '{balance}', '{period_end}'],
   billing_trial_ending: ['{trial_end}', '{days_left}'],
   billing_trial_ended: [],
+  billing_card_payment_failed: ['{plan_name}', '{amount}', '{card}', '{failure_reason}', '{due_at}'],
+  billing_card_removed: ['{card}', '{reason}', '{plan_name}', '{period_end}'],
 };
+const CARD_SLUGS = ['billing_card_payment_failed', 'billing_card_removed'];
+/** The renewal mail names the card that paid it, in the International edition. */
+const INTERNATIONAL_ONLY: Record<string, string[]> = { billing_renewed: ['{card}'] };
 const EVERY_BILLING_MAIL = ['{brand}', '{year}', '{support_email}', '{workspace}', '{billing_url}'];
 
 /** The slugs the sender knows (BillingEmailSlug in notify.ts). */
@@ -70,14 +77,20 @@ function senderSlugs(): string[] {
   return [...source.slice(start, end).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
 }
 
-/** Every {placeholder} migration 261 seeds for a slug, in any language. */
+/** Every {placeholder} migrations 261 and 262 seed for a slug, in any language. */
 function seededPlaceholders(): Map<string, Set<string>> {
-  const sql = readFileSync('database/migrations/261_simple_billing_renewals.sql', 'utf8');
   const out = new Map<string, Set<string>>();
-  for (const m of sql.matchAll(/^SELECT pg_temp\._email_261_seed\('([a-z_]+)', '[a-z]{2}',\n([\s\S]*?)'\);$/gm)) {
-    const found = out.get(m[1]) ?? new Set<string>();
-    for (const v of m[2].matchAll(/\{[a-z_]+\}/g)) found.add(v[0]);
-    out.set(m[1], found);
+  for (const [file, helper] of [
+    ['database/migrations/261_simple_billing_renewals.sql', '_email_261_seed'],
+    ['database/migrations/262_simple_billing_card.sql', '_email_262_seed'],
+  ]) {
+    const sql = readFileSync(file, 'utf8');
+    const seed = new RegExp(`^SELECT pg_temp\\.${helper}\\('([a-z_]+)', '[a-z]{2}',\\n([\\s\\S]*?)'\\);$`, 'gm');
+    for (const m of sql.matchAll(seed)) {
+      const found = out.get(m[1]) ?? new Set<string>();
+      for (const v of m[2].matchAll(/\{[a-z_]+\}/g)) found.add(v[0]);
+      out.set(m[1], found);
+    }
   }
   return out;
 }
@@ -110,15 +123,17 @@ async function renderTab() {
 
 describe('Branding → Email templates: the simple billing mails', () => {
   const slugs = Object.keys(OWN_VARIABLES);
+  let edition = 'international';
 
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ templates: [], edition: 'iran' }) })));
+    edition = 'international';
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ templates: [], edition }) })));
   });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('are the nine mails the sender sends', () => {
+  it('are the eleven mails the sender sends', () => {
     expect(LEGACY_BILLING_ENABLED).toBe(false);
     expect(senderSlugs().sort()).toEqual([...slugs].sort());
   });
@@ -134,6 +149,17 @@ describe('Branding → Email templates: the simple billing mails', () => {
     for (const legacy of ['invoice_issued', 'payment_received', 'subscription_renewed', 'trial_expired']) {
       expect(all).not.toContain(legacy);
     }
+  });
+
+  it('in the Iranian edition leave out the card mails and the card on the renewal mail', async () => {
+    edition = 'iran';
+    await renderTab();
+    fireEvent.click(screen.getByText('[admin.brandingPage.emailTemplates.categories.billing]'));
+    expect(listedSlugs()).toEqual(slugs.filter((slug) => !CARD_SLUGS.includes(slug)));
+    fireEvent.click(screen.getByText(`[${SLUG_KEY}.billing_renewed]`));
+    expect(variableChips().sort()).toEqual(
+      [...EVERY_BILLING_MAIL, ...OWN_VARIABLES.billing_renewed.filter((v) => !INTERNATIONAL_ONLY.billing_renewed.includes(v))].sort(),
+    );
   });
 
   it('offer the variables each mail fills, covering everything the seed uses', async () => {

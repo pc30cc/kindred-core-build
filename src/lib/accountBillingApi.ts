@@ -68,6 +68,35 @@ export interface PlanRef {
   price_minor: number | null;
 }
 
+/**
+ * The workspace's live saved card (Multi Region automatic renewal through a
+ * Paddle subscription, server/services/billing/account/card.ts). Paddle
+ * charges it a day before the period ends; the server decides every amount.
+ */
+export interface CardView {
+  id: string;
+  provider: string;
+  status: 'active' | 'past_due';
+  /** Paddle's card type ('visa', 'mastercard', …), or null when not known yet. */
+  brand: string | null;
+  last4: string | null;
+  exp_month: number | null;
+  exp_year: number | null;
+  auto_renew: boolean;
+  /** When Paddle charges next; null while a cancel is scheduled. */
+  next_charge_at: string | null;
+  /** What that charge takes (null when the card will not renew the next period). */
+  next_charge_minor: number | null;
+  next_charge_plan: { plan_id: string; name: string; localized: Record<string, unknown> } | null;
+  next_charge_interval: BillingInterval | null;
+  /** Automatic renewal turned off: when Paddle removes the card. */
+  scheduled_cancel_at: string | null;
+  last_failure: { at: string; code: string | null } | null;
+  /** Plan changes wait while Paddle renews, until this time. */
+  frozen_until: string | null;
+  expires_before_next_charge: boolean;
+}
+
 export interface AccountView {
   edition: Edition;
   currency: string;
@@ -93,6 +122,12 @@ export interface AccountView {
   /** The paid plan that ran out, still sold: "renew" buys it again. */
   lapsed: PlanRef | null;
   days_left: number | null;
+  /** The live saved card; null without one (and for members who cannot manage billing). */
+  card: CardView | null;
+  /** A card can be saved here (Multi Region, a Paddle gateway with automatic renewal on). */
+  card_available: boolean;
+  /** The gateways that can save one. */
+  card_providers: string[];
 }
 
 export interface PlanOption {
@@ -221,6 +256,13 @@ export interface PaymentStatus {
   purpose_result?: Record<string, unknown> | null;
 }
 
+/** An upgrade charged to the saved card: settled at once, or still being confirmed (202). */
+export interface CardChargeResult {
+  status: 'succeeded' | 'processing';
+  paymentId: string;
+  purpose_result?: Record<string, unknown> | null;
+}
+
 export const accountBillingApi = {
   view: (workspaceId: string) => request<AccountView>(base(workspaceId)),
   ledger: (workspaceId: string, page = 1, pageSize = 20) =>
@@ -266,8 +308,12 @@ export const accountBillingApi = {
       method: 'POST',
       body: JSON.stringify({ planId, interval, expectedNetMinor }),
     }),
+  /** With a saved card the server asks Paddle first; the answer carries the card as it is now. */
   setAutoRenew: (workspaceId: string, enabled: boolean) =>
-    request<{ auto_renew: boolean }>(`${base(workspaceId)}/auto-renew`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
+    request<{ auto_renew: boolean; card?: CardView | null }>(`${base(workspaceId)}/auto-renew`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
   checkout: (
     workspaceId: string,
     input: {
@@ -278,6 +324,21 @@ export const accountBillingApi = {
       providerName?: string;
       callbackUrl: string;
       expectedNetMinor?: number;
+      /** Save the card and renew with it (plan or renewal): the full price is charged. */
+      autoRenew?: boolean;
     },
   ) => request<TopupStarted>(`${base(workspaceId)}/checkout`, { method: 'POST', body: JSON.stringify(input) }),
+  /** Upgrade now, charging the quoted difference to the saved card. */
+  chargeCardUpgrade: (workspaceId: string, input: { planId: string; expectedNetMinor: number }) =>
+    request<CardChargeResult>(`${base(workspaceId)}/card/charge`, {
+      method: 'POST',
+      body: JSON.stringify({ purpose: 'upgrade', ...input }),
+    }),
+  /** Paddle's transaction for changing the card (or paying a failed renewal with another one). */
+  updateCard: (workspaceId: string, callbackUrl: string) =>
+    request<{ clientCheckout: ClientCheckout; transactionId: string }>(`${base(workspaceId)}/card/update`, {
+      method: 'POST',
+      body: JSON.stringify({ callbackUrl }),
+    }),
+  removeCard: (workspaceId: string) => request<{ removed: boolean }>(`${base(workspaceId)}/card`, { method: 'DELETE' }),
 };

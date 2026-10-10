@@ -34,12 +34,20 @@ existing `billing_provider_credentials` table.
   optional *Product ID* attaches that price to an existing product instead; it
   must be a product of the **sandbox** catalog (`pro_…`).
 - **Events** the provider handles (`paddle.ts → verifyWebhook`):
-  - `transaction.paid`, `transaction.completed` — settle the invoice (the
-    second one is an idempotent no-op);
-  - `adjustment.created`, `adjustment.updated` — an approved refund is
-    recorded once per adjustment.
-  Every other event (`transaction.payment_failed` included: the checkout stays
-  open for another try) is acknowledged and ignored.
+  - `transaction.paid`, `transaction.completed` of a checkout (origin `api` /
+    `web`) — settle the invoice or account payment (the second one is an
+    idempotent no-op);
+  - `adjustment.created`, `adjustment.updated` — an approved refund, or an
+    approved chargeback (marked as one), is recorded once per adjustment;
+  - with *Automatic card renewal* on (below): every `transaction.*` that
+    Paddle made from a subscription (origin `subscription_recurring`,
+    `subscription_charge`, `subscription_update`,
+    `subscription_payment_method_change`) and `subscription.created`,
+    `.activated`, `.updated`, `.past_due`, `.paused`, `.resumed`, `.canceled`
+    are *card events*, routed by the subscription id (never by the checkout's
+    `intent_id`, which Paddle copies onto the subscription and its renewals).
+  Every other event (`transaction.payment_failed` of a checkout included: the
+  checkout stays open for another try) is acknowledged and ignored.
 - **Currencies:** USD, EUR, GBP, TRY (the same as live Paddle). RESPOK
   invoices in USD.
 
@@ -56,7 +64,8 @@ existing `billing_provider_credentials` table.
    key*. The key starts with `pdl_sdbx_apikey_`. Permissions: at least
    *Transactions* read + write (create the checkout, verify it, cancel a
    superseded one) and *Notification settings* read (the Super Admin "Test"
-   button lists event types). It is a sandbox key, so giving it every
+   button lists event types); for automatic card renewal also
+   *Subscriptions* read + write. It is a sandbox key, so giving it every
    permission is fine.
 4. **Client-side token.** Same page → *Client-side tokens* → *New client-side
    token*. It starts with `test_`.
@@ -64,7 +73,8 @@ existing `billing_provider_credentials` table.
    destination*:
    - Type: webhook; URL: `https://api.respok.app/api/billing/webhook/paddle_sandbox`
    - Events: `transaction.paid`, `transaction.completed`,
-     `adjustment.created`, `adjustment.updated`
+     `adjustment.created`, `adjustment.updated`; for automatic card renewal
+     also the events listed under [Automatic card renewal](#automatic-card-renewal-multi-region)
    - Save, then copy the destination's *secret key* (`pdl_ntfset_…`).
 6. **Credentials in RESPOK.** Super Admin → *Providers* → *Billing* →
    **Paddle — Sandbox (test)**: API key, client-side token, webhook secret,
@@ -81,7 +91,9 @@ existing `billing_provider_credentials` table.
 7. **Switch it on.** Super Admin → *Finance* → *Gateways* → *Paddle — Sandbox
    (test)*: active, currency USD. It is always marked as a test gateway.
 8. **Check.** Super Admin → *Billing* → *Providers* → *Paddle — Sandbox (test)*
-   → *Test* should answer OK (it calls `GET /event-types` on the sandbox).
+   → *Test* should answer OK (it calls `GET /event-types` on the sandbox, and
+   with *Automatic card renewal* on also `GET /subscriptions?per_page=1`, which
+   fails with a message naming the missing *Subscriptions* permission).
 
 ## Testing a payment
 
@@ -108,6 +120,76 @@ Sandbox behaviour to expect:
   about every 10 minutes; the approved `adjustment.updated` records the
   refund on the payment.
 
+## Automatic card renewal (Multi Region)
+
+Simple billing phase 3b (`docs/billing/SIMPLE_BILLING.md`): a Multi Region /
+Global account (USD) can tick "Renew automatically with this card" when it
+pays for a plan. The checkout's price then recurs (`billing_cycle`), so
+Paddle saves the card on a **subscription** with one price we set, and
+charges it 24 hours before each of our due dates. Our server moves that
+subscription's date and price (always with `proration_billing_mode:
+do_not_bill`, after a preview that shows nothing billed), cancels it when
+auto-renew is turned off or the card is removed, and charges an upgrade's
+difference with a one-time `/charge`. The Paddle layer is
+`server/services/billing/providers/paddleSubscriptions.ts`; the card logic is
+`server/services/billing/account/card.ts`.
+
+It is **off** until the Super Admin switches **Automatic card renewal (Multi
+Region)** on for a Paddle gateway (Providers → Billing → the gateway).
+Switch it on for `paddle_sandbox` first, run the checks below, then for live
+`paddle`. With it off nothing new is offered; cards already saved keep
+renewing and their notifications are still handled.
+
+Before switching it on, for that gateway's Paddle account:
+
+- **API key permissions:** add *Subscriptions* read + write (get, preview,
+  update, cancel, one-time charge), next to *Transactions* read + write and
+  *Notification settings* read. *Test* checks the read part.
+- **Notification events:** add to the destination
+  - `transaction.created`, `transaction.billed`, `transaction.paid`,
+    `transaction.completed`, `transaction.payment_failed`,
+    `transaction.past_due`, `transaction.canceled`;
+  - `subscription.created`, `subscription.activated`, `subscription.updated`,
+    `subscription.past_due`, `subscription.paused`, `subscription.resumed`,
+    `subscription.canceled`;
+  - `adjustment.created`, `adjustment.updated` (refunds and chargebacks).
+
+### Sandbox checks before going live
+
+Each check tests an assumption the design makes about Paddle. Run them on
+the sandbox; Paddle's *Transactions* / *Subscriptions* pages and the
+notification log show what happened. A renewal can be brought forward by
+setting `next_billed_at` at least 30 minutes ahead, and the sandbox does not
+retry failed payments.
+
+1. `PATCH next_billed_at`, earlier and later, with `do_not_bill`: no
+   transaction and no credit is created.
+2. Swapping the item (monthly → yearly included) with `do_not_bill`: note
+   what happens to `next_billed_at` (the next sync corrects it if it moved).
+3. `/charge` with `on_payment_failure: prevent_change`: a decline comes back
+   in the call (400 `subscription_payment_declined`; save the card with
+   Paddle's test card that succeeds once and then declines), and a charged
+   transaction can be found with `GET /transactions?subscription_id=…`
+   carrying the price's `custom_data.payment_id`.
+4. A renewal transaction has `origin: subscription_recurring`, the copied
+   top-level `custom_data`, and the item's price `custom_data`
+   (`plan_id`, `interval`, `net_minor`, `tax_minor`).
+5. Cancelling a `past_due` subscription immediately also cancels its open
+   transaction (no later charge).
+6. Whether updates are refused while a cancel is scheduled (auto-renew off,
+   then on again before the date).
+7. `payments[].method_details.card` (`type`, `last4`, `expiry_month`,
+   `expiry_year`) is present on the checkout and on a renewal.
+8. Under `tax_mode: internal`, a reverse-charged business buyer's
+   transaction `total` still equals our price. If it does not, the money is
+   still credited (as a top-up, logged REVIEW) but the renewal is not
+   applied, and the tax mode needs a decision.
+
+Taken from Paddle's API reference, not yet seen in practice: a chargeback
+arrives as an `adjustment` with `action: chargeback` and `status: approved`;
+it is recorded like a refund, marked as a chargeback. A `chargeback_reverse`
+(the money coming back) is acknowledged and left to a person.
+
 ## How test money is marked
 
 Payments and intents carry their gateway in `provider_name`; there is no
@@ -122,4 +204,6 @@ those providers.
 ## Removing it
 
 Switch it off in Finance → Gateways. Its credentials can stay; the live
-`paddle` gateway is unaffected either way.
+`paddle` gateway is unaffected either way. Cards already saved through it
+keep renewing (keep its notification destination); switching *Automatic card
+renewal* off only stops new ones.

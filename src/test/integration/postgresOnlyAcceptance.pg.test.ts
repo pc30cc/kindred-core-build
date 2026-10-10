@@ -57,6 +57,10 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
   return { ...actual, authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next() };
 });
 
+// Billing v2's customer mutations answer 410 while v2 is retired
+// (server/middleware/billingV2Retired.ts); this suite covers them with v2 on.
+vi.mock('../../../shared/billingMode.js', () => ({ LEGACY_BILLING_ENABLED: true }));
+
 // ── nothing may leave this machine ─────────────────────────────────────────
 const egress = { blocked: [] as string[] };
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);

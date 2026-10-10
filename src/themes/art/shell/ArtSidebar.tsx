@@ -36,7 +36,8 @@ const DAY_MS = 86_400_000;
 /**
  * The plan notice's state, decided exactly as PlanStatusBanner decides it
  * (the backend's effective-entitlement snapshot): a running trial and its
- * days, the free plan, or nothing for a paying / unlimited workspace.
+ * days, a paid period ending within 7 days that will not renew and its days,
+ * the free plan, or nothing for a renewing / unlimited workspace.
  */
 function useArtPlanNotice(workspaceId: string | null | undefined) {
   const { data } = useWorkspaceEffectiveEntitlements(workspaceId || null);
@@ -49,15 +50,22 @@ function useArtPlanNotice(workspaceId: string | null | undefined) {
   if (sub?.status === 'trialing' && Number.isFinite(trialEndMs) && trialEndMs > Date.now()) {
     return { kind: 'trial' as const, days: Math.max(1, Math.ceil((trialEndMs - Date.now()) / DAY_MS)) };
   }
+  const renewalEndMs = data.renewal_due ? new Date(data.renewal_due.period_end).getTime() : NaN;
+  if (Number.isFinite(renewalEndMs) && renewalEndMs > Date.now()) {
+    return { kind: 'renewal' as const, days: Math.max(1, Math.ceil((renewalEndMs - Date.now()) / DAY_MS)) };
+  }
   const isFree = Boolean(plan?.is_free) || plan?.slug === 'free' || !sub?.plan_id || !!sub?.free_fallback_at;
   return isFree ? { kind: 'free' as const } : null;
 }
 
-/** The plan card's line: the trial's days left ("last day" on the last), or the free plan. */
+/** The plan card's line: the trial's or the ending plan's days left ("last day" on the last), or the free plan. */
 function planNoticeText(
   t: ReturnType<typeof useTranslation>['t'],
   notice: NonNullable<ReturnType<typeof useArtPlanNotice>>,
 ) {
+  if (notice.kind === 'renewal') {
+    return notice.days === 1 ? t('artShell.planEndsLastDay') : t('artShell.planEnds', { days: notice.days });
+  }
   if (notice.kind !== 'trial') return t('artShell.planFree');
   return notice.days === 1 ? t('artShell.planTrialLastDay') : t('artShell.planTrial', { days: notice.days });
 }
@@ -299,8 +307,9 @@ function useRevealCurrent(ref: React.RefObject<HTMLElement>, key: string) {
 
 /**
  * The plan notice at the menu's foot, over the account: what the workspace
- * is on, and for the free plan a quiet link to upgrade (text, not a filled
- * button, so it never outshouts a page's own main action).
+ * is on, and for the free plan a quiet link to upgrade (for an ending plan,
+ * to renew; text, not a filled button, so it never outshouts a page's own
+ * main action).
  */
 function PlanCard({ notice }: { notice: NonNullable<ReturnType<typeof useArtPlanNotice>> }) {
   const { t } = useTranslation();
@@ -311,13 +320,13 @@ function PlanCard({ notice }: { notice: NonNullable<ReturnType<typeof useArtPlan
       <span className="min-w-0 flex-1 truncate font-medium text-foreground/85">
         {planNoticeText(t, notice)}
       </span>
-      {notice.kind === 'free' && (
+      {notice.kind !== 'trial' && (
         <Link
           to={wsPath('/billing')}
           data-shell="side-plan-link"
           className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
-          {t('artShell.planUpgrade')}
+          {notice.kind === 'renewal' ? t('artShell.planRenew') : t('artShell.planUpgrade')}
           <ArrowUpRight aria-hidden className="h-3.5 w-3.5 rtl:-scale-x-100" strokeWidth={2.2} />
         </Link>
       )}

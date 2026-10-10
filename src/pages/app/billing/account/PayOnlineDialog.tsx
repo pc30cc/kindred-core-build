@@ -13,6 +13,7 @@ import { accountBillingApi, type AccountGateway, type BillingInterval } from '@/
 import { money } from '../shared';
 import { TOPUP_LIMITS, chargeFor } from '../../../../../shared/simpleBilling';
 import GatewayPicker from './GatewayPicker';
+import { toast } from '@/lib/toast';
 import { accountErrorText, billingReturnOrigin, followCheckout } from './accountUi';
 
 export interface PayOnlineRequest {
@@ -22,6 +23,8 @@ export interface PayOnlineRequest {
   /** What the purchase costs in total, and what the balance already covers. */
   priceMinor: number;
   balanceMinor: number;
+  /** The amount the quote showed (plan, upgrade): a different one now is refused, never charged. */
+  expectedNetMinor?: number;
   title: string;
 }
 
@@ -67,6 +70,7 @@ export default function PayOnlineDialog({
         currency,
         providerName: chosen.provider_name,
         callbackUrl: `${billingReturnOrigin()}/${slug}/billing`,
+        expectedNetMinor: request.expectedNetMinor,
       });
       await followCheckout(started, {
         locale,
@@ -74,6 +78,7 @@ export default function PayOnlineDialog({
           setBusy(false);
           onOpenChange(false);
         },
+        onError: (e) => toast.error(accountErrorText(e, t)),
       });
     } catch (e) {
       setError(accountErrorText(e, t));

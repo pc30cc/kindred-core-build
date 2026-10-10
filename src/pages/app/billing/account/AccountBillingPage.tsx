@@ -9,21 +9,21 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Clock, Loader2, Plus, Receipt, Wallet, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Loader2, Plus, Receipt, Wallet, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { SkeletonCard, SkeletonStats } from '@/components/common/Skeletons';
 import { useTranslation, type TranslationKey } from '@/i18n';
-import { accountBillingApi, type AccountView, type LedgerPage, type VerifyOutcome } from '@/lib/accountBillingApi';
+import { accountBillingApi, type AccountView, type LedgerEntry, type LedgerPage, type VerifyOutcome } from '@/lib/accountBillingApi';
 import { ErrorState, EmptyState, Ltr, Pager, billingDate, money } from '../shared';
 import TopupDialog from './TopupDialog';
 import PlanCard from './PlanCard';
-import PlanPickerDialog from './PlanPickerDialog';
+import PlanPickerDialog, { type PlanPreselect } from './PlanPickerDialog';
 import PayOnlineDialog, { type PayOnlineRequest } from './PayOnlineDialog';
 import BillingProfileCard from './BillingProfileCard';
-import { accountErrorText } from './accountUi';
+import { accountErrorText, planLabel } from './accountUi';
 
 const PAGE_SIZE = 20;
 
@@ -37,8 +37,8 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
   const [ledger, setLedger] = useState<LedgerPage | null>(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
-  const [topupOpen, setTopupOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [topup, setTopup] = useState<{ open: boolean; amountMinor: number | null }>({ open: false, amountMinor: null });
+  const [picker, setPicker] = useState<{ open: boolean; preselect: PlanPreselect | null }>({ open: false, preselect: null });
   const [payOnline, setPayOnline] = useState<PayOnlineRequest | null>(null);
   const [ret, setRet] = useState<Return | null>(null);
   const handledReturn = useRef(false);
@@ -89,7 +89,13 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           } else {
             const status = await accountBillingApi.payment(workspaceId, pending.paymentId);
             outcome = status.status === 'succeeded'
-              ? { status: 'succeeded', ledgerId: status.ledger_id }
+              ? {
+                status: 'succeeded',
+                ledgerId: status.ledger_id,
+                ...(status.purpose && status.purpose !== 'topup'
+                  ? { purpose: status.purpose, purposeResult: status.purpose_result ?? null }
+                  : {}),
+              }
               : status.status === 'pending'
                 ? { status: 'pending' }
                 : { status: 'failed', reason: status.failure_reason ?? status.status };
@@ -204,7 +210,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">{t('billing.account.balance.note')}</p>
             {view.can_manage && (
-              <Button onClick={() => setTopupOpen(true)}>
+              <Button onClick={() => setTopup({ open: true, amountMinor: null })}>
                 <Plus className="me-2 h-4 w-4" aria-hidden />
                 {t('billing.account.balance.topup')}
               </Button>
@@ -216,7 +222,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           workspaceId={workspaceId}
           view={view}
           onChanged={() => void load()}
-          onChoosePlan={() => setPickerOpen(true)}
+          onChoosePlan={(preselect) => setPicker({ open: true, preselect: preselect ?? null })}
           onPayOnline={setPayOnline}
         />
       </div>
@@ -252,7 +258,10 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
                   {ledger.items.map((entry) => (
                     <TableRow key={entry.id}>
                       <TableCell className="whitespace-nowrap">{billingDate(entry.created_at, locale)}</TableCell>
-                      <TableCell>{t(`billing.account.history.kinds.${entry.kind}` as TranslationKey)}</TableCell>
+                      <TableCell>
+                        <div>{t(`billing.account.history.kinds.${entry.kind}` as TranslationKey)}</div>
+                        <LedgerDetail entry={entry} />
+                      </TableCell>
                       <TableCell
                         className={`text-end tabular-nums ${entry.amount_minor > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}`}
                       >
@@ -286,8 +295,9 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
 
       {view.can_manage && (
         <TopupDialog
-          open={topupOpen}
-          onOpenChange={setTopupOpen}
+          open={topup.open}
+          onOpenChange={(open) => setTopup((v) => ({ ...v, open }))}
+          initialAmountMinor={topup.amountMinor}
           workspaceId={workspaceId}
           slug={slug}
           currency={view.currency}
@@ -310,12 +320,14 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
         />
       )}
       <PlanPickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
+        open={picker.open}
+        onOpenChange={(open) => setPicker((v) => ({ ...v, open }))}
+        preselect={picker.preselect}
         workspaceId={workspaceId}
         view={view}
         onDone={() => void load()}
         onPayOnline={setPayOnline}
+        onTopup={view.can_manage ? (amountMinor) => setTopup({ open: true, amountMinor }) : undefined}
       />
     </div>
   );
@@ -338,10 +350,17 @@ function ReturnBanner({ ret, currency, slug, onDismiss, onCheckAgain }: {
     );
   }
   const { outcome } = ret;
-  const Icon = outcome.status === 'succeeded' ? CheckCircle2 : outcome.status === 'pending' ? Clock : XCircle;
+  // A payment for a plan, renewal or upgrade was spent on it in the same
+  // step; if that could no longer be done, the money stayed in the balance.
+  const purposeFailed = outcome.status === 'succeeded' && Boolean(outcome.purpose) && !purposeDone(outcome.purposeResult);
+  const Icon = outcome.status === 'succeeded' ? (purposeFailed ? AlertTriangle : CheckCircle2) : outcome.status === 'pending' ? Clock : XCircle;
   const text =
     outcome.status === 'succeeded'
-      ? t('billing.account.result.succeeded', { amount: money(ret.amount ?? 0, locale, currency) })
+      ? outcome.purpose
+        ? purposeFailed
+          ? t('billing.account.result.purposeFailed', { amount: money(ret.amount ?? 0, locale, currency) })
+          : t(`billing.account.result.purposeDone.${outcome.purpose === 'renewal' ? 'renewal' : outcome.purpose === 'upgrade' ? 'upgrade' : 'plan'}` as TranslationKey)
+        : t('billing.account.result.succeeded', { amount: money(ret.amount ?? 0, locale, currency) })
       : outcome.status === 'pending'
         ? t('billing.account.result.pending')
         : t('billing.account.result.failed');
@@ -368,4 +387,27 @@ function ReturnBanner({ ret, currency, slug, onDismiss, onCheckAgain }: {
       </AlertDescription>
     </Alert>
   );
+}
+
+/** Spending the payment on its purpose happened ({ action }), or not ({ error }, or nothing recorded yet). */
+function purposeDone(result: Record<string, unknown> | null | undefined): boolean {
+  return Boolean(result && typeof result.action === 'string' && !('error' in result));
+}
+
+/** Under a plan, renewal, upgrade or returned-prepayment row: the plan, its interval and the period it paid for. */
+function LedgerDetail({ entry }: { entry: LedgerEntry }) {
+  const { t, locale } = useTranslation();
+  if (!entry.plan_name && !entry.period_start) return null;
+  const parts: string[] = [];
+  if (entry.plan_name) parts.push(planLabel(entry.plan_name, entry.plan_localized ?? {}, locale));
+  if (entry.billing_interval === 'monthly' || entry.billing_interval === 'yearly') {
+    parts.push(t(`billing.account.plan.interval.${entry.billing_interval}` as TranslationKey));
+  }
+  if (entry.period_start && entry.period_end) {
+    parts.push(t('billing.account.history.period', {
+      start: billingDate(entry.period_start, locale),
+      end: billingDate(entry.period_end, locale),
+    }));
+  }
+  return <div className="text-xs text-muted-foreground" data-testid="ledger-detail">{parts.join(' · ')}</div>;
 }

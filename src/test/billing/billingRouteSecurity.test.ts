@@ -5,6 +5,9 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 
 // ── Mocks ────────────────────────────────────────────────────────────────
+// Billing v2's customer mutations answer 410 while v2 is retired
+// (server/middleware/billingV2Retired.ts); this suite covers them with v2 on.
+vi.mock('../../../shared/billingMode.js', () => ({ LEGACY_BILLING_ENABLED: true }));
 const processWebhookEvent = vi.fn().mockResolvedValue(undefined);
 const stripeVerify = vi.fn();
 

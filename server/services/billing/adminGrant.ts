@@ -3,8 +3,8 @@
 // workspace on a plan without money moving.
 //
 // Under Billing V2 the workspace_subscriptions row is a projection of the
-// ACTIVE service period: a direct upsert is rejected by
-// billing_v2_block_direct_subscription_mutation. So an admin grant creates a
+// ACTIVE service period; a direct upsert would bypass it (migration 261
+// dropped the trigger that used to reject one). So an admin grant creates a
 // comped period (source = 'admin', no invoice) and activates it through the
 // canonical billing_activate_period RPC, which also grants the plan AI
 // allowance exactly once, bound to that period.

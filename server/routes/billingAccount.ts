@@ -56,6 +56,7 @@ import {
   amountNeededFor,
   buyPlan,
   listPlanOptions,
+  processDueNow,
   quotePlanChange,
   renewPlan,
   scheduleChange,
@@ -117,6 +118,9 @@ billingAccountRouter.get('/account/:workspaceId', async (req, res) => {
   if (!auth) return;
   try {
     const cfg = serverConfigOf(req);
+    // A period that ended before the hourly job ran is processed first, so
+    // the page shows (and acts on) what is true now.
+    await processDueNow(cfg, req.params.workspaceId);
     const [view, planState] = await Promise.all([
       getAccountView(cfg, req.params.workspaceId),
       accountPlanState(cfg, req.params.workspaceId),
@@ -181,6 +185,7 @@ billingAccountRouter.get('/account/:workspaceId/payments/:paymentId', async (req
       tax_minor: payment.tax_minor,
       ledger_id: payment.ledger_id,
       failure_reason: payment.failure_reason,
+      purpose_result: payment.purpose_result,
     });
   } catch (e) {
     fail(res, e);
@@ -217,6 +222,18 @@ const topupSchema = z.object({
 
 type CheckoutAuth = NonNullable<Awaited<ReturnType<typeof authorizeWorkspaceAccess>>>;
 
+const CHECKOUTS_PER_HOUR = 10;
+
+async function recentCheckoutCount(cfg: ReturnType<typeof serverConfigOf>, workspaceId: string): Promise<number> {
+  const { count, error } = await getServiceClient(cfg)
+    .from('billing_account_payments')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .gte('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString());
+  if (error) throw new Error(error.message || 'payment count failed');
+  return count ?? 0;
+}
+
 /**
  * Starts a gateway checkout for `netMinor` (VAT added on top) and binds it to
  * a payment row created first. A purpose other than a top-up is spent on in
@@ -240,6 +257,11 @@ async function startAccountCheckout(
   const workspaceId = req.params.workspaceId;
   let paymentId: string | null = null;
   try {
+    // Each attempt is a payment row and a live gateway transaction: a few an
+    // hour are plenty for a person; a loop is refused.
+    if ((await recentCheckoutCount(cfg, workspaceId)) >= CHECKOUTS_PER_HOUR) {
+      return res.status(429).json({ error: 'TOO_MANY_CHECKOUTS' });
+    }
     const resolved = await resolveAccountGateway(cfg, workspaceId, input.currency, input.providerName, viewerOf(auth));
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
 
@@ -393,11 +415,15 @@ billingAccountRouter.get('/account/:workspaceId/quote', async (req, res) => {
   }
 });
 
+/** What the page showed it would take from the balance now; a different amount now answers QUOTE_CHANGED. */
+const expectedNetSchema = z.number().int().optional();
+
 const buySchema = z.object({
   planId: z.string().uuid(),
   interval: intervalSchema,
   /** The browser's key for this click: a retried request buys once. */
   key: z.string().min(8).max(100).optional(),
+  expectedNetMinor: expectedNetSchema,
 });
 
 billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
@@ -411,6 +437,7 @@ billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
       interval: parsed.data.interval,
       key: `${req.params.workspaceId}:${parsed.data.key ?? crypto.randomUUID()}`,
       actorId: auth.userId,
+      expectedNetMinor: parsed.data.expectedNetMinor,
     });
     res.json(result);
   } catch (e) {
@@ -418,17 +445,22 @@ billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
   }
 });
 
+/** The period the customer renews (its end, as the page showed it): a second click renews nothing more. */
+const renewSchema = z.object({ expectedPeriodEnd: z.string().datetime({ offset: true }).optional() });
+
 billingAccountRouter.post('/account/:workspaceId/renew', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
+  const parsed = renewSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json(await renewPlan(serverConfigOf(req), req.params.workspaceId, auth.userId));
+    res.json(await renewPlan(serverConfigOf(req), req.params.workspaceId, auth.userId, parsed.data.expectedPeriodEnd ?? null));
   } catch (e) {
     fail(res, e);
   }
 });
 
-const upgradeSchema = z.object({ planId: z.string().uuid() });
+const upgradeSchema = z.object({ planId: z.string().uuid(), expectedNetMinor: expectedNetSchema });
 
 billingAccountRouter.post('/account/:workspaceId/upgrade', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -436,13 +468,21 @@ billingAccountRouter.post('/account/:workspaceId/upgrade', async (req, res) => {
   const parsed = upgradeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json(await upgradePlan(serverConfigOf(req), req.params.workspaceId, { planId: parsed.data.planId, actorId: auth.userId }));
+    res.json(await upgradePlan(serverConfigOf(req), req.params.workspaceId, {
+      planId: parsed.data.planId,
+      actorId: auth.userId,
+      expectedNetMinor: parsed.data.expectedNetMinor,
+    }));
   } catch (e) {
     fail(res, e);
   }
 });
 
-const changeSchema = z.object({ planId: z.string().uuid(), interval: intervalSchema.nullable().optional() });
+const changeSchema = z.object({
+  planId: z.string().uuid(),
+  interval: intervalSchema.nullable().optional(),
+  expectedNetMinor: expectedNetSchema,
+});
 
 billingAccountRouter.post('/account/:workspaceId/change', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -454,6 +494,7 @@ billingAccountRouter.post('/account/:workspaceId/change', async (req, res) => {
       planId: parsed.data.planId,
       interval: parsed.data.interval ?? null,
       actorId: auth.userId,
+      expectedNetMinor: parsed.data.expectedNetMinor,
     }));
   } catch (e) {
     fail(res, e);
@@ -481,6 +522,7 @@ const checkoutSchema = z.object({
   currency: z.string().regex(/^[A-Za-z]{3}$/).optional(),
   providerName: z.string().min(2).max(60).optional(),
   callbackUrl: z.string().url(),
+  expectedNetMinor: expectedNetSchema,
 });
 
 /**
@@ -502,6 +544,7 @@ billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => 
       purpose: parsed.data.purpose,
       planId: parsed.data.planId,
       interval: parsed.data.interval,
+      expectedNetMinor: parsed.data.expectedNetMinor,
     });
     if (parsed.data.currency && parsed.data.currency.toUpperCase() !== need.currency) {
       return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency: need.currency } });

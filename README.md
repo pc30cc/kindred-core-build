@@ -118,7 +118,11 @@ for the full cost of turning each one off.
 Functional tickers — call queue, billing schedulers, AI-billing recovery,
 deletions, invitations and the retention/privacy janitors — have no switch
 here and always start: they change what the product *does*, not just what it
-records.
+records. The one exception is `SIMPLE_BILLING_JOB=off`, for a process that
+must not run the billing job (a second replica of a test install): with it
+off, renewals, the move to Free at the due moment, monthly AI credit and
+billing reminders stop on that process. Leave it on in production; see
+`server/.env.example`.
 
 `trust proxy` is set to `loopback, linklocal, uniquelocal` so that
 `x-forwarded-for` / `cf-connecting-ip` are only honored from private

@@ -484,8 +484,11 @@ BEGIN
     v_cost := (v_new - v_old) * greatest(v_months, 1);
   END IF;
   -- A prepaid next period follows the new plan: what it now costs more (or
-  -- less) is taken from (or returned to) the balance with the upgrade.
-  IF v_acc.next_period_prepaid_minor IS NOT NULL THEN
+  -- less) is taken from (or returned to) the balance with the upgrade. (One
+  -- paid for a period that was replaced returns whole first; see
+  -- billing_account_release_stale_prepaid.)
+  IF v_acc.next_period_prepaid_minor IS NOT NULL
+     AND v_acc.next_period_start IS NOT DISTINCT FROM v_sub.current_period_end THEN
     v_next := public.billing_plan_price(p_plan_id, v_currency, coalesce(v_acc.scheduled_interval, v_interval));
     v_reprice := CASE WHEN v_next IS NULL THEN -v_acc.next_period_prepaid_minor ELSE v_next - v_acc.next_period_prepaid_minor END;
   END IF;

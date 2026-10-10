@@ -186,6 +186,35 @@ describe('AccountBillingPage', () => {
     await waitFor(() => expect(screen.getByTestId('payment-result')).toHaveTextContent('billing.account.result.failed'));
   });
 
+  it('a payment for a renewal says the plan was renewed; one whose renewal could not be done says the money is in the balance', async () => {
+    api.verify.mockResolvedValue({ status: 'succeeded', ledgerId: 'l1', purpose: 'renewal', purposeResult: { action: 'prepaid' } });
+    api.payment.mockResolvedValue({ id: 'pay5', status: 'succeeded', net_minor: 2900, ledger_id: 'l1', purpose: 'renewal' });
+    const first = renderAt('/acme/billing?payment=pay5&provider=paddle&_ptxn=txn_5');
+    await waitFor(() => expect(screen.getByTestId('payment-result')).toHaveTextContent('billing.account.result.purposeDone.renewal'));
+    first.unmount();
+
+    api.verify.mockResolvedValue({ status: 'succeeded', ledgerId: 'l1', purpose: 'renewal', purposeResult: { error: 'billing_period_changed' } });
+    renderAt('/acme/billing?payment=pay6&provider=paddle&_ptxn=txn_6');
+    await waitFor(() => expect(screen.getByTestId('payment-result')).toHaveTextContent('billing.account.result.purposeFailed'));
+    expect(screen.getByTestId('payment-result')).toHaveTextContent('$29.00');
+  });
+
+  it('the history says which plan, interval and period a charge paid for', async () => {
+    api.ledger.mockResolvedValue({
+      ...LEDGER,
+      items: [{
+        ...LEDGER.items[0], id: 'l2', kind: 'renewal', amount_minor: -2900, plan_id: 'p1', billing_interval: 'monthly',
+        period_start: '2026-11-01T00:00:00Z', period_end: '2026-12-01T00:00:00Z', receipt_number: null,
+        plan_name: 'Pro', plan_localized: { en: { name: 'Pro (EN)' } },
+      }],
+    });
+    renderAt('/acme/billing');
+    const detail = await screen.findByTestId('ledger-detail');
+    expect(detail).toHaveTextContent('Pro (EN)');
+    expect(detail).toHaveTextContent('billing.account.plan.interval.monthly');
+    expect(detail).toHaveTextContent('billing.account.history.period');
+  });
+
   it('a member who cannot manage billing sees no top-up button', async () => {
     api.view.mockResolvedValue({ ...VIEW, can_manage: false, gateways: [] });
     renderAt('/acme/billing');

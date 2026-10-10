@@ -41,6 +41,7 @@ import {
 } from '../services/billing/effectiveEntitlements.js';
 import { isUsageSupported, resolveUsage } from '../services/billing/usageResolvers.js';
 import { adminGrantPlanV2 } from '../services/billing/adminGrant.js';
+import { renewalDueNotice } from '../services/billing/account/renewalNotice.js';
 import type { PlanDefinitionLike } from '../services/billing/entitlementFanout.js';
 
 
@@ -170,10 +171,12 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
     const info = resolved.value;
 
     const currentPeriod = new Date().toISOString().slice(0, 7);
-    const [modulesRead, channelsRead, usageRead] = await Promise.all([
+    const [modulesRead, channelsRead, usageRead, renewal] = await Promise.all([
       supabase.from('workspace_module_overrides').select('module_key, enabled, admin_notes').eq('workspace_id', workspaceId),
       supabase.from('workspace_channel_overrides').select('channel_key, enabled, admin_notes').eq('workspace_id', workspaceId),
       supabase.from('workspace_usage_counters').select('*').eq('workspace_id', workspaceId).eq('period', currentPeriod).maybeSingle(),
+      // The panel's "plan ends in N days" banner; never fails the snapshot.
+      renewalDueNotice(serverConfigOf(req), workspaceId).catch(() => null),
     ]);
     // Enforcement honours these overrides; a snapshot without them would show
     // a section the server refuses (or hide one it allows). A table that does
@@ -191,6 +194,9 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
       subscription: publicSubscription(info.subscription),
       ...resolveEffectiveEntitlements(info, modulesRead.error ? [] : modulesRead.data, channelsRead.error ? [] : channelsRead.data),
       usage: usageRead.data || null,
+      renewal_due: renewal
+        ? { days_left: renewal.days_left, period_end: renewal.period_end, ends_on_free: renewal.ends_on_free }
+        : null,
       // The plan's own JSON, for forward-compatible consumers.
       raw: { entitlements: info.entitlements, limits: info.planLimits },
     });
@@ -438,8 +444,9 @@ plansRouter.post('/admin/assign', async (req, res) => {
   let data: unknown = null;
 
   // Under Billing V2 the subscription row is a projection of the active
-  // service period; writing it directly is rejected by the database. Grant a
-  // comped period through the canonical activation path instead.
+  // service period; writing it directly would bypass that period (migration
+  // 261 dropped the trigger that refused it). Grant a comped period through
+  // the canonical activation path instead.
   if (await isV2Active(serverConfigOf(req), workspaceId)) {
     try {
       data = await adminGrantPlanV2(serverConfigOf(req), {

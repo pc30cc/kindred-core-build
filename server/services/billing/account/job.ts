@@ -1,9 +1,12 @@
 /**
- * SIMPLE BILLING — the one hourly job (docs/billing/SIMPLE_BILLING.md,
+ * SIMPLE BILLING — the hourly job (docs/billing/SIMPLE_BILLING.md,
  * Background work). It replaces billing v2's 5-minute ticker:
  *
  *   1. paid periods that ended: a prepaid next period starts, auto-renew pays
- *      from the balance, otherwise the workspace moves to Free at once;
+ *      from the balance, otherwise the workspace moves to Free at once (this
+ *      step also runs every 5 minutes on its own, so the due moment is never
+ *      more than a few minutes late; the billing page processes its own
+ *      workspace at once);
  *   2. the month's AI credit of every running period (and trial);
  *   3. renewal reminders 7, 3 and 1 days before the due date;
  *   4. trials: a reminder 3 and 1 days before the end, then the end;
@@ -22,27 +25,34 @@ import { localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
 import { afterPlanChange } from './plans.js';
 
 const LEASE_NAME = 'simple_billing';
+const DUE_LEASE_NAME = 'simple_billing_due';
 const TICK_MS = 60 * 60 * 1000;
+const DUE_TICK_MS = 5 * 60 * 1000;
 /** Late enough that the app is serving before it starts. */
 const FIRST_RUN_MS = 2 * 60 * 1000;
 const DAY_MS = 86_400_000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let dueTimer: ReturnType<typeof setInterval> | null = null;
 let first: ReturnType<typeof setTimeout> | null = null;
 let running = false;
+let dueRunning = false;
 
 export function startSimpleBillingJob(config: ServerConfig): void {
   if (timer) return;
   first = setTimeout(() => void runSimpleBillingJob(config), FIRST_RUN_MS);
   timer = setInterval(() => void runSimpleBillingJob(config), TICK_MS);
-  for (const t of [first, timer] as Array<{ unref?: () => void } | null>) t?.unref?.();
+  dueTimer = setInterval(() => void runSimpleBillingDue(config), DUE_TICK_MS);
+  for (const t of [first, timer, dueTimer] as Array<{ unref?: () => void } | null>) t?.unref?.();
 }
 
 export function stopSimpleBillingJob(): void {
   if (first) clearTimeout(first);
   if (timer) clearInterval(timer);
+  if (dueTimer) clearInterval(dueTimer);
   first = null;
   timer = null;
+  dueTimer = null;
 }
 
 export interface SimpleBillingJobReport {
@@ -70,6 +80,55 @@ export function trialNotice(daysLeft: number): string[] | null {
 }
 
 const periodKey = (prefix: string, iso: string) => `${prefix}:${new Date(iso).toISOString()}`;
+
+type DueReport = SimpleBillingJobReport['due'];
+
+/** Paid periods that ended, one workspace at a time (each its own transaction). */
+async function processDueWorkspaces(config: ServerConfig, due: DueReport, errors: string[]): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb.rpc('billing_account_due_workspaces', { p_limit: 500 });
+  if (error) throw new Error(error.message);
+  for (const row of (data ?? []) as Array<string | { billing_account_due_workspaces?: string }>) {
+    const workspaceId = typeof row === 'string' ? row : String(row.billing_account_due_workspaces ?? '');
+    if (!workspaceId) continue;
+    const { data: result, error: dueError } = await sb.rpc('billing_account_process_due', { p_workspace_id: workspaceId });
+    if (dueError) {
+      due.failed += 1;
+      errors.push(`due ${workspaceId}: ${dueError.message}`);
+      continue;
+    }
+    const r = (result ?? {}) as Record<string, unknown>;
+    if (r.action === 'renewed') due.renewed += 1;
+    else if (r.action === 'expired') due.expired += 1;
+    if (r.action && r.action !== 'none') await afterPlanChange(config, workspaceId, r);
+  }
+}
+
+/** Only the due step (every 5 minutes). */
+export async function runSimpleBillingDue(config: ServerConfig): Promise<DueReport & { skipped?: boolean; errors: string[] }> {
+  const due: DueReport = { renewed: 0, expired: 0, failed: 0 };
+  const errors: string[] = [];
+  if (dueRunning || running) return { ...due, errors, skipped: true };
+  let leased = false;
+  try {
+    leased = await acquireTickerLease(config, DUE_LEASE_NAME);
+  } catch {
+    return { ...due, errors, skipped: true };
+  }
+  if (!leased) return { ...due, errors, skipped: true };
+  dueRunning = true;
+  try {
+    await processDueWorkspaces(config, due, errors);
+  } catch (e) {
+    errors.push(`due: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    dueRunning = false;
+    await releaseTickerLease(config, DUE_LEASE_NAME).catch(() => {});
+  }
+  if (errors.length) console.error('[simple-billing] due step failed', errors.slice(0, 5).join('; '));
+  if (due.renewed || due.expired) console.log('[simple-billing] due', JSON.stringify({ ...due, errors: errors.length }));
+  return { ...due, errors };
+}
 
 export async function runSimpleBillingJob(config: ServerConfig, now: Date = new Date()): Promise<SimpleBillingJobReport> {
   const report: SimpleBillingJobReport = {
@@ -100,25 +159,8 @@ export async function runSimpleBillingJob(config: ServerConfig, now: Date = new 
     }
   };
   try {
-    // 1. Due periods, one workspace at a time (each its own transaction).
-    await step('due', async () => {
-      const { data, error } = await sb.rpc('billing_account_due_workspaces', { p_limit: 500 });
-      if (error) throw new Error(error.message);
-      for (const row of (data ?? []) as Array<string | { billing_account_due_workspaces?: string }>) {
-        const workspaceId = typeof row === 'string' ? row : String(row.billing_account_due_workspaces ?? '');
-        if (!workspaceId) continue;
-        const { data: result, error: dueError } = await sb.rpc('billing_account_process_due', { p_workspace_id: workspaceId });
-        if (dueError) {
-          report.due.failed += 1;
-          report.errors.push(`due ${workspaceId}: ${dueError.message}`);
-          continue;
-        }
-        const r = (result ?? {}) as Record<string, unknown>;
-        if (r.action === 'renewed') report.due.renewed += 1;
-        else if (r.action === 'expired') report.due.expired += 1;
-        if (r.action && r.action !== 'none') await afterPlanChange(config, workspaceId, r);
-      }
-    });
+    // 1. Due periods.
+    await step('due', () => processDueWorkspaces(config, report.due, report.errors));
 
     // 2. The month's AI credit.
     await step('allowances', async () => {

@@ -4,14 +4,15 @@
  * VAT line and the total. The server recomputes all of it; this only shows
  * what will be charged.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useTranslation } from '@/i18n';
-import { parsePlanPriceInput } from '@/lib/planPrice';
+import { parsePlanPriceInput, planPriceDecimals } from '@/lib/planPrice';
+import { toast } from '@/lib/toast';
 import { accountBillingApi, type AccountGateway } from '@/lib/accountBillingApi';
 import { money } from '../shared';
 import { TOPUP_LIMITS, chargeFor, topupAmountProblem } from '../../../../../shared/simpleBilling';
@@ -21,6 +22,7 @@ import {
   accountErrorText,
   billingReturnOrigin,
   followCheckout,
+  toDisplayAmount,
   toMinorAmount,
 } from './accountUi';
 
@@ -33,11 +35,31 @@ export interface TopupDialogProps {
   vatPercent: number | null;
   gateways: AccountGateway[];
   onCurrencyChanged?: () => void;
+  /** Opens with this amount filled in (what a change is missing), never below the minimum. */
+  initialAmountMinor?: number | null;
 }
 
-export default function TopupDialog({ open, onOpenChange, workspaceId, slug, currency, vatPercent, gateways, onCurrencyChanged }: TopupDialogProps) {
+export default function TopupDialog({
+  open,
+  onOpenChange,
+  workspaceId,
+  slug,
+  currency,
+  vatPercent,
+  gateways,
+  onCurrencyChanged,
+  initialAmountMinor = null,
+}: TopupDialogProps) {
   const { t, locale, dir } = useTranslation();
   const [raw, setRaw] = useState('');
+
+  useEffect(() => {
+    if (!open || !initialAmountMinor || initialAmountMinor <= 0) return;
+    const wanted = Math.max(initialAmountMinor, TOPUP_LIMITS[currency]?.min ?? 0);
+    // Rounded up to what can be typed, so it never falls short.
+    const factor = 10 ** planPriceDecimals(currency);
+    setRaw(String(Math.ceil(toDisplayAmount(wanted, currency) * factor - 1e-6) / factor));
+  }, [open, initialAmountMinor, currency]);
   const [provider, setProvider] = useState<string>(gateways[0]?.provider_name ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +89,7 @@ export default function TopupDialog({ open, onOpenChange, workspaceId, slug, cur
           setBusy(false);
           onOpenChange(false);
         },
+        onError: (e) => toast.error(accountErrorText(e, t)),
       });
     } catch (e) {
       setError(accountErrorText(e, t));

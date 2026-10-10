@@ -31,7 +31,9 @@ export type BillingEmailSlug =
 const DECIMALS: Record<string, number> = { IRR: 0, USD: 2, EUR: 2, GBP: 2, TRY: 2 };
 
 const intlLocale = (edition: Edition | null, locale: string): string => {
-  if (locale === 'fa') return edition === 'iran' ? 'fa-IR' : 'fa';
+  // Persian outside the Iranian edition keeps the Gregorian calendar ('fa'
+  // alone defaults to the Persian one).
+  if (locale === 'fa') return edition === 'iran' ? 'fa-IR' : 'fa-u-ca-gregory';
   if (locale === 'tr') return 'tr-TR';
   return 'en-US';
 };
@@ -189,6 +191,17 @@ export async function planNamesFor(
     out.set(row.id, { name: row.name, localized: row.localized ?? {} });
   }
   return out;
+}
+
+const INTERVAL_LABELS: Record<string, Record<string, string>> = {
+  fa: { monthly: 'ماهانه', yearly: 'سالانه' },
+  en: { monthly: 'monthly', yearly: 'yearly' },
+  tr: { monthly: 'aylık', yearly: 'yıllık' },
+};
+
+/** "monthly" / "yearly" in the mail's language. */
+export function billingIntervalLabel(interval: string, locale: string): string {
+  return (INTERVAL_LABELS[locale] ?? INTERVAL_LABELS.en)[interval] ?? interval;
 }
 
 export function localizedPlanName(

@@ -66,6 +66,8 @@ export interface AccountRow {
   scheduled_plan_id: string | null;
   scheduled_interval: string | null;
   next_period_prepaid_minor: number | null;
+  /** The period start a prepayment was made for (migration 261). */
+  next_period_start: string | null;
   card_provider: string | null;
   billing_profile: BillingProfile;
   created_at: string;
@@ -83,6 +85,8 @@ export interface AccountPaymentRow {
   tax_percent: number | null;
   purpose: string;
   purpose_detail: Record<string, unknown>;
+  /** What spending the payment on its purpose did (migration 261); null for a top-up. */
+  purpose_result: Record<string, unknown> | null;
   status: AccountPaymentStatus;
   provider_ref: string | null;
   provider_payment_id: string | null;
@@ -119,6 +123,9 @@ export interface LedgerRow {
   seller: Record<string, unknown> | null;
   description: Record<string, unknown>;
   created_at: string;
+  /** The plan a plan, renewal or upgrade row paid for (history only). */
+  plan_name?: string | null;
+  plan_localized?: Record<string, unknown> | null;
 }
 
 /** How long a gateway attempt may still be paid: an Iranian redirect is minutes, a card checkout up to 45. */
@@ -144,6 +151,7 @@ function toAccount(row: Record<string, unknown>): AccountRow {
     next_period_prepaid_minor: row.next_period_prepaid_minor === null || row.next_period_prepaid_minor === undefined
       ? null
       : num(row.next_period_prepaid_minor),
+    next_period_start: (row.next_period_start as string | null) ?? null,
     card_provider: (row.card_provider as string | null) ?? null,
     billing_profile: cleanProfile(row.billing_profile, BILLING_PROFILE_KEYS),
     created_at: String(row.created_at ?? ''),
@@ -159,6 +167,9 @@ function toPayment(row: Record<string, unknown>): AccountPaymentRow {
     tax_minor: num(row.tax_minor),
     tax_percent: row.tax_percent === null || row.tax_percent === undefined ? null : num(row.tax_percent),
     purpose_detail: asRecord(row.purpose_detail),
+    purpose_result: row.purpose_result && typeof row.purpose_result === 'object'
+      ? (row.purpose_result as Record<string, unknown>)
+      : null,
     verified_amount_minor: row.verified_amount_minor === null || row.verified_amount_minor === undefined ? null : num(row.verified_amount_minor),
     refunded_minor: num(row.refunded_minor),
   };
@@ -343,8 +354,20 @@ export async function listLedger(
     .order('created_at', { ascending: false })
     .range(from, from + pageSize - 1);
   if (error) dbError(error, 'ledger read failed');
+  const items = ((data as Record<string, unknown>[] | null) ?? []).map(toLedger);
+  // The plan each row paid for, by name, so the history says what it was.
+  const planIds = [...new Set(items.map((i) => i.plan_id).filter((id): id is string => Boolean(id)))];
+  if (planIds.length) {
+    const { data: plans } = await getServiceClient(config).from('billing_plans').select('id, name, localized').in('id', planIds);
+    const byId = new Map(((plans as Record<string, unknown>[] | null) ?? []).map((p) => [String(p.id), p]));
+    for (const item of items) {
+      const plan = item.plan_id ? byId.get(item.plan_id) : undefined;
+      item.plan_name = plan ? String(plan.name ?? '') : null;
+      item.plan_localized = plan ? asRecord(plan.localized) : null;
+    }
+  }
   return {
-    items: ((data as Record<string, unknown>[] | null) ?? []).map(toLedger),
+    items,
     total: count ?? 0,
     page: current,
     pageSize,
@@ -513,6 +536,17 @@ export interface VerifyOutcome {
   ledgerId?: string | null;
   receiptNumber?: string | null;
   balanceMinor?: number;
+  /** A payment for a plan, renewal or upgrade: what spending it did ({ action } or { error }). */
+  purpose?: string;
+  purposeResult?: Record<string, unknown> | null;
+}
+
+/** Adds what the payment was spent on to a success, so the return page can say whether it happened. */
+async function withPurpose(config: ServerConfig, paymentId: string, outcome: VerifyOutcome): Promise<VerifyOutcome> {
+  if (outcome.status !== 'succeeded') return outcome;
+  const payment = await readAccountPayment(config, paymentId).catch(() => null);
+  if (!payment || payment.purpose === 'topup') return outcome;
+  return { ...outcome, purpose: payment.purpose, purposeResult: payment.purpose_result };
 }
 
 async function succeededOutcome(config: ServerConfig, ledgerId: string | null): Promise<VerifyOutcome> {
@@ -571,8 +605,8 @@ export async function verifyAccountPayment(
   },
 ): Promise<VerifyOutcome> {
   const { payment } = input;
-  if (payment.status === 'succeeded') return succeededOutcome(config, payment.ledger_id);
-  if (payment.verified_at) return settledOutcome(await settleAccountPayment(config, payment.id));
+  if (payment.status === 'succeeded') return withPurpose(config, payment.id, await succeededOutcome(config, payment.ledger_id));
+  if (payment.verified_at) return withPurpose(config, payment.id, settledOutcome(await settleAccountPayment(config, payment.id)));
 
   const provider = getProvider(payment.provider);
   if (!provider?.verifyPayment) return { status: 'pending', reason: 'webhook_only' };
@@ -616,7 +650,11 @@ export async function verifyAccountPayment(
   }
 
   try {
-    return settledOutcome(await confirmAndSettle(config, payment, { amountMinor: confirmed, currency, providerPaymentId: gatewayTxn }));
+    return withPurpose(
+      config,
+      payment.id,
+      settledOutcome(await confirmAndSettle(config, payment, { amountMinor: confirmed, currency, providerPaymentId: gatewayTxn })),
+    );
   } catch (e) {
     if (e instanceof AccountBillingError && e.code === 'PAYMENT_REFERENCE_REUSED') {
       console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} gateway transaction ${gatewayTxn} already settled another payment`);

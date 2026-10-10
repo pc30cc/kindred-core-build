@@ -1,9 +1,11 @@
 /**
  * The workspace's plan: what it is, when its period ends, what the next one
  * costs, a change scheduled for the period end, auto-renew, and the actions
- * (renew from the balance or online, choose another plan). In the last
- * 7 days of an unpaid period it says so plainly: at the due moment the
- * workspace moves to the free plan.
+ * (renew from the balance or online, choose another plan, renew a plan that
+ * ran out). In the last 7 days of an unpaid period it says so plainly: at
+ * the due moment the workspace moves to the free plan. Cancelling a change
+ * opens the plan picker on the current plan, so what it moves in the
+ * balance is shown before it is confirmed.
  */
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
@@ -17,6 +19,7 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import { accountBillingApi, type AccountView } from '@/lib/accountBillingApi';
 import { billingDate, money } from '../shared';
 import type { PayOnlineRequest } from './PayOnlineDialog';
+import type { PlanPreselect } from './PlanPickerDialog';
 import { accountErrorText, planLabel } from './accountUi';
 
 export default function PlanCard({
@@ -29,7 +32,8 @@ export default function PlanCard({
   workspaceId: string;
   view: AccountView;
   onChanged: () => void;
-  onChoosePlan: () => void;
+  /** Opens the plan picker, on a plan when given. */
+  onChoosePlan: (preselect?: PlanPreselect) => void;
   onPayOnline: (request: PayOnlineRequest) => void;
 }) {
   const { t, locale } = useTranslation();
@@ -46,6 +50,10 @@ export default function PlanCard({
   const scheduledName = view.scheduled_plan
     ? (view.scheduled_plan.is_free ? t('billing.account.plan.free') : planLabel(view.scheduled_plan.name, view.scheduled_plan.localized, locale))
     : null;
+  // The plan the next period is for (a scheduled change's, else this one).
+  const renewalName = view.renewal ? planLabel(view.renewal.name, view.renewal.localized, locale) : name;
+  const lapsed = !paid && plan.status !== 'trialing' ? view.lapsed : null;
+  const lapsedName = lapsed ? planLabel(lapsed.name, lapsed.localized, locale) : '';
 
   const act = async (id: string, action: () => Promise<unknown>) => {
     setBusy(id);
@@ -55,6 +63,9 @@ export default function PlanCard({
       onChanged();
     } catch (e) {
       setError(accountErrorText(e, t));
+      // The period changed under the page (another tab, the job): show what is true now.
+      const code = (e as { code?: string } | null)?.code;
+      if (code === 'PERIOD_CHANGED' || code === 'ALREADY_RENEWED' || code === 'NO_PAID_PLAN') onChanged();
     } finally {
       setBusy(null);
     }
@@ -82,6 +93,8 @@ export default function PlanCard({
               date: billingDate(paid.current_period_end, locale),
             })}
           </p>
+        ) : lapsed ? (
+          <p className="text-muted-foreground" data-testid="plan-lapsed">{t('billing.account.plan.lapsedNote', { plan: lapsedName })}</p>
         ) : (
           <p className="text-muted-foreground">{t('billing.account.plan.freeNote')}</p>
         )}
@@ -115,9 +128,8 @@ export default function PlanCard({
                 size="sm"
                 variant="ghost"
                 disabled={busy !== null}
-                onClick={() => void act('cancel', () => accountBillingApi.change(workspaceId, paid.plan_id, paid.billing_interval))}
+                onClick={() => onChoosePlan({ planId: paid.plan_id, interval: paid.billing_interval })}
               >
-                {spin('cancel')}
                 {t('billing.account.plan.cancelChange')}
               </Button>
             )}
@@ -128,7 +140,9 @@ export default function PlanCard({
           <Alert variant="destructive" data-testid="plan-warning">
             <AlertTriangle className="h-4 w-4" aria-hidden />
             <AlertDescription>
-              {t('billing.account.plan.endsSoon', { days: String(view.days_left) })}
+              {view.days_left <= 1
+                ? t('billing.account.plan.endsSoonOne')
+                : t('billing.account.plan.endsSoon', { days: String(view.days_left) })}
             </AlertDescription>
           </Alert>
         )}
@@ -152,7 +166,10 @@ export default function PlanCard({
           <div className="flex flex-wrap gap-2">
             {paid && !prepaid && view.renewal && renewalPrice !== null && (
               canRenewFromBalance ? (
-                <Button disabled={busy !== null} onClick={() => void act('renew', () => accountBillingApi.renew(workspaceId))}>
+                <Button
+                  disabled={busy !== null}
+                  onClick={() => void act('renew', () => accountBillingApi.renew(workspaceId, paid.current_period_end))}
+                >
                   {spin('renew')}
                   {t('billing.account.plan.renewFromBalance', { amount: amount(renewalPrice) })}
                 </Button>
@@ -163,14 +180,22 @@ export default function PlanCard({
                     purpose: 'renewal',
                     priceMinor: renewalPrice,
                     balanceMinor: view.balance_minor,
-                    title: t('billing.account.plan.renewOnlineTitle', { plan: name }),
+                    title: t('billing.account.plan.renewOnlineTitle', { plan: renewalName }),
                   })}
                 >
                   {t('billing.account.plan.renewOnline')}
                 </Button>
               )
             )}
-            <Button variant={paid ? 'outline' : 'default'} disabled={busy !== null} onClick={onChoosePlan}>
+            {lapsed && (
+              <Button
+                disabled={busy !== null}
+                onClick={() => onChoosePlan({ planId: lapsed.plan_id, interval: lapsed.billing_interval })}
+              >
+                {t('billing.account.plan.renewLapsed', { plan: lapsedName })}
+              </Button>
+            )}
+            <Button variant={paid || lapsed ? 'outline' : 'default'} disabled={busy !== null} onClick={() => onChoosePlan()}>
               {t(paid ? 'billing.account.plan.change' : 'billing.account.plan.choose')}
             </Button>
           </div>

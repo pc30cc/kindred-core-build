@@ -17,7 +17,10 @@ struct PrimaryButton: View {
     let action: () -> Void
 
     private var fill: AnyShapeStyle { isAuth ? AuthPalette.action : AnyShapeStyle(Theme.Palette.brand) }
-    private var label: Color { isAuth ? AuthPalette.actionLabel : .white }
+    private var label: Color {
+        guard isAuth else { return .white }
+        return isEnabled && !isLoading ? AuthPalette.actionLabel : AuthPalette.actionLabelDimmed
+    }
 
     var body: some View {
         Button(action: action) {

@@ -77,6 +77,13 @@ enum AuthPalette {
     ))
     /// Ink on Signal (5.8:1; white on it is only 3.1:1).
     static let actionLabel = ink
+    /// While the button is dimmed (nothing to submit yet) its fill lets the
+    /// screen through, and Ink vanishes on a dark one: Ink on light, white on dark.
+    static let actionLabelDimmed = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? .white
+            : UIColor(red: 0.086, green: 0.078, blue: 0.169, alpha: 1)
+    })
     /// "Forgot password?" and the other links: Signal Deep, Signal in dark mode.
     static let link = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
@@ -88,6 +95,7 @@ enum AuthPalette {
     #else
     static let action = AnyShapeStyle(Theme.Palette.brand)
     static let actionLabel = Color.white
+    static let actionLabelDimmed = Color.white
     static let link = Theme.Palette.brand
     static let glow = Theme.Palette.brand
     #endif

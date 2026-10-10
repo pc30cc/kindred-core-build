@@ -6,12 +6,14 @@
 #   WebYar  https://app.webyar.ai/downloads/   /data/app-downloads/webyar
 #   RESPOK  https://app.respok.app/downloads/  /data/app-downloads/respok
 #
-# Per brand, what people download is a zip:
-#   <Prefix>-Windows-<version>.zip (+ <Prefix>-Windows.zip -> the newest): the
-#   installer, <Prefix>-Setup.exe, from the brand's GitHub releases
-#   (CI: .github/workflows/desktop-native.yml);
-#   <Prefix>-Mac-<version>.zip (+ <Prefix>-Mac.zip -> the newest): the DMG,
-#   <Prefix>-Mac.dmg, from the brand's Sparkle appcast (CI: .github/workflows/macos.yml).
+# Per brand, people download each app as it is and as a zip (each name a symlink to
+# the newest version's file):
+#   <Prefix>-Setup.exe and <Prefix>-Windows.zip: the Windows installer, from the
+#   brand's GitHub releases (CI: .github/workflows/desktop-native.yml);
+#   <Prefix>-Mac.dmg and <Prefix>-Mac.zip: the DMG, from the brand's Sparkle
+#   appcast (CI: .github/workflows/macos.yml);
+#   <Prefix>-Android.zip: the APK the brand's frontend serves itself
+#   (public/downloads/<Prefix>-Android.apk), checked against its sidecar's sha256.
 # And windows/: the Velopack update feed the installed apps read (releases.win.json,
 # RELEASES and the packages of the newest two releases), as published.
 # Runs every 5 minutes (systemd timer app-downloads-sync). One brand failing
@@ -19,10 +21,10 @@
 set -u
 ROOT=${APP_DOWNLOADS_ROOT:-/data/app-downloads}
 
-# brand  windows-releases-repo  setup-asset  mac-appcast  file-prefix
+# brand  windows-releases-repo  setup-asset  mac-appcast  file-prefix  site
 BRANDS='
-webyar pc30cc/webyar-desktop-releases Webyar-Setup.exe https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml Webyar
-respok pc30cc/respok-releases RESPOK-Setup.exe https://raw.githubusercontent.com/pc30cc/respok-releases/main/mac/appcast.xml RESPOK
+webyar pc30cc/webyar-desktop-releases Webyar-Setup.exe https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml Webyar app.webyar.ai
+respok pc30cc/respok-releases RESPOK-Setup.exe https://raw.githubusercontent.com/pc30cc/respok-releases/main/mac/appcast.xml RESPOK app.respok.app
 '
 
 fetch() { # name size url dest-dir   (size "-" = unknown: fetch once, keep)
@@ -77,10 +79,10 @@ PY
   rm -f "$TMP/pkgfail"
   grep '^pkg ' "$TMP/plan.txt" | while read -r _ n s u; do fetch "$n" "$s" "$u" "$FEED" || : > "$TMP/pkgfail"; done
   grep '^setup ' "$TMP/plan.txt" | while read -r _ v s u; do
-    zip="$4-Windows-$v.zip"
-    if [ ! -f "$FILES/$zip" ]; then
-      fetch "$4-Setup.exe" "$s" "$u" "$TMP/dl" && pack "$TMP/dl/$4-Setup.exe" "$4-Setup.exe" "$FILES" "$zip" || continue
-    fi
+    exe="$4-Setup-$v.exe"; zip="$4-Windows-$v.zip"
+    fetch "$exe" "$s" "$u" "$FILES" || continue
+    if [ ! -f "$FILES/$zip" ]; then pack "$FILES/$exe" "$4-Setup.exe" "$FILES" "$zip" || continue; fi
+    ln -sfn "$exe" "$FILES/$4-Setup.exe"
     ln -sfn "$zip" "$FILES/$4-Windows.zip"
   done
   if [ -e "$TMP/pkgfail" ]; then
@@ -106,6 +108,7 @@ PY
     grep -q "^pkg $(basename "$f") " "$TMP/plan.txt" || rm -f "$f"
   done
   prune "$FILES" "$4-Windows-*.zip" "$4-Windows.zip"
+  prune "$FILES" "$4-Setup-*.exe" "$4-Setup.exe"
 }
 
 mac() { # brand appcast prefix
@@ -131,23 +134,46 @@ if best:
     print("%s %s/releases/%s/%s-%s.dmg" % (v, base, v, prefix, v))
 PY
   read -r v url < "$TMP/mac.txt" || return 0
-  zip="$3-Mac-$v.zip"
-  if [ ! -f "$FILES/$zip" ]; then
-    fetch "$3-Mac.dmg" - "$url" "$TMP/dl" && pack "$TMP/dl/$3-Mac.dmg" "$3-Mac.dmg" "$FILES" "$zip" || return 1
-  fi
+  dmg="$3-Mac-$v.dmg"; zip="$3-Mac-$v.zip"
+  fetch "$dmg" - "$url" "$FILES" || return 1
+  if [ ! -f "$FILES/$zip" ]; then pack "$FILES/$dmg" "$3-Mac.dmg" "$FILES" "$zip" || return 1; fi
+  ln -sfn "$dmg" "$FILES/$3-Mac.dmg"
   ln -sfn "$zip" "$FILES/$3-Mac.zip"
   prune "$FILES" "$3-Mac-*.zip" "$3-Mac.zip"
+  prune "$FILES" "$3-Mac-*.dmg" "$3-Mac.dmg"
+}
+
+android() { # brand site prefix
+  FILES=$ROOT/$1
+  mkdir -p "$FILES"
+  # The frontend ships the APK and its sidecar (versionName, versionCode, sha256, sizeBytes).
+  curl -fsSL "https://$2/downloads/$3-Android.json" -o "$TMP/android.json" || { echo "$1: no $3-Android.json on $2" >&2; return 1; }
+  python3 - "$TMP/android.json" > "$TMP/android.txt" <<'PY' || return 1
+import json, re, sys
+j = json.load(open(sys.argv[1]))
+v = "%s-%s" % (j["versionName"], j["versionCode"])
+assert re.fullmatch(r"[0-9][A-Za-z0-9.\-]*", v), v
+assert re.fullmatch(r"[0-9a-f]{64}", j["sha256"])
+print(v, int(j["sizeBytes"]), j["sha256"])
+PY
+  read -r v size sha < "$TMP/android.txt" || return 1
+  zip="$3-Android-$v.zip"
+  if [ ! -f "$FILES/$zip" ]; then
+    fetch "$3-Android.apk" "$size" "https://$2/downloads/$3-Android.apk" "$TMP/dl" || return 1
+    [ "$(sha256sum "$TMP/dl/$3-Android.apk" | cut -d' ' -f1)" = "$sha" ] || { echo "$1: the APK does not match its sha256" >&2; return 1; }
+    pack "$TMP/dl/$3-Android.apk" "$3-Android.apk" "$FILES" "$zip" || return 1
+  fi
+  ln -sfn "$zip" "$FILES/$3-Android.zip"
+  prune "$FILES" "$3-Android-*.zip" "$3-Android.zip"
 }
 
 
-echo "$BRANDS" | while read -r brand repo setup appcast prefix; do
+echo "$BRANDS" | while read -r brand repo setup appcast prefix site; do
   [ -n "$brand" ] || continue
   TMP=$(mktemp -d); mkdir "$TMP/dl"
-  # Until 2026-10-09 the site served the installer and the DMG as they are; now only zips (the
-  # old links redirect to them: nginx.conf), so none of those stays here.
-  rm -f "$ROOT/$brand/$prefix-Setup"*.exe "$ROOT/$brand/$prefix-Mac"*.dmg
   windows "$brand" "$repo" "$setup" "$prefix" || echo "$brand: Windows not mirrored" >&2
   mac "$brand" "$appcast" "$prefix" || echo "$brand: Mac not mirrored" >&2
+  android "$brand" "$site" "$prefix" || echo "$brand: Android not zipped" >&2
   rm -rf "$TMP"
 done
 exit 0

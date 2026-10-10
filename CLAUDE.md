@@ -66,11 +66,11 @@ The same server also runs:
   `app-downloads` (nginx, outside Coolify), Traefik file
   `/data/coolify/proxy/dynamic/app-downloads.yaml`, files in
   `/data/app-downloads/{webyar,respok}`, mirrored every 5 minutes from each
-  brand's release repos by the timer `app-downloads-sync`. It serves zips:
-  `app.webyar.ai/downloads/Webyar-Windows.zip` (the installer) and
-  `Webyar-Mac.zip` (the DMG), plus `windows/` (the Windows apps' update feed),
-  and the same as `RESPOK-*` on `app.respok.app`. The old `-Setup.exe` and
-  `-Mac.dmg` links redirect to the zips (since 2026-10-09). See
+  brand's release repos by the timer `app-downloads-sync`. It serves
+  `app.webyar.ai/downloads/Webyar-Setup.exe` and its zip `Webyar-Windows.zip`,
+  `Webyar-Mac.dmg` and `Webyar-Mac.zip`, `Webyar-Android.zip` (the zip of the
+  frontend's own `Webyar-Android.apk`), plus `windows/` (the Windows apps'
+  update feed), and the same as `RESPOK-*` on `app.respok.app`. See
   `deploy/app-downloads/README.md`. RESPOK's overlay
   section 5b keeps its app settings (feeds, bundle ids) RESPOK's
   (`/root/respok/overlay-apps-test.sh` proves it).

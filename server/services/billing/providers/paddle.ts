@@ -67,8 +67,69 @@ function withQuery(url: string, pair: string): string {
   return `${url}${url.includes('?') ? '&' : '?'}${pair}`;
 }
 
-const baseUrl = (config: BillingProviderConfig) =>
-  config.sandbox ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
+/**
+ * The `sandbox` switch as the Providers screen stores it: a toggle saves the
+ * strings `'true'` / `'false'`, so the string `'false'` must read as off (a
+ * plain truthiness check sent a live account to the sandbox).
+ */
+export function isPaddleSandboxFlag(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (typeof value !== 'string') return false;
+  return ['true', '1', 'on', 'yes'].includes(value.trim().toLowerCase());
+}
+
+export const PADDLE_LIVE_API_BASE = 'https://api.paddle.com';
+export const PADDLE_SANDBOX_API_BASE = 'https://sandbox-api.paddle.com';
+
+export const paddleApiBase = (config: BillingProviderConfig) =>
+  isPaddleSandboxFlag(config.sandbox) ? PADDLE_SANDBOX_API_BASE : PADDLE_LIVE_API_BASE;
+
+const baseUrl = paddleApiBase;
+
+// --- Credential shapes ---------------------------------------------------
+//
+// Paddle keeps live and sandbox in separate accounts with separate keys:
+//   - API keys:           `pdl_live_apikey_…` / `pdl_sdbx_apikey_…`
+//   - client-side tokens: `live_…`           / `test_…`
+// A key of the other environment is refused before it reaches Paddle, with a
+// message the Super Admin can act on. (API keys made before Paddle added the
+// prefixes carry neither marker; a live account may still use one.)
+
+function trimmed(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * Why these credentials cannot be used by this gateway, or null when they
+ * can. `paddle_sandbox` takes sandbox credentials only. Live `paddle` refuses
+ * sandbox credentials unless its own Sandbox Mode switch is on (then it is
+ * left as it always was). Empty values are not judged here (a missing key is
+ * reported where it is needed).
+ */
+export function paddleCredentialProblem(
+  config: BillingProviderConfig,
+  gateway: 'paddle' | 'paddle_sandbox',
+): string | null {
+  const apiKey = trimmed(config.api_key);
+  const clientToken = trimmed(config.client_token);
+  if (gateway === 'paddle_sandbox') {
+    if (apiKey && !apiKey.includes('_sdbx')) {
+      return 'Paddle sandbox: this API key is not a sandbox key (sandbox keys contain "_sdbx"). Create one in sandbox-vendors.paddle.com → Developer tools → Authentication.';
+    }
+    if (clientToken && !clientToken.startsWith('test_')) {
+      return 'Paddle sandbox: this client-side token is not a sandbox token (sandbox tokens start with "test_"). Create one in sandbox-vendors.paddle.com → Developer tools → Authentication.';
+    }
+    return null;
+  }
+  if (isPaddleSandboxFlag(config.sandbox)) return null;
+  if (apiKey.includes('_sdbx')) {
+    return 'Paddle: this is a sandbox API key ("_sdbx"). Use the "Paddle — Sandbox (test)" gateway for sandbox keys, or switch Sandbox Mode on.';
+  }
+  if (clientToken.startsWith('test_')) {
+    return 'Paddle: this is a sandbox client-side token ("test_"). Use the "Paddle — Sandbox (test)" gateway for sandbox tokens, or switch Sandbox Mode on.';
+  }
+  return null;
+}
 
 // --- Webhook signature verification -------------------------------------
 //
@@ -164,6 +225,8 @@ export const paddleProvider: BillingProviderHandler = {
    * token, and `checkout.url` must be on a domain approved in Paddle.
    */
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
+    const credentialProblem = paddleCredentialProblem(config, 'paddle');
+    if (credentialProblem) throw new Error(credentialProblem);
     const currency = requireSupportedCurrency('Paddle', req.currency, PADDLE_CURRENCIES);
     const amount = minorFromProvider(req.metadata?.amount);
     if (!amount) throw new Error('Paddle checkout needs a positive amount');
@@ -190,20 +253,25 @@ export const paddleProvider: BillingProviderHandler = {
       currency_code: currency,
       collection_mode: 'automatic',
       custom_data: customData,
-      checkout: { url: req.callbackUrl },
+      // No `checkout.url`: Paddle accepts only an approved domain there
+      // (`transaction_checkout_url_domain_is_not_approved`), and the payment
+      // page opens this transaction with Paddle.js itself (`clientCheckout`),
+      // returning to `successUrl` below. Paddle's own links (e-mails) use the
+      // account's default payment link.
     });
     const error = readPaddleError(data);
     if (error !== null) throw new Error(error.detail || 'Paddle checkout failed');
     const txn = readPaddleTransaction(data);
     if (txn === null) throw new Error('Paddle checkout failed');
     return {
-      paymentUrl: txn.checkoutUrl || withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
+      // Our own payment page, never Paddle's default payment link.
+      paymentUrl: withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
       sessionId: txn.id,
       clientCheckout: {
         provider: 'paddle',
         transactionId: txn.id,
         clientToken,
-        environment: config.sandbox ? 'sandbox' : 'production',
+        environment: isPaddleSandboxFlag(config.sandbox) ? 'sandbox' : 'production',
         // Paddle.js sends the customer back here once the payment completes;
         // `_ptxn` is the reference the return is verified against.
         successUrl: withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
@@ -343,8 +411,14 @@ export const paddleProvider: BillingProviderHandler = {
     return { url: returnUrl };
   },
 
+  validateConfig(config: BillingProviderConfig) {
+    return paddleCredentialProblem(config, 'paddle');
+  },
+
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
+    const credentialProblem = paddleCredentialProblem(config, 'paddle');
+    if (credentialProblem) return { success: false, latencyMs: 0, error: credentialProblem };
     try {
       const data = await paddleApi(config, '/event-types');
       const error = readPaddleError(data);

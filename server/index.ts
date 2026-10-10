@@ -49,6 +49,7 @@ import { commerceGuestVerificationRouter } from './routes/commerce/guestVerifica
 import { commerceIdentityRouter } from './routes/commerce/identity.js';
 import { internalTestGatewayRouter } from './routes/internalTestGateway.js';
 import { billingCustomerRouter } from './routes/billingCustomer.js';
+import { billingAccountRouter } from './routes/billingAccount.js';
 import { adminBillingV2Router } from './routes/adminBillingV2.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
 
@@ -108,6 +109,7 @@ import { startWorkspaceDeletionWorker } from './services/workspaceDeletion/worke
 import { startUserDeletionWorker } from './services/userDeletion/worker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
 import { startBillingV2Schedulers } from './services/billing/scheduler/ticker.js';
+import { LEGACY_BILLING_ENABLED } from '../shared/billingMode.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
 import { startPerfCollectors } from './services/observability/perf.js';
 import { startAutoActionsTicker } from './services/observability/autoActionsTicker.js';
@@ -506,6 +508,7 @@ app.use('/api/operator-activity', operatorActivityRouter);
 // Billing — checkout, webhooks, subscription management
 // Simulated in-house gateway page (test provider only; must be mounted first).
 app.use('/api/billing/test-gateway', internalTestGatewayRouter);
+app.use('/api/billing', billingAccountRouter);
 app.use('/api/billing', billingCustomerRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/seo', seoRouter);
@@ -730,7 +733,9 @@ const httpServer = app.listen(config.port, () => {
   // AI billing — automatic, idempotent recovery/reconciliation pass.
   startAiBillingRecovery(config);
   // Billing Engine V2 — renewal invoices, wallet auto-pay and period activation.
-  startBillingV2Schedulers(config);
+  // Hidden while the simple billing replaces it (shared/billingMode.ts): it
+  // must not issue invoices or send notices nobody can act on.
+  if (LEGACY_BILLING_ENABLED) startBillingV2Schedulers(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
   // Reporting-only: nothing on a request path reads alert_events, so this

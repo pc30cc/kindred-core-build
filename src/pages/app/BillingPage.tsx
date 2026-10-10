@@ -1,12 +1,15 @@
 /**
  * Canonical workspace billing entry.
+ * This is the only customer-facing billing experience.
  *
- * This is the only customer-facing billing experience. There is no
- * region, rollout-state, or legacy fallback dispatch in the frontend.
+ * Billing v2 is hidden (shared/billingMode.ts): the page is the simple
+ * prepaid billing (docs/billing/SIMPLE_BILLING.md).
  */
 import { SkeletonCard, SkeletonStats } from '@/components/common/Skeletons';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
 import WorkspaceBillingPage from './billing/WorkspaceBillingPage';
+import AccountBillingPage from './billing/account/AccountBillingPage';
 
 export default function BillingPage() {
   const { workspace, isLoading } = useActiveWorkspace();
@@ -20,5 +23,6 @@ export default function BillingPage() {
     );
   }
 
+  if (!LEGACY_BILLING_ENABLED) return <AccountBillingPage workspaceId={workspace.id} slug={workspace.slug} />;
   return <WorkspaceBillingPage workspaceId={workspace.id} />;
 }

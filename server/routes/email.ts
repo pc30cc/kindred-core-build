@@ -50,9 +50,13 @@ emailRouter.post('/test-send', async (req, res) => {
       .from('profiles').select('email').eq('id', auth.userId).maybeSingle();
     if (!profile?.email) return res.status(400).json({ error: 'verified_email_required' });
 
+    // The Super Admin template `email_test` (per edition, migration 260); the
+    // text here is only what is sent if that template was deleted.
     const result = await sendEmail(config, {
       workspaceId,
       to: profile.email,
+      templateSlug: 'email_test',
+      locale: typeof req.body?.locale === 'string' ? req.body.locale : undefined,
       subject: 'Email provider test',
       text: 'Your workspace email provider is configured correctly.',
       html: '<p>Your workspace email provider is configured correctly.</p>',

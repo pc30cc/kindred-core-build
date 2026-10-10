@@ -31,6 +31,7 @@ import {
 import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, errorMessage } from './shared';
 import { billingGetPaymentIntent, billingVerifyCallback, type BillingReceipt } from '@/lib/api';
 import { openPaddleCheckout } from '@/lib/paddleCheckout';
+import { PADDLE_SANDBOX_PROVIDER, PADDLE_SANDBOX_TEST_CARD, isPaddleProvider } from '../../../../shared/testGateways';
 import { currentCurrency, currentEdition } from '@/lib/edition';
 import { isProviderAllowedInEdition } from '../../../../shared/edition';
 
@@ -272,8 +273,8 @@ export default function PaymentPage() {
           ? await billingDepositCheckout(workspaceId, id, callbackUrl, selected || undefined)
           : await billingInvoiceCheckout(workspaceId, id, callbackUrl, selected || undefined);
       const clientCheckout = 'clientCheckout' in res ? res.clientCheckout : undefined;
-      if (clientCheckout?.provider === 'paddle') {
-        // Paddle Billing opens on this page (Paddle.js) and returns to the
+      if (clientCheckout && isPaddleProvider(clientCheckout.provider)) {
+        // Paddle Billing (live or sandbox) opens on this page (Paddle.js) and returns to the
         // server-provided URL once paid; closing it leaves the invoice open.
         await openPaddleCheckout(clientCheckout, { locale, onClosed: () => setBusy(false) });
         return;
@@ -450,7 +451,11 @@ export default function PaymentPage() {
             )}
             <div>
               <h2 className="text-xl font-bold">
-                {t(`billing.paymentResult.${paymentResult.state}Title` as TranslationKey)}
+                {t(
+                  paymentResult.state === 'succeeded'
+                    ? 'billing.paymentResult.successTitle'
+                    : (`billing.paymentResult.${paymentResult.state}Title` as TranslationKey),
+                )}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 {paymentResult.state === 'succeeded'
@@ -468,7 +473,7 @@ export default function PaymentPage() {
             </div>
             {paymentResult.state === 'succeeded' && paymentResult.receipt && (
               <div className="mx-auto grid max-w-xl gap-2 text-sm sm:grid-cols-2">
-                <Row label={t('billing.paymentResult.receiptNumber')} value={paymentResult.receipt.invoiceNumber || paymentResult.receipt.orderId} />
+                <Row label={t('billing.paymentResult.receiptNumber')} value={docNumber || paymentResult.receipt.invoiceNumber || paymentResult.receipt.orderId} />
                 <Row label={t('billing.common.amount')} value={money(paymentResult.receipt.amountIrr, locale, paymentResult.receipt.currency)} />
                 <Row label={t('billing.paymentResult.trackingCode')} value={paymentResult.receipt.providerRef || '—'} />
                 <Row label={t('billing.common.date')} value={billingDate(paymentResult.receipt.paidAt, locale)} />
@@ -557,6 +562,15 @@ export default function PaymentPage() {
                 </Button>
               )}
             </div>
+
+            {selected === PADDLE_SANDBOX_PROVIDER && (
+              <p
+                className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400"
+                data-testid="paddle-sandbox-note"
+              >
+                {t('billing.checkout.paddleSandboxNote', { card: PADDLE_SANDBOX_TEST_CARD })}
+              </p>
+            )}
 
             {blockedMessage && (
               <p className="text-sm text-destructive">

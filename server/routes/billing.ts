@@ -67,9 +67,16 @@ import {
   getPlatformEdition,
 } from '../services/billing/edition.js';
 import { isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
+import { PADDLE_SANDBOX_PROVIDER, isTestPaymentProvider } from '../../shared/testGateways.js';
 import { buildCancelAtPeriodEndPatch, decideResume } from '../services/billing/cancellation.js';
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
+import {
+  findAccountPaymentByProviderPayment,
+  handleAccountPaymentWebhook,
+  readAccountPayment,
+  type AccountPaymentRow,
+} from '../services/billing/account/index.js';
 import {
   buildBoundVerifyParams,
   buildGatewayVerificationMarker,
@@ -588,6 +595,11 @@ billingRouter.post('/checkout', async (req, res) => {
     assertCurrencyAllowed(edition, input.currency);
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
+    // The Paddle sandbox is a test gateway on the invoice engine only (see
+    // billingCustomer.ts, which also keeps it to the people allowed to test).
+    if (resolved.provider.name === PADDLE_SANDBOX_PROVIDER) {
+      return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
+    }
 
     const iranProvider = IRAN_PROVIDERS.has(resolved.provider.name);
     // Iranian gateways charge the number as Rial (`amount_irr`), so the price
@@ -1327,9 +1339,10 @@ export const billingWebhookRouter = Router();
 /**
  * Providers whose webhook is verified cryptographically: a signature over the
  * raw body (Stripe, Paddle, Lemon Squeezy, PayTR) or PayPal's own
- * verify-webhook-signature API against the configured webhook id.
+ * verify-webhook-signature API against the configured webhook id. The Paddle
+ * sandbox has its own endpoint (`/paddle_sandbox`) and its own secret.
  */
-const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'lemon_squeezy', 'paytr', 'paypal']);
+const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'paddle_sandbox', 'lemon_squeezy', 'paytr', 'paypal']);
 
 /**
  * The workspace a verified platform-level event belongs to when its payload
@@ -1347,11 +1360,16 @@ async function resolveEventWorkspace(
 ): Promise<{ workspaceId: string | null; foreignIntent: boolean }> {
   let foreignIntent = false;
   if (event.intentId) {
+    // A simple-billing account payment carries its id where an intent's would be.
+    const accountPayment = await readAccountPayment(cfg, event.intentId);
+    if (accountPayment && accountPayment.provider === providerName) return { workspaceId: accountPayment.workspace_id, foreignIntent };
     const intent = await readPaymentIntent(cfg, event.intentId);
     if (intent && intent.provider_name === providerName) return { workspaceId: intent.workspace_id, foreignIntent };
-    foreignIntent = !intent;
+    foreignIntent = !intent && !accountPayment;
   }
   if (event.providerPaymentId) {
+    const accountPayment = await findAccountPaymentByProviderPayment(cfg, providerName, event.providerPaymentId);
+    if (accountPayment) return { workspaceId: accountPayment.workspace_id, foreignIntent: false };
     const { data, error } = await getServiceClient(cfg)
       .from('billing_payments')
       .select('workspace_id')
@@ -1528,6 +1546,61 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   if (!providerEventId) {
     logWebhookRejection(providerName, 'missing_provider_event_id');
     return res.status(400).json({ error: 'Webhook rejected' });
+  }
+
+  // Simple billing: a payment of a workspace account. Its id travels in the
+  // provider's signed custom metadata where an invoice checkout's intent id
+  // does, so it is looked up first; a refund may name only the provider's
+  // transaction. Anything else falls through to the invoice path below.
+  let accountPayment: AccountPaymentRow | null = null;
+  try {
+    if (event.intentId) accountPayment = await readAccountPayment(cfg, event.intentId);
+    if (!accountPayment && event.type === 'refund_processed' && event.providerPaymentId) {
+      accountPayment = await findAccountPaymentByProviderPayment(cfg, providerName, event.providerPaymentId);
+    }
+  } catch {
+    logWebhookRejection(providerName, 'account_payment_read_failed');
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+  if (accountPayment) {
+    if (accountPayment.workspace_id !== workspaceId || accountPayment.provider !== providerName) {
+      logWebhookRejection(providerName, 'account_payment_mismatch');
+      return res.status(400).json({ error: 'Webhook rejected' });
+    }
+    // Only a payment or a refund moves an account's money. Other events about
+    // it are acknowledged WITHOUT being claimed, so nothing is recorded as
+    // processed that was not.
+    if (event.type !== 'payment_succeeded' && event.type !== 'refund_processed') {
+      return acknowledge({ received: true, ignored: true });
+    }
+    let accountClaim;
+    try {
+      accountClaim = await claimBillingWebhookEvent(url, key, {
+        providerName,
+        providerEventId,
+        workspaceId,
+        eventType: event.type,
+        amount: event.amount,
+        currency: event.currency,
+        metadata: event.raw,
+      });
+    } catch {
+      logWebhookRejection(providerName, 'claim_failed');
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
+    if (!accountClaim.claimed) {
+      if ('inFlight' in accountClaim) return res.status(409).json({ error: 'Webhook already in progress' });
+      return acknowledge({ received: true, duplicate: true });
+    }
+    try {
+      await handleAccountPaymentWebhook(cfg, { providerName, workspaceId, event, payment: accountPayment });
+    } catch {
+      await finalizeBillingWebhookEvent(url, key, accountClaim.eventRowId, 'failed').catch(() => {});
+      logWebhookRejection(providerName, 'account_payment_processing_failed');
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
+    await finalizeBillingWebhookEvent(url, key, accountClaim.eventRowId, 'success').catch(() => {});
+    return acknowledge({ received: true });
   }
 
   // An event naming a payment intent settles THAT intent's invoice — and only
@@ -1930,12 +2003,16 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
   }
   const seriesMap = new Map(monthKeys.map((m) => [m, { month: m, revenue: 0, count: 0, subscription: 0, topup: 0, refunded: 0 }]));
 
-  const byProvider = new Map<string, { provider: string; revenue: number; count: number }>();
+  // A test gateway's money (sandbox / simulator, see shared/testGateways.ts)
+  // stays in the totals as before, and is marked: `test` on its provider row
+  // and on each payment, and summed in `totals.testRevenue`.
+  const byProvider = new Map<string, { provider: string; revenue: number; count: number; test: boolean }>();
   const byPlan = new Map<string, { plan: string; revenue: number; count: number }>();
   const byWorkspace = new Map<string, { workspaceId: string; name: string; revenue: number; count: number }>();
 
   let grossRevenue = 0;
   let refundTotal = 0;
+  let testRevenue = 0;
 
   for (const p of paid) {
     const amount = Number(p.amount || 0);
@@ -1952,7 +2029,9 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
       if (isTopup) bucket.topup += amount; else bucket.subscription += amount;
     }
     const provider = p.provider_name || 'unknown';
-    const prov = byProvider.get(provider) || { provider, revenue: 0, count: 0 };
+    const test = isTestPaymentProvider(provider);
+    if (test) testRevenue += amount;
+    const prov = byProvider.get(provider) || { provider, revenue: 0, count: 0, test };
     prov.revenue += amount; prov.count += 1; byProvider.set(provider, prov);
 
     const planName = isTopup ? 'ai_credit_topup' : (p.plan_name_snapshot || planById.get(p.plan_id)?.name || 'unknown');
@@ -2003,6 +2082,7 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
       grossRevenue,
       refundTotal,
       netRevenue: grossRevenue - refundTotal,
+      testRevenue,
       paymentCount: paid.length,
       attempts,
       succeeded,
@@ -2019,6 +2099,7 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
     planDistribution: [...planDistribution.entries()].map(([plan, count]) => ({ plan, count })).sort((a, b) => b.count - a.count),
     recentPayments: paymentRows.slice(0, 50).map((p) => ({
       ...p,
+      is_test: isTestPaymentProvider(p.provider_name),
       workspace_name: workspaceById.get(p.workspace_id)?.name || null,
     })),
   });

@@ -13,6 +13,7 @@
  * transaction server-to-server — nothing here decides that money arrived.
  */
 import type { ClientCheckout } from '@/lib/billingApi';
+import { PADDLE_SANDBOX_PROVIDER, isPaddleProvider } from '../../shared/testGateways';
 
 declare global {
   interface Window {
@@ -38,6 +39,20 @@ const PADDLE_JS_URL = 'https://cdn.paddle.com/paddle/v2/paddle.js';
 
 let inflight: Promise<PaddleJs> | null = null;
 let initializedToken: string | null = null;
+
+/** A checkout the payment page opens with Paddle.js: live `paddle` or `paddle_sandbox`. */
+export function isPaddleClientCheckout(checkout: ClientCheckout | null | undefined): checkout is ClientCheckout {
+  return Boolean(checkout && isPaddleProvider(checkout.provider));
+}
+
+/**
+ * The Paddle.js environment for a checkout: the sandbox gateway always opens
+ * in the sandbox (its token is a `test_` token, which the live environment
+ * refuses), live `paddle` only when the server says its Sandbox Mode is on.
+ */
+export function paddleEnvironmentOf(checkout: Pick<ClientCheckout, 'provider' | 'environment'>): 'sandbox' | 'production' {
+  return checkout.provider === PADDLE_SANDBOX_PROVIDER || checkout.environment === 'sandbox' ? 'sandbox' : 'production';
+}
 
 export function loadPaddle(): Promise<PaddleJs> {
   if (typeof window !== 'undefined' && window.Paddle) return Promise.resolve(window.Paddle);
@@ -91,7 +106,7 @@ export async function openPaddleCheckout(
 
   if (initializedToken !== checkout.clientToken) {
     // Initialize may run once per page; the environment must be set before it.
-    if (checkout.environment === 'sandbox') Paddle.Environment.set('sandbox');
+    if (paddleEnvironmentOf(checkout) === 'sandbox') Paddle.Environment.set('sandbox');
     Paddle.Initialize({ token: checkout.clientToken, eventCallback });
     initializedToken = checkout.clientToken;
   } else {

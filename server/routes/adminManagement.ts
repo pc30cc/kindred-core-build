@@ -33,7 +33,9 @@ import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 import { isParseableDate } from '../lib/dateInput.js';
 import { reviveFailedWorkspaceDeletion } from '../services/workspaceDeletion/revive.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
-import { invalidatePlatformRegionCache } from '../services/platformRegion.js';
+import { getPlatformEdition, invalidatePlatformRegionCache } from '../services/platformRegion.js';
+import { respondEditionUnavailable } from '../services/editionSettings.js';
+import type { Edition } from '../../shared/edition.js';
 import { PANEL_THEME_IDS, isValidPanelThemeOptions, resolvePanelThemeOptions } from '../../shared/panelThemes.js';
 
 
@@ -540,13 +542,23 @@ adminManagementRouter.get('/email-templates', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
+  // Only the running edition's templates (migration 260): the Iranian and
+  // the International edition each keep and edit their own.
+  let edition: Edition;
+  try {
+    edition = await getPlatformEdition(config);
+  } catch (e) {
+    if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
+    return;
+  }
   const { data, error } = await sb
     .from('email_templates')
     .select('*')
     .is('workspace_id', null)
+    .eq('edition', edition)
     .order('slug');
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ templates: data });
+  return res.json({ templates: data, edition });
 });
 
 const emailTemplateSchema = z.object({
@@ -564,11 +576,35 @@ adminManagementRouter.post('/email-templates', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
-  const { data, error } = await sb
+  let edition: Edition;
+  try {
+    edition = await getPlatformEdition(config);
+  } catch (e) {
+    if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
+    return;
+  }
+  // One platform row per (edition, slug, locale): a second save of the same
+  // template updates it instead of adding a twin.
+  const { data: existing } = await sb
     .from('email_templates')
-    .insert({ ...parsed.data, workspace_id: null })
-    .select('*')
-    .single();
+    .select('id')
+    .is('workspace_id', null)
+    .eq('edition', edition)
+    .eq('slug', parsed.data.slug)
+    .eq('locale', parsed.data.locale)
+    .maybeSingle();
+  const { data, error } = existing
+    ? await sb
+        .from('email_templates')
+        .update({ subject: parsed.data.subject, html_body: parsed.data.html_body, text_body: parsed.data.text_body ?? null, is_active: parsed.data.is_active })
+        .eq('id', (existing as { id: string }).id)
+        .select('*')
+        .single()
+    : await sb
+        .from('email_templates')
+        .insert({ ...parsed.data, workspace_id: null, edition })
+        .select('*')
+        .single();
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ template: data });
 });
@@ -586,11 +622,19 @@ adminManagementRouter.put('/email-templates/:id', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
+  let edition: Edition;
+  try {
+    edition = await getPlatformEdition(config);
+  } catch (e) {
+    if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
+    return;
+  }
   const { data, error } = await sb
     .from('email_templates')
     .update(parsed.data)
     .eq('id', req.params.id)
     .is('workspace_id', null)
+    .eq('edition', edition)
     .select('*')
     .single();
   if (error) return res.status(500).json({ error: error.message });
@@ -601,11 +645,19 @@ adminManagementRouter.delete('/email-templates/:id', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
+  let edition: Edition;
+  try {
+    edition = await getPlatformEdition(config);
+  } catch (e) {
+    if (!respondEditionUnavailable(res, e)) res.status(500).json({ error: 'EDITION_READ_FAILED' });
+    return;
+  }
   const { error } = await sb
     .from('email_templates')
     .delete()
     .eq('id', req.params.id)
-    .is('workspace_id', null);
+    .is('workspace_id', null)
+    .eq('edition', edition);
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ success: true });
 });

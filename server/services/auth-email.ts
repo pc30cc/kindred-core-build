@@ -190,7 +190,6 @@ export async function issueVerificationEmail(
         email: options.email,
         expiry_time: expiryLabel(options.locale, 24),
         year: new Date().getFullYear().toString(),
-        support_email: `support@${options.email.split('@')[1] || 'example.com'}`,
       },
       locale: options.locale || 'en',
     });
@@ -259,7 +258,6 @@ export async function issueRecoveryEmail(
         email: options.email,
         expiry_time: expiryLabel(options.locale, 24),
         year: new Date().getFullYear().toString(),
-        support_email: `support@${options.email.split('@')[1] || 'example.com'}`,
       },
       locale: options.locale || 'en',
     });

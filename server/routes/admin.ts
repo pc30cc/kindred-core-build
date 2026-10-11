@@ -354,9 +354,11 @@ adminRouter.post('/user-status', async (req, res) => {
 });
 
 // ─── Impersonate User ("login as user") ──────────────────────────
-// Issues a one-time, 60s-lived token redeemed by GET /api/auth/impersonate,
-// which sets a real session cookie for the target user. Replaces the old
-// Supabase Auth magic-link flow (see server/services/auth/impersonation.ts).
+// Issues a one-time, 60s-lived token. The returned link opens the panel's
+// /impersonate page, which redeems it with POST /api/auth/impersonate on the
+// API host, so the session cookie lands where the panel sends its requests.
+// Replaces the old Supabase Auth magic-link flow (see
+// server/services/auth/impersonation.ts).
 const impersonateSchema = z.object({
   userId: z.string().uuid(),
 });
@@ -381,7 +383,7 @@ adminRouter.post('/impersonate', async (req, res) => {
 
     const adminUserId = ctx(req).adminUser?.id as string;
     const rawToken = await issueImpersonationToken(config, userId, adminUserId);
-    const url = `${redirectBase}/api/auth/impersonate?token=${encodeURIComponent(rawToken)}`;
+    const url = `${redirectBase}/impersonate?token=${encodeURIComponent(rawToken)}`;
 
     res.json({ url });
   } catch (err: unknown) {

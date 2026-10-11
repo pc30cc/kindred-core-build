@@ -550,7 +550,9 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             try {
               setImpersonateLoading(true);
               const { url } = await adminImpersonateUser(userId);
-              window.open(url, '_blank');
+              // Same tab: the browser has one sign-in, which becomes the
+              // user's; the banner on top brings the admin back.
+              window.location.assign(url);
             } catch (err) {
               toast.error(err.message || t('admin.users.impersonateFailed'));
             } finally {

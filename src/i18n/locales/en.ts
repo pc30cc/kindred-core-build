@@ -4214,6 +4214,8 @@ const en = {
         card: { active: 'Card', past_due: 'Card past due' },
         empty: 'No workspace matches.',
         csv: 'CSV',
+        csvExporting: 'Exporting…',
+        csvFailed: 'The CSV could not be built. Try again.',
         liability: {
           title: 'Outstanding balances ({{currency}})',
           balance: 'Outstanding balance',
@@ -4362,10 +4364,13 @@ const en = {
         liability: 'Owed to customers now',
         lastMonth: 'Last full month',
         ytd: 'This year to date',
+        ytdFailed: 'This year\'s figures could not be loaded.',
         footnote: {
           paddle: 'Columns show our charge. For USD paid through Paddle, Paddle adds its own tax on top, so our VAT is empty there.',
           chargeback: 'A chargeback reversal is not booked here: it does not change these numbers.',
           refundMonth: 'A refund counts in the month it happened, not in the month of the payment.',
+          purged: 'Payments of workspaces deleted for good are no longer counted, so a closed month can come out lower than a figure taken before.',
+          csvNote: 'Payments of workspaces deleted for good are not included.',
         },
         empty: 'No payments in this period.',
         purpose: {

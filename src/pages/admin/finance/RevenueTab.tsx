@@ -358,11 +358,44 @@ export function LiabilityTiles({ row, currency }: { row: LiabilityRow | undefine
   );
 }
 
-function CurrencySection({ report, ytdReport, currency }: { report: RevenueReport; ytdReport: RevenueReport | undefined; currency: string }) {
+/** The 12-month report year to date is computed from, and where its query is. */
+interface YtdState {
+  report: RevenueReport | undefined;
+  failed: boolean;
+  retry: () => void;
+}
+
+/**
+ * Year to date, from the 12-month report only. While it loads the tiles
+ * show a placeholder, and when it failed an error with a retry: never the
+ * sum of a shorter report, which would leave months of this year out.
+ */
+function YtdRow({ ytd, currency }: { ytd: YtdState; currency: string }) {
+  const { t } = useTranslation();
+  const title = sbLabel(t, 'revenue.ytd');
+  if (ytd.report) return <KpiRow title={title} sums={sumRows(kpiRows(ytd.report, currency).ytd)} currency={currency} />;
+  if (ytd.failed) {
+    return (
+      <div className="space-y-2" data-testid={`revenue-ytd-failed-${currency}`}>
+        <h4 className="text-sm font-medium text-muted-foreground">{title}</h4>
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-destructive/50 p-3 text-sm text-destructive">
+          <span>{sbLabel(t, 'revenue.ytdFailed')}</span>
+          <Button variant="outline" size="sm" onClick={ytd.retry}>{sbLabel(t, 'common.retry')}</Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2" data-testid={`revenue-ytd-loading-${currency}`}>
+      <h4 className="text-sm font-medium text-muted-foreground">{title}</h4>
+      <Skeleton className="h-[74px] w-full" />
+    </div>
+  );
+}
+
+function CurrencySection({ report, ytd, currency }: { report: RevenueReport; ytd: YtdState; currency: string }) {
   const { t } = useTranslation();
   const { lastMonth } = kpiRows(report, currency);
-  const ytdSource = ytdReport ?? report;
-  const ytd = kpiRows(ytdSource, currency);
   const empty = (report.totals[currency]?.payments ?? 0) === 0 && (report.totals[currency]?.refunds ?? 0) === 0;
   return (
     <Card data-testid={`revenue-section-${currency}`}>
@@ -374,7 +407,7 @@ function CurrencySection({ report, ytdReport, currency }: { report: RevenueRepor
       <CardContent className="space-y-6">
         <div className="grid gap-6 xl:grid-cols-2">
           <KpiRow title={sbLabel(t, 'revenue.lastMonth')} sums={lastMonth} currency={currency} />
-          <KpiRow title={sbLabel(t, 'revenue.ytd')} sums={sumRows(ytd.ytd)} currency={currency} />
+          <YtdRow ytd={ytd} currency={currency} />
         </div>
         {empty ? (
           <p className="py-4 text-center text-sm text-muted-foreground">{sbLabel(t, 'revenue.empty')}</p>
@@ -402,9 +435,13 @@ export default function RevenueTab() {
   const [months, setMonths] = useState<number>(12);
   const [includeTest, setIncludeTest] = useState(false);
   const { data, isLoading, isError, refetch } = useAdminRevenue({ months, includeTest });
-  // Year to date needs at most 12 months; reuse the main report when it already covers them.
+  // Year to date always comes from the 12-month report (the same query, and
+  // cache entry, as the main one at 12 months). A placeholder (the previous
+  // period or test switch, kept while the new one loads) is not used.
   const ytdQuery = useAdminRevenue({ months: 12, includeTest });
-  const ytdReport = months >= 12 ? data : ytdQuery.data;
+  const ytdData = ytdQuery.isPlaceholderData ? undefined : ytdQuery.data;
+  const ytd: YtdState = { report: ytdData, failed: ytdQuery.isError && !ytdData, retry: () => void ytdQuery.refetch() };
+  const csvNotes = [sbLabel(t, 'revenue.footnote.csvNote')];
 
   return (
     <div className="space-y-6">
@@ -433,7 +470,7 @@ export default function RevenueTab() {
             variant="outline"
             size="sm"
             disabled={!data}
-            onClick={() => data && downloadCsv(`revenue-${data.edition}-${fileDate()}.csv`, revenueCsvRows(data))}
+            onClick={() => data && downloadCsv(`revenue-${data.edition}-${fileDate()}.csv`, revenueCsvRows(data, csvNotes))}
           >
             <Download className="me-2 h-4 w-4" aria-hidden />
             {sbLabel(t, 'revenue.csv')}
@@ -451,11 +488,11 @@ export default function RevenueTab() {
       ) : (
         <>
           {data.currencies.map((currency) => (
-            <CurrencySection key={currency} report={data} ytdReport={ytdReport} currency={currency} />
+            <CurrencySection key={currency} report={data} ytd={ytd} currency={currency} />
           ))}
           <Card className="border-dashed">
             <CardContent className="space-y-1.5 py-4 text-xs text-muted-foreground">
-              {(['refundMonth', 'paddle', 'chargeback'] as const).map((k) => (
+              {(['refundMonth', 'paddle', 'chargeback', 'purged'] as const).map((k) => (
                 <p key={k} className="flex gap-2">
                   <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                   <span>{sbLabel(t, `revenue.footnote.${k}`)}</span>

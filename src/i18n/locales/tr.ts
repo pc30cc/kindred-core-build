@@ -4203,6 +4203,8 @@ const tr: TranslationKeys = {
         card: { active: 'Kart', past_due: 'Kart ödemesi gecikmiş' },
         empty: 'Eşleşen çalışma alanı yok.',
         csv: 'CSV',
+        csvExporting: 'Hazırlanıyor…',
+        csvFailed: 'CSV oluşturulamadı. Yeniden deneyin.',
         liability: {
           title: 'Müşterilere borçlu bakiye ({{currency}})',
           balance: 'Müşteri bakiyeleri',
@@ -4351,10 +4353,13 @@ const tr: TranslationKeys = {
         liability: 'Şu an müşterilere borçlu olunan',
         lastMonth: 'Son tam ay',
         ytd: 'Yılbaşından bugüne',
+        ytdFailed: 'Bu yılın rakamları yüklenemedi.',
         footnote: {
           paddle: 'Sütunlar bizim tahsilatımızı gösterir. Paddle ile USD ödemelerinde Paddle kendi vergisini ayrıca ekler, bu yüzden oradaki KDV sütunumuz boştur.',
           chargeback: 'Ters ibrazın geri alınması burada kaydedilmez ve bu rakamları değiştirmez.',
           refundMonth: 'Her iade, ödemenin ayında değil yapıldığı ayda sayılır.',
+          purged: 'Kalıcı olarak silinen çalışma alanlarının ödemeleri artık sayılmaz; bu yüzden kapanmış bir ay, daha önce alınan bir rakamdan düşük çıkabilir.',
+          csvNote: 'Kalıcı olarak silinen çalışma alanlarının ödemeleri dahil değildir.',
         },
         empty: 'Bu dönemde ödeme yok.',
         purpose: {

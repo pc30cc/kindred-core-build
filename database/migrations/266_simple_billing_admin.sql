@@ -291,7 +291,11 @@ BEGIN
              WHEN 'auto_renew' THEN coalesce(b.auto_renew, false)
              WHEN 'card' THEN b.card_status IS NOT NULL
              WHEN 'prepaid' THEN b.next_period_prepaid_minor IS NOT NULL
+             -- Live paid subscriptions only: an expired or canceled row
+             -- keeps its paid plan and old period end (for renew), and
+             -- would otherwise stay in this list forever.
              WHEN 'due_7d' THEN NOT coalesce(b.is_free, true)
+                                AND b.status IN ('active', 'past_due', 'trialing')
                                 AND b.current_period_end IS NOT NULL
                                 AND b.current_period_end < now() + interval '7 days'
            END
@@ -419,24 +423,22 @@ $$;
 --                     is the refund, net the credit taken back, tax the rest.
 -- Split by currency, provider, source and purpose (the refunded payment's).
 -- Never added across currencies; the server drops test gateways.
-CREATE OR REPLACE FUNCTION public.billing_admin_revenue_days(
+--
+-- Returns ONE jsonb array of {day, metric, currency, provider, source,
+-- purpose, count, gross_minor, tax_minor, net_minor}, not a set of rows:
+-- PostgREST (and the postgres-only engine) cap a set-returning RPC at
+-- db-max-rows (1000 by default) without an error, and a 12- to 36-month
+-- window easily has more rows than that. A scalar has no such cap.
+DROP FUNCTION IF EXISTS public.billing_admin_revenue_days(timestamptz, timestamptz, text);
+CREATE FUNCTION public.billing_admin_revenue_days(
   p_from      timestamptz,
   p_to        timestamptz,
   p_time_zone text DEFAULT 'UTC'
-) RETURNS TABLE (
-  day         date,
-  metric      text,
-  currency    text,
-  provider    text,
-  source      text,
-  purpose     text,
-  count       bigint,
-  gross_minor bigint,
-  tax_minor   bigint,
-  net_minor   bigint
-)
+) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
+  SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.day, t.metric, t.currency, t.provider, t.source, t.purpose), '[]'::jsonb)
+    FROM (
   SELECT (p.completed_at AT TIME ZONE coalesce(p_time_zone, 'UTC'))::date,
          'payment'::text, p.currency, p.provider, p.source, p.purpose,
          count(*)::bigint, sum(p.amount_minor)::bigint, sum(p.tax_minor)::bigint, sum(p.net_minor)::bigint
@@ -459,33 +461,33 @@ AS $$
          AND jsonb_typeof(e.value) = 'object'
     ) r
    WHERE r.at >= p_from AND r.at < p_to
-   GROUP BY 1, 3, 4, 5, 6;
+   GROUP BY 1, 3, 4, 5, 6
+    ) AS t (day, metric, currency, provider, source, purpose, count, gross_minor, tax_minor, net_minor);
 $$;
 
 -- Balance movements per local day, currency and ledger kind: money in
 -- (positive amounts) and out (negative amounts, as positive numbers). Not
 -- revenue: a top-up and the renewal it pays are both here.
-CREATE OR REPLACE FUNCTION public.billing_admin_ledger_days(
+-- One jsonb array of {day, currency, kind, count, in_minor, out_minor}, for
+-- the same reason as billing_admin_revenue_days (no db-max-rows cap).
+DROP FUNCTION IF EXISTS public.billing_admin_ledger_days(timestamptz, timestamptz, text);
+CREATE FUNCTION public.billing_admin_ledger_days(
   p_from      timestamptz,
   p_to        timestamptz,
   p_time_zone text DEFAULT 'UTC'
-) RETURNS TABLE (
-  day       date,
-  currency  text,
-  kind      text,
-  count     bigint,
-  in_minor  bigint,
-  out_minor bigint
-)
+) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
-  SELECT (l.created_at AT TIME ZONE coalesce(p_time_zone, 'UTC'))::date,
-         l.currency, l.kind, count(*)::bigint,
-         coalesce(sum(l.amount_minor) FILTER (WHERE l.amount_minor > 0), 0)::bigint,
-         coalesce(-sum(l.amount_minor) FILTER (WHERE l.amount_minor < 0), 0)::bigint
-    FROM public.billing_account_ledger l
-   WHERE l.created_at >= p_from AND l.created_at < p_to
-   GROUP BY 1, 2, 3;
+  SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.day, t.currency, t.kind), '[]'::jsonb)
+    FROM (
+      SELECT (l.created_at AT TIME ZONE coalesce(p_time_zone, 'UTC'))::date,
+             l.currency, l.kind, count(*)::bigint,
+             coalesce(sum(l.amount_minor) FILTER (WHERE l.amount_minor > 0), 0)::bigint,
+             coalesce(-sum(l.amount_minor) FILTER (WHERE l.amount_minor < 0), 0)::bigint
+        FROM public.billing_account_ledger l
+       WHERE l.created_at >= p_from AND l.created_at < p_to
+       GROUP BY 1, 2, 3
+    ) AS t (day, currency, kind, count, in_minor, out_minor);
 $$;
 
 -- What the platform owes now, per currency: the balances (service credit not

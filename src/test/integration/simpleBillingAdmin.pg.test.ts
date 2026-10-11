@@ -16,13 +16,13 @@
  *   M6  refunds are stamped with their own time; a later update keeps it;
  *   M7  the backfill took the ledger's time (else the payment's), and left
  *       updated_at alone;
- *   M8  revenue per local day: both sides of a Tehran midnight, refunds on
+ *   M8  revenue per local day (M8d: through the engine, no db-max-rows cut): both sides of a Tehran midnight, refunds on
  *       their own day with their tax share, only succeeded payments, a card
  *       renewal's net and tax from its row;
  *   M9  balance movements per kind and currency; the outstanding balance;
  *   M10 the accounts list: every filter and sort, search by name, slug,
  *       email and id, workspaces without an account, an owner's workspaces,
- *       paging;
+ *       paging; due within 7 days leaves expired and canceled rows out;
  *   M11 an account's payments: every status, newest first, with refunds;
  *   M12 only service_role reaches the functions; every one pins search_path;
  *       266 runs twice.
@@ -35,7 +35,12 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import pg from 'pg';
+import { createClient } from '@supabase/supabase-js';
 import { applyMigrationSql } from './pgMigrationChain';
+import { DatabasePool, databaseSettings } from '../../../server/db/pool';
+import { PostgrestEngine } from '../../../server/db/postgrest/engine';
+import { SchemaCache } from '../../../server/db/postgrest/schemaCache';
+import { createPgFetch } from '../../../server/db/pgFetch';
 
 const DSN = process.env.TEST_DATABASE_URL;
 if (process.env.REQUIRE_BILLING_DB === '1' && !DSN) {
@@ -374,7 +379,7 @@ suite('266 — Super Admin billing functions (real PostgreSQL, whole chain)', ()
   const revenue = (from: string, to: string, tz: string, provider: string) =>
     q(`SELECT day::text, metric, currency, provider, source, purpose, count::int, gross_minor::int AS gross,
               tax_minor::int AS tax, net_minor::int AS net
-         FROM public.billing_admin_revenue_days($1, $2, $3) WHERE provider = $4
+         FROM jsonb_to_recordset(public.billing_admin_revenue_days($1, $2, $3)) AS t(day date, metric text, currency text, provider text, source text, purpose text, count bigint, gross_minor bigint, tax_minor bigint, net_minor bigint) WHERE provider = $4
         ORDER BY day, metric, source, purpose`, [from, to, tz, provider]);
 
   it('M8 payments fall on their local day: both sides of a Tehran midnight', async () => {
@@ -429,6 +434,38 @@ suite('266 — Super Admin billing functions (real PostgreSQL, whole chain)', ()
     expect(await revenue('2025-05-01T00:00:00Z', '2025-07-01T00:00:00Z', 'Asia/Tehran', 'rv_ref')).toHaveLength(1);
   });
 
+  it('M8d through the postgres-only engine with a small db-max-rows: every day comes back (one jsonb array, no row cap)', async () => {
+    const ws = await makeWorkspace();
+    for (let d = 1; d <= 6; d++) {
+      await rawPayment(ws, { provider: 'rv_cap', net: 100 * d, completedAt: `2018-01-0${d}T12:00:00Z` });
+    }
+    for (const currency of ['USD', 'TRY', 'IRR']) await adjust(await makeWorkspace(), 100, { currency });
+    const url = new URL(DSN!);
+    url.pathname = `/${DB}`;
+    const settings = databaseSettings({ DATABASE_URL: url.toString(), DATABASE_MAX_ROWS: '2' })!;
+    const pool = new DatabasePool(settings);
+    try {
+      const engine = new PostgrestEngine(pool, new SchemaCache(pool, settings.schemas), { maxRows: settings.maxRows });
+      const sb = createClient('http://direct-database.invalid', 'direct-database', {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { fetch: createPgFetch(engine) },
+      });
+      const rev = await sb.rpc('billing_admin_revenue_days', { p_from: '2018-01-01T00:00:00Z', p_to: '2018-02-01T00:00:00Z', p_time_zone: 'UTC' });
+      expect(rev.error).toBeNull();
+      const days = (rev.data as Row[]).filter((r) => r.provider === 'rv_cap');
+      expect(days.map((r) => [r.day, r.gross_minor])).toEqual([1, 2, 3, 4, 5, 6].map((d) => [`2018-01-0${d}`, 100 * d]));
+
+      const range = [new Date(Date.now() - 86_400_000).toISOString(), new Date(Date.now() + 86_400_000).toISOString()];
+      const direct = Number((await one(`SELECT jsonb_array_length(public.billing_admin_ledger_days($1, $2, 'UTC')) AS n`, range)).n);
+      expect(direct).toBeGreaterThan(2);
+      const led = await sb.rpc('billing_admin_ledger_days', { p_from: range[0], p_to: range[1], p_time_zone: 'UTC' });
+      expect(led.error).toBeNull();
+      expect(led.data as Row[]).toHaveLength(direct);
+    } finally {
+      await pool.end();
+    }
+  });
+
   // ─── Balance movements and the outstanding balance ───────────────────────
 
   it('M9 balance movements per kind and currency, and what is owed per currency', async () => {
@@ -444,13 +481,13 @@ suite('266 — Super Admin billing functions (real PostgreSQL, whole chain)', ()
 
     const moves = await q(
       `SELECT currency, kind, sum(count)::int AS count, sum(in_minor)::int AS in_minor, sum(out_minor)::int AS out_minor
-         FROM public.billing_admin_ledger_days($1, $2, 'UTC') WHERE currency = 'GBP'
+         FROM jsonb_to_recordset(public.billing_admin_ledger_days($1, $2, 'UTC')) AS t(day date, currency text, kind text, count bigint, in_minor bigint, out_minor bigint) WHERE currency = 'GBP'
         GROUP BY 1, 2 ORDER BY 2`, [from, to]);
     expect(moves).toEqual([
       { currency: 'GBP', kind: 'admin_credit', count: 2, in_minor: 1200, out_minor: 0 },
       { currency: 'GBP', kind: 'admin_debit', count: 1, in_minor: 0, out_minor: 300 },
     ]);
-    const days = await q(`SELECT DISTINCT day::text AS d FROM public.billing_admin_ledger_days($1, $2, 'Asia/Tehran') WHERE currency = 'GBP'`, [from, to]);
+    const days = await q(`SELECT DISTINCT day::text AS d FROM jsonb_to_recordset(public.billing_admin_ledger_days($1, $2, 'Asia/Tehran')) AS t(day date, currency text, kind text, count bigint, in_minor bigint, out_minor bigint) WHERE currency = 'GBP'`, [from, to]);
     expect(days.length).toBeGreaterThanOrEqual(1);
 
     const owed = await q(
@@ -592,6 +629,24 @@ suite('266 — Super Admin billing functions (real PostgreSQL, whole chain)', ()
     });
   });
 
+  it('M10b due within 7 days lists live paid subscriptions only: not expired or canceled ones whose old period end stays on the row', async () => {
+    const T = `zd${randomUUID().slice(0, 6)}`;
+    const make = async (name: string, status: string, endsInDays: number) => {
+      const ws = await makeWorkspace({ name: `${T} ${name}` });
+      await q(`SELECT public.billing_account_ensure($1, 'USD')`, [ws]);
+      await subscribe(ws, proId, { endsInDays, status });
+    };
+    await make('Active', 'active', 3);
+    await make('PastDue', 'past_due', -1);
+    await make('Trialing', 'trialing', 2);
+    await make('Expired', 'expired', -60);
+    await make('Canceled', 'canceled', -2);
+    await make('ActiveLater', 'active', 20);
+    const r = await accounts({ search: T, filter: 'due_7d', sort: 'name_asc' });
+    expect(names(r)).toEqual([`${T} Active`, `${T} PastDue`, `${T} Trialing`]);
+    expect(r.total).toBe(3);
+  });
+
   // ─── An account's payments ───────────────────────────────────────────────
 
   it('M11 an account\'s payments: every status, newest first, refunds with their time, paged', async () => {
@@ -673,8 +728,8 @@ suite('266 — Super Admin billing functions (real PostgreSQL, whole chain)', ()
       const r = await db.query(`SELECT public.billing_account_admin_adjust($1, 100, 'USD', 'as the server', NULL, $2, 'test', 0) AS r`, [ws, randomUUID()]);
       expect(r.rows[0].r).toMatchObject({ replayed: false, balance_minor: 100 });
       await db.query(`SELECT public.billing_admin_accounts($1)`, [ws]);
-      await db.query(`SELECT * FROM public.billing_admin_revenue_days(now() - interval '1 day', now(), 'Asia/Tehran')`);
-      await db.query(`SELECT * FROM public.billing_admin_ledger_days(now() - interval '1 day', now(), 'UTC')`);
+      await db.query(`SELECT public.billing_admin_revenue_days(now() - interval '1 day', now(), 'Asia/Tehran')`);
+      await db.query(`SELECT public.billing_admin_ledger_days(now() - interval '1 day', now(), 'UTC')`);
       await db.query(`SELECT * FROM public.billing_admin_liability()`);
       await db.query(`SELECT public.billing_admin_account_payments($1, 10, 0)`, [ws]);
     } finally {

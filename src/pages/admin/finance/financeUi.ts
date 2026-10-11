@@ -46,11 +46,17 @@ export function monthLabel(key: string, calendar: RevenueReport['calendar'], loc
     .format(new Date(Date.UTC(y, m - 1, 15)));
 }
 
-/** A short month label for chart axes ("Mehr" / "Oct 26"). */
+/**
+ * A short month label for chart axes ("Mehr 05" / "Oct 26"). Both calendars
+ * carry a two-digit year: a 24-month chart has every month name twice.
+ */
 export function shortMonthLabel(key: string, calendar: RevenueReport['calendar'], locale: string, t: Translate): string {
   const [y, m] = key.split('-').map((part) => Number(part));
   if (!Number.isFinite(y) || !Number.isFinite(m)) return key;
-  if (calendar === 'jalali') return sbLabel(t, `jalaliMonths.${m}`, String(m));
+  if (calendar === 'jalali') {
+    const yy = new Intl.NumberFormat(intlTag(locale), { useGrouping: false, minimumIntegerDigits: 2 }).format(y % 100);
+    return `${sbLabel(t, `jalaliMonths.${m}`, String(m))} ${yy}`;
+  }
   return new Intl.DateTimeFormat(intlTag(locale), { month: 'short', year: '2-digit', timeZone: 'UTC', calendar: 'gregory' })
     .format(new Date(Date.UTC(y, m - 1, 15)));
 }
@@ -73,12 +79,17 @@ function csvCell(value: string | number | boolean | null | undefined): string {
   return /[",\r\n]/.test(text) || /^\s|\s$/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-/** RFC 4180 CSV text (CRLF rows). Cells that start like a formula are quoted with a leading apostrophe. */
+/**
+ * RFC 4180 CSV text (CRLF rows). Text cells that start like a formula
+ * (`=`, `+`, `-`, `@`, tab, CR) get a leading apostrophe, also `-1+cmd|…`:
+ * a spreadsheet reads a leading `-` followed by an expression as a formula.
+ * Amounts are numbers, never text, so a negative amount stays a number.
+ */
 export function toCsv(rows: ReadonlyArray<ReadonlyArray<string | number | boolean | null | undefined>>): string {
   return rows
     .map((row) =>
       row
-        .map((cell) => (typeof cell === 'string' && /^[=+\-@\t\r]/.test(cell) && !/^-?\d/.test(cell) ? csvCell(`'${cell}`) : csvCell(cell)))
+        .map((cell) => (typeof cell === 'string' && /^[=+\-@\t\r]/.test(cell) ? csvCell(`'${cell}`) : csvCell(cell)))
         .join(','),
     )
     .join('\r\n');
@@ -127,7 +138,7 @@ export function periodEndSoon(iso: string | null | undefined, now = Date.now()):
 }
 
 
-/** The current page as CSV rows, amounts in the unit people read. */
+/** Accounts as CSV rows (the export passes every matching one), amounts in the unit people read. */
 export function accountsCsvRows(items: readonly AdminAccountRow[]): Array<Array<string | number | boolean | null>> {
   const rows: Array<Array<string | number | boolean | null>> = [[
     'workspace_id', 'name', 'slug', 'owner_email', 'has_account', 'currency', 'unit', 'balance', 'prepaid_next_period',
@@ -185,8 +196,11 @@ export function kpiRows(report: RevenueReport, currency: string): { lastMonth: R
 }
 
 
-/** The report as CSV rows: one per month and currency, amounts in the unit people read. */
-export function revenueCsvRows(report: RevenueReport): Array<Array<string | number>> {
+/**
+ * The report as CSV rows: one per month and currency, amounts in the unit
+ * people read. `notes` follow after an empty row, each as `# note`.
+ */
+export function revenueCsvRows(report: RevenueReport, notes: readonly string[] = []): Array<Array<string | number>> {
   const header = [
     'month', 'currency', 'unit', 'payments', 'gross', 'tax', 'net', 'refunds', 'refund_gross', 'refund_tax', 'refund_net', 'net_after_refunds',
   ];
@@ -197,6 +211,10 @@ export function revenueCsvRows(report: RevenueReport): Array<Array<string | numb
       r.month, r.currency, csvUnit(r.currency), r.payments, u(r.gross_minor), u(r.tax_minor), u(r.net_minor),
       r.refunds, u(r.refund_gross_minor), u(r.refund_tax_minor), u(r.refund_net_minor), u(r.net_after_refunds_minor),
     ]);
+  }
+  if (notes.length > 0) {
+    rows.push([]);
+    for (const note of notes) rows.push([`# ${note}`]);
   }
   return rows;
 }

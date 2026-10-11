@@ -611,16 +611,24 @@ instead (below).
   266 (`billing_admin_accounts`, `billing_admin_account_payments`,
   `billing_admin_revenue_days`, `billing_admin_ledger_days`,
   `billing_admin_liability`) are `SECURITY DEFINER`, service_role only.
+  `billing_admin_revenue_days` and `billing_admin_ledger_days` return one
+  jsonb array, not a set of rows: a set-returning RPC is cut at db-max-rows
+  (`DATABASE_MAX_ROWS`, 1000) without an error, and a long window has more
+  day rows than that.
 - **Accounts.** Every workspace, joined to its account (LEFT JOIN), so a
   workspace with no account yet can be found and credited. Filters:
   `with_account` (default), `all`, `positive_balance`, `auto_renew`, `card`,
-  `prepaid`, `due_7d` (paid plans ending within 7 days, or past due and not
-  processed yet), `owner:<user id>` (every workspace the user owns, with or
+  `prepaid`, `due_7d` (live paid plans, status active, past_due or
+  trialing, ending within 7 days, or past due and not processed yet;
+  expired and canceled ones are left out), `owner:<user id>` (every workspace the user owns, with or
   without an account). Sorts: balance (default), period end, last payment,
   newest, name. Search: name, slug, owner email (from `profiles.email`) or an
   exact workspace or owner id; `%` and `_` are literal. Above the list: what
   is owed to customers per currency (balances and prepaid next periods). CSV
-  is built in the browser (no server export).
+  is built in the browser (no server export) and holds every workspace the
+  filters match: it reads every page (100 at a time), not just the one on
+  screen. Text cells that start like a formula (`=`, `+`, `-`, `@`) get a
+  leading apostrophe.
 - **An account.** Balance (Credit, Debit), plan (period, trial, scheduled
   change, prepaid next period, link to Plans → Assign), saved card, billing
   profile, then the ledger (admin rows show category, reason and the admin's
@@ -665,7 +673,13 @@ instead (below).
   chargeback reversal books nothing. Balance movements (credits, debits,
   renewals, upgrades, packs, returns) are shown per kind and marked "Not
   revenue". 1-36 months (6, 12 or 24 on the page); the current month is to
-  date.
+  date. "This year to date" always comes from the 12-month report: while it
+  loads the tiles wait, and if it fails they say so with a retry, never a
+  sum of a shorter period. Chart labels carry a two-digit year in both
+  calendars. Payments of a workspace deleted for good (`admin_purge_workspaces`)
+  go with it (`ON DELETE CASCADE`), so a closed month can come out lower
+  than a figure taken earlier; the page and the CSV say so. Keeping them
+  (an archive the report reads) is a follow-up.
 - **Gateways.** A read-only card above the gateways table says, per gateway
   and account currency, whether it is offered and why not (not allowed in
   the edition, inactive, currency not accepted, cannot confirm a payment,
@@ -679,13 +693,18 @@ instead (below).
   checked, another stored currency is kept as it is); retention days are
   1-3650 or empty (never deleted); `ai_allowance` is whole numbers ≥ 0 per
   currency. POST now stores `is_hidden`, retention and `ai_allowance`. The
-  form edits the monthly AI credit per AI currency of the edition (IRR as
-  Toman; USD and TRY in cents and kuruş) and copies `ai_allowance.IRR` into
-  `limits.included_ai_allowance_irr` (the server does too), so the limits
-  editor no longer shows that limit. The VAT of each currency is shown
-  read-only next to the prices, with a link to Billing settings.
-  `billing_plan_ai_allowance` still reads only `ai_allowance.IRR`: the USD
-  and TRY fields take effect when phase 7 makes the grant read them.
+  form edits the monthly AI credit only in the currencies the grant reads.
+  `billing_plan_ai_allowance` reads only `ai_allowance.IRR` (then the limit),
+  so in Iran the form edits it under Pricing (as Toman), copies it into
+  `limits.included_ai_allowance_irr` (the server does too) and hides that
+  limit; in the international edition there is no USD or TRY field (it would
+  be stored but never granted): the limit `included_ai_allowance_irr` stays
+  in the limits editor and `ai_allowance.IRR` takes its value. A stored USD
+  or TRY value is kept as it is, and plan cards show only the IRR credit.
+  When phase 7 makes the grant read other currencies, they join
+  `GRANTED_AI_ALLOWANCE_CURRENCIES` in `PlansPage.tsx`. The VAT of each
+  currency is shown read-only next to the prices, with a link to Billing
+  settings.
 - **Billing settings.** AI packs are edited by phase 5's `AiPacksPanel` (same
   tab, `PUT /ai-packs`); the settings `PUT` keeps the stored packs when
   `ai_packs` is left out, as the settings form does.

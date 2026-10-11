@@ -21,12 +21,14 @@ import { useTranslation } from '@/i18n';
 import {
   ACCOUNT_FILTERS,
   ACCOUNT_SORTS,
+  listAllAccounts,
   useAdminAccounts,
   useAdminRevenue,
   type AccountSort,
   type AdminAccountRow,
 } from '@/lib/adminSimpleBillingApi';
 import { formatRelative } from '@/lib/date';
+import { toast } from '@/lib/toast';
 import { ErrorState, Pager, billingDate, money } from '@/pages/app/billing/shared';
 import { planLabel } from '@/pages/app/billing/account/accountUi';
 import { LiabilityTiles } from './RevenueTab';
@@ -161,6 +163,20 @@ export default function AccountsTab() {
   const liability = useAdminRevenue({ months: 1 });
   const currencies = data?.currencies ?? [];
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  const [exporting, setExporting] = useState(false);
+
+  // The CSV holds every workspace the filters match, not the page on screen.
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const all = await listAllAccounts({ q: params.q, filter: params.filter, currency: params.currency, sort: params.sort });
+      downloadCsv(`accounts-${all.edition}-${fileDate()}.csv`, accountsCsvRows(all.items));
+    } catch {
+      toast.error(sbLabel(t, 'accounts.csvFailed'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -225,11 +241,11 @@ export default function AccountsTab() {
             <Button
               variant="outline"
               size="sm"
-              disabled={!data || data.items.length === 0}
-              onClick={() => data && downloadCsv(`accounts-${data.edition}-${fileDate()}.csv`, accountsCsvRows(data.items))}
+              disabled={!data || data.items.length === 0 || exporting}
+              onClick={() => void exportCsv()}
             >
               <Download className="me-2 h-4 w-4" aria-hidden />
-              {sbLabel(t, 'accounts.csv')}
+              {exporting ? sbLabel(t, 'accounts.csvExporting') : sbLabel(t, 'accounts.csv')}
             </Button>
           </div>
 

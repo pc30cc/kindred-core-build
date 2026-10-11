@@ -198,11 +198,21 @@ interface PlanFormData {
 }
 
 /**
- * The limit older readers still take the monthly AI credit from; the plan
- * form edits it as `ai_allowance.IRR` instead, so the limits editor hides it
- * (one value is never edited in two places) and the payload mirrors it.
+ * The limit older readers still take the monthly AI credit from. Where the
+ * form edits `ai_allowance.IRR` under Pricing (Iran), the limits editor hides
+ * it (one value is never edited in two places) and the payload mirrors it;
+ * elsewhere the limit stays in the limits editor and `ai_allowance.IRR`
+ * follows it.
  */
 const AI_ALLOWANCE_LIMIT_KEY = 'included_ai_allowance_irr';
+
+/**
+ * The `ai_allowance` currencies the monthly grant reads
+ * (billing_plan_ai_allowance: the override, `ai_allowance.IRR`, then the
+ * limit). A USD or TRY value would be stored and shown but never granted, so
+ * the form does not offer one.
+ */
+const GRANTED_AI_ALLOWANCE_CURRENCIES: readonly string[] = ['IRR'];
 
 /** The retention field's value: null when empty (never deleted), NaN when it is not 1-3650 whole days. */
 function retentionDaysValue(text: string): number | null {
@@ -217,10 +227,15 @@ function aiAllowanceValue(text: string, currency: string): number | null {
   return n === null ? null : planPriceFromDisplay(n, currency);
 }
 
-/** The currencies whose monthly AI credit the plan form edits (the AI credit currencies of the edition). */
+/**
+ * The currencies whose monthly AI credit the plan form edits under Pricing:
+ * the AI credit currencies of the edition that the monthly grant reads. In
+ * the international edition (USD, TRY) none: there the credit is the
+ * `included_ai_allowance_irr` limit, edited with the other limits.
+ */
 function aiAllowanceCurrencies(edition: Edition, fromSettings: readonly string[] | undefined): string[] {
-  const list = fromSettings?.length ? fromSettings : AI_PACK_CURRENCIES[edition];
-  return list?.length ? [...list] : ['IRR'];
+  const list = fromSettings?.length ? fromSettings : AI_PACK_CURRENCIES[edition] ?? ['IRR'];
+  return list.filter((cur) => GRANTED_AI_ALLOWANCE_CURRENCIES.includes(cur));
 }
 
 /** A 400 from the plan endpoints as validation issues the form lists (its `issues`, whichever shape). */
@@ -321,8 +336,11 @@ function buildFormFromRegistry(
 
 /**
  * Compose final JSON payload, preserving legacy keys. The monthly AI credit
- * keeps every stored currency and overwrites the edited ones; its IRR value is
- * mirrored into the limit older readers use (the server does the same).
+ * keeps every stored currency and overwrites the edited ones. When IRR is
+ * edited under Pricing its value is mirrored into the limit older readers use
+ * (the server does the same); when it is not (international), the limit is
+ * what the admin edits, and `ai_allowance.IRR`, which the grant reads first,
+ * takes the limit's value so the two never disagree.
  */
 function formToPayload(form: PlanFormData) {
   const aiAllowance: Record<string, number> = { ...form.storedAiAllowance };
@@ -331,6 +349,10 @@ function formToPayload(form: PlanFormData) {
     if (value !== null) aiAllowance[cur] = value;
   }
   const limits: Record<string, unknown> = { ...form.legacyLimits, ...form.limits };
+  const limitValue = form.limits[AI_ALLOWANCE_LIMIT_KEY];
+  if (!('IRR' in form.ai_allowance) && typeof limitValue === 'number' && Number.isFinite(limitValue)) {
+    aiAllowance.IRR = limitValue;
+  }
   if (typeof aiAllowance.IRR === 'number') limits[AI_ALLOWANCE_LIMIT_KEY] = aiAllowance.IRR;
   const retention = retentionDaysValue(form.locked_data_retention_days);
   return {
@@ -376,6 +398,7 @@ function PlanFormDialog({
   // VAT is per currency in Billing settings (D16): shown here read-only.
   const { data: billingSettings } = useSimpleBillingSettings();
   const aiCurrencies = aiAllowanceCurrencies(edition.edition, billingSettings?.ai_currencies);
+  const aiEditsIrr = aiCurrencies.includes('IRR');
   const [form, setForm] = useState<PlanFormData>(() =>
     buildFormFromRegistry(capabilities, locales, plan, aiAllowanceCurrencies(edition.edition, undefined)),
   );
@@ -396,10 +419,10 @@ function PlanFormDialog({
       module: editable.filter((c) => c.type === 'module').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
       channel: editable.filter((c) => c.type === 'channel').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
       feature: editable.filter((c) => c.type === 'feature'),
-      // The monthly AI credit is edited under Pricing (ai_allowance), never here too.
-      limit: editable.filter((c) => c.type === 'limit' && c.key !== AI_ALLOWANCE_LIMIT_KEY),
+      // Where the monthly AI credit is edited under Pricing (ai_allowance.IRR), never here too.
+      limit: editable.filter((c) => c.type === 'limit' && (c.key !== AI_ALLOWANCE_LIMIT_KEY || !aiEditsIrr)),
     };
-  }, [capabilities]);
+  }, [capabilities, aiEditsIrr]);
 
   const featuresByGroup = useMemo(() => groupCapabilities(byType.feature), [byType.feature]);
   const limitsByGroup = useMemo(() => groupCapabilities(byType.limit), [byType.limit]);
@@ -794,8 +817,8 @@ function PlanFormDialog({
                 </div>
               )}
 
-              <Separator />
-              <div className="space-y-2">
+              {aiCurrencies.length > 0 && <Separator />}
+              {aiCurrencies.length > 0 && <div className="space-y-2">
                 <p className="text-xs font-bold text-foreground">{t('admin.simpleBilling.plans.aiAllowance')}</p>
                 <p className="text-xs text-muted-foreground">{t('admin.simpleBilling.plans.aiAllowanceHint')}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -825,7 +848,7 @@ function PlanFormDialog({
                     );
                   })}
                 </div>
-              </div>
+              </div>}
             </div>
           )}
 

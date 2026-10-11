@@ -16,6 +16,7 @@ import type {
   AdjustRequest,
   AdjustResult,
   AdminAccountDetail,
+  AdminAccountRow,
   AdminAccountsPage,
   AdminLedgerEntry,
   AdminLedgerPage,
@@ -156,6 +157,35 @@ export const adminSimpleBillingApi = {
     request<RevenueReport>(`/revenue${query({ months: params.months, includeTest: params.includeTest })}`),
   getGateways: () => request<GatewayReadinessReport>('/gateways'),
 };
+
+/** The largest page GET /accounts serves. */
+export const ACCOUNTS_MAX_PAGE_SIZE = 100;
+
+/**
+ * Every account the filters match, not one page: what the Accounts CSV
+ * exports. Reads pages of ACCOUNTS_MAX_PAGE_SIZE until the total is reached
+ * (or a page comes back short); a workspace that moves between pages while
+ * this runs is listed once.
+ */
+export async function listAllAccounts(
+  params: Omit<AccountsParams, 'page' | 'pageSize'>,
+  list: (p: AccountsParams) => Promise<AdminAccountsPage> = adminSimpleBillingApi.listAccounts,
+): Promise<AdminAccountsPage> {
+  const seen = new Set<string>();
+  const items: AdminAccountRow[] = [];
+  let first: AdminAccountsPage | null = null;
+  for (let page = 1; page <= 100_000; page++) {
+    const res = await list({ ...params, page, pageSize: ACCOUNTS_MAX_PAGE_SIZE });
+    first ??= res;
+    for (const row of res.items) {
+      if (seen.has(row.workspace_id)) continue;
+      seen.add(row.workspace_id);
+      items.push(row);
+    }
+    if (res.items.length < ACCOUNTS_MAX_PAGE_SIZE || page * ACCOUNTS_MAX_PAGE_SIZE >= res.total) break;
+  }
+  return { ...(first as AdminAccountsPage), page: 1, pageSize: items.length, items };
+}
 
 // ─── React Query hooks ─────────────────────────────────────────────────────
 

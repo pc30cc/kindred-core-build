@@ -121,6 +121,7 @@ function account(overrides: Record<string, unknown> = {}) {
   };
 }
 
+let settingsAnswer: unknown = SETTINGS;
 const requests: string[] = [];
 let accountAnswer: unknown = account();
 let accountsAnswer: unknown = { edition: 'iran', currencies: ['IRR'], total: 0, page: 1, pageSize: 20, items: [] };
@@ -139,6 +140,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   requests.length = 0;
+  settingsAnswer = SETTINGS;
   accountAnswer = account();
   plansData.list = [PLAN];
   updatePlan.mockReset().mockResolvedValue({});
@@ -148,7 +150,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     requests.push(url);
-    if (url.includes('/api/admin/simple-billing/settings')) return json(SETTINGS);
+    if (url.includes('/api/admin/simple-billing/settings')) return json(settingsAnswer);
     if (/\/api\/admin\/simple-billing\/accounts\?/.test(url)) return json(accountsAnswer);
     if (url.includes(`/api/admin/simple-billing/accounts/${WS_ID}`)) return json(accountAnswer);
     return json({ error: 'NOT_FOUND' }, 404);
@@ -282,6 +284,39 @@ describe('plan form: retention days and monthly AI credit', () => {
     fireEvent.click(general.getByRole('button', { name: en.admin.plans.form.createPlan }));
     await waitFor(() => expect(createPlan).toHaveBeenCalledTimes(1));
     expect(createPlan.mock.calls[0][0]).toMatchObject({ locked_data_retention_days: 180, ai_allowance: { IRR: 0 }, is_hidden: false });
+  });
+
+  it('international (USD, TRY): no AI credit field the grant never reads; the limit it does read stays editable and ai_allowance.IRR follows it', async () => {
+    localStorage.setItem('wy-edition', 'international');
+    settingsAnswer = { ...SETTINGS, edition: 'international', vat_currencies: ['USD', 'TRY'], ai_currencies: ['USD', 'TRY'], ai_packs: { USD: [], TRY: [] } };
+    plansData.list = [{ ...PLAN, ai_allowance: { IRR: 5_000_000, USD: 500 } }];
+    renderAt(<AdminPlansPage />, '/admin/plans');
+    await screen.findByText(en.admin.plans.title);
+    // The plan card shows no USD credit badge (nothing grants it); the limit row is there.
+    expect(document.body.textContent).not.toContain(`${en.admin.simpleBilling.plans.aiAllowance}: $5.00`);
+    const edit = [...document.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="dialog"]')].find((b) => !b.textContent?.trim());
+    fireEvent.click(edit!);
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() => expect(requests.some((u) => u.includes('/api/admin/simple-billing/settings'))).toBe(true));
+
+    section(dialog, en.admin.plans.form.sections.pricing);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(input('plan-ai-allowance-USD')).toBeNull();
+    expect(input('plan-ai-allowance-TRY')).toBeNull();
+    expect(within(dialog).queryByText(en.admin.simpleBilling.plans.aiAllowance)).toBeNull();
+
+    section(dialog, en.admin.plans.form.sections.limits);
+    const label = await within(dialog).findByText(capabilityLabel('included_ai_allowance_irr', 'en', 'AI Allowance / Month'));
+    const field = label.closest('div.space-y-1')!.querySelector('input')!;
+    expect(field.value).toBe('5000000');
+    fireEvent.change(field, { target: { value: '8000000' } });
+
+    save(dialog);
+    await waitFor(() => expect(updatePlan).toHaveBeenCalledTimes(1));
+    const body = updatePlan.mock.calls[0][0];
+    expect(body.limits).toMatchObject({ included_ai_allowance_irr: 8_000_000, max_agents: 3 });
+    // The grant reads ai_allowance.IRR first: it follows the limit. USD is kept as stored, not edited.
+    expect(body.ai_allowance).toEqual({ IRR: 8_000_000, USD: 500 });
   });
 
   it("lists the server's 400 issues under the form", async () => {

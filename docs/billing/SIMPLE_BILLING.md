@@ -551,11 +551,14 @@ at the next read, without writing anything to the locked rows.
   - Members: everyone but the owner and suspended members, against
     `max_agents − 1` (the owner holds a seat), keyed by user id. The seat
     count of invitations (`wi_resolve_seat_capacity`) reads the same limit
-    (Free's 2 seats after a plan ends, no longer 0) and does not count
-    suspended members.
+    (Free's 2 seats after a plan ends, no longer 0) and, while the switch
+    is on, does not count suspended members (off, every member counts, as
+    before: suspend, invite, reinstate cannot pass `max_agents`).
   - Chats: by last activity (`updated_at`, else `created_at`) older than the
-    plan's `data_retention_days`. A message from the visitor moves
-    `updated_at`, so a customer who comes back reopens the thread.
+    plan's `data_retention_days`. The widget, channel and support writers
+    move `updated_at` with a visitor's message (no trigger does it; a
+    channel menu tap does not), so a customer who comes back reopens the
+    thread.
 - **What a lock does.** Every refusal is a 403 `{error, upgrade_required:
   true}`.
   - Knowledge base: hidden from the help center, the widget, Telegram's help
@@ -590,13 +593,15 @@ at the next read, without writing anything to the locked rows.
   - Converting a learned answer to an article now counts against
     `max_kb_articles` like any new article (with the switch off too).
 - **The report.** `billing_lock_report(ws, plan)` plus the server's modules,
-  channels and AI credit (`locks/report.ts`). The quote of a change to
-  another plan at the period end carries it (`lock_report`), and the plan
-  picker shows it. While the switch is on and it lists anything, the change
-  needs the customer's "I understand" (`acknowledgeLocks`, else 409
-  `LOCKS_NOT_ACKNOWLEDGED` with the report). Its counts are those of now;
-  the dialog says they are final at the effective date. With the switch
-  off the change goes through as before. `GET .../lock-report` (managers)
+  channels and AI credit (`locks/report.ts`). While the switch is on, the
+  quote of a change to another plan at the period end, and of a plan bought
+  with no paid period (a trial, Free, a lapsed plan), carries it
+  (`lock_report`), and the plan picker shows it; when it lists anything,
+  the change or the purchase from the balance needs the customer's "I
+  understand" (`acknowledgeLocks`, else 409 `LOCKS_NOT_ACKNOWLEDGED` with
+  the report). Its counts are those of now; the dialog says they are final
+  at the effective date. With the switch off the quote carries no report
+  and the change goes through as before. `GET .../lock-report` (managers)
   serves the panel's banner, which owners and admins see while something is
   locked, with the next deletion date and links to upgrade and export.
 - **Export.** The owner (`workspaces.owner_id` only) can always export what
@@ -618,12 +623,18 @@ at the next read, without writing anything to the locked rows.
   row ids), sends `billing_locked_data_deletion` 30 and then 7 days before
   the deadline, and deletes only after both went out: at the latest of
   since + L, 30 days after the 30-day notice and 7 days after the 7-day
-  notice. It deletes only rows locked now and named by the 30-day notice
-  (created before it), storage objects first. Chats go in monthly batches
-  (the 1st, 00:00 UTC) with the cutoff fixed when the 30-day notice goes
-  out. Upgrading, deleting rows or raising a limit removes the clock. Members
-  are never deleted, nor are modules, channels or files.
-- **Deploying.** On WebYar build the four indexes of 265's header with
+  notice. A notice is claimed first (one replica sends it) and recorded
+  only once its mail went out; a claim never confirmed expires after 30
+  minutes. It deletes only rows locked now and announced by the 30-day
+  notice (`billing_locked_delete_targets`: created before it and past the
+  cutoff it named, so a limit lowered later locks more rows that wait for
+  an episode, and notices, of their own), then the storage objects of the
+  rows that are gone. Chats go in monthly batches (the 1st, 00:00 UTC) with
+  the cutoff fixed when the 30-day notice goes out. Upgrading, deleting
+  rows or raising a limit removes the clock. Members are never deleted,
+  nor are modules or channels. Turning the switch off re-indexes the AI
+  knowledge of the workspaces whose articles were locked.
+- **Deploying.** On WebYar build the three indexes of 265's header with
   `CREATE INDEX CONCURRENTLY` first, then apply 265 by hand (after 264) as every
   migration. Nothing changes until the switch is turned on.
 

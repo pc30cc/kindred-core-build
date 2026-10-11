@@ -883,7 +883,8 @@ $$;
 -- ─── 8. Seat capacity: the plan in force, overrides, non-suspended seats ──
 -- As 251, except: the limit is the effective plan's max_agents (an expired
 -- or lapsed subscription gets Free's seats, not 0) with the workspace's
--- override, and, while the switch is on, suspended members hold no seat. The self-host modes are
+-- override, and, while the switch is on, suspended members hold no seat
+-- (off, every member counts, as in 251). The self-host modes are
 -- unchanged. No plan at all, or a max_agents that is missing or not a whole
 -- number, still fails closed (ENTITLEMENT_UNAVAILABLE).
 CREATE OR REPLACE FUNCTION public.wi_resolve_seat_capacity(_workspace_id uuid)

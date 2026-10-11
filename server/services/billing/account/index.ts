@@ -750,7 +750,11 @@ export async function handleAccountPaymentWebhook(
     });
     if (error) throw new Error(error.message || 'refund failed');
     const res = asRecord(data);
-    if (num(res.shortfall_minor) > 0) {
+    if (payment.purpose === 'ai_pack' && (num(res.pack_returned_minor) > 0 || num(res.shortfall_minor) > 0)) {
+      // An AI credit pack (phase 5): its unused credit was reclaimed and its
+      // price share returned to the balance first; what was already used stays a shortfall.
+      console.error(`[billing-account] REVIEW refund payment=${payment.id} provider=${payment.provider} ai pack returned ${num(res.pack_returned_minor)}, reclaimed ${num(res.pack_reclaimed_wallet)}; shortfall ${num(res.shortfall_minor)}`);
+    } else if (num(res.shortfall_minor) > 0) {
       console.error(`[billing-account] REVIEW refund payment=${payment.id} provider=${payment.provider} could not take back ${res.shortfall_minor} (already spent)`);
     }
     if (event.chargeback) await afterChargeback(config, payment, refundId, amount);

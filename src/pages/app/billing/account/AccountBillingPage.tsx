@@ -1,7 +1,8 @@
 /**
  * Workspace → Billing (simple billing, docs/billing/SIMPLE_BILLING.md):
- * the balance and its top-up, the current plan, the billing details printed
- * on receipts, and the history of every balance movement with its receipt.
+ * the balance and its top-up, the current plan, the AI credit and its packs,
+ * the billing details printed on receipts, and the history of every balance
+ * movement with its receipt.
  *
  * Coming back from a gateway (`?payment=…&provider=…` plus the gateway's own
  * parameters) the page asks the server to confirm the payment, shows the
@@ -26,8 +27,10 @@ import PlanCard from './PlanCard';
 import PlanPickerDialog, { type PlanPreselect } from './PlanPickerDialog';
 import PayOnlineDialog, { type PayOnlineRequest } from './PayOnlineDialog';
 import BillingProfileCard from './BillingProfileCard';
+import AiCreditCard from './AiCreditCard';
 import { accountErrorText, planLabel, takeCardReturn, type CardBefore } from './accountUi';
 import { refreshEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { packLabel } from '../../../../../shared/aiPacks';
 
 const PAGE_SIZE = 20;
 
@@ -64,6 +67,8 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
   const [payOnline, setPayOnline] = useState<PayOnlineRequest | null>(null);
   const [ret, setRet] = useState<Return | null>(null);
   const [cardRet, setCardRet] = useState<CardReturn | null>(null);
+  // Bumped whenever something may have moved the AI wallet: the AI card reads it again.
+  const [aiVersion, setAiVersion] = useState(0);
   const handledReturn = useRef(false);
   const handledCardReturn = useRef(false);
   const mounted = useRef(true);
@@ -96,6 +101,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
   // gating (the workspace's snapshot) at once.
   const changed = useCallback(() => {
     void load();
+    setAiVersion((v) => v + 1);
     void refreshEffectiveEntitlements(workspaceId).catch(() => undefined);
   }, [load, workspaceId]);
 
@@ -302,6 +308,14 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
         />
       </div>
 
+      <AiCreditCard
+        workspaceId={workspaceId}
+        view={view}
+        version={aiVersion}
+        onChanged={changed}
+        onPayOnline={setPayOnline}
+      />
+
       <BillingProfileCard
         workspaceId={workspaceId}
         edition={view.edition}
@@ -383,7 +397,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
       )}
       {view.can_manage && (
         <PayOnlineDialog
-          key={payOnline ? `${payOnline.purpose}:${payOnline.planId ?? ''}:${payOnline.autoRenew === false ? 'no-card' : 'card'}` : 'closed'}
+          key={payOnline ? `${payOnline.purpose}:${payOnline.planId ?? payOnline.packId ?? ''}:${payOnline.autoRenew === false ? 'no-card' : 'card'}` : 'closed'}
           request={payOnline}
           onOpenChange={(open) => !open && setPayOnline(null)}
           workspaceId={workspaceId}
@@ -391,7 +405,12 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           currency={view.currency}
           vatPercent={view.vat_percent}
           gateways={view.gateways}
-          onCurrencyChanged={() => void load()}
+          // A refused checkout (the currency, a pack or its price changed): the
+          // page, and the AI card's packs, as they are now.
+          onCurrencyChanged={() => {
+            void load();
+            setAiVersion((v) => v + 1);
+          }}
           cardAvailable={view.card_available === true && !view.card}
           cardProviders={view.card_providers ?? []}
         />
@@ -431,9 +450,15 @@ function ReturnBanner({ ret, currency, slug, onDismiss, onCheckAgain }: {
   // step; if that could no longer be done, the money stayed in the balance.
   const purposeFailed = outcome.status === 'succeeded' && Boolean(outcome.purpose) && !purposeDone(outcome.purposeResult);
   const Icon = outcome.status === 'succeeded' ? (purposeFailed ? AlertTriangle : CheckCircle2) : outcome.status === 'pending' ? Clock : XCircle;
+  const aiPack = outcome.purpose === 'ai_pack';
   const text =
     outcome.status === 'succeeded'
-      ? outcome.purpose
+      ? aiPack
+        ? purposeFailed
+          // The pack changed before the payment settled: the money is in the balance.
+          ? t('billing.account.ai.return.kept', { amount: money(ret.amount ?? 0, locale, currency) })
+          : t('billing.account.ai.return.done')
+      : outcome.purpose
         ? purposeFailed
           ? t('billing.account.result.purposeFailed', { amount: money(ret.amount ?? 0, locale, currency) })
           : t(`billing.account.result.purposeDone.${outcome.purpose === 'renewal' ? 'renewal' : outcome.purpose === 'upgrade' ? 'upgrade' : 'plan'}` as TranslationKey)
@@ -501,9 +526,14 @@ function purposeDone(result: Record<string, unknown> | null | undefined): boolea
   return Boolean(result && typeof result.action === 'string' && !('error' in result));
 }
 
-/** Under a plan, renewal, upgrade or returned-prepayment row: the plan, its interval and the period it paid for. */
+/**
+ * Under a plan, renewal, upgrade or returned-prepayment row: the plan, its
+ * interval and the period it paid for. Under an AI credit pack: its name and
+ * the credit it added.
+ */
 function LedgerDetail({ entry }: { entry: LedgerEntry }) {
   const { t, locale } = useTranslation();
+  if (entry.kind === 'ai_pack') return <AiPackDetail entry={entry} />;
   if (!entry.plan_name && !entry.period_start) return null;
   const parts: string[] = [];
   if (entry.plan_name) parts.push(planLabel(entry.plan_name, entry.plan_localized ?? {}, locale));
@@ -517,4 +547,22 @@ function LedgerDetail({ entry }: { entry: LedgerEntry }) {
     }));
   }
   return <div className="text-xs text-muted-foreground" data-testid="ledger-detail">{parts.join(' · ')}</div>;
+}
+
+/** "AI credit · Small pack · $6.00": the pack bought, as its ledger row recorded it. */
+function AiPackDetail({ entry }: { entry: LedgerEntry }) {
+  const { t, locale } = useTranslation();
+  const d = entry.description ?? {};
+  const credit = typeof d.credit_minor === 'number' ? d.credit_minor : Number(d.credit_minor);
+  if (!Number.isFinite(credit) || credit <= 0) return null;
+  const currency = typeof d.credit_currency === 'string' && d.credit_currency ? d.credit_currency : entry.currency;
+  const creditText = t('billing.account.ai.packCredit', { credit: money(credit, locale, currency) });
+  const label = d.label && typeof d.label === 'object' && !Array.isArray(d.label)
+    ? packLabel({ label: d.label as Record<string, string> }, locale, '')
+    : '';
+  return (
+    <div className="text-xs text-muted-foreground" data-testid="ledger-detail">
+      {label ? `${label} · ${creditText}` : creditText}
+    </div>
+  );
 }

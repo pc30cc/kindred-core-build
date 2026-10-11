@@ -226,28 +226,53 @@ export function apnsHost(creds: ApnsCredentials): string {
 
 // ── Connection ──────────────────────────────────────────────────────────
 
-let session: http2.ClientHttp2Session | null = null;
-let sessionHost: string | null = null;
+// One session per gateway: a send can try the other gateway (below), and the
+// two must not close each other's connection.
+const sessions = new Map<string, http2.ClientHttp2Session>();
 
-function closeSession(): void {
-  try { session?.close(); } catch { /* already gone */ }
-  session = null;
-  sessionHost = null;
+function closeSession(host?: string): void {
+  for (const [key, open] of sessions) {
+    if (host && key !== host) continue;
+    try { open.close(); } catch { /* already gone */ }
+    sessions.delete(key);
+  }
+  if (!host) tokenHosts.clear();
 }
 
 function getSession(host: string): http2.ClientHttp2Session {
-  if (session && !session.closed && !session.destroyed && sessionHost === host) {
-    return session;
-  }
-  if (session) closeSession();
+  const open = sessions.get(host);
+  if (open && !open.closed && !open.destroyed) return open;
+  if (open) closeSession(host);
   const next = http2.connect(host);
   // A dead socket must not take the process with it, and must not be reused.
-  next.on('error', () => { if (session === next) closeSession(); });
-  next.on('close', () => { if (session === next) closeSession(); });
-  next.setTimeout(30_000, () => { if (session === next) closeSession(); });
-  session = next;
-  sessionHost = host;
+  const drop = () => { if (sessions.get(host) === next) sessions.delete(host); };
+  next.on('error', drop);
+  next.on('close', drop);
+  next.setTimeout(30_000, () => { if (sessions.get(host) === next) closeSession(host); });
+  sessions.set(host, next);
   return next;
+}
+
+/**
+ * The gateway a token turned out to belong to, when it is not the configured
+ * one. A build Xcode installs registers with Apple's sandbox, a TestFlight or
+ * App Store build with production, and one deployment serves both: the
+ * configured gateway answers BadDeviceToken for the other kind, which used to
+ * disable the device for good. Bounded: the oldest entry goes first.
+ */
+const tokenHosts = new Map<string, string>();
+const TOKEN_HOSTS_MAX = 5000;
+
+function tokenOf(headers: Record<string, string | number>): string | null {
+  const path = String(headers[':path'] ?? '');
+  const match = /^\/3\/device\/([0-9a-fA-F]+)$/.exec(path);
+  return match ? match[1].toLowerCase() : null;
+}
+
+function otherHost(host: string): string | null {
+  if (host === PRODUCTION_HOST) return SANDBOX_HOST;
+  if (host === SANDBOX_HOST) return PRODUCTION_HOST;
+  return null;
 }
 
 // ── One request ─────────────────────────────────────────────────────────
@@ -260,8 +285,33 @@ export interface ApnsRequest {
 
 /**
  * Sends one prepared request. Resolves with an outcome; never rejects.
+ *
+ * A token the gateway calls BadDeviceToken is tried once at the other gateway
+ * before it counts as dead (`tokenHosts`); a token that works there is sent
+ * there from then on.
  */
-export function performApnsRequest(request: ApnsRequest): Promise<ApnsSendOutcome> {
+export async function performApnsRequest(request: ApnsRequest): Promise<ApnsSendOutcome> {
+  const token = tokenOf(request.headers);
+  const remembered = token ? tokenHosts.get(token) : undefined;
+  const first = remembered ? { ...request, host: remembered } : request;
+  const outcome = await performOnce(first);
+  if (outcome.ok || outcome.reason !== 'BadDeviceToken' || !token) return outcome;
+  const other = otherHost(first.host);
+  if (!other) return outcome;
+  const retried = await performOnce({ ...first, host: other });
+  if (retried.ok) {
+    tokenHosts.delete(token);
+    if (other !== request.host) {
+      tokenHosts.set(token, other);
+      if (tokenHosts.size > TOKEN_HOSTS_MAX) tokenHosts.delete(tokenHosts.keys().next().value as string);
+    }
+    return retried;
+  }
+  // Rejected at both gateways: the first answer stands (BadDeviceToken, dead).
+  return outcome;
+}
+
+function performOnce(request: ApnsRequest): Promise<ApnsSendOutcome> {
   const { host, headers, body } = request;
 
   return new Promise<ApnsSendOutcome>((resolve) => {
@@ -276,7 +326,7 @@ export function performApnsRequest(request: ApnsRequest): Promise<ApnsSendOutcom
     try {
       stream = getSession(host).request(headers);
     } catch (err) {
-      closeSession();
+      closeSession(host);
       return finish({ ok: false, reason: err instanceof Error ? err.message : 'connect_failed' });
     }
 

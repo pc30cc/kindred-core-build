@@ -55,6 +55,7 @@ const EN_LABELS: Record<string, string> = {
   bale: 'Bale',
   gmail: 'Gmail',
   yahoomail: 'Yahoo Mail',
+  x: 'X',
   voice: 'Voice Calls',
   video: 'Video Calls',
   advanced_ai_agent: 'Advanced AI Agent',
@@ -216,6 +217,7 @@ const FA: Record<string, CapabilityText> = {
   bale: { label: 'بله' },
   gmail: { label: 'جیمیل' },
   yahoomail: { label: 'یاهو میل' },
+  x: { label: 'ایکس (توییتر)' },
   voice: { label: 'تماس صوتی' },
   video: { label: 'تماس تصویری' },
   advanced_ai_agent: {
@@ -650,6 +652,7 @@ const TR: Record<string, CapabilityText> = {
   bale: { label: 'Bale' },
   gmail: { label: 'Gmail' },
   yahoomail: { label: 'Yahoo Mail' },
+  x: { label: 'X' },
   voice: { label: 'Sesli Aramalar' },
   video: { label: 'Görüntülü Aramalar' },
   advanced_ai_agent: {

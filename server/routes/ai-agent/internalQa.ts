@@ -16,6 +16,7 @@ import { runPlayground } from '../../services/ai-agent/playground.js';
 import { retrieveHybridSources } from '../../services/ai-agent/retrievalHybrid.js';
 import { getSourceHealth, type HealthSourceType } from '../../services/ai-agent/sourceHealth.js';
 import { runDryRun } from '../../services/ai-agent/overview.js';
+import { applyKbUnlockedFilter, resolveKbLock } from '../../services/knowledge-base/locks.js';
 import {
   runDryRunTest as e6_runDryRunTest,
   evaluateExpectations as e6_evaluateExpectations,
@@ -43,6 +44,8 @@ import {
   exportRegressionBatchCsv as e11_exportBatchCsv,
 } from '../../services/ai-agent/regressionRunner.js';
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace, redactDeep } from './shared.js';
+import { serverConfigOf } from '../../lib/workspaceAuth.js';
+import { errorMessage } from '../../lib/errorMessage.js';
 
 export const internalQaRouter: Router = express.Router();
 
@@ -111,7 +114,7 @@ const playgroundSchema = z.object({
 // so plan/override changes take effect uniformly. Existing per-user
 // rate limit and member auth are preserved.
 internalQaRouter.post('/playground/test', requireModule('ai_assistant'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = playgroundSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
@@ -136,8 +139,8 @@ internalQaRouter.post('/playground/test', requireModule('ai_assistant'), async (
       modelOverride,
     });
     return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ error: 'playground_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'playground_failed', details: errorMessage(err) });
   }
 });
 
@@ -171,7 +174,7 @@ function checkDebugRateLimit(workspaceId: string, userId: string): boolean {
 }
 
 internalQaRouter.post('/debug/retrieval', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = debugRetrievalSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, message, locale, pageContext } = parsed.data;
@@ -237,8 +240,8 @@ internalQaRouter.post('/debug/retrieval', async (req: Request, res: Response) =>
         content_preview: ((s.content || s.excerpt || '') as string).slice(0, 300),
       })),
     }));
-  } catch (err: any) {
-    return res.status(500).json({ error: 'retrieval_debug_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'retrieval_debug_failed', details: errorMessage(err) });
   }
 });
 
@@ -246,7 +249,7 @@ internalQaRouter.post('/debug/retrieval', async (req: Request, res: Response) =>
 // GET /api/ai-agent/source-health?workspaceId=...&sourceType=...&eligible=true|false&query=...&limit=...
 // Read-only. Workspace-member auth. Never exposes storage paths/URLs/credentials.
 internalQaRouter.get('/source-health', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -263,8 +266,8 @@ internalQaRouter.get('/source-health', async (req: Request, res: Response) => {
   try {
     const result = await getSourceHealth(config, workspaceId, { sourceType, eligible, query, limit });
     return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ error: 'source_health_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'source_health_failed', details: errorMessage(err) });
   }
 });
 
@@ -277,7 +280,7 @@ const testRunSchema = z.object({
   dryRun: z.boolean().optional().default(true),
 });
 internalQaRouter.post('/test-run', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = testRunSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
@@ -291,8 +294,8 @@ internalQaRouter.post('/test-run', async (req: Request, res: Response) => {
   try {
     const result = await runDryRun(config, { workspaceId, message, pageUrl, visitorLocale });
     return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ error: 'test_run_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'test_run_failed', details: errorMessage(err) });
   }
 });
 
@@ -319,7 +322,7 @@ const e6DebugRunSchema = z.object({
 });
 
 internalQaRouter.post('/debug/run-test', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = e6DebugRunSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, message, locale, pageContext, callLLM } = parsed.data;
@@ -335,8 +338,8 @@ internalQaRouter.post('/debug/run-test', async (req: Request, res: Response) => 
       callLLM: callLLM !== false,
     });
     return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ error: 'dry_run_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'dry_run_failed', details: errorMessage(err) });
   }
 });
 
@@ -358,12 +361,12 @@ const e6TestCaseFields = {
 
 const e6CreateCaseSchema = z.object({ workspaceId: z.string().uuid(), ...e6TestCaseFields });
 const e6PatchCaseSchema = z.object(Object.fromEntries(
-  Object.entries(e6TestCaseFields).map(([k, v]: any) => [k, v.optional()]),
-) as any);
+  Object.entries(e6TestCaseFields).map(([k, v]) => [k, v.optional()]),
+) as { [K in keyof typeof e6TestCaseFields]: z.ZodOptional<(typeof e6TestCaseFields)[K]> });
 
 // LIST
 internalQaRouter.get('/test-cases', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -382,7 +385,7 @@ internalQaRouter.get('/test-cases', async (req: Request, res: Response) => {
 
 // CREATE
 internalQaRouter.post('/test-cases', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = e6CreateCaseSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, ...fields } = parsed.data;
@@ -405,7 +408,7 @@ internalQaRouter.post('/test-cases', async (req: Request, res: Response) => {
 
 // PATCH
 internalQaRouter.patch('/test-cases/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_test_cases').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -421,7 +424,7 @@ internalQaRouter.patch('/test-cases/:id', async (req: Request, res: Response) =>
 
 // DELETE
 internalQaRouter.delete('/test-cases/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_test_cases').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -434,10 +437,10 @@ internalQaRouter.delete('/test-cases/:id', async (req: Request, res: Response) =
 });
 
 async function e6PersistTestRun(
-  sb: any, workspaceId: string, testCaseId: string | null, userId: string | null,
+  sb: ReturnType<typeof getServiceClient>, workspaceId: string, testCaseId: string | null, userId: string | null,
   result: E6DryRunResult, evalResult: { passed: boolean; failure_reasons: string[] },
   inputMessage: string,
-): Promise<any> {
+): Promise<E6TestRunRow | null> {
   const status = result.status === 'failed' && result.error
     ? 'errored'
     : (evalResult.passed ? 'passed' : 'failed');
@@ -470,9 +473,12 @@ async function e6PersistTestRun(
   return data;
 }
 
+/** An ai_agent_test_runs row as the routes read it back. */
+type E6TestRunRow = Record<string, unknown> & { status?: string; failure_reasons?: string[] | null };
+
 // RUN single test case
 internalQaRouter.post('/test-cases/:id/run', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: tc } = await sb.from('ai_agent_test_cases').select('*').eq('id', req.params.id).maybeSingle();
   if (!tc) return res.status(404).json({ error: 'not_found' });
@@ -501,14 +507,14 @@ internalQaRouter.post('/test-cases/:id/run', async (req: Request, res: Response)
     });
     const run = await e6PersistTestRun(sb, tc.workspace_id, tc.id, auth.userId, result, evalResult, tc.input_message);
     return res.json({ run, result, evaluation: evalResult });
-  } catch (err: any) {
-    return res.status(500).json({ error: 'run_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'run_failed', details: errorMessage(err) });
   }
 });
 
 // BULK run
 internalQaRouter.post('/test-cases/run-bulk', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const schema = z.object({
     workspaceId: z.string().uuid(),
     ids: z.array(z.string().uuid()).optional(),
@@ -543,7 +549,7 @@ internalQaRouter.post('/test-cases/run-bulk', async (req: Request, res: Response
   const summary = {
     total: 0, passed: 0, failed: 0, errored: 0,
     capped, max: E6_BULK_MAX_CASES, total_enabled: totalEnabled,
-    runs: [] as any[],
+    runs: [] as Array<{ test_case_id: string; name: string; status: string | undefined; failure_reasons: string[] | null | undefined }>,
   };
   for (const tc of cases || []) {
     summary.total += 1;
@@ -567,9 +573,9 @@ internalQaRouter.post('/test-cases/run-bulk', async (req: Request, res: Response
       else if (run?.status === 'errored') summary.errored += 1;
       else summary.failed += 1;
       summary.runs.push({ test_case_id: tc.id, name: tc.name, status: run?.status, failure_reasons: run?.failure_reasons });
-    } catch (err: any) {
+    } catch (err) {
       summary.errored += 1;
-      summary.runs.push({ test_case_id: tc.id, name: tc.name, status: 'errored', failure_reasons: [err?.message || 'errored'] });
+      summary.runs.push({ test_case_id: tc.id, name: tc.name, status: 'errored', failure_reasons: [errorMessage(err) || 'errored'] });
     }
   }
   return res.json(summary);
@@ -577,7 +583,7 @@ internalQaRouter.post('/test-cases/run-bulk', async (req: Request, res: Response
 
 // LIST runs
 internalQaRouter.get('/test-runs', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -594,13 +600,13 @@ internalQaRouter.get('/test-runs', async (req: Request, res: Response) => {
 
 // GET single run (with linked test case for context)
 internalQaRouter.get('/test-runs/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: run } = await sb.from('ai_agent_test_runs').select('*').eq('id', req.params.id).maybeSingle();
   if (!run) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, run.workspace_id);
   if (!auth) return;
-  let testCase: any = null;
+  let testCase: Record<string, unknown> | null = null;
   if (run.test_case_id) {
     const { data: tc } = await sb.from('ai_agent_test_cases').select('*').eq('id', run.test_case_id).maybeSingle();
     testCase = tc || null;
@@ -610,7 +616,7 @@ internalQaRouter.get('/test-runs/:id', async (req: Request, res: Response) => {
 
 // SEED recommended cases (idempotent on input_message + expected_behavior).
 internalQaRouter.post('/test-cases/seed-recommended', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const schema = z.object({ workspaceId: z.string().uuid() });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
@@ -631,7 +637,7 @@ internalQaRouter.post('/test-cases/seed-recommended', async (req: Request, res: 
     .limit(2000);
   const activeBy: Record<string, Set<string>> = { qna: new Set(), learned_qna: new Set(), kb_article: new Set(), file: new Set(), web_page: new Set() };
   const webPageParents = new Map<string, { source_id: string; url: string | null; title: string | null }>();
-  for (const c of (chunks || []) as any[]) {
+  for (const c of (chunks || []) as Array<{ source_type: string; source_id: string; metadata: Record<string, unknown> | null }>) {
     if (!activeBy[c.source_type]) continue;
     activeBy[c.source_type].add(String(c.source_id));
     if (c.source_type === 'web_page') {
@@ -656,10 +662,10 @@ internalQaRouter.post('/test-cases/seed-recommended', async (req: Request, res: 
     .eq('workspace_id', workspaceId);
   const dedupKey = (m: string, b: string, st: string | null, sid: string | null) =>
     `${m.toLowerCase().trim()}|${b}|${st || ''}|${sid || ''}`;
-  const existingKeys = new Set((existing || []).map((r: any) => dedupKey(r.input_message, r.expected_behavior, r.expected_source_type, r.expected_source_id)));
+  const existingKeys = new Set((existing || []).map((r: { input_message: string; expected_behavior: string; expected_source_type: string | null; expected_source_id: string | null }) => dedupKey(r.input_message, r.expected_behavior, r.expected_source_type, r.expected_source_id)));
 
-  const toInsert: any[] = [];
-  function addCase(c: { name: string; input_message: string; expected_behavior: string; expected_source_type: string | null; expected_source_id: string | null; expected_source_url?: string | null; page_context?: any }) {
+  const toInsert: Array<Record<string, unknown>> = [];
+  function addCase(c: { name: string; input_message: string; expected_behavior: string; expected_source_type: string | null; expected_source_id: string | null; expected_source_url?: string | null; page_context?: Record<string, unknown> | null }) {
     const k = dedupKey(c.input_message, c.expected_behavior, c.expected_source_type, c.expected_source_id);
     if (existingKeys.has(k)) { skippedReasons.push(`duplicate:${c.name}`); return; }
     existingKeys.add(k);
@@ -706,8 +712,14 @@ internalQaRouter.post('/test-cases/seed-recommended', async (req: Request, res: 
   // KB Article
   if (activeBy.kb_article.size) {
     const ids = Array.from(activeBy.kb_article).slice(0, 50);
-    const { data: kb } = await sb.from('knowledge_base_articles')
-      .select('id, title').eq('workspace_id', workspaceId).eq('status', 'published').in('id', ids).limit(1);
+    // An article the plan has locked (over max_kb_articles) is invisible to
+    // the AI: a test case expecting it would always fail.
+    const kbLock = await resolveKbLock(config, workspaceId);
+    const { data: kb } = await applyKbUnlockedFilter(
+      sb.from('knowledge_base_articles')
+        .select('id, title').eq('workspace_id', workspaceId).eq('status', 'published').in('id', ids),
+      kbLock,
+    ).limit(1);
     const row = (kb || [])[0];
     if (row && row.title) addCase({ name: `KB article: ${String(row.title).slice(0, 60)}`, input_message: `Tell me about ${row.title}`, expected_behavior: 'answer', expected_source_type: 'kb_article', expected_source_id: row.id });
     else skippedReasons.push('kb_article:no_published_row');
@@ -731,7 +743,7 @@ internalQaRouter.post('/test-cases/seed-recommended', async (req: Request, res: 
     const parentIds = Array.from(new Set(Array.from(webPageParents.values()).map((v) => v.source_id)));
     const { data: parents } = await sb.from('ai_data_sources')
       .select('id, name, status, metadata').eq('workspace_id', workspaceId).eq('source_type', 'website').eq('status', 'active').in('id', parentIds).limit(50);
-    const activeParentIds = new Set((parents || []).map((p: any) => p.id));
+    const activeParentIds = new Set((parents || []).map((p: { id: string }) => p.id));
     let chosen: { chunkSourceId: string; url: string | null; title: string | null } | null = null;
     for (const [chunkSourceId, info] of webPageParents.entries()) {
       if (activeParentIds.has(info.source_id)) { chosen = { chunkSourceId, url: info.url, title: info.title }; break; }
@@ -755,7 +767,7 @@ internalQaRouter.post('/test-cases/seed-recommended', async (req: Request, res: 
 
 // SUMMARY
 internalQaRouter.get('/test-summary', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -768,9 +780,9 @@ internalQaRouter.get('/test-summary', async (req: Request, res: Response) => {
   ]);
   const cases = casesRes.data || [];
   const recent = recentRes.data || [];
-  const last24Passed = recent.filter((r: any) => r.status === 'passed').length;
-  const last24Failed = recent.filter((r: any) => r.status === 'failed').length;
-  const last24Errored = recent.filter((r: any) => r.status === 'errored').length;
+  const last24Passed = recent.filter((r: { status: string }) => r.status === 'passed').length;
+  const last24Failed = recent.filter((r: { status: string }) => r.status === 'failed').length;
+  const last24Errored = recent.filter((r: { status: string }) => r.status === 'errored').length;
   const failuresByReason: Record<string, number> = {};
   for (const r of recent) {
     if (r.status === 'passed') continue;
@@ -788,7 +800,7 @@ internalQaRouter.get('/test-summary', async (req: Request, res: Response) => {
   const total24 = recent.length;
   return res.json({
     total_cases: cases.length,
-    enabled_cases: cases.filter((c: any) => c.enabled).length,
+    enabled_cases: cases.filter((c: { enabled: boolean }) => c.enabled).length,
     last_24h_runs: total24,
     last_24h_passed: last24Passed,
     last_24h_failed: last24Failed,
@@ -822,7 +834,7 @@ function e9_canManageSuggestion(role: string | null, isAdmin: boolean): boolean 
 }
 
 internalQaRouter.get('/suggested-test-cases', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = String(req.query.workspaceId || '');
   if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) return res.status(400).json({ error: 'invalid_workspace' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -832,15 +844,15 @@ internalQaRouter.get('/suggested-test-cases', async (req: Request, res: Response
   if (!valid.has(status)) return res.status(400).json({ error: 'invalid_status' });
   const sb = getServiceClient(config);
   try {
-    const items = await e9_listSuggestedCases(sb, workspaceId, { status: status as any });
+    const items = await e9_listSuggestedCases(sb, workspaceId, { status: status as NonNullable<Parameters<typeof e9_listSuggestedCases>[2]>['status'] });
     return res.json({ items });
-  } catch (err: any) {
-    return res.status(500).json({ error: 'list_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'list_failed', details: errorMessage(err) });
   }
 });
 
 internalQaRouter.post('/suggested-test-cases/from-feedback/:feedbackId', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const feedbackId = String(req.params.feedbackId);
   if (!/^[0-9a-f-]{36}$/i.test(feedbackId)) return res.status(400).json({ error: 'invalid_id' });
   const sb = getServiceClient(config);
@@ -860,7 +872,7 @@ internalQaRouter.post('/suggested-test-cases/from-feedback/:feedbackId', async (
 });
 
 internalQaRouter.post('/suggested-test-cases/from-test-run/:runId', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const runId = String(req.params.runId);
   if (!/^[0-9a-f-]{36}$/i.test(runId)) return res.status(400).json({ error: 'invalid_id' });
   const sb = getServiceClient(config);
@@ -880,7 +892,7 @@ internalQaRouter.post('/suggested-test-cases/from-test-run/:runId', async (req: 
 });
 
 internalQaRouter.post('/suggested-test-cases/:id/accept', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
   const sb = getServiceClient(config);
@@ -895,18 +907,18 @@ internalQaRouter.post('/suggested-test-cases/:id/accept', async (req: Request, r
   // Strip workspace_id / id / status / source_* from overrides.
   const safeOverrides = { ...overrides };
   for (const k of ['id', 'workspace_id', 'status', 'source_type', 'source_id', 'created_by', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at']) {
-    delete (safeOverrides as any)[k];
+    delete (safeOverrides as Record<string, unknown>)[k];
   }
-  const result: any = await e9_acceptSuggestedCase(sb, id, auth.userId, safeOverrides);
+  const result = await e9_acceptSuggestedCase(sb, id, auth.userId, safeOverrides);
   if (!result.ok) {
-    const r = result.reason as string | undefined;
+    const r = (result as { reason?: string }).reason;
     return res.status(r === 'not_found' ? 404 : 400).json({ error: r });
   }
   return res.json({ ok: true, test_case_id: result.test_case_id });
 });
 
 internalQaRouter.post('/suggested-test-cases/:id/reject', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
   const sb = getServiceClient(config);
@@ -926,7 +938,7 @@ internalQaRouter.post('/suggested-test-cases/:id/reject', async (req: Request, r
 });
 
 internalQaRouter.delete('/suggested-test-cases/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
   const sb = getServiceClient(config);
@@ -945,7 +957,7 @@ internalQaRouter.delete('/suggested-test-cases/:id', async (req: Request, res: R
 // ─── E10 — Scheduled regression runs ─────────────────────────────────
 
 internalQaRouter.get('/regression/schedules', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'workspaceId_required' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -953,13 +965,13 @@ internalQaRouter.get('/regression/schedules', async (req: Request, res: Response
   try {
     const items = await e10_listSchedules(config, workspaceId);
     return res.json({ items });
-  } catch (e: any) {
-    return res.status(500).json({ error: 'list_failed', details: e?.message });
+  } catch (e) {
+    return res.status(500).json({ error: 'list_failed', details: errorMessage(e) });
   }
 });
 
 internalQaRouter.post('/regression/schedules/default', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'workspaceId_required' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -970,13 +982,13 @@ internalQaRouter.post('/regression/schedules/default', async (req: Request, res:
   try {
     const item = await e10_getOrCreateSchedule(config, workspaceId, auth.userId);
     return res.json({ item });
-  } catch (e: any) {
-    return res.status(500).json({ error: 'create_failed', details: e?.message });
+  } catch (e) {
+    return res.status(500).json({ error: 'create_failed', details: errorMessage(e) });
   }
 });
 
 internalQaRouter.patch('/regression/schedules/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
   const sb = getServiceClient(config);
@@ -990,13 +1002,13 @@ internalQaRouter.patch('/regression/schedules/:id', async (req: Request, res: Re
   try {
     const item = await e10_updateSchedule(config, id, req.body || {}, auth.userId);
     return res.json({ item });
-  } catch (e: any) {
-    return res.status(400).json({ error: 'update_failed', details: e?.message });
+  } catch (e) {
+    return res.status(400).json({ error: 'update_failed', details: errorMessage(e) });
   }
 });
 
 internalQaRouter.get('/regression/batches', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'workspaceId_required' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -1005,8 +1017,8 @@ internalQaRouter.get('/regression/batches', async (req: Request, res: Response) 
   const offsetRaw = parseInt(String(req.query.offset || '0'), 10);
   const allowedStatus = new Set(['queued','running','completed','failed','cancelled']);
   const allowedTrigger = new Set(['manual','scheduled']);
-  const status = allowedStatus.has(String(req.query.status)) ? String(req.query.status) as any : null;
-  const triggerType = allowedTrigger.has(String(req.query.trigger_type)) ? String(req.query.trigger_type) as any : null;
+  const status = allowedStatus.has(String(req.query.status)) ? String(req.query.status) as NonNullable<Parameters<typeof e10_listBatches>[2]>['status'] : null;
+  const triggerType = allowedTrigger.has(String(req.query.trigger_type)) ? String(req.query.trigger_type) as NonNullable<Parameters<typeof e10_listBatches>[2]>['triggerType'] : null;
   const scheduleId = typeof req.query.schedule_id === 'string' && /^[0-9a-f-]{36}$/i.test(req.query.schedule_id) ? req.query.schedule_id : null;
   const dateFrom = typeof req.query.date_from === 'string' ? req.query.date_from : null;
   const dateTo = typeof req.query.date_to === 'string' ? req.query.date_to : null;
@@ -1018,13 +1030,13 @@ internalQaRouter.get('/regression/batches', async (req: Request, res: Response) 
       status, triggerType, scheduleId, dateFrom, dateTo, onlyFailed,
     });
     return res.json(r);
-  } catch (e: any) {
-    return res.status(500).json({ error: 'list_failed', details: e?.message });
+  } catch (e) {
+    return res.status(500).json({ error: 'list_failed', details: errorMessage(e) });
   }
 });
 
 internalQaRouter.get('/regression/batches/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
   try {
@@ -1034,12 +1046,13 @@ internalQaRouter.get('/regression/batches/:id', async (req: Request, res: Respon
     if (!auth) return;
     // E11.1 — enrich runs with selected_source_summary, build runs_by_status
     // map, expose progress + retry_of_batch_id from batch metadata.
-    const rawRuns = (detail.runs || []) as any[];
-    const runs_by_status: { errored: any[]; failed: any[]; passed: any[] } = {
+    const rawRuns = detail.runs || [];
+    type EnrichedRun = (typeof rawRuns)[number] & { selected_source_summary: { source_types: string[]; top_titles: string[]; count: number } };
+    const runs_by_status: { errored: EnrichedRun[]; failed: EnrichedRun[]; passed: EnrichedRun[] } = {
       errored: [], failed: [], passed: [],
     };
-    const enrichedRuns = rawRuns.map((r) => {
-      const ss: any[] = Array.isArray(r.selected_sources) ? r.selected_sources : [];
+    const enrichedRuns = rawRuns.map((r): EnrichedRun => {
+      const ss: Array<{ source_type?: unknown; title?: unknown } | null> = Array.isArray(r.selected_sources) ? r.selected_sources : [];
       const source_types = Array.from(new Set(ss.map((s) => s?.source_type).filter(Boolean))) as string[];
       const top_titles = ss.map((s) => (typeof s?.title === 'string' ? s.title : null)).filter(Boolean).slice(0, 8) as string[];
       const selected_source_summary = { source_types, top_titles, count: ss.length };
@@ -1050,7 +1063,7 @@ internalQaRouter.get('/regression/batches/:id', async (req: Request, res: Respon
       else if (r.status === 'failed') runs_by_status.failed.push(r);
       else if (r.status === 'passed') runs_by_status.passed.push(r);
     }
-    const meta = ((detail.batch as any).metadata || {}) as Record<string, any>;
+    const meta = (detail.batch.metadata || {}) as Record<string, unknown>;
     const progress = {
       current_case_index: meta.current_case_index ?? null,
       current_test_case_id: meta.current_test_case_id ?? null,
@@ -1064,7 +1077,7 @@ internalQaRouter.get('/regression/batches/:id', async (req: Request, res: Respon
       runs_by_status,
       progress,
       retry_of_batch_id: meta.retry_of_batch_id ?? null,
-      retryChildren: (detail as any).retryChildren || [],
+      retryChildren: detail.retryChildren || [],
       summary: {
         total: detail.batch.total_cases,
         passed: detail.batch.passed,
@@ -1073,13 +1086,13 @@ internalQaRouter.get('/regression/batches/:id', async (req: Request, res: Respon
         pass_rate: detail.batch.pass_rate,
       },
     });
-  } catch (e: any) {
-    return res.status(500).json({ error: 'detail_failed', details: e?.message });
+  } catch (e) {
+    return res.status(500).json({ error: 'detail_failed', details: errorMessage(e) });
   }
 });
 
 internalQaRouter.post('/regression/run-now', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const schema = z.object({
     workspaceId: z.string().uuid(),
     scheduleId: z.string().uuid().optional().nullable(),
@@ -1100,13 +1113,13 @@ internalQaRouter.post('/regression/run-now', async (req: Request, res: Response)
       actorId: auth.userId,
     });
     return res.json({ batch });
-  } catch (e: any) {
-    return res.status(500).json({ error: 'enqueue_failed', details: e?.message });
+  } catch (e) {
+    return res.status(500).json({ error: 'enqueue_failed', details: errorMessage(e) });
   }
 });
 
 internalQaRouter.post('/regression/batches/:id/run', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
   const sb = getServiceClient(config);
@@ -1125,18 +1138,18 @@ internalQaRouter.post('/regression/batches/:id/run', async (req: Request, res: R
   try {
     const result = await e10_runBatch(config, id);
     return res.json({ ok: true, result });
-  } catch (e: any) {
+  } catch (e) {
     await sb.from('ai_agent_regression_batches').update({
       status: 'failed',
       finished_at: new Date().toISOString(),
-      last_error: String(e?.message || 'unknown'),
+      last_error: String(errorMessage(e) || 'unknown'),
     }).eq('id', id);
-    return res.status(500).json({ error: 'run_failed', details: e?.message });
+    return res.status(500).json({ error: 'run_failed', details: errorMessage(e) });
   }
 });
 
 internalQaRouter.post('/regression/batches/:id/cancel', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
   const sb = getServiceClient(config);
@@ -1153,7 +1166,7 @@ internalQaRouter.post('/regression/batches/:id/cancel', async (req: Request, res
 });
 
 internalQaRouter.post('/regression/batches/:id/retry-failed', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
   const sb = getServiceClient(config);
@@ -1175,7 +1188,7 @@ internalQaRouter.post('/regression/batches/:id/retry-failed', async (req: Reques
 // ─── E11 — Regression observability ───
 
 internalQaRouter.get('/regression/overview', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'workspaceId_required' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -1183,13 +1196,13 @@ internalQaRouter.get('/regression/overview', async (req: Request, res: Response)
   try {
     const overview = await e11_getOverview(config, workspaceId);
     return res.json(overview);
-  } catch (e: any) {
-    return res.status(500).json({ error: 'overview_failed', details: e?.message });
+  } catch (e) {
+    return res.status(500).json({ error: 'overview_failed', details: errorMessage(e) });
   }
 });
 
 internalQaRouter.get('/regression/batches/:id/export.csv', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const id = String(req.params.id);
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
   const r = await e11_exportBatchCsv(config, id);
@@ -1230,7 +1243,7 @@ function friendlyTestAiReason(action: string, status: string): string {
   return 'The AI evaluated this message.';
 }
 internalQaRouter.post('/test-ai', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = customerTestAiSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
@@ -1269,7 +1282,7 @@ internalQaRouter.post('/test-ai', async (req: Request, res: Response) => {
       retrieval_debug: undefined,
       prompt_preview: undefined,
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: 'test_ai_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'test_ai_failed', details: errorMessage(err) });
   }
 });

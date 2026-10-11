@@ -255,21 +255,39 @@ async function resolveAiCreditsPerMonth(
 
 /**
  * `max_contacts` — current occupancy of `public.contacts` for the
- * workspace. Live exact count via the service-role client.
+ * workspace: the countable contacts, the same predicate the computed lock
+ * ranks (billing_countable_count, migration 264), so the quota and the lock
+ * never disagree.
  *
- * Semantics (locked in `docs/CONTACTS_LIMIT_POLICY.md`):
- *   - Counts every row scoped by `workspace_id`.
+ * Semantics (locked in `docs/CONTACTS_LIMIT_POLICY.md`, D1 of the phase 4
+ * design):
+ *   - Counts the workspace's contacts except spam, and except anonymous
+ *     widget contacts that hold nothing (no name, e-mail or phone): every
+ *     widget visitor creates one, and counting them would fill a Free plan
+ *     with visitors.
  *   - Deletes free capacity (no soft-delete accounting).
  *   - Edits, tag changes, note changes do NOT consume capacity.
- *   - Identity merges collapse rows; net `count(*)` is what counts.
- * `public.contacts` is workspace-scoped and indexed on `workspace_id`,
- * so an exact count is cheap at expected cardinality.
+ *   - Identity merges collapse rows; the net count is what counts.
+ * A database without migration 264 yet counts every row, as before.
  */
 async function resolveMaxContacts(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<UsageResolution> {
   const sb = makeClient(config);
+  const shared = await sb.rpc('billing_countable_count', { p_workspace_id: workspaceId, p_kind: 'contact' });
+  if (!shared.error) {
+    return {
+      value: Number(shared.data ?? 0) || 0,
+      period: 'lifetime',
+      periodKind: 'lifetime',
+      source: 'derived_count',
+      isExact: true,
+      supported: true,
+      note: 'billing_countable_count(ws, contact): contacts that are not spam nor empty anonymous visitors (occupancy)',
+    };
+  }
+  if (!isFunctionMissing(shared.error)) throw new Error(`max_contacts_count_failed:${shared.error.message}`);
   const { count, error } = await sb
     .from('contacts')
     .select('id', { count: 'exact', head: true })
@@ -282,8 +300,14 @@ async function resolveMaxContacts(
     source: 'derived_count',
     isExact: true,
     supported: true,
-    note: 'count(*) on public.contacts where workspace_id = $1 (occupancy)',
+    note: 'count(*) on public.contacts where workspace_id = $1 (occupancy; billing_countable_count not installed)',
   };
+}
+
+/** The RPC is not installed (a database before its migration): PostgREST PGRST202 / Postgres 42883. */
+function isFunctionMissing(error: { code?: string; message?: string } | null | undefined): boolean {
+  const code = String(error?.code ?? '');
+  return code === 'PGRST202' || code === '42883' || /could not find the function|function .* does not exist/i.test(String(error?.message ?? ''));
 }
 
 /**
@@ -294,6 +318,8 @@ async function resolveMaxContacts(
  *   - One row in `workspace_members` per `(workspace_id, user_id)` =
  *     one seat. Departments do not multiply seats.
  *   - All members count regardless of `role`. The owner counts.
+ *   - Suspended members do not (D3 of the phase 4 design): suspending a
+ *     member frees the seat, as in the computed seat lock.
  *   - Pending `workspace_invitations` do NOT consume capacity;
  *     capacity is consumed only when a `workspace_members` row is
  *     inserted (i.e. invite is redeemed via the canonical Express
@@ -316,7 +342,8 @@ async function resolveMaxAgents(
   const { count, error } = await sb
     .from('workspace_members')
     .select('user_id', { count: 'exact', head: true })
-    .eq('workspace_id', workspaceId);
+    .eq('workspace_id', workspaceId)
+    .is('suspended_at', null);
   if (error) throw new Error(`max_agents_count_failed:${error.message}`);
   return {
     value: typeof count === 'number' ? count : 0,
@@ -325,7 +352,7 @@ async function resolveMaxAgents(
     source: 'derived_count',
     isExact: true,
     supported: true,
-    note: 'count(*) on public.workspace_members where workspace_id = $1 (seat occupancy)',
+    note: 'count(*) on public.workspace_members where workspace_id = $1 and not suspended (seat occupancy)',
   };
 }
 
@@ -575,8 +602,6 @@ const KNOWN_UNSUPPORTED: Record<string, string> = {
     'Per-file cap, not a workspace-period usage.',
   ai_kb_file_count:
     'Lifetime file count not yet aggregated; defer until a counter or cheap query is defined.',
-  data_retention_days:
-    'Retention cap is enforced by janitor jobs; not a usage-vs-limit gate.',
 };
 
 // ─── Public API ─────────────────────────────────────────────

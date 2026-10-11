@@ -3,7 +3,10 @@ import { resolveClientRealtimeProvider } from '@/realtime';
 import type { RealtimeSubscription } from '@/realtime/types';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Contact } from '@/types/models';
-import { contactsApi } from '@/lib/contacts-api';
+import { contactsApi, isPlanLockedError, type ContactLockFields } from '@/lib/contacts-api';
+
+/** A contact as the list returns it: `locked` when over the plan's limit (redacted). */
+export type ListedContact = Contact & ContactLockFields;
 import { invalidateThrottled } from '@/realtime/invalidationThrottle';
 
 // Reads/writes below go through server/routes/contacts.ts (gs_session
@@ -47,7 +50,7 @@ export function useContacts(workspaceId: string | undefined) {
   useContactUpdates(workspaceId);
   return useQuery({
     queryKey: ['contacts', workspaceId],
-    queryFn: () => contactsApi.list(workspaceId!) as Promise<Contact[]>,
+    queryFn: () => contactsApi.list(workspaceId!) as Promise<ListedContact[]>,
     enabled: !!workspaceId,
     refetchInterval: 10_000,
   });
@@ -58,7 +61,10 @@ export function useContact(id: string | undefined) {
     queryKey: ['contact', id],
     queryFn: () => contactsApi.get(id!) as Promise<Contact | null>,
     enabled: !!id,
-    refetchInterval: 10_000,
+    // A contact locked by the plan (403 contact_locked) stays locked until an
+    // upgrade or a delete: no retries, and a slower re-check.
+    retry: (count, err) => !isPlanLockedError(err) && count < 3,
+    refetchInterval: (q) => (isPlanLockedError(q.state.error) ? 60_000 : 10_000),
   });
   useContactUpdates(query.data?.workspace_id);
   return query;
@@ -69,6 +75,7 @@ export function useContactConversations(contactId: string | undefined) {
     queryKey: ['contact-conversations', contactId],
     queryFn: () => contactsApi.getConversations(contactId!),
     enabled: !!contactId,
+    retry: (count, err) => !isPlanLockedError(err) && count < 3,
   });
 }
 

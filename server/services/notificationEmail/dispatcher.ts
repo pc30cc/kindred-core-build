@@ -23,6 +23,8 @@ import {
 } from './settings.js';
 import { operatorWants } from './queue.js';
 import { NOTIFICATION_EMAILS, isNotificationEmailType, type NotificationEmailType } from './types.js';
+import { resolveLockState } from '../billing/locks/state.js';
+import { isMemberLocked } from '../billing/locks/predicates.js';
 
 /** Where an override provider's config lives, when one is chosen. */
 export const OVERRIDE_PROVIDER_KEY = 'notification_email_provider';
@@ -140,6 +142,14 @@ async function deliver(
     return { kind: 'skipped' };
   }
 
+  // A member whose seat the plan paused (simple billing phase 4) hears
+  // nothing about that workspace until the seat is back; the job was queued
+  // before, or the pause began after it was.
+  if (job.workspace_id && (await seatPaused(config, job.workspace_id, job.user_id))) {
+    await finish(config, job, 'skipped', 'seat paused by the plan');
+    return { kind: 'skipped' };
+  }
+
   const recipient = await resolveRecipient(config, job.user_id);
   if (!recipient?.email) {
     // An account with no address on it is a state of the world, not a fault.
@@ -215,6 +225,11 @@ async function finish(
       sent_at: status === 'sent' ? new Date().toISOString() : null,
     })
     .eq('id', job.id);
+}
+
+async function seatPaused(config: ServerConfig, workspaceId: string, userId: string): Promise<boolean> {
+  const state = await resolveLockState(config, workspaceId, ['member']);
+  return isMemberLocked(state, userId);
 }
 
 interface Recipient {

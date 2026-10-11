@@ -2,6 +2,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { formatDateTime, formatRelative } from '@/lib/date';
 import { useContact, useContactConversations, useUpdateContact, useDeleteContact } from '@/hooks/useContacts';
+import { isPlanLockedError } from '@/lib/contacts-api';
 import { useContactCalls, type ContactCall } from '@/hooks/useContactChannels';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -96,11 +97,15 @@ export default function ContactDetailPage() {
   const rtl = dir === 'rtl';
   const { id, slug: wsSlug } = useParams();
   const navigate = useNavigate();
-  const { data: contact, isLoading } = useContact(id);
-  const { data: conversations } = useContactConversations(id);
+  const { data: contact, isLoading, error: contactError } = useContact(id);
+  // A contact over the plan's limit (phase 4) answers 403 contact_locked:
+  // nothing else about it is read until the contact itself is readable.
+  const lockedError = isPlanLockedError(contactError, 'contact_locked') ? contactError : null;
+  const readId = contact ? id : undefined;
+  const { data: conversations } = useContactConversations(readId);
   const workspace = useCurrentWorkspace();
-  const { data: calls } = useContactCalls(workspace?.id, id);
-  const { data: ipState } = useContactIp(id);
+  const { data: calls } = useContactCalls(workspace?.id, readId);
+  const { data: ipState } = useContactIp(readId);
   const updateMutation = useUpdateContact();
   const deleteMutation = useDeleteContact();
   // Live session-based city — the same canonical source Inbox reads — takes
@@ -108,7 +113,7 @@ export default function ContactDetailPage() {
   // (that one is only ever written once a visitor identifies; a still-
   // anonymous contact wouldn't have it yet). Not gated by contact_ip_
   // visibility: geo isn't the paid IP feature useContactIp is.
-  const { data: networkProfile } = useVisitorNetwork(workspace?.id, { contactId: id });
+  const { data: networkProfile } = useVisitorNetwork(workspace?.id, { contactId: readId });
   // Editing, tags and notes are plan features (contact_edit / contact_tags /
   // contact_notes), offered only when the plan says yes — the server refuses
   // them otherwise.
@@ -161,6 +166,64 @@ export default function ContactDetailPage() {
       <div className="flex flex-col items-center justify-center py-24 gap-3" dir={dir}>
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
         <p className="text-sm text-muted-foreground">{t('contacts.loading')}</p>
+      </div>
+    );
+  }
+
+  if (lockedError && id) {
+    const limit = lockedError.body.limit;
+    return (
+      <div data-page-locked="contact" className="flex flex-col items-center justify-center py-24 gap-4 px-6 text-center" dir={dir}>
+        <div className="w-12 h-12 rounded-full bg-warning/10 flex items-center justify-center">
+          <Lock className="w-5 h-5 text-warning" />
+        </div>
+        <div className="space-y-1.5 max-w-md">
+          <h2 className="text-base font-semibold text-foreground">{t('contacts.locked.title')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {typeof limit === 'number'
+              ? t('contacts.locked.desc', { limit: String(limit) })
+              : t('contacts.locked.descNoLimit')}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap justify-center">
+          <Button onClick={() => navigate(`/${wsSlug}/billing`)}>{t('contacts.locked.upgrade')}</Button>
+          <Link to={`/${wsSlug}/contacts`}>
+            <Button variant="outline">{t('contacts.locked.back')}</Button>
+          </Link>
+          {/* Deleting stays open: it frees a slot under the plan's limit. */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" className="text-destructive gap-1.5">
+                <Trash2 className="w-4 h-4" />{t('contacts.delete')}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent dir={dir}>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="text-start">{t('contacts.deleteOneTitle')}</AlertDialogTitle>
+                <AlertDialogDescription className="text-start">
+                  {t('contacts.deleteOneDesc', { name: t('contacts.locked.name') })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('contacts.cancel')}</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={async () => {
+                    try {
+                      await deleteMutation.mutateAsync(id);
+                      toast({ title: t('contacts.toastDeleted') });
+                      navigate(`/${wsSlug}/contacts`);
+                    } catch (e) {
+                      toast({ title: t('contacts.toastError'), description: e instanceof Error ? e.message : undefined, variant: 'destructive' });
+                    }
+                  }}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {t('contacts.delete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </div>
     );
   }
@@ -412,6 +475,17 @@ export default function ContactDetailPage() {
                                   ) : null;
                                 })()}
                                 <div className="flex items-center gap-2 mt-1.5">
+                                  {conv.locked_by_retention ? (
+                                    // Older than the plan keeps chats (phase 4): listed without content.
+                                    <span
+                                      data-conv-locked
+                                      title={t('inbox.locked.descNoDays')}
+                                      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-warning/10 text-warning"
+                                    >
+                                      <Lock className="w-3 h-3" />
+                                      {t('inbox.locked.badge')}
+                                    </span>
+                                  ) : null}
                                   {conv.handled_by_operator ? (
                                     <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary">
                                       <UserIcon className="w-3 h-3" />

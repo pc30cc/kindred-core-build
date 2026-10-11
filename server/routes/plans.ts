@@ -44,6 +44,7 @@ import { adminGrantPlanV2 } from '../services/billing/adminGrant.js';
 import { renewalDueNotice } from '../services/billing/account/renewalNotice.js';
 import { afterAdminAssignment } from '../services/billing/account/plans.js';
 import type { PlanDefinitionLike } from '../services/billing/entitlementFanout.js';
+import { lockSummary } from '../services/billing/locks/state.js';
 
 
 export const plansRouter = Router();
@@ -172,12 +173,15 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
     const info = resolved.value;
 
     const currentPeriod = new Date().toISOString().slice(0, 7);
-    const [modulesRead, channelsRead, usageRead, renewal] = await Promise.all([
+    const [modulesRead, channelsRead, usageRead, renewal, locks] = await Promise.all([
       supabase.from('workspace_module_overrides').select('module_key, enabled, admin_notes').eq('workspace_id', workspaceId),
       supabase.from('workspace_channel_overrides').select('channel_key, enabled, admin_notes').eq('workspace_id', workspaceId),
       supabase.from('workspace_usage_counters').select('*').eq('workspace_id', workspaceId).eq('period', currentPeriod).maybeSingle(),
       // The panel's "plan ends in N days" banner; never fails the snapshot.
       renewalDueNotice(serverConfigOf(req), workspaceId).catch(() => null),
+      // Computed locks over the plan's limits (phase 4); never fails the
+      // snapshot: unreadable = nothing locked.
+      lockSummary(serverConfigOf(req), workspaceId),
     ]);
     // Enforcement honours these overrides; a snapshot without them would show
     // a section the server refuses (or hide one it allows). A table that does
@@ -204,6 +208,9 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
             card_past_due: renewal.card_past_due === true,
           }
         : null,
+      // What the plan's limits lock now (counts per kind, the next deletion
+      // date); `enabled: false` while the edition's billing locks are off.
+      locks,
       // The plan's own JSON, for forward-compatible consumers.
       raw: { entitlements: info.entitlements, limits: info.planLimits },
     });
@@ -327,11 +334,59 @@ plansRouter.get('/admin/all', async (req, res) => {
   res.json({ plans: data || [] });
 });
 
+/**
+ * The plan fields phase 4 and the simple billing added, checked before a
+ * write so a bad value answers a readable 400 instead of the database's 500:
+ *   locked_data_retention_days  days locked data is kept, then deleted after
+ *                               the 30/7-day notices; null/'' = never
+ *   is_hidden                   boolean
+ *   ai_allowance                a JSON object
+ * Returns the cleaned values of the fields present in `body`, or an error.
+ */
+export interface PlanExtras {
+  locked_data_retention_days?: number | null;
+  is_hidden?: boolean;
+  ai_allowance?: Record<string, unknown>;
+}
+
+export function cleanPlanExtras(body: Record<string, unknown>): { value: PlanExtras; error?: string; field?: string } {
+  const value: PlanExtras = {};
+  if ('locked_data_retention_days' in body) {
+    const raw = body.locked_data_retention_days;
+    if (raw === null || raw === undefined || raw === '') {
+      value.locked_data_retention_days = null;
+    } else {
+      const n = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\s*\d+\s*$/.test(raw) ? Number(raw) : NaN;
+      if (!Number.isInteger(n) || n <= 0 || n > 36_500) {
+        return {
+          value,
+          field: 'locked_data_retention_days',
+          error: 'locked_data_retention_days must be a whole number of days greater than 0 (or empty: never deleted)',
+        };
+      }
+      value.locked_data_retention_days = n;
+    }
+  }
+  if ('is_hidden' in body && body.is_hidden !== undefined) {
+    if (typeof body.is_hidden !== 'boolean') return { value, field: 'is_hidden', error: 'is_hidden must be true or false' };
+    value.is_hidden = body.is_hidden;
+  }
+  if ('ai_allowance' in body && body.ai_allowance !== undefined) {
+    const raw = body.ai_allowance;
+    if (raw === null) value.ai_allowance = {};
+    else if (typeof raw === 'object' && !Array.isArray(raw)) value.ai_allowance = raw as Record<string, unknown>;
+    else return { value, field: 'ai_allowance', error: 'ai_allowance must be a JSON object' };
+  }
+  return { value };
+}
+
 plansRouter.post('/admin', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = serviceClientFor(url, key);
   const { name, slug, description, prices, entitlements, limits, is_free, is_active, sort_order, trial_days, default_currency, provider_price_ids, localized } = req.body;
   if (!name || !slug) return res.status(400).json({ error: 'name and slug are required' });
+  const extras = cleanPlanExtras((req.body ?? {}) as Record<string, unknown>);
+  if (extras.error) return res.status(400).json({ error: extras.error, field: extras.field });
 
   // Soft validation: report registry issues but stay backward-compatible.
   const validation = validatePlanPayload({ entitlements, limits });
@@ -352,6 +407,10 @@ plansRouter.post('/admin', async (req, res) => {
     default_currency: default_currency || 'USD',
     provider_price_ids: provider_price_ids || {},
     localized: localized || {},
+    // Left out before: a new plan's is_hidden and AI allowance were dropped.
+    locked_data_retention_days: extras.value.locked_data_retention_days ?? null,
+    is_hidden: extras.value.is_hidden ?? false,
+    ai_allowance: extras.value.ai_allowance ?? {},
   }).select().single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
@@ -364,6 +423,9 @@ plansRouter.put('/admin/:planId', async (req, res) => {
   const supabase = serviceClientFor(url, key);
   const updates = { ...req.body, updated_at: new Date().toISOString() };
   delete updates.id; delete updates.created_at;
+  const extras = cleanPlanExtras((req.body ?? {}) as Record<string, unknown>);
+  if (extras.error) return res.status(400).json({ error: extras.error, field: extras.field });
+  Object.assign(updates, extras.value);
 
   // Soft validation when entitlements/limits are touched.
   let validation: ReturnType<typeof validatePlanPayload> | undefined;

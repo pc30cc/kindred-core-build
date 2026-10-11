@@ -46,7 +46,7 @@ import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-ag
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
-import { dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
+import { channelOutboundStopped, channelStoppedBody, dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
 import { sanitizeClientMessageMetadata } from '../services/channels/clientMessageMetadata.js';
 
@@ -68,6 +68,15 @@ import { queueTranscript } from '../services/notificationEmail/producers.js';
 import { notifyAssignment } from '../services/push/index.js';
 import { coalesce } from '../lib/inflight.js';
 import { onSupportConversationChanged, onTeamReply } from '../services/platformSupport/service.js';
+import {
+  CONTACT_LOCK_COLUMNS,
+  contactRowForPanel,
+  conversationLockedBody,
+  conversationLockedNow,
+  conversationRetentionDays,
+  isConversationLocked,
+  resolveContactChatLocks,
+} from '../services/contactChatLocks.js';
 
 
 export const conversationsRouter = Router();
@@ -125,6 +134,24 @@ async function authorizeWorkspaceMember(
 }
 
 /**
+ * Plan lock (phase 4): a chat whose last activity is older than the plan's
+ * data_retention_days cannot be read, answered, changed, claimed or taken
+ * over. Writes the 403 and returns true when the caller must stop. Fail open:
+ * an unreadable lock state never refuses anything.
+ */
+async function refuseLockedConversation(
+  res,
+  config: ServerConfig,
+  workspaceId: string,
+  conv: { created_at?: string | null; updated_at?: string | null },
+): Promise<boolean> {
+  const { locked, state } = await conversationLockedNow(config, workspaceId, conv);
+  if (!locked) return false;
+  res.status(403).json(conversationLockedBody(state));
+  return true;
+}
+
+/**
  * POST /api/conversations/:conversationId/take-over
  *
  * Inbox-owned human takeover. Intentionally lives here (and NOT only under
@@ -146,7 +173,7 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
   const sb = getServiceClient(config);
   const { data: conv } = await sb
     .from('conversations')
-    .select('id, workspace_id, assigned_to, ai_state:metadata->>ai_state')
+    .select('id, workspace_id, assigned_to, created_at, updated_at, ai_state:metadata->>ai_state')
     .eq('id', conversationId)
     .maybeSingle();
   if (!conv || conv.workspace_id !== workspaceId) {
@@ -154,6 +181,7 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
   }
   const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
   if (!auth) return;
+  if (await refuseLockedConversation(res, config, workspaceId, conv)) return;
 
   if (assign_to_me && !conv.assigned_to) {
     await sb.from('conversations').update({ assigned_to: auth.userId }).eq('id', conversationId);
@@ -262,12 +290,24 @@ conversationsRouter.post('/send-message', async (req, res) => {
     // along so the takeover below is announced only when it is news.
     const { data: conv, error: convErr } = await sb
       .from('conversations')
-      .select('id, workspace_id, ai_state:metadata->>ai_state')
+      .select('id, workspace_id, created_at, updated_at, ai_state:metadata->>ai_state, channel:metadata->>channel')
       .eq('id', parsed.data.conversation_id)
       .maybeSingle();
     if (convErr) return res.status(500).json({ error: convErr.message });
     if (!conv || conv.workspace_id !== parsed.data.workspace_id) {
       return res.status(404).json({ error: 'Conversation not found in workspace' });
+    }
+    // A reply would move updated_at and so reopen a chat the plan locked.
+    if (await refuseLockedConversation(res, config, conv.workspace_id, conv)) return;
+    // A channel the plan stopped sends nothing: refuse before the reply is
+    // written (the DB trigger would otherwise queue it). Only while billing
+    // locks are on; an unreadable plan stops nothing.
+    if (await channelOutboundStopped(config, {
+      workspaceId: conv.workspace_id,
+      conversationId: conv.id,
+      provider: (conv as { channel?: string | null }).channel ?? null,
+    })) {
+      return res.status(403).json(channelStoppedBody());
     }
 
     // Insert message. body may be empty when only an attachment is sent.
@@ -695,13 +735,14 @@ conversationsRouter.patch('/:id', async (req, res) => {
     // Load current row to verify workspace ownership AND compute the diff.
     const { data: before, error: loadErr } = await sb
       .from('conversations')
-      .select('id, workspace_id, status, priority, assigned_to, tags')
+      .select('id, workspace_id, status, priority, assigned_to, tags, created_at, updated_at')
       .eq('id', conversationId)
       .maybeSingle();
     if (loadErr) return res.status(500).json({ error: loadErr.message });
     if (!before || before.workspace_id !== parsed.data.workspace_id) {
       return res.status(404).json({ error: 'Conversation not found in workspace' });
     }
+    if (await refuseLockedConversation(res, config, before.workspace_id, before)) return;
 
     // Verify the assignee (if any) is also a workspace member.
     if (parsed.data.assigned_to) {
@@ -1014,12 +1055,13 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
     const conversationId = req.params.id;
     const { data: before } = await sb
       .from('conversations')
-      .select('id, workspace_id, assigned_to')
+      .select('id, workspace_id, assigned_to, created_at, updated_at')
       .eq('id', conversationId)
       .maybeSingle();
     if (!before || before.workspace_id !== parsed.data.workspace_id) {
       return res.status(404).json({ error: 'Conversation not found in workspace' });
     }
+    if (await refuseLockedConversation(res, config, before.workspace_id, before)) return;
 
     const { claimConversationManually } = await import('../services/chatRouting.js');
     const result = await claimConversationManually(config, {
@@ -1201,9 +1243,12 @@ async function listConversationRows(
   const { workspaceId, queue, status, needsHuman, assignedToMe, canSeeAllAssignments } = opts;
   const onlyIds = opts.ids;
   const sb = getServiceClient(config);
+  // The plan's locks (phase 4) are read alongside the list; the contact join
+  // also reads what its lock is judged by (dropped again below).
+  const locksPending = resolveContactChatLocks(config, workspaceId);
   let q = sb
     .from('conversations')
-    .select('*, contacts(id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata)')
+    .select(`*, contacts(avatar_url, avatar_storage_key, visitor_code, ${CONTACT_LOCK_COLUMNS})`)
     .eq('workspace_id', workspaceId)
     .order('updated_at', { ascending: false });
 
@@ -1239,15 +1284,38 @@ async function listConversationRows(
     }
   }
 
-  const { data, error } = await q;
+  const [{ data, error }, locks] = await Promise.all([q, locksPending]);
   if (error) return { rows: [], error: error.message };
   const convos = (data || []);
+  // Plan locks (phase 4). A chat past the plan's retention is listed, marked
+  // `locked_by_retention`, without its preview; a contact over the plan's
+  // limit is joined redacted with `locked: true` (D4: the chat stays usable,
+  // the contact's details do not reach the panel).
+  const retentionDays = conversationRetentionDays(locks);
+  const lockedConv = new Set<string>();
+  for (const c of convos) {
+    const locked = isConversationLocked(locks, c);
+    c.locked_by_retention = locked;
+    if (locked) {
+      lockedConv.add(c.id);
+      c.retention_days = retentionDays;
+      c.subject = null;
+    }
+    if (c.contacts) {
+      const contact = contactRowForPanel(locks, c.contacts);
+      // Read only to judge the lock: the list never carried them.
+      delete contact.phone;
+      delete contact.is_spam;
+      delete contact.created_at;
+      c.contacts = contact;
+    }
+  }
   // Contact avatars: derived from the stored key for the workspace's
   // current provider, one resolution for the whole page.
   await hydrateContactAvatars(
     config,
     workspaceId,
-    convos.map((c) => c.contacts).filter(Boolean),
+    convos.map((c) => c.contacts).filter((ct) => ct && !ct.locked),
   );
 
   const ids = convos.map((c) => c.id).filter(Boolean);
@@ -1431,6 +1499,17 @@ async function listConversationRows(
       if (handled.length === 0) return true; // AI/system resolved → shared
       return handled.includes(auth.userId);
     });
+  }
+
+  // A locked chat's messages were read only for the queue rules above; its
+  // content stays on the server.
+  for (const c of result) {
+    if (!lockedConv.has(c.id)) continue;
+    c.last_visitor_message = null;
+    c.last_message = null;
+    c.unread_count = 0;
+    c.needs_reply = false;
+    c.waiting_since = null;
   }
 
   return { rows: result, error: null };
@@ -1681,13 +1760,14 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
 
     const { data: conv } = await sb
       .from('conversations')
-      .select('id, workspace_id')
+      .select('id, workspace_id, created_at, updated_at')
       .eq('id', conversationId)
       .maybeSingle();
     if (!conv) return res.status(404).json({ error: 'conversation_not_found' });
 
     const auth = await authorizeWorkspaceMember(req, res, config, conv.workspace_id);
     if (!auth) return;
+    if (await refuseLockedConversation(res, config, conv.workspace_id, conv)) return;
 
     const threadRows = () => sb.from('conversation_messages').select('*').eq('conversation_id', conversationId);
     // `?since=<cursor>`: only rows created/changed since then (services/messageSync.ts).

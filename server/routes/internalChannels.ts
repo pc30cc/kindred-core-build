@@ -75,6 +75,7 @@ import { uploadFile } from '../services/storage/index.js';
 import { emailAttachmentKey } from '../services/storage/keys.js';
 import { notifyEmailMessage } from '../services/push/index.js';
 import { scheduleYahooMailboxChanged } from '../services/email/yahooChangeNotifier.js';
+import { checkStorageUpload, isProviderStopped } from '../services/billing/planStops.js';
 
 export const internalChannelsRouter = Router();
 
@@ -125,6 +126,12 @@ internalChannelsRouter.use((req, res, next) => {
  * The Gateway has already verified the webhook secret; it has NO database
  * access, so Core resolves the integration, persists the raw envelope and
  * enqueues a job. Returns quickly so the provider is not kept waiting.
+ *
+ * A channel the workspace's plan no longer has is STOPPED, its settings and
+ * integration kept (simple billing phase 4, D8): the update is acknowledged
+ * with 200 `{ accepted: false, reason: 'plan_locked' }` and nothing is
+ * created, so the provider does not retry it. Messages sent meanwhile are not
+ * received. Only while billing locks are on; an unreadable plan stops nothing.
  */
 const ingestSchema = z.object({
   provider: z.enum(BOT_PROVIDER_IDS),
@@ -190,6 +197,10 @@ internalChannelsRouter.post('/ingest', async (req: Request, res) => {
       }
     }
 
+    if (await isProviderStopped(config, integration.workspace_id, parsed.data.provider)) {
+      return res.status(200).json({ accepted: false, reason: 'plan_locked' });
+    }
+
     // Protocol translation happens ONCE, here: WhatsApp Cloud batches several
     // messages (plus non-conversational delivery statuses) into one webhook
     // body, so it expands into zero or more bot-shaped updates. Every other
@@ -246,6 +257,9 @@ internalChannelsRouter.post('/ingest', async (req: Request, res) => {
 /**
  * POST /process-inbound — the Worker asks Core to turn a queued provider
  * update into canonical business data. Core owns all writes.
+ *
+ * Updates of a channel the plan has stopped (queued before the stop, or
+ * polled — X has no webhook) are acknowledged and dropped like at /ingest.
  */
 const processSchema = z.object({
   provider: z.enum(BOT_PROVIDER_IDS),
@@ -260,6 +274,10 @@ internalChannelsRouter.post('/process-inbound', async (req: Request, res) => {
 
   try {
     const config = serverConfigOf(req);
+
+    if (await isProviderStopped(config, parsed.data.workspace_id, parsed.data.provider)) {
+      return res.json({ status: 'plan_locked', accepted: false });
+    }
 
     // Inline menu taps never become conversation messages: they are UI
     // navigation, handled and acknowledged here.
@@ -840,6 +858,13 @@ internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: Request,
 
   try {
     const config = serverConfigOf(req);
+    // Yahoo Mail is a plan channel: while the plan has stopped it the poller
+    // keeps its checkpoint moving, and what arrives meanwhile is not stored
+    // (simple billing phase 4, D8). No attachment follows a message that is
+    // not new.
+    if (await isProviderStopped(config, data.workspace_id, 'yahoomail')) {
+      return res.json({ thread_id: null, message_id: null, is_new_message: false, accepted: false, reason: 'plan_locked' });
+    }
     const sb = getServiceClient(config);
     const externalThreadId = deriveYahooThreadId({
       messageIdHeader: data.message.external_message_id,
@@ -972,6 +997,14 @@ internalChannelsRouter.post(
 
       const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
       if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
+
+      // Storage over the plan's limit blocks new files only (simple billing
+      // phase 4): the message is already kept, its file is skipped. Answered
+      // 200 so the poller neither retries nor logs it as a failure.
+      const storage = await checkStorageUpload(config, message.workspace_id);
+      if (!storage.allowed) {
+        return res.json({ ok: false, skipped: 'storage_limit', status: storage.status });
+      }
 
       const fileKey = emailAttachmentKey({ workspaceId: message.workspace_id, fileName: filename });
       const uploadResult = await uploadFile(config, { workspaceId: message.workspace_id, fileKey, data: bytes, contentType });

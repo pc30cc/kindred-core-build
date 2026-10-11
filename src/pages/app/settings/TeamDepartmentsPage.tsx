@@ -32,6 +32,8 @@ import {
 } from 'lucide-react';
 
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { SeatLockedBadge, SeatLockedSummary } from '@/components/members/SeatLocked';
+import { isSeatLocked, type SeatLockable } from '@/hooks/useOwnSeat';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
@@ -81,6 +83,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
+/** A row of GET /api/workspace-members, as far as this page reads it. */
+interface WorkspaceMemberRow extends SeatLockable {
+  id: string;
+  user_id: string;
+  role: string;
+  suspended_at?: string | null;
+  department_names?: string[] | null;
+  profile?: { full_name?: string | null; email?: string | null; avatar_url?: string | null } | null;
+}
+
 /**
  * Customer-facing roles are stored in `workspace_members.role` but are
  * intentionally NOT exposed in this UI. Workspace owners think in terms of
@@ -92,7 +104,7 @@ import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
  * sees them as plain team members regardless of the historical role string
  * stored in the database.
  */
-export const CUSTOMER_FACING_ROLES = [
+const CUSTOMER_FACING_ROLES = [
   'agent',
   'team_lead',
   'support_agent',
@@ -104,7 +116,7 @@ export const CUSTOMER_FACING_ROLES = [
  * can answer chats/calls. All legacy customer-facing role values collapse
  * into this one bucket so the UX stays unified.
  */
-export function isCustomerFacingRole(role: string | null | undefined): boolean {
+function isCustomerFacingRole(role: string | null | undefined): boolean {
   if (!role) return false;
   if (role === 'owner') return true;
   return (CUSTOMER_FACING_ROLES as readonly string[]).includes(role);
@@ -152,20 +164,20 @@ export default function TeamDepartmentsPage() {
   const { data: allMembers = [], isLoading: loadingMembers } = useQuery({
     queryKey: ['ws-members', wsId],
     queryFn: async () => {
-      const { members } = await teamApi<{ members: any[] }>(`/api/workspace-members?workspaceId=${wsId}`);
+      const { members } = await teamApi<{ members: WorkspaceMemberRow[] }>(`/api/workspace-members?workspaceId=${wsId}`);
       return members;
     },
     enabled: !!wsId,
   });
 
   const customerMembers = useMemo(
-    () => allMembers.filter((m: any) => isCustomerFacingRole(m.role)),
+    () => allMembers.filter((m) => isCustomerFacingRole(m.role)),
     [allMembers],
   );
 
   /* ─── Department assignments per user ─── */
   const deptsByUser = new Map<string, string[]>(
-    (allMembers as any[]).map((m: any) => [m.user_id, m.department_names ?? []]),
+    allMembers.map((m) => [m.user_id, m.department_names ?? []]),
   );
 
   /* ─── Presence + filters ─── */
@@ -173,7 +185,7 @@ export default function TeamDepartmentsPage() {
   const presenceByUser = presenceMap(presenceData?.presence);
 
   const [search, setSearch] = useState('');
-  const visibleMembers = customerMembers.filter((m: any) =>
+  const visibleMembers = customerMembers.filter((m) =>
     !search ||
     m.profile?.full_name?.toLowerCase().includes(search.toLowerCase()) ||
     m.profile?.email?.toLowerCase().includes(search.toLowerCase()),
@@ -391,6 +403,8 @@ export default function TeamDepartmentsPage() {
             </div>
           </div>
 
+          <SeatLockedSummary count={customerMembers.filter(isSeatLocked).length} />
+
           {loadingMembers ? (
             <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
           ) : visibleMembers.length === 0 ? (
@@ -411,7 +425,7 @@ export default function TeamDepartmentsPage() {
             </div>
           ) : (
             <div className="divide-y divide-border/60">
-              {visibleMembers.map((m: any) => {
+              {visibleMembers.map((m) => {
                 const isOwner = m.role === 'owner';
                 const isCurrent = m.user_id === user?.id;
                 const presence = presenceByUser.get(m.user_id);
@@ -452,6 +466,7 @@ export default function TeamDepartmentsPage() {
                             {t('memberBan.bannedBadge')}
                           </Badge>
                         )}
+                        {isSeatLocked(m) && <SeatLockedBadge />}
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
                     </div>
@@ -785,7 +800,7 @@ function DeptMembersDialog({
 
   const toggle = (uid: string) => {
     const next = new Set<string>(sel);
-    next.has(uid) ? next.delete(uid) : next.add(uid);
+    if (next.has(uid)) next.delete(uid); else next.add(uid);
     setSelected(next);
   };
 
@@ -808,7 +823,7 @@ function DeptMembersDialog({
               </p>
             </div>
           ) : (
-            members.map((m: any) => (
+            members.map((m) => (
               <label key={m.user_id}
                 className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/40 cursor-pointer">
                 <Checkbox checked={sel.has(m.user_id)} onCheckedChange={() => toggle(m.user_id)} />
@@ -888,7 +903,7 @@ function MemberDepartmentsDialog({
 
   const toggle = (id: string) => {
     const next = new Set<string>(sel);
-    next.has(id) ? next.delete(id) : next.add(id);
+    if (next.has(id)) next.delete(id); else next.add(id);
     setDraft(next);
   };
 
@@ -908,7 +923,7 @@ function MemberDepartmentsDialog({
               </p>
             </div>
           ) : (
-            departments.map((d: any) => (
+            departments.map((d) => (
               <label key={d.id}
                 className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/40 cursor-pointer">
                 <Checkbox checked={sel.has(d.id)} onCheckedChange={() => toggle(d.id)} />

@@ -306,7 +306,11 @@ the saved cards' step (`simple_billing_card` lease, 3b below). The rest once an 
 due periods again, the
 month's AI credit, renewal reminders (7, 3, 1 days before; not sent when
 auto-renew will pay or the next period is paid), trial reminders (3 and 1
-days) and the end of a trial, pruning of unfinished payments (30 days). A
+days) and the end of a trial, pruning of unfinished payments (30 days), and
+the `locks` step of phase 4 (below: a paused member's open chats back to the
+queue, the deletion clock, the 30/7-day notices and the deletion; it acts
+only while the edition's billing locks are on, at most 200 workspaces an
+hour). A
 reminder is recorded in `billing_accounts.notices_sent` before it is sent
 and taken back if the mail fails, so it goes out once. `SIMPLE_BILLING_JOB=off`
 stops both on that process (renewals, the move to Free, AI credit and
@@ -330,7 +334,11 @@ renewal the card paid, instead of `billing_renewed`; its `{card}` is "Visa •�
 4242", besides `{plan_name}`, `{amount}` (what the card was charged, VAT
 included), `{balance}`, `{period_start}`, `{period_end}`),
 `billing_card_payment_failed` (its `{failure_reason}` read from Paddle's
-error code, as the billing page reads it) and `billing_card_removed`. A card
+error code, as the billing page reads it), `billing_card_removed`, and for
+phase 4 `billing_locked_data_deletion` (locked data is deleted on
+`{deletion_date}`, sent 30 and 7 days before with `{days_left}`; also
+`{plan_name}`, `{locked_summary}` such as "12 articles, 340 contacts", and
+`{export_url}`; migration 264, both editions). A card
 Paddle names no type for is "Card •••• 4242" in English and only "•••• 4242"
 in Persian and Turkish, whose templates already say "card".
 The server fills the variables in the edition's way (Toman, Persian digits
@@ -498,3 +506,133 @@ permissions, events and the sandbox checks to run before switching it on:
   On RESPOK the new backend may start before its migrator has applied 262:
   until then those reads treat the missing table as no card.
 
+### Over the limit: computed locks (phase 4, migration 264)
+
+Nothing is stored about what is locked. Per workspace and kind, SQL computes
+the effective limit and a cutoff row; a row ranked after it is locked. A
+downgrade, an upgrade, an override or a deleted row changes what is locked
+at the next read, without writing anything to the locked rows.
+
+- **The switch.** `billing_settings.locks_enabled` per edition, off by
+  default (a fresh database has no row: off). While it is off nothing is
+  locked, stopped or deleted anywhere: no row lock, no paused seat, no
+  stopped channel, no new storage gate, no `quota_full` in the widget, no
+  `over_quota` capture, no acknowledgement for a downgrade. The downgrade
+  report is then a preview. Super
+  Admin → Plans → Billing settings → Billing locks: a **Preview** of every
+  active workspace on its current plan (what would lock now, and the
+  workspaces whose X plugin stops), then the switch, which asks first
+  (`/api/admin/billing/locks`, `/preview`). WebYar and RESPOK turn it on
+  separately, after the owner has reviewed the preview.
+- **Which limit.** The plan in force (the twin of `planSelection.ts`, else
+  Free), the workspace's limit override first. Only a limit the plan names
+  locks: an absent key, `-1`, or a value that is not a whole number locks
+  nothing (registry defaults are never used, so the Trial plan without
+  `max_agents` and every plan without `data_retention_days` lock nothing).
+  The plan editor therefore does not write the default it shows for a lock
+  limit (`max_agents`, `max_contacts`, `max_kb_articles`,
+  `data_retention_days`) that an existing plan does not name, unless the
+  Super Admin changes it. A workspace that is not `active`, or a self-host
+  install without billing, never locks. Locks fail open: an unreadable plan
+  locks nothing more; the create-time quotas stay fail-closed (503).
+- **Ranking.** Oldest first by `(created_at, id)`; a missing `created_at`
+  ranks first; limit 0 locks every row.
+  - Knowledge base: every article, any status, against `max_kb_articles`
+    (aliases `ai_kb_max_articles`, `kb_articles`).
+  - Contacts: not spam, and not an anonymous widget visitor (no name, email
+    or phone), against `max_contacts`; the contact quota counts the same
+    rows (`billing_countable_count`).
+  - Members: everyone but the owner and suspended members, against
+    `max_agents − 1` (the owner holds a seat), keyed by user id. The seat
+    count of invitations (`wi_resolve_seat_capacity`) reads the same limit
+    (Free's 2 seats after a plan ends, no longer 0) and does not count
+    suspended members.
+  - Chats: by last activity (`updated_at`, else `created_at`) older than the
+    plan's `data_retention_days`. A message from the visitor moves
+    `updated_at`, so a customer who comes back reopens the thread.
+- **What a lock does.** Every refusal is a 403 `{error, upgrade_required:
+  true}`.
+  - Knowledge base: hidden from the help center, the widget, Telegram's help
+    menu and the AI (retrieval re-check, index sync), read-only (403
+    `kb_article_locked`, also from the AI KB builder's accept and publish);
+    deleting stays allowed and unlocks the next article at once.
+  - Contacts: listed blurred and redacted (only id and creation date leave
+    the server), 403 `contact_locked` (with the plan's `limit`) on open,
+    its chats list and edit; delete stays allowed. A new visitor is never
+    blocked. In an unlocked chat a locked contact is redacted too (D4).
+  - Chats: listed without subject or preview (`locked_by_retention`), 403
+    `conversation_locked` (with `retention_days`) on messages, reply,
+    change, claim and take-over.
+  - Members: 403 `seat_locked` everywhere in that workspace except
+    `GET /api/workspace-members/me`, which the app reads to show "your seat
+    is paused" instead of the page; out of routing, push and email
+    notifications. Their open chats return to the queue when the plan
+    change applies, when a member is suspended or removed, from the hourly
+    job, and when routing meets one. Suspended members are not routed
+    either (this one applies with the switch off too).
+  - Modules: stopped by their existing gates. Channels: stopped, settings
+    and secrets kept; ingest answers 200 `{accepted: false, reason:
+    'plan_locked'}` so providers do not retry, a reply in such a chat is
+    refused (`plan_locked`) and a queued one cancelled, and the plugin
+    catalog shows it as stopped. An unreadable plan stops nothing.
+  - Storage: only new operator uploads are blocked (AI files, workspace
+    icon, call-center avatar; 403 at the limit, 503 when unreadable); an
+    inbound Yahoo Mail attachment is skipped and its message kept.
+  - The monthly chat quota: the widget gets `availability.quota_full` and
+    shows the leave-a-message form, and those messages are kept (tag
+    `over_quota`).
+  - Converting a learned answer to an article now counts against
+    `max_kb_articles` like any new article (with the switch off too).
+- **The report.** `billing_lock_report(ws, plan)` plus the server's modules,
+  channels and AI credit (`locks/report.ts`). The quote of a change to
+  another plan at the period end carries it (`lock_report`), and the plan
+  picker shows it. While the switch is on and it lists anything, the change
+  needs the customer's "I understand" (`acknowledgeLocks`, else 409
+  `LOCKS_NOT_ACKNOWLEDGED` with the report). Its counts are those of now;
+  the dialog says they are final at the effective date. With the switch
+  off the change goes through as before. `GET .../lock-report` (managers)
+  serves the panel's banner, which owners and admins see while something is
+  locked, with the next deletion date and links to upgrade and export.
+- **Export.** The owner (`workspaces.owner_id` only) can always export what
+  is locked when the export runs, on every plan, whatever `contact_export`
+  says: a ZIP (articles as JSON and Markdown, contacts as JSON and CSV,
+  chats with their messages and up to 500 MB of attachments; at most 50,000
+  rows per kind, the manifest says when more were left out), one at a time
+  per workspace (`billing_lock_exports`). It is stored in the privacy-export
+  storage when one is set up, else the workspace's own (not counted against
+  its quota), and kept 7 days; each download link works once and for 15
+  minutes, and a new one can be asked for until then. Routes:
+  `POST|GET /api/billing/account/:ws/locked-export`,
+  `POST .../locked-export/:id/download-token`,
+  `GET /api/billing/account/locked-export/download?token=`; a worker on
+  every replica builds the file (`locks/exportWorker.ts`).
+- **Deletion.** Only when the plan sets `locked_data_retention_days` (L; none
+  does by default) and the switch is on. The hourly job records when it
+  first saw a kind locked (`billing_lock_clocks`, a clock, not a lock: no
+  row ids), sends `billing_locked_data_deletion` 30 and then 7 days before
+  the deadline, and deletes only after both went out: at the latest of
+  since + L, 30 days after the 30-day notice and 7 days after the 7-day
+  notice. It deletes only rows locked now and named by the 30-day notice
+  (created before it), storage objects first. Chats go in monthly batches
+  (the 1st, 00:00 UTC) with the cutoff fixed when the 30-day notice goes
+  out. Upgrading, deleting rows or raising a limit removes the clock. Members
+  are never deleted, nor are modules, channels or files.
+- **Deploying.** On WebYar build the four indexes of 264's header with
+  `CREATE INDEX CONCURRENTLY` first, then apply 264 by hand as every
+  migration. Nothing changes until the switch is turned on.
+
+Decisions the rules above leave open (agreed in the phase 4 design):
+
+| # | Question | Decision |
+|---|---|---|
+| D1 | Every widget visitor creates a contact. | Spam and anonymous widget contacts (no name, email or phone) count neither for the quota nor for the lock. |
+| D2 | "Chats older than retention": created or last active? | Last activity (`updated_at`, else `created_at`); a visitor's new message moves it. |
+| D3 | Do suspended members hold seats? | No: not counted, not ranked; suspending frees a seat. |
+| D4 | A locked contact in an open chat. | The chat works; the contact's link and stored fields are hidden. |
+| D5 | Notices for chats that expire every day. | Monthly deletion batches: at most two notices a month. |
+| D6 | What is deleted? | Articles, contacts and chats only. |
+| D7 | Where the deletion clock lives. | `billing_lock_clocks`, written by the job; a downgrade writes nothing. |
+| D8 | Channel messages while stopped. | Answered 200 and dropped, so providers do not retry. |
+| D9 | Unreadable plan. | Locks fail open; create quotas stay fail-closed. |
+| D10 | Leave-a-message over the monthly quota. | Kept and shown to operators, tagged `over_quota`; not locked. |
+| D11 | Rollout. | A switch per edition, off by default, turned on after the Super Admin's preview; Iran stays off until the owner reviews it. |

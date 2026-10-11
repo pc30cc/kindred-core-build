@@ -19,12 +19,14 @@ import { aiAgentFileKey } from '../../storage/keys.js';
 import { chunkText } from '../knowledgeIndex/chunker.js';
 import { indexSource, getEmbedderForWorkspace } from '../knowledgeIndex/indexer.js';
 import { resolveAiAgentDataLimits } from '../limits.js';
+import { checkStorageUpload } from '../../billing/planStops.js';
 import {
   parseAiFile, isSupportedMime, parserFor, ParseError, type ParseResult,
 } from './parsers.js';
 import {
   enqueueSourceSyncJob, cancelSourceSyncJob,
 } from '../sourceJobs.js';
+import { errorMessage } from '../../../lib/errorMessage.js';
 
 const HARD_FILE_CAP_MB = 50;
 /**
@@ -42,8 +44,24 @@ export interface IngestInput {
   buffer: Buffer;
 }
 
+/**
+ * ai_data_sources.metadata of a file source, as far as ingestion reads it
+ * (the row is jsonb; every other key is carried along untouched).
+ */
+export interface FileSourceMeta {
+  storage_path?: string;
+  original_file_name?: string;
+  mime_type?: string;
+  sha256?: string;
+  page_count?: number | null;
+  [key: string]: unknown;
+}
+
+/** An ai_data_sources row as returned to the routes. */
+export type AiDataSourceRow = Record<string, unknown>;
+
 export interface IngestResult {
-  source: any;
+  source: AiDataSourceRow;
   chunks_created: number;
   embedded_chunks: number;
   parser: string;
@@ -52,7 +70,7 @@ export interface IngestResult {
 }
 
 export interface QueuedIngestResult {
-  source: any;
+  source: AiDataSourceRow;
   jobId: string;
   status: 'queued';
 }
@@ -60,8 +78,8 @@ export interface QueuedIngestResult {
 export class IngestError extends Error {
   code: string;
   status: number;
-  details?: any;
-  constructor(code: string, status = 400, message?: string, details?: any) {
+  details?: unknown;
+  constructor(code: string, status = 400, message?: string, details?: unknown) {
     super(message || code);
     this.code = code;
     this.status = status;
@@ -86,10 +104,10 @@ export async function assertFileIngestStillAllowed(
     .eq('id', args.sourceId)
     .maybeSingle();
   if (!source) throw new IngestError('source_not_found', 404);
-  if ((source as any).source_type !== 'file') throw new IngestError('not_a_file_source', 400);
-  if ((source as any).workspace_id !== args.workspaceId) throw new IngestError('workspace_mismatch', 400);
-  if ((source as any).status === 'deleted') throw new IngestError('source_deleted', 400, `phase=${args.phase}`);
-  if ((source as any).status === 'paused') throw new IngestError('source_paused', 400, `phase=${args.phase}`);
+  if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
+  if (source.workspace_id !== args.workspaceId) throw new IngestError('workspace_mismatch', 400);
+  if (source.status === 'deleted') throw new IngestError('source_deleted', 400, `phase=${args.phase}`);
+  if (source.status === 'paused') throw new IngestError('source_paused', 400, `phase=${args.phase}`);
 
   const { data: job } = await sb
     .from('ai_source_sync_jobs')
@@ -97,16 +115,16 @@ export async function assertFileIngestStillAllowed(
     .eq('id', args.jobId)
     .maybeSingle();
   if (!job) throw new IngestError('job_cancelled', 400, `phase=${args.phase}`);
-  if ((job as any).job_type !== 'file_ingest') throw new IngestError('job_cancelled', 400, 'wrong_job_type');
-  if ((job as any).status !== 'running') throw new IngestError('job_cancelled', 400, `phase=${args.phase}:status=${(job as any).status}`);
-  if (args.workerId && (job as any).locked_by && (job as any).locked_by !== args.workerId) {
+  if (job.job_type !== 'file_ingest') throw new IngestError('job_cancelled', 400, 'wrong_job_type');
+  if (job.status !== 'running') throw new IngestError('job_cancelled', 400, `phase=${args.phase}:status=${job.status}`);
+  if (args.workerId && job.locked_by && job.locked_by !== args.workerId) {
     throw new IngestError('job_cancelled', 400, 'worker_mismatch');
   }
 }
 
 function safeFileName(name: string): string {
   const base = (name || 'file').split(/[\\/]/).pop() || 'file';
-  const stripped = base.replace(/\u0000/g, '').replace(/[^\w.\-]+/g, '_').replace(/^\.+/, '');
+  const stripped = base.split('\u0000').join('').replace(/[^\w.-]+/g, '_').replace(/^\.+/, '');
   const trimmed = stripped.slice(0, 180);
   return trimmed || 'file';
 }
@@ -169,13 +187,13 @@ async function markFileSourceFailedIfStillSyncing(
     .eq('workspace_id', args.workspaceId)
     .maybeSingle();
   if (!cur) throw new IngestError('source_not_found', 404);
-  if ((cur as any).source_type !== 'file') throw new IngestError('not_a_file_source', 400);
-  const status = (cur as any).status as string;
+  if (cur.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
+  const status = cur.status as string;
   if (status === 'deleted') throw new IngestError('source_deleted', 400, args.errorCode);
   if (status === 'paused')  throw new IngestError('source_paused', 400, args.errorCode);
   if (status !== 'syncing') throw new IngestError('job_cancelled', 400, `status=${status}`);
 
-  const baseMeta = ((cur as any).metadata as Record<string, unknown>) || {};
+  const baseMeta = (cur.metadata as Record<string, unknown>) || {};
   const merged = { ...baseMeta, ...(args.metadataPatch || {}), job_status: 'failed' };
   // Conditional update: still must be 'syncing' at write time.
   const { data: updated } = await sb
@@ -191,7 +209,7 @@ async function markFileSourceFailedIfStillSyncing(
     // Lost the race between read and write.
     const { data: re } = await sb
       .from('ai_data_sources').select('status').eq('id', args.sourceId).maybeSingle();
-    const s = (re as any)?.status as string | undefined;
+    const s = re?.status as string | undefined;
     if (s === 'deleted') throw new IngestError('source_deleted', 400, args.errorCode);
     if (s === 'paused')  throw new IngestError('source_paused', 400, args.errorCode);
     throw new IngestError('job_cancelled', 400, `status=${s || 'unknown'}`);
@@ -303,6 +321,21 @@ export async function queueAiFileIngest(
   if (!isSupportedMime(mimeType)) throw new IngestError('unsupported_file_type', 415);
   const parser = parserFor(mimeType)!;
 
+  // The workspace's storage_gb counts these files too: over the plan's limit
+  // a new one is not stored (simple billing phase 4 — only new uploads are
+  // blocked; existing files stay). Only while billing locks are on.
+  if (!opts.bypassPlanLimits) {
+    const storage = await checkStorageUpload(config, workspaceId);
+    if (!storage.allowed) {
+      throw new IngestError(
+        storage.status === 403 ? 'storage_limit_reached' : 'storage_status_unavailable',
+        storage.status,
+        typeof storage.body.error === 'string' ? storage.body.error : undefined,
+        storage.body,
+      );
+    }
+  }
+
   const limits = await resolveFileLimits(config, workspaceId);
   if (!limits.storageProvider) throw new IngestError('storage_not_configured', 500);
   if (!limits.storageReady) {
@@ -373,7 +406,7 @@ export async function queueAiFileIngest(
   if (!upload.success) {
     await sb.from('ai_data_sources').update({
       status: 'failed', last_error: 'upload_failed',
-      metadata: { ...(source.metadata as any || {}), upload_error: upload.error, job_status: 'failed' },
+      metadata: { ...((source.metadata as FileSourceMeta | null) || {}), upload_error: upload.error, job_status: 'failed' },
     }).eq('id', source.id);
     await logFileEvent(config, {
       workspaceId, sourceId: source.id, status: 'file_parse_failed',
@@ -385,7 +418,7 @@ export async function queueAiFileIngest(
   // 3. Persist storage path on the source row.
   await sb.from('ai_data_sources').update({
     metadata: {
-      ...(source.metadata as any || {}),
+      ...((source.metadata as FileSourceMeta | null) || {}),
       storage_path: fileKey,
       storage_provider: limits.storageProvider,
       job_status: 'queued',
@@ -402,7 +435,7 @@ export async function queueAiFileIngest(
     createdBy: userId, metadata: { trigger: 'upload', original_file_name: fileName },
   });
   await sb.from('ai_data_sources').update({
-    metadata: { ...(source.metadata as any || {}), storage_path: fileKey, ingestion_job_id: job.id, job_status: 'queued' },
+    metadata: { ...((source.metadata as FileSourceMeta | null) || {}), storage_path: fileKey, ingestion_job_id: job.id, job_status: 'queued' },
   }).eq('id', source.id);
   await logFileEvent(config, {
     workspaceId, sourceId: source.id, status: 'file_job_queued',
@@ -426,7 +459,7 @@ export async function runFileIngestJob(
   const { data: source } = await sb.from('ai_data_sources').select('*').eq('id', args.sourceId).maybeSingle();
   if (!source) throw new IngestError('source_not_found', 404);
 
-  const meta = (source.metadata as any) || {};
+  const meta: FileSourceMeta = (source.metadata as FileSourceMeta | null) || {};
   const storagePath: string | undefined = meta.storage_path;
   if (!storagePath) throw new IngestError('storage_path_missing', 400);
 
@@ -487,7 +520,7 @@ export async function runFileIngestJob(
     await logFileEvent(config, {
       workspaceId: args.workspaceId, sourceId: args.sourceId,
       status: e instanceof IngestError && e.code === 'index_failed' ? 'file_index_failed' : 'file_parse_failed',
-      message: (e as any)?.message || 'failed', errors: 1,
+      message: errorMessage(e) || 'failed', errors: 1,
     });
     throw e;
   });
@@ -496,9 +529,9 @@ export async function runFileIngestJob(
   // If admin paused/deleted between finalizeIndex and here, do not overwrite.
   const { data: latest } = await sb.from('ai_data_sources')
     .select('status, metadata').eq('id', args.sourceId).maybeSingle();
-  if ((latest as any)?.status === 'active') {
+  if (latest?.status === 'active') {
     await sb.from('ai_data_sources').update({
-      metadata: { ...(((latest as any)?.metadata as any) || {}), job_status: 'completed' },
+      metadata: { ...((latest?.metadata as FileSourceMeta | null) || {}), job_status: 'completed' },
     }).eq('id', args.sourceId).eq('status', 'active');
   }
 
@@ -515,13 +548,13 @@ export async function runFileIngestJob(
 /** Queue a reindex job; cancels any queued duplicate first. */
 export async function queueReindexAiFile(
   config: ServerConfig, sourceId: string, userId: string | null,
-): Promise<{ source: any; jobId: string; status: 'queued' }> {
+): Promise<QueuedIngestResult> {
   const sb = getServiceClient(config);
   const { data: source } = await sb.from('ai_data_sources').select('*').eq('id', sourceId).maybeSingle();
   if (!source) throw new IngestError('not_found', 404);
   if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
   if (source.status === 'deleted') throw new IngestError('source_deleted', 400);
-  const meta = (source.metadata as any) || {};
+  const meta: FileSourceMeta = (source.metadata as FileSourceMeta | null) || {};
   if (!meta.storage_path) throw new IngestError('storage_path_missing', 400);
 
   const job = await enqueueSourceSyncJob(config, {
@@ -549,7 +582,7 @@ export async function cancelFileIngestJobsForSource(
     .select('id, status').eq('source_id', sourceId).eq('job_type', 'file_ingest')
     .in('status', ['queued', 'running']);
   for (const j of (data || [])) {
-    await cancelSourceSyncJob(config, { jobId: (j as any).id });
+    await cancelSourceSyncJob(config, { jobId: j.id });
   }
   return (data || []).length;
 }
@@ -573,7 +606,7 @@ async function finalizeIndex(
   fileName: string,
   mimeType: string,
   buffer: Buffer,
-  baseMeta: Record<string, any>,
+  baseMeta: FileSourceMeta,
   guard?: { jobId: string; workerId: string },
 ): Promise<IngestResult> {
   const sb = getServiceClient(config);
@@ -582,7 +615,7 @@ async function finalizeIndex(
   let parsed: ParseResult;
   try {
     parsed = await parseAiFile(mimeType, buffer);
-  } catch (e: any) {
+  } catch (e) {
     const code = e instanceof ParseError ? e.code : 'parse_failed';
     // Race-safe: only mark failed if source is still 'syncing'. If admin
     // paused/deleted mid-parse, helper throws cancellation IngestError so the
@@ -592,11 +625,11 @@ async function finalizeIndex(
       metadataPatch: {
         ...baseMeta,
         parse_error: code,
-        parse_error_message: e?.message || null,
+        parse_error_message: errorMessage(e) || null,
       },
       chunkStatusOnFailure: 'deleted',
     });
-    throw new IngestError(code, 422, e?.message || code);
+    throw new IngestError(code, 422, errorMessage(e) || code);
   }
 
   // Race-safe: skip indexing if the source was paused/deleted while parsing.
@@ -627,14 +660,14 @@ async function finalizeIndex(
         parser: parsed.parser,
       },
     }, embedder);
-  } catch (e: any) {
+  } catch (e) {
     // Race-safe: only mark failed if still 'syncing'.
     await markFileSourceFailedIfStillSyncing(config, {
       workspaceId, sourceId, errorCode: 'index_failed',
-      metadataPatch: { ...baseMeta, index_error: e?.message || 'unknown' },
+      metadataPatch: { ...baseMeta, index_error: errorMessage(e) || 'unknown' },
       chunkStatusOnFailure: 'deleted',
     });
-    throw new IngestError('index_failed', 500, e?.message);
+    throw new IngestError('index_failed', 500, errorMessage(e));
   }
 
   // Race-safe: final guard before flipping source/chunks active.
@@ -647,7 +680,7 @@ async function finalizeIndex(
       // Source paused/deleted between index and finalize: do NOT activate.
       // Fail-closed: mark new chunks stale (paused) or deleted (deleted).
       const { data: cur } = await sb.from('ai_data_sources').select('status').eq('id', sourceId).maybeSingle();
-      const targetChunkStatus = (cur as any)?.status === 'deleted' ? 'deleted' : 'stale';
+      const targetChunkStatus = cur?.status === 'deleted' ? 'deleted' : 'stale';
       await sb.from('ai_knowledge_chunks')
         .update({ status: targetChunkStatus })
         .eq('workspace_id', workspaceId).eq('source_type', 'file').eq('source_id', sourceId)
@@ -655,7 +688,7 @@ async function finalizeIndex(
       await logFileEvent(config, {
         workspaceId, sourceId, status: 'file_ingest_finalization_aborted',
         message: e instanceof IngestError ? e.code : 'finalization_aborted',
-        metadata: { phase: 'pre_finalize', reason: (e as any)?.code || 'unknown' },
+        metadata: { phase: 'pre_finalize', reason: (e as { code?: string } | null)?.code || 'unknown' },
       });
       throw e;
     }
@@ -689,17 +722,17 @@ async function finalizeIndex(
     job_status: 'completed',
   };
   // clear stale error fields
-  delete (finalMeta as any).parse_error;
-  delete (finalMeta as any).parse_error_message;
-  delete (finalMeta as any).upload_error;
-  delete (finalMeta as any).download_error;
-  delete (finalMeta as any).index_error;
+  delete (finalMeta as FileSourceMeta).parse_error;
+  delete (finalMeta as FileSourceMeta).parse_error_message;
+  delete (finalMeta as FileSourceMeta).upload_error;
+  delete (finalMeta as FileSourceMeta).download_error;
+  delete (finalMeta as FileSourceMeta).index_error;
 
   // Conditional final update: only flip to 'active' if status is still
   // 'syncing'. If admin paused/deleted/cancelled the source after the
   // pre_finalize guard, the row count = 0 and we fail closed — never leave
   // active chunks behind for a paused/deleted source.
-  let updateQuery = sb
+  const updateQuery = sb
     .from('ai_data_sources')
     .update({
       status: 'active',
@@ -721,7 +754,7 @@ async function finalizeIndex(
     // Race lost. Reload to learn the actual terminal status.
     const { data: cur } = await sb
       .from('ai_data_sources').select('status, metadata').eq('id', sourceId).maybeSingle();
-    const curStatus = (cur as any)?.status as string | undefined;
+    const curStatus = cur?.status as string | undefined;
     const targetChunkStatus = curStatus === 'deleted' ? 'deleted' : 'stale';
     await sb.from('ai_knowledge_chunks')
       .update({ status: targetChunkStatus })
@@ -757,7 +790,7 @@ export async function deleteAiFile(
   if (!source) throw new IngestError('not_found', 404);
   if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
 
-  const meta = (source.metadata as any) || {};
+  const meta: FileSourceMeta = (source.metadata as FileSourceMeta | null) || {};
 
   // Idempotent: if already deleted, do not re-run chunk/storage ops.
   if (source.status === 'deleted') {
@@ -800,7 +833,7 @@ export async function deleteAiFile(
   if (storageError) {
     const { data: cur } = await sb.from('ai_data_sources').select('metadata').eq('id', sourceId).maybeSingle();
     await sb.from('ai_data_sources').update({
-      metadata: { ...((cur?.metadata as any) || {}), storage_delete_error: storageError },
+      metadata: { ...((cur?.metadata as FileSourceMeta | null) || {}), storage_delete_error: storageError },
     }).eq('id', sourceId);
   }
 
@@ -842,7 +875,7 @@ export async function pauseAiFile(config: ServerConfig, sourceId: string): Promi
 /** Resume by re-queuing a file_ingest job (worker re-parses from stored original). */
 export async function resumeAiFile(
   config: ServerConfig, sourceId: string, userId: string | null,
-): Promise<{ source: any; jobId: string; status: 'queued' }> {
+): Promise<QueuedIngestResult> {
   const sb = getServiceClient(config);
   const { data: source } = await sb.from('ai_data_sources').select('*').eq('id', sourceId).maybeSingle();
   if (!source) throw new IngestError('not_found', 404);

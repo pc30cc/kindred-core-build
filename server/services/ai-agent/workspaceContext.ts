@@ -6,6 +6,8 @@
  * link returned is either:
  *   - an indexed `ai_knowledge_chunks.source_url` for this workspace, or
  *   - a published `knowledge_base_articles.slug` under /help/<slug>.
+ * An article the plan has locked (over max_kb_articles, simple billing
+ * phase 4) is not a link the AI may offer: its page answers 404.
  *
  * The domain is the workspace's VERIFIED domain from `workspace_domains`
  * (the primary one first), otherwise omitted: an unverified domain is never
@@ -14,6 +16,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { isKbArticleLocked, resolveKbLock } from '../knowledge-base/locks.js';
 
 export interface WorkspaceContext {
   workspaceId: string;
@@ -58,6 +61,9 @@ export async function loadWorkspaceContext(
   } catch { /* best-effort */ }
 
   const urls = new Set<string>();
+  const kbLock = await resolveKbLock(config, workspaceId);
+  const lockedHelpUrls = new Set<string>();
+  const openHelpUrls = new Set<string>();
   try {
     const { data: chunks } = await sb
       .from('ai_knowledge_chunks')
@@ -74,15 +80,28 @@ export async function loadWorkspaceContext(
   try {
     const { data: arts } = await sb
       .from('knowledge_base_articles')
-      .select('slug')
+      .select('id, slug, created_at')
       .eq('workspace_id', workspaceId)
       .eq('status', 'published')
       .not('slug', 'is', null)
       .limit(200);
-    for (const r of (arts || []) as Array<{ slug: string | null }>) {
-      if (r.slug) urls.add(`/help/${r.slug}`);
+    for (const r of (arts || []) as Array<{ id: string; slug: string | null; created_at: string | null }>) {
+      if (!r.slug) continue;
+      if (isKbArticleLocked(kbLock, r)) {
+        lockedHelpUrls.add(`/help/${r.slug}`);
+      } else {
+        openHelpUrls.add(`/help/${r.slug}`);
+        urls.add(`/help/${r.slug}`);
+      }
     }
   } catch { /* best-effort */ }
+
+  // A locked article's chunks can still be 'active' until the index catches
+  // up: its /help URL must not be offered either. A slug an unlocked article
+  // (another locale) shares still resolves, so that URL stays.
+  for (const url of lockedHelpUrls) {
+    if (!openHelpUrls.has(url)) urls.delete(url);
+  }
 
   const urlList = Array.from(urls);
   return {

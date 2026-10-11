@@ -8,7 +8,9 @@
  * 261 and 262), so a mail added there and forgotten here fails in this test.
  * The saved card's mails (262: a renewal the card paid, a failed payment, a
  * removed card) are sent in the International edition only and not listed
- * in the Iranian one; the balance's renewal mail names no card.
+ * in the Iranian one; the balance's renewal mail names no card. The notice
+ * that locked data is deleted (264, sent 30 and 7 days before) is listed in
+ * both editions.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -64,6 +66,7 @@ const OWN_VARIABLES: Record<string, string[]> = {
   billing_card_renewed: ['{plan_name}', '{card}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_card_payment_failed: ['{plan_name}', '{amount}', '{card}', '{failure_reason}', '{due_at}'],
   billing_card_removed: ['{card}', '{reason}', '{plan_name}', '{period_end}'],
+  billing_locked_data_deletion: ['{plan_name}', '{days_left}', '{deletion_date}', '{locked_summary}', '{export_url}'],
 };
 const CARD_SLUGS = ['billing_card_renewed', 'billing_card_payment_failed', 'billing_card_removed'];
 const EVERY_BILLING_MAIL = ['{brand}', '{year}', '{support_email}', '{workspace}', '{billing_url}'];
@@ -77,12 +80,13 @@ function senderSlugs(): string[] {
   return [...source.slice(start, end).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
 }
 
-/** Every {placeholder} migrations 261 and 262 seed for a slug, in any language. */
+/** Every {placeholder} migrations 261, 262 and 264 seed for a slug, in any language. */
 function seededPlaceholders(): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
   for (const [file, helper] of [
     ['database/migrations/261_simple_billing_renewals.sql', '_email_261_seed'],
     ['database/migrations/262_simple_billing_card.sql', '_email_262_seed'],
+    ['database/migrations/264_billing_computed_locks.sql', '_email_264_seed'],
   ]) {
     const sql = readFileSync(file, 'utf8');
     const seed = new RegExp(`^SELECT pg_temp\\.${helper}\\('([a-z_]+)', '[a-z]{2}',\\n([\\s\\S]*?)'\\);$`, 'gm');
@@ -133,7 +137,7 @@ describe('Branding → Email templates: the simple billing mails', () => {
     vi.unstubAllGlobals();
   });
 
-  it('are the twelve mails the sender sends', () => {
+  it('are the mails the sender sends', () => {
     expect(LEGACY_BILLING_ENABLED).toBe(false);
     expect(senderSlugs().sort()).toEqual([...slugs].sort());
   });

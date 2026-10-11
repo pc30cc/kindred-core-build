@@ -5,17 +5,32 @@ import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText } from 'lucide-react';
-import { useTranslation } from '@/i18n';
+import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, type LucideIcon } from 'lucide-react';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { formatDate } from '@/lib/date';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
-function statusKey(item: any): { key: 'ready' | 'indexing' | 'disabled' | 'needsAttention' | 'failed'; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
+/** One row of the customer summary (older servers sent `kind`/`last_reason`). */
+interface KnowledgeItem {
+  source_type?: string | null;
+  kind?: string | null;
+  source_id?: string | null;
+  id?: string | null;
+  title?: string | null;
+  name?: string | null;
+  eligible?: boolean | null;
+  reason?: string | null;
+  last_reason?: string | null;
+  updated_at?: string | null;
+  last_indexed_at?: string | null;
+}
+
+function statusKey(item: KnowledgeItem): { key: 'ready' | 'indexing' | 'disabled' | 'needsAttention' | 'failed'; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
   if (item.eligible === true) return { key: 'ready', tone: 'green' };
   const r = item.reason || item.last_reason;
   if (r === 'no_active_chunks' || r === 'embedding_missing') return { key: 'indexing', tone: 'blue' };
-  if (r === 'disabled_qna' || r === 'file_not_active' || r === 'website_not_active' || r === 'kb_disabled_for_ai') return { key: 'disabled', tone: 'muted' };
+  if (r === 'disabled_qna' || r === 'file_not_active' || r === 'website_not_active' || r === 'kb_disabled_for_ai' || r === 'kb_locked') return { key: 'disabled', tone: 'muted' };
   if (r === 'draft_kb' || r === 'candidate_not_approved') return { key: 'needsAttention', tone: 'amber' };
   if (r === 'source_missing') return { key: 'failed', tone: 'red' };
   return { key: 'needsAttention', tone: 'amber' };
@@ -29,7 +44,7 @@ const TONE: Record<string, string> = {
   blue: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30',
 };
 
-const SOURCE_GROUPS: Array<{ key: 'qna' | 'website' | 'file' | 'kb_article' | 'learning_candidate'; icon: any; tone: string }> = [
+const SOURCE_GROUPS: Array<{ key: 'qna' | 'website' | 'file' | 'kb_article' | 'learning_candidate'; icon: LucideIcon; tone: string }> = [
   { key: 'qna', icon: MessageCircleQuestion, tone: 'bg-amber-500/10 text-amber-600 ring-amber-500/20' },
   { key: 'website', icon: Globe, tone: 'bg-sky-500/10 text-sky-600 ring-sky-500/20' },
   { key: 'file', icon: FileText, tone: 'bg-violet-500/10 text-violet-600 ring-violet-500/20' },
@@ -43,7 +58,7 @@ export default function KnowledgePage() {
   const wsId = workspace?.id;
   const { t, dir } = useTranslation();
   const tr = (k: string, fb: string, vars?: Record<string, string>) => {
-    const v = t(`aiAgent.knowledge.${k}` as any, vars);
+    const v = t(`aiAgent.knowledge.${k}` as TranslationKey, vars);
     return !v || v === `aiAgent.knowledge.${k}` ? fb : v;
   };
 
@@ -54,7 +69,7 @@ export default function KnowledgePage() {
     staleTime: 30_000,
   });
 
-  const items: any[] = (health.data?.items || []) as any[];
+  const items: KnowledgeItem[] = health.data?.items || [];
 
   return (
     <div className="space-y-8" dir={dir}>
@@ -104,7 +119,7 @@ export default function KnowledgePage() {
                     <p className="text-xs text-muted-foreground italic">{tr('empty', `No ${title} yet.`, { type: title })}</p>
                   ) : (
                     <div className="space-y-1">
-                      {groupItems.slice(0, 25).map((it: any, idx: number) => {
+                      {groupItems.slice(0, 25).map((it, idx: number) => {
                         const s = statusKey(it);
                         const updated = it.updated_at || it.last_indexed_at;
                         const code = it.reason || it.last_reason;

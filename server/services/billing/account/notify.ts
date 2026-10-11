@@ -29,7 +29,10 @@ export type BillingEmailSlug =
   // The saved card (phase 3b, migration 262), Multi Region only.
   | 'billing_card_renewed'
   | 'billing_card_payment_failed'
-  | 'billing_card_removed';
+  | 'billing_card_removed'
+  // Locked data over the plan's limits is deleted on {deletion_date}: sent
+  // 30 and 7 days before (phase 4, migration 264, locks/retention.ts).
+  | 'billing_locked_data_deletion';
 
 /** Decimal places of a currency's minor unit; IRR is kept in whole Rial. */
 const DECIMALS: Record<string, number> = { IRR: 0, USD: 2, EUR: 2, GBP: 2, TRY: 2 };

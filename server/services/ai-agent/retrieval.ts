@@ -3,6 +3,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { applyKbUnlockedFilter, resolveKbLock } from '../knowledge-base/locks.js';
 
 export interface RetrievedSource {
   kind: 'qna' | 'kb_article';
@@ -78,14 +79,19 @@ export async function retrieveSources(
     }
   }
 
-  // 2) Published KB articles (locale-preferred, fallback to any)
+  // 2) Published KB articles (locale-preferred, fallback to any). Articles
+  // the plan has locked (over max_kb_articles) are invisible to the AI.
+  const kbLock = await resolveKbLock(config, workspaceId);
   const tryLocaleQuery = async (loc?: string) => {
-    let q = sb
-      .from('knowledge_base_articles')
-      .select('id,slug,locale,title,excerpt,content')
-      .eq('workspace_id', workspaceId)
-      .eq('status', 'published')
-      .eq('used_by_ai', true);
+    let q = applyKbUnlockedFilter(
+      sb
+        .from('knowledge_base_articles')
+        .select('id,slug,locale,title,excerpt,content')
+        .eq('workspace_id', workspaceId)
+        .eq('status', 'published')
+        .eq('used_by_ai', true),
+      kbLock,
+    );
     if (loc) q = q.eq('locale', loc);
     const { data } = await q.limit(100);
     return data || [];

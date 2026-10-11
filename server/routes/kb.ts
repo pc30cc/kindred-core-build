@@ -36,6 +36,7 @@ import type { ServerConfig } from '../config.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
+import { applyKbUnlockedFilter, resolveKbLock, type KbLock } from '../services/knowledge-base/locks.js';
 
 const SUPPORTED_LOCALES = ['en', 'fa', 'tr'] as const;
 type Locale = (typeof SUPPORTED_LOCALES)[number];
@@ -136,6 +137,26 @@ interface KbArticleRow {
   category_id?: string | null;
 }
 
+/**
+ * The published articles of a workspace the public may read: an article the
+ * plan has locked (over max_kb_articles, simple billing phase 4) is left out
+ * of every list and its own page answers 404. While locks are off, or
+ * unreadable, `lock` is inactive and this is the plain published query.
+ *
+ * Synchronous on purpose: the query builder is a thenable, so an async
+ * helper returning it would run it instead of handing it back for chaining.
+ */
+function publicArticles<Cols extends string>(config: ServerConfig, workspaceId: string, columns: Cols, lock: KbLock) {
+  return applyKbUnlockedFilter(
+    getServiceClient(config)
+      .from('knowledge_base_articles')
+      .select(columns)
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'published'),
+    lock,
+  );
+}
+
 export const widgetKbRouter: Router = express.Router();
 
 /**
@@ -165,6 +186,7 @@ widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
   const locale = normalizeLocale(parsed.data.locale);
 
   const supabase = getServiceClient(config);
+  const kbLock = await resolveKbLock(config, workspace_id);
   // Articles are NOT split by language: every published article of the
   // workspace is returned regardless of its locale.
   const [{ data: cats }, { data: articles }] = await Promise.all([
@@ -173,11 +195,7 @@ widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
       .select('id, name, slug, description, icon, sort_order')
       .eq('workspace_id', workspace_id)
       .order('sort_order', { ascending: true }),
-    supabase
-      .from('knowledge_base_articles')
-      .select('id, title, slug, excerpt, category_id, sort_order, locale')
-      .eq('workspace_id', workspace_id)
-      .eq('status', 'published')
+    publicArticles(config, workspace_id, 'id, title, slug, excerpt, category_id, sort_order, locale', kbLock)
       .order('sort_order', { ascending: true })
       .order('updated_at', { ascending: false })
       .limit(50),
@@ -211,12 +229,9 @@ widgetKbRouter.get('/category-articles', async (req: Request, res: Response) => 
     .eq('slug', parsed.data.slug);
   const catIds = ((cats || []) as KbCategoryRow[]).map((c) => c.id);
   if (!catIds.length) return res.json({ articles: [] });
-  const { data: arts } = await supabase
-    .from('knowledge_base_articles')
-    .select('title, slug, excerpt')
-    .eq('workspace_id', workspaceId)
+  const kbLock = await resolveKbLock(config, workspaceId);
+  const { data: arts } = await publicArticles(config, workspaceId, 'title, slug, excerpt', kbLock)
     .in('category_id', catIds)
-    .eq('status', 'published')
     .order('sort_order', { ascending: true });
   return res.json({ articles: arts || [] });
 
@@ -235,15 +250,13 @@ widgetKbRouter.get('/article', async (req: Request, res: Response) => {
 
   const { workspace_id, slug } = parsed.data;
 
-  const supabase = getServiceClient(config);
+  const kbLock = await resolveKbLock(config, workspace_id);
   // Language-agnostic: a slug resolves to its published article whatever
-  // locale it was authored in.
-  const { data: rows } = await supabase
-    .from('knowledge_base_articles')
-    .select('id, title, slug, excerpt, content, locale, updated_at, category_id')
-    .eq('workspace_id', workspace_id)
+  // locale it was authored in. A locked article is not found.
+  const { data: rows } = await publicArticles(
+    config, workspace_id, 'id, title, slug, excerpt, content, locale, updated_at, category_id', kbLock,
+  )
     .eq('slug', slug)
-    .eq('status', 'published')
     .order('updated_at', { ascending: false })
     .limit(1);
   const article = (rows && rows[0]) || null;
@@ -269,14 +282,10 @@ widgetKbRouter.get('/search', async (req: Request, res: Response) => {
   const { workspace_id, q, limit } = parsed.data;
   const locale = normalizeLocale(parsed.data.locale);
 
-  const supabase = getServiceClient(config);
+  const kbLock = await resolveKbLock(config, workspace_id);
   // Search spans every language of the workspace.
   const like = `%${q.replace(/[%_]/g, ' ')}%`;
-  const { data: rows, error } = await supabase
-    .from('knowledge_base_articles')
-    .select('id, title, slug, excerpt, locale')
-    .eq('workspace_id', workspace_id)
-    .eq('status', 'published')
+  const { data: rows, error } = await publicArticles(config, workspace_id, 'id, title, slug, excerpt, locale', kbLock)
     .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
     .limit(limit);
 
@@ -414,11 +423,8 @@ publicKbRouter.get('/help/sitemap.xml', async (req: Request, res: Response) => {
     .from('knowledge_base_categories')
     .select('locale, slug')
     .eq('workspace_id', workspaceId);
-  const { data: arts } = await supabase
-    .from('knowledge_base_articles')
-    .select('locale, slug, updated_at')
-    .eq('workspace_id', workspaceId)
-    .eq('status', 'published');
+  const kbLock = await resolveKbLock(config, workspaceId);
+  const { data: arts } = await publicArticles(config, workspaceId, 'locale, slug, updated_at', kbLock);
 
   const base = getRequestHostUrl(req);
   const urls: string[] = [];
@@ -467,11 +473,8 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
     .eq('workspace_id', workspaceId)
     .order('sort_order', { ascending: true });
 
-  const { data: featured } = await supabase
-    .from('knowledge_base_articles')
-    .select('title, slug, excerpt')
-    .eq('workspace_id', workspaceId)
-    .eq('status', 'published')
+  const kbLock = await resolveKbLock(config, workspaceId);
+  const { data: featured } = await publicArticles(config, workspaceId, 'title, slug, excerpt', kbLock)
     .order('sort_order', { ascending: true })
     .limit(12);
 
@@ -557,12 +560,9 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
   const cat = ((catRows && catRows[0]) || null) as (KbCategoryRow & { name: string; slug: string }) | null;
   if (!cat) return res.status(404).send('Not found');
 
-  const { data: arts } = await supabase
-    .from('knowledge_base_articles')
-    .select('title, slug, excerpt')
-    .eq('workspace_id', workspaceId)
+  const kbLock = await resolveKbLock(config, workspaceId);
+  const { data: arts } = await publicArticles(config, workspaceId, 'title, slug, excerpt', kbLock)
     .in('category_id', ((catRows || []) as KbCategoryRow[]).map((c) => c.id))
-    .eq('status', 'published')
     .order('sort_order', { ascending: true });
 
 
@@ -624,12 +624,12 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
   if (!workspaceId) return res.status(404).send('Not found');
 
   const supabase = getServiceClient(config);
-  const { data: articleRows } = await supabase
-    .from('knowledge_base_articles')
-    .select('id, title, slug, excerpt, content, locale, updated_at, category_id')
-    .eq('workspace_id', workspaceId)
+  // A locked article (simple billing phase 4) is not found.
+  const kbLock = await resolveKbLock(config, workspaceId);
+  const { data: articleRows } = await publicArticles(
+    config, workspaceId, 'id, title, slug, excerpt, content, locale, updated_at, category_id', kbLock,
+  )
     .eq('slug', req.params.slug)
-    .eq('status', 'published')
     .order('updated_at', { ascending: false })
     .limit(1);
   const article = ((articleRows && articleRows[0]) || null) as (KbArticleRow & { title: string; slug: string }) | null;
@@ -717,13 +717,9 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 200) : '';
   let results: KbArticleRow[] = [];
   if (q.length >= 2) {
-    const supabase = getServiceClient(config);
     const like = `%${q.replace(/[%_]/g, ' ')}%`;
-    const { data } = await supabase
-      .from('knowledge_base_articles')
-      .select('id, title, slug, excerpt, locale')
-      .eq('workspace_id', workspaceId)
-      .eq('status', 'published')
+    const kbLock = await resolveKbLock(config, workspaceId);
+    const { data } = await publicArticles(config, workspaceId, 'id, title, slug, excerpt, locale', kbLock)
       .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
       .limit(20);
     results = (data as KbArticleRow[] | null) || [];

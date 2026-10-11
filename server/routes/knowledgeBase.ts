@@ -22,6 +22,12 @@ import {
   checkKnowledgeBasePermission,
   type KnowledgeBasePermission,
 } from '../services/knowledge-base/access.js';
+import {
+  forgetKbLock,
+  isKbArticleLocked,
+  kbArticleLockedBody,
+  resolveKbLock,
+} from '../services/knowledge-base/locks.js';
 
 export const knowledgeBaseRouter: Router = express.Router();
 
@@ -161,6 +167,22 @@ async function enforceArticleQuota(
   return false;
 }
 
+/** Whether the article is locked by the plan (fail open: unreadable = not locked). */
+async function isLockedArticle(
+  g: { config: ServerConfig; workspaceId: string },
+  articleId: string,
+): Promise<boolean> {
+  const kbLock = await resolveKbLock(g.config, g.workspaceId);
+  if (!kbLock.active) return false;
+  const { data, error } = await getServiceClient(g.config)
+    .from('knowledge_base_articles')
+    .select('id, created_at')
+    .eq('id', articleId)
+    .eq('workspace_id', g.workspaceId)
+    .maybeSingle();
+  if (error || !data) return false;
+  return isKbArticleLocked(kbLock, data as { id: string; created_at: string | null });
+}
 
 // ─── Articles ───
 
@@ -182,26 +204,39 @@ knowledgeBaseRouter.get('/articles', async (req: Request, res: Response) => {
   if (status && status !== 'all') q = q.eq('status', status);
   if (search) q = q.ilike('title', `%${search}%`);
 
-  const { data, error } = await q;
+  const [{ data, error }, kbLock] = await Promise.all([q, resolveKbLock(g.config, g.workspaceId)]);
   if (error) return res.status(500).json({ error: 'query_failed' });
-  const articles = data ?? [];
+  type ListedArticle = {
+    id: string;
+    created_at: string | null;
+    locked?: boolean;
+    feedback?: { helpful: number; notHelpful: number };
+  };
+  const articles = (data ?? []) as ListedArticle[];
+
+  // Simple billing phase 4: an article over the plan's max_kb_articles is
+  // listed (the owner still sees, exports and can delete it) but marked
+  // locked; the editor turns read-only.
+  for (const a of articles) {
+    a.locked = isKbArticleLocked(kbLock, a);
+  }
 
   // Attach helpful/not-helpful aggregate counts from the widget feedback
   // extension (public.kb_article_feedback, migration 060) so the operator
   // panel can surface them later without a second round-trip.
-  const articleIds = (articles as any[]).map((a) => a.id).filter(Boolean);
+  const articleIds = articles.map((a) => a.id).filter(Boolean);
   if (articleIds.length > 0) {
     const { data: feedbackRows } = await getServiceClient(g.config)
       .from('kb_article_feedback')
       .select('article_id, rating')
       .in('article_id', articleIds);
     const counts: Record<string, { helpful: number; notHelpful: number }> = {};
-    for (const row of (feedbackRows || []) as any[]) {
+    for (const row of (feedbackRows || []) as Array<{ article_id: string; rating: string | null }>) {
       const c = (counts[row.article_id] ||= { helpful: 0, notHelpful: 0 });
       if (row.rating === 'up') c.helpful++;
       else if (row.rating === 'down') c.notHelpful++;
     }
-    for (const a of articles as any[]) {
+    for (const a of articles) {
       a.feedback = counts[a.id] || { helpful: 0, notHelpful: 0 };
     }
   }
@@ -237,6 +272,9 @@ knowledgeBaseRouter.patch('/articles/:articleId', async (req: Request, res: Resp
   if (!g) return;
   const articleId = String(req.params.articleId);
   if (!(await assertOwnership(g.config, 'knowledge_base_articles', articleId, g.workspaceId, res))) return;
+  // A locked article (over the plan's max_kb_articles) is read-only until
+  // the plan is upgraded or older articles are deleted. DELETE stays open.
+  if (await isLockedArticle(g, articleId)) return res.status(403).json(kbArticleLockedBody());
 
   const parsed = articlePatchSchema.safeParse((req.body as { article?: unknown })?.article ?? req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_article' });
@@ -269,6 +307,9 @@ knowledgeBaseRouter.delete('/articles/:articleId', async (req: Request, res: Res
     .eq('id', articleId)
     .eq('workspace_id', g.workspaceId);
   if (error) return res.status(500).json({ error: 'delete_failed' });
+  // Deleting frees a slot under max_kb_articles: the next locked article
+  // unlocks at once.
+  forgetKbLock(g.workspaceId);
   return res.json({ deleted: true, id: articleId });
 });
 

@@ -17,6 +17,8 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolveRolePermissions, type RoleSlug } from './permissions.js';
 import { listWorkspaceAvailability, isEligible } from './availability.js';
+import { resolveLockState } from '../billing/locks/state.js';
+import { isMemberLocked } from '../billing/locks/predicates.js';
 
 export type DepartmentChannel = 'chat' | 'audio' | 'video';
 
@@ -91,7 +93,7 @@ export async function resolveDepartmentMembers(
     .select('user_id')
     .eq('department_id', departmentId);
 
-  const value = (data ?? []).map((r: any) => r.user_id as string).filter(Boolean);
+  const value = (data ?? []).map((r: { user_id: string | null }) => r.user_id as string).filter(Boolean);
   memberCache.set(departmentId, { value, ts: Date.now() });
   return value;
 }
@@ -113,9 +115,9 @@ export async function resolveGeneralPool(
     sb.from('workspace_department_members').select('user_id').eq('workspace_id', workspaceId),
   ]);
 
-  const inDept = new Set((assignments ?? []).map((r: any) => r.user_id as string));
+  const inDept = new Set((assignments ?? []).map((r: { user_id: string | null }) => r.user_id as string));
   const value = (members ?? [])
-    .map((m: any) => m.user_id as string)
+    .map((m: { user_id: string | null }) => m.user_id as string)
     .filter((id) => id && !inDept.has(id));
 
   generalCache.set(workspaceId, { value, ts: Date.now() });
@@ -134,6 +136,26 @@ export function departmentSupportsChannel(
 }
 
 /**
+ * The members routing must never pick: suspended ones (they cannot act on
+ * the workspace) and those whose seat the plan has paused (simple billing
+ * phase 4, design §5: the most recently joined past `max_agents`). Applied
+ * after the 30 s caches above, so a pause or a ban counts at once; the lock
+ * state is the shared 60 s one, and an unreadable state pauses nobody.
+ */
+async function routableMembers(
+  config: ServerConfig,
+  workspaceId: string,
+  userIds: string[],
+  suspended: ReadonlySet<string> = new Set(),
+): Promise<string[]> {
+  const active = userIds.filter((id) => !suspended.has(id));
+  if (!active.length) return active;
+  const state = await resolveLockState(config, workspaceId, ['member']);
+  if (!state.member?.locked) return active;
+  return active.filter((id) => !isMemberLocked(state, id));
+}
+
+/**
  * Resolve the candidate user_id pool for a routing decision:
  *
  *   1. If departmentId is provided AND the department exists AND supports
@@ -145,6 +167,10 @@ export function departmentSupportsChannel(
  *      is handled by the caller.
  *
  * Returning [] means the workspace truly has no members.
+ *
+ * Suspended members and members whose seat the plan has paused are never
+ * candidates (routableMembers); a department or pool left with nobody else
+ * falls through to the next step, as an empty one does.
  */
 export async function resolveRoutingCandidates(
   config: ServerConfig,
@@ -153,25 +179,28 @@ export async function resolveRoutingCandidates(
   departmentId?: string | null,
 ): Promise<{ user_ids: string[]; source: 'department' | 'general' | 'all' }>
 {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('workspace_members')
+    .select('user_id, suspended_at')
+    .eq('workspace_id', workspaceId);
+  const rows = (data ?? []) as Array<{ user_id?: string | null; suspended_at?: string | null }>;
+  const suspended = new Set(rows.filter((r) => !!r.suspended_at && !!r.user_id).map((r) => String(r.user_id)));
+
   if (departmentId) {
     const all = await resolveDepartments(config, workspaceId);
     const dept = all.find((d) => d.id === departmentId && departmentSupportsChannel(d, channel));
     if (dept) {
-      const members = await resolveDepartmentMembers(config, dept.id);
+      const members = await routableMembers(config, workspaceId, await resolveDepartmentMembers(config, dept.id), suspended);
       if (members.length > 0) return { user_ids: members, source: 'department' };
     }
   }
 
-  const general = await resolveGeneralPool(config, workspaceId);
+  const general = await routableMembers(config, workspaceId, await resolveGeneralPool(config, workspaceId), suspended);
   if (general.length > 0) return { user_ids: general, source: 'general' };
 
-  const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('workspace_members')
-    .select('user_id')
-    .eq('workspace_id', workspaceId);
-  const all = (data ?? []).map((r: any) => r.user_id as string).filter(Boolean);
-  return { user_ids: all, source: 'all' };
+  const all = rows.map((r) => r.user_id as string).filter(Boolean);
+  return { user_ids: await routableMembers(config, workspaceId, all, suspended), source: 'all' };
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +259,7 @@ export async function saveFallbackPolicy(
         provider_type: 'department_routing',
         provider_name: 'department_routing',
         enabled: true,
-        config: merged as any,
+        config: merged,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'workspace_id,provider_type' },
@@ -297,10 +326,22 @@ export async function resolveWidgetVisibleDepartments(
   const sb = getServiceClient(config);
   const { data: members } = await sb
     .from('workspace_members')
-    .select('user_id, role')
+    .select('user_id, role, suspended_at')
     .eq('workspace_id', workspaceId);
+  // A suspended member, or one whose seat the plan paused, never answers:
+  // a department only they could serve is not offered to visitors.
+  const memberRows = (members ?? []) as Array<{ user_id: string; role?: string | null; suspended_at?: string | null }>;
+  const routable = new Set(
+    await routableMembers(
+      config,
+      workspaceId,
+      memberRows.map((m) => m.user_id),
+      new Set(memberRows.filter((m) => !!m.suspended_at).map((m) => m.user_id)),
+    ),
+  );
   const roleByUser = new Map<string, RoleSlug>();
-  for (const m of (members ?? []) as any[]) {
+  for (const m of memberRows) {
+    if (!routable.has(m.user_id)) continue;
     roleByUser.set(m.user_id, (m.role || 'viewer') as RoleSlug);
   }
 

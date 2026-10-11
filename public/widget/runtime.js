@@ -878,6 +878,7 @@
         availUnavailable: 'Live chat unavailable',
         offlineIntro: "We're not online right now. Leave us a message and we'll reply as soon as we can.",
         fallbackIntro: "Our team is offline. Share your details and a short message — we'll get back to you.",
+        quotaFullIntro: "We can't start a new chat right now. Share your details and a short message — we'll get back to you.",
         fallbackMessageLabel: 'Message',
         fallbackSubmit: 'Send message',
         fallbackSent: "Thanks — we've got your message and will reply shortly.",
@@ -1112,6 +1113,7 @@
         availUnavailable: 'گفتگوی زنده در دسترس نیست',
         offlineIntro: 'الان آنلاین نیستیم. پیام بگذارید، در اولین فرصت پاسخ می‌دهیم.',
         fallbackIntro: 'تیم ما در حال حاضر آفلاین است. اطلاعات تماس و یک پیام کوتاه بنویسید تا با شما تماس بگیریم.',
+        quotaFullIntro: 'الان امکان شروع گفتگوی تازه نیست. اطلاعات تماس و یک پیام کوتاه بنویسید تا با شما تماس بگیریم.',
         fallbackMessageLabel: 'پیام',
         fallbackSubmit: 'ارسال پیام',
         fallbackSent: 'پیام شما دریافت شد. به‌زودی پاسخ می‌دهیم.',
@@ -1334,6 +1336,7 @@
         availUnavailable: 'Canlı sohbet kullanılamıyor',
         offlineIntro: 'Şu an çevrimdışıyız. Bize bir mesaj bırakın, en kısa sürede dönüş yapalım.',
         fallbackIntro: 'Ekibimiz şu an çevrimdışı. Bilgilerinizi ve kısa bir mesaj bırakın, size geri döneceğiz.',
+        quotaFullIntro: 'Şu an yeni bir sohbet başlatılamıyor. Bilgilerinizi ve kısa bir mesaj bırakın, size geri döneceğiz.',
         fallbackMessageLabel: 'Mesaj',
         fallbackSubmit: 'Mesaj gönder',
         fallbackSent: 'Mesajınızı aldık, kısa süre içinde yanıtlayacağız.',
@@ -4135,12 +4138,39 @@
             chatStore.set({ messages: arr });
             if (onChange) onChange();
           },
-          onError: function () {
+          onError: function (err) {
+            // The monthly chat quota is full (simple billing phase 4): a
+            // first message cannot open a new conversation, so the visitor
+            // gets the leave-a-message form instead of a failed bubble —
+            // only when the server accepts captures over the quota
+            // (availability.quota_full present) and no thread exists yet.
+            if (switchToQuotaForm(err, localId, text, onChange)) return;
             Util.warn('Send failed');
             updateMessageByLocalId(localId, { status: 'failed' }, onChange);
           },
         }
       );
+    }
+
+    /**
+     * A 403 for `max_conversations` on a visitor's first message: drop the
+     * optimistic bubble, keep its text for the form, mark the quota full and
+     * re-render (deriveChatTabState then picks OFFLINE_CONTACT). Returns
+     * false — the ordinary failed bubble — for anything else.
+     */
+    function switchToQuotaForm(err, localId, text, onChange) {
+      if (!err || err.status !== 403 || err.feature !== 'max_conversations') return false;
+      var avail = (ctx.config && ctx.config.availability) || {};
+      if (typeof avail.quota_full !== 'boolean') return false;
+      var s = chatStore.get();
+      if (s.conversationId) return false;
+      var rest = (s.messages || []).filter(function (m) { return m && m.localId !== localId; });
+      if (rest.length) return false;
+      ctx.__quotaFull = true;
+      ctx.__quotaDraft = String(text || '');
+      chatStore.set({ messages: rest });
+      if (typeof onChange === 'function') onChange();
+      return true;
     }
 
     function sendMessage(text, onChange, attachmentId, optimisticAttachment, replyToMessageId) {
@@ -4232,12 +4262,24 @@
     // for contact details and the existing message endpoint for the message.
     // No new endpoints, no parallel submission system, no localStorage drafts.
     function renderContactFallback(body, identity, locale, presence, onSent) {
+      // Opened because the monthly chat quota is full (phase 4): say so
+      // instead of "the team is offline", and keep what the visitor typed.
+      var quotaDriven = ctx.__quotaFull === true
+        || !!(ctx.config && ctx.config.availability && ctx.config.availability.quota_full === true);
+      var formPresence = quotaDriven
+        ? Object.assign({}, presence || {}, { introLabel: t('quotaFullIntro') })
+        : presence;
       body.innerHTML = Presentation.contactFallbackHtml(
         identity,
         (identityStore.get().contact) || {},
         locale,
-        presence,
+        formPresence,
       );
+      if (ctx.__quotaDraft) {
+        var draftEl = body.querySelector('[data-fb="message"]');
+        if (draftEl) draftEl.value = ctx.__quotaDraft;
+        ctx.__quotaDraft = '';
+      }
 
       var statusEl = body.querySelector('[data-fb-status]');
       var submitBtn = body.querySelector('[data-fb-submit]');
@@ -8689,6 +8731,16 @@
       });
       var aiOwnsThread = aiActiveNow && !handedOff;
       var flow = aiOwnsThread ? 'ai_entry' : (aiActiveNow ? 'ai_handoff' : 'human_entry');
+
+      // Simple billing phase 4 — the monthly chat quota is full: a new
+      // conversation cannot start (with a human or the AI), so the
+      // leave-a-message form owns the tab whatever offline_mode says. An
+      // existing thread keeps working (replies never count against it).
+      var quotaFull = ctx.__quotaFull === true
+        || !!(ctx.config && ctx.config.availability && ctx.config.availability.quota_full === true);
+      if (quotaFull && !hasMsgs && !chatStore.get().conversationId) {
+        return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
+      }
 
       if (identity.shouldRequirePrechat(flow)) {
         // Presentation choice — a full-page form may only take over the tab

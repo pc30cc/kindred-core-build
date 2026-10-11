@@ -39,6 +39,7 @@ import { mintPlaybackToken } from '../services/calls/recordingPlaybackToken.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig, downloadWithConfig } from '../services/storage/index.js';
 import { callCenterAvatarKey, platformCallCenterRingbackKey } from '../services/storage/keys.js';
+import { storageUploadAllowed } from '../services/billing/planStops.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../services/calls/recordingStorageResolver.js';
 import { buildStoreZip, safeArchiveName } from '../services/calls/zipStore.js';
@@ -499,6 +500,9 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
   // otherwise silently fall back to local + fail with publicUrl errors.
   const storageConfig = await resolveStorageConfig(ctx.config, wid);
   if (!storageConfig) return res.status(500).json({ error: 'storage_not_configured' });
+  // The avatar counts toward storage_gb: over the plan's limit no new file
+  // is stored (simple billing phase 4; only while billing locks are on).
+  if (!(await storageUploadAllowed(ctx.config, wid, res))) return;
   // Read previous avatar path (so we can best-effort delete the old file
   // through the same active storage provider after a successful upload).
   const sb0 = getServiceClient(ctx.config);

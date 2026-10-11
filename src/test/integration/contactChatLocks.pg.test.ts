@@ -136,7 +136,7 @@ suite('contacts, chats and widget over the plan (phase 4)', () => {
              VALUES ($1, $2, $3, 'open', 'New question')`, [conv.fresh, ws, ct.c3]);
     await q(`INSERT INTO public.conversation_messages (conversation_id, sender_type, body, created_at)
              VALUES ($1, 'agent', 'old secret answer', now() - interval '60 days')`, [conv.old]);
-    // The trigger moves updated_at only for a newer message; put it back.
+    // Keep the chat's last activity 60 days back.
     await q(`UPDATE public.conversations SET updated_at = now() - interval '60 days' WHERE id = $1`, [conv.old]);
     await q(`INSERT INTO public.conversation_messages (conversation_id, sender_type, body) VALUES ($1, 'contact', 'hello there')`, [conv.fresh]);
 
@@ -212,6 +212,32 @@ suite('contacts, chats and widget over the plan (phase 4)', () => {
     const ok = await request(app).get(`/api/contacts/${ct.c1}`);
     expect(ok.status).toBe(200);
     expect(ok.body.contact).toMatchObject({ id: ct.c1, locked: false, name: 'Ada' });
+  });
+
+  it('the visitors panel shows a locked contact redacted, an unlocked one as before (and nothing changes with the switch off)', async () => {
+    const { getVisitorIntelligence } = await import('../../../server/services/visitors/intelligence.js');
+    const session = async (contactId: string) => String((await one(
+      `INSERT INTO public.visitor_sessions (workspace_id, visitor_id, contact_id) VALUES ($1, $2, $3) RETURNING id`,
+      [ws, randomUUID(), contactId])).id);
+    const lockedSession = await session(ct.c3);
+    const openSession = await session(ct.c1);
+    const locked = await getVisitorIntelligence(config, ws, lockedSession, { viewerRole: 'owner' });
+    expect(locked?.contact).toMatchObject({ id: ct.c3, name: null, email: null, metadata: {}, locked: true });
+    expect(JSON.stringify(locked)).not.toContain('cleo@example.com');
+    expect(JSON.stringify(locked)).not.toContain('Cleo Ltd');
+    const open = await getVisitorIntelligence(config, ws, openSession, { viewerRole: 'owner' });
+    expect(open?.contact).toMatchObject({ id: ct.c1, name: 'Ada', email: 'ada@example.com' });
+    expect(open?.contact).not.toHaveProperty('locked');
+    expect(open?.contact).not.toHaveProperty('created_at');
+    await switchTo(false);
+    try {
+      const off = await getVisitorIntelligence(config, ws, lockedSession, { viewerRole: 'owner' });
+      expect(off?.contact).toMatchObject({ id: ct.c3, name: 'Cleo', email: 'cleo@example.com' });
+      expect(off?.contact).not.toHaveProperty('locked');
+      expect(off?.contact).not.toHaveProperty('is_spam');
+    } finally {
+      await switchTo(true);
+    }
   });
 
   it("an unlocked contact's chat past retention is listed without its content", async () => {
@@ -308,7 +334,10 @@ suite('contacts, chats and widget over the plan (phase 4)', () => {
   });
 
   it('a message from the visitor reopens a chat past retention (D2)', async () => {
+    // The widget, channel and support writers touch updated_at as they store
+    // the visitor's message (no trigger does it for them).
     await q(`INSERT INTO public.conversation_messages (conversation_id, sender_type, body) VALUES ($1, 'contact', 'I am back')`, [conv.old]);
+    await q(`UPDATE public.conversations SET updated_at = now() WHERE id = $1`, [conv.old]);
     const msgs = await request(app).get(`/api/conversations/${conv.old}/messages`);
     expect(msgs.status).toBe(200);
     const convs = await inbox();

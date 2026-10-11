@@ -30,6 +30,8 @@ import {
 } from './presenceSource.js';
 import { listVisitorCandidates } from './candidateIndex.js';
 import { hydrateContactAvatars } from '../storage/urlResolver.js';
+import { isContactLocked, resolveContactChatLocks } from '../contactChatLocks.js';
+import { redactContact } from '../billing/locks/redact.js';
 
 /** The `visitor_sessions` columns this module reads off a joined row. */
 type VisitorSessionRow = {
@@ -67,6 +69,42 @@ const CANDIDATE_WINDOW_MS = 6 * 60 * 60_000;
 
 import { type GeoResult } from '../geo/index.js';
 import { selectInChunks } from '../../lib/chunkedIn.js';
+
+// The contact columns the visitors panel shows, plus what a billing lock is
+// judged on (created_at, is_spam, phone; stripped again before it answers).
+const VISITOR_CONTACT_COLUMNS = 'id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata, created_at, is_spam, phone';
+const LOCK_ONLY_COLUMNS = ['created_at', 'is_spam', 'phone'] as const;
+
+interface VisitorContactRow {
+  id: string;
+  name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  avatar_storage_key: string | null;
+  visitor_code: string | null;
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+  is_spam?: boolean | null;
+  phone?: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * The contacts as the visitors panel may see them: one the plan locks
+ * (simple billing phase 4) is redacted as in the contacts list, its stored
+ * fields never reaching the browser; the rest, and every contact while the
+ * switch is off, exactly as before. Never throws (the lock state fails open).
+ */
+async function contactsForPanel(config: ServerConfig, workspaceId: string, rows: VisitorContactRow[]): Promise<VisitorContactRow[]> {
+  if (!rows.length) return rows;
+  const state = await resolveContactChatLocks(config, workspaceId);
+  const lockedAny = state.enabled && (state.contact?.locked ?? 0) > 0;
+  return rows.map((row) => {
+    const shown: Record<string, unknown> = lockedAny && isContactLocked(state, row) ? redactContact(row) : { ...row };
+    for (const key of LOCK_ONLY_COLUMNS) delete shown[key];
+    return shown as VisitorContactRow;
+  });
+}
 import {
   resolveNetworkProfiles,
   resolveIpVisibilityPolicy,
@@ -343,15 +381,16 @@ export async function listVisitorIntelligence(
         (chunk) =>
           sb
             .from('contacts')
-            .select('id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata')
+            .select(VISITOR_CONTACT_COLUMNS)
             .in('id', chunk),
         'visitors.intelligence contacts',
       );
       // One provider resolution for the page; a contact whose avatar is ours
       // gets a link derived from its key, everyone else keeps the external
       // URL a CRM import supplied.
-      await hydrateContactAvatars(config, workspaceId, (cts ?? []));
-      for (const c of cts ?? []) contactsById.set(c.id, c);
+      const shown = await contactsForPanel(config, workspaceId, (cts ?? []) as unknown as VisitorContactRow[]);
+      await hydrateContactAvatars(config, workspaceId, shown);
+      for (const c of shown) contactsById.set(c.id, c);
     }
   }
 
@@ -466,10 +505,10 @@ export async function getVisitorIntelligence(
     if (session.contact_id) {
       const { data: c } = await sb
         .from('contacts')
-        .select('id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata')
+        .select(VISITOR_CONTACT_COLUMNS)
         .eq('id', session.contact_id)
         .maybeSingle();
-      if (c) [offlineContact] = await hydrateContactAvatars(config, workspaceId, [c]);
+      if (c) [offlineContact] = await hydrateContactAvatars(config, workspaceId, await contactsForPanel(config, workspaceId, [c as unknown as VisitorContactRow]));
     }
     return {
       id: session.id, visitor_id: session.visitor_id, workspace_id: session.workspace_id,
@@ -504,10 +543,10 @@ export async function getVisitorIntelligence(
   if (resolvedContactId) {
     const { data: c } = await sb
       .from('contacts')
-      .select('id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata')
+      .select(VISITOR_CONTACT_COLUMNS)
       .eq('id', resolvedContactId)
       .maybeSingle();
-    if (c) [contact] = await hydrateContactAvatars(config, workspaceId, [c]);
+    if (c) [contact] = await hydrateContactAvatars(config, workspaceId, await contactsForPanel(config, workspaceId, [c as unknown as VisitorContactRow]));
   }
 
   return {

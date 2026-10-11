@@ -19,7 +19,8 @@
  *       downgrade to Free at the due moment, end of trial, lot expiry), and
  *       plan credit is spent first;
  *   A8  a payment for a pack is credited with its receipt and spent on it; a
- *       pack changed or removed meanwhile leaves the money in the balance;
+ *       pack whose price or credit changed meanwhile (A8b), or one
+ *       removed, leaves the money in the balance;
  *   A9  a refund reverses the pack's unused credit first (capped, never what
  *       is reserved), returns its price share, and takes the refund;
  *   A10 only service_role reaches the functions; every one pins search_path;
@@ -454,6 +455,23 @@ suite('265 — AI credit packs (real PostgreSQL, whole chain)', () => {
     }
     expect((await ledger(ws)).filter((l) => l.kind === 'ai_pack')).toHaveLength(1);
     expect(await purchasedLots(ws)).toHaveLength(1);
+  });
+
+  it('A8b a pack paid online whose credit changed (same price) is not bought with less credit; the money stays', async () => {
+    const ws = await makeWorkspace();
+    try {
+      await setPacks('international', { USD: [{ id: 's', price_minor: 500, credit_minor: 400 }] });
+      const { settled } = await payOnline(ws, packDetail('s', 500, 500), 500);
+      expect(String((settled.purpose_result as Row).error)).toMatch(/billing_quote_changed/);
+      expect(await balanceOf(ws)).toBe(500);
+      expect(await purchasedLots(ws)).toHaveLength(0);
+      // The credit the checkout showed: bought as usual.
+      await setPacks('international', { USD: [{ id: 's', price_minor: 500, credit_minor: 500 }] });
+      const same = await payOnline(ws, packDetail('s', 500, 500), 500);
+      expect(same.settled.purpose_result).toMatchObject({ action: 'ai_pack', credit_minor: 500, wallet_amount: 3_000_000 });
+    } finally {
+      await resetPacks();
+    }
   });
 
   it('A9 a refund reverses the pack first: unused credit back, price share returned, capped, never what is reserved', async () => {

@@ -425,6 +425,14 @@ BEGIN
 
   IF v_pay.purpose IN ('plan', 'renewal', 'upgrade', 'ai_pack') THEN
     BEGIN
+      -- A pack whose credit changed since checkout (same price) is a changed
+      -- quote too: the money stays in the balance.
+      IF v_pay.purpose = 'ai_pack' AND v_pay.purpose_detail ? 'credit_minor'
+         AND public.billing_jsonb_number(public.billing_ai_pack_find(
+               v_edition, v_acc.currency, v_pay.purpose_detail ->> 'pack_id') -> 'credit_minor')
+             <> public.billing_jsonb_number(v_pay.purpose_detail -> 'credit_minor') THEN
+        RAISE EXCEPTION 'billing_quote_changed';
+      END IF;
       v_purpose := CASE v_pay.purpose
         WHEN 'plan' THEN public.billing_account_purchase_plan(
           v_pay.workspace_id, (v_pay.purpose_detail ->> 'plan_id')::uuid,

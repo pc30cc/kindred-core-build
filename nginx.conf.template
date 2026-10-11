@@ -50,10 +50,17 @@ server {
     # `proxy_pass`. This forces nginx to resolve the hostname at REQUEST
     # time (via the `resolver` above) instead of at startup, so the
     # container boots even if the backend DNS isn't ready yet.
+    #
+    # The `proxy_pass` value must be the bare origin, with no URI part: when
+    # it holds a variable, a URI part (`$backend_url/api/`) REPLACES the whole
+    # request path, so every request reached Express as `GET /api/` and got
+    # its `{"error":"Not found"}` (e.g. the Super Admin's "login as user"
+    # link, which is built on this host). Without one, nginx forwards the
+    # original path and query string unchanged.
     # ─────────────────────────────────────────────────────────────────
     location /api/ {
         set $backend_url "${BACKEND_URL}";
-        proxy_pass $backend_url/api/;
+        proxy_pass $backend_url;
         proxy_http_version 1.1;
         proxy_set_header Host              $proxy_host;
         proxy_set_header X-Real-IP         $remote_addr;

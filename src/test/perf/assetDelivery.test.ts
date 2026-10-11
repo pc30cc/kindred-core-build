@@ -285,3 +285,12 @@ describe('precompress', () => {
     expect(existsSync(`${font}.gz`)).toBe(false);
   });
 });
+
+describe('nginx: same-origin /api/ proxy', () => {
+  it('forwards the original path: proxy_pass is the bare backend origin', () => {
+    // A URI part after a variable (`$backend_url/api/`) replaces the whole
+    // request path, so every call reached Express as `GET /api/` (404).
+    const api = locationBlock('/api/');
+    expect(api).toMatch(/proxy_pass\s+\$backend_url;/);
+  });
+});

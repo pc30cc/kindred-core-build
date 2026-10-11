@@ -8,9 +8,53 @@ async function plansFetch<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Request failed: ${res.status}`);
+  // The whole answer rides along (e.g. the plan editor shows a 400's `issues`).
+  if (!res.ok) throw Object.assign(new Error(body.error || `Request failed: ${res.status}`), { status: res.status, body });
   return body as T;
 }
+
+/** A `billing_plans` row as the plan endpoints return it. */
+export interface PlanRow {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  is_free?: boolean | null;
+  is_active?: boolean | null;
+  is_hidden?: boolean | null;
+  sort_order?: number | null;
+  trial_days?: number | null;
+  default_currency?: string | null;
+  prices?: Record<string, { monthly: number; yearly: number }> | null;
+  entitlements?: Record<string, unknown> | null;
+  limits?: Record<string, unknown> | null;
+  provider_price_ids?: Record<string, unknown> | null;
+  localized?: Record<string, { name: string; description: string }> | null;
+  /** Days a locked workspace's data is kept before deletion; null = never deleted. */
+  locked_data_retention_days?: number | null;
+  /** Monthly AI credit per currency, in the AI wallet's unit (IRR: Rial; others: minor units). */
+  ai_allowance?: Record<string, number> | null;
+}
+
+/** A `workspace_subscriptions` row (with its plan where the endpoint joins it). */
+export interface SubscriptionRow {
+  id: string;
+  workspace_id: string;
+  plan_id?: string | null;
+  status?: string | null;
+  provider_name?: string | null;
+  current_period_start?: string | null;
+  current_period_end?: string | null;
+  trial_end?: string | null;
+  cancel_at_period_end?: boolean | null;
+  billing_plans?: { id: string; name: string; slug: string } | null;
+}
+
+/** A row the page reads loosely (usage counters, overrides, change log). */
+export type LooseRow = Record<string, unknown>;
+
+/** The body of a plan create or update: whitelisted columns, checked by the server. */
+export type PlanPayload = Record<string, unknown>;
 
 // ═══════════════════════════════════════════════════════════
 // PUBLIC HOOKS — reuse the existing /api/plans router
@@ -23,7 +67,7 @@ export function usePlans() {
   return useQuery({
     queryKey: ['plans'],
     queryFn: async () => {
-      const { plans } = await plansFetch<{ plans: any[] }>('/api/plans');
+      const { plans } = await plansFetch<{ plans: PlanRow[] }>('/api/plans');
       return plans ?? [];
     },
   });
@@ -33,7 +77,7 @@ export function useWorkspacePlan(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['workspace-plan', workspaceId],
     queryFn: async () => {
-      const info = await plansFetch<{ plan: any; subscription: any; entitlements: any; limits: any }>(
+      const info = await plansFetch<{ plan: PlanRow | null; subscription: SubscriptionRow | null; entitlements: unknown; limits: unknown }>(
         `/api/plans/workspace/${workspaceId}`,
       );
       return {
@@ -51,7 +95,7 @@ export function useWorkspaceUsage(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['workspace-usage', workspaceId],
     queryFn: async () => {
-      const { usage } = await plansFetch<{ usage: any[] }>(`/api/plans/workspace/${workspaceId}/usage`);
+      const { usage } = await plansFetch<{ usage: LooseRow[] }>(`/api/plans/workspace/${workspaceId}/usage`);
       return usage?.[0] ?? null;
     },
     enabled: !!workspaceId,
@@ -94,7 +138,7 @@ export function useAdminPlans() {
   return useQuery({
     queryKey: ['admin-plans'],
     queryFn: async () => {
-      const { plans } = await plansFetch<{ plans: any[] }>('/api/plans/admin/all');
+      const { plans } = await plansFetch<{ plans: PlanRow[] }>('/api/plans/admin/all');
       return plans ?? [];
     },
   });
@@ -103,7 +147,7 @@ export function useAdminPlans() {
 export function useCreatePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (plan: any) => plansFetch<{ plan: any }>('/api/plans/admin', {
+    mutationFn: (plan: PlanPayload) => plansFetch<{ plan: PlanRow }>('/api/plans/admin', {
       method: 'POST',
       body: JSON.stringify(plan),
     }).then((r) => r.plan),
@@ -114,9 +158,9 @@ export function useCreatePlan() {
 export function useUpdatePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ planId, ...updates }: any) => {
+    mutationFn: async ({ planId, ...updates }: { planId: string } & PlanPayload) => {
       const { id, created_at, ...clean } = updates;
-      const { plan } = await plansFetch<{ plan: any }>(`/api/plans/admin/${planId}`, {
+      const { plan } = await plansFetch<{ plan: PlanRow }>(`/api/plans/admin/${planId}`, {
         method: 'PUT',
         body: JSON.stringify(clean),
       });
@@ -142,7 +186,7 @@ export function useAssignPlan() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { workspaceId: string; planId: string; status?: string; expiresAt?: string }) =>
-      plansFetch<{ subscription: any }>('/api/plans/admin/assign', {
+      plansFetch<{ subscription: SubscriptionRow }>('/api/plans/admin/assign', {
         method: 'POST',
         body: JSON.stringify(data),
       }).then((r) => r.subscription),
@@ -169,7 +213,7 @@ export function useAdminSubscriptions() {
   return useQuery({
     queryKey: ['admin-subscriptions'],
     queryFn: async () => {
-      const { subscriptions } = await plansFetch<{ subscriptions: any[] }>('/api/plans/admin/subscriptions');
+      const { subscriptions } = await plansFetch<{ subscriptions: SubscriptionRow[] }>('/api/plans/admin/subscriptions');
       return subscriptions ?? [];
     },
   });
@@ -181,7 +225,7 @@ export function useWorkspaceModuleOverrides(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['module-overrides', workspaceId],
     queryFn: async () => {
-      const { modules } = await plansFetch<{ modules: any[] }>(`/api/plans/admin/overrides/${workspaceId}`);
+      const { modules } = await plansFetch<{ modules: LooseRow[] }>(`/api/plans/admin/overrides/${workspaceId}`);
       return modules ?? [];
     },
     enabled: !!workspaceId,
@@ -192,7 +236,7 @@ export function useWorkspaceChannelOverrides(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['channel-overrides', workspaceId],
     queryFn: async () => {
-      const { channels } = await plansFetch<{ channels: any[] }>(`/api/plans/admin/overrides/${workspaceId}`);
+      const { channels } = await plansFetch<{ channels: LooseRow[] }>(`/api/plans/admin/overrides/${workspaceId}`);
       return channels ?? [];
     },
     enabled: !!workspaceId,
@@ -223,7 +267,7 @@ export function useAdminWorkspaceUsage(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['admin-workspace-usage', workspaceId],
     queryFn: async () => {
-      const { usage } = await plansFetch<{ usage: any[] }>(`/api/plans/admin/usage/${workspaceId}`);
+      const { usage } = await plansFetch<{ usage: LooseRow[] }>(`/api/plans/admin/usage/${workspaceId}`);
       return usage ?? [];
     },
     enabled: !!workspaceId,
@@ -236,7 +280,7 @@ export function usePlanChangeHistory(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['plan-changes', workspaceId],
     queryFn: async () => {
-      const { changes } = await plansFetch<{ changes: any[] }>(`/api/plans/admin/changes/${workspaceId}`);
+      const { changes } = await plansFetch<{ changes: LooseRow[] }>(`/api/plans/admin/changes/${workspaceId}`);
       return changes ?? [];
     },
     enabled: !!workspaceId,

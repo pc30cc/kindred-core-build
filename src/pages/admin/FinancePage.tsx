@@ -11,45 +11,51 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSearchParams } from 'react-router-dom';
 import {
   CreditCard, Sparkles, FileText, LayoutDashboard, Coins,
-  Landmark, Percent, Gauge, Receipt, Users,
+  Landmark, Percent, Gauge, Receipt, Users, TrendingUp, Wallet,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
 import AdminBillingPage from './BillingPage';
 import AdminAiBillingPage from './AiBillingPage';
 import AdminAuditLogsPage from './AuditLogsPage';
+import RevenueTab from './finance/RevenueTab';
+import AccountsTab from './finance/AccountsTab';
 import { CurrenciesTab, GatewaysTab, TaxCouponsTab, UsageItemsTab } from './finance/FinanceConfigTabs';
 import {
   FinanceOverviewTab, InvoicesLedgerTab, PaymentsLedgerTab, CustomersLedgerTab,
 } from './finance/FinanceLedgerTabs';
 
 const TABS = [
-  'overview', 'billing', 'invoices', 'payments', 'customers',
+  'revenue', 'accounts', 'overview', 'billing', 'invoices', 'payments', 'customers',
   'currencies', 'gateways', 'tax', 'usage', 'ai', 'audit',
 ] as const;
 type TabKey = (typeof TABS)[number];
 
 /**
  * While billing v2 is hidden (shared/billingMode.ts) only what the simple
- * billing keeps is shown: gateways, AI cost and the audit trail. Plans are
- * edited in their own page (/admin/plans).
+ * billing keeps is shown: its monthly revenue and accounts (phase 6),
+ * gateways, AI cost and the audit trail. Plans are edited in their own page
+ * (/admin/plans).
  */
 const VISIBLE_TABS: readonly TabKey[] = LEGACY_BILLING_ENABLED
   ? TABS
-  : ['gateways', 'ai', 'audit'];
+  : ['revenue', 'accounts', 'gateways', 'ai', 'audit'];
 
 const LABELS: Record<'fa' | 'en' | 'tr', Record<TabKey, string>> = {
   fa: {
+    revenue: 'درآمد', accounts: 'حساب‌ها',
     overview: 'نمای کلی', billing: 'پلن‌ها', invoices: 'فاکتورها', payments: 'پرداخت‌ها',
     customers: 'مشتریان', currencies: 'ارزها', gateways: 'درگاه‌ها', tax: 'مالیات و کوپن',
     usage: 'مصرف', ai: 'هوش مصنوعی', audit: 'حسابرسی',
   },
   en: {
+    revenue: 'Revenue', accounts: 'Accounts',
     overview: 'Overview', billing: 'Plans', invoices: 'Invoices', payments: 'Payments',
     customers: 'Customers', currencies: 'Currencies', gateways: 'Gateways', tax: 'Tax & coupons',
     usage: 'Usage', ai: 'AI', audit: 'Audit',
   },
   tr: {
+    revenue: 'Gelir', accounts: 'Hesaplar',
     overview: 'Genel', billing: 'Planlar', invoices: 'Faturalar', payments: 'Ödemeler',
     customers: 'Müşteriler', currencies: 'Para birimleri', gateways: 'Sağlayıcılar', tax: 'Vergi & kupon',
     usage: 'Kullanım', ai: 'Yapay zeka', audit: 'Denetim',
@@ -57,6 +63,7 @@ const LABELS: Record<'fa' | 'en' | 'tr', Record<TabKey, string>> = {
 };
 
 const ICONS: Record<TabKey, typeof CreditCard> = {
+  revenue: TrendingUp, accounts: Wallet,
   overview: LayoutDashboard, billing: CreditCard, invoices: Receipt, payments: Landmark,
   customers: Users, currencies: Coins, gateways: CreditCard, tax: Percent,
   usage: Gauge, ai: Sparkles, audit: FileText,
@@ -96,6 +103,8 @@ export default function AdminFinancePage() {
           })}
         </TabsList>
 
+        <TabsContent value="revenue" className="mt-0"><RevenueTab /></TabsContent>
+        <TabsContent value="accounts" className="mt-0"><AccountsTab /></TabsContent>
         <TabsContent value="overview" className="mt-0"><FinanceOverviewTab /></TabsContent>
         <TabsContent value="billing" className="mt-0"><AdminBillingPage /></TabsContent>
         <TabsContent value="invoices" className="mt-0"><InvoicesLedgerTab /></TabsContent>

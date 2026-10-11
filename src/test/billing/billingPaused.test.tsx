@@ -41,8 +41,8 @@ describe('billing v2 is hidden', () => {
     expect(src.match(/startBillingV2Schedulers\(config\)/g)).toHaveLength(1);
   });
 
-  it('Super Admin finance keeps only gateways, AI cost and audit', () => {
+  it('Super Admin finance keeps only the simple billing\'s revenue and accounts, gateways, AI cost and audit', () => {
     const src = readFileSync(join(process.cwd(), 'src', 'pages', 'admin', 'FinancePage.tsx'), 'utf8');
-    expect(src).toContain("['gateways', 'ai', 'audit']");
+    expect(src).toContain("['revenue', 'accounts', 'gateways', 'ai', 'audit']");
   });
 });

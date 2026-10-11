@@ -146,7 +146,8 @@ billing v2's 5-minute ticker (see "The hourly job" below).
    the Paddle saved card.
 4. Computed locks, downgrade report, export, retention deletion.
 5. AI credit packs. (Done: migration 264; see "AI credit packs" below.)
-6. Super Admin screens.
+6. Super Admin screens. (Done: migration 266; see "Super Admin screens"
+   below.)
 7. Move current subscriptions, back up and drop billing v2 code and tables.
 
 ## Technical design
@@ -585,3 +586,127 @@ spent first.
   applies it on push. It is inert until packs are saved and AI billing is
   `ENFORCED`. Then: set the packs, make sure RESPOK has a `USD→IRR` rate (and
   `TRY→USD` or `TRY→IRR`), and switch AI billing to `ENFORCED` when ready.
+
+
+### Super Admin screens (phase 6, migration 266)
+
+Migrations in the order they landed: 264 is phase 5 (AI packs), 265 is
+phase 4 (computed locks), 266 is this phase. 266 does not depend on 265.
+Everything is behind the single platform admin role (`requirePlatformAdmin`);
+there is no finance sub-role. A credit or debit has its own safeguards
+instead (below).
+
+- **Where.** Finance (`/admin/finance`) shows, while `LEGACY_BILLING_ENABLED`
+  is off, the tabs Revenue (the default), Accounts, Gateways, AI and Audit.
+  An account opens at `/admin/finance/accounts/:workspaceId`.
+  `/admin/billing` redirects to `finance?tab=accounts`. Plans, prices and
+  Billing settings stay in Plans (`/admin/plans`), whose tabs follow
+  `?tab=`; `?tab=assign&workspace=<id>` preselects the workspace to assign.
+- **API** (`/api/admin/simple-billing`, `server/routes/adminSimpleBilling.ts`,
+  every input checked with zod; client `src/lib/adminSimpleBillingApi.ts`,
+  types in `shared/simpleBillingAdmin.ts`): `GET accounts`,
+  `GET accounts/:ws` (`/ledger`, `/payments`, `/receipts/:ledgerId`),
+  `POST accounts/:ws/adjust`, `GET revenue`, `GET gateways`; `GET/PUT
+  settings` also carry `ai_currencies` and `ai_packs`. The read functions of
+  266 (`billing_admin_accounts`, `billing_admin_account_payments`,
+  `billing_admin_revenue_days`, `billing_admin_ledger_days`,
+  `billing_admin_liability`) are `SECURITY DEFINER`, service_role only.
+- **Accounts.** Every workspace, joined to its account (LEFT JOIN), so a
+  workspace with no account yet can be found and credited. Filters:
+  `with_account` (default), `all`, `positive_balance`, `auto_renew`, `card`,
+  `prepaid`, `due_7d` (paid plans ending within 7 days, or past due and not
+  processed yet), `owner:<user id>` (every workspace the user owns, with or
+  without an account). Sorts: balance (default), period end, last payment,
+  newest, name. Search: name, slug, owner email (from `profiles.email`) or an
+  exact workspace or owner id; `%` and `_` are literal. Above the list: what
+  is owed to customers per currency (balances and prepaid next periods). CSV
+  is built in the browser (no server export).
+- **An account.** Balance (Credit, Debit), plan (period, trial, scheduled
+  change, prepaid next period, link to Plans → Assign), saved card, billing
+  profile, then the ledger (admin rows show category, reason and the admin's
+  email; `idempotency_key` is never sent), the payments with their refunds,
+  and receipts in a dialog that prints only the receipt (`ReceiptDocument`,
+  the same component the customer's receipt page renders). Opening it changes
+  nothing: it never calls `processDueNow`, `ensureAccount`, `syncCard`,
+  `cardView` or Paddle. A period that has ended but that the job has not
+  processed yet shows "Due, waits for the job".
+- **Credit and debit** (`billing_account_admin_adjust`, now 8 arguments; the
+  6-argument call still resolves). Category (`goodwill`, `compensation`,
+  `correction`, `migration`, `test`, `other`) and a reason of 3-500
+  characters are required and stored in the ledger row's `description`. At
+  most the currency's largest top-up per change (`TOPUP_LIMITS.max`, also
+  checked in SQL). The server decides the currency (the account's, else the
+  region's); the dialog shows the balance after the change, asks to confirm,
+  and sends the balance and currency it showed: if either moved, 409
+  `BALANCE_CHANGED` / `CURRENCY_CHANGED` with the fresh account and nothing
+  is written. The command key is made when the dialog opens and kept for
+  retries: a replay of the same change returns the first row (even with a
+  stale balance); the same key with another workspace, sign or amount is
+  `KEY_REUSED`. A debit never takes the balance below zero
+  (`INSUFFICIENT_BALANCE`). The actor is always the signed-in admin (a body
+  naming one is refused). At most 30 changes per admin per hour, counted in
+  memory per backend process (429 `TOO_MANY_ADJUSTMENTS`). Each change also
+  writes an `audit_logs` row (`billing.admin_adjust`, shown in Finance →
+  Audit), best effort and not on a replay. No mail goes to the customer; the
+  row shows in the customer's history with its admin label. A credit is not
+  spent by itself: it is used at the next due moment only if auto-renew pays
+  from the balance.
+- **Revenue** (per currency, never added across currencies; months of the
+  edition's calendar: Jalali and Toman for Iran, Gregorian for
+  international; days are cut in `Asia/Tehran` or UTC). From succeeded
+  payments by `completed_at`: count, gross, VAT, net, split by purpose,
+  gateway and source. Refunds count in the month they happened: 266 stamps
+  `refunded_at` on every refund entry of `purpose_detail.refunds` (trigger
+  `trg_billing_account_payments_stamp_refunds`; older entries were backfilled
+  from their ledger rows, else the payment's `updated_at`). Net after refunds
+  is net minus the refunds' net share. Test gateways are left out unless
+  "Include test gateways" is on. A card renewal counts the net and tax stored
+  on its payment; Paddle's own tax on USD is not ours and is not shown; a
+  chargeback reversal books nothing. Balance movements (credits, debits,
+  renewals, upgrades, packs, returns) are shown per kind and marked "Not
+  revenue". 1-36 months (6, 12 or 24 on the page); the current month is to
+  date.
+- **Gateways.** A read-only card above the gateways table says, per gateway
+  and account currency, whether it is offered and why not (not allowed in
+  the edition, inactive, currency not accepted, cannot confirm a payment,
+  test), plus Paddle's automatic card renewal. The rule lives once, in
+  `gatewayListing()` (`gateways.ts`), which the customer's gateway list uses
+  too. Reasons link to where they are fixed (the table below, or Providers →
+  Billing at `/admin/providers?type=billing&provider=<name>`).
+- **Plans.** `POST`/`PUT /api/plans/admin` accept only the plan columns
+  (unknown key: 400 `INVALID_REQUEST` with `issues`); a price must be a
+  whole number ≥ 0 (`INVALID_PRICE`; only the edition's currencies are
+  checked, another stored currency is kept as it is); retention days are
+  1-3650 or empty (never deleted); `ai_allowance` is whole numbers ≥ 0 per
+  currency. POST now stores `is_hidden`, retention and `ai_allowance`. The
+  form edits the monthly AI credit per AI currency of the edition (IRR as
+  Toman; USD and TRY in cents and kuruş) and copies `ai_allowance.IRR` into
+  `limits.included_ai_allowance_irr` (the server does too), so the limits
+  editor no longer shows that limit. The VAT of each currency is shown
+  read-only next to the prices, with a link to Billing settings.
+  `billing_plan_ai_allowance` still reads only `ai_allowance.IRR`: the USD
+  and TRY fields take effect when phase 7 makes the grant read them.
+- **Billing settings.** AI packs are edited by phase 5's `AiPacksPanel` (same
+  tab, `PUT /ai-packs`); the settings `PUT` keeps the stored packs when
+  `ai_packs` is left out, as the settings form does.
+- **Users and Workspaces.** While `LEGACY_BILLING_ENABLED` is off, Users →
+  Finance lists the accounts of the workspaces the user owns (instead of
+  billing v2's `UserFinanceCard`), and a workspace's page shows a read-only
+  billing summary with a link to its account. Both pages open from `?id=`.
+- **Billing v2 retired.** `POST /api/billing/admin/grant`,
+  `POST /api/billing/admin/plans` and `POST /api/admin/billing/reset` answer
+  410 `BILLING_V2_RETIRED`, and Finance's danger zone is not shown, while
+  `LEGACY_BILLING_ENABLED` is off.
+- **Known limits.** A purged workspace's payments go with it (ON DELETE
+  CASCADE), so its revenue leaves the report; phase 7 decides whether to keep
+  them. The adjust rate limit is per process.
+- **Deploying.** Apply 266 to WebYar's database by hand before merging, with
+  a dry run inside `BEGIN ... ROLLBACK` first (the file has no
+  `BEGIN`/`COMMIT` of its own and can be run twice); RESPOK's migrator
+  applies it on push. Until it is applied the new screens fail (their read
+  functions are missing), while the old server's 6-argument adjust call keeps
+  working against it. After deploy, on both editions: the accounts list
+  loads; credit and debit a test workspace with category `test` (the row
+  shows in the customer's history and in Finance → Audit); revenue shows
+  Jalali months and Toman on WebYar, Gregorian months and USD (TRY when
+  present) on RESPOK; the three v2 endpoints answer 410.

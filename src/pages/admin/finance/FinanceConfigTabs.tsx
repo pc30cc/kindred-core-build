@@ -29,6 +29,7 @@ import {
   type AdminUsageItem,
   type AdminExchangeRate,
 } from '@/lib/adminBillingApi';
+import GatewaysReadinessCard from './GatewaysReadinessCard';
 
 const DICT = {
   fa: {
@@ -281,6 +282,9 @@ export function GatewaysTab() {
   };
 
   return (
+    <div className="space-y-6">
+    {/* Phase 6: whether each gateway is offered per account currency, refreshed after every change below. */}
+    <GatewaysReadinessCard refreshKey={gateways.map((g) => `${g.provider_name}:${g.is_active}:${g.currencies.join('|')}`).join(',')} />
     <Card>
       <CardHeader>
         <CardTitle>{d.gateways}</CardTitle>
@@ -329,6 +333,7 @@ export function GatewaysTab() {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }
 

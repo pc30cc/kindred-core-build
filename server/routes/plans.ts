@@ -4,6 +4,7 @@
  */
 
 import { Router, type Request } from 'express';
+import { z } from 'zod';
 import { type SupabaseClient } from '@supabase/supabase-js';
 import { serviceClientFor } from '../lib/serviceClient.js';
 import type { ServerConfig } from '../config.js';
@@ -27,7 +28,8 @@ import {
 } from '../services/billing/capabilityRegistry.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
-import { isChannelAllowedInEdition } from '../../shared/edition.js';
+import { isChannelAllowedInEdition, isCurrencyAllowedInEdition, type Edition } from '../../shared/edition.js';
+import { PLAN_RETENTION_DAYS } from '../../shared/simpleBillingAdmin.js';
 import {
   handleWorkspaceEntitlementChanged,
   handlePlanDefinitionChanged,
@@ -327,11 +329,112 @@ plansRouter.get('/admin/all', async (req, res) => {
   res.json({ plans: data || [] });
 });
 
+// ─── Plan bodies (phase 6, decision D19) ───────────────────────────────────
+// A whitelist of billing_plans columns: an unknown key is refused (400
+// INVALID_REQUEST with `issues`) instead of being written. Prices are
+// `{CUR: {monthly, yearly}}` in minor units (IRR in whole Rial): a negative
+// or fractional price of a currency the edition sells is refused (400
+// INVALID_PRICE); a currency the edition does not sell is kept as it is
+// (never shown or read there). The monthly AI credit is `ai_allowance`
+// per currency (the AI wallet's unit); while its key is IRR it is mirrored
+// into `limits.included_ai_allowance_irr`, which older readers still use
+// until phase 7.
+
+const CURRENCY_KEY = /^[A-Z]{3}$/;
+const jsonObject = z.record(z.string(), z.unknown());
+
+const planAdminSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  slug: z.string().trim().min(1).max(100),
+  description: z.string().max(5000).nullable().optional(),
+  prices: jsonObject.optional(),
+  entitlements: jsonObject.optional(),
+  limits: jsonObject.optional(),
+  is_free: z.boolean().optional(),
+  is_active: z.boolean().optional(),
+  is_hidden: z.boolean().optional(),
+  sort_order: z.number().int().min(-1_000_000).max(1_000_000).optional(),
+  trial_days: z.number().int().min(0).max(3650).optional(),
+  default_currency: z.string().regex(CURRENCY_KEY).optional(),
+  provider_price_ids: jsonObject.optional(),
+  localized: jsonObject.optional(),
+  locked_data_retention_days: z.number().int().min(PLAN_RETENTION_DAYS.min).max(PLAN_RETENTION_DAYS.max).nullable().optional(),
+  ai_allowance: z.record(z.string().regex(CURRENCY_KEY), z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)).optional(),
+});
+
+const planCreateSchema = planAdminSchema.strict();
+const planUpdateSchema = planAdminSchema.partial().strict();
+
+export type PlanAdminBody = z.infer<typeof planAdminSchema>;
+
+export type PlanBodyCheck =
+  | { ok: true; data: Partial<PlanAdminBody> }
+  | { ok: false; body: { error: 'INVALID_REQUEST' | 'INVALID_PRICE'; issues: Array<{ path: string; message: string }> } };
+
+const isPriceAmount = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+
+/** Problems of `prices` for the currencies `edition` sells (every currency when the edition is unknown). */
+export function planPriceIssues(prices: Record<string, unknown>, edition: Edition | null): Array<{ path: string; message: string }> {
+  const issues: Array<{ path: string; message: string }> = [];
+  for (const [currency, value] of Object.entries(prices)) {
+    if (!CURRENCY_KEY.test(currency)) {
+      issues.push({ path: `prices.${currency}`, message: 'currency' });
+      continue;
+    }
+    if (edition && !isCurrencyAllowedInEdition(currency, edition)) continue;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      issues.push({ path: `prices.${currency}`, message: 'object' });
+      continue;
+    }
+    for (const [interval, amount] of Object.entries(value as Record<string, unknown>)) {
+      if (interval !== 'monthly' && interval !== 'yearly') continue;
+      if (!isPriceAmount(amount)) issues.push({ path: `prices.${currency}.${interval}`, message: 'price' });
+    }
+  }
+  return issues;
+}
+
+/** Validates a POST (`create`) or PUT (`update`) body against the whitelist and the price rules. */
+export function checkPlanBody(raw: unknown, mode: 'create' | 'update', edition: Edition | null): PlanBodyCheck {
+  const parsed = (mode === 'create' ? planCreateSchema : planUpdateSchema).safeParse(raw ?? {});
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => ({
+      path: i.path.join('.') || (i.code === 'unrecognized_keys' ? (i as { keys?: string[] }).keys?.join(',') ?? '' : ''),
+      message: i.code,
+    }));
+    return { ok: false, body: { error: 'INVALID_REQUEST', issues } };
+  }
+  if (parsed.data.prices) {
+    const issues = planPriceIssues(parsed.data.prices, edition);
+    if (issues.length) return { ok: false, body: { error: 'INVALID_PRICE', issues } };
+  }
+  return { ok: true, data: parsed.data };
+}
+
+/**
+ * Mirrors `ai_allowance.IRR` into `limits.included_ai_allowance_irr`
+ * (decision D17). `limits` is the body's when it sent one, else the stored
+ * limits (`stored`), so the mirror never drops another limit.
+ */
+export function withAllowanceMirror(
+  body: Partial<PlanAdminBody>,
+  stored: Record<string, unknown> | null,
+): Partial<PlanAdminBody> {
+  const irr = body.ai_allowance?.IRR;
+  if (typeof irr !== 'number') return body;
+  const limits = { ...(body.limits ?? stored ?? {}) };
+  limits.included_ai_allowance_irr = irr;
+  return { ...body, limits };
+}
+
 plansRouter.post('/admin', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = serviceClientFor(url, key);
-  const { name, slug, description, prices, entitlements, limits, is_free, is_active, sort_order, trial_days, default_currency, provider_price_ids, localized } = req.body;
-  if (!name || !slug) return res.status(400).json({ error: 'name and slug are required' });
+  const edition = await getPlatformEditionOrNull(serverConfigOf(req)).catch(() => null);
+  const checked = checkPlanBody(req.body, 'create', edition);
+  if (checked.ok === false) return res.status(400).json(checked.body);
+  const body = withAllowanceMirror(checked.data, null);
+  const { name, slug, description, prices, entitlements, limits, is_free, is_active, is_hidden, sort_order, trial_days, default_currency, provider_price_ids, localized, locked_data_retention_days, ai_allowance } = body;
 
   // Soft validation: report registry issues but stay backward-compatible.
   const validation = validatePlanPayload({ entitlements, limits });
@@ -348,10 +451,13 @@ plansRouter.post('/admin', async (req, res) => {
     name, slug, description: description || null,
     prices: prices || {}, entitlements: entitlements || {}, limits: normalizedLimits,
     is_free: is_free || false, is_active: is_active !== false,
+    is_hidden: is_hidden === true,
     sort_order: sort_order || 0, trial_days: trial_days || 0,
     default_currency: default_currency || 'USD',
     provider_price_ids: provider_price_ids || {},
     localized: localized || {},
+    locked_data_retention_days: locked_data_retention_days ?? null,
+    ai_allowance: ai_allowance || {},
   }).select().single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
@@ -362,17 +468,9 @@ plansRouter.post('/admin', async (req, res) => {
 plansRouter.put('/admin/:planId', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = serviceClientFor(url, key);
-  const updates = { ...req.body, updated_at: new Date().toISOString() };
-  delete updates.id; delete updates.created_at;
-
-  // Soft validation when entitlements/limits are touched.
-  let validation: ReturnType<typeof validatePlanPayload> | undefined;
-  if (updates.entitlements || updates.limits) {
-    validation = validatePlanPayload({ entitlements: updates.entitlements, limits: updates.limits });
-    if (!validation.valid) {
-      return res.status(400).json({ error: 'Plan payload invalid', issues: validation.issues });
-    }
-  }
+  const edition = await getPlatformEditionOrNull(serverConfigOf(req)).catch(() => null);
+  const checked = checkPlanBody(req.body, 'update', edition);
+  if (checked.ok === false) return res.status(400).json(checked.body);
 
   // Phase 6-S5-R6 — capture the PREVIOUS definition so the fan-out is only
   // queued when an AI-relevant entitlement or limit actually moved.
@@ -381,6 +479,19 @@ plansRouter.put('/admin/:planId', async (req, res) => {
     .select('is_active, entitlements, limits')
     .eq('id', req.params.planId)
     .maybeSingle();
+
+  const body = withAllowanceMirror(checked.data, ((previousPlan as { limits?: Record<string, unknown> } | null)?.limits) ?? null);
+  const updates = { ...body, updated_at: new Date().toISOString() };
+
+  // Soft validation when the body touches entitlements/limits (the stored
+  // limits the allowance mirror carries along are not re-judged).
+  let validation: ReturnType<typeof validatePlanPayload> | undefined;
+  if (checked.data.entitlements || checked.data.limits) {
+    validation = validatePlanPayload({ entitlements: updates.entitlements, limits: updates.limits });
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Plan payload invalid', issues: validation.issues });
+    }
+  }
 
   const { data, error } = await supabase.from('billing_plans').update(updates).eq('id', req.params.planId).select().single();
   if (error) return res.status(500).json({ error: 'Request failed' });

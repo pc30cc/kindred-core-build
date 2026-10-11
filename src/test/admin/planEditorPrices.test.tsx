@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { I18nProvider } from '@/i18n';
 import en from '@/i18n/locales/en';
 
@@ -78,7 +79,9 @@ function renderPage() {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <I18nProvider initialLocale="en" initialTranslations={en}>
-        <AdminPlansPage />
+        <MemoryRouter>
+          <AdminPlansPage />
+        </MemoryRouter>
       </I18nProvider>
     </QueryClientProvider>,
   );

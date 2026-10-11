@@ -4,6 +4,11 @@
  * edition this deployment runs (server/routes/adminSimpleBilling.ts). An empty
  * VAT is not shown anywhere; with Paddle it stays empty, because Paddle adds
  * the tax itself.
+ *
+ * It reads and saves through the shared settings query
+ * (src/lib/adminSimpleBillingApi.ts), so the plan form's read-only VAT line
+ * shows a saved VAT at once. The AI credit packs of the same settings row are
+ * edited next to it (AiPacksPanel); a save here leaves them as they are.
  */
 import { useEffect, useState } from 'react';
 import { Loader2, Receipt } from 'lucide-react';
@@ -12,7 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/lib/toast';
-import { API_BASE } from '@/lib/apiBase';
+import { useSaveSimpleBillingSettings, useSimpleBillingSettings, type SimpleBillingSettings } from '@/lib/adminSimpleBillingApi';
 import { parsePlanPriceInput } from '@/lib/planPrice';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { SELLER_KEYS, type SellerKey, type SellerProfile } from '../../../shared/simpleBilling';
@@ -31,35 +36,31 @@ const SELLER_FIELDS: Record<Edition, readonly SellerKey[]> = {
   international: ['legal_name', 'vat_id', 'registration_number', 'address', 'postal_code', 'phone', 'email', 'website'],
 };
 
-async function call<T>(method: 'GET' | 'PUT', body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/admin/simple-billing/settings`, {
-    method,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const json = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(json.error || `HTTP_${res.status}`);
-  return json;
+/** The editable part of the settings answer, with VAT as typed. */
+function draftOf(s: SimpleBillingSettings): { settings: Settings; vat: Record<string, string> } {
+  return {
+    settings: { edition: s.edition, seller: s.seller as SellerProfile, vat_percent: s.vat_percent, receipt_prefix: s.receipt_prefix, vat_currencies: s.vat_currencies },
+    vat: Object.fromEntries(s.vat_currencies.map((c) => [c, s.vat_percent[c] === null || s.vat_percent[c] === undefined ? '' : String(s.vat_percent[c])])),
+  };
 }
 
 export default function BillingSettingsPanel() {
   const { t, dir } = useTranslation();
+  const loaded = useSimpleBillingSettings();
+  const saveSettings = useSaveSimpleBillingSettings();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [vatDraft, setVatDraft] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const saving = saveSettings.isPending;
 
+  // Seeded once from the first answer; later refetches never overwrite what is being typed.
   useEffect(() => {
-    call<Settings>('GET')
-      .then((s) => {
-        setSettings(s);
-        setVatDraft(Object.fromEntries(s.vat_currencies.map((c) => [c, s.vat_percent[c] === null || s.vat_percent[c] === undefined ? '' : String(s.vat_percent[c])])));
-      })
-      .catch((e: Error) => setError(e.message));
-  }, []);
+    if (!loaded.data || settings) return;
+    const draft = draftOf(loaded.data);
+    setSettings(draft.settings);
+    setVatDraft(draft.vat);
+  }, [loaded.data, settings]);
 
-  if (error && !settings) return <p className="text-sm text-destructive">{error}</p>;
+  if (loaded.error && !settings) return <p className="text-sm text-destructive">{(loaded.error as Error).message}</p>;
   if (!settings) return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
 
   const vatLabel = (currency: string) => t(`admin.simpleBilling.vatFor.${currency}` as TranslationKey);
@@ -76,21 +77,20 @@ export default function BillingSettingsPanel() {
       toast.error(t('admin.simpleBilling.vatInvalid'));
       return;
     }
-    setSaving(true);
     try {
-      const next = await call<Settings>('PUT', {
-        seller: settings.seller,
+      const next = await saveSettings.mutateAsync({
+        seller: settings.seller as Record<string, string>,
         receipt_prefix: settings.receipt_prefix,
         vat_percent: Object.fromEntries(
           settings.vat_currencies.map((c) => [c, vatValue(vatDraft[c] ?? '')]),
         ),
       });
-      setSettings(next);
+      const draft = draftOf(next);
+      setSettings(draft.settings);
+      setVatDraft(draft.vat);
       toast.success(t('admin.simpleBilling.saved'));
     } catch (e) {
       toast.error((e as Error).message);
-    } finally {
-      setSaving(false);
     }
   };
 

@@ -145,6 +145,7 @@ suite('billing locks: seats, channels and storage against the real chain', () =>
     const { workspaceMembersRouter } = await import('../../../server/routes/workspaceMembers.js');
     const { pluginsRouter } = await import('../../../server/routes/plugins.js');
     const { internalChannelsRouter } = await import('../../../server/routes/internalChannels.js');
+    const { conversationsRouter } = await import('../../../server/routes/conversations.js');
     const { createSession } = await import('../../../server/services/auth/sessions.js');
 
     app = express();
@@ -153,6 +154,7 @@ suite('billing locks: seats, channels and storage against the real chain', () =>
     app.use('/api/workspace-members', workspaceMembersRouter);
     app.use('/api/plugins', pluginsRouter);
     app.use('/internal/channels', internalChannelsRouter);
+    app.use('/api/conversations', conversationsRouter);
 
     for (const [name, id] of Object.entries({ owner, a, b, c })) {
       const session = await createSession(config as never, { userId: id, email: `${name}@test.local` });
@@ -237,6 +239,25 @@ suite('billing locks: seats, channels and storage against the real chain', () =>
     });
     expect(pushedOff.map((r) => r.userId).sort()).toEqual([a, b, c].sort());
     await switchTo(true);
+  });
+
+  it('a chat is never assigned by hand to a member whose seat is paused (only while the switch is on)', async () => {
+    const conv = String((await one(
+      `INSERT INTO public.conversations (workspace_id, status, metadata) VALUES ($1, 'open', '{}') RETURNING id`, [ws])).id);
+    const assign = (to: string) => request(app).patch(`/api/conversations/${conv}`).set(as(owner)).send({ workspace_id: ws, assigned_to: to });
+    const refused = await assign(c);
+    expect(refused.status).toBe(400);
+    expect(refused.body).toMatchObject({ error: 'assignee_seat_locked', upgrade_required: true });
+    expect((await one(`SELECT assigned_to FROM public.conversations WHERE id = $1`, [conv])).assigned_to).toBeNull();
+    expect((await assign(a)).status).toBe(200);
+    await switchTo(false);
+    try {
+      expect((await assign(c)).status).toBe(200);
+      expect((await one(`SELECT assigned_to FROM public.conversations WHERE id = $1`, [conv])).assigned_to).toBe(c);
+    } finally {
+      await switchTo(true);
+    }
+    await q(`UPDATE public.conversations SET assigned_to = NULL, status = 'closed' WHERE id = $1`, [conv]);
   });
 
   it('routing hands back a chat a paused member still holds', async () => {

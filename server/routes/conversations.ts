@@ -45,7 +45,7 @@ import { resolveWorkspaceAgentLogoUrl } from '../services/ai-agent/settings.js';
 import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
-import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, isSeatLocked, serverConfigOf } from '../lib/workspaceAuth.js';
 import { channelOutboundStopped, channelStoppedBody, dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
 import { sanitizeClientMessageMetadata } from '../services/channels/clientMessageMetadata.js';
@@ -752,6 +752,12 @@ conversationsRouter.patch('/:id', async (req, res) => {
       });
       if (!targetIsMember) {
         return res.status(400).json({ error: 'Assignee is not a workspace member' });
+      }
+      // A member whose seat the plan paused cannot open the chat (every call
+      // answers seat_locked): never hand it to them. Off with the switch.
+      if (parsed.data.assigned_to !== before.assigned_to
+          && await isSeatLocked(config, parsed.data.workspace_id, parsed.data.assigned_to)) {
+        return res.status(400).json({ error: 'assignee_seat_locked', upgrade_required: true });
       }
     }
 

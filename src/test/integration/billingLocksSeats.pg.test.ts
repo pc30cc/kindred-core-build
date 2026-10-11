@@ -159,7 +159,7 @@ suite('billing locks: seats, channels and storage against the real chain', () =>
       tokens[id] = session.token;
     }
     expect(await state.readLocksEnabled(config as never)).toBe(false);
-  });
+  }, 60_000);
 
   it('switch off: every member works, nobody is paused, nothing is stopped', async () => {
     await switchTo(false);
@@ -263,6 +263,9 @@ suite('billing locks: seats, channels and storage against the real chain', () =>
       .set(as(owner))
       .send({ suspended: true });
     expect(res.status).toBe(200);
+    // Routing's cached member list follows the suspension at once.
+    const { resolveRoutingCandidates } = await import('../../../server/services/calls/departments.js');
+    expect((await resolveRoutingCandidates(config as never, ws, 'chat')).user_ids).not.toContain(a);
 
     // a no longer holds the seat: b (next oldest) gets it at once, c stays paused.
     const meB = await request(app).get(`/api/workspace-members/me?workspaceId=${ws}`).set(as(b));

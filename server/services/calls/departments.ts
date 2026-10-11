@@ -40,6 +40,9 @@ const deptCache = new Map<string, CacheEntry<DepartmentRow[]>>();
 const memberCache = new Map<string, CacheEntry<string[]>>(); // key = department_id
 const generalCache = new Map<string, CacheEntry<string[]>>(); // key = workspace_id
 const fallbackCache = new Map<string, CacheEntry<FallbackPolicy>>(); // key = workspace_id
+const memberRowsCache = new Map<string, CacheEntry<MemberRow[]>>(); // key = workspace_id
+
+interface MemberRow { user_id: string; suspended: boolean }
 
 function fresh<T>(e: CacheEntry<T> | undefined): e is CacheEntry<T> {
   return !!e && Date.now() - e.ts < CACHE_TTL_MS;
@@ -50,6 +53,7 @@ export function invalidateDepartmentCache(workspaceId: string): void {
   deptCache.delete(workspaceId);
   generalCache.delete(workspaceId);
   fallbackCache.delete(workspaceId);
+  memberRowsCache.delete(workspaceId);
   // Department-member cache keyed by department_id — clear pessimistically.
   for (const k of Array.from(memberCache.keys())) memberCache.delete(k);
 }
@@ -99,6 +103,25 @@ export async function resolveDepartmentMembers(
 }
 
 /**
+ * The workspace's members and whether each is suspended, cached like the
+ * lookups above (the general pool, the last-resort fallback and the
+ * suspended filter share this one read).
+ */
+async function resolveMemberRows(config: ServerConfig, workspaceId: string): Promise<MemberRow[]> {
+  const hit = memberRowsCache.get(workspaceId);
+  if (fresh(hit)) return hit.value;
+  const { data } = await getServiceClient(config)
+    .from('workspace_members')
+    .select('user_id, suspended_at')
+    .eq('workspace_id', workspaceId);
+  const value = ((data ?? []) as Array<{ user_id?: string | null; suspended_at?: string | null }>)
+    .filter((r) => !!r.user_id)
+    .map((r) => ({ user_id: String(r.user_id), suspended: !!r.suspended_at }));
+  memberRowsCache.set(workspaceId, { value, ts: Date.now() });
+  return value;
+}
+
+/**
  * The General Pool: workspace members NOT assigned to any department.
  * Always non-empty when the workspace itself has members.
  */
@@ -110,15 +133,13 @@ export async function resolveGeneralPool(
   if (fresh(hit)) return hit.value;
 
   const sb = getServiceClient(config);
-  const [{ data: members }, { data: assignments }] = await Promise.all([
-    sb.from('workspace_members').select('user_id').eq('workspace_id', workspaceId),
+  const [members, { data: assignments }] = await Promise.all([
+    resolveMemberRows(config, workspaceId),
     sb.from('workspace_department_members').select('user_id').eq('workspace_id', workspaceId),
   ]);
 
   const inDept = new Set((assignments ?? []).map((r: { user_id: string | null }) => r.user_id as string));
-  const value = (members ?? [])
-    .map((m: { user_id: string | null }) => m.user_id as string)
-    .filter((id) => id && !inDept.has(id));
+  const value = members.map((m) => m.user_id).filter((id) => id && !inDept.has(id));
 
   generalCache.set(workspaceId, { value, ts: Date.now() });
   return value;
@@ -179,13 +200,10 @@ export async function resolveRoutingCandidates(
   departmentId?: string | null,
 ): Promise<{ user_ids: string[]; source: 'department' | 'general' | 'all' }>
 {
-  const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('workspace_members')
-    .select('user_id, suspended_at')
-    .eq('workspace_id', workspaceId);
-  const rows = (data ?? []) as Array<{ user_id?: string | null; suspended_at?: string | null }>;
-  const suspended = new Set(rows.filter((r) => !!r.suspended_at && !!r.user_id).map((r) => String(r.user_id)));
+  // Cached (30 s, dropped by invalidateDepartmentCache on a suspension): no
+  // query of its own on a routing call that the caches above answer.
+  const rows = await resolveMemberRows(config, workspaceId);
+  const suspended = new Set(rows.filter((r) => r.suspended).map((r) => r.user_id));
 
   if (departmentId) {
     const all = await resolveDepartments(config, workspaceId);
@@ -199,7 +217,7 @@ export async function resolveRoutingCandidates(
   const general = await routableMembers(config, workspaceId, await resolveGeneralPool(config, workspaceId), suspended);
   if (general.length > 0) return { user_ids: general, source: 'general' };
 
-  const all = rows.map((r) => r.user_id as string).filter(Boolean);
+  const all = rows.map((r) => r.user_id);
   return { user_ids: await routableMembers(config, workspaceId, all, suspended), source: 'all' };
 }
 

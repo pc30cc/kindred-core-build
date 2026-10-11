@@ -47,6 +47,7 @@ import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { clearLockStateCache, resolveLockState } from '../services/billing/locks/state.js';
 import { isMemberLocked } from '../services/billing/locks/predicates.js';
 import { releaseLockedAgentChats } from '../services/billing/locks/release.js';
+import { invalidateDepartmentCache } from '../services/calls/departments.js';
 
 export const workspaceMembersRouter = Router();
 
@@ -172,6 +173,8 @@ async function isCanonicalOwner(
  */
 function afterSeatChange(config: ServerConfig, workspaceId: string): void {
   clearLockStateCache(workspaceId);
+  // Routing's cached member list (who is suspended) follows at once.
+  invalidateDepartmentCache(workspaceId);
   void releaseLockedAgentChats(config, workspaceId).catch(() => undefined);
 }
 

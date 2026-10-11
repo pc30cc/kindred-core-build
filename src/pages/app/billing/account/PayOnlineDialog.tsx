@@ -58,6 +58,8 @@ export interface PayOnlineRequest {
    * payments"): the box stays ticked, so it never becomes a one-time payment.
    */
   autoRenew?: boolean;
+  /** A plan: the report of what it locks was read and accepted (else 409 LOCKS_NOT_ACKNOWLEDGED while billing locks are on). */
+  acknowledgeLocks?: boolean;
 }
 
 export default function PayOnlineDialog({
@@ -136,6 +138,7 @@ export default function PayOnlineDialog({
         callbackUrl: `${billingReturnOrigin()}/${slug}/billing${withCard ? '?card=setup' : ''}`,
         expectedNetMinor: withCard && fullPrice !== null ? fullPrice : request.expectedNetMinor,
         ...(withCard ? { autoRenew: true } : {}),
+        ...(request.purpose === 'plan' && request.acknowledgeLocks ? { acknowledgeLocks: true } : {}),
       });
       await followCheckout(started, {
         locale,

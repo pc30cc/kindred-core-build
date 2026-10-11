@@ -244,6 +244,8 @@ export default function PlanPickerDialog({
       expectedNetMinor: quoteNet(quote),
       fullPriceMinor: purpose === 'plan' ? quote.period_price_minor : null,
       title: t(purpose === 'plan' ? 'billing.account.picker.buyTitle' : 'billing.account.picker.upgradeTitle', { plan: chosenName }),
+      // A plan bought online locks what is over its limits as buying it from the balance does.
+      ...(purpose === 'plan' && locksAck ? { acknowledgeLocks: true } : {}),
     });
   };
 

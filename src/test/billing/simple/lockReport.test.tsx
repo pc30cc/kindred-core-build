@@ -12,6 +12,8 @@
  *  - A downgrade that locks something waits for "I understand" while locks
  *    are on, and sends acknowledgeLocks; the server's 409
  *    LOCKS_NOT_ACKNOWLEDGED shows its report and asks for it.
+ *  - A plan paid online (the balance short) sends the acknowledgement on
+ *    its checkout too; without a report it sends none.
  *  - The export of locked data is offered to the workspace owner only.
  *  - The banner shows what is locked now and when it is deleted, to the
  *    owner and admins, only while locks are on.
@@ -30,6 +32,7 @@ vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: i18n.t, locale: 'en', dir: 'ltr' }),
 }));
 vi.mock('@/lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('@/lib/paddleCheckout', () => ({ openPaddleCheckout: vi.fn() }));
 vi.mock('@/lib/edition', async (orig) => ({ ...(await orig<object>()), currentEdition: () => 'international' }));
 
 const banner = vi.hoisted(() => ({
@@ -56,6 +59,7 @@ const api = {
   quote: vi.fn(),
   change: vi.fn(),
   buyPlan: vi.fn(),
+  checkout: vi.fn(),
   lockReport: vi.fn(),
   lockedExport: vi.fn(),
   startLockedExport: vi.fn(),
@@ -282,6 +286,40 @@ describe('a downgrade that locks data', () => {
     await waitFor(() => expect(buy).toBeEnabled());
     fireEvent.click(buy);
     await waitFor(() => expect(api.buyPlan).toHaveBeenCalledWith('ws-1', expect.objectContaining({ planId: 'free', acknowledgeLocks: true })));
+  });
+
+  it('a plan paid online sends the acknowledgement on its checkout; without a report it sends none', async () => {
+    api.view.mockResolvedValue({ ...VIEW, gateways: [{ provider_name: 'stripe', display_name: { en: 'Stripe' }, is_test: false }] });
+    api.checkout.mockResolvedValue({
+      success: true, paymentId: 'pay-1', provider: 'stripe', currency: 'USD', net_minor: 2900, tax_minor: 0, amount_minor: 2900,
+      clientCheckout: { provider: 'paddle', transactionId: 'txn_1' },
+    });
+    const PURCHASE = {
+      ...SCHEDULE_FREE, kind: 'purchase', plan_id: 'free', amount_minor: 2900, period_price_minor: 2900, shortfall_minor: 2900,
+      effective_at: new Date().toISOString(),
+    };
+    api.quote.mockResolvedValue({ ...PURCHASE, lock_report: report() });
+    let quote = await pickFree();
+    expect(await within(quote).findByTestId('lock-report')).toBeInTheDocument();
+    const payOnline = within(quote).getByRole('button', { name: 'billing.account.picker.payOnline' });
+    expect(payOnline).toBeDisabled();
+    fireEvent.click(within(within(quote).getByTestId('lock-report-ack')).getByRole('checkbox'));
+    await waitFor(() => expect(payOnline).toBeEnabled());
+    fireEvent.click(payOnline);
+    fireEvent.click(await screen.findByRole('button', { name: 'billing.account.topup.pay' }));
+    await waitFor(() => expect(api.checkout).toHaveBeenCalledWith('ws-1', expect.objectContaining({ purpose: 'plan', planId: 'free', acknowledgeLocks: true })));
+
+    // Locks off: no report, nothing acknowledged, the checkout as before.
+    cleanup();
+    api.checkout.mockClear();
+    api.quote.mockResolvedValue(PURCHASE);
+    quote = await pickFree();
+    const plain = await within(quote).findByRole('button', { name: 'billing.account.picker.payOnline' });
+    expect(within(quote).queryByTestId('lock-report')).toBeNull();
+    fireEvent.click(plain);
+    fireEvent.click(await screen.findByRole('button', { name: 'billing.account.topup.pay' }));
+    await waitFor(() => expect(api.checkout).toHaveBeenCalledTimes(1));
+    expect(api.checkout.mock.calls[0][1]).not.toHaveProperty('acknowledgeLocks');
   });
 
   it('the server\'s 409 LOCKS_NOT_ACKNOWLEDGED shows its report and asks for the acknowledgement', async () => {

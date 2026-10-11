@@ -90,7 +90,7 @@ import {
 } from '../services/billing/account/card.js';
 import { aiPackNeed } from '../services/billing/account/aiPacks.js';
 import { planNamesFor } from '../services/billing/account/notify.js';
-import { buildLockReport, reportForViewer } from '../services/billing/locks/report.js';
+import { buildLockReport, reportForViewer, reportNeedsAcknowledgement } from '../services/billing/locks/report.js';
 import { getBillingRegion } from '../services/billing/edition.js';
 import { resolveNamedBillingConfig } from '../services/billing/index.js';
 import { AI_PACK_LIMITS } from '../../shared/aiPacks.js';
@@ -702,6 +702,8 @@ const checkoutSchema = z.object({
   /** An AI credit pack (purpose 'ai_pack', phase 5): which one, and the price the page showed. */
   packId: z.string().regex(AI_PACK_LIMITS.idPattern).optional(),
   expectedPriceMinor: z.number().int().positive().optional(),
+  /** A plan (purpose 'plan'): the report of what it locks was read and accepted (while billing locks are on). */
+  acknowledgeLocks: z.boolean().optional(),
 });
 
 /**
@@ -719,6 +721,11 @@ const checkoutSchema = z.object({
  * balance is missing for its price, then the pack is bought from the balance
  * at settlement. A pack that changed meanwhile leaves the money in the
  * balance. A card is never saved for a pack.
+ *
+ * A plan bought online (with or without a card) locks what is over its
+ * limits at settlement, as POST /plan does: while billing locks are on and
+ * the quote's report lists something, acknowledgeLocks must be true, else
+ * 409 LOCKS_NOT_ACKNOWLEDGED with the report, before any payment row.
  */
 billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -775,6 +782,14 @@ billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => 
     });
     if (parsed.data.currency && parsed.data.currency.toUpperCase() !== need.currency) {
       return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency: need.currency } });
+    }
+    if (parsed.data.purpose === 'plan' && parsed.data.acknowledgeLocks !== true) {
+      // The plan amountNeededFor quoted; the quote carries the report only
+      // while billing locks are on.
+      const quote = await quotePlanChange(cfg, req.params.workspaceId, String(parsed.data.planId), parsed.data.interval ?? 'monthly', { withLockReport: true });
+      if (reportNeedsAcknowledgement(quote.lock_report)) {
+        return res.status(409).json({ error: 'LOCKS_NOT_ACKNOWLEDGED', details: { lock_report: quote.lock_report } });
+      }
     }
     if (withCard) {
       const full = need.periodPriceMinor;

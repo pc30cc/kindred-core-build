@@ -457,6 +457,8 @@ export const accountBillingApi = {
       expectedNetMinor?: number;
       /** Save the card and renew with it (plan or renewal): the full price is charged. */
       autoRenew?: boolean;
+      /** A plan: the report of what it locks was read and accepted (else 409 LOCKS_NOT_ACKNOWLEDGED while billing locks are on). */
+      acknowledgeLocks?: boolean;
     },
   ) => request<TopupStarted>(`${base(workspaceId)}/checkout`, { method: 'POST', body: JSON.stringify(input) }),
   /** Upgrade now, charging the quoted difference to the saved card (exactly the total the button showed). */

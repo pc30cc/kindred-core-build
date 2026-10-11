@@ -116,8 +116,10 @@ const server = http.createServer(app).listen(0);
 afterAll(() => server.close());
 
 type Jar = Record<string, string>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- response bodies are read loosely in assertions
+type Json = any;
 
-function call(method: string, path: string, jar: Jar, body?: unknown): Promise<{ status: number; json: any }> {
+function call(method: string, path: string, jar: Jar, body?: unknown): Promise<{ status: number; json: Json }> {
   const payload = body === undefined ? undefined : JSON.stringify(body);
   const cookie = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
   return new Promise((resolve, reject) => {
@@ -145,7 +147,7 @@ function call(method: string, path: string, jar: Jar, body?: unknown): Promise<{
             if (expired || !value) delete jar[name.trim()];
             else jar[name.trim()] = value;
           }
-          let json: any = {};
+          let json: Json = {};
           try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
           resolve({ status: res.statusCode || 0, json });
         });

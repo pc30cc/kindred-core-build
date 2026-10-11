@@ -640,6 +640,17 @@ const tr: TranslationKeys = {
       hint: '↑↓ gezin · Enter ekle · Esc kapat',
     },
   },
+  impersonation: {
+    bannerTitle: '{{user}} olarak giriş yaptınız',
+    bannerHint: 'Burada yaptığınız her şey bu kullanıcı adına yapılır. Giriş yapan Süper Yönetici: {{admin}}.',
+    backToAdmin: 'Süper Yönetici paneline dön',
+    returning: 'Dönülüyor…',
+    returnFailed: 'Süper Yönetici paneline dönülemedi. Lütfen tekrar deneyin.',
+    signingIn: 'Kullanıcı olarak giriş yapılıyor…',
+    failedTitle: 'Bu kullanıcı olarak giriş yapılamadı',
+    failedHint: 'Giriş bağlantıları yalnızca bir kez, 60 saniye içinde ve onları oluşturan Süper Yöneticinin tarayıcısında çalışır. Geri dönüp "Kullanıcı olarak giriş yap" düğmesine tekrar tıklayın.',
+    backToUsers: 'Kullanıcılara dön',
+  },
   appUpdate: {
     title: 'Yeni bir sürüm var',
     description: 'En son güncellemeyi almak için sayfayı yenileyin.',

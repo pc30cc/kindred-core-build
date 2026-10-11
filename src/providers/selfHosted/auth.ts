@@ -45,10 +45,17 @@ function mapUser(u: BackendUser | null | undefined): AuthUser | null {
   };
 }
 
-function mapSession(u: BackendUser | null | undefined): AuthSession | null {
+function mapSession(
+  u: BackendUser | null | undefined,
+  impersonator?: { id?: string; email?: string } | null,
+): AuthSession | null {
   const user = mapUser(u);
   if (!user) return null;
-  return { user, accessToken: 'cookie' };
+  return {
+    user,
+    accessToken: 'cookie',
+    impersonator: impersonator?.id ? { id: impersonator.id, email: impersonator.email ?? '' } : null,
+  };
 }
 
 type Listener = (session: AuthSession | null) => void;
@@ -159,7 +166,7 @@ export const selfHostedAuthProvider: AuthProvider = {
       // and the next attempt (or a later app launch) can succeed.
       if (!res.ok) return null;
       const body = await res.json();
-      return mapSession(body?.user);
+      return mapSession(body?.user, body?.impersonator);
     } catch {
       return null;
     }

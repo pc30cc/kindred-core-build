@@ -16,6 +16,8 @@ export interface AuthUser {
 export interface AuthSession {
   user: AuthUser;
   accessToken: string;
+  /** Set while a Super Admin is signed in as this user ("login as user"). */
+  impersonator?: { id: string; email: string } | null;
   refreshToken?: string;
   expiresAt?: number;
 }

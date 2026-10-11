@@ -638,6 +638,17 @@ const en = {
       hint: '↑↓ navigate · Enter insert · Esc close',
     },
   },
+  impersonation: {
+    bannerTitle: 'You are signed in as {{user}}',
+    bannerHint: 'Everything you do here is done as this user. Signed in by Super Admin {{admin}}.',
+    backToAdmin: 'Back to Super Admin',
+    returning: 'Returning…',
+    returnFailed: 'Could not return to Super Admin. Please try again.',
+    signingIn: 'Signing in as the user…',
+    failedTitle: 'Could not sign in as this user',
+    failedHint: 'Login links work once, for 60 seconds, in the browser of the Super Admin who created them. Go back and click "Login as User" again.',
+    backToUsers: 'Back to users',
+  },
   appUpdate: {
     title: 'A new version is available',
     description: 'Refresh the page to get the latest update.',

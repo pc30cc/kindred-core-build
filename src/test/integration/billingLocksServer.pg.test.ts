@@ -182,8 +182,11 @@ suite('billing locks: server lock core, report and quote against the real chain'
     expect(new Set((locked.data ?? []).map((r: Row) => String(r.id)))).toEqual(new Set(s.kb?.ids));
     expect((unlocked.data ?? []).length).toBe(2);
     // Contacts: the filter is the rank only (spam and anonymous rows are the caller's to show).
-    const lockedContacts = await predicates.applyLockedFilter(
-      sb.from('contacts').select('id, email').eq('workspace_id', ws).eq('is_spam', false).not('email', 'is', null), s.contact?.cut ?? null);
+    // Typed loosely: the full chain's inferred type is too deep for tsc (TS2589).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const contactsQuery = (sb.from('contacts') as any)
+      .select('id, email').eq('workspace_id', ws).eq('is_spam', false).not('email', 'is', null);
+    const lockedContacts = await predicates.applyLockedFilter(contactsQuery, s.contact?.cut ?? null);
     expect(lockedContacts.error).toBeNull();
     expect((lockedContacts.data ?? []).map((r: Row) => r.email).sort()).toEqual(['p2@acme.test', 'p3@acme.test']);
     // Nothing locked: the locked filter matches nothing, the unlocked one leaves the query as it is.

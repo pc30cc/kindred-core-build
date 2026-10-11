@@ -32,6 +32,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { resolveNamedBillingConfig } from '../index.js';
 import { getBillingRegion } from '../edition.js';
+import { isRelationMissing } from '../entitlementParse.js';
 import {
   buildChargeItem,
   buildRecurringItem,
@@ -90,7 +91,9 @@ import {
   chargeDateFor,
   desiredCardState,
   lastPaidEnd,
+  ownRenewalFreeze,
   periodEndOf,
+  setupHoldFrom,
   type CardStateInput,
   type DesiredCardState,
 } from './cardState.js';
@@ -146,9 +149,11 @@ export interface CardView {
   /** A scheduled cancel's effective time (auto-renew off). */
   scheduled_cancel_at: string | null;
   last_failure: { at: string; code: string | null } | null;
-  /** cardFreeze().until while plan changes are frozen around Paddle's charge. */
+  /** Until when plan changes are frozen around a renewal (Paddle's charge, or the one our period expects). */
   frozen_until: string | null;
   expires_before_next_charge: boolean;
+  /** The card's gateway still has automatic card renewal on: an upgrade can be charged to it. */
+  chargeable: boolean;
 }
 
 export interface CardAvailability {
@@ -181,6 +186,8 @@ const DAY_MS = 86_400_000;
 const MINUTE_MS = 60_000;
 /** How far Paddle's period may run past ours before a renewal is suspected we have not recorded. */
 const PADDLE_AHEAD_SLACK_MS = DAY_MS;
+/** Paddle refuses changes to a subscription in the 30 minutes before its charge. */
+const PADDLE_LOCK_MS = 30 * MINUTE_MS;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Errors 262's functions raise that mean "not this way" rather than "try again". */
@@ -282,7 +289,11 @@ const asInterval = (v: unknown): 'monthly' | 'yearly' => (v === 'yearly' || v ==
 
 // ─── Reading cards ─────────────────────────────────────────────────────────
 
-/** The workspace's live card (active or past_due; at most one), or null. */
+/**
+ * The workspace's live card (active or past_due; at most one), or null. A
+ * database without migration 262 has no card: the plan actions and the due
+ * step that ask first keep working while a deploy's migrator has not run yet.
+ */
 export async function readLiveCard(config: ServerConfig, workspaceId: string): Promise<CardRow | null> {
   const { data, error } = await getServiceClient(config)
     .from('billing_account_cards')
@@ -290,7 +301,10 @@ export async function readLiveCard(config: ServerConfig, workspaceId: string): P
     .eq('workspace_id', workspaceId)
     .in('status', ['active', 'past_due'])
     .maybeSingle();
-  if (error) throw new Error(error.message || 'card read failed');
+  if (error) {
+    if (isRelationMissing(error, 'billing_account_cards')) return null;
+    throw new Error(error.message || 'card read failed');
+  }
   return data ? toCard(data as Record<string, unknown>) : null;
 }
 
@@ -529,6 +543,8 @@ interface CardStateContext {
   /** The account's currency (the card's when it has no account). */
   currency: string;
   balanceMinor: number;
+  /** A prepayment made for a period that no longer runs: billing_account_renew returns it to the balance first. */
+  stalePrepaidMinor: number;
 }
 
 /** Everything desiredCardState() needs, read from the workspace's billing state now. */
@@ -566,6 +582,10 @@ async function loadCardState(config: ServerConfig, card: CardRow, now = Date.now
   let target: CardStateInput['target'] = null;
   let prepaidNextEnd: string | null = null;
   let v2NextEnd: string | null = null;
+  const prepaidMinor = account.next_period_prepaid_minor === null || account.next_period_prepaid_minor === undefined
+    ? null
+    : num(account.next_period_prepaid_minor);
+  let stalePrepaidMinor = prepaidMinor ?? 0;
   if (paid) {
     const targetId = str(account.scheduled_plan_id) ?? paid.plan_id;
     const interval = account.scheduled_interval ? asInterval(account.scheduled_interval) : paid.billing_interval;
@@ -575,9 +595,9 @@ async function loadCardState(config: ServerConfig, card: CardRow, now = Date.now
       : null;
     // A prepayment counts only for the period that runs now (else it returns to the balance).
     const prepaidStart = Date.parse(str(account.next_period_start) ?? '');
-    if (account.next_period_prepaid_minor !== null && account.next_period_prepaid_minor !== undefined
-        && Math.abs(prepaidStart - Date.parse(paid.current_period_end)) < 1000) {
+    if (prepaidMinor !== null && Math.abs(prepaidStart - Date.parse(paid.current_period_end)) < 1000) {
       prepaidNextEnd = periodEndOf(paid.current_period_end, interval);
+      stalePrepaidMinor = 0;
     }
     // A next period paid through billing v2 (a scheduled service period).
     const { data: v2Id } = await sb.rpc('billing_account_v2_next_period', { p_workspace_id: card.workspace_id });
@@ -604,6 +624,7 @@ async function loadCardState(config: ServerConfig, card: CardRow, now = Date.now
     targetPlan,
     currency,
     balanceMinor: num(account.balance_minor),
+    stalePrepaidMinor,
   };
 }
 
@@ -629,7 +650,9 @@ export async function cardView(config: ServerConfig, workspaceId: string): Promi
   const cancelScheduled = Boolean(scheduled) || card.cancel_intent === 'period_end';
   const nextChargeAt = cancelScheduled ? null : card.paddle_next_billed_at;
   const renew = desired.kind === 'renew' ? desired : null;
-  const freeze = cardFreeze(card, now);
+  const mirrored = cardFreeze(card, now);
+  const freeze = mirrored.frozen ? mirrored : ownRenewalFreeze(state.input);
+  const gateway = await cardGateway(config, workspaceId, card.provider).catch(() => null);
   return {
     id: card.id,
     provider: card.provider,
@@ -649,6 +672,7 @@ export async function cardView(config: ServerConfig, workspaceId: string): Promi
     last_failure: card.last_failure ? { at: card.last_failure.at, code: card.last_failure.code } : null,
     frozen_until: freeze.frozen ? freeze.until : null,
     expires_before_next_charge: expiresBefore(card, nextChargeAt),
+    chargeable: Boolean(gateway && cardAutoRenewEnabled(gateway.raw)),
   };
 }
 
@@ -1304,13 +1328,35 @@ async function runSync(config: ServerConfig, cardId: string, prefetched: PaddleS
     if (sub.status !== 'active') return defer(`paddle_${sub.status || 'unknown'}`, 30 * MINUTE_MS);
     if (desired.kind === 'hold') {
       await settleSetupIfPaid(config, card);
-      const setupAt = Date.parse(state.input.setupPayment?.created_at ?? '');
+      const setup = state.input.setupPayment;
+      const setupAt = setup ? setupHoldFrom(setup, card) : Number.NaN;
       const holdLeft = Number.isFinite(setupAt) ? setupAt + CARD_SETUP_HOLD_MS - now : 0;
       return defer('setup_pending', Math.max(MINUTE_MS, Math.min(10 * MINUTE_MS, holdLeft)));
     }
-    // 5. Around Paddle's charge: changes wait.
+    // 5. Around Paddle's charge: changes wait. Except a date of Paddle's
+    // earlier than ours while Paddle's own lock is still away: it is moved
+    // later (that never charges; nothing else is changed), else nothing could
+    // ever undo a wrong early date before Paddle charges at it.
     const freeze = cardFreeze({ paddle_next_billed_at: sub.nextBilledAt, status: card.status }, now);
-    if (freeze.frozen) return defer('frozen', 15 * MINUTE_MS);
+    if (freeze.frozen) {
+      const paddleAt = Date.parse(sub.nextBilledAt ?? '');
+      const wantedAt = desired.kind === 'renew' && desired.feasible ? Date.parse(desired.nextBilledAt) : Number.NaN;
+      if (desired.kind !== 'renew' || !(wantedAt - paddleAt > CARD_SYNC_DATE_TOLERANCE_MS && paddleAt - now > PADDLE_LOCK_MS)) {
+        return defer('frozen', 15 * MINUTE_MS);
+      }
+      const later: SubscriptionPatch = { next_billed_at: desired.nextBilledAt, proration_billing_mode: 'do_not_bill' };
+      const preview = await previewSubscriptionUpdate(cfg, sub.id, later);
+      if (!preview.ok) return paddleFailure(preview);
+      if (preview.billsNow) {
+        console.error(`[billing-card] REVIEW card=${card.id} Paddle's preview of moving its date later would bill now; not applied`);
+        return fail('preview_bills');
+      }
+      const updated = await updateSubscription(cfg, sub.id, later);
+      if (!updated.ok) return paddleFailure(updated);
+      mirror = { ...mirror, ...mirrorOf(updated.subscription ?? sub) };
+      console.warn(`[billing-card] card=${card.id} Paddle's date ${sub.nextBilledAt} was before ours: moved to ${desired.nextBilledAt}`);
+      return defer('moved_later', MINUTE_MS);
+    }
 
     // 6. No further charge: cancel at Paddle's period end.
     if (desired.kind === 'stop_at_period_end') {
@@ -1365,10 +1411,21 @@ async function runSync(config: ServerConfig, cardId: string, prefetched: PaddleS
       const wantedAt = Date.parse(desired.nextBilledAt);
       if (!Number.isFinite(paddleAt) || Math.abs(paddleAt - wantedAt) > CARD_SYNC_DATE_TOLERANCE_MS) {
         const paidUntil = lastPaidEnd(state.input) ?? desired.nextBilledAt;
-        held = Number.isFinite(paddleAt) && wantedAt < paddleAt
-          ? await earlierDateBlocked(config, cfg, card, sub, paidUntil)
-          : null;
-        if (!held) patch.next_billed_at = desired.nextBilledAt;
+        const earlier = Number.isFinite(paddleAt) && wantedAt < paddleAt;
+        held = earlier ? await earlierDateBlocked(config, cfg, card, sub, paidUntil) : null;
+        if (!held && earlier) {
+          // Decided again on what is paid now: a renewal another notification
+          // settled while Paddle was asked moved our date on, and the date
+          // read before it would have Paddle charge that period again.
+          const fresh = desiredCardState((await loadCardState(config, card, Date.now())).input);
+          if (fresh.kind === 'renew' && fresh.feasible && paddleAt - Date.parse(fresh.nextBilledAt) > CARD_SYNC_DATE_TOLERANCE_MS) {
+            patch.next_billed_at = fresh.nextBilledAt;
+          } else {
+            held = 'renewal_settled';
+          }
+        } else if (!held) {
+          patch.next_billed_at = desired.nextBilledAt;
+        }
       }
     }
     // A renewal just settled changed what is paid: decide again shortly.
@@ -1395,9 +1452,10 @@ async function runSync(config: ServerConfig, cardId: string, prefetched: PaddleS
     // date we sent that Paddle did not take is an error (with its back-off),
     // so a Paddle that keeps refusing it is not asked every few minutes.
     const afterAt = Date.parse(after.nextBilledAt ?? '');
+    const wantedDate = patch.next_billed_at ?? desired.nextBilledAt;
     const dateOff = desired.feasible && Number.isFinite(afterAt)
-      && Math.abs(afterAt - Date.parse(desired.nextBilledAt)) > CARD_SYNC_DATE_TOLERANCE_MS;
-    if (dateOff && patch.next_billed_at) return fail(`paddle_date_not_applied: ${after.nextBilledAt} for ${desired.nextBilledAt}`);
+      && Math.abs(afterAt - Date.parse(wantedDate)) > CARD_SYNC_DATE_TOLERANCE_MS;
+    if (dateOff && patch.next_billed_at) return fail(`paddle_date_not_applied: ${after.nextBilledAt} for ${wantedDate}`);
     await markSynced(config, card.id, dateOff ? version - 1 : version, mirror);
     return { status: 'synced' };
   } catch (e) {
@@ -1497,7 +1555,7 @@ async function resolveChargeTransaction(
 export async function chargeCardForUpgrade(
   config: ServerConfig,
   workspaceId: string,
-  input: { planId: string; expectedNetMinor: number; actorId: string | null },
+  input: { planId: string; expectedNetMinor: number; expectedTotalMinor?: number; actorId: string | null },
 ): Promise<{ status: 'succeeded' | 'processing'; paymentId: string; purposeResult?: Record<string, unknown> | null }> {
   const plans = await import('./plans.js');
   const card = await readLiveCard(config, workspaceId);
@@ -1505,7 +1563,7 @@ export async function chargeCardForUpgrade(
   if (card.status === 'past_due') throw new AccountBillingError('CARD_PAST_DUE', 409);
   const gateway = await cardGateway(config, workspaceId, card.provider).catch(() => null);
   if (!gateway || !cardAutoRenewEnabled(gateway.raw)) throw new AccountBillingError('CARD_NOT_AVAILABLE', 400);
-  const freeze = cardFreeze(card, Date.now());
+  const freeze = await renewalFreeze(config, card);
   if (freeze.frozen) throw new AccountBillingError('CARD_RENEWAL_IN_PROGRESS', 409, { frozen_until: freeze.until });
 
   const paid = await plans.paidPeriodOf(config, workspaceId);
@@ -1517,6 +1575,11 @@ export async function chargeCardForUpgrade(
   const settings = await getBillingSettings(config);
   const vat = vatPercentFor(settings.vat_percent, card.currency);
   const charge = chargeFor(net, vat);
+  // The card is charged at once, with no checkout to show the total first:
+  // only the total the page showed (VAT included) is charged.
+  if (input.expectedTotalMinor !== undefined && charge.total !== input.expectedTotalMinor) {
+    throw new AccountBillingError('QUOTE_CHANGED', 409, { quote, vat_percent: vat });
+  }
   const minimum = PADDLE_MIN_CHARGE_MINOR[card.currency] ?? 70;
   if (net <= 0 || charge.total < minimum) {
     throw new AccountBillingError('CARD_CHARGE_BELOW_MINIMUM', 400, { minimum_minor: minimum, amount_minor: charge.total });
@@ -1743,6 +1806,22 @@ export async function setCardAutoRenew(config: ServerConfig, workspaceId: string
   });
   const scheduled = card.paddle_scheduled_change?.action === 'cancel';
   if (!enabled) {
+    if (card.status === 'past_due') {
+      // A cancel at Paddle's period end would leave the declined renewal
+      // collectable (Paddle's retries, "update card and pay") and its money
+      // unspent: the card stops now, which ends both. The plan runs to its end.
+      if (!(await cancelCardNow(config, card.id, 'auto_renew_off'))) {
+        throw new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'cancel_failed' });
+      }
+      await mailCardRemoved(config, card, 'period_end');
+      return writeAutoRenew(config, workspaceId, false);
+    }
+    // Paddle has charged (or is charging) the renewal and it is not recorded
+    // yet: off now would leave that payment unspent.
+    const freeze = await renewalFreeze(config, card);
+    if (freeze.frozen && Date.now() >= Date.parse(freeze.at ?? '')) {
+      throw new AccountBillingError('CARD_RENEWAL_IN_PROGRESS', 409, { frozen_until: freeze.until });
+    }
     if (!scheduled) {
       const res = await cancelAtPaddle(config, cfg, card, 'next_billing_period');
       if (!res.ok) throw providerError(res.result);
@@ -1870,11 +1949,35 @@ async function movePaddleDate(config: ServerConfig, card: CardRow, at: string): 
 }
 
 /**
+ * Whether "renew from balance" will go through: billing_account_renew's
+ * guards, with what the page sent (the period, the price) and the balance it
+ * will have (a prepayment for a replaced period returns to it first). Only
+ * then is Paddle touched before it.
+ */
+async function balanceRenewalGoes(
+  config: ServerConfig,
+  card: CardRow,
+  input: { expectedPeriodEnd: string | null; expectedPriceMinor: number | null },
+  now: number,
+): Promise<{ goes: boolean; paid: CardStateInput['paid']; target: CardStateInput['target'] }> {
+  const state = await loadCardState(config, card, now);
+  const { paid, target } = state.input;
+  const price = target && !target.is_free ? target.price_minor : null;
+  const sameEnd = !input.expectedPeriodEnd || !paid
+    || Math.abs(Date.parse(input.expectedPeriodEnd) - Date.parse(paid.current_period_end)) < 1000;
+  const goes = Boolean(paid && target && price !== null && !state.input.prepaidNextEnd && !state.input.v2NextEnd && sameEnd
+    && state.balanceMinor + state.stalePrepaidMinor >= price && (input.expectedPriceMinor === null || input.expectedPriceMinor === price));
+  return { goes, paid, target };
+}
+
+/**
  * "Renew from balance" while a card is saved (design §2.5). A past_due card
- * is cancelled first (refused when Paddle does not confirm). An active card:
- * outside the freeze, Paddle's next charge first moves one period on (to the
- * end of the period being prepaid − lead), then the balance pays. If the
- * renewal then fails, the reconciler moves the date back.
+ * is cancelled first (refused when Paddle does not confirm), but only for a
+ * renewal that will go through: otherwise the renewal's own refusal is
+ * answered and the card (with its "update card and pay") stays. An active
+ * card: outside the freeze, Paddle's next charge first moves one period on
+ * (to the end of the period being prepaid − lead), then the balance pays. If
+ * the renewal then fails, the reconciler moves the date back.
  */
 export async function renewWithCard(
   config: ServerConfig,
@@ -1885,25 +1988,29 @@ export async function renewWithCard(
   const renew = () => plans.renewPlan(config, workspaceId, input.actorId, input.expectedPeriodEnd, input.expectedPriceMinor);
   const card = await readLiveCard(config, workspaceId);
   if (!card) return renew();
+  const now = Date.now();
   if (card.status === 'past_due') {
+    if (!(await balanceRenewalGoes(config, card, input, now)).goes) {
+      // billing_account_renew answers why (the card is not touched)...
+      const result = await renew();
+      // ...or renews after all: Paddle must not collect that period too.
+      await setCardStatus(config, card.id, 'canceling', 'renewed_from_balance').catch(() => ({}));
+      if (!(await cancelCardNow(config, card.id, 'renewed_from_balance'))) {
+        console.error(`[billing-card] REVIEW card=${card.id} renewed from balance while past_due; not cancelled at Paddle yet (the job retries it)`);
+      }
+      return result;
+    }
     if (!(await cancelCardNow(config, card.id, 'renewed_from_balance'))) {
       throw new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'cancel_failed' });
     }
     return renew();
   }
-  const now = Date.now();
-  const freeze = cardFreeze(card, now);
+  const freeze = await renewalFreeze(config, card, now);
   if (freeze.frozen) throw new AccountBillingError('CARD_RENEWAL_IN_PROGRESS', 409, { frozen_until: freeze.until });
 
   // Only a renewal that will go through moves Paddle's date: the guards of
   // billing_account_renew answer anything else, with nothing moved.
-  const state = await loadCardState(config, card, now);
-  const { paid, target } = state.input;
-  const price = target && !target.is_free ? target.price_minor : null;
-  const sameEnd = !input.expectedPeriodEnd || !paid
-    || Math.abs(Date.parse(input.expectedPeriodEnd) - Date.parse(paid.current_period_end)) < 1000;
-  const goes = paid && price !== null && !state.input.prepaidNextEnd && !state.input.v2NextEnd && sameEnd
-    && state.balanceMinor >= price && (input.expectedPriceMinor === null || input.expectedPriceMinor === price);
+  const { goes, paid, target } = await balanceRenewalGoes(config, card, input, now);
   if (!goes || !paid || !target) {
     const result = await renew();
     await syncCard(config, card.id);
@@ -1931,12 +2038,33 @@ export async function renewWithCard(
   return result;
 }
 
-/** Plan actions on a card account: refused while the card is past_due or around Paddle's charge. No card: nothing. */
+/**
+ * Whether plan actions wait for a renewal (CARD_RENEWAL_IN_PROGRESS): around
+ * Paddle's mirrored charge date (cardFreeze), or around the charge our own
+ * period expects while its renewal is not recorded (ownRenewalFreeze: Paddle
+ * moves its date on before that renewal reaches us). Once that charge time
+ * has passed, a renewal Paddle charged is pulled and settled first, which
+ * ends the second. `at` = the charge time the freeze is about.
+ */
+async function renewalFreeze(
+  config: ServerConfig,
+  card: CardRow,
+  now = Date.now(),
+): Promise<{ frozen: boolean; until: string | null; at: string | null }> {
+  const mirrored = cardFreeze(card, now);
+  if (mirrored.frozen) return { ...mirrored, at: card.paddle_next_billed_at };
+  const own = ownRenewalFreeze((await loadCardState(config, card, now)).input);
+  if (!own.frozen || now < Date.parse(own.at ?? '')) return own;
+  if (!(await pullCardRenewal(config, card.workspace_id))) return own;
+  return ownRenewalFreeze((await loadCardState(config, card, Date.now())).input);
+}
+
+/** Plan actions on a card account: refused while the card is past_due or around a renewal (renewalFreeze). No card: nothing. */
 export async function assertCardAllowsPlanChange(config: ServerConfig, workspaceId: string): Promise<void> {
   const card = await readLiveCard(config, workspaceId);
   if (!card) return;
   if (card.status === 'past_due') throw new AccountBillingError('CARD_PAST_DUE', 409);
-  const freeze = cardFreeze(card, Date.now());
+  const freeze = await renewalFreeze(config, card);
   if (freeze.frozen) throw new AccountBillingError('CARD_RENEWAL_IN_PROGRESS', 409, { frozen_until: freeze.until });
 }
 

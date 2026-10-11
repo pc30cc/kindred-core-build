@@ -68,6 +68,8 @@ const h = vi.hoisted(() => ({
   },
   createCheckoutSession: vi.fn(),
   vat: null as number | null,
+  /** Payment rows of the last hour (the 10-an-hour attempt cap). */
+  paymentCount: 0,
 }));
 
 /** Records the call in the timeline, then answers with the spy. */
@@ -93,7 +95,7 @@ vi.mock('../../../../server/supabase.js', () => ({
       const b: Record<string, unknown> = {};
       for (const m of ['select', 'eq', 'gte']) b[m] = () => b;
       b.maybeSingle = async () => ({ data: { email: 'owner@acme.test' }, error: null });
-      b.then = (resolve: (v: unknown) => unknown) => resolve({ data: null, error: null, count: 0 });
+      b.then = (resolve: (v: unknown) => unknown) => resolve({ data: null, error: null, count: h.paymentCount });
       return b;
     },
   }),
@@ -194,13 +196,14 @@ function call(method: string, path: string, body?: unknown): Promise<{ status: n
   });
 }
 
-const CARD_VIEW = { id: 'card-1', provider: 'paddle_sandbox', status: 'active', brand: 'visa', last4: '4242' };
+const CARD_VIEW = { id: 'card-1', provider: 'paddle_sandbox', status: 'active', brand: 'visa', last4: '4242', chargeable: true };
 const SETUP = { customerId: 'ctm_1', recurring: { interval: 'monthly' }, priceCustomData: { plan_id: PLAN, interval: 'monthly', net_minor: 2900, tax_minor: 0 } };
 
 beforeEach(() => {
   h.role = 'owner';
   h.edition = 'international';
   h.vat = null;
+  h.paymentCount = 0;
   h.timeline.length = 0;
   for (const group of [h.account, h.plans, h.card]) for (const fn of Object.values(group)) fn.mockReset();
   h.createCheckoutSession.mockReset().mockResolvedValue({
@@ -243,6 +246,15 @@ describe('GET /account: the card part of the view', () => {
     const res = await call('GET', '');
     expect(res.json).toMatchObject({ card: null, card_available: false, card_providers: [], can_manage: false });
     expect(h.card.cardView).not.toHaveBeenCalled();
+  });
+
+  it('the card is chargeable only on a gateway still offered to this viewer with card renewal on', async () => {
+    expect((await call('GET', '')).json.card).toMatchObject({ id: 'card-1', chargeable: true });
+    h.card.cardAvailability.mockResolvedValue({ available: false, providers: [] });
+    expect((await call('GET', '')).json.card).toMatchObject({ id: 'card-1', chargeable: false });
+    h.card.cardAvailability.mockResolvedValue({ available: true, providers: ['paddle_sandbox'] });
+    h.card.cardView.mockResolvedValue({ ...CARD_VIEW, chargeable: false });
+    expect((await call('GET', '')).json.card).toMatchObject({ id: 'card-1', chargeable: false });
   });
 
   it('a card that cannot be read shows none; the page still loads', async () => {
@@ -385,6 +397,24 @@ describe('POST card/charge (upgrade charged to the card)', () => {
     const res = await call('POST', '/card/charge', body);
     expect(res).toEqual({ status: 200, json: { status: 'succeeded', paymentId: PAY, purpose_result: { action: 'upgraded' } } });
     expect(h.card.chargeCardForUpgrade.mock.calls[0][2]).toEqual({ planId: PLAN, expectedNetMinor: 1500, actorId: 'u1' });
+  });
+
+  it('the total the button showed goes along (VAT included); a malformed one is refused', async () => {
+    h.card.chargeCardForUpgrade.mockResolvedValue({ status: 'succeeded', paymentId: PAY, purposeResult: { action: 'upgraded' } });
+    expect((await call('POST', '/card/charge', { ...body, expectedTotalMinor: 1650 })).status).toBe(200);
+    expect(h.card.chargeCardForUpgrade.mock.calls[0][2]).toEqual({ planId: PLAN, expectedNetMinor: 1500, expectedTotalMinor: 1650, actorId: 'u1' });
+    expect((await call('POST', '/card/charge', { ...body, expectedTotalMinor: 0 })).status).toBe(400);
+    expect((await call('POST', '/card/charge', { ...body, expectedTotalMinor: 16.5 })).status).toBe(400);
+    expect(h.card.chargeCardForUpgrade).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts toward the 10 payment attempts an hour: the 11th is refused before the card is touched', async () => {
+    h.card.chargeCardForUpgrade.mockResolvedValue({ status: 'succeeded', paymentId: PAY, purposeResult: { action: 'upgraded' } });
+    h.paymentCount = 9;
+    expect((await call('POST', '/card/charge', body)).status).toBe(200);
+    h.paymentCount = 10;
+    expect(await call('POST', '/card/charge', body)).toEqual({ status: 429, json: { error: 'TOO_MANY_CHECKOUTS' } });
+    expect(h.card.chargeCardForUpgrade).toHaveBeenCalledTimes(1);
   });
 
   it("202 while Paddle's answer is not known", async () => {

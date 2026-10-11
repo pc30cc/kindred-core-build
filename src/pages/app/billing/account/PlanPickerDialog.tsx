@@ -160,9 +160,10 @@ export default function PlanPickerDialog({
   const chosen = (plans ?? []).find((p) => p.id === selected) ?? null;
   const chosenName = chosen ? (chosen.is_free ? t('billing.account.plan.free') : planLabel(chosen.name, chosen.localized, locale)) : '';
 
-  // The saved card: an upgrade can be charged to it while it is active and
-  // Paddle is not renewing it; a failed renewal or a renewal under way holds
-  // every plan change (the server refuses them too).
+  // The saved card: an upgrade can be charged to it while it is active, its
+  // gateway still offers card renewal (else it is paid online) and Paddle is
+  // not renewing it; a failed renewal or a renewal under way holds every
+  // plan change (the server refuses them too).
   const card = view.card ?? null;
   const cardFrozen = Boolean(card && isFuture(card.frozen_until));
   const blocked: string | null = card?.status === 'past_due'
@@ -175,6 +176,7 @@ export default function PlanPickerDialog({
   const cardUpgrade = Boolean(
     card
       && card.status === 'active'
+      && card.chargeable
       && !blocked
       && quote?.kind === 'upgrade'
       && quoteNet(quote) > 0
@@ -243,7 +245,11 @@ export default function PlanPickerDialog({
     setActionError(null);
     setCardCharge({ phase: 'charging' });
     try {
-      const started = await accountBillingApi.chargeCardUpgrade(workspaceId, { planId: quote.plan_id, expectedNetMinor: quoteNet(quote) });
+      const started = await accountBillingApi.chargeCardUpgrade(workspaceId, {
+        planId: quote.plan_id,
+        expectedNetMinor: quoteNet(quote),
+        expectedTotalMinor: cardTotal,
+      });
       if (!live()) return;
       if (started.status === 'succeeded') {
         cardSettled(started.purpose_result);
@@ -277,8 +283,9 @@ export default function PlanPickerDialog({
       setActionError(accountErrorText(e, t));
       if (err?.code === 'QUOTE_CHANGED' && err.details?.quote) setQuote(err.details.quote);
       else setQuoteNonce((n) => n + 1);
-      // The card changed under the page (a failed renewal, a renewal under way, removed): show it.
-      if (['CARD_PAST_DUE', 'CARD_RENEWAL_IN_PROGRESS', 'CARD_NOT_AVAILABLE', 'CARD_CHARGE_IN_PROGRESS'].includes(String(err?.code))) onDone();
+      // The card changed under the page (a failed renewal, a renewal under way, removed), or the
+      // amount did (a VAT change the page has not seen): show it.
+      if (['CARD_PAST_DUE', 'CARD_RENEWAL_IN_PROGRESS', 'CARD_NOT_AVAILABLE', 'CARD_CHARGE_IN_PROGRESS', 'QUOTE_CHANGED'].includes(String(err?.code))) onDone();
     } finally {
       if (live()) setBusy(false);
     }

@@ -143,11 +143,32 @@ const settle = (paymentId: string, amount: number, txnId: string) =>
   fn(`SELECT public.billing_card_settle($1, $2, 'USD', $3) AS r`, [paymentId, amount, txnId]);
 const renewalItem = (net: number, tax = 0, plan = proId, interval = 'monthly') => [{ plan_id: plan, interval, net_minor: net, tax_minor: tax }];
 /** A renewal Paddle charged on the card: recorded, then settled. */
-async function cardRenewal(cardId: string, net = PRO.monthly, tax = 0): Promise<{ payment: Row; settled: Row }> {
+async function cardRenewal(cardId: string, net = PRO.monthly, tax = 0, items: unknown[] = renewalItem(net, tax)): Promise<{ payment: Row; settled: Row }> {
   const t = txn();
-  const recorded = await recordCharge(cardId, t, 'subscription_recurring', net + tax, renewalItem(net, tax));
+  const recorded = await recordCharge(cardId, t, 'subscription_recurring', net + tax, items);
   const settled = await settle(String(recorded.id), net + tax, t);
   return { payment: recorded, settled };
+}
+const setPrices = (planId: string, usd: { monthly: number; yearly: number } | null) =>
+  q(`UPDATE public.billing_plans SET prices = $2 WHERE id = $1`, [planId, JSON.stringify(usd ? { USD: usd } : {})]);
+
+/** A second connection to the test database (the lock-order tests). */
+async function connect(): Promise<pg.Client> {
+  const url = new URL(DSN!);
+  url.pathname = `/${DB}`;
+  const c = new pg.Client({ connectionString: url.toString() });
+  await c.connect();
+  return c;
+}
+const backendPid = async (c: pg.Client): Promise<number> => Number((await c.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+/** Until that connection waits for a lock (or `done` says its statement finished). */
+async function untilBlocked(pid: number, done: () => boolean = () => false): Promise<void> {
+  for (let i = 0; i < 250; i++) {
+    if (done()) return;
+    if ((await one(`SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1`, [pid]))?.wait_event_type === 'Lock') return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`backend ${pid} neither finished nor waited for a lock`);
 }
 
 /** A card row written directly (the reconciler tests need exact states). */
@@ -266,6 +287,39 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
     await expect(register('paddle_sandbox', subId(), null, 'USD', await setupPayment(turkish)))
       .rejects.toThrow(/billing_account_currency_mismatch/);
     expect(await q(`SELECT 1 FROM public.billing_account_cards WHERE workspace_id IN ($1, $2)`, [ws, turkish])).toHaveLength(0);
+  });
+
+  it('a card registered while its checkout settles waits for the settlement (payment, then account) instead of deadlocking', async () => {
+    const ws = await makeWorkspace();
+    await q(`SELECT public.billing_account_ensure($1, 'USD')`, [ws]);
+    const pay = await setupPayment(ws);
+    await q(`SELECT public.billing_account_record_verification($1, $2, 'USD', $3)`, [pay, PRO.monthly, (await payment(pay)).provider_ref]);
+    const subscription = subId();
+    const a = await connect();
+    const b = await connect();
+    const bPid = await backendPid(b);
+    try {
+      // transaction.paid: the settlement holds the payment first …
+      await a.query('BEGIN');
+      await a.query(`SELECT id FROM public.billing_account_payments WHERE id = $1 FOR UPDATE`, [pay]);
+      // … while subscription.created registers the card …
+      const registered = b.query(`SELECT public.billing_card_register('paddle_sandbox', $1, 'ctm_7', 'USD', $2) AS r`, [subscription, pay])
+        .then((r) => r.rows[0].r as Row);
+      registered.catch(() => undefined);
+      await untilBlocked(bPid);
+      // … then takes the account, which the registration must not be holding.
+      const settled = (await a.query(`SELECT public.billing_account_settle_payment($1) AS r`, [pay])).rows[0].r as Row;
+      await a.query('COMMIT');
+      expect(settled.purpose_result).toMatchObject({ action: 'purchase', plan_id: proId });
+      expect(await registered).toMatchObject({ workspace_id: ws, live: true, duplicate: false, replayed: false });
+    } finally {
+      await a.query('ROLLBACK').catch(() => undefined);
+      await a.end();
+      await b.end();
+    }
+    expect(await account(ws)).toMatchObject({ card_subscription_id: subscription, auto_renew: true });
+    expect(await payment(pay)).toMatchObject({ status: 'succeeded' });
+    expect((await payment(pay)).card_id).not.toBeNull();
   });
 
   // ─── Status ───────────────────────────────────────────────────────────────
@@ -453,6 +507,37 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
     await expect(settle(String(fresh.id), 2800, String(fresh.provider_ref))).rejects.toThrow(/billing_payment_amount_mismatch/);
   });
 
+  it('a paid/completed replay of a settled card payment never waits for that payment while holding the account (a refund locks payment, then account)', async () => {
+    const { card: id } = await cardWorkspace();
+    const { payment: recorded } = await cardRenewal(id, 2900, 580);
+    const settledRow = await payment(String(recorded.id));
+    const a = await connect();
+    const b = await connect();
+    const bPid = await backendPid(b);
+    try {
+      // The adjustment webhook: the refund holds the payment first …
+      await a.query('BEGIN');
+      await a.query(`SELECT id FROM public.billing_account_payments WHERE id = $1 FOR UPDATE`, [recorded.id]);
+      // … while transaction.completed arrives after transaction.paid …
+      let done = false;
+      const replay = b.query(`SELECT public.billing_card_settle($1, 3480, 'USD', $2) AS r`, [recorded.id, recorded.provider_ref])
+        .then((r) => { done = true; return r.rows[0].r as Row; });
+      replay.catch(() => undefined);
+      await untilBlocked(bPid, () => done);
+      // … then the refund takes the account.
+      const refund = (await a.query(`SELECT public.billing_account_refund_payment($1, 'ref_replay', 1160) AS r`, [recorded.id])).rows[0].r as Row;
+      await a.query('COMMIT');
+      expect(refund).toMatchObject({ replayed: false });
+      expect(await replay).toEqual({ replayed: true, ledger_id: settledRow.ledger_id, payment_id: recorded.id });
+    } finally {
+      await a.query('ROLLBACK').catch(() => undefined);
+      await a.end();
+      await b.end();
+    }
+    // Another transaction still never settles it.
+    await expect(settle(String(recorded.id), 3480, 'txn_other')).rejects.toThrow(/billing_payment_reference_mismatch/);
+  });
+
   it('a card renewal that arrives after the period end, before the due step, starts the next period at once', async () => {
     const { ws, card: id } = await cardWorkspace();
     await makeDueWithoutPrepaid(ws);
@@ -511,8 +596,14 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
     await q(`UPDATE public.billing_plans SET prices = '{}' WHERE id = $1`, [soloId]);
     await kept(unsold.ws, (await cardRenewal(unsold.card)).settled, 'price_unavailable');
 
+    // Below the price, for another plan or interval than the next period's
+    // (or naming none): not what the card was set to charge for it.
     const short = await cardWorkspace();
-    await kept(short.ws, (await cardRenewal(short.card, 2000)).settled, 'amount_below_price', 2000);
+    await kept(short.ws, (await cardRenewal(short.card, 2000, 0, renewalItem(2000, 0, bizId))).settled, 'amount_below_price', 2000);
+    const shortYear = await cardWorkspace();
+    await kept(shortYear.ws, (await cardRenewal(shortYear.card, 2000, 0, renewalItem(2000, 0, proId, 'yearly'))).settled, 'amount_below_price', 2000);
+    const shortBare = await cardWorkspace();
+    await kept(shortBare.ws, (await cardRenewal(shortBare.card, 2000, 0, [{ interval: 'monthly', net_minor: 2000, tax_minor: 0 }])).settled, 'amount_below_price', 2000);
 
     // No paid plan, and the card was not cancelled for missing this payment.
     const lapsed = await cardWorkspace();
@@ -551,6 +642,95 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
     expect((await card(off.card)).cancel_reason).toBe('plan_ended');
     expect((await cardRenewal(off.card)).settled.purpose_result).toEqual({ error: 'no_paid_plan' });
     expect(await balanceOf(off.ws)).toBe(PRO.monthly);
+  });
+
+  it('a late renewal buys the plan again only at a price it covers: one that rose meanwhile leaves the money in the balance', async () => {
+    const lateId = await makePlan('c-late', PRO);
+    const { ws, card: id } = await cardWorkspace({ plan: lateId, balance: 10_000 });
+    await makeDue(ws);
+    expect(await processDue(ws)).toMatchObject({ action: 'expired', reason: 'card_not_paid' });
+    // Paddle's past_due transaction keeps the price it had; ours rose since.
+    await setPrices(lateId, { monthly: 3900, yearly: 39_000 });
+    const { payment: p, settled } = await cardRenewal(id, 2900, 0, renewalItem(2900, 0, lateId));
+    expect(settled.purpose_result).toEqual({ error: 'amount_below_price', late: true });
+    // The customer's own balance is not spent on the difference.
+    expect(await balanceOf(ws)).toBe(10_000 + 2900);
+    expect(await sub(ws)).toMatchObject({ status: 'expired', plan_id: lateId });
+    expect((await payment(String(p.id))).review).toBe('amount_below_price');
+
+    // A plan no longer sold in the currency: the money stays too.
+    await setPrices(lateId, null);
+    expect((await cardRenewal(id, 2900, 0, renewalItem(2900, 0, lateId))).settled.purpose_result)
+      .toEqual({ error: 'price_unavailable', late: true });
+    expect(await balanceOf(ws)).toBe(10_000 + 2 * 2900);
+    expect((await sub(ws)).status).toBe('expired');
+  });
+
+  it('a renewal at the price Paddle charged for the next period\'s plan and interval is honoured after a price rise; the new price applies next', async () => {
+    // The reconciler set 29.00 on Paddle; the price rose in the last hours,
+    // too late to change the charge.
+    const riseId = await makePlan('c-rise', PRO);
+    const { ws, card: id } = await cardWorkspace({ plan: riseId, balance: 500 });
+    const end = (await sub(ws)).current_period_end as Date;
+    await setPrices(riseId, { monthly: 3900, yearly: 39_000 });
+    const { payment: p, settled } = await cardRenewal(id, 2900, 580, renewalItem(2900, 580, riseId));
+    expect(settled.purpose_result).toMatchObject({ action: 'prepaid', card: true, plan_id: riseId, amount_minor: 2900 });
+    expect((await payment(String(p.id))).review).toBeNull();
+    expect(await account(ws)).toMatchObject({ next_period_prepaid_minor: '2900' });
+    expect(new Date((await account(ws)).next_period_start as string).getTime()).toBe(end.getTime());
+    expect(await balanceOf(ws)).toBe(500);
+    const [renewal] = await q(
+      `SELECT amount_minor::int AS amount, plan_id FROM public.billing_account_ledger
+        WHERE workspace_id = $1 AND kind = 'renewal'`, [ws]);
+    expect(renewal).toEqual({ amount: -2900, plan_id: riseId });
+    // The period it paid starts at the due moment, as any card renewal.
+    await makeDue(ws);
+    expect(await processDue(ws)).toMatchObject({ action: 'renewed', prepaid: true, prepaid_card: true, amount_minor: 2900 });
+
+    // A price that fell: the lower price is spent, the rest stays in the balance.
+    const fallId = await makePlan('c-fall', PRO);
+    const fall = await cardWorkspace({ plan: fallId });
+    await setPrices(fallId, { monthly: 1900, yearly: 19_000 });
+    expect((await cardRenewal(fall.card, 2900, 0, renewalItem(2900, 0, fallId))).settled.purpose_result)
+      .toMatchObject({ action: 'prepaid', amount_minor: 1900 });
+    expect(await balanceOf(fall.ws)).toBe(1000);
+
+    // Charged for the current plan while another one is scheduled next: not
+    // what the next period costs, so it stays in the balance.
+    const moved = await cardWorkspace({ plan: riseId, price: 3900 });
+    await fn(`SELECT public.billing_account_schedule_change($1, $2, 'monthly') AS r`, [moved.ws, bizId]);
+    expect((await cardRenewal(moved.card, 3900, 0, renewalItem(3900, 0, riseId))).settled.purpose_result)
+      .toEqual({ error: 'amount_below_price' });
+  });
+
+  it('billing_account_renew takes the price to charge (a card renewal\'s); without one it is 261\'s, and its 4-argument calls still work', async () => {
+    const signatures = await q(
+      `SELECT p.oid::regprocedure::text AS f FROM pg_proc p
+        WHERE p.proname = 'billing_account_renew' AND p.pronamespace = 'public'::regnamespace`);
+    expect(signatures.map((r) => r.f)).toEqual(['billing_account_renew(uuid,uuid,timestamp with time zone,bigint,bigint)']);
+
+    const ws = await makeWorkspace();
+    await credit(ws, PRO.monthly * 2);
+    await purchase(ws, proId);
+    const end = (await sub(ws)).current_period_end as Date;
+    // The expected price is checked against the price charged.
+    await expect(fn(`SELECT public.billing_account_renew($1, NULL, $2, $3, 2500) AS r`, [ws, end, PRO.monthly]))
+      .rejects.toThrow(/billing_quote_changed/);
+    await expect(fn(`SELECT public.billing_account_renew($1, NULL, $2, NULL, 0) AS r`, [ws, end]))
+      .rejects.toThrow(/billing_plan_price_unavailable/);
+    expect(await fn(`SELECT public.billing_account_renew($1, NULL, $2, 2500, 2500) AS r`, [ws, end]))
+      .toMatchObject({ action: 'prepaid', plan_id: proId, amount_minor: 2500, balance_minor: PRO.monthly - 2500 });
+    expect((await account(ws)).next_period_prepaid_minor).toBe('2500');
+
+    // As the server calls it: named, four arguments, the plan's price.
+    const named = await makeWorkspace();
+    await credit(named, PRO.monthly * 2);
+    await purchase(named, proId);
+    const call = `SELECT public.billing_account_renew(p_workspace_id => $1, p_actor => NULL,
+                    p_expected_period_end => $2, p_expected_price_minor => $3) AS r`;
+    await expect(fn(call, [named, (await sub(named)).current_period_end, 2500])).rejects.toThrow(/billing_quote_changed/);
+    expect(await fn(call, [named, (await sub(named)).current_period_end, PRO.monthly]))
+      .toMatchObject({ action: 'prepaid', amount_minor: PRO.monthly, balance_minor: 0 });
   });
 
   // ─── The due moment ───────────────────────────────────────────────────────
@@ -891,6 +1071,51 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
     expect(await q(`SELECT 1 FROM public.workspaces WHERE id = $1`, [plain])).toHaveLength(0);
   });
 
+  it('the workspace purge (which deletes the card rows before the workspace) keeps a card that is not cancelled, for the job to cancel', async () => {
+    // A card whose checkout has not settled yet: the workspace has no ledger
+    // rows, so the purge gets through (259's ledger is append-only).
+    const ws = await makeWorkspace();
+    const pay = await setupPayment(ws);
+    const id = String((await register('paddle_sandbox', subId(), 'ctm_1', 'USD', pay)).card_id);
+    const dup = String((await register('paddle_sandbox', subId(), null, 'USD', await setupPayment(ws))).card_id);
+    const old = await rawCard({ workspace_id: ws, status: 'canceled', cancel_reason: 'removed' });
+    expect(await q(`SELECT 1 FROM public.billing_account_ledger WHERE workspace_id = $1`, [ws])).toHaveLength(0);
+    await q(`UPDATE public.billing_account_cards SET next_sync_at = now() + interval '1 hour' WHERE id = $1`, [id]);
+    const before = Number((await card(id)).sync_version);
+
+    await q(`SELECT public.admin_purge_workspaces(ARRAY[$1]::uuid[])`, [ws]);
+    expect(await q(`SELECT 1 FROM public.workspaces WHERE id = $1`, [ws])).toHaveLength(0);
+    expect(await q(`SELECT 1 FROM public.billing_account_payments WHERE workspace_id = $1`, [ws])).toHaveLength(0);
+    expect(await q(`SELECT 1 FROM public.billing_accounts WHERE workspace_id = $1`, [ws])).toHaveLength(0);
+    const kept = await card(id);
+    expect(kept).toMatchObject({ status: 'canceling', cancel_reason: 'workspace_deleted', setup_payment_id: null });
+    expect(Number(kept.sync_version)).toBeGreaterThan(before);
+    // The job picks it up at once.
+    expect(new Date(kept.next_sync_at as string).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    expect((await q(`SELECT id FROM public.billing_card_sync_candidates(1000)`)).map((r) => r.id)).toContain(id);
+    expect(await card(dup)).toMatchObject({ status: 'canceling', cancel_reason: 'duplicate' });
+    // A cancelled card has nothing left to cancel: it goes with the workspace.
+    expect(await card(old)).toBeUndefined();
+    // Once cancelled at Paddle it is final.
+    expect(await setStatus(id, 'canceled')).toMatchObject({ status: 'canceled', previous_status: 'canceling', changed: true });
+  });
+
+  it('a card row deleted directly stays until it is cancelled at Paddle; a cancelled one is deleted', async () => {
+    const { ws, card: id } = await cardWorkspace();
+    const dup = String((await register('paddle_sandbox', subId(), null, 'USD', await setupPayment(ws))).card_id);
+    const before = Number((await card(id)).sync_version);
+    expect(await q(`DELETE FROM public.billing_account_cards WHERE id = ANY($1) RETURNING id`, [[id, dup]])).toHaveLength(0);
+    const kept = await card(id);
+    expect(kept).toMatchObject({ status: 'canceling', cancel_reason: 'workspace_deleted' });
+    expect(Number(kept.sync_version)).toBe(before + 1);
+    // A card already to be cancelled keeps its reason.
+    expect(await card(dup)).toMatchObject({ status: 'canceling', cancel_reason: 'duplicate' });
+
+    await setStatus(id, 'canceled');
+    expect(await q(`DELETE FROM public.billing_account_cards WHERE id = $1 RETURNING id`, [id])).toHaveLength(1);
+    expect(await card(id)).toBeUndefined();
+  });
+
   it('one live card per workspace, and one upgrade charge in flight per workspace', async () => {
     const ws = randomUUID();
     await rawCard({ workspace_id: ws, status: 'active' });
@@ -924,23 +1149,29 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
   // ─── Emails, access, running again ────────────────────────────────────────
 
   it('the card emails exist in both editions (only Multi Region sends them), in fa/en/tr, with their variables', async () => {
+    const slugs = ['billing_card_payment_failed', 'billing_card_removed', 'billing_card_renewed'];
     const rows = await q(
       `SELECT edition, slug, locale, subject, html_body, text_body FROM public.email_templates
-        WHERE workspace_id IS NULL AND slug IN ('billing_card_payment_failed', 'billing_card_removed') ORDER BY 1, 2, 3`);
+        WHERE workspace_id IS NULL AND slug = ANY($1) ORDER BY 1, 2, 3`, [slugs]);
     expect(rows.map((r) => [r.edition, r.slug, r.locale])).toEqual(
       ['international', 'iran'].flatMap((edition) =>
-        ['billing_card_payment_failed', 'billing_card_removed'].flatMap((slug) =>
-          ['en', 'fa', 'tr'].map((locale) => [edition, slug, locale]))),
+        slugs.flatMap((slug) => ['en', 'fa', 'tr'].map((locale) => [edition, slug, locale]))),
     );
     const vars: Record<string, string[]> = {
       billing_card_payment_failed: ['{plan_name}', '{amount}', '{card}', '{failure_reason}', '{due_at}', '{billing_url}'],
       billing_card_removed: ['{card}', '{reason}', '{plan_name}', '{period_end}', '{billing_url}'],
+      // The renewal the card paid names the card (billing_renewed is the balance's).
+      billing_card_renewed: ['{plan_name}', '{card}', '{amount}', '{balance}', '{period_start}', '{period_end}', '{billing_url}'],
     };
     for (const r of rows) {
-      for (const v of vars[String(r.slug)]) expect(String(r.html_body), `${r.slug}/${r.locale} ${v}`).toContain(v);
+      for (const v of vars[String(r.slug)]) {
+        expect(String(r.html_body), `${r.slug}/${r.locale} ${v}`).toContain(v);
+        expect(String(r.text_body), `${r.slug}/${r.locale} text ${v}`).toContain(v);
+      }
       expect(String(r.subject)).toContain('{brand}');
       expect(String(r.html_body)).toContain(r.locale === 'fa' ? 'dir="rtl"' : 'dir="ltr"');
-      expect(String(r.text_body)).toContain('{card}');
+      // Persian letters, not Arabic ي and ك.
+      expect(`${r.subject}${r.html_body}${r.text_body}`).not.toMatch(/[يك]/);
     }
   });
 
@@ -954,6 +1185,8 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
       'public.billing_card_sync_candidates(integer)',
       'public.billing_card_mark_synced(uuid, bigint, jsonb, text)',
       'public.billing_card_touch_workspace(uuid)',
+      'public.billing_card_keep_on_delete()',
+      'public.billing_account_renew(uuid, uuid, timestamptz, bigint, bigint)',
       'public.billing_account_settle_payment(uuid)',
       'public.billing_account_process_due(uuid)',
       'public.billing_account_reminder_candidates(integer)',

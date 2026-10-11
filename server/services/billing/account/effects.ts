@@ -5,7 +5,8 @@
 // never throws (the money is already where it belongs).
 //
 // A renewal Paddle charged on a saved card (phase 3b) sends no receipt of
-// ours: Paddle mails its own invoice, and the renewal mail names the card. A
+// ours: Paddle mails its own invoice, and our renewal mail
+// (billing_card_renewed) names the card. A
 // card payment that could not be spent on its purpose, or that needs a person
 // (payments.review), sends the receipt (the money is in the balance) and is
 // logged REVIEW.

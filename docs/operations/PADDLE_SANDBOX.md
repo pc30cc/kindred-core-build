@@ -38,7 +38,9 @@ existing `billing_provider_credentials` table.
     `web`) — settle the invoice or account payment (the second one is an
     idempotent no-op);
   - `adjustment.created`, `adjustment.updated` — an approved refund, or an
-    approved chargeback (marked as one), is recorded once per adjustment;
+    approved chargeback (marked as one), is recorded once per adjustment; an
+    approved `chargeback_reverse` books nothing and is logged
+    `[billing-webhook] REVIEW chargeback reversal …`;
   - with *Automatic card renewal* on (below): every `transaction.*` that
     Paddle made from a subscription (origin `subscription_recurring`,
     `subscription_charge`, `subscription_update`,
@@ -209,7 +211,10 @@ The reconciler (`card.ts` `syncCard`) also relies on these:
 Taken from Paddle's API reference, not yet seen in practice: a chargeback
 arrives as an `adjustment` with `action: chargeback` and `status: approved`;
 it is recorded like a refund, marked as a chargeback. A `chargeback_reverse`
-(the money coming back) is acknowledged and left to a person.
+(Paddle won the dispute: the money comes back) books nothing; it is logged
+`REVIEW chargeback reversal <adjustment> transaction=<txn> <amount>
+<currency>` so a person restores the customer's balance (and prepaid
+period) by hand.
 
 ## How test money is marked
 

@@ -43,7 +43,8 @@
  *        never charged a second time;
  *   S17  another installation's subscription (naming our workspace and
  *        payment ids): acknowledged, nothing changed, nothing cancelled;
- *   S18  workspace deleted: its card is cancelled;
+ *   S18  workspace deleted: its card is cancelled (also when its rows go
+ *        first, the card's included, as the purge deletes them);
  *   S19  cancelled in Paddle's portal: followed, mailed once, never undone;
  *   S20  renewed from the balance with a card: Paddle skips that cycle;
  *   and in any order: a card checkout's notifications, and a declined
@@ -729,7 +730,9 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     expect(paid.purpose_result).toMatchObject({ action: 'prepaid', card: true, amount_minor: 2900 });
     expect(await accountOf(ws)).toMatchObject({ next_period_prepaid_minor: '2900', balance_minor: '0' });
     await mailsSettle();
-    expect(mailsOf(ws, 'billing_renewed').map((m) => m.data.card)).toEqual(['Visa •••• 4242']);
+    // Our renewal mail is the card's own, naming the card (billing_renewed is the balance's).
+    expect(mailsOf(ws, 'billing_card_renewed').map((m) => m.data.card)).toEqual(['Visa •••• 4242']);
+    expect(mailsOf(ws, 'billing_renewed')).toEqual([]);
     expect(mailsOf(ws, 'billing_payment_receipt')).toHaveLength(1); // the checkout's only: Paddle's invoice is the renewal's
     // Paddle's next date is the end of the prepaid period − 24 h.
     expect(Math.abs(nextBilled(subId) - (await expectedChargeAt(ws)))).toBeLessThan(1000);
@@ -748,7 +751,8 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     expect((await accountOf(ws)).next_period_prepaid_minor).toBeNull();
     await settle();
     await mailsSettle();
-    expect(mailsOf(ws, 'billing_renewed')).toHaveLength(1);
+    expect(mailsOf(ws, 'billing_card_renewed')).toHaveLength(1);
+    expect(mailsOf(ws, 'billing_renewed')).toEqual([]);
     expect(callsSince(mark).filter((c) => c.method === 'POST')).toEqual([]);
     expect(Math.abs(nextBilled(subId) - (await expectedChargeAt(ws)))).toBeLessThan(1000);
     await invariants('S2');
@@ -802,6 +806,40 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     await invariants('S3');
   });
 
+  it('S3 auto-renew off on a declined card stops it at once: its renewal can no longer be collected, the plan runs to its end', async () => {
+    const ws = await newWorkspace('Card S3 off');
+    const { subId, cardId } = await buyWithCard(ws, 'pro');
+    fake.declineNext(subId, 'expired_card');
+    await toPaddleDate(ws, subId, MINUTE);
+    await settle();
+    expect((await cardRow(cardId)).status).toBe('past_due');
+    const pastDue = fake.transactionsOf(subId).find((x) => x.status === 'past_due')!;
+
+    const off = await call('PUT', `/api/billing/account/${ws}/auto-renew`, { enabled: false });
+    expect(off.status, JSON.stringify(off.json)).toBe(200);
+    expect(off.json).toMatchObject({ auto_renew: false, card: null });
+    expect(paddleSub(subId).status).toBe('canceled');
+    expect(fake.transactions.get(pastDue.id)!.status).toBe('canceled');
+    expect(await cardRow(cardId)).toMatchObject({ status: 'canceled', cancel_reason: 'auto_renew_off' });
+    expect(await accountOf(ws)).toMatchObject({ auto_renew: false, card_subscription_id: null });
+    await settle();
+    // "Update card and pay" is gone with the card; Paddle cannot collect the renewal any more.
+    const update = await call('POST', `/api/billing/account/${ws}/card/update`, { callbackUrl: `${ORIGIN}/${slugs.get(ws)}/billing?card=updated` });
+    expect(update.status).toBe(404);
+    expect(await one(`SELECT status FROM public.billing_account_payments WHERE provider_ref = $1`, [pastDue.id])).toEqual({ status: 'canceled' });
+    expect(await balanceOf(ws)).toBe(0);
+    await mailsSettle();
+    expect(mailsOf(ws, 'billing_card_removed').map((m) => m.data.reason)).toEqual(['automatic renewal was turned off']);
+
+    // The plan runs to its end, then Free; nothing is charged later.
+    expect((await view(ws)).plan).toMatchObject({ status: 'active' });
+    await toPeriodEnd(ws, MINUTE);
+    expect((await dueJob()).errors).toEqual([]);
+    expect(await subOf(ws)).toMatchObject({ status: 'expired' });
+    await noChargeAfter(ws, subId);
+    await invariants('S3 auto-renew off');
+  });
+
   // ─── S4 ──────────────────────────────────────────────────────────────────
 
   it('S4 declined, then paid with a new card before the due moment: the renewal counts and the card is active again', async () => {
@@ -827,7 +865,7 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     expect(paid.purpose_result).toMatchObject({ action: 'prepaid', card: true });
     expect((await accountOf(ws)).next_period_prepaid_minor).toBe('2900');
     await mailsSettle();
-    expect(mailsOf(ws, 'billing_renewed').map((m) => m.data.card)).toEqual(['Mastercard •••• 5555']);
+    expect(mailsOf(ws, 'billing_card_renewed').map((m) => m.data.card)).toEqual(['Mastercard •••• 5555']);
     expect(mailsOf(ws, 'billing_card_payment_failed')).toHaveLength(1);
 
     // The due moment: the period it paid starts; the card goes on.
@@ -864,7 +902,7 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     expect(paid.purpose_result).toMatchObject({ action: 'renewed', card: true });
     await settle();
     await mailsSettle();
-    expect(mailsOf(ws, 'billing_renewed').map((m) => m.data.card)).toEqual(['Visa •••• 4242']);
+    expect(mailsOf(ws, 'billing_card_renewed').map((m) => m.data.card)).toEqual(['Visa •••• 4242']);
     expect(mailsOf(ws, 'billing_expired')).toEqual([]);
     expect(Math.abs(nextBilled(subId) - (await expectedChargeAt(ws)))).toBeLessThan(1000);
     await invariants('S5');
@@ -1256,6 +1294,46 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     await invariants('S15 refund');
   });
 
+  it('S15 a stray renewal on a period already paid, refunded: auto-renew stays on, and the next period renews as usual', async () => {
+    const ws = await newWorkspace('Card S15 stray');
+    const { subId, cardId } = await buyWithCard(ws, 'pro');
+    // The next period is paid from the balance (by its owner) while Paddle's
+    // date was not moved yet (a sync that is late): Paddle still charges it.
+    const owner = String((await one(`SELECT owner_id FROM public.workspaces WHERE id = $1`, [ws])).owner_id);
+    await q(`SELECT public.billing_account_admin_adjust($1, 2900, 'USD', 'e2e credit', NULL, $2)`, [ws, `s15s-credit-${ws}`]);
+    await q(`SELECT public.billing_account_renew($1, $2, $3::timestamptz, 2900)`, [ws, owner, new Date(await periodEnd(ws)).toISOString()]);
+    expect(await accountOf(ws)).toMatchObject({ next_period_prepaid_minor: '2900', balance_minor: '0' });
+    await toPaddleDate(ws, subId, MINUTE);
+    const stray = fake.transactionsOf(subId).find((x) => x.origin === 'subscription_recurring')!;
+    await settle();
+    expect(await one(`SELECT source, purpose, status, review FROM public.billing_account_payments WHERE provider_ref = $1`, [stray.id]))
+      .toEqual({ source: 'card_renewal', purpose: 'renewal', status: 'succeeded', review: 'already_renewed' });
+    expect(await balanceOf(ws)).toBe(2900);
+
+    // The Super Admin refunds the stray in Paddle: its money is taken back,
+    // and nothing else changes (it renewed nothing).
+    fake.adjust(stray.id, 'refund');
+    await settle();
+    expect(await balanceOf(ws)).toBe(0);
+    expect(await accountOf(ws)).toMatchObject({ auto_renew: true, next_period_prepaid_minor: '2900' });
+    expect(await cardRow(cardId)).toMatchObject({ status: 'active', cancel_intent: null });
+    expect(paddleSub(subId).scheduled_change).toBeNull();
+
+    // The due moment starts the period the balance paid; the card renews the one after it.
+    await toPeriodEnd(ws, MINUTE);
+    expect((await dueJob()).errors).toEqual([]);
+    expect(await subOf(ws)).toMatchObject({ status: 'active', plan_id: st.pro });
+    await settle();
+    await toPaddleDate(ws, subId, MINUTE);
+    await settle();
+    const renewals = fake.transactionsOf(subId).filter((x) => x.origin === 'subscription_recurring' && x.id !== stray.id);
+    expect(renewals).toHaveLength(1);
+    expect(await one(`SELECT source, status, review FROM public.billing_account_payments WHERE provider_ref = $1`, [renewals[0].id]))
+      .toEqual({ source: 'card_renewal', status: 'succeeded', review: null });
+    expect((await accountOf(ws)).next_period_prepaid_minor).toBe('2900');
+    await invariants('S15 stray');
+  });
+
   // ─── S16 ─────────────────────────────────────────────────────────────────
 
   it('S16 a renewal Paddle charged at another amount: credited for review, and Paddle is never asked to charge that period again', async () => {
@@ -1355,6 +1433,26 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     await settle();
     await noChargeAfter(ws, subId);
     await invariants('S18');
+  });
+
+  it('S18 the purge\'s order (the workspace\'s rows first, its card included, then the workspace): the card is kept and cancelled at Paddle', async () => {
+    // admin_purge_workspaces deletes every workspace-scoped row before the
+    // workspace itself, so the workspace's own trigger finds no card. (It
+    // cannot run here: a workspace with ledger rows is refused, 259.)
+    const ws = await newWorkspace('Card S18 purge');
+    const { subId, cardId } = await buyWithCard(ws, 'pro');
+    await q(`DO $purge$ BEGIN
+      DELETE FROM public.billing_account_cards WHERE workspace_id = '${ws}';
+      DELETE FROM public.workspaces WHERE id = '${ws}';
+    END $purge$`);
+    expect(await cardRow(cardId)).toMatchObject({ status: 'canceling', cancel_reason: 'workspace_deleted', setup_payment_id: null });
+    const report = await cardJob();
+    expect(report.errors).toEqual([]);
+    expect(await cardRow(cardId)).toMatchObject({ status: 'canceled', cancel_reason: 'workspace_deleted' });
+    expect(paddleSub(subId).status).toBe('canceled');
+    await settle();
+    await noChargeAfter(ws, subId);
+    await invariants('S18 purge');
   });
 
   // ─── S19 ─────────────────────────────────────────────────────────────────
@@ -1481,7 +1579,7 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
       expect((await accountOf(ws)).next_period_prepaid_minor, `seed ${seed}`).toBe('2900');
       await mailsSettle();
       expect(mailsOf(ws, 'billing_card_payment_failed').length, `seed ${seed}`).toBeLessThanOrEqual(1);
-      expect(mailsOf(ws, 'billing_renewed'), `seed ${seed}`).toHaveLength(1);
+      expect(mailsOf(ws, 'billing_card_renewed'), `seed ${seed}`).toHaveLength(1);
     }
     await invariants('recovery in any order');
   }, 120_000);

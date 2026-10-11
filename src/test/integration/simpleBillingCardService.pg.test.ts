@@ -52,6 +52,8 @@ const fake = {
   txns: new Map<string, Row>(),
   calls: [] as Array<{ method: string; path: string; body: unknown }>,
   seq: 0,
+  /** Runs once, before Paddle answers the next transaction listing (what happens meanwhile elsewhere). */
+  beforeList: null as null | (() => Promise<void>),
 };
 const originalFetch = globalThis.fetch;
 const blocked: string[] = [];
@@ -185,7 +187,14 @@ suite('saved card service against the real chain (postgres-only, Paddle faked)',
     ws = await workspace();
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (url.startsWith(API)) return fakePaddle(url, init);
+      if (url.startsWith(API)) {
+        const hook = fake.beforeList;
+        if (hook && (init?.method ?? 'GET') === 'GET' && url.slice(API.length).startsWith('/transactions?')) {
+          fake.beforeList = null;
+          await hook();
+        }
+        return fakePaddle(url, init);
+      }
       blocked.push(url);
       throw new Error(`outbound request refused by the test: ${url}`);
     }) as typeof fetch;
@@ -409,6 +418,87 @@ suite('saved card service against the real chain (postgres-only, Paddle faked)',
     expect(['synced', 'unchanged']).toContain(second.status);
     const n = Date.parse(fake.subs.get('sub_3')!.next_billed_at as string);
     expect(n).toBeGreaterThan(Date.now() + 25 * 86_400_000);
+  });
+
+  it("a renewal settled by its own notification while the reconciler lists Paddle's transactions: Paddle's date is not moved earlier", async () => {
+    const ws4 = await workspace();
+    await q(`SELECT public.billing_account_admin_adjust($1, 2900, 'USD', 'test', NULL, $2)`, [ws4, `k-${randomUUID()}`]);
+    await q(`SELECT public.billing_account_purchase_plan($1, $2, 'monthly', $3)`, [ws4, pro, randomUUID()]);
+    // Paddle charged its renewal a minute ago (our end − 24 h) and moved its date a month on.
+    await q(`UPDATE public.workspace_subscriptions SET current_period_end = now() + interval '24 hours' - interval '1 minute' WHERE workspace_id = $1`, [ws4]);
+    const end = new Date((await one(`SELECT current_period_end FROM public.workspace_subscriptions WHERE workspace_id = $1`, [ws4])).current_period_end as string).toISOString();
+    const pay4 = String((await one(
+      `INSERT INTO public.billing_account_payments (workspace_id, provider, currency, amount_minor, net_minor, purpose, purpose_detail, source, provider_ref, status)
+       VALUES ($1, 'paddle_sandbox', 'USD', 2900, 2900, 'plan', '{}', 'card_setup', 'txn_checkout_4', 'failed') RETURNING id`, [ws4])).id);
+    const card4 = String(((await one(`SELECT public.billing_card_register('paddle_sandbox', 'sub_4', 'ctm_4', 'USD', $1) AS r`, [pay4])).r as Row).card_id);
+    const { periodEndOf } = await import('../../../server/services/billing/account/cardState.js');
+    const charged = new Date(Date.parse(end) - 86_400_000).toISOString();
+    const ahead = periodEndOf(charged, 'monthly')!;
+    fake.subs.set('sub_4', {
+      id: 'sub_4', status: 'active', customer_id: 'ctm_4', currency_code: 'USD', next_billed_at: ahead,
+      current_billing_period: { starts_at: charged, ends_at: ahead }, scheduled_change: null, custom_data: { workspace_id: ws4, card_id: card4 },
+      items: [{ price: { id: 'pri_4', unit_price: { amount: '2900', currency_code: 'USD' }, billing_cycle: { interval: 'month', frequency: 1 }, custom_data: { plan_id: pro, interval: 'monthly', net_minor: 2900, tax_minor: 0 } } }],
+    });
+    const t = txn('txn_ren_41', { subscription_id: 'sub_4', custom: { plan_id: pro, interval: 'monthly', net_minor: 2900, tax_minor: 0 } });
+    const { readTransaction } = await import('../../../server/services/billing/providers/paddleSubscriptions.js');
+    // Its transaction.paid is handled at the same time (another replica): it
+    // records and settles the renewal after the reconciler read what is paid,
+    // before Paddle answers its listing.
+    fake.beforeList = async () => {
+      expect(await card.handleCardEvent(config, {
+        providerName: 'paddle_sandbox',
+        event: event('transaction.paid', { entity: 'transaction', subscriptionId: 'sub_4', transactionId: 'txn_ren_41', transaction: readTransaction(t) }),
+        owner: { workspaceId: ws4, cardId: card4, setupPaymentId: pay4 },
+      })).toBe('handled');
+    };
+    const mark = fake.calls.length;
+    const out = await card.syncCard(config, card4);
+    expect(fake.beforeList).toBeNull();
+    expect(Number((await one(`SELECT next_period_prepaid_minor FROM public.billing_accounts WHERE workspace_id = $1`, [ws4])).next_period_prepaid_minor)).toBe(2900);
+    expect(await q(`SELECT status, review FROM public.billing_account_payments WHERE provider_ref = 'txn_ren_41'`)).toEqual([{ status: 'succeeded', review: null }]);
+    // Paddle keeps the date a month on: it is never asked to charge again in 45 minutes.
+    expect(out).toEqual({ status: 'deferred', detail: 'renewal_settled' });
+    expect(fake.calls.slice(mark).filter((c) => c.method === 'PATCH' && c.path === '/subscriptions/sub_4')).toEqual([]);
+    expect(fake.subs.get('sub_4')!.next_billed_at).toBe(ahead);
+    // The next pass puts Paddle's date at the prepaid period's end − 24 h (later, never earlier).
+    expect(['synced', 'unchanged']).toContain((await card.syncCard(config, card4)).status);
+    const wanted = Date.parse(periodEndOf(end, 'monthly')!) - 86_400_000;
+    expect(Math.abs(Date.parse(fake.subs.get('sub_4')!.next_billed_at as string) - wanted)).toBeLessThanOrEqual(60_000);
+  });
+
+  it("a wrong early date at Paddle inside the freeze is moved later (the date only), before Paddle charges at it", async () => {
+    // The state the race above could leave before the fix: the next period is
+    // prepaid, yet Paddle's date was moved to 45 minutes from now.
+    const ws5 = await workspace();
+    await q(`SELECT public.billing_account_admin_adjust($1, 5800, 'USD', 'test', NULL, $2)`, [ws5, `k-${randomUUID()}`]);
+    await q(`SELECT public.billing_account_purchase_plan($1, $2, 'monthly', $3)`, [ws5, pro, randomUUID()]);
+    await q(`UPDATE public.workspace_subscriptions SET current_period_end = now() + interval '23 hours' WHERE workspace_id = $1`, [ws5]);
+    const end = new Date((await one(`SELECT current_period_end FROM public.workspace_subscriptions WHERE workspace_id = $1`, [ws5])).current_period_end as string).toISOString();
+    await q(`SELECT public.billing_account_renew($1, NULL, $2::timestamptz, 2900)`, [ws5, end]);
+    const pay5 = String((await one(
+      `INSERT INTO public.billing_account_payments (workspace_id, provider, currency, amount_minor, net_minor, purpose, purpose_detail, source, provider_ref, status)
+       VALUES ($1, 'paddle_sandbox', 'USD', 2900, 2900, 'plan', '{}', 'card_setup', 'txn_checkout_5', 'failed') RETURNING id`, [ws5])).id);
+    const card5 = String(((await one(`SELECT public.billing_card_register('paddle_sandbox', 'sub_5', 'ctm_5', 'USD', $1) AS r`, [pay5])).r as Row).card_id);
+    const early = new Date(Date.now() + 45 * 60_000).toISOString();
+    fake.subs.set('sub_5', {
+      id: 'sub_5', status: 'active', customer_id: 'ctm_5', currency_code: 'USD', next_billed_at: early,
+      current_billing_period: { ends_at: early }, scheduled_change: null, custom_data: { workspace_id: ws5, card_id: card5 },
+      // An item that is not the next period's either: it waits for the freeze to end.
+      items: [{ price: { id: 'pri_5', unit_price: { amount: '1000', currency_code: 'USD' }, billing_cycle: { interval: 'month', frequency: 1 }, custom_data: {} } }],
+    });
+    const mark = fake.calls.length;
+    expect(await card.syncCard(config, card5)).toEqual({ status: 'deferred', detail: 'moved_later' });
+    const patches = fake.calls.slice(mark).filter((c) => c.method === 'PATCH' && c.path.startsWith('/subscriptions/sub_5'));
+    const { periodEndOf } = await import('../../../server/services/billing/account/cardState.js');
+    const wanted = new Date(Date.parse(periodEndOf(end, 'monthly')!) - 86_400_000).toISOString();
+    expect(patches.map((c) => [c.path, c.body])).toEqual([
+      ['/subscriptions/sub_5/preview', { next_billed_at: wanted, proration_billing_mode: 'do_not_bill' }],
+      ['/subscriptions/sub_5', { next_billed_at: wanted, proration_billing_mode: 'do_not_bill' }],
+    ]);
+    expect(fake.subs.get('sub_5')!.next_billed_at).toBe(wanted);
+    // Out of the freeze now: the next pass swaps the item.
+    expect((await card.syncCard(config, card5)).status).toBe('synced');
+    expect(((fake.subs.get('sub_5')!.items as Array<{ price: { unit_price: { amount: string } } }>)[0]).price.unit_price.amount).toBe('2900');
   });
 
   it('nothing left this machine except to the local Paddle fake', () => {

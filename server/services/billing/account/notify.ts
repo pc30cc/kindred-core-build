@@ -27,6 +27,7 @@ export type BillingEmailSlug =
   | 'billing_trial_ending'
   | 'billing_trial_ended'
   // The saved card (phase 3b, migration 262), Multi Region only.
+  | 'billing_card_renewed'
   | 'billing_card_payment_failed'
   | 'billing_card_removed';
 

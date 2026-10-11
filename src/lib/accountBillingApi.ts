@@ -95,6 +95,8 @@ export interface CardView {
   /** Plan changes wait while Paddle renews, until this time. */
   frozen_until: string | null;
   expires_before_next_charge: boolean;
+  /** An upgrade can be charged to this card (its gateway still offers card renewal); else it is paid online or from the balance. */
+  chargeable: boolean;
 }
 
 export interface AccountView {
@@ -328,8 +330,8 @@ export const accountBillingApi = {
       autoRenew?: boolean;
     },
   ) => request<TopupStarted>(`${base(workspaceId)}/checkout`, { method: 'POST', body: JSON.stringify(input) }),
-  /** Upgrade now, charging the quoted difference to the saved card. */
-  chargeCardUpgrade: (workspaceId: string, input: { planId: string; expectedNetMinor: number }) =>
+  /** Upgrade now, charging the quoted difference to the saved card (exactly the total the button showed). */
+  chargeCardUpgrade: (workspaceId: string, input: { planId: string; expectedNetMinor: number; expectedTotalMinor: number }) =>
     request<CardChargeResult>(`${base(workspaceId)}/card/charge`, {
       method: 'POST',
       body: JSON.stringify({ purpose: 'upgrade', ...input }),

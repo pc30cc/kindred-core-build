@@ -18,15 +18,18 @@
 --                             card, when a charge was asked for, and why a
 --                             card payment needs a person (review).
 --
--- Changed: settling a card renewal (billing_card_apply_renewal), the due
--- moment (no balance auto-renew while a card is live), the renewal reminders
--- (none while the card pays) and the pruning of payments (card charges
--- stay). An account without a card behaves exactly as in 261. The Iran
--- edition (WebYar) never has a card row, so nothing changes there.
+-- Changed: settling a card renewal (billing_card_apply_renewal), the
+-- renewal (it can be told the price to charge: the card's), the due moment
+-- (no balance auto-renew while a card is live), the renewal reminders (none
+-- while the card pays) and the pruning of payments (card charges stay). An
+-- account without a card behaves exactly as in 261. The Iran edition
+-- (WebYar) never has a card row, so nothing changes there.
 --
 -- Triggers move a card's sync_version whenever what it should charge may
 -- have changed (plan, interval, period, auto-renew, prices, VAT), so the
--- server's reconciler syncs it with Paddle again.
+-- server's reconciler syncs it with Paddle again. A card row is never
+-- deleted before Paddle has cancelled it (a workspace's purge marks it
+-- canceling instead).
 --
 -- Server-only: every table and function is reachable by service_role alone.
 -- Re-runnable: every step is guarded or a no-op the second time.
@@ -35,7 +38,7 @@
 CREATE TABLE IF NOT EXISTS public.billing_account_cards (
   id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   -- No foreign key: a card outlives its workspace until Paddle has cancelled
-  -- it (the workspaces trigger below marks it canceling).
+  -- it (the triggers below mark it canceling, and keep its row).
   workspace_id            uuid NOT NULL,
   provider                text NOT NULL,
   subscription_id         text NOT NULL,
@@ -150,7 +153,9 @@ CREATE INDEX IF NOT EXISTS idx_billing_account_payments_card_setup
 -- checkout paid stays paid. Otherwise it becomes the account's card,
 -- auto-renew comes on, and the payment is linked to it. Idempotent per
 -- subscription. The payment need not be settled yet: Paddle's events arrive
--- in any order.
+-- in any order. The payment is locked before the account, as its settlement
+-- (billing_account_settle_payment) locks them: subscription.created and the
+-- checkout's transaction.paid arrive together.
 CREATE OR REPLACE FUNCTION public.billing_card_register(
   p_provider         text,
   p_subscription_id  text,
@@ -167,7 +172,7 @@ DECLARE
   v_currency text := upper(coalesce(p_currency, ''));
   v_live     boolean;
 BEGIN
-  SELECT * INTO v_pay FROM public.billing_account_payments WHERE id = p_setup_payment_id;
+  SELECT * INTO v_pay FROM public.billing_account_payments WHERE id = p_setup_payment_id FOR UPDATE;
   IF v_pay.id IS NULL OR v_pay.source <> 'card_setup' OR v_pay.provider IS DISTINCT FROM p_provider
      OR p_provider NOT IN ('paddle', 'paddle_sandbox') OR v_pay.currency <> v_currency
      OR coalesce(p_subscription_id, '') = '' THEN
@@ -437,9 +442,11 @@ $$;
 -- the one the row was recorded for. The account is locked before the
 -- payment, as billing_card_record_charge locks them, so binding a charge and
 -- settling it at the same time wait for each other instead of deadlocking.
--- A purpose that could not be done (a renewal guard, a failed upgrade) is
--- kept as the payment's review reason: the money is in the balance and a
--- person should look.
+-- A payment this transaction already settled (paid, then completed) answers
+-- without asking for the payment's lock: a refund holds that lock while it
+-- waits for the account's. A purpose that could not be done (a renewal
+-- guard, a failed upgrade) is kept as the payment's review reason: the money
+-- is in the balance and a person should look.
 CREATE OR REPLACE FUNCTION public.billing_card_settle(
   p_payment_id   uuid,
   p_amount_minor bigint,
@@ -461,6 +468,9 @@ BEGIN
   IF v_pay.provider_ref IS NOT NULL AND v_pay.provider_ref IS DISTINCT FROM p_txn_id THEN
     RAISE EXCEPTION 'billing_payment_reference_mismatch';
   END IF;
+  IF v_pay.status = 'succeeded' AND v_pay.provider_payment_id = p_txn_id THEN
+    RETURN jsonb_build_object('replayed', true, 'ledger_id', v_pay.ledger_id, 'payment_id', v_pay.id);
+  END IF;
   IF v_pay.verified_at IS NULL OR v_pay.provider_payment_id IS DISTINCT FROM p_txn_id THEN
     PERFORM public.billing_account_record_verification(p_payment_id, p_amount_minor, p_currency, p_txn_id);
   END IF;
@@ -476,13 +486,16 @@ $$;
 
 -- What a card renewal pays for (called by billing_account_settle_payment,
 -- the payment already credited to the balance): the next period of the
--- running paid plan, at the price it will have, kept as the prepaid next
--- period. It spends nothing, and says why, unless this card is the account's
--- live card, auto-renew is on, the next period is not paid yet, it is sold,
--- and the payment covers its price; the money then stays in the balance, for
--- review. A renewal that arrives after the plan ended because this card had
--- not paid by then (the card was cancelled as 'not_renewed') buys the plan
--- again: the customer paid for it.
+-- running paid plan, kept as the prepaid next period. It spends nothing, and
+-- says why, unless this card is the account's live card, auto-renew is on,
+-- the next period is not paid yet, it is sold, and the payment covers its
+-- price; the money then stays in the balance, for review. A charge for the
+-- next period's own plan and interval is spent at the price Paddle charged
+-- when that is below today's: a price raised too late to reach Paddle's
+-- item applies from the next cycle. A renewal that arrives after the plan
+-- ended because this card had not paid by then (the card was cancelled as
+-- 'not_renewed') buys the plan again, if it covers that plan's price: the
+-- customer paid for it, and their balance is never spent on a difference.
 CREATE OR REPLACE FUNCTION public.billing_card_apply_renewal(
   p_payment public.billing_account_payments
 ) RETURNS jsonb
@@ -496,6 +509,7 @@ DECLARE
   v_target   uuid;
   v_interval text;
   v_price    bigint;
+  v_charged  bigint;
 BEGIN
   SELECT * INTO v_card FROM public.billing_account_cards WHERE id = p_payment.card_id;
   IF v_card.id IS NULL THEN
@@ -506,9 +520,16 @@ BEGIN
   IF v_sub.id IS NULL THEN
     IF v_card.status IN ('canceling', 'canceled') AND v_card.cancel_reason = 'not_renewed'
        AND p_payment.purpose_detail ? 'plan_id' THEN
+      v_interval := coalesce(p_payment.purpose_detail ->> 'billing_interval', 'monthly');
+      v_price := public.billing_plan_price((p_payment.purpose_detail ->> 'plan_id')::uuid, v_acc.currency, v_interval);
+      IF v_price IS NULL OR v_price <= 0 THEN
+        RETURN jsonb_build_object('error', 'price_unavailable', 'late', true);
+      END IF;
+      IF p_payment.net_minor < v_price THEN
+        RETURN jsonb_build_object('error', 'amount_below_price', 'late', true);
+      END IF;
       RETURN public.billing_account_purchase_plan(
-        p_payment.workspace_id, (p_payment.purpose_detail ->> 'plan_id')::uuid,
-        coalesce(p_payment.purpose_detail ->> 'billing_interval', 'monthly'),
+        p_payment.workspace_id, (p_payment.purpose_detail ->> 'plan_id')::uuid, v_interval,
         'payment:' || p_payment.id::text, NULL
       ) || jsonb_build_object('card', true, 'late', true);
     END IF;
@@ -536,10 +557,17 @@ BEGIN
   IF v_price IS NULL OR v_price <= 0 THEN
     RETURN jsonb_build_object('error', 'price_unavailable');
   END IF;
-  IF p_payment.net_minor < v_price THEN
+  -- Charged for exactly this plan and interval: the item the reconciler set,
+  -- whose price may not have caught up with a rise (Paddle's lock and our
+  -- freeze before the charge). That price is the one spent.
+  IF p_payment.purpose_detail ->> 'plan_id' = v_target::text
+     AND p_payment.purpose_detail ->> 'billing_interval' = v_interval THEN
+    v_charged := least(p_payment.net_minor, v_price);
+  ELSIF p_payment.net_minor < v_price THEN
     RETURN jsonb_build_object('error', 'amount_below_price');
   END IF;
-  RETURN public.billing_account_renew(p_payment.workspace_id, NULL, v_sub.current_period_end, v_price)
+  RETURN public.billing_account_renew(
+           p_payment.workspace_id, NULL, v_sub.current_period_end, coalesce(v_charged, v_price), v_charged)
     || jsonb_build_object('card', true);
 END;
 $$;
@@ -688,6 +716,31 @@ BEGIN
 END;
 $$;
 
+-- A card row is never deleted before it is cancelled at Paddle: the
+-- workspace purge (admin_purge_workspaces) deletes every workspace-scoped
+-- row, the cards included, before the workspace itself, so the trigger
+-- above would find none and Paddle would go on charging. Such a card stays,
+-- marked canceling for the job (it has no foreign key to its workspace); a
+-- cancelled one is deleted.
+CREATE OR REPLACE FUNCTION public.billing_card_keep_on_delete()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF OLD.status = 'canceled' THEN
+    RETURN OLD;
+  END IF;
+  UPDATE public.billing_account_cards
+     SET status = 'canceling',
+         cancel_reason = coalesce(cancel_reason, 'workspace_deleted'),
+         sync_version = sync_version + 1,
+         next_sync_at = least(next_sync_at, now()),
+         updated_at = now()
+   WHERE id = OLD.id;
+  RETURN NULL;
+END;
+$$;
+
 DROP TRIGGER IF EXISTS trg_billing_card_touch_account ON public.billing_accounts;
 CREATE TRIGGER trg_billing_card_touch_account
   AFTER UPDATE ON public.billing_accounts
@@ -734,7 +787,112 @@ CREATE TRIGGER trg_billing_card_workspace_deleted
   AFTER DELETE ON public.workspaces
   FOR EACH ROW EXECUTE FUNCTION public.billing_card_workspace_deleted();
 
--- ─── 8. 261's settlement, due moment and reminders; 259's pruning ─────────
+DROP TRIGGER IF EXISTS trg_billing_card_keep_on_delete ON public.billing_account_cards;
+CREATE TRIGGER trg_billing_card_keep_on_delete
+  BEFORE DELETE ON public.billing_account_cards
+  FOR EACH ROW EXECUTE FUNCTION public.billing_card_keep_on_delete();
+
+-- ─── 8. 261's renewal, settlement, due moment and reminders; 259's pruning ─
+
+-- 261's renewal, which can now be told the price to charge
+-- (p_price_override_minor, instead of the plan's price): a card renewal pays
+-- the price Paddle charged for the next period's plan and interval
+-- (billing_card_apply_renewal). Without it, exactly 261's. The 4-argument
+-- function is replaced, not overloaded, so 261's calls (named, 3 or 4
+-- arguments) reach this one without ambiguity.
+DROP FUNCTION IF EXISTS public.billing_account_renew(uuid, uuid, timestamptz, bigint);
+CREATE OR REPLACE FUNCTION public.billing_account_renew(
+  p_workspace_id         uuid,
+  p_actor                uuid DEFAULT NULL,
+  p_expected_period_end  timestamptz DEFAULT NULL,
+  p_expected_price_minor bigint DEFAULT NULL,
+  p_price_override_minor bigint DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_acc      public.billing_accounts;
+  v_sub      public.workspace_subscriptions;
+  v_plan     public.billing_plans;
+  v_target   uuid;
+  v_interval text;
+  v_price    bigint;
+  v_start    timestamptz;
+  v_end      timestamptz;
+  v_entry    public.billing_account_ledger;
+BEGIN
+  v_acc := public.billing_account_lock(p_workspace_id);
+  PERFORM public.billing_account_release_stale_prepaid(p_workspace_id);
+  SELECT * INTO v_acc FROM public.billing_accounts WHERE workspace_id = p_workspace_id FOR UPDATE;
+  v_sub := public.billing_account_paid_subscription(p_workspace_id);
+  IF v_sub.id IS NULL THEN
+    RAISE EXCEPTION 'billing_no_paid_plan';
+  END IF;
+  -- The renewal is for the period the customer (or the job) saw: once that
+  -- period was renewed or replaced, a retry or a second tab renews nothing.
+  -- (A period end that went through JSON or a browser keeps milliseconds
+  -- only; periods are months apart, so a second's tolerance is exact enough.)
+  IF p_expected_period_end IS NOT NULL
+     AND abs(extract(epoch FROM v_sub.current_period_end - p_expected_period_end)) >= 1 THEN
+    RAISE EXCEPTION 'billing_period_changed';
+  END IF;
+  IF v_acc.next_period_prepaid_minor IS NOT NULL OR public.billing_account_v2_next_period(p_workspace_id) IS NOT NULL THEN
+    RAISE EXCEPTION 'billing_already_renewed';
+  END IF;
+  v_target := coalesce(v_acc.scheduled_plan_id, v_sub.plan_id);
+  v_interval := coalesce(v_acc.scheduled_interval, v_sub.billing_interval, 'monthly');
+  SELECT * INTO v_plan FROM public.billing_plans WHERE id = v_target;
+  IF v_plan.is_free THEN
+    RAISE EXCEPTION 'billing_renewal_to_free';
+  END IF;
+  v_price := CASE WHEN p_price_override_minor IS NOT NULL THEN p_price_override_minor
+                  ELSE public.billing_plan_price(v_target, v_acc.currency, v_interval) END;
+  IF v_price IS NULL OR v_price <= 0 THEN
+    RAISE EXCEPTION 'billing_plan_price_unavailable';
+  END IF;
+  -- The price the customer was shown (the page sends it): a price or a
+  -- scheduled change that moved since is never charged unseen.
+  IF p_expected_price_minor IS NOT NULL AND p_expected_price_minor <> v_price THEN
+    RAISE EXCEPTION 'billing_quote_changed';
+  END IF;
+  -- Due and not yet processed: the next period follows on from the current
+  -- one, unless it ended long ago (then it starts now).
+  v_start := CASE WHEN v_sub.current_period_end > now() - interval '1 day' THEN v_sub.current_period_end ELSE now() END;
+  v_end := public.billing_period_end(v_start, v_interval);
+  -- Every renewal is its own charge (the guards above keep it to one per
+  -- period); a returned prepayment never lets a later renewal replay it.
+  v_entry := public.billing_account_debit(
+    p_workspace_id, 'renewal', v_price, v_target, v_interval, v_start, v_end,
+    jsonb_build_object('plan_slug', v_plan.slug), p_actor,
+    'renewal:' || p_workspace_id::text || ':' || to_char(v_sub.current_period_end AT TIME ZONE 'UTC', 'YYYYMMDD"T"HH24MISS')
+      || ':' || gen_random_uuid()::text
+  );
+  IF v_sub.current_period_end > now() THEN
+    UPDATE public.billing_accounts
+       SET next_period_prepaid_minor = v_price, next_period_start = v_sub.current_period_end, updated_at = now()
+     WHERE workspace_id = p_workspace_id;
+    RETURN jsonb_build_object(
+      'action', 'prepaid', 'ledger_id', v_entry.id, 'plan_id', v_target, 'billing_interval', v_interval,
+      'period_start', v_start, 'period_end', v_end, 'amount_minor', v_price, 'balance_minor', v_entry.balance_after
+    );
+  END IF;
+  UPDATE public.billing_accounts
+     SET scheduled_plan_id = NULL, scheduled_interval = NULL, next_period_prepaid_minor = NULL,
+         next_period_start = NULL, updated_at = now()
+   WHERE workspace_id = p_workspace_id;
+  PERFORM public.billing_account_write_subscription(
+    p_workspace_id, v_target, v_interval, v_start, v_end, 'active',
+    CASE WHEN v_target = v_sub.plan_id THEN 'renewal' ELSE 'change' END, p_actor,
+    jsonb_build_object('ledger_id', v_entry.id, 'price_minor', v_price)
+  );
+  PERFORM public.billing_account_grant_month(p_workspace_id, v_target, v_start, v_end);
+  RETURN jsonb_build_object(
+    'action', 'renewed', 'ledger_id', v_entry.id, 'plan_id', v_target, 'previous_plan_id', v_sub.plan_id,
+    'billing_interval', v_interval, 'period_start', v_start, 'period_end', v_end,
+    'amount_minor', v_price, 'balance_minor', v_entry.balance_after
+  );
+END;
+$$;
 
 -- 259's settlement, now also spending the credit on the payment's purpose
 -- (plan, renewal, upgrade) in the same transaction. If the purpose can no
@@ -1100,7 +1258,9 @@ $$;
 -- Seeded in both editions, like 261's (migration 260 keeps every template in
 -- each edition); only Multi Region ever sends them. In fa/en/tr; a row that
 -- exists (edited) is never overwritten. The server fills {card} ("Visa ••••
--- 4242"), the amounts, dates and reasons, and the links.
+-- 4242"), the amounts, dates and reasons, and the links. A renewal the card
+-- paid is mailed as billing_card_renewed, which names the card
+-- (billing_renewed stays the balance's renewal, as 261 seeded it).
 CREATE OR REPLACE FUNCTION pg_temp._email_262_layout(p_locale text, p_title text, p_body text)
 RETURNS text
 LANGUAGE sql
@@ -1165,6 +1325,19 @@ SELECT pg_temp._email_262_seed('billing_card_removed', 'tr',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">{card} artık çalışma alanınızın {plan_name} planının otomatik yenilemesi için kayıtlı değil ve bu karttan yeniden ödeme alınmayacak.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Neden: {reason}<br>Ödenmiş dönem: {period_end} tarihine kadar</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Planı bu tarihten sonra da kullanmak için bakiyenizden yenileyin veya faturalandırma sayfasından çevrimiçi ödeme yapın. İstediğiniz zaman yeniden kart ekleyebilirsiniz.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Faturalandırma</a></p>',
   '{card} artık {plan_name} planınızın otomatik yenilemesi için kayıtlı değil ve bu karttan yeniden ödeme alınmayacak. Neden: {reason}. Ödenmiş dönem: {period_end} tarihine kadar. Faturalandırma: {billing_url}');
 
+SELECT pg_temp._email_262_seed('billing_card_renewed', 'fa',
+  'پلن {plan_name} با کارت شما تمدید شد — {brand}', 'تمدید با کارت انجام شد',
+  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">پلن {plan_name} فضای کاری شما با کارت ذخیره‌شده‌ی {card} برای دوره‌ی {period_start} تا {period_end} تمدید شد.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">مبلغ: {amount}<br>موجودی حساب: {balance}</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">فاکتور پرداخت با کارت جداگانه برای شما ایمیل می‌شود.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">صورت‌حساب</a></p>',
+  'پلن {plan_name} با کارت ذخیره‌شده‌ی {card} برای دوره‌ی {period_start} تا {period_end} تمدید شد. مبلغ: {amount}. موجودی: {balance}. فاکتور پرداخت با کارت جداگانه ایمیل می‌شود. صورت‌حساب: {billing_url}');
+SELECT pg_temp._email_262_seed('billing_card_renewed', 'en',
+  'Your {plan_name} plan was renewed with your card — {brand}', 'Plan renewed by card',
+  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Your workspace''s {plan_name} plan was renewed with your saved card {card} for {period_start} to {period_end}.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Amount: {amount}<br>Your balance: {balance}</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">The invoice for the card payment is emailed to you separately.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Billing</a></p>',
+  'Your {plan_name} plan was renewed with your saved card {card} for {period_start} to {period_end}. Amount: {amount}. Balance: {balance}. The invoice for the card payment is emailed separately. Billing: {billing_url}');
+SELECT pg_temp._email_262_seed('billing_card_renewed', 'tr',
+  '{plan_name} planınız kartınızla yenilendi — {brand}', 'Plan kartla yenilendi',
+  '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Çalışma alanınızın {plan_name} planı, kayıtlı kartınız {card} ile {period_start} – {period_end} dönemi için yenilendi.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Tutar: {amount}<br>Bakiyeniz: {balance}</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Kart ödemesinin faturası size ayrıca e-postayla gönderilir.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Faturalandırma</a></p>',
+  '{plan_name} planınız kayıtlı kartınız {card} ile {period_start} – {period_end} dönemi için yenilendi. Tutar: {amount}. Bakiye: {balance}. Kart ödemesinin faturası ayrıca e-postayla gönderilir. Faturalandırma: {billing_url}');
+
 -- ─── 10. Access: the backend (service_role) only ──────────────────────────
 DO $$
 BEGIN
@@ -1205,6 +1378,8 @@ BEGIN
     'public.billing_card_touch_plan()',
     'public.billing_card_touch_settings()',
     'public.billing_card_workspace_deleted()',
+    'public.billing_card_keep_on_delete()',
+    'public.billing_account_renew(uuid, uuid, timestamptz, bigint, bigint)',
     'public.billing_account_settle_payment(uuid)',
     'public.billing_account_process_due(uuid)',
     'public.billing_account_reminder_candidates(integer)',

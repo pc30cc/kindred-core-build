@@ -352,6 +352,26 @@ describe('paddle verifyWebhook event mapping', () => {
     expect(event?.type).toBe('ignored');
   });
 
+  it('an approved chargeback reversal (Paddle won the dispute) books nothing but is logged REVIEW for a person', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const event = await map({
+        event_id: 'evt_cbr',
+        event_type: 'adjustment.updated',
+        data: { id: 'adj_rev_1', action: 'chargeback_reverse', status: 'approved', transaction_id: 'txn_ren_1', currency_code: 'USD', totals: { total: '2900' } },
+      });
+      expect(event?.type).toBe('ignored');
+      const logged = error.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(logged).toMatch(/REVIEW chargeback reversal adj_rev_1 transaction=txn_ren_1 2900 USD/);
+      error.mockClear();
+      // Not approved yet: nothing to look at.
+      await map({ event_id: 'evt_cbr2', event_type: 'adjustment.created', data: { id: 'adj_rev_2', action: 'chargeback_reverse', status: 'pending_approval', transaction_id: 'txn_ren_1' } });
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it('an approved chargeback takes the money back like a refund, marked as a chargeback', async () => {
     const event = await map({
       event_id: 'evt_cb',

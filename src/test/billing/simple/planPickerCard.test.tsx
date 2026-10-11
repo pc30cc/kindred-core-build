@@ -71,7 +71,7 @@ const CARD = {
   auto_renew: true, next_charge_at: inDays(19), next_charge_minor: 2900,
   next_charge_plan: { plan_id: 'pro', name: 'Pro', localized: {} }, next_charge_interval: 'monthly',
   scheduled_cancel_at: null, last_failure: null as null | { at: string; code: string | null },
-  frozen_until: null as string | null, expires_before_next_charge: false,
+  frozen_until: null as string | null, expires_before_next_charge: false, chargeable: true,
 };
 
 const VIEW = {
@@ -161,7 +161,7 @@ describe('an upgrade with a saved card', () => {
 
     fireEvent.click(charge);
     fireEvent.click(charge);
-    await waitFor(() => expect(api.chargeCardUpgrade).toHaveBeenCalledWith('ws-1', { planId: 'biz', expectedNetMinor: 7000 }));
+    await waitFor(() => expect(api.chargeCardUpgrade).toHaveBeenCalledWith('ws-1', { planId: 'biz', expectedNetMinor: 7000, expectedTotalMinor: 7000 }));
     expect(api.chargeCardUpgrade).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await waitFor(() => expect(api.view).toHaveBeenCalledTimes(2));
@@ -283,8 +283,32 @@ describe('an upgrade with a saved card', () => {
     api.chargeCardUpgrade.mockRejectedValueOnce(new AccountApiError('CARD_CHARGE_IN_PROGRESS', 409, null));
     fireEvent.click(await chargeButton(screen.getByTestId('plan-quote')));
     await waitFor(() => expect(api.chargeCardUpgrade).toHaveBeenCalledTimes(2));
-    expect(api.chargeCardUpgrade).toHaveBeenLastCalledWith('ws-1', { planId: 'biz', expectedNetMinor: 8000 });
+    expect(api.chargeCardUpgrade).toHaveBeenLastCalledWith('ws-1', { planId: 'biz', expectedNetMinor: 8000, expectedTotalMinor: 8000 });
     await waitFor(() => expect(within(screen.getByTestId('plan-quote')).getByRole('alert')).toBeInTheDocument());
+  });
+
+  it('a card whose gateway no longer offers card renewal is not charged: paying online is offered instead', async () => {
+    api.view.mockResolvedValue({ ...VIEW, card: { ...CARD, chargeable: false }, card_available: false, card_providers: [] });
+    const quote = await pickBusiness();
+    expect(await within(quote).findByText('billing.account.picker.payOnline')).toBeInTheDocument();
+    expect(within(quote).queryByText(/billing\.account\.picker\.chargeCard/)).toBeNull();
+    expect(api.chargeCardUpgrade).not.toHaveBeenCalled();
+  });
+
+  it('charges only the total the button showed (VAT included); a VAT the page has not seen is refused and the page reloads it', async () => {
+    api.view.mockResolvedValueOnce({ ...VIEW, vat_percent: null }).mockResolvedValue({ ...VIEW, vat_percent: 10 });
+    api.chargeCardUpgrade.mockRejectedValueOnce(new AccountApiError('QUOTE_CHANGED', 409, { quote: UPGRADE, vat_percent: 10 }));
+    const quote = await pickBusiness();
+    const charge = await chargeButton(quote);
+    expect(charge).toHaveTextContent('$70.00');
+    fireEvent.click(charge);
+    await waitFor(() => expect(api.chargeCardUpgrade).toHaveBeenCalledWith('ws-1', { planId: 'biz', expectedNetMinor: 7000, expectedTotalMinor: 7000 }));
+    // The page reloads its view (and VAT): the button now shows what the card would really be charged.
+    await waitFor(() => expect(api.view).toHaveBeenCalledTimes(2));
+    await waitFor(async () => expect(await chargeButton(screen.getByTestId('plan-quote'))).toHaveTextContent('$77.00'));
+    api.chargeCardUpgrade.mockResolvedValue({ status: 'succeeded', paymentId: 'pay-c7', purpose_result: { action: 'upgrade' } });
+    fireEvent.click(await chargeButton(screen.getByTestId('plan-quote')));
+    await waitFor(() => expect(api.chargeCardUpgrade).toHaveBeenLastCalledWith('ws-1', { planId: 'biz', expectedNetMinor: 7000, expectedTotalMinor: 7700 }));
   });
 
   it('below Paddle\'s minimum the card is not offered', async () => {

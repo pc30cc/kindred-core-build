@@ -6,8 +6,9 @@
  *
  * The slugs are read from the sender (notify.ts) and the seeds (migrations
  * 261 and 262), so a mail added there and forgotten here fails in this test.
- * The saved card's mails (262) exist in the International edition only: the
- * Iranian edition lists neither them nor {card} on the renewal mail.
+ * The saved card's mails (262: a renewal the card paid, a failed payment, a
+ * removed card) are sent in the International edition only and not listed
+ * in the Iranian one; the balance's renewal mail names no card.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -52,7 +53,7 @@ const LOCALES = { en, fa, tr } as const;
 /** The variables each mail fills besides the ones every billing mail has. */
 const OWN_VARIABLES: Record<string, string[]> = {
   billing_renewal_reminder: ['{plan_name}', '{new_plan_name}', '{amount}', '{balance}', '{period_end}', '{days_left}'],
-  billing_renewed: ['{plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}', '{card}'],
+  billing_renewed: ['{plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_expired: ['{plan_name}', '{expired_at}'],
   billing_plan_changed: ['{plan_name}', '{old_plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_change_scheduled: ['{plan_name}', '{new_plan_name}', '{effective_at}'],
@@ -60,12 +61,11 @@ const OWN_VARIABLES: Record<string, string[]> = {
   billing_plan_activated: ['{plan_name}', '{amount}', '{balance}', '{period_end}'],
   billing_trial_ending: ['{trial_end}', '{days_left}'],
   billing_trial_ended: [],
+  billing_card_renewed: ['{plan_name}', '{card}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_card_payment_failed: ['{plan_name}', '{amount}', '{card}', '{failure_reason}', '{due_at}'],
   billing_card_removed: ['{card}', '{reason}', '{plan_name}', '{period_end}'],
 };
-const CARD_SLUGS = ['billing_card_payment_failed', 'billing_card_removed'];
-/** The renewal mail names the card that paid it, in the International edition. */
-const INTERNATIONAL_ONLY: Record<string, string[]> = { billing_renewed: ['{card}'] };
+const CARD_SLUGS = ['billing_card_renewed', 'billing_card_payment_failed', 'billing_card_removed'];
 const EVERY_BILLING_MAIL = ['{brand}', '{year}', '{support_email}', '{workspace}', '{billing_url}'];
 
 /** The slugs the sender knows (BillingEmailSlug in notify.ts). */
@@ -133,7 +133,7 @@ describe('Branding → Email templates: the simple billing mails', () => {
     vi.unstubAllGlobals();
   });
 
-  it('are the eleven mails the sender sends', () => {
+  it('are the twelve mails the sender sends', () => {
     expect(LEGACY_BILLING_ENABLED).toBe(false);
     expect(senderSlugs().sort()).toEqual([...slugs].sort());
   });
@@ -151,15 +151,14 @@ describe('Branding → Email templates: the simple billing mails', () => {
     }
   });
 
-  it('in the Iranian edition leave out the card mails and the card on the renewal mail', async () => {
+  it('in the Iranian edition leave out the card mails; the renewal mail (the balance\'s) names no card', async () => {
     edition = 'iran';
     await renderTab();
     fireEvent.click(screen.getByText('[admin.brandingPage.emailTemplates.categories.billing]'));
     expect(listedSlugs()).toEqual(slugs.filter((slug) => !CARD_SLUGS.includes(slug)));
     fireEvent.click(screen.getByText(`[${SLUG_KEY}.billing_renewed]`));
-    expect(variableChips().sort()).toEqual(
-      [...EVERY_BILLING_MAIL, ...OWN_VARIABLES.billing_renewed.filter((v) => !INTERNATIONAL_ONLY.billing_renewed.includes(v))].sort(),
-    );
+    expect(variableChips().sort()).toEqual([...EVERY_BILLING_MAIL, ...OWN_VARIABLES.billing_renewed].sort());
+    expect(variableChips()).not.toContain('{card}');
   });
 
   it('offer the variables each mail fills, covering everything the seed uses', async () => {

@@ -146,7 +146,12 @@ async function cardSection(
     }),
     cardAvailability(cfg, workspaceId, currency, viewer).catch(() => ({ available: false, providers: [] as string[] })),
   ]);
-  return { card, card_available: availability.available, card_providers: availability.providers };
+  return {
+    // An upgrade is charged to the card only on a gateway still offered to this viewer with card renewal on.
+    card: card ? { ...card, chargeable: card.chargeable && availability.providers.includes(card.provider) } : null,
+    card_available: availability.available,
+    card_providers: availability.providers,
+  };
 }
 
 /** Card routes exist in the International edition only (Iran never has a card). */
@@ -754,6 +759,8 @@ const cardChargeSchema = z.object({
   planId: z.string().uuid(),
   /** The upgrade's net amount the page showed; another amount now answers QUOTE_CHANGED. */
   expectedNetMinor: z.number().int().positive(),
+  /** The total (VAT included) the button showed; another total now answers QUOTE_CHANGED. Optional for older pages. */
+  expectedTotalMinor: z.number().int().positive().optional(),
 });
 
 /**
@@ -761,6 +768,8 @@ const cardChargeSchema = z.object({
  * one Paddle charge per payment row. 200 when Paddle charged and it was
  * settled; 202 'processing' when Paddle's answer is not known yet (the
  * webhook, the verify route or the job settles it; it is never charged twice).
+ * Each attempt is a payment row and a charge at the card's issuer: it counts
+ * toward the checkouts' 10 an hour (TOO_MANY_CHECKOUTS).
  */
 billingAccountRouter.post('/account/:workspaceId/card/charge', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -770,9 +779,13 @@ billingAccountRouter.post('/account/:workspaceId/card/charge', async (req, res) 
   try {
     const cfg = serverConfigOf(req);
     if (!(await cardsOffered(cfg))) return res.status(400).json({ error: 'CARD_NOT_AVAILABLE' });
+    if ((await recentCheckoutCount(cfg, req.params.workspaceId)) >= CHECKOUTS_PER_HOUR) {
+      return res.status(429).json({ error: 'TOO_MANY_CHECKOUTS' });
+    }
     const result = await chargeCardForUpgrade(cfg, req.params.workspaceId, {
       planId: parsed.data.planId,
       expectedNetMinor: parsed.data.expectedNetMinor,
+      expectedTotalMinor: parsed.data.expectedTotalMinor,
       actorId: auth.userId,
     });
     if (result.status === 'processing') return res.status(202).json({ status: 'processing', paymentId: result.paymentId });

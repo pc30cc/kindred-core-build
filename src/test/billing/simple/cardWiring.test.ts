@@ -37,6 +37,7 @@ const h = vi.hoisted(() => ({
     setCardAutoRenew: vi.fn(),
     resolveCardCharge: vi.fn(),
     runCardJob: vi.fn(),
+    syncWorkspaceCard: vi.fn(),
   },
   lease: { acquire: vi.fn(), release: vi.fn(async () => undefined) },
 }));
@@ -142,6 +143,7 @@ vi.mock('../../../../server/services/billing/account/card.js', () => ({
     return h.card.cancelCardNow(...a);
   },
   setCardAutoRenew: h.card.setCardAutoRenew,
+  syncWorkspaceCard: h.card.syncWorkspaceCard,
   resolveCardCharge: h.card.resolveCardCharge,
   runCardJob: h.card.runCardJob,
   cardLabel: (brand: string | null, last4: string | null) => `${brand === 'visa' ? 'Visa' : 'Card'} •••• ${last4}`,
@@ -155,6 +157,7 @@ const { runSimpleBillingCard } = await import('../../../../server/services/billi
 const CFG = { supabaseUrl: 'http://db', supabaseServiceRoleKey: 'k' } as never;
 const W = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const PRO = '11111111-1111-4111-8111-111111111111';
+const TEAM = '22222222-2222-4222-8222-222222222222';
 const CARD = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const DAY = 86_400_000;
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -293,6 +296,32 @@ describe('a chargeback', () => {
     });
     expect(rpcNames()).toEqual(['billing_account_refund_payment']);
     expect(h.card.cancelCardNow).not.toHaveBeenCalled();
+  });
+
+  it('a refunded card renewal that renewed the period turns auto-renew off and syncs the card', async () => {
+    h.card.readLiveCard.mockResolvedValue(LIVE);
+    await account.handleAccountPaymentWebhook(CFG, {
+      providerName: 'paddle_sandbox', workspaceId: W, event: { ...(chargeback as object), chargeback: undefined } as never,
+      payment: payment({ status: 'succeeded', source: 'card_renewal', card_id: CARD, purpose_result: { action: 'prepaid', card: true } }),
+    });
+    expect(h.db.billing_accounts[0].auto_renew).toBe(false);
+    expect(h.card.syncWorkspaceCard).toHaveBeenCalledWith(CFG, W);
+  });
+
+  it('a refunded card renewal that renewed nothing (kept in the balance for review) leaves auto-renew on', async () => {
+    h.card.readLiveCard.mockResolvedValue(LIVE);
+    for (const stray of [
+      { review: 'already_renewed', purpose_result: { error: 'already_renewed' } },
+      { review: null, purpose_result: { error: 'card_not_live' } },
+      { review: 'amount_below_price', purpose_result: null },
+    ]) {
+      await account.handleAccountPaymentWebhook(CFG, {
+        providerName: 'paddle_sandbox', workspaceId: W, event: { ...(chargeback as object), chargeback: undefined } as never,
+        payment: payment({ status: 'succeeded', source: 'card_renewal', card_id: CARD, ...stray }),
+      });
+    }
+    expect(h.db.billing_accounts[0].auto_renew).toBe(true);
+    expect(h.card.syncWorkspaceCard).not.toHaveBeenCalled();
   });
 
   it('a card Paddle does not cancel now stays canceling for the job; the refund still counts', async () => {
@@ -434,14 +463,26 @@ describe('the due moment with a saved card', () => {
       : { data: null, error: null }));
     await plans.processDueNow(CFG, W);
     expect(mails('billing_renewed')).toHaveLength(1);
-    expect(mails('billing_renewed')[0].data.card).toBe('');
+    expect(mails('billing_renewed')[0].data).not.toHaveProperty('card');
+    expect(mails('billing_card_renewed')).toHaveLength(0);
   });
 });
 
-describe('the renewal mail names the card that paid', () => {
-  it('{card} is the label when given, empty otherwise', async () => {
-    await plans.afterPlanChange(CFG, W, { action: 'prepaid', plan_id: PRO }, 'payment_succeeded', { card: 'Visa •••• 4242' });
-    expect(mails('billing_renewed')[0].data.card).toBe('Visa •••• 4242');
+describe('a renewal the card paid has its own mail, naming the card', () => {
+  it('billing_card_renewed with {card} when a card paid; billing_renewed (no card) when the balance did', async () => {
+    await plans.afterPlanChange(CFG, W, { action: 'prepaid', plan_id: PRO, amount_minor: 2900, balance_minor: 0 }, 'payment_succeeded', { card: 'Visa •••• 4242' });
+    expect(mails('billing_renewed')).toHaveLength(0);
+    expect(mails('billing_card_renewed')).toHaveLength(1);
+    expect(mails('billing_card_renewed')[0].data).toMatchObject({ card: 'Visa •••• 4242', amount: '2900 USD', balance: '0 USD' });
+    await plans.afterPlanChange(CFG, W, { action: 'prepaid', plan_id: PRO }, 'payment_succeeded');
+    expect(mails('billing_renewed')).toHaveLength(1);
+    expect(mails('billing_card_renewed')).toHaveLength(1);
+  });
+
+  it('a pulled card renewal that started a changed plan is still billing_plan_changed', async () => {
+    await plans.afterPlanChange(CFG, W, { action: 'renewed', plan_id: PRO, previous_plan_id: TEAM }, 'payment_succeeded', { card: 'Visa •••• 4242' });
+    expect(mails('billing_plan_changed')).toHaveLength(1);
+    expect(mails('billing_card_renewed')).toHaveLength(0);
   });
 });
 
@@ -484,11 +525,12 @@ describe('after a card payment is settled', () => {
     return afterAccountSettlement(CFG, { payment_id: 'p1', ledger_id: 'l1', receipt_number: 'RS-1', balance_minor: 0, purpose, purpose_result: result });
   };
 
-  it('a clean renewal on the card: no receipt of ours, the renewal mail names the card', async () => {
+  it('a clean renewal on the card: no receipt of ours, billing_card_renewed names the card', async () => {
     await settle({ source: 'card_renewal', card_id: CARD }, { action: 'prepaid', plan_id: PRO, card: true });
     expect(mails('billing_payment_receipt')).toHaveLength(0);
-    expect(mails('billing_renewed')).toHaveLength(1);
-    expect(mails('billing_renewed')[0].data.card).toBe('Visa •••• 4242');
+    expect(mails('billing_renewed')).toHaveLength(0);
+    expect(mails('billing_card_renewed')).toHaveLength(1);
+    expect(mails('billing_card_renewed')[0].data.card).toBe('Visa •••• 4242');
     expect(errorLog).not.toHaveBeenCalled();
   });
 
@@ -516,7 +558,9 @@ describe('after a card payment is settled', () => {
   it('a checkout: as before (receipt, plan mail, no card)', async () => {
     await settle({ source: 'checkout' }, { action: 'prepaid', plan_id: PRO });
     expect(mails('billing_payment_receipt')).toHaveLength(1);
-    expect(mails('billing_renewed')[0].data.card).toBe('');
+    expect(mails('billing_renewed')).toHaveLength(1);
+    expect(mails('billing_renewed')[0].data).not.toHaveProperty('card');
+    expect(mails('billing_card_renewed')).toHaveLength(0);
   });
 });
 

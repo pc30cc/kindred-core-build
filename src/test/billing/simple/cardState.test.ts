@@ -11,7 +11,9 @@ import {
   chargeDateFor,
   desiredCardState,
   lastPaidEnd,
+  ownRenewalFreeze,
   periodEndOf,
+  setupHoldFrom,
   type CardStateInput,
 } from '../../../../server/services/billing/account/cardState';
 import {
@@ -72,7 +74,18 @@ describe('desiredCardState: the first matching rule wins', () => {
     ['setup payment canceled: cancel at once', { ...noPaid, setupPayment: { status: 'canceled', created_at: iso(NOW - MIN) } }, 'cancel_now'],
     ['setup payment expired: cancel at once', { ...noPaid, setupPayment: { status: 'expired', created_at: iso(NOW - MIN) } }, 'cancel_now'],
     ['no setup payment (deleted) and no period: cancel', { ...noPaid, setupPayment: null }, 'cancel_now', 'no_paid_plan'],
-    ['a setup payment with no readable date: cancel', { ...noPaid, setupPayment: { status: 'pending', created_at: 'not a date' } }, 'cancel_now'],
+    ['a setup payment with no readable date: cancel', { ...noPaid, setupPayment: { status: 'pending', created_at: 'not a date' }, card: { status: 'active', created_at: 'not a date', currency: 'USD' } }, 'cancel_now'],
+    // The hold counts from the later of the checkout being opened and the card being registered
+    // (Paddle makes the subscription only once the checkout is paid).
+    ['a checkout opened 3 h ago whose card was registered just now: hold', {
+      ...noPaid, setupPayment: { status: 'pending', created_at: iso(NOW - 3 * H) }, card: { status: 'active', created_at: iso(NOW - MIN), currency: 'USD' },
+    }, 'hold', 'setup_pending'],
+    ['a checkout opened 3 h ago, its card registered 3 h ago: cancel', {
+      ...noPaid, setupPayment: { status: 'pending', created_at: iso(NOW - 3 * H) }, card: { status: 'active', created_at: iso(NOW - 3 * H), currency: 'USD' },
+    }, 'cancel_now', 'no_paid_plan'],
+    ['a card registered just now whose checkout failed: cancel', {
+      ...noPaid, setupPayment: { status: 'failed', created_at: iso(NOW - 3 * H) }, card: { status: 'active', created_at: iso(NOW - MIN), currency: 'USD' },
+    }, 'cancel_now', 'no_paid_plan'],
     // 4./5. Nothing more to charge.
     ['auto-renew off: stop at the period end', { autoRenew: false }, 'stop_at_period_end', 'auto_renew_off'],
     ['auto-renew off wins over a free target', {
@@ -190,6 +203,46 @@ describe('cardFreeze: from N − 2 h until N + 6 h, live cards only', () => {
       expect(result.until).toBe(iso(Date.parse(value.paddle_next_billed_at as string) + CARD_FREEZE_MAX_AFTER_MS));
     } else {
       expect(result.until).toBeNull();
+    }
+  });
+});
+
+describe('setupHoldFrom: the later of the checkout and the card', () => {
+  it.each([
+    ['the card is newer', iso(NOW - 3 * H), iso(NOW - MIN), NOW - MIN],
+    ['the checkout is newer', iso(NOW - MIN), iso(NOW - 3 * H), NOW - MIN],
+    ['no card date', iso(NOW - H), '', NOW - H],
+    ['no checkout date', 'garbage', iso(NOW - H), NOW - H],
+  ] as const)('%s', (_name, setup, card, expected) => {
+    expect(setupHoldFrom({ created_at: setup }, { created_at: card })).toBe(expected);
+  });
+  it('neither date: none', () => {
+    expect(setupHoldFrom({ created_at: '' }, { created_at: '' })).toBeNaN();
+  });
+});
+
+describe('ownRenewalFreeze: around the charge our own period expects, while its renewal is not recorded', () => {
+  // The period ends at E; its renewal is due at E − 24 h.
+  const due = (offset: number) => input({ now: E - CARD_RENEWAL_LEAD_MS + offset });
+  it.each([
+    ['3 hours before the charge: open', due(-3 * H), false],
+    ['exactly 2 hours before: frozen', due(-CARD_FREEZE_BEFORE_MS), true],
+    ['at the charge: frozen', due(0), true],
+    ['5 hours after it, still unrecorded: frozen', due(5 * H), true],
+    ['exactly 6 hours after: open again', due(CARD_FREEZE_MAX_AFTER_MS), false],
+    ['the next period is prepaid (the renewal was recorded): open', { ...due(H), prepaidNextEnd: iso(E + 31 * D) }, false],
+    ['a billing v2 next period: open', { ...due(H), v2NextEnd: iso(E + 30 * D) }, false],
+    ['auto-renew off: nothing to renew, open', { ...due(H), autoRenew: false }, false],
+    ['the next period is Free: open', { ...due(H), target: { plan_id: PRO, is_free: true, interval: 'monthly', price_minor: 0 } as const }, false],
+    ['no paid period: open', { ...due(H), paid: null, target: null }, false],
+    ['a canceling card: open', { ...due(H), card: { status: 'canceling', created_at: iso(NOW - D), currency: 'USD' } as const }, false],
+  ] as const)('%s', (_name, value, frozen) => {
+    const result = ownRenewalFreeze(value as CardStateInput);
+    expect(result.frozen).toBe(frozen);
+    if (frozen) {
+      expect(result).toEqual({ frozen: true, at: iso(E - CARD_RENEWAL_LEAD_MS), until: iso(E - CARD_RENEWAL_LEAD_MS + CARD_FREEZE_MAX_AFTER_MS) });
+    } else {
+      expect(result).toEqual({ frozen: false, at: null, until: null });
     }
   });
 });

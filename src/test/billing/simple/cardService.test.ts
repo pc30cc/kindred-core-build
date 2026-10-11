@@ -37,6 +37,10 @@ const h = vi.hoisted(() => ({
   edition: 'international' as 'international' | 'iran',
   regionMode: 'multi',
   purposeResult: null as Row | null,
+  /** What reading a table fails with, by table (a database without migration 262). */
+  tableError: {} as Record<string, Row>,
+  /** What billing_card_settle also does (the renewal's prepaid period, where a test needs it). */
+  onSettle: null as null | ((payment: Row) => void),
 }));
 
 vi.mock('../../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient() }));
@@ -192,6 +196,7 @@ function query(name: string) {
   let limit = Infinity;
   const cmp = (a: unknown, b: unknown) => String(a) < String(b);
   const run = async (): Promise<{ data: unknown; error: unknown }> => {
+    if (h.tableError[name]) return { data: null, error: h.tableError[name] };
     const all = table(name);
     if (op === 'insert') {
       for (const r of rows) {
@@ -295,6 +300,7 @@ function rpcImpl(name: string, a: Row): { data: unknown; error: unknown } {
       if (p.status === 'succeeded') return { data: { replayed: true, payment_id: p.id, ledger_id: p.ledger_id }, error: null };
       const result = h.purposeResult ?? (p.purpose === 'upgrade' ? { action: 'upgraded' } : p.purpose === 'renewal' ? { action: 'prepaid', card: true } : null);
       Object.assign(p, { status: 'succeeded', provider_payment_id: a.p_txn_id, verified_at: now, ledger_id: `l-${p.id}`, purpose_result: result });
+      h.onSettle?.(p);
       return { data: { replayed: false, payment_id: p.id, ledger_id: p.ledger_id, receipt_number: 'RS-1', balance_minor: 0, purpose: p.purpose, purpose_result: result }, error: null };
     }
     case 'billing_card_register': {
@@ -404,6 +410,8 @@ beforeEach(() => {
   h.edition = 'international';
   h.regionMode = 'multi';
   h.purposeResult = null;
+  h.tableError = {};
+  h.onSettle = null;
   h.closeCheckout.mockReset();
   h.verifyPayment.mockReset();
   h.afterSettlement.mockReset();
@@ -572,11 +580,77 @@ describe('syncCard', () => {
   });
 
   it('within 2 hours of Paddle\'s charge nothing is changed (freeze)', async () => {
+    // Our period asks for this very charge (its end − 24 h is in an hour).
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D + H);
     paddle.sub.next_billed_at = iso(Date.now() + H);
     paddle.sub.items = [{ price: priceJson(1000, 'month', {}) }];
     const outcome = await card.syncCard(CFG, CARD);
     expect(outcome).toEqual({ status: 'deferred', detail: 'frozen' });
     expect(h.paddleCalls.map((c) => c.method)).toEqual(['GET']);
+  });
+
+  it('within the freeze a date of Paddle\'s before ours is moved later, the date only (a wrong early date is undone)', async () => {
+    paddle.sub.next_billed_at = iso(Date.now() + H);
+    paddle.sub.items = [{ price: priceJson(1000, 'month', {}) }];
+    const outcome = await card.syncCard(CFG, CARD);
+    expect(outcome).toEqual({ status: 'deferred', detail: 'moved_later' });
+    const patch = calls(`PATCH /subscriptions/${SUB}`);
+    expect(patch.map((c) => c.body)).toEqual([{ next_billed_at: iso(E - CARD_RENEWAL_LEAD_MS), proration_billing_mode: 'do_not_bill' }]);
+    expect(calls(`PATCH /subscriptions/${SUB}/preview`)[0].body).toEqual(patch[0].body);
+    expect(at(`paddle:PATCH /subscriptions/${SUB}/preview`)).toBeLessThan(at(`paddle:PATCH /subscriptions/${SUB}`));
+    expect(cardRow().paddle_next_billed_at).toBe(iso(E - CARD_RENEWAL_LEAD_MS));
+  });
+
+  it('within the freeze Paddle\'s date is never moved earlier, nor inside Paddle\'s own 30-minute lock', async () => {
+    // Ours in an hour, Paddle's in 90 minutes: earlier is never done in the freeze.
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D + H);
+    paddle.sub.next_billed_at = iso(Date.now() + 90 * MIN);
+    expect(await card.syncCard(CFG, CARD)).toEqual({ status: 'deferred', detail: 'frozen' });
+    // Ours 9 days on, Paddle's in 20 minutes (its lock): left to Paddle.
+    table('workspace_subscriptions')[0].current_period_end = iso(E);
+    paddle.sub.next_billed_at = iso(Date.now() + 20 * MIN);
+    expect(await card.syncCard(CFG, CARD)).toEqual({ status: 'deferred', detail: 'frozen' });
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
+    expect(calls(`PATCH /subscriptions/${SUB}/preview`)).toHaveLength(0);
+  });
+
+  it('a renewal settled by its own notification while Paddle is asked: Paddle\'s date is not moved earlier (decided again on what is paid)', async () => {
+    // Paddle charged a minute ago (our end − 24 h) and moved its date a month on.
+    const end = Date.now() + D - MIN;
+    table('workspace_subscriptions')[0].current_period_end = iso(end);
+    const ahead = new Date(end - D);
+    ahead.setUTCMonth(ahead.getUTCMonth() + 1);
+    Object.assign(paddle.sub, { next_billed_at: iso(ahead.getTime()), current_billing_period: { starts_at: iso(end - D), ends_at: iso(ahead.getTime()) } });
+    paddle.txns = [txnJson({ id: 'txn_ren_race', status: 'completed', billed_at: iso(end - D) })];
+    // While the reconciler lists Paddle's transactions, transaction.paid is
+    // handled elsewhere: the renewal is recorded, settled and prepaid.
+    h.paddleOverride['GET /transactions'] = () => {
+      payments().push({
+        id: uuid(), workspace_id: W, provider: 'paddle_sandbox', currency: 'USD', amount_minor: 2900, net_minor: 2900, tax_minor: 0,
+        purpose: 'renewal', purpose_detail: { plan_id: PRO, billing_interval: 'monthly', card_id: CARD }, purpose_result: { action: 'prepaid', card: true },
+        status: 'succeeded', provider_ref: 'txn_ren_race', provider_payment_id: 'txn_ren_race', review: null, source: 'card_renewal', card_id: CARD,
+        created_at: iso(Date.now()),
+      });
+      Object.assign(accountRow(), { next_period_prepaid_minor: 2900, next_period_start: iso(end) });
+      return { body: { data: paddle.txns } };
+    };
+    const outcome = await card.syncCard(CFG, CARD);
+    expect(outcome).toEqual({ status: 'deferred', detail: 'renewal_settled' });
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
+    expect(paddle.sub.next_billed_at).toBe(iso(ahead.getTime()));
+  });
+
+  it('a card registered just now for a checkout opened hours ago is held, its hold counted from the registration', async () => {
+    table('workspace_subscriptions').length = 0;
+    Object.assign(payments()[0], { status: 'pending', created_at: iso(Date.now() - 3 * H), completed_at: null, verified_at: null, ledger_id: null });
+    cardRow().created_at = iso(Date.now() - MIN);
+    h.verifyPayment.mockResolvedValue({ verified: false, status: 'pending' });
+    const outcome = await card.syncCard(CFG, CARD);
+    expect(outcome).toEqual({ status: 'deferred', detail: 'setup_pending' });
+    expect(calls(`POST /subscriptions/${SUB}/cancel`)).toHaveLength(0);
+    expect(cardRow().status).toBe('active');
+    // Looked at again within the hold (up to 10 minutes), not as if it had run out.
+    expect(Date.parse(cardRow().next_sync_at as string) - Date.now()).toBeGreaterThan(5 * MIN);
   });
 
   it('a canceling card is cancelled at Paddle now, then marked canceled', async () => {
@@ -736,6 +810,17 @@ describe('chargeCardForUpgrade', () => {
       .rejects.toMatchObject({ code: 'CARD_PROVIDER_ERROR' });
     expect(calls(`POST /subscriptions/${SUB}/charge`)).toHaveLength(0);
     expect(payments().find((p) => p.source === 'card_charge')?.status).toBe('failed');
+  });
+
+  it('charges only the total the page showed: a VAT it did not show answers QUOTE_CHANGED before anything is created', async () => {
+    table('billing_settings')[0].vat_percent = { USD: 10 };
+    await expect(card.chargeCardForUpgrade(CFG, W, { planId: TEAM, expectedNetMinor: 5000, expectedTotalMinor: 5000, actorId: null }))
+      .rejects.toMatchObject({ code: 'QUOTE_CHANGED', status: 409, details: { vat_percent: 10 } });
+    expect(payments().filter((p) => p.source === 'card_charge')).toHaveLength(0);
+    expect(h.paddleCalls.filter((c) => c.method === 'POST')).toHaveLength(0);
+    const out = await card.chargeCardForUpgrade(CFG, W, { planId: TEAM, expectedNetMinor: 5000, expectedTotalMinor: 5500, actorId: null });
+    expect(out.status).toBe('succeeded');
+    expect(payments().find((p) => p.id === out.paymentId)).toMatchObject({ amount_minor: 5500, net_minor: 5000, tax_minor: 500 });
   });
 
   it('the gateway switch off makes card charges unavailable', async () => {
@@ -992,6 +1077,41 @@ describe('removeCard / setCardAutoRenew (Paddle first, P7)', () => {
     expect(cardRow().cancel_intent).toBeNull();
   });
 
+  it('auto-renew off on a past_due card stops the card now: its declined renewal can no longer be collected', async () => {
+    cardRow().status = 'past_due';
+    expect(await card.setCardAutoRenew(CFG, W, false)).toBe(false);
+    expect(calls(`POST /subscriptions/${SUB}/cancel`).map((c) => c.body)).toEqual([{ effective_from: 'immediately' }]);
+    expect(at(`paddle:POST /subscriptions/${SUB}/cancel`)).toBeLessThan(at('rpc:billing_card_set_status'));
+    expect(cardRow()).toMatchObject({ status: 'canceled', cancel_reason: 'auto_renew_off', cancel_intent: 'now' });
+    expect(accountRow()).toMatchObject({ auto_renew: false, card_subscription_id: null });
+    expect(h.emails.map((m) => [m.slug, m.data.reason])).toEqual([['billing_card_removed', 'automatic renewal was turned off']]);
+  });
+
+  it('auto-renew off on a past_due card that Paddle does not cancel: refused, nothing changes', async () => {
+    cardRow().status = 'past_due';
+    h.paddleOverride[`POST /subscriptions/${SUB}/cancel`] = () => ({ status: 400, body: { error: { code: 'bad_request', detail: 'no' } } });
+    await expect(card.setCardAutoRenew(CFG, W, false)).rejects.toMatchObject({ code: 'CARD_PROVIDER_ERROR', status: 502 });
+    expect(cardRow().status).toBe('past_due');
+    expect(accountRow().auto_renew).toBe(true);
+  });
+
+  it('auto-renew off once Paddle\'s charge time has passed and its renewal is not recorded: refused (the payment would stay unspent)', async () => {
+    // Paddle's date passed an hour ago and it has not moved on yet.
+    cardRow().paddle_next_billed_at = iso(Date.now() - H);
+    await expect(card.setCardAutoRenew(CFG, W, false)).rejects.toMatchObject({ code: 'CARD_RENEWAL_IN_PROGRESS', status: 409 });
+    // Paddle moved its date on, but the renewal of our period (end − 24 h, an hour ago) is not recorded either.
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D - H);
+    cardRow().paddle_next_billed_at = iso(Date.now() + 29 * D);
+    await expect(card.setCardAutoRenew(CFG, W, false)).rejects.toMatchObject({ code: 'CARD_RENEWAL_IN_PROGRESS', status: 409 });
+    expect(calls(`POST /subscriptions/${SUB}/cancel`)).toHaveLength(0);
+    expect(accountRow().auto_renew).toBe(true);
+    // Before Paddle's charge (N − 1 h) turning it off is a cancel at the period end, as always.
+    table('workspace_subscriptions')[0].current_period_end = iso(E);
+    cardRow().paddle_next_billed_at = iso(Date.now() + H);
+    expect(await card.setCardAutoRenew(CFG, W, false)).toBe(false);
+    expect(calls(`POST /subscriptions/${SUB}/cancel`).map((c) => c.body)).toEqual([{ effective_from: 'next_billing_period' }]);
+  });
+
   it('auto-renew on again: the scheduled cancel is undone; a permanent refusal turns it back off', async () => {
     await card.setCardAutoRenew(CFG, W, false);
     expect(await card.setCardAutoRenew(CFG, W, true)).toBe(true);
@@ -1041,6 +1161,40 @@ describe('renewWithCard (design §2.5)', () => {
     expect(h.plans.renewPlan).toHaveBeenCalled();
   });
 
+  it('a past_due card is not cancelled for a renewal that will not go through: the renewal says why, the card stays', async () => {
+    cardRow().status = 'past_due';
+    h.plans.renewPlan.mockRejectedValue(Object.assign(new Error('QUOTE_CHANGED'), { code: 'QUOTE_CHANGED' }));
+    await expect(card.renewWithCard(CFG, W, { actorId: null, expectedPeriodEnd: iso(E), expectedPriceMinor: 3900 })).rejects.toThrow('QUOTE_CHANGED');
+    accountRow().balance_minor = 100;
+    h.plans.renewPlan.mockRejectedValue(Object.assign(new Error('INSUFFICIENT_BALANCE'), { code: 'INSUFFICIENT_BALANCE' }));
+    await expect(card.renewWithCard(CFG, W, { actorId: null, expectedPeriodEnd: iso(E), expectedPriceMinor: 2900 })).rejects.toThrow('INSUFFICIENT_BALANCE');
+    expect(calls(`POST /subscriptions/${SUB}/cancel`)).toHaveLength(0);
+    expect(cardRow()).toMatchObject({ status: 'past_due', cancel_reason: null });
+    expect(accountRow().auto_renew).toBe(true);
+  });
+
+  it('a past_due card: a prepayment for a replaced period counts toward the balance; a renewal that goes through after all still stops the card', async () => {
+    cardRow().status = 'past_due';
+    // 1000 in the balance and 2000 prepaid for a period that no longer runs: the renewal goes through, so the card is cancelled first.
+    Object.assign(accountRow(), { balance_minor: 1000, next_period_prepaid_minor: 2000, next_period_start: iso(E - 30 * D) });
+    h.plans.renewPlan.mockImplementation(async () => {
+      h.timeline.push('renew');
+      return { action: 'prepaid' };
+    });
+    await card.renewWithCard(CFG, W, { actorId: null, expectedPeriodEnd: iso(E), expectedPriceMinor: 2900 });
+    expect(at(`paddle:POST /subscriptions/${SUB}/cancel`)).toBeGreaterThanOrEqual(0);
+    expect(at(`paddle:POST /subscriptions/${SUB}/cancel`)).toBeLessThan(at('renew'));
+    expect(cardRow()).toMatchObject({ status: 'canceled', cancel_reason: 'renewed_from_balance' });
+
+    // Not expected to go through, but it did: the card is stopped right after, so Paddle does not collect that period too.
+    seed();
+    cardRow().status = 'past_due';
+    accountRow().balance_minor = 100;
+    h.plans.renewPlan.mockResolvedValue({ action: 'prepaid' });
+    expect(await card.renewWithCard(CFG, W, { actorId: null, expectedPeriodEnd: iso(E), expectedPriceMinor: 2900 })).toEqual({ action: 'prepaid' });
+    expect(cardRow()).toMatchObject({ status: 'canceled', cancel_reason: 'renewed_from_balance' });
+  });
+
   it('frozen around the charge: refused', async () => {
     cardRow().paddle_next_billed_at = iso(Date.now() + H);
     await expect(card.renewWithCard(CFG, W, { actorId: null, expectedPeriodEnd: null, expectedPriceMinor: null }))
@@ -1056,6 +1210,68 @@ describe('assertCardAllowsPlanChange / cardView / cardAvailability', () => {
     await expect(card.assertCardAllowsPlanChange(CFG, W)).rejects.toMatchObject({ code: 'CARD_PAST_DUE' });
     table('billing_account_cards').length = 0;
     await expect(card.assertCardAllowsPlanChange(CFG, W)).resolves.toBeUndefined();
+  });
+
+  it('plan changes also wait around the charge our own period expects while its renewal is not recorded (Paddle already moved on)', async () => {
+    // Our period ends in 23 hours: its renewal was due an hour ago. Paddle moved its date a month on; nothing is recorded.
+    const end = Date.now() + D - H;
+    table('workspace_subscriptions')[0].current_period_end = iso(end);
+    cardRow().paddle_next_billed_at = iso(Date.now() + 29 * D);
+    await expect(card.assertCardAllowsPlanChange(CFG, W))
+      .rejects.toMatchObject({ code: 'CARD_RENEWAL_IN_PROGRESS', details: { frozen_until: iso(end - D + 6 * H) } });
+    // Paddle was asked for the renewal first (it has none yet).
+    expect(calls('GET /transactions')).toHaveLength(1);
+    h.plans.paidPeriodOf.mockResolvedValue({ plan_id: PRO, billing_interval: 'monthly', current_period_start: iso(end - 30 * D), current_period_end: iso(end) });
+    await expect(card.chargeCardForUpgrade(CFG, W, { planId: TEAM, expectedNetMinor: 5000, actorId: null }))
+      .rejects.toMatchObject({ code: 'CARD_RENEWAL_IN_PROGRESS' });
+    await expect(card.renewWithCard(CFG, W, { actorId: null, expectedPeriodEnd: null, expectedPriceMinor: null }))
+      .rejects.toMatchObject({ code: 'CARD_RENEWAL_IN_PROGRESS' });
+    expect(payments().filter((p) => p.source === 'card_charge')).toHaveLength(0);
+    expect(h.plans.renewPlan).not.toHaveBeenCalled();
+    expect((await card.cardView(CFG, W))?.frozen_until).toBe(iso(end - D + 6 * H));
+
+    // Paddle did charge it: the renewal is pulled and settled, and plan changes go on.
+    paddle.txns = [txnJson({ id: 'txn_ren_pulled', status: 'completed' })];
+    h.onSettle = (p) => {
+      if (p.purpose === 'renewal') Object.assign(accountRow(), { next_period_prepaid_minor: 2900, next_period_start: iso(end) });
+    };
+    await expect(card.assertCardAllowsPlanChange(CFG, W)).resolves.toBeUndefined();
+    expect(payments().find((p) => p.provider_ref === 'txn_ren_pulled')).toMatchObject({ source: 'card_renewal', status: 'succeeded' });
+    expect((await card.cardView(CFG, W))?.frozen_until).toBeNull();
+  });
+
+  it('our own renewal window: not before 2 hours ahead of it, nor 6 hours after it; then Paddle is not asked', async () => {
+    cardRow().paddle_next_billed_at = iso(Date.now() + 29 * D);
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D + 3 * H);
+    await expect(card.assertCardAllowsPlanChange(CFG, W)).resolves.toBeUndefined();
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D - 7 * H);
+    await expect(card.assertCardAllowsPlanChange(CFG, W)).resolves.toBeUndefined();
+    // Within 2 hours ahead of it: frozen, and nothing to pull yet.
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D + H);
+    await expect(card.assertCardAllowsPlanChange(CFG, W)).rejects.toMatchObject({ code: 'CARD_RENEWAL_IN_PROGRESS' });
+    // Auto-renew off, or the next period already paid: nothing to wait for.
+    accountRow().auto_renew = false;
+    await expect(card.assertCardAllowsPlanChange(CFG, W)).resolves.toBeUndefined();
+    Object.assign(accountRow(), { auto_renew: true, next_period_prepaid_minor: 2900, next_period_start: table('workspace_subscriptions')[0].current_period_end });
+    await expect(card.assertCardAllowsPlanChange(CFG, W)).resolves.toBeUndefined();
+    expect(calls('GET /transactions')).toHaveLength(0);
+  });
+
+  it('a database without the card table (262 not applied yet) has no card; any other failure still throws', async () => {
+    h.tableError.billing_account_cards = { code: '42P01', message: 'relation "public.billing_account_cards" does not exist' };
+    await expect(card.readLiveCard(CFG, W)).resolves.toBeNull();
+    await expect(card.assertCardAllowsPlanChange(CFG, W)).resolves.toBeUndefined();
+    await expect(card.cardView(CFG, W)).resolves.toBeNull();
+    h.tableError.billing_account_cards = { code: '57014', message: 'canceling statement due to statement timeout' };
+    await expect(card.readLiveCard(CFG, W)).rejects.toThrow('statement timeout');
+  });
+
+  it('the view says whether an upgrade can be charged to the card (its gateway still has card renewal on)', async () => {
+    expect((await card.cardView(CFG, W))?.chargeable).toBe(true);
+    h.gatewayConfig = { api_key: 'pdl_sdbx_apikey_mock', client_token: 'test_client_mock', card_auto_renew: false };
+    expect(await card.cardView(CFG, W)).toMatchObject({ id: CARD, chargeable: false });
+    h.gatewayConfig = null;
+    expect(await card.cardView(CFG, W)).toMatchObject({ id: CARD, chargeable: false });
   });
 
   it('the view: next charge, its plan and amount, the card', async () => {

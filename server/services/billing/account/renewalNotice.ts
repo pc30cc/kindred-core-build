@@ -18,6 +18,7 @@
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { LEGACY_BILLING_ENABLED } from '../../../../shared/billingMode.js';
+import { isRelationMissing } from '../entitlementParse.js';
 
 const DAY_MS = 86_400_000;
 
@@ -139,7 +140,10 @@ export async function renewalDueNotice(
   return { ...notice, ends_on_free: false, card_past_due: false };
 }
 
-/** The status of the workspace's live saved card (active or past_due), or null without one. */
+/**
+ * The status of the workspace's live saved card (active or past_due), or null
+ * without one (also on a database migration 262 has not reached yet).
+ */
 async function liveCardStatus(config: ServerConfig, workspaceId: string): Promise<'active' | 'past_due' | null> {
   const { data, error } = await getServiceClient(config)
     .from('billing_account_cards')
@@ -147,7 +151,10 @@ async function liveCardStatus(config: ServerConfig, workspaceId: string): Promis
     .eq('workspace_id', workspaceId)
     .in('status', ['active', 'past_due'])
     .maybeSingle();
-  if (error) throw new Error(error.message || 'card read failed');
+  if (error) {
+    if (isRelationMissing(error, 'billing_account_cards')) return null;
+    throw new Error(error.message || 'card read failed');
+  }
   const status = (data as { status?: string } | null)?.status;
   return status === 'active' || status === 'past_due' ? status : null;
 }

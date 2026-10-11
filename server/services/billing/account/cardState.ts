@@ -58,6 +58,17 @@ const SETUP_ENDED = new Set(['failed', 'canceled', 'expired']);
 const ms = (iso: string | null | undefined): number => (iso ? Date.parse(iso) : Number.NaN);
 
 /**
+ * When a card's wait for its setup payment starts: the later of the checkout
+ * being opened and the card being registered. Paddle creates the
+ * subscription only once the checkout is paid, so a checkout left open for
+ * hours and paid then still gets its full hold (NaN when neither is known).
+ */
+export function setupHoldFrom(setup: { created_at: string }, card: { created_at: string }): number {
+  const known = [ms(setup.created_at), ms(card.created_at)].filter(Number.isFinite);
+  return known.length ? Math.max(...known) : Number.NaN;
+}
+
+/**
  * The end of the last period already paid for: a prepaid next period's, else
  * a billing v2 scheduled period's, else the running period's. The card pays
  * the period after it.
@@ -98,6 +109,28 @@ export function cardFreeze(
 }
 
 /**
+ * The same freeze around the charge our own period expects (the running
+ * period's end − CARD_RENEWAL_LEAD_MS), while that period's renewal is not
+ * recorded: the card should renew it and nothing paid the next period yet.
+ * Paddle moves its date on before its renewal is paid and reaches us, so the
+ * mirrored freeze (cardFreeze) ends while the renewal Paddle charged may still
+ * be on its way; a plan change then would make it fail its price check.
+ * `at` = that charge time.
+ */
+export function ownRenewalFreeze(input: CardStateInput): { frozen: boolean; until: string | null; at: string | null } {
+  const open = { frozen: false, until: null, at: null };
+  const live = input.card.status === 'active' || input.card.status === 'past_due';
+  if (!live || !input.paid || input.prepaidNextEnd || input.v2NextEnd) return open;
+  if (desiredCardState(input).kind !== 'renew') return open;
+  const at = ms(input.paid.current_period_end) - CARD_RENEWAL_LEAD_MS;
+  if (!Number.isFinite(at)) return open;
+  const frozen = at - CARD_FREEZE_BEFORE_MS <= input.now && input.now < at + CARD_FREEZE_MAX_AFTER_MS;
+  return frozen
+    ? { frozen: true, until: new Date(at + CARD_FREEZE_MAX_AFTER_MS).toISOString(), at: new Date(at).toISOString() }
+    : open;
+}
+
+/**
  * `start` plus one month or one year, in UTC, the way billing_period_end does
  * it in SQL (PostgreSQL's month arithmetic: Jan 31 + 1 month = Feb 28/29).
  */
@@ -127,7 +160,7 @@ export function desiredCardState(input: CardStateInput): DesiredCardState {
   // arrive in any order); otherwise the card has nothing to renew.
   if (!input.paid) {
     const setup = input.setupPayment;
-    const age = setup ? input.now - ms(setup.created_at) : Number.NaN;
+    const age = setup ? input.now - setupHoldFrom(setup, input.card) : Number.NaN;
     if (setup && !SETUP_ENDED.has(setup.status) && Number.isFinite(age) && age < CARD_SETUP_HOLD_MS) {
       return { kind: 'hold', reason: 'setup_pending' };
     }

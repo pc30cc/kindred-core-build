@@ -28,6 +28,8 @@ let rows: {
   plans: Record<string, Record<string, unknown>>;
   /** The workspace's live saved card (billing_account_cards), if any. */
   card: Record<string, unknown> | null;
+  /** What reading billing_account_cards fails with (a database migration 262 has not reached). */
+  cardError?: Record<string, unknown> | null;
 };
 const tablesRead: string[] = [];
 
@@ -51,6 +53,7 @@ vi.mock('../../../../server/supabase.js', () => ({
         if (table === 'billing_accounts') return { data: rows.account, error: null };
         if (table === 'billing_plans') return { data: rows.plans[String(filters.id)] ?? null, error: null };
         if (table === 'billing_account_cards') {
+          if (rows.cardError) return { data: null, error: rows.cardError };
           // Only a live card is asked for.
           const live = (filters.status as string[] | undefined) ?? [];
           return { data: rows.card && live.includes(String(rows.card.status)) ? rows.card : null, error: null };
@@ -206,6 +209,17 @@ describe('renewalDueNotice', () => {
       expect(await notice()).toBeNull();
       rows.account = account({ auto_renew: true, balance_minor: 100 });
       expect(await notice()).toMatchObject({ ends_on_free: false, card_past_due: false });
+    });
+
+    it('a database without the card table (262 not applied yet) has no card: the balance rule applies', async () => {
+      rows.cardError = { code: '42P01', message: 'relation "public.billing_account_cards" does not exist' };
+      rows.account = account({ auto_renew: true, balance_minor: 2900 });
+      expect(await notice()).toBeNull();
+      rows.account = account({ auto_renew: true, balance_minor: 100 });
+      expect(await notice()).toMatchObject({ ends_on_free: false, card_past_due: false });
+      // Any other failure still fails.
+      rows.cardError = { code: '57014', message: 'canceling statement due to statement timeout' };
+      await expect(notice()).rejects.toThrow('statement timeout');
     });
 
     it('the cards are not read when nothing is due', async () => {

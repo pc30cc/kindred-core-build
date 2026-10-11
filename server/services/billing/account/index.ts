@@ -833,11 +833,14 @@ async function afterChargeback(config: ServerConfig, payment: AccountPaymentRow,
  * next period, which auto-renew would otherwise have Paddle charge again
  * within the hour, so auto-renew goes off; the reconciler then schedules the
  * cancel at Paddle's next billing date (the plan runs to its end), and the
- * customer may turn it back on. Other refunds (a stray charge, a top-up)
- * change nothing. Never throws: the refund is recorded.
+ * customer may turn it back on. Other refunds (a stray charge, a top-up, a
+ * renewal that renewed nothing: kept in the balance for review, such as one
+ * Paddle charged for a period already paid) change nothing. Never throws:
+ * the refund is recorded.
  */
 async function afterCardRefund(config: ServerConfig, payment: AccountPaymentRow, refundId: string): Promise<void> {
   if (!CARD_EVENT_PROVIDERS.has(payment.provider) || payment.source === 'checkout' || payment.purpose !== 'renewal') return;
+  if (payment.review || (payment.purpose_result && 'error' in payment.purpose_result)) return;
   try {
     // Loaded on use: card.ts imports this module.
     const card = await import('./card.js');

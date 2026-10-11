@@ -435,12 +435,21 @@ export const paddleProvider: BillingProviderHandler = {
     // adjustment id (refunds.ts).
     // A chargeback (Paddle creates it when a customer wins a dispute) takes
     // the money back like a refund and is recorded the same way, marked
-    // `chargeback`. Its reversal (`chargeback_reverse`) and the warnings are
-    // ignored: the money coming back is left to a person.
+    // `chargeback`. Its reversal (`chargeback_reverse`: Paddle won the
+    // dispute) is not booked: the money coming back is left to a person, so
+    // it is logged REVIEW. The warnings are ignored.
     if (eventType === 'adjustment.created' || eventType === 'adjustment.updated') {
       const adjustmentId = readString(data, 'id');
       const action = readString(data, 'action');
-      if ((action !== 'refund' && action !== 'chargeback') || readString(data, 'status') !== 'approved' || !adjustmentId) {
+      const approved = readString(data, 'status') === 'approved';
+      if (action === 'chargeback_reverse' && approved) {
+        console.error(
+          `[billing-webhook] REVIEW chargeback reversal ${adjustmentId ?? '-'} transaction=${readString(data, 'transaction_id') ?? '-'} `
+          + `${String(asRecord(data?.totals)?.total ?? '?')} ${String(data?.currency_code ?? '')}: Paddle won the dispute; `
+          + "restore the customer's balance (and prepaid period) by hand",
+        );
+      }
+      if ((action !== 'refund' && action !== 'chargeback') || !approved || !adjustmentId) {
         return { ...base, type: 'ignored' };
       }
       return {

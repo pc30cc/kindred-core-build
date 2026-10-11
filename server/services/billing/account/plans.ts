@@ -440,8 +440,8 @@ async function rpc(config: ServerConfig, name: string, args: Record<string, unkn
 
 /**
  * After a plan or period changed: entitlements now, and the mail. Never throws.
- * `options.card` names the saved card that paid ("Visa •••• 4242") for the
- * renewal mail's {card}.
+ * `options.card` names the saved card that paid ("Visa •••• 4242"): a renewal
+ * it paid is mailed as billing_card_renewed, with {card}.
  */
 export async function afterPlanChange(
   config: ServerConfig,
@@ -476,15 +476,16 @@ export async function afterPlanChange(
       // mailed there; nothing was charged here.
     } else if (action === 'renewed' || action === 'prepaid') {
       const changed = action === 'renewed' && result.previous_plan_id && result.previous_plan_id !== result.plan_id;
-      await sendBillingEmail(config, workspaceId, changed ? 'billing_plan_changed' : 'billing_renewed', (ctx) => ({
+      // A renewal the saved card paid has its own mail, naming the card.
+      const slug = changed ? 'billing_plan_changed' : options.card ? 'billing_card_renewed' : 'billing_renewed';
+      await sendBillingEmail(config, workspaceId, slug, (ctx) => ({
         plan_name: planName(ctx.locale),
         old_plan_name: localizedPlanName(plans.get(String(result.previous_plan_id ?? '')), ctx.locale),
         amount: ctx.money(Number(result.amount_minor ?? 0), currency),
         balance: ctx.money(Number(result.balance_minor ?? 0), currency),
         period_start: ctx.date(result.period_start as string),
         period_end: ctx.date(result.period_end as string),
-        // Empty when the balance paid, so a template naming it reads cleanly.
-        card: options.card ?? '',
+        ...(options.card ? { card: options.card } : {}),
       }));
     } else if (action === 'expired') {
       await sendBillingEmail(config, workspaceId, 'billing_expired', (ctx) => ({

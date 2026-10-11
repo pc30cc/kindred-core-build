@@ -4,7 +4,11 @@
  *
  *  - The report lists what the target plan locks as the server counted it;
  *    while the edition's billing locks are off it says the data counts are a
- *    preview and lists only what follows the plan either way.
+ *    preview and lists only what follows the plan either way (no stopped-
+ *    channel warning: messages still arrive). The quote carries no report
+ *    while locks are off.
+ *  - A plan bought from a trial or Free waits for "I understand" like a
+ *    downgrade.
  *  - A downgrade that locks something waits for "I understand" while locks
  *    are on, and sends acknowledgeLocks; the server's 409
  *    LOCKS_NOT_ACKNOWLEDGED shows its report and asks for it.
@@ -51,6 +55,7 @@ const api = {
   plans: vi.fn(),
   quote: vi.fn(),
   change: vi.fn(),
+  buyPlan: vi.fn(),
   lockReport: vi.fn(),
   lockedExport: vi.fn(),
   startLockedExport: vi.fn(),
@@ -211,6 +216,9 @@ describe('the downgrade report', () => {
     }
     expect(within(box).getByTestId('lock-report-modules')).toBeInTheDocument();
     expect(within(box).getByTestId('lock-report-quota')).toBeInTheDocument();
+    // A stopped channel's messages still arrive while locks are off: no warning.
+    expect(within(box).getByTestId('lock-report-channels')).toBeInTheDocument();
+    expect(within(box).queryByText('billing.locks.report.channelsWarning')).toBeNull();
   });
 
   it('says when locked data is never deleted, and when nothing is locked', () => {
@@ -250,14 +258,30 @@ describe('a downgrade that locks data', () => {
     await waitFor(() => expect(api.change).toHaveBeenCalledWith('ws-1', 'free', 'monthly', 0, true));
   });
 
-  it('while locks are off it shows the preview and asks for nothing', async () => {
-    api.quote.mockResolvedValue({ ...SCHEDULE_FREE, lock_report: report({ locks_enabled: false }) });
+  it('while locks are off the quote carries no report: no box, nothing asked', async () => {
+    api.quote.mockResolvedValue(SCHEDULE_FREE);
     api.change.mockResolvedValue({ action: 'change_scheduled' });
     const quote = await pickFree();
-    expect(await within(quote).findByTestId('lock-report-preview')).toBeInTheDocument();
+    await waitFor(() => expect(within(quote).getByTestId('confirm-change')).toBeEnabled());
+    expect(within(quote).queryByTestId('lock-report')).toBeNull();
     expect(within(quote).queryByTestId('lock-report-ack')).toBeNull();
     fireEvent.click(within(quote).getByTestId('confirm-change'));
     await waitFor(() => expect(api.change).toHaveBeenCalledWith('ws-1', 'free', 'monthly', 0));
+  });
+
+  it('a plan bought from a trial or Free shows what it locks and waits for "I understand" too', async () => {
+    api.quote.mockResolvedValue({
+      ...SCHEDULE_FREE, kind: 'purchase', amount_minor: 0, effective_at: new Date().toISOString(), lock_report: report(),
+    });
+    api.buyPlan.mockResolvedValue({ action: 'purchased' });
+    const quote = await pickFree();
+    expect(await within(quote).findByTestId('lock-report')).toBeInTheDocument();
+    const buy = within(quote).getByTestId('confirm-plan');
+    expect(buy).toBeDisabled();
+    fireEvent.click(within(within(quote).getByTestId('lock-report-ack')).getByRole('checkbox'));
+    await waitFor(() => expect(buy).toBeEnabled());
+    fireEvent.click(buy);
+    await waitFor(() => expect(api.buyPlan).toHaveBeenCalledWith('ws-1', expect.objectContaining({ planId: 'free', acknowledgeLocks: true })));
   });
 
   it('the server\'s 409 LOCKS_NOT_ACKNOWLEDGED shows its report and asks for the acknowledgement', async () => {

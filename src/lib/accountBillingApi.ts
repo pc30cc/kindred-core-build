@@ -394,7 +394,7 @@ export const accountBillingApi = {
   plans: (workspaceId: string) => request<{ currency: string; plans: PlanOption[] }>(`${base(workspaceId)}/plans`),
   quote: (workspaceId: string, planId: string, interval: BillingInterval) =>
     request<PlanQuote>(`${base(workspaceId)}/quote?planId=${encodeURIComponent(planId)}&interval=${interval}`),
-  buyPlan: (workspaceId: string, input: { planId: string; interval: BillingInterval; key: string; expectedNetMinor?: number }) =>
+  buyPlan: (workspaceId: string, input: { planId: string; interval: BillingInterval; key: string; expectedNetMinor?: number; acknowledgeLocks?: boolean }) =>
     request<PlanResult>(`${base(workspaceId)}/plan`, { method: 'POST', body: JSON.stringify(input) }),
   /**
    * `expectedPeriodEnd` and `expectedPriceMinor`: the period and price the

@@ -56,6 +56,7 @@ const h = vi.hoisted(() => ({
   reports: {} as Record<string, unknown>,
   xRows: [] as Array<{ workspace_id: string }>,
   xAllowed: false,
+  kbLocked: {} as Record<string, number>,
 }));
 
 vi.mock('../../../../server/lib/workspaceAuth.js', () => ({
@@ -81,6 +82,11 @@ function fakeClient() {
   return {
     rpc: (name: string, args: Record<string, unknown>) => {
       h.rpcs.push({ name, args });
+      if (name === 'billing_lock_compute') {
+        const locked = h.kbLocked[String(args.p_workspace_id)] ?? 0;
+        return Promise.resolve({ data: [{ lim: 1, total: 1 + locked, locked, cut_ts: null, cut_id: null }], error: null });
+      }
+      if (name === 'enqueue_kb_catchup') return Promise.resolve({ data: 1, error: null });
       if (name === 'billing_lock_report') {
         const data = h.reports[String(args.p_workspace_id)];
         return Promise.resolve(data === 'error' ? { data: null, error: { message: 'boom' } } : { data, error: null });
@@ -223,6 +229,7 @@ beforeEach(() => {
   h.reports = {};
   h.xRows = [];
   h.xAllowed = false;
+  h.kbLocked = {};
   for (const fn of [h.quote, h.scheduleChange, h.buildLockReport, h.clearLockStateCache, h.lockSummary]) fn.mockReset();
   h.quote.mockImplementation(async () => ({ kind: 'schedule', plan_id: PLAN, lock_report: structuredClone(REPORT) }));
   h.buildLockReport.mockResolvedValue(REPORT);
@@ -290,6 +297,25 @@ describe('Super Admin: billing locks', () => {
     expect(opts).toEqual({ onConflict: 'edition' });
     expect(h.clearLockStateCache).toHaveBeenCalledWith();
     expect((await call('PUT', '/api/admin/billing/locks', { enabled: 'on' })).status).toBe(400);
+  });
+
+  it('switching off re-indexes the AI knowledge of the workspaces whose articles the plan locks; switching on does not', async () => {
+    h.workspaces = [{ id: WS, name: 'Acme' }, { id: WS2, name: 'Quiet' }];
+    h.kbLocked = { [WS]: 3 };
+    h.locksSwitch = false;
+    await call('PUT', '/api/admin/billing/locks', { enabled: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.rpcs.filter((c) => c.name === 'enqueue_kb_catchup')).toEqual([]);
+    h.locksSwitch = true;
+    const res = await call('PUT', '/api/admin/billing/locks', { enabled: false });
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(h.rpcs.filter((c) => c.name === 'enqueue_kb_catchup')).toEqual([
+      { name: 'enqueue_kb_catchup', args: { _workspace_id: WS } },
+    ]));
+    expect(h.rpcs.filter((c) => c.name === 'billing_lock_compute').map((c) => c.args)).toEqual([
+      { p_workspace_id: WS, p_kind: 'kb_article', p_plan_id: null },
+      { p_workspace_id: WS2, p_kind: 'kb_article', p_plan_id: null },
+    ]);
   });
 
   it('the preview lists the active workspaces that would lock, and X channels that stop', async () => {

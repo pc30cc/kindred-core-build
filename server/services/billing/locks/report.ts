@@ -237,7 +237,9 @@ export async function buildLockReport(config: ServerConfig, workspaceId: string,
   } catch (e) {
     console.warn('[billing-locks] report: modules and channels unreadable:', e instanceof Error ? e.message : e);
   }
-  const report = { ...base, ...extras };
+  // A channel the plan loses stops receiving only while billing locks are on
+  // (planStops.ts); off, its messages still arrive.
+  const report = { ...base, ...extras, channels_stop_messages: extras.channels_stop_messages && base.locks_enabled === true };
   return { ...report, has_locks: reportHasLocks(report) };
 }
 

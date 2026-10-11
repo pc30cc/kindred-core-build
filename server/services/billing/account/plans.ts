@@ -328,7 +328,14 @@ export async function quotePlanChange(
     }
     if (plan.is_hidden) return { ...base, reason: 'plan_not_available' };
     if (price === null) return { ...base, reason: 'price_unavailable' };
-    return finish({ ...base, kind: 'purchase', amount_minor: price, period_price_minor: price, effective_at: new Date().toISOString() });
+    const purchase = finish({ ...base, kind: 'purchase', amount_minor: price, period_price_minor: price, effective_at: new Date().toISOString() });
+    // Buying a plan from a trial, Free or a lapsed one locks what is over its
+    // limits at once: its report too, while billing locks are on.
+    if (options.withLockReport && (await locksOn(config))) {
+      const report = await lockReportOrNull(config, workspaceId, planId);
+      if (report) purchase.lock_report = report;
+    }
+    return purchase;
   }
 
   const sameInterval = interval === paid.billing_interval;
@@ -394,8 +401,11 @@ export async function quotePlanChange(
     next_period_price_minor: nextPrice(price),
     effective_at: paid.current_period_end,
   });
-  // An interval change on the same plan locks nothing.
-  if (options.withLockReport && planId !== paid.plan_id) {
+  // An interval change on the same plan locks nothing. While billing locks
+  // are off nothing is reported to the customer (the Super Admin's preview
+  // and GET lock-report still compute it): the change locks nothing more
+  // than before.
+  if (options.withLockReport && planId !== paid.plan_id && (await locksOn(config))) {
     const report = await lockReportOrNull(config, workspaceId, planId);
     if (report) atPeriodEnd.lock_report = report;
   }
@@ -586,9 +596,24 @@ async function applyComputedLocks(config: ServerConfig, workspaceId: string, act
 export async function buyPlan(
   config: ServerConfig,
   workspaceId: string,
-  input: { planId: string; interval: BillingInterval; key: string; actorId: string | null; expectedNetMinor?: number },
+  input: {
+    planId: string;
+    interval: BillingInterval;
+    key: string;
+    actorId: string | null;
+    expectedNetMinor?: number;
+    acknowledgeLocks?: boolean;
+  },
 ): Promise<Record<string, unknown>> {
   await assertQuote(config, workspaceId, { planId: input.planId, interval: input.interval, kinds: ['purchase'], expectedNetMinor: input.expectedNetMinor });
+  // As scheduleChange: what the plan bought locks must be accepted first
+  // while billing locks are on.
+  if (input.acknowledgeLocks !== true && (await locksOn(config))) {
+    const report = await lockReportOrNull(config, workspaceId, input.planId);
+    if (reportNeedsAcknowledgement(report)) {
+      throw new AccountBillingError('LOCKS_NOT_ACKNOWLEDGED', 409, { lock_report: report });
+    }
+  }
   const result = await rpc(config, 'billing_account_purchase_plan', {
     p_workspace_id: workspaceId,
     p_plan_id: input.planId,

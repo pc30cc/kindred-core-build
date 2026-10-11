@@ -309,6 +309,16 @@ suite('billing locks: server lock core, report and quote against the real chain'
     expect(r.first_deletion_not_before).toBeTruthy();
     expect(report.reportNeedsAcknowledgement(r)).toBe(true);
     expect(report.reportForViewer(r, false).member.items).toEqual([]);
+    // Switch off: a channel the plan loses keeps receiving, so the report
+    // does not say its messages stop.
+    await switchTo(false);
+    try {
+      expect(await report.buildLockReport(config, ws, small)).toMatchObject({
+        locks_enabled: false, channels_lost: [{ key: 'telegram', in_use: true }], channels_stop_messages: false,
+      });
+    } finally {
+      await switchTo(true);
+    }
     // Nothing changes on the plan in force: the report of the current plan locks nothing.
     const now = await report.buildLockReport(config, ws);
     expect(now).toMatchObject({ plan_id: big, has_locks: false, modules_lost: [], channels_lost: [] });
@@ -322,6 +332,15 @@ suite('billing locks: server lock core, report and quote against the real chain'
     expect((await plans.quotePlanChange(config, ws, small, 'monthly')).lock_report).toBeUndefined();
     // An interval change on the same plan carries none.
     expect((await plans.quotePlanChange(config, ws, big, 'yearly', { withLockReport: true })).lock_report).toBeUndefined();
+    // Switch off: the customer's quote carries no report (nothing more locks than before).
+    await switchTo(false);
+    try {
+      const offQuote = await plans.quotePlanChange(config, ws, small, 'monthly', { withLockReport: true });
+      expect(offQuote.kind).toBe('schedule');
+      expect(offQuote.lock_report).toBeUndefined();
+    } finally {
+      await switchTo(true);
+    }
 
     await expect(plans.scheduleChange(config, ws, { planId: small, interval: null, actorId: owner }))
       .rejects.toMatchObject({ code: 'LOCKS_NOT_ACKNOWLEDGED', status: 409 });
@@ -340,6 +359,34 @@ suite('billing locks: server lock core, report and quote against the real chain'
     // Cancelling (the plan in force) never needs it.
     const cancelled = await plans.scheduleChange(config, ws, { planId: big, interval: null, actorId: owner });
     expect(cancelled.action).not.toBe('change_scheduled');
+  });
+
+  it('buying a plan from Free (no paid period) carries the report and needs the acknowledgement while locks are on', async () => {
+    const ws2 = randomUUID();
+    await q(`INSERT INTO public.workspaces (id, name, slug, owner_id) VALUES ($1, 'Trialer', $2, $3)`, [ws2, `trialer-${ws2.slice(0, 8)}`, owner]);
+    for (let i = 0; i < 3; i++) {
+      await q(`INSERT INTO public.knowledge_base_articles (workspace_id, slug, locale, title, content, status, created_at)
+               VALUES ($1, $2, 'en', $3, 'body', 'published', now() - make_interval(days => $4))`, [ws2, `t-${i}`, `T ${i}`, 10 - i]);
+    }
+    const quote = await plans.quotePlanChange(config, ws2, small, 'monthly', { withLockReport: true });
+    expect(quote.kind).toBe('purchase');
+    expect(quote.lock_report).toMatchObject({ plan_id: small, locks_enabled: true, kb_article: { limit: 2, locked: 1 } });
+    await expect(plans.buyPlan(config, ws2, { planId: small, interval: 'monthly', key: `${ws2}:k1`, actorId: owner }))
+      .rejects.toMatchObject({ code: 'LOCKS_NOT_ACKNOWLEDGED', status: 409 });
+    // Acknowledged, it goes on to the purchase itself (here refused for the balance, not for the locks).
+    const acked = await plans.buyPlan(config, ws2, { planId: small, interval: 'monthly', key: `${ws2}:k2`, actorId: owner, acknowledgeLocks: true })
+      .then(() => 'bought', (e: { code?: string }) => e.code);
+    expect(acked).not.toBe('LOCKS_NOT_ACKNOWLEDGED');
+    // Switch off: no report, nothing asked.
+    await switchTo(false);
+    try {
+      expect((await plans.quotePlanChange(config, ws2, small, 'monthly', { withLockReport: true })).lock_report).toBeUndefined();
+      const off = await plans.buyPlan(config, ws2, { planId: small, interval: 'monthly', key: `${ws2}:k3`, actorId: owner })
+        .then(() => 'bought', (e: { code?: string }) => e.code);
+      expect(off).not.toBe('LOCKS_NOT_ACKNOWLEDGED');
+    } finally {
+      await switchTo(true);
+    }
   });
 
   it('the /effective summary and the next deletion date from the clock', async () => {

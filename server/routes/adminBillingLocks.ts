@@ -22,7 +22,8 @@ import { requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
 import { getPlatformEdition, EditionUnavailableError } from '../services/platformRegion.js';
 import { checkChannelAccess } from '../middleware/featureGating.js';
-import { clearLockStateCache } from '../services/billing/locks/state.js';
+import { clearLockStateCache, parseCutoffRow } from '../services/billing/locks/state.js';
+import { enqueueKnowledgeBaseCatchup } from '../services/ai-agent/knowledgeIndex/kbEvents.js';
 import { clearPlanStopCache } from '../services/billing/planStops.js';
 import { parseSqlLockReport } from '../services/billing/locks/report.js';
 import type { ServerConfig } from '../config.js';
@@ -68,6 +69,7 @@ adminBillingLocksRouter.put('/', async (req, res) => {
   try {
     const cfg = serverConfigOf(req);
     const edition = await getPlatformEdition(cfg);
+    const was = await readSwitch(cfg, edition);
     // Only this column: the seller, VAT and prefix of the row stay as they are.
     const { error } = await getServiceClient(cfg).from('billing_settings').upsert(
       {
@@ -83,6 +85,13 @@ adminBillingLocksRouter.put('/', async (req, res) => {
     clearLockStateCache();
     clearPlanStopCache();
     console.info('[admin-billing-locks] billing locks', parsed.data.enabled ? 'on' : 'off', 'for', edition);
+    if (was && !parsed.data.enabled) {
+      // While on, the AI index retired the chunks of locked articles; off,
+      // they are served again only once re-indexed. In the background: the
+      // switch is already off whatever this does.
+      void requeueKbIndexAfterSwitchOff(cfg).catch((e) =>
+        console.warn('[admin-billing-locks] KB re-index after switch off failed:', e instanceof Error ? e.message : e));
+    }
     res.json({ edition, locks_enabled: parsed.data.enabled });
   } catch (e) {
     fail(res, e);
@@ -117,6 +126,37 @@ async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Prom
   });
   await Promise.all(workers);
   return out;
+}
+
+/**
+ * After the switch is turned off: one idempotent knowledge-base catch-up
+ * (a rebuild of the AI index) for every active workspace whose plan locks
+ * articles (computed as if the switch were on), the only ones whose chunks
+ * the index retired while it was on. Returns the workspaces queued.
+ */
+export async function requeueKbIndexAfterSwitchOff(cfg: ServerConfig): Promise<number> {
+  const sb = getServiceClient(cfg);
+  let queued = 0;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await sb
+      .from('workspaces')
+      .select('id')
+      .eq('status', 'active')
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message || 'workspaces read failed');
+    const ids = ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+    const hits = await mapLimited(ids, CONCURRENCY, async (id) => {
+      const { data: cut, error: cutError } = await sb.rpc('billing_lock_compute', { p_workspace_id: id, p_kind: 'kb_article', p_plan_id: null });
+      // Unreadable: queued anyway (a catch-up is idempotent and only re-indexes).
+      if (!cutError && parseCutoffRow(cut).locked === 0) return false;
+      return (await enqueueKnowledgeBaseCatchup(cfg, id)).ok;
+    });
+    queued += hits.filter(Boolean).length;
+    if (ids.length < PAGE) break;
+  }
+  console.info(`[admin-billing-locks] KB re-index queued for ${queued} workspace(s) after the switch went off`);
+  return queued;
 }
 
 adminBillingLocksRouter.get('/preview', async (req, res) => {

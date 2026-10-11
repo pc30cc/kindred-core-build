@@ -136,7 +136,8 @@ export default function LockReport({
       node: (
         <>
           {t('billing.locks.report.channels', { list: names(report.channels_lost) })}
-          {report.channels_stop_messages && (
+          {/* Inbound messages stop only while billing locks are on. */}
+          {report.locks_enabled && report.channels_stop_messages && (
             <span className="mt-0.5 block text-xs font-medium text-destructive">{t('billing.locks.report.channelsWarning')}</span>
           )}
         </>

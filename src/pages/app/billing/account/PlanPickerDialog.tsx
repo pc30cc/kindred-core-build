@@ -14,8 +14,10 @@
  * online checkout. While the card's renewal failed, or Paddle is charging
  * it, plan changes wait, and the dialog says why.
  *
- * A downgrade shows what the target plan locks (phase 4, LockReport). While
- * the edition's billing locks are on and it lists anything, the change waits
+ * A downgrade, or a plan bought from a trial, Free or a lapsed plan, shows
+ * what the target plan locks (phase 4, LockReport) while the edition's
+ * billing locks are on (the server sends no report while they are off).
+ * When it lists anything, the change or the purchase waits
  * for the customer to tick that they understand (the server refuses it
  * otherwise: 409 LOCKS_NOT_ACKNOWLEDGED, with the report, which then shows).
  */
@@ -453,6 +455,7 @@ export default function PlanPickerDialog({
                     : null}
                 onBuy={() => void run(() => accountBillingApi.buyPlan(workspaceId, {
                   planId: quote.plan_id, interval, key, expectedNetMinor: quoteNet(quote),
+                  ...(locksAck ? { acknowledgeLocks: true } : {}),
                 }))}
                 onUpgrade={() => void run(() => accountBillingApi.upgrade(workspaceId, quote.plan_id, quoteNet(quote)))}
                 onSchedule={() => void run(() => (locksAck
@@ -579,14 +582,14 @@ function QuoteSummary({
       )}
     />
   );
-  const actions = (main: () => void, mainLabel: string, purpose: 'plan' | 'upgrade') =>
+  const actions = (main: () => void, mainLabel: string, purpose: 'plan' | 'upgrade', needsAck = false) =>
     canManage && (
       <div className="flex flex-wrap gap-2">
         {covered ? (
-          <Button onClick={main} disabled={off}>{spinner}{mainLabel}</Button>
+          <Button onClick={main} disabled={off || needsAck} data-testid={`confirm-${purpose}`}>{spinner}{mainLabel}</Button>
         ) : (
           <>
-            <Button onClick={() => onPayOnline(purpose)} disabled={off}>{t('billing.account.picker.payOnline')}</Button>
+            <Button onClick={() => onPayOnline(purpose)} disabled={off || needsAck}>{t('billing.account.picker.payOnline')}</Button>
             <p className="w-full text-xs text-muted-foreground">
               {t('billing.account.picker.short', { amount: amount(quote.shortfall_minor) })}
             </p>
@@ -603,7 +606,8 @@ function QuoteSummary({
           {quote.returned_minor > 0 && (
             <p className="text-sm text-muted-foreground">{t('billing.account.picker.prepaidReleased', { amount: amount(quote.returned_minor) })}</p>
           )}
-          {actions(onBuy, t('billing.account.picker.payFromBalance', { amount: amount(Math.max(net, 0)) }), 'plan')}
+          {lockReport}
+          {actions(onBuy, t('billing.account.picker.payFromBalance', { amount: amount(Math.max(net, 0)) }), 'plan', ackMissing)}
         </>
       );
     case 'upgrade': {

@@ -561,6 +561,8 @@ const buySchema = z.object({
   /** The browser's key for this click: a retried request buys once. */
   key: z.string().min(8).max(100).optional(),
   expectedNetMinor: expectedNetSchema,
+  /** The report of what the plan locks was read and accepted (while billing locks are on). */
+  acknowledgeLocks: z.boolean().optional(),
 });
 
 billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
@@ -577,6 +579,7 @@ billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
       key: `${req.params.workspaceId}:${parsed.data.key ?? crypto.randomUUID()}`,
       actorId: auth.userId,
       expectedNetMinor: parsed.data.expectedNetMinor,
+      acknowledgeLocks: parsed.data.acknowledgeLocks,
     });
     await syncWorkspaceCard(cfg, req.params.workspaceId);
     res.json(result);

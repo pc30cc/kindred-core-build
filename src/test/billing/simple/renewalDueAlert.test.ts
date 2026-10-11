@@ -2,7 +2,8 @@
  * The alerts bell (server/routes/workspaceAlerts.ts) warns of a paid period
  * that will not renew (renewalNotice.ts): 'renewal_due', critical in the
  * last 2 days, linking to the billing page — unless the older
- * 'subscription_ending' (cancel_at_period_end) already says so.
+ * 'subscription_ending' (cancel_at_period_end) already says so. A saved
+ * card whose renewal payment failed reads 'card_payment_failed' (phase 3b).
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import http from 'node:http';
@@ -72,7 +73,7 @@ describe('renewal_due alert', () => {
   });
 
   it('a warning with its days, dismissible, linking to billing', async () => {
-    notice = { days_left: 4, period_end: inDays(4), plan_id: 'pro', ends_on_free: false };
+    notice = { days_left: 4, period_end: inDays(4), plan_id: 'pro', ends_on_free: false, card_past_due: false };
     const alert = (await alerts()).find((a) => a.kind === 'renewal_due');
     expect(alert).toMatchObject({
       id: 'renewal_due', severity: 'warning', params: { days: '4', plan: 'Pro' }, action: '/billing', dismissible: true,
@@ -80,21 +81,31 @@ describe('renewal_due alert', () => {
   });
 
   it('critical (not dismissible) in the last 2 days', async () => {
-    notice = { days_left: 2, period_end: inDays(1.5), plan_id: 'pro', ends_on_free: false };
+    notice = { days_left: 2, period_end: inDays(1.5), plan_id: 'pro', ends_on_free: false, card_past_due: false };
     const alert = (await alerts()).find((a) => a.kind === 'renewal_due');
     expect(alert).toMatchObject({ severity: 'critical', dismissible: false });
   });
 
   it('a change to Free the customer chose is its own kind (cancelling it keeps the plan; renewing is refused)', async () => {
-    notice = { days_left: 2, period_end: inDays(1.5), plan_id: 'pro', ends_on_free: true };
+    notice = { days_left: 2, period_end: inDays(1.5), plan_id: 'pro', ends_on_free: true, card_past_due: false };
     const kinds = (await alerts()).map((a) => a.kind);
     expect(kinds).toContain('change_to_free');
     expect(kinds).not.toContain('renewal_due');
   });
 
+  it("a saved card's failed renewal payment is its own kind, critical whatever the days left", async () => {
+    notice = { days_left: 5, period_end: inDays(4.5), plan_id: 'pro', ends_on_free: false, card_past_due: true };
+    const kinds = (await alerts()).map((a) => a.kind);
+    expect(kinds).not.toContain('renewal_due');
+    const alert = (await alerts()).find((a) => a.kind === 'card_payment_failed');
+    expect(alert).toMatchObject({
+      id: 'renewal_due', severity: 'critical', dismissible: false, params: { days: '5', plan: 'Pro' }, action: '/billing',
+    });
+  });
+
   it('not twice when subscription_ending already warns', async () => {
     sub = { status: 'active', current_period_end: inDays(4), cancel_at_period_end: true };
-    notice = { days_left: 4, period_end: inDays(4), plan_id: 'pro', ends_on_free: false };
+    notice = { days_left: 4, period_end: inDays(4), plan_id: 'pro', ends_on_free: false, card_past_due: false };
     const kinds = (await alerts()).map((a) => a.kind);
     expect(kinds).toContain('subscription_ending');
     expect(kinds).not.toContain('renewal_due');

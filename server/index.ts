@@ -737,7 +737,10 @@ const httpServer = app.listen(config.port, () => {
   // Hidden while the simple billing replaces it (shared/billingMode.ts): it
   // must not issue invoices or send notices nobody can act on.
   if (LEGACY_BILLING_ENABLED) startBillingV2Schedulers(config);
-  // The simple billing's hourly job (renewals, AI credit, reminders, trials).
+  // The simple billing's hourly job (renewals, AI credit, reminders, trials),
+  // its 5-minute due step and, next to it, the saved cards' 5-minute step
+  // (runSimpleBillingCard: Paddle subscriptions kept in sync, card checkouts
+  // and charges resolved, cards cancelled). SIMPLE_BILLING_JOB=off stops all.
   if (!LEGACY_BILLING_ENABLED && process.env.SIMPLE_BILLING_JOB !== 'off') startSimpleBillingJob(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.

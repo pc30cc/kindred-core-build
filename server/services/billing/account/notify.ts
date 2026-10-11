@@ -25,7 +25,11 @@ export type BillingEmailSlug =
   | 'billing_payment_receipt'
   | 'billing_plan_activated'
   | 'billing_trial_ending'
-  | 'billing_trial_ended';
+  | 'billing_trial_ended'
+  // The saved card (phase 3b, migration 262), Multi Region only.
+  | 'billing_card_renewed'
+  | 'billing_card_payment_failed'
+  | 'billing_card_removed';
 
 /** Decimal places of a currency's minor unit; IRR is kept in whole Rial. */
 const DECIMALS: Record<string, number> = { IRR: 0, USD: 2, EUR: 2, GBP: 2, TRY: 2 };

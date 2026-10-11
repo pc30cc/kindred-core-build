@@ -192,6 +192,42 @@ export function verifyPaddleSignature(
   return parsed.signatures.some((sig) => timingSafeHexEqual(expected, sig));
 }
 
+/**
+ * What the payment page needs to open a transaction with Paddle.js: public
+ * values only (client-side token, transaction id, URLs). Paddle.js sends the
+ * customer back to `successUrl` once the payment completes.
+ */
+export function paddleClientCheckout(
+  config: BillingProviderConfig,
+  transactionId: string,
+  successUrl: string,
+  customerEmail?: string,
+): { provider: string } & Record<string, unknown> {
+  const clientToken = typeof config.client_token === 'string' ? config.client_token.trim() : '';
+  if (!clientToken) throw new Error('Paddle client-side token is not configured');
+  return {
+    provider: 'paddle',
+    transactionId,
+    clientToken,
+    environment: isPaddleSandboxFlag(config.sandbox) ? 'sandbox' : 'production',
+    successUrl,
+    ...(customerEmail ? { customerEmail } : {}),
+  };
+}
+
+/** A transaction Paddle.js or our API created for a checkout (anything else came from a subscription). */
+const CHECKOUT_ORIGINS = new Set(['api', 'web']);
+
+/**
+ * Subscription notifications that concern a saved card (simple billing,
+ * phase 3b). `subscription.trialing` / `.imported` are not: this platform
+ * never starts a trial or imports subscriptions.
+ */
+const CARD_SUBSCRIPTION_EVENTS = new Set([
+  'subscription.created', 'subscription.activated', 'subscription.updated', 'subscription.past_due',
+  'subscription.paused', 'subscription.resumed', 'subscription.canceled',
+]);
+
 async function paddleApi(config: BillingProviderConfig, path: string, method = 'GET', body?: unknown) {
   const res = await fetch(`${baseUrl(config)}${path}`, {
     method,
@@ -223,6 +259,12 @@ export const paddleProvider: BillingProviderHandler = {
    * Paddle Billing has no redirect checkout of its own: the browser opens the
    * transaction with Paddle.js (`clientCheckout`), which needs the client-side
    * token, and `checkout.url` must be on a domain approved in Paddle.
+   *
+   * A card setup (`req.recurring`, simple billing phase 3b) makes the price
+   * recur every month or year (`billing_cycle`) and carries
+   * `req.priceCustomData` on it; paying it makes Paddle create a subscription
+   * holding the card. `req.customerId` reuses the Paddle customer of an
+   * earlier card. Without these options the request is the one-time one.
    */
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
     const credentialProblem = paddleCredentialProblem(config, 'paddle');
@@ -232,12 +274,18 @@ export const paddleProvider: BillingProviderHandler = {
     if (!amount) throw new Error('Paddle checkout needs a positive amount');
     const clientToken = typeof config.client_token === 'string' ? config.client_token.trim() : '';
     if (!clientToken) throw new Error('Paddle client-side token is not configured');
+    const recurring = req.recurring;
+    if (recurring && recurring.interval !== 'monthly' && recurring.interval !== 'yearly') {
+      throw new Error('Paddle recurring checkout needs a monthly or yearly interval');
+    }
+    const customerId = typeof req.customerId === 'string' ? req.customerId.trim() : '';
 
     const name = req.description || 'Subscription';
     const productId = typeof config.product_id === 'string' && config.product_id.trim() ? config.product_id.trim() : '';
     const customData: Record<string, string> = { workspace_id: req.workspaceId };
     if (req.intentId) customData.intent_id = req.intentId;
     if (req.invoiceId) customData.invoice_id = req.invoiceId;
+    if (req.cardSetup) customData.card_setup = '1';
 
     const data = await paddleApi(config, '/transactions', 'POST', {
       items: [{
@@ -248,8 +296,11 @@ export const paddleProvider: BillingProviderHandler = {
           unit_price: { amount: String(amount), currency_code: currency },
           tax_mode: 'internal',
           ...(productId ? { product_id: productId } : { product: { name, tax_category: 'standard' } }),
+          ...(recurring ? { billing_cycle: { interval: recurring.interval === 'yearly' ? 'year' : 'month', frequency: 1 } } : {}),
+          ...(req.priceCustomData ? { custom_data: req.priceCustomData } : {}),
         },
       }],
+      ...(customerId ? { customer_id: customerId } : {}),
       currency_code: currency,
       collection_mode: 'automatic',
       custom_data: customData,
@@ -267,16 +318,15 @@ export const paddleProvider: BillingProviderHandler = {
       // Our own payment page, never Paddle's default payment link.
       paymentUrl: withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
       sessionId: txn.id,
-      clientCheckout: {
-        provider: 'paddle',
-        transactionId: txn.id,
-        clientToken,
-        environment: isPaddleSandboxFlag(config.sandbox) ? 'sandbox' : 'production',
-        // Paddle.js sends the customer back here once the payment completes;
-        // `_ptxn` is the reference the return is verified against.
-        successUrl: withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
-        ...(req.customerEmail ? { customerEmail: req.customerEmail } : {}),
-      },
+      // `_ptxn` in the success URL is the reference the return is verified
+      // against. A transaction for an existing Paddle customer already has
+      // the e-mail, so none is prefilled.
+      clientCheckout: paddleClientCheckout(
+        config,
+        txn.id,
+        withQuery(req.callbackUrl, `_ptxn=${encodeURIComponent(txn.id)}`),
+        customerId ? undefined : req.customerEmail,
+      ),
     };
   },
 
@@ -339,6 +389,30 @@ export const paddleProvider: BillingProviderHandler = {
       raw: event,
     };
 
+    // Saved cards (simple billing, phase 3b). A transaction Paddle made from a
+    // subscription (renewal, one-time charge, update, card change: any origin
+    // but a checkout's `api` / `web`) and the subscription's own events are
+    // card events. They are routed by the subscription and carry no intent:
+    // Paddle copies the checkout's `custom_data` (its `intent_id` included)
+    // onto the subscription and from there onto every transaction it makes,
+    // so a renewal read by its intent would look like a replay of the checkout.
+    const fromSubscription = eventType.startsWith('transaction.')
+      && readString(data, 'subscription_id') !== undefined
+      && !CHECKOUT_ORIGINS.has(readString(data, 'origin') ?? '');
+    if (fromSubscription || CARD_SUBSCRIPTION_EVENTS.has(eventType)) {
+      // Loaded on first use: paddleSubscriptions.ts imports this module.
+      const { readCardEvent } = await import('./paddleSubscriptions.js');
+      return {
+        type: 'card_event',
+        providerEventId: event.event_id,
+        workspaceId: base.workspaceId,
+        providerSubscriptionId: readString(data, fromSubscription ? 'subscription_id' : 'id'),
+        ...(fromSubscription ? { providerPaymentId: readString(data, 'id') } : {}),
+        card: readCardEvent(event),
+        raw: event,
+      };
+    }
+
     // `paid` arrives first, `completed` once Paddle finished processing; either
     // settles the intent (the second is an idempotent no-op).
     if (eventType === 'transaction.paid' || eventType === 'transaction.completed') {
@@ -359,9 +433,23 @@ export const paddleProvider: BillingProviderHandler = {
     // under its own event id: the event is keyed by the adjustment instead, so
     // the second notification is a replay, and the refund is counted once per
     // adjustment id (refunds.ts).
+    // A chargeback (Paddle creates it when a customer wins a dispute) takes
+    // the money back like a refund and is recorded the same way, marked
+    // `chargeback`. Its reversal (`chargeback_reverse`: Paddle won the
+    // dispute) is not booked: the money coming back is left to a person, so
+    // it is logged REVIEW. The warnings are ignored.
     if (eventType === 'adjustment.created' || eventType === 'adjustment.updated') {
       const adjustmentId = readString(data, 'id');
-      if (readString(data, 'action') !== 'refund' || readString(data, 'status') !== 'approved' || !adjustmentId) {
+      const action = readString(data, 'action');
+      const approved = readString(data, 'status') === 'approved';
+      if (action === 'chargeback_reverse' && approved) {
+        console.error(
+          `[billing-webhook] REVIEW chargeback reversal ${adjustmentId ?? '-'} transaction=${readString(data, 'transaction_id') ?? '-'} `
+          + `${String(asRecord(data?.totals)?.total ?? '?')} ${String(data?.currency_code ?? '')}: Paddle won the dispute; `
+          + "restore the customer's balance (and prepaid period) by hand",
+        );
+      }
+      if ((action !== 'refund' && action !== 'chargeback') || !approved || !adjustmentId) {
         return { ...base, type: 'ignored' };
       }
       return {
@@ -372,25 +460,15 @@ export const paddleProvider: BillingProviderHandler = {
         providerPaymentId: readString(data, 'transaction_id'),
         amount: minorFromProvider(asRecord(data?.totals)?.total),
         currency: normalizeCurrencyCode(data?.currency_code),
+        ...(action === 'chargeback' ? { chargeback: true } : {}),
       };
     }
 
-    // Subscriptions (legacy: this platform no longer creates them).
-    const legacyMap: Record<string, WebhookEvent['type']> = {
-      'subscription.created': 'subscription_created',
-      'subscription.updated': 'subscription_updated',
-      'subscription.canceled': 'subscription_canceled',
-    };
-    const mapped = legacyMap[eventType];
-    // Includes transaction.payment_failed: the checkout stays open and the
-    // customer can retry, so a declined attempt fails nothing here.
-    if (!mapped) return { ...base, type: 'ignored' };
-    return {
-      ...base,
-      type: mapped,
-      providerSubscriptionId: readString(data, 'id'),
-      providerCustomerId: readString(data, 'customer_id'),
-    };
+    // Everything else, transaction.payment_failed on a checkout included: the
+    // checkout stays open and the customer can retry, so a declined attempt
+    // fails nothing here. (Subscription events are card events above; this
+    // platform creates no other subscriptions.)
+    return { ...base, type: 'ignored' };
   },
 
   async cancelSubscription(config: BillingProviderConfig, subscriptionId: string) {
@@ -415,6 +493,12 @@ export const paddleProvider: BillingProviderHandler = {
     return paddleCredentialProblem(config, 'paddle');
   },
 
+  /**
+   * `GET /event-types`; with automatic card renewal switched on also
+   * `GET /subscriptions?per_page=1`, which a key without the Subscriptions
+   * permission is refused (403). Write access cannot be tested without
+   * changing something, so the message names both.
+   */
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
     const credentialProblem = paddleCredentialProblem(config, 'paddle');
@@ -423,9 +507,23 @@ export const paddleProvider: BillingProviderHandler = {
       const data = await paddleApi(config, '/event-types');
       const error = readPaddleError(data);
       if (error !== null) return { success: false, latencyMs: Date.now() - start, error: error.detail };
-      return { success: true, latencyMs: Date.now() - start };
     } catch (e: unknown) {
       return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
+    const { cardAutoRenewEnabled, paddleRequest } = await import('./paddleSubscriptions.js');
+    if (cardAutoRenewEnabled(config)) {
+      const probe = await paddleRequest(config, '/subscriptions?per_page=1');
+      if (probe.status === 403) {
+        return {
+          success: false,
+          latencyMs: Date.now() - start,
+          error: 'Paddle: this API key may not read subscriptions. Automatic card renewal needs the "Subscriptions" read and write permission on the API key (Developer tools → Authentication → API keys).',
+        };
+      }
+      if (!probe.ok) {
+        return { success: false, latencyMs: Date.now() - start, error: `Paddle subscriptions: ${probe.error?.detail || probe.error?.code || 'request failed'}` };
+      }
+    }
+    return { success: true, latencyMs: Date.now() - start };
   },
 };

@@ -16,11 +16,21 @@
 //   POST /api/billing/account/:ws/change                  change at the period end (or cancel it)
 //   PUT  /api/billing/account/:ws/auto-renew              auto-renew on/off
 //   POST /api/billing/account/:ws/checkout                pay online for a plan, renewal or upgrade
+//                                                         (autoRenew: and save the card, phase 3b)
+//   POST /api/billing/account/:ws/card/charge             upgrade now, charged to the saved card
+//   POST /api/billing/account/:ws/card/update             change the card (or pay a failed renewal)
+//   DELETE /api/billing/account/:ws/card                  remove the saved card
 //
 // Every GET is read-only. Every money-moving POST needs MANAGE permission on
 // the workspace. Amounts come from the server, never from the browser alone:
 // the top-up amount the customer typed is validated, its VAT computed here,
 // and the gateway's own confirmation is compared with the stored payment.
+//
+// The saved card (Multi Region only, services/billing/account/card.ts): a
+// Paddle subscription that renews the plan. While it is live it pays every
+// renewal (paying one online is refused), plan changes wait while it is
+// past_due or Paddle is about to charge it, and after a change the Paddle
+// subscription is synced at once.
 // ============================================================================
 
 import crypto from 'node:crypto';
@@ -44,13 +54,14 @@ import {
   getBillingSettings,
   getReceipt,
   isAccountPaymentLapsed,
+  isCheckoutPayment,
   listLedger,
   patchAccountPayment,
   readAccountPayment,
   updateBillingProfile,
   verifyAccountPayment,
 } from '../services/billing/account/index.js';
-import { accountGateways, isIranianGateway, resolveAccountGateway } from '../services/billing/account/gateways.js';
+import { accountGateways, isIranianGateway, resolveAccountGateway, type GatewayViewer } from '../services/billing/account/gateways.js';
 import {
   accountPlanState,
   amountNeededFor,
@@ -58,13 +69,32 @@ import {
   listPlanOptions,
   processDueNow,
   quotePlanChange,
-  renewPlan,
   scheduleChange,
   setAutoRenew,
   upgradePlan,
 } from '../services/billing/account/plans.js';
+import {
+  assertCardAllowsPlanChange,
+  cardAvailability,
+  cardUpdateCheckout,
+  cardView,
+  chargeCardForUpgrade,
+  prepareCardSetup,
+  removeCard,
+  renewWithCard,
+  syncWorkspaceCard,
+  type CardView,
+} from '../services/billing/account/card.js';
+import { planNamesFor } from '../services/billing/account/notify.js';
+import { getBillingRegion } from '../services/billing/edition.js';
 import { resolveNamedBillingConfig } from '../services/billing/index.js';
-import { TOPUP_LIMITS, chargeFor, topupAmountProblem, vatPercentFor } from '../../shared/simpleBilling.js';
+import {
+  PADDLE_MIN_CHARGE_MINOR,
+  TOPUP_LIMITS,
+  chargeFor,
+  topupAmountProblem,
+  vatPercentFor,
+} from '../../shared/simpleBilling.js';
 
 export const billingAccountRouter = Router();
 
@@ -92,6 +122,41 @@ async function customerEmailOf(cfg: ReturnType<typeof serverConfigOf>, userId: s
   const { data } = await getServiceClient(cfg).from('profiles').select('email').eq('id', userId).maybeSingle();
   const email = (data as { email?: string | null } | null)?.email;
   return typeof email === 'string' && email.includes('@') ? email : undefined;
+}
+
+/** The card part of the account view: what a member who cannot manage billing (and Iran) sees. */
+const NO_CARD = { card: null as CardView | null, card_available: false, card_providers: [] as string[] };
+
+/**
+ * The saved card and whether one can be saved, for the billing page (the
+ * International edition only: Iran never has a card, and is not asked).
+ * A failed read shows no card rather than failing the page; every card
+ * action re-reads it.
+ */
+async function cardSection(
+  cfg: ReturnType<typeof serverConfigOf>,
+  workspaceId: string,
+  currency: string,
+  viewer: GatewayViewer,
+): Promise<typeof NO_CARD> {
+  const [card, availability] = await Promise.all([
+    cardView(cfg, workspaceId).catch((e) => {
+      console.warn('[billing-account] card view:', e instanceof Error ? e.message : e);
+      return null;
+    }),
+    cardAvailability(cfg, workspaceId, currency, viewer).catch(() => ({ available: false, providers: [] as string[] })),
+  ]);
+  return {
+    // An upgrade is charged to the card only on a gateway still offered to this viewer with card renewal on.
+    card: card ? { ...card, chargeable: card.chargeable && availability.providers.includes(card.provider) } : null,
+    card_available: availability.available,
+    card_providers: availability.providers,
+  };
+}
+
+/** Card routes exist in the International edition only (Iran never has a card). */
+async function cardsOffered(cfg: ReturnType<typeof serverConfigOf>): Promise<boolean> {
+  return (await getBillingRegion(cfg)).edition === 'international';
 }
 
 /** The return URL the gateway sends the customer back to, carrying our payment id. */
@@ -128,6 +193,9 @@ billingAccountRouter.get('/account/:workspaceId', async (req, res) => {
     const gateways = canManage(auth)
       ? await accountGateways(cfg, req.params.workspaceId, view.currency, viewerOf(auth))
       : [];
+    const card = canManage(auth) && view.edition === 'international'
+      ? await cardSection(cfg, req.params.workspaceId, view.currency, viewerOf(auth))
+      : NO_CARD;
     res.json({
       ...view,
       ...planState,
@@ -137,6 +205,7 @@ billingAccountRouter.get('/account/:workspaceId', async (req, res) => {
         display_name: g.display_name,
         is_test: g.is_test,
       })),
+      ...card,
     });
   } catch (e) {
     fail(res, e);
@@ -238,6 +307,12 @@ async function recentCheckoutCount(cfg: ReturnType<typeof serverConfigOf>, works
  * Starts a gateway checkout for `netMinor` (VAT added on top) and binds it to
  * a payment row created first. A purpose other than a top-up is spent on in
  * the same transaction that credits it (billing_account_settle_payment).
+ *
+ * `cardSetup`: the checkout also saves the card (Paddle, phase 3b). Its price
+ * recurs every period (the full price of the plan, VAT on top, never below
+ * Paddle's minimum); older card checkouts are closed BEFORE this payment row
+ * exists (prepareCardSetup), and the row is a 'card_setup' one. Paying it
+ * makes Paddle create the subscription that later renewals are charged to.
  */
 async function startAccountCheckout(
   req: Parameters<Parameters<typeof billingAccountRouter.post>[1]>[0],
@@ -251,6 +326,7 @@ async function startAccountCheckout(
     purpose: 'topup' | 'plan' | 'renewal' | 'upgrade';
     purposeDetail?: Record<string, unknown>;
     description: string;
+    cardSetup?: { purpose: 'plan' | 'renewal'; planId: string; interval: 'monthly' | 'yearly' };
   },
 ) {
   const cfg = serverConfigOf(req);
@@ -269,6 +345,23 @@ async function startAccountCheckout(
     const vat = vatPercentFor(settings.vat_percent, input.currency);
     const charge = chargeFor(input.netMinor, vat);
 
+    let card: Awaited<ReturnType<typeof prepareCardSetup>> | null = null;
+    if (input.cardSetup) {
+      // Paddle charges a card no less than its minimum (a currency without
+      // one is refused by prepareCardSetup: no card in it).
+      const minimum = PADDLE_MIN_CHARGE_MINOR[input.currency];
+      if (minimum !== undefined && charge.total < minimum) {
+        return res.status(400).json({ error: 'CARD_CHARGE_BELOW_MINIMUM', details: { minimum_minor: minimum, amount_minor: charge.total } });
+      }
+      card = await prepareCardSetup(cfg, workspaceId, {
+        providerName: resolved.provider.name,
+        purpose: input.cardSetup.purpose,
+        planId: input.cardSetup.planId,
+        interval: input.cardSetup.interval,
+        viewer: viewerOf(auth),
+      });
+    }
+
     const payment = await createAccountPayment(cfg, {
       workspaceId,
       provider: resolved.provider.name,
@@ -279,6 +372,7 @@ async function startAccountCheckout(
       purpose: input.purpose,
       purposeDetail: input.purposeDetail,
       createdBy: auth.userId,
+      ...(card ? { source: 'card_setup' as const } : {}),
     });
     paymentId = payment.id;
 
@@ -291,7 +385,7 @@ async function startAccountCheckout(
     );
     await patchAccountPayment(cfg, payment.id, { return_url: browserReturnUrl });
 
-    const card = !isIranianGateway(resolved.provider.name);
+    const cardGateway = !isIranianGateway(resolved.provider.name);
     let result;
     try {
       result = await resolved.provider.createCheckoutSession(resolved.config, {
@@ -303,8 +397,19 @@ async function startAccountCheckout(
         // Card gateways carry it in their signed custom metadata; the webhook
         // settles exactly this payment (billing.ts webhook route).
         intentId: payment.id,
-        ...(card
+        ...(cardGateway
           ? { description: input.description, customerEmail: await customerEmailOf(cfg, auth.userId) }
+          : {}),
+        // A card setup: the price recurs (Paddle then creates the subscription),
+        // carrying what each renewal is for; an earlier card's Paddle customer
+        // is reused.
+        ...(card
+          ? {
+              recurring: card.recurring,
+              priceCustomData: card.priceCustomData,
+              cardSetup: true,
+              ...(card.customerId ? { customerId: card.customerId } : {}),
+            }
           : {}),
         metadata: { amount: String(charge.total) },
       });
@@ -335,7 +440,7 @@ async function startAccountCheckout(
       amount: charge.total,
       currency: input.currency,
       status: 'pending',
-      metadata: { paymentId: payment.id, purpose: input.purpose },
+      metadata: { paymentId: payment.id, purpose: input.purpose, ...(card ? { card_setup: true } : {}) },
     }).catch(() => undefined);
 
     return res.json({
@@ -432,20 +537,28 @@ billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
   const parsed = buySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    const result = await buyPlan(serverConfigOf(req), req.params.workspaceId, {
+    const cfg = serverConfigOf(req);
+    await assertCardAllowsPlanChange(cfg, req.params.workspaceId);
+    const result = await buyPlan(cfg, req.params.workspaceId, {
       planId: parsed.data.planId,
       interval: parsed.data.interval,
       key: `${req.params.workspaceId}:${parsed.data.key ?? crypto.randomUUID()}`,
       actorId: auth.userId,
       expectedNetMinor: parsed.data.expectedNetMinor,
     });
+    await syncWorkspaceCard(cfg, req.params.workspaceId);
     res.json(result);
   } catch (e) {
     fail(res, e);
   }
 });
 
-/** The period the customer renews (its end, as the page showed it): a second click renews nothing more. */
+/**
+ * The period the customer renews (its end, as the page showed it): a second
+ * click renews nothing more. With a saved card (renewWithCard) Paddle's next
+ * charge moves one period on first (or a past_due card is cancelled first),
+ * so the card does not pay the period the balance pays.
+ */
 const renewSchema = z.object({
   expectedPeriodEnd: z.string().datetime({ offset: true }).optional(),
   /** The renewal price the page showed; another price now answers QUOTE_CHANGED. */
@@ -458,13 +571,12 @@ billingAccountRouter.post('/account/:workspaceId/renew', async (req, res) => {
   const parsed = renewSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json(await renewPlan(
-      serverConfigOf(req),
-      req.params.workspaceId,
-      auth.userId,
-      parsed.data.expectedPeriodEnd ?? null,
-      parsed.data.expectedPriceMinor ?? null,
-    ));
+    // Without a card it is renewPlan itself.
+    res.json(await renewWithCard(serverConfigOf(req), req.params.workspaceId, {
+      actorId: auth.userId,
+      expectedPeriodEnd: parsed.data.expectedPeriodEnd ?? null,
+      expectedPriceMinor: parsed.data.expectedPriceMinor ?? null,
+    }));
   } catch (e) {
     fail(res, e);
   }
@@ -478,11 +590,15 @@ billingAccountRouter.post('/account/:workspaceId/upgrade', async (req, res) => {
   const parsed = upgradeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json(await upgradePlan(serverConfigOf(req), req.params.workspaceId, {
+    const cfg = serverConfigOf(req);
+    await assertCardAllowsPlanChange(cfg, req.params.workspaceId);
+    const result = await upgradePlan(cfg, req.params.workspaceId, {
       planId: parsed.data.planId,
       actorId: auth.userId,
       expectedNetMinor: parsed.data.expectedNetMinor,
-    }));
+    });
+    await syncWorkspaceCard(cfg, req.params.workspaceId);
+    res.json(result);
   } catch (e) {
     fail(res, e);
   }
@@ -500,12 +616,16 @@ billingAccountRouter.post('/account/:workspaceId/change', async (req, res) => {
   const parsed = changeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json(await scheduleChange(serverConfigOf(req), req.params.workspaceId, {
+    const cfg = serverConfigOf(req);
+    await assertCardAllowsPlanChange(cfg, req.params.workspaceId);
+    const result = await scheduleChange(cfg, req.params.workspaceId, {
       planId: parsed.data.planId,
       interval: parsed.data.interval ?? null,
       actorId: auth.userId,
       expectedNetMinor: parsed.data.expectedNetMinor,
-    }));
+    });
+    await syncWorkspaceCard(cfg, req.params.workspaceId);
+    res.json(result);
   } catch (e) {
     fail(res, e);
   }
@@ -519,7 +639,13 @@ billingAccountRouter.put('/account/:workspaceId/auto-renew', async (req, res) =>
   const parsed = autoRenewSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json({ auto_renew: await setAutoRenew(serverConfigOf(req), req.params.workspaceId, parsed.data.enabled) });
+    const cfg = serverConfigOf(req);
+    // With a saved card Paddle confirms first (setCardAutoRenew); the card
+    // comes back as it is now (its scheduled removal, or none). Iran's
+    // answer is unchanged.
+    const autoRenew = await setAutoRenew(cfg, req.params.workspaceId, parsed.data.enabled);
+    if (!(await cardsOffered(cfg))) return res.json({ auto_renew: autoRenew });
+    res.json({ auto_renew: autoRenew, card: await cardView(cfg, req.params.workspaceId).catch(() => null) });
   } catch (e) {
     fail(res, e);
   }
@@ -533,12 +659,20 @@ const checkoutSchema = z.object({
   providerName: z.string().min(2).max(60).optional(),
   callbackUrl: z.string().url(),
   expectedNetMinor: expectedNetSchema,
+  /** Save the card and renew with it (a plan or a renewal): the full price is charged. */
+  autoRenew: z.boolean().optional(),
 });
 
 /**
  * Pay online for a plan, a renewal or an upgrade: the gateway charges what
  * the balance is missing (at least the top-up minimum), the payment is
  * credited, then spent on the purpose in the same transaction.
+ *
+ * With autoRenew (Multi Region, a Paddle gateway): the checkout also saves
+ * the card. It charges the full price of the period (a plan bought now, or
+ * the next period paid early), whatever the balance, as every renewal after
+ * it will; the page sends that price (expectedNetMinor). While a card is
+ * saved, a renewal is the card's (CARD_PAYS_RENEWAL).
  */
 billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -549,15 +683,51 @@ billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => 
   if (!isAllowedBillingCallbackUrl(req, cfg, parsed.data.callbackUrl)) {
     return res.status(400).json({ error: 'INVALID_CALLBACK_URL' });
   }
+  const withCard = parsed.data.autoRenew === true;
+  if (withCard && parsed.data.purpose !== 'plan' && parsed.data.purpose !== 'renewal') {
+    return res.status(400).json({ error: 'CARD_SETUP_PURPOSE' });
+  }
+  if (withCard && parsed.data.expectedNetMinor === undefined) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
+    if (withCard && !(await cardsOffered(cfg))) return res.status(400).json({ error: 'CARD_NOT_AVAILABLE' });
+    // An upgrade paid online changes what the card renews: not while it is
+    // past_due or Paddle is about to charge it.
+    if (parsed.data.purpose === 'upgrade') await assertCardAllowsPlanChange(cfg, req.params.workspaceId);
     const need = await amountNeededFor(cfg, req.params.workspaceId, {
       purpose: parsed.data.purpose,
       planId: parsed.data.planId,
       interval: parsed.data.interval,
-      expectedNetMinor: parsed.data.expectedNetMinor,
+      // A card checkout is priced below: the full price, not the net.
+      expectedNetMinor: withCard ? undefined : parsed.data.expectedNetMinor,
+      forCardSetup: withCard,
     });
     if (parsed.data.currency && parsed.data.currency.toUpperCase() !== need.currency) {
       return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency: need.currency } });
+    }
+    if (withCard) {
+      const full = need.periodPriceMinor;
+      if (full === null || full <= 0) return res.status(400).json({ error: 'PLAN_PRICE_UNAVAILABLE' });
+      if (parsed.data.expectedNetMinor !== full) {
+        return res.status(409).json({ error: 'QUOTE_CHANGED', details: { price_minor: full } });
+      }
+      const planId = String(need.detail.plan_id ?? '');
+      const interval = need.detail.billing_interval === 'yearly' ? 'yearly' : 'monthly';
+      const purpose = parsed.data.purpose === 'renewal' ? 'renewal' : 'plan';
+      // The gateway the card is saved on: the customer's pick, else the first that saves cards.
+      const providerName = parsed.data.providerName
+        ?? (await cardAvailability(cfg, req.params.workspaceId, need.currency, viewerOf(auth))).providers[0];
+      // Paddle names every renewal after the plan.
+      const planName = (await planNamesFor(cfg, [planId])).get(planId)?.name || 'Plan';
+      return startAccountCheckout(req, res, auth, {
+        currency: need.currency,
+        netMinor: full,
+        providerName,
+        callbackUrl: parsed.data.callbackUrl,
+        purpose,
+        purposeDetail: need.detail,
+        description: planName,
+        cardSetup: { purpose, planId, interval },
+      });
     }
     const shortfall = need.needed - need.balance;
     if (shortfall <= 0) return res.status(409).json({ error: 'BALANCE_SUFFICIENT' });
@@ -574,6 +744,94 @@ billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => 
       purposeDetail: need.detail,
       description: parsed.data.purpose === 'renewal' ? 'Plan renewal' : parsed.data.purpose === 'upgrade' ? 'Plan upgrade' : 'Plan',
     });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// ─── The saved card (Multi Region, phase 3b) ──────────────────────────────
+// Managers only; outside the International edition CARD_NOT_AVAILABLE.
+// The card itself decides the rest (card.ts): no live card → CARD_NOT_FOUND,
+// past_due → CARD_PAST_DUE, Paddle about to charge → CARD_RENEWAL_IN_PROGRESS.
+
+const cardChargeSchema = z.object({
+  purpose: z.literal('upgrade'),
+  planId: z.string().uuid(),
+  /** The upgrade's net amount the page showed; another amount now answers QUOTE_CHANGED. */
+  expectedNetMinor: z.number().int().positive(),
+  /** The total (VAT included) the button showed; another total now answers QUOTE_CHANGED. Optional for older pages. */
+  expectedTotalMinor: z.number().int().positive().optional(),
+});
+
+/**
+ * Upgrade now, charged to the saved card: exactly the quoted difference, as
+ * one Paddle charge per payment row. 200 when Paddle charged and it was
+ * settled; 202 'processing' when Paddle's answer is not known yet (the
+ * webhook, the verify route or the job settles it; it is never charged twice).
+ * Each attempt is a payment row and a charge at the card's issuer: it counts
+ * toward the checkouts' 10 an hour (TOO_MANY_CHECKOUTS).
+ */
+billingAccountRouter.post('/account/:workspaceId/card/charge', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = cardChargeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    const cfg = serverConfigOf(req);
+    if (!(await cardsOffered(cfg))) return res.status(400).json({ error: 'CARD_NOT_AVAILABLE' });
+    if ((await recentCheckoutCount(cfg, req.params.workspaceId)) >= CHECKOUTS_PER_HOUR) {
+      return res.status(429).json({ error: 'TOO_MANY_CHECKOUTS' });
+    }
+    const result = await chargeCardForUpgrade(cfg, req.params.workspaceId, {
+      planId: parsed.data.planId,
+      expectedNetMinor: parsed.data.expectedNetMinor,
+      expectedTotalMinor: parsed.data.expectedTotalMinor,
+      actorId: auth.userId,
+    });
+    if (result.status === 'processing') return res.status(202).json({ status: 'processing', paymentId: result.paymentId });
+    res.json({ status: 'succeeded', paymentId: result.paymentId, purpose_result: result.purposeResult ?? null });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+const cardUpdateSchema = z.object({ callbackUrl: z.string().url() });
+
+/**
+ * Change the card (and, while a renewal failed, pay it with the new one):
+ * Paddle's update-payment-method transaction, opened with Paddle.js. The
+ * card's new details arrive with Paddle's events.
+ */
+billingAccountRouter.post('/account/:workspaceId/card/update', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = cardUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  const cfg = serverConfigOf(req);
+  if (!isAllowedBillingCallbackUrl(req, cfg, parsed.data.callbackUrl)) {
+    return res.status(400).json({ error: 'INVALID_CALLBACK_URL' });
+  }
+  try {
+    if (!(await cardsOffered(cfg))) return res.status(400).json({ error: 'CARD_NOT_AVAILABLE' });
+    // Paddle already has the customer's e-mail: none is prefilled.
+    res.json(await cardUpdateCheckout(cfg, req.params.workspaceId, { successUrl: parsed.data.callbackUrl }));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/**
+ * Remove the saved card: cancelled at Paddle first, then here (auto-renew
+ * goes off). The plan runs to the end of its period; a next period already
+ * paid stays paid.
+ */
+billingAccountRouter.delete('/account/:workspaceId/card', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  try {
+    const cfg = serverConfigOf(req);
+    if (!(await cardsOffered(cfg))) return res.status(400).json({ error: 'CARD_NOT_AVAILABLE' });
+    res.json(await removeCard(cfg, req.params.workspaceId));
   } catch (e) {
     fail(res, e);
   }
@@ -606,8 +864,11 @@ billingAccountRouter.post('/account/:workspaceId/payments/:paymentId/verify', as
       providerConfig: resolved.config,
       params: parsed.data.params,
     });
-    // An unpaid attempt past its window is ended, so it stops showing as pending.
-    if (outcome.status === 'pending' && payment.status === 'pending' && !payment.verified_at && isAccountPaymentLapsed(payment)) {
+    // An unpaid checkout past its window is ended, so it stops showing as
+    // pending. A charge on a saved card has no checkout: Paddle may have
+    // taken it, so it is only ever resolved by looking it up (card.ts).
+    if (outcome.status === 'pending' && payment.status === 'pending' && !payment.verified_at
+        && isCheckoutPayment(payment) && isAccountPaymentLapsed(payment)) {
       await expireAccountPayment(cfg, payment, resolved.config);
       return res.json({ status: 'failed', reason: 'expired' });
     }

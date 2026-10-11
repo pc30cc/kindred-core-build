@@ -103,3 +103,37 @@ export type LedgerKind = (typeof LEDGER_KINDS)[number];
 
 /** Status of a gateway attempt (billing_account_payments.status). */
 export type AccountPaymentStatus = 'pending' | 'succeeded' | 'failed' | 'canceled' | 'expired';
+
+// ─── Saved card (phase 3b, migration 262) ──────────────────────────────────
+// A Multi Region card is a Paddle subscription whose clock we move: Paddle
+// charges the next period this long before our period ends, so a decline
+// still leaves a day to fix the card before the workspace moves to Free.
+
+/** Paddle's next_billed_at = the end of the last paid period − this lead. */
+export const CARD_RENEWAL_LEAD_MS = 24 * 60 * 60 * 1000;
+/** Paddle is never asked for a charge date sooner than now + this. */
+export const CARD_MIN_LEAD_FROM_NOW_MS = 45 * 60 * 1000;
+/** A charge date later than the period end − this is too late to renew in time. */
+export const CARD_LATEST_BEFORE_END_MS = 10 * 60 * 1000;
+/** Plan changes are frozen from Paddle's charge date − this ... */
+export const CARD_FREEZE_BEFORE_MS = 2 * 60 * 60 * 1000;
+/** ... until Paddle moves that date on, at most this long after it. */
+export const CARD_FREEZE_MAX_AFTER_MS = 6 * 60 * 60 * 1000;
+/** A card with no paid period yet waits this long for its setup payment. */
+export const CARD_SETUP_HOLD_MS = 2 * 60 * 60 * 1000;
+/** The job registers the card of a paid card checkout that has none after this long. */
+export const CARD_ACTIVATION_RECOVERY_MS = 10 * 60 * 1000;
+/** The job looks up a /charge whose outcome it does not know after this long ... */
+export const CARD_CHARGE_RESOLVE_AFTER_MS = 2 * 60 * 1000;
+/** ... and fails it (charge_not_found) when Paddle shows no charge after this long. */
+export const CARD_CHARGE_GIVE_UP_MS = 60 * 60 * 1000;
+/** Every live card is checked against Paddle at least this often. */
+export const CARD_RESYNC_MS = 6 * 60 * 60 * 1000;
+/** A Paddle charge date off by more than this is corrected. */
+export const CARD_SYNC_DATE_TOLERANCE_MS = 60 * 1000;
+/** The smallest amount Paddle charges, per currency (minor units). */
+export const PADDLE_MIN_CHARGE_MINOR: Readonly<Record<string, number>> = { USD: 70, EUR: 70, GBP: 70 };
+/** Account currencies a card can renew in (Multi Region and Global). */
+export const CARD_CURRENCIES: readonly string[] = ['USD'];
+/** billing_account_cards.status: active and past_due are "live". */
+export type CardStatus = 'active' | 'past_due' | 'canceling' | 'canceled';

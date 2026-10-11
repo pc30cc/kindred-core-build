@@ -51,7 +51,13 @@ const LEGACY_BILLING_SLUGS = [
 const ACCOUNT_BILLING_SLUGS = [
   'billing_renewal_reminder', 'billing_renewed', 'billing_expired', 'billing_plan_changed', 'billing_change_scheduled',
   'billing_payment_receipt', 'billing_plan_activated', 'billing_trial_ending', 'billing_trial_ended',
+  'billing_card_renewed', 'billing_card_payment_failed', 'billing_card_removed',
 ] as const;
+
+// The saved card's mails (Multi Region automatic renewal, migration 262):
+// sent in the International edition only, so the Iranian edition does not
+// list them.
+const CARD_BILLING_SLUGS: readonly string[] = ['billing_card_renewed', 'billing_card_payment_failed', 'billing_card_removed'];
 
 const CATEGORIES = [
   { key: 'auth', icon: Shield, slugs: ['email_verify', 'verification_code', 'password_reset', 'magic_link', 'welcome'] },
@@ -105,6 +111,10 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   billing_plan_activated: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{amount}', '{balance}', '{period_end}'],
   billing_trial_ending: [...ACCOUNT_BILLING_VARIABLES, '{trial_end}', '{days_left}'],
   billing_trial_ended: ACCOUNT_BILLING_VARIABLES,
+  // A renewal the saved card paid ({card}: "Visa •••• 4242"); the balance's renewal is billing_renewed.
+  billing_card_renewed: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{card}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
+  billing_card_payment_failed: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{amount}', '{card}', '{failure_reason}', '{due_at}'],
+  billing_card_removed: [...ACCOUNT_BILLING_VARIABLES, '{card}', '{reason}', '{plan_name}', '{period_end}'],
 };
 
 const LOCALES = [
@@ -230,9 +240,13 @@ export default function EmailTemplatesTab() {
     }
   }
 
-  const filteredSlugs = categoryFilter === 'all'
+  // Card mails exist in the International edition only.
+  const cardMails = edition === 'international';
+  const filteredSlugs = (categoryFilter === 'all'
     ? CATEGORIES.flatMap(c => c.slugs)
-    : CATEGORIES.find(c => c.key === categoryFilter)?.slugs || [];
+    : CATEGORIES.find(c => c.key === categoryFilter)?.slugs || []
+  ).filter(slug => cardMails || !CARD_BILLING_SLUGS.includes(slug));
+  const variables = SLUG_VARIABLES[selectedSlug] || [];
 
   const getTemplateStatus = (slug: string) => {
     const localesWithTemplate = templates.filter(t => t.slug === slug).map(t => t.locale);
@@ -306,7 +320,7 @@ export default function EmailTemplatesTab() {
             <div>
               <Label className="text-xs text-muted-foreground">{t('admin.brandingPage.emailTemplates.availableVariables' as TranslationKey)}</Label>
               <div className="flex flex-wrap gap-1.5 mt-1">
-                {(SLUG_VARIABLES[selectedSlug] || []).map(v => (
+                {variables.map(v => (
                   <Badge key={v} variant="outline" className="text-xs cursor-pointer hover:bg-accent"
                     onClick={() => navigator.clipboard.writeText(v).then(() => toast.info(t('admin.brandingPage.emailTemplates.toasts.copied' as TranslationKey, { variable: v })))}>{v}</Badge>
                 ))}

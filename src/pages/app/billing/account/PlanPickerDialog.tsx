@@ -6,9 +6,17 @@
  * server quotes every amount, including what a prepaid next period is
  * re-priced by; this only shows it, asks to confirm, and sends the amount
  * it showed back so a price that moved meanwhile is never charged unseen.
+ *
+ * With a saved card an upgrade is charged to it ("charge $X to Visa ••••
+ * 4242"; paying from the balance stays the second choice when it covers
+ * it). Paddle may take a moment: the page then asks for the payment every
+ * few seconds, for up to a minute. A declined card offers a top-up or the
+ * online checkout. While the card's renewal failed, or Paddle is charging
+ * it, plan changes wait, and the dialog says why.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -22,11 +30,30 @@ import {
   type PlanQuote,
 } from '@/lib/accountBillingApi';
 import { billingDate, money } from '../shared';
+import { PADDLE_MIN_CHARGE_MINOR, chargeFor } from '../../../../../shared/simpleBilling';
 import PlanFeatures from './PlanFeatures';
 import type { PayOnlineRequest } from './PayOnlineDialog';
-import { accountErrorText, planLabel } from './accountUi';
+import { accountErrorText, billingMoment, cardFailureKind, cardLabel, isFuture, planLabel } from './accountUi';
 
 const newKey = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+
+/** How long a card charge Paddle has not confirmed yet is asked about (every 3 s). */
+const CARD_POLL_TRIES = 20;
+const CARD_POLL_MS = 3000;
+
+/**
+ * An upgrade charged to the card: being charged, waiting for Paddle,
+ * declined (with Paddle's reason), refused for another reason, still not
+ * confirmed after a minute, or paid while the plan changed meanwhile (the
+ * money is in the balance).
+ */
+type CardCharge =
+  | { phase: 'charging' }
+  | { phase: 'processing' }
+  | { phase: 'declined'; code: string | null }
+  | { phase: 'failed' }
+  | { phase: 'pending' }
+  | { phase: 'kept' };
 
 export interface PlanPreselect {
   planId: string;
@@ -67,6 +94,10 @@ export default function PlanPickerDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [key, setKey] = useState(newKey);
+  const [cardCharge, setCardCharge] = useState<CardCharge | null>(null);
+  // Bumped when the dialog opens or closes: a card charge still being asked
+  // about stops asking.
+  const session = useRef(0);
   // The effects below run on what they fetch for, not on the translator's
   // identity: a new `t` must never restart them.
   const tRef = useRef(t);
@@ -78,12 +109,16 @@ export default function PlanPickerDialog({
   };
 
   useEffect(() => {
+    session.current += 1;
     if (!open) return;
     let alive = true;
     setSelected(atOpen.current.planId);
     setQuote(null);
     setLoadError(null);
     setActionError(null);
+    // A card charge left while Paddle was confirming it no longer holds the dialog.
+    setBusy(false);
+    setCardCharge(null);
     setKey(newKey());
     setBillingInterval(atOpen.current.interval);
     accountBillingApi
@@ -125,8 +160,33 @@ export default function PlanPickerDialog({
   const chosen = (plans ?? []).find((p) => p.id === selected) ?? null;
   const chosenName = chosen ? (chosen.is_free ? t('billing.account.plan.free') : planLabel(chosen.name, chosen.localized, locale)) : '';
 
+  // The saved card: an upgrade can be charged to it while it is active, its
+  // gateway still offers card renewal (else it is paid online) and Paddle is
+  // not renewing it; a failed renewal or a renewal under way holds every
+  // plan change (the server refuses them too).
+  const card = view.card ?? null;
+  const cardFrozen = Boolean(card && isFuture(card.frozen_until));
+  const blocked: string | null = card?.status === 'past_due'
+    ? t('billing.account.picker.cardPastDue')
+    : cardFrozen && card?.frozen_until
+      ? t('billing.account.picker.cardFrozen', { time: billingMoment(card.frozen_until, locale) })
+      : null;
+  const cardName = card ? cardLabel(card, t) : '';
+  const cardTotal = quote ? chargeFor(quoteNet(quote), view.vat_percent).total : 0;
+  const cardUpgrade = Boolean(
+    card
+      && card.status === 'active'
+      && card.chargeable
+      && !blocked
+      && quote?.kind === 'upgrade'
+      && quoteNet(quote) > 0
+      && cardTotal >= (PADDLE_MIN_CHARGE_MINOR[view.currency] ?? Number.POSITIVE_INFINITY),
+  );
+
   const choose = (planId: string) => {
+    if (cardCharge?.phase === 'charging' || cardCharge?.phase === 'processing') return;
     setActionError(null);
+    setCardCharge(null);
     if (planId === selected) setQuoteNonce((n) => n + 1);
     else setSelected(planId);
   };
@@ -145,11 +205,14 @@ export default function PlanPickerDialog({
       if (err?.code === 'QUOTE_CHANGED' && err.details?.quote) setQuote(err.details.quote);
       else setQuoteNonce((n) => n + 1);
       setKey(newKey());
+      // The card changed under the page (a failed renewal, a renewal under way, removed): show it.
+      if (['CARD_PAST_DUE', 'CARD_RENEWAL_IN_PROGRESS', 'CARD_NOT_AVAILABLE', 'CARD_NOT_FOUND'].includes(String(err?.code))) onDone();
     } finally {
       setBusy(false);
     }
   };
 
+  // A plan bought online can save the card for its renewals: the card then pays the period's full price.
   const payOnline = (purpose: 'plan' | 'upgrade') => {
     if (!quote || !chosen) return;
     onOpenChange(false);
@@ -160,8 +223,80 @@ export default function PlanPickerDialog({
       priceMinor: quoteNet(quote),
       balanceMinor: quote.balance_minor,
       expectedNetMinor: quoteNet(quote),
+      fullPriceMinor: purpose === 'plan' ? quote.period_price_minor : null,
       title: t(purpose === 'plan' ? 'billing.account.picker.buyTitle' : 'billing.account.picker.upgradeTitle', { plan: chosenName }),
     });
+  };
+
+  // The charge settled: the plan is upgraded, or (it changed meanwhile) the money stayed in the balance.
+  const cardSettled = (result: Record<string, unknown> | null | undefined) => {
+    if (result && 'error' in result) {
+      setCardCharge({ phase: 'kept' });
+      onDone();
+      return;
+    }
+    onOpenChange(false);
+    onDone();
+  };
+
+  const chargeCard = async () => {
+    if (!quote || !cardUpgrade) return;
+    const mine = session.current;
+    const live = () => session.current === mine;
+    setBusy(true);
+    setActionError(null);
+    setCardCharge({ phase: 'charging' });
+    try {
+      const started = await accountBillingApi.chargeCardUpgrade(workspaceId, {
+        planId: quote.plan_id,
+        expectedNetMinor: quoteNet(quote),
+        expectedTotalMinor: cardTotal,
+      });
+      if (!live()) return;
+      if (started.status === 'succeeded') {
+        cardSettled(started.purpose_result);
+        return;
+      }
+      // Paddle did not answer in time: the payment settles by its webhook (or the job).
+      setCardCharge({ phase: 'processing' });
+      for (let i = 0; i < CARD_POLL_TRIES; i += 1) {
+        await new Promise((r) => setTimeout(r, CARD_POLL_MS));
+        if (!live()) return;
+        // Ask the server to look the charge up at Paddle on the first tries
+        // and every fifth one (a late or lost webhook); in between, read the row.
+        const outcome: { status: string; reason?: string | null; result?: Record<string, unknown> | null } | null = i < 3 || i % 5 === 0
+          ? await accountBillingApi.verify(workspaceId, started.paymentId, card?.provider ?? '', {})
+            .then((v) => ({ status: v.status, reason: v.reason, result: v.purposeResult }), () => null)
+          : await accountBillingApi.payment(workspaceId, started.paymentId)
+            .then((p) => ({ status: p.status, reason: p.failure_reason, result: p.purpose_result }), () => null);
+        if (!live()) return;
+        if (!outcome || outcome.status === 'pending') continue;
+        if (outcome.status === 'succeeded') {
+          cardSettled(outcome.result);
+          return;
+        }
+        setCardCharge(outcome.reason === 'card_declined' ? { phase: 'declined', code: null } : { phase: 'failed' });
+        return;
+      }
+      setCardCharge({ phase: 'pending' });
+      onDone();
+    } catch (e) {
+      if (!live()) return;
+      const err = e as { code?: string; details?: { code?: unknown; quote?: PlanQuote | null } | null };
+      if (err?.code === 'CARD_DECLINED') {
+        setCardCharge({ phase: 'declined', code: typeof err.details?.code === 'string' ? err.details.code : null });
+        return;
+      }
+      setCardCharge(null);
+      setActionError(accountErrorText(e, t));
+      if (err?.code === 'QUOTE_CHANGED' && err.details?.quote) setQuote(err.details.quote);
+      else setQuoteNonce((n) => n + 1);
+      // The card changed under the page (a failed renewal, a renewal under way, removed), or the
+      // amount did (a VAT change the page has not seen): show it.
+      if (['CARD_PAST_DUE', 'CARD_RENEWAL_IN_PROGRESS', 'CARD_NOT_AVAILABLE', 'CARD_CHARGE_IN_PROGRESS', 'QUOTE_CHANGED'].includes(String(err?.code))) onDone();
+    } finally {
+      if (live()) setBusy(false);
+    }
   };
 
   const topup = (amountMinor: number) => {
@@ -173,7 +308,16 @@ export default function PlanPickerDialog({
   const amount = (minor: number) => money(minor, locale, view.currency);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // A card charge Paddle is still confirming may be left: it settles
+        // on its own, and the page shows it once it does.
+        if (busy && cardCharge?.phase !== 'processing') return;
+        onOpenChange(next);
+        if (!next && cardCharge?.phase === 'processing') onDone();
+      }}
+    >
       <DialogContent dir={dir} className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t('billing.account.picker.title')}</DialogTitle>
@@ -254,8 +398,21 @@ export default function PlanPickerDialog({
 
         {selected && (
           <div className="space-y-3 rounded-lg border bg-muted/30 p-4" aria-live="polite" data-testid="plan-quote">
+            {quote && blocked && view.can_manage && quote.kind !== 'current' && quote.kind !== 'unavailable' && (
+              <p className="flex items-start gap-1.5 text-sm text-destructive" data-testid="plan-card-blocked">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                {blocked}
+              </p>
+            )}
             {!quote ? (
               loadError ? null : <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
+            ) : cardCharge && cardCharge.phase !== 'declined' && cardCharge.phase !== 'failed' ? (
+              <CardChargeState
+                state={cardCharge}
+                cardName={cardName}
+                amount={amount(cardTotal)}
+                onClose={() => onOpenChange(false)}
+              />
             ) : (
               <QuoteSummary
                 quote={quote}
@@ -264,7 +421,19 @@ export default function PlanPickerDialog({
                 amount={amount}
                 date={(iso) => billingDate(iso, locale)}
                 busy={busy}
+                blocked={Boolean(blocked)}
                 canManage={view.can_manage}
+                card={cardUpgrade && !cardCharge ? { name: cardName, total: cardTotal, onCharge: () => void chargeCard() } : null}
+                declined={cardCharge?.phase === 'declined'
+                  ? {
+                    text: t('billing.account.picker.cardDeclined', {
+                      card: cardName,
+                      reason: t(`billing.account.card.failure.${cardFailureKind(cardCharge.code)}` as TranslationKey),
+                    }),
+                  }
+                  : cardCharge?.phase === 'failed'
+                    ? { text: t('billing.account.picker.cardFailed') }
+                    : null}
                 onBuy={() => void run(() => accountBillingApi.buyPlan(workspaceId, {
                   planId: quote.plan_id, interval, key, expectedNetMinor: quoteNet(quote),
                 }))}
@@ -293,7 +462,10 @@ function QuoteSummary({
   amount,
   date,
   busy,
+  blocked = false,
   canManage,
+  card = null,
+  declined = null,
   onBuy,
   onUpgrade,
   onSchedule,
@@ -307,7 +479,13 @@ function QuoteSummary({
   amount: (minor: number) => string;
   date: (iso: string) => string;
   busy: boolean;
+  /** Plan changes wait (the card's renewal failed, or Paddle is charging it): every action is off. */
+  blocked?: boolean;
   canManage: boolean;
+  /** An upgrade can be charged to the saved card: its label, the total, and the charge. */
+  card?: { name: string; total: number; onCharge: () => void } | null;
+  /** The card was declined (or the charge failed): why, with a top-up or the online checkout instead. */
+  declined?: { text: string } | null;
   onBuy: () => void;
   onUpgrade: () => void;
   onSchedule: () => void;
@@ -317,6 +495,7 @@ function QuoteSummary({
 }) {
   const { t } = useTranslation();
   const spinner = busy ? <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden /> : null;
+  const off = busy || blocked;
   const net = quoteNet(quote);
   const covered = quote.shortfall_minor === 0;
   const periodEnd = quote.period_end ? date(quote.period_end) : '';
@@ -339,7 +518,7 @@ function QuoteSummary({
     <div className="space-y-2">
       <p className="text-xs text-destructive">{t('billing.account.picker.short', { amount: amount(short) })}</p>
       {canManage && onTopup && (
-        <Button size="sm" variant="outline" onClick={() => onTopup(short)} disabled={busy}>
+        <Button size="sm" variant="outline" onClick={() => onTopup(short)} disabled={off}>
           {t('billing.account.picker.topupShort', { amount: amount(short) })}
         </Button>
       )}
@@ -349,10 +528,10 @@ function QuoteSummary({
     canManage && (
       <div className="flex flex-wrap gap-2">
         {covered ? (
-          <Button onClick={main} disabled={busy}>{spinner}{mainLabel}</Button>
+          <Button onClick={main} disabled={off}>{spinner}{mainLabel}</Button>
         ) : (
           <>
-            <Button onClick={() => onPayOnline(purpose)} disabled={busy}>{t('billing.account.picker.payOnline')}</Button>
+            <Button onClick={() => onPayOnline(purpose)} disabled={off}>{t('billing.account.picker.payOnline')}</Button>
             <p className="w-full text-xs text-muted-foreground">
               {t('billing.account.picker.short', { amount: amount(quote.shortfall_minor) })}
             </p>
@@ -386,7 +565,36 @@ function QuoteSummary({
                 : t('billing.account.picker.upgradeNow', { plan: planName, amount: amount(cost) })}
           </p>
           {prepaidLines(quote.amount_minor - cost, quote.returned_minor)}
-          {actions(onUpgrade, t('billing.account.picker.upgradeFromBalance', { amount: amount(Math.max(net, 0)) }), 'upgrade')}
+          {declined && (
+            <Alert variant="destructive" data-testid="card-declined">
+              <AlertTriangle className="h-4 w-4" aria-hidden />
+              <AlertDescription className="space-y-2">
+                <p>{declined.text}</p>
+                {/* Paying online is offered below; topping up the balance first works too. */}
+                {canManage && !covered && onTopup && (
+                  <Button size="sm" variant="outline" onClick={() => onTopup(quote.shortfall_minor)} disabled={off}>
+                    {t('billing.account.picker.topupShort', { amount: amount(quote.shortfall_minor) })}
+                  </Button>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+          {card && canManage ? (
+            // The card pays the upgrade; the balance stays the second choice when it covers it.
+            <div className="flex flex-wrap gap-2" data-testid="card-upgrade">
+              <Button onClick={card.onCharge} disabled={off}>
+                {spinner}
+                {t('billing.account.picker.chargeCard', { amount: amount(card.total), card: card.name })}
+              </Button>
+              {covered && (
+                <Button variant="outline" onClick={onUpgrade} disabled={off}>
+                  {t('billing.account.picker.upgradeFromBalance', { amount: amount(Math.max(net, 0)) })}
+                </Button>
+              )}
+            </div>
+          ) : (
+            actions(onUpgrade, t('billing.account.picker.upgradeFromBalance', { amount: amount(Math.max(net, 0)) }), 'upgrade')
+          )}
           {quote.next_period_option && canManage && quote.period_end && (
             <div className="space-y-2 border-t pt-3" data-testid="next-period-option">
               <p className="text-sm text-muted-foreground">
@@ -397,7 +605,7 @@ function QuoteSummary({
                     : t('billing.account.picker.nextPeriodOption', { date: periodEnd })}
               </p>
               {renewalNote}
-              <Button variant="outline" onClick={onSchedule} disabled={busy || laterShort > 0}>{t('billing.account.picker.fromNextPeriod')}</Button>
+              <Button variant="outline" onClick={onSchedule} disabled={off || laterShort > 0}>{t('billing.account.picker.fromNextPeriod')}</Button>
               {shortForChange(laterShort)}
             </div>
           )}
@@ -419,7 +627,7 @@ function QuoteSummary({
           {prepaidLines(quote.amount_minor, quote.returned_minor)}
           {renewalNote}
           {canManage && (
-            <Button onClick={onSchedule} disabled={busy || quote.shortfall_minor > 0}>{spinner}{t('billing.account.picker.confirmChange')}</Button>
+            <Button onClick={onSchedule} disabled={off || quote.shortfall_minor > 0}>{spinner}{t('billing.account.picker.confirmChange')}</Button>
           )}
           {shortForChange(quote.shortfall_minor)}
         </>
@@ -430,7 +638,7 @@ function QuoteSummary({
           <p className="text-sm">{t('billing.account.picker.cancelChangeHint')}</p>
           {prepaidLines(quote.amount_minor, quote.returned_minor)}
           {canManage && (
-            <Button variant="outline" onClick={onCancelChange} disabled={busy || quote.shortfall_minor > 0}>
+            <Button variant="outline" onClick={onCancelChange} disabled={off || quote.shortfall_minor > 0}>
               {spinner}{t('billing.account.plan.cancelChange')}
             </Button>
           )}
@@ -446,4 +654,38 @@ function QuoteSummary({
       }
       return <p className="text-sm text-muted-foreground">{t('billing.account.picker.unavailable')}</p>;
   }
+}
+
+/** An upgrade being charged to the card, still unconfirmed after a minute, or paid while the plan changed meanwhile. */
+function CardChargeState({
+  state,
+  cardName,
+  amount,
+  onClose,
+}: {
+  state: Exclude<CardCharge, { phase: 'declined' } | { phase: 'failed' }>;
+  cardName: string;
+  amount: string;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  if (state.phase === 'charging' || state.phase === 'processing') {
+    return (
+      <p className="flex items-center gap-2 text-sm" role="status" data-testid="card-charging">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
+        {t(state.phase === 'charging' ? 'billing.account.picker.cardCharging' : 'billing.account.picker.cardProcessing', {
+          card: cardName,
+          amount,
+        })}
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2" data-testid={`card-charge-${state.phase}`}>
+      <p className="text-sm" role="status">
+        {t(state.phase === 'pending' ? 'billing.account.picker.cardPending' : 'billing.account.picker.cardKept')}
+      </p>
+      <Button size="sm" variant="outline" onClick={onClose}>{t('billing.account.result.dismiss')}</Button>
+    </div>
+  );
 }

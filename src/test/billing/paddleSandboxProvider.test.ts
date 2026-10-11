@@ -215,6 +215,56 @@ describe('paddle_sandbox webhook: its own secret', () => {
   });
 });
 
+describe('paddle_sandbox: automatic card renewal through the wrapper (simple billing 3b)', () => {
+  it('a card-setup checkout goes to the sandbox with the recurring price', async () => {
+    const fetchMock = mockFetch({ data: { id: 'txn_setup_sbx' } });
+    const result = await paddleSandboxProvider.createCheckoutSession({ ...SANDBOX, sandbox: 'false' }, {
+      ...req,
+      recurring: { interval: 'yearly' },
+      priceCustomData: { plan_id: 'plan-pro', interval: 'yearly', net_minor: 29000, tax_minor: 0 },
+      customerId: 'ctm_01hv8wt8nffez4p2t6typn4a5j',
+      cardSetup: true,
+    });
+    expect(urlOf(fetchMock)).toBe('https://sandbox-api.paddle.com/transactions');
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+    expect(body.items[0].price).toMatchObject({
+      billing_cycle: { interval: 'year', frequency: 1 },
+      custom_data: { plan_id: 'plan-pro', interval: 'yearly', net_minor: 29000, tax_minor: 0 },
+    });
+    expect(body.customer_id).toBe('ctm_01hv8wt8nffez4p2t6typn4a5j');
+    expect(body.custom_data).toEqual({ workspace_id: 'ws-1', intent_id: 'pi-1', invoice_id: 'inv-1', card_setup: '1' });
+    expect(result.clientCheckout).toMatchObject({ provider: 'paddle_sandbox', environment: 'sandbox', transactionId: 'txn_setup_sbx' });
+  });
+
+  it('maps a renewal as a card event, verified with the sandbox secret', async () => {
+    const { body, headers } = signed(SANDBOX.webhook_secret as string, {
+      event_id: 'evt_sbx_r',
+      event_type: 'transaction.completed',
+      data: {
+        id: 'txn_sbx_r', status: 'completed', origin: 'subscription_recurring', subscription_id: 'sub_sbx_1', currency_code: 'USD',
+        custom_data: { workspace_id: 'ws-1', intent_id: 'pi-1' }, details: { totals: { total: '2900', grand_total: '2900', credit: '0' } },
+      },
+    });
+    const event = await paddleSandboxProvider.verifyWebhook(SANDBOX, headers, body);
+    expect(event).toMatchObject({ type: 'card_event', providerSubscriptionId: 'sub_sbx_1', providerPaymentId: 'txn_sbx_r' });
+    expect(event?.intentId).toBeUndefined();
+  });
+
+  it('testConnection checks the Subscriptions permission on the sandbox when the switch is on', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ data: [] }), text: async () => '{"data":[]}' })
+      .mockResolvedValueOnce({
+        status: 403, ok: false,
+        json: async () => ({ error: { code: 'forbidden', detail: 'forbidden' } }),
+        text: async () => JSON.stringify({ error: { code: 'forbidden', detail: 'forbidden' } }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await paddleSandboxProvider.testConnection({ ...SANDBOX, card_auto_renew: 'true' });
+    expect(result).toMatchObject({ success: false, error: expect.stringContaining('"Subscriptions" read and write permission') });
+    expect(urlOf(fetchMock as unknown as ReturnType<typeof mockFetch>, 1)).toBe('https://sandbox-api.paddle.com/subscriptions?per_page=1');
+  });
+});
+
 describe('live paddle: sandbox credentials only with its Sandbox Mode on', () => {
   it('reads the stored toggle strings correctly (a saved "false" is off)', () => {
     expect(isPaddleSandboxFlag('false')).toBe(false);

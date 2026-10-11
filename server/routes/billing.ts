@@ -79,6 +79,7 @@ import {
   readAccountPayment,
   type AccountPaymentRow,
 } from '../services/billing/account/index.js';
+import { cardEventOwner, handleCardEvent } from '../services/billing/account/card.js';
 import {
   buildBoundVerifyParams,
   buildGatewayVerificationMarker,
@@ -1346,11 +1347,15 @@ export const billingWebhookRouter = Router();
  */
 const SIGNED_WEBHOOK_PROVIDERS = new Set(['stripe', 'paddle', 'paddle_sandbox', 'lemon_squeezy', 'paytr', 'paypal']);
 
+/** Gateways whose subscriptions can be a saved card's (simple billing, phase 3b). */
+const CARD_PROVIDERS = new Set(['paddle', 'paddle_sandbox']);
+
 /**
  * The workspace a verified platform-level event belongs to when its payload
- * names none: the payment intent it names (custom metadata), or the payment
- * it refers to. Both are this server's own records, reached through
- * identifiers inside a payload whose signature already verified.
+ * names none: the payment intent it names (custom metadata), the payment it
+ * refers to, or the saved card whose subscription it names. All are this
+ * server's own records, reached through identifiers inside a payload whose
+ * signature already verified.
  * `foreignIntent`: the event names an intent this database does not have.
  * Throws when a read fails: "not found" is only ever concluded from an
  * answer, never from an error.
@@ -1383,6 +1388,17 @@ async function resolveEventWorkspace(
     const ws = (data as { workspace_id?: string | null } | null)?.workspace_id;
     if (ws) return { workspaceId: ws, foreignIntent: false };
   }
+  if (event.providerSubscriptionId && CARD_PROVIDERS.has(providerName)) {
+    const { data, error } = await getServiceClient(cfg)
+      .from('billing_account_cards')
+      .select('workspace_id')
+      .eq('provider', providerName)
+      .eq('subscription_id', event.providerSubscriptionId)
+      .maybeSingle();
+    if (error) throw new Error(`card read failed: ${error.message}`);
+    const ws = (data as { workspace_id?: string | null } | null)?.workspace_id;
+    if (ws) return { workspaceId: ws, foreignIntent: false };
+  }
   return { workspaceId: null, foreignIntent };
 }
 
@@ -1395,6 +1411,87 @@ async function resolveEventWorkspace(
  */
 function logForeignIntentEvent(providerName: string, event: WebhookEvent) {
   console.warn(`[billing-webhook] ignored provider=${providerName} reason=unknown_intent intent=${event.intentId} event=${event.providerEventId}`);
+}
+
+/**
+ * A saved card's event (Paddle, simple billing phase 3b): whose it is comes
+ * from our own records only (the card of its subscription, or the card
+ * checkout that created it). One that is not ours (another installation's
+ * subscription on the same Paddle account; RESPOK's database is a clone of
+ * WebYar's, so its workspace ids exist here too) is acknowledged and nothing
+ * is done: never claimed, never cancelled. Ours is claimed, handled (card.ts
+ * handleCardEvent) and finalized; a failure answers 500 so Paddle delivers
+ * it again.
+ */
+async function handleCardWebhook(
+  ctx: {
+    res: Response;
+    cfg: ServerConfig;
+    url: string;
+    key: string;
+    providerName: string;
+    acknowledge: (body: Record<string, unknown>) => unknown;
+  },
+  event: WebhookEvent,
+  configWorkspaceId: string | null,
+) {
+  const { res, cfg, url, key, providerName, acknowledge } = ctx;
+  const providerEventId = typeof event.providerEventId === 'string' ? event.providerEventId.trim() : '';
+  if (!providerEventId) {
+    logWebhookRejection(providerName, 'missing_provider_event_id');
+    return res.status(400).json({ error: 'Webhook rejected' });
+  }
+  let owner: Awaited<ReturnType<typeof cardEventOwner>>;
+  try {
+    owner = await cardEventOwner(cfg, providerName, event);
+  } catch {
+    logWebhookRejection(providerName, 'card_read_failed');
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+  if (!owner) {
+    console.warn(`[billing-webhook] ignored provider=${providerName} reason=foreign_card subscription=${event.providerSubscriptionId ?? '-'} event=${providerEventId}`);
+    return acknowledge({ received: true, ignored: true });
+  }
+  // A workspace's own Paddle config only verifies that workspace's cards.
+  if (configWorkspaceId && configWorkspaceId !== owner.workspaceId) {
+    logWebhookRejection(providerName, 'workspace_mismatch');
+    return res.status(400).json({ error: 'Webhook rejected' });
+  }
+  if (event.workspaceId && event.workspaceId !== owner.workspaceId) {
+    console.error(`[billing-webhook] REVIEW provider=${providerName} card event ${providerEventId} names workspace ${event.workspaceId}; its card is workspace ${owner.workspaceId}'s`);
+  }
+  event.workspaceId = owner.workspaceId;
+
+  let claim;
+  try {
+    claim = await claimBillingWebhookEvent(url, key, {
+      providerName,
+      providerEventId,
+      workspaceId: owner.workspaceId,
+      eventType: 'card_event',
+      amount: event.amount,
+      currency: event.currency,
+      metadata: event.raw,
+    });
+  } catch {
+    logWebhookRejection(providerName, 'claim_failed');
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+  if (!claim.claimed) {
+    if ('inFlight' in claim) return res.status(409).json({ error: 'Webhook already in progress' });
+    return acknowledge({ received: true, duplicate: true });
+  }
+  try {
+    await handleCardEvent(cfg, { providerName, event, owner });
+  } catch (e) {
+    // Marked failed: Paddle's retry is processed again (each step is idempotent).
+    await finalizeBillingWebhookEvent(url, key, claim.eventRowId, 'failed').catch(() => {});
+    console.warn(`[billing-webhook] card event ${providerEventId} provider=${providerName} failed: ${e instanceof Error ? e.message : String(e)}`);
+    logWebhookRejection(providerName, 'card_event_processing_failed');
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+  await finalizeBillingWebhookEvent(url, key, claim.eventRowId, 'success').catch(() => {});
+  return acknowledge({ received: true });
 }
 
 type WebhookCandidate = { workspaceId: string | null; config: Record<string, unknown> };
@@ -1469,6 +1566,10 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   // hide an ambiguous secret collision between two workspaces, and stopping at
   // the first workspace mismatch would drop a later, correct candidate.
   const accepted: Array<{ event: WebhookEvent; workspaceId: string }> = [];
+  // A saved card's events (Paddle subscriptions, simple billing phase 3b) are
+  // kept apart: they are routed below by our own card row or card checkout,
+  // never by the workspace their copied custom_data names (P6).
+  const cardEvents: Array<{ event: WebhookEvent; configWorkspaceId: string | null }> = [];
   let sawMismatch = false;
   let sawUnresolved = false;
   let sawIgnored = false;
@@ -1489,6 +1590,10 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
     // Genuine, but nothing to act on: acknowledged so the provider stops retrying.
     if (event.type === 'ignored') {
       sawIgnored = true;
+      continue;
+    }
+    if (event.type === 'card_event') {
+      cardEvents.push({ event, configWorkspaceId: candidate.workspaceId });
       continue;
     }
 
@@ -1517,6 +1622,18 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
     if (resolvedWorkspace.workspaceId) accepted.push({ event, workspaceId: resolvedWorkspace.workspaceId });
     else if (resolvedWorkspace.foreignIntent) foreignEvent = event;
     else sawUnresolved = true;
+  }
+
+  if (cardEvents.length) {
+    if (cardEvents.length > 1 || accepted.length) {
+      logWebhookRejection(providerName, 'ambiguous_candidate_configs');
+      return res.status(400).json({ error: 'Webhook rejected' });
+    }
+    return handleCardWebhook(
+      { res, cfg, url, key, providerName, acknowledge },
+      cardEvents[0].event,
+      cardEvents[0].configWorkspaceId,
+    );
   }
 
   if (accepted.length > 1) {

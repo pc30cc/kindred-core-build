@@ -78,8 +78,9 @@ export interface WorkspaceEffectiveEntitlements {
   /**
    * A paid period ending within 7 days that will not renew (simple billing:
    * server/services/billing/account/renewalNotice.ts); null otherwise.
+   * `card_past_due`: the saved card's renewal payment failed.
    */
-  renewal_due?: { days_left: number; period_end: string; ends_on_free: boolean } | null;
+  renewal_due?: { days_left: number; period_end: string; ends_on_free: boolean; card_past_due?: boolean } | null;
   raw: { entitlements: Record<string, unknown>; limits: Record<string, unknown> };
   /** 'unlimited' on a self-host install without billing: nothing is enforced. */
   billing?: 'unlimited';

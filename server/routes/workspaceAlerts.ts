@@ -158,12 +158,14 @@ async function deriveAlerts(req: object, workspaceId: string, userId: string) {
 
   // Simple billing never sets cancel_at_period_end: a paid period that will
   // not renew (renewalNotice.ts) ends on Free at the due moment, no grace.
+  // A saved card whose renewal payment failed (phase 3b) says so: it is
+  // critical, Paddle charges a day before the due moment.
   if (renewal && !alerts.some((a) => a.kind === 'subscription_ending')) {
     alerts.push({
       id: 'renewal_due',
       // A change to Free the customer chose cannot be renewed: cancelling it keeps the plan.
-      kind: renewal.ends_on_free ? 'change_to_free' : 'renewal_due',
-      severity: renewal.days_left <= 2 ? 'critical' : 'warning',
+      kind: renewal.card_past_due ? 'card_payment_failed' : renewal.ends_on_free ? 'change_to_free' : 'renewal_due',
+      severity: renewal.card_past_due || renewal.days_left <= 2 ? 'critical' : 'warning',
       params: { days: String(renewal.days_left), plan: planName },
       action: '/billing',
     });

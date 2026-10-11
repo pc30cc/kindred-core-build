@@ -8,11 +8,17 @@
 // 261): no next period is prepaid for this period, and auto-renew is off or
 // the balance cannot pay the next period. A change scheduled to Free is due
 // too (the reminder mails skip it); the notice then says the plan ends.
+//
+// With a saved card (phase 3b, migration 262) the card renews, never the
+// balance: an active card with auto-renew on and a next period that is sold
+// shows nothing; a card whose renewal payment failed (past_due) shows the
+// notice, marked card_past_due, whatever the balance.
 // ============================================================================
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { LEGACY_BILLING_ENABLED } from '../../../../shared/billingMode.js';
+import { isRelationMissing } from '../entitlementParse.js';
 
 const DAY_MS = 86_400_000;
 
@@ -26,6 +32,8 @@ export interface RenewalDueNotice {
   plan_id: string;
   /** A change to Free is scheduled: the workspace moves to Free whatever the balance. */
   ends_on_free: boolean;
+  /** The saved card's renewal payment failed: it must be paid (or the card changed) before the due date. */
+  card_past_due: boolean;
 }
 
 interface PlanRow {
@@ -108,7 +116,7 @@ export async function renewalDueNotice(
   // due moment, prepaid or not (billing_account_process_due).
   const targetId = account?.scheduled_plan_id ?? s.plan_id;
   const target = targetId === plan.id ? plan : await readPlan(config, targetId);
-  if (!target || target.is_free) return { ...notice, ends_on_free: true };
+  if (!target || target.is_free) return { ...notice, ends_on_free: true, card_past_due: false };
 
   // The next period is paid for already (a prepayment made for an earlier,
   // replaced period does not count: it returns to the balance).
@@ -117,11 +125,36 @@ export async function renewalDueNotice(
   // ...or through billing v2 (a scheduled period the due moment starts).
   if (await v2NextPeriodPaid(config, workspaceId)) return null;
 
-  // Auto-renew pays from the balance (an account always has its currency).
-  if (account?.auto_renew) {
-    const interval = account.scheduled_interval ?? s.billing_interval ?? 'monthly';
-    const price = priceOf(target.prices, account.currency, interval);
-    if (price !== null && Number(account.balance_minor) >= price) return null;
+  const interval = account?.scheduled_interval ?? s.billing_interval ?? 'monthly';
+  const price = account ? priceOf(target.prices, account.currency, interval) : null;
+  // A saved card renews (the due moment never spends the balance then).
+  const card = account ? await liveCardStatus(config, workspaceId) : null;
+  if (card === 'past_due') return { ...notice, ends_on_free: false, card_past_due: true };
+  if (card === 'active') {
+    if (account?.auto_renew && price !== null) return null;
+    return { ...notice, ends_on_free: false, card_past_due: false };
   }
-  return { ...notice, ends_on_free: false };
+
+  // Auto-renew pays from the balance (an account always has its currency).
+  if (account?.auto_renew && price !== null && Number(account.balance_minor) >= price) return null;
+  return { ...notice, ends_on_free: false, card_past_due: false };
+}
+
+/**
+ * The status of the workspace's live saved card (active or past_due), or null
+ * without one (also on a database migration 262 has not reached yet).
+ */
+async function liveCardStatus(config: ServerConfig, workspaceId: string): Promise<'active' | 'past_due' | null> {
+  const { data, error } = await getServiceClient(config)
+    .from('billing_account_cards')
+    .select('status')
+    .eq('workspace_id', workspaceId)
+    .in('status', ['active', 'past_due'])
+    .maybeSingle();
+  if (error) {
+    if (isRelationMissing(error, 'billing_account_cards')) return null;
+    throw new Error(error.message || 'card read failed');
+  }
+  const status = (data as { status?: string } | null)?.status;
+  return status === 'active' || status === 'past_due' ? status : null;
 }

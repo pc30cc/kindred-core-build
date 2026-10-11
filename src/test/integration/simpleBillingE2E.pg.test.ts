@@ -27,12 +27,12 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
-import https from 'node:https';
 import crypto from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { createFullChainDatabase, type FullChainDatabase } from './fullChainDatabase';
+import { FakePaddle, installOutboundGuard, type OutboundGuard } from './fakePaddle';
 
 const DSN = process.env.TEST_DATABASE_URL;
 if (process.env.REQUIRE_BILLING_DB === '1' && !DSN) {
@@ -57,57 +57,11 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
   return { ...actual, authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next() };
 });
 
-// ── Paddle's API, answered locally; nothing else may leave this machine ──
-const PADDLE_API = 'https://sandbox-api.paddle.com';
-const paddle = { transactions: new Map<string, { amount: string; currency: string; status: string; custom: Record<string, string> }>(), seq: 0 };
-const originals = { fetch: globalThis.fetch, http: http.request, https: https.request };
-const LOCAL = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
-const blocked: string[] = [];
-
-function fakePaddle(url: string, init?: RequestInit): Response {
-  const path = url.slice(PADDLE_API.length);
-  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
-  if (path === '/transactions' && init?.method === 'POST') {
-    const body = JSON.parse(String(init.body)) as {
-      items: Array<{ price: { unit_price: { amount: string; currency_code: string } } }>;
-      custom_data: Record<string, string>;
-    };
-    const id = `txn_test_${++paddle.seq}`;
-    const price = body.items[0].price.unit_price;
-    paddle.transactions.set(id, { amount: price.amount, currency: price.currency_code, status: 'ready', custom: body.custom_data });
-    return json({ data: { id, status: 'ready', checkout: { url: null } } });
-  }
-  const m = /^\/transactions\/([^/?]+)$/.exec(path);
-  if (m) {
-    const txn = paddle.transactions.get(decodeURIComponent(m[1]));
-    if (!txn) return json({ error: { code: 'not_found', detail: 'not found' } });
-    return json({ data: { id: m[1], status: txn.status, currency_code: txn.currency, details: { totals: { total: txn.amount } } } });
-  }
-  return json({ error: { code: 'unexpected', detail: path } });
-}
-
-function installGuard(): void {
-  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (url.startsWith(PADDLE_API)) return fakePaddle(url, init);
-    const host = new URL(url, 'http://localhost').hostname;
-    if (!LOCAL.has(host)) {
-      blocked.push(url);
-      throw new Error(`outbound request refused by the test: ${host}`);
-    }
-    return originals.fetch(input, init);
-  }) as typeof fetch;
-  https.request = ((...args: Parameters<typeof https.request>) => {
-    blocked.push(String(args[0]));
-    throw new Error('outbound https refused by the test');
-  }) as typeof https.request;
-}
-function removeGuard(): void {
-  globalThis.fetch = originals.fetch;
-  https.request = originals.https;
-}
-
+// ── Paddle's API, answered locally (fakePaddle.ts); nothing else may leave this machine ──
 const WEBHOOK_SECRET = 'pdl_ntfset_test_secret_for_this_suite';
+const paddle = new FakePaddle({ webhookSecret: WEBHOOK_SECRET });
+const originals = { http: http.request };
+let guard: OutboundGuard | null = null;
 
 suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
   let chain: FullChainDatabase;
@@ -188,7 +142,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
       [JSON.stringify({ api_key: 'pdl_sdbx_apikey_test', client_token: 'test_client_token', webhook_secret: WEBHOOK_SECRET, open_to_customers: true })],
     );
 
-    installGuard();
+    guard = installOutboundGuard(paddle);
     const { loadConfig } = await import('../../../server/config.js');
     const config = loadConfig();
     const billing = await import('../../../server/routes/billing.js');
@@ -220,7 +174,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
   }, 600_000);
 
   afterAll(async () => {
-    removeGuard();
+    guard?.restore();
     await new Promise<void>((r) => (app ? app.close(() => r()) : r()));
     const { closeDataLayer } = await import('../../../server/db/index.js');
     await closeDataLayer();
@@ -566,15 +520,15 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const checkout = start.json.clientCheckout as { provider: string; transactionId: string; successUrl: string };
     expect(checkout.provider).toBe('paddle_sandbox');
     const txn = paddle.transactions.get(checkout.transactionId)!;
-    expect(txn).toMatchObject({ amount: '2500', currency: 'USD' });
-    expect(txn.custom.intent_id).toBe(start.json.paymentId);
+    expect(txn).toMatchObject({ currency_code: 'USD', details: { totals: { total: '2500' } } });
+    expect(txn.custom_data?.intent_id).toBe(start.json.paymentId);
 
     // Paddle collects it and notifies.
     txn.status = 'paid';
     const body = JSON.stringify({
       event_id: 'evt_test_1',
       event_type: 'transaction.paid',
-      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom, details: { totals: { total: '2500' } } },
+      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom_data, details: { totals: { total: '2500' } } },
     });
     const ts = Math.floor(Date.now() / 1000);
     const h1 = crypto.createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');
@@ -606,7 +560,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const body = JSON.stringify({
       event_id: 'evt_test_wrong',
       event_type: 'transaction.paid',
-      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom, details: { totals: { total: '10' } } },
+      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom_data, details: { totals: { total: '10' } } },
     });
     const ts = Math.floor(Date.now() / 1000);
     const h1 = crypto.createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');
@@ -680,7 +634,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const body = JSON.stringify({
       event_id: 'evt_plan_1',
       event_type: 'transaction.paid',
-      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom, details: { totals: { total: txn.amount } } },
+      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom_data, details: { totals: { total: txn.details.totals.total } } },
     });
     const ts = Math.floor(Date.now() / 1000);
     const h1 = crypto.createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');
@@ -750,6 +704,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
   });
 
   it('nothing left this machine except to the local Paddle fake', () => {
-    expect(blocked).toEqual([]);
+    expect(guard?.blocked).toEqual([]);
+    expect(paddle.unexpectedCalls()).toEqual([]);
   });
 });

@@ -68,7 +68,11 @@ export interface AccountRow {
   next_period_prepaid_minor: number | null;
   /** The period start a prepayment was made for (migration 261). */
   next_period_start: string | null;
+  /** The live saved card (migration 262 keeps them): its gateway, Paddle customer and subscription. */
   card_provider: string | null;
+  /** Kept after the card is gone: the next card checkout reuses the Paddle customer. */
+  card_customer_id: string | null;
+  card_subscription_id: string | null;
   billing_profile: BillingProfile;
   created_at: string;
   updated_at: string;
@@ -101,7 +105,24 @@ export interface AccountPaymentRow {
   verified_at: string | null;
   refunded_minor: number;
   closed_at: string | null;
+  /**
+   * Where the payment came from (migration 262): a checkout the customer
+   * paid; one that also saved a card (card_setup); a renewal Paddle charged
+   * on the card by itself (card_renewal); a charge we asked Paddle for, or
+   * one we did not expect (card_charge).
+   */
+  source: AccountPaymentSource;
+  /** The saved card a card payment belongs to. */
+  card_id: string | null;
+  /** card_charge: when Paddle was asked to charge (from then on it is looked up, never asked again). */
+  charge_requested_at: string | null;
+  /** Why a card payment was credited but needs a person (amount_mismatch, unexpected_charge:<origin>, …). */
+  review: string | null;
 }
+
+export type AccountPaymentSource = 'checkout' | 'card_setup' | 'card_renewal' | 'card_charge';
+
+const PAYMENT_SOURCES = new Set<string>(['checkout', 'card_setup', 'card_renewal', 'card_charge']);
 
 export interface LedgerRow {
   id: string;
@@ -153,6 +174,8 @@ function toAccount(row: Record<string, unknown>): AccountRow {
       : num(row.next_period_prepaid_minor),
     next_period_start: (row.next_period_start as string | null) ?? null,
     card_provider: (row.card_provider as string | null) ?? null,
+    card_customer_id: (row.card_customer_id as string | null) ?? null,
+    card_subscription_id: (row.card_subscription_id as string | null) ?? null,
     billing_profile: cleanProfile(row.billing_profile, BILLING_PROFILE_KEYS),
     created_at: String(row.created_at ?? ''),
     updated_at: String(row.updated_at ?? ''),
@@ -172,6 +195,11 @@ function toPayment(row: Record<string, unknown>): AccountPaymentRow {
       : null,
     verified_amount_minor: row.verified_amount_minor === null || row.verified_amount_minor === undefined ? null : num(row.verified_amount_minor),
     refunded_minor: num(row.refunded_minor),
+    // A row read before migration 262 (or a test double) is a checkout.
+    source: PAYMENT_SOURCES.has(String(row.source)) ? (row.source as AccountPaymentSource) : 'checkout',
+    card_id: (row.card_id as string | null | undefined) ?? null,
+    charge_requested_at: (row.charge_requested_at as string | null | undefined) ?? null,
+    review: (row.review as string | null | undefined) ?? null,
   };
 }
 
@@ -402,11 +430,16 @@ export async function createAccountPayment(
     purpose?: string;
     purposeDetail?: Record<string, unknown>;
     createdBy: string | null;
+    /** A checkout that also saves a card is 'card_setup'; every other checkout the default. */
+    source?: Extract<AccountPaymentSource, 'checkout' | 'card_setup'>;
   },
 ): Promise<AccountPaymentRow> {
   const { data, error } = await getServiceClient(config)
     .from('billing_account_payments')
     .insert({
+      // Only a card checkout names its source: every other row is the
+      // column's default ('checkout'), written exactly as before 262.
+      ...(input.source && input.source !== 'checkout' ? { source: input.source } : {}),
       workspace_id: input.workspaceId,
       provider: input.provider,
       currency: input.currency,
@@ -594,7 +627,10 @@ function isCardGateway(providerName: string): boolean {
  *     recorded confirmation of its own: the gateway transaction may be
  *     another attempt's (SEP / PayPing verify by an unbound reference);
  *   - a gateway transaction already recorded for another payment is refused
- *     (unique per provider): one real payment settles one attempt.
+ *     (unique per provider): one real payment settles one attempt;
+ *   - a charge made on a saved card has no checkout to ask about: an upgrade
+ *     charge is looked up on the card's subscription (resolveCardCharge), a
+ *     renewal Paddle charged is settled by its own events only.
  */
 export async function verifyAccountPayment(
   config: ServerConfig,
@@ -606,6 +642,15 @@ export async function verifyAccountPayment(
 ): Promise<VerifyOutcome> {
   const { payment } = input;
   if (payment.status === 'succeeded') return withPurpose(config, payment.id, await succeededOutcome(config, payment.ledger_id));
+  if (payment.source === 'card_charge') {
+    // Loaded on use: card.ts imports this module.
+    const { resolveCardCharge } = await import('./card.js');
+    return resolveCardCharge(config, payment);
+  }
+  if (payment.source === 'card_renewal' && !payment.verified_at) {
+    if (payment.status !== 'pending') return { status: 'failed', reason: payment.failure_reason || payment.status };
+    return { status: 'pending', reason: 'card_renewal' };
+  }
   if (payment.verified_at) return withPurpose(config, payment.id, settledOutcome(await settleAccountPayment(config, payment.id)));
 
   const provider = getProvider(payment.provider);
@@ -708,10 +753,20 @@ export async function handleAccountPaymentWebhook(
     if (num(res.shortfall_minor) > 0) {
       console.error(`[billing-account] REVIEW refund payment=${payment.id} provider=${payment.provider} could not take back ${res.shortfall_minor} (already spent)`);
     }
+    if (event.chargeback) await afterChargeback(config, payment, refundId, amount);
+    else if (res.replayed !== true) await afterCardRefund(config, payment, refundId);
     return res.replayed === true ? 'replayed' : 'refunded';
   }
 
   if (event.type !== 'payment_succeeded') return 'ignored';
+  // A Paddle transaction is the checkout bound to this payment, or not this
+  // payment at all: one a subscription made carries the checkout's intent_id
+  // in its copied custom_data, and must never read as a replay of it (P5).
+  const reported = (event.providerPaymentId || event.providerRef || '').trim();
+  if (CARD_EVENT_PROVIDERS.has(payment.provider) && (!reported || reported !== payment.provider_ref)) {
+    console.error(`[billing-account] REVIEW webhook payment=${payment.id} provider=${payment.provider} transaction ${reported || '-'} is not its checkout ${payment.provider_ref || '-'}`);
+    return 'mismatch';
+  }
   if (payment.status === 'succeeded') return 'replayed';
   if (payment.verified_at) {
     const settled = await settleAccountPayment(config, payment.id);
@@ -738,6 +793,74 @@ export async function handleAccountPaymentWebhook(
   }
 }
 
+/** Gateways whose transactions can come from a saved card's subscription (phase 3b). */
+const CARD_EVENT_PROVIDERS = new Set(['paddle', 'paddle_sandbox']);
+
+/**
+ * A chargeback took a payment's money back (recorded above as a refund): the
+ * card it came from (the payment's own, else the workspace's live card on the
+ * same gateway) stops at once, so nothing more is charged to it, and a person
+ * looks at it. The card is marked canceling first (which also turns
+ * auto-renew off), so the job retries a cancel Paddle did not confirm. Never
+ * throws: the refund is recorded.
+ */
+async function afterChargeback(config: ServerConfig, payment: AccountPaymentRow, refundId: string, amount: number): Promise<void> {
+  console.error(`[billing-account] REVIEW chargeback ${refundId} payment=${payment.id} provider=${payment.provider} ${amount} ${payment.currency} taken back`);
+  if (!CARD_EVENT_PROVIDERS.has(payment.provider)) return;
+  try {
+    // Loaded on use: card.ts imports this module.
+    const card = await import('./card.js');
+    const live = payment.card_id ? null : await card.readLiveCard(config, payment.workspace_id);
+    const cardId = payment.card_id ?? (live && live.provider === payment.provider ? live.id : null);
+    if (!cardId) return;
+    const { error } = await getServiceClient(config).rpc('billing_card_set_status', {
+      p_card_id: cardId,
+      p_status: 'canceling',
+      p_reason: 'chargeback',
+    });
+    if (error) throw new Error(error.message || 'card status update failed');
+    if (!(await card.cancelCardNow(config, cardId, 'chargeback'))) {
+      console.error(`[billing-account] REVIEW chargeback ${refundId}: card ${cardId} not cancelled at Paddle yet (the job retries it)`);
+    }
+  } catch (e) {
+    console.error(`[billing-account] REVIEW chargeback ${refundId}: card not stopped:`, e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * A person refunded a renewal the card paid, in Paddle: the card does not
+ * charge that period again on its own. The refund gives back the prepaid
+ * next period, which auto-renew would otherwise have Paddle charge again
+ * within the hour, so auto-renew goes off; the reconciler then schedules the
+ * cancel at Paddle's next billing date (the plan runs to its end), and the
+ * customer may turn it back on. Other refunds (a stray charge, a top-up, a
+ * renewal that renewed nothing: kept in the balance for review, such as one
+ * Paddle charged for a period already paid) change nothing. Never throws:
+ * the refund is recorded.
+ */
+async function afterCardRefund(config: ServerConfig, payment: AccountPaymentRow, refundId: string): Promise<void> {
+  if (!CARD_EVENT_PROVIDERS.has(payment.provider) || payment.source === 'checkout' || payment.purpose !== 'renewal') return;
+  if (payment.review || (payment.purpose_result && 'error' in payment.purpose_result)) return;
+  try {
+    // Loaded on use: card.ts imports this module.
+    const card = await import('./card.js');
+    const live = await card.readLiveCard(config, payment.workspace_id);
+    if (!live || live.provider !== payment.provider) return;
+    const { data, error } = await getServiceClient(config)
+      .from('billing_accounts')
+      .update({ auto_renew: false, updated_at: new Date().toISOString() })
+      .eq('workspace_id', payment.workspace_id)
+      .eq('auto_renew', true)
+      .select('workspace_id');
+    if (error) throw new Error(error.message || 'auto-renew update failed');
+    if (!(data as unknown[] | null)?.length) return;
+    console.error(`[billing-account] REVIEW refund ${refundId} payment=${payment.id} source=${payment.source}: auto-renew turned off; card ${live.id} stops at Paddle's next billing date`);
+    await card.syncWorkspaceCard(config, payment.workspace_id);
+  } catch (e) {
+    console.error(`[billing-account] REVIEW refund ${refundId}: auto-renew not turned off:`, e instanceof Error ? e.message : e);
+  }
+}
+
 /** The account payment a provider transaction settled (refunds name the transaction, not our id). */
 export async function findAccountPaymentByProviderPayment(
   config: ServerConfig,
@@ -755,6 +878,11 @@ export async function findAccountPaymentByProviderPayment(
   return data ? toPayment(data as Record<string, unknown>) : null;
 }
 
+/** A payment the customer opened a checkout for (as opposed to a charge on a saved card). */
+export function isCheckoutPayment(payment: Partial<Pick<AccountPaymentRow, 'source'>>): boolean {
+  return !payment.source || payment.source === 'checkout' || payment.source === 'card_setup';
+}
+
 /** Iranian bank checkouts expire on their own within minutes; card checkouts may stay payable. */
 export const SHORT_LIVED_CHECKOUT_PROVIDERS: readonly string[] = IRANIAN_PAYMENT_PROVIDERS;
 
@@ -762,12 +890,17 @@ export const SHORT_LIVED_CHECKOUT_PROVIDERS: readonly string[] = IRANIAN_PAYMENT
  * Ends an attempt nobody paid within its window. A card checkout is closed at
  * the provider first (best effort), so it cannot be paid later from an old
  * tab; a confirmed close lets the attempt be pruned after 30 days.
+ *
+ * Only a checkout expires: a charge on a saved card (an upgrade charge, a
+ * renewal Paddle made) has no checkout to close, and Paddle may have taken
+ * it; it is resolved by looking it up (card.ts), never ended here.
  */
 export async function expireAccountPayment(
   config: ServerConfig,
   payment: AccountPaymentRow,
   providerConfig: BillingProviderConfig | null,
 ): Promise<void> {
+  if (!isCheckoutPayment(payment)) return;
   await failAccountPayment(config, payment.id, 'expired', 'expired');
   const provider = getProvider(payment.provider);
   if (!payment.provider_ref || !provider?.closeCheckout || !providerConfig) return;

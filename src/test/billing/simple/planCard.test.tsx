@@ -21,7 +21,8 @@ vi.mock('@/i18n', () => ({
 vi.mock('@/lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const openPaddle = vi.fn();
 vi.mock('@/lib/paddleCheckout', () => ({ openPaddleCheckout: (...a: unknown[]) => openPaddle(...a) }));
-vi.mock('@/lib/edition', async (orig) => ({ ...(await orig<object>()), currentEdition: () => 'international' }));
+const edition = vi.hoisted(() => ({ current: 'international' }));
+vi.mock('@/lib/edition', async (orig) => ({ ...(await orig<object>()), currentEdition: () => edition.current }));
 
 const api = {
   view: vi.fn(),
@@ -39,6 +40,9 @@ const api = {
   change: vi.fn(),
   setAutoRenew: vi.fn(),
   checkout: vi.fn(),
+  chargeCardUpgrade: vi.fn(),
+  updateCard: vi.fn(),
+  removeCard: vi.fn(),
 };
 vi.mock('@/lib/accountBillingApi', async (orig) => ({
   ...(await orig<typeof import('@/lib/accountBillingApi')>()),
@@ -119,6 +123,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  edition.current = 'international';
   window.sessionStorage.clear();
   for (const fn of Object.values(api)) fn.mockReset();
   openPaddle.mockReset();
@@ -415,5 +420,273 @@ describe('choosing a plan', () => {
     await waitFor(() => expect(within(screen.getByTestId('plan-quote')).getByRole('alert')).toBeInTheDocument());
     expect(within(screen.getByTestId('plan-quote')).getByText(/billing\.account\.picker\.payFromBalance/)).toHaveTextContent('$39.00');
     expect(api.quote).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the saved card (Multi Region)', () => {
+  const NEXT_CHARGE = inDays(2);
+  const CARD = {
+    id: 'card-1', provider: 'paddle', status: 'active' as 'active' | 'past_due',
+    brand: 'visa' as string | null, last4: '4242' as string | null, exp_month: 8 as number | null, exp_year: 2031 as number | null,
+    auto_renew: true,
+    next_charge_at: NEXT_CHARGE as string | null,
+    next_charge_minor: 2900 as number | null,
+    next_charge_plan: { plan_id: 'pro', name: 'Pro', localized: {} },
+    next_charge_interval: 'monthly',
+    scheduled_cancel_at: null as string | null,
+    last_failure: null as null | { at: string; code: string | null },
+    frozen_until: null as string | null,
+    expires_before_next_charge: false,
+  };
+  const WITH_CARD = { ...PAID, auto_renew: true, card: CARD, card_available: true, card_providers: ['paddle'] };
+  const cardText = (key: string) => new RegExp(`billing\\.account\\.card\\.${key}\\b`);
+
+  it('says when the card is charged and how much, and that the plan renews; no warning and no online renewal', async () => {
+    api.view.mockResolvedValue({ ...WITH_CARD, balance_minor: 0 });
+    renderPage();
+    const block = await screen.findByTestId('plan-card-block');
+    expect(within(block).getByTestId('card-label')).toHaveTextContent('Visa •••• 4242');
+    expect(block).toHaveTextContent('billing.account.card.expires');
+    expect(block).toHaveTextContent('08/31');
+    const next = within(block).getByTestId('card-next');
+    expect(next).toHaveTextContent(cardText('charge'));
+    expect(next).toHaveTextContent('$29.00');
+    expect(next).toHaveTextContent(billingDate(NEXT_CHARGE, 'en'));
+    expect(next).toHaveTextContent(billingDate(PERIOD_END, 'en'));
+    const card = screen.getByTestId('plan-card');
+    // The card pays: the plan renews, nothing warns, nothing asks to pay online.
+    expect(card).toHaveTextContent('billing.account.plan.renewsOn');
+    expect(within(card).queryByTestId('plan-warning')).toBeNull();
+    expect(within(card).queryByText('billing.account.plan.renewOnline')).toBeNull();
+    expect(within(card).queryByTestId('card-setup')).toBeNull();
+  });
+
+  it('a renewal already paid: the card is charged for the period after it', async () => {
+    api.view.mockResolvedValue({ ...WITH_CARD, next_period_prepaid_minor: 2900 });
+    renderPage();
+    expect(await screen.findByTestId('card-next')).toHaveTextContent(cardText('chargeLater'));
+  });
+
+  it('the auto-renew switch is the card\'s, and turning it off asks the server (which asks Paddle)', async () => {
+    api.view.mockResolvedValue(WITH_CARD);
+    api.setAutoRenew.mockResolvedValue({ auto_renew: false, card: { ...CARD, auto_renew: false } });
+    renderPage();
+    const toggle = await screen.findByRole('switch');
+    expect(toggle).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByText(/billing\.account\.card\.autoRenewHint/)).toHaveTextContent('Visa •••• 4242');
+    fireEvent.click(toggle);
+    await waitFor(() => expect(api.setAutoRenew).toHaveBeenCalledWith('ws-1', false));
+    await waitFor(() => expect(api.view).toHaveBeenCalledTimes(2));
+  });
+
+  it('auto-renew off: the card is removed on Paddle\'s date, and the last days warn again', async () => {
+    const removal = inDays(2);
+    api.view.mockResolvedValue({
+      ...WITH_CARD,
+      auto_renew: false,
+      balance_minor: 0,
+      card: { ...CARD, auto_renew: false, next_charge_at: null, scheduled_cancel_at: removal },
+    });
+    renderPage();
+    const next = await screen.findByTestId('card-next');
+    expect(next).toHaveTextContent(cardText('removedOn'));
+    expect(next).toHaveTextContent(billingDate(removal, 'en'));
+    expect(screen.getByRole('switch')).toHaveAttribute('data-state', 'unchecked');
+    expect(screen.getByTestId('plan-warning')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-card')).toHaveTextContent('billing.account.plan.endsOn');
+    // Paying online for a renewal is refused while the card is live.
+    expect(screen.queryByText('billing.account.plan.renewOnline')).toBeNull();
+  });
+
+  it('a failed renewal shows a red alert: update the card and pay, or renew from the balance (which removes the card)', async () => {
+    api.view.mockResolvedValue({
+      ...WITH_CARD,
+      card: { ...CARD, status: 'past_due', last_failure: { at: inDays(-0.1), code: 'expired_card' } },
+    });
+    api.updateCard.mockResolvedValue({ clientCheckout: { provider: 'paddle', transactionId: 'txn_due' }, transactionId: 'txn_due' });
+    api.renew.mockResolvedValue({ action: 'prepaid' });
+    renderPage();
+    const alert = await screen.findByTestId('card-past-due');
+    expect(alert).toHaveTextContent('billing.account.card.pastDueTitle');
+    expect(alert).toHaveTextContent('billing.account.card.failure.expired');
+    expect(alert).toHaveTextContent(billingDate(PERIOD_END, 'en'));
+    expect(alert).toHaveTextContent('billing.account.card.renewFromBalanceRemoves');
+    expect(screen.queryByTestId('card-next')).toBeNull();
+    // The red alert replaces the "ends soon" warning, and there is no second renew button.
+    expect(screen.queryByTestId('plan-warning')).toBeNull();
+    expect(screen.getAllByText(/billing\.account\.plan\.renewFromBalance/)).toHaveLength(1);
+
+    fireEvent.click(within(alert).getByText('billing.account.card.updateAndPay'));
+    await waitFor(() => expect(api.updateCard).toHaveBeenCalledWith('ws-1', expect.stringMatching(/\/acme\/billing\?card=paid$/)));
+    await waitFor(() => expect(openPaddle).toHaveBeenCalledWith(
+      { provider: 'paddle', transactionId: 'txn_due' },
+      expect.objectContaining({ locale: 'en', onClosed: expect.any(Function) }),
+    ));
+
+    fireEvent.click(within(alert).getByText(/billing\.account\.plan\.renewFromBalance/));
+    await waitFor(() => expect(api.renew).toHaveBeenCalledWith('ws-1', PERIOD_END, 2900));
+  });
+
+  it('changing the card opens Paddle, remembers the card as it was, and a closed overlay refreshes the page', async () => {
+    api.view.mockResolvedValue(WITH_CARD);
+    api.updateCard.mockResolvedValue({ clientCheckout: { provider: 'paddle', transactionId: 'txn_pm' }, transactionId: 'txn_pm' });
+    renderPage();
+    fireEvent.click(await screen.findByText('billing.account.card.change'));
+    await waitFor(() => expect(api.updateCard).toHaveBeenCalledWith('ws-1', expect.stringMatching(/\/acme\/billing\?card=updated$/)));
+    await waitFor(() => expect(openPaddle).toHaveBeenCalled());
+    expect(JSON.parse(window.sessionStorage.getItem('billing:card-return:ws-1')!)).toMatchObject({ id: 'card-1', last4: '4242' });
+    const views = api.view.mock.calls.length;
+    const { onClosed } = openPaddle.mock.calls[0][1] as { onClosed: () => void };
+    onClosed();
+    await waitFor(() => expect(api.view.mock.calls.length).toBeGreaterThan(views));
+  });
+
+  it('removing the card asks first, and only then asks the server', async () => {
+    api.view.mockResolvedValue(WITH_CARD);
+    api.removeCard.mockResolvedValue({ removed: true });
+    renderPage();
+    fireEvent.click(await screen.findByText('billing.account.card.remove'));
+    const confirm = await screen.findByRole('alertdialog');
+    expect(confirm).toHaveTextContent('billing.account.card.removeConfirm');
+    expect(confirm).toHaveTextContent('Visa •••• 4242');
+    fireEvent.click(within(confirm).getByText('billing.common.cancel'));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(api.removeCard).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('billing.account.card.remove'));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByText('billing.account.card.remove'));
+    await waitFor(() => expect(api.removeCard).toHaveBeenCalledWith('ws-1'));
+    expect(api.removeCard).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    await waitFor(() => expect(api.view).toHaveBeenCalledTimes(2));
+  });
+
+  it('a refused removal says why and keeps the card', async () => {
+    const { AccountApiError } = await import('@/lib/accountBillingApi');
+    api.view.mockResolvedValue(WITH_CARD);
+    api.removeCard.mockRejectedValue(new AccountApiError('CARD_PROVIDER_ERROR', 502, null));
+    renderPage();
+    fireEvent.click(await screen.findByText('billing.account.card.remove'));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByText('billing.account.card.remove'));
+    // (The test translator returns keys, so the message reads as the generic one.)
+    await waitFor(() => expect(within(screen.getByTestId('plan-card')).getByRole('alert')).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(screen.getByTestId('plan-card-block')).toBeInTheDocument();
+    expect(api.view).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns when the card expires before its next charge', async () => {
+    api.view.mockResolvedValue({ ...WITH_CARD, card: { ...CARD, expires_before_next_charge: true } });
+    renderPage();
+    expect(await screen.findByTestId('card-expiring')).toHaveTextContent(cardText('expiresSoon'));
+  });
+
+  it('while Paddle is charging the renewal, renewing from the balance waits and says until when', async () => {
+    api.view.mockResolvedValue({ ...WITH_CARD, card: { ...CARD, frozen_until: inDays(0.2) } });
+    renderPage();
+    expect(await screen.findByTestId('card-frozen')).toHaveTextContent(cardText('frozen'));
+    expect(screen.getByText(/billing\.account\.plan\.renewFromBalance/).closest('button')).toBeDisabled();
+  });
+
+  it('a declined card in its freeze shows only the red alert, not "your card is being charged"', async () => {
+    api.view.mockResolvedValue({
+      ...WITH_CARD,
+      card: { ...CARD, status: 'past_due', frozen_until: inDays(0.2), last_failure: { at: inDays(-0.1), code: 'not_enough_balance' } },
+    });
+    renderPage();
+    expect(await screen.findByTestId('card-past-due')).toBeInTheDocument();
+    expect(screen.queryByTestId('card-frozen')).toBeNull();
+  });
+
+  it('an unknown brand reads as "card"', async () => {
+    api.view.mockResolvedValue({ ...WITH_CARD, card: { ...CARD, brand: 'unknown' } });
+    renderPage();
+    expect(await screen.findByTestId('card-label')).toHaveTextContent('billing.account.card.genericBrand •••• 4242');
+  });
+
+  it('without a card, "turn on automatic card payments" pays the next period now with the box ticked and Paddle only', async () => {
+    api.view.mockResolvedValue({
+      ...PAID,
+      card: null,
+      card_available: true,
+      card_providers: ['paddle'],
+      gateways: [
+        { provider_name: 'stripe', display_name: { en: 'Stripe' }, is_test: false },
+        { provider_name: 'paddle', display_name: { en: 'Card (Paddle)' }, is_test: false },
+      ],
+    });
+    api.checkout.mockResolvedValue({
+      success: true, paymentId: 'pay-card', provider: 'paddle', purpose: 'renewal', currency: 'USD', net_minor: 2900, tax_minor: 290, amount_minor: 3190,
+      clientCheckout: { provider: 'paddle', transactionId: 'txn_setup' },
+    });
+    renderPage();
+    fireEvent.click(await screen.findByTestId('card-setup'));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('billing.account.card.setupTitle {"plan":"Pro"}')).toBeInTheDocument();
+    expect(within(dialog).getByRole('checkbox')).toHaveAttribute('data-state', 'checked');
+    // The full price plus VAT, whatever the balance; then the same every month.
+    expect(within(dialog).getByTestId('pay-online-total')).toHaveTextContent('$31.90');
+    expect(within(dialog).getByTestId('pay-online-card-note')).toHaveTextContent('billing.account.payOnline.autoRenewMonthly');
+    expect(within(dialog).getByTestId('pay-online-card-note')).toHaveTextContent('$31.90');
+    expect(within(dialog).queryByText('Stripe')).toBeNull();
+    fireEvent.click(within(dialog).getByText('billing.account.topup.pay'));
+    await waitFor(() => expect(api.checkout).toHaveBeenCalledWith('ws-1', expect.objectContaining({
+      purpose: 'renewal', providerName: 'paddle', expectedNetMinor: 2900, autoRenew: true,
+      callbackUrl: expect.stringMatching(/\/acme\/billing\?card=setup$/),
+    })));
+  });
+
+  it('is not offered where no card can be saved, nor when the next period is already paid', async () => {
+    api.view.mockResolvedValue({ ...PAID, card: null, card_available: false, card_providers: [] });
+    const first = renderPage();
+    await screen.findByTestId('plan-card');
+    expect(screen.queryByTestId('card-setup')).toBeNull();
+    first.unmount();
+
+    api.view.mockResolvedValue({ ...PAID, card: null, card_available: true, card_providers: ['paddle'], next_period_prepaid_minor: 2900 });
+    renderPage();
+    await screen.findByTestId('plan-card');
+    expect(screen.queryByTestId('card-setup')).toBeNull();
+  });
+});
+
+describe('the Iranian edition', () => {
+  /** The card's markup with Radix's generated ids made stable. */
+  const markup = (el: HTMLElement) => {
+    const ids = new Map<string, string>();
+    return el.outerHTML.replace(/radix-[:«»\w-]+/g, (id) => {
+      if (!ids.has(id)) ids.set(id, `radix-${ids.size}`);
+      return ids.get(id) as string;
+    });
+  };
+
+  it('renders the plan card exactly as before automatic card renewal existed', async () => {
+    edition.current = 'iran';
+    const PlanCard = (await import('@/pages/app/billing/account/PlanCard')).default;
+    const end = '2026-11-01T00:00:00.000Z';
+    const view = {
+      ...PAID,
+      edition: 'iran',
+      currency: 'IRR',
+      balance_minor: 1_000_000,
+      auto_renew: true,
+      vat_percent: 10,
+      gateways: [{ provider_name: 'zarinpal', display_name: { en: 'Zarinpal' }, is_test: false }],
+      plan: { ...PAID.plan, current_period_start: '2026-10-01T00:00:00.000Z', current_period_end: end },
+      paid_period: { plan_id: 'pro', billing_interval: 'monthly', current_period_start: '2026-10-01T00:00:00.000Z', current_period_end: end },
+      renewal: { plan_id: 'pro', name: 'Pro', localized: {}, billing_interval: 'monthly', price_minor: 5_000_000 },
+      days_left: 3,
+    };
+    render(
+      <PlanCard
+        workspaceId="ws-ir"
+        slug="acme"
+        view={view as never}
+        onChanged={() => undefined}
+        onChoosePlan={() => undefined}
+        onPayOnline={() => undefined}
+      />,
+    );
+    await expect(markup(screen.getByTestId('plan-card'))).toMatchFileSnapshot('./__snapshots__/planCard.iran.html');
   });
 });

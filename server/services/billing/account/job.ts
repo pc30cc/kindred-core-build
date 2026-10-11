@@ -12,6 +12,12 @@
  *   4. trials: a reminder 3 and 1 days before the end, then the end;
  *   5. gateway attempts that never finished, deleted after 30 days.
  *
+ * Every 5 minutes, beside the due step, the saved cards (phase 3b,
+ * runSimpleBillingCard → card.ts runCardJob): cards whose Paddle
+ * subscription must follow a change, card checkouts whose card was never
+ * registered, upgrade charges still pending, cards still to cancel at Paddle,
+ * and renewals Paddle charged whose event never came.
+ *
  * Every step is idempotent in SQL (and each mail is recorded before it is
  * sent), so a second replica or a rerun does no harm; the ticker lease only
  * saves the double work.
@@ -22,10 +28,12 @@ import { acquireTickerLease, releaseTickerLease } from '../../observability/tick
 import { handleWorkspaceEntitlementChanged } from '../entitlementChange.js';
 import { SHORT_LIVED_CHECKOUT_PROVIDERS } from './index.js';
 import { billingIntervalLabel, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
-import { afterPlanChange } from './plans.js';
+import { afterPlanChange, processDue } from './plans.js';
+import { runCardJob, type CardJobReport } from './card.js';
 
 const LEASE_NAME = 'simple_billing';
 const DUE_LEASE_NAME = 'simple_billing_due';
+const CARD_LEASE_NAME = 'simple_billing_card';
 const TICK_MS = 60 * 60 * 1000;
 const DUE_TICK_MS = 5 * 60 * 1000;
 /** Late enough that the app is serving before it starts. */
@@ -34,25 +42,30 @@ const DAY_MS = 86_400_000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let dueTimer: ReturnType<typeof setInterval> | null = null;
+let cardTimer: ReturnType<typeof setInterval> | null = null;
 let first: ReturnType<typeof setTimeout> | null = null;
 let running = false;
 let dueRunning = false;
+let cardRunning = false;
 
 export function startSimpleBillingJob(config: ServerConfig): void {
   if (timer) return;
   first = setTimeout(() => void runSimpleBillingJob(config), FIRST_RUN_MS);
   timer = setInterval(() => void runSimpleBillingJob(config), TICK_MS);
   dueTimer = setInterval(() => void runSimpleBillingDue(config), DUE_TICK_MS);
-  for (const t of [first, timer, dueTimer] as Array<{ unref?: () => void } | null>) t?.unref?.();
+  cardTimer = setInterval(() => void runSimpleBillingCard(config), DUE_TICK_MS);
+  for (const t of [first, timer, dueTimer, cardTimer] as Array<{ unref?: () => void } | null>) t?.unref?.();
 }
 
 export function stopSimpleBillingJob(): void {
   if (first) clearTimeout(first);
   if (timer) clearInterval(timer);
   if (dueTimer) clearInterval(dueTimer);
+  if (cardTimer) clearInterval(cardTimer);
   first = null;
   timer = null;
   dueTimer = null;
+  cardTimer = null;
 }
 
 export interface SimpleBillingJobReport {
@@ -83,7 +96,11 @@ const periodKey = (prefix: string, iso: string) => `${prefix}:${new Date(iso).to
 
 type DueReport = SimpleBillingJobReport['due'];
 
-/** Paid periods that ended, one workspace at a time (each its own transaction). */
+/**
+ * Paid periods that ended, one workspace at a time (each its own
+ * transaction; a saved card is asked about a missed renewal first, and
+ * cancelled when the due moment stopped it: plans.ts processDue).
+ */
 async function processDueWorkspaces(config: ServerConfig, due: DueReport, errors: string[]): Promise<void> {
   const sb = getServiceClient(config);
   const { data, error } = await sb.rpc('billing_account_due_workspaces', { p_limit: 500 });
@@ -91,13 +108,14 @@ async function processDueWorkspaces(config: ServerConfig, due: DueReport, errors
   for (const row of (data ?? []) as Array<string | { billing_account_due_workspaces?: string }>) {
     const workspaceId = typeof row === 'string' ? row : String(row.billing_account_due_workspaces ?? '');
     if (!workspaceId) continue;
-    const { data: result, error: dueError } = await sb.rpc('billing_account_process_due', { p_workspace_id: workspaceId });
-    if (dueError) {
+    let r: Record<string, unknown>;
+    try {
+      r = await processDue(config, workspaceId);
+    } catch (dueError) {
       due.failed += 1;
-      errors.push(`due ${workspaceId}: ${dueError.message}`);
+      errors.push(`due ${workspaceId}: ${dueError instanceof Error ? dueError.message : String(dueError)}`);
       continue;
     }
-    const r = (result ?? {}) as Record<string, unknown>;
     if (r.action === 'renewed') due.renewed += 1;
     else if (r.action === 'expired') due.expired += 1;
     if (r.action && r.action !== 'none') await afterPlanChange(config, workspaceId, r);
@@ -128,6 +146,34 @@ export async function runSimpleBillingDue(config: ServerConfig): Promise<DueRepo
   if (errors.length) console.error('[simple-billing] due step failed', errors.slice(0, 5).join('; '));
   if (due.renewed || due.expired) console.log('[simple-billing] due', JSON.stringify({ ...due, errors: errors.length }));
   return { ...due, errors };
+}
+
+/**
+ * The saved cards' step (every 5 minutes, under its own lease): card.ts
+ * runCardJob, which logs what it did. Every part of it is idempotent; the
+ * lease only saves a second replica the Paddle calls.
+ */
+export async function runSimpleBillingCard(config: ServerConfig): Promise<CardJobReport & { skipped?: boolean }> {
+  const empty: CardJobReport = { synced: 0, activated: 0, charges: 0, canceled: 0, pulled: 0, errors: [] };
+  if (cardRunning) return { ...empty, skipped: true };
+  let leased = false;
+  try {
+    leased = await acquireTickerLease(config, CARD_LEASE_NAME);
+  } catch {
+    return { ...empty, skipped: true };
+  }
+  if (!leased) return { ...empty, skipped: true };
+  cardRunning = true;
+  try {
+    return await runCardJob(config);
+  } catch (e) {
+    const message = `card: ${e instanceof Error ? e.message : String(e)}`;
+    console.error('[simple-billing] card step failed', message);
+    return { ...empty, errors: [message] };
+  } finally {
+    cardRunning = false;
+    await releaseTickerLease(config, CARD_LEASE_NAME).catch(() => {});
+  }
 }
 
 export async function runSimpleBillingJob(config: ServerConfig, now: Date = new Date()): Promise<SimpleBillingJobReport> {

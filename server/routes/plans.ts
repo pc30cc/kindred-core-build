@@ -195,8 +195,14 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
       subscription: publicSubscription(info.subscription),
       ...resolveEffectiveEntitlements(info, modulesRead.error ? [] : modulesRead.data, channelsRead.error ? [] : channelsRead.data),
       usage: usageRead.data || null,
+      // card_past_due: the saved card's renewal payment failed (phase 3b).
       renewal_due: renewal
-        ? { days_left: renewal.days_left, period_end: renewal.period_end, ends_on_free: renewal.ends_on_free }
+        ? {
+            days_left: renewal.days_left,
+            period_end: renewal.period_end,
+            ends_on_free: renewal.ends_on_free,
+            card_past_due: renewal.card_past_due === true,
+          }
         : null,
       // The plan's own JSON, for forward-compatible consumers.
       raw: { entitlements: info.entitlements, limits: info.planLimits },

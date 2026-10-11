@@ -754,6 +754,7 @@ export async function handleAccountPaymentWebhook(
       console.error(`[billing-account] REVIEW refund payment=${payment.id} provider=${payment.provider} could not take back ${res.shortfall_minor} (already spent)`);
     }
     if (event.chargeback) await afterChargeback(config, payment, refundId, amount);
+    else if (res.replayed !== true) await afterCardRefund(config, payment, refundId);
     return res.replayed === true ? 'replayed' : 'refunded';
   }
 
@@ -823,6 +824,37 @@ async function afterChargeback(config: ServerConfig, payment: AccountPaymentRow,
     }
   } catch (e) {
     console.error(`[billing-account] REVIEW chargeback ${refundId}: card not stopped:`, e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * A person refunded a renewal the card paid, in Paddle: the card does not
+ * charge that period again on its own. The refund gives back the prepaid
+ * next period, which auto-renew would otherwise have Paddle charge again
+ * within the hour, so auto-renew goes off; the reconciler then schedules the
+ * cancel at Paddle's next billing date (the plan runs to its end), and the
+ * customer may turn it back on. Other refunds (a stray charge, a top-up)
+ * change nothing. Never throws: the refund is recorded.
+ */
+async function afterCardRefund(config: ServerConfig, payment: AccountPaymentRow, refundId: string): Promise<void> {
+  if (!CARD_EVENT_PROVIDERS.has(payment.provider) || payment.source === 'checkout' || payment.purpose !== 'renewal') return;
+  try {
+    // Loaded on use: card.ts imports this module.
+    const card = await import('./card.js');
+    const live = await card.readLiveCard(config, payment.workspace_id);
+    if (!live || live.provider !== payment.provider) return;
+    const { data, error } = await getServiceClient(config)
+      .from('billing_accounts')
+      .update({ auto_renew: false, updated_at: new Date().toISOString() })
+      .eq('workspace_id', payment.workspace_id)
+      .eq('auto_renew', true)
+      .select('workspace_id');
+    if (error) throw new Error(error.message || 'auto-renew update failed');
+    if (!(data as unknown[] | null)?.length) return;
+    console.error(`[billing-account] REVIEW refund ${refundId} payment=${payment.id} source=${payment.source}: auto-renew turned off; card ${live.id} stops at Paddle's next billing date`);
+    await card.syncWorkspaceCard(config, payment.workspace_id);
+  } catch (e) {
+    console.error(`[billing-account] REVIEW refund ${refundId}: auto-renew not turned off:`, e instanceof Error ? e.message : e);
   }
 }
 

@@ -1225,6 +1225,37 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     await invariants('S15');
   });
 
+  it('S15 a refunded card renewal turns auto-renew off: Paddle is never asked to charge that period again', async () => {
+    const ws = await newWorkspace('Card S15 refund');
+    const { subId, cardId } = await buyWithCard(ws, 'pro');
+    await toPaddleDate(ws, subId, MINUTE);
+    await settle();
+    const renewal = fake.transactionsOf(subId).find((x) => x.origin === 'subscription_recurring')!;
+    expect((await accountOf(ws)).next_period_prepaid_minor).toBe('2900');
+    const charged = fake.transactionsOf(subId).length;
+
+    // The Super Admin refunds the renewal in Paddle: the prepaid next period
+    // goes back, and the card stops at Paddle's next date instead of
+    // charging that period again within the hour.
+    fake.adjust(renewal.id, 'refund');
+    await settle();
+    expect(Number((await one(`SELECT refunded_minor FROM public.billing_account_payments WHERE provider_ref = $1`, [renewal.id])).refunded_minor)).toBe(2900);
+    expect(await accountOf(ws)).toMatchObject({ auto_renew: false, next_period_prepaid_minor: null });
+    expect(await cardRow(cardId)).toMatchObject({ status: 'active', cancel_intent: 'period_end' });
+    expect(paddleSub(subId).scheduled_change).toMatchObject({ action: 'cancel' });
+    await travel(ws, 2 * HOUR);
+    await settle();
+    expect(fake.transactionsOf(subId)).toHaveLength(charged);
+
+    // The plan runs to its end, then the workspace moves to Free; no later charge.
+    await toPeriodEnd(ws, MINUTE);
+    expect((await dueJob()).errors).toEqual([]);
+    expect(await subOf(ws)).toMatchObject({ status: 'expired' });
+    await settle();
+    await noChargeAfter(ws, subId);
+    await invariants('S15 refund');
+  });
+
   // ─── S16 ─────────────────────────────────────────────────────────────────
 
   it('S16 a renewal Paddle charged at another amount: credited for review, and Paddle is never asked to charge that period again', async () => {

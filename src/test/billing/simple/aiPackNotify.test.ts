@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   mails: [] as Array<{ slug: string; vars: Record<string, string> }>,
   afterPlanChange: vi.fn(async (..._a: unknown[]) => undefined),
   warn: vi.fn(),
+  label: { fa: 'بسته‌ی بزرگ', en: 'Large' } as Record<string, string> | null,
 }));
 
 vi.mock('../../../../server/supabase.js', () => ({
@@ -25,7 +26,7 @@ vi.mock('../../../../server/supabase.js', () => ({
         if (table === 'billing_account_payments') {
           return { data: { workspace_id: WS, currency: 'IRR', amount_minor: 22_000_000, source: 'checkout', review: null, card_id: null }, error: null };
         }
-        if (table === 'billing_account_ledger') return { data: { description: { label: { fa: 'بسته‌ی بزرگ', en: 'Large' } } }, error: null };
+        if (table === 'billing_account_ledger') return { data: { description: h.label ? { label: h.label } : {} }, error: null };
         return { data: null, error: null };
       };
       b.then = (resolve: (v: unknown) => unknown) =>
@@ -80,6 +81,7 @@ beforeEach(() => {
   h.mails.length = 0;
   h.afterPlanChange.mockClear();
   h.warn.mockReset();
+  h.label = { fa: 'بسته‌ی بزرگ', en: 'Large' };
   vi.spyOn(console, 'warn').mockImplementation(h.warn);
 });
 
@@ -95,6 +97,16 @@ describe('a pack paid online', () => {
       ai_balance: '۲٬۰۰۰٬۰۰۰ تومان',
     });
     expect(h.afterPlanChange).not.toHaveBeenCalled();
+  });
+
+  it('a pack with no name in the mail\'s language is named generically, not by its credit (the body follows with {credit})', async () => {
+    for (const label of [null, { en: 'Large' }]) {
+      h.mails.length = 0;
+      h.label = label;
+      await afterAccountSettlement({} as never, settled(PURCHASED));
+      expect(h.mails[1].vars.pack_name).toBe('بسته‌ی اعتبار هوش مصنوعی');
+      expect(h.mails[1].vars.credit).toBe('۲٬۰۰۰٬۰۰۰ تومان');
+    }
   });
 
   it('a pack that could not be bought: the receipt only (the money stays in the balance), logged', async () => {

@@ -225,6 +225,20 @@ describe('GET /ai', () => {
     expect(h.rpcCalls[0][1]).toEqual({ p_currency: 'USD' });
   });
 
+  it('credit that ends (a refund compensation lot) is not shown as never-expiring; admin credit with no end is', async () => {
+    const monthEnd = new Date(Date.now() + 5 * 86_400_000).toISOString();
+    h.lots = [
+      { source_type: 'REFUND_COMPENSATION', remaining_amount: 600_000, reserved_amount: 0, expires_at: monthEnd },
+      { source_type: 'ADJUSTMENT', remaining_amount: 1_200_000, reserved_amount: 0, expires_at: null },
+    ];
+    const res = await call('GET', '/ai');
+    expect(res.json).toMatchObject({
+      wallet: { available: 1_800_000, reserved: 0, plan_remaining: 600_000, purchased_remaining: 1_200_000 },
+      display: { available_minor: 300, plan_remaining_minor: 100, purchased_remaining_minor: 200 },
+      plan_expires_at: monthEnd,
+    });
+  });
+
   it('packs are hidden unless sellable: METER_ONLY, no packs, or no rate', async () => {
     h.mode = 'METER_ONLY';
     expect((await call('GET', '/ai')).json).toMatchObject({ sellable: false, reason: 'mode', packs: [], rate_available: true });
@@ -260,7 +274,7 @@ describe('POST /ai-pack', () => {
     }]);
   });
 
-  it('a key is made when the browser sends none; the mail names the credit when the pack has no label', async () => {
+  it('a key is made when the browser sends none; an unnamed pack is named generically in the mail (not by its credit, which follows it)', async () => {
     h.rpcAnswer.billing_account_buy_ai_pack = { data: BOUGHT };
     h.ledgerLabel = null;
     h.rate = null;
@@ -268,7 +282,7 @@ describe('POST /ai-pack', () => {
     const key = String(h.rpcCalls.find(([name]) => name === 'billing_account_buy_ai_pack')?.[1].p_key);
     expect(key).toMatch(new RegExp(`^${WS}:[0-9a-f-]{36}$`));
     // No rate: no AI balance in the mail.
-    expect(h.mails[0].vars).toMatchObject({ pack_name: '$6.00', ai_balance: '' });
+    expect(h.mails[0].vars).toMatchObject({ pack_name: 'AI credit pack', credit: '$6.00', ai_balance: '' });
   });
 
   it('a replay answers the same purchase and sends no mail', async () => {

@@ -243,7 +243,7 @@ const fa: TranslationKeys = {
         confirmTitle: 'خرید اعتبار هوش مصنوعی',
         confirmBody: '{{price}} از موجودی شما برای {{credit}} اعتبار هوش مصنوعی برداشت می‌شود. اعتبار خریداری‌شده منقضی نمی‌شود.',
         balanceAfter: 'موجودی پس از خرید: {{amount}}',
-        payOnline: 'پرداخت آنلاین {{amount}}',
+        payOnline: 'پرداخت آنلاین',
         bought: '{{credit}} اعتبار هوش مصنوعی اضافه شد',
         unavailable: 'خرید اعتبار هوش مصنوعی در حال حاضر ممکن نیست.',
         return: {

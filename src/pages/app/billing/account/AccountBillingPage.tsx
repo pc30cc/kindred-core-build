@@ -405,7 +405,12 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           currency={view.currency}
           vatPercent={view.vat_percent}
           gateways={view.gateways}
-          onCurrencyChanged={() => void load()}
+          // A refused checkout (the currency, a pack or its price changed): the
+          // page, and the AI card's packs, as they are now.
+          onCurrencyChanged={() => {
+            void load();
+            setAiVersion((v) => v + 1);
+          }}
           cardAvailable={view.card_available === true && !view.card}
           cardProviders={view.card_providers ?? []}
         />

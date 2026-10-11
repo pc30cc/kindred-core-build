@@ -241,7 +241,7 @@ const en = {
         confirmTitle: 'Buy AI credit',
         confirmBody: '{{price}} from your balance for {{credit}} of AI credit. Purchased credit does not expire.',
         balanceAfter: 'Balance after: {{amount}}',
-        payOnline: 'Pay online {{amount}}',
+        payOnline: 'Pay online',
         bought: '{{credit}} of AI credit added',
         unavailable: 'AI credit cannot be bought right now.',
         return: {

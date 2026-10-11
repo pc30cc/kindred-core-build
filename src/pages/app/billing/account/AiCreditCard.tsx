@@ -32,6 +32,12 @@ const REDRAW = new Set(['QUOTE_CHANGED', 'AI_PACK_NOT_AVAILABLE', 'AI_PACKS_UNAV
 
 type Chosen = { pack: AiPack; key: string; online: boolean };
 
+/** A whole number in the page language's digits (Persian digits in fa, as the amounts beside it). */
+function localNumber(n: number, locale: string): string {
+  const tag = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
+  return new Intl.NumberFormat(tag).format(n);
+}
+
 export default function AiCreditCard({
   workspaceId,
   view,
@@ -204,7 +210,7 @@ export default function AiCreditCard({
                       <span className="font-medium text-foreground">{nameOf(p)}</span>
                       {bonus > 0 && (
                         <Badge variant="secondary" data-testid={`ai-pack-bonus-${p.id}`}>
-                          {t('billing.account.ai.bonus', { percent: bonus })}
+                          {t('billing.account.ai.bonus', { percent: localNumber(bonus, locale) })}
                         </Badge>
                       )}
                     </span>
@@ -242,7 +248,7 @@ export default function AiCreditCard({
             </Button>
             {pack && online ? (
               <Button onClick={() => payOnline(pack)} disabled={busy} data-testid="ai-pack-pay-online">
-                {t('billing.account.ai.payOnline', { amount: amount(Math.max(shortfall, 0)) })}
+                {t('billing.account.ai.payOnline')}
               </Button>
             ) : (
               <Button onClick={() => void buy()} disabled={busy || !pack} data-testid="ai-pack-buy">

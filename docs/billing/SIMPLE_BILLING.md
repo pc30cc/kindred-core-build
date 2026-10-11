@@ -532,7 +532,9 @@ spent first.
   USD→IRR`; IRR is 1. The rate and the wallet amount are kept on the ledger
   row. No rate: the pack is not offered and nothing is debited
   (`billing_ai_fx_unavailable`). The page shows the AI balance in the
-  account's currency (`floor(wallet / rate)`), Toman in Iran. In Multi Region
+  account's currency (`floor(wallet / rate)`), Toman in Iran: credit that
+  ends (the plan's, and a refund's compensation lot) with its end date, and
+  credit with no end (packs, Super Admin's credit) as never expiring. In Multi Region
   the `USD→IRR` rate is only an internal scale: changing it after packs were
   sold rescales every workspace's AI credit in dollars, so the pack editor
   warns about it.
@@ -567,7 +569,8 @@ spent first.
   and is logged REVIEW. A refund of a plain top-up whose money later bought a
   pack from the balance does not touch the pack.
 - **Email.** `billing_ai_pack_purchased` (fa/en/tr, both editions), after
-  every pack, with `{pack_name}`, `{credit}`, `{amount}`, `{balance}`,
+  every pack, with `{pack_name}` (the pack's name in the mail's language,
+  else a generic "AI credit pack"), `{credit}`, `{amount}`, `{balance}`,
   `{ai_balance}` (empty without a rate) besides the common variables. A pack
   paid online also gets `billing_payment_receipt`.
 - **The old Rial top-up** (`/api/ai-billing/.../topup/config|preview|checkout`)

@@ -243,7 +243,7 @@ const tr: TranslationKeys = {
         confirmTitle: 'Yapay zeka kredisi satın al',
         confirmBody: 'Bakiyenizden {{price}} karşılığında {{credit}} yapay zeka kredisi. Satın alınan kredinin süresi dolmaz.',
         balanceAfter: 'Sonraki bakiye: {{amount}}',
-        payOnline: '{{amount}} çevrimiçi öde',
+        payOnline: 'Çevrimiçi öde',
         bought: '{{credit}} yapay zeka kredisi eklendi',
         unavailable: 'Yapay zeka kredisi şu anda satın alınamıyor.',
         return: {

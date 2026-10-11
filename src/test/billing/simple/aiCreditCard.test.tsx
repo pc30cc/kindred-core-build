@@ -12,11 +12,12 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 const i18n = vi.hoisted(() => ({
+  locale: 'en',
   t: (k: string, vars?: Record<string, string | number>) => (vars ? `${k} ${JSON.stringify(vars)}` : k),
 }));
 const edition = vi.hoisted(() => ({ current: 'international' }));
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: i18n.t, locale: 'en', dir: 'ltr' }),
+  useTranslation: () => ({ t: i18n.t, locale: i18n.locale, dir: 'ltr' }),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('@/lib/toast', () => ({ toast }));
@@ -149,7 +150,17 @@ describe('AiCreditCard', () => {
     expect(medium).toHaveTextContent('Medium');
     expect(medium).toHaveTextContent('billing.account.ai.packCredit {"credit":"$24.00"}');
     expect(medium).toHaveTextContent('$20.00');
-    expect(screen.getByTestId('ai-pack-bonus-m')).toHaveTextContent('billing.account.ai.bonus {"percent":20}');
+    expect(screen.getByTestId('ai-pack-bonus-m')).toHaveTextContent('billing.account.ai.bonus {"percent":"20"}');
+  });
+
+  it('in Persian the bonus reads in Persian digits, as the amounts beside it', async () => {
+    i18n.locale = 'fa';
+    try {
+      card();
+      expect(await screen.findByTestId('ai-pack-bonus-m')).toHaveTextContent('billing.account.ai.bonus {"percent":"۲۰"}');
+    } finally {
+      i18n.locale = 'en';
+    }
   });
 
   it('members who cannot manage billing see the balance but no packs', async () => {
@@ -216,7 +227,8 @@ describe('AiCreditCard', () => {
     expect(within(dialog).queryByTestId('ai-pack-buy')).toBeNull();
     expect(within(dialog).queryByTestId('ai-pack-balance-after')).toBeNull();
     const pay = within(dialog).getByTestId('ai-pack-pay-online');
-    expect(pay).toHaveTextContent('billing.account.ai.payOnline {"amount":"$15.00"}');
+    // No amount on the button: the next dialog shows what the gateway charges (the top-up minimum, VAT).
+    expect(pay).toHaveTextContent(/^billing\.account\.ai\.payOnline$/);
     fireEvent.click(pay);
     expect(onPayOnline).toHaveBeenCalledWith({
       purpose: 'ai_pack',
@@ -349,6 +361,19 @@ describe('the AI card on the billing page', () => {
     await waitFor(() => expect(api.checkout).toHaveBeenCalledWith('ws-1', expect.objectContaining({
       purpose: 'ai_pack', packId: 'm', expectedPriceMinor: 2000, currency: 'USD',
     })));
+  });
+
+  it('a pack refused at online checkout (its price changed) reads the AI card again, so the stale pack is not offered again', async () => {
+    api.view.mockResolvedValue({ ...VIEW, balance_minor: 500 });
+    api.checkout.mockRejectedValue(new AccountApiError('QUOTE_CHANGED', 409, null));
+    renderPage();
+    fireEvent.click(await screen.findByTestId('ai-pack-m'));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByTestId('ai-pack-pay-online'));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() => expect(api.ai).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(dialog).getByText('billing.account.topup.pay'));
+    await waitFor(() => expect(api.checkout).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.ai).toHaveBeenCalledTimes(2));
   });
 
   it('a pack bought from the balance reloads the balance and the history', async () => {

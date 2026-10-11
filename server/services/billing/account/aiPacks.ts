@@ -86,7 +86,10 @@ async function walletOf(config: ServerConfig, workspaceId: string, now = Date.no
     const held = num(lot.reserved_amount);
     const free = Math.max(num(lot.remaining_amount) - held, 0);
     reserved += held;
-    if (lot.source_type === 'PLAN_ALLOWANCE') {
+    // Credit that ends (the plan's, and a refund's compensation for an ended plan lot,
+    // 073 ai_refund_run) is shown with its end date; only credit with no end
+    // (PURCHASED, ADJUSTMENT) counts as "never expires".
+    if (lot.source_type === 'PLAN_ALLOWANCE' || expires !== null) {
       plan += free;
       if (free > 0 && expires !== null && Number.isFinite(expires) && (planExpires === null || expires < planExpires)) planExpires = expires;
     } else {
@@ -188,9 +191,23 @@ async function boughtLabel(config: ServerConfig, ledgerId: unknown): Promise<AiP
 }
 
 /**
+ * The mail's {pack_name} for a pack with no name in the mail's language. Not
+ * its credit: the seeded bodies follow {pack_name} with {credit}, so that
+ * would read "$6.00: $6.00 of AI credit was added".
+ */
+const UNNAMED_PACK: Record<string, string> = {
+  fa: 'بسته‌ی اعتبار هوش مصنوعی',
+  en: 'AI credit pack',
+  tr: 'Yapay zekâ kredi paketi',
+};
+function unnamedPack(locale: string): string {
+  return UNNAMED_PACK[locale.toLowerCase().split('-')[0]] ?? UNNAMED_PACK.en;
+}
+
+/**
  * After a pack was bought (from the balance, or by a settled payment): the
  * billing_ai_pack_purchased mail. {pack_name} is the pack's label in the
- * mail's language, else its credit; {ai_balance} is empty without a rate.
+ * mail's language, else a generic pack name; {ai_balance} is empty without a rate.
  * Never throws: the pack is already in the wallet.
  */
 export async function afterAiPack(config: ServerConfig, workspaceId: string, result: AiPackResult): Promise<void> {
@@ -202,7 +219,7 @@ export async function afterAiPack(config: ServerConfig, workspaceId: string, res
     ]);
     const credit = num(result.credit_minor);
     await sendBillingEmail(config, workspaceId, 'billing_ai_pack_purchased', (ctx) => ({
-      pack_name: packLabel({ label: label ?? undefined }, ctx.locale, ctx.money(credit, currency)),
+      pack_name: packLabel({ label: label ?? undefined }, ctx.locale, unnamedPack(ctx.locale)),
       credit: ctx.money(credit, currency),
       amount: ctx.money(num(result.price_minor), currency),
       balance: ctx.money(num(result.balance_minor), currency),

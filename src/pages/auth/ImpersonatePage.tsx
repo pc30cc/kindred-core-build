@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Loader2, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import { redeemImpersonationToken } from '@/lib/api';
+import { redeemImpersonationToken } from '@/lib/impersonationApi';
 
 /**
  * Landing page of the Super Admin's "Login as User" link

@@ -699,22 +699,6 @@ export async function adminImpersonateUser(userId: string) {
   });
 }
 
-/** Redeems a "login as user" token (the /impersonate page). Sets the cookies on the API host. */
-export async function redeemImpersonationToken(token: string) {
-  return request<{ success: boolean; redirect: string }>('/api/auth/impersonate', {
-    method: 'POST',
-    body: JSON.stringify({ token }),
-  });
-}
-
-/** "Back to Super Admin": ends the impersonation and restores the admin's session. */
-export async function stopImpersonation() {
-  return request<{ success: boolean; restored: boolean; redirect: string }>('/api/auth/impersonate/stop', {
-    method: 'POST',
-    body: JSON.stringify({}),
-  });
-}
-
 export function authSignUp(data: {
   email: string;
   password: string;

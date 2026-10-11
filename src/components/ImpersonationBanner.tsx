@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, LogOut, UserCheck } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
-import { stopImpersonation } from '@/lib/api';
+import { fetchImpersonator, stopImpersonation, type Impersonator } from '@/lib/impersonationApi';
 import { toast } from '@/lib/toast';
 
 const BANNER_HEIGHT = 44;
@@ -17,7 +17,23 @@ export function ImpersonationBanner() {
   const { session } = useAuth();
   const { t, dir } = useTranslation();
   const [leaving, setLeaving] = useState(false);
-  const impersonator = session?.impersonator ?? null;
+  const [impersonator, setImpersonator] = useState<Impersonator | null>(null);
+  const userId = session?.user.id ?? null;
+
+  // Asked again whenever the signed-in user changes (sign-in, sign-out).
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) {
+      setImpersonator(null);
+      return;
+    }
+    void fetchImpersonator().then((imp) => {
+      if (!cancelled) setImpersonator(imp);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   useEffect(() => {
     if (!impersonator) return;

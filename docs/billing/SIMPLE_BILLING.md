@@ -480,8 +480,13 @@ permissions, events and the sandbox checks to run before switching it on:
   books nothing and is logged REVIEW for a person.
 - **A deleted workspace.** Its card row is kept: a card not cancelled yet
   is marked `canceling` (`workspace_deleted`) instead of being deleted, and
-  the job cancels it at Paddle. (Deleting a workspace whose balance has
-  ledger rows fails today: the ledger is append-only since 259.)
+  the job cancels it at Paddle. Its ledger rows and payments go with it:
+  since 263 the purge (`admin_purge_workspaces`, used by workspace and user
+  deletion) names the workspaces it purges, and the append-only ledger lets
+  their rows go. Deleting a user keeps the ledger rows and payments of
+  workspaces that survive (one the user topped up, say), with `actor_id` and
+  `created_by` left pointing at the deleted user. Outside a purge the ledger
+  stays append-only.
 - **The job's card step** (every 5 minutes): cards to sync, paid card
   checkouts with no card, upgrade charges still pending, cards still to
   cancel at Paddle, and renewals Paddle charged whose event never came.

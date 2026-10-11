@@ -43,8 +43,8 @@
  *        never charged a second time;
  *   S17  another installation's subscription (naming our workspace and
  *        payment ids): acknowledged, nothing changed, nothing cancelled;
- *   S18  workspace deleted: its card is cancelled (also when its rows go
- *        first, the card's included, as the purge deletes them);
+ *   S18  workspace deleted: its card is cancelled (also by the purge, which
+ *        deletes its rows first, the card's and the ledger's included);
  *   S19  cancelled in Paddle's portal: followed, mailed once, never undone;
  *   S20  renewed from the balance with a card: Paddle skips that cycle;
  *   and in any order: a card checkout's notifications, and a declined
@@ -1436,16 +1436,16 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     await invariants('S18');
   });
 
-  it('S18 the purge\'s order (the workspace\'s rows first, its card included, then the workspace): the card is kept and cancelled at Paddle', async () => {
+  it('S18 the purge (the workspace\'s rows first, its card included, then the workspace): the card is kept and cancelled at Paddle', async () => {
     // admin_purge_workspaces deletes every workspace-scoped row before the
-    // workspace itself, so the workspace's own trigger finds no card. (It
-    // cannot run here: a workspace with ledger rows is refused, 259.)
+    // workspace itself, so the workspace's own trigger finds no card. Since
+    // 263 it gets through the workspace's ledger rows.
     const ws = await newWorkspace('Card S18 purge');
     const { subId, cardId } = await buyWithCard(ws, 'pro');
-    await q(`DO $purge$ BEGIN
-      DELETE FROM public.billing_account_cards WHERE workspace_id = '${ws}';
-      DELETE FROM public.workspaces WHERE id = '${ws}';
-    END $purge$`);
+    expect((await q(`SELECT 1 FROM public.billing_account_ledger WHERE workspace_id = $1`, [ws])).length).toBeGreaterThan(0);
+    await q(`SELECT public.admin_purge_workspaces(ARRAY[$1]::uuid[])`, [ws]);
+    expect(await q(`SELECT 1 FROM public.workspaces WHERE id = $1`, [ws])).toEqual([]);
+    expect(await q(`SELECT 1 FROM public.billing_account_ledger WHERE workspace_id = $1`, [ws])).toEqual([]);
     expect(await cardRow(cardId)).toMatchObject({ status: 'canceling', cancel_reason: 'workspace_deleted', setup_payment_id: null });
     const report = await cardJob();
     expect(report.errors).toEqual([]);

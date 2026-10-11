@@ -2,7 +2,7 @@
  * Buying AI credit packs (phase 5): the workspace routes
  * (server/routes/billingAccountAi.ts, the 'ai_pack' checkout in
  * billingAccount.ts) over the real service (services/billing/account/aiPacks.ts).
- * The SQL is migration 265's (simpleBillingAiPacks.pg.test.ts); here the
+ * The SQL is migration 264's (simpleBillingAiPacks.pg.test.ts); here the
  * database is a fake that records what it is asked:
  *
  *   - GET /ai: the AI wallet in the account currency (rounded down), packs

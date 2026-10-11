@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * 265 — AI credit packs bought from the balance or paid online, against real
+ * 264 — AI credit packs bought from the balance or paid online, against real
  * PostgreSQL built by the whole migration chain (docs/billing/SIMPLE_BILLING.md,
  * phase 5).
  *
@@ -24,7 +24,7 @@
  *   A9  a refund reverses the pack's unused credit first (capped, never what
  *       is reserved), returns its price share, and takes the refund;
  *   A10 only service_role reaches the functions; every one pins search_path;
- *   A11 the ledger accepts `ai_pack_return` and stays append-only; 265 runs
+ *   A11 the ledger accepts `ai_pack_return` and stays append-only; 264 runs
  *       twice; the email exists for both editions in fa/en/tr;
  *   A12 the purge removes a workspace with a pack.
  *
@@ -44,9 +44,9 @@ if (process.env.REQUIRE_BILLING_DB === '1' && !DSN) {
 }
 const suite = DSN ? describe : describe.skip;
 
-const DB = `simplebilling265_${Date.now()}`;
+const DB = `simplebilling264_${Date.now()}`;
 const DIR = resolve(process.cwd(), 'database/migrations');
-const FILE = '265_simple_billing_ai_packs.sql';
+const FILE = '264_simple_billing_ai_packs.sql';
 
 type Row = Record<string, unknown>;
 
@@ -131,7 +131,7 @@ const packDetail = (id: string, price: number, creditMinor: number) =>
 const refund = (pay: string, refundId: string, amount: number) =>
   fn(`SELECT public.billing_account_refund_payment($1, $2, $3) AS r`, [pay, refundId, amount]);
 
-suite('265 — AI credit packs (real PostgreSQL, whole chain)', () => {
+suite('264 — AI credit packs (real PostgreSQL, whole chain)', () => {
   beforeAll(async () => {
     const adminUrl = new URL(DSN!);
     adminUrl.pathname = '/postgres';
@@ -612,7 +612,7 @@ suite('265 — AI credit packs (real PostgreSQL, whole chain)', () => {
     }
   });
 
-  it('A11 the ledger takes ai_pack_return and stays append-only; 265 runs twice; the email is seeded', async () => {
+  it('A11 the ledger takes ai_pack_return and stays append-only; 264 runs twice; the email is seeded', async () => {
     const def = String((await one(
       `SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'billing_account_ledger_kind_check'`)).d);
     for (const k of ['topup', 'renewal', 'upgrade', 'plan', 'ai_pack', 'admin_credit', 'admin_debit', 'refund', 'prepaid_return', 'ai_pack_return']) {

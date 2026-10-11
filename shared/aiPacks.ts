@@ -1,5 +1,5 @@
 /**
- * AI credit packs of the simple billing (phase 5, migration 265;
+ * AI credit packs of the simple billing (phase 5, migration 264;
  * docs/billing/SIMPLE_BILLING.md): rules shared by the server and the
  * browser. Pure: no I/O.
  *

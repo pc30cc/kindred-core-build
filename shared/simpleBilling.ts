@@ -98,7 +98,7 @@ export function cleanProfile<K extends string>(input: unknown, keys: readonly K[
 export const LEDGER_KINDS = [
   'topup', 'renewal', 'upgrade', 'plan', 'ai_pack',
   'admin_credit', 'admin_debit', 'refund', 'prepaid_return',
-  // Money back from an AI credit pack a refund reversed (phase 5, migration 265).
+  // Money back from an AI credit pack a refund reversed (phase 5, migration 264).
   'ai_pack_return',
 ] as const;
 export type LedgerKind = (typeof LEDGER_KINDS)[number];

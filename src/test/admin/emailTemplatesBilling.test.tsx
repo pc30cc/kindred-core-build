@@ -5,7 +5,7 @@
  * a billing mail missing from the list could only be changed in SQL.
  *
  * The slugs are read from the sender (notify.ts) and the seeds (migrations
- * 261, 262 and 265), so a mail added there and forgotten here fails in this test.
+ * 261, 262 and 264), so a mail added there and forgotten here fails in this test.
  * The saved card's mails (262: a renewal the card paid, a failed payment, a
  * removed card) are sent in the International edition only and not listed
  * in the Iranian one; the balance's renewal mail names no card.
@@ -78,13 +78,13 @@ function senderSlugs(): string[] {
   return [...source.slice(start, end).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
 }
 
-/** Every {placeholder} migrations 261, 262 and 265 seed for a slug, in any language. */
+/** Every {placeholder} migrations 261, 262 and 264 seed for a slug, in any language. */
 function seededPlaceholders(): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
   for (const [file, helper] of [
     ['database/migrations/261_simple_billing_renewals.sql', '_email_261_seed'],
     ['database/migrations/262_simple_billing_card.sql', '_email_262_seed'],
-    ['database/migrations/265_simple_billing_ai_packs.sql', '_email_265_seed'],
+    ['database/migrations/264_simple_billing_ai_packs.sql', '_email_264_seed'],
   ]) {
     const sql = readFileSync(file, 'utf8');
     const seed = new RegExp(`^SELECT pg_temp\\.${helper}\\('([a-z_]+)', '[a-z]{2}',\\n([\\s\\S]*?)'\\);$`, 'gm');

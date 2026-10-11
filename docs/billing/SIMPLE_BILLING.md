@@ -145,7 +145,7 @@ billing v2's 5-minute ticker (see "The hourly job" below).
    3a (migration 261): everything but the saved card. 3b (migration 262):
    the Paddle saved card.
 4. Computed locks, downgrade report, export, retention deletion.
-5. AI credit packs. (Done: migration 265; see "AI credit packs" below.)
+5. AI credit packs. (Done: migration 264; see "AI credit packs" below.)
 6. Super Admin screens.
 7. Move current subscriptions, back up and drop billing v2 code and tables.
 
@@ -179,7 +179,7 @@ templates.
   country, invoice email), and which reminders were sent for which period.
 - `billing_account_ledger` (append-only): `kind` (topup, renewal, upgrade,
   ai_pack, admin_credit, admin_debit, refund, prepaid_return, and since
-  265 ai_pack_return),
+  264 ai_pack_return),
   `amount_minor` (+ in, − out), `balance_after`, `currency`, the plan and
   period it paid for, and for money that came through a gateway the receipt:
   `receipt_number`, `net_minor`, `tax_minor`, `tax_percent`, the buyer and
@@ -505,7 +505,7 @@ permissions, events and the sandbox checks to run before switching it on:
   until then those reads treat the missing table as no card.
 
 
-### AI credit packs (phase 5, migration 265)
+### AI credit packs (phase 5, migration 264)
 
 Fixed packs of AI credit, bought with one click from the balance or paid
 online. Credit bought this way never expires; the plan's monthly credit is
@@ -580,7 +580,7 @@ spent first.
 - **Not in this phase.** The plan's monthly AI credit per currency
   (`billing_plans.ai_allowance.USD`) is still read as IRR; phase 6's plan
   screens take it up.
-- **Deploying.** Apply 265 to WebYar's database by hand before merging (it
+- **Deploying.** Apply 264 to WebYar's database by hand before merging (it
   redefines settlement and refund, which the server calls); RESPOK's migrator
   applies it on push. It is inert until packs are saved and AI billing is
   `ENFORCED`. Then: set the packs, make sure RESPOK has a `USD→IRR` rate (and

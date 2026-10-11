@@ -1,5 +1,5 @@
 // ============================================================================
-// SIMPLE BILLING — AI credit packs (phase 5, migration 265;
+// SIMPLE BILLING — AI credit packs (phase 5, migration 264;
 // docs/billing/SIMPLE_BILLING.md).
 //
 // A pack is bought from the balance with one click (billing_account_buy_ai_pack:

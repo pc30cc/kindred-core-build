@@ -422,7 +422,7 @@ const RPC_ERRORS: Array<[RegExp, string, number]> = [
   [/billing_period_changed/, 'PERIOD_CHANGED', 409],
   [/billing_idempotency_conflict/, 'IDEMPOTENCY_CONFLICT', 409],
   [/billing_quote_changed/, 'QUOTE_CHANGED', 409],
-  // AI credit packs (phase 5, migration 265).
+  // AI credit packs (phase 5, migration 264).
   [/billing_ai_pack_not_available/, 'AI_PACK_NOT_AVAILABLE', 409],
   [/billing_ai_fx_unavailable/, 'AI_CREDIT_UNAVAILABLE', 409],
   [/billing_key_required/, 'INVALID_REQUEST', 400],

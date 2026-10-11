@@ -1,4 +1,4 @@
--- 265 — Simple billing, phase 5: AI credit packs (docs/billing/SIMPLE_BILLING.md).
+-- 264 — Simple billing, phase 5: AI credit packs (docs/billing/SIMPLE_BILLING.md).
 --
 -- Super Admin sets fixed packs per currency in billing_settings.ai_packs
 -- (259). A workspace buys one from its prepaid balance with one click, or
@@ -612,7 +612,7 @@ $$;
 -- {credit}, {amount}, {balance} and {ai_balance} in the edition's way (Toman
 -- and Persian digits in Iran), and the links. The pg_temp helpers are 261's,
 -- under this migration's name (they do not outlive a session).
-CREATE OR REPLACE FUNCTION pg_temp._email_265_layout(p_locale text, p_title text, p_body text)
+CREATE OR REPLACE FUNCTION pg_temp._email_264_layout(p_locale text, p_title text, p_body text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -631,7 +631,7 @@ AS $f$
     || '</table></td></tr></table></body></html>'
 $f$;
 
-CREATE OR REPLACE FUNCTION pg_temp._email_265_seed(
+CREATE OR REPLACE FUNCTION pg_temp._email_264_seed(
   p_slug text, p_locale text, p_subject text, p_title text, p_body text, p_text text
 ) RETURNS void
 LANGUAGE plpgsql
@@ -641,7 +641,7 @@ DECLARE
 BEGIN
   FOREACH v_edition IN ARRAY ARRAY['iran', 'international'] LOOP
     INSERT INTO public.email_templates (workspace_id, slug, locale, subject, html_body, text_body, is_active, edition)
-    SELECT NULL, p_slug, p_locale, p_subject, pg_temp._email_265_layout(p_locale, p_title, p_body), p_text, true, v_edition
+    SELECT NULL, p_slug, p_locale, p_subject, pg_temp._email_264_layout(p_locale, p_title, p_body), p_text, true, v_edition
      WHERE NOT EXISTS (
        SELECT 1 FROM public.email_templates
         WHERE workspace_id IS NULL AND edition = v_edition AND slug = p_slug AND locale = p_locale
@@ -650,15 +650,15 @@ BEGIN
 END;
 $f$;
 
-SELECT pg_temp._email_265_seed('billing_ai_pack_purchased', 'fa',
+SELECT pg_temp._email_264_seed('billing_ai_pack_purchased', 'fa',
   'اعتبار هوش مصنوعی اضافه شد: {credit} — {brand}', 'اعتبار هوش مصنوعی اضافه شد',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">{pack_name}: <strong>{credit}</strong> اعتبار هوش مصنوعی به فضای کاری شما اضافه شد. این اعتبار با پایان پلن منقضی نمی‌شود.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">مبلغ پرداخت‌شده: {amount}<br>موجودی حساب: {balance}<br>اعتبار هوش مصنوعی اکنون: {ai_balance}</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">صورت‌حساب</a></p>',
   '{pack_name}: {credit} اعتبار هوش مصنوعی به فضای کاری شما اضافه شد. این اعتبار با پایان پلن منقضی نمی‌شود. مبلغ پرداخت‌شده: {amount}. موجودی حساب: {balance}. اعتبار هوش مصنوعی اکنون: {ai_balance}. صورت‌حساب: {billing_url}');
-SELECT pg_temp._email_265_seed('billing_ai_pack_purchased', 'en',
+SELECT pg_temp._email_264_seed('billing_ai_pack_purchased', 'en',
   'AI credit added: {credit} — {brand}', 'AI credit added',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">{pack_name}: <strong>{credit}</strong> of AI credit was added to your workspace. It does not expire with your plan.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Paid: {amount}<br>Balance: {balance}<br>AI credit now: {ai_balance}</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Billing</a></p>',
   '{pack_name}: {credit} of AI credit was added to your workspace. It does not expire with your plan. Paid: {amount}. Balance: {balance}. AI credit now: {ai_balance}. Billing: {billing_url}');
-SELECT pg_temp._email_265_seed('billing_ai_pack_purchased', 'tr',
+SELECT pg_temp._email_264_seed('billing_ai_pack_purchased', 'tr',
   'Yapay zekâ kredisi eklendi: {credit} — {brand}', 'Yapay zekâ kredisi eklendi',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">{pack_name}: çalışma alanınıza <strong>{credit}</strong> yapay zekâ kredisi eklendi. Bu kredi planınızla birlikte sona ermez.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Ödenen: {amount}<br>Bakiyeniz: {balance}<br>Güncel yapay zekâ krediniz: {ai_balance}</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Faturalandırma</a></p>',
   '{pack_name}: çalışma alanınıza {credit} yapay zekâ kredisi eklendi. Bu kredi planınızla birlikte sona ermez. Ödenen: {amount}. Bakiyeniz: {balance}. Güncel yapay zekâ krediniz: {ai_balance}. Faturalandırma: {billing_url}');
@@ -692,4 +692,4 @@ END $acl$;
 
 -- ─── 9. The packs' shape ──────────────────────────────────────────────────
 COMMENT ON COLUMN public.billing_settings.ai_packs IS
-  'AI credit packs per currency (iran: IRR; international: USD, TRY): {"USD": [{"id": "m", "price_minor": 2000, "credit_minor": 2200, "active": true, "label": {"fa": "…", "en": "…", "tr": "…"}}]}. price_minor and credit_minor are minor units of that currency; the credit is converted into the AI wallet''s unit (IRR) at purchase with ai_exchange_rates. id matches ^[a-z0-9][a-z0-9_-]{0,23}$ and is unique per currency; active defaults to true; at most 8 per currency. Sold by billing_account_buy_ai_pack (265).';
+  'AI credit packs per currency (iran: IRR; international: USD, TRY): {"USD": [{"id": "m", "price_minor": 2000, "credit_minor": 2200, "active": true, "label": {"fa": "…", "en": "…", "tr": "…"}}]}. price_minor and credit_minor are minor units of that currency; the credit is converted into the AI wallet''s unit (IRR) at purchase with ai_exchange_rates. id matches ^[a-z0-9][a-z0-9_-]{0,23}$ and is unique per currency; active defaults to true; at most 8 per currency. Sold by billing_account_buy_ai_pack (264).';

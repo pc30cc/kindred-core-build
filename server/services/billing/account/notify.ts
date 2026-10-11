@@ -30,7 +30,7 @@ export type BillingEmailSlug =
   | 'billing_card_renewed'
   | 'billing_card_payment_failed'
   | 'billing_card_removed'
-  // An AI credit pack was bought (phase 5, migration 265), every edition.
+  // An AI credit pack was bought (phase 5, migration 264), every edition.
   | 'billing_ai_pack_purchased';
 
 /** Decimal places of a currency's minor unit; IRR is kept in whole Rial. */

@@ -2,7 +2,7 @@
 // SIMPLE BILLING phase 4 — the downgrade report (design §9): before a
 // downgrade is confirmed, exactly what the target plan would lock.
 //
-// The SQL (billing_lock_report, migration 264) counts the locked rows as if
+// The SQL (billing_lock_report, migration 265) counts the locked rows as if
 // the kill switch were on, so the report is also a preview while it is off
 // (`locks_enabled` says which). This module adds what SQL cannot know: the
 // modules and channels the target plan stops (registry-aware, the workspace's

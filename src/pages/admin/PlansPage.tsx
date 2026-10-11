@@ -64,6 +64,7 @@ import {
 import { toast } from '@/lib/toast';
 import { useQuery } from '@tanstack/react-query';
 import BillingSettingsPanel from '@/components/admin/BillingSettingsPanel';
+import AiPacksPanel from '@/components/admin/AiPacksPanel';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import {
   capabilityLabel,
@@ -1541,6 +1542,7 @@ export default function AdminPlansPage() {
 
         <TabsContent value="billing-settings" className="space-y-4">
           <BillingSettingsPanel />
+          <AiPacksPanel />
         </TabsContent>
 
         {/* ─── Plans Tab (registry-aware cards) ─── */}

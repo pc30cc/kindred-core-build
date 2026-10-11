@@ -11,7 +11,7 @@
  * Super Admin only: the gate runs here, before any query, whatever it is
  * mounted under.
  *
- * The switch is per edition (billing_settings.locks_enabled, migration 264,
+ * The switch is per edition (billing_settings.locks_enabled, migration 265,
  * off by default): WebYar and RESPOK have their own databases and each turns
  * it on after reviewing the preview. While it is off nothing is locked; the
  * preview computes as if it were on.

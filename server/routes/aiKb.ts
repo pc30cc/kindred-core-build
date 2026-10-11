@@ -657,7 +657,7 @@ async function enforceKbArticleQuotaForDraft(
 /**
  * Simple billing phase 4 — a draft linked to an article the plan has locked
  * (over max_kb_articles) would overwrite a read-only article. Refused here
- * with a clean 403; `_ai_kb_apply_generated` (migration 264) raises
+ * with a clean 403; `_ai_kb_apply_generated` (migration 265) raises
  * 'kb_article_locked' as the backstop. Returns false when the response was sent.
  */
 async function refuseLockedLinkedArticle(

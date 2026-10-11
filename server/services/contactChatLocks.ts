@@ -6,7 +6,7 @@
  *     (oldest first by created_at, id). Only the contacts the plan counts
  *     rank (decision D1): spam and anonymous widget visitors (no name, email
  *     or phone) are never locked — the same predicate as the SQL
- *     (billing_lock_rank_rows, migration 264) and the quota.
+ *     (billing_lock_rank_rows, migration 265) and the quota.
  *   - A chat is locked when its last activity (updated_at, else created_at)
  *     is older than the plan's `data_retention_days` (D2). A visitor writing
  *     again moves updated_at, so a customer coming back is never blocked.

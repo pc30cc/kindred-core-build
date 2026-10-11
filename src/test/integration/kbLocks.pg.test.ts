@@ -2,7 +2,7 @@
 /**
  * Simple billing phase 4 (design §3) — Knowledge Base articles over the
  * plan's max_kb_articles, against a database built by the whole chain
- * (migration 264 included), through the real data layer (postgres-only) and
+ * (migration 265 included), through the real data layer (postgres-only) and
  * the real routes:
  *
  *   - kill switch off: every reader sees every published article, as today;
@@ -305,7 +305,7 @@ suite('KB, help center and AI: articles over max_kb_articles (phase 4)', () => {
     }
     expect((await one(`SELECT title FROM public.knowledge_base_articles WHERE id = $1`, [art.delta])).title).toBe('delta refund guide');
 
-    // The SQL guard (264) is the backstop: its error is recognised as the lock.
+    // The SQL guard (265) is the backstop: its error is recognised as the lock.
     const { getServiceClient } = await import('../../../server/supabase.js');
     const { error } = await getServiceClient(config).rpc('accept_ai_kb_generated_article', {
       _generated_id: onLocked, _workspace_id: ws, _reviewer: owner, _content: '<p>new</p>', _slug_seed: 'x',

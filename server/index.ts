@@ -50,6 +50,7 @@ import { commerceIdentityRouter } from './routes/commerce/identity.js';
 import { internalTestGatewayRouter } from './routes/internalTestGateway.js';
 import { billingCustomerRouter } from './routes/billingCustomer.js';
 import { billingAccountRouter } from './routes/billingAccount.js';
+import { billingAccountAiRouter } from './routes/billingAccountAi.js';
 import { adminBillingV2Router } from './routes/adminBillingV2.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
 import { adminBillingLocksRouter } from './routes/adminBillingLocks.js';
@@ -516,6 +517,8 @@ app.use('/api/billing/test-gateway', internalTestGatewayRouter);
 // account router, whose /account/:workspaceId routes would take its download.
 app.use('/api/billing/account', billingLockExportRouter);
 app.use('/api/billing', billingAccountRouter);
+// AI credit packs of the simple billing (phase 5).
+app.use('/api/billing', billingAccountAiRouter);
 app.use('/api/billing', billingCustomerRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/seo', seoRouter);

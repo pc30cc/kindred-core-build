@@ -115,6 +115,23 @@ export function clearSessionCookie(res: CookieResponse): void {
 }
 
 /**
+ * "Login as user" keeps the Super Admin's own session token in this second
+ * HttpOnly cookie while `gs_session` carries the impersonated user's
+ * session, so "back to Super Admin" can put the admin's session back
+ * without a new sign-in. It is the admin's real session token, so it gets
+ * exactly the same cookie attributes as `gs_session`.
+ */
+export const IMPERSONATOR_COOKIE_NAME = 'gs_impersonator';
+
+export function setImpersonatorCookie(res: CookieResponse, token: string, expiresAt: Date): void {
+  res.cookie(IMPERSONATOR_COOKIE_NAME, token, cookieOptions(expiresAt.getTime() - Date.now()));
+}
+
+export function clearImpersonatorCookie(res: CookieResponse): void {
+  res.clearCookie(IMPERSONATOR_COOKIE_NAME, cookieOptions());
+}
+
+/**
  * Defense-in-depth CSRF check for state-changing requests, independent of
  * SameSite (see the cookie policy comment above — this is the explicit
  * "do not rely on SameSite/CORS alone" layer). When the browser sends an
@@ -194,6 +211,8 @@ export interface CreateSessionInput {
   ipAddress?: string | null;
   userAgent?: string | null;
   clientType?: SessionClientType;
+  /** Web sessions only: a lifetime shorter than the default 30 days (impersonation). */
+  ttlMs?: number;
 }
 
 export interface CreatedSession {
@@ -234,7 +253,8 @@ export async function createSession(config: ServerConfig, input: CreateSessionIn
   const tokenHash = hashToken(token);
   const clientType: SessionClientType = input.clientType === 'mobile' ? 'mobile' : 'web';
   const now = Date.now();
-  const expiresAt = new Date(now + (clientType === 'mobile' ? MOBILE_SESSION_IDLE_MS : SESSION_TTL_MS));
+  const webTtlMs = input.ttlMs && input.ttlMs > 0 ? Math.min(input.ttlMs, SESSION_TTL_MS) : SESSION_TTL_MS;
+  const expiresAt = new Date(now + (clientType === 'mobile' ? MOBILE_SESSION_IDLE_MS : webTtlMs));
   const absoluteExpiresAt =
     clientType === 'mobile' ? new Date(now + MOBILE_SESSION_ABSOLUTE_MS) : null;
 

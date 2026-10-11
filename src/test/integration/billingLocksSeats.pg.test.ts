@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * Simple billing phase 4, part 5 of the design (§5, §6): seats, channels and
- * storage, against a database built by the whole chain (migration 264
+ * storage, against a database built by the whole chain (migration 265
  * included), through the real data layer in postgres-only mode and the real
  * Express routes.
  *

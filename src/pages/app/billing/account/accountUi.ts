@@ -225,3 +225,20 @@ export function takeCardReturn(workspaceId: string): CardBefore | null {
     return null;
   }
 }
+
+// ─── AI credit packs (phase 5) ─────────────────────────────────────────────
+
+/** A key for one purchase: made when the customer opens it, reused if the request is retried. */
+export function newPurchaseKey(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * The AI card as the server sent it with a refusal (QUOTE_CHANGED or
+ * AI_PACK_NOT_AVAILABLE from buying a pack: details.section), or null.
+ */
+export function aiSectionOf<T extends object>(e: unknown): T | null {
+  const details = (e as { details?: unknown } | null | undefined)?.details;
+  const section = details && typeof details === 'object' ? (details as { section?: unknown }).section : null;
+  return section && typeof section === 'object' && 'mode' in section ? (section as T) : null;
+}

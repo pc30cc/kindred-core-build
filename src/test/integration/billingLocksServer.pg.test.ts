@@ -1,11 +1,11 @@
 // @vitest-environment node
 /**
  * Simple billing phase 4, the server side of computed locks (design §2, §9,
- * §10) against a database built by the whole chain (migration 264 included),
+ * §10) against a database built by the whole chain (migration 265 included),
  * through the real data layer in postgres-only mode:
  *
  *   - the kill switch: off, nothing is locked and nothing is read past it;
- *     on, the cutoffs of migration 264 come back, cached until cleared;
+ *     on, the cutoffs of migration 265 come back, cached until cleared;
  *   - isRowLocked agrees with billing_is_locked row by row, ties on
  *     created_at and NULL created_at included;
  *   - the query filters (nested and() inside or(), quoted timestamps) select
@@ -150,7 +150,7 @@ suite('billing locks: server lock core, report and quote against the real chain'
     expect(summary).toMatchObject({ enabled: false, any_locked: false, next_deletion_at: null });
   });
 
-  it('switch on: the cutoffs of 264, judged row by row exactly as billing_is_locked', async () => {
+  it('switch on: the cutoffs of 265, judged row by row exactly as billing_is_locked', async () => {
     await switchTo(true);
     const s = await state.resolveLockState(config, ws);
     expect(s.enabled).toBe(true);

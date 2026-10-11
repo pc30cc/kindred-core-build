@@ -3,7 +3,7 @@
  * Simple billing phase 4 (design §4) — contacts over the plan's max_contacts,
  * chats older than its data_retention_days, the full monthly chat quota and
  * the widget's KB reads, against a database built by the whole chain
- * (migration 264 included), through the real data layer (postgres-only) and
+ * (migration 265 included), through the real data layer (postgres-only) and
  * the real routes:
  *
  *   - kill switch off: every route behaves as before;

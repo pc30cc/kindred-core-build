@@ -5,7 +5,7 @@
  * An article is locked when it ranks after the plan's `max_kb_articles`
  * (oldest first by created_at, id — every article counts, any status, the
  * same denominator as the create quota). Nothing is stored: the cutoff comes
- * from the lock core (server/services/billing/locks, migration 264) and every
+ * from the lock core (server/services/billing/locks, migration 265) and every
  * KB reader asks this module.
  *
  * A locked article is:
@@ -159,7 +159,7 @@ export function kbArticleLockedBody(): { error: 'kb_article_locked'; upgrade_req
   return lockedErrorBody('kb_article_locked') as { error: 'kb_article_locked'; upgrade_required: true };
 }
 
-/** The error the SQL guard (_ai_kb_apply_generated, 264) raises. */
+/** The error the SQL guard (_ai_kb_apply_generated, 265) raises. */
 export function isKbArticleLockedError(error: unknown): boolean {
   const message = (error as { message?: unknown } | null | undefined)?.message;
   return typeof message === 'string' && message.includes('kb_article_locked');

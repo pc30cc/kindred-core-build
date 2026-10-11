@@ -107,7 +107,7 @@ export async function purgeOne(config: ServerConfig, job: ExpiredJobRow): Promis
   return { ok: true, provider: 'local_legacy' };
 }
 
-/** Expired locked-data exports (billing_lock_exports). A missing table (264 not applied yet) is not an error. */
+/** Expired locked-data exports (billing_lock_exports). A missing table (265 not applied yet) is not an error. */
 async function sweepLockExports(config: ServerConfig): Promise<void> {
   try {
     const { purged, skipped } = await purgeExpiredLockExports(config);

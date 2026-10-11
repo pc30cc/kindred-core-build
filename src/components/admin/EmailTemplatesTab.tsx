@@ -53,6 +53,7 @@ const ACCOUNT_BILLING_SLUGS = [
   'billing_payment_receipt', 'billing_plan_activated', 'billing_trial_ending', 'billing_trial_ended',
   'billing_card_renewed', 'billing_card_payment_failed', 'billing_card_removed',
   'billing_locked_data_deletion',
+  'billing_ai_pack_purchased',
 ] as const;
 
 // The saved card's mails (Multi Region automatic renewal, migration 262):
@@ -119,6 +120,8 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   // Phase 4: data locked over the plan's limits is deleted on {deletion_date};
   // sent 30 and 7 days before ({days_left}), {locked_summary} e.g. "12 articles, 340 contacts".
   billing_locked_data_deletion: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{days_left}', '{deletion_date}', '{locked_summary}', '{export_url}'],
+  // An AI credit pack bought from the balance or online (phase 5, migration 264), in both editions.
+  billing_ai_pack_purchased: [...ACCOUNT_BILLING_VARIABLES, '{pack_name}', '{credit}', '{amount}', '{balance}', '{ai_balance}'],
 };
 
 const LOCALES = [

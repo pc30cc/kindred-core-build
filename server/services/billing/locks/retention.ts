@@ -7,7 +7,7 @@
 // an open episode first, then the next active workspaces, each in rotation):
 //
 //   1. a locked agent's open chats go back to the queue (locks/release.ts);
-//   2. billing_lock_clock_observe: the deletion clock (264). An episode opens
+//   2. billing_lock_clock_observe: the deletion clock (265). An episode opens
 //      when a kind is first seen locked and is removed once nothing is (an
 //      upgrade, deletions, an override); chats run in monthly batches;
 //   3. with the plan's locked_data_retention_days (L; none by default), the
@@ -113,7 +113,7 @@ export function noticeDeadline(clock: LockClock, retentionDays: number | null, w
 }
 
 /**
- * When an episode's rows may be deleted (the TypeScript twin of 264's
+ * When an episode's rows may be deleted (the TypeScript twin of 265's
  * billing_lock_episode_deadline, which billing_locked_delete checks again):
  * both notices recorded, the latest of the base deadline, 30 days after the
  * 30-day notice and 7 days after the 7-day notice. Null while it may not.

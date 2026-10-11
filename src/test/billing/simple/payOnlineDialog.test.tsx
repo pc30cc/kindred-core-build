@@ -184,6 +184,49 @@ function markup(): string {
   });
 }
 
+describe('PayOnlineDialog for an AI credit pack', () => {
+  /** A $20 pack, $5 in the balance: $15 is missing. */
+  const PACK: Request = { purpose: 'ai_pack', packId: 'm', priceMinor: 2000, balanceMinor: 500, expectedPriceMinor: 2000, title: 'AI credit: Medium' };
+
+  it('never offers the card, pays what the balance is missing, and sends the pack with the price shown', async () => {
+    open(PACK, { vatPercent: 10 });
+    expect(screen.queryByTestId('pay-online-card')).toBeNull();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    // Every gateway (no card is saved), $15 missing plus 10% VAT.
+    expect(listed()).toEqual(['stripe', 'paddle', 'paddle_sandbox']);
+    expect(screen.getByTestId('pay-online-total')).toHaveTextContent('$16.50');
+    fireEvent.click(screen.getByText('billing.account.topup.pay'));
+    await waitFor(() => expect(api.checkout).toHaveBeenCalledTimes(1));
+    expect(api.checkout).toHaveBeenCalledWith('ws-1', {
+      purpose: 'ai_pack', packId: 'm', expectedPriceMinor: 2000, currency: 'USD', providerName: 'stripe',
+      callbackUrl: `${window.location.origin}/acme/billing`,
+    });
+  });
+
+  it.each(['QUOTE_CHANGED', 'AI_PACK_NOT_AVAILABLE', 'AI_PACKS_UNAVAILABLE', 'AI_CREDIT_UNAVAILABLE', 'BALANCE_SUFFICIENT'])(
+    'a pack refused because the page is stale (%s) reloads it',
+    async (code) => {
+      const { AccountApiError } = await import('@/lib/accountBillingApi');
+      api.checkout.mockRejectedValue(new AccountApiError(code, 409, null));
+      const onStale = vi.fn();
+      open(PACK, { onStale });
+      fireEvent.click(screen.getByText('billing.account.topup.pay'));
+      await waitFor(() => expect(onStale).toHaveBeenCalledTimes(1));
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    },
+  );
+
+  it('the same refusals of a plan payment do not reload the page (as before)', async () => {
+    const { AccountApiError } = await import('@/lib/accountBillingApi');
+    api.checkout.mockRejectedValue(new AccountApiError('QUOTE_CHANGED', 409, null));
+    const onStale = vi.fn();
+    open(PLAN, { onStale });
+    fireEvent.click(screen.getByText('billing.account.topup.pay'));
+    await screen.findByRole('alert');
+    expect(onStale).not.toHaveBeenCalled();
+  });
+});
+
 describe('PayOnlineDialog in the Iranian edition', () => {
   it('renders exactly as before automatic card renewal existed', async () => {
     edition.current = 'iran';

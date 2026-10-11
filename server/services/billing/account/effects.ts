@@ -10,12 +10,17 @@
 // card payment that could not be spent on its purpose, or that needs a person
 // (payments.review), sends the receipt (the money is in the balance) and is
 // logged REVIEW.
+//
+// A payment for an AI credit pack (purpose 'ai_pack', phase 5) sends the
+// receipt, then the pack mail (billing_ai_pack_purchased) instead of a plan
+// mail.
 // ============================================================================
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { sendBillingEmail } from './notify.js';
 import { afterPlanChange } from './plans.js';
+import { afterAiPack } from './aiPacks.js';
 
 export interface SettledPayment {
   replayed?: boolean;
@@ -84,7 +89,13 @@ export async function afterAccountSettlement(config: ServerConfig, settled: Sett
         { receiptLedgerId: settled.ledger_id ?? null },
       );
     }
-    if (result && typeof result === 'object' && !purposeError && !result.replayed) {
+    if (settled.purpose === 'ai_pack') {
+      if (result && typeof result === 'object' && !purposeError && !result.replayed) {
+        await afterAiPack(config, payment.workspace_id, result);
+      } else if (purposeError) {
+        console.warn(`[billing-account] payment ${settled.payment_id} credited; its ai_pack could not be bought: ${purposeError}`);
+      }
+    } else if (result && typeof result === 'object' && !purposeError && !result.replayed) {
       const card = onCard ? await cardOf(config, payment.card_id).catch(() => null) : null;
       // The card mail's {amount} is what the card was charged (VAT included).
       await afterPlanChange(config, payment.workspace_id, result, 'payment_succeeded', card ? { card: { ...card, amountMinor: Number(payment.amount_minor) } } : {});

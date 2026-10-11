@@ -25,7 +25,6 @@ import { issueVerificationEmail } from '../services/auth-email.js';
 import { findIdentityByEmail, findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, verifyPassword, needsRehash, InvalidPasswordError } from '../services/auth/password.js';
 import { redeemImpersonationToken } from '../services/auth/impersonation.js';
-import { resolveAppBaseUrl } from './admin.js';
 import {
   createSession,
   setSessionCookie,
@@ -35,7 +34,11 @@ import {
   revokeSession,
   revokeAllSessions,
   SESSION_COOKIE_NAME,
+  IMPERSONATOR_COOKIE_NAME,
+  setImpersonatorCookie,
+  clearImpersonatorCookie,
 } from '../services/auth/sessions.js';
+import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { allowsMobileTokenIssuance } from '../services/platformOrigins.js';
 import { getSignupVerificationPolicy } from '../services/auth/signupPolicy.js';
@@ -476,12 +479,20 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
 authSecurityRouter.get('/session', async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
-    const { token } = readSessionToken(req);
+    const { token, transport } = readSessionToken(req);
     const session = await validateSessionToken(config, token);
     if (!session) return res.json({ user: null });
 
     const identity = await findIdentityById(config, session.userId);
     if (!identity) return res.json({ user: null });
+
+    // "Login as user": tell the panel who is really behind this session so
+    // it can show the banner with "back to Super Admin".
+    let impersonator: { id: string; email: string } | null = null;
+    if (transport === 'cookie') {
+      const admin = await resolveImpersonator(config, req, session.userId);
+      if (admin) impersonator = { id: admin.session.userId, email: admin.session.email };
+    }
 
     return res.json({
       user: {
@@ -490,6 +501,7 @@ authSecurityRouter.get('/session', async (req, res) => {
         emailVerified: !!identity.emailVerifiedAt,
         fullName: identity.fullName,
       },
+      ...(impersonator ? { impersonator } : {}),
     });
   } catch (err) {
     console.error('[auth] Session check error:', err);
@@ -515,6 +527,7 @@ authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
       // Nothing valid to revoke server-side — this IS "already logged
       // out", so clearing a stale/absent cookie and reporting 200 is honest.
       clearSessionCookie(res);
+      clearImpersonatorCookie(res);
       return res.json({ success: true });
     }
     try {
@@ -533,6 +546,7 @@ authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
     }
     await logSecurityEvent(req, 'session_revoked', 'info', { userId: session.userId, reason: 'logout' });
     clearSessionCookie(res);
+    clearImpersonatorCookie(res);
     return res.json({ success: true });
   } catch (err) {
     console.error('[auth] Logout error:', err);
@@ -560,6 +574,7 @@ authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
     const revokedCount = await revokeAllSessions(config, session.userId, 'logout_all');
     await logSecurityEvent(req, 'logout_all', 'info', { userId: session.userId, revokedCount });
     clearSessionCookie(res);
+    clearImpersonatorCookie(res);
     return res.json({ success: true, revokedCount });
   } catch (err) {
     console.error('[auth] Logout-all error:', err);
@@ -567,24 +582,89 @@ authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
   }
 });
 
+/** Lifetime of a "login as user" session: long enough for a support visit, never the user's 30 days. */
+const IMPERSONATION_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
 /**
- * GET /api/auth/impersonate
- * Redeems a one-time platform-admin "login as user" token (issued by
- * POST /api/admin/impersonate) — sets a real session cookie for the target
- * user and redirects into the app. Replaces the old Supabase Auth
- * magic-link verify URL; the frontend just opens this URL in a new tab.
+ * The Super Admin behind the current impersonation, from the
+ * `gs_impersonator` cookie: their session must still be valid, belong to
+ * someone other than the signed-in (impersonated) user, and that someone
+ * must still be a platform admin. Anything else → null.
  */
-authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
+async function resolveImpersonator(
+  config: ServerConfig,
+  req: Request,
+  currentUserId: string | null,
+): Promise<{ token: string; session: Awaited<ReturnType<typeof validateSessionToken>> & object } | null> {
+  const raw = (req as Request & { cookies?: Record<string, unknown> }).cookies?.[IMPERSONATOR_COOKIE_NAME];
+  if (typeof raw !== 'string' || !raw) return null;
+  const session = await validateSessionToken(config, raw);
+  if (!session || session.userId === currentUserId) return null;
+  if (!(await isGlobalAdmin(config, session.userId))) return null;
+  return { token: raw, session };
+}
+
+/**
+ * POST /api/auth/impersonate  { token }
+ * Redeems a one-time "login as user" token (issued by POST
+ * /api/admin/impersonate). The frontend page /impersonate calls this with
+ * `fetch`, so the cookies are set on the API host — the same host every
+ * other panel request goes to (a link opened on the app host set them
+ * where the panel never sends them).
+ *
+ * The token only works in the browser of the admin who asked for it: the
+ * caller's session (or the admin session already parked in
+ * `gs_impersonator`, when switching from one user to another) must be the
+ * token's creator, and still a platform admin. The admin's session is then
+ * parked in `gs_impersonator` and `gs_session` becomes a fresh, 8-hour
+ * session of the target user.
+ */
+const impersonateRedeemSchema = z.object({ token: z.string().min(1).max(512) });
+
+authSecurityRouter.post('/impersonate', authRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
-    const redeemed = await redeemImpersonationToken(config, req.query.token as string | undefined);
+    const { token: currentToken, transport } = readSessionToken(req);
+    if (transport !== 'cookie') {
+      return res.status(400).json({ error: 'Login as user is only available in the web panel.' });
+    }
+    if (!verifyOriginForMutation(req, config.corsOrigins)) {
+      return res.status(403).json({ error: 'Origin not allowed' });
+    }
+    const parsed = impersonateRedeemSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'This login link is invalid or has expired.' });
+    }
+
+    const current = await validateSessionToken(config, currentToken);
+    const parked = await resolveImpersonator(config, req, current?.userId ?? null);
+
+    const redeemed = await redeemImpersonationToken(config, parsed.data.token);
     if (!redeemed) {
-      return res.status(400).send('This impersonation link is invalid or has expired.');
+      return res.status(400).json({ error: 'This login link is invalid or has expired.' });
+    }
+
+    // Whose browser is this? The admin's own session, or (switching users
+    // while already impersonating) the admin session parked aside.
+    let adminToken: string | null = null;
+    let adminSession: NonNullable<typeof current> | null = null;
+    if (current && current.userId === redeemed.createdBy) {
+      adminToken = currentToken;
+      adminSession = current;
+    } else if (parked && parked.session.userId === redeemed.createdBy) {
+      adminToken = parked.token;
+      adminSession = parked.session;
+    }
+    if (!adminToken || !adminSession || !(await isGlobalAdmin(config, adminSession.userId))) {
+      return res.status(403).json({ error: 'Sign in as the Super Admin who created this link, then try again.' });
     }
 
     const identity = await findIdentityById(config, redeemed.targetUserId);
     if (!identity) {
-      return res.status(404).send('Target user no longer exists.');
+      return res.status(404).json({ error: 'This user no longer exists.' });
+    }
+    if (identity.id === adminSession.userId) {
+      return res.status(400).json({ error: 'You are already signed in as this user.' });
     }
     if (identity.status === 'disabled') {
       // Blocking a user revokes their existing sessions (see
@@ -593,7 +673,13 @@ authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
       // after) is a separate session-creation path that check doesn't cover
       // — an already-disabled target must never receive a fresh, valid
       // session through this route either.
-      return res.status(403).send('This user account has been disabled.');
+      return res.status(403).json({ error: 'This user account has been disabled.' });
+    }
+
+    // Switching from one impersonated user to another: the previous
+    // impersonation session ends here.
+    if (current && current.userId !== adminSession.userId) {
+      await revokeSession(config, current.sessionId, 'logout');
     }
 
     const session = await createSession(config, {
@@ -601,21 +687,68 @@ authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
       email: identity.email,
       ipAddress: getClientIp(req) || null,
       userAgent: (req.headers['user-agent'] as string | undefined) || null,
+      ttlMs: IMPERSONATION_SESSION_TTL_MS,
     });
+    setImpersonatorCookie(res, adminToken, adminSession.expiresAt);
     setSessionCookie(res, session.token, session.expiresAt);
     await logSecurityEvent(req, 'admin_impersonation', 'warn', {
       userId: identity.id,
-      adminUserId: redeemed.createdBy,
+      adminUserId: adminSession.userId,
     });
 
-    const redirectBase = await resolveAppBaseUrl(config, req);
-    return res.redirect(302, `${redirectBase || ''}/app`);
+    return res.json({ success: true, redirect: '/app' });
   } catch (err) {
     // Redemption / session creation hit the DB; a failure must answer a
     // generic error, never escape as an unhandled rejection.
     console.error('[auth] Impersonation redeem error:', err);
     if (res.headersSent) return;
-    return res.status(500).send('Internal error');
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * POST /api/auth/impersonate/stop
+ * "Back to Super Admin": ends the impersonated user's session and puts the
+ * admin's parked session back into `gs_session`. When the parked session is
+ * no longer usable (expired, revoked, no longer an admin), both cookies are
+ * cleared and the browser is sent to the login page.
+ */
+authSecurityRouter.post('/impersonate/stop', authRateLimiter, async (req, res) => {
+  try {
+    const config: ServerConfig = serverConfigOf(req);
+    const { token, transport } = readSessionToken(req);
+    if (transport !== 'cookie') {
+      return res.status(400).json({ error: 'Not impersonating.' });
+    }
+    if (!verifyOriginForMutation(req, config.corsOrigins)) {
+      return res.status(403).json({ error: 'Origin not allowed' });
+    }
+    const raw = (req as Request & { cookies?: Record<string, unknown> }).cookies?.[IMPERSONATOR_COOKIE_NAME];
+    if (typeof raw !== 'string' || !raw) {
+      return res.status(400).json({ error: 'Not impersonating.' });
+    }
+
+    const current = await validateSessionToken(config, token);
+    const admin = await resolveImpersonator(config, req, current?.userId ?? null);
+    if (current && (!admin || current.userId !== admin.session.userId)) {
+      await revokeSession(config, current.sessionId, 'logout');
+    }
+    clearImpersonatorCookie(res);
+
+    if (!admin) {
+      clearSessionCookie(res);
+      return res.json({ success: true, restored: false, redirect: '/auth/login' });
+    }
+    setSessionCookie(res, admin.token, admin.session.expiresAt);
+    await logSecurityEvent(req, 'admin_impersonation_ended', 'info', {
+      userId: current?.userId ?? null,
+      adminUserId: admin.session.userId,
+    });
+    return res.json({ success: true, restored: true, redirect: '/admin/users' });
+  } catch (err) {
+    console.error('[auth] Impersonation stop error:', err);
+    if (res.headersSent) return;
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 

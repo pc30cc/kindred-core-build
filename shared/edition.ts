@@ -43,7 +43,12 @@ export interface EditionProfile {
   allowsIranianProviders: boolean;
   /** The Rial wallet (deposits, pay-from-wallet). Off until a USD ledger exists. */
   wallet: boolean;
-  /** Buying AI credit with Rial. Off until a USD ledger exists. */
+  /**
+   * Buying AI credit with Rial. Off until a USD ledger exists.
+   * Guards only the retired Rial top-up (routes/aiBilling.ts, billing v2).
+   * The simple billing's AI credit packs (phase 5, shared/aiPacks.ts) do not
+   * read it: they are offered in every edition's account currency.
+   */
   aiCreditTopup: boolean;
 }
 

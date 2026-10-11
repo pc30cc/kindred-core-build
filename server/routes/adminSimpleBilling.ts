@@ -5,7 +5,8 @@
  * `requirePlatformAdmin`.
  *
  * One row per edition (billing_settings, migration 259): the seller printed
- * on receipts, the VAT per currency and the receipt prefix. Every read and
+ * on receipts, the VAT per currency and the receipt prefix; and the AI credit
+ * packs per currency (phase 5, /ai-packs, saved on their own). Every read and
  * write is the running edition's; WebYar's settings are never shown to RESPOK
  * or the other way round.
  */
@@ -15,7 +16,10 @@ import { serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
 import { getPlatformEdition, EditionUnavailableError } from '../services/platformRegion.js';
 import { getBillingSettings } from '../services/billing/account/index.js';
+import { aiWalletRate } from '../services/billing/account/aiPacks.js';
+import { getBillingMode } from '../services/ai-billing/mode.js';
 import { SELLER_KEYS, cleanProfile, vatPercentFor } from '../../shared/simpleBilling.js';
+import { AI_PACK_CURRENCIES, validateAiPacks, type AiPack } from '../../shared/aiPacks.js';
 import type { Edition } from '../../shared/edition.js';
 
 export const adminSimpleBillingRouter = Router();
@@ -73,6 +77,71 @@ adminSimpleBillingRouter.put('/settings', async (req, res) => {
     const { error } = await getServiceClient(cfg).from('billing_settings').upsert(row, { onConflict: 'edition' });
     if (error) throw new Error(error.message);
     res.json({ edition, seller: row.seller, vat_percent: vat, receipt_prefix: row.receipt_prefix, vat_currencies: VAT_CURRENCIES[edition] });
+  } catch (e) {
+    editionFail(res, e);
+  }
+});
+
+// ─── AI credit packs (phase 5) ─────────────────────────────────────────────
+// Per edition currency: Iran IRR; abroad USD and TRY. Saved on their own: a
+// PUT writes only ai_packs (a missing row is created with the other settings'
+// defaults), and PUT /settings never sends them, so neither form overwrites
+// the other. Packs are offered only while AI billing is ENFORCED and the
+// currency has an AI exchange rate (the page shows both).
+
+type ServerConfig = ReturnType<typeof serverConfigOf>;
+
+/**
+ * The editor's view: the stored packs (inactive ones too; normalised when they
+ * pass the rules, else as stored), each currency's rate (null = none), the
+ * AI billing mode and the VAT. `saved`: what a PUT just wrote.
+ */
+async function aiPacksView(cfg: ServerConfig, edition: Edition, saved: Record<string, AiPack[]> | null) {
+  const currencies = AI_PACK_CURRENCIES[edition];
+  const settings = await getBillingSettings(cfg, edition);
+  const stored = saved ?? settings.ai_packs;
+  const listOf = (currency: string): unknown[] => (Array.isArray(stored[currency]) ? (stored[currency] as unknown[]) : []);
+  const valid = validateAiPacks(Object.fromEntries(currencies.map((c) => [c, listOf(c)])), edition);
+  const packs: Record<string, AiPack[]> = {};
+  const rates: Record<string, number | null> = {};
+  const vat: Record<string, number | null> = {};
+  await Promise.all(currencies.map(async (currency) => {
+    packs[currency] = valid.ok === true ? valid.packs[currency] : (listOf(currency) as AiPack[]);
+    rates[currency] = await aiWalletRate(cfg, currency);
+    vat[currency] = vatPercentFor(settings.vat_percent, currency);
+  }));
+  return { edition, currencies, packs, rates, mode: await getBillingMode(cfg), vat_percent: vat };
+}
+
+adminSimpleBillingRouter.get('/ai-packs', async (req, res) => {
+  try {
+    const cfg = serverConfigOf(req);
+    const edition = await getPlatformEdition(cfg);
+    res.json(await aiPacksView(cfg, edition, null));
+  } catch (e) {
+    editionFail(res, e);
+  }
+});
+
+const aiPacksSchema = z.object({ packs: z.record(z.string(), z.unknown()) });
+
+adminSimpleBillingRouter.put('/ai-packs', async (req, res) => {
+  const parsed = aiPacksSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    const cfg = serverConfigOf(req);
+    const edition = await getPlatformEdition(cfg);
+    const valid = validateAiPacks(parsed.data.packs, edition);
+    if (valid.ok === false) return res.status(400).json({ error: valid.error, field: valid.field, reason: valid.reason });
+    const row = {
+      edition,
+      ai_packs: valid.packs,
+      updated_at: new Date().toISOString(),
+      updated_by: (req as unknown as { adminUser?: { id?: string } }).adminUser?.id ?? null,
+    };
+    const { error } = await getServiceClient(cfg).from('billing_settings').upsert(row, { onConflict: 'edition' });
+    if (error) throw new Error(error.message);
+    res.json(await aiPacksView(cfg, edition, valid.packs));
   } catch (e) {
     editionFail(res, e);
   }

@@ -1,7 +1,7 @@
 // ============================================================================
 // SIMPLE BILLING phase 4 — "is this row locked?" for the read paths.
 //
-// The same rule as the SQL (migration 264): a count kind's row is locked when
+// The same rule as the SQL (migration 265): a count kind's row is locked when
 // (coalesce(created_at, '-infinity'), id) is after the cutoff; a chat is
 // locked when coalesce(updated_at, created_at) is before the activity cutoff.
 // Timestamps are compared to the microsecond (Postgres' precision), never

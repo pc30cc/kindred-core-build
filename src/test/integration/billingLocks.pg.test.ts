@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * 264 — computed billing locks over a plan's limits, against real PostgreSQL
+ * 265 — computed billing locks over a plan's limits, against real PostgreSQL
  * built by the whole migration chain (docs/billing/SIMPLE_BILLING.md, "Over
  * the limit after a downgrade: lock, never delete").
  *
@@ -39,9 +39,9 @@ if (process.env.REQUIRE_BILLING_DB === '1' && !DSN) {
 }
 const suite = DSN ? describe : describe.skip;
 
-const DB = `billinglocks264_${Date.now()}`;
+const DB = `billinglocks265_${Date.now()}`;
 const DIR = resolve(process.cwd(), 'database/migrations');
-const FILE = '264_billing_computed_locks.sql';
+const FILE = '265_billing_computed_locks.sql';
 
 type Row = Record<string, unknown>;
 
@@ -137,7 +137,7 @@ const limit = async (ws: string, key: string, plan: string | null = null): Promi
 const report = async (ws: string, plan: string | null = null): Promise<Row> =>
   (await one(`SELECT public.billing_lock_report($1, $2) AS r`, [ws, plan])).r as Row;
 
-suite('264 — computed billing locks (real PostgreSQL, whole chain)', () => {
+suite('265 — computed billing locks (real PostgreSQL, whole chain)', () => {
   beforeAll(async () => {
     const adminUrl = new URL(DSN!);
     adminUrl.pathname = '/postgres';

@@ -1107,8 +1107,10 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
   });
 
   it('the workspace purge (which deletes the card rows before the workspace) keeps a card that is not cancelled, for the job to cancel', async () => {
-    // A card whose checkout has not settled yet: the workspace has no ledger
-    // rows, so the purge gets through (259's ledger is append-only).
+    // A card whose checkout has not settled yet (the workspace has no ledger
+    // rows: this suite's chain ends at 262, before 263 let the purge through
+    // a workspace's append-only ledger; simpleBillingPurge.pg.test.ts covers
+    // a purge with ledger rows and a card).
     const ws = await makeWorkspace();
     const pay = await setupPayment(ws);
     const id = String((await register('paddle_sandbox', subId(), 'ctm_1', 'USD', pay)).card_id);

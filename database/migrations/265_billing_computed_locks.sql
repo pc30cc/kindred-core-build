@@ -1,4 +1,4 @@
--- 264 — Simple billing, phase 4: computed locks over the plan's limits after
+-- 265 — Simple billing, phase 4: computed locks over the plan's limits after
 -- a downgrade, the downgrade report, the locked-data export jobs and the
 -- retention-deletion clock (docs/billing/SIMPLE_BILLING.md, "Over the limit
 -- after a downgrade: lock, never delete").
@@ -67,7 +67,7 @@ ALTER TABLE public.billing_settings
   ADD COLUMN IF NOT EXISTS locks_enabled boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.billing_settings.locks_enabled IS
-  'Billing locks (264) for this edition: rows over a plan''s limits are hidden, read-only and, after the plan''s locked_data_retention_days and the 30/7-day notices, deleted. Off: nothing is locked; the downgrade report still computes.';
+  'Billing locks (265) for this edition: rows over a plan''s limits are hidden, read-only and, after the plan''s locked_data_retention_days and the 30/7-day notices, deleted. Off: nothing is locked; the downgrade report still computes.';
 
 -- When the hourly job first saw a kind over its limit, and which notices it
 -- sent. A clock, not a lock: it holds no row ids, and an episode is removed
@@ -876,7 +876,7 @@ BEGIN
       'ok', false, 'error', 'invalid_state', 'current_status', g.status);
   END IF;
 
-  -- A locked article (over the plan's max_kb_articles, 264) is read-only.
+  -- A locked article (over the plan's max_kb_articles, 265) is read-only.
   IF g.kb_article_id IS NOT NULL AND public.billing_is_locked(_workspace_id, 'kb_article', g.kb_article_id) THEN
     RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'kb_article_locked';
   END IF;
@@ -1001,7 +1001,7 @@ COMMENT ON COLUMN public.billing_plans.locked_data_retention_days IS
 -- Seeded for both editions in fa/en/tr; a row that exists (edited) is never
 -- overwritten. The server fills the dates for the edition (the Persian
 -- calendar and Tehran time in Iran), the summary and the links.
-CREATE OR REPLACE FUNCTION pg_temp._email_264_layout(p_locale text, p_title text, p_body text)
+CREATE OR REPLACE FUNCTION pg_temp._email_265_layout(p_locale text, p_title text, p_body text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -1020,7 +1020,7 @@ AS $f$
     || '</table></td></tr></table></body></html>'
 $f$;
 
-CREATE OR REPLACE FUNCTION pg_temp._email_264_seed(
+CREATE OR REPLACE FUNCTION pg_temp._email_265_seed(
   p_slug text, p_locale text, p_subject text, p_title text, p_body text, p_text text
 ) RETURNS void
 LANGUAGE plpgsql
@@ -1030,7 +1030,7 @@ DECLARE
 BEGIN
   FOREACH v_edition IN ARRAY ARRAY['iran', 'international'] LOOP
     INSERT INTO public.email_templates (workspace_id, slug, locale, subject, html_body, text_body, is_active, edition)
-    SELECT NULL, p_slug, p_locale, p_subject, pg_temp._email_264_layout(p_locale, p_title, p_body), p_text, true, v_edition
+    SELECT NULL, p_slug, p_locale, p_subject, pg_temp._email_265_layout(p_locale, p_title, p_body), p_text, true, v_edition
      WHERE NOT EXISTS (
        SELECT 1 FROM public.email_templates
         WHERE workspace_id IS NULL AND edition = v_edition AND slug = p_slug AND locale = p_locale
@@ -1039,15 +1039,15 @@ BEGIN
 END;
 $f$;
 
-SELECT pg_temp._email_264_seed('billing_locked_data_deletion', 'fa',
+SELECT pg_temp._email_265_seed('billing_locked_data_deletion', 'fa',
   'داده‌های قفل‌شده {days_left} روز دیگر حذف می‌شوند — {brand}', 'حذف داده‌های قفل‌شده',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">فضای کاری {workspace} بیش از سقف پلن {plan_name} داده دارد و این داده‌ها قفل شده‌اند: {locked_summary}.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">این داده‌ها در تاریخ {deletion_date} ({days_left} روز دیگر) برای همیشه حذف می‌شوند. برای نگه داشتن آن‌ها پلن را ارتقا دهید، یا پیش از آن تاریخ از آن‌ها خروجی بگیرید.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">ارتقای پلن</a></p><p style="margin:16px 0 0;text-align:center;"><a href="{export_url}" style="color:#1E40AF;font-size:14px;">دریافت خروجی داده‌های قفل‌شده</a></p>',
   'داده‌های قفل‌شده‌ی فضای کاری {workspace} ({locked_summary}) در تاریخ {deletion_date} ({days_left} روز دیگر) حذف می‌شوند. ارتقای پلن: {billing_url} — دریافت خروجی: {export_url}');
-SELECT pg_temp._email_264_seed('billing_locked_data_deletion', 'en',
+SELECT pg_temp._email_265_seed('billing_locked_data_deletion', 'en',
   'Locked data will be deleted in {days_left} days — {brand}', 'Locked data will be deleted',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Your workspace {workspace} holds more than the {plan_name} plan allows, and the excess is locked: {locked_summary}.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">It will be deleted permanently on {deletion_date} (in {days_left} days). Upgrade to keep it, or export it before then.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Upgrade</a></p><p style="margin:16px 0 0;text-align:center;"><a href="{export_url}" style="color:#1E40AF;font-size:14px;">Export locked data</a></p>',
   'The locked data of {workspace} ({locked_summary}) will be deleted on {deletion_date} (in {days_left} days). Upgrade: {billing_url} — Export: {export_url}');
-SELECT pg_temp._email_264_seed('billing_locked_data_deletion', 'tr',
+SELECT pg_temp._email_265_seed('billing_locked_data_deletion', 'tr',
   'Kilitli veriler {days_left} gün içinde silinecek — {brand}', 'Kilitli veriler silinecek',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">{workspace} çalışma alanınız {plan_name} planının izin verdiğinden fazla veri barındırıyor ve fazlası kilitlendi: {locked_summary}.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Bu veriler {deletion_date} tarihinde ({days_left} gün sonra) kalıcı olarak silinecek. Saklamak için planınızı yükseltin ya da o tarihten önce dışa aktarın.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Planı yükselt</a></p><p style="margin:16px 0 0;text-align:center;"><a href="{export_url}" style="color:#1E40AF;font-size:14px;">Kilitli verileri dışa aktar</a></p>',
   '{workspace} çalışma alanının kilitli verileri ({locked_summary}) {deletion_date} tarihinde ({days_left} gün sonra) silinecek. Yükselt: {billing_url} — Dışa aktar: {export_url}');

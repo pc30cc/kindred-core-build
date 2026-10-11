@@ -2,7 +2,7 @@
 // SIMPLE BILLING phase 4 — computed locks: a workspace's lock state
 // (docs/billing/SIMPLE_BILLING.md "Over the limit after a downgrade").
 //
-// Nothing is stored. Migration 264 holds the one definition: per kind, the
+// Nothing is stored. Migration 265 holds the one definition: per kind, the
 // effective limit and the cutoff row (billing_lock_cutoff); a row ranked after
 // the cutoff (created_at, id — oldest first) is locked, a chat whose last
 // activity is before the retention cutoff is locked. This module reads those
@@ -69,7 +69,7 @@ export function unlockedState(): LockState {
   return { enabled: false, kb: null, contact: null, member: null, conversation: null };
 }
 
-// ─── The SQL (migration 264) ───────────────────────────────────────────────
+// ─── The SQL (migration 265) ───────────────────────────────────────────────
 // Every call into the lock functions goes through here, so their argument
 // names live in one place.
 

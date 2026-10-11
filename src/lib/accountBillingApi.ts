@@ -7,6 +7,9 @@
 import { API_BASE } from './apiBase';
 import type { BillingProfile } from '../../shared/simpleBilling';
 import type { Edition } from '../../shared/edition';
+import type { AiPack } from '../../shared/aiPacks';
+
+export type { AiPack } from '../../shared/aiPacks';
 
 export class AccountApiError extends Error {
   constructor(public code: string, public status: number, public details: unknown, message?: string) {
@@ -332,6 +335,42 @@ export interface CardChargeResult {
   purpose_result?: Record<string, unknown> | null;
 }
 
+/**
+ * The AI part of the billing page (phase 5, GET …/ai): the AI wallet in the
+ * account currency, and the credit packs on offer.
+ */
+export interface AiSection {
+  mode: 'METER_ONLY' | 'ENFORCED';
+  /** The account currency packs are sold and amounts shown in. */
+  currency: string;
+  rate_available: boolean;
+  /** The AI wallet in its own unit (IRR). */
+  wallet: { available: number; reserved: number; plan_remaining: number; purchased_remaining: number };
+  /** The same in minor units of the account currency (rounded down); null without a rate. */
+  display: { available_minor: number; plan_remaining_minor: number; purchased_remaining_minor: number } | null;
+  /** When the plan's monthly credit runs out; null without one. */
+  plan_expires_at: string | null;
+  /** The packs on offer; empty unless sellable. */
+  packs: AiPack[];
+  sellable: boolean;
+  reason: null | 'mode' | 'no_packs' | 'no_rate';
+  can_manage?: boolean;
+}
+
+/** A pack bought from the balance (billing_account_buy_ai_pack). */
+export interface AiPackResult {
+  action: 'ai_pack';
+  replayed: boolean;
+  pack_ledger_id: string;
+  lot_id: string | null;
+  pack_id: string;
+  price_minor: number;
+  credit_minor: number;
+  currency: string;
+  wallet_amount: number;
+  balance_minor: number;
+}
+
 export const accountBillingApi = {
   view: (workspaceId: string) => request<AccountView>(base(workspaceId)),
   ledger: (workspaceId: string, page = 1, pageSize = 20) =>
@@ -406,8 +445,11 @@ export const accountBillingApi = {
   checkout: (
     workspaceId: string,
     input: {
-      purpose: 'plan' | 'renewal' | 'upgrade';
+      purpose: 'plan' | 'renewal' | 'upgrade' | 'ai_pack';
       planId?: string;
+      /** An AI credit pack ('ai_pack'): which one, and the price the page showed. */
+      packId?: string;
+      expectedPriceMinor?: number;
       interval?: BillingInterval;
       currency: string;
       providerName?: string;
@@ -430,4 +472,13 @@ export const accountBillingApi = {
       body: JSON.stringify({ callbackUrl }),
     }),
   removeCard: (workspaceId: string) => request<{ removed: boolean }>(`${base(workspaceId)}/card`, { method: 'DELETE' }),
+  /** The AI wallet and the packs on offer (phase 5). */
+  ai: (workspaceId: string) => request<AiSection>(`${base(workspaceId)}/ai`),
+  /**
+   * Buys an AI credit pack from the balance. `key` is the browser's key for
+   * this purchase (a retry buys once); another price than `expectedPriceMinor`
+   * answers QUOTE_CHANGED with the section as it is now (details.section).
+   */
+  buyAiPack: (workspaceId: string, input: { packId: string; expectedPriceMinor: number; key: string }) =>
+    request<AiPackResult>(`${base(workspaceId)}/ai-pack`, { method: 'POST', body: JSON.stringify(input) }),
 };

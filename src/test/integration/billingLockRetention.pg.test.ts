@@ -2,7 +2,7 @@
 /**
  * Simple billing phase 4, part 6: the owner's export of locked data and the
  * hourly deletion of it (design §7, §8), against a database built by the
- * whole chain (migration 264 included), through the real data layer in
+ * whole chain (migration 265 included), through the real data layer in
  * postgres-only mode and the real routes:
  *
  *   - switch off: nothing is observed, noticed or deleted; an episode left

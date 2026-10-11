@@ -5,6 +5,7 @@ import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "
 import { ThemeProvider } from "next-themes";
 import { UiPreferencesProvider } from "@/features/ui-preferences/UiPreferencesContext";
 import { Toaster as Sonner } from "@/components/ui/sonner";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { I18nProvider } from "@/i18n";
@@ -62,6 +63,7 @@ const ResetPasswordPage = lazyPage(() => import("@/pages/auth/ResetPasswordPage"
 const VerifyEmailPage = lazyPage(() => import("@/pages/auth/VerifyEmailPage"), { fallback: "blank" });
 const CheckEmailPage = lazyPage(() => import("@/pages/auth/CheckEmailPage"), { fallback: "blank" });
 const EmailConfirmedPage = lazyPage(() => import("@/pages/auth/EmailConfirmedPage"), { fallback: "blank" });
+const ImpersonatePage = lazyPage(() => import("@/pages/auth/ImpersonatePage"), { fallback: "blank" });
 const VerifyOtpPage = lazyPage(() => import("@/pages/auth/VerifyOtpPage"), { fallback: "blank" });
 
 const InvitePage = lazyPage(() => import("@/pages/auth/InvitePage"), { fallback: "blank" });
@@ -456,6 +458,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            {!isNativeApp && <ImpersonationBanner />}
             {!isNativeApp && <RoutePrefetcher />}
             {isNativeApp ? <MobileRoutes /> : (
             <Routes>
@@ -494,6 +497,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
               </Route>
 
               {/* Invitation acceptance uses its own full-width split-screen shell */}
+              {/* Super Admin "Login as User" link: redeems the one-time token */}
+              <Route path="/impersonate" element={<ImpersonatePage />} />
+
               <Route path="/auth/invite" element={<InvitePage />} />
               <Route path="/invite" element={<InvitePage />} />
 

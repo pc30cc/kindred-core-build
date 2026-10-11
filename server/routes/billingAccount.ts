@@ -18,7 +18,8 @@
 //   POST /api/billing/account/:ws/change                  change at the period end (or cancel it)
 //   PUT  /api/billing/account/:ws/auto-renew              auto-renew on/off
 //   POST /api/billing/account/:ws/checkout                pay online for a plan, renewal or upgrade
-//                                                         (autoRenew: and save the card, phase 3b)
+//                                                         (autoRenew: and save the card, phase 3b),
+//                                                         or an AI credit pack (phase 5)
 //   POST /api/billing/account/:ws/card/charge             upgrade now, charged to the saved card
 //   POST /api/billing/account/:ws/card/update             change the card (or pay a failed renewal)
 //   DELETE /api/billing/account/:ws/card                  remove the saved card
@@ -87,10 +88,12 @@ import {
   syncWorkspaceCard,
   type CardView,
 } from '../services/billing/account/card.js';
+import { aiPackNeed } from '../services/billing/account/aiPacks.js';
 import { planNamesFor } from '../services/billing/account/notify.js';
 import { buildLockReport, reportForViewer } from '../services/billing/locks/report.js';
 import { getBillingRegion } from '../services/billing/edition.js';
 import { resolveNamedBillingConfig } from '../services/billing/index.js';
+import { AI_PACK_LIMITS } from '../../shared/aiPacks.js';
 import {
   PADDLE_MIN_CHARGE_MINOR,
   TOPUP_LIMITS,
@@ -103,7 +106,8 @@ export const billingAccountRouter = Router();
 
 type JsonResponse = { status(code: number): { json(body: unknown): unknown } };
 
-function fail(res: JsonResponse, e: unknown) {
+/** The error answer of every account route (also the AI pack routes', billingAccountAi.ts). */
+export function fail(res: JsonResponse, e: unknown) {
   const editionError = editionErrorResponse(e);
   if (editionError) return res.status(editionError.status).json(editionError.body);
   if (e instanceof AccountBillingError) {
@@ -117,7 +121,7 @@ function viewerOf(auth: { isAdmin: boolean }) {
   return { isPlatformAdmin: auth.isAdmin };
 }
 
-function canManage(auth: { isAdmin: boolean; role: string | null }): boolean {
+export function canManage(auth: { isAdmin: boolean; role: string | null }): boolean {
   return auth.isAdmin || ['owner', 'admin'].includes(String(auth.role || ''));
 }
 
@@ -326,7 +330,7 @@ async function startAccountCheckout(
     netMinor: number;
     providerName?: string;
     callbackUrl: string;
-    purpose: 'topup' | 'plan' | 'renewal' | 'upgrade';
+    purpose: 'topup' | 'plan' | 'renewal' | 'upgrade' | 'ai_pack';
     purposeDetail?: Record<string, unknown>;
     description: string;
     cardSetup?: { purpose: 'plan' | 'renewal'; planId: string; interval: 'monthly' | 'yearly' };
@@ -683,7 +687,7 @@ billingAccountRouter.put('/account/:workspaceId/auto-renew', async (req, res) =>
 });
 
 const checkoutSchema = z.object({
-  purpose: z.enum(['plan', 'renewal', 'upgrade']),
+  purpose: z.enum(['plan', 'renewal', 'upgrade', 'ai_pack']),
   planId: z.string().uuid().optional(),
   interval: intervalSchema.optional(),
   currency: z.string().regex(/^[A-Za-z]{3}$/).optional(),
@@ -692,6 +696,9 @@ const checkoutSchema = z.object({
   expectedNetMinor: expectedNetSchema,
   /** Save the card and renew with it (a plan or a renewal): the full price is charged. */
   autoRenew: z.boolean().optional(),
+  /** An AI credit pack (purpose 'ai_pack', phase 5): which one, and the price the page showed. */
+  packId: z.string().regex(AI_PACK_LIMITS.idPattern).optional(),
+  expectedPriceMinor: z.number().int().positive().optional(),
 });
 
 /**
@@ -704,6 +711,11 @@ const checkoutSchema = z.object({
  * the next period paid early), whatever the balance, as every renewal after
  * it will; the page sends that price (expectedNetMinor). While a card is
  * saved, a renewal is the card's (CARD_PAYS_RENEWAL).
+ *
+ * An AI credit pack ('ai_pack', phase 5) is paid the same way: what the
+ * balance is missing for its price, then the pack is bought from the balance
+ * at settlement. A pack that changed meanwhile leaves the money in the
+ * balance. A card is never saved for a pack.
  */
 billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -719,11 +731,37 @@ billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => 
     return res.status(400).json({ error: 'CARD_SETUP_PURPOSE' });
   }
   if (withCard && parsed.data.expectedNetMinor === undefined) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  if (parsed.data.purpose === 'ai_pack' && !parsed.data.packId) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
     if (withCard && !(await cardsOffered(cfg))) return res.status(400).json({ error: 'CARD_NOT_AVAILABLE' });
     // An upgrade paid online changes what the card renews: not while it is
     // past_due or Paddle is about to charge it.
     if (parsed.data.purpose === 'upgrade') await assertCardAllowsPlanChange(cfg, req.params.workspaceId);
+    if (parsed.data.purpose === 'ai_pack') {
+      // A pack: its price as the page showed it (QUOTE_CHANGED otherwise).
+      const pack = await aiPackNeed(cfg, req.params.workspaceId, {
+        packId: String(parsed.data.packId),
+        expectedPriceMinor: parsed.data.expectedPriceMinor ?? null,
+      });
+      if (parsed.data.currency && parsed.data.currency.toUpperCase() !== pack.currency) {
+        return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency: pack.currency } });
+      }
+      const missing = pack.needed - pack.balance;
+      if (missing <= 0) return res.status(409).json({ error: 'BALANCE_SUFFICIENT' });
+      const packLimits = TOPUP_LIMITS[pack.currency];
+      if (!packLimits) return res.status(400).json({ error: 'CURRENCY_NOT_SUPPORTED' });
+      const packNet = Math.max(missing, packLimits.min);
+      if (packNet > packLimits.max) return res.status(400).json({ error: 'TOPUP_AMOUNT_TOO_LARGE' });
+      return startAccountCheckout(req, res, auth, {
+        currency: pack.currency,
+        netMinor: packNet,
+        providerName: parsed.data.providerName,
+        callbackUrl: parsed.data.callbackUrl,
+        purpose: 'ai_pack',
+        purposeDetail: pack.detail,
+        description: 'AI credit',
+      });
+    }
     const need = await amountNeededFor(cfg, req.params.workspaceId, {
       purpose: parsed.data.purpose,
       planId: parsed.data.planId,

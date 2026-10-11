@@ -1,7 +1,7 @@
 /**
  * Simple billing phase 4 — the contact and chat lock rules the routes use
  * (server/services/contactChatLocks.ts), against a lock state as the lock
- * core reads it from migration 264:
+ * core reads it from migration 265:
  *   - a contact is locked only when the plan counts it (D1: never spam,
  *     never an anonymous visitor without a name, email or phone — the
  *     legacy 'Visitor' name included) and it ranks after the cutoff;

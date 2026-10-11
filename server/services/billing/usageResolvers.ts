@@ -256,7 +256,7 @@ async function resolveAiCreditsPerMonth(
 /**
  * `max_contacts` — current occupancy of `public.contacts` for the
  * workspace: the countable contacts, the same predicate the computed lock
- * ranks (billing_countable_count, migration 264), so the quota and the lock
+ * ranks (billing_countable_count, migration 265), so the quota and the lock
  * never disagree.
  *
  * Semantics (locked in `docs/CONTACTS_LIMIT_POLICY.md`, D1 of the phase 4
@@ -268,7 +268,7 @@ async function resolveAiCreditsPerMonth(
  *   - Deletes free capacity (no soft-delete accounting).
  *   - Edits, tag changes, note changes do NOT consume capacity.
  *   - Identity merges collapse rows; the net count is what counts.
- * A database without migration 264 yet counts every row, as before.
+ * A database without migration 265 yet counts every row, as before.
  */
 async function resolveMaxContacts(
   config: ServerConfig,

@@ -99,9 +99,10 @@ export default function ContactDetailPage() {
   const navigate = useNavigate();
   const { data: contact, isLoading, error: contactError } = useContact(id);
   // A contact over the plan's limit (phase 4) answers 403 contact_locked:
-  // nothing else about it is read until the contact itself is readable.
+  // once it has, nothing else about it is read. Until then the side reads
+  // start with the contact, in parallel, as they always did.
   const lockedError = isPlanLockedError(contactError, 'contact_locked') ? contactError : null;
-  const readId = contact ? id : undefined;
+  const readId = lockedError ? undefined : id;
   const { data: conversations } = useContactConversations(readId);
   const workspace = useCurrentWorkspace();
   const { data: calls } = useContactCalls(workspace?.id, readId);

@@ -213,6 +213,8 @@ interface PlanFormData {
    * registry default the form shows for them: saved only once changed.
    */
   absentLockLimits: Record<string, number>;
+  /** Lock limits the admin edited in this form: saved even when back at the shown default. */
+  touchedLockLimits: string[];
 }
 
 /**
@@ -301,15 +303,17 @@ function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: st
     absentLockLimits: plan?.id
       ? Object.fromEntries(LOCK_LIMIT_KEYS.filter((k) => knownKeys.has(k) && !(k in planLim)).map((k) => [k, limits[k]]))
       : {},
+    touchedLockLimits: [],
   };
 }
 
 /** Compose final JSON payload, preserving legacy keys. */
 function formToPayload(form: PlanFormData) {
   const limits: Record<string, unknown> = { ...form.legacyLimits, ...form.limits };
-  // A lock limit the plan did not name stays unnamed unless it was changed.
+  // A lock limit the plan did not name stays unnamed unless the admin edited
+  // it (typing the default itself makes it explicit, so it locks).
   for (const [key, shown] of Object.entries(form.absentLockLimits)) {
-    if (limits[key] === shown) delete limits[key];
+    if (!form.touchedLockLimits.includes(key) && limits[key] === shown) delete limits[key];
   }
   const retention = parseLockedRetentionDays(form.locked_data_retention_days);
   return {
@@ -439,7 +443,13 @@ function PlanFormDialog({
     }));
   }
   function setLimit(key: string, val: number) {
-    setForm((f) => ({ ...f, limits: { ...f.limits, [key]: val } }));
+    setForm((f) => ({
+      ...f,
+      limits: { ...f.limits, [key]: val },
+      touchedLockLimits: key in f.absentLockLimits && !f.touchedLockLimits.includes(key)
+        ? [...f.touchedLockLimits, key]
+        : f.touchedLockLimits,
+    }));
   }
   function updateLocalized(locale: string, field: string, value: string) {
     setForm((f) => ({ ...f, localized: { ...f.localized, [locale]: { ...f.localized[locale], [field]: value } } }));

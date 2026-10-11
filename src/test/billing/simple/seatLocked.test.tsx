@@ -17,6 +17,10 @@ const i18n = vi.hoisted(() => ({
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: i18n.t, locale: i18n.locale, dir: 'ltr' }),
 }));
+const ws = vi.hoisted(() => ({ list: [] as Array<{ id: string; slug: string }> }));
+vi.mock('@/hooks/useWorkspace', () => ({
+  useWorkspaces: () => ({ data: ws.list }),
+}));
 
 import { SeatLockedBadge, SeatLockedNotice, SeatLockedSummary } from '@/components/members/SeatLocked';
 import { isSeatLocked } from '@/hooks/useOwnSeat';
@@ -66,8 +70,22 @@ describe('what a paused member sees', () => {
     await waitFor(() => expect(screen.getByTestId('seat-locked-notice')).toBeTruthy());
     expect(screen.getByText('members.seatLocked.title')).toBeTruthy();
     expect(screen.getByText('members.seatLocked.desc')).toBeTruthy();
-    expect(screen.getByText('members.seatLocked.switchWorkspace').closest('a')?.getAttribute('href')).toBe('/app');
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain('/api/workspace-members/me?workspaceId=ws-1');
+  });
+
+  it('"Switch workspace" leads to another workspace of the member\'s, never back to the paused one', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ user_id: 'u1', role: 'agent', seat_locked: true }), { status: 200 })));
+    // The paused workspace is the first one: /app would open it again.
+    ws.list = [{ id: 'ws-1', slug: 'paused' }, { id: 'ws-2', slug: 'other' }];
+    const { unmount } = withQuery(<SeatLockedNotice workspaceId="ws-1" />);
+    await waitFor(() => expect(screen.getByTestId('seat-locked-notice')).toBeTruthy());
+    expect(screen.getByText('members.seatLocked.switchWorkspace').closest('a')?.getAttribute('href')).toBe('/other');
+    unmount();
+    // No other workspace: no button that would loop back.
+    ws.list = [{ id: 'ws-1', slug: 'paused' }];
+    withQuery(<SeatLockedNotice workspaceId="ws-1" />);
+    await waitFor(() => expect(screen.getByTestId('seat-locked-notice')).toBeTruthy());
+    expect(screen.queryByText('members.seatLocked.switchWorkspace')).toBeNull();
   });
 
   it('nothing for a member whose seat is not paused, or when the answer is unreadable', async () => {

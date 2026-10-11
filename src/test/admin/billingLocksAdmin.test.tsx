@@ -255,6 +255,22 @@ describe('Super Admin plan editor: locked data retention', () => {
     expect(payload.limits).not.toHaveProperty('data_retention_days');
   });
 
+  it('a lock limit the plan did not name is saved when the admin types its default value', async () => {
+    const dialog = await openEditor();
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Limits/ }));
+    const agents = within(dialog).getByText('Max Agents').closest('div')!.parentElement!.querySelector('input')!;
+    // The form shows the registry default (1); the admin types 1 over it.
+    expect(agents.value).toBe('1');
+    fireEvent.change(agents, { target: { value: '' } });
+    fireEvent.change(agents, { target: { value: '1' } });
+    save(dialog);
+    await waitFor(() => expect(updatePlan).toHaveBeenCalledTimes(1));
+    const payload = updatePlan.mock.calls[0][0];
+    expect(payload.limits.max_agents).toBe(1);
+    // An untouched one still stays absent.
+    expect(payload.limits).not.toHaveProperty('max_kb_articles');
+  });
+
   it('refuses a value that is not a whole number of days > 0', async () => {
     for (const bad of ['0', '2.5', 'abc', '-3']) {
       updatePlan.mockClear();

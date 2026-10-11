@@ -24,6 +24,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/i18n';
 import { useOwnSeat } from '@/hooks/useOwnSeat';
+import { useWorkspaces } from '@/hooks/useWorkspace';
 
 export function SeatLockedBadge() {
   const { t } = useTranslation();
@@ -66,7 +67,11 @@ export function SeatLockedSummary({ count }: { count: number }) {
 export function SeatLockedNotice({ workspaceId }: { workspaceId: string | null | undefined }) {
   const { t } = useTranslation();
   const { data } = useOwnSeat(workspaceId);
+  const { data: workspaces } = useWorkspaces();
   if (!data?.seat_locked) return null;
+  // "Switch workspace" goes straight to another workspace of the member's;
+  // /app would open the first one, which may be this paused one again.
+  const other = (workspaces ?? []).find((w) => w.id !== workspaceId && !!w.slug);
   return (
     <div className="flex min-h-[60vh] items-center justify-center p-4" data-testid="seat-locked-notice">
       <Card className="w-full max-w-md border-border/60 p-6 text-center">
@@ -75,9 +80,11 @@ export function SeatLockedNotice({ workspaceId }: { workspaceId: string | null |
         </div>
         <h1 className="text-lg font-semibold text-foreground">{t('members.seatLocked.title')}</h1>
         <p className="mt-2 text-sm text-muted-foreground">{t('members.seatLocked.desc')}</p>
-        <Button asChild variant="outline" className="mt-5">
-          <a href="/app">{t('members.seatLocked.switchWorkspace')}</a>
-        </Button>
+        {other && (
+          <Button asChild variant="outline" className="mt-5">
+            <a href={`/${encodeURIComponent(other.slug)}`}>{t('members.seatLocked.switchWorkspace')}</a>
+          </Button>
+        )}
       </Card>
     </div>
   );

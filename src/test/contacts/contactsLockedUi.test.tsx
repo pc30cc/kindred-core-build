@@ -117,6 +117,13 @@ describe('ContactDetailPage — a locked contact', () => {
     expect(h.navigate).toHaveBeenCalledWith('/acme/billing');
   });
 
+  it('an unlocked contact\'s chats and calls are read alongside the contact, not after it', () => {
+    // The contact is still loading (no data, no error yet).
+    render(<ContactDetailPage />);
+    expect(h.readIds.length).toBeGreaterThan(0);
+    expect(h.readIds.every((id) => id === 'c-locked')).toBe(true);
+  });
+
   it('a 404 still shows "not found", not the locked view', () => {
     const { container } = render(<ContactDetailPage />);
     expect(container.querySelector('[data-page-locked="contact"]')).toBeNull();

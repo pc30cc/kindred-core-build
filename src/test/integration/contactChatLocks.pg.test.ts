@@ -123,10 +123,10 @@ suite('contacts, chats and widget over the plan (phase 4)', () => {
       [ct.c3, 'Cleo', 'cleo@example.com', '2026-01-05T00:00:00Z', false, { company: 'Cleo Ltd' }],
       [ct.c4, 'Dan', 'dan@example.com', '2026-01-06T00:00:00Z', false, {}],
     ];
-    for (const [id, name, email, at, spam, meta] of contacts) {
+    for (const [i, [id, name, email, at, spam, meta]] of contacts.entries()) {
       await q(`INSERT INTO public.contacts (id, workspace_id, name, email, phone, notes, tags, metadata, is_spam, created_at)
                VALUES ($1, $2, $3, $4, $5, 'a note', ARRAY['vip'], $6, $7, $8)`,
-        [id, ws, name, email, email ? '+15550000' + id.slice(0, 3).replace(/\D/g, '1') : null, JSON.stringify(meta), spam, at]);
+        [id, ws, name, email, email ? `+1555000010${i}` : null, JSON.stringify(meta), spam, at]);
     }
     // One chat with no activity for 60 days (past the 30-day retention), and
     // one this month (the plan's monthly quota is 1), of a locked contact.

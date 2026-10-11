@@ -390,6 +390,22 @@ async function deletionTargets(
 const isStorageKey = (key: string | null | undefined): key is string =>
   typeof key === 'string' && key.length > 0 && !/^[a-z]+:\/\//i.test(key) && !key.startsWith('/');
 
+/** Storage deletions run at once. */
+const FILE_CONCURRENCY = 8;
+
+/** `fn` over `items`, at most FILE_CONCURRENCY at a time; a throw counts as a failure. */
+async function eachLimited<T>(items: T[], fn: (item: T) => Promise<{ success: boolean }>): Promise<Array<{ success: boolean }>> {
+  const out: Array<{ success: boolean }> = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(FILE_CONCURRENCY, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]).catch(() => ({ success: false }));
+    }
+  }));
+  return out;
+}
+
 /** Rows the data layer returns per read. */
 const READ_PAGE = 1000;
 
@@ -440,18 +456,12 @@ async function clearStorage(
     const { data, error } = await sb.from('contacts').select('avatar_storage_key').eq('workspace_id', ws).in('avatar_storage_key', keys);
     if (error) throw new Error(`contacts: ${error.message}`);
     const shared = new Set(((data ?? []) as Array<{ avatar_storage_key: string }>).map((r) => r.avatar_storage_key));
-    for (const key of keys) {
-      if (shared.has(key)) continue;
-      const result = await deleteFile(config, ws, key, { allowLegacyKey: true });
-      if (!result.success) failed += 1;
-    }
+    const results = await eachLimited(keys.filter((key) => !shared.has(key)), (key) => deleteFile(config, ws, key, { allowLegacyKey: true }));
+    failed += results.filter((r) => !r.success).length;
   } else {
-    for (const row of gone) {
-      for (const path of attachments.get(row.id) ?? []) {
-        const result = await deleteFile(config, ws, path);
-        if (!result.success) failed += 1;
-      }
-    }
+    const paths = gone.flatMap((row) => attachments.get(row.id) ?? []);
+    const results = await eachLimited(paths, (path) => deleteFile(config, ws, path));
+    failed += results.filter((r) => !r.success).length;
   }
   if (failed) console.warn(`[billing-locks] ${failed} file(s) of deleted ${clock.kind} rows of ${ws} could not be deleted`);
 }

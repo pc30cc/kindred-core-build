@@ -422,6 +422,10 @@ const RPC_ERRORS: Array<[RegExp, string, number]> = [
   [/billing_period_changed/, 'PERIOD_CHANGED', 409],
   [/billing_idempotency_conflict/, 'IDEMPOTENCY_CONFLICT', 409],
   [/billing_quote_changed/, 'QUOTE_CHANGED', 409],
+  // AI credit packs (phase 5, migration 265).
+  [/billing_ai_pack_not_available/, 'AI_PACK_NOT_AVAILABLE', 409],
+  [/billing_ai_fx_unavailable/, 'AI_CREDIT_UNAVAILABLE', 409],
+  [/billing_key_required/, 'INVALID_REQUEST', 400],
 ];
 
 export function billingRpcError(error: { message?: string } | null | undefined): never {
@@ -432,7 +436,7 @@ export function billingRpcError(error: { message?: string } | null | undefined):
   throw new Error(message || 'billing operation failed');
 }
 
-async function rpc(config: ServerConfig, name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function rpc(config: ServerConfig, name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const { data, error } = await getServiceClient(config).rpc(name, args);
   if (error) billingRpcError(error);
   return (data ?? {}) as Record<string, unknown>;

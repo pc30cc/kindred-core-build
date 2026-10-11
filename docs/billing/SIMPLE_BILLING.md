@@ -145,7 +145,7 @@ billing v2's 5-minute ticker (see "The hourly job" below).
    3a (migration 261): everything but the saved card. 3b (migration 262):
    the Paddle saved card.
 4. Computed locks, downgrade report, export, retention deletion.
-5. AI credit packs.
+5. AI credit packs. (Done: migration 265; see "AI credit packs" below.)
 6. Super Admin screens.
 7. Move current subscriptions, back up and drop billing v2 code and tables.
 
@@ -178,7 +178,8 @@ templates.
   profile (company, economic code, national id, VAT id, address, postal code,
   country, invoice email), and which reminders were sent for which period.
 - `billing_account_ledger` (append-only): `kind` (topup, renewal, upgrade,
-  ai_pack, admin_credit, admin_debit, refund, prepaid_return),
+  ai_pack, admin_credit, admin_debit, refund, prepaid_return, and since
+  265 ai_pack_return),
   `amount_minor` (+ in, − out), `balance_after`, `currency`, the plan and
   period it paid for, and for money that came through a gateway the receipt:
   `receipt_number`, `net_minor`, `tax_minor`, `tax_percent`, the buyer and
@@ -503,3 +504,81 @@ permissions, events and the sandbox checks to run before switching it on:
   On RESPOK the new backend may start before its migrator has applied 262:
   until then those reads treat the missing table as no card.
 
+
+### AI credit packs (phase 5, migration 265)
+
+Fixed packs of AI credit, bought with one click from the balance or paid
+online. Credit bought this way never expires; the plan's monthly credit is
+spent first.
+
+- **The packs.** Super Admin → Plans → AI credit packs, per edition and
+  currency: Iran `IRR`; Multi Region / Global `USD` and `TRY`. Stored in
+  `billing_settings.ai_packs` as `{"USD": [{"id": "m", "price_minor": 2000,
+  "credit_minor": 2200, "active": true, "label": {"fa", "en", "tr"}}]}`. The
+  price and the credit are both in the pack's own currency, in minor units
+  ("$20 buys $22 of AI credit"; in Iran both in Rial, entered as Toman). At
+  most 8 per currency; `id` is `^[a-z0-9][a-z0-9_-]{0,23}$`, unique per
+  currency, and stays once saved; an Iranian price is whole Toman (a multiple
+  of 10 Rial). None are seeded: until Super Admin saves packs, none are
+  offered.
+- **When they are sold.** Only while AI billing is `ENFORCED` (in
+  `METER_ONLY` credit blocks nothing, so selling it would mislead; the
+  billing page hides the AI card), and only with an exchange rate for the
+  account's currency (below). A payment made online that settles after the
+  mode changed still delivers its pack: the money was paid.
+- **The AI wallet's unit.** The AI wallet counts in Rial. A pack's credit is
+  converted at purchase with the rate the AI meter charges with
+  (`ai_exchange_rates`, the open row): `currency→IRR`, else `currency→USD ×
+  USD→IRR`; IRR is 1. The rate and the wallet amount are kept on the ledger
+  row. No rate: the pack is not offered and nothing is debited
+  (`billing_ai_fx_unavailable`). The page shows the AI balance in the
+  account's currency (`floor(wallet / rate)`), Toman in Iran. In Multi Region
+  the `USD→IRR` rate is only an internal scale: changing it after packs were
+  sold rescales every workspace's AI credit in dollars, so the pack editor
+  warns about it.
+- **From the balance** (`billing_account_buy_ai_pack`, one transaction, lock
+  order account then AI wallet): an `ai_pack` ledger row of −price (no
+  receipt: the money already had one when it came in), then a `PURCHASED` AI
+  lot with no expiry (`ai_purchase_credit`, unchanged). The page sends the
+  price it showed (another one: `QUOTE_CHANGED`, nothing charged) and a key:
+  the ledger row is `ai_pack:<workspace>:<browser key>`, its lot
+  `ai_pack_lot:<ledger id>`. A replay returns the same row and lot, before
+  the pack is looked up, so it still answers after the pack was edited or
+  removed; the same key on another workspace is refused.
+- **Pay online** (purpose `ai_pack`, like a plan, renewal or upgrade): the
+  gateway charges what the balance is missing (at least the top-up minimum),
+  plus VAT; the settlement credits it with its receipt ("AI credit") and buys
+  the pack in the same transaction (key `ai_pack:payment:<payment id>`). A
+  pack changed or removed meanwhile, or a rate gone, leaves the money in the
+  balance and says why (`purpose_result.error`). A saved card never pays for
+  a pack.
+- **What never touches purchased credit.** The month's grant, an upgrade, a
+  change at the period end, the due moment (also the move to Free), the end
+  of a trial, the expiry of lots, and phase 4's locks: they act on
+  `PLAN_ALLOWANCE` lots or lots with an expiry only.
+- **Refunds.** A refund of a payment that bought a pack reverses the pack
+  first (`billing_ai_pack_reverse`): at most the refund's net share, never
+  more than the pack's price in all, and never more than the share of the
+  price its unused credit is worth (what a reply in flight reserved is not
+  unused). That credit leaves the lot (AI ledger `ADJUSTMENT`, reason
+  `ai_pack_refund`; the lot is `DEPLETED` when empty) and its price share
+  returns to the balance as `ai_pack_return`; the refund is then taken from
+  the balance as before. What the pack already used stays `shortfall_minor`
+  and is logged REVIEW. A refund of a plain top-up whose money later bought a
+  pack from the balance does not touch the pack.
+- **Email.** `billing_ai_pack_purchased` (fa/en/tr, both editions), after
+  every pack, with `{pack_name}`, `{credit}`, `{amount}`, `{balance}`,
+  `{ai_balance}` (empty without a rate) besides the common variables. A pack
+  paid online also gets `billing_payment_receipt`.
+- **The old Rial top-up** (`/api/ai-billing/.../topup/config|preview|checkout`)
+  answers 410 `BILLING_V2_RETIRED` while `LEGACY_BILLING_ENABLED` is off; an
+  old intent already paid is still credited by its verify callback. Super
+  Admin's manual AI credit stays.
+- **Not in this phase.** The plan's monthly AI credit per currency
+  (`billing_plans.ai_allowance.USD`) is still read as IRR; phase 6's plan
+  screens take it up.
+- **Deploying.** Apply 265 to WebYar's database by hand before merging (it
+  redefines settlement and refund, which the server calls); RESPOK's migrator
+  applies it on push. It is inert until packs are saved and AI billing is
+  `ENFORCED`. Then: set the packs, make sure RESPOK has a `USD→IRR` rate (and
+  `TRY→USD` or `TRY→IRR`), and switch AI billing to `ENFORCED` when ready.

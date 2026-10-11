@@ -1,5 +1,5 @@
 /**
- * Pay online for a plan, a renewal or an upgrade. The gateway charges what
+ * Pay online for a plan, a renewal, an upgrade or an AI credit pack. The gateway charges what
  * the balance is missing (at least the top-up minimum), plus VAT when the
  * edition has it; the payment is credited to the balance and spent on the
  * purchase in the same step. The server recomputes every amount.
@@ -9,6 +9,10 @@
  * card", ticked by default: the card then pays the full price now, leaving
  * the balance as it is, and Paddle charges it every period until it is
  * turned off. Only the gateways that can save a card are listed then.
+ *
+ * An AI credit pack (phase 5) is paid the same way, never with a saved card:
+ * the page sends the pack and the price it showed, and a pack changed
+ * meanwhile is refused before anything is charged.
  */
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -24,9 +28,15 @@ import GatewayPicker from './GatewayPicker';
 import { toast } from '@/lib/toast';
 import { accountErrorText, billingReturnOrigin, followCheckout } from './accountUi';
 
+/** Refusals of an AI pack's checkout after which the page reloads (the pack, the mode or the balance changed). */
+const AI_PACK_STALE = ['QUOTE_CHANGED', 'AI_PACK_NOT_AVAILABLE', 'AI_PACKS_UNAVAILABLE', 'AI_CREDIT_UNAVAILABLE', 'BALANCE_SUFFICIENT'];
+
 export interface PayOnlineRequest {
-  purpose: 'plan' | 'renewal' | 'upgrade';
+  purpose: 'plan' | 'renewal' | 'upgrade' | 'ai_pack';
   planId?: string;
+  /** An AI credit pack ('ai_pack'): which one, and the price the card showed. */
+  packId?: string;
+  expectedPriceMinor?: number;
   interval?: BillingInterval;
   /** What the purchase costs in total, and what the balance already covers. */
   priceMinor: number;
@@ -109,7 +119,14 @@ export default function PayOnlineDialog({
     setBusy(true);
     setError(null);
     try {
-      const started = await accountBillingApi.checkout(workspaceId, {
+      const started = await accountBillingApi.checkout(workspaceId, request.purpose === 'ai_pack' ? {
+        purpose: 'ai_pack',
+        packId: request.packId,
+        expectedPriceMinor: request.expectedPriceMinor ?? request.priceMinor,
+        currency,
+        providerName: chosen.provider_name,
+        callbackUrl: `${billingReturnOrigin()}/${slug}/billing`,
+      } : {
         purpose: request.purpose,
         planId: request.planId,
         interval: request.interval,
@@ -133,8 +150,10 @@ export default function PayOnlineDialog({
       setBusy(false);
       // What the page shows changed under it (the currency; a card saved
       // meanwhile, in another tab): it is reloaded, so it stops offering this.
+      // A pack changed, or the balance now covers it: the page shows what is true now.
       const code = String((e as { code?: string })?.code);
       if (['CURRENCY_CHANGED', 'CARD_ALREADY_SAVED', 'CARD_PAYS_RENEWAL', 'CARD_SETUP_IN_PROGRESS'].includes(code)) onCurrencyChanged?.();
+      else if (request.purpose === 'ai_pack' && AI_PACK_STALE.includes(code)) onCurrencyChanged?.();
     }
   };
 

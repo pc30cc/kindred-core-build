@@ -28,6 +28,7 @@ import { readTopupConfig, TOPUP_CONFIG_KEY, type TopupConfig } from '../services
 import { assertEditionFeature, editionErrorResponse, getPlatformEdition } from '../services/billing/edition.js';
 import { isCurrencyAllowedInEdition } from '../../shared/edition.js';
 import { LEGACY_BILLING_ENABLED } from '../../shared/billingMode.js';
+import { billingV2Retired } from '../middleware/billingV2Retired.js';
 
 export const aiBillingRouter = Router();
 
@@ -193,8 +194,11 @@ aiBillingRouter.get('/workspaces/:workspaceId/summary', async (req, res) => {
 // ── AI credit top-up: buy purchased credit through the same server-authoritative
 // payment-intent flow subscriptions use. Verification happens through the
 // shared POST /api/billing/verify-callback route (same intentId contract).
+// Retired while the simple billing owns money (410 BILLING_V2_RETIRED): AI
+// credit is bought as a pack there (phase 5). verify-callback stays, so an
+// intent already paid is still credited.
 
-aiBillingRouter.get('/workspaces/:workspaceId/topup/config', async (req, res) => {
+aiBillingRouter.get('/workspaces/:workspaceId/topup/config', billingV2Retired, async (req, res) => {
   const config = cfg(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
@@ -220,7 +224,7 @@ const topupPreviewSchema = z.object({
  * displayed is exactly the amount charged and an abandoned proforma stays
  * visible in the transaction history.
  */
-aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', async (req, res) => {
+aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', billingV2Retired, async (req, res) => {
   const config = cfg(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
@@ -308,7 +312,7 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', async (req, res) 
   }
 });
 
-aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res) => {
+aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', billingV2Retired, async (req, res) => {
   const config = cfg(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;

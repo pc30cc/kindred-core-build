@@ -588,6 +588,16 @@ describe('the saved card (Multi Region)', () => {
     expect(screen.getByText(/billing\.account\.plan\.renewFromBalance/).closest('button')).toBeDisabled();
   });
 
+  it('a declined card in its freeze shows only the red alert, not "your card is being charged"', async () => {
+    api.view.mockResolvedValue({
+      ...WITH_CARD,
+      card: { ...CARD, status: 'past_due', frozen_until: inDays(0.2), last_failure: { at: inDays(-0.1), code: 'not_enough_balance' } },
+    });
+    renderPage();
+    expect(await screen.findByTestId('card-past-due')).toBeInTheDocument();
+    expect(screen.queryByTestId('card-frozen')).toBeNull();
+  });
+
   it('an unknown brand reads as "card"', async () => {
     api.view.mockResolvedValue({ ...WITH_CARD, card: { ...CARD, brand: 'unknown' } });
     renderPage();

@@ -419,9 +419,20 @@ BEGIN
     v_review := coalesce(v_review, 'unexpected_charge:' || coalesce(nullif(p_origin, ''), 'unknown'));
   END IF;
 
+  -- The VAT percent of a renewal's tax is the one its item was priced with
+  -- (the item carries it): the item may have been set before a VAT change
+  -- that could not reach Paddle in time. An item without it: today's percent
+  -- when it gives that tax, else the percent the item's own amounts make.
   IF v_tax > 0 THEN
-    SELECT public.billing_jsonb_number(s.vat_percent -> v_currency) INTO v_vat
-      FROM public.billing_settings s WHERE s.edition = public.platform_edition();
+    v_vat := public.billing_jsonb_number(v_item -> 'vat_percent');
+    IF v_vat IS NULL OR v_vat <= 0 OR v_vat >= 100 THEN
+      SELECT public.billing_jsonb_number(s.vat_percent -> v_currency) INTO v_vat
+        FROM public.billing_settings s WHERE s.edition = public.platform_edition();
+      IF v_vat IS NULL OR v_vat <= 0 OR v_vat >= 100 OR round(v_net * round(v_vat, 3) / 100) <> v_tax THEN
+        v_vat := v_tax * 100 / v_net;
+      END IF;
+    END IF;
+    v_vat := CASE WHEN v_vat > 0 AND v_vat < 100 THEN round(v_vat, 3) END;
   END IF;
   INSERT INTO public.billing_account_payments (
     workspace_id, provider, currency, amount_minor, net_minor, tax_minor, tax_percent,
@@ -656,13 +667,23 @@ AS $$
 $$;
 
 -- billing_accounts and workspace_subscriptions (the columns are in each
--- trigger's WHEN). Security definer: whoever changes those rows, the cards
--- table stays server-only.
+-- trigger's WHEN), and a subscription row deleted (a Super Admin revoke:
+-- the card must be cancelled before Paddle charges for a plan that is gone).
+-- A row deleted with its workspace is left to billing_card_workspace_deleted:
+-- touching the cards in the middle of that cascade would write a card whose
+-- setup payment is being deleted. Security definer: whoever changes those
+-- rows, the cards table stays server-only.
 CREATE OR REPLACE FUNCTION public.billing_card_touch_trigger()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF EXISTS (SELECT 1 FROM public.workspaces w WHERE w.id = OLD.workspace_id) THEN
+      PERFORM public.billing_card_touch_workspace(OLD.workspace_id);
+    END IF;
+    RETURN NULL;
+  END IF;
   PERFORM public.billing_card_touch_workspace(NEW.workspace_id);
   RETURN NULL;
 END;
@@ -766,6 +787,11 @@ CREATE TRIGGER trg_billing_card_touch_subscription_update
         OR OLD.billing_interval IS DISTINCT FROM NEW.billing_interval
         OR OLD.current_period_end IS DISTINCT FROM NEW.current_period_end)
   EXECUTE FUNCTION public.billing_card_touch_trigger();
+
+DROP TRIGGER IF EXISTS trg_billing_card_touch_subscription_delete ON public.workspace_subscriptions;
+CREATE TRIGGER trg_billing_card_touch_subscription_delete
+  AFTER DELETE ON public.workspace_subscriptions
+  FOR EACH ROW EXECUTE FUNCTION public.billing_card_touch_trigger();
 
 DROP TRIGGER IF EXISTS trg_billing_card_touch_plan ON public.billing_plans;
 CREATE TRIGGER trg_billing_card_touch_plan

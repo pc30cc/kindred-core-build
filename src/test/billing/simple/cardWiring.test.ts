@@ -470,7 +470,7 @@ describe('the due moment with a saved card', () => {
 
 describe('a renewal the card paid has its own mail, naming the card', () => {
   it('billing_card_renewed with {card} when a card paid; billing_renewed (no card) when the balance did', async () => {
-    await plans.afterPlanChange(CFG, W, { action: 'prepaid', plan_id: PRO, amount_minor: 2900, balance_minor: 0 }, 'payment_succeeded', { card: 'Visa •••• 4242' });
+    await plans.afterPlanChange(CFG, W, { action: 'prepaid', plan_id: PRO, amount_minor: 2900, balance_minor: 0 }, 'payment_succeeded', { card: { brand: 'visa', last4: '4242' } });
     expect(mails('billing_renewed')).toHaveLength(0);
     expect(mails('billing_card_renewed')).toHaveLength(1);
     expect(mails('billing_card_renewed')[0].data).toMatchObject({ card: 'Visa •••• 4242', amount: '2900 USD', balance: '0 USD' });
@@ -480,7 +480,7 @@ describe('a renewal the card paid has its own mail, naming the card', () => {
   });
 
   it('a pulled card renewal that started a changed plan is still billing_plan_changed', async () => {
-    await plans.afterPlanChange(CFG, W, { action: 'renewed', plan_id: PRO, previous_plan_id: TEAM }, 'payment_succeeded', { card: 'Visa •••• 4242' });
+    await plans.afterPlanChange(CFG, W, { action: 'renewed', plan_id: PRO, previous_plan_id: TEAM }, 'payment_succeeded', { card: { brand: 'visa', last4: '4242' } });
     expect(mails('billing_plan_changed')).toHaveLength(1);
     expect(mails('billing_card_renewed')).toHaveLength(0);
   });
@@ -532,6 +532,11 @@ describe('after a card payment is settled', () => {
     expect(mails('billing_card_renewed')).toHaveLength(1);
     expect(mails('billing_card_renewed')[0].data.card).toBe('Visa •••• 4242');
     expect(errorLog).not.toHaveBeenCalled();
+  });
+
+  it('billing_card_renewed says what the card was charged (VAT included), not the net price', async () => {
+    await settle({ source: 'card_renewal', card_id: CARD, amount_minor: 3190 }, { action: 'prepaid', plan_id: PRO, card: true, amount_minor: 2900, balance_minor: 0 });
+    expect(mails('billing_card_renewed')[0].data).toMatchObject({ amount: '3190 USD', balance: '0 USD' });
   });
 
   it('a renewal that could not be spent: the receipt (the money is in the balance) and REVIEW, no plan mail', async () => {

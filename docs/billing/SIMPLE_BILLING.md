@@ -327,8 +327,12 @@ Templates (Super Admin -> Branding -> Email templates, per edition, fa/en/tr):
 `billing_plan_activated`, `billing_trial_ending`, `billing_trial_ended`, and
 for the saved card (3b, sent in Multi Region only) `billing_card_renewed` (a
 renewal the card paid, instead of `billing_renewed`; its `{card}` is "Visa ••••
-4242", besides `{plan_name}`, `{amount}`, `{balance}`, `{period_start}`,
-`{period_end}`), `billing_card_payment_failed` and `billing_card_removed`.
+4242", besides `{plan_name}`, `{amount}` (what the card was charged, VAT
+included), `{balance}`, `{period_start}`, `{period_end}`),
+`billing_card_payment_failed` (its `{failure_reason}` read from Paddle's
+error code, as the billing page reads it) and `billing_card_removed`. A card
+Paddle names no type for is "Card •••• 4242" in English and only "•••• 4242"
+in Persian and Turkish, whose templates already say "card".
 The server fills the variables in the edition's way (Toman, Persian digits
 and the Persian calendar in Iran; the Gregorian calendar in Persian mail of
 the international edition) and adds `billing_url`, `receipt_url`,
@@ -380,6 +384,10 @@ permissions, events and the sandbox checks to run before switching it on:
   and interval renews at what it charged, even when the price rose since
   Paddle's item was last set (the new price applies from the period after);
   a price that fell is the one spent, and the rest stays in the balance.
+  Its net, tax and VAT percent are the ones on Paddle's item (its
+  `custom_data` carries `net_minor`, `tax_minor` and `vat_percent`; a VAT
+  change re-syncs the item), so a VAT change Paddle's item could not follow
+  before the charge never prints a percent the tax was not priced with.
   A payment that cannot be spent on the renewal (card no longer live,
   auto-renew off, already renewed, Free or unsold next, another plan or
   interval below the price) stays in the balance, with a receipt and a
@@ -405,7 +413,8 @@ permissions, events and the sandbox checks to run before switching it on:
   `/charge` per payment row (`card_charge`, at most one pending per
   workspace), with `prevent_change` so a decline changes nothing. A charge
   whose answer never came is never posted again: it is looked up by the
-  payment id on its item (the webhook, the verify route, the job) and fails
+  payment id on its item (the webhook, the verify route, which the dialog
+  calls while it waits for up to a minute, the job) and fails
   as `charge_not_found` after an hour. Paddle's minimum is 70 cents. Only
   the total the button showed is charged (`expectedTotalMinor`, VAT
   included; another one answers `QUOTE_CHANGED` and the page reloads its
@@ -430,10 +439,19 @@ permissions, events and the sandbox checks to run before switching it on:
   renewal another notification settled meanwhile moves our date on). One
   that did not renew our period (charged at another amount, so credited as a
   top-up for review; or refused by a renewal guard) keeps Paddle's date too:
-  Paddle is never asked to charge that period again. Inside the freeze the
-  reconciler changes nothing, except that a date of Paddle's earlier than
-  ours is moved later (never earlier, never the item) while Paddle's own
-  30-minute lock is still away.
+  Paddle is never asked to charge that period again. Nor is its date moved
+  earlier while the checkout that saved the card is not settled here (a card
+  saved mid-period paid the next period with it): that checkout is asked
+  about first, and until it settles the date stays (`setup_unsettled`).
+  Inside the freeze the reconciler changes only what never bills and never
+  charges sooner, and only while Paddle's own 30-minute lock is still away:
+  a date of Paddle's earlier than the one our period anchors (its end − 24
+  hours, never the one clamped to now + 45 minutes, which would push a
+  correct date on at every pass) is moved later; a stop is scheduled at
+  Paddle's period end; and the item is set to the next period's (a plan or
+  interval change made just before), with Paddle's date kept, after a
+  preview that bills nothing and does not move that date (one that would
+  waits). Never a date earlier.
 - **Customer actions.** Auto-renew off: Paddle cancels at its period end
   first, then the flag goes off (on again before then undoes it); refused
   (`CARD_RENEWAL_IN_PROGRESS`) once Paddle's charge time has passed and its

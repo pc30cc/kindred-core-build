@@ -49,11 +49,12 @@ const PLAN: Request = {
   fullPriceMinor: 2900, title: 'Buy Pro',
 };
 
-function open(request: Request, props: { cardAvailable?: boolean; cardProviders?: string[]; vatPercent?: number | null } = {}) {
+function open(request: Request, props: { cardAvailable?: boolean; cardProviders?: string[]; vatPercent?: number | null; onStale?: () => void } = {}) {
   return render(
     <PayOnlineDialog
       request={request}
       onOpenChange={() => undefined}
+      onCurrencyChanged={props.onStale}
       workspaceId="ws-1"
       slug="acme"
       currency="USD"
@@ -123,6 +124,31 @@ describe('PayOnlineDialog with automatic card renewal', () => {
     expect(screen.getByTestId('pay-online-total')).toHaveTextContent('$319.00');
     expect(screen.getByTestId('pay-online-card-note')).toHaveTextContent('billing.account.payOnline.autoRenewYearly {"amount":"$319.00"}');
   });
+
+  it('the card setup itself ("Turn on automatic card payments") cannot be unticked into a one-time payment', async () => {
+    open({ purpose: 'renewal', priceMinor: 2900, balanceMinor: 0, expectedNetMinor: 2900, fullPriceMinor: 2900, autoRenew: true, title: 'Renew Pro automatically' });
+    const box = screen.getByRole('checkbox');
+    expect(box).toHaveAttribute('data-state', 'checked');
+    expect(box).toBeDisabled();
+    fireEvent.click(box);
+    expect(screen.getByRole('checkbox')).toHaveAttribute('data-state', 'checked');
+    fireEvent.click(screen.getByText('billing.account.topup.pay'));
+    await waitFor(() => expect(api.checkout).toHaveBeenCalledTimes(1));
+    expect(api.checkout.mock.calls[0][1]).toMatchObject({ autoRenew: true });
+  });
+
+  it.each(['CARD_ALREADY_SAVED', 'CARD_PAYS_RENEWAL', 'CARD_SETUP_IN_PROGRESS', 'CURRENCY_CHANGED'])(
+    'a refusal because the page is stale (%s) reloads it',
+    async (code) => {
+      const { AccountApiError } = await import('@/lib/accountBillingApi');
+      api.checkout.mockRejectedValue(new AccountApiError(code, 409, null));
+      const onStale = vi.fn();
+      open(PLAN, { onStale });
+      fireEvent.click(screen.getByText('billing.account.topup.pay'));
+      await waitFor(() => expect(onStale).toHaveBeenCalledTimes(1));
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    },
+  );
 
   it('opens unticked when asked to', () => {
     open({ ...PLAN, autoRenew: false });

@@ -42,7 +42,11 @@ export interface PayOnlineRequest {
   fullPriceMinor?: number | null;
   /** The interval the saved card then renews on (a renewal sends none of its own). */
   cardInterval?: BillingInterval;
-  /** Whether "renew automatically with this card" starts ticked (default: yes). */
+  /**
+   * Whether "renew automatically with this card" starts ticked (default:
+   * yes). true = this is the card setup itself ("Turn on automatic card
+   * payments"): the box stays ticked, so it never becomes a one-time payment.
+   */
   autoRenew?: boolean;
 }
 
@@ -127,7 +131,10 @@ export default function PayOnlineDialog({
     } catch (e) {
       setError(accountErrorText(e, t));
       setBusy(false);
-      if ((e as { code?: string })?.code === 'CURRENCY_CHANGED') onCurrencyChanged?.();
+      // What the page shows changed under it (the currency; a card saved
+      // meanwhile, in another tab): it is reloaded, so it stops offering this.
+      const code = String((e as { code?: string })?.code);
+      if (['CURRENCY_CHANGED', 'CARD_ALREADY_SAVED', 'CARD_PAYS_RENEWAL', 'CARD_SETUP_IN_PROGRESS'].includes(code)) onCurrencyChanged?.();
     }
   };
 
@@ -147,7 +154,7 @@ export default function PayOnlineDialog({
                 <Checkbox
                   id="pay-online-auto-renew"
                   checked={saveCard}
-                  disabled={busy}
+                  disabled={busy || request?.autoRenew === true}
                   onCheckedChange={(checked) => setSaveCard(checked === true)}
                   className="mt-0.5"
                 />

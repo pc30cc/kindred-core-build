@@ -178,31 +178,60 @@ describe('an upgrade with a saved card', () => {
     expect(api.chargeCardUpgrade).not.toHaveBeenCalled();
   });
 
-  it('a charge Paddle confirms later (202) is asked about until it settles', async () => {
+  it('a balance upgrade refused because the card changed under the page reloads it: the dialog then says why', async () => {
+    const frozen = { ...CARD, frozen_until: inDays(0.1) };
+    api.view.mockResolvedValueOnce({ ...VIEW, balance_minor: 10000 }).mockResolvedValue({ ...VIEW, balance_minor: 10000, card: frozen });
+    api.quote.mockResolvedValue({ ...UPGRADE, balance_minor: 10000, shortfall_minor: 0 });
+    api.upgrade.mockRejectedValue(new AccountApiError('CARD_RENEWAL_IN_PROGRESS', 409, { frozen_until: frozen.frozen_until }));
+    const quote = await pickBusiness();
+    fireEvent.click(within(quote).getByText(/billing\.account\.picker\.upgradeFromBalance/));
+    await waitFor(() => expect(api.view).toHaveBeenCalledTimes(2));
+    expect(await within(screen.getByTestId('plan-quote')).findByTestId('plan-card-blocked')).toHaveTextContent('billing.account.picker.cardFrozen');
+  });
+
+  it('a charge Paddle confirms later (202): the server is asked to look it up until it settles', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     api.chargeCardUpgrade.mockResolvedValue({ status: 'processing', paymentId: 'pay-c2' });
-    api.payment
-      .mockResolvedValueOnce({ id: 'pay-c2', status: 'pending', purpose: 'upgrade' })
-      .mockResolvedValue({ id: 'pay-c2', status: 'succeeded', purpose: 'upgrade', purpose_result: { action: 'upgrade' } });
+    // The webhook never comes: only a lookup (verify) settles the row.
+    api.payment.mockResolvedValue({ id: 'pay-c2', status: 'pending', purpose: 'upgrade' });
+    api.verify
+      .mockResolvedValueOnce({ status: 'pending' })
+      .mockResolvedValue({ status: 'succeeded', purpose: 'upgrade', purposeResult: { action: 'upgrade' } });
     const quote = await pickBusiness();
     fireEvent.click(await chargeButton(quote));
     expect(await within(quote).findByTestId('card-charging')).toHaveTextContent('billing.account.picker.cardProcessing');
     await vi.advanceTimersByTimeAsync(3000);
     await vi.advanceTimersByTimeAsync(3000);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(api.payment).toHaveBeenCalledWith('ws-1', 'pay-c2');
-    expect(api.payment).toHaveBeenCalledTimes(2);
+    expect(api.verify).toHaveBeenCalledWith('ws-1', 'pay-c2', 'paddle', {});
+    expect(api.verify).toHaveBeenCalledTimes(2);
+  });
+
+  it('between lookups the payment row is read (a webhook may settle it)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.chargeCardUpgrade.mockResolvedValue({ status: 'processing', paymentId: 'pay-c8' });
+    api.verify.mockResolvedValue({ status: 'pending' });
+    api.payment.mockResolvedValue({ id: 'pay-c8', status: 'succeeded', purpose: 'upgrade', purpose_result: { action: 'upgrade' } });
+    const quote = await pickBusiness();
+    fireEvent.click(await chargeButton(quote));
+    for (let i = 0; i < 4; i += 1) await vi.advanceTimersByTimeAsync(3000);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(api.verify).toHaveBeenCalledTimes(3);
+    expect(api.payment).toHaveBeenCalledWith('ws-1', 'pay-c8');
   });
 
   it('after a minute without Paddle\'s answer it says the plan is upgraded once it comes, and never charges again', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     api.chargeCardUpgrade.mockResolvedValue({ status: 'processing', paymentId: 'pay-c3' });
     api.payment.mockResolvedValue({ id: 'pay-c3', status: 'pending', purpose: 'upgrade' });
+    api.verify.mockResolvedValue({ status: 'pending' });
     const quote = await pickBusiness();
     fireEvent.click(await chargeButton(quote));
     for (let i = 0; i < 21; i += 1) await vi.advanceTimersByTimeAsync(3000);
     expect(await within(quote).findByTestId('card-charge-pending')).toHaveTextContent('billing.account.picker.cardPending');
-    expect(api.payment).toHaveBeenCalledTimes(20);
+    // 20 tries in a minute: a lookup on the first three and every fifth, the row read in between.
+    expect(api.verify).toHaveBeenCalledTimes(6);
+    expect(api.payment).toHaveBeenCalledTimes(14);
     expect(api.chargeCardUpgrade).toHaveBeenCalledTimes(1);
   });
 
@@ -210,6 +239,7 @@ describe('an upgrade with a saved card', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     api.chargeCardUpgrade.mockResolvedValue({ status: 'processing', paymentId: 'pay-c6' });
     api.payment.mockResolvedValue({ id: 'pay-c6', status: 'pending', purpose: 'upgrade' });
+    api.verify.mockResolvedValue({ status: 'pending' });
     const quote = await pickBusiness();
     fireEvent.click(await chargeButton(quote));
     await within(quote).findByTestId('card-charging');
@@ -218,9 +248,9 @@ describe('an upgrade with a saved card', () => {
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await waitFor(() => expect(api.view.mock.calls.length).toBeGreaterThan(views));
-    const asked = api.payment.mock.calls.length;
+    const asked = api.payment.mock.calls.length + api.verify.mock.calls.length;
     for (let i = 0; i < 5; i += 1) await vi.advanceTimersByTimeAsync(3000);
-    expect(api.payment).toHaveBeenCalledTimes(asked);
+    expect(api.payment.mock.calls.length + api.verify.mock.calls.length).toBe(asked);
 
     fireEvent.click(screen.getByText('billing.account.plan.change'));
     fireEvent.click(await screen.findByTestId('plan-option-biz'));
@@ -256,7 +286,7 @@ describe('an upgrade with a saved card', () => {
   it('a decline reported while Paddle confirmed it later is shown the same way', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     api.chargeCardUpgrade.mockResolvedValue({ status: 'processing', paymentId: 'pay-c4' });
-    api.payment.mockResolvedValue({ id: 'pay-c4', status: 'failed', purpose: 'upgrade', failure_reason: 'card_declined' });
+    api.verify.mockResolvedValue({ status: 'failed', reason: 'card_declined' });
     const quote = await pickBusiness();
     fireEvent.click(await chargeButton(quote));
     await vi.advanceTimersByTimeAsync(3000);

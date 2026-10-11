@@ -35,6 +35,8 @@ const h = vi.hoisted(() => ({
   accountGateways: vi.fn(),
   afterSettlement: vi.fn(),
   edition: 'international' as 'international' | 'iran',
+  /** The recipient's language in the mail stub. */
+  locale: 'en',
   regionMode: 'multi',
   purposeResult: null as Row | null,
   /** What reading a table fails with, by table (a database without migration 262). */
@@ -59,7 +61,7 @@ vi.mock('../../../../server/services/platformRegion.js', () => ({
 }));
 vi.mock('../../../../server/services/billing/account/notify.js', () => ({
   sendBillingEmail: async (_c: unknown, _ws: string, slug: string, build: (ctx: unknown) => Record<string, string>) => {
-    const ctx = { locale: 'en', edition: 'international', money: (m: number, c: string) => `${m} ${c}`, date: (d: string | null) => String(d ?? ''), number: String };
+    const ctx = { locale: h.locale, edition: 'international', money: (m: number, c: string) => `${m} ${c}`, date: (d: string | null) => String(d ?? ''), number: String };
     h.emails.push({ slug, data: build(ctx) });
     return { sent: true };
   },
@@ -408,6 +410,7 @@ beforeEach(() => {
   h.paddleOverride = {};
   h.gatewayConfig = { api_key: 'pdl_sdbx_apikey_mock', client_token: 'test_client_mock', card_auto_renew: true };
   h.edition = 'international';
+  h.locale = 'en';
   h.regionMode = 'multi';
   h.purposeResult = null;
   h.tableError = {};
@@ -473,7 +476,22 @@ describe('syncCard', () => {
     expect(patch.items[0].price).toMatchObject({
       unit_price: { amount: '8690', currency_code: 'USD' },
       billing_cycle: { interval: 'month', frequency: 1 },
-      custom_data: { plan_id: TEAM, interval: 'monthly', net_minor: 7900, tax_minor: 790 },
+      custom_data: { plan_id: TEAM, interval: 'monthly', net_minor: 7900, tax_minor: 790, vat_percent: 10 },
+    });
+  });
+
+  it("the item carries the VAT percent its tax was priced with: a percent change with the same tax re-syncs it (Q4)", async () => {
+    // 2900 at 10% and at 10.01% both give a tax of 290; only the percent differs.
+    paddle.sub.items = [{ price: priceJson(3190, 'month', { plan_id: PRO, interval: 'monthly', net_minor: 2900, tax_minor: 290, vat_percent: 10 }) }];
+    table('billing_settings')[0].vat_percent = { USD: 10 };
+    expect((await card.syncCard(CFG, CARD)).status).toBe('unchanged');
+    table('billing_settings')[0].vat_percent = { USD: 10.01 };
+    await card.syncCard(CFG, CARD);
+    const patch = calls(`PATCH /subscriptions/${SUB}`)[0].body as { items: Array<{ price: Row }>; next_billed_at?: string };
+    expect(patch.next_billed_at).toBeUndefined();
+    expect(patch.items[0].price).toMatchObject({
+      unit_price: { amount: '3190', currency_code: 'USD' },
+      custom_data: { plan_id: PRO, interval: 'monthly', net_minor: 2900, tax_minor: 290, vat_percent: 10.01 },
     });
   });
 
@@ -579,14 +597,69 @@ describe('syncCard', () => {
     expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
   });
 
-  it('within 2 hours of Paddle\'s charge nothing is changed (freeze)', async () => {
+  it('within 2 hours of Paddle\'s charge nothing else is changed (freeze)', async () => {
     // Our period asks for this very charge (its end − 24 h is in an hour).
     table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D + H);
     paddle.sub.next_billed_at = iso(Date.now() + H);
-    paddle.sub.items = [{ price: priceJson(1000, 'month', {}) }];
+    paddle.sub.custom_data = { workspace_id: W, intent_id: SETUP };
     const outcome = await card.syncCard(CFG, CARD);
     expect(outcome).toEqual({ status: 'deferred', detail: 'frozen' });
     expect(h.paddleCalls.map((c) => c.method)).toEqual(['GET']);
+  });
+
+  it('within the freeze, before Paddle\'s lock, the next period\'s item is set: items only, previewed, Paddle\'s date kept', async () => {
+    // A plan change settled just before the freeze: Paddle still holds the old item.
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D + H);
+    const paddleAt = iso(Date.now() + H);
+    paddle.sub.next_billed_at = paddleAt;
+    Object.assign(accountRow(), { scheduled_plan_id: TEAM });
+    const outcome = await card.syncCard(CFG, CARD);
+    expect(outcome).toEqual({ status: 'deferred', detail: 'frozen' });
+    const patch = calls(`PATCH /subscriptions/${SUB}`);
+    expect(patch).toHaveLength(1);
+    const body = patch[0].body as { items: Array<{ price: Row }>; next_billed_at?: string; proration_billing_mode: string };
+    expect(Object.keys(body).sort()).toEqual(['items', 'proration_billing_mode']);
+    expect(body.proration_billing_mode).toBe('do_not_bill');
+    expect(body.items[0].price).toMatchObject({ custom_data: { plan_id: TEAM, interval: 'monthly', net_minor: 7900, tax_minor: 0 } });
+    expect(calls(`PATCH /subscriptions/${SUB}/preview`)[0].body).toEqual(body);
+    expect(at(`paddle:PATCH /subscriptions/${SUB}/preview`)).toBeLessThan(at(`paddle:PATCH /subscriptions/${SUB}`));
+    expect(paddle.sub.next_billed_at).toBe(paddleAt);
+    expect(cardRow().synced_version).toBe(0);
+  });
+
+  it('within the freeze an item swap whose preview would move Paddle\'s date, or one inside Paddle\'s lock, waits', async () => {
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D + H);
+    paddle.sub.next_billed_at = iso(Date.now() + H);
+    Object.assign(accountRow(), { scheduled_plan_id: TEAM });
+    h.paddleOverride[`PATCH /subscriptions/${SUB}/preview`] = () => ({ body: { data: { ...paddle.sub, next_billed_at: iso(Date.now() + 30 * D), immediate_transaction: null } } });
+    expect(await card.syncCard(CFG, CARD)).toEqual({ status: 'deferred', detail: 'frozen' });
+    expect(calls(`PATCH /subscriptions/${SUB}/preview`)).toHaveLength(1);
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
+    // Inside Paddle's own 30-minute lock nothing is asked.
+    h.paddleOverride = {};
+    h.paddleCalls = [];
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D + 20 * MIN);
+    paddle.sub.next_billed_at = iso(Date.now() + 20 * MIN);
+    expect(await card.syncCard(CFG, CARD)).toEqual({ status: 'deferred', detail: 'frozen' });
+    expect(h.paddleCalls.map((c) => c.method)).toEqual(['GET']);
+  });
+
+  it('within the freeze, before Paddle\'s lock, a stop goes on: cancelled at the period end (never bills)', async () => {
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + D + H);
+    paddle.sub.next_billed_at = iso(Date.now() + H);
+    accountRow().auto_renew = false;
+    expect((await card.syncCard(CFG, CARD)).status).toBe('synced');
+    expect(calls(`POST /subscriptions/${SUB}/cancel`).map((c) => c.body)).toEqual([{ effective_from: 'next_billing_period' }]);
+    expect(cardRow().cancel_intent).toBe('period_end');
+  });
+
+  it('within the freeze a correct date is not moved later toward now + the minimum lead (no drift)', async () => {
+    // Paddle holds exactly our end − 24 h, 40 minutes away: our "desired" is clamped to now + 45 min.
+    table('workspace_subscriptions')[0].current_period_end = iso(Date.now() + 40 * MIN + D);
+    paddle.sub.next_billed_at = iso(Date.now() + 40 * MIN);
+    expect(await card.syncCard(CFG, CARD)).toEqual({ status: 'deferred', detail: 'frozen' });
+    expect(calls(`PATCH /subscriptions/${SUB}/preview`)).toHaveLength(0);
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
   });
 
   it('within the freeze a date of Paddle\'s before ours is moved later, the date only (a wrong early date is undone)', async () => {
@@ -638,6 +711,19 @@ describe('syncCard', () => {
     expect(outcome).toEqual({ status: 'deferred', detail: 'renewal_settled' });
     expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
     expect(paddle.sub.next_billed_at).toBe(iso(ahead.getTime()));
+  });
+
+  it('an unsettled renewal setup: Paddle\'s date is never moved earlier over the period its checkout paid (setup_unsettled)', async () => {
+    // The card was saved mid-period for the next period 7 hours ago; that checkout is not settled here.
+    Object.assign(payments()[0], { status: 'pending', purpose: 'renewal', created_at: iso(Date.now() - 7 * H), completed_at: null, verified_at: null, ledger_id: null });
+    const start = Date.now() - 7 * H;
+    Object.assign(paddle.sub, { next_billed_at: iso(start + 30 * D), current_billing_period: { starts_at: iso(start), ends_at: iso(start + 30 * D) } });
+    h.verifyPayment.mockResolvedValue({ verified: false, status: 'pending' });
+    const outcome = await card.syncCard(CFG, CARD);
+    expect(outcome).toEqual({ status: 'deferred', detail: 'setup_unsettled' });
+    expect(calls(`PATCH /subscriptions/${SUB}/preview`)).toHaveLength(0);
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
+    expect(paddle.sub.next_billed_at).toBe(iso(start + 30 * D));
   });
 
   it('a card registered just now for a checkout opened hours ago is held, its hold counted from the registration', async () => {
@@ -913,6 +999,24 @@ describe('handleCardEvent', () => {
     expect(rpcs('billing_card_settle')).toHaveLength(2);
     expect(h.afterSettlement).toHaveBeenCalledTimes(1);
     expect(cardRow()).toMatchObject({ status: 'active', last_failure: null });
+  });
+
+  it.each([
+    ['not_enough_balance', 'insufficient funds'],
+    ['invalid_payment_details', 'the card has expired'],
+    ['transaction_not_permitted', 'the card issuer declined the payment'],
+  ])('a decline with Paddle\'s code %s is mailed as "%s"', async (code, reason) => {
+    const txn = txnJson({ id: `txn_decline_${code}`, status: 'past_due', payments: [{ status: 'error', error_code: code, created_at: iso(Date.now()), method_details: { card: { type: 'visa', last4: '4242' } } }] });
+    await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.payment_failed', txn) as never, owner });
+    expect(h.emails.map((m) => [m.slug, m.data.failure_reason])).toEqual([['billing_card_payment_failed', reason]]);
+  });
+
+  it('a card Paddle names no type for is mailed in Persian without the English word "Card"', async () => {
+    h.locale = 'fa';
+    cardRow().brand = 'unknown';
+    const txn = txnJson({ id: 'txn_decline_fa', status: 'past_due', payments: [{ status: 'error', error_code: 'not_enough_balance', created_at: iso(Date.now()), method_details: { card: { type: 'unknown', last4: '4242' } } }] });
+    await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.payment_failed', txn) as never, owner });
+    expect(h.emails[0].data).toMatchObject({ card: '•••• 4242', failure_reason: 'موجودی کافی نیست' });
   });
 
   it('a renewal paid with another card: the card is written before the settlement, whose mail names the card that paid', async () => {
@@ -1313,7 +1417,7 @@ describe('prepareCardSetup', () => {
     payments().push({ id: 'p-old', workspace_id: W, provider: 'paddle_sandbox', source: 'card_setup', status: 'pending', provider_ref: 'txn_old', card_id: null, created_at: iso(Date.now() - 5 * MIN) });
     h.closeCheckout.mockResolvedValue(true);
     const out = await card.prepareCardSetup(CFG, W, input);
-    expect(out).toEqual({ customerId: null, recurring: { interval: 'monthly' }, priceCustomData: { plan_id: PRO, interval: 'monthly', net_minor: 2900, tax_minor: 580 } });
+    expect(out).toEqual({ customerId: null, recurring: { interval: 'monthly' }, priceCustomData: { plan_id: PRO, interval: 'monthly', net_minor: 2900, tax_minor: 580, vat_percent: 20 } });
     expect(h.closeCheckout).toHaveBeenCalledWith(expect.anything(), 'txn_old');
     expect(payments().find((p) => p.id === 'p-old')).toMatchObject({ status: 'canceled', failure_reason: 'superseded' });
   });
@@ -1362,8 +1466,20 @@ describe('cardLabel', () => {
     ['union_pay', '1234', 'UnionPay •••• 1234'],
     ['some_new_brand', '9999', 'Some New Brand •••• 9999'],
     [null, '1111', 'Card •••• 1111'],
+    ['unknown', '1111', 'Card •••• 1111'],
     ['mastercard', null, 'Mastercard'],
+    [null, null, 'Card'],
   ])('%s %s → %s', (brand, last4, label) => {
     expect(card.cardLabel(brand, last4)).toBe(label);
+  });
+
+  it.each([
+    ['fa', 'visa', '4242', 'Visa •••• 4242'],
+    ['fa', 'unknown', '4242', '•••• 4242'],
+    ['fa', null, null, ''],
+    ['tr', 'unknown', '4242', '•••• 4242'],
+    ['tr', null, null, 'Kart'],
+  ])('in %s, %s %s → "%s" (the template already says "card")', (locale, brand, last4, label) => {
+    expect(card.cardLabel(brand, last4, locale)).toBe(label);
   });
 });

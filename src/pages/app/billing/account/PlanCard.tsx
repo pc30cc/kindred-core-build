@@ -460,7 +460,7 @@ function CardBlock({
         </p>
       )}
 
-      {frozen && card.frozen_until && (
+      {!pastDue && frozen && card.frozen_until && (
         <p className="text-xs text-muted-foreground" data-testid="card-frozen">
           {t('billing.account.card.frozen', { time: billingMoment(card.frozen_until, locale) })}
         </p>

@@ -389,6 +389,29 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
     await expect(recordCharge(other, t, 'subscription_recurring', 3480, renewalItem(2900, 580))).rejects.toThrow(/billing_card_conflict/);
   });
 
+  it('a renewal\'s VAT percent is the one its tax was priced with, not today\'s (a VAT change that did not reach Paddle in time)', async () => {
+    const { card: id } = await cardWorkspace();
+    const percentOf = async (items: unknown[], amount: number) =>
+      (await recordCharge(id, txn(), 'subscription_recurring', amount, items)).tax_percent;
+    // The item carries the percent it was priced with (10%), though today's is 20%.
+    expect(await percentOf([{ ...renewalItem(2900, 290)[0], vat_percent: 10 }], 3190)).toBe('10.000');
+    // An item set before it carried one: today's percent when it gives that tax, else the item's own.
+    expect(await percentOf(renewalItem(2900, 580), 3480)).toBe('20.000');
+    expect(await percentOf(renewalItem(2900, 290), 3190)).toBe('10.000');
+    expect(await percentOf(renewalItem(2999, 270), 3269)).toBe('9.003');
+    // A tax that is no percent (as much as the net or more): no percent, still recorded.
+    const odd = await recordCharge(id, txn(), 'subscription_recurring', 300, renewalItem(100, 200));
+    expect(odd).toMatchObject({ tax_minor: '200', tax_percent: null, purpose: 'renewal' });
+    // VAT removed since the item was priced: the tax charged keeps its percent.
+    await q(`UPDATE public.billing_settings SET vat_percent = '{}' WHERE edition = 'international'`);
+    try {
+      expect(await percentOf(renewalItem(2900, 580), 3480)).toBe('20.000');
+      expect(await percentOf([{ ...renewalItem(2900, 580)[0], vat_percent: 20 }], 3480)).toBe('20.000');
+    } finally {
+      await q(`UPDATE public.billing_settings SET vat_percent = $1 WHERE edition = 'international'`, [JSON.stringify({ USD: VAT })]);
+    }
+  });
+
   it('the same transaction reported twice at once is recorded once', async () => {
     const { card: id } = await cardWorkspace();
     const url = new URL(DSN!);
@@ -975,6 +998,18 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
     expect(await bumps(() => q(
       `INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status, billing_interval, current_period_start, current_period_end)
        VALUES ($1, $2, 'active', 'monthly', now(), now() + interval '1 month')`, [fresh, proId]), freshCard)).toBe(1);
+
+    // The subscription row deleted (a Super Admin revoke): the card is synced at once, not at the next
+    // 6-hourly re-check, so it is cancelled before Paddle charges for a plan that is gone.
+    await q(
+      `UPDATE public.billing_account_cards
+          SET synced_version = sync_version, synced_at = now(), next_sync_at = now() + interval '6 hours',
+              paddle_next_billed_at = now() + interval '1 hour'
+        WHERE id = $1`, [freshCard]);
+    const queued = async () => (await q(`SELECT id FROM public.billing_card_sync_candidates(1000)`)).some((r) => String(r.id) === freshCard);
+    expect(await queued()).toBe(false);
+    expect(await bumps(() => q(`DELETE FROM public.workspace_subscriptions WHERE workspace_id = $1`, [fresh]), freshCard)).toBe(1);
+    expect(await queued()).toBe(true);
   });
 
   it('the reconciler\'s queue: changed, canceling, never synced, stale or overdue cards, oldest first; back-off waits', async () => {

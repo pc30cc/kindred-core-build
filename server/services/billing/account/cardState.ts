@@ -32,7 +32,8 @@ export type DesiredCardState =
       kind: 'renew';
       nextBilledAt: string;
       feasible: boolean;
-      item: { planId: string; interval: 'monthly' | 'yearly'; currency: string; netMinor: number; taxMinor: number; amountMinor: number };
+      /** `vatPercent`: the percent `taxMinor` was priced with (null without tax); the item carries it to the receipt. */
+      item: { planId: string; interval: 'monthly' | 'yearly'; currency: string; netMinor: number; taxMinor: number; amountMinor: number; vatPercent: number | null };
     };
 
 export interface CardStateInput {
@@ -190,6 +191,7 @@ export function desiredCardState(input: CardStateInput): DesiredCardState {
       netMinor: charge.net,
       taxMinor: charge.tax,
       amountMinor: charge.total,
+      vatPercent: charge.tax > 0 ? input.vatPercent : null,
     },
   };
 }

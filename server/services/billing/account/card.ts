@@ -65,6 +65,7 @@ import {
   CARD_CHARGE_RESOLVE_AFTER_MS,
   CARD_CURRENCIES,
   CARD_FREEZE_MAX_AFTER_MS,
+  CARD_RENEWAL_LEAD_MS,
   CARD_SETUP_HOLD_MS,
   CARD_SYNC_DATE_TOLERANCE_MS,
   PADDLE_MIN_CHARGE_MINOR,
@@ -775,11 +776,16 @@ export async function prepareCardSetup(
   const price = plan && !plan.is_free ? priceOf(plan.prices, currency, interval) : null;
   if (!plan || price === null) throw new AccountBillingError('PLAN_PRICE_UNAVAILABLE', 400);
   const settings = await getBillingSettings(config);
-  const charge = chargeFor(price, vatPercentFor(settings.vat_percent, currency));
+  const vat = vatPercentFor(settings.vat_percent, currency);
+  const charge = chargeFor(price, vat);
   return {
     customerId: await reusableCustomerId(config, workspaceId, input.providerName),
     recurring: { interval },
-    priceCustomData: { plan_id: plan.id, interval, net_minor: charge.net, tax_minor: charge.tax },
+    // vat_percent: the percent this tax was priced with, for the renewal's receipt.
+    priceCustomData: {
+      plan_id: plan.id, interval, net_minor: charge.net, tax_minor: charge.tax,
+      ...(charge.tax > 0 && vat !== null ? { vat_percent: vat } : {}),
+    },
   };
 }
 
@@ -1179,7 +1185,33 @@ function itemMatches(sub: PaddleSubscription, item: Extract<DesiredCardState, { 
     && str(data.plan_id) === item.planId
     && asInterval(data.interval) === item.interval
     && num(data.net_minor) === item.netMinor
-    && num(data.tax_minor) === item.taxMinor;
+    && num(data.tax_minor) === item.taxMinor
+    // The percent the renewal's receipt prints (a VAT change re-syncs the item).
+    && (item.taxMinor > 0 ? num(data.vat_percent) === item.vatPercent : true);
+}
+
+/** Paddle's recurring item for the next period (a non-catalog price with our custom_data). */
+function recurringItemFor(
+  cfg: BillingProviderConfig,
+  planName: string | null | undefined,
+  item: Extract<DesiredCardState, { kind: 'renew' }>['item'],
+): ReturnType<typeof buildRecurringItem> {
+  const name = planName || 'Plan';
+  return buildRecurringItem({
+    name,
+    description: `${name} (${item.interval})`,
+    amountMinor: item.amountMinor,
+    currency: item.currency,
+    interval: item.interval,
+    productId: str(cfg.product_id),
+    customData: {
+      plan_id: item.planId,
+      interval: item.interval,
+      net_minor: item.netMinor,
+      tax_minor: item.taxMinor,
+      ...(item.taxMinor > 0 && item.vatPercent !== null ? { vat_percent: item.vatPercent } : {}),
+    },
+  });
 }
 
 /**
@@ -1333,15 +1365,46 @@ async function runSync(config: ServerConfig, cardId: string, prefetched: PaddleS
       const holdLeft = Number.isFinite(setupAt) ? setupAt + CARD_SETUP_HOLD_MS - now : 0;
       return defer('setup_pending', Math.max(MINUTE_MS, Math.min(10 * MINUTE_MS, holdLeft)));
     }
-    // 5. Around Paddle's charge: changes wait. Except a date of Paddle's
-    // earlier than ours while Paddle's own lock is still away: it is moved
-    // later (that never charges; nothing else is changed), else nothing could
-    // ever undo a wrong early date before Paddle charges at it.
+    // 5. Around Paddle's charge: changes wait. Except, while Paddle's own lock
+    // is still away, what never bills and never charges sooner: a date of
+    // Paddle's earlier than our period's is moved later (else nothing could
+    // ever undo a wrong early date before Paddle charges at it); a stop at
+    // the period end goes on (step 6); and the item is swapped to the next
+    // period's, keeping Paddle's date (else a plan or interval change made
+    // just before would have Paddle charge the old item, which fails the
+    // renewal's price check and lapses the plan at its end).
     const freeze = cardFreeze({ paddle_next_billed_at: sub.nextBilledAt, status: card.status }, now);
-    if (freeze.frozen) {
-      const paddleAt = Date.parse(sub.nextBilledAt ?? '');
-      const wantedAt = desired.kind === 'renew' && desired.feasible ? Date.parse(desired.nextBilledAt) : Number.NaN;
-      if (desired.kind !== 'renew' || !(wantedAt - paddleAt > CARD_SYNC_DATE_TOLERANCE_MS && paddleAt - now > PADDLE_LOCK_MS)) {
+    const paddleAt = Date.parse(sub.nextBilledAt ?? '');
+    const lockAway = paddleAt - now > PADDLE_LOCK_MS;
+    if (freeze.frozen && !(desired.kind === 'stop_at_period_end' && lockAway)) {
+      if (desired.kind !== 'renew' || !lockAway) return defer('frozen', 15 * MINUTE_MS);
+      // Later only toward the date our period anchors (its end − the lead),
+      // never toward one clamped to now + the minimum lead: that one moves
+      // with every pass and would push a correct date on and on.
+      const anchored = Date.parse(lastPaidEnd(state.input) ?? '') - CARD_RENEWAL_LEAD_MS;
+      const moveLater = desired.feasible && Number.isFinite(anchored) && anchored - paddleAt > CARD_SYNC_DATE_TOLERANCE_MS
+        && Date.parse(desired.nextBilledAt) - paddleAt > CARD_SYNC_DATE_TOLERANCE_MS;
+      if (!moveLater) {
+        if (itemMatches(sub, desired.item)) return defer('frozen', 15 * MINUTE_MS);
+        const swap: SubscriptionPatch = {
+          items: [recurringItemFor(cfg, state.targetPlan?.name, desired.item)],
+          proration_billing_mode: 'do_not_bill',
+        };
+        const preview = await previewSubscriptionUpdate(cfg, sub.id, swap);
+        if (!preview.ok) return paddleFailure(preview);
+        if (preview.billsNow) {
+          console.error(`[billing-card] REVIEW card=${card.id} Paddle's preview of the next period's item would bill now; not applied`);
+          return fail('preview_bills');
+        }
+        const previewAt = Date.parse(preview.subscription?.nextBilledAt ?? '');
+        if (!Number.isFinite(previewAt) || Math.abs(previewAt - paddleAt) > CARD_SYNC_DATE_TOLERANCE_MS) {
+          // An interval swap that would move Paddle's date: never inside the freeze.
+          return defer('frozen', 15 * MINUTE_MS);
+        }
+        const swapped = await updateSubscription(cfg, sub.id, swap);
+        if (!swapped.ok) return paddleFailure(swapped);
+        mirror = { ...mirror, ...mirrorOf(swapped.subscription ?? sub) };
+        console.warn(`[billing-card] card=${card.id} the next period's item set inside the freeze; Paddle's date ${sub.nextBilledAt} kept`);
         return defer('frozen', 15 * MINUTE_MS);
       }
       const later: SubscriptionPatch = { next_billed_at: desired.nextBilledAt, proration_billing_mode: 'do_not_bill' };
@@ -1386,23 +1449,7 @@ async function runSync(config: ServerConfig, cardId: string, prefetched: PaddleS
     const patch: SubscriptionPatch = {};
     const wantedCustom = { workspace_id: card.workspace_id, card_id: card.id };
     if (!customDataMatches(sub, wantedCustom)) patch.custom_data = wantedCustom;
-    if (!itemMatches(sub, desired.item)) {
-      const name = state.targetPlan?.name || 'Plan';
-      patch.items = [buildRecurringItem({
-        name,
-        description: `${name} (${desired.item.interval})`,
-        amountMinor: desired.item.amountMinor,
-        currency: desired.item.currency,
-        interval: desired.item.interval,
-        productId: str(cfg.product_id),
-        customData: {
-          plan_id: desired.item.planId,
-          interval: desired.item.interval,
-          net_minor: desired.item.netMinor,
-          tax_minor: desired.item.taxMinor,
-        },
-      })];
-    }
+    if (!itemMatches(sub, desired.item)) patch.items = [recurringItemFor(cfg, state.targetPlan?.name, desired.item)];
     let held: string | null = null;
     if (!desired.feasible) {
       console.warn(`[billing-card] card=${card.id} the period ends before Paddle can renew it; it expires as usual`);
@@ -1412,7 +1459,18 @@ async function runSync(config: ServerConfig, cardId: string, prefetched: PaddleS
       if (!Number.isFinite(paddleAt) || Math.abs(paddleAt - wantedAt) > CARD_SYNC_DATE_TOLERANCE_MS) {
         const paidUntil = lastPaidEnd(state.input) ?? desired.nextBilledAt;
         const earlier = Number.isFinite(paddleAt) && wantedAt < paddleAt;
-        held = earlier ? await earlierDateBlocked(config, cfg, card, sub, paidUntil) : null;
+        if (earlier && state.input.setupPayment?.status === 'pending') {
+          // The checkout that saved the card may have paid the very period
+          // Paddle is ahead for (a renewal setup) without being settled here
+          // yet: settled first if Paddle says it is paid, else the date waits.
+          await settleSetupIfPaid(config, card);
+          const again = await loadCardState(config, card, Date.now());
+          if (again.input.setupPayment?.status === 'pending') {
+            console.error(`[billing-card] REVIEW card=${card.id} setup checkout unsettled; Paddle's date ${sub.nextBilledAt} kept`);
+            held = 'setup_unsettled';
+          }
+        }
+        if (!held) held = earlier ? await earlierDateBlocked(config, cfg, card, sub, paidUntil) : null;
         if (!held && earlier) {
           // Decided again on what is paid now: a renewal another notification
           // settled while Paddle was asked moved our date on, and the date
@@ -2212,15 +2270,22 @@ const BRAND_NAMES: Record<string, string> = {
   unionpay: 'UnionPay',
   mada: 'Mada',
   cartes_bancaires: 'Cartes Bancaires',
-  unknown: 'Card',
 };
 
-/** "Visa •••• 4242": Paddle's card type, named, and the last four digits. */
-export function cardLabel(brand: string | null | undefined, last4: string | null | undefined): string {
+/**
+ * "Visa •••• 4242": Paddle's card type, named, and the last four digits, for
+ * a mail in `locale`. Without a known type, English says "Card"; the Persian
+ * and Turkish templates already say "card" next to {card}, so there only the
+ * digits are given (and a bare word when there are none).
+ */
+export function cardLabel(brand: string | null | undefined, last4: string | null | undefined, locale = 'en'): string {
   const key = (brand ?? '').trim().toLowerCase();
-  const name = BRAND_NAMES[key]
-    ?? (key ? key.split(/[_\s-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ') : 'Card');
-  return last4 ? `${name} •••• ${last4}` : name;
+  const name = key && key !== 'unknown'
+    ? BRAND_NAMES[key] ?? key.split(/[_\s-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
+    : '';
+  const generic = locale === 'fa' ? '' : locale === 'tr' ? 'Kart' : 'Card';
+  if (last4) return `${name || (locale === 'en' ? generic : '')} •••• ${last4}`.trim();
+  return name || generic;
 }
 
 const REMOVED_REASONS: Record<string, Record<'removed' | 'canceled_at_paddle' | 'period_end', string>> = {
@@ -2267,10 +2332,11 @@ const FAILURE_REASONS: Record<string, Record<'declined' | 'expired' | 'authentic
 
 function failureText(code: string, locale: string): string {
   const texts = FAILURE_REASONS[locale] ?? FAILURE_REASONS.en;
-  if (/expired/.test(code)) return texts.expired;
+  // Paddle's error codes (payments[].error_code), as the billing page reads them.
+  if (/expired|invalid_payment_details/.test(code)) return texts.expired;
   if (/authentication|3ds|three_d/.test(code)) return texts.authentication;
-  if (/insufficient/.test(code)) return texts.funds;
-  if (/declin|blocked|fraud|lost|stolen/.test(code)) return texts.declined;
+  if (/not_enough_balance|insufficient/.test(code)) return texts.funds;
+  if (/declin|blocked|fraud|lost|stolen|transaction_not_permitted|prepaid_card_not_supported/.test(code)) return texts.declined;
   return texts.other;
 }
 
@@ -2306,7 +2372,7 @@ async function mailPaymentFailed(config: ServerConfig, card: CardRow, payment: A
     const sent = await sendBillingEmail(config, card.workspace_id, CARD_PAYMENT_FAILED, (ctx) => ({
       plan_name: localizedPlanName(plans.get(planId ?? ''), ctx.locale),
       amount: ctx.money(payment.amount_minor, payment.currency),
-      card: cardLabel(card.brand, card.last4),
+      card: cardLabel(card.brand, card.last4, ctx.locale),
       failure_reason: failureText(code, ctx.locale),
       due_at: ctx.date(state?.input.paid?.current_period_end ?? null),
     }));
@@ -2326,7 +2392,7 @@ async function mailCardRemoved(config: ServerConfig, card: CardRow, reason: 'rem
     const plans = await planNamesFor(config, [planId]);
     const paidUntil = state ? lastPaidEnd(state.input) : null;
     const sent = await sendBillingEmail(config, card.workspace_id, CARD_REMOVED, (ctx) => ({
-      card: cardLabel(card.brand, card.last4),
+      card: cardLabel(card.brand, card.last4, ctx.locale),
       reason: (REMOVED_REASONS[ctx.locale] ?? REMOVED_REASONS.en)[reason],
       plan_name: localizedPlanName(plans.get(planId ?? ''), ctx.locale),
       period_end: ctx.date(paidUntil),

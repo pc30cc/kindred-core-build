@@ -16,7 +16,7 @@ import { assignedPlanApplies } from '../planSelection.js';
 import { AccountBillingError, readAccount, type AccountRow } from './index.js';
 import { billingIntervalLabel, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
 import { v2NextPeriodPaid } from './renewalNotice.js';
-import { cancelCardNow, pullCardRenewal, readLiveCard, setCardAutoRenew } from './card.js';
+import { cancelCardNow, cardLabel, pullCardRenewal, readLiveCard, setCardAutoRenew } from './card.js';
 
 export type BillingInterval = 'monthly' | 'yearly';
 
@@ -440,15 +440,16 @@ async function rpc(config: ServerConfig, name: string, args: Record<string, unkn
 
 /**
  * After a plan or period changed: entitlements now, and the mail. Never throws.
- * `options.card` names the saved card that paid ("Visa •••• 4242"): a renewal
- * it paid is mailed as billing_card_renewed, with {card}.
+ * `options.card` is the saved card that paid (its type, last digits and the
+ * amount charged to it, VAT included): a renewal it paid is mailed as
+ * billing_card_renewed, with {card} and that amount.
  */
 export async function afterPlanChange(
   config: ServerConfig,
   workspaceId: string,
   result: Record<string, unknown>,
   source: 'payment_succeeded' | 'subscription_renewed' | 'subscription_created' | 'subscription_canceled' = 'subscription_renewed',
-  options: { card?: string } = {},
+  options: { card?: { brand: string | null; last4: string | null; amountMinor?: number } } = {},
 ): Promise<void> {
   const action = String(result.action ?? '');
   try {
@@ -477,15 +478,16 @@ export async function afterPlanChange(
     } else if (action === 'renewed' || action === 'prepaid') {
       const changed = action === 'renewed' && result.previous_plan_id && result.previous_plan_id !== result.plan_id;
       // A renewal the saved card paid has its own mail, naming the card.
-      const slug = changed ? 'billing_plan_changed' : options.card ? 'billing_card_renewed' : 'billing_renewed';
+      const card = options.card;
+      const slug = changed ? 'billing_plan_changed' : card ? 'billing_card_renewed' : 'billing_renewed';
       await sendBillingEmail(config, workspaceId, slug, (ctx) => ({
         plan_name: planName(ctx.locale),
         old_plan_name: localizedPlanName(plans.get(String(result.previous_plan_id ?? '')), ctx.locale),
-        amount: ctx.money(Number(result.amount_minor ?? 0), currency),
+        amount: ctx.money(card?.amountMinor ?? Number(result.amount_minor ?? 0), currency),
         balance: ctx.money(Number(result.balance_minor ?? 0), currency),
         period_start: ctx.date(result.period_start as string),
         period_end: ctx.date(result.period_end as string),
-        ...(options.card ? { card: options.card } : {}),
+        ...(card ? { card: cardLabel(card.brand, card.last4, ctx.locale) } : {}),
       }));
     } else if (action === 'expired') {
       await sendBillingEmail(config, workspaceId, 'billing_expired', (ctx) => ({

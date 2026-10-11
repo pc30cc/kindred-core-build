@@ -845,7 +845,8 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
   it('S4 declined, then paid with a new card before the due moment: the renewal counts and the card is active again', async () => {
     const ws = await newWorkspace('Card S4');
     const { subId, cardId } = await buyWithCard(ws, 'pro');
-    fake.declineNext(subId, 'insufficient_funds');
+    // Paddle's own code for it (its ErrorCode has no insufficient_funds).
+    fake.declineNext(subId, 'not_enough_balance');
     await toPaddleDate(ws, subId, MINUTE);
     await settle();
     expect((await cardRow(cardId)).status).toBe('past_due');
@@ -866,7 +867,7 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     expect((await accountOf(ws)).next_period_prepaid_minor).toBe('2900');
     await mailsSettle();
     expect(mailsOf(ws, 'billing_card_renewed').map((m) => m.data.card)).toEqual(['Mastercard •••• 5555']);
-    expect(mailsOf(ws, 'billing_card_payment_failed')).toHaveLength(1);
+    expect(mailsOf(ws, 'billing_card_payment_failed').map((m) => m.data.failure_reason)).toEqual(['insufficient funds']);
 
     // The due moment: the period it paid starts; the card goes on.
     await toPeriodEnd(ws, MINUTE);
@@ -989,9 +990,9 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
   it('S8 an upgrade the card declines: refused with the card\'s reason, nothing changed, and no second row from Paddle\'s events', async () => {
     const ws = await newWorkspace('Card S8');
     const { subId } = await buyWithCard(ws, 'pro');
-    fake.declineNext(subId, 'insufficient_funds');
+    fake.declineNext(subId, 'not_enough_balance');
     const res = await call('POST', `/api/billing/account/${ws}/card/charge`, { purpose: 'upgrade', planId: st.biz, expectedNetMinor: 7000 });
-    expect([res.status, res.json.error, (res.json.details as Row)?.code]).toEqual([402, 'CARD_DECLINED', 'insufficient_funds']);
+    expect([res.status, res.json.error, (res.json.details as Row)?.code]).toEqual([402, 'CARD_DECLINED', 'not_enough_balance']);
     const rows = async () => (await paymentsOf(ws, 'card_charge')).map((r) => [r.status, r.failure_reason]);
     expect(await rows()).toEqual([['failed', 'card_declined']]);
     expect(await subOf(ws)).toMatchObject({ plan_id: st.pro });

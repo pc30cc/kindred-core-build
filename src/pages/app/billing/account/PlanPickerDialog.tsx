@@ -205,6 +205,8 @@ export default function PlanPickerDialog({
       if (err?.code === 'QUOTE_CHANGED' && err.details?.quote) setQuote(err.details.quote);
       else setQuoteNonce((n) => n + 1);
       setKey(newKey());
+      // The card changed under the page (a failed renewal, a renewal under way, removed): show it.
+      if (['CARD_PAST_DUE', 'CARD_RENEWAL_IN_PROGRESS', 'CARD_NOT_AVAILABLE', 'CARD_NOT_FOUND'].includes(String(err?.code))) onDone();
     } finally {
       setBusy(false);
     }
@@ -260,14 +262,20 @@ export default function PlanPickerDialog({
       for (let i = 0; i < CARD_POLL_TRIES; i += 1) {
         await new Promise((r) => setTimeout(r, CARD_POLL_MS));
         if (!live()) return;
-        const payment = await accountBillingApi.payment(workspaceId, started.paymentId).catch(() => null);
+        // Ask the server to look the charge up at Paddle on the first tries
+        // and every fifth one (a late or lost webhook); in between, read the row.
+        const outcome: { status: string; reason?: string | null; result?: Record<string, unknown> | null } | null = i < 3 || i % 5 === 0
+          ? await accountBillingApi.verify(workspaceId, started.paymentId, card?.provider ?? '', {})
+            .then((v) => ({ status: v.status, reason: v.reason, result: v.purposeResult }), () => null)
+          : await accountBillingApi.payment(workspaceId, started.paymentId)
+            .then((p) => ({ status: p.status, reason: p.failure_reason, result: p.purpose_result }), () => null);
         if (!live()) return;
-        if (!payment || payment.status === 'pending') continue;
-        if (payment.status === 'succeeded') {
-          cardSettled(payment.purpose_result);
+        if (!outcome || outcome.status === 'pending') continue;
+        if (outcome.status === 'succeeded') {
+          cardSettled(outcome.result);
           return;
         }
-        setCardCharge(payment.failure_reason === 'card_declined' ? { phase: 'declined', code: null } : { phase: 'failed' });
+        setCardCharge(outcome.reason === 'card_declined' ? { phase: 'declined', code: null } : { phase: 'failed' });
         return;
       }
       setCardCharge({ phase: 'pending' });

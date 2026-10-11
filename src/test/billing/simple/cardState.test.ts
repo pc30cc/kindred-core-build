@@ -111,14 +111,14 @@ describe('desiredCardState: the first matching rule wins', () => {
       kind: 'renew',
       nextBilledAt: iso(E - CARD_RENEWAL_LEAD_MS),
       feasible: true,
-      item: { planId: PRO, interval: 'monthly', currency: 'USD', netMinor: 2900, taxMinor: 0, amountMinor: 2900 },
+      item: { planId: PRO, interval: 'monthly', currency: 'USD', netMinor: 2900, taxMinor: 0, amountMinor: 2900, vatPercent: null },
     });
   });
 
   it('adds VAT on top of the price (chargeFor)', () => {
     const state = desiredCardState(input({ vatPercent: 20 }));
     expect(state.kind === 'renew' && state.item).toEqual({
-      planId: PRO, interval: 'monthly', currency: 'USD', netMinor: 2900, taxMinor: 580, amountMinor: 3480,
+      planId: PRO, interval: 'monthly', currency: 'USD', netMinor: 2900, taxMinor: 580, amountMinor: 3480, vatPercent: 20,
     });
   });
 

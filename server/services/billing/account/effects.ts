@@ -16,7 +16,6 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { sendBillingEmail } from './notify.js';
 import { afterPlanChange } from './plans.js';
-import { cardLabel } from './card.js';
 
 export interface SettledPayment {
   replayed?: boolean;
@@ -39,16 +38,16 @@ interface PaymentFacts {
 
 const CARD_SOURCES = new Set(['card_setup', 'card_renewal', 'card_charge']);
 
-/** "Visa •••• 4242" of the card a payment came from; '' when unknown. */
-async function cardOf(config: ServerConfig, cardId: string | null | undefined): Promise<string> {
-  if (!cardId) return '';
+/** The card a payment came from (its type and last digits, named in each mail's own language); null when unknown. */
+async function cardOf(config: ServerConfig, cardId: string | null | undefined): Promise<{ brand: string | null; last4: string | null } | null> {
+  if (!cardId) return null;
   const { data } = await getServiceClient(config)
     .from('billing_account_cards')
     .select('brand, last4')
     .eq('id', cardId)
     .maybeSingle();
   const card = data as { brand?: string | null; last4?: string | null } | null;
-  return card ? cardLabel(card.brand, card.last4) : '';
+  return card ? { brand: card.brand ?? null, last4: card.last4 ?? null } : null;
 }
 
 export async function afterAccountSettlement(config: ServerConfig, settled: SettledPayment): Promise<void> {
@@ -86,8 +85,9 @@ export async function afterAccountSettlement(config: ServerConfig, settled: Sett
       );
     }
     if (result && typeof result === 'object' && !purposeError && !result.replayed) {
-      const card = onCard ? await cardOf(config, payment.card_id).catch(() => '') : '';
-      await afterPlanChange(config, payment.workspace_id, result, 'payment_succeeded', card ? { card } : {});
+      const card = onCard ? await cardOf(config, payment.card_id).catch(() => null) : null;
+      // The card mail's {amount} is what the card was charged (VAT included).
+      await afterPlanChange(config, payment.workspace_id, result, 'payment_succeeded', card ? { card: { ...card, amountMinor: Number(payment.amount_minor) } } : {});
     } else if (purposeError && !onCard) {
       console.warn(`[billing-account] payment ${settled.payment_id} credited; its ${settled.purpose} could not be done: ${purposeError}`);
     }

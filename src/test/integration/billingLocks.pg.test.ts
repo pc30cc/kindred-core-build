@@ -14,7 +14,8 @@
  *     report still computes;
  *   - spam and anonymous widget contacts are not counted; the owner and
  *     suspended members never rank;
- *   - chats lock by last activity, and a customer's message moves it;
+ *   - chats lock by last activity (the server's touch of updated_at), and
+ *     no trigger touches a chat on a message insert;
  *   - a locked agent's open chats go back to the queue;
  *   - the deletion clock, and a deletion only of rows locked when the 30-day
  *     notice went out, after both notices and the deadline;
@@ -364,6 +365,12 @@ suite('265 — computed billing locks (real PostgreSQL, whole chain)', () => {
     expect(((r.member as Row).items as Row[])[0]).toMatchObject({ name: expect.stringMatching(/^Agent /), email: expect.stringMatching(/@test\.local$/) });
   });
 
+  it('conversations.updated_at is in no index: every touch of it (widget heartbeat, messages) can stay a HOT update', async () => {
+    expect(await q(`SELECT i.indexrelid::regclass::text AS idx FROM pg_index i
+                      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+                     WHERE i.indrelid = 'public.conversations'::regclass AND a.attname = 'updated_at'`)).toEqual([]);
+  });
+
   it('chats lock by last activity; a customer message reopens one (D2)', async () => {
     const plan = await makePlan('l-chats', { data_retention_days: 30 });
     const { ws } = await makeWorkspace();
@@ -384,11 +391,18 @@ suite('265 — computed billing locks (real PostgreSQL, whole chain)', () => {
     expect(await lockedIds(ws, 'conversation')).toEqual([old, noUpdate]);
     for (const id of [recent, longRunning]) expect(await isLocked(ws, 'conversation', id)).toBe(false);
 
-    // An operator's message is not the customer coming back...
+    // A message row alone moves nothing: no trigger writes the chat a second
+    // time (the widget, channel and support writers touch updated_at
+    // themselves, once; a channel menu tap deliberately does not).
+    const before = (await one(`SELECT updated_at FROM public.conversations WHERE id = $1`, [old])).updated_at;
     await q(`INSERT INTO public.conversation_messages (conversation_id, sender_type, body) VALUES ($1, 'agent', 'hi')`, [old]);
+    await q(`INSERT INTO public.conversation_messages (conversation_id, sender_type, body) VALUES ($1, 'contact', 'menu tap')`, [old]);
+    expect((await one(`SELECT updated_at FROM public.conversations WHERE id = $1`, [old])).updated_at).toEqual(before);
+    expect(await q(`SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.conversation_messages'::regclass
+                     AND tgname = 'trg_conversation_messages_touch_conversation'`)).toEqual([]);
     expect(await isLocked(ws, 'conversation', old)).toBe(true);
-    // ...the customer's is.
-    await q(`INSERT INTO public.conversation_messages (conversation_id, sender_type, body) VALUES ($1, 'contact', 'back again')`, [old]);
+    // The customer coming back: the server's touch of updated_at reopens it.
+    await q(`UPDATE public.conversations SET updated_at = now() WHERE id = $1`, [old]);
     expect(await isLocked(ws, 'conversation', old)).toBe(false);
 
     const r = await report(ws);
@@ -507,8 +521,14 @@ suite('265 — computed billing locks (real PostgreSQL, whole chain)', () => {
     // Long past its deadline, but no notice yet: nothing.
     await q(`UPDATE public.billing_lock_clocks SET since = now() - interval '100 days' WHERE workspace_id = $1`, [ws]);
     expect(await del([lockedOld, lockedNew])).toBe(0);
+    // The 30-day notice claimed (it fixes the cutoff it announces), but its
+    // mail never confirmed: it does not count.
+    expect(await q(`SELECT locked_count FROM public.billing_lock_notice_claim($1, 'kb_article', $2, '30')`, [ws, key])).toEqual([{ locked_count: 2 }]);
+    await q(`UPDATE public.billing_lock_clocks SET notice_7_at = now() - interval '8 days' WHERE workspace_id = $1`, [ws]);
+    expect(await del([lockedOld, lockedNew])).toBe(0);
+    await q(`UPDATE public.billing_lock_clocks SET notice_7_at = NULL WHERE workspace_id = $1`, [ws]);
     // Only the 30-day notice: nothing.
-    await q(`UPDATE public.billing_lock_clocks SET notice_30_at = now() - interval '40 days' WHERE workspace_id = $1`, [ws]);
+    await q(`UPDATE public.billing_lock_clocks SET notice_30_at = now() - interval '40 days', notice_30_claimed_at = NULL WHERE workspace_id = $1`, [ws]);
     expect(await del([lockedOld, lockedNew])).toBe(0);
     // The 7-day notice went out late (3 days ago): the deadline moves to 7
     // days after it.
@@ -548,6 +568,7 @@ suite('265 — computed billing locks (real PostgreSQL, whole chain)', () => {
     const gone = await contact(ws, {}, 40);
     const chat = String((await one(`INSERT INTO public.conversations (workspace_id, contact_id) VALUES ($1, $2) RETURNING id`, [ws, gone])).id);
     const [episode] = await q(`SELECT episode_key FROM public.billing_lock_clock_observe($1)`, [ws]);
+    await q(`SELECT * FROM public.billing_lock_notice_claim($1, 'contact', $2, '30')`, [ws, episode.episode_key]);
     await q(`UPDATE public.billing_lock_clocks SET since = now() - interval '60 days', notice_30_at = now() - interval '31 days',
                notice_7_at = now() - interval '8 days' WHERE workspace_id = $1`, [ws]);
     await expect(q(`SELECT public.billing_locked_delete($1, 'member', $2, $3)`, [ws, episode.episode_key, [gone]]))
@@ -561,6 +582,54 @@ suite('265 — computed billing locks (real PostgreSQL, whole chain)', () => {
     }
     expect(Number((await one(`SELECT public.billing_locked_delete($1, 'contact', $2, $3) AS n`, [ws, episode.episode_key, [gone]])).n)).toBe(1);
     expect(await one(`SELECT contact_id FROM public.conversations WHERE id = $1`, [chat])).toEqual({ contact_id: null });
+  });
+
+  it('deletion: a limit lowered after the 30-day notice deletes only what the notice announced', async () => {
+    const plan = await makePlan('l-delete-lowered', { max_kb_articles: 3 }, { locked_data_retention_days: 30 });
+    const { ws } = await makeWorkspace();
+    await subscribe(ws, plan);
+    // Five articles, three kept: the two newest are locked and announced.
+    const [a1, a2, a3, a4, a5] = await articles(ws, [100, 90, 80, 70, 60]);
+    const [episode] = await q(`SELECT episode_key FROM public.billing_lock_clock_observe($1) WHERE kind = 'kb_article'`, [ws]);
+    const key = String(episode.episode_key);
+    expect(await q(`SELECT locked_count FROM public.billing_lock_notice_claim($1, 'kb_article', $2, '30')`, [ws, key])).toEqual([{ locked_count: 2 }]);
+    await q(`UPDATE public.billing_lock_clocks SET since = now() - interval '60 days', notice_30_at = now() - interval '31 days',
+               notice_30_claimed_at = NULL, notice_7_at = now() - interval '8 days' WHERE workspace_id = $1`, [ws]);
+    // The day before the deadline the Super Admin lowers the limit to 1:
+    // a2 and a3 lock too, but no notice named them.
+    await q(`INSERT INTO public.workspace_limit_overrides (workspace_id, limit_key, limit_value) VALUES ($1, 'max_kb_articles', 1)`, [ws]);
+    expect(await lockedIds(ws, 'kb_article')).toEqual([a2, a3, a4, a5]);
+    const n = Number((await one(`SELECT public.billing_locked_delete($1, 'kb_article', $2, $3) AS n`, [ws, key, [a1, a2, a3, a4, a5]])).n);
+    expect(n).toBe(2);
+    const left = (await q(`SELECT id::text FROM public.knowledge_base_articles WHERE workspace_id = $1 ORDER BY created_at`, [ws])).map((r) => r.id);
+    expect(left).toEqual([a1, a2, a3]);
+    expect(await q(`SELECT t FROM public.billing_locked_delete_targets($1, 'kb_article', $2, NULL, 100) t`, [ws, key])).toEqual([]);
+    // The announced episode is done; what locked later gets its own, with its own notices.
+    expect((await one(`SELECT deleted_at FROM public.billing_lock_clocks WHERE workspace_id = $1 AND episode_key = $2`, [ws, key])).deleted_at).not.toBeNull();
+    const next = await q(`SELECT episode_key, locked_count, notice_30_at FROM public.billing_lock_clock_observe($1) WHERE kind = 'kb_article'`, [ws]);
+    expect(next).toMatchObject([{ locked_count: 2, notice_30_at: null }]);
+    expect(next[0].episode_key).not.toBe(key);
+  });
+
+  it('notice claims: one sender at a time, a stale claim may be taken again, the 7-day one only after the 30-day one', async () => {
+    const plan = await makePlan('l-claim', { max_contacts: 1 }, { locked_data_retention_days: 30 });
+    const { ws } = await makeWorkspace();
+    await subscribe(ws, plan);
+    await contact(ws, {}, 50);
+    await contact(ws, {}, 40);
+    const [episode] = await q(`SELECT episode_key FROM public.billing_lock_clock_observe($1)`, [ws]);
+    const claim = (which: string) => q(`SELECT locked_count FROM public.billing_lock_notice_claim($1, 'contact', $2, $3)`, [ws, episode.episode_key, which]);
+    expect(await claim('7')).toEqual([]);
+    expect(await claim('30')).toEqual([{ locked_count: 1 }]);
+    expect(await claim('30')).toEqual([]);
+    await q(`UPDATE public.billing_lock_clocks SET notice_30_claimed_at = now() - interval '31 minutes' WHERE workspace_id = $1`, [ws]);
+    expect(await claim('30')).toEqual([{ locked_count: 1 }]);
+    // Claimed is not sent: the deletion clock does not count it.
+    expect((await one(`SELECT public.billing_lock_episode_deadline(k) AS d FROM public.billing_lock_clocks k WHERE workspace_id = $1`, [ws])).d).toBeNull();
+    await q(`UPDATE public.billing_lock_clocks SET notice_30_at = now(), notice_30_claimed_at = NULL WHERE workspace_id = $1`, [ws]);
+    expect(await claim('30')).toEqual([]);
+    expect(await claim('7')).toEqual([{ locked_count: 1 }]);
+    expect(await claim('7')).toEqual([]);
   });
 
   it('deletion: chats of a batch, past the batch date, before the noticed cutoff', async () => {
@@ -608,7 +677,7 @@ suite('265 — computed billing locks (real PostgreSQL, whole chain)', () => {
     expect(await one(`SELECT title FROM public.knowledge_base_articles WHERE id = $1`, [kept])).toEqual({ title: 'New title' });
   });
 
-  it('seat capacity: Free\'s seats after expiry, overrides, suspended members hold none', async () => {
+  it('seat capacity: Free\'s seats after expiry, overrides, suspended members hold none while the switch is on', async () => {
     const plan = await makePlan('l-seats', { max_agents: 5 });
     const { ws } = await makeWorkspace();
     await subscribe(ws, plan);
@@ -616,6 +685,14 @@ suite('265 — computed billing locks (real PostgreSQL, whole chain)', () => {
     await member(ws, 2, { suspended: true });
     const seats = () => one(`SELECT limit_value, used, source FROM public.wi_resolve_seat_capacity($1)`, [ws]);
     expect(await seats()).toEqual({ limit_value: 5, used: 2, source: 'plan_authoritative' });
+    // Switch off: a suspended member still holds a seat, as before 265 (no
+    // suspend → invite → reinstate past max_agents while nothing locks).
+    await setLocks(false);
+    try {
+      expect(await seats()).toEqual({ limit_value: 5, used: 3, source: 'plan_authoritative' });
+    } finally {
+      await setLocks(true);
+    }
     await q(`UPDATE public.workspace_subscriptions SET status = 'expired' WHERE workspace_id = $1`, [ws]);
     expect(await seats()).toEqual({ limit_value: 2, used: 2, source: 'plan_authoritative' }); // Free: 2, not 0
     await q(`INSERT INTO public.workspace_limit_overrides (workspace_id, limit_key, limit_value) VALUES ($1, 'max_agents', 4)`, [ws]);
@@ -648,7 +725,7 @@ suite('265 — computed billing locks (real PostgreSQL, whole chain)', () => {
           AND (p.proname LIKE 'billing\\_lock%' OR p.proname LIKE 'billing\\_locked%' OR p.proname IN (
             'billing_locks_enabled', 'billing_effective_plan_id', 'billing_limit_raw', 'billing_effective_limit',
             'billing_countable_count', 'billing_is_locked', 'billing_release_locked_agent_chats',
-            'wi_resolve_seat_capacity', '_ai_kb_apply_generated', 'tg_conversation_messages_touch_conversation'))
+            'wi_resolve_seat_capacity', '_ai_kb_apply_generated'))
         ORDER BY 1`);
     expect(fns.length).toBeGreaterThanOrEqual(21);
     for (const f of fns) expect(f).toEqual({ fn: f.fn, anon: false, auth: false, pub: false, svc: true });

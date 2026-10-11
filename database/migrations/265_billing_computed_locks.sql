@@ -36,9 +36,9 @@
 -- nothing. The create-time quotas (requireLimit) are unchanged.
 --
 -- Also: the seat capacity reads the effective plan (an expired workspace gets
--- Free's seats, not 0) and counts suspended members no more; the AI KB
--- builder cannot rewrite a locked article; a customer's message moves its
--- chat's last activity; the deletion-notice email per edition in fa/en/tr.
+-- Free's seats, not 0) and, only while the switch is on, counts suspended
+-- members no more; the AI KB builder cannot rewrite a locked article; the
+-- deletion-notice email per edition in fa/en/tr.
 --
 -- Indexes: build them by hand on a live database BEFORE applying this file
 -- (the migration runs with lock_timeout=5s inside one transaction, too short
@@ -46,7 +46,9 @@
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS contacts_ws_created_id_idx ON public.contacts (workspace_id, created_at, id);
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS knowledge_base_articles_ws_created_id_idx ON public.knowledge_base_articles (workspace_id, created_at, id);
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS workspace_members_ws_created_user_idx ON public.workspace_members (workspace_id, created_at, user_id);
---   CREATE INDEX CONCURRENTLY IF NOT EXISTS conversations_ws_updated_idx ON public.conversations (workspace_id, updated_at);
+-- No index on conversations.updated_at: it would make every updated_at touch
+-- (the widget heartbeat, each message) a non-HOT update. The chat lock reads
+-- conversations by activity only in the hourly job and the report.
 --
 -- Defines only: no row of any table is deleted or rewritten as this applies.
 -- Server-only: every table and function is reachable by service_role alone.
@@ -59,8 +61,6 @@ CREATE INDEX IF NOT EXISTS knowledge_base_articles_ws_created_id_idx
   ON public.knowledge_base_articles (workspace_id, created_at, id);
 CREATE INDEX IF NOT EXISTS workspace_members_ws_created_user_idx
   ON public.workspace_members (workspace_id, created_at, user_id);
-CREATE INDEX IF NOT EXISTS conversations_ws_updated_idx
-  ON public.conversations (workspace_id, updated_at);
 
 -- ─── 2. The kill switch, the deletion clock and the export jobs ──────────
 ALTER TABLE public.billing_settings
@@ -87,6 +87,16 @@ CREATE TABLE IF NOT EXISTS public.billing_lock_clocks (
   deleted_at    timestamptz,
   PRIMARY KEY (workspace_id, kind, episode_key)
 );
+
+-- A notice is claimed (one replica sends it) and recorded in notice_*_at
+-- only once its mail went out; a claim that was never confirmed (a crash
+-- mid-send) expires. Count kinds: the cutoff in force when the 30-day notice
+-- was claimed; only rows past it (and past the current one) were announced.
+ALTER TABLE public.billing_lock_clocks
+  ADD COLUMN IF NOT EXISTS notice_30_claimed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS notice_7_claimed_at  timestamptz,
+  ADD COLUMN IF NOT EXISTS noticed_cut_ts       timestamptz,
+  ADD COLUMN IF NOT EXISTS noticed_cut_id       uuid;
 
 DO $$
 BEGIN
@@ -657,13 +667,155 @@ BEGIN
 END;
 $$;
 
--- Deletes the given rows of an episode that are still locked now and were
--- already locked when its 30-day notice went out (count kinds: created
--- before it; chats: activity before the noticed cutoff and the current
--- one). Only after the deadline, under the account lock, while the switch is
--- on. Rows that do not qualify are skipped. Sets deleted_at once nothing of
--- the episode is left. Returns the number of rows deleted. Members are never
--- deleted; storage objects are removed by the caller first.
+-- Claims one notice of an open episode for the caller to send: only one
+-- replica wins it, and a claim older than 30 minutes (its sender died before
+-- the mail went out) may be taken again. The notice counts only once the
+-- caller records notice_*_at after its mail was sent. The 30-day claim of a
+-- count kind fixes the cutoff it announces (noticed_cut_*) and the count.
+-- Returns the locked count to announce and the claim's stamp; no row when
+-- not claimed.
+CREATE OR REPLACE FUNCTION public.billing_lock_notice_claim(
+  p_workspace_id uuid, p_kind text, p_episode_key text, p_which text
+) RETURNS TABLE (locked_count integer, claimed_at timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_clock public.billing_lock_clocks;
+  v_now   timestamptz := date_trunc('milliseconds', clock_timestamp());
+  c       record;
+BEGIN
+  IF p_which IS NULL OR p_which NOT IN ('30', '7') THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'billing_lock_notice_invalid';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('billing_lock_clock:' || p_workspace_id::text, 0));
+  SELECT * INTO v_clock FROM public.billing_lock_clocks k
+   WHERE k.workspace_id = p_workspace_id AND k.kind = p_kind AND k.episode_key = p_episode_key
+     AND k.deleted_at IS NULL
+   FOR UPDATE;
+  IF v_clock.workspace_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_which = '30' THEN
+    IF v_clock.notice_30_at IS NOT NULL
+       OR (v_clock.notice_30_claimed_at IS NOT NULL AND v_clock.notice_30_claimed_at > v_now - interval '30 minutes') THEN
+      RETURN;
+    END IF;
+    IF p_kind = 'conversation' THEN
+      UPDATE public.billing_lock_clocks k SET notice_30_claimed_at = v_now
+       WHERE k.workspace_id = p_workspace_id AND k.kind = p_kind AND k.episode_key = p_episode_key;
+      RETURN QUERY SELECT v_clock.locked_count, v_now;
+      RETURN;
+    END IF;
+    SELECT * INTO c FROM public.billing_lock_cutoff(p_workspace_id, p_kind);
+    IF coalesce(c.locked, 0) = 0 THEN
+      RETURN;
+    END IF;
+    UPDATE public.billing_lock_clocks k
+       SET notice_30_claimed_at = v_now, noticed_cut_ts = c.cut_ts, noticed_cut_id = c.cut_id,
+           locked_count = least(c.locked, 2147483647)
+     WHERE k.workspace_id = p_workspace_id AND k.kind = p_kind AND k.episode_key = p_episode_key;
+    RETURN QUERY SELECT least(c.locked, 2147483647)::integer, v_now;
+    RETURN;
+  END IF;
+
+  IF v_clock.notice_30_at IS NULL OR v_clock.notice_7_at IS NOT NULL
+     OR (v_clock.notice_7_claimed_at IS NOT NULL AND v_clock.notice_7_claimed_at > v_now - interval '30 minutes') THEN
+    RETURN;
+  END IF;
+  UPDATE public.billing_lock_clocks k SET notice_7_claimed_at = v_now
+   WHERE k.workspace_id = p_workspace_id AND k.kind = p_kind AND k.episode_key = p_episode_key;
+  RETURN QUERY SELECT v_clock.locked_count, v_now;
+END;
+$$;
+
+-- The rows of an episode that may be deleted now, oldest first, at most
+-- p_max (p_ids: only among them). A row qualifies only when all of this
+-- holds: the switch is on, both notices were recorded and the deadline
+-- passed, the row is locked now and it was already locked and announced
+-- when the 30-day notice went out: count kinds created before that notice
+-- and past the cutoff it named (noticed_cut_*) as well as the current one;
+-- chats with activity before the noticed cutoff, the batch's cutoff under
+-- the plan in force and the current one. A limit lowered after the notice
+-- locks more rows; they wait for an episode of their own, with its notices.
+CREATE OR REPLACE FUNCTION public.billing_locked_delete_targets(
+  p_workspace_id uuid, p_kind text, p_episode_key text, p_ids uuid[] DEFAULT NULL, p_max integer DEFAULT 500
+) RETURNS SETOF uuid
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_clock    public.billing_lock_clocks;
+  v_deadline timestamptz;
+  c          record;
+  v_keep     integer;
+  v_cutoff   timestamptz;
+  v_ts       timestamptz;
+  v_id       uuid;
+BEGIN
+  IF p_kind IS NULL OR p_kind NOT IN ('kb_article', 'contact', 'conversation') THEN
+    RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'billing_lock_kind_invalid';
+  END IF;
+  SELECT * INTO v_clock FROM public.billing_lock_clocks k
+   WHERE k.workspace_id = p_workspace_id AND k.kind = p_kind AND k.episode_key = p_episode_key;
+  IF v_clock.workspace_id IS NULL OR v_clock.deleted_at IS NOT NULL THEN
+    RETURN;
+  END IF;
+  v_deadline := public.billing_lock_episode_deadline(v_clock);
+  IF v_deadline IS NULL OR now() < v_deadline THEN
+    RETURN;
+  END IF;
+  SELECT * INTO c FROM public.billing_lock_cutoff(p_workspace_id, p_kind);
+  IF coalesce(c.locked, 0) = 0 THEN
+    RETURN;
+  END IF;
+
+  IF p_kind = 'conversation' THEN
+    SELECT p.locked_data_retention_days INTO v_keep
+      FROM public.billing_plans p WHERE p.id = public.billing_effective_plan_id(p_workspace_id);
+    IF v_keep IS NULL OR v_clock.cutoff_at IS NULL THEN
+      RETURN;
+    END IF;
+    v_cutoff := least(
+      v_clock.cutoff_at,
+      (p_episode_key || 'T00:00:00Z')::timestamptz - make_interval(days => least(c.lim + v_keep, 1000000)::integer),
+      c.cut_ts);
+    RETURN QUERY
+      SELECT x.id FROM public.conversations x
+       WHERE x.workspace_id = p_workspace_id
+         AND (p_ids IS NULL OR x.id = ANY (p_ids))
+         AND coalesce(x.updated_at, x.created_at, '-infinity'::timestamptz) < v_cutoff
+       ORDER BY coalesce(x.updated_at, x.created_at, '-infinity'::timestamptz), x.id
+       LIMIT greatest(coalesce(p_max, 0), 0);
+    RETURN;
+  END IF;
+
+  -- Count kinds: the later of the noticed cutoff and the current one. No
+  -- noticed cutoff, nothing was announced: nothing qualifies.
+  IF v_clock.noticed_cut_ts IS NULL OR v_clock.noticed_cut_id IS NULL THEN
+    RETURN;
+  END IF;
+  IF (c.cut_ts, c.cut_id) >= (v_clock.noticed_cut_ts, v_clock.noticed_cut_id) THEN
+    v_ts := c.cut_ts;
+    v_id := c.cut_id;
+  ELSE
+    v_ts := v_clock.noticed_cut_ts;
+    v_id := v_clock.noticed_cut_id;
+  END IF;
+  RETURN QUERY
+    SELECT r.id FROM public.billing_lock_rank_rows(p_workspace_id, p_kind) r
+     WHERE (r.ts, r.id) > (v_ts, v_id)
+       AND r.ts < v_clock.notice_30_at
+       AND (p_ids IS NULL OR r.id = ANY (p_ids))
+     ORDER BY r.ts, r.id
+     LIMIT greatest(coalesce(p_max, 0), 0);
+END;
+$$;
+
+-- Deletes the given rows of an episode that qualify now
+-- (billing_locked_delete_targets), under the account lock. Rows that do not
+-- qualify are skipped. Sets deleted_at once nothing of the episode
+-- qualifies any more. Returns the number of rows deleted. Members are never
+-- deleted; the caller removes the storage objects of the rows that are gone.
 CREATE OR REPLACE FUNCTION public.billing_locked_delete(
   p_workspace_id uuid, p_kind text, p_episode_key text, p_ids uuid[]
 ) RETURNS integer
@@ -671,15 +823,10 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_clock     public.billing_lock_clocks;
-  v_deadline  timestamptz;
-  c           record;
-  v_keep      integer;
-  v_cutoff    timestamptz;
   v_targets   uuid[];
   v_batch     uuid[];
   v_deleted   integer := 0;
   v_n         integer;
-  v_left      boolean;
   i           integer;
 BEGIN
   IF p_kind IS NULL OR p_kind NOT IN ('kb_article', 'contact', 'conversation') THEN
@@ -694,30 +841,17 @@ BEGIN
   IF v_clock.workspace_id IS NULL OR v_clock.deleted_at IS NOT NULL THEN
     RETURN 0;
   END IF;
-  v_deadline := public.billing_lock_episode_deadline(v_clock);
-  IF v_deadline IS NULL OR now() < v_deadline THEN
-    RETURN 0;
-  END IF;
-  SELECT * INTO c FROM public.billing_lock_cutoff(p_workspace_id, p_kind);
-  IF coalesce(c.locked, 0) = 0 THEN
+  -- Not due (deadline, notices, switch) or nothing locked: nothing to do,
+  -- and the episode stays as it is.
+  IF NOT EXISTS (SELECT 1 FROM public.billing_lock_cutoff(p_workspace_id, p_kind) x WHERE coalesce(x.locked, 0) > 0)
+     OR public.billing_lock_episode_deadline(v_clock) IS NULL
+     OR now() < public.billing_lock_episode_deadline(v_clock) THEN
     RETURN 0;
   END IF;
 
-  IF p_kind = 'conversation' THEN
-    SELECT p.locked_data_retention_days INTO v_keep
-      FROM public.billing_plans p WHERE p.id = public.billing_effective_plan_id(p_workspace_id);
-    v_cutoff := least(
-      v_clock.cutoff_at,
-      (p_episode_key || 'T00:00:00Z')::timestamptz - make_interval(days => least(c.lim + v_keep, 1000000)::integer),
-      c.cut_ts);
-    SELECT array_agg(x.id) INTO v_targets
-      FROM public.conversations x
-     WHERE x.workspace_id = p_workspace_id AND x.id = ANY (p_ids)
-       AND coalesce(x.updated_at, x.created_at, '-infinity'::timestamptz) < v_cutoff;
-  ELSE
-    SELECT array_agg(r.id) INTO v_targets
-      FROM public.billing_lock_rows_after(p_workspace_id, p_kind, c.cut_ts, c.cut_id, 2147483647) r
-     WHERE r.id = ANY (p_ids) AND r.ts < v_clock.notice_30_at;
+  IF coalesce(cardinality(p_ids), 0) > 0 THEN
+    SELECT array_agg(t) INTO v_targets
+      FROM public.billing_locked_delete_targets(p_workspace_id, p_kind, p_episode_key, p_ids, 2147483647) t;
   END IF;
 
   IF v_targets IS NOT NULL THEN
@@ -738,17 +872,7 @@ BEGIN
   END IF;
 
   -- Is anything of this episode left?
-  IF p_kind = 'conversation' THEN
-    v_left := EXISTS (SELECT 1 FROM public.conversations x
-                       WHERE x.workspace_id = p_workspace_id
-                         AND coalesce(x.updated_at, x.created_at, '-infinity'::timestamptz) < v_cutoff);
-  ELSE
-    SELECT * INTO c FROM public.billing_lock_cutoff(p_workspace_id, p_kind);
-    v_left := coalesce(c.locked, 0) > 0 AND EXISTS (
-      SELECT 1 FROM public.billing_lock_rows_after(p_workspace_id, p_kind, c.cut_ts, c.cut_id, 2147483647) r
-       WHERE r.ts < v_clock.notice_30_at);
-  END IF;
-  IF NOT v_left THEN
+  IF NOT EXISTS (SELECT 1 FROM public.billing_locked_delete_targets(p_workspace_id, p_kind, p_episode_key, NULL, 1)) THEN
     UPDATE public.billing_lock_clocks k SET deleted_at = now(), locked_count = 0
      WHERE k.workspace_id = p_workspace_id AND k.kind = p_kind AND k.episode_key = p_episode_key;
   END IF;
@@ -759,7 +883,7 @@ $$;
 -- ─── 8. Seat capacity: the plan in force, overrides, non-suspended seats ──
 -- As 251, except: the limit is the effective plan's max_agents (an expired
 -- or lapsed subscription gets Free's seats, not 0) with the workspace's
--- override, and suspended members hold no seat. The self-host modes are
+-- override, and, while the switch is on, suspended members hold no seat. The self-host modes are
 -- unchanged. No plan at all, or a max_agents that is missing or not a whole
 -- number, still fails closed (ENTITLEMENT_UNAVAILABLE).
 CREATE OR REPLACE FUNCTION public.wi_resolve_seat_capacity(_workspace_id uuid)
@@ -783,8 +907,13 @@ BEGIN
     RAISE EXCEPTION 'ENTITLEMENT_UNAVAILABLE';
   END IF;
 
+  -- A suspended member holds no seat only while the switch is on (the seat
+  -- lock then pauses whoever is past the limit after a reinstatement); off,
+  -- every member counts, as before 265.
   SELECT count(*)::integer INTO used
-  FROM public.workspace_members WHERE workspace_id = _workspace_id AND suspended_at IS NULL;
+  FROM public.workspace_members
+  WHERE workspace_id = _workspace_id
+    AND (suspended_at IS NULL OR NOT public.billing_locks_enabled());
 
   IF _mode = 'self_host_unlimited' THEN
     limit_value := NULL;
@@ -966,38 +1095,11 @@ BEGIN
 END;
 $$;
 
--- ─── 10. A customer's message is activity on its chat ────────────────────
--- A chat locks by last activity (updated_at), so a visitor coming back
--- reopens an old thread. The widget, the operator send path and the channel
--- ingest already touch updated_at; this covers every other writer of a
--- customer message. Only an older updated_at is moved (no second write
--- when the server's own touch came first).
-CREATE OR REPLACE FUNCTION public.tg_conversation_messages_touch_conversation()
-RETURNS trigger
-LANGUAGE plpgsql
-SET search_path TO 'public', 'pg_temp'
-AS $$
-BEGIN
-  IF NEW.sender_type = 'contact' THEN
-    UPDATE public.conversations c
-       SET updated_at = coalesce(NEW.created_at, now())
-     WHERE c.id = NEW.conversation_id
-       AND (c.updated_at IS NULL OR c.updated_at < coalesce(NEW.created_at, now()) - interval '1 minute');
-  END IF;
-  RETURN NULL;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_conversation_messages_touch_conversation ON public.conversation_messages;
-CREATE TRIGGER trg_conversation_messages_touch_conversation
-  AFTER INSERT ON public.conversation_messages
-  FOR EACH ROW EXECUTE FUNCTION public.tg_conversation_messages_touch_conversation();
-
--- ─── 11. Plans: locked-data retention ─────────────────────────────────────
+-- ─── 10. Plans: locked-data retention ─────────────────────────────────────
 COMMENT ON COLUMN public.billing_plans.locked_data_retention_days IS
   'Days data locked by this plan''s limits (KB articles, contacts, chats; never members) is kept before it is deleted, only while billing locks are enabled for the edition (billing_settings.locks_enabled), and only after notices 30 and 7 days before (billing_lock_clocks). NULL = never deleted.';
 
--- ─── 12. The deletion notice, per edition (Super Admin → Branding → Email templates) ─
+-- ─── 11. The deletion notice, per edition (Super Admin → Branding → Email templates) ─
 -- Seeded for both editions in fa/en/tr; a row that exists (edited) is never
 -- overwritten. The server fills the dates for the edition (the Persian
 -- calendar and Tehran time in Iran), the summary and the links.
@@ -1052,7 +1154,7 @@ SELECT pg_temp._email_265_seed('billing_locked_data_deletion', 'tr',
   '<p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">{workspace} çalışma alanınız {plan_name} planının izin verdiğinden fazla veri barındırıyor ve fazlası kilitlendi: {locked_summary}.</p><p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:24px;">Bu veriler {deletion_date} tarihinde ({days_left} gün sonra) kalıcı olarak silinecek. Saklamak için planınızı yükseltin ya da o tarihten önce dışa aktarın.</p><p style="margin:24px 0 0;text-align:center;"><a href="{billing_url}" style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;">Planı yükselt</a></p><p style="margin:16px 0 0;text-align:center;"><a href="{export_url}" style="color:#1E40AF;font-size:14px;">Kilitli verileri dışa aktar</a></p>',
   '{workspace} çalışma alanının kilitli verileri ({locked_summary}) {deletion_date} tarihinde ({days_left} gün sonra) silinecek. Yükselt: {billing_url} — Dışa aktar: {export_url}');
 
--- ─── 13. Access: the backend (service_role) only ──────────────────────────
+-- ─── 12. Access: the backend (service_role) only ──────────────────────────
 DO $$
 DECLARE t text;
 BEGIN
@@ -1102,10 +1204,11 @@ BEGIN
     'public.billing_lock_next_batch(timestamptz)',
     'public.billing_lock_clock_observe(uuid)',
     'public.billing_lock_episode_deadline(public.billing_lock_clocks)',
+    'public.billing_lock_notice_claim(uuid, text, text, text)',
+    'public.billing_locked_delete_targets(uuid, text, text, uuid[], integer)',
     'public.billing_locked_delete(uuid, text, text, uuid[])',
     'public.wi_resolve_seat_capacity(uuid)',
-    'public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text, text)',
-    'public.tg_conversation_messages_touch_conversation()'
+    'public._ai_kb_apply_generated(uuid, uuid, uuid, text, text, text, text)'
   ] LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN

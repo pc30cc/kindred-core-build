@@ -239,6 +239,14 @@ suite('billing locks: server lock core, report and quote against the real chain'
     // Seat usage: suspended members hold no seat (D3); the owner does.
     const seats = await usage.resolveUsage(config, ws, 'max_agents');
     expect(seats).toMatchObject({ supported: true, value: 3 });
+    // Switch off: every member holds a seat, as before 265 (and as
+    // wi_resolve_seat_capacity counts then).
+    await switchTo(false);
+    try {
+      expect(await usage.resolveUsage(config, ws, 'max_agents')).toMatchObject({ supported: true, value: 4 });
+    } finally {
+      await switchTo(true);
+    }
 
     const open = String((await one(`INSERT INTO public.conversations (workspace_id, status, assigned_to) VALUES ($1, 'open', $2) RETURNING id`, [ws, a2])).id);
     const closed = String((await one(`INSERT INTO public.conversations (workspace_id, status, assigned_to) VALUES ($1, 'closed', $2) RETURNING id`, [ws, a2])).id);

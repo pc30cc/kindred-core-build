@@ -37,10 +37,13 @@ interface EmailRequest { to: string; templateSlug?: string; templateData?: Recor
 const mail = vi.hoisted(() => ({
   sent: [] as Array<{ to: string; slug?: string; data: Record<string, string> }>,
   fail: false,
+  /** Runs while a mail is "in flight" (before the provider answers). */
+  inFlight: null as null | (() => Promise<void>),
 }));
 vi.mock('../../../server/services/email/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../server/services/email/index.js')>();
   const send = async (_config: unknown, req: EmailRequest) => {
+    if (mail.inFlight) await mail.inFlight();
     if (mail.fail) return { success: false, error: 'smtp down' };
     mail.sent.push({ to: req.to, slug: req.templateSlug, data: req.templateData ?? {} });
     return { success: true, provider: 'test-capture', id: `m-${mail.sent.length}` };
@@ -276,7 +279,24 @@ suite('billing locks: locked-data export and retention deletion against the real
     // First seen 40 days ago: deleted at since + 60 = in 20 days, so the 30-day notice is due.
     await shift('kb_article', `since = since - interval '40 days'`);
     await shift('contact', `since = since - interval '40 days'`);
-    const report = await run();
+    // While the mail is on its way the notice is only claimed, not recorded:
+    // a process that dies here leaves nothing that counts toward a deletion.
+    const inFlight: Row[] = [];
+    mail.inFlight = async () => {
+      inFlight.push(...await q(`SELECT kind, notice_30_at, notice_30_claimed_at FROM public.billing_lock_clocks
+                                 WHERE workspace_id = $1 AND deleted_at IS NULL ORDER BY kind`, [ws]));
+    };
+    let report: Awaited<ReturnType<typeof run>>;
+    try {
+      report = await run();
+    } finally {
+      mail.inFlight = null;
+    }
+    expect(inFlight.map((r) => r.kind)).toEqual(['contact', 'kb_article']);
+    for (const r of inFlight) {
+      expect(r.notice_30_at).toBeNull();
+      expect(r.notice_30_claimed_at).not.toBeNull();
+    }
     expect(report.errors).toEqual([]);
     expect(report.notices).toBe(1);
     expect(mail.sent).toHaveLength(1);
@@ -294,8 +314,26 @@ suite('billing locks: locked-data export and retention deletion against the real
       expect(c.notice_30_at).not.toBeNull();
       expect(c.notice_7_at).toBeNull();
     }
+    // Recorded, the claim is gone.
+    expect(await q(`SELECT 1 FROM public.billing_lock_clocks WHERE workspace_id = $1 AND notice_30_claimed_at IS NOT NULL`, [ws])).toEqual([]);
     expect((await run()).notices).toBe(0);
     expect(mail.sent).toHaveLength(1);
+  });
+
+  it('a notice claimed by a sender that died before its mail went out is sent again once the claim expires', async () => {
+    const before = mail.sent.length;
+    // An episode whose 30-day notice a dead replica claimed 10 minutes ago.
+    const key = 'crashed-claim';
+    await q(`INSERT INTO public.billing_lock_clocks (workspace_id, kind, episode_key, since, cutoff_at, locked_count, notice_30_claimed_at)
+             SELECT $1, 'conversation', $2, now() - interval '10 days', now() - interval '400 days', 1, now() - interval '10 minutes'`, [ws, key]);
+    const claim = () => q(`SELECT locked_count FROM public.billing_lock_notice_claim($1, 'conversation', $2, '30')`, [ws, key]);
+    expect(await claim()).toEqual([]);
+    expect((await one(`SELECT public.billing_lock_episode_deadline(k) AS d FROM public.billing_lock_clocks k
+                        WHERE workspace_id = $1 AND episode_key = $2`, [ws, key])).d).toBeNull();
+    await q(`UPDATE public.billing_lock_clocks SET notice_30_claimed_at = now() - interval '31 minutes' WHERE workspace_id = $1 AND episode_key = $2`, [ws, key]);
+    expect(await claim()).toEqual([{ locked_count: 1 }]);
+    await q(`DELETE FROM public.billing_lock_clocks WHERE workspace_id = $1 AND episode_key = $2`, [ws, key]);
+    expect(mail.sent).toHaveLength(before);
   });
 
   it('the 7-day notice comes only after the 30-day one, and a failed mail is taken back', async () => {
@@ -364,6 +402,51 @@ suite('billing locks: locked-data export and retention deletion against the real
     const batch = (await clocks()).filter((c) => c.kind === 'conversation' && c.deleted_at !== null);
     expect(batch).toHaveLength(1);
   });
+
+  it('a chat batch: every attachment of a big chat goes; a chat a raised retention unlocked keeps its row and its files', async () => {
+    // The batch of the 1st of last month, both notices sent long ago, its
+    // cutoff fixed at D - 90 days by its notice.
+    const d = await one(`SELECT (date_trunc('month', now() AT TIME ZONE 'UTC') - interval '1 month') AT TIME ZONE 'UTC' AS d`);
+    const dMs = new Date(d.d as string).getTime();
+    const key = new Date(dMs).toISOString().slice(0, 10);
+    // A chat with more attachments than one read returns.
+    const big = String((await one(`INSERT INTO public.conversations (workspace_id, status, subject, created_at, updated_at)
+      VALUES ($1, 'closed', 'Big', now() - interval '500 days', now() - interval '500 days') RETURNING id`, [ws])).id);
+    const paths: string[] = [];
+    for (let i = 0; i < 1100; i += 1) {
+      const path = `workspace/${ws}/attachments/chat/2024/01/big-${String(i).padStart(4, '0')}.txt`;
+      put(path, 'x');
+      paths.push(path);
+    }
+    await q(`INSERT INTO public.conversation_attachments (workspace_id, conversation_id, storage_provider, storage_path, file_name, mime_type, size_bytes, uploaded_by_type, status)
+             SELECT $1, $2, 'local', p, 'big.txt', 'text/plain', 1, 'visitor', 'attached' FROM unnest($3::text[]) p`, [ws, big, paths]);
+    // Activity at D - 200 days: before the noticed cutoff (D - 90) and past
+    // retention now, but after D - (180 + 60) once retention is raised.
+    const between = String((await one(`INSERT INTO public.conversations (workspace_id, status, subject, created_at, updated_at)
+      VALUES ($1, 'closed', 'Between', $2::timestamptz, $2::timestamptz) RETURNING id`, [ws, new Date(dMs - 200 * 86_400_000).toISOString()])).id);
+    const betweenFile = `workspace/${ws}/attachments/chat/2024/02/${randomUUID()}-b.txt`;
+    put(betweenFile, 'keep me');
+    await q(`INSERT INTO public.conversation_attachments (workspace_id, conversation_id, storage_provider, storage_path, file_name, mime_type, size_bytes, uploaded_by_type, status)
+             VALUES ($1, $2, 'local', $3, 'b.txt', 'text/plain', 7, 'visitor', 'attached')`, [ws, between, betweenFile]);
+    await q(`INSERT INTO public.billing_lock_clocks (workspace_id, kind, episode_key, since, cutoff_at, locked_count, notice_30_at, notice_7_at)
+             VALUES ($1, 'conversation', $2, $3::timestamptz - interval '30 days', $3::timestamptz - interval '90 days', 2,
+                     $3::timestamptz - interval '40 days', $3::timestamptz - interval '10 days')`, [ws, key, d.d]);
+    // After the notices the owner's retention is raised to 180 days.
+    await q(`INSERT INTO public.workspace_limit_overrides (workspace_id, limit_key, limit_value) VALUES ($1, 'data_retention_days', 180)`, [ws]);
+    try {
+      const report = await run();
+      expect(report.errors).toEqual([]);
+      expect(report.deleted.conversation).toBe(1);
+      expect(await one(`SELECT id FROM public.conversations WHERE id = $1`, [big])).toBeUndefined();
+      expect(paths.filter((p) => existsSync(file(p)))).toEqual([]);
+      expect((await one(`SELECT id FROM public.conversations WHERE id = $1`, [between]))?.id).toBe(between);
+      expect(existsSync(file(betweenFile))).toBe(true);
+      expect((await one(`SELECT count(*)::int AS n FROM public.conversation_attachments WHERE conversation_id = $1`, [between])).n).toBe(1);
+    } finally {
+      await q(`DELETE FROM public.workspace_limit_overrides WHERE workspace_id = $1 AND limit_key = 'data_retention_days'`, [ws]);
+      await q(`DELETE FROM public.conversations WHERE id = $1`, [between]);
+    }
+  }, 120_000);
 
   it('switch off again: the open episodes are removed, nothing more is sent', async () => {
     const before = mail.sent.length;

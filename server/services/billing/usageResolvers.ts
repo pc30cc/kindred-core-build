@@ -28,6 +28,7 @@
  */
 
 import { serviceClientFor } from '../../lib/serviceClient.js';
+import { locksEnabled } from './locks/state.js';
 import type { Request } from 'express';
 import type { ServerConfig } from '../../config.js';
 import { countJobsThisMonthDetailed } from '../ai-kb/limits.js';
@@ -318,8 +319,12 @@ function isFunctionMissing(error: { code?: string; message?: string } | null | u
  *   - One row in `workspace_members` per `(workspace_id, user_id)` =
  *     one seat. Departments do not multiply seats.
  *   - All members count regardless of `role`. The owner counts.
- *   - Suspended members do not (D3 of the phase 4 design): suspending a
- *     member frees the seat, as in the computed seat lock.
+ *   - Suspended members do not while billing locks are on (D3 of the
+ *     phase 4 design): suspending a member frees the seat, and the
+ *     computed seat lock pauses whoever is past the limit after a
+ *     reinstatement. With the switch off (or unreadable) every member
+ *     counts, as before, so suspend → invite → reinstate cannot pass
+ *     max_agents (the same rule as wi_resolve_seat_capacity, 265).
  *   - Pending `workspace_invitations` do NOT consume capacity;
  *     capacity is consumed only when a `workspace_members` row is
  *     inserted (i.e. invite is redeemed via the canonical Express
@@ -339,11 +344,18 @@ async function resolveMaxAgents(
   workspaceId: string,
 ): Promise<UsageResolution> {
   const sb = makeClient(config);
-  const { count, error } = await sb
+  let locksOn = false;
+  try {
+    locksOn = config.selfHostBillingUnlimited !== true && (await locksEnabled(config));
+  } catch {
+    locksOn = false;
+  }
+  let query = sb
     .from('workspace_members')
     .select('user_id', { count: 'exact', head: true })
-    .eq('workspace_id', workspaceId)
-    .is('suspended_at', null);
+    .eq('workspace_id', workspaceId);
+  if (locksOn) query = query.is('suspended_at', null);
+  const { count, error } = await query;
   if (error) throw new Error(`max_agents_count_failed:${error.message}`);
   return {
     value: typeof count === 'number' ? count : 0,
@@ -352,7 +364,9 @@ async function resolveMaxAgents(
     source: 'derived_count',
     isExact: true,
     supported: true,
-    note: 'count(*) on public.workspace_members where workspace_id = $1 and not suspended (seat occupancy)',
+    note: locksOn
+      ? 'count(*) on public.workspace_members where workspace_id = $1 and not suspended (seat occupancy, billing locks on)'
+      : 'count(*) on public.workspace_members where workspace_id = $1 (seat occupancy)',
   };
 }
 

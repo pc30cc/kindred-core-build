@@ -206,11 +206,25 @@ export function clearLockStateCache(workspaceId?: string): void {
   for (const kind of LOCK_KINDS) kindCache.delete(kindKey(workspaceId, kind));
 }
 
-/** The kill switch, cached 60 s. Throws when unreadable (never cached). */
+/** How long an unreadable switch reads as off without asking again. */
+const FAILED_TTL_MS = 30_000;
+
+/**
+ * The kill switch, cached 60 s. Throws when unreadable; the failure is then
+ * remembered for 30 s as off, so a missing or failing billing_locks_enabled
+ * (a replica ahead of migration 265, a database hiccup) costs one query and
+ * one warning per window, not one per request.
+ */
 export async function locksEnabled(config: ServerConfig): Promise<boolean> {
   const now = Date.now();
   if (enabledCache && enabledCache.expiresAt > now) return enabledCache.value;
-  const value = await coalesce('billing_locks_enabled', () => readLocksEnabled(config));
+  let value: boolean;
+  try {
+    value = await coalesce('billing_locks_enabled', () => readLocksEnabled(config));
+  } catch (e) {
+    enabledCache = { value: false, expiresAt: Date.now() + FAILED_TTL_MS };
+    throw e;
+  }
   enabledCache = { value, expiresAt: Date.now() + TTL_MS };
   return value;
 }

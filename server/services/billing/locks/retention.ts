@@ -12,17 +12,18 @@
 //      upgrade, deletions, an override); chats run in monthly batches;
 //   3. with the plan's locked_data_retention_days (L; none by default), the
 //      30-day notice from 30 days before the deadline, then the 7-day notice
-//      from 7 days before the deadline the 30-day notice set. Each is
-//      recorded on the clock before the mail goes out (an atomic UPDATE …
-//      WHERE notice IS NULL) and taken back when the mail fails, so it goes
-//      out once and an unsent notice never leads to a deletion. Episodes due
-//      the same day share one mail;
+//      from 7 days before the deadline the 30-day notice set. Each is claimed
+//      on the clock first (one replica sends it; the 30-day claim fixes the
+//      cutoff it announces) and recorded only once its mail went out, so an
+//      unsent notice never leads to a deletion. Episodes due the same day
+//      share one mail;
 //   4. once both notices went out and the deadline passed (the latest of the
 //      base deadline, 30 days after the 30-day notice and 7 days after the
-//      7-day one), the rows still locked and named by the 30-day notice:
-//      their storage objects first (contact avatars, chat attachments), then
-//      billing_locked_delete, which checks all of it again in SQL under the
-//      account lock, in chunks.
+//      7-day one), the rows still locked and announced by the 30-day notice
+//      (billing_locked_delete_targets), deleted by billing_locked_delete,
+//      which checks all of it again in SQL under the account lock, in chunks;
+//      then the storage objects of the rows that are gone (contact avatars,
+//      chat attachments).
 //
 // While the edition's switch is off nothing is noticed or deleted; the open
 // episodes are only observed, which removes them (nothing is locked), so a
@@ -34,8 +35,7 @@ import { getServiceClient } from '../../../supabase.js';
 import { deleteFile } from '../../storage/index.js';
 import { resolveWorkspaceAppUrl } from '../../auth-email.js';
 import { localizedPlanName, planNamesFor, sendBillingEmail, type BillingEmailContext } from '../account/notify.js';
-import { clearLockStateCache, readEffectivePlanId, readLockedIds, readLocksEnabled } from './state.js';
-import { tsMicros } from './predicates.js';
+import { clearLockStateCache, readEffectivePlanId, readLocksEnabled } from './state.js';
 import { releaseLockedAgentChats } from './release.js';
 
 /** Workspaces handled per hourly run. */
@@ -260,8 +260,12 @@ async function planRetention(
 
 /**
  * Sends one notice for episodes of a workspace due for it now. Each episode
- * is marked first (only one replica wins it); the mail names the latest
- * deletion date of the group; an unsent mail takes every mark back.
+ * is claimed first (billing_lock_notice_claim: only one replica wins it, and
+ * the 30-day claim fixes what the notice announces); the notice is recorded
+ * (notice_*_at) only after its mail went out, so a crash, a failed mail or a
+ * failed write never leaves a notice that counts toward a deletion without
+ * having been sent. A claim never confirmed expires after 30 minutes and the
+ * mail goes out again. The mail names the latest deletion date of the group.
  * Returns the number of mails sent (0 or 1).
  */
 async function sendNotice(
@@ -274,152 +278,213 @@ async function sendNotice(
   now: Date,
 ): Promise<number> {
   const column = which === '30' ? 'notice_30_at' : 'notice_7_at';
-  const stamp = now.toISOString();
-  const marked: LockClock[] = [];
-  for (const clock of episodes) {
-    let update = sb
-      .from('billing_lock_clocks')
-      .update({ [column]: stamp })
-      .eq('workspace_id', clock.workspace_id)
-      .eq('kind', clock.kind)
-      .eq('episode_key', clock.episode_key)
-      .is(column, null)
-      .is('deleted_at', null);
-    if (which === '7') update = update.not('notice_30_at', 'is', null);
-    const { data, error } = await update.select('workspace_id');
-    if (error) throw new Error(`billing_lock_clocks: ${error.message}`);
-    if (Array.isArray(data) && data.length > 0) marked.push(clock);
-  }
-  if (!marked.length) return 0;
+  const claimColumn = which === '30' ? 'notice_30_claimed_at' : 'notice_7_claimed_at';
+  const claimed: Array<{ clock: LockClock; count: number; stamp: string }> = [];
+  const release = async () => {
+    for (const { clock, stamp } of claimed) {
+      const { error } = await sb
+        .from('billing_lock_clocks')
+        .update({ [claimColumn]: null })
+        .eq('workspace_id', clock.workspace_id)
+        .eq('kind', clock.kind)
+        .eq('episode_key', clock.episode_key)
+        .eq(claimColumn, stamp);
+      // A claim left behind only delays the notice: it expires.
+      if (error) console.warn(`[billing-locks] claim of ${clock.workspace_id}/${clock.kind} not released: ${error.message}`);
+    }
+  };
 
-  const counts: Partial<Record<DeletableKind, number>> = {};
-  for (const clock of marked) counts[clock.kind] = (counts[clock.kind] ?? 0) + clock.locked_count;
-  const workspaceId = marked[0].workspace_id;
-  const plans = await planNamesFor(config, [planId]);
-  const exportUrl = await resolveWorkspaceAppUrl(config, workspaceId, '/billing');
-  const daysLeft = Math.max(Math.ceil((deadline - now.getTime()) / DAY_MS), 1);
-  const sent = await sendBillingEmail(config, workspaceId, 'billing_locked_data_deletion', (ctx: BillingEmailContext) => ({
-    plan_name: localizedPlanName(plans.get(planId ?? ''), ctx.locale),
-    days_left: ctx.number(daysLeft),
-    deletion_date: ctx.date(new Date(deadline).toISOString()),
-    locked_summary: lockedSummary(counts, ctx.locale, ctx.number),
-    export_url: exportUrl,
-  }));
-  if (sent.sent) return 1;
-  for (const clock of marked) {
-    await sb
+  try {
+    for (const clock of episodes) {
+      const { data, error } = await sb.rpc('billing_lock_notice_claim', {
+        p_workspace_id: clock.workspace_id,
+        p_kind: clock.kind,
+        p_episode_key: clock.episode_key,
+        p_which: which,
+      });
+      if (error) throw new Error(`billing_lock_notice_claim: ${error.message || 'failed'}`);
+      const row = (Array.isArray(data) ? data[0] : data) as { locked_count?: unknown; claimed_at?: unknown } | null | undefined;
+      if (!row || row.claimed_at === null || row.claimed_at === undefined) continue;
+      // Milliseconds (the claim is stamped so), whatever form the data layer returns.
+      const stamp = new Date(row.claimed_at instanceof Date ? row.claimed_at : String(row.claimed_at)).toISOString();
+      claimed.push({ clock, count: Number(row.locked_count ?? clock.locked_count) || 0, stamp });
+    }
+  } catch (e) {
+    await release();
+    throw e;
+  }
+  if (!claimed.length) return 0;
+
+  let sent = false;
+  try {
+    const counts: Partial<Record<DeletableKind, number>> = {};
+    for (const { clock, count } of claimed) counts[clock.kind] = (counts[clock.kind] ?? 0) + count;
+    const workspaceId = claimed[0].clock.workspace_id;
+    const plans = await planNamesFor(config, [planId]);
+    const exportUrl = await resolveWorkspaceAppUrl(config, workspaceId, '/billing');
+    const daysLeft = Math.max(Math.ceil((deadline - now.getTime()) / DAY_MS), 1);
+    const result = await sendBillingEmail(config, workspaceId, 'billing_locked_data_deletion', (ctx: BillingEmailContext) => ({
+      plan_name: localizedPlanName(plans.get(planId ?? ''), ctx.locale),
+      days_left: ctx.number(daysLeft),
+      deletion_date: ctx.date(new Date(deadline).toISOString()),
+      locked_summary: lockedSummary(counts, ctx.locale, ctx.number),
+      export_url: exportUrl,
+    }));
+    sent = result.sent === true;
+  } finally {
+    if (!sent) await release();
+  }
+  if (!sent) return 0;
+
+  // The mail went out: record the notice (it now counts toward the deadline).
+  const stamp = now.toISOString();
+  for (const { clock, stamp: claimStamp } of claimed) {
+    const { error } = await sb
       .from('billing_lock_clocks')
-      .update({ [column]: null })
+      .update({ [column]: stamp, [claimColumn]: null })
       .eq('workspace_id', clock.workspace_id)
       .eq('kind', clock.kind)
       .eq('episode_key', clock.episode_key)
-      .eq(column, stamp);
+      .eq(claimColumn, claimStamp)
+      .is(column, null);
+    // Unrecorded, the notice does not count: its claim expires and the mail
+    // goes out again (a duplicate mail, never a deletion without a notice).
+    if (error) throw new Error(`billing_lock_clocks: ${error.message}`);
   }
-  return 0;
+  return 1;
 }
 
-/** The candidates of one chunk: locked now and named by the 30-day notice (chats: before the noticed cutoff). */
-async function chunkCandidates(
+/**
+ * The rows of an episode that may be deleted now, oldest first
+ * (billing_locked_delete_targets: the deadline, the switch, locked now and
+ * announced by the 30-day notice), with what each holds in storage.
+ */
+async function deletionTargets(
   sb: Client,
   clock: LockClock,
-  ids: string[],
 ): Promise<Array<{ id: string; avatar?: string | null }>> {
-  if (!ids.length) return [];
-  const limitOf = (iso: string | null) => (iso ? tsMicros(iso) : null);
-  if (clock.kind === 'conversation') {
-    const cutoff = limitOf(clock.cutoff_at);
-    if (cutoff === null) return [];
-    const { data, error } = await sb.from('conversations').select('id, created_at, updated_at').eq('workspace_id', clock.workspace_id).in('id', ids);
-    if (error) throw new Error(`conversations: ${error.message}`);
-    return ((data ?? []) as Array<{ id: string; created_at: string | null; updated_at: string | null }>)
-      .filter((r) => {
-        const at = tsMicros(r.updated_at ?? r.created_at);
-        return at === null || at < cutoff;
-      })
-      .map((r) => ({ id: r.id }));
-  }
-  const noticed = limitOf(clock.notice_30_at);
-  if (noticed === null) return [];
-  const table = clock.kind === 'kb_article' ? 'knowledge_base_articles' : 'contacts';
-  const columns = clock.kind === 'contact' ? 'id, created_at, avatar_storage_key' : 'id, created_at';
-  const { data, error } = await sb.from(table).select(columns).eq('workspace_id', clock.workspace_id).in('id', ids);
-  if (error) throw new Error(`${table}: ${error.message}`);
-  return ((data ?? []) as unknown as Array<{ id: string; created_at: string | null; avatar_storage_key?: string | null }>)
-    .filter((r) => {
-      const at = tsMicros(r.created_at);
-      return at === null || at < noticed;
+  const { data, error } = await sb
+    .rpc('billing_locked_delete_targets', {
+      p_workspace_id: clock.workspace_id,
+      p_kind: clock.kind,
+      p_episode_key: clock.episode_key,
+      p_ids: null,
+      p_max: DELETE_CHUNK,
     })
-    .map((r) => ({ id: r.id, avatar: r.avatar_storage_key ?? null }));
+    .range(0, DELETE_CHUNK - 1);
+  if (error) throw new Error(`billing_locked_delete_targets: ${error.message || 'failed'}`);
+  const ids = (Array.isArray(data) ? data : [])
+    .map((row) => (typeof row === 'string' ? row : (row as Record<string, unknown> | null)?.billing_locked_delete_targets))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  if (!ids.length || clock.kind !== 'contact') return ids.map((id) => ({ id }));
+  const { data: rows, error: readError } = await sb
+    .from('contacts')
+    .select('id, avatar_storage_key')
+    .eq('workspace_id', clock.workspace_id)
+    .in('id', ids);
+  if (readError) throw new Error(`contacts: ${readError.message}`);
+  const avatar = new Map(((rows ?? []) as Array<{ id: string; avatar_storage_key: string | null }>).map((r) => [r.id, r.avatar_storage_key]));
+  return ids.map((id) => ({ id, avatar: avatar.get(id) ?? null }));
 }
 
 const isStorageKey = (key: string | null | undefined): key is string =>
   typeof key === 'string' && key.length > 0 && !/^[a-z]+:\/\//i.test(key) && !key.startsWith('/');
 
+/** Rows the data layer returns per read. */
+const READ_PAGE = 1000;
+
+/** The storage objects of chats, every page of them (a chat can hold many). */
+async function chatAttachmentPaths(sb: Client, workspaceId: string, ids: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  for (let from = 0; ; from += READ_PAGE) {
+    const { data, error } = await sb
+      .from('conversation_attachments')
+      .select('id, conversation_id, storage_path')
+      .eq('workspace_id', workspaceId)
+      .in('conversation_id', ids)
+      .order('id', { ascending: true })
+      .range(from, from + READ_PAGE - 1);
+    if (error) throw new Error(`conversation_attachments: ${error.message}`);
+    const rows = (data ?? []) as Array<{ conversation_id: string; storage_path: string | null }>;
+    for (const a of rows) {
+      if (!isStorageKey(a.storage_path)) continue;
+      const list = out.get(a.conversation_id) ?? [];
+      list.push(a.storage_path);
+      out.set(a.conversation_id, list);
+    }
+    if (rows.length < READ_PAGE) break;
+  }
+  return out;
+}
+
 /**
- * Removes the storage objects of the candidates first, so a deleted row
- * never leaves an orphan behind. Returns the ids whose objects are gone; a
- * row whose object could not be deleted waits for the next run.
+ * Removes the storage objects of rows billing_locked_delete has just
+ * deleted. Only rows that are gone lose their files: a row the SQL kept (an
+ * upgrade, the switch, a lock change in between) keeps them. A file that
+ * cannot be deleted is left behind and logged, never a row's file lost.
  */
 async function clearStorage(
   config: ServerConfig,
   sb: Client,
   clock: LockClock,
-  rows: Array<{ id: string; avatar?: string | null }>,
-): Promise<string[]> {
+  gone: Array<{ id: string; avatar?: string | null }>,
+  attachments: Map<string, string[]>,
+): Promise<void> {
   const ws = clock.workspace_id;
-  if (clock.kind === 'kb_article' || !rows.length) return rows.map((r) => r.id);
-  const failed = new Set<string>();
+  if (clock.kind === 'kb_article' || !gone.length) return;
+  let failed = 0;
   if (clock.kind === 'contact') {
-    const keys = [...new Set(rows.map((r) => r.avatar).filter(isStorageKey))];
+    const keys = [...new Set(gone.map((r) => r.avatar).filter(isStorageKey))];
+    if (!keys.length) return;
     // An avatar another contact still shows stays.
-    const shared = new Set<string>();
-    if (keys.length) {
-      const ids = new Set(rows.map((r) => r.id));
-      const { data, error } = await sb.from('contacts').select('id, avatar_storage_key').eq('workspace_id', ws).in('avatar_storage_key', keys);
-      if (error) throw new Error(`contacts: ${error.message}`);
-      for (const r of (data ?? []) as Array<{ id: string; avatar_storage_key: string }>) if (!ids.has(r.id)) shared.add(r.avatar_storage_key);
-    }
-    for (const row of rows) {
-      if (!isStorageKey(row.avatar) || shared.has(row.avatar)) continue;
-      const result = await deleteFile(config, ws, row.avatar, { allowLegacyKey: true });
-      if (!result.success) failed.add(row.id);
+    const { data, error } = await sb.from('contacts').select('avatar_storage_key').eq('workspace_id', ws).in('avatar_storage_key', keys);
+    if (error) throw new Error(`contacts: ${error.message}`);
+    const shared = new Set(((data ?? []) as Array<{ avatar_storage_key: string }>).map((r) => r.avatar_storage_key));
+    for (const key of keys) {
+      if (shared.has(key)) continue;
+      const result = await deleteFile(config, ws, key, { allowLegacyKey: true });
+      if (!result.success) failed += 1;
     }
   } else {
-    const ids = rows.map((r) => r.id);
-    const { data, error } = await sb
-      .from('conversation_attachments')
-      .select('id, conversation_id, storage_path')
-      .eq('workspace_id', ws)
-      .in('conversation_id', ids);
-    if (error) throw new Error(`conversation_attachments: ${error.message}`);
-    for (const a of (data ?? []) as Array<{ conversation_id: string; storage_path: string | null }>) {
-      if (failed.has(a.conversation_id) || !isStorageKey(a.storage_path)) continue;
-      const result = await deleteFile(config, ws, a.storage_path);
-      if (!result.success) failed.add(a.conversation_id);
+    for (const row of gone) {
+      for (const path of attachments.get(row.id) ?? []) {
+        const result = await deleteFile(config, ws, path);
+        if (!result.success) failed += 1;
+      }
     }
   }
-  if (failed.size) console.warn(`[billing-locks] ${failed.size} ${clock.kind} row(s) of ${ws} kept: their files could not be deleted`);
-  return rows.map((r) => r.id).filter((id) => !failed.has(id));
+  if (failed) console.warn(`[billing-locks] ${failed} file(s) of deleted ${clock.kind} rows of ${ws} could not be deleted`);
 }
 
 /** Deletes what an episode may delete now, in chunks. Returns the rows deleted. */
 async function deleteEpisode(config: ServerConfig, sb: Client, clock: LockClock): Promise<number> {
   let deleted = 0;
+  const table = clock.kind === 'kb_article' ? 'knowledge_base_articles' : clock.kind === 'contact' ? 'contacts' : 'conversations';
   for (let round = 0; round < MAX_CHUNKS; round += 1) {
-    const ids = await readLockedIds(config, clock.workspace_id, clock.kind, DELETE_CHUNK, sb);
-    const rows = await chunkCandidates(sb, clock, ids);
-    const ready = await clearStorage(config, sb, clock, rows);
+    const rows = await deletionTargets(sb, clock);
+    const ids = rows.map((r) => r.id);
+    // The files are read before the rows go (a chat's attachments go with it).
+    const attachments = clock.kind === 'conversation' && ids.length ? await chatAttachmentPaths(sb, clock.workspace_id, ids) : new Map<string, string[]>();
     // Called with an empty list too: it closes the episode once nothing of it is left.
     const { data, error } = await sb.rpc('billing_locked_delete', {
       p_workspace_id: clock.workspace_id,
       p_kind: clock.kind,
       p_episode_key: clock.episode_key,
-      p_ids: ready,
+      p_ids: ids,
     });
     if (error) throw new Error(`billing_locked_delete: ${error.message || 'failed'}`);
     const n = Number(data ?? 0) || 0;
     deleted += n;
-    if (n === 0 || ready.length < rows.length || rows.length < ids.length || ids.length < DELETE_CHUNK) break;
+    if (n > 0) {
+      const left = new Set<string>();
+      if (n < ids.length) {
+        const { data: still, error: readError } = await sb.from(table).select('id').eq('workspace_id', clock.workspace_id).in('id', ids);
+        if (readError) throw new Error(`${table}: ${readError.message}`);
+        for (const r of (still ?? []) as Array<{ id: string }>) left.add(r.id);
+      }
+      await clearStorage(config, sb, clock, rows.filter((r) => !left.has(r.id)), attachments);
+    }
+    if (n === 0 || n < ids.length || ids.length < DELETE_CHUNK) break;
   }
   if (deleted > 0) clearLockStateCache(clock.workspace_id);
   return deleted;

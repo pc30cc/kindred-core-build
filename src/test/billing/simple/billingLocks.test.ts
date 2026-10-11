@@ -265,13 +265,34 @@ describe('resolveLockState', () => {
     expect(h.calls.map((c) => c.name)).toEqual(['billing_locks_enabled']);
   });
 
-  it('fails open: an unreadable switch or cutoff locks nothing, and is not cached', async () => {
+  it('fails open: an unreadable switch or cutoff locks nothing; an unreadable cutoff is not cached', async () => {
     h.rpc.mockImplementation(() => ({ data: null, error: { message: 'down' } }));
     expect(await resolveLockState(config, WS)).toEqual(unlockedState());
+    clearLockStateCache();
     h.rpc.mockImplementation((name: string) => (name === 'billing_locks_enabled' ? { data: true, error: null } : { data: null, error: { message: 'down' } }));
     expect(await resolveLockState(config, WS)).toEqual(unlockedState());
     h.rpc.mockImplementation(cutoffs);
     expect((await resolveLockState(config, WS)).kb?.locked).toBe(2);
+  });
+
+  it('an unreadable switch reads as off for 30 s: one failing query and one warning per window, not per request', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      vi.setSystemTime(new Date('2026-10-11T10:00:00Z'));
+      h.rpc.mockImplementation(() => ({ data: null, error: { message: 'function billing_locks_enabled() does not exist' } }));
+      for (let i = 0; i < 5; i += 1) expect(await resolveLockState(config, WS)).toEqual(unlockedState());
+      expect(h.calls.filter((c) => c.name === 'billing_locks_enabled')).toHaveLength(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      // The window over, the switch is read again (and now it answers).
+      vi.setSystemTime(new Date('2026-10-11T10:00:31Z'));
+      h.rpc.mockImplementation(cutoffs);
+      expect((await resolveLockState(config, WS)).kb?.locked).toBe(2);
+      expect(h.calls.filter((c) => c.name === 'billing_locks_enabled')).toHaveLength(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('self-host unlimited billing never locks and reads nothing', async () => {

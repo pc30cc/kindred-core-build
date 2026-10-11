@@ -91,12 +91,16 @@ BEGIN
     IF pg_trigger_depth() > 1 THEN
       RETURN OLD;
     END IF;
-    IF public.billing_purge_active() THEN
-      IF public.billing_purge_includes(OLD.workspace_id) THEN
-        RETURN OLD;
+    -- The flag is read in its own IF, so a delete outside a purge calls no
+    -- purge function (EXECUTE is checked when an expression is prepared).
+    IF current_setting('app.billing_purge', true) = 'on' THEN
+      IF public.billing_purge_active() THEN
+        IF public.billing_purge_includes(OLD.workspace_id) THEN
+          RETURN OLD;
+        END IF;
+        -- A purge of something else (a user's rows by actor_id): the row stays.
+        RETURN NULL;
       END IF;
-      -- A purge of something else (a user's rows by actor_id): the row stays.
-      RETURN NULL;
     END IF;
   END IF;
   RAISE EXCEPTION 'billing_account_ledger is append-only';
@@ -110,8 +114,12 @@ LANGUAGE plpgsql
 SET search_path TO 'public', 'pg_temp'
 AS $$
 BEGIN
-  IF public.billing_purge_active() AND NOT public.billing_purge_includes(OLD.workspace_id) THEN
-    RETURN NULL;
+  -- The flag is read in its own IF: any other delete (the pruning job, a
+  -- plain workspace delete's cascade) calls no purge function.
+  IF current_setting('app.billing_purge', true) = 'on' THEN
+    IF public.billing_purge_active() AND NOT public.billing_purge_includes(OLD.workspace_id) THEN
+      RETURN NULL;
+    END IF;
   END IF;
   RETURN OLD;
 END;

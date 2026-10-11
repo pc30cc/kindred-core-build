@@ -216,6 +216,7 @@ export function readSubscription(data: unknown): PaddleSubscription | null {
     customerId: str(sub.customer_id),
     currency: normalizeCurrencyCode(sub.currency_code) ?? null,
     nextBilledAt: iso(sub.next_billed_at),
+    currentPeriodStart: iso(asRecord(sub.current_billing_period)?.starts_at),
     currentPeriodEnd: iso(asRecord(sub.current_billing_period)?.ends_at),
     scheduledChange: action ? { action, effectiveAt: iso(scheduled?.effective_at) } : null,
     items: (Array.isArray(sub.items) ? sub.items : [])

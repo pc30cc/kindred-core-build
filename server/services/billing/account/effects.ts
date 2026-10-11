@@ -53,9 +53,10 @@ async function cardOf(config: ServerConfig, cardId: string | null | undefined): 
 export async function afterAccountSettlement(config: ServerConfig, settled: SettledPayment): Promise<void> {
   if (settled.replayed || !settled.payment_id) return;
   try {
+    // The whole row: a database without migration 262's columns reads as a checkout.
     const { data } = await getServiceClient(config)
       .from('billing_account_payments')
-      .select('workspace_id, currency, amount_minor, source, review, card_id')
+      .select('*')
       .eq('id', settled.payment_id)
       .maybeSingle();
     const payment = data as PaymentFacts | null;

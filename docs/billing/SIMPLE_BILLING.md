@@ -51,9 +51,11 @@ VAT per edition, and **locked-data retention days** (empty = never deleted).
 
 ## Renewal
 
-- **Auto-renew on**: at the due moment the price is taken from the balance (in
-  Multi Region the saved card is charged by Paddle first; the payment lands in
-  the balance and is spent in the same transaction).
+- **Auto-renew on**: at the due moment the price is taken from the balance.
+  In Multi Region with a saved card the card pays instead: Paddle charges it
+  a day before the due moment, the payment lands in the balance and is spent
+  on the next period in the same transaction, and the balance itself is never
+  spent unasked (see "The saved card" below).
 - **Auto-renew off**: from 7 days before the due date the panel shows a banner
   and reminder emails go out (7, 3 and 1 days before), with **Renew from
   balance** and **Pay online** buttons. Nothing is charged unless pressed.
@@ -68,8 +70,10 @@ VAT per edition, and **locked-data retention days** (empty = never deleted).
 - Yearly plan: pay `(new yearly - old yearly) × remaining whole months / 12`.
 - The AI credit difference is added at once; the due date does not move.
 - With fewer than 7 days left the page also offers "upgrade from next period".
-- Multi Region with a saved card: Paddle subscription update with
-  `proration_billing_mode = full_immediately`, amounts computed by us.
+- Multi Region with a saved card: the difference (VAT on top) is charged to
+  the card once (a Paddle one-time charge), then the card's recurring price
+  follows the new plan without billing (`do_not_bill`). Not
+  `full_immediately`: that bills the whole new price, not our difference.
 
 ## Downgrade and interval change (at period end)
 
@@ -138,8 +142,8 @@ billing v2's 5-minute ticker (see "The hourly job" below).
 2. Accounts, ledger, payments; top-up and receipts; billing profile. (Done:
    migration 259.)
 3. Renewal, upgrade, downgrade, reminders, hourly job; Paddle saved card.
-   3a (migration 261): everything but the saved card. 3b: the Paddle saved
-   card.
+   3a (migration 261): everything but the saved card. 3b (migration 262):
+   the Paddle saved card.
 4. Computed locks, downgrade report, export, retention deletion.
 5. AI credit packs.
 6. Super Admin screens.
@@ -296,7 +300,8 @@ price, balance or period moved meanwhile the server answers 409
 ### The hourly job (server/services/billing/account/job.ts)
 
 Due periods every 5 minutes (`simple_billing_due` lease), so a workspace
-moves to Free within minutes of its due moment. The rest once an hour
+moves to Free within minutes of its due moment. Beside it, every 5 minutes,
+the saved cards' step (`simple_billing_card` lease, 3b below). The rest once an hour
 (first two minutes after start), under the `simple_billing` ticker lease:
 due periods again, the
 month's AI credit, renewal reminders (7, 3, 1 days before; not sent when
@@ -319,7 +324,10 @@ alerts bell say when the plan ends and link to the billing page
 Templates (Super Admin -> Branding -> Email templates, per edition, fa/en/tr):
 `billing_renewal_reminder`, `billing_renewed`, `billing_expired`,
 `billing_plan_changed`, `billing_change_scheduled`, `billing_payment_receipt`,
-`billing_plan_activated`, `billing_trial_ending`, `billing_trial_ended`.
+`billing_plan_activated`, `billing_trial_ending`, `billing_trial_ended`, and
+for the saved card (3b, sent in Multi Region only) `billing_card_payment_failed`
+and `billing_card_removed`; `billing_renewed` also gets `{card}` ("Visa ••••
+4242", empty when the balance paid).
 The server fills the variables in the edition's way (Toman, Persian digits
 and the Persian calendar in Iran; the Gregorian calendar in Persian mail of
 the international edition) and adds `billing_url`, `receipt_url`,
@@ -329,6 +337,104 @@ target plan and interval per period (choosing back and forth mails each
 once); an interval change names the interval ("Pro (monthly)").
 
 Auto-renew starts off for every new account in 3a, Multi Region included:
-its "default on" comes with the saved card (3b), so a card customer is
-never charged from a balance they did not expect to be used.
+its "default on" comes with the saved card (3b: saving a card turns it on),
+so a card customer is never charged from a balance they did not expect to
+be used.
+
+### The saved card (phase 3b, migration 262)
+
+Multi Region and Global only: edition `international`, region mode `multi`
+or `global`, account currency USD, gateway `paddle` or `paddle_sandbox` with
+its **Automatic card renewal (Multi Region)** switch on (off by default;
+Super Admin → Providers → Billing). Iran never has a card: every card path
+starts from a card row, and none is ever created there. Paddle setup,
+permissions, events and the sandbox checks to run before switching it on:
+`docs/operations/PADDLE_SANDBOX.md`.
+
+- **What a card is.** One Paddle subscription per workspace with one
+  recurring price we set (`billing_account_cards`; at most one live card,
+  `active` or `past_due`). Paddle's clock charges it; our server only moves
+  that clock to the end of the last paid period − 24 hours, and that price
+  to the next period's plan, interval and price with VAT. Paddle can never
+  be asked by our sync to bill: every change is `do_not_bill`, after a
+  preview that shows nothing billed now.
+- **Saving it.** "Renew automatically with this card" in the pay-online
+  dialog (ticked by default, Paddle gateways only) for a plan or a renewal:
+  the checkout charges the full price of the period (a renewal: the next
+  period paid now) and its price recurs, so paying it makes Paddle create the
+  subscription. `subscription.created` registers the card for the checkout's
+  workspace (`billing_card_register`), points the account at it and turns
+  auto-renew on. A second card of the same workspace (two tabs) is cancelled.
+  The job registers a paid card checkout whose event never came.
+- **Renewal.** Paddle charges the card 24 hours before the due moment. The
+  transaction becomes a `card_renewal` payment (`billing_card_record_charge`,
+  once per transaction) and is settled in one transaction
+  (`billing_card_settle`): credited, then spent as the prepaid next period
+  (`billing_card_apply_renewal`), which the due moment starts. No receipt of
+  ours (Paddle mails its invoice); `billing_renewed` names the card. A
+  payment that cannot be spent on the renewal (card no longer live,
+  auto-renew off, already renewed, Free or unsold next, below the price)
+  stays in the balance, with a receipt and a REVIEW log (`payments.review`).
+- **Declined.** The card is `past_due`, `billing_card_payment_failed` goes out
+  once per transaction, and the banner, the alerts bell and the billing page
+  say so. A failed attempt Paddle reports after the transaction was collected
+  (its notifications come in any order) changes nothing and is not mailed. The customer can update the card and pay (Paddle's
+  update-payment-method transaction, in Paddle.js) or renew from the
+  balance (the card is cancelled first).
+- **The due moment.** The server first asks Paddle for a paid renewal it
+  never heard of and settles it. `billing_account_process_due` never renews a
+  card account from the balance: with nothing prepaid the workspace moves to
+  Free (no grace) and the card is marked `canceling`, then cancelled at
+  Paddle at once (Paddle's own retries stop). A renewal that still arrives
+  after that buys the plan again, but only for a card cancelled because it
+  had not paid (`not_renewed`).
+- **Upgrade.** Charged to the card: exactly the quoted difference, one
+  `/charge` per payment row (`card_charge`, at most one pending per
+  workspace), with `prevent_change` so a decline changes nothing. A charge
+  whose answer never came is never posted again: it is looked up by the
+  payment id on its item (the webhook, the verify route, the job) and fails
+  as `charge_not_found` after an hour. Paddle's minimum is 70 cents.
+- **Plan changes.** Downgrade, interval change, Free and their cancel are
+  3a's; triggers on the billing tables move the card's `sync_version`, and
+  the reconciler (`card.ts` `syncCard`, after every action and from the job)
+  moves Paddle's date and price, or cancels at Paddle's period end (Free,
+  not sold, auto-renew off). Plan actions are refused while the card is
+  `past_due` (`CARD_PAST_DUE`) and from 2 hours before Paddle's charge until
+  Paddle moved its date on, at most 6 hours after (`CARD_RENEWAL_IN_PROGRESS`).
+  The reconciler never moves Paddle's date earlier over a renewal Paddle
+  charged that we have not recorded: it settles that renewal instead. One
+  that did not renew our period (charged at another amount, so credited as a
+  top-up for review; or refused by a renewal guard) keeps Paddle's date too:
+  Paddle is never asked to charge that period again.
+- **Customer actions.** Auto-renew off: Paddle cancels at its period end
+  first, then the flag goes off (on again before then undoes it). Remove
+  card: cancelled at Paddle first, then here; the plan runs to its end. A
+  cancel made in Paddle's own portal is followed (auto-renew off, mail),
+  never undone. "Renew from balance" with a card moves Paddle's charge one
+  period on first, so the card does not pay the period the balance paid.
+  Paying a renewal online is refused while a card is live
+  (`CARD_PAYS_RENEWAL`).
+- **Routing Paddle's events.** A transaction Paddle made from a subscription
+  (any origin but a checkout's) and the subscription's own events are card
+  events: they act only through our own card row or our own card checkout,
+  never on the workspace their copied `custom_data` names (RESPOK's database
+  is a clone of WebYar's), and never by the checkout's copied `intent_id`.
+  A subscription not registered yet is our checkout's only while that
+  checkout has no card and Paddle's checkout transaction names that very
+  subscription. One that is not ours is acknowledged and nothing is done.
+  Our `custom_data` (`workspace_id`, `card_id`) is written once; other keys
+  Paddle keeps are left as they are. A refund or a
+  chargeback of a card payment uses the refund path; a chargeback also
+  cancels the card at once (REVIEW).
+- **The job's card step** (every 5 minutes): cards to sync, paid card
+  checkouts with no card, upgrade charges still pending, cards still to
+  cancel at Paddle, and renewals Paddle charged whose event never came.
+- **Routes.** `GET /account/:ws` adds `card`, `card_available`,
+  `card_providers` (managers only); `POST checkout` takes `autoRenew`;
+  `POST card/charge`, `POST card/update`, `DELETE card`; `PUT auto-renew`
+  answers the card too (International only).
+- **Deploying.** The server reads the card table on every due step, plan
+  action and renewal notice, Iran included (it finds nothing there): apply
+  262 to WebYar's database by hand before merging, as every migration
+  (RESPOK's migrator applies it on push). It is inert without card rows.
 

@@ -185,6 +185,27 @@ retry failed payments.
    still credited (as a top-up, logged REVIEW) but the renewal is not
    applied, and the tax mode needs a decision.
 
+The reconciler (`card.ts` `syncCard`) also relies on these:
+
+9. `PATCH custom_data` replaces the whole object: after the first sync the
+   subscription's `custom_data` is `{workspace_id, card_id}`, without the
+   checkout's `intent_id` and `card_setup`. (If Paddle merged it, the
+   checkout's keys would stay on every renewal: harmless, since card events
+   are never routed by them, and our keys are not sent again.)
+10. While a cancel is scheduled, `next_billed_at` is null (the billing page
+    then shows the scheduled cancel's date).
+11. Moving `next_billed_at` also moves `current_billing_period.ends_at`: the
+    guard that never moves the date earlier over a renewal Paddle charged
+    compares Paddle's period end with ours.
+12. At a renewal, `subscription.updated` (dates already moved on) may come
+    before `GET /transactions?subscription_id=…` lists the renewal; the
+    reconciler then waits up to 6 hours after Paddle's period start for it
+    (`renewal_expected`) before it moves the date earlier.
+13. A `/charge` declined with `prevent_change` leaves a transaction that
+    `GET /transactions?subscription_id=…` lists with the card's
+    `payments[].error_code` (shown to the customer); if it leaves none, the
+    customer reads a plain "declined".
+
 Taken from Paddle's API reference, not yet seen in practice: a chargeback
 arrives as an `adjustment` with `action: chargeback` and `status: approved`;
 it is recorded like a refund, marked as a chargeback. A `chargeback_reverse`

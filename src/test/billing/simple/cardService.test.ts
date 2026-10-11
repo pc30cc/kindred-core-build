@@ -475,6 +475,12 @@ describe('syncCard', () => {
     expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
   });
 
+  it('extra custom_data keys Paddle kept (its merge of the checkout\'s) are left: no PATCH that could never change them', async () => {
+    paddle.sub.custom_data = { workspace_id: W, card_id: CARD, intent_id: SETUP, card_setup: '1' };
+    expect((await card.syncCard(CFG, CARD)).status).toBe('unchanged');
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
+  });
+
   it('a preview that would bill stops the sync (P4)', async () => {
     paddle.sub.next_billed_at = iso(E + 5 * D);
     h.paddleOverride[`PATCH /subscriptions/${SUB}/preview`] = () => ({ body: { data: { ...paddle.sub, immediate_transaction: { id: 'txn_x' } } } });
@@ -535,9 +541,31 @@ describe('syncCard', () => {
     expect(rpcs('billing_card_settle')).toHaveLength(1);
   });
 
+  it('a period Paddle began within the last hours whose renewal is not listed yet: the date waits (renewal_expected)', async () => {
+    paddleRenewedUnseen();
+    paddle.sub.current_billing_period = { starts_at: iso(Date.now() - H), ends_at: iso(Date.now() - H + 30 * D) };
+    paddle.txns = [];
+    const outcome = await card.syncCard(CFG, CARD);
+    expect(outcome).toEqual({ status: 'deferred', detail: 'renewal_expected' });
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
+    expect(calls(`PATCH /subscriptions/${SUB}/preview`)).toHaveLength(0);
+    // Hours later with still nothing listed, Paddle's lead is ours to correct.
+    paddle.sub.current_billing_period = { starts_at: iso(Date.now() - 7 * H), ends_at: iso(Date.now() - H + 30 * D) };
+    expect((await card.syncCard(CFG, CARD)).status).toBe('synced');
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(1);
+  });
+
   it('a renewal of Paddle\'s period that was recorded but not applied blocks moving the date earlier', async () => {
     paddleRenewedUnseen();
     payments().push({ id: uuid(), workspace_id: W, provider: 'paddle_sandbox', provider_ref: 'txn_renewal_1', status: 'succeeded', amount_minor: 2900, purpose: 'renewal', purpose_detail: {}, purpose_result: { error: 'amount_below_price' }, source: 'card_renewal', created_at: iso(Date.now()) });
+    const outcome = await card.syncCard(CFG, CARD);
+    expect(outcome).toEqual({ status: 'deferred', detail: 'renewal_not_applied' });
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
+  });
+
+  it('a renewal of Paddle\'s period credited at another amount (a top-up, for review) also blocks moving the date earlier', async () => {
+    paddleRenewedUnseen();
+    payments().push({ id: uuid(), workspace_id: W, provider: 'paddle_sandbox', provider_ref: 'txn_renewal_1', status: 'succeeded', amount_minor: 2500, purpose: 'topup', purpose_detail: {}, purpose_result: null, review: 'amount_mismatch', source: 'card_renewal', created_at: iso(Date.now()) });
     const outcome = await card.syncCard(CFG, CARD);
     expect(outcome).toEqual({ status: 'deferred', detail: 'renewal_not_applied' });
     expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(0);
@@ -576,6 +604,17 @@ describe('syncCard', () => {
     expect(outcome).toEqual({ status: 'deferred', detail: 'paddle_past_due' });
     expect(cardRow().status).toBe('past_due');
     expect(h.paddleCalls).toHaveLength(1);
+  });
+
+  it('a date Paddle does not take is a sync error (with its back-off), not an immediate retry', async () => {
+    paddle.sub.next_billed_at = iso(E + 5 * D);
+    paddle.sub.current_billing_period = { ends_at: iso(E + 5 * D) };
+    h.paddleOverride[`PATCH /subscriptions/${SUB}`] = () => ({ body: { data: { ...paddle.sub } } });
+    const outcome = await card.syncCard(CFG, CARD);
+    expect(outcome.status).toBe('error');
+    expect(outcome.detail).toMatch(/^paddle_date_not_applied/);
+    expect(calls(`PATCH /subscriptions/${SUB}`)).toHaveLength(1);
+    expect(cardRow()).toMatchObject({ sync_failures: 1, synced_version: 0 });
   });
 
   it('a Paddle error is recorded with its back-off, never thrown', async () => {
@@ -629,6 +668,27 @@ describe('chargeCardForUpgrade', () => {
     await expect(card.chargeCardForUpgrade(CFG, W, { planId: TEAM, expectedNetMinor: 5000, actorId: null }))
       .rejects.toMatchObject({ code: 'CARD_DECLINED', status: 402 });
     expect(payments().find((p) => p.source === 'card_charge')).toMatchObject({ status: 'failed', failure_reason: 'card_declined' });
+  });
+
+  it("a decline names the card's own reason when Paddle shows the declined charge; its later event adds no row", async () => {
+    h.paddleOverride[`POST /subscriptions/${SUB}/charge`] = (body) => {
+      const item = (body as { items: Array<{ price: { unit_price: { amount: string }; custom_data: Row } }> }).items[0].price;
+      paddle.txns.unshift(txnJson({
+        id: 'txn_charge_declined', origin: 'subscription_charge', status: 'canceled', amount: Number(item.unit_price.amount), custom: item.custom_data,
+        payments: [{ status: 'error', error_code: 'expired_card', created_at: iso(Date.now()), method_details: { card: { type: 'visa', last4: '4242' } } }],
+      }));
+      return { status: 400, body: { error: { code: 'subscription_payment_declined', detail: 'declined' } } };
+    };
+    await expect(card.chargeCardForUpgrade(CFG, W, { planId: TEAM, expectedNetMinor: 5000, actorId: null }))
+      .rejects.toMatchObject({ code: 'CARD_DECLINED', status: 402, details: { code: 'expired_card' } });
+    const before = payments().length;
+    const { readTransaction } = await import('../../../../server/services/billing/providers/paddleSubscriptions.js');
+    readTxn = readTransaction as never;
+    const owner = { workspaceId: W, cardId: CARD, setupPaymentId: SETUP };
+    await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.payment_failed', paddle.txns[0]) as never, owner });
+    expect(payments()).toHaveLength(before);
+    expect(rpcs('billing_card_record_charge')).toHaveLength(0);
+    expect(payments().find((p) => p.source === 'card_charge')).toMatchObject({ status: 'failed', failure_reason: 'card_declined', provider_ref: null });
   });
 
   it("Paddle's renewal lock answers CARD_RENEWAL_IN_PROGRESS and fails the row", async () => {
@@ -770,6 +830,46 @@ describe('handleCardEvent', () => {
     expect(cardRow()).toMatchObject({ status: 'active', last_failure: null });
   });
 
+  it('a renewal paid with another card: the card is written before the settlement, whose mail names the card that paid', async () => {
+    const txn = txnJson({ id: 'txn_renewal_5', status: 'paid', payments: [{ status: 'captured', created_at: iso(Date.now()), method_details: { card: { type: 'mastercard', last4: '5555', expiry_month: 6, expiry_year: 2031 } } }] });
+    await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.paid', txn) as never, owner });
+    const written = at('update:billing_account_cards:brand,last4,exp_month,exp_year');
+    expect(written).toBeGreaterThanOrEqual(0);
+    expect(written).toBeLessThan(at('rpc:billing_card_settle'));
+    expect(cardRow()).toMatchObject({ brand: 'mastercard', last4: '5555' });
+  });
+
+  it('a failed attempt reported after the transaction was paid changes nothing and mails nothing', async () => {
+    const paid = txnJson({ id: 'txn_renewal_6', status: 'paid' });
+    await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.paid', paid) as never, owner });
+    const failed = txnJson({ id: 'txn_renewal_6', status: 'past_due', payments: [{ status: 'error', error_code: 'expired_card', created_at: iso(Date.now() - MIN), method_details: { card: { type: 'visa', last4: '4242' } } }] });
+    await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.payment_failed', failed) as never, owner });
+    await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.past_due', failed) as never, owner });
+    expect(cardRow()).toMatchObject({ status: 'active', last_failure: null });
+    expect(payments().find((p) => p.provider_ref === 'txn_renewal_6')).toMatchObject({ status: 'succeeded', failure_reason: null });
+    expect(h.emails.filter((e) => e.slug === 'billing_card_payment_failed')).toEqual([]);
+  });
+
+  it('a charge of a subscription our checkout did not make is not registered as our card (P6); one it made is', async () => {
+    table('billing_account_cards').length = 0;
+    Object.assign(accountRow(), { card_provider: null, card_subscription_id: null });
+    Object.assign(payments()[0], { card_id: null });
+    // Our checkout made SUB (txnJson's subscription_id).
+    paddle.txns = [txnJson({ id: 'txn_checkout', origin: 'web', status: 'completed' })];
+    h.paddleOverride['GET /subscriptions/sub_other'] = () => ({ body: { data: { ...paddle.sub, id: 'sub_other', custom_data: { workspace_id: W, intent_id: SETUP } } } });
+    const foreign = txnEvent('transaction.paid', { ...txnJson({ id: 'txn_other_1', status: 'paid' }), subscription_id: 'sub_other' });
+    foreign.card.subscriptionId = 'sub_other';
+    const pending = { workspaceId: W, cardId: null, setupPaymentId: SETUP };
+    expect(await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: foreign as never, owner: pending })).toBe('ignored');
+    expect(rpcs('billing_card_register')).toHaveLength(0);
+    expect(rpcs('billing_card_record_charge')).toHaveLength(0);
+    expect(h.paddleCalls.filter((c) => c.method !== 'GET')).toEqual([]);
+
+    const ours = txnEvent('transaction.paid', txnJson({ id: 'txn_renewal_7', status: 'paid' }));
+    expect(await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: ours as never, owner: pending })).toBe('handled');
+    expect(rpcs('billing_card_register').map((c) => c.args.p_subscription_id)).toEqual([SUB]);
+  });
+
   it('a zero-amount card change only refreshes the card', async () => {
     const txn = txnJson({ id: 'txn_update_1', amount: 0, origin: 'subscription_payment_method_change', payments: [{ status: 'captured', created_at: iso(Date.now()), method_details: { card: { type: 'mastercard', last4: '5555', expiry_month: 3, expiry_year: 2031 } } }] });
     await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.completed', txn) as never, owner });
@@ -782,6 +882,17 @@ describe('handleCardEvent', () => {
     await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.billed', txn) as never, owner });
     await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: txnEvent('transaction.canceled', { ...txn, status: 'canceled' }) as never, owner });
     expect(payments().find((p) => p.provider_ref === 'txn_renewal_4')).toMatchObject({ status: 'canceled', failure_reason: 'paddle_canceled' });
+  });
+
+  it('a subscription Paddle does not know is not registered, and not retried', async () => {
+    table('billing_account_cards').length = 0;
+    Object.assign(payments()[0], { card_id: null });
+    h.paddleOverride[`GET /subscriptions/sub_unknown`] = () => ({ status: 404, body: { error: { code: 'not_found', detail: 'no such subscription' } } });
+    const event = txnEvent('transaction.paid', txnJson({ id: 'txn_x', status: 'paid' }));
+    event.card.subscriptionId = 'sub_unknown';
+    expect(await card.handleCardEvent(CFG, { providerName: 'paddle_sandbox', event: event as never, owner: { workspaceId: W, cardId: null, setupPaymentId: SETUP } })).toBe('ignored');
+    expect(rpcs('billing_card_register')).toHaveLength(0);
+    expect(rpcs('billing_card_record_charge')).toHaveLength(0);
   });
 
   it("subscription.created of our checkout registers the card, then syncs it", async () => {
@@ -824,6 +935,12 @@ describe('cardEventOwner (read-only, P6)', () => {
     payments()[0].source = 'checkout';
     expect(await card.cardEventOwner(CFG, 'paddle_sandbox', event({ customData: { intent_id: SETUP } }))).toBeNull();
   });
+  it('an intent id naming our checkout whose card is registered already: another subscription, not ours', async () => {
+    expect(await card.cardEventOwner(CFG, 'paddle_sandbox', event({ customData: { intent_id: SETUP } }))).toBeNull();
+    Object.assign(payments()[0], { card_id: null });
+    expect(await card.cardEventOwner(CFG, 'paddle_sandbox', event({ customData: { intent_id: SETUP } })))
+      .toEqual({ workspaceId: W, cardId: null, setupPaymentId: SETUP });
+  });
   it('an intent id whose checkout is another transaction is not ours', async () => {
     expect(await card.cardEventOwner(CFG, 'paddle_sandbox', event({ customData: { intent_id: SETUP }, transactionId: 'txn_other' }))).toBeNull();
   });
@@ -838,6 +955,16 @@ describe('removeCard / setCardAutoRenew (Paddle first, P7)', () => {
     await expect(card.removeCard(CFG, W)).rejects.toMatchObject({ code: 'CARD_RENEWAL_IN_PROGRESS' });
     expect(cardRow()).toMatchObject({ status: 'active', cancel_intent: null });
     expect(accountRow().auto_renew).toBe(true);
+    expect(h.emails).toHaveLength(0);
+  });
+
+  it("no answer to the cancel keeps our intent (Paddle's later cancel event reads as ours); a sync finding no cancel clears it", async () => {
+    h.paddleOverride[`POST /subscriptions/${SUB}/cancel`] = () => ({ status: 503, body: { error: { code: 'service_unavailable', detail: 'busy' } } });
+    await expect(card.removeCard(CFG, W)).rejects.toMatchObject({ code: 'CARD_PROVIDER_ERROR', status: 502 });
+    expect(cardRow()).toMatchObject({ status: 'active', cancel_intent: 'now' });
+    delete h.paddleOverride[`POST /subscriptions/${SUB}/cancel`];
+    expect((await card.syncCard(CFG, CARD)).status).toBe('unchanged');
+    expect(cardRow().cancel_intent).toBeNull();
     expect(h.emails).toHaveLength(0);
   });
 

@@ -8407,6 +8407,10 @@ const en = {
         title: 'Your plan is ending',
         desc: 'You chose to move to the free plan in {{days}} day(s). Cancel the change on the billing page to keep your plan.',
       },
+      card_payment_failed: {
+        title: 'Card payment failed',
+        desc: 'Your saved card could not be charged for the plan\u2019s renewal. Update the card and pay, or renew from your balance, within {{days}} day(s), or the workspace moves to the Free plan.',
+      },
       subscription_past_due: {
         title: 'Subscription payment overdue',
         desc: 'Review your payment details to avoid service interruption.',

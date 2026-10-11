@@ -171,6 +171,8 @@ export interface PaddleSubscription {
   currency: string | null;
   /** When Paddle charges next; null once canceled or paused. */
   nextBilledAt: string | null;
+  /** `current_billing_period.starts_at`: when Paddle last billed (renewed); null for paused and canceled subscriptions. */
+  currentPeriodStart: string | null;
   /** `current_billing_period.ends_at`; null for paused and canceled subscriptions. */
   currentPeriodEnd: string | null;
   /** A cancel / pause / resume Paddle will apply at `effectiveAt`. */

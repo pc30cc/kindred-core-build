@@ -63,6 +63,7 @@ import {
   CARD_CHARGE_GIVE_UP_MS,
   CARD_CHARGE_RESOLVE_AFTER_MS,
   CARD_CURRENCIES,
+  CARD_FREEZE_MAX_AFTER_MS,
   CARD_SETUP_HOLD_MS,
   CARD_SYNC_DATE_TOLERANCE_MS,
   PADDLE_MIN_CHARGE_MINOR,
@@ -451,7 +452,11 @@ async function cancelAtPaddle(
   if (res.ok) return { ok: true, subscription: res.subscription, result: res };
   const canceled = await canceledAtPaddle(cfg, card.subscription_id).catch(() => null);
   if (canceled) return { ok: true, subscription: canceled, result: res };
-  if (card.cancel_intent !== intent) {
+  // A refusal puts the intent back. No answer keeps it: Paddle may have
+  // cancelled after all, and its event must still read as ours (a stale
+  // intent is cleared by the next sync that finds no cancel at Paddle).
+  const answered = !res.unknownOutcome && res.status > 0 && res.status < 500;
+  if (card.cancel_intent !== intent && answered) {
     await patchCard(config, card.id, { cancel_intent: card.cancel_intent }).catch(() => undefined);
   }
   return { ok: false, subscription: null, result: res };
@@ -776,11 +781,29 @@ export async function activateCard(
   }
   const cfg = (await cardGateway(config, payment.workspace_id, input.providerName)).paddle;
   const answer = await getSubscription(cfg, input.subscriptionId);
+  if (answer.status === 404) {
+    // Not a subscription of this gateway's Paddle account: retrying cannot help.
+    console.error(`[billing-card] REVIEW activation of ${input.subscriptionId} for payment ${payment.id}: Paddle does not know the subscription`);
+    return null;
+  }
+  // Anything else may pass: the event is retried (the job retries a recovery).
   if (!answer.ok || !answer.subscription) throw new Error(`Paddle subscription ${input.subscriptionId}: ${paddleProblem(answer)}`);
   const sub = answer.subscription;
   const claimed = str(sub.customData.workspace_id);
   if (claimed && claimed !== payment.workspace_id) {
     console.error(`[billing-card] REVIEW subscription ${sub.id} names workspace ${claimed}; its checkout is workspace ${payment.workspace_id}'s`);
+  }
+  // The checkout that saved the card: the card's details, and, when Paddle's
+  // event did not name it, the proof that it created this subscription (its
+  // custom_data alone may be another installation's copy of our ids, P6).
+  const checkoutTxn = input.checkoutTransactionId ?? payment.provider_ref;
+  const txn = checkoutTxn ? await getTransaction(cfg, checkoutTxn).catch(() => null) : null;
+  if (!input.checkoutTransactionId) {
+    if (txn && !txn.ok && txn.status !== 404) throw new Error(`Paddle transaction ${checkoutTxn}: ${paddleProblem(txn)}`);
+    if (!txn?.transaction || txn.transaction.subscriptionId !== sub.id) {
+      console.error(`[billing-card] REVIEW subscription ${sub.id} was not made by checkout ${checkoutTxn ?? '-'} of payment ${payment.id}; not registered`);
+      return null;
+    }
   }
 
   const { data, error } = await getServiceClient(config).rpc('billing_card_register', {
@@ -804,8 +827,6 @@ export async function activateCard(
   const duplicate = reg.duplicate === true;
 
   // The card that paid the checkout, and what Paddle shows now.
-  const checkoutTxn = input.checkoutTransactionId ?? payment.provider_ref;
-  const txn = checkoutTxn ? await getTransaction(cfg, checkoutTxn).catch(() => null) : null;
   await patchCard(config, cardId, { ...mirrorOf(sub), ...cardDetailsPatch(txn?.transaction?.card ?? null) })
     .catch((e) => console.warn(`[billing-card] card=${cardId} details:`, messageOf(e)));
   if (reg.replayed !== true) {
@@ -863,14 +884,16 @@ export async function cardEventOwner(config: ServerConfig, providerName: string,
   if (intent && UUID.test(intent)) {
     const { data, error } = await sb
       .from('billing_account_payments')
-      .select('id, workspace_id, provider_ref')
+      .select('id, workspace_id, provider_ref, card_id')
       .eq('id', intent)
       .eq('provider', providerName)
       .eq('source', 'card_setup')
       .maybeSingle();
     if (error) throw new Error(error.message || 'payment read failed');
     const row = data as Record<string, unknown> | null;
-    if (row && (!checkoutTxn || !str(row.provider_ref) || row.provider_ref === checkoutTxn)) {
+    // A checkout saves one card: once its subscription is registered (found
+    // above by its id), another subscription naming that checkout is not ours.
+    if (row && !str(row.card_id) && (!checkoutTxn || !str(row.provider_ref) || row.provider_ref === checkoutTxn)) {
       return { workspaceId: String(row.workspace_id), cardId: null, setupPaymentId: String(row.id) };
     }
   }
@@ -928,6 +951,21 @@ function chargePaymentId(txn: PaddleTransaction): string | null {
     if (id && UUID.test(id)) return id;
   }
   return null;
+}
+
+/**
+ * An unpaid /charge transaction whose payment row (this card's, never bound
+ * to a transaction) has already ended: the charge was refused when it was
+ * asked for, so there is nothing to record.
+ */
+async function chargeAlreadyEnded(config: ServerConfig, card: CardRow, txn: PaddleTransaction): Promise<boolean> {
+  const paymentId = chargePaymentId(txn);
+  const payment = paymentId ? ((await readAccountPayment(config, paymentId)) as CardPayment | null) : null;
+  return Boolean(
+    payment && payment.workspace_id === card.workspace_id && payment.card_id === card.id
+      && payment.source === 'card_charge' && payment.status !== 'pending' && payment.status !== 'succeeded'
+      && !payment.provider_ref,
+  );
 }
 
 /**
@@ -1010,12 +1048,18 @@ async function onTransactionEvent(
     if (txn.card && paid) await patchCard(config, card.id, cardDetailsPatch(txn.card));
     return 'handled';
   }
+  if (!paid && txn.origin === 'subscription_charge' && (await chargeAlreadyEnded(config, card, txn))) {
+    // Our /charge was refused in the call itself (its row ended then) and
+    // nothing was taken: no second row for it. Paid, it would be recorded.
+    return 'handled';
+  }
   const payment = await recordCharge(config, card, txn, amount);
   if (!payment) return 'handled';
 
   if (paid) {
-    await settleCardPayment(config, payment, amount, txn.currency ?? card.currency, txn.id);
+    // The card that paid first: the settlement's mail names it.
     if (txn.card) await patchCard(config, card.id, cardDetailsPatch(txn.card));
+    await settleCardPayment(config, payment, amount, txn.currency ?? card.currency, txn.id);
     // A renewal paid after a decline: the card is fine again.
     if (txn.origin === 'subscription_recurring' && card.status === 'past_due') {
       await setCardStatus(config, card.id, 'active');
@@ -1023,6 +1067,9 @@ async function onTransactionEvent(
     }
     return 'handled';
   }
+  // Collected already (a later attempt; notifications come in any order): an
+  // older one about a failed attempt changes nothing and is not mailed.
+  if (payment.status === 'succeeded') return 'handled';
   if (txn.status === 'canceled' || eventType === 'transaction.canceled') {
     await failAccountPayment(config, payment.id, 'canceled', 'paddle_canceled');
     return 'handled';
@@ -1111,9 +1158,14 @@ function itemMatches(sub: PaddleSubscription, item: Extract<DesiredCardState, { 
     && num(data.tax_minor) === item.taxMinor;
 }
 
+/**
+ * Whether the subscription carries our custom_data. Other keys do not matter
+ * (card events are never routed by them, P5): where Paddle merges a PATCH
+ * into what the checkout left (its intent_id), asking again would never
+ * change it, and each PATCH's own subscription.updated would sync again.
+ */
 function customDataMatches(sub: PaddleSubscription, wanted: Record<string, string>): boolean {
-  const keys = Object.keys(sub.customData);
-  return keys.length === Object.keys(wanted).length && keys.every((k) => sub.customData[k] === wanted[k]);
+  return Object.keys(wanted).every((k) => sub.customData[k] === wanted[k]);
 }
 
 /**
@@ -1125,7 +1177,10 @@ function customDataMatches(sub: PaddleSubscription, wanted: Record<string, strin
  * current period are looked at first: one paid but not recorded is settled
  * now ('renewal_settled': decide again with the new state), one still in
  * flight waits ('renewal_in_flight'), one recorded but not applied to a
- * period is left for a person ('renewal_not_applied'). null = move it.
+ * period is left for a person ('renewal_not_applied'). A period Paddle began
+ * within the last hours whose renewal is not listed yet waits for it
+ * ('renewal_expected': Paddle moves its dates before the transaction shows).
+ * null = move it.
  */
 async function earlierDateBlocked(
   config: ServerConfig,
@@ -1138,14 +1193,17 @@ async function earlierDateBlocked(
   if (!Number.isFinite(paddleEnd) || paddleEnd <= Date.parse(paidUntil) + PADDLE_AHEAD_SLACK_MS) return null;
   const list = await listSubscriptionTransactions(cfg, card.subscription_id, { perPage: 10 });
   if (!list.ok) return 'paddle_transactions_unavailable';
-  // Paddle's current period started about one cycle before its end.
-  const currentFrom = paddleEnd - (sub.items[0]?.interval === 'year' ? 367 : 32) * DAY_MS;
+  // Paddle's current period: from its start (else about one cycle before its end).
+  const start = Date.parse(sub.currentPeriodStart ?? '');
+  const currentFrom = Number.isFinite(start) ? start - DAY_MS : paddleEnd - (sub.items[0]?.interval === 'year' ? 367 : 32) * DAY_MS;
   let settled = false;
+  let seen = false;
   let blocked: string | null = null;
   for (const txn of [...list.transactions].reverse()) {
     if (txn.origin !== 'subscription_recurring' || txn.status === 'canceled') continue;
     const at = Date.parse(txn.billedAt ?? txn.createdAt ?? '');
     if (Number.isFinite(at) && at < currentFrom) continue;
+    seen = true;
     if (!PAID.has(txn.status)) {
       blocked = blocked ?? 'renewal_in_flight';
       continue;
@@ -1157,11 +1215,15 @@ async function earlierDateBlocked(
     } else if (payment.status !== 'succeeded') {
       await settleCardPayment(config, payment, amount, txn.currency ?? card.currency, txn.id);
       settled = true;
-    } else if (payment.purpose_result && 'error' in payment.purpose_result) {
+    } else if (payment.purpose !== 'renewal' || payment.review || (payment.purpose_result && 'error' in payment.purpose_result)) {
+      // Paddle charged its period, but the money did not renew ours (another
+      // amount, credited as a top-up; a renewal guard): never charged again.
       blocked = blocked ?? 'renewal_not_applied';
     }
   }
   if (settled) return 'renewal_settled';
+  const now = Date.now();
+  if (!seen && Number.isFinite(start) && start <= now && now - start < CARD_FREEZE_MAX_AFTER_MS) return 'renewal_expected';
   if (blocked === 'renewal_not_applied' || blocked === 'renewal_not_recorded') {
     console.error(`[billing-card] REVIEW card=${card.id} Paddle charged its current period (until ${sub.currentPeriodEnd}) but no renewal of ours came of it; its date stays ${sub.nextBilledAt}`);
   }
@@ -1271,7 +1333,8 @@ async function runSync(config: ServerConfig, cardId: string, prefetched: PaddleS
       sub = res.subscription ?? { ...sub, scheduledChange: null };
       mirror = { ...mirror, ...mirrorOf(sub), cancel_intent: null };
       changed = true;
-    } else if (card.cancel_intent === 'period_end') {
+    } else if (card.cancel_intent) {
+      // No cancel at Paddle: an intent left from a cancel Paddle never applied.
       mirror = { ...mirror, cancel_intent: null };
     }
     const patch: SubscriptionPatch = {};
@@ -1309,7 +1372,7 @@ async function runSync(config: ServerConfig, cardId: string, prefetched: PaddleS
       }
     }
     // A renewal just settled changed what is paid: decide again shortly.
-    const heldFor = held === 'renewal_settled' ? MINUTE_MS : 30 * MINUTE_MS;
+    const heldFor = held === 'renewal_settled' ? MINUTE_MS : held === 'renewal_expected' ? 10 * MINUTE_MS : 30 * MINUTE_MS;
     if (!Object.keys(patch).length) {
       if (held) return defer(held, heldFor);
       await markSynced(config, card.id, version, mirror);
@@ -1328,10 +1391,13 @@ async function runSync(config: ServerConfig, cardId: string, prefetched: PaddleS
     const after = updated.subscription ?? sub;
     mirror = { ...mirror, ...mirrorOf(after) };
     if (held) return defer(held, heldFor);
-    // An interval swap may move Paddle's date: the next pass corrects it.
+    // An interval swap may move Paddle's date: the next pass corrects it. A
+    // date we sent that Paddle did not take is an error (with its back-off),
+    // so a Paddle that keeps refusing it is not asked every few minutes.
     const afterAt = Date.parse(after.nextBilledAt ?? '');
     const dateOff = desired.feasible && Number.isFinite(afterAt)
       && Math.abs(afterAt - Date.parse(desired.nextBilledAt)) > CARD_SYNC_DATE_TOLERANCE_MS;
+    if (dateOff && patch.next_billed_at) return fail(`paddle_date_not_applied: ${after.nextBilledAt} for ${desired.nextBilledAt}`);
     await markSynced(config, card.id, dateOff ? version - 1 : version, mirror);
     return { status: 'synced' };
   } catch (e) {
@@ -1372,6 +1438,22 @@ async function findChargeTransaction(
   const list = await listSubscriptionTransactions(cfg, subscriptionId, { perPage: 30 });
   if (!list.ok) return { ok: false, txn: null };
   return { ok: true, txn: list.transactions.find((t) => t.itemCustomData.some((d) => d.payment_id === paymentId)) ?? null };
+}
+
+/**
+ * Why the card declined our /charge (Paddle's payment error code, such as
+ * expired_card), when Paddle shows the declined transaction; null when it
+ * does not (or cannot be asked). Read only: the row ends as refused, and
+ * the transaction's own events find it ended (chargeAlreadyEnded).
+ */
+async function declinedChargeCode(card: CardRow, cfg: BillingProviderConfig, paymentId: string): Promise<string | null> {
+  try {
+    const found = await findChargeTransaction(cfg, card.subscription_id, paymentId);
+    return found.txn?.errorCode ?? null;
+  } catch (e) {
+    console.warn(`[billing-card] payment=${paymentId} decline reason:`, messageOf(e));
+    return null;
+  }
 }
 
 /**
@@ -1513,7 +1595,9 @@ export async function chargeCardForUpgrade(
       return { status: 'processing', paymentId };
     }
     if (result.error?.code === 'subscription_payment_declined') {
-      return refuse('card_declined', new AccountBillingError('CARD_DECLINED', 402, { code: result.error.code }));
+      return refuse('card_declined', new AccountBillingError('CARD_DECLINED', 402, {
+        code: (await declinedChargeCode(card, gateway.paddle, paymentId)) ?? result.error.code,
+      }));
     }
     return refuse(`charge_refused:${result.error?.code ?? result.status}`.slice(0, 200), providerError(result));
   }

@@ -8392,6 +8392,10 @@ const tr: TranslationKeys = {
         title: 'Planınız sona eriyor',
         desc: '{{days}} gün içinde Ücretsiz plana geçmeyi seçtiniz. Planınızı korumak için faturalama sayfasında değişikliği iptal edin.',
       },
+      card_payment_failed: {
+        title: 'Kart ödemesi başarısız oldu',
+        desc: 'Plan yenilemesi için kayıtlı kartınızdan ödeme alınamadı. {{days}} gün içinde kartı güncelleyip ödeyin ya da bakiyenizden yenileyin; aksi halde çalışma alanı Ücretsiz plana geçer.',
+      },
       subscription_past_due: {
         title: 'Abonelik ödemesi gecikti',
         desc: 'Hizmet kesintisini önlemek için ödeme bilgilerinizi kontrol edin.',

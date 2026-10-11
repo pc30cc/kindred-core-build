@@ -2,7 +2,8 @@
  * The alerts bell (server/routes/workspaceAlerts.ts) warns of a paid period
  * that will not renew (renewalNotice.ts): 'renewal_due', critical in the
  * last 2 days, linking to the billing page — unless the older
- * 'subscription_ending' (cancel_at_period_end) already says so.
+ * 'subscription_ending' (cancel_at_period_end) already says so. A saved
+ * card whose renewal payment failed reads 'card_payment_failed' (phase 3b).
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import http from 'node:http';
@@ -90,6 +91,16 @@ describe('renewal_due alert', () => {
     const kinds = (await alerts()).map((a) => a.kind);
     expect(kinds).toContain('change_to_free');
     expect(kinds).not.toContain('renewal_due');
+  });
+
+  it("a saved card's failed renewal payment is its own kind, critical whatever the days left", async () => {
+    notice = { days_left: 5, period_end: inDays(4.5), plan_id: 'pro', ends_on_free: false, card_past_due: true };
+    const kinds = (await alerts()).map((a) => a.kind);
+    expect(kinds).not.toContain('renewal_due');
+    const alert = (await alerts()).find((a) => a.kind === 'card_payment_failed');
+    expect(alert).toMatchObject({
+      id: 'renewal_due', severity: 'critical', dismissible: false, params: { days: '5', plan: 'Pro' }, action: '/billing',
+    });
   });
 
   it('not twice when subscription_ending already warns', async () => {

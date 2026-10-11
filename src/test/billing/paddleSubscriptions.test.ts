@@ -297,6 +297,7 @@ describe('readSubscription', () => {
       customerId: 'ctm_01hv8wt8nffez4p2t6typn4a5j',
       currency: 'USD',
       nextBilledAt: '2024-05-12T10:37:59.556Z',
+      currentPeriodStart: '2024-04-12T10:37:59.556Z',
       currentPeriodEnd: '2024-05-12T10:37:59.556Z',
       scheduledChange: null,
       items: [
@@ -329,7 +330,7 @@ describe('readSubscription', () => {
       canceled_at: '2024-04-12T11:24:54.868Z',
     };
     expect(readSubscription(canceled)).toMatchObject({
-      status: 'canceled', nextBilledAt: null, currentPeriodEnd: null, canceledAt: '2024-04-12T11:24:54.868Z',
+      status: 'canceled', nextBilledAt: null, currentPeriodStart: null, currentPeriodEnd: null, canceledAt: '2024-04-12T11:24:54.868Z',
     });
   });
 

@@ -17,7 +17,11 @@
  *     known;
  *   - plan actions wait for a card that is past_due or about to be charged,
  *     and sync the card after; renewing goes through the card's ordering;
- *   - a card charge is never expired by the return route.
+ *   - a card charge is never expired by the return route;
+ *   - a plan bought online (with or without a card) waits for the lock
+ *     acknowledgement as POST /plan does: 409 LOCKS_NOT_ACKNOWLEDGED with
+ *     the report and no payment row while the quote's report lists
+ *     something; nothing changes while billing locks are off.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
@@ -54,6 +58,7 @@ const h = vi.hoisted(() => ({
     upgradePlan: vi.fn(),
     scheduleChange: vi.fn(),
     setAutoRenew: vi.fn(),
+    quotePlanChange: vi.fn(),
   },
   card: {
     assertCardAllowsPlanChange: vi.fn(),
@@ -147,7 +152,7 @@ vi.mock('../../../../server/services/billing/account/plans.js', () => ({
   buyPlan: traced('buyPlan', h.plans.buyPlan),
   listPlanOptions: async () => [],
   processDueNow: async () => null,
-  quotePlanChange: async () => ({}),
+  quotePlanChange: h.plans.quotePlanChange,
   scheduleChange: traced('scheduleChange', h.plans.scheduleChange),
   setAutoRenew: h.plans.setAutoRenew,
   upgradePlan: traced('upgradePlan', h.plans.upgradePlan),
@@ -211,6 +216,8 @@ beforeEach(() => {
   });
   h.account.getAccountView.mockImplementation(async () => ({ edition: h.edition, currency: h.edition === 'iran' ? 'IRR' : 'USD', balance_minor: 0 }));
   h.plans.accountPlanState.mockResolvedValue({ paid_period: null });
+  // Billing locks off: the quote carries no report.
+  h.plans.quotePlanChange.mockResolvedValue({ kind: 'purchase', plan_id: PLAN });
   h.account.createAccountPayment.mockImplementation(async (_c: unknown, input: Record<string, unknown>) => ({ id: PAY, ...input }));
   h.card.cardView.mockResolvedValue(CARD_VIEW);
   h.card.cardAvailability.mockResolvedValue({ available: true, providers: ['paddle_sandbox'] });
@@ -386,6 +393,61 @@ describe('POST checkout without a card setup', () => {
     const res = await call('POST', '/checkout', { purpose: 'upgrade', planId: PLAN, currency: 'USD', callbackUrl: CALLBACK });
     expect(res.json.error).toBe('CARD_PAST_DUE');
     expect(h.plans.amountNeededFor).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST checkout for a plan: the lock acknowledgement (phase 4)', () => {
+  const REPORT = { locks_enabled: true, has_locks: true, plan_id: PLAN, member: { limit: 1, total: 2, locked: 1, items: [] } };
+  const plain = (over: Record<string, unknown> = {}) => ({
+    purpose: 'plan', planId: PLAN, interval: 'monthly', currency: 'USD', callbackUrl: CALLBACK, expectedNetMinor: 2900, ...over,
+  });
+  const withCard = (over: Record<string, unknown> = {}) => plain({ providerName: 'paddle_sandbox', autoRenew: true, ...over });
+
+  beforeEach(() => {
+    h.plans.amountNeededFor.mockResolvedValue({
+      needed: 2900, currency: 'USD', balance: 0, detail: { plan_id: PLAN, billing_interval: 'monthly' }, periodPriceMinor: 2900,
+    });
+    h.plans.quotePlanChange.mockResolvedValue({ kind: 'purchase', plan_id: PLAN, lock_report: REPORT });
+  });
+
+  for (const [name, body] of [['paid online', plain], ['with the card saved for renewals', withCard]] as const) {
+    it(`${name}: without the acknowledgement, 409 with the report and no payment row`, async () => {
+      const res = await call('POST', '/checkout', body());
+      expect(res).toEqual({ status: 409, json: { error: 'LOCKS_NOT_ACKNOWLEDGED', details: { lock_report: REPORT } } });
+      expect(h.plans.quotePlanChange.mock.calls[0].slice(1)).toEqual([WS, PLAN, 'monthly', { withLockReport: true }]);
+      expect(h.account.createAccountPayment).not.toHaveBeenCalled();
+      expect(h.card.prepareCardSetup).not.toHaveBeenCalled();
+      expect(h.createCheckoutSession).not.toHaveBeenCalled();
+    });
+
+    it(`${name}: acknowledged, the checkout starts (the report is not asked again)`, async () => {
+      const res = await call('POST', '/checkout', body({ acknowledgeLocks: true }));
+      expect(res.status).toBe(200);
+      expect(h.plans.quotePlanChange).not.toHaveBeenCalled();
+      expect(h.account.createAccountPayment).toHaveBeenCalledTimes(1);
+    });
+
+    it(`${name}: billing locks off (no report in the quote), the checkout starts as before`, async () => {
+      h.plans.quotePlanChange.mockResolvedValue({ kind: 'purchase', plan_id: PLAN });
+      expect((await call('POST', '/checkout', body())).status).toBe(200);
+      // A report that lists nothing, or one from locks turned off, asks nothing either.
+      h.plans.quotePlanChange.mockResolvedValue({ kind: 'purchase', plan_id: PLAN, lock_report: { ...REPORT, has_locks: false } });
+      expect((await call('POST', '/checkout', body())).status).toBe(200);
+      h.plans.quotePlanChange.mockResolvedValue({ kind: 'purchase', plan_id: PLAN, lock_report: { ...REPORT, locks_enabled: false } });
+      expect((await call('POST', '/checkout', body())).status).toBe(200);
+      expect(h.account.createAccountPayment).toHaveBeenCalledTimes(3);
+    });
+  }
+
+  it('a renewal or an upgrade is not asked (only a plan bought locks at once)', async () => {
+    h.plans.amountNeededFor.mockResolvedValue({ needed: 2900, currency: 'USD', balance: 0, detail: { plan_id: PLAN }, periodPriceMinor: 2900 });
+    expect((await call('POST', '/checkout', { purpose: 'renewal', currency: 'USD', callbackUrl: CALLBACK })).status).toBe(200);
+    expect((await call('POST', '/checkout', { purpose: 'upgrade', planId: PLAN, currency: 'USD', callbackUrl: CALLBACK })).status).toBe(200);
+    expect(h.plans.quotePlanChange).not.toHaveBeenCalled();
+  });
+
+  it('acknowledgeLocks must be a boolean', async () => {
+    expect((await call('POST', '/checkout', plain({ acknowledgeLocks: 'yes' }))).status).toBe(400);
   });
 });
 

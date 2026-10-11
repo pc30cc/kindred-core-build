@@ -520,11 +520,48 @@ async function snapshotFor(
 }
 
 /**
+ * SIMPLE BILLING phase 4 — "when the monthly quota is full the widget shows
+ * the leave-a-message form" (docs/billing/SIMPLE_BILLING.md).
+ *
+ *   - null: billing locks are off for this edition (or self-host unlimited).
+ *     The field is left out of the payload and the widget behaves as before
+ *     (a first message over the quota is refused, and so is the form).
+ *   - true / false: locks are on. /offline-messages then accepts a capture
+ *     over the quota (tagged `over_quota`), so a widget that sees the field
+ *     shows the form for a new conversation while `true`, and switches to it
+ *     when a first message is refused for `max_conversations`.
+ *
+ * Fail open: an unreadable quota reads as not full (the /message cap still
+ * decides, and its refusal still leads to the form).
+ */
+export async function resolveConversationQuotaFull(config: ServerConfig, workspaceId: string): Promise<boolean | null> {
+  if (!workspaceId || config.selfHostBillingUnlimited === true) return null;
+  try {
+    const { locksEnabled } = await import('../billing/locks/state.js');
+    if (!(await locksEnabled(config))) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const { checkMaxConversationsAllowance } = await import('../billing/conversationLimit.js');
+    const allowance = await checkMaxConversationsAllowance(config, workspaceId);
+    return allowance.reason === 'limit_reached';
+  } catch {
+    return false;
+  }
+}
+
+export interface WireExtras {
+  /** resolveConversationQuotaFull(); null/undefined leaves the field out. */
+  quota_full?: boolean | null;
+}
+
+/**
  * Reduce an AvailabilitySnapshot to the additive payload exposed on
  * /bootstrap and /config so the widget runtime never has to know about
  * the internal weekly schedule shape.
  */
-export function snapshotToWirePayload(snap: AvailabilitySnapshot) {
+export function snapshotToWirePayload(snap: AvailabilitySnapshot, extras: WireExtras = {}) {
   return {
     state: snap.state,
     reason: snap.reason,
@@ -533,5 +570,6 @@ export function snapshotToWirePayload(snap: AvailabilitySnapshot) {
     offline_mode: snap.offline_mode,
     labels: snap.labels,
     offline_message: snap.offline_message,
+    ...(typeof extras.quota_full === 'boolean' ? { quota_full: extras.quota_full } : {}),
   };
 }

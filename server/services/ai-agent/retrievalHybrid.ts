@@ -22,6 +22,12 @@
  *   inactive_file_excluded ↔ file_not_active
  *   inactive_web_page_excluded ↔ website_not_active
  *   unapproved_learned_qna_excluded ↔ candidate_not_approved
+ *   locked_kb_excluded ↔ kb_locked
+ *
+ * Simple billing phase 4: an article the plan has locked (over
+ * max_kb_articles) is invisible to the AI. Its chunks may still be 'active'
+ * until the index catches up, so the parent re-check drops it from all three
+ * phases; the KB keyword phase never reads it.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -37,6 +43,8 @@ import {
   isWebsiteSourceAllowed,
 } from './sourcePolicy.js';
 import { diversifySources } from './sourceDiversity.js';
+import { applyKbUnlockedFilter, lockedKbIdsOf, resolveKbLock } from '../knowledge-base/locks.js';
+import { errorMessage } from '../../lib/errorMessage.js';
 
 export type HybridSourceKind = 'qna' | 'kb_article' | 'learned_qna' | 'business_profile' | 'web_page' | 'file';
 
@@ -115,6 +123,8 @@ export interface HybridRetrievalResult {
     inactive_web_page_excluded: number;
     /** E5-Final — chunks for learned_qna whose candidate isn't approved. */
     unapproved_learned_qna_excluded: number;
+    /** Simple billing phase 4 — KB articles locked by the plan (over max_kb_articles). */
+    locked_kb_excluded: number;
     /**
      * @deprecated Response-shape compatibility field only. Inactive chunks
      * are filtered by status='active' at SQL query time, before ever
@@ -249,6 +259,12 @@ interface Aggregated {
   metadata: Record<string, unknown>;
   keywordScore: number;
   vectorScore: number;
+  // Set by the scoring step (3) for every merged candidate.
+  finalScore?: number;
+  topicBoost?: number;
+  urlBoost?: number;
+  localeBonus?: number;
+  sourcePriority?: number;
 }
 
 export async function retrieveHybridSources(
@@ -273,6 +289,9 @@ export async function retrieveHybridSources(
 
   const topics = detectTopics(`${input.originalMessage} ${input.expandedQuery || ''}`);
   result.topics = topics;
+
+  // Never throws; nothing is locked while billing locks are off or unreadable.
+  const kbLock = await resolveKbLock(config, input.workspaceId);
 
   const aggregated = new Map<string, Aggregated>();
   const upsert = (a: Aggregated) => {
@@ -344,7 +363,7 @@ export async function retrieveHybridSources(
           locale: (c.locale as string) || null,
           source_url: (c.source_url as string) || null,
           slug: null,
-          metadata: (c.metadata as any) || {},
+          metadata: (c.metadata as Record<string, unknown> | null) || {},
           // Inject a synthetic keyword score so it survives merges that have
           // no other signal — final scoring still adds url boost on top.
           keywordScore: 0,
@@ -353,8 +372,8 @@ export async function retrieveHybridSources(
       }
       pageDebug.page_matched_source_ids = pageMatchedIds;
       pageDebug.page_url_boost_applied = pageBoosts.size > 0;
-    } catch (err: any) {
-      console.warn('[ai-agent.retrievalHybrid] page-aware lookup failed:', err?.message || err);
+    } catch (err) {
+      console.warn('[ai-agent.retrievalHybrid] page-aware lookup failed:', errorMessage(err) || err);
     }
   }
 
@@ -401,14 +420,16 @@ export async function retrieveHybridSources(
       });
     }
 
-    // KB articles — published only, workspace-scoped
-    const { data: arts } = await sb
-      .from('knowledge_base_articles')
-      .select('id, slug, locale, title, excerpt, content')
-      .eq('workspace_id', input.workspaceId)
-      .eq('status', 'published')
-      .eq('used_by_ai', true)
-      .limit(150);
+    // KB articles — published only, workspace-scoped, not locked by the plan
+    const { data: arts } = await applyKbUnlockedFilter(
+      sb
+        .from('knowledge_base_articles')
+        .select('id, slug, locale, title, excerpt, content')
+        .eq('workspace_id', input.workspaceId)
+        .eq('status', 'published')
+        .eq('used_by_ai', true),
+      kbLock,
+    ).limit(150);
     for (const a of arts || []) {
       const score = Math.max(
         keywordScore(queryForKeyword, a.title) * 1.2,
@@ -458,16 +479,16 @@ export async function retrieveHybridSources(
         locale: (c.locale as string) || null,
         source_url: (c.source_url as string) || null,
         slug: null,
-        metadata: (c.metadata as any) || {},
+        metadata: (c.metadata as Record<string, unknown> | null) || {},
         keywordScore: Math.min(1, score),
         vectorScore: 0,
       });
     }
 
     result.keywordUsed = true;
-  } catch (err: any) {
-    console.warn('[ai-agent.retrievalHybrid] keyword phase failed:', err?.message);
-    result.fallbackReason = `keyword_failed:${err?.message || 'unknown'}`;
+  } catch (err) {
+    console.warn('[ai-agent.retrievalHybrid] keyword phase failed:', errorMessage(err));
+    result.fallbackReason = `keyword_failed:${errorMessage(err) || 'unknown'}`;
   }
 
   // ── 2) Vector retrieval ───────────────────────────────────────────────
@@ -499,7 +520,7 @@ export async function retrieveHybridSources(
 
         // Compute cosine similarity client-side (we already capped at 500).
         const scored = (vecRows || [])
-          .map((r: any) => {
+          .map((r: { embedding: unknown } & Record<string, unknown>) => {
             const emb = parseVector(r.embedding);
             const sim = emb ? cosine(vec, emb) : 0;
             return { row: r, sim };
@@ -520,7 +541,7 @@ export async function retrieveHybridSources(
             locale: (row.locale as string) || null,
             source_url: (row.source_url as string) || null,
             slug: null,
-            metadata: (row.metadata as any) || {},
+            metadata: (row.metadata as Record<string, unknown> | null) || {},
             keywordScore: 0,
             vectorScore: Math.min(1, sim),
           });
@@ -528,9 +549,9 @@ export async function retrieveHybridSources(
         result.vectorUsed = true;
       }
     }
-  } catch (err: any) {
-    console.warn('[ai-agent.retrievalHybrid] vector phase failed:', err?.message);
-    if (!result.fallbackReason) result.fallbackReason = `vector_failed:${err?.message || 'unknown'}`;
+  } catch (err) {
+    console.warn('[ai-agent.retrievalHybrid] vector phase failed:', errorMessage(err));
+    if (!result.fallbackReason) result.fallbackReason = `vector_failed:${errorMessage(err) || 'unknown'}`;
   }
 
   result.hybridUsed = result.keywordUsed && result.vectorUsed;
@@ -546,6 +567,7 @@ export async function retrieveHybridSources(
     inactive_file_excluded: 0,
     inactive_web_page_excluded: 0,
     unapproved_learned_qna_excluded: 0,
+    locked_kb_excluded: 0,
     // @deprecated compatibility fields — see HybridRetrievalResult['excludedSummary']
     // doc comments. Never incremented; kept at 0 for response-shape stability.
     inactive_chunks_excluded: 0,
@@ -569,6 +591,8 @@ export async function retrieveHybridSources(
     // instead of misreporting it as disabled/draft/inactive/unapproved.
     const crossWorkspaceQna = new Set<string>();
     const crossWorkspaceKb = new Set<string>();
+    // Simple billing phase 4 — published articles the plan has locked.
+    let lockedKb = new Set<string>();
     const crossWorkspaceLearnedQna = new Set<string>();
     // ai_data_sources ids (shared by file + web_page parent lookups) found
     // under a different workspace.
@@ -581,7 +605,7 @@ export async function retrieveHybridSources(
     if (idsByKind['web_page']?.size) {
       for (const a of all) {
         if (a.source_type !== 'web_page') continue;
-        const meta: any = (a as any).metadata || {};
+        const meta = a.metadata || {};
         const parent = deriveWebPageParentSourceId(a.source_id, meta);
         if (parent) webPageChunkParent.set(a.source_id, parent);
       }
@@ -599,11 +623,13 @@ export async function retrieveHybridSources(
     if (idsByKind['kb_article']?.size) {
       const { data } = await sb
         .from('knowledge_base_articles')
-        .select('id, workspace_id, status, used_by_ai')
+        .select('id, workspace_id, status, used_by_ai, created_at')
         .in('id', Array.from(idsByKind['kb_article']));
+      const own = (data || []).filter((r) => r.workspace_id === input.workspaceId);
+      lockedKb = lockedKbIdsOf(kbLock, own as Array<{ id: string; created_at: string | null }>);
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) { crossWorkspaceKb.add(r.id as string); continue; }
-        if (isKbArticleSourceAllowed(r as any, input.workspaceId)) eligibleKb.add(r.id as string);
+        if (isKbArticleSourceAllowed(r, input.workspaceId, lockedKb)) eligibleKb.add(r.id as string);
       }
     }
     if (idsByKind['learned_qna']?.size) {
@@ -652,6 +678,8 @@ export async function retrieveHybridSources(
       } else if (a.source_type === 'kb_article') {
         if (crossWorkspaceKb.has(a.source_id)) {
           excludedSummary.cross_workspace_excluded += 1; drop = true;
+        } else if (lockedKb.has(a.source_id)) {
+          excludedSummary.locked_kb_excluded += 1; drop = true;
         } else if (!eligibleKb.has(a.source_id)) {
           excludedSummary.draft_kb_excluded += 1; drop = true;
         }
@@ -677,8 +705,8 @@ export async function retrieveHybridSources(
       }
       if (drop) aggregated.delete(key);
     }
-  } catch (err: any) {
-    console.warn('[ai-agent.retrievalHybrid] eligibility filter failed:', err?.message);
+  } catch (err) {
+    console.warn('[ai-agent.retrievalHybrid] eligibility filter failed:', errorMessage(err));
   }
   result.excludedSummary = excludedSummary;
 
@@ -703,22 +731,22 @@ export async function retrieveHybridSources(
       + (boosts.url * 0.05)
       // E2C — page-aware URL boost. Exact page match dominates the ranking.
       + (pageBoost * 0.55);
-    (m as any).finalScore = final;
-    (m as any).topicBoost = boosts.topic;
-    (m as any).urlBoost = Math.max(boosts.url, pageBoost);
-    (m as any).localeBonus = lb;
-    (m as any).sourcePriority = prio;
+    m.finalScore = final;
+    m.topicBoost = boosts.topic;
+    m.urlBoost = Math.max(boosts.url, pageBoost);
+    m.localeBonus = lb;
+    m.sourcePriority = prio;
   }
-  merged.sort((a: any, b: any) => b.finalScore - a.finalScore);
+  merged.sort((a, b) => b.finalScore - a.finalScore);
 
   // ── 3.5) Phase 2.4 — dedupe + bounded per-source diversity ────────────
   const diversified = diversifySources(
-    merged as any[],
-    (m: any) => ({
+    merged,
+    (m) => ({
       key: `${m.source_type}:${m.source_id}:${m.id}`,
       parentKey: `${m.source_type}:${
         (m.source_type === 'web_page'
-          ? deriveWebPageParentSourceId(m.source_id, (m.metadata as any) || {})
+          ? deriveWebPageParentSourceId(m.source_id, m.metadata || {})
           : null) || m.source_id
       }`,
       score: m.finalScore || 0,
@@ -728,7 +756,7 @@ export async function retrieveHybridSources(
   );
   const diversityDebug = diversified.debug;
 
-  const top = diversified.selected.map((m: any) => {
+  const top = diversified.selected.map((m) => {
     const isFile = m.source_type === 'file';
     return {
       id: m.id,
@@ -797,7 +825,7 @@ export async function retrieveHybridSources(
       url_boost_weight: 0.05,
       page_boost_weight: 0.55,
     },
-    selected_sources: top.map((s: any, i: number) => ({
+    selected_sources: top.map((s, i: number) => ({
       id: s.source_id,
       source_type: s.source_type,
       title: s.title,
@@ -831,7 +859,7 @@ export async function retrieveHybridSources(
  * pgvector returns embeddings either as JSON array (number[]) or as text
  * "[0.1,0.2,...]". Handle both.
  */
-function parseVector(v: any): number[] | null {
+function parseVector(v: unknown): number[] | null {
   if (!v) return null;
   if (Array.isArray(v)) return v.map((n) => Number(n));
   if (typeof v === 'string') {
@@ -868,8 +896,8 @@ const SENSITIVE_META_KEYS = [
   'token','secret','password','credential','credentials','api_key','apikey',
   'access_key','accesskey','authorization','signature',
 ];
-function sanitizeChunkMetadata(meta: any): Record<string, unknown> | undefined {
-  if (!meta || typeof meta !== 'object') return meta || undefined;
+function sanitizeChunkMetadata(meta: unknown): Record<string, unknown> | undefined {
+  if (!meta || typeof meta !== 'object') return (meta || undefined) as Record<string, unknown> | undefined;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
     const lk = k.toLowerCase();

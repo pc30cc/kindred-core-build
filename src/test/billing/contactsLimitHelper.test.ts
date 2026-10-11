@@ -20,7 +20,12 @@ const countMock = vi.fn();
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
-    rpc: (...args: unknown[]) => rpcMock(...args),
+    // The contacts usage is the shared countable count (billing_countable_count,
+    // migration 265), answered from the same count stub as a plain count(*).
+    rpc: (name: string, ...args: unknown[]) =>
+      name === 'billing_countable_count'
+        ? Promise.resolve(countMock()).then((r: { count?: number | null; error?: unknown } | undefined) => ({ data: r?.count ?? null, error: r?.error ?? null }))
+        : rpcMock(name, ...args),
     from: () => ({
       select: () => ({
         eq: () => ({

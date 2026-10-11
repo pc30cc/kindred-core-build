@@ -86,6 +86,11 @@ export default function ContactsPage() {
     return Array.from(set).sort();
   }, [contacts]);
 
+  // Contacts over the plan's limit (phase 4) arrive redacted with `locked`:
+  // listed in place, blurred, not clickable, never selected or exported.
+  // (A locked row has no name, email or tags, so any filter or search leaves it out.)
+  const lockedCount = useMemo(() => (contacts ?? []).filter((c) => c.locked).length, [contacts]);
+
   const filtered = useMemo(() => {
     if (!contacts) return [];
     let list = contacts.filter((c) => {
@@ -119,6 +124,7 @@ export default function ContactsPage() {
 
     return list;
   }, [contacts, search, filterTag, filterHasEmail, filterHasPhone, sortBy, sortDir]);
+  const selectable = useMemo(() => filtered.filter((c) => !c.locked), [filtered]);
 
   // Geo lives on visitor_sessions (the canonical source Inbox reads);
   // metadata.city is only written once a visitor self-identifies, so the list
@@ -126,7 +132,7 @@ export default function ContactsPage() {
   // the session profile) did. Resolve the SAME network profile for every row
   // on screen — one batched request, never one per row.
   const visibleContactIds = useMemo(
-    () => filtered.slice(0, 500).map((c) => c.id),
+    () => filtered.slice(0, 500).filter((c) => !c.locked).map((c) => c.id),
     [filtered],
   );
   const { data: networkByContact, isPending: networkPending } = useVisitorNetworkBatchByContact(
@@ -154,11 +160,12 @@ export default function ContactsPage() {
   };
 
   const toggleSelectAll = () => {
-    if (selected.size === filtered.length) setSelected(new Set());
-    else setSelected(new Set(filtered.map((c) => c.id)));
+    if (selected.size === selectable.length) setSelected(new Set());
+    else setSelected(new Set(selectable.map((c) => c.id)));
   };
 
   const openContact = (id: string) => {
+    if (contacts?.find((c) => c.id === id)?.locked) return;
     navigate(`/${wsSlug}/contacts/${id}`);
   };
 
@@ -175,13 +182,18 @@ export default function ContactsPage() {
 
   const handleExport = () => {
     if (!canExport) { lockedToast(); goBilling(); return; }
-    if (!filtered.length) {
+    // Locked rows are redacted: the owner exports them from the billing page.
+    if (!selectable.length) {
       toast({ title: t('contacts.toastNothingToExport'), variant: 'destructive' });
       return;
     }
-    const csv = exportContactsToCSV(filtered);
+    const csv = exportContactsToCSV(selectable);
     downloadFile(`contacts-${new Date().toISOString().slice(0, 10)}.csv`, csv);
-    toast({ title: t('contacts.toastExported'), description: t('contacts.toastExportedDesc', { count: String(filtered.length) }) });
+    const exported = t('contacts.toastExportedDesc', { count: String(selectable.length) });
+    toast({
+      title: t('contacts.toastExported'),
+      description: selectable.length < filtered.length ? `${exported} ${t('contacts.locked.exportNote')}` : exported,
+    });
   };
 
   const handleBulkDelete = async () => {
@@ -397,6 +409,19 @@ export default function ContactsPage() {
         </div>
       )}
 
+      {/* Plan lock summary (phase 4): contacts over the plan's limit. */}
+      {lockedCount > 0 && (
+        <div data-page-locked-summary className="bg-warning/10 border-b border-warning/30 px-5 py-2 flex items-center justify-between gap-3">
+          <span className="flex items-center gap-1.5 text-xs text-foreground">
+            <Lock className="w-3.5 h-3.5 text-warning shrink-0" />
+            {t('contacts.locked.summary', { count: String(lockedCount) })}
+          </span>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={goBilling}>
+            {t('contacts.locked.upgrade')}
+          </Button>
+        </div>
+      )}
+
       {/* ── Table ── */}
       <div data-page-scroller className="flex-1 overflow-auto">
         {isLoading ? (
@@ -417,7 +442,7 @@ export default function ContactsPage() {
                 {canBulk && (
                   <th data-col="select" className="w-10 p-3">
                     <Checkbox
-                      checked={selected.size > 0 && selected.size === filtered.length}
+                      checked={selected.size > 0 && selected.size === selectable.length}
                       onCheckedChange={toggleSelectAll}
                     />
                   </th>
@@ -435,6 +460,20 @@ export default function ContactsPage() {
             </thead>
             <tbody>
               {filtered.map((c) => {
+                if (c.locked) {
+                  return (
+                    <LockedContactRow
+                      key={c.id}
+                      id={c.id}
+                      canBulk={canBulk}
+                      canTags={canTags}
+                      label={t('contacts.locked.name')}
+                      badge={t('contacts.locked.badge')}
+                      tooltip={t('contacts.locked.tooltip')}
+                      since={timeAgo(c.created_at)}
+                    />
+                  );
+                }
                 const isSel = selected.has(c.id);
                 const company = getCompanyFromMetadata(c);
                 const loc = getLocalizedLocation(c, locale, networkByContact?.[c.id]?.geo ?? null);
@@ -563,6 +602,53 @@ export default function ContactsPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/**
+ * A contact over the plan's limit (phase 4). The server sent only its id and
+ * creation time, so every cell is a blurred placeholder; the row is not
+ * clickable and has no checkbox. Deleting older contacts or upgrading
+ * unlocks it.
+ */
+function LockedContactRow({ id, canBulk, canTags, label, badge, tooltip, since }: {
+  id: string;
+  canBulk: boolean;
+  canTags: boolean;
+  label: string;
+  badge: string;
+  tooltip: string;
+  since: string;
+}) {
+  const blurred = <span aria-hidden className="inline-block h-3 w-20 rounded bg-muted-foreground/20 blur-sm" />;
+  return (
+    <tr
+      data-contact-locked={id}
+      aria-disabled="true"
+      title={tooltip}
+      className="border-b border-border/50 cursor-not-allowed select-none"
+    >
+      {canBulk && <td data-col="select" className="p-3" />}
+      <td data-col="name" className="p-3">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+            <Lock className="w-3.5 h-3.5 text-muted-foreground" />
+          </div>
+          <span className="font-medium text-muted-foreground truncate">{label}</span>
+          <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 border-warning/40 text-warning">
+            <Lock className="w-2.5 h-2.5" />{badge}
+          </Badge>
+        </div>
+      </td>
+      <td data-col="email" className="p-3 pointer-events-none">{blurred}</td>
+      <td data-col="source" className="p-3 pointer-events-none">{blurred}</td>
+      <td data-col="location" className="p-3 pointer-events-none">{blurred}</td>
+      <td data-col="company" className="p-3 pointer-events-none">{blurred}</td>
+      {canTags && <td data-col="segments" className="p-3 pointer-events-none">{blurred}</td>}
+      <td data-col="last-active" className="p-3 text-muted-foreground text-xs">{since}</td>
+      <td data-col="score" className="p-3 pointer-events-none">{blurred}</td>
+      <td data-col="preview" className="p-3" />
+    </tr>
   );
 }
 

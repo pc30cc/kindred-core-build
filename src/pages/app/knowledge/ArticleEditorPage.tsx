@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
-import { useKBArticles, useCreateKBArticle, useUpdateKBArticle } from '@/hooks/useKnowledgeBase';
+import { useKBArticles, useCreateKBArticle, useUpdateKBArticle, useKBLockedText, isKBArticleLocked } from '@/hooks/useKnowledgeBase';
 import { KnowledgeBaseApiError } from '@/lib/knowledge-base-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { toast } from '@/hooks/use-toast';
 import RichTextEditor from '@/components/app/knowledge/RichTextEditor';
 import {
   ArrowLeft, ArrowRight, FileText,
-  BarChart3, CheckCircle2, AlertCircle, Loader2,
+  BarChart3, CheckCircle2, AlertCircle, Loader2, Lock,
 } from 'lucide-react';
 
 /** Article content is HTML (see RichTextEditor's header comment) — SEO
@@ -76,7 +76,11 @@ export default function ArticleEditorPage() {
   const createArticle = useCreateKBArticle(workspace?.id);
   const updateArticle = useUpdateKBArticle(workspace?.id);
 
-  const existing = useMemo(() => articles?.find((a: any) => a.id === id), [articles, id]);
+  const existing = useMemo(() => articles?.find((a) => a.id === id), [articles, id]);
+  // Simple billing phase 4: an article over the plan's limit is read-only
+  // (the server refuses the PATCH with 403 kb_article_locked).
+  const locked = !isNew && isKBArticleLocked(existing);
+  const lockedText = useKBLockedText();
 
   const emptyForm: FormData = {
     title: '', slug: '', content: '', excerpt: '', locale: activeLocales[0] || 'en', status: 'draft',
@@ -116,6 +120,7 @@ export default function ArticleEditorPage() {
    * separate per-article visibility toggle, so this is always true.
    */
   const handleSave = async () => {
+    if (locked) return;
     const slug = form.slug || form.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     // NOTE: `used_by_ai` is intentionally NOT part of the payload so editing
     // an article never overwrites the AI-consumption flag.
@@ -145,6 +150,8 @@ export default function ArticleEditorPage() {
       const description =
         err?.code === 'knowledge_base_permission_denied'
           ? t('knowledgeBase.editor.permissionDenied')
+          : err?.code === 'kb_article_locked'
+            ? lockedText('saveBlocked')
           : err?.upgradeRequired
             ? t('knowledgeBase.editor.quotaReached')
             : undefined;
@@ -187,6 +194,14 @@ export default function ArticleEditorPage() {
         </div>
 
         <div className="p-4 sm:p-6 space-y-4">
+          {locked && (
+            <div data-kb-locked-notice role="status" className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-foreground">
+              <Lock className="h-3.5 w-3.5 mt-0.5 shrink-0 text-warning" />
+              <span>{lockedText('editorNotice')}</span>
+            </div>
+          )}
+          {/* A locked article is shown read-only: every field is disabled. */}
+          <fieldset disabled={locked} className="space-y-4 min-w-0">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
               {t('knowledgeBase.editor.titleLabel')} <span className="text-destructive">*</span>
@@ -196,12 +211,15 @@ export default function ArticleEditorPage() {
 
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{t('knowledgeBase.editor.contentLabel')}</label>
-            <RichTextEditor
-              value={form.content}
-              onChange={(html) => setForm((p) => ({ ...p, content: html }))}
-              placeholder={t('knowledgeBase.editor.contentPlaceholder')}
-              dir={dir}
-            />
+            {/* The editor has no read-only mode: a locked article's body can't be focused. */}
+            <div className={locked ? 'pointer-events-none opacity-80' : undefined} aria-disabled={locked || undefined}>
+              <RichTextEditor
+                value={form.content}
+                onChange={(html) => { if (!locked) setForm((p) => ({ ...p, content: html })); }}
+                placeholder={t('knowledgeBase.editor.contentPlaceholder')}
+                dir={dir}
+              />
+            </div>
             <div className="mt-1 px-1 flex items-center justify-between text-[10px] text-muted-foreground">
               <span>{t('knowledgeBase.editor.wordCount', { count: String(wordCount) })}</span>
             </div>
@@ -266,9 +284,15 @@ export default function ArticleEditorPage() {
             </div>
           </div>
 
+          </fieldset>
+
           <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">
             <Button variant="outline" onClick={goBack}>{t('common.cancel')}</Button>
-            <Button onClick={handleSave} disabled={createArticle.isPending || updateArticle.isPending || !form.title}>
+            <Button
+              onClick={handleSave}
+              disabled={locked || createArticle.isPending || updateArticle.isPending || !form.title}
+              title={locked ? lockedText('tooltip') : undefined}
+            >
               {createArticle.isPending || updateArticle.isPending
                 ? t('common.loading')
                 : form.status === 'published'

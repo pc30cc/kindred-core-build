@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 import { redactSecrets } from '../lib/redactSecrets.js';
 import { checkChannelAccess, checkModuleAccess } from '../middleware/featureGating.js';
+import { isProviderStopped, planLockedBody, planStopsActive } from '../services/billing/planStops.js';
 import { PLUGIN_REGISTRY, getPluginDefinition } from '../plugins/registry.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { isChannelAllowedInEdition, isIranianChannel } from '../../shared/edition.js';
@@ -163,6 +164,21 @@ async function resolveAvailability(req: Request, workspaceId: string, pluginId: 
   return { ok: true as const, def, state };
 }
 
+/**
+ * A channel the plan no longer has is STOPPED, settings kept (simple billing
+ * phase 4, design §6): it can be viewed, disconnected and uninstalled, but
+ * not reconfigured, repaired or re-branded until the plan has it again.
+ * Writes 403 `plan_locked` and returns false while billing locks are on and
+ * the plan says no; true otherwise (and when the plan cannot be read).
+ */
+async function refuseIfStopped(req: Request, res: Response, workspaceId: string, pluginId: string): Promise<boolean> {
+  if (await isProviderStopped(serverConfigOf(req), workspaceId, pluginId)) {
+    res.status(403).json(planLockedBody());
+    return false;
+  }
+  return true;
+}
+
 // ── Catalog ───────────────────────────────────────────────────────────
 
 pluginsRouter.get('/catalog', async (req, res) => {
@@ -181,6 +197,9 @@ pluginsRouter.get('/catalog', async (req, res) => {
     const stateById = new Map(states.map((s) => [s.plugin_id, s]));
     const installedById = new Map(installations.map((i) => [i.plugin_id, i]));
     const edition = (await getPlatformEditionOrNull(config)) ?? 'iran';
+    // `stopped`: installed, but the plan no longer has it and billing locks
+    // are on, so it receives and sends nothing (settings kept).
+    const stopsActive = await planStopsActive(config);
 
     const items = await Promise.all(
       PLUGIN_REGISTRY.filter((def) => {
@@ -191,10 +210,12 @@ pluginsRouter.get('/catalog', async (req, res) => {
         const entry = toCatalogEntry(def, state);
         const planAllowed = await isPluginAllowedByPlan(config, def, workspaceId);
         const installation = installedById.get(def.id) ?? null;
+        const installed = !!installation && installation.status !== 'uninstalled';
         return {
           ...entry,
           planAllowed,
-          installed: !!installation && installation.status !== 'uninstalled',
+          stopped: stopsActive && installed && !planAllowed,
+          installed,
           installationStatus: installation?.status ?? null,
           installationId: installation?.id ?? null,
         };
@@ -655,6 +676,8 @@ pluginsRouter.post(botPaths('reconnect'), async (req, res) => {
   const auth = await requireManager(req, res, workspaceId);
   if (!auth) return;
 
+  if (!(await refuseIfStopped(req, res, workspaceId, provider))) return;
+
   try {
     const config = serverConfigOf(req);
     const installation = await getInstallation(config, workspaceId, provider);
@@ -729,6 +752,7 @@ pluginsRouter.post(botPaths('profile'), async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid_profile' });
   const auth = await requireManager(req, res, parsed.data.workspace_id);
   if (!auth) return;
+  if (!(await refuseIfStopped(req, res, parsed.data.workspace_id, provider))) return;
 
   try {
     const config = serverConfigOf(req);
@@ -774,6 +798,7 @@ pluginsRouter.put('/settings', async (req, res) => {
 
   const auth = await requireManager(req, res, workspaceId);
   if (!auth) return;
+  if (!(await refuseIfStopped(req, res, workspaceId, pluginId))) return;
 
   try {
     const config = serverConfigOf(req);

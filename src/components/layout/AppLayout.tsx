@@ -20,6 +20,8 @@ import { resendMyVerificationEmail, ResendVerificationError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { useState, useEffect } from 'react';
 import DegradedModeBanner from '@/components/realtime/DegradedModeBanner';
+import { LockedDataBanner } from '@/components/layout/LockedDataBanner';
+import { SeatLockGate } from '@/components/members/SeatLocked';
 import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';
 import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCallWindow';
 import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
@@ -368,10 +370,15 @@ export function AppLayout() {
               <>
                 {showVerificationBanner && <EmailVerificationBar />}
                 <PhoneVerificationBar />
+                {/* Data the plan's limits lock (phase 4): owner and admins only. */}
+                <LockedDataBanner workspaceId={workspace?.id} />
               </>
             }
           >
-            <Outlet />
+            {/* A member whose seat the plan paused sees why instead of the page. */}
+            <SeatLockGate workspaceId={workspace?.id}>
+              <Outlet />
+            </SeatLockGate>
           </ArtShell>
           <FloatingOperatorCallWindow />
           {panelTheme.preview && (
@@ -399,6 +406,8 @@ export function AppLayout() {
         <div data-shell="frame" className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />
           <DegradedModeBanner />
+          {/* Data the plan's limits lock (phase 4): owner and admins only. */}
+          <LockedDataBanner workspaceId={workspace?.id} />
           <main
             data-shell="main"
             className={
@@ -407,7 +416,10 @@ export function AppLayout() {
                 : 'flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-6 sm:pb-10 sm:pt-5 lg:px-8'
             }
           >
-            <Outlet />
+            {/* A member whose seat the plan paused sees why instead of the page. */}
+            <SeatLockGate workspaceId={workspace?.id}>
+              <Outlet />
+            </SeatLockGate>
           </main>
           {/* Verification notice sits at the BOTTOM so it never pushes the
               page header down; resend is wired to the self-hosted mailer. */}

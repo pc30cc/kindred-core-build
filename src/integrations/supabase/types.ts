@@ -4931,8 +4931,118 @@ export type Database = {
           },
         ]
       }
+      billing_lock_clocks: {
+        Row: {
+          cutoff_at: string | null
+          deleted_at: string | null
+          episode_key: string
+          kind: string
+          locked_count: number
+          notice_30_at: string | null
+          notice_7_at: string | null
+          since: string
+          workspace_id: string
+        }
+        Insert: {
+          cutoff_at?: string | null
+          deleted_at?: string | null
+          episode_key: string
+          kind: string
+          locked_count?: number
+          notice_30_at?: string | null
+          notice_7_at?: string | null
+          since: string
+          workspace_id: string
+        }
+        Update: {
+          cutoff_at?: string | null
+          deleted_at?: string | null
+          episode_key?: string
+          kind?: string
+          locked_count?: number
+          notice_30_at?: string | null
+          notice_7_at?: string | null
+          since?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_lock_clocks_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_lock_exports: {
+        Row: {
+          artifact_size_bytes: number | null
+          artifact_storage_key: string | null
+          artifact_storage_provider: string | null
+          attempts: number
+          counts: Json
+          created_at: string
+          download_token_hash: string | null
+          error: string | null
+          expires_at: string | null
+          id: string
+          kinds: string[]
+          locked_at: string | null
+          requested_by: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          artifact_size_bytes?: number | null
+          artifact_storage_key?: string | null
+          artifact_storage_provider?: string | null
+          attempts?: number
+          counts?: Json
+          created_at?: string
+          download_token_hash?: string | null
+          error?: string | null
+          expires_at?: string | null
+          id?: string
+          kinds: string[]
+          locked_at?: string | null
+          requested_by: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          artifact_size_bytes?: number | null
+          artifact_storage_key?: string | null
+          artifact_storage_provider?: string | null
+          attempts?: number
+          counts?: Json
+          created_at?: string
+          download_token_hash?: string | null
+          error?: string | null
+          expires_at?: string | null
+          id?: string
+          kinds?: string[]
+          locked_at?: string | null
+          requested_by?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_lock_exports_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_plans: {
         Row: {
+          ai_allowance: Json
           created_at: string | null
           default_currency: string
           description: string | null
@@ -4943,6 +5053,7 @@ export type Database = {
           is_hidden: boolean
           limits: Json
           localized: Json
+          locked_data_retention_days: number | null
           name: string
           prices: Json
           provider_price_ids: Json
@@ -4952,6 +5063,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          ai_allowance?: Json
           created_at?: string | null
           default_currency?: string
           description?: string | null
@@ -4962,6 +5074,7 @@ export type Database = {
           is_hidden?: boolean
           limits?: Json
           localized?: Json
+          locked_data_retention_days?: number | null
           name: string
           prices?: Json
           provider_price_ids?: Json
@@ -4971,6 +5084,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          ai_allowance?: Json
           created_at?: string | null
           default_currency?: string
           description?: string | null
@@ -4981,6 +5095,7 @@ export type Database = {
           is_hidden?: boolean
           limits?: Json
           localized?: Json
+          locked_data_retention_days?: number | null
           name?: string
           prices?: Json
           provider_price_ids?: Json
@@ -5046,6 +5161,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      billing_settings: {
+        Row: {
+          ai_packs: Json
+          edition: string
+          locks_enabled: boolean
+          receipt_prefix: string
+          seller: Json
+          updated_at: string
+          updated_by: string | null
+          vat_percent: Json
+        }
+        Insert: {
+          ai_packs?: Json
+          edition: string
+          locks_enabled?: boolean
+          receipt_prefix?: string
+          seller?: Json
+          updated_at?: string
+          updated_by?: string | null
+          vat_percent?: Json
+        }
+        Update: {
+          ai_packs?: Json
+          edition?: string
+          locks_enabled?: boolean
+          receipt_prefix?: string
+          seller?: Json
+          updated_at?: string
+          updated_by?: string | null
+          vat_percent?: Json
+        }
+        Relationships: []
       }
       billing_subscription_applications: {
         Row: {

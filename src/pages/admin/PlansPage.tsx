@@ -126,6 +126,8 @@ interface AdminPlan {
   is_hidden?: boolean | null;
   sort_order?: number | null;
   trial_days?: number | null;
+  /** Days locked data is kept before deletion (phase 4); null = never deleted. */
+  locked_data_retention_days?: number | null;
   default_currency?: string | null;
   prices?: Record<string, { monthly: number; yearly: number }> | null;
   entitlements?: Record<string, unknown> | null;
@@ -195,6 +197,8 @@ interface PlanFormData {
   is_hidden: boolean;
   sort_order: number;
   trial_days: number;
+  /** As typed: empty = never deleted, else whole days > 0 (checked on save). */
+  locked_data_retention_days: string;
   default_currency: string;
   prices: Record<string, { monthly: number; yearly: number }>;
   entitlements: Record<string, boolean>;
@@ -204,6 +208,31 @@ interface PlanFormData {
   /** Keys present in DB but not in current registry — preserved verbatim. */
   legacyEntitlements: Record<string, unknown>;
   legacyLimits: Record<string, unknown>;
+  /**
+   * Lock limits (LOCK_LIMIT_KEYS) an existing plan does not name, with the
+   * registry default the form shows for them: saved only once changed.
+   */
+  absentLockLimits: Record<string, number>;
+  /** Lock limits the admin edited in this form: saved even when back at the shown default. */
+  touchedLockLimits: string[];
+}
+
+/**
+ * Limits that lock data over them (phase 4, "only explicit limits lock"): a
+ * plan that does not name one locks nothing by it. The form shows every
+ * limit with its registry default, so saving such a plan unchanged must not
+ * write that default (the Trial plan would get max_agents 1 and pause every
+ * agent; data_retention_days 30 would lock every older chat).
+ */
+const LOCK_LIMIT_KEYS = ['max_agents', 'max_contacts', 'max_kb_articles', 'data_retention_days'] as const;
+
+/** The retention field's value: null = never deleted, a whole number of days > 0, or NaN when invalid. */
+function parseLockedRetentionDays(raw: string): number | null {
+  const text = raw.trim().replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+  if (!text) return null;
+  if (!/^\d+$/.test(text)) return Number.NaN;
+  const days = Number(text);
+  return days > 0 && days <= 36_500 ? days : Number.NaN;
 }
 
 function usePlatformLocales() {
@@ -256,6 +285,10 @@ function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: st
     is_hidden: plan?.is_hidden || false,
     sort_order: plan?.sort_order || 0,
     trial_days: plan?.trial_days || 0,
+    locked_data_retention_days:
+      plan?.locked_data_retention_days === null || plan?.locked_data_retention_days === undefined
+        ? ''
+        : String(plan.locked_data_retention_days),
     default_currency: plan?.default_currency || 'USD',
     prices: {
       ...Object.fromEntries(CURRENCIES.map((c) => [c, { monthly: 0, yearly: 0 }])),
@@ -267,11 +300,22 @@ function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: st
     localized: Object.fromEntries(locales.map((l) => [l, existingLocalized[l] || { name: '', description: '' }])),
     legacyEntitlements,
     legacyLimits,
+    absentLockLimits: plan?.id
+      ? Object.fromEntries(LOCK_LIMIT_KEYS.filter((k) => knownKeys.has(k) && !(k in planLim)).map((k) => [k, limits[k]]))
+      : {},
+    touchedLockLimits: [],
   };
 }
 
 /** Compose final JSON payload, preserving legacy keys. */
 function formToPayload(form: PlanFormData) {
+  const limits: Record<string, unknown> = { ...form.legacyLimits, ...form.limits };
+  // A lock limit the plan did not name stays unnamed unless the admin edited
+  // it (typing the default itself makes it explicit, so it locks).
+  for (const [key, shown] of Object.entries(form.absentLockLimits)) {
+    if (!form.touchedLockLimits.includes(key) && limits[key] === shown) delete limits[key];
+  }
+  const retention = parseLockedRetentionDays(form.locked_data_retention_days);
   return {
     name: form.name,
     slug: form.slug,
@@ -281,10 +325,11 @@ function formToPayload(form: PlanFormData) {
     is_hidden: form.is_hidden,
     sort_order: form.sort_order,
     trial_days: form.trial_days,
+    locked_data_retention_days: Number.isNaN(retention as number) ? null : retention,
     default_currency: form.default_currency,
     prices: form.prices,
     entitlements: { ...form.legacyEntitlements, ...form.entitlements },
-    limits: { ...form.legacyLimits, ...form.limits },
+    limits,
     provider_price_ids: form.provider_price_ids,
     localized: form.localized,
   };
@@ -345,6 +390,11 @@ function PlanFormDialog({
       toast.error(t('admin.plans.validation.invalidPrice'));
       return;
     }
+    if (Number.isNaN(parseLockedRetentionDays(form.locked_data_retention_days) as number)) {
+      setActiveSection('general');
+      toast.error(t('admin.billingLocks.planRetention.invalid'));
+      return;
+    }
     const payload = formToPayload(form);
     // Soft validation
     try {
@@ -393,7 +443,13 @@ function PlanFormDialog({
     }));
   }
   function setLimit(key: string, val: number) {
-    setForm((f) => ({ ...f, limits: { ...f.limits, [key]: val } }));
+    setForm((f) => ({
+      ...f,
+      limits: { ...f.limits, [key]: val },
+      touchedLockLimits: key in f.absentLockLimits && !f.touchedLockLimits.includes(key)
+        ? [...f.touchedLockLimits, key]
+        : f.touchedLockLimits,
+    }));
   }
   function updateLocalized(locale: string, field: string, value: string) {
     setForm((f) => ({ ...f, localized: { ...f.localized, [locale]: { ...f.localized[locale], [field]: value } } }));
@@ -522,6 +578,21 @@ function PlanFormDialog({
                     onChange={(e) => setForm((f) => ({ ...f, trial_days: parseInt(e.target.value) || 0 }))}
                   />
                 </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="plan-locked-retention">{t('admin.billingLocks.planRetention.label')}</Label>
+                <Input
+                  id="plan-locked-retention"
+                  dir="ltr"
+                  inputMode="numeric"
+                  className="max-w-[12rem]"
+                  placeholder={t('admin.billingLocks.planRetention.never')}
+                  value={form.locked_data_retention_days}
+                  aria-invalid={Number.isNaN(parseLockedRetentionDays(form.locked_data_retention_days) as number)}
+                  onChange={(e) => setForm((f) => ({ ...f, locked_data_retention_days: e.target.value }))}
+                  data-testid="plan-locked-retention"
+                />
+                <p className="text-[11px] text-muted-foreground">{t('admin.billingLocks.planRetention.hint')}</p>
               </div>
               <Separator />
               <div className="flex gap-6">

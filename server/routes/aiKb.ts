@@ -37,6 +37,12 @@ import { resolveAiKbLimitsDetailed, countJobsThisMonthDetailed } from '../servic
 import { readAiCreditStateDetailed, logAiKbUsage } from '../services/ai-kb/credits.js';
 import { firstReadFailure } from '../services/ai-kb/readResult.js';
 import { resolveKbArticleQuota, isKbQuotaDenied } from '../services/billing/kbArticleQuota.js';
+import {
+  isKbArticleIdLocked,
+  isKbArticleLockedError,
+  kbArticleLockedBody,
+  resolveKbLock,
+} from '../services/knowledge-base/locks.js';
 
 import { slugifyTitle, type PlanSnapshot } from '../services/ai-kb/types.js';
 import { normalizeArticleHtml } from '../services/ai-kb/htmlNormalize.js';
@@ -648,16 +654,35 @@ async function enforceKbArticleQuotaForDraft(
   return false;
 }
 
+/**
+ * Simple billing phase 4 — a draft linked to an article the plan has locked
+ * (over max_kb_articles) would overwrite a read-only article. Refused here
+ * with a clean 403; `_ai_kb_apply_generated` (migration 265) raises
+ * 'kb_article_locked' as the backstop. Returns false when the response was sent.
+ */
+async function refuseLockedLinkedArticle(
+  res: Response,
+  config: ServerConfig,
+  gen: { workspace_id: string; kb_article_id?: string | null },
+): Promise<boolean> {
+  if (!gen.kb_article_id) return true;
+  if (!(await isKbArticleIdLocked(config, gen.workspace_id, gen.kb_article_id))) return true;
+  res.status(403).json(kbArticleLockedBody());
+  return false;
+}
+
 aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const ctx = await loadGenerated(req, res, config, ['can_manage_knowledge_base']);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
   if (!(await enforceKbArticleQuotaForDraft(res, config, gen))) return;
-
-
+  if (!(await refuseLockedLinkedArticle(res, config, gen))) return;
 
   const { result, transportError } = await applyGeneratedDraft(sb, gen, userId, 'accept');
+  if (transportError && isKbArticleLockedError(transportError)) {
+    return res.status(403).json(kbArticleLockedBody());
+  }
   if (transportError) {
     logInternal('accept_transport_failed', transportError, { generatedId: gen.id });
     return res.status(503).json({ error: 'ai_kb_status_unavailable' });
@@ -677,10 +702,12 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
   if (!(await enforceKbArticleQuotaForDraft(res, config, gen))) return;
-
-
+  if (!(await refuseLockedLinkedArticle(res, config, gen))) return;
 
   const { result, transportError } = await applyGeneratedDraft(sb, gen, userId, 'publish');
+  if (transportError && isKbArticleLockedError(transportError)) {
+    return res.status(403).json(kbArticleLockedBody());
+  }
   if (transportError) {
     logInternal('publish_transport_failed', transportError, { generatedId: gen.id });
     return res.status(503).json({ error: 'ai_kb_status_unavailable' });
@@ -758,16 +785,27 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   const published: Array<{ generated_id: string; kb_article_id: string }> = [];
   const failed: Array<{
     generated_id: string;
-    error: 'publish_failed' | 'invalid_state' | 'limit_reached';
+    error: 'publish_failed' | 'invalid_state' | 'limit_reached' | 'kb_article_locked';
     current_status?: string | null;
   }> = [];
+  // Linked drafts of articles the plan has locked are skipped, not failed
+  // anonymously (simple billing phase 4).
+  const kbLock = await resolveKbLock(config, job.workspace_id);
   for (const gen of rowsAs<GeneratedDraftRow>(drafts)) {
     const consumesCapacity = !gen.kb_article_id;
     if (consumesCapacity && remaining <= 0) {
       failed.push({ generated_id: gen.id, error: 'limit_reached' });
       continue;
     }
+    if (gen.kb_article_id && (await isKbArticleIdLocked(config, job.workspace_id, gen.kb_article_id, kbLock))) {
+      failed.push({ generated_id: gen.id, error: 'kb_article_locked' });
+      continue;
+    }
     const { result, transportError } = await applyGeneratedDraft(sb, gen, auth.userId, 'publish');
+    if (transportError && isKbArticleLockedError(transportError)) {
+      failed.push({ generated_id: gen.id, error: 'kb_article_locked' });
+      continue;
+    }
     if (transportError || !result?.ok || !result.kb_article_id) {
       // A draft another operator already rejected is reported as a conflict,
       // not as an anonymous failure the caller cannot interpret.
@@ -791,6 +829,7 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
     published.push({ generated_id: gen.id, kb_article_id: result.kb_article_id });
   }
   const limitReached = failed.some((f) => f.error === 'limit_reached');
+  const articlesLocked = failed.some((f) => f.error === 'kb_article_locked');
   return res.json({
     ok: true,
     published_count: published.length,
@@ -805,6 +844,7 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
           ...(quota.ok && quota.limit !== null ? { limit: quota.limit } : {}),
         }
       : {}),
+    ...(articlesLocked ? { articles_locked: true, upgrade_required: true } : {}),
   });
 });
 

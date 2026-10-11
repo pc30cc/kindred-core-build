@@ -178,6 +178,46 @@ export function useWorkspaceEffectiveEntitlements(workspaceId: string | null | u
   };
 }
 
+// ─── Computed locks (simple billing phase 4) ──────────────────────────────
+// GET /effective carries `locks` (server/services/billing/locks/state.ts
+// lockSummary): per kind the effective limit, the counts and the cutoff. A
+// row past the cutoff is locked; nothing is stored. `enabled: false` while
+// the edition's billing locks are off, or when the server could not read
+// them (locks fail open).
+
+export interface LockSummaryKind {
+  /** The effective limit (chats: the retention in days); null = unlimited. */
+  limit: number | null;
+  total: number;
+  locked: number;
+  /** The last active row ({ts, id}); chats: the activity cutoff ({ts, id: null}). Null = nothing locked. */
+  cut: { ts: string; id: string | null } | null;
+}
+
+export interface LockSummary {
+  enabled: boolean;
+  kb_article: LockSummaryKind | null;
+  contact: LockSummaryKind | null;
+  /** Counts only; the member cutoff stays on the server. */
+  member: LockSummaryKind | null;
+  conversation: LockSummaryKind | null;
+  any_locked: boolean;
+  /** The earliest date locked data can be deleted (both notices sent); null = none planned. */
+  next_deletion_at: string | null;
+}
+
+/** The snapshot's lock summary, or null (no snapshot, an older server, or nothing to read). */
+export function locksOf(data: WorkspaceEffectiveEntitlements | null | undefined): LockSummary | null {
+  const locks = (data as (WorkspaceEffectiveEntitlements & { locks?: LockSummary | null }) | null | undefined)?.locks;
+  return locks && typeof locks === 'object' ? locks : null;
+}
+
+/** What the plan's limits lock in this workspace now, from the shared snapshot. */
+export function useWorkspaceLocks(workspaceId: string | null | undefined): LockSummary | null {
+  const { data } = useWorkspaceEffectiveEntitlements(workspaceId);
+  return useMemo(() => locksOf(data), [data]);
+}
+
 /** The plan rules of src/lib/planAccess.ts over the shared snapshot. */
 export function usePlanAccess(workspaceId: string | null | undefined): PlanAccess {
   const { data, error } = useWorkspaceEffectiveEntitlements(workspaceId);

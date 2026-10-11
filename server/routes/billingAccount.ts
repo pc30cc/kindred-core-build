@@ -10,6 +10,8 @@
 //   GET  /api/billing/account/:ws/payments/:id            status, for polling
 //   GET  /api/billing/account/:ws/plans                   plans to choose, in the account currency
 //   GET  /api/billing/account/:ws/quote                   what choosing a plan does and costs
+//                                                         (a downgrade: and what it locks, phase 4)
+//   GET  /api/billing/account/:ws/lock-report             what a plan locks (default: the plan in force)
 //   POST /api/billing/account/:ws/plan                    buy a plan from the balance
 //   POST /api/billing/account/:ws/renew                   pay the next period from the balance
 //   POST /api/billing/account/:ws/upgrade                 upgrade now from the balance
@@ -88,6 +90,7 @@ import {
 } from '../services/billing/account/card.js';
 import { aiPackNeed } from '../services/billing/account/aiPacks.js';
 import { planNamesFor } from '../services/billing/account/notify.js';
+import { buildLockReport, reportForViewer, reportNeedsAcknowledgement } from '../services/billing/locks/report.js';
 import { getBillingRegion } from '../services/billing/edition.js';
 import { resolveNamedBillingConfig } from '../services/billing/index.js';
 import { AI_PACK_LIMITS } from '../../shared/aiPacks.js';
@@ -518,7 +521,32 @@ billingAccountRouter.get('/account/:workspaceId/quote', async (req, res) => {
   const parsed = quoteSchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json(await quotePlanChange(serverConfigOf(req), req.params.workspaceId, parsed.data.planId, parsed.data.interval));
+    const quote = await quotePlanChange(serverConfigOf(req), req.params.workspaceId, parsed.data.planId, parsed.data.interval, {
+      withLockReport: true,
+    });
+    // Other members' names and e-mails are for the workspace's managers.
+    if (quote.lock_report) quote.lock_report = reportForViewer(quote.lock_report, canManage(auth));
+    res.json(quote);
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+const lockReportSchema = z.object({ planId: z.string().uuid().optional() });
+
+/**
+ * What a plan locks in this workspace (phase 4, design §9): the plan in force
+ * by default (what is locked now, for the lock banner), or `planId` (the move
+ * to Free when a period ends unpaid). Managers only: it names members.
+ * While billing locks are off it is a preview (`locks_enabled: false`).
+ */
+billingAccountRouter.get('/account/:workspaceId/lock-report', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = lockReportSchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    res.json(await buildLockReport(serverConfigOf(req), req.params.workspaceId, parsed.data.planId ?? null));
   } catch (e) {
     fail(res, e);
   }
@@ -533,6 +561,8 @@ const buySchema = z.object({
   /** The browser's key for this click: a retried request buys once. */
   key: z.string().min(8).max(100).optional(),
   expectedNetMinor: expectedNetSchema,
+  /** The report of what the plan locks was read and accepted (while billing locks are on). */
+  acknowledgeLocks: z.boolean().optional(),
 });
 
 billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
@@ -549,6 +579,7 @@ billingAccountRouter.post('/account/:workspaceId/plan', async (req, res) => {
       key: `${req.params.workspaceId}:${parsed.data.key ?? crypto.randomUUID()}`,
       actorId: auth.userId,
       expectedNetMinor: parsed.data.expectedNetMinor,
+      acknowledgeLocks: parsed.data.acknowledgeLocks,
     });
     await syncWorkspaceCard(cfg, req.params.workspaceId);
     res.json(result);
@@ -612,6 +643,8 @@ const changeSchema = z.object({
   planId: z.string().uuid(),
   interval: intervalSchema.nullable().optional(),
   expectedNetMinor: expectedNetSchema,
+  /** The customer saw the downgrade report and accepted it (LOCKS_NOT_ACKNOWLEDGED without it). */
+  acknowledgeLocks: z.boolean().optional(),
 });
 
 billingAccountRouter.post('/account/:workspaceId/change', async (req, res) => {
@@ -627,6 +660,7 @@ billingAccountRouter.post('/account/:workspaceId/change', async (req, res) => {
       interval: parsed.data.interval ?? null,
       actorId: auth.userId,
       expectedNetMinor: parsed.data.expectedNetMinor,
+      acknowledgeLocks: parsed.data.acknowledgeLocks,
     });
     await syncWorkspaceCard(cfg, req.params.workspaceId);
     res.json(result);
@@ -668,6 +702,8 @@ const checkoutSchema = z.object({
   /** An AI credit pack (purpose 'ai_pack', phase 5): which one, and the price the page showed. */
   packId: z.string().regex(AI_PACK_LIMITS.idPattern).optional(),
   expectedPriceMinor: z.number().int().positive().optional(),
+  /** A plan (purpose 'plan'): the report of what it locks was read and accepted (while billing locks are on). */
+  acknowledgeLocks: z.boolean().optional(),
 });
 
 /**
@@ -685,6 +721,11 @@ const checkoutSchema = z.object({
  * balance is missing for its price, then the pack is bought from the balance
  * at settlement. A pack that changed meanwhile leaves the money in the
  * balance. A card is never saved for a pack.
+ *
+ * A plan bought online (with or without a card) locks what is over its
+ * limits at settlement, as POST /plan does: while billing locks are on and
+ * the quote's report lists something, acknowledgeLocks must be true, else
+ * 409 LOCKS_NOT_ACKNOWLEDGED with the report, before any payment row.
  */
 billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -741,6 +782,14 @@ billingAccountRouter.post('/account/:workspaceId/checkout', async (req, res) => 
     });
     if (parsed.data.currency && parsed.data.currency.toUpperCase() !== need.currency) {
       return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency: need.currency } });
+    }
+    if (parsed.data.purpose === 'plan' && parsed.data.acknowledgeLocks !== true) {
+      // The plan amountNeededFor quoted; the quote carries the report only
+      // while billing locks are on.
+      const quote = await quotePlanChange(cfg, req.params.workspaceId, String(parsed.data.planId), parsed.data.interval ?? 'monthly', { withLockReport: true });
+      if (reportNeedsAcknowledgement(quote.lock_report)) {
+        return res.status(409).json({ error: 'LOCKS_NOT_ACKNOWLEDGED', details: { lock_report: quote.lock_report } });
+      }
     }
     if (withCard) {
       const full = need.periodPriceMinor;

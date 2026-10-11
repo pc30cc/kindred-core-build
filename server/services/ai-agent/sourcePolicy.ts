@@ -29,6 +29,8 @@ export interface QnaEligibilityRow {
 }
 
 export interface KbArticleEligibilityRow {
+  /** Needed only when `lockedIds` is passed. */
+  id?: string | null;
   workspace_id: string;
   status: string;
   used_by_ai?: boolean | null;
@@ -50,8 +52,17 @@ export function isQnaSourceAllowed(row: QnaEligibilityRow, workspaceId: string):
   return row.workspace_id === workspaceId && row.enabled === true;
 }
 
-/** knowledge_base_articles: workspace-scoped, published, and not opted out of AI use. */
-export function isKbArticleSourceAllowed(row: KbArticleEligibilityRow, workspaceId: string): boolean {
+/**
+ * knowledge_base_articles: workspace-scoped, published, not opted out of AI
+ * use, and not locked by the plan (`lockedIds`: the articles over
+ * max_kb_articles, simple billing phase 4; computed by the caller).
+ */
+export function isKbArticleSourceAllowed(
+  row: KbArticleEligibilityRow,
+  workspaceId: string,
+  lockedIds?: ReadonlySet<string>,
+): boolean {
+  if (lockedIds && row.id && lockedIds.has(row.id)) return false;
   return row.workspace_id === workspaceId && row.status === 'published' && row.used_by_ai !== false;
 }
 

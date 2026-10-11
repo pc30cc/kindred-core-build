@@ -58,6 +58,11 @@ export interface PluginCatalogItem {
   installed: boolean;
   installationStatus: string | null;
   installationId: string | null;
+  /**
+   * Installed, but the plan no longer has it and billing locks are on
+   * (phase 4): nothing is received or sent, the settings are kept.
+   */
+  stopped?: boolean;
 }
 
 export type TelegramLocale = 'en' | 'fa' | 'tr';

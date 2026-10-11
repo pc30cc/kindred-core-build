@@ -10,7 +10,12 @@
  *   2. the month's AI credit of every running period (and trial);
  *   3. renewal reminders 7, 3 and 1 days before the due date;
  *   4. trials: a reminder 3 and 1 days before the end, then the end;
- *   5. gateway attempts that never finished, deleted after 30 days.
+ *   5. locked data (phase 4, locks/retention.ts): a locked agent's open chats
+ *      back to the queue, the deletion clock, the 30/7-day deletion notices
+ *      and, after both, the deletion of what they named (only while the
+ *      edition's billing locks are on and the plan sets
+ *      locked_data_retention_days);
+ *   6. gateway attempts that never finished, deleted after 30 days.
  *
  * Every 5 minutes, beside the due step, the saved cards (phase 3b,
  * runSimpleBillingCard → card.ts runCardJob): cards whose Paddle
@@ -30,6 +35,7 @@ import { SHORT_LIVED_CHECKOUT_PROVIDERS } from './index.js';
 import { billingIntervalLabel, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
 import { afterPlanChange, processDue } from './plans.js';
 import { runCardJob, type CardJobReport } from './card.js';
+import { runLockRetention, type LockRetentionReport } from '../locks/retention.js';
 
 const LEASE_NAME = 'simple_billing';
 const DUE_LEASE_NAME = 'simple_billing_due';
@@ -74,6 +80,7 @@ export interface SimpleBillingJobReport {
   allowances: number;
   reminders: number;
   trials: { reminded: number; ended: number };
+  locks: Omit<LockRetentionReport, 'errors'>;
   pruned: number;
   errors: string[];
 }
@@ -182,6 +189,7 @@ export async function runSimpleBillingJob(config: ServerConfig, now: Date = new 
     allowances: 0,
     reminders: 0,
     trials: { reminded: 0, ended: 0 },
+    locks: { workspaces: 0, released: 0, notices: 0, deleted: { kb_article: 0, contact: 0, conversation: 0 } },
     pruned: 0,
     errors: [],
   };
@@ -280,7 +288,15 @@ export async function runSimpleBillingJob(config: ServerConfig, now: Date = new 
       }
     });
 
-    // 5. Attempts that never finished.
+    // 5. Locked data: release, the deletion clock, notices, deletions.
+    await step('locks', async () => {
+      const { errors, ...locks } = await runLockRetention(config, now);
+      report.locks = locks;
+      for (const e of errors.slice(0, 20)) report.errors.push(`locks: ${e}`);
+      if (errors.length) console.error('[simple-billing] locks step', errors.slice(0, 5).join('; '));
+    });
+
+    // 6. Attempts that never finished.
     await step('prune', async () => {
       const { data, error } = await sb.rpc('billing_account_prune_payments', {
         p_days: 30,
@@ -293,7 +309,9 @@ export async function runSimpleBillingJob(config: ServerConfig, now: Date = new 
     running = false;
     await releaseTickerLease(config, LEASE_NAME).catch(() => {});
   }
-  if (report.due.renewed || report.due.expired || report.allowances || report.reminders || report.trials.ended) {
+  const lockWork = report.locks.notices + report.locks.released
+    + report.locks.deleted.kb_article + report.locks.deleted.contact + report.locks.deleted.conversation;
+  if (report.due.renewed || report.due.expired || report.allowances || report.reminders || report.trials.ended || lockWork) {
     console.log('[simple-billing] job', JSON.stringify({ ...report, errors: report.errors.length }));
   }
   return report;

@@ -120,7 +120,8 @@ import {
   INBOUND_REUSABLE_STATUSES,
 } from '../services/conversationLifecycle.js';
 import { extractHostname, isOriginAllowed } from '../utils/domain.js';
-import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
+import { resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from '../services/widget/availability.js';
+import { applyKbUnlockedFilter, resolveKbLock } from '../services/knowledge-base/locks.js';
 import { sendEmail } from '../services/email/index.js';
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 
@@ -132,7 +133,8 @@ import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSe
 import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { emitMetric, emitLog } from '../services/observability/metrics.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
-import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
+import { checkMaxConversationsAllowance, enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
+import { locksEnabled } from '../services/billing/locks/state.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
 import { getPlatformAllowedLocales, getPlatformEditionOrNull } from '../services/platformRegion.js';
@@ -452,11 +454,14 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
       const localeHint = (req.body && (req.body.locale as string)) ||
         (req.headers['accept-language'] as string | undefined)?.split(',')[0] ||
         'en';
-      const snap = await resolveAvailability(config, {
-        workspaceId: resolvedWorkspaceId,
-        locale: localeHint,
-      });
-      availabilityPayload = snapshotToWirePayload(snap);
+      const [snap, quotaFull] = await Promise.all([
+        resolveAvailability(config, {
+          workspaceId: resolvedWorkspaceId,
+          locale: localeHint,
+        }),
+        resolveConversationQuotaFull(config, resolvedWorkspaceId),
+      ]);
+      availabilityPayload = snapshotToWirePayload(snap, { quota_full: quotaFull });
     } catch (err) {
       console.warn('[widget-bootstrap] availability resolve failed:', err?.message);
     }
@@ -1084,6 +1089,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       //  - business_hours.enabled === false  =>  state = 'online' always.
       //  - offline_message comes from offline_message_localized (per-locale)
       //    with legacy offline_message as fallback. No translation pipeline.
+      // `quota_full` (phase 4) only while billing locks are on: the monthly
+      // chat quota is full, so a new conversation goes to the
+      // leave-a-message form (see resolveConversationQuotaFull).
       availability: snapshotToWirePayload(
         await resolveAvailability(config, {
           workspaceId,
@@ -1092,6 +1100,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           settingsRow: widget,
           availabilityPrefs,
         }),
+        { quota_full: await resolveConversationQuotaFull(config, workspaceId) },
       ),
       // Phase 6a — Attachment config exposed to the widget runtime.
       // The widget enforces these as a UX guard; the backend re-validates.
@@ -1819,13 +1828,17 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
   const limit = Math.min(parseInt(req.query.limit as string || '20'), 50);
 
   try {
-    let query = supabase
+    // Articles over the plan's max_kb_articles are hidden (phase 4). The
+    // lock is awaited first: the query builder is a thenable and is only
+    // built here, never returned from an async helper.
+    const kbLock = await resolveKbLock(config, workspaceId);
+    let query = applyKbUnlockedFilter(supabase
       .from('knowledge_base_articles')
       .select('id, title, slug, content, excerpt, locale')
       .eq('workspace_id', workspaceId)
       .eq('status', 'published')
       .order('sort_order', { ascending: true })
-      .limit(limit);
+      .limit(limit), kbLock);
 
     // Articles are not split by language.
     if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
@@ -3671,13 +3684,15 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
   const supabase = getServiceClient(config);
 
   try {
-    const query = supabase
+    // Locked articles (phase 4) are left out; see /help-articles.
+    const kbLock = await resolveKbLock(config, workspace_id);
+    const query = applyKbUnlockedFilter(supabase
       .from('knowledge_base_articles')
       .select('id, title, excerpt, slug, locale')
       .eq('workspace_id', workspace_id)
       .eq('status', 'published')
       .order('sort_order', { ascending: true })
-      .limit(limit);
+      .limit(limit), kbLock);
 
     // Articles are not split by language.
 
@@ -3722,25 +3737,28 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
     // several locales, so resolving with .maybeSingle() on slug alone throws
     // on multi-row and the vote 404s. Prefer the caller's locale, then fall
     // back to any locale that owns the slug.
+    //
+    // An article locked by the plan (phase 4) is not found: no vote.
     const locale = String(req.query.locale || '').toLowerCase().split('-')[0];
+    const kbLock = await resolveKbLock(config, workspaceId);
     let article: { id: string } | null = null;
     if (locale) {
-      const { data, error } = await supabase
+      const { data, error } = await applyKbUnlockedFilter(supabase
         .from('knowledge_base_articles')
         .select('id')
         .eq('workspace_id', workspaceId)
         .eq('slug', slug)
-        .eq('locale', locale)
+        .eq('locale', locale), kbLock)
         .limit(1);
       if (error) throw error;
       article = data?.[0] || null;
     }
     if (!article) {
-      const { data, error } = await supabase
+      const { data, error } = await applyKbUnlockedFilter(supabase
         .from('knowledge_base_articles')
         .select('id')
         .eq('workspace_id', workspaceId)
-        .eq('slug', slug)
+        .eq('slug', slug), kbLock)
         .limit(1);
       if (error) throw error;
       article = data?.[0] || null;
@@ -3943,9 +3961,24 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   // Phase 5 — offline capture is always a new conversation row, so
   // enforce max_conversations here. workspace_id is verified above
   // against the widget token (`tokenWs === workspace_id`).
+  //
+  // Simple billing phase 4 (D10): while billing locks are on, a full
+  // monthly quota does NOT refuse the leave-a-message form — the spec shows
+  // exactly this form when the quota is full. The capture is inserted
+  // anyway, tagged `over_quota`, counted like any conversation and shown to
+  // operators. Every other refusal (not in the plan, unreadable) stands.
+  let overQuota = false;
   {
-    const ok = await enforceMaxConversationsLimit(req, res, workspace_id);
-    if (!ok) return;
+    let locksOn = false;
+    try { locksOn = config.selfHostBillingUnlimited !== true && await locksEnabled(config); } catch { locksOn = false; }
+    if (locksOn) {
+      const allowance = await checkMaxConversationsAllowance(config, workspace_id);
+      overQuota = allowance.reason === 'limit_reached';
+    }
+    if (!overQuota) {
+      const ok = await enforceMaxConversationsLimit(req, res, workspace_id);
+      if (!ok) return;
+    }
   }
   const { data: conv, error: convErr } = await supabase
     .from('conversations')
@@ -3955,7 +3988,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
       visitor_session_id: visitorSessionId,
       status: 'open',
       priority: 'normal',
-      tags: ['offline'],
+      tags: overQuota ? ['offline', 'over_quota'] : ['offline'],
       subject: 'Offline message',
     })
     .select('id')
@@ -4000,6 +4033,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
       transitioning,
       contact_email: email || null,
       next_open_at: snap.next_open_at,
+      ...(overQuota ? { over_quota: true } : {}),
     },
   });
 
@@ -4016,7 +4050,10 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     ok: true,
     captured: true,
     conversation_id: conv.id,
-    transitioning,
+    // Over the quota the team may well be online: "we may be back sooner"
+    // would be wrong there.
+    transitioning: transitioning && !overQuota,
+    ...(overQuota ? { over_quota: true } : {}),
   });
 });
 

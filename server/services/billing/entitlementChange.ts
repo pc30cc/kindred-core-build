@@ -14,6 +14,8 @@
 import type { ServerConfig } from '../../config.js';
 import { clearEntitlementCache } from '../../middleware/featureGating.js';
 import { enqueueKnowledgeBaseCatchup } from '../ai-agent/knowledgeIndex/kbEvents.js';
+import { clearLockStateCache } from './locks/state.js';
+import { clearPlanStopCache } from './planStops.js';
 
 export type EntitlementChangeSource =
   | 'admin_assign'
@@ -67,7 +69,12 @@ const NON_AI_SOURCES = new Set<EntitlementChangeSource>([
   'workspace_channel_override',
 ]);
 
-/** Limit keys that genuinely affect AI indexing eligibility/budget. */
+/**
+ * Limit keys that genuinely affect AI indexing eligibility/budget. The KB
+ * article limit and its legacy aliases are here because a computed lock
+ * (phase 4) hides the articles past the limit from the AI: a change in either
+ * direction needs the catch-up that retires or restores their chunks.
+ */
 export const AI_RELEVANT_LIMIT_KEYS = new Set<string>([
   'ai_knowledge_chunks_embedded',
   'ai_knowledge_sources',
@@ -75,6 +82,8 @@ export const AI_RELEVANT_LIMIT_KEYS = new Set<string>([
   'ai_kb_max_articles',
   'ai_kb_max_pages',
   'ai_kb_jobs_per_month',
+  'max_kb_articles',
+  'kb_articles',
 ]);
 
 /**
@@ -124,8 +133,11 @@ export async function handleWorkspaceEntitlementChanged(
   const { workspaceId, source } = input;
   if (!workspaceId) return { ok: false, cacheCleared: false, catchupEnqueued: 0 };
 
-  // 1. Entitlement cache must never outlive the change.
+  // 1. Entitlement cache must never outlive the change — nor the computed
+  //    lock state, which follows the same plan and overrides.
   clearEntitlementCache(workspaceId);
+  clearLockStateCache(workspaceId);
+  clearPlanStopCache(workspaceId);
 
   // 2. Apply the pure transition rule.
   if (!shouldEnqueueEntitlementCatchup({
@@ -219,6 +231,8 @@ export async function handlePlanDefinitionChanged(
   // Cache invalidation therefore happens unconditionally and before any
   // relevance filtering.
   clearEntitlementCache();
+  clearLockStateCache();
+  clearPlanStopCache();
   const { enqueuePlanEntitlementFanout } = await import('./entitlementFanout.js');
   const r = await enqueuePlanEntitlementFanout(config, planId, diff);
   return { ...r, backgrounded: true };

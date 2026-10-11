@@ -35,6 +35,15 @@ import {
 } from '../services/visitors/networkProfile.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { hydrateContactAvatars, hydrateUserAvatars } from '../services/storage/urlResolver.js';
+import {
+  contactLockedBody,
+  contactRowForPanel,
+  forgetContactLocks,
+  isContactLocked,
+  isConversationLocked,
+  resolveContactChatLocks,
+  type ContactLockRow,
+} from '../services/contactChatLocks.js';
 
 export const contactsRouter = Router();
 
@@ -272,16 +281,23 @@ contactsRouter.get('/', async (req, res) => {
     if (!(await contactsPlanAllows(req, res, config, workspaceId))) return;
 
     const sb = getServiceClient(config);
-    const { data, error } = await sb
-      .from('contacts')
-      .select('*')
-      .eq('workspace_id', workspaceId)
-      .order('created_at', { ascending: false });
+    const [{ data, error }, locks] = await Promise.all([
+      sb
+        .from('contacts')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: false }),
+      resolveContactChatLocks(config, workspaceId),
+    ]);
     if (error) return res.status(500).json({ error: error.message });
+    // Plan locks (phase 4): every row carries `locked`; a locked contact is
+    // redacted here, so its details never reach the browser. The list keeps
+    // its order and its count.
+    const contacts = (data || []).map((row) => contactRowForPanel(locks, row));
     // Our own avatars are derived from their keys for the workspace's
     // current provider; externally supplied ones pass straight through.
-    await hydrateContactAvatars(config, workspaceId, (data || []));
-    return res.json({ contacts: data || [] });
+    await hydrateContactAvatars(config, workspaceId, contacts.filter((c) => !c.locked));
+    return res.json({ contacts });
   } catch (err) {
     console.error('[contacts list] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
@@ -309,6 +325,18 @@ async function loadAndAuthorizeContact(
   return { contact };
 }
 
+/**
+ * Plan lock (phase 4): a contact over the plan's max_contacts cannot be
+ * opened, edited or looked up; deleting it stays allowed. Writes the 403 and
+ * returns true when the caller must stop. Fail open.
+ */
+async function refuseLockedContact(res, config: ServerConfig, contact: ContactLockRow & { workspace_id: string }): Promise<boolean> {
+  const locks = await resolveContactChatLocks(config, contact.workspace_id);
+  if (!isContactLocked(locks, contact)) return false;
+  res.status(403).json(contactLockedBody(locks));
+  return true;
+}
+
 contactsRouter.get('/:id', async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
@@ -316,8 +344,9 @@ contactsRouter.get('/:id', async (req, res) => {
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
     if (!(await contactsPlanAllows(req, res, config, loaded.contact.workspace_id))) return;
+    if (await refuseLockedContact(res, config, loaded.contact)) return;
     await hydrateContactAvatars(config, loaded.contact.workspace_id, [loaded.contact]);
-    return res.json({ contact: loaded.contact });
+    return res.json({ contact: { ...loaded.contact, locked: false } });
   } catch (err) {
     console.error('[contacts get] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
@@ -331,6 +360,8 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
     if (!(await contactsPlanAllows(req, res, config, loaded.contact.workspace_id))) return;
+    if (await refuseLockedContact(res, config, loaded.contact)) return;
+    const locks = await resolveContactChatLocks(config, loaded.contact.workspace_id);
 
     const { data: convData, error: convErr } = await sb
       .from('conversations')
@@ -341,8 +372,10 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
     const convs = (convData ?? []);
     if (!convs.length) return res.json({ conversations: [] });
 
-    const ids = convs.map((c) => c.id);
-    const { data: msgs } = await sb
+    // A chat older than the plan's retention is listed without its content.
+    const lockedConv = new Set(convs.filter((c) => isConversationLocked(locks, c)).map((c) => c.id));
+    const ids = convs.map((c) => c.id).filter((id) => !lockedConv.has(id));
+    const { data: msgs } = ids.length === 0 ? { data: [] } : await sb
       .from('conversation_messages')
       .select('conversation_id, sender_type, sender_id, body, created_at, metadata')
       .in('conversation_id', ids)
@@ -366,6 +399,20 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
     }
 
     const result = convs.map((c) => {
+      if (lockedConv.has(c.id)) {
+        return {
+          ...c,
+          subject: null,
+          locked_by_retention: true,
+          handled_by_ai: false,
+          handled_by_operator: false,
+          operator_name: null,
+          operator_avatar: null,
+          last_message_body: null,
+          last_message_meta: null,
+          message_count: 0,
+        };
+      }
       const mine = ((msgs ?? [])).filter((m) => m.conversation_id === c.id);
       const hasAi = mine.some((m) => m.sender_type === 'ai' || m.sender_type === 'bot');
       const agentMsgs = mine.filter((m) => m.sender_type === 'agent' && m.sender_id);
@@ -386,6 +433,7 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
         last_message_meta:
           lastMessage?.sender_type === 'system' ? (lastMessage.metadata ?? null) : null,
         message_count: mine.length,
+        locked_by_retention: false,
       };
     });
     return res.json({ conversations: result });
@@ -416,6 +464,7 @@ contactsRouter.patch('/:id', async (req, res) => {
     if ('tags' in parsed.data) features.push('contact_tags');
     if ('notes' in parsed.data) features.push('contact_notes');
     if (!(await contactsPlanAllows(req, res, config, loaded.contact.workspace_id, features))) return;
+    if (await refuseLockedContact(res, config, loaded.contact)) return;
 
     const { data, error } = await sb
       .from('contacts')
@@ -442,8 +491,11 @@ contactsRouter.delete('/:id', async (req, res) => {
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
 
+    // Deleting stays open for a locked contact (an erasure request, or making
+    // room under the plan's limit).
     const { error } = await sb.from('contacts').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ error: error.message });
+    forgetContactLocks(loaded.contact.workspace_id);
     return res.json({ ok: true });
   } catch (err) {
     console.error('[contacts delete] error:', err);
@@ -486,6 +538,7 @@ contactsRouter.post('/bulk-delete', async (req, res) => {
 
     const { error: delErr } = await sb.from('contacts').delete().in('id', parsed.data.ids);
     if (delErr) return res.status(500).json({ error: delErr.message });
+    forgetContactLocks(workspaceId);
     return res.json({ deleted: parsed.data.ids.length });
   } catch (err) {
     console.error('[contacts bulk-delete] error:', err);
@@ -519,13 +572,14 @@ contactsRouter.get('/:id/ip', async (req, res) => {
 
     const { data: contact } = await sb
       .from('contacts')
-      .select('id, workspace_id')
+      .select('id, workspace_id, created_at, is_spam, name, email, phone, metadata')
       .eq('id', contactId)
       .maybeSingle();
     if (!contact) return res.status(404).json({ error: 'not_found' });
 
     const auth = await authorizeWorkspaceMember(req, res, config, contact.workspace_id);
     if (!auth) return;
+    if (await refuseLockedContact(res, config, contact)) return;
 
     const policy = await resolveIpVisibilityPolicy(config, contact.workspace_id, auth.role);
     if (!policy.entitled) {

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
-import { useKBArticles, useDeleteKBArticle } from '@/hooks/useKnowledgeBase';
+import { useKBArticles, useDeleteKBArticle, useKBLockedText, isKBArticleLocked } from '@/hooks/useKnowledgeBase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,7 @@ import KnowledgeQnaTab from '@/components/app/knowledge/KnowledgeQnaTab';
 import KnowledgeFilesTab from '@/components/app/knowledge/KnowledgeFilesTab';
 import {
   Plus, Trash2, BookOpen, Search, Eye, ThumbsUp, Globe,
-  FileText, Edit, BookMarked, MessageCircleQuestion, Sparkles,
+  FileText, Edit, BookMarked, MessageCircleQuestion, Sparkles, Lock,
 } from 'lucide-react';
 
 /**
@@ -59,6 +59,7 @@ export default function KnowledgeBasePage() {
   const listLocale = canSwitchLanguage ? locale : undefined;
   const { data: articles, isLoading } = useKBArticles(workspace?.id, listLocale, statusFilter);
   const deleteArticle = useDeleteKBArticle(workspace?.id);
+  const lockedText = useKBLockedText();
 
   const filtered = articles?.filter((a) =>
     !searchQuery || a.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -218,27 +219,44 @@ export default function KnowledgeBasePage() {
               </div>
             ) : (
               <div className="divide-y divide-border/50">
-                {filtered.map((article) => (
-                  <div key={article.id} className="px-5 py-3.5 hover:bg-muted/30 transition-colors flex items-center gap-4">
-                    <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <FileText className="w-4 h-4 text-primary" />
+                {filtered.map((article) => {
+                  // Over the plan's article limit: hidden from the help center,
+                  // the widget and the AI, read-only here; delete stays open.
+                  const locked = isKBArticleLocked(article);
+                  return (
+                  <div key={article.id} data-kb-locked={locked ? 'true' : undefined} className="px-5 py-3.5 hover:bg-muted/30 transition-colors flex items-center gap-4">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${locked ? 'bg-muted' : 'bg-primary/10'}`}>
+                      {locked ? <Lock className="w-4 h-4 text-muted-foreground" /> : <FileText className="w-4 h-4 text-primary" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-foreground truncate">{article.title}</span>
+                        <span className={`text-sm font-medium truncate ${locked ? 'text-muted-foreground' : 'text-foreground'}`}>{article.title}</span>
                         <Badge data-kb-status={article.status} className={`text-[10px] px-1.5 py-0 ${statusBadge[article.status]}`}>{statusLabel[article.status] || article.status}</Badge>
+                        {locked && (
+                          <Badge data-kb-lock-badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1" title={lockedText('tooltip')}>
+                            <Lock className="h-2.5 w-2.5" />{lockedText('badge')}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(wsPath(`/knowledge-base/articles/${article.id}`))} title={t('common.edit')}>
-                        <Edit className="h-3.5 w-3.5" />
+                      {/* A locked article opens read-only (the owner can still read it). */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => navigate(wsPath(`/knowledge-base/articles/${article.id}`))}
+                        title={locked ? lockedText('tooltip') : t('common.edit')}
+                      >
+                        {locked ? <Eye className="h-3.5 w-3.5" /> : <Edit className="h-3.5 w-3.5" />}
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteArticle.mutate(article.id)} title={t('common.delete')}>
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

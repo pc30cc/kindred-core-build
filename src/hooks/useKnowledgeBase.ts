@@ -5,6 +5,7 @@ import {
   type KnowledgeBaseArticleWithCategory,
 } from '@/lib/knowledge-base-api';
 import type { KnowledgeBaseCategory } from '@/types/models';
+import { useTranslation, type TranslationKey } from '@/i18n';
 
 /**
  * Phase 6-S5-R1 — Knowledge Base is an INDEPENDENT product.
@@ -24,12 +25,39 @@ export function useKBCategories(workspaceId: string | undefined, locale?: string
   });
 }
 
+/**
+ * Simple billing phase 4: the server marks each article over the plan's
+ * `max_kb_articles` with `locked: true`. A locked article stays listed (the
+ * owner can still read and delete it) but is hidden from the help center,
+ * the widget and the AI, and cannot be edited.
+ */
+export type KnowledgeBaseListArticle = KnowledgeBaseArticleWithCategory & { locked?: boolean };
+
+export function isKBArticleLocked(article: { locked?: unknown } | null | undefined): boolean {
+  return article?.locked === true;
+}
+
 export function useKBArticles(workspaceId: string | undefined, locale?: string, status?: string) {
-  return useQuery<KnowledgeBaseArticleWithCategory[]>({
+  return useQuery<KnowledgeBaseListArticle[]>({
     queryKey: ['kb-articles', workspaceId, locale, status],
     queryFn: () => knowledgeBaseApi.listArticles(workspaceId!, locale, status),
     enabled: !!workspaceId,
   });
+}
+
+/** Texts of a locked article, from the `kb.locked.*` keys (fa/en/tr). */
+const KB_LOCKED_TEXT_KEYS = {
+  badge: 'kb.locked.badge',
+  tooltip: 'kb.locked.tooltip',
+  editorNotice: 'kb.locked.descNoLimit',
+  saveBlocked: 'kb.locked.error',
+} as const satisfies Record<string, TranslationKey>;
+
+export type KBLockedTextKey = keyof typeof KB_LOCKED_TEXT_KEYS;
+
+export function useKBLockedText(): (key: KBLockedTextKey) => string {
+  const { t } = useTranslation();
+  return (key) => t(KB_LOCKED_TEXT_KEYS[key]);
 }
 
 export function useCreateKBArticle(workspaceId: string | undefined) {

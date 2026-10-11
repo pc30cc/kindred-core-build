@@ -9,7 +9,9 @@
  *
  * Hard rules:
  *  • Only members of THE conversation's workspace are ever considered.
- *  • Suspended members are excluded.
+ *  • Suspended members are excluded, and so are members whose seat the plan
+ *    has paused (simple billing phase 4: the most recently joined past
+ *    `max_agents`, only while billing locks are on).
  *  • The actor who caused the event is never notified about their own action.
  *  • Preferences are enforced HERE, before dispatch — never in the client UI.
  */
@@ -17,6 +19,8 @@ import type { ServerConfig } from '../../config.js';
 import type { PushPlatformSettings } from './platformSettings.js';
 import { getServiceClient } from '../../supabase.js';
 import { getConnectedOperators } from '../widget/operatorPresenceSource.js';
+import { resolveLockState } from '../billing/locks/state.js';
+import { isMemberLocked } from '../billing/locks/predicates.js';
 
 /**
  * `team_message` is a colleague's direct message in team chat: addressed to
@@ -200,10 +204,12 @@ export async function resolveRecipients(
   }
 
   const mentioned = new Set(ctx.mentionedUserIds ?? []);
+  const locks = await resolveLockState(config, ctx.workspaceId, ['member']);
   const eligible = (members as MemberRow[] | null ?? [])
     .filter((m) => !m.suspended_at)
     .map((m) => String(m.user_id))
-    .filter((id) => id !== ctx.actorId);
+    .filter((id) => id !== ctx.actorId)
+    .filter((id) => !isMemberLocked(locks, id));
 
   if (!eligible.length) return [];
 

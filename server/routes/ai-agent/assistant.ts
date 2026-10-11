@@ -17,6 +17,7 @@ import {
   type AgentSettings,
 } from '../../services/ai-agent/settings.js';
 import { getKnowledgeStatus } from '../../services/ai-agent/retrieval.js';
+import { applyKbUnlockedFilter, resolveKbLock } from '../../services/knowledge-base/locks.js';
 import { listRuns } from '../../services/ai-agent/logs.js';
 import { resolveAIConfig } from '../../services/ai/index.js';
 import { getOperatorAvailability } from '../../services/ai-agent/availability.js';
@@ -452,11 +453,16 @@ assistantRouter.post('/generate-business-description', requireModule('ai_assista
   }
 
   const sb = getServiceClient(config);
+  // Articles the plan has locked (over max_kb_articles) are not AI context.
+  const kbLock = await resolveKbLock(config, workspaceId);
   const [{ data: domainRow }, { data: ws }, ks, { data: articles }] = await Promise.all([
     sb.from('workspace_domains').select('domain').eq('workspace_id', workspaceId).order('is_primary', { ascending: false }).limit(1).maybeSingle(),
     sb.from('workspaces').select('name').eq('id', workspaceId).maybeSingle(),
     getKnowledgeStatus(config, workspaceId),
-    sb.from('knowledge_base_articles').select('title,excerpt').eq('workspace_id', workspaceId).eq('status','published').limit(8),
+    applyKbUnlockedFilter(
+      sb.from('knowledge_base_articles').select('title,excerpt').eq('workspace_id', workspaceId).eq('status','published'),
+      kbLock,
+    ).limit(8),
   ]);
 
   const domain = (domainRow?.domain as string) || '';

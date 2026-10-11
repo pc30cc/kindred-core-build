@@ -32,7 +32,8 @@ import { userAvatarKey, workspaceBrandingKey } from '../services/storage/keys.js
 import { resolveVisitorGeo } from '../services/geo/index.js';
 import { hashIp, getClientIp } from '../utils/clientIp.js';
 import { issueVerificationEmail } from '../services/auth-email.js';
-import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, isSeatLocked } from '../lib/workspaceAuth.js';
+import { storageUploadAllowed } from '../services/billing/planStops.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/auth/password.js';
 import { SESSION_COOKIE_NAME, validateSessionToken, revokeSession, revokeAllSessions, listActiveSessions } from '../services/auth/sessions.js';
@@ -872,12 +873,20 @@ accountRouter.post('/workspace-icon', async (req, res) => {
     if (!(await userIsWorkspaceMember(config, user.id, workspaceId))) {
       return res.status(403).json({ error: 'Not a member of this workspace' });
     }
+    // Simple billing phase 4: a seat the plan paused has no say in the
+    // workspace, and storage over the limit takes no new file (the icon
+    // counts toward storage_gb). Both only while billing locks are on.
+    if (await isSeatLocked(config, workspaceId, user.id)) {
+      return res.status(403).json({ error: 'seat_locked', upgrade_required: true });
+    }
 
     const buffer = Buffer.from(parsed.data.data, 'base64');
     if (buffer.length === 0) return res.status(400).json({ error: 'Empty file' });
     if (buffer.length > 5 * 1024 * 1024) {
       return res.status(413).json({ error: 'Icon must be smaller than 5 MB' });
     }
+
+    if (!(await storageUploadAllowed(config, workspaceId, res))) return;
 
     const ext = extFromContentType(contentType);
     const fileKey = workspaceBrandingKey({ workspaceId, fileName: `icon-${Date.now()}.${ext}` });

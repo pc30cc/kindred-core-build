@@ -5,8 +5,9 @@
 // charge that currency, able to CONFIRM a payment from the server
 // (a verifyPayment lookup): the Iranian gateways in IRR, Paddle / Stripe /
 // PayPal in the currencies they charge, and (ZarinPal, Paddle) set up
-// with everything a payment needs. The Paddle sandbox is shown to
-// platform admins only unless its settings open it to customers.
+// with everything a payment needs. Test gateways (ZarinPal test, the
+// internal simulator, …) are shown to platform admins only; the Paddle
+// sandbox too, unless its settings open it to customers.
 
 import type { ServerConfig } from '../../../config.js';
 import { getProvider, resolveNamedBillingConfig } from '../index.js';
@@ -16,7 +17,7 @@ import { paddleSandboxOpenToCustomers } from '../providers/paddle-sandbox.js';
 import { paddleSettingsProblem } from '../providers/paddle.js';
 import { zarinpalSettingsProblem } from '../providers/zarinpal.js';
 import { IRANIAN_PAYMENT_PROVIDERS, isCurrencyAllowedInEdition, isProviderAllowedInEdition, type Edition } from '../../../../shared/edition.js';
-import { PADDLE_SANDBOX_PROVIDER } from '../../../../shared/testGateways.js';
+import { PADDLE_SANDBOX_PROVIDER, isTestPaymentProvider } from '../../../../shared/testGateways.js';
 import type { GatewayListing, GatewayListingReason } from '../../../../shared/simpleBillingAdmin.js';
 import type { BillingProviderConfig, BillingProviderHandler } from '../types.js';
 
@@ -96,6 +97,10 @@ export function gatewayListing(
   };
   if (edition && (!isProviderAllowedInEdition(name, edition) || !isCurrencyAllowedInEdition(code, edition))) add('not_in_edition');
   if (!gateway.is_active || gateway.implemented === false) add('inactive');
+  // A test gateway buys a real plan with simulated money: platform admins
+  // only. The Paddle sandbox can be opened to customers in its own settings
+  // (checked below, once its settings are read).
+  if (isTestPaymentProvider(name) && name !== PADDLE_SANDBOX_PROVIDER && !viewer.isPlatformAdmin) add('test');
   const configured = gateway.currencies ?? [];
   if (configured.length > 0 && !configured.includes(code) && !configured.includes(currency)) add('currency');
   const provider = getProvider(name);

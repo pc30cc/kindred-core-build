@@ -560,8 +560,8 @@ describe('GET /gateways (readiness)', () => {
     let res = await call('GET', '/gateways', 'admin-token');
     let byName = Object.fromEntries((res.json.gateways as Body[]).map((g) => [g.provider_name, g])) as Record<string, Body>;
     expect(byName.zarinpal.listing.IRR).toMatchObject({ listed: false, reasons: ['not_configured'], problem: expect.stringMatching(/Merchant ID is empty/) });
-    // The sandbox needs no merchant id: unchanged.
-    expect(byName.zarinpal_test.listing.IRR).toEqual({ listed: true, reasons: [] });
+    // The sandbox needs no merchant id; the card answers for customers, who never see a test gateway.
+    expect(byName.zarinpal_test.listing.IRR).toEqual({ listed: false, reasons: ['test'] });
 
     h.edition = 'international';
     h.db.billing_gateways = [

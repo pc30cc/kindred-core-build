@@ -59,3 +59,19 @@ describe('gatewayListing: an active gateway with incomplete settings', () => {
     expect(gatewayListing(ACTIVE('zarinpal', ['IRR']), 'IRR', undefined, 'iran')).toEqual({ listed: true, reasons: [] });
   });
 });
+
+describe('gatewayListing: test gateways are for platform admins', () => {
+  it('ZarinPal test and the internal simulator are hidden from customers, shown to admins', () => {
+    for (const name of ['zarinpal_test', 'internal_test']) {
+      const customer = gatewayListing(ACTIVE(name, ['IRR']), 'IRR', undefined, 'iran');
+      expect(customer.listed).toBe(false);
+      expect(customer.reasons).toContain('test');
+      expect(gatewayListing(ACTIVE(name, ['IRR']), 'IRR', undefined, 'iran', { isPlatformAdmin: true })).toEqual({ listed: true, reasons: [] });
+    }
+  });
+
+  it('a live gateway is not affected', () => {
+    const live = gatewayListing(ACTIVE('zarinpal', ['IRR']), 'IRR', { provider: 'zarinpal', merchant_id: MERCHANT }, 'iran');
+    expect(live).toEqual({ listed: true, reasons: [] });
+  });
+});

@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { I18nProvider } from '@/i18n';
 import fa from '@/i18n/locales/fa';
 import {
@@ -86,7 +87,9 @@ async function openPlanEditor() {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <I18nProvider initialLocale="fa" initialTranslations={fa}>
-        <AdminPlansPage />
+        <MemoryRouter>
+          <AdminPlansPage />
+        </MemoryRouter>
       </I18nProvider>
     </QueryClientProvider>,
   );
@@ -148,9 +151,12 @@ describe('Super Admin plan editor in Persian', () => {
       expect(features).toContain(capabilityGroupLabel(group, 'fa'));
     }
 
+    // The monthly AI credit is edited under Pricing (ai_allowance), never in the limits too (phase 6, D17).
+    const limitCaps = byType('limit').filter((c) => c.key !== 'included_ai_allowance_irr');
     const limits = await showSection(dialog, sections.limits);
-    expectPersian(limits, byType('limit'));
-    for (const cap of byType('limit')) {
+    expectPersian(limits, limitCaps);
+    expect(limits).not.toContain(asciiDigits(capabilityLabel('included_ai_allowance_irr', 'fa', 'AI Allowance / Month')));
+    for (const cap of limitCaps) {
       expect(limits).toContain(capabilityGroupLabel(cap.group, 'fa'));
       if (cap.unit) expect(limits).toContain(capabilityUnitLabel(cap.unit, 'fa'));
     }
@@ -158,6 +164,7 @@ describe('Super Admin plan editor in Persian', () => {
 
     const pricing = await showSection(dialog, sections.pricing);
     for (const code of ['USD', 'EUR', 'TRY', 'IRR']) expect(pricing).toContain(`${persianName('currency', code)} (${code})`);
+    expect(pricing).toContain(fa.admin.simpleBilling.plans.aiAllowance);
 
     const translations = await showSection(dialog, sections.translations);
     for (const code of ['en', 'fa', 'tr']) expect(translations).toContain(persianName('language', code));

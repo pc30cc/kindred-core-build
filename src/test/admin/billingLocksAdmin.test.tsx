@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { I18nProvider } from '@/i18n';
 import en from '@/i18n/locales/en';
 
@@ -89,7 +90,10 @@ import { __resetEditionForTests } from '@/lib/edition';
 
 const wrap = (node: React.ReactNode) => (
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <I18nProvider initialLocale="en" initialTranslations={en}>{node}</I18nProvider>
+    <I18nProvider initialLocale="en" initialTranslations={en}>
+      {/* The plans page reads its tab from the URL (phase 6). */}
+      <MemoryRouter>{node}</MemoryRouter>
+    </I18nProvider>
   </QueryClientProvider>
 );
 

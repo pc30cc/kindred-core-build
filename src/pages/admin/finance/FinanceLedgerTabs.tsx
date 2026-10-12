@@ -20,6 +20,7 @@ import { useTranslation } from '@/i18n';
 import { adminBillingApi, type AdminFinanceOverview } from '@/lib/adminBillingApi';
 import { formatMoney } from '@/lib/money';
 import { useEdition } from '@/hooks/useEdition';
+import { LEGACY_BILLING_ENABLED } from '../../../../shared/billingMode';
 
 const DICT = {
   fa: {
@@ -114,7 +115,8 @@ export function FinanceOverviewTab() {
           </Card>
         ))}
       </div>
-      <FinanceDangerZone onDone={() => adminBillingApi.overview().then(setData).catch(() => undefined)} />
+      {/* Wiping the v2 ledgers is never wanted once the simple billing holds real money (phase 6). */}
+      {LEGACY_BILLING_ENABLED && <FinanceDangerZone onDone={() => adminBillingApi.overview().then(setData).catch(() => undefined)} />}
     </div>
   );
 }

@@ -38,6 +38,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPattern as format } from '@/lib/date';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+import UserBillingAccountsCard from '@/components/admin/UserBillingAccountsCard';
+import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
 import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
@@ -67,9 +69,9 @@ export default function AdminUsersPage() {
   const deferredSearch = useDeferredValue(search);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Deep link: /admin/users?user=<uuid>. An invalid value is ignored and
-  // never triggers a fetch.
-  const rawUserParam = searchParams.get('user');
+  // Deep link: /admin/users?user=<uuid> (also ?id=<uuid>, as Finance links
+  // it). An invalid value is ignored and never triggers a fetch.
+  const rawUserParam = searchParams.get('user') ?? searchParams.get('id');
   const selectedUserId = rawUserParam && UUID_RE.test(rawUserParam) ? rawUserParam : null;
 
   const openUser = useCallback((id: string) => {
@@ -81,6 +83,7 @@ export default function AdminUsersPage() {
   const closeUser = useCallback(() => {
     const next = new URLSearchParams(searchParams);
     next.delete('user');
+    next.delete('id');
     setSearchParams(next);
   }, [searchParams, setSearchParams]);
 
@@ -875,7 +878,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </TabsContent>
 
         <TabsContent value="finance" className="mt-0">
-          <UserFinanceCard userId={userId} />
+          {/* The v2 finance card stays until phase 7, shown only while the old billing is on. */}
+          {LEGACY_BILLING_ENABLED ? <UserFinanceCard userId={userId} /> : <UserBillingAccountsCard userId={userId} />}
         </TabsContent>
       </Tabs>
 

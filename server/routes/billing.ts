@@ -2225,8 +2225,10 @@ billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) =
 });
 
 // ─── Admin: POST /api/billing/admin/plans — create/update plan ──
+// Retired (410 BILLING_V2_RETIRED) while LEGACY_BILLING_ENABLED is off:
+// plans are edited through /api/plans/admin, which validates the body.
 
-billingRouter.post('/admin/plans', requireSuperAdmin, async (req, res) => {
+billingRouter.post('/admin/plans', requireSuperAdmin, billingV2Retired, async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = serviceClientFor(url, key);
   const plan = req.body;
@@ -2256,7 +2258,9 @@ billingRouter.post('/admin/plans', requireSuperAdmin, async (req, res) => {
 });
 
 // ─── Admin: POST /api/billing/admin/grant — manually grant plan ──
-billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
+// Retired (410 BILLING_V2_RETIRED) while LEGACY_BILLING_ENABLED is off:
+// Super Admin assigns plans through /api/plans/admin/assign.
+billingRouter.post('/admin/grant', requireSuperAdmin, billingV2Retired, async (req, res) => {
   const { url, key } = getConfig(req);
   const { workspaceId, planId, status, expiresAt } = req.body;
   if (!workspaceId || !planId) return res.status(400).json({ error: 'Missing workspaceId or planId' });

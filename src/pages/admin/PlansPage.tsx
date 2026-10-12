@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +22,7 @@ import {
   useAssignPlan,
   useRevokePlan,
 } from '@/hooks/usePlans';
+import type { PlanRow, SubscriptionRow } from '@/hooks/usePlans';
 import { useAdminWorkspaces } from '@/hooks/useAdmin';
 import { fetchPlatformPublicConfig } from '@/lib/platformPublicConfig';
 import {
@@ -63,6 +65,10 @@ import {
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useQuery } from '@tanstack/react-query';
+import { useAdminAccount, useSimpleBillingSettings } from '@/lib/adminSimpleBillingApi';
+import { AI_PACK_CURRENCIES } from '../../../shared/aiPacks';
+import { PLAN_RETENTION_DAYS } from '../../../shared/simpleBillingAdmin';
+import type { Edition } from '../../../shared/edition';
 import BillingSettingsPanel from '@/components/admin/BillingSettingsPanel';
 import AiPacksPanel from '@/components/admin/AiPacksPanel';
 import { useTranslation, type TranslationKey } from '@/i18n';
@@ -84,6 +90,9 @@ import { useEdition } from '@/hooks/useEdition';
 
 // ─── Constants ───
 const CURRENCIES = PLAN_PRICE_CURRENCIES;
+/** The page's tabs, as `?tab=` names them. */
+const PAGE_TABS = ['plans', 'subscriptions', 'assign', 'effective', 'diagnostics', 'billing-settings'] as const;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PRICE_INTERVALS = ['monthly', 'yearly'] as const;
 type PriceInterval = (typeof PRICE_INTERVALS)[number];
 /** What the admin typed in each price field, in the unit people read. */
@@ -116,36 +125,10 @@ interface LocalizedPlan {
 }
 
 /** A `billing_plans` row as the Super Admin plan endpoints return it. */
-interface AdminPlan {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string | null;
-  is_free?: boolean | null;
-  is_active?: boolean | null;
-  is_hidden?: boolean | null;
-  sort_order?: number | null;
-  trial_days?: number | null;
-  /** Days locked data is kept before deletion (phase 4); null = never deleted. */
-  locked_data_retention_days?: number | null;
-  default_currency?: string | null;
-  prices?: Record<string, { monthly: number; yearly: number }> | null;
-  entitlements?: Record<string, unknown> | null;
-  limits?: Record<string, unknown> | null;
-  provider_price_ids?: Record<string, unknown> | null;
-  localized?: Record<string, LocalizedPlan> | null;
-}
+type AdminPlan = PlanRow;
 
 /** A `workspace_subscriptions` row with its plan, as /admin/subscriptions returns it. */
-interface AdminSubscription {
-  id: string;
-  workspace_id: string;
-  plan_id?: string | null;
-  status?: string | null;
-  provider_name?: string | null;
-  current_period_end?: string | null;
-  billing_plans?: { id: string; name: string; slug: string } | null;
-}
+type AdminSubscription = SubscriptionRow;
 
 /** The message of a thrown error, if it has one. */
 function errorText(e: unknown): string | undefined {
@@ -197,8 +180,6 @@ interface PlanFormData {
   is_hidden: boolean;
   sort_order: number;
   trial_days: number;
-  /** As typed: empty = never deleted, else whole days > 0 (checked on save). */
-  locked_data_retention_days: string;
   default_currency: string;
   prices: Record<string, { monthly: number; yearly: number }>;
   entitlements: Record<string, boolean>;
@@ -208,6 +189,12 @@ interface PlanFormData {
   /** Keys present in DB but not in current registry — preserved verbatim. */
   legacyEntitlements: Record<string, unknown>;
   legacyLimits: Record<string, unknown>;
+  /** Days a locked workspace's data is kept, as typed; empty = never deleted (D18). */
+  locked_data_retention_days: string;
+  /** Monthly AI credit per currency, as typed in the unit people read (Toman / dollars / lira) (D17). */
+  ai_allowance: Record<string, string>;
+  /** The stored `ai_allowance`, so a currency this edition does not edit is kept as it is. */
+  storedAiAllowance: Record<string, number>;
   /**
    * Lock limits (LOCK_LIMIT_KEYS) an existing plan does not name, with the
    * registry default the form shows for them: saved only once changed.
@@ -226,13 +213,61 @@ interface PlanFormData {
  */
 const LOCK_LIMIT_KEYS = ['max_agents', 'max_contacts', 'max_kb_articles', 'data_retention_days'] as const;
 
-/** The retention field's value: null = never deleted, a whole number of days > 0, or NaN when invalid. */
-function parseLockedRetentionDays(raw: string): number | null {
-  const text = raw.trim().replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
-  if (!text) return null;
-  if (!/^\d+$/.test(text)) return Number.NaN;
-  const days = Number(text);
-  return days > 0 && days <= 36_500 ? days : Number.NaN;
+/**
+ * The limit older readers still take the monthly AI credit from. Where the
+ * form edits `ai_allowance.IRR` under Pricing (Iran), the limits editor hides
+ * it (one value is never edited in two places) and the payload mirrors it;
+ * elsewhere the limit stays in the limits editor and `ai_allowance.IRR`
+ * follows it.
+ */
+const AI_ALLOWANCE_LIMIT_KEY = 'included_ai_allowance_irr';
+
+/**
+ * The `ai_allowance` currencies the monthly grant reads
+ * (billing_plan_ai_allowance: the override, `ai_allowance.IRR`, then the
+ * limit). A USD or TRY value would be stored and shown but never granted, so
+ * the form does not offer one.
+ */
+const GRANTED_AI_ALLOWANCE_CURRENCIES: readonly string[] = ['IRR'];
+
+/** The retention field's value: null when empty (never deleted), NaN when it is not PLAN_RETENTION_DAYS whole days. */
+function retentionDaysValue(text: string): number | null {
+  if (!text.trim()) return null;
+  const n = parsePlanPriceInput(text);
+  return n !== null && Number.isInteger(n) && n >= PLAN_RETENTION_DAYS.min && n <= PLAN_RETENTION_DAYS.max ? n : Number.NaN;
+}
+
+/** A monthly AI credit field's stored value (Rial / minor units), or null when it is not an amount. */
+function aiAllowanceValue(text: string, currency: string): number | null {
+  const n = parsePlanPriceInput(text);
+  return n === null ? null : planPriceFromDisplay(n, currency);
+}
+
+/**
+ * The currencies whose monthly AI credit the plan form edits under Pricing:
+ * the AI credit currencies of the edition that the monthly grant reads. In
+ * the international edition (USD, TRY) none: there the credit is the
+ * `included_ai_allowance_irr` limit, edited with the other limits.
+ */
+function aiAllowanceCurrencies(edition: Edition, fromSettings: readonly string[] | undefined): string[] {
+  const list = fromSettings?.length ? fromSettings : AI_PACK_CURRENCIES[edition] ?? ['IRR'];
+  return list.filter((cur) => GRANTED_AI_ALLOWANCE_CURRENCIES.includes(cur));
+}
+
+/** A 400 from the plan endpoints as validation issues the form lists (its `issues`, whichever shape). */
+function serverIssues(e: unknown): PlanValidationIssue[] {
+  const body = (e as { body?: { issues?: unknown } } | null)?.body;
+  if (!Array.isArray(body?.issues)) return [];
+  return body.issues.flatMap((raw): PlanValidationIssue[] => {
+    if (!raw || typeof raw !== 'object') return [];
+    const i = raw as Record<string, unknown>;
+    const key = typeof i.key === 'string' ? i.key : typeof i.path === 'string' ? i.path : '';
+    const level = i.level === 'warning' ? 'warning' : 'error';
+    const message = typeof i.message === 'string' ? i.message : '';
+    // Registry issues carry a known `code`; zod and price issues only a path and a message.
+    const code = typeof i.code === 'string' && typeof i.key === 'string' ? (i.code as PlanValidationIssue['code']) : undefined;
+    return [{ level, key: key || '—', code, message } as PlanValidationIssue];
+  });
 }
 
 function usePlatformLocales() {
@@ -247,7 +282,12 @@ function usePlatformLocales() {
 
 // ─── Registry-aware form helpers ───
 
-function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: string[], plan?: AdminPlan | null): PlanFormData {
+function buildFormFromRegistry(
+  capabilities: CapabilityDefinition[],
+  locales: string[],
+  plan?: AdminPlan | null,
+  aiCurrencies: readonly string[] = ['IRR'],
+): PlanFormData {
   const knownKeys = new Set(capabilities.map((c) => c.key));
   const entitlements: Record<string, boolean> = {};
   const limits: Record<string, number> = {};
@@ -276,6 +316,14 @@ function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: st
   }
 
   const existingLocalized = (plan?.localized || {}) as Record<string, LocalizedPlan>;
+  const storedAiAllowance: Record<string, number> = {};
+  for (const [cur, v] of Object.entries(plan?.ai_allowance || {})) {
+    if (typeof v === 'number' && Number.isFinite(v)) storedAiAllowance[cur] = v;
+  }
+  // A plan saved before `ai_allowance` existed has its IRR credit only in the limit.
+  const legacyIrr = Number(planLim[AI_ALLOWANCE_LIMIT_KEY]);
+  if (storedAiAllowance.IRR === undefined && Number.isFinite(legacyIrr) && legacyIrr > 0) storedAiAllowance.IRR = legacyIrr;
+  const retention = plan?.locked_data_retention_days;
   return {
     name: plan?.name || '',
     slug: plan?.slug || '',
@@ -285,10 +333,6 @@ function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: st
     is_hidden: plan?.is_hidden || false,
     sort_order: plan?.sort_order || 0,
     trial_days: plan?.trial_days || 0,
-    locked_data_retention_days:
-      plan?.locked_data_retention_days === null || plan?.locked_data_retention_days === undefined
-        ? ''
-        : String(plan.locked_data_retention_days),
     default_currency: plan?.default_currency || 'USD',
     prices: {
       ...Object.fromEntries(CURRENCIES.map((c) => [c, { monthly: 0, yearly: 0 }])),
@@ -300,6 +344,9 @@ function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: st
     localized: Object.fromEntries(locales.map((l) => [l, existingLocalized[l] || { name: '', description: '' }])),
     legacyEntitlements,
     legacyLimits,
+    locked_data_retention_days: typeof retention === 'number' && retention > 0 ? String(retention) : '',
+    ai_allowance: Object.fromEntries(aiCurrencies.map((cur) => [cur, planPriceInputValue(storedAiAllowance[cur], cur)])),
+    storedAiAllowance,
     absentLockLimits: plan?.id
       ? Object.fromEntries(LOCK_LIMIT_KEYS.filter((k) => knownKeys.has(k) && !(k in planLim)).map((k) => [k, limits[k]]))
       : {},
@@ -307,15 +354,32 @@ function buildFormFromRegistry(capabilities: CapabilityDefinition[], locales: st
   };
 }
 
-/** Compose final JSON payload, preserving legacy keys. */
+/**
+ * Compose final JSON payload, preserving legacy keys. The monthly AI credit
+ * keeps every stored currency and overwrites the edited ones. When IRR is
+ * edited under Pricing its value is mirrored into the limit older readers use
+ * (the server does the same); when it is not (international), the limit is
+ * what the admin edits, and `ai_allowance.IRR`, which the grant reads first,
+ * takes the limit's value so the two never disagree.
+ */
 function formToPayload(form: PlanFormData) {
+  const aiAllowance: Record<string, number> = { ...form.storedAiAllowance };
+  for (const [cur, text] of Object.entries(form.ai_allowance)) {
+    const value = aiAllowanceValue(text, cur);
+    if (value !== null) aiAllowance[cur] = value;
+  }
   const limits: Record<string, unknown> = { ...form.legacyLimits, ...form.limits };
+  const limitValue = form.limits[AI_ALLOWANCE_LIMIT_KEY];
+  if (!('IRR' in form.ai_allowance) && typeof limitValue === 'number' && Number.isFinite(limitValue)) {
+    aiAllowance.IRR = limitValue;
+  }
+  if (typeof aiAllowance.IRR === 'number') limits[AI_ALLOWANCE_LIMIT_KEY] = aiAllowance.IRR;
   // A lock limit the plan did not name stays unnamed unless the admin edited
   // it (typing the default itself makes it explicit, so it locks).
   for (const [key, shown] of Object.entries(form.absentLockLimits)) {
     if (!form.touchedLockLimits.includes(key) && limits[key] === shown) delete limits[key];
   }
-  const retention = parseLockedRetentionDays(form.locked_data_retention_days);
+  const retention = retentionDaysValue(form.locked_data_retention_days);
   return {
     name: form.name,
     slug: form.slug,
@@ -325,13 +389,14 @@ function formToPayload(form: PlanFormData) {
     is_hidden: form.is_hidden,
     sort_order: form.sort_order,
     trial_days: form.trial_days,
-    locked_data_retention_days: Number.isNaN(retention as number) ? null : retention,
     default_currency: form.default_currency,
     prices: form.prices,
     entitlements: { ...form.legacyEntitlements, ...form.entitlements },
     limits,
     provider_price_ids: form.provider_price_ids,
     localized: form.localized,
+    locked_data_retention_days: retention !== null && Number.isNaN(retention) ? null : retention,
+    ai_allowance: aiAllowance,
   };
 }
 
@@ -341,18 +406,27 @@ function PlanFormDialog({
   onClose,
   locales,
   capabilities,
+  onOpenBillingSettings,
 }: {
   plan?: AdminPlan | null;
   onClose: () => void;
   locales: string[];
   capabilities: CapabilityDefinition[];
+  /** Leaves the form for Plans → Billing settings (where VAT is set). */
+  onOpenBillingSettings?: () => void;
 }) {
   const { t, locale } = useTranslation();
   // The Rial (Toman) price card exists in the Iranian edition only; a stored
   // IRR price is kept untouched (never shown or edited) elsewhere.
   const edition = useEdition();
   const shownCurrencies = CURRENCIES.filter((cur) => edition.allowsCurrency(cur));
-  const [form, setForm] = useState<PlanFormData>(() => buildFormFromRegistry(capabilities, locales, plan));
+  // VAT is per currency in Billing settings (D16): shown here read-only.
+  const { data: billingSettings } = useSimpleBillingSettings();
+  const aiCurrencies = aiAllowanceCurrencies(edition.edition, billingSettings?.ai_currencies);
+  const aiEditsIrr = aiCurrencies.includes('IRR');
+  const [form, setForm] = useState<PlanFormData>(() =>
+    buildFormFromRegistry(capabilities, locales, plan, aiAllowanceCurrencies(edition.edition, undefined)),
+  );
   const [priceDrafts, setPriceDrafts] = useState<PriceDrafts>(() => priceDraftsFrom(form.prices));
   const [activeSection, setActiveSection] = useState('general');
   const [issues, setIssues] = useState<PlanValidationIssue[]>([]);
@@ -370,9 +444,10 @@ function PlanFormDialog({
       module: editable.filter((c) => c.type === 'module').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
       channel: editable.filter((c) => c.type === 'channel').sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
       feature: editable.filter((c) => c.type === 'feature'),
-      limit: editable.filter((c) => c.type === 'limit'),
+      // Where the monthly AI credit is edited under Pricing (ai_allowance.IRR), never here too.
+      limit: editable.filter((c) => c.type === 'limit' && (c.key !== AI_ALLOWANCE_LIMIT_KEY || !aiEditsIrr)),
     };
-  }, [capabilities]);
+  }, [capabilities, aiEditsIrr]);
 
   const featuresByGroup = useMemo(() => groupCapabilities(byType.feature), [byType.feature]);
   const limitsByGroup = useMemo(() => groupCapabilities(byType.limit), [byType.limit]);
@@ -390,7 +465,12 @@ function PlanFormDialog({
       toast.error(t('admin.plans.validation.invalidPrice'));
       return;
     }
-    if (Number.isNaN(parseLockedRetentionDays(form.locked_data_retention_days) as number)) {
+    if (Object.entries(form.ai_allowance).some(([cur, text]) => aiAllowanceValue(text, cur) === null)) {
+      setActiveSection('pricing');
+      toast.error(t('admin.plans.form.priceInvalid'));
+      return;
+    }
+    if (Number.isNaN(retentionDaysValue(form.locked_data_retention_days) as number)) {
       setActiveSection('general');
       toast.error(t('admin.billingLocks.planRetention.invalid'));
       return;
@@ -425,6 +505,14 @@ function PlanFormDialog({
       }
       onClose();
     } catch (e) {
+      // A 400 names what is wrong (unknown key, price, retention…): list it under the form.
+      const fromServer = serverIssues(e);
+      if (fromServer.length) setIssues(fromServer);
+      if ((e as { body?: { error?: string } })?.body?.error === 'INVALID_PRICE') {
+        setActiveSection('pricing');
+        toast.error(t('admin.plans.validation.invalidPrice'));
+        return;
+      }
       toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
   }
@@ -456,6 +544,13 @@ function PlanFormDialog({
   }
 
   const hasLegacy = Object.keys(form.legacyEntitlements).length + Object.keys(form.legacyLimits).length > 0;
+  const retentionInvalid = Number.isNaN(retentionDaysValue(form.locked_data_retention_days) as number);
+  const aiAllowanceText = (cur: string) => form.ai_allowance[cur] ?? planPriceInputValue(form.storedAiAllowance[cur], cur);
+  const vatCurrencies = shownCurrencies.filter((cur) => billingSettings?.vat_currencies?.includes(cur));
+  const vatPercent = (cur: string): number | null => {
+    const v = billingSettings?.vat_percent?.[cur];
+    return typeof v === 'number' ? v : null;
+  };
 
   const sections = [
     { id: 'general', label: t('admin.plans.form.sections.general') },
@@ -579,20 +674,23 @@ function PlanFormDialog({
                   />
                 </div>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="plan-locked-retention">{t('admin.billingLocks.planRetention.label')}</Label>
+              <div className="space-y-1 sm:max-w-[50%]">
+                <Label htmlFor="plan-retention-days">{t('admin.billingLocks.planRetention.label')}</Label>
                 <Input
-                  id="plan-locked-retention"
-                  dir="ltr"
+                  id="plan-retention-days"
+                  type="text"
                   inputMode="numeric"
-                  className="max-w-[12rem]"
+                  dir="ltr"
                   placeholder={t('admin.billingLocks.planRetention.never')}
                   value={form.locked_data_retention_days}
-                  aria-invalid={Number.isNaN(parseLockedRetentionDays(form.locked_data_retention_days) as number)}
+                  aria-invalid={retentionInvalid || undefined}
                   onChange={(e) => setForm((f) => ({ ...f, locked_data_retention_days: e.target.value }))}
                   data-testid="plan-locked-retention"
                 />
-                <p className="text-[11px] text-muted-foreground">{t('admin.billingLocks.planRetention.hint')}</p>
+                <p className={`text-[10px] ${retentionInvalid ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  {t('admin.simpleBilling.plans.retentionHint')}
+                </p>
+                <p className="text-[10px] text-muted-foreground">{t('admin.billingLocks.planRetention.hint')}</p>
               </div>
               <Separator />
               <div className="flex gap-6">
@@ -733,6 +831,57 @@ function PlanFormDialog({
                   );
                 })}
               </div>
+
+              {vatCurrencies.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs" data-testid="plan-vat-line">
+                  {vatCurrencies.map((cur) => (
+                    <span key={cur} className="text-muted-foreground">
+                      <span className="font-medium text-foreground">{currencyName(cur, locale)}:</span>{' '}
+                      {vatPercent(cur) === null
+                        ? t('admin.simpleBilling.plans.vatNone')
+                        : t('admin.simpleBilling.plans.vatFromSettings', { percent: vatPercent(cur)!.toLocaleString(locale) })}
+                    </span>
+                  ))}
+                  {onOpenBillingSettings && (
+                    <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={onOpenBillingSettings}>
+                      {t('admin.simpleBilling.plans.editVat')}
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {aiCurrencies.length > 0 && <Separator />}
+              {aiCurrencies.length > 0 && <div className="space-y-2">
+                <p className="text-xs font-bold text-foreground">{t('admin.simpleBilling.plans.aiAllowance')}</p>
+                <p className="text-xs text-muted-foreground">{t('admin.simpleBilling.plans.aiAllowanceHint')}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {aiCurrencies.map((cur) => {
+                    const id = `plan-ai-allowance-${cur}`;
+                    const unit = planPriceUnitLabel(cur, locale);
+                    const text = aiAllowanceText(cur);
+                    const value = aiAllowanceValue(text, cur);
+                    return (
+                      <div key={cur} className="space-y-1">
+                        <Label htmlFor={id} className="text-[11px]">
+                          {currencyName(cur, locale)} ({unit})
+                        </Label>
+                        <Input
+                          id={id}
+                          type="text"
+                          inputMode={cur === 'IRR' ? 'numeric' : 'decimal'}
+                          dir="ltr"
+                          aria-invalid={value === null || undefined}
+                          value={text}
+                          onChange={(e) => setForm((f) => ({ ...f, ai_allowance: { ...f.ai_allowance, [cur]: e.target.value } }))}
+                        />
+                        <p className={`text-[10px] ${value === null ? 'text-destructive' : 'text-muted-foreground'}`} data-testid={`${id}-preview`}>
+                          {value === null ? t('admin.plans.form.priceInvalid') : formatPlanPrice(value, cur, locale)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>}
             </div>
           )}
 
@@ -1443,13 +1592,41 @@ export default function AdminPlansPage() {
 
   const [editPlan, setEditPlan] = useState<AdminPlan | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [assignForm, setAssignForm] = useState({ workspaceId: '', planId: '' });
+
+  // Deep links: ?tab=<tab> opens a tab; ?tab=assign&workspace=<uuid> preselects
+  // the workspace (Finance → account detail links here). An unknown tab or a
+  // malformed id is ignored.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get('tab');
+  const tab = rawTab && (PAGE_TABS as readonly string[]).includes(rawTab) ? rawTab : 'plans';
+  const rawWorkspace = searchParams.get('workspace');
+  const linkedWorkspaceId = rawWorkspace && UUID_RE.test(rawWorkspace) ? rawWorkspace : '';
+  const setTab = (next: string) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'plans') params.delete('tab');
+    else params.set('tab', next);
+    if (next !== 'assign') params.delete('workspace');
+    setSearchParams(params, { replace: true });
+  };
+  const [assignForm, setAssignForm] = useState({ workspaceId: linkedWorkspaceId, planId: '' });
+  useEffect(() => {
+    if (linkedWorkspaceId) setAssignForm((f) => ({ ...f, workspaceId: linkedWorkspaceId }));
+  }, [linkedWorkspaceId]);
+  // The linked workspace may be outside the first page of workspaces: its name comes from its billing account.
+  const linkedListed = !linkedWorkspaceId || (workspaces || []).some((w) => w.id === linkedWorkspaceId);
+  const { data: linkedAccount } = useAdminAccount(linkedListed ? null : linkedWorkspaceId);
+  const openBillingSettings = () => {
+    setEditPlan(null);
+    setShowCreate(false);
+    setTab('billing-settings');
+  };
 
   // Derived per-card view, registry-aware
   const moduleKeys = useMemo(() => new Set(caps.filter((c) => c.type === 'module').map((c) => c.key)), [caps]);
   const channelKeys = useMemo(() => new Set(caps.filter((c) => c.type === 'channel').map((c) => c.key)), [caps]);
   const featureKeys = useMemo(() => new Set(caps.filter((c) => c.type === 'feature').map((c) => c.key)), [caps]);
   const limitDefs = useMemo(() => caps.filter((c) => c.type === 'limit'), [caps]);
+  const aiCardCurrencies = aiAllowanceCurrencies(edition.edition, undefined);
   const capByKey = useMemo(() => new Map(caps.map((c) => [c.key, c])), [caps]);
 
   if (isLoading || catLoading) {
@@ -1486,6 +1663,11 @@ export default function AdminPlansPage() {
       await assignPlan.mutateAsync({ workspaceId: assignForm.workspaceId, planId: assignForm.planId });
       toast.success(t('admin.plans.messages.assigned'));
       setAssignForm({ workspaceId: '', planId: '' });
+      if (linkedWorkspaceId) {
+        const params = new URLSearchParams(searchParams);
+        params.delete('workspace');
+        setSearchParams(params, { replace: true });
+      }
     } catch (e) {
       toast.error(errorText(e) ?? t('admin.plans.messages.actionFailed'));
     }
@@ -1521,12 +1703,17 @@ export default function AdminPlansPage() {
             <DialogHeader className="px-5 py-4 border-b border-border shrink-0">
               <DialogTitle>{t('admin.plans.createNewPlan')}</DialogTitle>
             </DialogHeader>
-            <PlanFormDialog onClose={() => setShowCreate(false)} locales={locales} capabilities={caps} />
+            <PlanFormDialog
+              onClose={() => setShowCreate(false)}
+              locales={locales}
+              capabilities={caps}
+              onOpenBillingSettings={openBillingSettings}
+            />
           </DialogContent>
         </Dialog>
       </div>
 
-      <Tabs defaultValue="plans">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="bg-muted">
           <TabsTrigger value="plans">
             <CreditCard className="w-3.5 h-3.5 me-1.5" />{' '}
@@ -1643,6 +1830,7 @@ export default function AdminPlansPage() {
                                 onClose={() => setEditPlan(null)}
                                 locales={locales}
                                 capabilities={caps}
+                                onOpenBillingSettings={openBillingSettings}
                               />
                             </DialogContent>
                           </Dialog>
@@ -1724,13 +1912,27 @@ export default function AdminPlansPage() {
                       </div>
 
                       <div className="flex flex-wrap gap-1.5">
-                        {limitDefs.map((cap) => {
+                        {limitDefs.filter((cap) => cap.key !== AI_ALLOWANCE_LIMIT_KEY || !(aiCardCurrencies.includes('IRR') && (plan.ai_allowance?.IRR ?? 0) > 0)).map((cap) => {
                           const val = limits[cap.key];
                           if (val === undefined) return null;
                           return (
                             <Badge key={cap.key} variant="secondary" className="text-[11px] font-normal">
                               {capName(cap, locale)}: {val === -1 ? '∞' : val?.toLocaleString(locale)}
                               {cap.unit ? ` ${capabilityUnitLabel(cap.unit, locale)}` : ''}
+                            </Badge>
+                          );
+                        })}
+                        {typeof plan.locked_data_retention_days === 'number' && plan.locked_data_retention_days > 0 && (
+                          <Badge variant="secondary" className="text-[11px] font-normal">
+                            {t('admin.simpleBilling.plans.retentionDays')}: {plan.locked_data_retention_days.toLocaleString(locale)}
+                          </Badge>
+                        )}
+                        {aiCardCurrencies.map((cur) => {
+                          const v = plan.ai_allowance?.[cur];
+                          if (typeof v !== 'number' || v <= 0) return null;
+                          return (
+                            <Badge key={`ai-${cur}`} variant="secondary" className="text-[11px] font-normal">
+                              {t('admin.simpleBilling.plans.aiAllowance')}: {formatPlanPrice(v, cur, locale)}
                             </Badge>
                           );
                         })}
@@ -1823,6 +2025,11 @@ export default function AdminPlansPage() {
                       <SelectValue placeholder={t('admin.plans.selectWorkspace')} />
                     </SelectTrigger>
                     <SelectContent>
+                      {!linkedListed && (
+                        <SelectItem value={linkedWorkspaceId}>
+                          {linkedAccount ? `${linkedAccount.workspace.name} (${linkedAccount.workspace.slug})` : linkedWorkspaceId}
+                        </SelectItem>
+                      )}
                       {(workspaces || []).map((w) => (
                         <SelectItem key={w.id} value={w.id}>
                           {w.name} ({w.slug})

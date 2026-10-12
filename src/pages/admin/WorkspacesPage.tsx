@@ -1,5 +1,6 @@
-import { useState, useDeferredValue } from 'react';
-import { useTranslation } from '@/i18n';
+import { useState, useDeferredValue, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -14,15 +15,23 @@ import {
   useAdminWorkspaceDetail, useAdminDeleteWorkspace, useAdminUserDetail,
 } from '@/hooks/useAdmin';
 
-import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
+import type { AdminPhoneStatusFilter, AdminWorkspaceRow } from '@/hooks/useAdmin';
 import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
 import { toast } from '@/lib/toast';
+import WorkspaceBillingSummary from '@/components/admin/WorkspaceBillingSummary';
+import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
 import {
   Building2, Users, MessageSquare, BookUser, Trash2,
   Globe, Palette, Bot, Loader2, Shield, ArrowLeft,
   Mail, Calendar, MapPin, MonitorSmartphone, Copy, Search,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+
+type AdminWorkspaceDetail = NonNullable<ReturnType<typeof useAdminWorkspaceDetail>['data']>;
+type WorkspaceMember = AdminWorkspaceDetail['members'][number];
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function formatDate(value: string | Date, locale: string, includeTime = false) {
   const dateLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
@@ -45,7 +54,17 @@ export default function AdminWorkspacesPage() {
   );
   const { data: count } = useAdminWorkspaceCount(deferredSearch, phoneFilter);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Deep link: /admin/workspaces?id=<uuid> opens a workspace (Finance links
+  // it). An invalid value is ignored and never triggers a fetch.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawIdParam = searchParams.get('id');
+  const selectedId = rawIdParam && UUID_RE.test(rawIdParam) ? rawIdParam : null;
+  const setSelectedId = useCallback((id: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (id) next.set('id', id);
+    else next.delete('id');
+    setSearchParams(next);
+  }, [searchParams, setSearchParams]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState('');
 
@@ -58,12 +77,12 @@ export default function AdminWorkspacesPage() {
     if (!deleteId) return;
     try {
       await deleteMutation.mutateAsync(deleteId);
-      toast.success(t('admin.workspacesPage.deleted' as any));
+      toast.success(t('admin.workspacesPage.deleted'));
       setDeleteId(null);
       setDeleteConfirm('');
       if (selectedId === deleteId) setSelectedId(null);
-    } catch (err: any) {
-      toast.error(err?.message || t('admin.workspacesPage.deleteFailed' as any));
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || t('admin.workspacesPage.deleteFailed'));
     }
   };
 
@@ -83,15 +102,15 @@ export default function AdminWorkspacesPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-foreground">{t('admin.workspacesPage.title' as any)}</h1>
-        <span className="text-sm text-muted-foreground">{t('admin.workspacesPage.total' as any, { count: count ?? 0 })}</span>
+        <h1 className="text-2xl font-bold text-foreground">{t('admin.workspacesPage.title')}</h1>
+        <span className="text-sm text-muted-foreground">{t('admin.workspacesPage.total', { count: count ?? 0 })}</span>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder={t('admin.workspacesPage.search' as any)}
+            placeholder={t('admin.workspacesPage.search')}
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(0); }}
             className="ps-9"
@@ -110,13 +129,13 @@ export default function AdminWorkspacesPage() {
         </Select>
         <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
           <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue placeholder={t('admin.workspacesPage.sort.label' as any)} />
+            <SelectValue placeholder={t('admin.workspacesPage.sort.label')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="newest">{t('admin.workspacesPage.sort.newest' as any)}</SelectItem>
-            <SelectItem value="oldest">{t('admin.workspacesPage.sort.oldest' as any)}</SelectItem>
-            <SelectItem value="most_members">{t('admin.workspacesPage.sort.mostMembers' as any)}</SelectItem>
-            <SelectItem value="most_active">{t('admin.workspacesPage.sort.mostActive' as any)}</SelectItem>
+            <SelectItem value="newest">{t('admin.workspacesPage.sort.newest')}</SelectItem>
+            <SelectItem value="oldest">{t('admin.workspacesPage.sort.oldest')}</SelectItem>
+            <SelectItem value="most_members">{t('admin.workspacesPage.sort.mostMembers')}</SelectItem>
+            <SelectItem value="most_active">{t('admin.workspacesPage.sort.mostActive')}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={String(limit)} onValueChange={v => { setLimit(Number(v)); setPage(0); }}>
@@ -124,7 +143,7 @@ export default function AdminWorkspacesPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {[10, 20, 30, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{t('admin.workspacesPage.perPage' as any, { count: size })}</SelectItem>)}
+            {[10, 20, 30, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{t('admin.workspacesPage.perPage', { count: size })}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -134,12 +153,12 @@ export default function AdminWorkspacesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('admin.workspacesPage.columns.name' as any)}</TableHead>
-                <TableHead>{t('admin.workspacesPage.columns.slug' as any)}</TableHead>
-                <TableHead>{t('admin.workspacesPage.columns.owner' as any)}</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.name')}</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.slug')}</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.owner')}</TableHead>
                 <TableHead>{t('admin.users.colOwnerPhone')}</TableHead>
-                <TableHead>{t('admin.workspacesPage.columns.members' as any)}</TableHead>
-                <TableHead>{t('admin.workspacesPage.columns.created' as any)}</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.members')}</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.created')}</TableHead>
                 <TableHead className="w-[80px]" />
               </TableRow>
             </TableHeader>
@@ -153,7 +172,7 @@ export default function AdminWorkspacesPage() {
               )}
               {!isLoading && (!workspaces || workspaces.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">{t('admin.workspacesPage.empty' as any)}</TableCell>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">{t('admin.workspacesPage.empty')}</TableCell>
                 </TableRow>
               )}
               {workspaces?.map(w => (
@@ -204,9 +223,9 @@ export default function AdminWorkspacesPage() {
 
       {/* Pagination — driven by the server-side total, not the page length. */}
       <div className="flex justify-between items-center">
-        <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>{t('admin.workspacesPage.previous' as any)}</Button>
+        <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>{t('admin.workspacesPage.previous')}</Button>
         <span className="text-sm text-muted-foreground">
-          {t('admin.workspacesPage.page' as any, { current: page + 1, total: typeof count === 'number' ? Math.max(1, Math.ceil(count / limit)) : '—' })}
+          {t('admin.workspacesPage.page', { current: page + 1, total: typeof count === 'number' ? Math.max(1, Math.ceil(count / limit)) : '—' })}
         </span>
         <Button
           variant="outline"
@@ -214,7 +233,7 @@ export default function AdminWorkspacesPage() {
           disabled={typeof count === 'number' ? (page + 1) * limit >= count : !workspaces || workspaces.length < limit}
           onClick={() => setPage(p => p + 1)}
         >
-          {t('admin.workspacesPage.next' as any)}
+          {t('admin.workspacesPage.next')}
         </Button>
       </div>
 
@@ -236,13 +255,13 @@ export default function AdminWorkspacesPage() {
 function WorkspaceDetailView({
   detail, loading, onBack, onDelete,
 }: {
-  detail: any;
+  detail: AdminWorkspaceDetail | undefined;
   loading: boolean;
   onBack: () => void;
   onDelete: (id: string) => void;
 }) {
   const { t, locale } = useTranslation();
-  const [selectedMember, setSelectedMember] = useState<any>(null);
+  const [selectedMember, setSelectedMember] = useState<WorkspaceMember | null>(null);
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -255,9 +274,9 @@ function WorkspaceDetailView({
     return (
       <div className="space-y-4">
         <Button variant="ghost" onClick={onBack} className="gap-2">
-          <ArrowLeft className="h-4 w-4 rtl:rotate-180" /> {t('admin.workspacesPage.back' as any)}
+          <ArrowLeft className="h-4 w-4 rtl:rotate-180" /> {t('admin.workspacesPage.back')}
         </Button>
-        <p className="text-center text-muted-foreground py-12">{t('admin.workspacesPage.notFound' as any)}</p>
+        <p className="text-center text-muted-foreground py-12">{t('admin.workspacesPage.notFound')}</p>
       </div>
     );
   }
@@ -286,17 +305,20 @@ function WorkspaceDetailView({
           className="gap-2 shrink-0"
         >
           <Trash2 className="h-4 w-4" />
-          {t('admin.workspacesPage.delete' as any)}
+          {t('admin.workspacesPage.delete')}
         </Button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard icon={Users} label={t('admin.workspacesPage.stats.members' as any)} value={detail.members?.length ?? 0} />
-        <StatCard icon={BookUser} label={t('admin.workspacesPage.stats.contacts' as any)} value={detail.contact_count} />
-        <StatCard icon={MessageSquare} label={t('admin.workspacesPage.stats.conversations' as any)} value={detail.conversation_count} />
-        <StatCard icon={Globe} label={t('admin.workspacesPage.stats.locale' as any)} value={ws?.default_locale || 'en'} />
+        <StatCard icon={Users} label={t('admin.workspacesPage.stats.members')} value={detail.members?.length ?? 0} />
+        <StatCard icon={BookUser} label={t('admin.workspacesPage.stats.contacts')} value={detail.contact_count} />
+        <StatCard icon={MessageSquare} label={t('admin.workspacesPage.stats.conversations')} value={detail.conversation_count} />
+        <StatCard icon={Globe} label={t('admin.workspacesPage.stats.locale')} value={ws?.default_locale || 'en'} />
       </div>
+
+      {/* The workspace's billing account (simple billing; read only, D25). */}
+      {!LEGACY_BILLING_ENABLED && ws?.id && <WorkspaceBillingSummary workspaceId={ws.id} />}
 
       {/* Owner phone verification — the workspace has no own phone state. */}
       {ws?.owner_id && (
@@ -314,10 +336,10 @@ function WorkspaceDetailView({
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Users className="h-4 w-4 text-muted-foreground" />
-            {t('admin.workspacesPage.membersTitle' as any, { count: detail.members?.length ?? 0 })}
+            {t('admin.workspacesPage.membersTitle', { count: detail.members?.length ?? 0 })}
           </h3>
           <div className="space-y-2">
-            {detail.members?.map((m: any) => (
+            {detail.members?.map((m) => (
               <button
                 key={m.id}
                 onClick={() => setSelectedMember(m)}
@@ -334,7 +356,7 @@ function WorkspaceDetailView({
                     <p className="text-xs text-muted-foreground">{m.email}</p>
                   </div>
                 </div>
-                <Badge variant={m.role === 'owner' ? 'default' : 'secondary'}>{['owner', 'admin', 'member'].includes(m.role) ? t(`admin.workspacesPage.roles.${m.role}` as any) : m.role}</Badge>
+                <Badge variant={m.role === 'owner' ? 'default' : 'secondary'}>{['owner', 'admin', 'member'].includes(m.role) ? t(`admin.workspacesPage.roles.${m.role}` as TranslationKey) : m.role}</Badge>
               </button>
             ))}
           </div>
@@ -351,14 +373,14 @@ function WorkspaceDetailView({
             <CardContent className="p-4 space-y-3">
               <h3 className="text-sm font-semibold flex items-center gap-2">
                 <Palette className="h-4 w-4 text-muted-foreground" />
-                {t('admin.workspacesPage.branding.title' as any)}
+                {t('admin.workspacesPage.branding.title')}
               </h3>
               <div className="space-y-2 text-sm">
-                <InfoRow label={t('admin.workspacesPage.branding.platformName' as any)} value={detail.branding.platform_name} />
-                <InfoRow label={t('admin.workspacesPage.branding.primaryColor' as any)} value={detail.branding.primary_color} color />
-                <InfoRow label={t('admin.workspacesPage.branding.accentColor' as any)} value={detail.branding.accent_color} color />
-                <InfoRow label={t('admin.workspacesPage.branding.supportEmail' as any)} value={detail.branding.support_email} />
-                <InfoRow label={t('admin.workspacesPage.branding.legalName' as any)} value={detail.branding.legal_name} />
+                <InfoRow label={t('admin.workspacesPage.branding.platformName')} value={detail.branding.platform_name} />
+                <InfoRow label={t('admin.workspacesPage.branding.primaryColor')} value={detail.branding.primary_color} color />
+                <InfoRow label={t('admin.workspacesPage.branding.accentColor')} value={detail.branding.accent_color} color />
+                <InfoRow label={t('admin.workspacesPage.branding.supportEmail')} value={detail.branding.support_email} />
+                <InfoRow label={t('admin.workspacesPage.branding.legalName')} value={detail.branding.legal_name} />
               </div>
             </CardContent>
           </Card>
@@ -369,15 +391,15 @@ function WorkspaceDetailView({
             <CardContent className="p-4 space-y-3">
               <h3 className="text-sm font-semibold flex items-center gap-2">
                 <Bot className="h-4 w-4 text-muted-foreground" />
-                {t('admin.workspacesPage.widget.title' as any)}
+                {t('admin.workspacesPage.widget.title')}
               </h3>
               <div className="space-y-2 text-sm">
-                <InfoRow label={t('admin.workspacesPage.widget.enabled' as any)} value={detail.widget_settings.enabled ? t('admin.common.yes') : t('admin.common.no')} />
-                <InfoRow label={t('admin.workspacesPage.widget.chat' as any)} value={detail.widget_settings.chat_enabled ? t('admin.common.yes') : t('admin.common.no')} />
-                <InfoRow label={t('admin.workspacesPage.widget.knowledgeBase' as any)} value={detail.widget_settings.kb_enabled ? t('admin.common.yes') : t('admin.common.no')} />
-                <InfoRow label={t('admin.workspacesPage.widget.position' as any)} value={detail.widget_settings.position} />
-                <InfoRow label={t('admin.workspacesPage.widget.tracking' as any)} value={detail.widget_settings.visitor_tracking_enabled ? t('admin.common.yes') : t('admin.common.no')} />
-                <InfoRow label={t('admin.workspacesPage.widget.color' as any)} value={detail.widget_settings.primary_color} color />
+                <InfoRow label={t('admin.workspacesPage.widget.enabled')} value={detail.widget_settings.enabled ? t('admin.common.yes') : t('admin.common.no')} />
+                <InfoRow label={t('admin.workspacesPage.widget.chat')} value={detail.widget_settings.chat_enabled ? t('admin.common.yes') : t('admin.common.no')} />
+                <InfoRow label={t('admin.workspacesPage.widget.knowledgeBase')} value={detail.widget_settings.kb_enabled ? t('admin.common.yes') : t('admin.common.no')} />
+                <InfoRow label={t('admin.workspacesPage.widget.position')} value={detail.widget_settings.position} />
+                <InfoRow label={t('admin.workspacesPage.widget.tracking')} value={detail.widget_settings.visitor_tracking_enabled ? t('admin.common.yes') : t('admin.common.no')} />
+                <InfoRow label={t('admin.workspacesPage.widget.color')} value={detail.widget_settings.primary_color} color />
               </div>
             </CardContent>
           </Card>
@@ -389,13 +411,13 @@ function WorkspaceDetailView({
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Shield className="h-4 w-4 text-muted-foreground" />
-            {t('admin.workspacesPage.technical.title' as any)}
+            {t('admin.workspacesPage.technical.title')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-            <InfoRow label={t('admin.workspacesPage.technical.workspaceId' as any)} value={ws?.id} />
-            <InfoRow label={t('admin.workspacesPage.technical.ownerId' as any)} value={ws?.owner_id} />
-            <InfoRow label={t('admin.workspacesPage.technical.accountId' as any)} value={ws?.account_id} />
-            <InfoRow label={t('admin.workspacesPage.columns.created' as any)} value={ws?.created_at ? formatDate(ws.created_at, locale, true) : '—'} />
+            <InfoRow label={t('admin.workspacesPage.technical.workspaceId')} value={ws?.id} />
+            <InfoRow label={t('admin.workspacesPage.technical.ownerId')} value={ws?.owner_id} />
+            <InfoRow label={t('admin.workspacesPage.technical.accountId')} value={ws?.account_id} />
+            <InfoRow label={t('admin.workspacesPage.columns.created')} value={ws?.created_at ? formatDate(ws.created_at, locale, true) : '—'} />
           </div>
         </CardContent>
       </Card>
@@ -407,7 +429,7 @@ function WorkspaceDetailView({
 function DeleteDialog({
   deleteWs, deleteId, deleteConfirm, setDeleteConfirm, onClose, onDelete, isPending,
 }: {
-  deleteWs: any;
+  deleteWs: AdminWorkspaceRow | undefined;
   deleteId: string | null;
   deleteConfirm: string;
   setDeleteConfirm: (v: string) => void;
@@ -422,16 +444,16 @@ function DeleteDialog({
         <DialogHeader>
           <DialogTitle className="text-destructive flex items-center gap-2">
             <Trash2 className="h-5 w-5" />
-            {t('admin.workspacesPage.deleteDialog.title' as any)}
+            {t('admin.workspacesPage.deleteDialog.title')}
           </DialogTitle>
           <DialogDescription>
-            {t('admin.workspacesPage.deleteDialog.description' as any, { name: deleteWs?.name ?? '' })}
+            {t('admin.workspacesPage.deleteDialog.description', { name: deleteWs?.name ?? '' })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 pt-2">
           <p className="text-sm text-muted-foreground">
-            {t('admin.workspacesPage.deleteDialog.typeBefore' as any)} <code className="bg-muted px-1.5 py-0.5 rounded font-semibold text-destructive">{deleteWs?.slug}</code> {t('admin.workspacesPage.deleteDialog.typeAfter' as any)}
+            {t('admin.workspacesPage.deleteDialog.typeBefore')} <code className="bg-muted px-1.5 py-0.5 rounded font-semibold text-destructive">{deleteWs?.slug}</code> {t('admin.workspacesPage.deleteDialog.typeAfter')}
           </p>
           <input
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -443,14 +465,14 @@ function DeleteDialog({
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={onClose}>{t('admin.workspacesPage.deleteDialog.cancel' as any)}</Button>
+          <Button variant="outline" onClick={onClose}>{t('admin.workspacesPage.deleteDialog.cancel')}</Button>
           <Button
             variant="destructive"
             disabled={deleteConfirm !== deleteWs?.slug || isPending}
             onClick={onDelete}
           >
             {isPending && <Loader2 className="h-4 w-4 animate-spin me-2" />}
-            {t('admin.workspacesPage.deleteDialog.confirm' as any)}
+            {t('admin.workspacesPage.deleteDialog.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -459,7 +481,7 @@ function DeleteDialog({
 }
 
 /* ─── Small helpers ─── */
-function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
+function StatCard({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string | number }) {
   return (
     <div className="rounded-lg border bg-card p-3 text-center">
       <Icon className="h-4 w-4 text-muted-foreground mx-auto mb-1" />
@@ -484,7 +506,7 @@ function InfoRow({ label, value, color }: { label: string; value: string | null 
 }
 
 /* ─── Member Detail Dialog ─── */
-function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => void }) {
+function MemberDetailDialog({ member, onClose }: { member: WorkspaceMember | null; onClose: () => void }) {
   // Admin profile reads go through the backend admin API (service-role only).
   // The admin_* RPCs are no longer callable from the browser.
   const { data: detail } = useAdminUserDetail(member?.user_id ?? null);
@@ -494,7 +516,7 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast.success(t('admin.workspacesPage.member.copied' as any));
+    toast.success(t('admin.workspacesPage.member.copied'));
   };
 
   return (
@@ -503,7 +525,7 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
-            {t('admin.workspacesPage.member.title' as any)}
+            {t('admin.workspacesPage.member.title')}
           </DialogTitle>
         </DialogHeader>
 
@@ -524,7 +546,7 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
                 <p className="text-lg font-semibold truncate">{p.full_name || '—'}</p>
                 <p className="text-sm text-muted-foreground truncate">{p.email}</p>
                 <Badge variant={member?.role === 'owner' ? 'default' : 'secondary'} className="mt-1">
-                  {['owner', 'admin', 'member'].includes(member?.role) ? t(`admin.workspacesPage.roles.${member.role}` as any) : member?.role}
+                  {member && ['owner', 'admin', 'member'].includes(member.role) ? t(`admin.workspacesPage.roles.${member.role}` as TranslationKey) : member?.role}
                 </Badge>
               </div>
             </div>
@@ -535,24 +557,24 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
             <div className="space-y-2 text-sm">
               <DetailRow
                 icon={Mail}
-                label={t('admin.workspacesPage.member.email' as any)}
+                label={t('admin.workspacesPage.member.email')}
                 value={p.email}
                 onCopy={() => copyToClipboard(p.email)}
               />
-              <DetailRow icon={Building2} label={t('admin.workspacesPage.member.company' as any)} value={p.company_name} />
-              <DetailRow icon={Globe} label={t('admin.workspacesPage.member.website' as any)} value={p.website_domain} />
-              <DetailRow icon={Globe} label={t('admin.workspacesPage.member.preferredLocale' as any)} value={p.preferred_locale} />
-              <DetailRow icon={Globe} label={t('admin.workspacesPage.member.signupLocale' as any)} value={p.signup_locale} />
-              <DetailRow icon={Bot} label={t('admin.workspacesPage.member.aiMode' as any)} value={p.ai_mode} />
-              <DetailRow icon={MapPin} label={t('admin.workspacesPage.member.signupIp' as any)} value={p.signup_ip} />
+              <DetailRow icon={Building2} label={t('admin.workspacesPage.member.company')} value={p.company_name} />
+              <DetailRow icon={Globe} label={t('admin.workspacesPage.member.website')} value={p.website_domain} />
+              <DetailRow icon={Globe} label={t('admin.workspacesPage.member.preferredLocale')} value={p.preferred_locale} />
+              <DetailRow icon={Globe} label={t('admin.workspacesPage.member.signupLocale')} value={p.signup_locale} />
+              <DetailRow icon={Bot} label={t('admin.workspacesPage.member.aiMode')} value={p.ai_mode} />
+              <DetailRow icon={MapPin} label={t('admin.workspacesPage.member.signupIp')} value={p.signup_ip} />
               <DetailRow
                 icon={Calendar}
-                label={t('admin.workspacesPage.member.joined' as any)}
+                label={t('admin.workspacesPage.member.joined')}
                 value={p.created_at ? formatDate(p.created_at, locale, true) : null}
               />
               <DetailRow
                 icon={Calendar}
-                label={t('admin.workspacesPage.member.memberSince' as any)}
+                label={t('admin.workspacesPage.member.memberSince')}
                 value={member?.created_at ? formatDate(member.created_at, locale, true) : null}
               />
             </div>
@@ -561,7 +583,7 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
 
             {/* User ID */}
             <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-              <span className="text-xs text-muted-foreground">{t('admin.workspacesPage.member.userId' as any)}</span>
+              <span className="text-xs text-muted-foreground">{t('admin.workspacesPage.member.userId')}</span>
               <button
                 onClick={() => copyToClipboard(p.id)}
                 className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
@@ -577,7 +599,7 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
   );
 }
 
-function DetailRow({ icon: Icon, label, value, onCopy }: { icon: any; label: string; value: string | null | undefined; onCopy?: () => void }) {
+function DetailRow({ icon: Icon, label, value, onCopy }: { icon: LucideIcon; label: string; value: string | null | undefined; onCopy?: () => void }) {
   return (
     <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
       <span className="flex items-center gap-2 text-muted-foreground">

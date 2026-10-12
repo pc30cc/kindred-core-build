@@ -161,6 +161,7 @@ const AdminAiAgentControlPage = lazyPage(() => import("@/pages/admin/AiAgentCont
 const AdminCallCenterPage = lazyPage(() => import("@/pages/admin/CallCenterPage"));
 const AdminSeoIntegrationsPage = lazyPage(() => import("@/pages/admin/SeoIntegrationsPage"));
 const AdminFinancePage = lazyPage(() => import("@/pages/admin/FinancePage"));
+const AdminAccountDetailPage = lazyPage(() => import("@/pages/admin/finance/AccountDetailPage"));
 const AdminMobileAppPage = lazyPage(() => import("@/pages/admin/MobileAppPage"));
 const AdminDesktopAppPage = lazyPage(() => import("@/pages/admin/DesktopAppPage"));
 const AdminMacosAppPage = lazyPage(() => import("@/pages/admin/MacosAppPage"));
@@ -544,8 +545,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/branding" element={<AdminBrandingPage />} />
                 <Route path="/admin/domains" element={<AdminDomainsPage />} />
                 <Route path="/admin/finance" element={<AdminFinancePage />} />
+                <Route path="/admin/finance/accounts/:workspaceId" element={<AdminAccountDetailPage />} />
                 <Route path="/admin/audit-logs" element={<Navigate to="/admin/finance?tab=audit" replace />} />
-                <Route path="/admin/billing" element={<Navigate to="/admin/finance?tab=billing" replace />} />
+                <Route path="/admin/billing" element={<Navigate to={LEGACY_BILLING_ENABLED ? "/admin/finance?tab=billing" : "/admin/finance?tab=accounts"} replace />} />
                 <Route path="/admin/plans" element={<AdminPlansPage />} />
                 <Route path="/admin/plugins" element={<AdminPluginsPage />} />
                 <Route path="/admin/plugins/:pluginId" element={<AdminPluginDetailPage />} />

@@ -23,7 +23,7 @@ import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
 import { AdminAuthStatusCard } from '@/features/providers/AdminAuthStatusCard';
 import { PrivacyExportStorageCard } from '@/features/providers/PrivacyExportStorageCard';
 import { VisitorIntelligenceSection } from '@/features/providers/VisitorIntelligenceSection';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useI18n } from '@/i18n';
 
 type PanelKey = ProviderTypeKey | 'overview' | 'calls' | 'fallback';
@@ -63,7 +63,16 @@ export default function AdminProvidersPage() {
   // Vendor counts and search follow the edition (no Iranian vendor in International).
   const { edition } = useEdition();
   const [searchQuery, setSearchQuery] = useState('');
-  const [panel, setPanel] = useState<PanelKey>('overview');
+  // Deep link: ?type=<provider type>&provider=<vendor> opens that type with
+  // the vendor selected (Finance → Gateways links here). Unknown values are ignored.
+  const [searchParams] = useSearchParams();
+  const linkedType = searchParams.get('type');
+  const linkedVendor = searchParams.get('provider');
+  const [panel, setPanel] = useState<PanelKey>(() => (
+    linkedType && (PROVIDER_TYPE_KEYS as readonly string[]).includes(linkedType)
+      ? linkedType as ProviderTypeKey
+      : 'overview'
+  ));
   const [healthOverview, setHealthOverview] = useState<Record<string, Record<string, ProviderHealth>>>({});
   const [checkingAll, setCheckingAll] = useState(false);
   const fallbackLog = getFallbackLog();
@@ -395,6 +404,7 @@ export default function AdminProvidersPage() {
               <AdminProviderWorkspace
                 key={activeType}
                 type={activeType}
+                initialVendor={activeType === linkedType ? linkedVendor : null}
                 extra={<ProviderExtras type={activeType} />}
               />
             );

@@ -158,9 +158,11 @@ interface Props {
   type: ProviderTypeKey;
   /** Type-specific panels appended to the Overview section (e.g. storage privacy). */
   extra?: React.ReactNode;
+  /** Vendor selected first (a deep link names it); an unknown one is ignored. */
+  initialVendor?: string | null;
 }
 
-export function AdminProviderWorkspace({ type, extra }: Props) {
+export function AdminProviderWorkspace({ type, extra, initialVendor }: Props) {
   const { t, dir } = useI18n();
   const rtl = dir === 'rtl';
   const qc = useQueryClient();
@@ -171,7 +173,11 @@ export function AdminProviderWorkspace({ type, extra }: Props) {
   const summary = useProviderSummary();
 
   const [section, setSection] = useState<Section>('vendors');
-  const [selectedVendor, setSelectedVendor] = useState<string>(schema?.vendors[0]?.name ?? '');
+  const [selectedVendor, setSelectedVendor] = useState<string>(() => (
+    initialVendor && schema?.vendors.some((v) => v.name === initialVendor)
+      ? initialVendor
+      : schema?.vendors[0]?.name ?? ''
+  ));
   const [healthMap, setHealthMap] = useState<HealthMap>({});
   const [checking, setChecking] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);

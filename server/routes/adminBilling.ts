@@ -29,6 +29,7 @@ import {
   getPlatformEdition,
 } from '../services/billing/edition.js';
 import { isCurrencyAllowedInEdition, isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
+import { LEGACY_BILLING_ENABLED } from '../../shared/billingMode.js';
 import { getProvider } from '../services/billing/index.js';
 
 export const adminBillingRouter = Router();
@@ -469,6 +470,10 @@ adminBillingRouter.get('/audit', async (req, res) => {
 
 adminBillingRouter.post('/reset', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
+  // Retired with billing v2 (phase 6): it would not wipe the simple billing's
+  // money ledgers, and wiping real ledgers is never wanted. Phase 7 drops the
+  // database function.
+  if (!LEGACY_BILLING_ENABLED) return res.status(410).json({ error: 'BILLING_V2_RETIRED' });
   try {
     const parsed = z.object({ confirm: z.literal('RESET-BILLING') }).parse(req.body ?? {});
     const { data, error } = await getServiceClient(cfg(req))

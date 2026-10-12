@@ -12,8 +12,9 @@ import { getProvider, resolveNamedBillingConfig } from '../index.js';
 import { listPayableGateways, type Gateway } from '../config/index.js';
 import { normalizeCurrencyCode } from '../providers/minorAmount.js';
 import { paddleSandboxOpenToCustomers } from '../providers/paddle-sandbox.js';
-import { IRANIAN_PAYMENT_PROVIDERS } from '../../../../shared/edition.js';
+import { IRANIAN_PAYMENT_PROVIDERS, isCurrencyAllowedInEdition, isProviderAllowedInEdition, type Edition } from '../../../../shared/edition.js';
 import { PADDLE_SANDBOX_PROVIDER } from '../../../../shared/testGateways.js';
+import type { GatewayListing, GatewayListingReason } from '../../../../shared/simpleBillingAdmin.js';
 import type { BillingProviderConfig, BillingProviderHandler } from '../types.js';
 
 const IRANIAN = new Set<string>(IRANIAN_PAYMENT_PROVIDERS);
@@ -46,6 +47,54 @@ async function resolve(cfg: ServerConfig, workspaceId: string, providerName: str
   return resolveNamedBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId, providerName).catch(() => null);
 }
 
+/** Whether listing this gateway depends on its resolved settings (the sandbox switch, or the currencies they charge). */
+export function gatewayNeedsConfig(providerName: string): boolean {
+  return providerName === PADDLE_SANDBOX_PROVIDER || Boolean(getProvider(providerName)?.chargeableCurrencies);
+}
+
+/**
+ * The one rule for "is this gateway listed for an account in `currency`",
+ * with every reason it is not (shared/simpleBillingAdmin.ts). `config` is
+ * the gateway's resolved settings: null when they could not be read,
+ * undefined when not read yet (the checks that need them are skipped). `edition`
+ * null: the caller already kept only gateways of the edition and currency
+ * (listPayableGateways).
+ */
+export function gatewayListing(
+  gateway: Pick<Gateway, 'provider_name' | 'is_active' | 'currencies'> & { implemented?: boolean },
+  currency: string,
+  config: BillingProviderConfig | null | undefined,
+  edition: Edition | null,
+  viewer: GatewayViewer = { isPlatformAdmin: false },
+): GatewayListing {
+  const name = gateway.provider_name;
+  const code = normalizeCurrencyCode(currency) ?? '';
+  const reasons: GatewayListingReason[] = [];
+  const add = (reason: GatewayListingReason) => {
+    if (!reasons.includes(reason)) reasons.push(reason);
+  };
+  if (edition && (!isProviderAllowedInEdition(name, edition) || !isCurrencyAllowedInEdition(code, edition))) add('not_in_edition');
+  if (!gateway.is_active || gateway.implemented === false) add('inactive');
+  const configured = gateway.currencies ?? [];
+  if (configured.length > 0 && !configured.includes(code) && !configured.includes(currency)) add('currency');
+  const provider = getProvider(name);
+  if (!provider?.verifyPayment) {
+    add('cannot_confirm');
+  } else if (!canChargeAccount(name, code)) {
+    // An Iranian gateway outside IRR, or a card gateway that does not take this
+    // currency, is a currency problem; any other gateway cannot be confirmed here.
+    add(IRANIAN.has(name) || CARD_ACCOUNT_PROVIDERS.has(name) ? 'currency' : 'cannot_confirm');
+  } else if (gatewayNeedsConfig(name) && config !== undefined) {
+    if (config === null) {
+      add('cannot_confirm');
+    } else {
+      if (name === PADDLE_SANDBOX_PROVIDER && !viewer.isPlatformAdmin && !paddleSandboxOpenToCustomers(config)) add('test');
+      if (!canChargeAccount(name, code, config)) add('currency');
+    }
+  }
+  return { listed: reasons.length === 0, reasons };
+}
+
 /** The gateways this viewer may pay an account in `currency` with, in Super Admin's order. */
 export async function accountGateways(
   cfg: ServerConfig,
@@ -56,15 +105,11 @@ export async function accountGateways(
   const gateways = await listPayableGateways(cfg, currency);
   const usable = await Promise.all(
     gateways.map(async (g) => {
-      if (!canChargeAccount(g.provider_name, currency)) return false;
-      const needsConfig = g.provider_name === PADDLE_SANDBOX_PROVIDER || Boolean(getProvider(g.provider_name)?.chargeableCurrencies);
-      if (!needsConfig) return true;
+      // Settings are read only when they decide, and only for a gateway that passed everything else.
+      const first = gatewayListing(g, currency, undefined, null, viewer);
+      if (!first.listed || !gatewayNeedsConfig(g.provider_name)) return first.listed;
       const resolved = await resolve(cfg, workspaceId, g.provider_name);
-      if (!resolved) return false;
-      if (g.provider_name === PADDLE_SANDBOX_PROVIDER && !viewer.isPlatformAdmin && !paddleSandboxOpenToCustomers(resolved.config)) {
-        return false;
-      }
-      return canChargeAccount(g.provider_name, currency, resolved.config);
+      return gatewayListing(g, currency, resolved?.config ?? null, null, viewer).listed;
     }),
   );
   return gateways.filter((_g, i) => usable[i]);

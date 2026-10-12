@@ -294,6 +294,11 @@ const tr: TranslationKeys = {
         print: 'Yazdır',
         back: 'Faturalandırmaya dön',
         notFound: 'Bu makbuz bulunamadı.',
+        paid: 'Ödendi',
+        period: 'Dönem',
+        reference: 'Ödeme referansı',
+        thanks: 'Ödemeniz için teşekkür ederiz.',
+        electronic: 'Bu makbuz elektronik olarak düzenlenmiştir.',
       },
       ai: {
         title: 'Yapay zeka kredisi',

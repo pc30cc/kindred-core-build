@@ -568,8 +568,18 @@ describe('ReceiptDocument', () => {
     expect(screen.getByText('RS2026-000042')).toBeInTheDocument();
     expect(screen.getByText('Platform Inc.')).toBeInTheDocument();
     expect(screen.getByText('Acme Ltd')).toBeInTheDocument();
-    expect(screen.getByText('$11.00')).toBeInTheDocument();
+    // The total heads the sheet and closes the totals.
+    expect(screen.getAllByText('$11.00')).toHaveLength(2);
     expect(screen.getByText('$1.00')).toBeInTheDocument();
+    expect(screen.getByText('Paid')).toBeInTheDocument();
+    expect(screen.getByText('pay-1')).toBeInTheDocument();
+  });
+
+  it('heads the sheet with the edition\'s logo, always on a light sheet', () => {
+    const src = readFileSync(join(process.cwd(), 'src', 'pages', 'app', 'billing', 'account', 'ReceiptDocument.tsx'), 'utf8');
+    expect(src).toContain('INTL_BRAND.horizontal.light');
+    expect(src).toContain('WEBYAR_BRAND.logo.light');
+    expect(src).toContain('bg-white text-slate-900');
   });
 
   it('is what the customer receipt page renders', () => {

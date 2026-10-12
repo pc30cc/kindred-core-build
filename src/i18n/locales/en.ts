@@ -292,6 +292,11 @@ const en = {
         print: 'Print',
         back: 'Back to billing',
         notFound: 'This receipt was not found.',
+        paid: 'Paid',
+        period: 'Period',
+        reference: 'Payment reference',
+        thanks: 'Thank you for your payment.',
+        electronic: 'This receipt was issued electronically.',
       },
       ai: {
         title: 'AI credit',

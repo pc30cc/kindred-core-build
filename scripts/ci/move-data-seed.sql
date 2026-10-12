@@ -1,12 +1,12 @@
 -- Source data for scripts/ci/move-data-test.sh, on a database built by
 -- scripts/migrate-database.sh. Shaped like production: users with first-party
--- credentials, workspaces created the normal way (their triggers seed billing
--- rows), chat, visitors, an identity sequence ahead of its rows, embeddings
--- (when the server has pgvector), Persian text, tabs, newlines and
+-- credentials, workspaces created the normal way (with the rows their
+-- triggers seed), chat, visitors, an identity sequence ahead of its rows,
+-- embeddings (when the server has pgvector), Persian text, tabs, newlines and
 -- backslashes, and production's known oddities: an account whose owner has no
 -- profile, audit rows with no workspace. Then rows that reference each other
--- in a cycle (subscription <-> period <-> invoice) and a self-referencing pair
--- whose first row on disk points at a later one.
+-- in a cycle (a saved card <-> the payment that set it up) and a
+-- self-referencing pair whose first row on disk points at a later one.
 \set ON_ERROR_STOP on
 BEGIN;
 INSERT INTO profiles (id, email, full_name, preferred_locale, created_at) VALUES
@@ -71,12 +71,12 @@ COMMIT;
 BEGIN;
 INSERT INTO workspace_subscriptions (id, workspace_id, plan_id, status, billing_interval)
 VALUES ('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-0000000000c1', (SELECT id FROM billing_plans WHERE name = 'Pro'), 'active', 'monthly');
-INSERT INTO billing_invoices (id, workspace_id, subscription_id, invoice_number, invoice_type, status, subtotal_irr, total_irr, amount_paid_irr, amount_due_irr)
-VALUES ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000000201', 'INV-0001', 'new_subscription', 'paid', 1000, 1000, 1000, 0);
-INSERT INTO billing_subscription_periods (id, workspace_id, subscription_id, invoice_id, period_start, period_end, status, source, ai_allowance_irr)
-VALUES ('00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000202', '2025-01-01', '2025-02-01', 'active', 'invoice', 0);
-UPDATE workspace_subscriptions SET current_period_id = '00000000-0000-0000-0000-000000000203', v2_allowance_effective_period_id = '00000000-0000-0000-0000-000000000203'
- WHERE id = '00000000-0000-0000-0000-000000000201';
+INSERT INTO billing_account_payments (id, workspace_id, provider, currency, amount_minor, net_minor, purpose, status, source)
+VALUES ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-0000000000c1', 'paddle', 'USD', 2900, 2900, 'plan', 'succeeded', 'card_setup');
+INSERT INTO billing_account_cards (id, workspace_id, provider, subscription_id, currency, setup_payment_id)
+VALUES ('00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-0000000000c1', 'paddle', 'sub_move_data_test', 'USD', '00000000-0000-0000-0000-000000000202');
+UPDATE billing_account_payments SET card_id = '00000000-0000-0000-0000-000000000203'
+ WHERE id = '00000000-0000-0000-0000-000000000202';
 INSERT INTO team_messages (id, workspace_id, sender_id, recipient_id, body) VALUES
   ('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000a2', 'first'),
   ('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-0000000000a1', 'reply');

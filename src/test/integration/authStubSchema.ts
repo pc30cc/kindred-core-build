@@ -56,7 +56,7 @@ export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
  * `084_selfhost_parity_table_policies.sql`, so the whole chain replays
  * against an empty database with ON_ERROR_STOP=1.
  *
- * Two files are excluded, and only because of how this helper re-applies
+ * Three files are excluded, and only because of how this helper re-applies
  * the chain:
  *
  * - 223 drops `operator_activity_samples`, which 016 creates (the base range,
@@ -67,16 +67,23 @@ export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
  *   constraints that older files name — the commerce `deleted_at` columns
  *   148 indexes, the billing period source check 113 and 122 set. After one call had
  *   run 251, the next call's re-application of those files failed.
+ * - 268 moves billing v2's tables, which 113 and its neighbours create, into
+ *   the schema billing_v2_archive and drops nine workspace_subscriptions
+ *   columns they add. The next call's re-application of those files creates
+ *   the tables in public again, empty, beside the archived ones, and 268
+ *   then refuses to choose between the two (billing_v2_archive_conflict).
  *
  * Shipped migrations are never edited, and a real runner applies each file
  * exactly once (the _schema_migrations ledger), so both are proven where that
  * holds: the plain-PostgreSQL CI jobs replay the whole chain with
- * scripts/migrate-database.sh, and productionParity251.pg.test.ts builds its
- * own database with the whole chain and exercises what 251 brings.
+ * scripts/migrate-database.sh, productionParity251.pg.test.ts builds its
+ * own database with the whole chain and exercises what 251 brings, and
+ * billingV2Archive.pg.test.ts does the same for 268.
  */
 export const AUTH_CHAIN_EXCLUDED_FILES = new Set<string>([
   '223_drop_operator_activity_samples.sql',
   '251_production_parity.sql',
+  '268_billing_v2_archive.sql',
 ]);
 
 

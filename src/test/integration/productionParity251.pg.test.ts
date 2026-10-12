@@ -22,6 +22,11 @@
  * again after 251 has dropped what it names — so 251 is left out there, as
  * 223 is. Driven by TEST_DATABASE_URL (a role that may CREATE DATABASE);
  * skipped without it.
+ *
+ * The chain stops before 268_billing_v2_archive.sql: 251 (run again here)
+ * and its billing policy name billing v2's tables, which 268 moves out of
+ * public into billing_v2_archive. A real runner never applies 251 after 268
+ * (each file runs once); billingV2Archive.pg.test.ts covers 268.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -36,7 +41,7 @@ const DIR = resolve(process.cwd(), 'database/migrations');
 const OWNER = '00000000-0000-0000-0000-00000000a251';
 const WS = '00000000-0000-0000-0000-00000000b251';
 
-suite('251 — production parity, exercised on a database built by the whole chain', () => {
+suite('251 — production parity, exercised on a database built by the chain up to 267', () => {
   let admin: pg.Client;
   let db: pg.Client;
 
@@ -62,8 +67,8 @@ suite('251 — production parity, exercised on a database built by the whole cha
     db = new pg.Client({ connectionString: url.toString() });
     await db.connect();
     await db.query("SET client_min_messages = warning");
-    // Byte order, as LC_ALL=C sort orders them for migrate-database.sh.
-    for (const file of readdirSync(DIR).filter((f) => f.endsWith('.sql')).sort()) {
+    // Byte order, as LC_ALL=C sort orders them for migrate-database.sh, up to 267.
+    for (const file of readdirSync(DIR).filter((f) => f.endsWith('.sql') && f < '268_billing_v2_archive.sql').sort()) {
       await applyMigrationSql(db, readFileSync(resolve(DIR, file), 'utf8'));
     }
     await db.query(`

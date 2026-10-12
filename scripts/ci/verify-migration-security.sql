@@ -224,9 +224,13 @@ BEGIN
 END
 $definer_allow_list$;
 
--- 2c. Live denial for the caller-trusting admin purge and the wallet engine:
+-- 2c. Live denial for the caller-trusting admin purge and the money RPCs:
 --     an actual call as anon and as authenticated must be refused at the ACL
---     layer, inside a transaction that is rolled back.
+--     layer, inside a transaction that is rolled back. The money RPCs are
+--     the ones the chain has: simple billing's admin adjustment and payment
+--     settlement on the self-host chain (billing v2's wallet and invoice
+--     settlement were removed by 268_billing_v2_archive.sql), billing v2's
+--     on the hosted chain, which never had simple billing.
 BEGIN;
 
 DO $definer_live$
@@ -234,12 +238,29 @@ DECLARE
   stmt      text;
   role_name text;
   denied    integer := 0;
+  probes    text[];
 BEGIN
-  FOREACH stmt IN ARRAY ARRAY[
-    'SELECT public.admin_delete_user(NULL::uuid, NULL::uuid)',
-    'SELECT public.billing_wallet_admin_adjust(NULL::uuid, NULL::bigint, NULL::text, NULL::text, NULL::uuid)',
-    'SELECT public.billing_settle_invoice(NULL::uuid, NULL::bigint, NULL::text, NULL::text, NULL::uuid, NULL::uuid)'
-  ] LOOP
+  SELECT array_agg(p.stmt ORDER BY p.ord) INTO probes
+    FROM (VALUES
+      (1, 'public.admin_delete_user(uuid,uuid)',
+          'SELECT public.admin_delete_user(NULL::uuid, NULL::uuid)'),
+      (2, 'public.billing_account_admin_adjust(uuid,bigint,text,text,uuid,text,text,bigint)',
+          'SELECT public.billing_account_admin_adjust(NULL::uuid, NULL::bigint, NULL::text, NULL::text, NULL::uuid, NULL::text, NULL::text, NULL::bigint)'),
+      (3, 'public.billing_account_settle_payment(uuid)',
+          'SELECT public.billing_account_settle_payment(NULL::uuid)'),
+      (4, 'public.billing_wallet_admin_adjust(uuid,bigint,text,text,uuid)',
+          'SELECT public.billing_wallet_admin_adjust(NULL::uuid, NULL::bigint, NULL::text, NULL::text, NULL::uuid)'),
+      (5, 'public.billing_settle_invoice(uuid,bigint,text,text,uuid,uuid)',
+          'SELECT public.billing_settle_invoice(NULL::uuid, NULL::bigint, NULL::text, NULL::text, NULL::uuid, NULL::uuid)')
+    ) AS p(ord, sig, stmt)
+   WHERE to_regprocedure(p.sig) IS NOT NULL;
+  -- admin_delete_user and at least two money RPCs, whichever chain this is.
+  IF probes IS NULL OR cardinality(probes) < 3
+     OR to_regprocedure('public.admin_delete_user(uuid,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'definer live denial: expected admin_delete_user and two money RPCs, found %', probes;
+  END IF;
+
+  FOREACH stmt IN ARRAY probes LOOP
     FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated'] LOOP
       BEGIN
         EXECUTE format('SET LOCAL ROLE %I', role_name);
@@ -260,10 +281,10 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  IF denied <> 6 THEN
-    RAISE EXCEPTION 'definer live denial proof incomplete: % of 6', denied;
+  IF denied <> 2 * cardinality(probes) THEN
+    RAISE EXCEPTION 'definer live denial proof incomplete: % of %', denied, 2 * cardinality(probes);
   END IF;
-  RAISE NOTICE 'anon/authenticated denied live on admin_delete_user and the wallet/settlement RPCs';
+  RAISE NOTICE 'anon/authenticated denied live on admin_delete_user and % money RPC(s)', cardinality(probes) - 1;
 END
 $definer_live$;
 

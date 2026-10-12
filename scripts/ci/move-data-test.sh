@@ -34,6 +34,9 @@
 #                    refused by check and run before anything is written;
 #                    once empty it gets as far as the schema match, which says
 #                    the migrations stayed applied and no data was copied.
+#   billing v2       a record in the source's billing_v2_archive (which the
+#   archive          move does not copy): check and run refuse until
+#                    BILLING_V2_ARCHIVE=separately, and name what to copy.
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -128,7 +131,7 @@ move run "$SRC" "$DST" || die "move into an empty target failed"
 grep -q '^ok — ' "$WORK/out" || die "no final confirmation"
 same_rows mvt_src mvt_dst
 ok "success: empty target built by phase 3, every row identical (row text compared outside the script)"
-[ "$(sql mvt_dst -c "SELECT count(*) FROM workspace_subscriptions WHERE current_period_id IS NOT NULL")" = 1 ] || die "the subscription <-> period cycle did not arrive"
+[ "$(sql mvt_dst -c "SELECT count(*) FROM billing_account_payments p JOIN billing_account_cards c ON c.setup_payment_id = p.id AND p.card_id = c.id")" = 1 ] || die "the card <-> payment cycle did not arrive"
 [ "$(sql mvt_dst -c "SELECT count(*) FROM pg_constraint WHERE contype = 'f' AND condeferrable AND connamespace = 'public'::regnamespace")" = \
   "$(sql mvt_src -c "SELECT count(*) FROM pg_constraint WHERE contype = 'f' AND condeferrable AND connamespace = 'public'::regnamespace")" ] \
   || die "foreign keys deferred for the load were not put back"
@@ -277,6 +280,22 @@ sql mvt_fresh -c "DELETE FROM public.legacy_notes"
 expect_refusal "an empty foreign table" "does not match the source's.*No data was copied from the source\. The [0-9]+ migration\(s\) phase 3 applied stay applied" run "$SRC" "$FRESH"
 [ "$(sql mvt_fresh -c "SELECT count(*) FROM public._schema_migrations")" -gt 0 ] || die "the migrations the message reports were not recorded"
 ok "an empty one gets as far as the schema match, which says the migrations stayed applied and no data was copied"
+
+# ── billing v2's archive: never left behind unnoticed ───────────────────
+# The source holds a billing v2 record in billing_v2_archive (268), which the
+# move does not copy: check and run stop before writing, until the operator
+# says it is copied separately; the seeded configuration rows there do not
+# count.
+sql mvt_src -c "INSERT INTO billing_v2_archive.migration_log (source_table, source_id, workspace_id, action, details)
+                VALUES ('billing_payment_intents', gen_random_uuid(), '00000000-0000-0000-0000-0000000000c1', 'waived', '{\"reason\": \"test\"}')"
+state mvt_dst > "$WORK/saved"
+expect_refusal "archive records (check)" "billing_v2_archive holds billing v2's records: migration_log \(1 rows\).*BILLING_V2_ARCHIVE=separately.*--table=billing_v2_archive\.migration_log" check "$SRC" "$DST"
+expect_refusal "archive records (run)" 'migration_log \(1 rows\).*Nothing was written' run "$SRC" "$DST"
+unchanged_after mvt_dst "$WORK/saved"
+move check "$SRC" "$DST" BILLING_V2_ARCHIVE=separately || die "check with BILLING_V2_ARCHIVE=separately failed"
+grep -q 'NOT copied by this script' "$WORK/out" || die "check did not say the archive is not copied"
+sql mvt_src -c "DELETE FROM billing_v2_archive.migration_log"
+ok "billing v2 records in billing_v2_archive: check and run refuse until BILLING_V2_ARCHIVE=separately, and say what to copy"
 
 for db in mvt_src mvt_dst mvt_supa mvt_fresh; do admin -c "DROP DATABASE $db"; done
 admin -c "DROP ROLE mvt_supa" -c "DROP ROLE mvt_reader"

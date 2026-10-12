@@ -88,12 +88,12 @@ admin -c "CREATE DATABASE blt_mixed TEMPLATE blt_full"
 verify report blt_full || die "report on the full chain failed"
 grep -Eq '(^| )(pending|partial|drift): [0-9]' "$WORK/out" && die "a full chain reported pending, partial or drift"
 ok "the whole chain: every file applied or unverifiable"
-sql blt_mixed -c "DROP TRIGGER trg_billing_notify_payment_recorded ON public.billing_payments" \
+sql blt_mixed -c "DROP TRIGGER trg_billing_account_ledger_immutable ON public.billing_account_ledger" \
               -c "CREATE OR REPLACE FUNCTION public.data_retention_touch() RETURNS trigger LANGUAGE plpgsql AS \$f\$ BEGIN NEW.updated_at := now(); RETURN NEW; END \$f\$"
 verify report blt_mixed || die "report failed"
-[ "$(verdict 156_billing_lifecycle_notifications.sql)" = partial ] || die "the dropped trigger did not make 156 partial"
+[ "$(verdict 259_simple_billing_accounts.sql)" = partial ] || die "the dropped trigger did not make 259 partial"
 [ "$(verdict 169_data_retention.sql)" = drift ] || die "the edited function did not make 169 drift"
-grep -q 'trigger billing_payments.trg_billing_notify_payment_recorded' "$WORK/out" || die "the missing trigger was not named"
+grep -q 'trigger billing_account_ledger.trg_billing_account_ledger_immutable' "$WORK/out" || die "the missing trigger was not named"
 if YES=1 verify mark blt_mixed; then die "mark succeeded on a partial / drift database"; fi
 grep -q 'partial or drift' "$WORK/out" || die "mark refused for another reason"
 [ "$(ledger blt_mixed)" = 0 ] || die "a refused mark wrote to the ledger"

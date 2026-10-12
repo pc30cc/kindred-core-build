@@ -233,6 +233,31 @@ orphaned="$(ro "$TARGET" "
    WHERE n > 0")"
 [ -z "$orphaned" ] || fail "These target tables hold rows and the source has no table of that name: $(short "$orphaned"). The move replaces only the source's tables, so those rows would stay where they are and the target's schema could not match the source's. Decide what happens to them — export them, empty the table — and run again. (On a target whose migrations stopped part-way they can be rows a migration seeded, e.g. 239's two widget_templates rows.) Nothing was written."
 echo "target: no rows in tables the source does not have"
+
+# billing_v2_archive (migrations 267 and 268) holds billing v2's records —
+# invoices, payments, wallets, periods — and the log of their move into simple
+# billing. This script copies the public schema only, so a source whose
+# archive holds records stops here, unless the operator copies them separately
+# once the move is done (the target's migrations create the archive's tables)
+# and says so with BILLING_V2_ARCHIVE=separately. The archive's configuration
+# tables are left out of the check: migrations seed the same rows on every
+# database (currencies, tax rates, usage items, the v2 policy, the retired
+# email templates).
+ARCHIVE_CONFIG="'email_templates','billing_currencies','billing_exchange_rates','billing_tax_rates','billing_coupons','billing_usage_items','billing_v2_policy','billing_v2_worker_health'"
+archived="$(ro "$SOURCE" "
+  SELECT coalesce(string_agg(relname || '|' || n, E'\n' ORDER BY relname), '')
+    FROM (SELECT c.relname,
+                 (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM billing_v2_archive.%I', c.relname), false, true, '')))[1]::text::bigint AS n
+            FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+           WHERE ns.nspname = 'billing_v2_archive' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+             AND c.relname NOT IN ($ARCHIVE_CONFIG)) x
+   WHERE n > 0")"
+if [ -n "$archived" ]; then
+  archived_list="$(awk -F'|' '{ printf "%s%s (%s rows)", (NR > 1 ? ", " : ""), $1, $2 }' <<< "$archived")"
+  archived_copy="pg_dump --data-only$(awk -F'|' '{ printf " --table=billing_v2_archive.%s", $1 }' <<< "$archived") SOURCE | psql -v ON_ERROR_STOP=1 TARGET"
+  [ "${BILLING_V2_ARCHIVE:-}" = separately ] || fail "The source's billing_v2_archive holds billing v2's records: $(short "$archived_list"). This script copies the public schema only. Run again with BILLING_V2_ARCHIVE=separately, then, once the move is done, copy them: $archived_copy. Nothing was written."
+  echo "source: billing_v2_archive holds records ($(short "$archived_list")); NOT copied by this script — once the move is done: $archived_copy"
+fi
 echo "source: $(wc -l < "$WORK/tables" | tr -d ' ') tables, $(ro "$SOURCE" "SELECT pg_size_pretty(sum(pg_total_relation_size(c.oid))) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','p')") in public"
 echo "source sessions other than this one (stop the application before 'run'):"
 ro "$SOURCE" "SELECT '  ' || coalesce(nullif(application_name, ''), '?') || ' as ' || usename || ': ' || count(*) || ' (' || count(*) FILTER (WHERE state = 'active') || ' active)'
@@ -339,7 +364,8 @@ TRIGGERS_SQL="
 ro "$TARGET" "SELECT off FROM ($TRIGGERS_SQL) x" > "$WORK/triggers_off"
 ro "$TARGET" "SELECT on_ FROM ($TRIGGERS_SQL) x" > "$WORK/triggers_on"
 # Foreign keys between tables that reference each other in a cycle
-# (workspace_subscriptions <-> billing_subscription_periods, …) cannot be
+# (billing_account_cards <-> billing_account_payments, seo_urls <->
+# seo_crawl_observations) cannot be
 # satisfied one table at a time. Only those are made DEFERRABLE INITIALLY
 # DEFERRED for the load, checked by SET CONSTRAINTS ALL IMMEDIATE before the
 # validation, and put back exactly as they were — all inside the transaction.

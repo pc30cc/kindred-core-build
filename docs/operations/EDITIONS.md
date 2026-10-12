@@ -31,7 +31,7 @@ never the Iranian brand, calendar, currency, gateways or time zone.
 
 | Area | Iran | International | Where |
 | --- | --- | --- | --- |
-| Money | Toman (stored IRR), Iranian gateways, wallet, AI-credit top-up | USD (TRY on a Turkish-only site), international gateways only | phases 1–3, `shared/edition.ts` |
+| Money | simple billing: a prepaid account in Toman (stored IRR), Iranian gateways, AI credit packs (billing v2's Rial wallet and AI top-up were retired in phase 7; their records are in `billing_v2_archive`) | simple billing in USD (TRY on a Turkish-only site), international gateways only; billing v2's cloned Rial records were never converted | phases 1–3, `shared/edition.ts`, `docs/billing/SIMPLE_BILLING.md` |
 | Calendar / time zone | Jalali, Asia/Tehran | Gregorian (Persian digits kept), the viewer's zone or UTC | `src/lib/date.ts`, server formatters |
 | Phone / SMS / Bale | +98, Iranian SMS vendors, Bale | no national default, no SMS verification, no Bale | phase 3 |
 | Brand kit (logos, favicon, PWA icons, launch loader) | WebYar's official kit (`public/brand/webyar`, `WEBYAR_BRAND`; see below) | RESPOK's (`public/brand/intl`, `INTL_BRAND`) | `shared/webyarBrand.ts`, `shared/internationalMode.ts`, `index.html`, `BrandLogo`, `BrandLoader`, `PlatformBrandingGate`, `server/routes/manifest.ts` |

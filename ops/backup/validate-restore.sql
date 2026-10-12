@@ -21,7 +21,7 @@ select case when count(*) = 8 then 'OK' else 'FAIL' end
 from pg_tables
 where schemaname = 'public'
   and tablename in ('profiles','workspaces','accounts','conversations',
-                    'conversation_messages','billing_invoices','seo_urls',
+                    'conversation_messages','billing_account_ledger','seo_urls',
                     'data_retention_policies');
 
 -- 4. Row counts for the tables that matter ----------------------------------
@@ -32,7 +32,7 @@ select 'OK rowcount ' || tablename || ' = ' ||
 from pg_tables
 where schemaname = 'public'
   and tablename in ('profiles','workspaces','conversations','conversation_messages',
-                    'billing_invoices','billing_payments','seo_urls',
+                    'billing_account_ledger','billing_account_payments','seo_urls',
                     'seo_crawl_observations','seo_link_edges',
                     'workspace_health_snapshots')
 order by tablename;
@@ -58,7 +58,7 @@ from pg_class c
 join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public' and c.relkind = 'r'
   and c.relname in ('conversations','conversation_messages','contacts',
-                    'knowledge_base_articles','billing_invoices','seo_urls')
+                    'knowledge_base_articles','billing_account_ledger','seo_urls')
   and not c.relrowsecurity;
 
 select 'OK policies restored: ' || count(*)::text from pg_policies where schemaname = 'public';
@@ -109,16 +109,34 @@ where u.id is null;
 
 -- 10. Billing integrity -----------------------------------------------------
 select case when count(*) = 0 then 'OK' else 'FAIL' end
-       || ' payments without an invoice: ' || count(*)::text
-from public.billing_payment_allocations a
-left join public.billing_invoices i on i.id = a.invoice_id
-where a.invoice_id is not null and i.id is null;
+       || ' ledger entries without their payment: ' || count(*)::text
+from public.billing_account_ledger l
+left join public.billing_account_payments p on p.id = l.payment_id
+where l.payment_id is not null and p.id is null;
 
 select case when count(*) = 0 then 'OK' else 'FAIL' end
-       || ' invoice lines without an invoice: ' || count(*)::text
-from public.billing_invoice_lines l
-left join public.billing_invoices i on i.id = l.invoice_id
-where i.id is null;
+       || ' ledger entries without an account: ' || count(*)::text
+from public.billing_account_ledger l
+left join public.billing_accounts a on a.workspace_id = l.workspace_id
+where a.workspace_id is null;
+
+-- Billing v2's records, archived by migration 268 (billing_v2_archive): the
+-- schema came back with them, and their row counts.
+select case when not exists (select 1 from pg_class c where c.relnamespace = 'public'::regnamespace
+                                and c.relname = '_schema_migrations')
+             or not exists (select 1 from public._schema_migrations
+                             where filename = '268_billing_v2_archive.sql')
+             or count(*) >= 29 then 'OK' else 'FAIL' end
+       || ' billing_v2_archive tables: ' || count(*)::text
+from pg_tables where schemaname = 'billing_v2_archive';
+
+select 'OK rowcount billing_v2_archive.' || tablename || ' = ' ||
+       (xpath('/row/c/text()',
+              query_to_xml(format('select count(*) as c from billing_v2_archive.%I', tablename),
+                           false, true, '')))[1]::text::bigint::text
+from pg_tables
+where schemaname = 'billing_v2_archive'
+order by tablename;
 
 -- 11. Membership / conversation integrity -----------------------------------
 select case when count(*) = 0 then 'OK' else 'FAIL' end

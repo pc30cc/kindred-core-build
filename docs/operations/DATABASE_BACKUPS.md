@@ -80,13 +80,47 @@ be reached (another FTP login, a vendor taken out of the pool) is left alone.
   `pg_read_all_data`, `default_transaction_read_only = on`, connection limit 3.
   Verified: reads every table (including one `service_role` cannot), refuses writes.
   Its password is in the root-only kit `/root/webyar-rollout/20261007-dbbackup/`.
-- App 29 (backend): `BACKUP_DATABASE_URL` (runtime only) points at that role and
+- App 29 (backend; app 25 since the move to `vps-50cc1602` on 2026-10-07): `BACKUP_DATABASE_URL` (runtime only) points at that role and
   database `webyar`; a bind volume `/data/webyar/db-backups` → `/app/data/backups`
   keeps local backups across deploys. Both apply from the first deploy after they
   were added.
 - Local backups live on the same disk as the database. For a copy that survives the
   server, choose a storage provider or FTP.
 - Coolify's own daily dump (02:13 UTC, 14 kept on the server) continues independently.
+
+## The schema `billing_v2_archive` (migrations 267 and 268)
+
+Billing v2's records are kept in their own schema, `billing_v2_archive`: 267
+created it with the log of the move into simple billing (`migration_log`),
+and 268 moved the 28 v2 tables there intact (invoices, payments, wallets,
+periods, …) with the retired email templates
+(`docs/billing/SIMPLE_BILLING.md`, "Phase 7B"). No application role can read
+it: `PUBLIC`, `anon`, `authenticated` and `service_role` have no access, and
+row level security is on with no policy.
+
+A full `pg_dump` must read it, so the backup login matters:
+
+- **`webyar_backup`** (production's `BACKUP_DATABASE_URL`) reads it. On
+  WebYar it is a member of `pg_read_all_data` with `BYPASSRLS`, which covers
+  every schema already, so 268 grants it nothing. On a database where the
+  role exists without `pg_read_all_data`, 268 grants it `USAGE` on the schema
+  and `SELECT` on its tables; it also needs `BYPASSRLS` (pg_dump refuses a
+  table whose rows RLS would filter). A table added to the archive later
+  needs the same grant again.
+- **`service_role`** (the fallback when `BACKUP_DATABASE_URL` is unset)
+  cannot read it, so the backup fails with a `permission denied` error that
+  names the archive or one of its tables. That has been true since 267 created
+  `migration_log`. Set `BACKUP_DATABASE_URL` to a login like `webyar_backup`.
+- **RESPOK** (`respok-postgres`): 268 grants only `webyar_backup`, and only
+  when that role exists. Check which login RESPOK's backend uses for backups
+  (its `BACKUP_DATABASE_URL`) and that it can read the archive
+  (`SELECT has_schema_privilege('<role>', 'billing_v2_archive', 'USAGE')`, or
+  membership of `pg_read_all_data`), then run Super Admin → Database → Backup
+  once after 268.
+
+Coolify's daily dump runs as `postgres` and includes the schema. A restore
+(below) brings the archive back with the rest; the roles it names must exist,
+as for every other schema.
 
 ## Restore
 
@@ -129,7 +163,7 @@ FTP server's own message, with credentials removed.
 
 - `pg_dump_unavailable`: the running image predates `postgresql17-client`; redeploy.
 - `pg_dump_failed: … password authentication failed`: `BACKUP_DATABASE_URL` is wrong.
-- `pg_dump_failed: … permission denied for table …`: the login cannot read everything;
+- `pg_dump_failed: … permission denied for table …` (or `for schema billing_v2_archive`): the login cannot read everything;
   use the `webyar_backup` role above, not `service_role`.
 - `ftp_tls_refused` / `ftp_tls_failed`: the FTP server has no FTPS, or its certificate
   is not trusted (turn off "verify certificate" only for a server you control).

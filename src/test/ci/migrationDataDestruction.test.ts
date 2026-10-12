@@ -20,11 +20,30 @@
  *
  * Both blocks are gone. This keeps them gone, and keeps the next one out.
  *
- * A reset is still possible on purpose: admin_reset_billing_data() is
- * service_role-only, takes a confirmation argument and is called by an
- * operator, not by a migration. That is the distinction this file draws —
- * DEFINING such a function is fine, RUNNING the destruction as a migration
- * step is not.
+ * A reset was possible on purpose: admin_reset_billing_data() was
+ * service_role-only, took a confirmation argument and was called by an
+ * operator, not by a migration (268 removed it from the self-host chain with
+ * the rest of billing v2; the hosted chain still defines it). That is the
+ * distinction this file draws — DEFINING such a function is fine, RUNNING the
+ * destruction as a migration step is not.
+ *
+ * Billing v2's records outlive billing v2. 267 moved what they still held
+ * into simple billing (accounts and ledger); 268 moved the v2 tables
+ * themselves, intact, into the schema billing_v2_archive (ALTER TABLE …
+ * SET SCHEMA: nothing copied, nothing deleted) — invoices and tax, payments,
+ * wallets, periods, and the log of the move. They are kept indefinitely: the
+ * archive is the in-database backup, next to the dumps taken off the server
+ * before 267 and 268 (docs/billing/SIMPLE_BILLING.md, phase 7). So:
+ *
+ *   - simple billing's tables (billing_accounts, billing_account_ledger,
+ *     billing_account_payments, billing_account_cards) are financial too;
+ *   - the rules match a financial table in billing_v2_archive as well as in
+ *     public;
+ *   - no migration, at the top level or inside a function body, drops the
+ *     archive or a table in it, empties one (TRUNCATE, DELETE) or moves one
+ *     out of it — removing it needs its own deliberate decision, not a line
+ *     in a migration, and this rule then has to change with it;
+ *   - a financial table leaves public only for billing_v2_archive.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -62,7 +81,39 @@ const FINANCIAL = [
   'ai_run_settlements',
   'ai_billing_adjustments',
   'ai_billing_audit_log',
+  'billing_accounts',
+  'billing_account_ledger',
+  'billing_account_payments',
+  'billing_account_cards',
 ] as const;
+
+/** The schema 268 moved billing v2's tables into (kept indefinitely). */
+const ARCHIVE = 'billing_v2_archive';
+/** A table name as a migration writes it: bare, public., or the archive's, optionally quoted. */
+const TABLE_PREFIX = String.raw`(?:"?(?:public|${ARCHIVE})"?\.)?"?`;
+
+const ARCHIVE_SCHEMA = String.raw`"?${ARCHIVE}"?`;
+/** Dropping, emptying or moving out the archive or a table in it. */
+const ARCHIVE_DESTRUCTION = new RegExp(
+  [
+    String.raw`\bDROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?(?:[\w"]+\s*,\s*)*${ARCHIVE_SCHEMA}\b`,
+    String.raw`\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:[\w."%]+\s*,\s*)*${ARCHIVE_SCHEMA}\.`,
+    String.raw`\bTRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?(?:[\w."%]+\s*,\s*)*${ARCHIVE_SCHEMA}\.`,
+    String.raw`\bDELETE\s+FROM\s+(?:ONLY\s+)?${ARCHIVE_SCHEMA}\.`,
+    String.raw`\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${ARCHIVE_SCHEMA}\.[\w"%]+\s+(?:SET\s+SCHEMA|RENAME|DROP\s+COLUMN)\b`,
+    String.raw`\bALTER\s+SCHEMA\s+${ARCHIVE_SCHEMA}\s+RENAME\b`,
+  ].join('|'),
+  'i',
+);
+
+/** Every `ALTER TABLE <financial> SET SCHEMA x` whose x is not the archive. */
+function financialMovedElsewhere(sql: string): string[] {
+  const re = new RegExp(
+    String.raw`\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${TABLE_PREFIX}(${FINANCIAL.join('|')})"?\s+SET\s+SCHEMA\s+("?\w+"?)`,
+    'gi',
+  );
+  return [...sql.matchAll(re)].filter((m) => m[2].replace(/"/g, '').toLowerCase() !== ARCHIVE).map((m) => m[0]);
+}
 
 function sqlFiles(dir: string): Array<{ file: string; sql: string }> {
   return readdirSync(dir)
@@ -124,7 +175,7 @@ describe('no migration destroys financial data as it applies', () => {
 
       it('no top-level DELETE FROM a financial table', () => {
         const re = new RegExp(
-          String.raw`\bDELETE\s+FROM\s+(?:public\.)?(${FINANCIAL.join('|')})\b`,
+          String.raw`\bDELETE\s+FROM\s+(?:ONLY\s+)?${TABLE_PREFIX}(${FINANCIAL.join('|')})\b`,
           'i',
         );
         const offenders = files.filter((f) => re.test(topLevel(f.sql))).map((f) => f.file);
@@ -133,14 +184,58 @@ describe('no migration destroys financial data as it applies', () => {
 
       it('no top-level DROP of a financial table', () => {
         const re = new RegExp(
-          String.raw`\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?(${FINANCIAL.join('|')})\b`,
+          String.raw`\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?${TABLE_PREFIX}(${FINANCIAL.join('|')})\b`,
           'i',
         );
         const offenders = files.filter((f) => re.test(topLevel(f.sql))).map((f) => f.file);
         expect(offenders).toEqual([]);
       });
+
+      it('nothing drops, empties or moves out the billing v2 archive — not even inside a function body', () => {
+        // code() keeps function bodies: a function that would do it is refused too.
+        const offenders = files.filter((f) => ARCHIVE_DESTRUCTION.test(code(f.sql))).map((f) => f.file);
+        expect(offenders).toEqual([]);
+      });
+
+      it('a financial table leaves public only for the billing v2 archive', () => {
+        const offenders = files.flatMap((f) => financialMovedElsewhere(code(f.sql)).map((m) => `${f.file}: ${m}`));
+        expect(offenders).toEqual([]);
+      });
     });
   }
+
+  it('the archive rules catch what they are for, and leave 268 alone', () => {
+    for (const sql of [
+      'DROP SCHEMA billing_v2_archive CASCADE;',
+      'DROP SCHEMA IF EXISTS other, "billing_v2_archive";',
+      'DROP TABLE billing_v2_archive.billing_invoices;',
+      'drop table if exists public.x, billing_v2_archive.migration_log;',
+      'TRUNCATE billing_v2_archive.billing_payments;',
+      'DELETE FROM billing_v2_archive.billing_wallet_ledger WHERE true;',
+      'ALTER TABLE billing_v2_archive.billing_invoices SET SCHEMA public;',
+      "EXECUTE format('DROP TABLE billing_v2_archive.%I', r.relname);",
+      'ALTER SCHEMA billing_v2_archive RENAME TO gone;',
+    ]) {
+      expect(ARCHIVE_DESTRUCTION.test(sql), sql).toBe(true);
+    }
+    for (const sql of [
+      'CREATE SCHEMA IF NOT EXISTS billing_v2_archive;',
+      'ALTER TABLE public.billing_invoices SET SCHEMA billing_v2_archive;',
+      'INSERT INTO billing_v2_archive.migration_log (source_table) VALUES ($1);',
+      'REVOKE ALL ON TABLE billing_v2_archive.migration_log FROM PUBLIC;',
+    ]) {
+      expect(ARCHIVE_DESTRUCTION.test(sql), sql).toBe(false);
+    }
+    expect(financialMovedElsewhere('ALTER TABLE public.billing_invoices SET SCHEMA billing_v2_archive;')).toEqual([]);
+    expect(financialMovedElsewhere('ALTER TABLE billing_account_ledger SET SCHEMA scratch;')).toHaveLength(1);
+    expect(financialMovedElsewhere('ALTER TABLE IF EXISTS public."billing_payments" SET SCHEMA old;')).toHaveLength(1);
+    const sql268 = readFileSync(
+      join(CHAINS['self-host (database/migrations)'], '268_billing_v2_archive.sql'),
+      'utf8',
+    );
+    expect(sql268).toMatch(/ALTER TABLE public\.%I SET SCHEMA billing_v2_archive/);
+    expect(ARCHIVE_DESTRUCTION.test(code(sql268))).toBe(false);
+  });
 
   it('the deliberate reset still exists, and is still service_role-only', () => {
     const dir = CHAINS['hosted (supabase/migrations)'];

@@ -156,6 +156,22 @@ reserved blocks, so a full disk stops Postgres too.
     `258_app_review_status_per_edition.sql` (2026-10-09 17:06 UTC). Both were
     also applied by hand to RESPOK's database, whose overlay section 5b/5c now
     touches only its `international` rows.
+    Simple billing, applied by hand to WebYar before each merge (RESPOK's
+    migrator applied them on push): `259_simple_billing_accounts.sql`
+    (2026-10-10 13:10 UTC), `260_email_templates_per_edition.sql` (13:40),
+    `261_simple_billing_renewals.sql` (19:50), `262_simple_billing_card.sql`
+    (2026-10-11 04:15), `263_billing_purge_ledger.sql` (19:13),
+    `264_simple_billing_ai_packs.sql` (21:22), `265_billing_computed_locks.sql`
+    (23:32; its three indexes were built CONCURRENTLY beforehand),
+    `266_simple_billing_admin.sql` (2026-10-12 00:38) and
+    `267_billing_v2_retire.sql` (02:48; the move found nothing to credit and
+    no needs_review on either database). Full `pg_dump -Fc` copies taken
+    before 267: `/root/billing-v2-backup/` on `vps-50cc1602`.
+  - Since 268 (`268_billing_v2_archive.sql`) the billing v2 tables live,
+    intact, in the schema `billing_v2_archive` (no app role can read them;
+    `webyar_backup` can). Never drop or empty that schema: it holds financial
+    records, and a CI rule forbids it. Restore a table with
+    `ALTER TABLE billing_v2_archive.<t> SET SCHEMA public` by hand.
   - RESPOK's database is migrated automatically: its DB Migrator (app 40)
     runs `scripts/migrate-database.sh` on every push to `main`, then
     `/data/respok/migrator/overlay.sql`. Since 2026-10-08 the overlay is a

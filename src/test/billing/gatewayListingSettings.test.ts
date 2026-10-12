@@ -70,6 +70,13 @@ describe('gatewayListing: test gateways are for platform admins', () => {
     }
   });
 
+  it('a test gateway opened to customers in Finance → Gateways is listed to them', () => {
+    const opened = { ...ACTIVE('zarinpal_test', ['IRR']), config: { open_to_customers: true } };
+    expect(gatewayListing(opened, 'IRR', undefined, 'iran')).toEqual({ listed: true, reasons: [] });
+    const closed = { ...ACTIVE('zarinpal_test', ['IRR']), config: { open_to_customers: 'false' } };
+    expect(gatewayListing(closed, 'IRR', undefined, 'iran').reasons).toEqual(['test']);
+  });
+
   it('a live gateway is not affected', () => {
     const live = gatewayListing(ACTIVE('zarinpal', ['IRR']), 'IRR', { provider: 'zarinpal', merchant_id: MERCHANT }, 'iran');
     expect(live).toEqual({ listed: true, reasons: [] });

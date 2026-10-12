@@ -14,7 +14,7 @@ import { getProvider, resolveNamedBillingConfig } from '../index.js';
 import { listPayableGateways, type Gateway } from '../config/index.js';
 import { normalizeCurrencyCode } from '../providers/minorAmount.js';
 import { paddleSandboxOpenToCustomers } from '../providers/paddle-sandbox.js';
-import { paddleSettingsProblem } from '../providers/paddle.js';
+import { isPaddleSandboxFlag, paddleSettingsProblem } from '../providers/paddle.js';
 import { zarinpalSettingsProblem } from '../providers/zarinpal.js';
 import { IRANIAN_PAYMENT_PROVIDERS, isCurrencyAllowedInEdition, isProviderAllowedInEdition, type Edition } from '../../../../shared/edition.js';
 import { PADDLE_SANDBOX_PROVIDER, isTestPaymentProvider } from '../../../../shared/testGateways.js';
@@ -82,7 +82,7 @@ export function gatewayNeedsConfig(providerName: string): boolean {
  * (listPayableGateways).
  */
 export function gatewayListing(
-  gateway: Pick<Gateway, 'provider_name' | 'is_active' | 'currencies'> & { implemented?: boolean },
+  gateway: Pick<Gateway, 'provider_name' | 'is_active' | 'currencies'> & { implemented?: boolean; config?: Record<string, unknown> | null },
   currency: string,
   config: BillingProviderConfig | null | undefined,
   edition: Edition | null,
@@ -98,9 +98,11 @@ export function gatewayListing(
   if (edition && (!isProviderAllowedInEdition(name, edition) || !isCurrencyAllowedInEdition(code, edition))) add('not_in_edition');
   if (!gateway.is_active || gateway.implemented === false) add('inactive');
   // A test gateway buys a real plan with simulated money: platform admins
-  // only. The Paddle sandbox can be opened to customers in its own settings
-  // (checked below, once its settings are read).
-  if (isTestPaymentProvider(name) && name !== PADDLE_SANDBOX_PROVIDER && !viewer.isPlatformAdmin) add('test');
+  // only, unless its Finance → Gateways row is opened to customers
+  // (`config.open_to_customers`). The Paddle sandbox has the same switch in
+  // its own settings (checked below, once they are read).
+  if (isTestPaymentProvider(name) && name !== PADDLE_SANDBOX_PROVIDER && !viewer.isPlatformAdmin
+      && !isPaddleSandboxFlag(gateway.config?.open_to_customers)) add('test');
   const configured = gateway.currencies ?? [];
   if (configured.length > 0 && !configured.includes(code) && !configured.includes(currency)) add('currency');
   const provider = getProvider(name);

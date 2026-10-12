@@ -187,12 +187,54 @@ describe('Providers screen: credentials of the wrong environment are refused', (
     expect(state.upserts).toEqual([{ table: 'billing_provider_credentials', row: expect.objectContaining({ provider_name: 'paddle_sandbox', config: SANDBOX_CREDENTIALS }) }]);
   });
 
-  it('live paddle refuses sandbox credentials unless its Sandbox Mode is on', async () => {
+  it('live paddle refuses sandbox credentials, whatever a stored Sandbox Mode says', async () => {
     const sdbx = await call('PUT', '/api/admin/billing/providers/paddle', { config: { ...LIVE_CREDENTIALS, api_key: SANDBOX_CREDENTIALS.api_key, sandbox: 'false' } });
     expect(sdbx.status).toBe(400);
     expect(sdbx.body.error).toContain('Paddle — Sandbox (test)');
-    expect((await call('PUT', '/api/admin/billing/providers/paddle', { config: { ...SANDBOX_CREDENTIALS, sandbox: 'true' } })).status).toBe(200);
+    expect((await call('PUT', '/api/admin/billing/providers/paddle', { config: { ...SANDBOX_CREDENTIALS, sandbox: 'true' } })).status).toBe(400);
     expect((await call('PUT', '/api/admin/billing/providers/paddle', { config: LIVE_CREDENTIALS })).status).toBe(200);
+  });
+
+  it('refuses the secret API key typed into the Client-side Token field', async () => {
+    const r = await call('PUT', '/api/admin/billing/providers/paddle', { config: { ...LIVE_CREDENTIALS, client_token: LIVE_CREDENTIALS.api_key } });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/Client-side Token field holds an API key/);
+  });
+});
+
+describe('Providers screen: the Test button runs the gateway\'s own check with the saved settings', () => {
+  it('live paddle: calls api.paddle.com with the saved key and reports success', async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({ status: 200, ok: true, json: async () => ({ data: [] }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const r = await call('POST', '/api/admin/billing/providers/paddle/test', {});
+      expect(r.status).toBe(200);
+      expect(r.body).toMatchObject({ success: true });
+      expect(fetchMock.mock.calls[0][0]).toBe('https://api.paddle.com/event-types');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('names the problem without calling Paddle, and never echoes a secret', async () => {
+    state.tables.billing_provider_credentials = [{ provider_name: 'paddle', config: { ...LIVE_CREDENTIALS, client_token: LIVE_CREDENTIALS.api_key } }];
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const r = await call('POST', '/api/admin/billing/providers/paddle/test', {});
+      expect(r.status).toBe(200);
+      expect(r.body.success).toBe(false);
+      expect(r.body.error).toMatch(/Client-side Token field holds an API key/);
+      expect(JSON.stringify(r.body)).not.toContain(LIVE_CREDENTIALS.api_key);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('an Iranian gateway cannot be tested in the international edition', async () => {
+    const r = await call('POST', '/api/admin/billing/providers/zarinpal/test', {});
+    expect(r.status).toBeGreaterThanOrEqual(400);
   });
 });
 

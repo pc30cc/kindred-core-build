@@ -1,5 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig } from '../types.js';
-import { zarinpalProvider } from './zarinpal.js';
+import { zarinpalSandboxWire } from './zarinpal.js';
 
 // ZarinPal sandbox — https://www.zarinpal.com/docs/paymentGateway/sandBox.html
 // Same wire protocol as production, but every endpoint is served from
@@ -17,7 +17,11 @@ function isUuid(value: unknown): value is string {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
-/** Forces sandbox routing and falls back to a valid throwaway UUID merchant id. */
+/**
+ * Falls back to a valid throwaway UUID merchant id. The sandbox hosts come
+ * from zarinpalSandboxWire (live `zarinpal` never reads a sandbox switch);
+ * `sandbox: true` is kept only as a marker.
+ */
 function sandboxConfig(config: BillingProviderConfig): BillingProviderConfig {
   return {
     ...config,
@@ -30,21 +34,21 @@ function sandboxConfig(config: BillingProviderConfig): BillingProviderConfig {
 
 export const zarinpalTestProvider: BillingProviderHandler = {
   name: 'zarinpal_test',
-  capabilities: { ...zarinpalProvider.capabilities },
+  capabilities: { ...zarinpalSandboxWire.capabilities },
 
   createCheckoutSession(config, req) {
-    return zarinpalProvider.createCheckoutSession(sandboxConfig(config), req);
+    return zarinpalSandboxWire.createCheckoutSession(sandboxConfig(config), req);
   },
 
   verifyPayment(config, params) {
-    return zarinpalProvider.verifyPayment!(sandboxConfig(config), params);
+    return zarinpalSandboxWire.verifyPayment!(sandboxConfig(config), params);
   },
 
   verifyWebhook(config, headers, body) {
-    return zarinpalProvider.verifyWebhook(sandboxConfig(config), headers, body);
+    return zarinpalSandboxWire.verifyWebhook(sandboxConfig(config), headers, body);
   },
 
   testConnection(config) {
-    return zarinpalProvider.testConnection(sandboxConfig(config));
+    return zarinpalSandboxWire.testConnection(sandboxConfig(config));
   },
 };

@@ -32,6 +32,7 @@ import {
   type SubscriptionPatch,
 } from '../../../server/services/billing/providers/paddleSubscriptions.js';
 import type { BillingProviderConfig } from '../../../server/services/billing/types.js';
+import { paddleApiBase } from '../../../server/services/billing/providers/paddle.js';
 
 const API_KEY = 'pdl_live_apikey_mock_not_real';
 const LIVE: BillingProviderConfig = { provider: 'paddle', api_key: API_KEY, client_token: 'live_mock_client_token' };
@@ -701,8 +702,10 @@ describe('gateway config', () => {
     expect(() => paddleConfigFor('paddle_sandbox', { ...SANDBOX, client_token: 'live_x' })).toThrow(/not a sandbox token/);
   });
 
-  it('paddleConfigFor: live paddle as is; anything else is not a Paddle gateway', () => {
-    expect(paddleConfigFor('paddle', LIVE)).toBe(LIVE);
+  it('paddleConfigFor: live paddle with Sandbox Mode forced off; anything else is not a Paddle gateway', () => {
+    expect(paddleConfigFor('paddle', LIVE)).toEqual({ ...LIVE, sandbox: false });
+    // A stored switch never sends a live card to the sandbox.
+    expect(paddleApiBase(paddleConfigFor('paddle', { ...LIVE, sandbox: 'true' }))).toBe('https://api.paddle.com');
     expect(() => paddleConfigFor('stripe', LIVE)).toThrow(/not a Paddle gateway/);
   });
 

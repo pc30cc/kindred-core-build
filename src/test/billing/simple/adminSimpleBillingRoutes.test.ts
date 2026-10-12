@@ -543,10 +543,38 @@ describe('GET /gateways (readiness)', () => {
       { id: 'g3', provider_name: 'zarinpal', display_name: { fa: 'زرین‌پال' }, is_active: true, is_test: false, currencies: ['IRR'], countries: [], sort_order: 1, config: {} },
     ];
     h.rpc.billing_admin_liability = () => ({ data: [] });
+    h.gatewayConfig.zarinpal = { merchant_id: '11111111-2222-3333-4444-555555555555' };
     const res = await call('GET', '/gateways', 'admin-token');
     const zarinpal = (res.json.gateways as Body[]).find((g) => g.provider_name === 'zarinpal')!;
     expect(res.json.currencies).toEqual(['IRR']);
     expect(zarinpal.listing.IRR).toEqual({ listed: true, reasons: [] });
+  });
+
+  it('names what an active gateway\'s settings lack (ZarinPal merchant id, Paddle keys)', async () => {
+    h.edition = 'iran';
+    h.db.billing_gateways = [
+      { id: 'g3', provider_name: 'zarinpal', display_name: { fa: 'زرین‌پال' }, is_active: true, is_test: false, currencies: ['IRR'], countries: [], sort_order: 1, config: {} },
+      { id: 'g4', provider_name: 'zarinpal_test', display_name: { fa: 'تست' }, is_active: true, is_test: true, currencies: ['IRR'], countries: [], sort_order: 2, config: {} },
+    ];
+    h.rpc.billing_admin_liability = () => ({ data: [] });
+    let res = await call('GET', '/gateways', 'admin-token');
+    let byName = Object.fromEntries((res.json.gateways as Body[]).map((g) => [g.provider_name, g])) as Record<string, Body>;
+    expect(byName.zarinpal.listing.IRR).toMatchObject({ listed: false, reasons: ['not_configured'], problem: expect.stringMatching(/Merchant ID is empty/) });
+    // The sandbox needs no merchant id: unchanged.
+    expect(byName.zarinpal_test.listing.IRR).toEqual({ listed: true, reasons: [] });
+
+    h.edition = 'international';
+    h.db.billing_gateways = [
+      { id: 'g1', provider_name: 'paddle', display_name: { en: 'Paddle' }, is_active: true, is_test: false, currencies: ['USD'], countries: [], sort_order: 1, config: {} },
+    ];
+    h.gatewayConfig.paddle = { api_key: 'pdl_live_apikey_x', client_token: 'live_x' };
+    res = await call('GET', '/gateways', 'admin-token');
+    byName = Object.fromEntries((res.json.gateways as Body[]).map((g) => [g.provider_name, g])) as Record<string, Body>;
+    expect(byName.paddle.listing.USD).toEqual({ listed: false, reasons: ['not_configured'], problem: 'Paddle: Webhook Secret Key is empty.' });
+    h.gatewayConfig.paddle = { api_key: 'pdl_live_apikey_x', client_token: 'live_x', webhook_secret: 's' };
+    res = await call('GET', '/gateways', 'admin-token');
+    byName = Object.fromEntries((res.json.gateways as Body[]).map((g) => [g.provider_name, g])) as Record<string, Body>;
+    expect(byName.paddle.listing.USD).toEqual({ listed: true, reasons: [] });
   });
 });
 

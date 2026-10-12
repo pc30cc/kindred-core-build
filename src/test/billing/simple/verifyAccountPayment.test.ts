@@ -113,4 +113,37 @@ describe('verifyAccountPayment', () => {
     expect(out).toMatchObject({ status: 'failed', reason: 'REFERENCE_MISMATCH' });
     expect(verifyPayment).not.toHaveBeenCalled();
   });
+
+  // ZarinPal took the money on the first verify (code 100) but the answer was
+  // lost; every retry gets 101. Its verify is keyed by this payment's own bound
+  // authority, so the 101 settles it (it used to stay pending, then expire).
+  describe('ZarinPal "already verified" (101) after a lost first answer', () => {
+    const zarinpal = (over: Record<string, unknown> = {}) =>
+      payment({ provider: 'zarinpal', provider_ref: 'A000000000000000000000000000000AUTH', ...over });
+    const params = { Authority: 'A000000000000000000000000000000AUTH', Status: 'OK' };
+
+    it.each([['zarinpal'], ['zarinpal_test']])('%s: settles a pending payment with ZarinPal\'s ref_id', async (provider) => {
+      verifyPayment.mockResolvedValue({ verified: true, providerRef: '987654321', amount: 1_100_000, status: 'already_verified' });
+      rpc.mockResolvedValue({ data: { replayed: false, ledger_id: 'l9', receipt_number: 'R9', balance_minor: 1_000_000 }, error: null });
+      const out = await verifyAccountPayment({} as never, { payment: zarinpal({ provider }), providerConfig: {} as never, params });
+      expect(out).toMatchObject({ status: 'succeeded', ledgerId: 'l9' });
+      expect(verifyPayment).toHaveBeenCalledWith({}, expect.objectContaining({ Authority: 'A000000000000000000000000000000AUTH', amount: '1100000' }));
+      expect(rpc.mock.calls.map((c) => c[0])).toEqual(['billing_account_record_verification', 'billing_account_settle_payment']);
+      expect(rpc.mock.calls[0][1]).toMatchObject({ p_amount_minor: 1_100_000, p_currency: 'IRR', p_provider_payment_id: '987654321' });
+    });
+
+    it('still refuses a ref_id another payment already settled', async () => {
+      verifyPayment.mockResolvedValue({ verified: true, providerRef: '987654321', amount: 1_100_000, status: 'already_verified' });
+      rpc.mockResolvedValue({ data: null, error: { message: 'billing_payment_reference_reused' } });
+      const out = await verifyAccountPayment({} as never, { payment: zarinpal(), providerConfig: {} as never, params });
+      expect(out).toMatchObject({ status: 'failed', reason: 'PAYMENT_REFERENCE_REUSED' });
+    });
+
+    it('a payment that is no longer pending is not settled by a 101', async () => {
+      verifyPayment.mockResolvedValue({ verified: true, providerRef: '987654321', amount: 1_100_000, status: 'already_verified' });
+      const out = await verifyAccountPayment({} as never, { payment: zarinpal({ status: 'expired' }), providerConfig: {} as never, params });
+      expect(out.status).toBe('pending');
+      expect(rpc).not.toHaveBeenCalled();
+    });
+  });
 });

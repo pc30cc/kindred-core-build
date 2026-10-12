@@ -2,7 +2,7 @@ import type {
   BillingProviderConfig, PaddleCardDetails, PaddleCardEvent, PaddleSubscription, PaddleSubscriptionItem, PaddleTransaction,
 } from '../types.js';
 import {
-  PADDLE_CURRENCIES, isPaddleSandboxFlag, paddleApiBase, paddleClientCheckout, paddleCredentialProblem,
+  PADDLE_CURRENCIES, isPaddleSandboxFlag, livePaddleConfig, paddleApiBase, paddleClientCheckout, paddleCredentialProblem,
 } from './paddle.js';
 import { minorFromProvider, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
 import { PADDLE_SANDBOX_PROVIDER } from '../../../../shared/testGateways.js';
@@ -600,8 +600,9 @@ export async function getUpdatePaymentMethodTransaction(
 /**
  * The config to call Paddle with for a card of `providerName`. For
  * `paddle_sandbox`: the sandbox forced on, and live credentials refused
- * (throws), exactly like providers/paddle-sandbox.ts. For `paddle`: the config
- * as is. Anything else is not a Paddle gateway (throws).
+ * (throws), exactly like providers/paddle-sandbox.ts. For `paddle`: Sandbox
+ * Mode forced off, like providers/paddle.ts (live Paddle never reaches the
+ * sandbox). Anything else is not a Paddle gateway (throws).
  */
 export function paddleConfigFor(providerName: string, config: BillingProviderConfig): BillingProviderConfig {
   const name = typeof providerName === 'string' ? providerName.trim().toLowerCase() : '';
@@ -610,7 +611,7 @@ export function paddleConfigFor(providerName: string, config: BillingProviderCon
     if (problem) throw new Error(problem);
     return { ...config, sandbox: true };
   }
-  if (name === 'paddle') return config;
+  if (name === 'paddle') return livePaddleConfig(config);
   throw new Error(`${String(providerName)} is not a Paddle gateway`);
 }
 

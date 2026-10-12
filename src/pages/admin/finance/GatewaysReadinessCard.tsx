@@ -21,7 +21,7 @@ import { sbLabel } from './financeUi';
 
 /** Where each reason is fixed: the gateways table below, or the provider's settings. */
 function fixHref(reason: GatewayListingReason | 'card_auto_renew', provider: string): string | null {
-  if (reason === 'cannot_confirm' || reason === 'test' || reason === 'card_auto_renew') {
+  if (reason === 'cannot_confirm' || reason === 'test' || reason === 'not_configured' || reason === 'card_auto_renew') {
     return `/admin/providers?type=billing&provider=${encodeURIComponent(provider)}`;
   }
   return null;
@@ -70,6 +70,11 @@ function ListingCell({ gateway, currency }: { gateway: GatewayReadiness; currenc
           );
         })}
       </div>
+      {listing.problem && (
+        <p className="max-w-xs text-[11px] leading-snug text-amber-700 dark:text-amber-400" dir="ltr" data-testid="gateway-settings-problem">
+          {listing.problem}
+        </p>
+      )}
     </div>
   );
 }

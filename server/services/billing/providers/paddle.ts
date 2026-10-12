@@ -81,6 +81,11 @@ export function isPaddleSandboxFlag(value: unknown): boolean {
 export const PADDLE_LIVE_API_BASE = 'https://api.paddle.com';
 export const PADDLE_SANDBOX_API_BASE = 'https://sandbox-api.paddle.com';
 
+/** Which gateway's credential rules a wire call follows: its environment. */
+function wireGateway(config: BillingProviderConfig): 'paddle' | 'paddle_sandbox' {
+  return isPaddleSandboxFlag(config.sandbox) ? 'paddle_sandbox' : 'paddle';
+}
+
 export const paddleApiBase = (config: BillingProviderConfig) =>
   isPaddleSandboxFlag(config.sandbox) ? PADDLE_SANDBOX_API_BASE : PADDLE_LIVE_API_BASE;
 
@@ -99,12 +104,24 @@ function trimmed(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/** A value shaped like a Paddle API key (secret): it must never reach a browser. */
+export function looksLikePaddleApiKey(value: string): boolean {
+  return value.startsWith('pdl_') || value.includes('_apikey_');
+}
+
+/** A value shaped like a Paddle client-side token (public). */
+function looksLikePaddleClientToken(value: string): boolean {
+  return value.startsWith('live_') || value.startsWith('test_');
+}
+
 /**
  * Why these credentials cannot be used by this gateway, or null when they
- * can. `paddle_sandbox` takes sandbox credentials only. Live `paddle` refuses
- * sandbox credentials unless its own Sandbox Mode switch is on (then it is
- * left as it always was). Empty values are not judged here (a missing key is
- * reported where it is needed).
+ * can. `paddle_sandbox` takes sandbox credentials only, live `paddle` live
+ * ones only (live `paddle` has no Sandbox Mode: the separate sandbox gateway
+ * is for testing). On both, the secret API key is refused in the client-side
+ * token field (that value is sent to every customer's browser) and a
+ * client-side token is refused in the API key field. Empty values are not
+ * judged here (paddleSettingsProblem reports them).
  */
 export function paddleCredentialProblem(
   config: BillingProviderConfig,
@@ -112,6 +129,13 @@ export function paddleCredentialProblem(
 ): string | null {
   const apiKey = trimmed(config.api_key);
   const clientToken = trimmed(config.client_token);
+  const label = gateway === 'paddle_sandbox' ? 'Paddle sandbox' : 'Paddle';
+  if (clientToken && looksLikePaddleApiKey(clientToken)) {
+    return `${label}: the Client-side Token field holds an API key (secret). It would be sent to every customer's browser: revoke that key in Paddle → Developer tools → Authentication, and enter the client-side token (${gateway === 'paddle_sandbox' ? '"test_…"' : '"live_…"'}) here instead.`;
+  }
+  if (apiKey && looksLikePaddleClientToken(apiKey)) {
+    return `${label}: the API Key field holds a client-side token. Enter the API key (${gateway === 'paddle_sandbox' ? '"pdl_sdbx_apikey_…"' : '"pdl_live_apikey_…"'}) from Developer tools → Authentication → API keys.`;
+  }
   if (gateway === 'paddle_sandbox') {
     if (apiKey && !apiKey.includes('_sdbx')) {
       return 'Paddle sandbox: this API key is not a sandbox key (sandbox keys contain "_sdbx"). Create one in sandbox-vendors.paddle.com → Developer tools → Authentication.';
@@ -121,14 +145,37 @@ export function paddleCredentialProblem(
     }
     return null;
   }
-  if (isPaddleSandboxFlag(config.sandbox)) return null;
   if (apiKey.includes('_sdbx')) {
-    return 'Paddle: this is a sandbox API key ("_sdbx"). Use the "Paddle — Sandbox (test)" gateway for sandbox keys, or switch Sandbox Mode on.';
+    return 'Paddle: this is a sandbox API key ("_sdbx"). Use the "Paddle — Sandbox (test)" gateway for sandbox keys.';
   }
   if (clientToken.startsWith('test_')) {
-    return 'Paddle: this is a sandbox client-side token ("test_"). Use the "Paddle — Sandbox (test)" gateway for sandbox tokens, or switch Sandbox Mode on.';
+    return 'Paddle: this is a sandbox client-side token ("test_"). Use the "Paddle — Sandbox (test)" gateway for sandbox tokens.';
+  }
+  if (clientToken && !clientToken.startsWith('live_')) {
+    return 'Paddle: a live client-side token starts with "live_". Create one in vendors.paddle.com → Developer tools → Authentication → Client-side tokens.';
   }
   return null;
+}
+
+/**
+ * What stops this Paddle gateway from taking and recording payments, or
+ * null: a missing API key, client-side token or webhook secret (without the
+ * secret every notification is dropped, so refunds and renewals are never
+ * recorded), or credentials of the wrong kind. Shown on the readiness card;
+ * a gateway with a problem is not offered to customers.
+ */
+export function paddleSettingsProblem(
+  config: BillingProviderConfig | null | undefined,
+  gateway: 'paddle' | 'paddle_sandbox',
+): string | null {
+  const label = gateway === 'paddle_sandbox' ? 'Paddle sandbox' : 'Paddle';
+  const missing = [
+    ['api_key', 'API Key'],
+    ['client_token', 'Client-side Token'],
+    ['webhook_secret', 'Webhook Secret Key'],
+  ].filter(([key]) => !trimmed(config?.[key])).map(([, name]) => name);
+  if (missing.length > 0) return `${label}: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} empty.`;
+  return paddleCredentialProblem(config as BillingProviderConfig, gateway);
 }
 
 // --- Webhook signature verification -------------------------------------
@@ -205,6 +252,8 @@ export function paddleClientCheckout(
 ): { provider: string } & Record<string, unknown> {
   const clientToken = typeof config.client_token === 'string' ? config.client_token.trim() : '';
   if (!clientToken) throw new Error('Paddle client-side token is not configured');
+  // Last line of defence: an API key is a secret and never goes to a browser.
+  if (looksLikePaddleApiKey(clientToken)) throw new Error('Paddle: the client-side token is an API key; it is not sent to the browser');
   return {
     provider: 'paddle',
     transactionId,
@@ -240,7 +289,12 @@ async function paddleApi(config: BillingProviderConfig, path: string, method = '
   return res.json();
 }
 
-export const paddleProvider: BillingProviderHandler = {
+/**
+ * The Paddle Billing wire protocol. `sandbox` in the config picks the host
+ * and the Paddle.js environment; only the gateways below set it (live
+ * `paddle` forces it off, `paddle_sandbox` on), never a stored switch.
+ */
+export const paddleWire: BillingProviderHandler = {
   name: 'paddle',
   capabilities: {
     subscriptions: true, oneTimePayments: true, customerPortal: true,
@@ -267,7 +321,7 @@ export const paddleProvider: BillingProviderHandler = {
    * earlier card. Without these options the request is the one-time one.
    */
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    const credentialProblem = paddleCredentialProblem(config, 'paddle');
+    const credentialProblem = paddleCredentialProblem(config, wireGateway(config));
     if (credentialProblem) throw new Error(credentialProblem);
     const currency = requireSupportedCurrency('Paddle', req.currency, PADDLE_CURRENCIES);
     const amount = minorFromProvider(req.metadata?.amount);
@@ -490,7 +544,7 @@ export const paddleProvider: BillingProviderHandler = {
   },
 
   validateConfig(config: BillingProviderConfig) {
-    return paddleCredentialProblem(config, 'paddle');
+    return paddleCredentialProblem(config, wireGateway(config));
   },
 
   /**
@@ -501,7 +555,7 @@ export const paddleProvider: BillingProviderHandler = {
    */
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
-    const credentialProblem = paddleCredentialProblem(config, 'paddle');
+    const credentialProblem = paddleCredentialProblem(config, wireGateway(config));
     if (credentialProblem) return { success: false, latencyMs: 0, error: credentialProblem };
     try {
       const data = await paddleApi(config, '/event-types');
@@ -526,4 +580,30 @@ export const paddleProvider: BillingProviderHandler = {
     }
     return { success: true, latencyMs: Date.now() - start };
   },
+};
+
+/** Live Paddle's config: Sandbox Mode is always off, whatever was stored. */
+export function livePaddleConfig(config: BillingProviderConfig): BillingProviderConfig {
+  return { ...config, sandbox: false };
+}
+
+/**
+ * Live Paddle (`paddle`): api.paddle.com and Paddle.js `production`, always.
+ * A stored Sandbox Mode switch (the live row once had one) is ignored: a
+ * live gateway in the sandbox was offered to every customer as a real one
+ * and its test payments were counted as revenue. Testing is the separate
+ * `paddle_sandbox` gateway (paddle-sandbox.ts).
+ */
+export const paddleProvider: BillingProviderHandler = {
+  name: 'paddle',
+  capabilities: { ...paddleWire.capabilities },
+  supportedCurrencies: PADDLE_CURRENCIES,
+  createCheckoutSession: (config, req) => paddleWire.createCheckoutSession(livePaddleConfig(config), req),
+  verifyPayment: (config, params) => paddleWire.verifyPayment!(livePaddleConfig(config), params),
+  closeCheckout: (config, transactionId) => paddleWire.closeCheckout!(livePaddleConfig(config), transactionId),
+  verifyWebhook: (config, headers, body) => paddleWire.verifyWebhook(livePaddleConfig(config), headers, body),
+  cancelSubscription: (config, subscriptionId) => paddleWire.cancelSubscription!(livePaddleConfig(config), subscriptionId),
+  getPortalUrl: (config, customerId, returnUrl) => paddleWire.getPortalUrl!(livePaddleConfig(config), customerId, returnUrl),
+  validateConfig: (config) => paddleCredentialProblem(livePaddleConfig(config), 'paddle'),
+  testConnection: (config) => paddleWire.testConnection(livePaddleConfig(config)),
 };

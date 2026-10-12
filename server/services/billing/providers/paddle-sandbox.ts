@@ -1,5 +1,5 @@
 import type { BillingProviderHandler, BillingProviderConfig } from '../types.js';
-import { paddleProvider, paddleCredentialProblem, isPaddleSandboxFlag } from './paddle.js';
+import { paddleWire, paddleCredentialProblem, isPaddleSandboxFlag } from './paddle.js';
 import { PADDLE_SANDBOX_PROVIDER } from '../../../../shared/testGateways.js';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -50,12 +50,12 @@ function assertSandboxCredentials(config: BillingProviderConfig): void {
 
 export const paddleSandboxProvider: BillingProviderHandler = {
   name: PADDLE_SANDBOX_PROVIDER,
-  capabilities: { ...paddleProvider.capabilities },
-  supportedCurrencies: paddleProvider.supportedCurrencies,
+  capabilities: { ...paddleWire.capabilities },
+  supportedCurrencies: paddleWire.supportedCurrencies,
 
   async createCheckoutSession(config, req) {
     assertSandboxCredentials(config);
-    const result = await paddleProvider.createCheckoutSession(sandboxConfig(config), req);
+    const result = await paddleWire.createCheckoutSession(sandboxConfig(config), req);
     return {
       ...result,
       // The payment page opens it with Paddle.js in the sandbox environment.
@@ -66,24 +66,24 @@ export const paddleSandboxProvider: BillingProviderHandler = {
   },
 
   verifyPayment(config, params) {
-    return paddleProvider.verifyPayment!(sandboxConfig(config), params);
+    return paddleWire.verifyPayment!(sandboxConfig(config), params);
   },
 
   closeCheckout(config, transactionId) {
-    return paddleProvider.closeCheckout!(sandboxConfig(config), transactionId);
+    return paddleWire.closeCheckout!(sandboxConfig(config), transactionId);
   },
 
   /** Verified with THIS gateway's notification secret (Paddle-Signature, 5-minute window). */
   verifyWebhook(config, headers, body) {
-    return paddleProvider.verifyWebhook(sandboxConfig(config), headers, body);
+    return paddleWire.verifyWebhook(sandboxConfig(config), headers, body);
   },
 
   cancelSubscription(config, subscriptionId) {
-    return paddleProvider.cancelSubscription!(sandboxConfig(config), subscriptionId);
+    return paddleWire.cancelSubscription!(sandboxConfig(config), subscriptionId);
   },
 
   getPortalUrl(config, customerId, returnUrl) {
-    return paddleProvider.getPortalUrl!(sandboxConfig(config), customerId, returnUrl);
+    return paddleWire.getPortalUrl!(sandboxConfig(config), customerId, returnUrl);
   },
 
   validateConfig(config) {
@@ -93,6 +93,6 @@ export const paddleSandboxProvider: BillingProviderHandler = {
   async testConnection(config) {
     const problem = paddleCredentialProblem(config, PADDLE_SANDBOX_PROVIDER);
     if (problem) return { success: false, latencyMs: 0, error: problem };
-    return paddleProvider.testConnection(sandboxConfig(config));
+    return paddleWire.testConnection(sandboxConfig(config));
   },
 };

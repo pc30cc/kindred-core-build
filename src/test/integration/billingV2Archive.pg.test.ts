@@ -29,8 +29,13 @@
  *       process_due, upgrade, schedule a change, the reminders, the
  *       subscription writer; and a saved card's renewal (Multi Region, USD);
  *   A9  the post-checks: a function still naming an archived table or a
- *       removed function, a view on a dropped column, a missing 267 and a log
- *       row without its ledger row each stop 268 with nothing changed.
+ *       removed function (in any letter case), a view on a dropped column, a
+ *       missing 267 and a log row without its ledger row each stop 268 with
+ *       nothing changed;
+ *   A10 Super Admin's JSON backup, SQL dump and one-click migration carry
+ *       the archive's rows (server/services/database/);
+ *   A11 a request that holds workspaces and then reads
+ *       workspace_subscriptions while 268 runs: no deadlock, both finish.
  *
  * Its own databases (CREATE DATABASE on the TEST_DATABASE_URL server). It
  * creates the cluster role webyar_backup when the server has none, and drops
@@ -42,7 +47,11 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import pg from 'pg';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { applyMigrationSql } from './pgMigrationChain';
+import { listBackupTables } from '../../../server/services/database/archiveExport';
+import { generateSqlDump } from '../../../server/services/database/sqlDump';
+import { runSelfhostMigration } from '../../../server/services/database/selfhostMigration';
 
 const DSN = process.env.TEST_DATABASE_URL;
 if (process.env.REQUIRE_BILLING_DB === '1' && !DSN) {
@@ -54,6 +63,8 @@ const STAMP = Date.now();
 const BASE = `v2archive_base_${STAMP}`;
 const MAIN = `v2archive_main_${STAMP}`;
 const CHECKS = `v2archive_checks_${STAMP}`;
+const TARGET = `v2archive_target_${STAMP}`;
+const LOCKS = `v2archive_locks_${STAMP}`;
 const DIR = resolve(process.cwd(), 'database/migrations');
 const FILE = '268_billing_v2_archive.sql';
 const SQL_268 = readFileSync(resolve(DIR, FILE), 'utf8');
@@ -154,6 +165,25 @@ function helpers(c: pg.Client) {
   return { q, one, num, fn, planId, user, workspace, schemaOf, v2Counts, snapshot };
 }
 
+/**
+ * The service client the exports use, over a plain connection: each rpc() is
+ * the SQL function called as the table owner (the migrations' role), which is
+ * what the SECURITY DEFINER functions run as anyway.
+ */
+function fakeSupabase(c: pg.Client): SupabaseClient {
+  return {
+    rpc(name: string, args: Record<string, unknown>) {
+      const keys = Object.keys(args);
+      const call = `public.${name}(${keys.map((k, i) => `${k} => $${i + 1}`).join(', ')})`;
+      const setof = name === 'admin_list_export_tables';
+      return c.query(setof ? `SELECT * FROM ${call}` : `SELECT ${call} AS r`, keys.map((k) => args[k])).then(
+        (res) => ({ data: setof ? res.rows : res.rows[0].r, error: null }),
+        (e: { message: string; code?: string }) => ({ data: null, error: { message: e.message, code: e.code } }),
+      );
+    },
+  } as unknown as SupabaseClient;
+}
+
 /** Runs the file as the chain does (its own BEGIN/COMMIT); returns its NOTICEs. */
 async function apply268(c: pg.Client, sql = SQL_268): Promise<string[]> {
   const notices: string[] = [];
@@ -202,7 +232,7 @@ suite('268 — billing v2 archived (real PostgreSQL)', () => {
     adminUrl.pathname = '/postgres';
     admin = new pg.Client({ connectionString: adminUrl.toString() });
     await admin.connect();
-    for (const db of [BASE, MAIN, CHECKS]) await admin.query(`DROP DATABASE IF EXISTS ${db}`);
+    for (const db of [BASE, MAIN, CHECKS, TARGET, LOCKS]) await admin.query(`DROP DATABASE IF EXISTS ${db}`);
     if (!(await admin.query(`SELECT to_regrole($1) IS NOT NULL AS e`, [BACKUP_ROLE])).rows[0].e) {
       await admin.query(`CREATE ROLE ${BACKUP_ROLE} NOLOGIN BYPASSRLS`);
       createdBackupRole = true;
@@ -222,7 +252,7 @@ suite('268 — billing v2 archived (real PostgreSQL)', () => {
 
   afterAll(async () => {
     if (admin) {
-      for (const db of [MAIN, CHECKS, BASE]) await admin.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
+      for (const db of [MAIN, CHECKS, TARGET, LOCKS, BASE]) await admin.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
       if (createdBackupRole) await admin.query(`DROP ROLE IF EXISTS ${BACKUP_ROLE}`);
       await admin.end();
     }
@@ -463,6 +493,50 @@ suite('268 — billing v2 archived (real PostgreSQL)', () => {
       }
     });
 
+    it('A10 Super Admin\'s JSON backup, SQL dump and one-click migration carry the archive', async () => {
+      const sb = fakeSupabase(c);
+      // The JSON backup's tables: public's, then the archive's.
+      const tables = await listBackupTables(sb, adminUser);
+      expect(tables).toContain('workspaces');
+      for (const t of [...V2_TABLES, 'migration_log', 'email_templates']) expect(tables).toContain(`billing_v2_archive.${t}`);
+      const exported = await sb.rpc('admin_export_table', {
+        _actor_user_id: adminUser, _table: 'billing_v2_archive.billing_invoices', _limit: 1000, _offset: 0,
+      });
+      expect(((exported.data as Row[]) ?? []).map((r) => r.id)).toContain(f.invoice);
+      expect((await sb.rpc('admin_export_archive_tables', { _actor_user_id: await h.user() })).error?.message).toMatch(/forbidden/);
+      expect((await sb.rpc('admin_export_table', {
+        _actor_user_id: adminUser, _table: 'billing_v2_archive.no_such_table', _limit: 10, _offset: 0,
+      })).error?.message).toMatch(/unknown table/);
+
+      // The SQL dump.
+      let dump = '';
+      for await (const chunk of generateSqlDump(sb, adminUser, { includeSchema: false, includeData: true })) dump += chunk;
+      expect(dump).toMatch(new RegExp(`INSERT INTO "billing_v2_archive"\\."billing_invoices" \\([^)]*\\) VALUES\\n[^;]*'${f.invoice}'`));
+      expect(dump).toContain('INSERT INTO "billing_v2_archive"."billing_payments"');
+      expect(dump).toContain('INSERT INTO "billing_v2_archive"."migration_log"');
+
+      // The one-click migration, into a database whose migrations built the archive.
+      await admin.query(`CREATE DATABASE ${TARGET} TEMPLATE ${BASE}`);
+      const t = await connect(TARGET);
+      try {
+        await t.query('SET client_min_messages = warning');
+        await applyMigrationSql(t, SQL_268);
+        const url = new URL(urlFor(TARGET));
+        url.searchParams.set('sslmode', 'disable');
+        const events: Record<string, unknown>[] = [];
+        await runSelfhostMigration(sb, adminUser, { connectionString: url.toString(), includeSchema: false, truncateTarget: false },
+          (e) => events.push(e));
+        expect(events.at(-1)).toMatchObject({ type: 'done' });
+        expect(events).toContainEqual(expect.objectContaining({ type: 'tableDone', table: 'billing_v2_archive.billing_invoices', rows: 2 }));
+        for (const table of ['billing_invoices', 'billing_invoice_lines', 'billing_payments', 'billing_subscription_periods', 'migration_log']) {
+          const ids = async (x: pg.Client) => (await x.query(`SELECT id::text FROM billing_v2_archive.${table} ORDER BY 1`)).rows.map((r) => r.id);
+          expect(await ids(t), table).toEqual(await ids(c));
+        }
+      } finally {
+        await t.end();
+      }
+    }, 300_000);
+
     it('A6 a purge and a user delete succeed for workspaces with archived rows, which stay; a plan only the archive names can go', async () => {
       const archivedOf = async (ws: string) => {
         let n = 0;
@@ -627,6 +701,15 @@ suite('268 — billing v2 archived (real PostgreSQL)', () => {
       expect(await h.schemaOf('billing_invoices')).toBe('public');
     });
 
+    it('a function naming an archived table or a dropped column in upper case', async () => {
+      const e = await failure(c, async () => {
+        await c.query(`CREATE FUNCTION public.zz_upper() RETURNS bigint LANGUAGE plpgsql AS $$ BEGIN RETURN (SELECT count(*) FROM PUBLIC.BILLING_INVOICES); END $$`);
+        await c.query(`CREATE FUNCTION public.zz_upper_col(p uuid) RETURNS uuid LANGUAGE plpgsql AS $$ BEGIN RETURN (SELECT NEXT_PLAN_ID FROM public.workspace_subscriptions WHERE id = p); END $$`);
+      });
+      expect(e.message).toMatch(/billing_v2_archive_check_failed: .*functions naming billing v2: zz_upper\(\), zz_upper_col\(uuid\)/);
+      expect(await h.schemaOf('billing_invoices')).toBe('public');
+    });
+
     it('a view on a dropped column', async () => {
       const e = await failure(c, () =>
         c.query(`CREATE VIEW public.leftover_view AS SELECT workspace_id, next_plan_id FROM public.workspace_subscriptions`));
@@ -661,5 +744,40 @@ suite('268 — billing v2 archived (real PostgreSQL)', () => {
       // The membership was granted inside the rolled-back transaction.
       expect((await h.one(`SELECT pg_has_role($1, 'pg_read_all_data', 'MEMBER') AS m`, [BACKUP_ROLE])).m).toBe(false);
     });
+  });
+
+  // ───────────────────────────── Locks ─────────────────────────────
+  describe('a request running while 268 applies', () => {
+    it('A11 one that holds workspaces and then reads workspace_subscriptions: no deadlock, both finish', async () => {
+      await admin.query(`CREATE DATABASE ${LOCKS} TEMPLATE ${BASE}`);
+      const a = await connect(LOCKS);
+      const b = await connect(LOCKS);
+      try {
+        const ha = helpers(a);
+        const ws = await ha.workspace();
+        const pid = Number((await b.query('SELECT pg_backend_pid() AS p')).rows[0].p);
+        await a.query('BEGIN');
+        await a.query(`UPDATE public.workspaces SET name = 'Busy Co' WHERE id = $1`, [ws]);
+        const applying = apply268(b).then(() => null, (e: Error) => e);
+        // 268 is waiting for a lock the request holds.
+        let waiting = false;
+        for (let i = 0; i < 200 && !waiting; i += 1) {
+          const r = await admin.query(`SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1`, [pid]);
+          waiting = r.rows[0]?.wait_event_type === 'Lock';
+          if (!waiting) await new Promise((done) => setTimeout(done, 20));
+        }
+        expect(waiting).toBe(true);
+        const read = await a.query('SELECT count(*) FROM public.workspace_subscriptions').then(() => null, (e: Error) => e);
+        await a.query(read ? 'ROLLBACK' : 'COMMIT');
+        const failed = await applying;
+        expect(read?.message ?? null).toBeNull();
+        expect(failed?.message ?? null).toBeNull();
+        expect(await ha.schemaOf('billing_invoices')).toBe('billing_v2_archive');
+        expect((await ha.one(`SELECT name FROM public.workspaces WHERE id = $1`, [ws])).name).toBe('Busy Co');
+      } finally {
+        await a.end();
+        await b.end();
+      }
+    }, 120_000);
   });
 });

@@ -360,25 +360,35 @@ read.
 only. Since migrations 267 and 268 the schema `billing_v2_archive` holds
 billing v2's records (invoices, payments, wallets, periods, the log of their
 move into simple billing; `docs/billing/SIMPLE_BILLING.md`, "Phase 7B").
-When the source's archive holds any record, `check` and `run` stop and name
-each table with its row count. The archive's configuration tables, which
-migrations seed the same way on every database (currencies, tax rates, usage
-items, coupons, the v2 policy and worker health, the retired email
-templates), are not counted. To move anyway, run again with
+When the source's archive holds anything the target's migrations do not
+create, `check` and `run` stop and name each table with its row count. That
+counts every table — coupons and exchange rates included, which no migration
+seeds — except the five whose rows migrations seed on every database
+(currencies, the default tax rate, usage items, the v2 policy, the retired
+email templates). Those count only when their content differs from the
+target's (an edited tax rate, say), compared without their random ids and
+timestamps; on a target whose migrations have not built the archive yet,
+that comparison runs again after phase 3. To move anyway, run again with
 `BILLING_V2_ARCHIVE=separately`; the script then says, without stopping,
 what it leaves behind and prints the command that copies it. Once the move
-is done (the target's migrations have created the archive's tables, empty),
-run that command as a role that can read the archive on the source (it is
-closed to `service_role`) and owns its tables on the target:
+is done, run that command as a superuser on the target (and a role that can
+read the archive on the source; it is closed to `service_role`):
 
 ```sh
-pg_dump --data-only --table=billing_v2_archive.<table> … "$SOURCE_DATABASE_URL" \
-  | psql -v ON_ERROR_STOP=1 "$TARGET_DATABASE_URL"
+{ echo 'TRUNCATE billing_v2_archive.<every table>;'
+  pg_dump --data-only --disable-triggers --schema=billing_v2_archive "$SOURCE_DATABASE_URL"
+} | psql --single-transaction -v ON_ERROR_STOP=1 "$TARGET_DATABASE_URL"
 ```
 
-Compare the row counts on both sides afterwards. The archive's tables keep
-their foreign keys to each other, so pass every table the script listed in
-one `pg_dump`.
+It replaces the target's whole archive (which then holds only the rows its
+migrations seeded) in one transaction. The archive's tables keep their
+foreign keys to each other — an invoice and a coupon redemption reference
+their coupon, a payment its intent and back — so copying only some of them
+would fail on a foreign key part-way; `--disable-triggers` (superuser) lets
+the rows that reference each other in a cycle load. Afterwards `check`
+reports that the target's archive already holds exactly the same. A target
+whose archive holds other records is refused: copying would replace them,
+so what happens to them is left to you.
 
 `scripts/ci/move-data-test.sh` runs all of this in CI on `postgres:16` and
 `pgvector/pgvector:pg17`, against throwaway databases:
@@ -395,8 +405,11 @@ one `pg_dump`.
   `FORCE RLS` tables, and the move back out of it;
 - refusals for an RLS-filtered source role, a target role that does not own
   the tables, and the same database twice;
-- a record in the source's `billing_v2_archive`: `check` and `run` refuse
-  until `BILLING_V2_ARCHIVE=separately`, and name what to copy.
+- a record in the source's `billing_v2_archive`, a coupon or exchange rate
+  only the source has, or an edited seeded tax rate: `check` and `run`
+  refuse until `BILLING_V2_ARCHIVE=separately`; the printed command then
+  copies the whole archive (a coupon with its invoice and redemption) in one
+  transaction, and a target archive holding other records is refused.
 
 After every failure the target's rows, triggers, constraints and sequences
 are compared with their state before the run.

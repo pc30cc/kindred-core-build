@@ -1,6 +1,7 @@
 /**
  * One-click migration of the whole public schema + data to a self-hosted
- * Supabase / PostgreSQL target.
+ * Supabase / PostgreSQL target, and of billing_v2_archive's rows (billing v2's
+ * records since migration 268) into the target's archive.
  *
  * Express-only (no edge functions). The source side reuses the SECURITY
  * DEFINER helpers already used by the admin backup path
@@ -9,6 +10,7 @@
  */
 import { Client } from 'pg';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { ARCHIVE_SCHEMA, archiveKey, fetchArchiveTables } from './archiveExport.js';
 
 export const PAGE_SIZE = 500;
 const INSERT_BATCH = 200;
@@ -121,7 +123,7 @@ export interface MigrationOptions {
  * the whole multi-row INSERT is one statement a single such column silently
  * zeroed out entire tables (conversations, workspace_domains, ...).
  */
-async function targetColumnTypes(client: Client, table: string) {
+async function targetColumnTypes(client: Client, table: string, schema = 'public') {
   const { rows } = await client.query<{
     column_name: string;
     data_type: string;
@@ -130,8 +132,8 @@ async function targetColumnTypes(client: Client, table: string) {
   }>(
     `select column_name, data_type, is_generated, identity_generation
        from information_schema.columns
-      where table_schema = 'public' and table_name = $1`,
-    [table],
+      where table_schema = $2 and table_name = $1`,
+    [table, schema],
   );
   const map = new Map<string, string>();
   for (const r of rows) {
@@ -283,7 +285,14 @@ export async function runSelfhostMigration(
     const tables = ((tableData as unknown as (string | { admin_list_export_tables: string })[]) ?? []).map((t) =>
       typeof t === 'string' ? t : t.admin_list_export_tables,
     );
-    emit({ type: 'tables', total: tables.length });
+    // billing_v2_archive (migration 268): billing v2's records. Copied into
+    // the target's archive, which its migrations (267, 268) create.
+    const archived = Object.keys(await fetchArchiveTables(sb, actorId));
+    const work: { schema: string; table: string }[] = [
+      ...tables.map((table) => ({ schema: 'public', table })),
+      ...archived.map((table) => ({ schema: ARCHIVE_SCHEMA, table })),
+    ];
+    emit({ type: 'tables', total: work.length });
 
     // Skip FK ordering / trigger side effects while loading rows.
     let replicaMode = true;
@@ -294,37 +303,42 @@ export async function runSelfhostMigration(
 
     let index = 0;
     let totalRows = 0;
-    for (const table of tables) {
+    for (const { schema, table } of work) {
       index += 1;
-      emit({ type: 'table', table, index, total: tables.length });
+      const label = schema === 'public' ? table : archiveKey(table);
+      const qualified = `"${schema.replace(/"/g, '""')}"."${table.replace(/"/g, '""')}"`;
+      emit({ type: 'table', table: label, index, total: work.length });
 
       const exists = await target.query(
         `select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
-         where n.nspname = 'public' and c.relkind = 'r' and c.relname = $1`,
-        [table],
+         where n.nspname = $2 and c.relkind = 'r' and c.relname = $1`,
+        [table, schema],
       );
       if (exists.rowCount === 0) {
-        emit({ type: 'tableDone', table, rows: 0, skipped: 'missing_on_target' });
+        if (schema !== 'public') {
+          emit({ type: 'warn', message: `${label}: not on the target (apply its migrations 267 and 268 first) — its rows were not copied` });
+        }
+        emit({ type: 'tableDone', table: label, rows: 0, skipped: 'missing_on_target' });
         continue;
       }
 
       if (options.truncateTarget) {
         await target
-          .query(`truncate table public."${table.replace(/"/g, '""')}" cascade`)
-          .catch((e) => emit({ type: 'warn', message: `truncate ${table}: ${e.message}` }));
+          .query(`truncate table ${qualified} cascade`)
+          .catch((e) => emit({ type: 'warn', message: `truncate ${label}: ${e.message}` }));
       }
 
-      const types = await targetColumnTypes(target, table);
+      const types = await targetColumnTypes(target, table, schema);
       let rowsCopied = 0;
 
       for (let offset = 0; ; offset += PAGE_SIZE) {
         const { data, error } = await sb.rpc('admin_export_table', {
           _actor_user_id: actorId,
-          _table: table,
+          _table: label,
           _limit: PAGE_SIZE,
           _offset: offset,
         });
-        if (error) throw new Error(`${table}: ${error.message}`);
+        if (error) throw new Error(`${label}: ${error.message}`);
         const page = (data as Record<string, unknown>[] | null) ?? [];
         if (page.length === 0) break;
 
@@ -341,12 +355,12 @@ export async function runSelfhostMigration(
             return `(${placeholders.join(',')})`;
           });
           const colList = columns.map((c) => `"${c.replace(/"/g, '""')}"`).join(',');
-          const sql = `insert into public."${table.replace(/"/g, '""')}" (${colList}) values ${tuples.join(',')} on conflict do nothing`;
+          const sql = `insert into ${qualified} (${colList}) values ${tuples.join(',')} on conflict do nothing`;
           try {
             await target.query(sql, params);
             rowsCopied += batch.length;
           } catch (e) {
-            emit({ type: 'warn', message: `${table}: ${(e as Error).message}` });
+            emit({ type: 'warn', message: `${label}: ${(e as Error).message}` });
           }
         }
 
@@ -354,7 +368,7 @@ export async function runSelfhostMigration(
       }
 
       totalRows += rowsCopied;
-      emit({ type: 'tableDone', table, rows: rowsCopied });
+      emit({ type: 'tableDone', table: label, rows: rowsCopied });
     }
 
     if (replicaMode) {
@@ -410,7 +424,7 @@ export async function runSelfhostMigration(
             JOIN pg_class t ON t.oid = d.refobjid
             JOIN pg_namespace tn ON tn.oid = t.relnamespace
             JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
-            WHERE c.relkind = 'S' AND n.nspname = 'public'
+            WHERE c.relkind = 'S' AND n.nspname IN ('public', 'billing_v2_archive')
           LOOP
             BEGIN
               EXECUTE format('SELECT setval(%L, COALESCE((SELECT MAX(%s) FROM %s), 0) + 1, false)', r.seq, r.col, r.tbl);
@@ -421,7 +435,7 @@ export async function runSelfhostMigration(
         $seq$;`)
       .catch((e) => emit({ type: 'warn', message: `sequences: ${e.message}` }));
 
-    emit({ type: 'done', tables: tables.length, rows: totalRows });
+    emit({ type: 'done', tables: work.length, rows: totalRows });
   } finally {
     await target.end().catch(() => undefined);
   }

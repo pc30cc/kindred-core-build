@@ -35,8 +35,14 @@
 #                    once empty it gets as far as the schema match, which says
 #                    the migrations stayed applied and no data was copied.
 #   billing v2       a record in the source's billing_v2_archive (which the
-#   archive          move does not copy): check and run refuse until
-#                    BILLING_V2_ARCHIVE=separately, and name what to copy.
+#   archive          move does not copy), a Super Admin coupon or exchange
+#                    rate there, or an edited seeded row (a tax rate): check
+#                    and run refuse until BILLING_V2_ARCHIVE=separately. The
+#                    copy command they print brings the whole archive over in
+#                    one transaction (an invoice and a redemption referencing
+#                    a coupon arrive with it); then the target counts as
+#                    holding the same, and a target holding other records is
+#                    refused.
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -285,17 +291,59 @@ ok "an empty one gets as far as the schema match, which says the migrations stay
 # The source holds a billing v2 record in billing_v2_archive (268), which the
 # move does not copy: check and run stop before writing, until the operator
 # says it is copied separately; the seeded configuration rows there do not
-# count.
+# count while they match the target's.
 sql mvt_src -c "INSERT INTO billing_v2_archive.migration_log (source_table, source_id, workspace_id, action, details)
                 VALUES ('billing_payment_intents', gen_random_uuid(), '00000000-0000-0000-0000-0000000000c1', 'waived', '{\"reason\": \"test\"}')"
 state mvt_dst > "$WORK/saved"
-expect_refusal "archive records (check)" "billing_v2_archive holds billing v2's records: migration_log \(1 rows\).*BILLING_V2_ARCHIVE=separately.*--table=billing_v2_archive\.migration_log" check "$SRC" "$DST"
+expect_refusal "archive records (check)" "billing_v2_archive holds billing v2's records: migration_log \(1 rows\).*BILLING_V2_ARCHIVE=separately.*--schema=billing_v2_archive" check "$SRC" "$DST"
 expect_refusal "archive records (run)" 'migration_log \(1 rows\).*Nothing was written' run "$SRC" "$DST"
 unchanged_after mvt_dst "$WORK/saved"
 move check "$SRC" "$DST" BILLING_V2_ARCHIVE=separately || die "check with BILLING_V2_ARCHIVE=separately failed"
 grep -q 'NOT copied by this script' "$WORK/out" || die "check did not say the archive is not copied"
 sql mvt_src -c "DELETE FROM billing_v2_archive.migration_log"
 ok "billing v2 records in billing_v2_archive: check and run refuse until BILLING_V2_ARCHIVE=separately, and say what to copy"
+
+# A Super Admin's coupon and exchange rate exist only on the source (no
+# migration seeds either table): they count, with nothing referencing them.
+sql mvt_src -c "INSERT INTO billing_v2_archive.billing_coupons (id, code, discount_type, percent_off) VALUES ('00000000-0000-0000-0000-0000000005c1', 'ADMIN10', 'percent', 10)" \
+            -c "INSERT INTO billing_v2_archive.billing_exchange_rates (base_code, quote_code, rate) VALUES ('USD', 'IRR', 600000)"
+expect_refusal "a coupon and an exchange rate" "billing_coupons \(1 rows\).*billing_exchange_rates \(1 rows\).*BILLING_V2_ARCHIVE=separately" check "$SRC" "$DST"
+sql mvt_src -c "DELETE FROM billing_v2_archive.billing_exchange_rates" -c "DELETE FROM billing_v2_archive.billing_coupons"
+# A seeded row a Super Admin edited counts too: it differs from the target's.
+sql mvt_src -c "UPDATE billing_v2_archive.billing_tax_rates SET rate_percent = rate_percent + 1"
+expect_refusal "an edited tax rate" "billing_tax_rates \(differs from the target's\).*BILLING_V2_ARCHIVE=separately" check "$SRC" "$DST"
+sql mvt_src -c "UPDATE billing_v2_archive.billing_tax_rates SET rate_percent = rate_percent - 1"
+move check "$SRC" "$DST" || die "check refused a source whose archive holds only the seeded rows"
+ok "a coupon or exchange rate only the source has, or an edited seeded tax rate, count as records"
+
+# An invoice and a redemption that reference a coupon, plus an edited tax rate:
+# the printed command copies the whole archive in one transaction.
+sql mvt_src -c "INSERT INTO billing_v2_archive.billing_coupons (id, code, discount_type, percent_off) VALUES ('00000000-0000-0000-0000-0000000005c1', 'ADMIN10', 'percent', 10)" \
+            -c "INSERT INTO billing_v2_archive.billing_invoices (id, workspace_id, invoice_number, invoice_type, coupon_id) VALUES ('00000000-0000-0000-0000-0000000005c2', '00000000-0000-0000-0000-0000000000c1', 'INV-V2-1', 'manual', '00000000-0000-0000-0000-0000000005c1')" \
+            -c "INSERT INTO billing_v2_archive.billing_coupon_redemptions (coupon_id, workspace_id, invoice_id) VALUES ('00000000-0000-0000-0000-0000000005c1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000005c2')" \
+            -c "UPDATE billing_v2_archive.billing_tax_rates SET rate_percent = rate_percent + 1"
+move run "$SRC" "$DST" BILLING_V2_ARCHIVE=separately || die "run with BILLING_V2_ARCHIVE=separately failed"
+copy="$(grep -o "{ echo 'TRUNCATE .* TARGET" "$WORK/out" | head -1)"
+[ -n "$copy" ] || die "run printed no copy command"
+grep -q -- "billing_v2_archive.billing_coupons" <<< "$copy" || die "the copy command leaves billing_coupons out"
+copy="${copy/ SOURCE;/ $SRC;}"; copy="${copy% TARGET} $DST"
+eval "$copy" > "$WORK/copy.log" 2>&1 || { cat "$WORK/copy.log" >&2; die "the printed copy command failed"; }
+archive_rows() { sql "$1" -c "SET TimeZone = 'UTC'" -f - <<'SQL'
+SELECT format('SELECT %L || ''|'' || count(*) || ''|'' || coalesce(md5(string_agg((to_jsonb(t) - ''{id,created_at,updated_at,archived_at}''::text[])::text, E''\n'' ORDER BY (to_jsonb(t) - ''{id,created_at,updated_at,archived_at}''::text[])::text)), ''-'') FROM billing_v2_archive.%I t;', relname, relname)
+  FROM pg_class WHERE relnamespace = 'billing_v2_archive'::regnamespace AND relkind = 'r' ORDER BY relname
+\gexec
+SQL
+}
+diff <(archive_rows mvt_src) <(archive_rows mvt_dst) > "$WORK/archive.diff" || { cat "$WORK/archive.diff" >&2; die "the target's archive differs from the source's after the copy"; }
+[ "$(sql mvt_dst -c "SELECT count(*) FROM billing_v2_archive.billing_coupon_redemptions r JOIN billing_v2_archive.billing_invoices i ON i.id = r.invoice_id AND i.coupon_id = r.coupon_id")" = 1 ] || die "the coupon's invoice and redemption did not arrive"
+ok "the printed command copies the whole archive (coupon, invoice, redemption, edited tax rate) in one transaction"
+
+move check "$SRC" "$DST" || die "check refused although the target's archive already holds the same"
+grep -q 'already holds exactly the same' "$WORK/out" || die "check did not say the target already holds the archive"
+sql mvt_src -c "INSERT INTO billing_v2_archive.migration_log (source_table, source_id, workspace_id, action, details)
+                VALUES ('billing_payment_intents', gen_random_uuid(), '00000000-0000-0000-0000-0000000000c1', 'waived', '{}')"
+expect_refusal "a target archive holding other records" "the target's holds different ones: .*billing_coupons \(1 rows\)" check "$SRC" "$DST" BILLING_V2_ARCHIVE=separately
+ok "once copied, the archive counts as on the target; a target archive holding other records is refused"
 
 for db in mvt_src mvt_dst mvt_supa mvt_fresh; do admin -c "DROP DATABASE $db"; done
 admin -c "DROP ROLE mvt_supa" -c "DROP ROLE mvt_reader"

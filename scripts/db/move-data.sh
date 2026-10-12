@@ -235,29 +235,75 @@ orphaned="$(ro "$TARGET" "
 echo "target: no rows in tables the source does not have"
 
 # billing_v2_archive (migrations 267 and 268) holds billing v2's records —
-# invoices, payments, wallets, periods — and the log of their move into simple
-# billing. This script copies the public schema only, so a source whose
-# archive holds records stops here, unless the operator copies them separately
-# once the move is done (the target's migrations create the archive's tables)
-# and says so with BILLING_V2_ARCHIVE=separately. The archive's configuration
-# tables are left out of the check: migrations seed the same rows on every
-# database (currencies, tax rates, usage items, the v2 policy, the retired
-# email templates).
-ARCHIVE_CONFIG="'email_templates','billing_currencies','billing_exchange_rates','billing_tax_rates','billing_coupons','billing_usage_items','billing_v2_policy','billing_v2_worker_health'"
-archived="$(ro "$SOURCE" "
-  SELECT coalesce(string_agg(relname || '|' || n, E'\n' ORDER BY relname), '')
-    FROM (SELECT c.relname,
-                 (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM billing_v2_archive.%I', c.relname), false, true, '')))[1]::text::bigint AS n
-            FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
-           WHERE ns.nspname = 'billing_v2_archive' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
-             AND c.relname NOT IN ($ARCHIVE_CONFIG)) x
-   WHERE n > 0")"
-if [ -n "$archived" ]; then
-  archived_list="$(awk -F'|' '{ printf "%s%s (%s rows)", (NR > 1 ? ", " : ""), $1, $2 }' <<< "$archived")"
-  archived_copy="pg_dump --data-only$(awk -F'|' '{ printf " --table=billing_v2_archive.%s", $1 }' <<< "$archived") SOURCE | psql -v ON_ERROR_STOP=1 TARGET"
-  [ "${BILLING_V2_ARCHIVE:-}" = separately ] || fail "The source's billing_v2_archive holds billing v2's records: $(short "$archived_list"). This script copies the public schema only. Run again with BILLING_V2_ARCHIVE=separately, then, once the move is done, copy them: $archived_copy. Nothing was written."
-  echo "source: billing_v2_archive holds records ($(short "$archived_list")); NOT copied by this script — once the move is done: $archived_copy"
-fi
+# invoices, payments, wallets, periods, coupons, exchange rates — and the log
+# of their move into simple billing. This script copies the public schema
+# only, so a source whose archive holds anything the target's migrations do not
+# create stops here, unless the operator copies the archive separately once the
+# move is done and says so with BILLING_V2_ARCHIVE=separately.
+#
+# Every table counts, except the five whose rows migrations seed on every
+# database (currencies, the default tax rate, usage items, the v2 policy, the
+# retired email templates): those count only when their content differs from
+# the target's (an edited tax rate, say), compared without the columns a seed
+# fills differently on each database (random ids, timestamps). On a target
+# whose migrations have not built the archive yet, that comparison runs again
+# after phase 3.
+#
+# The copy it prints replaces the target's archive as a whole, in one
+# transaction: the archive's tables reference each other (an invoice its
+# coupon, a payment its intent and back), so copying only some of them would
+# fail on a foreign key part-way.
+ARCHIVE_SEEDED="'billing_currencies','billing_tax_rates','billing_usage_items','billing_v2_policy','email_templates'"
+archive_fingerprints() { # $1 = url -> name|seeded|rows|checksum, one line per table of billing_v2_archive
+  ro "$1" "
+    SELECT c.relname || '|' || s.seeded::int || '|' || (xpath('/row/n/text()', r.x))[1]::text || '|' || (xpath('/row/h/text()', r.x))[1]::text
+      FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+     CROSS JOIN LATERAL (SELECT c.relname IN ($ARCHIVE_SEEDED) AS seeded) s
+     CROSS JOIN LATERAL (SELECT query_to_xml(format(
+             'SELECT count(*) AS n, coalesce(md5(string_agg(h, '''' ORDER BY h)), ''-'') AS h
+                FROM (SELECT md5((to_jsonb(t) - %L::text[])::text) AS h FROM billing_v2_archive.%I t) x',
+             CASE WHEN s.seeded THEN '{id,created_at,updated_at,archived_at}' ELSE '{}' END, c.relname), false, true, '') AS x) r
+     WHERE ns.nspname = 'billing_v2_archive' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+     ORDER BY c.relname"
+}
+archive_deferred=0
+archive_check() { # $1 = what was already written, for the failure message
+  local result records edited target_records identical tables copy
+  archive_fingerprints "$SOURCE" > "$WORK/archive.src"
+  archive_fingerprints "$TARGET" > "$WORK/archive.dst"
+  result="$(awk -F'|' '
+    FILENAME == ARGV[1] { dst[$1] = $3 "|" $4; if ($2 == 0 && $3 > 0) trec = trec (trec == "" ? "" : ", ") $1 " (" $3 " rows)"; next }
+    { tables = tables (tables == "" ? "" : ", ") "billing_v2_archive." $1
+      if (!($1 in dst)) { missing = 1; if ($2 == 1) deferred = 1 }
+      else if (dst[$1] != $3 "|" $4) differs = 1
+      if ($2 == 0 && $3 > 0) rec = rec (rec == "" ? "" : ", ") $1 " (" $3 " rows)"
+      if ($2 == 1 && ($1 in dst) && dst[$1] != $3 "|" $4) ed = ed (ed == "" ? "" : ", ") $1 " (differs from the target'"'"'s)"
+    }
+    END {
+      print "records|" rec; print "edited|" ed; print "target_records|" trec; print "tables|" tables
+      print "deferred|" (deferred ? 1 : 0); print "identical|" ((NR > 0 && !missing && !differs) ? 1 : 0)
+    }' "$WORK/archive.dst" "$WORK/archive.src")"
+  field() { awk -F'|' -v k="$1" '$1 == k { sub(/^[^|]*\|/, ""); print }' <<< "$result"; }
+  records="$(field records)"; edited="$(field edited)"; target_records="$(field target_records)"
+  identical="$(field identical)"; tables="$(field tables)"; archive_deferred="$(field deferred)"
+  if [ -z "$records$edited" ]; then
+    if [ "$archive_deferred" = 1 ]; then
+      echo "source: billing_v2_archive holds no records; its seeded tables are compared with the target's once its migrations have run"
+    else
+      echo "source: billing_v2_archive holds nothing beyond what the target's migrations create"
+    fi
+    return 0
+  fi
+  if [ "$identical" = 1 ]; then
+    echo "source: billing_v2_archive holds records ($(short "$records${records:+${edited:+, }}$edited")); the target's archive already holds exactly the same (copied earlier)"
+    return 0
+  fi
+  [ -z "$target_records" ] || fail "The source's billing_v2_archive holds billing v2's records ($(short "$records${records:+${edited:+, }}$edited")) and the target's holds different ones: $(short "$target_records"). This script copies the public schema only, and copying the source's archive would replace the target's. Decide what happens to the target's — export them, empty the tables — and run again. $1"
+  copy="{ echo 'TRUNCATE $tables;'; pg_dump --data-only --disable-triggers --schema=billing_v2_archive SOURCE; } | psql --single-transaction -v ON_ERROR_STOP=1 TARGET"
+  [ "${BILLING_V2_ARCHIVE:-}" = separately ] || fail "The source's billing_v2_archive holds billing v2's records: $(short "$records${records:+${edited:+, }}$edited"). This script copies the public schema only. Run again with BILLING_V2_ARCHIVE=separately, then, once the move is done, copy the whole archive as a superuser on the target, in one transaction: $copy . $1"
+  echo "source: billing_v2_archive holds records ($(short "$records${records:+${edited:+, }}$edited")); NOT copied by this script — once the move is done, as a superuser on the target: $copy"
+}
+archive_check "Nothing was written."
 echo "source: $(wc -l < "$WORK/tables" | tr -d ' ') tables, $(ro "$SOURCE" "SELECT pg_size_pretty(sum(pg_total_relation_size(c.oid))) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','p')") in public"
 echo "source sessions other than this one (stop the application before 'run'):"
 ro "$SOURCE" "SELECT '  ' || coalesce(nullif(application_name, ''), '?') || ' as ' || usename || ': ' || count(*) || ' (' || count(*) FILTER (WHERE state = 'active') || ' active)'
@@ -320,6 +366,7 @@ fi
 # ── 4. schema match ─────────────────────────────────────────────────────
 if [ "$schema_ready" = 0 ]; then
   say "4. Schema match — read-only"
+  [ "$archive_deferred" = 0 ] || archive_check "No data was copied from the source. $migrated"
   ro "$TARGET" "$COLUMNS_SQL" | LC_ALL=C sort > "$WORK/target_columns"
   missing="$(LC_ALL=C comm -23 "$WORK/source_columns" "$WORK/target_columns" || true)"
   [ -z "$missing" ] || fail "These source columns do not exist on the target:

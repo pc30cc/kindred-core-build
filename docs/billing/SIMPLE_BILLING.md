@@ -1051,6 +1051,14 @@ counts as done on a database once 268 is applied there.
 no `CASCADE` anywhere; it can be run again, and a second run finds nothing
 to do):
 
+0. **Locks first.** Its first statement takes `ACCESS EXCLUSIVE` on
+   `workspaces`, `billing_plans`, `workspace_subscriptions` and then each v2
+   table still in `public`, in that order — the order requests take them.
+   Taken step by step instead (the column drop in 4 before the foreign keys
+   to `workspaces` in 5), a request holding `workspaces` and then reading
+   `workspace_subscriptions` would deadlock with it. Requests on those
+   tables wait until the COMMIT (a second or two).
+
 1. **Guards, before any change.** It raises unless 267 is applied. While v2
    tables are still in `public` it runs the move once more
    (`billing_v2_migrate_to_simple(true)`, which picks up anything written
@@ -1138,12 +1146,21 @@ to do):
    tables, so the in-app `pg_dump` keeps working
    (`docs/operations/DATABASE_BACKUPS.md`). On WebYar it is a member of
    `pg_read_all_data` already, so nothing is granted there.
+   Super Admin → Database's JSON backup, SQL dump and one-click migration
+   read the archive too: `admin_export_archive_tables` lists its tables and
+   columns, and `admin_export_table` takes `billing_v2_archive.<table>`. The
+   JSON backup carries them as `billing_v2_archive.<table>` keys (its restore
+   reloads `public` only), the SQL dump as `INSERT INTO
+   "billing_v2_archive".…` (the target's migrations create the tables), and
+   the migration copies them into the target's archive (a target without it
+   gets a warning per table).
 8. **Post-checks** (`billing_v2_archive_check_failed`, listing every
    failure, and the whole file rolls back): no v2 table left in `public`; no
    foreign key across the archive's edge; outside the archive no function
    body, view, trigger or policy names an archived table, a dropped column or
-   a removed function, and no object depends on an archived table; no
-   application role can reach the archive.
+   a removed function (matched in any letter case: an unquoted
+   `PUBLIC.BILLING_INVOICES` is the same table), and no object depends on an
+   archived table; no application role can reach the archive.
 
 **Reading the archive.** As `postgres` (or the backup role):
 `\dt billing_v2_archive.*`, then for instance `SELECT * FROM
@@ -1177,8 +1194,8 @@ The off-server dumps taken before 267 and before 268 (below) restore with
 
 **Moving a database.** `scripts/db/move-data.sh` copies `public` only; it
 stops when the source's archive holds records unless
-`BILLING_V2_ARCHIVE=separately`, and prints the `pg_dump --table=…` command
-that copies them (`docs/DATABASE.md` §6).
+`BILLING_V2_ARCHIVE=separately`, and prints the command that copies the
+whole archive in one transaction (`docs/DATABASE.md` §6).
 
 **Deploying 7B** (after 7A has run everywhere for at least 48 hours, with at
 least one daily backup since, and `billing_v2_migrate_to_simple(false)`

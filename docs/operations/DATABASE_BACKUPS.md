@@ -118,6 +118,14 @@ A full `pg_dump` must read it, so the backup login matters:
   membership of `pg_read_all_data`), then run Super Admin → Database → Backup
   once after 268.
 
+Super Admin → Database's other exports — the JSON backup, the SQL dump
+(`dump.sql.gz`) and the one-click migration — carry the archive's rows too,
+read through `admin_export_archive_tables` and `admin_export_table`
+(`billing_v2_archive.<table>`), which run as their owner. The JSON backup
+lists them as `billing_v2_archive.<table>`; restoring such a backup reloads
+`public` only. The SQL dump and the migration write them into the target's
+`billing_v2_archive`, whose tables the target's migrations (267, 268) create.
+
 Coolify's daily dump runs as `postgres` and includes the schema. A restore
 (below) brings the archive back with the rest; the roles it names must exist,
 as for every other schema.

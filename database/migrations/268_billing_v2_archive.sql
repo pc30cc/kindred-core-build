@@ -60,6 +60,9 @@
 --   7. Backups: the role webyar_backup (the in-app pg_dump's login), when it
 --      exists and does not already read everything through pg_read_all_data,
 --      may read billing_v2_archive.
+--      Super Admin's JSON backup, SQL dump and one-click migration read the
+--      archive too: admin_export_archive_tables lists its tables and columns,
+--      admin_export_table takes 'billing_v2_archive.<table>'.
 --   8. Post-checks (one exception lists every failure): no v2 table left in
 --      public; no foreign key across the archive's edge; outside the archive
 --      no function body, view, trigger or policy names an archived table, a
@@ -70,11 +73,12 @@
 -- by a person; the data comes back, the v2 engine does not. No migration may
 -- drop the archive or its tables (src/test/ci/migrationDataDestruction.test.ts).
 --
--- One transaction; lock_timeout 5s. ALTER TABLE workspace_subscriptions, the
--- trigger drops and the foreign keys dropped in 5 (their other ends are
--- workspaces, billing_plans and workspace_subscriptions) take short
--- exclusive locks until the COMMIT: a lock timeout rolls the whole file
--- back, run it again. Re-runnable: every step is guarded, and a
+-- One transaction; lock_timeout 5s. Its first statement takes every
+-- exclusive lock it needs, in the order requests take them: workspaces,
+-- billing_plans, workspace_subscriptions (ALTER TABLE in 4, the other ends of
+-- the foreign keys dropped in 5), then the v2 tables. They are held until the
+-- COMMIT (a second or two), so requests wait rather than deadlock; a lock
+-- timeout rolls the whole file back, run it again. Re-runnable: every step is guarded, and a
 -- second run finds nothing to do. Dry run: the file with its final COMMIT;
 -- turned into ROLLBACK;.
 
@@ -122,6 +126,31 @@ INSERT INTO pg_temp.v2_removed_functions (name) VALUES
   ('billing_enroll_workspace'), ('admin_reset_billing_data'),
   -- 267's hold
   ('billing_account_v2_next_period');
+
+-- ─── 0b. Every exclusive lock first, in the application's order ──────────
+-- The steps below need ACCESS EXCLUSIVE on workspace_subscriptions (4),
+-- on workspaces, billing_plans and workspace_subscriptions again (5: the
+-- v2 tables' foreign keys to them) and on every v2 table. Taken one by one,
+-- in that order, they would deadlock with a request that holds workspaces
+-- and then reads workspace_subscriptions (it waits for 268, 268 for it).
+-- Taken here, before anything else, in the order requests take them
+-- (workspaces, billing_plans, workspace_subscriptions, then the v2 tables),
+-- 268 waits for such a request to finish (up to lock_timeout) and never
+-- holds one of them while waiting for another.
+DO $locks$
+DECLARE
+  r record;
+BEGIN
+  LOCK TABLE public.workspaces, public.billing_plans, public.workspace_subscriptions IN ACCESS EXCLUSIVE MODE;
+  FOR r IN
+    SELECT t.name FROM pg_temp.v2_archive_tables t
+     WHERE to_regclass('public.' || quote_ident(t.name)) IS NOT NULL
+     ORDER BY t.name
+  LOOP
+    EXECUTE format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', r.name);
+  END LOOP;
+END
+$locks$;
 
 -- ─── 1. Guards ────────────────────────────────────────────────────────────
 DO $guard$
@@ -814,6 +843,104 @@ BEGIN
 END
 $backup$;
 
+-- ─── 7b. Super Admin's backup, SQL dump and migration carry the archive ───
+-- Super Admin → Database's JSON backup, its SQL dump and its one-click
+-- migration (server/services/database/) read public through
+-- admin_list_export_tables / admin_export_table / admin_export_column_meta.
+-- They also read the archive now: admin_export_archive_tables lists its
+-- tables with their columns, and admin_export_table takes
+-- 'billing_v2_archive.<table>'. Read-only, for a platform admin, like the
+-- others; the archive stays closed to service_role itself.
+CREATE OR REPLACE FUNCTION public.admin_export_archive_tables(_actor_user_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_result jsonb;
+BEGIN
+  IF NOT public.has_role(_actor_user_id, 'admin') THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
+  SELECT coalesce(jsonb_object_agg(t.relname, t.cols), '{}'::jsonb) INTO v_result
+    FROM (
+      SELECT c.relname,
+             coalesce((SELECT jsonb_agg(jsonb_build_object(
+                                'name', a.attname,
+                                'type', format_type(a.atttypid, a.atttypmod),
+                                'generated', (a.attgenerated <> '' OR a.attidentity = 'a')) ORDER BY a.attnum)
+                         FROM pg_attribute a
+                        WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped), '[]'::jsonb) AS cols
+        FROM pg_class c
+       WHERE c.relnamespace = to_regnamespace('billing_v2_archive') AND c.relkind = 'r'
+    ) t;
+  RETURN v_result;
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION public.admin_export_table(
+  _actor_user_id uuid,
+  _table text,
+  _limit integer DEFAULT 1000,
+  _offset integer DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET statement_timeout TO '120s'
+AS $fn$
+DECLARE
+  _rows   jsonb;
+  _schema text := 'public';
+  _name   text := _table;
+BEGIN
+  IF NOT public.has_role(_actor_user_id, 'admin') THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
+  IF _table LIKE 'billing\_v2\_archive.%' THEN
+    _schema := 'billing_v2_archive';
+    _name := substr(_table, length('billing_v2_archive.') + 1);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = _schema AND c.relkind = 'r' AND c.relname::text = _name
+  ) THEN
+    RAISE EXCEPTION 'unknown table %', _table;
+  END IF;
+  IF _limit IS NULL OR _limit <= 0 OR _limit > 5000 THEN
+    _limit := 1000;
+  END IF;
+
+  EXECUTE format(
+    'SELECT coalesce(jsonb_agg(to_jsonb(t)), ''[]''::jsonb) FROM (SELECT * FROM %I.%I ORDER BY 1 OFFSET %s LIMIT %s) t',
+    _schema, _name, greatest(coalesce(_offset, 0), 0), _limit
+  ) INTO _rows;
+
+  RETURN _rows;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.admin_export_archive_tables(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_export_table(uuid, text, integer, integer) FROM PUBLIC;
+DO $export_grants$
+BEGIN
+  IF to_regrole('anon') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.admin_export_archive_tables(uuid) FROM anon;
+    REVOKE ALL ON FUNCTION public.admin_export_table(uuid, text, integer, integer) FROM anon;
+  END IF;
+  IF to_regrole('authenticated') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.admin_export_archive_tables(uuid) FROM authenticated;
+    REVOKE ALL ON FUNCTION public.admin_export_table(uuid, text, integer, integer) FROM authenticated;
+  END IF;
+  IF to_regrole('service_role') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.admin_export_archive_tables(uuid) TO service_role;
+    GRANT EXECUTE ON FUNCTION public.admin_export_table(uuid, text, integer, integer) TO service_role;
+  END IF;
+END
+$export_grants$;
+
 -- ─── 8. Post-checks ───────────────────────────────────────────────────────
 -- Every object outside the archive (system schemas and extensions' own
 -- functions aside) is checked; each failure is listed.
@@ -860,7 +987,8 @@ BEGIN
   IF v_list IS NOT NULL THEN v_fail := v_fail || ('foreign keys across billing_v2_archive: ' || v_list); END IF;
 
   -- No function body outside the archive names an archived table, a dropped
-  -- column or a removed function.
+  -- column or a removed function, in any letter case (unquoted identifiers
+  -- are case-insensitive, and plpgsql records no dependency for them).
   SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text) INTO v_list
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -870,7 +998,7 @@ BEGIN
      AND l.lanname NOT IN ('c', 'internal')
      AND NOT EXISTS (SELECT 1 FROM pg_depend d
                       WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
-     AND p.prosrc ~ v_any;
+     AND p.prosrc ~* v_any;
   IF v_list IS NOT NULL THEN v_fail := v_fail || ('functions naming billing v2: ' || v_list); END IF;
 
   -- No view, trigger or policy outside the archive does.
@@ -878,20 +1006,20 @@ BEGIN
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE c.relkind IN ('v', 'm')
      AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'billing_v2_archive')
-     AND pg_get_viewdef(c.oid) ~ v_any;
+     AND pg_get_viewdef(c.oid) ~* v_any;
   IF v_list IS NOT NULL THEN v_fail := v_fail || ('views naming billing v2: ' || v_list); END IF;
 
   SELECT string_agg(format('%s.%s', t.tgrelid::regclass, t.tgname), ', ') INTO v_list
     FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
    WHERE NOT t.tgisinternal AND c.relnamespace <> 'billing_v2_archive'::regnamespace
-     AND pg_get_triggerdef(t.oid) ~ v_any;
+     AND pg_get_triggerdef(t.oid) ~* v_any;
   IF v_list IS NOT NULL THEN v_fail := v_fail || ('triggers naming billing v2: ' || v_list); END IF;
 
   SELECT string_agg(format('%s.%s', p.polrelid::regclass, p.polname), ', ') INTO v_list
     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
    WHERE c.relnamespace <> 'billing_v2_archive'::regnamespace
-     AND (coalesce(pg_get_expr(p.polqual, p.polrelid), '') ~ v_any
-          OR coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') ~ v_any);
+     AND (coalesce(pg_get_expr(p.polqual, p.polrelid), '') ~* v_any
+          OR coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') ~* v_any);
   IF v_list IS NOT NULL THEN v_fail := v_fail || ('policies naming billing v2: ' || v_list); END IF;
 
   -- No function, view or default outside the archive depends on an archived

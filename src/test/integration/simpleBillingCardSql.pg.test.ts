@@ -602,13 +602,8 @@ suite('262 — the saved card (real PostgreSQL, whole chain)', () => {
     const early = await cardWorkspace({ balance: PRO.monthly });
     await fn(`SELECT public.billing_account_renew($1) AS r`, [early.ws]);
     await kept(early.ws, (await cardRenewal(early.card)).settled, 'already_renewed');
-    // Or through billing v2.
-    const v2 = await cardWorkspace();
-    await q(
-      `INSERT INTO public.billing_subscription_periods (workspace_id, plan_id, status, period_start, period_end, billing_interval, source)
-       SELECT $1, plan_id, 'scheduled', current_period_end, current_period_end + interval '1 month', 'monthly', 'admin'
-         FROM public.workspace_subscriptions WHERE workspace_id = $1`, [v2.ws]);
-    await kept(v2.ws, (await cardRenewal(v2.card)).settled, 'already_renewed');
+    // (A next period paid through billing v2 is a prepaid next period since
+    // migration 267: billingV2Retirement.pg.test.ts.)
 
     const toFree = await cardWorkspace();
     await fn(`SELECT public.billing_account_schedule_change($1, $2, NULL) AS r`, [toFree.ws, freeId]);

@@ -34,7 +34,6 @@ import {
   handleWorkspaceEntitlementChanged,
   handlePlanDefinitionChanged,
 } from '../services/billing/entitlementChange.js';
-import { isV2Active } from '../services/billing/rollout.js';
 import {
   resolveEffectiveEntitlements,
   publicPlan,
@@ -42,7 +41,6 @@ import {
   unlimitedEntitlements,
 } from '../services/billing/effectiveEntitlements.js';
 import { isUsageSupported, resolveUsage } from '../services/billing/usageResolvers.js';
-import { adminGrantPlanV2 } from '../services/billing/adminGrant.js';
 import { renewalDueNotice } from '../services/billing/account/renewalNotice.js';
 import { afterAdminAssignment } from '../services/billing/account/plans.js';
 import type { PlanDefinitionLike } from '../services/billing/entitlementFanout.js';
@@ -61,10 +59,11 @@ function getConfig(req: Request) {
 }
 
 /**
- * The single writer of `plan_change_log` — the billing-dispute record of what
- * plan a workspace was on and when an admin changed it. Both call sites (the
- * admin assign and the admin revoke) go through here so
- * COMPLIANCE_AUDIT_LOGGING has one place to stop.
+ * The admin revoke's `plan_change_log` row — the billing-dispute record of
+ * what plan a workspace was on and when an admin changed it — so
+ * COMPLIANCE_AUDIT_LOGGING has one place to stop. (The admin assign's row is
+ * written by billing_account_write_subscription itself, like every simple
+ * billing plan change.)
  *
  * Entitlements themselves are unaffected: the authoritative state lives on
  * `workspace_subscriptions` and is written above, and the entitlement-change
@@ -89,7 +88,9 @@ async function insertPlanChangeLog(
  * mutation before authorization.
  */
 plansRouter.use('/admin', async (req, res, next) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
+  const adminId = await requirePlatformAdmin(req, res);
+  if (!adminId) return;
+  (req as Request & { adminUserId?: string }).adminUserId = adminId;
   next();
 });
 
@@ -620,69 +621,133 @@ plansRouter.delete('/admin/:planId', async (req, res) => {
 // ADMIN: Subscription management
 // ═══════════════════════════════════════════════════════════
 
+/**
+ * The end of an assignment with no `expiresAt`: one month (or one year) on,
+ * at the same time of day; the day overflows the way JavaScript's Date.UTC
+ * does (31 Jan + 1 month = 3 Mar), as billing v2's admin grant did.
+ */
+export function adminAssignmentEnd(start: Date, interval: 'monthly' | 'yearly'): Date {
+  return new Date(
+    Date.UTC(
+      start.getUTCFullYear() + (interval === 'yearly' ? 1 : 0),
+      start.getUTCMonth() + (interval === 'yearly' ? 0 : 1),
+      start.getUTCDate(),
+      start.getUTCHours(),
+      start.getUTCMinutes(),
+      start.getUTCSeconds(),
+    ),
+  );
+}
+
+const assignSchema = z.object({
+  workspaceId: z.string().uuid(),
+  planId: z.string().uuid(),
+  /** An ISO date; the assignment ends then. Without it: one interval from now. */
+  expiresAt: z
+    .string()
+    .refine((v) => !Number.isNaN(Date.parse(v)), 'expiresAt must be an ISO date')
+    .nullish(),
+  interval: z.enum(['monthly', 'yearly']).default('monthly'),
+  /** Only 'active': a Super Admin assignment is a running period. */
+  status: z.string().nullish(),
+});
+
+/**
+ * POST /api/plans/admin/assign — Super Admin puts a workspace on a plan with
+ * no money moving (simple billing, phase 7; billing v2's comped period is
+ * gone). Everything goes through the simple billing's own SQL:
+ *   1. billing_account_write_subscription: the subscription row (active,
+ *      from now to the end) and its plan_change_log row (change
+ *      'admin_assign', the admin as actor);
+ *   2. billing_account_admin_replaced (afterAdminAssignment): a prepayment of
+ *      the replaced period's next period returns to the balance, and a change
+ *      the customer had scheduled no longer applies;
+ *   3. billing_account_grant_month: the month's AI credit, at once (it is
+ *      idempotent per month, so the hourly job does not grant it again);
+ *   4. the entitlement-change funnel.
+ * All of these exist since migrations 261/264: the route works before and
+ * after 267.
+ */
 plansRouter.post('/admin/assign', async (req, res) => {
-  const { url, key } = getConfig(req);
-  const { workspaceId, planId, status, expiresAt } = req.body;
-  if (!workspaceId || !planId) return res.status(400).json({ error: 'Missing workspaceId or planId' });
-
-  const supabase = serviceClientFor(url, key);
-
-  // Get old plan for change log
-  const { data: oldSub } = await supabase
-    .from('workspace_subscriptions')
-    .select('plan_id')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-
-  let data: unknown = null;
-
-  // Under Billing V2 the subscription row is a projection of the active
-  // service period; writing it directly would bypass that period (migration
-  // 261 dropped the trigger that refused it). Grant a comped period through
-  // the canonical activation path instead.
-  if (await isV2Active(serverConfigOf(req), workspaceId)) {
-    try {
-      data = await adminGrantPlanV2(serverConfigOf(req), {
-        workspaceId,
-        planId,
-        expiresAt: expiresAt || null,
-      });
-    } catch (e) {
-      return res.status(500).json({ error: e instanceof Error && e.message ? e.message : 'Request failed' });
-    }
-  } else {
-    const { data: legacy, error } = await supabase.from('workspace_subscriptions').upsert({
-      workspace_id: workspaceId, plan_id: planId, provider_name: 'manual',
-      status: status || 'active',
-      current_period_start: new Date().toISOString(),
-      current_period_end: expiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'workspace_id' }).select().single();
-    if (error) return res.status(500).json({ error: 'Request failed' });
-    data = legacy;
+  const parsed = assignSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'INVALID_INPUT', details: parsed.error.flatten().fieldErrors });
+  }
+  const { workspaceId, planId, expiresAt, interval } = parsed.data;
+  if (parsed.data.status != null && parsed.data.status !== 'active') {
+    return res.status(400).json({ error: 'INVALID_STATUS', message: 'Only an active assignment is supported' });
   }
 
+  const start = new Date();
+  const end = expiresAt ? new Date(expiresAt) : adminAssignmentEnd(start, interval);
+  if (!(end.getTime() > start.getTime())) {
+    return res.status(400).json({ error: 'INVALID_EXPIRES_AT', message: 'expiresAt must be in the future' });
+  }
+
+  const config = serverConfigOf(req);
+  const { url, key } = getConfig(req);
+  const supabase = serviceClientFor(url, key);
+  const adminId = (req as Request & { adminUserId?: string }).adminUserId ?? null;
+
+  const { data: plan, error: planError } = await supabase
+    .from('billing_plans')
+    .select('id')
+    .eq('id', planId)
+    .maybeSingle();
+  if (planError) return res.status(500).json({ error: 'Request failed' });
+  if (!plan) return res.status(404).json({ error: 'UNKNOWN_PLAN' });
+
+  const { error: writeError } = await supabase.rpc('billing_account_write_subscription', {
+    p_workspace_id: workspaceId,
+    p_plan_id: planId,
+    p_interval: interval,
+    p_start: start.toISOString(),
+    p_end: end.toISOString(),
+    p_status: 'active',
+    p_change: 'admin_assign',
+    p_actor: adminId,
+    p_details: { source: 'admin_assign' },
+  });
+  if (writeError) {
+    console.warn('[plans] admin assign failed:', writeError.message);
+    return res.status(500).json({ error: 'Request failed' });
+  }
 
   // The period was replaced: a prepayment for the old one's next period
   // returns, a change the customer scheduled no longer applies.
-  await afterAdminAssignment(serverConfigOf(req), workspaceId);
+  await afterAdminAssignment(config, workspaceId);
 
-  // Log plan change
-  await insertPlanChangeLog(req, supabase, {
-    workspace_id: workspaceId,
-    old_plan_id: oldSub?.plan_id || null,
-    new_plan_id: planId,
-    change_type: oldSub ? 'change' : 'initial',
-    metadata: { source: 'admin_assign' },
+  // The month's AI credit, granted now rather than at the next hourly tick.
+  // `p_at` is the period's own start, so a database clock a moment behind
+  // this server's cannot place "now" before the period and skip the grant.
+  const { data: granted, error: grantError } = await supabase.rpc('billing_account_grant_month', {
+    p_workspace_id: workspaceId,
+    p_plan_id: planId,
+    p_period_start: start.toISOString(),
+    p_period_end: end.toISOString(),
+    p_at: start.toISOString(),
   });
+  // The plan is assigned either way; the hourly job grants the month later.
+  // A month granted nothing (the plan has no AI credit, or a lot of this
+  // period already funds it) is said in the log, so a missing credit is seen.
+  if (grantError) console.warn('[plans] admin assign: AI credit grant failed:', grantError.message);
+  else if (!(Number(granted) > 0)) {
+    console.info('[plans] admin assign: no AI credit granted for the month', { workspaceId, planId });
+  }
 
   // Central entitlement-change funnel: clears the cache AND enqueues the
   // deterministic KB catch-up (a plan change may newly grant `ai_assistant`).
-  await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
+  await handleWorkspaceEntitlementChanged(config, {
     workspaceId,
     source: 'admin_assign',
   });
-  res.json({ subscription: data });
+
+  const { data: subscription } = await supabase
+    .from('workspace_subscriptions')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  res.json({ subscription });
 });
 
 plansRouter.post('/admin/revoke', async (req, res) => {

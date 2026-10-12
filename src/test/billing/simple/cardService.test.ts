@@ -328,7 +328,6 @@ function rpcImpl(name: string, a: Row): { data: unknown; error: unknown } {
     case 'billing_account_unmark_notice':
       h.notices.delete(String(a.p_key));
       return { data: null, error: null };
-    case 'billing_account_v2_next_period':
     case 'billing_card_touch_workspace':
     case 'billing_account_ensure':
       return { data: null, error: null };

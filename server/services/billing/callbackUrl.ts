@@ -65,7 +65,7 @@ export function isSafeSignedBillingCallback(raw: string): boolean {
 /**
  * Canonical PUBLIC API origin — the address of THIS Express deployment, which
  * a split app/API topology serves from a different host than the browser
- * app. The bank/gateway callback (`/api/billing/return`,
+ * app. The bank/gateway callback (`/api/billing/account-return`,
  * `/api/billing/test-gateway`) MUST be built from this origin, never from a
  * browser-supplied return URL: deriving it from `browserReturnUrl.origin`
  * silently pointed the bank at the app host, which 404s whenever the app

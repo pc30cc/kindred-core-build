@@ -9,7 +9,7 @@
  * so each test also checks what the screens ask the server for.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
@@ -216,9 +216,10 @@ describe('Finance page tabs', () => {
     expect(app).toContain('"/admin/finance?tab=accounts"');
   });
 
-  it('hides the v2 danger zone (financial reset) unless billing v2 is on', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'pages', 'admin', 'finance', 'FinanceLedgerTabs.tsx'), 'utf8');
-    expect(src).toContain('{LEGACY_BILLING_ENABLED && <FinanceDangerZone');
+  it('has no billing v2 ledger tabs or danger zone (removed in phase 7A)', () => {
+    expect(existsSync(join(process.cwd(), 'src', 'pages', 'admin', 'finance', 'FinanceLedgerTabs.tsx'))).toBe(false);
+    const src = readFileSync(join(process.cwd(), 'src', 'pages', 'admin', 'FinancePage.tsx'), 'utf8');
+    expect(src).not.toMatch(/FinanceDangerZone|LEGACY_BILLING_/);
   });
 
   it('puts the gateway readiness card on top of Finance → Gateways', () => {

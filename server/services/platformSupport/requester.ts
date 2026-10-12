@@ -40,8 +40,7 @@ export interface RequesterWorkspace {
     status: string | null;
     /**
      * When the period being paid for began — the plan bought or last renewed:
-     * the active billing period's start, as the billing screen shows it, else
-     * the subscription's own `current_period_start`.
+     * the subscription's `current_period_start`, as the billing screen shows it.
      */
     period_start: string | null;
     /** When that period ends: the plan's expiry, or its renewal. */
@@ -157,7 +156,7 @@ export async function requesterSnapshot(
 
   let workspaces: RequesterWorkspace[] = [];
   if (ids.length) {
-    const [workspaceRows, subscriptionRows, periodRows, memberRows, counterRows, contactCounts] = await Promise.all([
+    const [workspaceRows, subscriptionRows, memberRows, counterRows, contactCounts] = await Promise.all([
       rows(sb.from('workspaces').select('id, name, status, created_at').in('id', ids)),
       rows(
         sb
@@ -166,16 +165,6 @@ export async function requesterSnapshot(
             'workspace_id, plan_id, status, billing_interval, current_period_start, current_period_end, trial_end, cancel_at_period_end, created_at',
           )
           .in('workspace_id', ids),
-      ),
-      // The period being paid for, as the billing screen reads it
-      // (billing/customer/readModels.ts): the active one wins over the
-      // subscription's own dates, which a v2 renewal does not move.
-      rows(
-        sb
-          .from('billing_subscription_periods')
-          .select('workspace_id, period_start, period_end')
-          .in('workspace_id', ids)
-          .eq('status', 'active'),
       ),
       rows(sb.from('workspace_members').select('workspace_id').in('workspace_id', ids)),
       rows(
@@ -202,7 +191,6 @@ export async function requesterSnapshot(
     const byId = <T extends Row>(list: T[], key: string) => new Map(list.map((r) => [String(r[key]), r]));
     const workspaceById = byId(workspaceRows, 'id');
     const subscriptionByWorkspace = byId(subscriptionRows, 'workspace_id');
-    const periodByWorkspace = byId(periodRows, 'workspace_id');
     const planById = byId(planRows, 'id');
     const counterByWorkspace = byId(counterRows, 'workspace_id');
     const contactsByWorkspace = new Map(contactCounts);
@@ -216,7 +204,6 @@ export async function requesterSnapshot(
       const id = String(membership.workspace_id);
       const workspace = workspaceById.get(id) ?? {};
       const subscription = subscriptionByWorkspace.get(id) ?? null;
-      const billingPeriod = periodByWorkspace.get(id) ?? null;
       const plan = subscription ? planById.get(String(subscription.plan_id)) ?? null : null;
       const limits = (plan?.limits as Row | null) ?? null;
       const counter = counterByWorkspace.get(id) ?? {};
@@ -233,8 +220,8 @@ export async function requesterSnapshot(
               slug: text(plan.slug),
               is_free: plan.is_free === true,
               status: text(subscription?.status),
-              period_start: text(billingPeriod?.period_start) ?? text(subscription?.current_period_start),
-              period_end: text(billingPeriod?.period_end) ?? text(subscription?.current_period_end),
+              period_start: text(subscription?.current_period_start),
+              period_end: text(subscription?.current_period_end),
               trial_end: text(subscription?.trial_end),
               cancel_at_period_end: subscription?.cancel_at_period_end === true,
               billing_interval: text(subscription?.billing_interval),

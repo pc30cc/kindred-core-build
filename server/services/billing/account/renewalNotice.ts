@@ -17,7 +17,6 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
-import { LEGACY_BILLING_ENABLED } from '../../../../shared/billingMode.js';
 import { isRelationMissing } from '../entitlementParse.js';
 
 const DAY_MS = 86_400_000;
@@ -58,19 +57,9 @@ async function readPlan(config: ServerConfig, planId: string): Promise<PlanRow |
   return (data as PlanRow | null) ?? null;
 }
 
-/** A next period already paid through billing v2 (billing_account_v2_next_period); false when unknown. */
-export async function v2NextPeriodPaid(config: ServerConfig, workspaceId: string): Promise<boolean> {
-  try {
-    const { data, error } = await getServiceClient(config).rpc('billing_account_v2_next_period', { p_workspace_id: workspaceId });
-    return !error && typeof data === 'string' && data.length > 0;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * The paid period that ends within RENEWAL_NOTICE_DAYS and will not renew,
- * or null (nothing to warn of, or billing v2 still runs). Throws on a failed
+ * or null (nothing to warn of). Throws on a failed
  * read; callers that only decorate a response catch it.
  */
 export async function renewalDueNotice(
@@ -78,7 +67,6 @@ export async function renewalDueNotice(
   workspaceId: string,
   now = Date.now(),
 ): Promise<RenewalDueNotice | null> {
-  if (LEGACY_BILLING_ENABLED) return null;
   const sb = getServiceClient(config);
   const { data: sub, error: subError } = await sb
     .from('workspace_subscriptions')
@@ -122,8 +110,6 @@ export async function renewalDueNotice(
   // replaced period does not count: it returns to the balance).
   const prepaidStart = account?.next_period_start ? Date.parse(account.next_period_start) : NaN;
   if (account?.next_period_prepaid_minor != null && Math.abs(prepaidStart - end) < 1000) return null;
-  // ...or through billing v2 (a scheduled period the due moment starts).
-  if (await v2NextPeriodPaid(config, workspaceId)) return null;
 
   const interval = account?.scheduled_interval ?? s.billing_interval ?? 'monthly';
   const price = account ? priceOf(target.prices, account.currency, interval) : null;

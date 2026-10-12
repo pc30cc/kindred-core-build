@@ -1,8 +1,11 @@
 /**
  * AI Usage Billing API.
  *
- *  /api/ai-billing/workspaces/:workspaceId/*  — workspace-facing, final numbers
- *      only. Provider cost, FX and the margin multiplier are NEVER exposed.
+ *  /api/ai-billing/workspaces/:workspaceId/history — workspace-facing, final
+ *      numbers only. Provider cost, FX and the margin multiplier are NEVER
+ *      exposed. (The balance, its packs and the monthly credit are the simple
+ *      billing's: /api/billing/account/:workspaceId/ai. Billing v2's summary
+ *      and Rial top-up routes were removed in phase 7.)
  *  /api/ai-billing/admin/*                    — platform super admin only,
  *      every mutation audited, gated by router-level middleware.
  */
@@ -12,7 +15,6 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
-import { getWorkspacePlanInfo } from '../middleware/featureGating.js';
 import * as ledger from '../services/ai-billing/ledger.js';
 import { billingCycleId } from '../services/ai-billing/runContext.js';
 import { getBillingMode, setBillingMode } from '../services/ai-billing/mode.js';
@@ -20,29 +22,10 @@ import { resetRateCache } from '../services/ai-billing/rates.js';
 import { runAiBillingRecovery } from '../services/ai-billing/recovery.js';
 import { getBillingDegradation } from '../services/ai-billing/degrade.js';
 import { getAiBillingRecoveryStatus } from '../services/ai-billing/recoveryTicker.js';
-import { resolveBillingConfig, getProvider } from '../services/billing/index.js';
-import { assertLegacyPathAllowed, LegacyPathRejectedError } from '../services/billing/rollout.js';
-import { createAiCreditTopupIntent, setPaymentIntentProviderRef, markPaymentIntentFailed, IRAN_PROVIDERS, type PaymentIntentRow } from '../services/billing/paymentIntent.js';
-import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
-import { readTopupConfig, TOPUP_CONFIG_KEY, type TopupConfig } from '../services/billing/topupConfig.js';
-import { assertEditionFeature, editionErrorResponse, getPlatformEdition } from '../services/billing/edition.js';
+import { editionErrorResponse, getPlatformEdition } from '../services/billing/edition.js';
 import { isCurrencyAllowedInEdition } from '../../shared/edition.js';
-import { LEGACY_BILLING_ENABLED } from '../../shared/billingMode.js';
-import { billingV2Retired } from '../middleware/billingV2Retired.js';
 
 export const aiBillingRouter = Router();
-
-const DEFAULT_TOPUP_PRESETS_TOMAN = [100_000, 250_000, 500_000, 1_000_000];
-const DEFAULT_TOPUP_MIN_TOMAN = 10_000;
-const DEFAULT_TOPUP_MAX_TOMAN = 50_000_000;
-
-async function getTopupConfig(config: ServerConfig): Promise<TopupConfig> {
-  return readTopupConfig(config, {
-    presetsToman: DEFAULT_TOPUP_PRESETS_TOMAN,
-    minToman: DEFAULT_TOPUP_MIN_TOMAN,
-    maxToman: DEFAULT_TOPUP_MAX_TOMAN,
-  });
-}
 
 /** What the admin gate below attaches to the request. */
 interface AdminRequestContext {
@@ -63,27 +46,11 @@ function cfg(req: object): ServerConfig {
   return serverConfigOf(req);
 }
 
-/**
- * Rial AI-credit top-ups exist in the Iranian edition only (no USD ledger
- * yet): elsewhere the endpoint answers 403 FEATURE_NOT_AVAILABLE_IN_EDITION,
- * or 503 when the edition cannot be read. True when it has answered.
- */
-async function refusedOutsideIran(config: ServerConfig, res: { status(code: number): { json(body: unknown): unknown } }): Promise<boolean> {
-  try {
-    await assertEditionFeature(config, 'aiCreditTopup');
-    return false;
-  } catch (e) {
-    const answer = editionErrorResponse(e);
-    if (!answer) throw e;
-    res.status(answer.status).json(answer.body);
-    return true;
-  }
-}
-
 function adminIdOf(req: object): string | undefined {
   return (req as AdminRequestContext).adminId;
 }
 
+/** The current UTC calendar month, the cycle the admin health counts read. */
 function cycleStart(): string {
   const d = new Date();
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
@@ -94,323 +61,7 @@ function cycleEnd(): string {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString();
 }
 
-/**
- * Grants the plan's AI allowance for the current cycle exactly once
- * (idempotent by (workspace, cycle, source) both in SQL and by command key).
- */
-async function ensureCycleAllowance(config: ServerConfig, workspaceId: string): Promise<void> {
-  // The simple billing grants each month's AI credit itself (its hourly job,
-  // migration 261); this calendar grant would fund the same month twice.
-  if (!LEGACY_BILLING_ENABLED) return;
-  // Billing Engine V2 handover: once the workspace's first invoice-backed
-  // service period has activated, the PERIOD grants the allowance and this
-  // legacy calendar path must never grant again — otherwise the same month
-  // would be funded twice. Until then it stays authoritative, so no workspace
-  // is ever left without its plan allowance during the transition.
-  const { data: legacyActive } = await getServiceClient(config)
-    .rpc('billing_legacy_allowance_active', { p_workspace_id: workspaceId });
-  if (legacyActive === false) return;
-
-  const info = await getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
-  const amount = Number(info.limits?.included_ai_allowance_irr ?? 0);
-  if (!Number.isFinite(amount) || amount <= 0) return;
-  const cycle = billingCycleId();
-  await ledger
-    .grantAllowance(config, {
-      workspaceId,
-      amount: String(amount),
-      billingCycleId: cycle,
-      allowanceSource: 'plan',
-      expiresAt: cycleEnd(),
-      commandKey: `grant:${workspaceId}:${cycle}:plan`,
-    })
-    .catch(() => undefined);
-}
-
 // ═══════════════════ Workspace surface ═══════════════════
-
-interface BalanceLotSummaryRow {
-  source_type: string;
-  original_amount: DbNumeric;
-  remaining_amount: DbNumeric;
-}
-
-aiBillingRouter.get('/workspaces/:workspaceId/summary', async (req, res) => {
-  const config = cfg(req);
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
-  if (!auth) return;
-  const workspaceId = req.params.workspaceId;
-  const sb = getServiceClient(config);
-
-  await ensureCycleAllowance(config, workspaceId);
-  const wallet = await ledger.reconcileWallet(config, workspaceId).catch(() => ({ available: 0, reserved: 0 }));
-  const cycle = billingCycleId();
-
-  const { data: lots } = await sb
-    .from('workspace_ai_balance_lots')
-    .select('source_type, original_amount, remaining_amount, expires_at, state')
-    .eq('workspace_id', workspaceId)
-    .in('state', ['ACTIVE', 'EXPIRING']);
-
-  const planTotal = (lots || [])
-    .filter((l: BalanceLotSummaryRow) => l.source_type === 'PLAN_ALLOWANCE')
-    .reduce((s: number, l: BalanceLotSummaryRow) => s + Number(l.remaining_amount), 0);
-  const purchasedTotal = (lots || [])
-    .filter((l: BalanceLotSummaryRow) => l.source_type !== 'PLAN_ALLOWANCE')
-    .reduce((s: number, l: BalanceLotSummaryRow) => s + Number(l.remaining_amount), 0);
-  const grantedTotal = (lots || []).reduce((s: number, l: BalanceLotSummaryRow) => s + Number(l.original_amount), 0);
-
-  const { data: settlements } = await sb
-    .from('ai_run_settlements')
-    .select('customer_charge_irr')
-    .eq('workspace_id', workspaceId)
-    .eq('billing_cycle_id', cycle);
-  const usedThisCycle = (settlements || []).reduce(
-    (s: number, r: { customer_charge_irr: DbNumeric }) => s + Number(r.customer_charge_irr),
-    0,
-  );
-
-  const { count: replyCount } = await sb
-    .from('ai_runs')
-    .select('id', { count: 'exact', head: true })
-    .eq('workspace_id', workspaceId)
-    .gte('created_at', `${cycle}-01T00:00:00Z`);
-
-  res.json({
-    currency: 'IRR',
-    cycleId: cycle,
-    renewsAt: cycleEnd(),
-    available: Number(wallet.available || 0),
-    reserved: Number(wallet.reserved || 0),
-    granted: grantedTotal,
-    usedThisCycle,
-    planRemaining: planTotal,
-    purchasedRemaining: purchasedTotal,
-    aiReplies: replyCount ?? 0,
-    mode: await getBillingMode(config),
-  });
-});
-
-// ── AI credit top-up: buy purchased credit through the same server-authoritative
-// payment-intent flow subscriptions use. Verification happens through the
-// shared POST /api/billing/verify-callback route (same intentId contract).
-// Retired while the simple billing owns money (410 BILLING_V2_RETIRED): AI
-// credit is bought as a pack there (phase 5). verify-callback stays, so an
-// intent already paid is still credited.
-
-aiBillingRouter.get('/workspaces/:workspaceId/topup/config', billingV2Retired, async (req, res) => {
-  const config = cfg(req);
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
-  if (!auth) return;
-  if (await refusedOutsideIran(config, res)) return;
-  const topup = await getTopupConfig(config);
-  res.json({ ...topup, currency: 'IRR', displayCurrency: 'TOMAN' });
-});
-
-const topupCheckoutSchema = z.object({
-  amountToman: z.number().int().positive(),
-  callbackUrl: z.string().url(),
-  /** Proforma the customer just confirmed (from /topup/preview) — reused instead of issuing a second one. */
-  intentId: z.string().uuid().optional(),
-});
-
-const topupPreviewSchema = z.object({
-  amountToman: z.number().int().positive(),
-});
-
-/**
- * Proforma (پیش‌فاکتور) shown BEFORE the customer is handed to the bank.
- * It is a real payment intent with a unique document number, so the amount
- * displayed is exactly the amount charged and an abandoned proforma stays
- * visible in the transaction history.
- */
-aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', billingV2Retired, async (req, res) => {
-  const config = cfg(req);
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
-  if (!auth) return;
-  const workspaceId = req.params.workspaceId;
-
-  if (await refusedOutsideIran(config, res)) return;
-  const parsed = topupPreviewSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
-  const { amountToman } = parsed.data;
-
-  // Billing Engine V2 boundary: a V2-owned workspace buys AI credit ONLY
-  // through an ai_credit_purchase invoice (invoice → collection → payment →
-  // paid invoice → application → credit). The legacy "payment → purchaseCredit"
-  // shortcut is refused outright.
-  try {
-    await assertLegacyPathAllowed(config, {
-      workspaceId,
-      path: 'legacy_ai_credit_topup',
-      nextAction: 'CREATE_AI_CREDIT_INVOICE',
-    });
-  } catch (guardError) {
-    if (guardError instanceof LegacyPathRejectedError) {
-      return res.status(409).json({ error: 'BILLING_V2_REQUIRED', nextAction: guardError.nextAction });
-    }
-    throw guardError;
-  }
-
-  const topup = await getTopupConfig(config);
-  if (amountToman < topup.minToman || amountToman > topup.maxToman) {
-    return res.status(400).json({ error: `amountToman must be between ${topup.minToman} and ${topup.maxToman}` });
-  }
-
-  const resolved = await resolveBillingConfig(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
-  if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
-  if (!IRAN_PROVIDERS.has(resolved.provider.name)) {
-    return res.status(400).json({ error: 'AI credit top-up is not supported for the configured provider' });
-  }
-
-  const amountIrr = amountToman * 10;
-  const sb = getServiceClient(config);
-  try {
-    const { data: workspace } = await sb.from('workspaces').select('name').eq('id', workspaceId).maybeSingle();
-
-    // Re-opening the dialog for the SAME amount must show the SAME document
-    // number — only a still-usable, unbound, identical intent is reused.
-    const { data: reusable } = await sb
-      .from('billing_payment_intents')
-      .select('*')
-      .eq('workspace_id', workspaceId)
-      .eq('status', 'pending')
-      .eq('purchase_type', 'ai_credit_topup')
-      .eq('amount_irr', amountIrr)
-      .eq('provider_name', resolved.provider.name)
-      .is('provider_ref', null)
-      .not('invoice_number', 'is', null)
-      .gt('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const intent = (reusable as PaymentIntentRow | null) || await createAiCreditTopupIntent(config, {
-      workspaceId,
-      providerName: resolved.provider.name,
-      amountIrr,
-      workspaceNameSnapshot: workspace?.name ?? null,
-      metadata: { origin: 'topup_preview' },
-    });
-
-    res.json({
-      invoice: {
-        intentId: intent.id,
-        invoiceNumber: intent.invoice_number,
-        issuedAt: intent.created_at,
-        expiresAt: intent.expires_at,
-        workspaceName: intent.workspace_name_snapshot || workspace?.name || null,
-        purchaseType: 'ai_credit_topup',
-        amountIrr: intent.amount_irr ?? amountIrr,
-        discountIrr: intent.discount_irr ?? 0,
-        totalIrr: intent.final_amount_irr ?? amountIrr,
-        providerName: resolved.provider.name,
-      },
-    });
-  } catch (e) {
-    res.status(500).json({ error: (e as Error).message });
-  }
-});
-
-aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', billingV2Retired, async (req, res) => {
-  const config = cfg(req);
-  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
-  if (!auth) return;
-  const workspaceId = req.params.workspaceId;
-
-  if (await refusedOutsideIran(config, res)) return;
-  const parsed = topupCheckoutSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
-  const { amountToman, callbackUrl } = parsed.data;
-
-
-  // Billing Engine V2 boundary: a V2-owned workspace buys AI credit ONLY
-  // through an ai_credit_purchase invoice (invoice → collection → payment →
-  // paid invoice → application → credit). The legacy "payment → purchaseCredit"
-  // shortcut is refused outright.
-  try {
-    await assertLegacyPathAllowed(config, {
-      workspaceId,
-      path: 'legacy_ai_credit_topup',
-      nextAction: 'CREATE_AI_CREDIT_INVOICE',
-    });
-  } catch (guardError) {
-    if (guardError instanceof LegacyPathRejectedError) {
-      return res.status(409).json({ error: 'BILLING_V2_REQUIRED', nextAction: guardError.nextAction });
-    }
-    throw guardError;
-  }
-
-  const topup = await getTopupConfig(config);
-  if (amountToman < topup.minToman || amountToman > topup.maxToman) {
-    return res.status(400).json({ error: `amountToman must be between ${topup.minToman} and ${topup.maxToman}` });
-  }
-
-  const resolved = await resolveBillingConfig(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
-  if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
-  if (!IRAN_PROVIDERS.has(resolved.provider.name)) {
-    return res.status(400).json({ error: 'AI credit top-up is not supported for the configured provider' });
-  }
-
-  const amountIrr = amountToman * 10;
-  try {
-    // The proforma the customer confirmed is reused so the document number
-    // they saw is the one that reaches the bank — never a second one.
-    let intent: PaymentIntentRow | null = null;
-    if (parsed.data.intentId) {
-      const { data: existing } = await getServiceClient(config)
-        .from('billing_payment_intents')
-        .select('*')
-        .eq('id', parsed.data.intentId)
-        .eq('workspace_id', workspaceId)
-        .eq('purchase_type', 'ai_credit_topup')
-        .eq('status', 'pending')
-        .eq('amount_irr', amountIrr)
-        .eq('provider_name', resolved.provider.name)
-        .is('provider_ref', null)
-        .gt('expires_at', new Date().toISOString())
-        .maybeSingle();
-      intent = existing || null;
-    }
-    if (!intent) {
-      intent = await createAiCreditTopupIntent(config, {
-        workspaceId,
-        providerName: resolved.provider.name,
-        amountIrr,
-      });
-    }
-
-    const sep = callbackUrl.includes('?') ? '&' : '?';
-    const result = await resolved.provider.createCheckoutSession(resolved.config, {
-      workspaceId,
-      planId: 'ai_credit_topup',
-      interval: 'monthly',
-      currency: 'IRR',
-      callbackUrl: `${callbackUrl}${sep}intent=${intent.id}&provider=${encodeURIComponent(resolved.provider.name)}`,
-      metadata: { amount: String(amountIrr) },
-    });
-    // Same fail-closed binding rule as the plan checkout: an AI top-up intent
-    // that could not be bound to the gateway's reference must not be handed to
-    // the customer as a working payment link.
-    {
-      const ref = result.providerRef || result.authority || result.sessionId || '';
-      const bindingRequired = requiresReferenceBinding(resolved.provider.name);
-      if (bindingRequired || ref) {
-        try {
-          await setPaymentIntentProviderRef(config, intent.id, ref);
-        } catch (bindError) {
-          await markPaymentIntentFailed(config, intent.id, String((bindError as ThrownErrorShape)?.message || 'binding_failed'));
-          if (bindingRequired) {
-            return res.status(502).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
-          }
-        }
-      }
-    }
-    res.json({ success: true, ...result, intentId: intent.id });
-  } catch (e) {
-    res.status(500).json({ error: (e as Error).message });
-  }
-});
 
 aiBillingRouter.get('/workspaces/:workspaceId/history', async (req, res) => {
   const config = cfg(req);
@@ -1034,30 +685,6 @@ aiBillingRouter.post('/admin/runs/:runId/refund', async (req, res) => {
     const e = err as ThrownErrorShape;
     res.status(e?.httpStatus || 500).json({ error: e?.code || 'billing_internal_error', message: e?.message });
   }
-});
-
-aiBillingRouter.get('/admin/topup-config', async (req, res) => {
-  res.json(await getTopupConfig(cfg(req)));
-});
-
-const topupConfigSchema = z.object({
-  presetsToman: z.array(z.number().int().positive()).min(1).max(12),
-  minToman: z.number().int().positive(),
-  maxToman: z.number().int().positive(),
-});
-
-aiBillingRouter.put('/admin/topup-config', async (req, res) => {
-  const parsed = topupConfigSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten().fieldErrors });
-  if (parsed.data.minToman >= parsed.data.maxToman) {
-    return res.status(400).json({ error: 'minToman must be less than maxToman' });
-  }
-  const sb = getServiceClient(cfg(req));
-  const { error } = await sb
-    .from('app_runtime_config')
-    .upsert({ key: TOPUP_CONFIG_KEY, value: parsed.data, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(parsed.data);
 });
 
 aiBillingRouter.post('/admin/recovery/run', async (req, res) => {

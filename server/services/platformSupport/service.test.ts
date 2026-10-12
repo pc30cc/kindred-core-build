@@ -340,18 +340,14 @@ describe('writing', () => {
       plan_id: 'plan-pro',
       status: 'active',
       billing_interval: 'monthly',
-      current_period_start: '2026-08-15T00:00:00.000Z',
+      current_period_start: '2026-09-15T00:00:00.000Z',
       current_period_end: '2026-10-15T00:00:00.000Z',
       trial_end: null,
       cancel_at_period_end: false,
       created_at: '2026-06-01T08:00:00.000Z',
     });
-    // A renewal recorded as a billing period moves the dates the card shows,
-    // as it moves the billing screen's; an expired one does not.
-    db.table('billing_subscription_periods').push(
-      { workspace_id: workspaceId, status: 'active', period_start: '2026-09-15T00:00:00.000Z', period_end: '2026-10-15T00:00:00.000Z' },
-      { workspace_id: workspaceId, status: 'expired', period_start: '2026-08-15T00:00:00.000Z', period_end: '2026-09-15T00:00:00.000Z' },
-    );
+    // The card shows the subscription's own period (simple billing keeps it
+    // there; billing v2's period rows are no longer read).
     db.table('workspace_usage_counters').push({
       workspace_id: workspaceId,
       period: new Date().toISOString().slice(0, 7),

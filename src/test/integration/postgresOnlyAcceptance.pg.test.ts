@@ -17,7 +17,7 @@
  * The plan policy is production's: trial signups, production's trial limits.
  *
  *   login and session · workspace creation under the plan's limit · chat with
- *   realtime over Centrifugo · an AI-credit invoice · a file upload read back
+ *   realtime over Centrifugo · the workspace's billing account · a file upload read back
  *   · AI knowledge retrieval over pgvector embeddings · the invitations
  *   worker · no request leaving the machine.
  *
@@ -56,10 +56,6 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../server/middleware/security.js')>();
   return { ...actual, authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next() };
 });
-
-// Billing v2's customer mutations answer 410 while v2 is retired
-// (server/middleware/billingV2Retired.ts); this suite covers them with v2 on.
-vi.mock('../../../shared/billingMode.js', () => ({ LEGACY_BILLING_ENABLED: true }));
 
 // ── nothing may leave this machine ─────────────────────────────────────────
 const egress = { blocked: [] as string[] };
@@ -221,7 +217,7 @@ suite('postgres-only acceptance: the main paths with nothing of Supabase', () =>
       workspaces: (await import('../../../server/routes/workspaces.js')).workspacesRouter,
       invitations: (await import('../../../server/routes/workspaceInvitations.js')).workspaceInvitationsRouter,
       departments: (await import('../../../server/routes/workspaceDepartments.js')).workspaceDepartmentsRouter,
-      billing: (await import('../../../server/routes/billingCustomer.js')).billingCustomerRouter,
+      billing: (await import('../../../server/routes/billingAccount.js')).billingAccountRouter,
       realtime: (await import('../../../server/routes/realtime.js')).realtimeRouter,
       conversations: (await import('../../../server/routes/conversations.js')).conversationsRouter,
       attachments: (await import('../../../server/routes/conversationAttachments.js')).conversationAttachmentsRouter,
@@ -330,16 +326,13 @@ suite('postgres-only acceptance: the main paths with nothing of Supabase', () =>
     expect(channels).toContain(`ws:${state.workspaceId}:conv:${conversationId}`);
   });
 
-  it('issues an AI-credit invoice within the top-up limits and refuses one outside them', async () => {
-    const ok = await call('POST', `/api/billing/workspaces/${state.workspaceId}/ai-credit/invoice`, { amountIrr: 1_000_000 });
-    expect(ok.status).toBe(200);
-    const invoice = await chain.db.query(`SELECT status, invoice_type, total_irr FROM public.billing_invoices WHERE id = $1`, [ok.json.invoiceId]);
-    expect(invoice.rows[0]).toMatchObject({ status: 'open', invoice_type: 'ai_credit_purchase' });
-    expect(Number(invoice.rows[0].total_irr)).toBeGreaterThanOrEqual(1_000_000);
-    const lines = await chain.db.query(`SELECT count(*)::int AS n FROM public.billing_invoice_lines WHERE invoice_id = $1 AND line_type = 'ai_credit'`, [ok.json.invoiceId]);
-    expect(lines.rows[0].n).toBe(1);
-    const tooSmall = await call('POST', `/api/billing/workspaces/${state.workspaceId}/ai-credit/invoice`, { amountIrr: 10 });
-    expect(tooSmall.status).toBe(400);
+  it('reads the workspace\'s billing account and its ledger (simple billing)', async () => {
+    const view = await call('GET', `/api/billing/account/${state.workspaceId}`);
+    expect(view.status).toBe(200);
+    expect(typeof view.json.currency).toBe('string');
+    expect(view.json.can_manage).toBe(true);
+    const ledger = await call('GET', `/api/billing/account/${state.workspaceId}/ledger`);
+    expect(ledger.status).toBe(200);
   });
 
   it('uploads a file to local storage, under the plan\'s storage limit, and reads it back', async () => {

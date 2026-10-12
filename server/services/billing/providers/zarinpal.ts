@@ -89,7 +89,7 @@ export const zarinpalProvider: BillingProviderHandler = {
   },
 
   // Unit contract: `req.metadata.amount` is ALWAYS a whole-Rial (IRR) integer,
-  // set server-side from `billing_payment_intents.amount_irr` — never a
+  // set server-side from the payment amount in Rial — never a
   // client-supplied or Toman value. ZarinPal's v4 API amount unit is decided
   // by the `currency` field: 'IRR' (default) or 'IRT' (Toman); when the
   // merchant config selects IRT, the Rial amount must be converted down.

@@ -256,274 +256,12 @@ export async function cdnGetAssetUrl(workspaceId: string, path: string) {
 
 // ─── Billing ─────────────────────────────────────────────────────
 
-// Billing routes authorize per user + workspace (and per platform admin), so
-// they require the real end-user JWT — the publishable anon key is rejected.
+// The public plan list (GET /api/billing/plans). Workspace billing lives in
+// accountBillingApi.ts, Super Admin's in adminSimpleBillingApi.ts.
 export async function billingGetPlans(locale?: string) {
   const params = new URLSearchParams();
   if (locale) params.set('locale', locale);
-  return request<{ plans: any[] }>(`/api/billing/plans?${params}`);
-}
-
-export async function billingGetStatus(workspaceId: string) {
-  return request<{ subscription: any; payments: any[]; attempts?: any[]; transactions?: any[] }>(`/api/billing/status/${workspaceId}`);
-}
-
-/** Invoice shown to the customer BEFORE the gateway redirect. */
-export interface BillingInvoice {
-  intentId: string;
-  invoiceNumber: string | null;
-  issuedAt: string;
-  expiresAt: string;
-  planId: string;
-  planName: string;
-  workspaceName?: string | null;
-  interval: 'monthly' | 'yearly';
-  actionType: string;
-  amountIrr: number;
-  discountIrr?: number;
-  totalIrr: number;
-  periodStart: string;
-  periodEnd: string;
-  stacked: boolean;
-  providerName: string;
-}
-
-export async function billingInvoicePreview(data: {
-  workspaceId: string;
-  planId: string;
-  interval: 'monthly' | 'yearly';
-  currency?: string;
-}) {
-  return request<{ invoice: BillingInvoice }>('/api/billing/invoice-preview', {
-    method: 'POST', body: JSON.stringify({ currency: 'IRR', ...data }),
-  });
-}
-
-/** The customer closed the invoice without paying. */
-export async function billingCancelInvoice(intentId: string) {
-  return request<{ success: boolean }>(`/api/billing/invoice/${encodeURIComponent(intentId)}/cancel`, { method: 'POST' });
-}
-
-export async function billingCheckout(data: {
-  workspaceId: string;
-  planId: string;
-  interval: 'monthly' | 'yearly';
-  currency: string;
-  callbackUrl: string;
-  customerEmail?: string;
-  customerName?: string;
-  phone?: string;
-  intentId?: string;
-}) {
-  // The charged amount is always computed server-side from the plan's price —
-  // never accepted from the client.
-  return request<{ success: boolean; paymentUrl: string; sessionId?: string; authority?: string; intentId?: string }>('/api/billing/checkout', {
-    method: 'POST', body: JSON.stringify(data),
-  });
-}
-
-/**
- * Verifies a gateway return. `intentId` is REQUIRED for the Iranian one-time
- * gateways — the amount/plan/interval are re-derived server-side from the
- * payment intent, never from `params` (the raw, untrusted redirect query).
- */
-export async function billingVerifyCallback(input: {
-  workspaceId: string;
-  provider: string;
-  params: Record<string, string>;
-  intentId?: string;
-}) {
-  return request<BillingVerifyResponse>(
-    '/api/billing/verify-callback',
-    { method: 'POST', body: JSON.stringify(input) },
-  );
-}
-
-/** Server-built receipt: every field is derived from persisted state. */
-export interface BillingReceipt {
-  status: string;
-  intentId: string;
-  amountIrr: number;
-  purchaseType: 'subscription' | 'ai_credit_topup' | 'wallet_deposit';
-  actionType: string | null;
-  providerName: string;
-  providerRef: string | null;
-  orderId: string;
-  paidAt: string | null;
-  planName: string | null;
-  billingInterval: string | null;
-  invoiceNumber?: string | null;
-  periodEnd?: string | null;
-  newAiBalanceIrr?: number;
-}
-
-export interface BillingVerifyResponse {
-  success: boolean;
-  verified?: boolean;
-  /** Finalization still running — poll billingGetPaymentIntent. */
-  pending?: boolean;
-  providerRef?: string;
-  amount?: number;
-  status?: string;
-  duplicate?: boolean;
-  receipt?: BillingReceipt;
-}
-
-/**
- * Polls the authoritative state of a payment intent. Used by the result screen
- * when a callback lands while the server is still applying the payment.
- */
-export async function billingGetPaymentIntent(intentId: string) {
-  return request<{ status: string; pending: boolean; receipt: BillingReceipt | null; failureReason: string | null }>(
-    `/api/billing/payment-intent/${encodeURIComponent(intentId)}`,
-  );
-}
-
-export async function billingGetProviders() {
-  return request<{ providers: Record<string, { name: string; capabilities: Record<string, boolean> }> }>('/api/billing/providers');
-}
-
-export async function billingCancel(workspaceId: string) {
-  return request<{ success: boolean }>('/api/billing/subscription/cancel', {
-    method: 'POST', body: JSON.stringify({ workspaceId }),
-  });
-}
-
-export async function billingResume(workspaceId: string) {
-  return request<{ success: boolean }>('/api/billing/subscription/resume', {
-    method: 'POST', body: JSON.stringify({ workspaceId }),
-  });
-}
-
-export async function billingGetPortal(workspaceId: string, returnUrl: string) {
-  return request<{ url: string }>('/api/billing/portal', {
-    method: 'POST', body: JSON.stringify({ workspaceId, returnUrl }),
-  });
-}
-
-export async function billingTest(provider: string, config: Record<string, unknown>) {
-  return request<{ success: boolean; latencyMs: number; error?: string }>('/api/billing/test', {
-    method: 'POST', body: JSON.stringify({ provider, config }),
-  });
-}
-
-export async function billingGetEvents(workspaceId: string) {
-  return request<{ events: any[] }>(`/api/billing/events/${workspaceId}`);
-}
-
-export interface AiBillingSummary {
-  currency: string;
-  cycleId: string;
-  renewsAt: string;
-  available: number;
-  reserved: number;
-  granted: number;
-  usedThisCycle: number;
-  planRemaining: number;
-  purchasedRemaining: number;
-  aiReplies: number;
-  mode: 'METER_ONLY' | 'ENFORCED';
-}
-
-export async function aiBillingSummary(workspaceId: string) {
-  return request<AiBillingSummary>(`/api/ai-billing/workspaces/${workspaceId}/summary`);
-}
-
-export async function aiCreditTopupConfig(workspaceId: string) {
-  return request<{ presetsToman: number[]; minToman: number; maxToman: number; currency: string; displayCurrency: string }>(
-    `/api/ai-billing/workspaces/${workspaceId}/topup/config`,
-  );
-}
-
-export interface AiTopupInvoice {
-  intentId: string;
-  invoiceNumber: string | null;
-  issuedAt: string;
-  expiresAt: string;
-  workspaceName: string | null;
-  purchaseType: 'ai_credit_topup';
-  amountIrr: number;
-  discountIrr: number;
-  totalIrr: number;
-  providerName: string;
-}
-
-/** Proforma issued before the customer is sent to the bank. */
-export async function aiCreditTopupPreview(workspaceId: string, amountToman: number) {
-  return request<{ invoice: AiTopupInvoice }>(
-    `/api/ai-billing/workspaces/${workspaceId}/topup/preview`,
-    { method: 'POST', body: JSON.stringify({ amountToman }) },
-  );
-}
-
-export interface AiLedgerEntry {
-  id: string;
-  entry_type: string;
-  amount: string | number;
-  billing_cycle_id: string | null;
-  reason: string | null;
-  created_at: string;
-  run_id: string | null;
-}
-
-export async function aiCreditHistory(workspaceId: string, params: { limit: number; offset: number }) {
-  return request<{ entries: AiLedgerEntry[]; total: number; limit: number; offset: number }>(
-    `/api/ai-billing/workspaces/${workspaceId}/history?limit=${params.limit}&offset=${params.offset}`,
-  );
-}
-
-export async function aiCreditTopupCheckout(workspaceId: string, input: { amountToman: number; callbackUrl: string; intentId?: string }) {
-  return request<{ success: boolean; paymentUrl: string; sessionId?: string; authority?: string; intentId: string }>(
-    `/api/ai-billing/workspaces/${workspaceId}/topup/checkout`,
-    { method: 'POST', body: JSON.stringify(input) },
-  );
-}
-
-
-export async function billingAdminOverview() {
-  return request<{
-    totalSubscriptions: number;
-    activeSubscriptions: number;
-    recentPayments: any[];
-    recentEvents: any[];
-    plans: any[];
-  }>('/api/billing/admin/overview');
-}
-
-export interface AdminFinanceReport {
-  currency: string;
-  months: number;
-  totals: {
-    grossRevenue: number; refundTotal: number; netRevenue: number;
-    paymentCount: number; attempts: number; succeeded: number;
-    conversionRate: number; avgOrderValue: number; mrrIrr: number; arrIrr: number;
-  };
-  series: Array<{ month: string; revenue: number; count: number; subscription: number; topup: number; refunded: number }>;
-  byProvider: Array<{ provider: string; revenue: number; count: number }>;
-  byPlan: Array<{ plan: string; revenue: number; count: number }>;
-  byStatus: Array<{ status: string; count: number }>;
-  topWorkspaces: Array<{ workspaceId: string; name: string; revenue: number; count: number }>;
-  planDistribution: Array<{ plan: string; count: number }>;
-  recentPayments: any[];
-}
-
-export async function billingAdminFinanceReport(months = 6) {
-  return request<AdminFinanceReport>(`/api/billing/admin/finance-report?months=${months}`);
-}
-
-
-
-export async function billingAdminGrant(data: { workspaceId: string; planId: string; status?: string; expiresAt?: string }) {
-  return request<{ subscription: any }>('/api/billing/admin/grant', {
-    method: 'POST', body: JSON.stringify(data),
-  });
-}
-
-export async function billingEntitlement(workspaceId: string, feature: string) {
-  return request<{ allowed: boolean; limit?: number; used?: number }>(
-    `/api/billing/entitlement?workspaceId=${workspaceId}&feature=${feature}`,
-    undefined
-  );
+  return request<{ plans: Array<Record<string, unknown>> }>(`/api/billing/plans?${params}`);
 }
 
 // ─── Health ──────────────────────────────────────────────────────
@@ -619,41 +357,6 @@ export async function adminRemoveUserPhone(userId: string) {
   });
 }
 
-export interface AdminUserBilling {
-  workspaces: { id: string; name: string; slug: string }[];
-  plans: { id: string; name: string; slug: string; localized: any }[];
-  payments: {
-    id: string; workspace_id: string; provider_name: string | null; provider_payment_id: string | null;
-    amount: number | null; currency: string | null; status: string | null; refund_amount: number | null;
-    metadata: any; created_at: string | null;
-  }[];
-  events: {
-    id: string; workspace_id: string; event_type: string | null; provider_name: string | null;
-    provider_event_id: string | null; amount: number | null; currency: string | null; status: string | null;
-    metadata: any; processed_at: string | null; created_at: string | null;
-  }[];
-  subscriptions: {
-    id: string; workspace_id: string; plan_id: string | null; provider_name: string | null;
-    provider_subscription_id: string | null; provider_customer_id: string | null; status: string | null;
-    cancel_at_period_end: boolean | null; current_period_start: string | null; current_period_end: string | null;
-    trial_end: string | null; created_at: string | null; updated_at: string | null;
-  }[];
-  planChanges: {
-    id: string; workspace_id: string; old_plan_id: string | null; new_plan_id: string | null;
-    change_type: string | null; changed_by: string | null; metadata: any; created_at: string | null;
-  }[];
-  gateways?: {
-    id: string; workspace_id: string; provider_type: string; provider_name: string;
-    is_active: boolean | null; created_at: string | null; updated_at: string | null;
-    config_summary: { key: string; value: string | null }[];
-  }[];
-}
-
-export async function adminGetUserBilling(userId: string, limit = 100) {
-  return request<AdminUserBilling>(`/api/admin/users/${userId}/billing?limit=${limit}`, {
-  });
-}
-
 export interface AdminUserEmailLog {
   id: string;
   template_slug: string | null;
@@ -664,7 +367,7 @@ export interface AdminUserEmailLog {
   error_message: string | null;
   created_at: string | null;
   sent_at: string | null;
-  metadata?: any;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface AdminUserSmsLog {
@@ -1378,7 +1081,7 @@ export async function resendMyVerificationEmail(locale?: string): Promise<Resend
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ locale: locale || 'en' }),
   });
-  const body = await res.json().catch(() => ({} as any));
+  const body = await res.json().catch(() => ({} as { retry_after_seconds?: unknown }));
   if (res.ok) return body as ResendVerificationResult;
   if (res.status === 429) {
     throw new ResendVerificationError('too_many_requests', Number(body?.retry_after_seconds) || 60);
@@ -1442,9 +1145,23 @@ export function testSelfhostTarget(connectionString: string) {
   });
 }
 
+/** One line of the self-host migration's progress stream. */
+export interface SelfhostMigrationEvent {
+  type: string;
+  stage?: string;
+  applied?: number;
+  total?: number;
+  failed?: number;
+  table?: string;
+  tables?: number;
+  rows?: number;
+  skipped?: string;
+  message?: string;
+}
+
 export async function streamSelfhostMigration(
   options: { connectionString: string; includeSchema: boolean; truncateTarget: boolean },
-  onEvent: (event: any) => void,
+  onEvent: (event: SelfhostMigrationEvent) => void,
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/api/admin/database/migrate/run`, {
     method: 'POST',

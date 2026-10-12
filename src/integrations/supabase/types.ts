@@ -20098,6 +20098,31 @@ export type Database = {
         Args: { p_force?: boolean; p_workspace_id: string }
         Returns: Json
       }
+      billing_v2_migrate_to_simple: {
+        Args: { p_apply?: boolean }
+        Returns: Json
+      }
+      billing_v2_migration_plan: {
+        Args: { p_workspace_id?: string }
+        Returns: {
+          action: string
+          amount_minor: number
+          currency: string
+          details: Json
+          source_id: string
+          source_table: string
+          workspace_id: string
+        }[]
+      }
+      billing_v2_migration_waive: {
+        Args: {
+          p_actor?: string
+          p_reason: string
+          p_source_id: string
+          p_source_table: string
+        }
+        Returns: undefined
+      }
       billing_v2_note_worker_run: {
         Args: {
           p_batch: number

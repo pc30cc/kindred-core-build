@@ -160,21 +160,3 @@ describe('SEO crawl tuning knobs (not registry capabilities)', () => {
     expect((await seo.resolveSeoLimits(CONFIG, 'ws')).limits.seo_max_duration_seconds).toBe(42);
   });
 });
-
-describe('GET /api/billing/entitlement (checkEntitlement)', () => {
-  it('answers with the enforcement check, registry default included', async () => {
-    const gating = await import('../../../server/middleware/featureGating.js');
-    const { checkEntitlement } = await import('../../../server/services/billing/index.js');
-    const check = vi.mocked(gating.checkEntitlementFromDB);
-
-    check.mockResolvedValueOnce({ allowed: true, plan: 'pro', reason: 'registry_default' });
-    await expect(checkEntitlement('u', 'k', 'ws', 'knowledge_base')).resolves.toEqual({ allowed: true });
-    expect(check).toHaveBeenLastCalledWith('u', 'k', 'ws', 'knowledge_base');
-
-    check.mockResolvedValueOnce({ allowed: true, limit: 25, limitValid: true, plan: 'pro' });
-    await expect(checkEntitlement('u', 'k', 'ws', 'max_agents')).resolves.toEqual({ allowed: true, limit: 25 });
-
-    check.mockResolvedValueOnce({ allowed: false, plan: 'error', reason: 'rpc_error' });
-    await expect(checkEntitlement('u', 'k', 'ws', 'sso')).resolves.toEqual({ allowed: false });
-  });
-});

@@ -41,7 +41,7 @@ export const nextpayProvider: BillingProviderHandler = {
   },
 
   // Unit contract: `req.metadata.amount` is ALWAYS a whole-Rial (IRR) integer,
-  // set server-side from `billing_payment_intents.amount_irr`. NextPay's API
+  // set server-side from the payment amount in Rial. NextPay's API
   // expects amounts in Rial, so no conversion is needed here.
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
     const amount = parseInt(String(req.metadata?.amount || '0'));
@@ -116,8 +116,8 @@ export const nextpayProvider: BillingProviderHandler = {
       const data = await res.json();
       if (readNextPayCode(data) === -2) return { success: false, latencyMs: Date.now() - start, error: 'Invalid API key' };
       return { success: true, latencyMs: Date.now() - start };
-    } catch (e: any) {
-      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    } catch (e: unknown) {
+      return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }
   },
 };

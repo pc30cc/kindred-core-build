@@ -375,7 +375,6 @@ describe('every send path uses the shared sender', () => {
     'server/services/auth-email.ts',
     'server/services/verification/service.ts',
     'server/services/invitations/worker.ts',
-    'server/services/billing/notifications/dispatcher.ts',
     'server/services/email/sendChannelEmail.ts',
     'server/routes/widget.ts',
     'server/routes/email.ts',

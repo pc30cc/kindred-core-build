@@ -1,26 +1,25 @@
 // ============================================================
-// UNIFIED BILLING — SUPER-ADMIN FINANCE API (/api/admin/billing)
+// SUPER-ADMIN FINANCE API (/api/admin/billing): payment gateways
 //
-// The app-wide commercial control panel: currencies, exchange rates,
-// gateways, tax, coupons, metered items, plus the global invoice / payment /
-// customer views. Every route re-verifies platform admin identity from the
-// first-party session before touching service-role data.
+// Finance -> Gateways (which gateways are on, their currencies and display)
+// and the Providers screen (each gateway's platform-wide credentials). Every
+// route re-verifies platform admin identity from the first-party session
+// before touching service-role data.
+//
+// Billing v2's finance routes (currencies, exchange rates, tax, coupons,
+// metered items, its invoices, payments, customers, audit and reset) were
+// removed in phase 7 (docs/billing/SIMPLE_BILLING.md). The simple billing's
+// Super Admin routes are in adminSimpleBilling.ts and adminBillingLocks.ts.
 // ============================================================
 
 import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
-import { getServiceClient } from '../supabase.js';
 import {
   BillingConfigError,
-  listCurrencies, upsertCurrency, deleteCurrency,
-  listExchangeRates, publishExchangeRate,
   listGateways, upsertGateway,
   getProviderCredentials, upsertProviderCredentials,
-  listTaxRates, upsertTaxRate, deleteTaxRate,
-  listCoupons, upsertCoupon, deleteCoupon,
-  listUsageItems, upsertUsageItem,
 } from '../services/billing/config/index.js';
 import {
   assertCurrencyAllowed,
@@ -28,8 +27,7 @@ import {
   editionErrorResponse,
   getPlatformEdition,
 } from '../services/billing/edition.js';
-import { isCurrencyAllowedInEdition, isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
-import { LEGACY_BILLING_ENABLED } from '../../shared/billingMode.js';
+import { isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
 import { getProvider } from '../services/billing/index.js';
 
 export const adminBillingRouter = Router();
@@ -49,73 +47,6 @@ function fail(res: Response, e: unknown) {
   }
   return res.status(500).json({ error: 'internal_error', message: e instanceof Error ? e.message : String(e) });
 }
-
-// ─── Currencies ────────────────────────────────────────────────────────────
-
-adminBillingRouter.get('/currencies', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    // The International edition has no Rial: it is neither listed nor offered.
-    const edition = await getPlatformEdition(cfg(req));
-    const currencies = await listCurrencies(cfg(req));
-    res.json({ currencies: currencies.filter((c) => isCurrencyAllowedInEdition(c.code, edition)) });
-  } catch (e) { fail(res, e); }
-});
-
-const currencySchema = z.object({
-  code: z.string().min(3).max(3),
-  display_name: z.record(z.string()).optional(),
-  symbol: z.string().max(8).optional(),
-  minor_units: z.number().int().min(0).max(4).optional(),
-  is_base: z.boolean().optional(),
-  is_active: z.boolean().optional(),
-  sort_order: z.number().int().optional(),
-});
-
-adminBillingRouter.put('/currencies', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const body = currencySchema.parse(req.body);
-    assertCurrencyAllowed(await getPlatformEdition(cfg(req)), body.code);
-    res.json({ currency: await upsertCurrency(cfg(req), body as Parameters<typeof upsertCurrency>[1]) });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.delete('/currencies/:code', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    await deleteCurrency(cfg(req), String(req.params.code).toUpperCase());
-    res.json({ ok: true });
-  } catch (e) { fail(res, e); }
-});
-
-// ─── Exchange rates ────────────────────────────────────────────────────────
-
-adminBillingRouter.get('/exchange-rates', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const edition = await getPlatformEdition(cfg(req));
-    const rates = await listExchangeRates(cfg(req));
-    res.json({
-      rates: (rates as Array<{ base_code?: string; quote_code?: string }>).filter(
-        (r) => isCurrencyAllowedInEdition(r.base_code, edition) && isCurrencyAllowedInEdition(r.quote_code, edition),
-      ),
-    });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.post('/exchange-rates', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const body = z
-      .object({ base_code: z.string().length(3), quote_code: z.string().length(3), rate: z.number().positive() })
-      .parse(req.body);
-    const edition = await getPlatformEdition(cfg(req));
-    assertCurrencyAllowed(edition, body.base_code);
-    assertCurrencyAllowed(edition, body.quote_code);
-    res.json({ rate: await publishExchangeRate(cfg(req), body as Parameters<typeof publishExchangeRate>[1]) });
-  } catch (e) { fail(res, e); }
-});
 
 // ─── Gateways ──────────────────────────────────────────────────────────────
 
@@ -188,297 +119,5 @@ adminBillingRouter.put('/providers/:providerName', async (req, res) => {
     if (problem) return res.status(400).json({ error: problem, code: 'invalid_provider_credentials' });
     const credentials = await upsertProviderCredentials(cfg(req), req.params.providerName, body.config);
     res.json({ provider_name: credentials.provider_name, config: credentials.config });
-  } catch (e) { fail(res, e); }
-});
-
-// ─── Tax ───────────────────────────────────────────────────────────────────
-
-adminBillingRouter.get('/tax-rates', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    // International: no Rial (Iranian VAT) rates.
-    const edition = await getPlatformEdition(cfg(req));
-    const taxRates = await listTaxRates(cfg(req));
-    res.json({
-      taxRates: (taxRates as Array<{ currency?: string | null }>).filter(
-        (r) => !r.currency || isCurrencyAllowedInEdition(r.currency, edition),
-      ),
-    });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.put('/tax-rates', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const body = z
-      .object({
-        id: z.string().uuid().optional(),
-        name: z.string().min(1),
-        rate_percent: z.number().min(0).max(100),
-        country_code: z.string().length(2).nullable().optional(),
-        currency: z.string().length(3).nullable().optional(),
-        is_inclusive: z.boolean().optional(),
-        is_active: z.boolean().optional(),
-      })
-      .parse(req.body);
-    assertCurrencyAllowed(await getPlatformEdition(cfg(req)), (body as { currency?: string | null }).currency);
-    res.json({ taxRate: await upsertTaxRate(cfg(req), body as Parameters<typeof upsertTaxRate>[1]) });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.delete('/tax-rates/:id', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    await deleteTaxRate(cfg(req), String(req.params.id));
-    res.json({ ok: true });
-  } catch (e) { fail(res, e); }
-});
-
-// ─── Coupons ───────────────────────────────────────────────────────────────
-
-adminBillingRouter.get('/coupons', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    // International: no Rial coupons.
-    const edition = await getPlatformEdition(cfg(req));
-    const coupons = await listCoupons(cfg(req));
-    res.json({
-      coupons: (coupons as Array<{ currency?: string | null }>).filter(
-        (c) => !c.currency || isCurrencyAllowedInEdition(c.currency, edition),
-      ),
-    });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.put('/coupons', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const body = z
-      .object({
-        id: z.string().uuid().optional(),
-        code: z.string().min(2).max(40).optional(),
-        description: z.string().max(300).nullable().optional(),
-        discount_type: z.enum(['percent', 'fixed']).optional(),
-        percent_off: z.number().positive().max(100).nullable().optional(),
-        amount_off_minor: z.number().int().positive().nullable().optional(),
-        currency: z.string().length(3).nullable().optional(),
-        applies_to_plans: z.array(z.string().uuid()).optional(),
-        max_redemptions: z.number().int().positive().nullable().optional(),
-        once_per_workspace: z.boolean().optional(),
-        starts_at: z.string().datetime().nullable().optional(),
-        expires_at: z.string().datetime().nullable().optional(),
-        is_active: z.boolean().optional(),
-      })
-      .parse(req.body);
-    assertCurrencyAllowed(await getPlatformEdition(cfg(req)), (body as { currency?: string | null }).currency);
-    res.json({ coupon: await upsertCoupon(cfg(req), body as Parameters<typeof upsertCoupon>[1]) });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.delete('/coupons/:id', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    await deleteCoupon(cfg(req), String(req.params.id));
-    res.json({ ok: true });
-  } catch (e) { fail(res, e); }
-});
-
-// ─── Metered usage items ───────────────────────────────────────────────────
-
-adminBillingRouter.get('/usage-items', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    res.json({ usageItems: await listUsageItems(cfg(req)) });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.put('/usage-items', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const body = z
-      .object({
-        key: z.string().min(2).max(40),
-        display_name: z.record(z.string()).optional(),
-        unit: z.string().max(30).optional(),
-        prices: z.record(z.number().nonnegative()).optional(),
-        is_active: z.boolean().optional(),
-        sort_order: z.number().int().optional(),
-      })
-      .parse(req.body);
-    res.json({ usageItem: await upsertUsageItem(cfg(req), body as Parameters<typeof upsertUsageItem>[1]) });
-  } catch (e) { fail(res, e); }
-});
-
-// ─── Global financial views ────────────────────────────────────────────────
-
-adminBillingRouter.get('/overview', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const client = getServiceClient(cfg(req));
-    const edition = await getPlatformEdition(cfg(req));
-    const since = new Date(Date.now() - 30 * 86400000).toISOString();
-    const [paid, open, payments, wallets, subs] = await Promise.all([
-      client.from('billing_invoices').select('total_irr, currency, paid_at').eq('status', 'paid').gte('paid_at', since),
-      client.from('billing_invoices').select('amount_due_irr, currency').in('status', ['open', 'past_due']),
-      client.from('billing_payments').select('id', { count: 'exact', head: true }).eq('status', 'succeeded'),
-      client.from('billing_wallet_accounts').select('available_balance_irr, currency'),
-      client.from('workspace_subscriptions').select('status', { count: 'exact', head: true }).eq('status', 'active'),
-    ]);
-
-    // A row without a currency is Rial (the column default). The
-    // International edition reports no Rial amounts at all.
-    const sumBy = (rows: Array<Record<string, unknown>> | null, field: string) => {
-      const out: Record<string, number> = {};
-      for (const r of rows || []) {
-        const c = String(r.currency || 'IRR');
-        if (!isCurrencyAllowedInEdition(c, edition)) continue;
-        out[c] = (out[c] || 0) + Number(r[field] || 0);
-      }
-      return out;
-    };
-
-    res.json({
-      revenue30d: sumBy(paid.data as Array<Record<string, unknown>>, 'total_irr'),
-      outstanding: sumBy(open.data as Array<Record<string, unknown>>, 'amount_due_irr'),
-      walletBalances: sumBy(wallets.data as Array<Record<string, unknown>>, 'available_balance_irr'),
-      successfulPayments: payments.count || 0,
-      ...(edition === 'iran' ? {} : { currency: 'USD' }),
-      activeSubscriptions: subs.count || 0,
-    });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.get('/invoices', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const page = Math.max(1, Number(req.query.page ?? 1) || 1);
-    const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 20) || 20));
-    const status = typeof req.query.status === 'string' && req.query.status !== 'all' ? req.query.status : null;
-    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
-
-    let q = getServiceClient(cfg(req))
-      .from('billing_invoices')
-      .select('*, workspaces(name, slug)', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range((page - 1) * pageSize, page * pageSize - 1);
-    if (status) q = q.eq('status', status);
-    if (search) q = q.ilike('invoice_number', `%${search}%`);
-    // International: Rial documents (cloned Iranian history) are not shown.
-    if ((await getPlatformEdition(cfg(req))) !== 'iran') q = q.neq('currency', 'IRR');
-
-    const { data, count, error } = await q;
-    if (error) throw new Error(error.message);
-    res.json({ invoices: data || [], total: count || 0, page, pageSize });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.get('/payments', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const page = Math.max(1, Number(req.query.page ?? 1) || 1);
-    const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 20) || 20));
-    let q = getServiceClient(cfg(req))
-      .from('billing_payments')
-      .select('*, workspaces(name, slug)', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range((page - 1) * pageSize, page * pageSize - 1);
-    // International: Rial payments (cloned Iranian history) are not shown.
-    if ((await getPlatformEdition(cfg(req))) !== 'iran') q = q.neq('currency', 'IRR');
-    const { data, count, error } = await q;
-    if (error) throw new Error(error.message);
-    res.json({ payments: data || [], total: count || 0, page, pageSize });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.get('/customers', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
-    const client = getServiceClient(cfg(req));
-    let q = client
-      .from('workspaces')
-      .select('id, name, slug, created_at')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (search) q = q.ilike('name', `%${search}%`);
-    const { data: workspaces, error } = await q;
-    if (error) throw new Error(error.message);
-
-    const ids = ((workspaces || []) as Array<{ id: string }>).map((w) => w.id);
-    const [subs, wallets] = await Promise.all([
-      client
-        .from('workspace_subscriptions')
-        .select('workspace_id, status, plan_id, billing_interval, current_period_end')
-        .in('workspace_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
-      client
-        .from('billing_wallet_accounts')
-        .select('workspace_id, available_balance_irr, currency')
-        .in('workspace_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
-    ]);
-    if (subs.error) throw new Error(subs.error.message);
-    if (wallets.error) throw new Error(wallets.error.message);
-
-    type SubRow = { workspace_id: string; plan_id: string | null };
-    const subRows = (subs.data || []) as SubRow[];
-    const planIds = [...new Set(subRows.map((s) => s.plan_id).filter(Boolean))];
-    const plans = planIds.length
-      ? await client.from('billing_plans').select('id, name, slug').in('id', planIds)
-      : { data: [] as Array<{ id: string }>, error: null };
-    if (plans.error) throw new Error(plans.error.message);
-    const planById = new Map(((plans.data || []) as Array<{ id: string }>).map((p) => [p.id, p]));
-
-    const subByWs = new Map(
-      subRows.map((s) => [
-        s.workspace_id,
-        { ...s, billing_plans: s.plan_id ? planById.get(s.plan_id) ?? null : null },
-      ]),
-    );
-    // The Rial wallet is an Iranian-edition feature: not shown in International.
-    const walletsShown = (await getPlatformEdition(cfg(req))) === 'iran' ? wallets.data || [] : [];
-    const walletByWs = new Map((walletsShown as Array<{ workspace_id: string }>).map((w) => [w.workspace_id, w]));
-
-    res.json({
-      customers: ((workspaces || []) as Array<{ id: string }>).map((w) => ({
-        ...w,
-        subscription: subByWs.get(w.id) || null,
-        wallet: walletByWs.get(w.id) || null,
-      })),
-    });
-  } catch (e) { fail(res, e); }
-});
-
-adminBillingRouter.get('/audit', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  try {
-    const { data, error } = await getServiceClient(cfg(req))
-      .from('billing_v2_audit')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(200);
-    if (error) throw new Error(error.message);
-    res.json({ events: data || [] });
-  } catch (e) { fail(res, e); }
-});
-
-// ─── Danger zone: full financial data reset ────────────────────────────────
-//
-// Clears every transactional financial record (invoices, payments, wallets,
-// subscription periods, allowance cycles, jobs, AI usage) while keeping the
-// commercial configuration (plans, currencies, gateways, tax, coupons).
-// The confirmation string is required by the database function itself, so a
-// stray request can never wipe history by accident.
-
-adminBillingRouter.post('/reset', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  // Retired with billing v2 (phase 6): it would not wipe the simple billing's
-  // money ledgers, and wiping real ledgers is never wanted. Phase 7 drops the
-  // database function.
-  if (!LEGACY_BILLING_ENABLED) return res.status(410).json({ error: 'BILLING_V2_RETIRED' });
-  try {
-    const parsed = z.object({ confirm: z.literal('RESET-BILLING') }).parse(req.body ?? {});
-    const { data, error } = await getServiceClient(cfg(req))
-      .rpc('admin_reset_billing_data', { p_confirm: parsed.confirm });
-    if (error) throw new Error(error.message);
-    res.json({ ok: true, result: data });
   } catch (e) { fail(res, e); }
 });

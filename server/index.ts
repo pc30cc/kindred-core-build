@@ -48,10 +48,8 @@ import { commercePluginActionsRouter } from './routes/commerce/pluginActions.js'
 import { commerceGuestVerificationRouter } from './routes/commerce/guestVerification.js';
 import { commerceIdentityRouter } from './routes/commerce/identity.js';
 import { internalTestGatewayRouter } from './routes/internalTestGateway.js';
-import { billingCustomerRouter } from './routes/billingCustomer.js';
 import { billingAccountRouter } from './routes/billingAccount.js';
 import { billingAccountAiRouter } from './routes/billingAccountAi.js';
-import { adminBillingV2Router } from './routes/adminBillingV2.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
 import { adminBillingLocksRouter } from './routes/adminBillingLocks.js';
 import { billingLockExportRouter } from './routes/billingLockExport.js';
@@ -111,8 +109,6 @@ import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
 import { startWorkspaceDeletionWorker } from './services/workspaceDeletion/worker.js';
 import { startUserDeletionWorker } from './services/userDeletion/worker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
-import { startBillingV2Schedulers } from './services/billing/scheduler/ticker.js';
-import { LEGACY_BILLING_ENABLED } from '../shared/billingMode.js';
 import { startSimpleBillingJob } from './services/billing/account/job.js';
 import { startLockExportWorker } from './services/billing/locks/exportWorker.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
@@ -510,7 +506,8 @@ app.use('/api/mobile-app', mobilePromotionsRouter);
 app.use('/api/availability', availabilityRouter);
 app.use('/api/operator-activity', operatorActivityRouter);
 
-// Billing — checkout, webhooks, subscription management
+// Billing — the simple prepaid-account billing (docs/billing/SIMPLE_BILLING.md);
+// billing v2 was removed in phase 7. The public plan list stays on billingRouter.
 // Simulated in-house gateway page (test provider only; must be mounted first).
 app.use('/api/billing/test-gateway', internalTestGatewayRouter);
 // The owner's export of locked data (simple billing phase 4); before the
@@ -519,23 +516,18 @@ app.use('/api/billing/account', billingLockExportRouter);
 app.use('/api/billing', billingAccountRouter);
 // AI credit packs of the simple billing (phase 5).
 app.use('/api/billing', billingAccountAiRouter);
-app.use('/api/billing', billingCustomerRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/seo', seoRouter);
 app.use('/api/web-analytics', webAnalyticsRouter);
 app.use('/api/bot-analytics', botAnalyticsRouter);
 app.use('/api/brand-radar', brandRadarRouter);
 
-// Billing Engine V2 rollout control — Platform Admin only (authorized in-router).
-app.use('/api/admin/billing-v2', adminBillingV2Router);
-
 // Billing locks (simple billing phase 4): the edition's switch and its
 // preview. Platform Super Admin only (gated in-router); before the finance
 // panel below, which owns the rest of /api/admin/billing.
 app.use('/api/admin/billing/locks', adminRateLimiter, adminBillingLocksRouter);
 
-// Unified billing — super-admin finance panel (currencies, gateways, tax,
-// coupons, metered items, global invoices/payments/customers).
+// Super Admin finance panel: the payment gateways and their providers.
 app.use('/api/admin/billing', adminBillingRouter);
 
 
@@ -747,18 +739,14 @@ const httpServer = app.listen(config.port, () => {
 
   // AI billing — automatic, idempotent recovery/reconciliation pass.
   startAiBillingRecovery(config);
-  // Billing Engine V2 — renewal invoices, wallet auto-pay and period activation.
-  // Hidden while the simple billing replaces it (shared/billingMode.ts): it
-  // must not issue invoices or send notices nobody can act on.
-  if (LEGACY_BILLING_ENABLED) startBillingV2Schedulers(config);
   // The simple billing's hourly job (renewals, AI credit, reminders, trials),
   // its 5-minute due step and, next to it, the saved cards' 5-minute step
   // (runSimpleBillingCard: Paddle subscriptions kept in sync, card checkouts
   // and charges resolved, cards cancelled). SIMPLE_BILLING_JOB=off stops all.
-  if (!LEGACY_BILLING_ENABLED && process.env.SIMPLE_BILLING_JOB !== 'off') startSimpleBillingJob(config);
+  if (process.env.SIMPLE_BILLING_JOB !== 'off') startSimpleBillingJob(config);
   // The owner's locked-data exports (phase 4): built in-process, one job at
   // a time, like the privacy exports. Its files expire in the privacy sweep.
-  if (!LEGACY_BILLING_ENABLED) startLockExportWorker(config);
+  startLockExportWorker(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
   // Reporting-only: nothing on a request path reads alert_events, so this

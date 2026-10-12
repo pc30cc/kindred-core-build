@@ -582,7 +582,6 @@ async function loadCardState(config: ServerConfig, card: CardRow, now = Date.now
   let targetPlan: PlanRow | null = null;
   let target: CardStateInput['target'] = null;
   let prepaidNextEnd: string | null = null;
-  let v2NextEnd: string | null = null;
   const prepaidMinor = account.next_period_prepaid_minor === null || account.next_period_prepaid_minor === undefined
     ? null
     : num(account.next_period_prepaid_minor);
@@ -600,12 +599,6 @@ async function loadCardState(config: ServerConfig, card: CardRow, now = Date.now
       prepaidNextEnd = periodEndOf(paid.current_period_end, interval);
       stalePrepaidMinor = 0;
     }
-    // A next period paid through billing v2 (a scheduled service period).
-    const { data: v2Id } = await sb.rpc('billing_account_v2_next_period', { p_workspace_id: card.workspace_id });
-    if (typeof v2Id === 'string' && v2Id) {
-      const { data: period } = await sb.from('billing_subscription_periods').select('period_end').eq('id', v2Id).maybeSingle();
-      v2NextEnd = str(asRecord(period).period_end);
-    }
   }
   const settings = await getBillingSettings(config);
   const setupRow = setup.data ? asRecord(setup.data) : null;
@@ -618,7 +611,6 @@ async function loadCardState(config: ServerConfig, card: CardRow, now = Date.now
       autoRenew: account.auto_renew === true,
       paid,
       prepaidNextEnd,
-      v2NextEnd,
       target,
       vatPercent: vatPercentFor(settings.vat_percent, currency),
     },
@@ -2023,7 +2015,7 @@ async function balanceRenewalGoes(
   const price = target && !target.is_free ? target.price_minor : null;
   const sameEnd = !input.expectedPeriodEnd || !paid
     || Math.abs(Date.parse(input.expectedPeriodEnd) - Date.parse(paid.current_period_end)) < 1000;
-  const goes = Boolean(paid && target && price !== null && !state.input.prepaidNextEnd && !state.input.v2NextEnd && sameEnd
+  const goes = Boolean(paid && target && price !== null && !state.input.prepaidNextEnd && sameEnd
     && state.balanceMinor + state.stalePrepaidMinor >= price && (input.expectedPriceMinor === null || input.expectedPriceMinor === price));
   return { goes, paid, target };
 }
@@ -2243,7 +2235,7 @@ export async function runCardJob(config: ServerConfig): Promise<CardJobReport> {
       const card = await readCard(config, String(row.id));
       if (!card || !isLive(card)) return;
       const state = await loadCardState(config, card);
-      if (!state.input.paid || state.input.prepaidNextEnd || state.input.v2NextEnd) return;
+      if (!state.input.paid || state.input.prepaidNextEnd) return;
       if (await pullCardRenewal(config, card.workspace_id)) report.pulled += 1;
     });
   });

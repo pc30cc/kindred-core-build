@@ -3,7 +3,7 @@
 // ============================================
 
 import { serviceClientFor } from '../../lib/serviceClient.js';
-import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, WebhookEvent } from './types.js';
+import type { BillingProviderHandler, BillingProviderConfig } from './types.js';
 import { stripeProvider } from './providers/stripe.js';
 import { paddleProvider } from './providers/paddle.js';
 import { paddleSandboxProvider } from './providers/paddle-sandbox.js';
@@ -25,9 +25,6 @@ import { paytrProvider } from './providers/paytr.js';
 import { sipayProvider } from './providers/sipay.js';
 import { paratikaProvider } from './providers/paratika.js';
 import { craftgateProvider } from './providers/craftgate.js';
-import { addBillingInterval } from './periods.js';
-import { recordProviderRefund } from './refunds.js';
-import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { getPlatformEdition, isProviderAllowedInEdition } from './edition.js';
 
 
@@ -504,9 +501,9 @@ export async function claimBillingWebhookEvent(
       // A delivery whose processing FAILED earlier may be re-processed by the
       // provider's retry: the failed row is taken back atomically (only one
       // concurrent retry can move it off `failed`). Everything behind it is
-      // idempotent (intent claim, unique payment per intent, settlement
-      // command key), so a retry finishes the job instead of being dropped
-      // as a duplicate.
+      // idempotent (account payment claim, unique ledger keys, card event
+      // keys), so a retry finishes the job instead of being dropped as a
+      // duplicate.
       const claimedAt = new Date().toISOString();
       const { data: retaken, error: retakeError } = await supabase
         .from('billing_events')
@@ -571,117 +568,4 @@ export async function finalizeBillingWebhookEvent(
       ...(outcome === 'success' ? { processed_at: new Date().toISOString() } : {}),
     })
     .eq('id', eventRowId);
-}
-
-/**
- * The new subscription period end for a payment event. Prefers the real
- * billing interval carried on the event (set from the payment intent for
- * Iranian gateways); only falls back to a flat 30 days for providers whose
- * webhook payload does not carry an interval.
- *
- * Calendar arithmetic (month-end clamping, leap years) lives in ./periods.ts.
- */
-export function computePeriodEnd(now: Date, interval: WebhookEvent['interval']): Date {
-  if (interval === 'monthly' || interval === 'yearly') return addBillingInterval(now, interval);
-  return new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-}
-
-
-/**
- * A verified webhook event that is NOT bound to a payment intent (events
- * carrying an intent id are settled through the invoice engine, see
- * ./cardInvoice.ts).
- *
- * Every workspace is on the invoice engine, where only a paid invoice may
- * change the subscription: `workspace_subscriptions` refuses any other write
- * to the plan or the period (migration 117's trigger). So an unbound event
- * never grants, extends, cancels or suspends anything here. What it can do:
- *
- *   - a refund is recorded on the payment it refunds;
- *   - money that arrived without an invoice (e.g. from an old subscription or
- *     a payment link) is recorded as UNAPPLIED, for finance to reconcile —
- *     never discarded, never applied;
- *   - everything else is only logged.
- */
-export async function processWebhookEvent(
-  supabaseUrl: string,
-  serviceRoleKey: string,
-  providerName: string,
-  event: WebhookEvent,
-  opts: { alreadyClaimed?: boolean } = {},
-) {
-  const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
-
-  // Log the event — skipped when the caller already claimed a
-  // `billing_events` row for this provider event (idempotent webhook path),
-  // otherwise the second insert would trip the unique index.
-  if (!opts.alreadyClaimed) await logBillingEvent(supabaseUrl, serviceRoleKey, {
-    workspace_id: event.workspaceId,
-    event_type: event.type,
-    provider_name: providerName,
-    provider_event_id: event.providerEventId,
-    amount: event.amount,
-    currency: event.currency,
-    status: event.type.includes('failed') ? 'failed' : 'success',
-    metadata: event.raw,
-  });
-
-  if (!event.workspaceId) return;
-
-  switch (event.type) {
-    case 'refund_processed':
-      await recordProviderRefund(supabase, providerName, event);
-      return;
-
-    case 'checkout_completed':
-    case 'subscription_created':
-    case 'payment_succeeded':
-    case 'invoice_paid': {
-      if (!event.amount) return;
-      // Replay-safe via the unique index on (provider_name, provider_payment_id).
-      const { error: paymentError } = await supabase.from('billing_payments').insert({
-        workspace_id: event.workspaceId,
-        provider_name: providerName,
-        provider_payment_id: event.providerPaymentId || event.providerEventId,
-        amount: event.amount,
-        currency: event.currency || 'USD',
-        status: 'succeeded',
-        purchase_type: 'subscription',
-        action_type: 'plan_new',
-        paid_at: new Date().toISOString(),
-        reconciliation_state: 'unapplied',
-        reconciliation_reason: 'provider_payment_without_invoice',
-        metadata: { providerEventId: event.providerEventId, eventType: event.type },
-      });
-      // A replayed provider payment id is expected and must not fail the event.
-      if (paymentError && paymentError.code !== '23505') throw new Error(paymentError.message);
-      return;
-    }
-
-    default:
-      // subscription_updated / subscription_canceled / payment_failed /
-      // invoice_failed: the invoice engine owns the subscription; nothing to apply.
-      return;
-  }
-}
-
-/**
- * Whether a workspace's plan grants a feature — the GET /api/billing/entitlement
- * answer. Delegates to the enforcement check (featureGating.ts over
- * check_workspace_entitlement), so it applies the same plan selection and the
- * same `override ?? plan ?? registry default` rule as every gate and as
- * GET /api/plans/workspace/:id/effective. It used to read billing_plans
- * itself, deny every key the plan JSON did not mention, and keep a
- * past-due or canceled-at-period-end workspace on Free.
- */
-export async function checkEntitlement(
-  supabaseUrl: string,
-  serviceRoleKey: string,
-  workspaceId: string,
-  feature: string
-): Promise<{ allowed: boolean; limit?: number; used?: number }> {
-  const result = await checkEntitlementFromDB(supabaseUrl, serviceRoleKey, workspaceId, feature);
-  return result.limitValid && typeof result.limit === 'number'
-    ? { allowed: result.allowed, limit: result.limit }
-    : { allowed: result.allowed };
 }

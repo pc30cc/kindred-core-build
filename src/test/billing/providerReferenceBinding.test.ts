@@ -7,18 +7,20 @@
  * so payment B can never finalize order A.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  providerRefMatchesIntent,
-  extractProviderRef,
-} from '../../../server/services/billing/paymentIntent';
+import { providerRefMatchesIntent, type IntentLike } from '../../../server/services/billing/gatewayVerification';
 import {
   requiresReferenceBinding,
   getProviderReferenceContract,
   extractProviderRefCandidates,
 } from '../../../server/services/billing/providerBinding';
 
-function intent(provider: string, storedRef: string | null) {
-  return { id: 'intent_A', provider_name: provider, provider_ref: storedRef } as any;
+// The first candidate is the reference the gateway handed back for this checkout.
+function extractProviderRef(params: unknown, providerName?: string): string | null {
+  return extractProviderRefCandidates(providerName || '', params)[0] ?? null;
+}
+
+function intent(provider: string, storedRef: string | null): IntentLike {
+  return { provider_name: provider, provider_ref: storedRef, amount_irr: 0 };
 }
 
 const CASES: Array<{ provider: string; key: string; ref: string }> = [

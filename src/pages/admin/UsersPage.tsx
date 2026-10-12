@@ -21,11 +21,10 @@ import {
   useAdminUserRoles, useAssignRole, useRemoveRole, adminFetch } from '@/hooks/useAdmin';
 import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@/hooks/usePlans';
-import { formatMoney } from '@/lib/region';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
-  adminDeleteUserAvatar, adminGetUserMessages, adminGetUserBilling,
+  adminDeleteUserAvatar, adminGetUserMessages,
   adminUpdateUserProfile, adminSetUserEmailVerified,
   adminGetUserPhoneVerification, adminSetUserPhone, adminRemoveUserPhone,
   adminDeleteUser,
@@ -39,7 +38,7 @@ import { formatPattern as format } from '@/lib/date';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import UserBillingAccountsCard from '@/components/admin/UserBillingAccountsCard';
-import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
+import { assignExpiresAt, assignExpiryPrefill, type ExpiryPrefill } from './assignPlanExpiry';
 import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
@@ -878,8 +877,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </TabsContent>
 
         <TabsContent value="finance" className="mt-0">
-          {/* The v2 finance card stays until phase 7, shown only while the old billing is on. */}
-          {LEGACY_BILLING_ENABLED ? <UserFinanceCard userId={userId} /> : <UserBillingAccountsCard userId={userId} />}
+          <UserBillingAccountsCard userId={userId} />
         </TabsContent>
       </Tabs>
 
@@ -1121,6 +1119,7 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
+  const [expiryPrefill, setExpiryPrefill] = useState<ExpiryPrefill | null>(null);
 
   const sub = planData?.subscription;
   const plan = planData?.plan;
@@ -1128,7 +1127,12 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
 
   const openDialog = () => {
     setSelectedPlanId(plan?.id || '');
-    setExpiresAt(sub?.current_period_end ? new Date(sub.current_period_end).toISOString().slice(0, 10) : '');
+    // Only a future end is offered: the assign route refuses one in the past
+    // (an ended subscription's end), and an empty field means one interval on.
+    // Left as shown, the exact end is sent back (assignPlanExpiry.ts).
+    const prefill = assignExpiryPrefill(sub?.current_period_end);
+    setExpiryPrefill(prefill);
+    setExpiresAt(prefill?.date ?? '');
     setDialogOpen(true);
   };
 
@@ -1138,7 +1142,7 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
       await assignPlan.mutateAsync({
         workspaceId: workspace.id,
         planId: selectedPlanId,
-        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+        expiresAt: assignExpiresAt(expiresAt, expiryPrefill),
       });
       toast.success(t('admin.users.planAssigned'));
       setDialogOpen(false);
@@ -1496,396 +1500,5 @@ function DetailDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function FinPager({
-  total, page, pageSize, onPage, onPageSize,
-}: { total: number; page: number; pageSize: number; onPage: (p: number) => void; onPageSize: (n: number) => void }) {
-  const { t } = useTranslation();
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const to = Math.min(page * pageSize, total);
-  return (
-    <div className="flex items-center justify-between gap-3 flex-wrap pt-2">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span>{t('admin.users.finShowing', { from: String(from), to: String(to), total: String(total) })}</span>
-        <span>·</span>
-        <span>{t('admin.users.finPerPage')}</span>
-        <select
-          className="h-7 rounded-md border bg-background px-1 text-xs"
-          value={pageSize}
-          onChange={e => { onPageSize(Number(e.target.value)); onPage(1); }}
-        >
-          {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
-        </select>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-          {t('admin.users.finPrev')}
-        </Button>
-        <span className="text-xs text-muted-foreground">{page} / {pages}</span>
-        <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>
-          {t('admin.users.finNext')}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function UserFinanceCard({ userId }: { userId: string }) {
-  const { t, dir, locale } = useTranslation();
-  const { mode: regionMode } = usePlatformRegion();
-  const [payPage, setPayPage] = useState(1);
-  const [paySize, setPaySize] = useState(20);
-  const [evtPage, setEvtPage] = useState(1);
-  const [evtSize, setEvtSize] = useState(20);
-  const [detail, setDetail] = useState<{ title: string; rows: { label: string; value: string | null | undefined }[]; json?: unknown } | null>(null);
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['admin-user-billing', userId],
-    queryFn: () => adminGetUserBilling(userId, 200),
-    enabled: !!userId,
-    retry: false,
-  });
-
-  const fmt = (v: string | null) => (v ? format(new Date(v), 'yyyy-MM-dd HH:mm') : '—');
-  // Iran → Toman (always). Elsewhere the record's own currency, else the
-  // region's: Turkey → Lira, Multi Region and Global → USD for every language.
-  // No currency symbols/icons.
-  const money = (amount: number | null | undefined, currency?: string | null) =>
-    formatMoney(amount, locale, regionMode, { currency });
-
-  const isPaid = (s: string | null) => ['succeeded', 'paid', 'completed', 'success'].includes((s || '').toLowerCase());
-  const isRefund = (s: string | null) => ['refunded', 'partially_refunded'].includes((s || '').toLowerCase());
-  const statusVariant = (s: string | null): BadgeVariant =>
-    isPaid(s) ? 'secondary' : isRefund(s) ? 'outline' : ['failed', 'canceled', 'cancelled', 'error'].includes((s || '').toLowerCase()) ? 'destructive' : 'outline';
-
-  if (isLoading) {
-    return (
-      <Card><CardContent className="p-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></CardContent></Card>
-    );
-  }
-  if (isError || !data) {
-    return (
-      <Card><CardContent className="p-6"><p className="text-sm text-destructive">{t('admin.users.finLoadFailed')}</p></CardContent></Card>
-    );
-  }
-
-  const wsName = (id: string) => data.workspaces.find(w => w.id === id)?.name || '—';
-  const planName = (id: string | null) => {
-    if (!id) return '—';
-    const plan = data.plans.find(p => p.id === id);
-    if (!plan) return '—';
-    const loc = plan.localized?.[locale]?.name;
-    return loc || plan.name;
-  };
-
-  const currency = data.payments.find(p => p.currency)?.currency || 'USD';
-  const grossPaid = data.payments.filter(p => isPaid(p.status)).reduce((s, p) => s + (p.amount ?? 0), 0);
-  const refunded = data.payments.reduce((s, p) => s + (p.refund_amount ?? 0), 0);
-  const successCount = data.payments.filter(p => isPaid(p.status)).length;
-  const failedCount = data.payments.length - successCount;
-  const hasAny = data.payments.length || data.events.length || data.subscriptions.length || data.planChanges.length;
-
-  // Gateway connection overview: configured gateways merged with every
-  // provider actually seen in payments / events / subscriptions.
-  const gatewayNames = Array.from(new Set([
-    ...(data.gateways ?? []).map(g => g.provider_name),
-    ...data.payments.map(p => p.provider_name),
-    ...data.events.map(e => e.provider_name),
-    ...data.subscriptions.map(s => s.provider_name),
-  ].filter(Boolean) as string[]));
-
-  const gatewayRows = gatewayNames.map(name => {
-    const cfg = (data.gateways ?? []).find(g => g.provider_name === name);
-    const pays = data.payments.filter(p => p.provider_name === name);
-    const evts = data.events.filter(e => e.provider_name === name);
-    const attempts = pays.length + evts.length;
-    const success = pays.filter(p => isPaid(p.status)).length + evts.filter(e => isPaid(e.status)).length;
-    const failed = attempts - success;
-    const lastAt = [...pays.map(p => p.created_at), ...evts.map(e => e.created_at)]
-      .filter(Boolean).sort().reverse()[0] as string | undefined;
-    const lastErrorItem = [...pays, ...evts].find(x => !isPaid(x.status) && x.status);
-    const lastError = lastErrorItem
-      ? `${lastErrorItem.status}${lastErrorItem.metadata?.error ? ` — ${String(lastErrorItem.metadata.error)}` : ''}`
-      : null;
-    return { name, cfg, attempts, success, failed, lastAt, lastError };
-  });
-
-  return (
-    <div className="space-y-4" dir={dir}>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card className="border-primary/20 bg-gradient-to-br from-primary/10 to-transparent">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">{t('admin.users.finTotalRevenue')}</p>
-            <p className="text-xl font-bold mt-1">{money(grossPaid - refunded, currency)}</p>
-          </CardContent>
-        </Card>
-        <StatCard icon={CheckCircle2} label={t('admin.users.finSuccessful')} value={successCount} />
-        <StatCard icon={XCircle} label={t('admin.users.finFailed')} value={failedCount} />
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">{t('admin.users.finRefunded')}</p>
-            <p className="text-xl font-bold mt-1">{money(refunded, currency)}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {!hasAny && (
-        <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">{t('admin.users.finNoData')}</p></CardContent></Card>
-      )}
-
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <div>
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finGateways')}
-            </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.finGatewaysHint')}</p>
-          </div>
-          {gatewayRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('admin.users.finNoGateways')}</p>
-          ) : (
-            <div className="space-y-2">
-              {gatewayRows.map(g => (
-                <div key={g.name} className="rounded-lg border p-3 space-y-2">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="text-sm font-medium">{g.name}</span>
-                    <div className="flex items-center gap-2">
-                      {g.cfg ? (
-                        <>
-                          <Badge variant="outline" className="text-[10px]">{t('admin.users.finGatewayConfigured')}</Badge>
-                          <Badge variant={g.cfg.is_active ? 'secondary' : 'outline'} className="text-[10px]">
-                            {g.cfg.is_active ? t('admin.users.finGatewayActive') : t('admin.users.finGatewayInactive')}
-                          </Badge>
-                        </>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px]">{t('admin.users.finGatewayNotConfigured')}</Badge>
-                      )}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
-                      <span className="text-muted-foreground">{t('admin.users.finGatewayAttempts')}</span>
-                      <span className="font-medium">{g.attempts}</span>
-                    </div>
-                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
-                      <span className="text-muted-foreground">{t('admin.users.finGatewaySuccess')}</span>
-                      <span className="font-medium text-emerald-600 dark:text-emerald-400">{g.success}</span>
-                    </div>
-                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
-                      <span className="text-muted-foreground">{t('admin.users.finGatewayFailed')}</span>
-                      <span className="font-medium text-destructive">{g.failed}</span>
-                    </div>
-                    <div className="rounded bg-muted/40 px-2 py-1.5 flex items-center justify-between">
-                      <span className="text-muted-foreground">{t('admin.users.finGatewayLastAttempt')}</span>
-                      <span className="font-medium whitespace-nowrap">{fmt(g.lastAt ?? null)}</span>
-                    </div>
-                  </div>
-                  {g.lastError && (
-                    <p className="text-[11px] text-destructive break-all">
-                      {t('admin.users.finGatewayLastError')}: {g.lastError}
-                    </p>
-                  )}
-                  {g.cfg && g.cfg.config_summary.length > 0 && (
-                    <div className="space-y-1">
-                      <p className="text-[11px] text-muted-foreground">{t('admin.users.finGatewaySettings')}</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
-                        {g.cfg.config_summary.map(c => (
-                          <div key={c.key} className="flex items-center justify-between gap-2 rounded bg-muted/30 px-2 py-1 text-[11px]">
-                            <span className="text-muted-foreground font-mono">{c.key}</span>
-                            <span className="font-medium truncate max-w-[160px]" dir="ltr">{c.value ?? '—'}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {data.subscriptions.length > 0 && (
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finSubs')}
-            </h3>
-            <div className="space-y-2">
-              {data.subscriptions.map(s => (
-                <div key={s.id} className="rounded-lg border p-3 space-y-1 text-sm">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="font-medium">{wsName(s.workspace_id)} — {planName(s.plan_id)}</span>
-                    <Badge variant={s.status === 'active' || s.status === 'trialing' ? 'secondary' : 'outline'}>{s.status || '—'}</Badge>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 text-xs text-muted-foreground">
-                    <span>{t('admin.users.finGateway')}: {s.provider_name || '—'}</span>
-                    <span>{t('admin.users.finPeriod')}: {fmt(s.current_period_start)} → {fmt(s.current_period_end)}</span>
-                    <span>{t('admin.users.finTrialEnd')}: {fmt(s.trial_end)}</span>
-                    <span>{t('admin.users.finCancelAtEnd')}: {s.cancel_at_period_end ? '✓' : '—'}</span>
-                    {s.provider_subscription_id && <span className="font-mono truncate">{t('admin.users.finRefId')}: {s.provider_subscription_id}</span>}
-                    {s.provider_customer_id && <span className="font-mono truncate">customer: {s.provider_customer_id}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {data.payments.length > 0 && (
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finPayments')}
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.finPaymentsHint')}</p>
-            </div>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('admin.users.finDate')}</TableHead>
-                    <TableHead>{t('admin.users.finWorkspace')}</TableHead>
-                    <TableHead>{t('admin.users.finGateway')}</TableHead>
-                    <TableHead>{t('admin.users.finAmount')}</TableHead>
-                    <TableHead>{t('admin.users.finRefund')}</TableHead>
-                    <TableHead>{t('admin.users.finStatus')}</TableHead>
-                    <TableHead>{t('admin.users.finRefId')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.payments.slice((payPage - 1) * paySize, payPage * paySize).map(p => (
-                    <TableRow
-                      key={p.id}
-                      className="cursor-pointer"
-                      onClick={() => setDetail({
-                        title: t('admin.users.finPaymentDetail'),
-                        rows: [
-                          { label: t('admin.users.finDate'), value: fmt(p.created_at) },
-                          { label: t('admin.users.finWorkspace'), value: wsName(p.workspace_id) },
-                          { label: t('admin.users.finGateway'), value: p.provider_name },
-                          { label: t('admin.users.finAmount'), value: money(p.amount, p.currency) },
-                          { label: t('admin.users.finRefund'), value: p.refund_amount ? money(p.refund_amount, p.currency) : null },
-                          { label: t('admin.users.finStatus'), value: p.status },
-                          { label: t('admin.users.finRefId'), value: p.provider_payment_id },
-                        ],
-                        json: p.metadata,
-                      })}
-                    >
-                      <TableCell className="whitespace-nowrap text-xs">{fmt(p.created_at)}</TableCell>
-                      <TableCell className="text-xs">{wsName(p.workspace_id)}</TableCell>
-                      <TableCell className="text-xs">{p.provider_name || '—'}</TableCell>
-                      <TableCell className="text-xs font-medium">{money(p.amount, p.currency)}</TableCell>
-                      <TableCell className="text-xs">{p.refund_amount ? money(p.refund_amount, p.currency) : '—'}</TableCell>
-                      <TableCell><Badge variant={statusVariant(p.status)}>{p.status || '—'}</Badge></TableCell>
-                      <TableCell className="text-[11px] font-mono max-w-[160px] truncate">{p.provider_payment_id || '—'}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <FinPager
-              total={data.payments.length}
-              page={payPage}
-              pageSize={paySize}
-              onPage={setPayPage}
-              onPageSize={setPaySize}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {data.events.length > 0 && (
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold flex items-center gap-2">
-                <ScrollText className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finEvents')}
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.finEventsHint')}</p>
-            </div>
-            <div className="space-y-2">
-              {data.events.slice((evtPage - 1) * evtSize, evtPage * evtSize).map(e => (
-                <div
-                  key={e.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setDetail({
-                    title: t('admin.users.finEventDetail'),
-                    rows: [
-                      { label: t('admin.users.finDate'), value: fmt(e.created_at) },
-                      { label: t('admin.users.finWorkspace'), value: wsName(e.workspace_id) },
-                      { label: t('admin.users.finGateway'), value: e.provider_name },
-                      { label: t('admin.users.finStatus'), value: e.status },
-                      { label: t('admin.users.finRefId'), value: e.provider_event_id },
-                      { label: t('admin.users.finAmount'), value: e.amount != null ? money(e.amount, e.currency) : null },
-                    ],
-                    json: e.metadata,
-                  })}
-                  className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs cursor-pointer hover:bg-muted/50 transition-colors"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium">{e.event_type || '—'}</p>
-                    <p className="text-muted-foreground truncate">
-                      {wsName(e.workspace_id)} · {e.provider_name || '—'}
-                      {e.provider_event_id ? ` · ${e.provider_event_id}` : ''}
-                    </p>
-                  </div>
-                  <div className="text-end shrink-0 space-y-1">
-                    {e.amount != null && <p className="font-medium">{money(e.amount, e.currency)}</p>}
-                    <Badge variant={statusVariant(e.status)}>{e.status || '—'}</Badge>
-                    <p className="text-muted-foreground">{fmt(e.created_at)}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <FinPager
-              total={data.events.length}
-              page={evtPage}
-              pageSize={evtSize}
-              onPage={setEvtPage}
-              onPageSize={setEvtSize}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {data.planChanges.length > 0 && (
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" /> {t('admin.users.finPlanChanges')}
-            </h3>
-            <div className="space-y-2">
-              {data.planChanges.map(c => (
-                <div key={c.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs flex-wrap">
-                  <span>
-                    <span className="text-muted-foreground">{t('admin.users.finFrom')}:</span> {planName(c.old_plan_id)}{' '}
-                    <span className="text-muted-foreground">{t('admin.users.finTo')}:</span> {planName(c.new_plan_id)}
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <Badge variant="outline">{c.change_type || '—'}</Badge>
-                    <span className="text-muted-foreground">{wsName(c.workspace_id)}</span>
-                    <span className="text-muted-foreground">{fmt(c.created_at)}</span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <DetailDialog
-        open={!!detail}
-        onClose={() => setDetail(null)}
-        title={detail?.title || ''}
-        rows={detail?.rows || []}
-        json={detail?.json}
-      />
-    </div>
   );
 }

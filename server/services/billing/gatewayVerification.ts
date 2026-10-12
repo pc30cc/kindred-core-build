@@ -25,7 +25,6 @@
 // consumed it), and the confirmed amount must equal the intent amount.
 // ============================================================
 
-import type { PaymentIntentRow } from './paymentIntent.js';
 import {
   extractProviderRefCandidates,
   getProviderReferenceContract,
@@ -53,7 +52,20 @@ export interface GatewayVerificationMarker {
   verified_at: string;
 }
 
-type BindableIntent = Pick<PaymentIntentRow, 'provider_name' | 'provider_ref'>;
+/**
+ * The fields of a payment attempt these helpers read. Structural, so an
+ * account payment (simple billing) binds the same way the retired v2 payment
+ * intent did.
+ */
+export interface IntentLike {
+  provider_name: string;
+  provider_ref: string | null;
+  status?: string;
+  amount_irr: number;
+  metadata?: Record<string, unknown> | null;
+}
+
+type BindableIntent = Pick<IntentLike, 'provider_name' | 'provider_ref'>;
 
 /**
  * Fail-closed binding check.
@@ -89,8 +101,8 @@ export function providerRefMatchesIntent(intent: BindableIntent, params: unknown
   return { ok: true };
 }
 
-/** Amount the gateway must confirm for this intent (V2 `expected_amount_irr`, else `amount_irr`). */
-export function expectedIntentAmountIrr(intent: Pick<PaymentIntentRow, 'amount_irr'> & {
+/** Amount the gateway must confirm for this intent (`expected_amount_irr` when set, else `amount_irr`). */
+export function expectedIntentAmountIrr(intent: Pick<IntentLike, 'amount_irr'> & {
   expected_amount_irr?: number | string | null;
 }): number {
   const expected = Number(intent.expected_amount_irr);
@@ -134,7 +146,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Reads the verification marker written when the intent was claimed. */
 export function readGatewayVerificationMarker(
-  intent: Pick<PaymentIntentRow, 'metadata'>,
+  intent: Pick<IntentLike, 'metadata'>,
 ): GatewayVerificationMarker | null {
   const raw = isRecord(intent.metadata) ? intent.metadata[GATEWAY_VERIFICATION_METADATA_KEY] : undefined;
   if (!isRecord(raw)) return null;
@@ -165,7 +177,7 @@ export type GatewayVerificationDecision =
  * Pure: the caller decides what to persist for each rejection reason.
  */
 export function evaluateGatewayVerification(
-  intent: Pick<PaymentIntentRow, 'status' | 'provider_ref' | 'metadata' | 'amount_irr'> & {
+  intent: Pick<IntentLike, 'status' | 'provider_ref' | 'metadata' | 'amount_irr'> & {
     expected_amount_irr?: number | string | null;
   },
   result: GatewayVerifyResult,

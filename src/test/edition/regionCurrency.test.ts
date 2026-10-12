@@ -3,8 +3,9 @@
  *   - iran   → IRR (Toman), exactly as before;
  *   - turkey → TRY (a Turkish-only site sells in Turkish Lira);
  *   - multi, global → USD for EVERY language, Turkish and Persian included.
- * Covers the plan catalogue (and its currency picking), the public plan list,
- * checkout defaults and the finance report, for all four region modes.
+ * Covers the public plan list and the billing currency of each edition, for
+ * all four region modes. (Billing v2's workspace catalogue, checkout and
+ * finance report were removed in phase 7A.)
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
@@ -16,7 +17,6 @@ const state = vi.hoisted(() => ({
   mode: 'iran' as 'iran' | 'turkey' | 'multi' | 'global',
   tables: {} as Record<string, Array<Record<string, unknown>>>,
   inserts: [] as Array<{ table: string; row: Record<string, unknown> }>,
-  invoice: null as Record<string, unknown> | null,
 }));
 
 vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => {
@@ -63,20 +63,13 @@ vi.mock('../../../server/lib/workspaceAuth.js', async (importOriginal) => ({
   requireUser: async () => 'u1',
   serverConfigOf: (req: { serverConfig?: unknown }) => req.serverConfig,
 }));
-vi.mock('../../../server/services/billing/invoice/settle.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../server/services/billing/invoice/settle.js')>()),
-  getInvoice: async () => state.invoice,
-  beginCollection: async () => ({ collection_id: 'col-1' }),
-  releaseCollection: async () => undefined,
-}));
 vi.mock('../../../server/services/billing/callbackUrl.js', () => ({
   isAllowedBillingCallbackUrl: () => true,
   resolvePublicApiOrigin: async () => 'https://api.test',
 }));
 
-const { pickCatalogCurrency, catalogOffersCurrency, billingCustomerRouter } = await import('../../../server/routes/billingCustomer.js');
 const { billingRouter } = await import('../../../server/routes/billing.js');
-const { resolveEditionCurrency, billingEditionCurrency } = await import('../../../server/services/billing/edition.js');
+const { billingEditionCurrency } = await import('../../../server/services/billing/edition.js');
 const { editionCurrencyFor, currencyForEditionRegion, regionPinsCurrency } = await import('../../../shared/edition.js');
 
 const cfg = { supabaseUrl: 'http://db', supabaseServiceRoleKey: 'k' } as never;
@@ -92,7 +85,6 @@ const PLANS = [
 beforeEach(() => {
   state.mode = 'iran';
   state.inserts = [];
-  state.invoice = null;
   state.tables = {
     billing_gateways: [
       { provider_name: 'zarinpal', is_active: true, is_test: false, currencies: ['IRR'], countries: [], sort_order: 1, display_name: { fa: 'زرین‌پال' }, config: {} },
@@ -104,24 +96,7 @@ beforeEach(() => {
     billing_provider_credentials: [],
     billing_plans: PLANS,
     workspace_subscriptions: [],
-    billing_subscription_periods: [],
-    billing_payments: [
-      { id: 'pay-irr', status: 'succeeded', amount: 15_000_000, currency: 'IRR', provider_name: 'zarinpal', plan_id: 'p-pro', created_at: new Date().toISOString(), paid_at: new Date().toISOString(), workspace_id: WS },
-      { id: 'pay-usd', status: 'succeeded', amount: 2900, currency: 'USD', provider_name: 'stripe', plan_id: 'p-pro', created_at: new Date().toISOString(), paid_at: new Date().toISOString(), workspace_id: WS },
-      { id: 'pay-try', status: 'succeeded', amount: 99_900, currency: 'TRY', provider_name: 'stripe', plan_id: 'p-pro', created_at: new Date().toISOString(), paid_at: new Date().toISOString(), workspace_id: WS },
-    ],
-    billing_payment_intents: [
-      { id: 'pi-1', status: 'succeeded', metadata: { currency: 'IRR' }, created_at: new Date().toISOString() },
-      { id: 'pi-2', status: 'succeeded', metadata: { currency: 'USD' }, created_at: new Date().toISOString() },
-    ],
-    billing_events: [
-      { id: 'ev-1', provider_name: 'zarinpal', currency: 'IRR', amount: 1 },
-      { id: 'ev-2', provider_name: 'stripe', currency: null, amount: null },
-    ],
-    billing_currencies: [
-      { code: 'IRR', is_base: true, is_active: true, sort_order: 1 },
-      { code: 'USD', is_base: false, is_active: true, sort_order: 2 },
-    ],
+    billing_events: [],
     workspaces: [{ id: WS, name: 'Acme' }],
   };
 });
@@ -133,7 +108,6 @@ app.use((req, _res, next) => {
   next();
 });
 app.use(express.json());
-app.use('/api/billing', billingCustomerRouter);
 app.use('/api/billing', billingRouter);
 const server = http.createServer(app).listen(0);
 afterAll(() => server.close());
@@ -179,108 +153,6 @@ describe('shared/edition.ts — the currency of each region', () => {
   });
 });
 
-describe('pickCatalogCurrency × region × locale', () => {
-  const sellable = ['IRR', 'USD', 'TRY'];
-  it.each(LOCALES)('locale %s: iran → its locale rule (Persian Rial), turkey → TRY, multi/global → USD', (locale) => {
-    expect(pickCatalogCurrency(sellable, { locale, edition: 'iran', regionMode: 'iran' })).toBe(
-      locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : 'USD',
-    );
-    const intl = sellable.filter((c) => c !== 'IRR');
-    expect(pickCatalogCurrency(intl, { locale, edition: 'international', regionMode: 'turkey' })).toBe('TRY');
-    expect(pickCatalogCurrency(intl, { locale, edition: 'international', regionMode: 'multi' })).toBe('USD');
-    expect(pickCatalogCurrency(intl, { locale, edition: 'international', regionMode: 'global' })).toBe('USD');
-  });
-
-  it('Iran without a region mode: exactly the rule from before editions', () => {
-    expect(pickCatalogCurrency(['IRR', 'USD', 'TRY'], { locale: 'tr' })).toBe('TRY');
-    expect(pickCatalogCurrency(['IRR', 'USD'], { locale: 'fa' })).toBe('IRR');
-    expect(pickCatalogCurrency([], {})).toBe('IRR');
-  });
-
-  it('an explicit choice or a running subscription still wins when offered', () => {
-    expect(pickCatalogCurrency(['USD', 'TRY'], { requested: 'TRY', edition: 'international', regionMode: 'multi' })).toBe('TRY');
-    expect(pickCatalogCurrency(['USD', 'TRY'], { subscription: 'TRY', edition: 'international', regionMode: 'multi' })).toBe('TRY');
-  });
-
-  it('catalogOffersCurrency: multi/global offer USD (plus a running subscription currency) only', () => {
-    for (const regionMode of ['multi', 'global'] as const) {
-      expect(catalogOffersCurrency('USD', { edition: 'international', regionMode })).toBe(true);
-      expect(catalogOffersCurrency('TRY', { edition: 'international', regionMode })).toBe(false);
-      expect(catalogOffersCurrency('EUR', { edition: 'international', regionMode })).toBe(false);
-      expect(catalogOffersCurrency('TRY', { edition: 'international', regionMode, subscription: 'TRY' })).toBe(true);
-    }
-    expect(catalogOffersCurrency('USD', { edition: 'international', regionMode: 'turkey' })).toBe(true);
-    expect(catalogOffersCurrency('TRY', { edition: 'international', regionMode: 'turkey' })).toBe(true);
-    expect(catalogOffersCurrency('IRR', { edition: 'iran', regionMode: 'iran' })).toBe(true);
-    expect(catalogOffersCurrency('TRY', { edition: 'iran', regionMode: 'iran' })).toBe(true);
-  });
-});
-
-// ─── Routes ───────────────────────────────────────────────────────────────
-
-describe('GET /workspaces/:id/plans — the plan catalogue, every region × locale', () => {
-  const expected = {
-    iran: { fa: 'IRR', en: 'USD', tr: 'TRY' },
-    turkey: { fa: 'TRY', en: 'TRY', tr: 'TRY' },
-    multi: { fa: 'USD', en: 'USD', tr: 'USD' },
-    global: { fa: 'USD', en: 'USD', tr: 'USD' },
-  } as const;
-  const offered = {
-    iran: ['IRR', 'USD', 'TRY'],
-    turkey: ['TRY', 'USD'],
-    multi: ['USD'],
-    global: ['USD'],
-  } as const;
-
-  for (const mode of MODES) {
-    for (const locale of LOCALES) {
-      it(`${mode} / ${locale} → ${expected[mode][locale]}`, async () => {
-        state.mode = mode;
-        const r = await call('GET', `/api/billing/workspaces/${WS}/plans?locale=${locale}`);
-        expect(r.status).toBe(200);
-        expect(r.body.currency).toBe(expected[mode][locale]);
-        expect([...r.body.currencies].sort()).toEqual([...offered[mode]].sort());
-        expect(r.body.plans.every((p: { currency: string }) => p.currency === expected[mode][locale])).toBe(true);
-      });
-    }
-  }
-
-  it('Multi Region: a request for Lira is not honoured (USD for every language)', async () => {
-    state.mode = 'multi';
-    const r = await call('GET', `/api/billing/workspaces/${WS}/plans?locale=tr&currency=TRY`);
-    expect(r.body).toMatchObject({ currency: 'USD', currencies: ['USD'] });
-  });
-
-  it('Turkey: the customer may still switch to another sellable non-Rial currency', async () => {
-    state.mode = 'turkey';
-    const r = await call('GET', `/api/billing/workspaces/${WS}/plans?locale=tr&currency=USD`);
-    expect(r.body.currency).toBe('USD');
-  });
-
-  it('Iran: the Persian catalogue is Rial with every sellable currency — exactly as before', async () => {
-    const r = await call('GET', `/api/billing/workspaces/${WS}/plans?locale=fa`);
-    expect(r.body.currency).toBe('IRR');
-    expect(r.body.currencies).toEqual(['IRR', 'USD', 'TRY']);
-    expect(r.body.plans.map((p: { id: string; monthlyPriceIrr: number }) => [p.id, p.monthlyPriceIrr])).toEqual([
-      ['p-pro', 15_000_000],
-      ['p-rial', 5_000_000],
-    ]);
-  });
-});
-
-describe('GET /workspaces/:id/gateways — default currency per region', () => {
-  it.each([
-    ['iran', 'IRR'],
-    ['turkey', 'TRY'],
-    ['multi', 'USD'],
-    ['global', 'USD'],
-  ] as const)('%s → %s', async (mode, currency) => {
-    state.mode = mode;
-    const r = await call('GET', `/api/billing/workspaces/${WS}/gateways`);
-    expect(r.body.currency).toBe(currency);
-  });
-});
-
 describe('GET /plans — the public plan list, every region × locale', () => {
   it.each(MODES)('%s', async (mode) => {
     state.mode = mode;
@@ -296,7 +168,7 @@ describe('GET /plans — the public plan list, every region × locale', () => {
   });
 });
 
-describe('documents and checkout default to the region currency', () => {
+describe('billing defaults to the region currency', () => {
   it.each([
     ['iran', 'IRR'],
     ['turkey', 'TRY'],
@@ -305,32 +177,5 @@ describe('documents and checkout default to the region currency', () => {
   ] as const)('%s → %s', async (mode, currency) => {
     state.mode = mode;
     expect(await billingEditionCurrency(cfg)).toBe(currency);
-    expect(await resolveEditionCurrency(cfg, null)).toBe(currency);
-    // An explicit, edition-allowed currency is kept.
-    expect(await resolveEditionCurrency(cfg, 'eur')).toBe('EUR');
-  });
-});
-
-describe('the finance report is in the region currency', () => {
-  it.each([
-    ['iran', 'IRR'],
-    ['turkey', 'TRY'],
-    ['multi', 'USD'],
-    ['global', 'USD'],
-  ] as const)('%s → %s', async (mode, currency) => {
-    state.mode = mode;
-    state.tables.workspace_subscriptions = [{ workspace_id: WS, plan_id: 'p-pro', status: 'active', billing_interval: 'monthly' }];
-    const r = await call('GET', '/api/billing/admin/finance-report');
-    expect(r.status).toBe(200);
-    expect(r.body.currency).toBe(currency);
-    const price = PLANS[0].prices[currency as 'IRR' | 'USD' | 'TRY'].monthly;
-    expect(r.body.totals.mrrIrr).toBe(price);
-    if (mode === 'iran') {
-      // As before: every payment counted.
-      expect(r.body.totals.paymentCount).toBe(3);
-    } else {
-      expect(r.body.totals.grossRevenue).toBe(currency === 'TRY' ? 99_900 : 2900);
-      expect(r.body.totals.paymentCount).toBe(1);
-    }
   });
 });

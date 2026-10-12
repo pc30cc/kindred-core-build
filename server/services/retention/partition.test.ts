@@ -174,7 +174,7 @@ describe('partition retention preview', () => {
 
   it('returns nothing for a protected or disabled policy (enforced in SQL)', async () => {
     rpcMock.mockResolvedValue({ data: [], error: null });
-    expect(await previewPartitionRetention(config, 'billing_payments')).toEqual([]);
+    expect(await previewPartitionRetention(config, 'billing_account_ledger')).toEqual([]);
   });
 
   it('surfaces RPC failures instead of silently reporting no candidates', async () => {

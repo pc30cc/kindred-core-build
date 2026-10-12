@@ -12,7 +12,7 @@
  * (`…&_ptxn=<transaction id>`), whose verification asks Paddle about the
  * transaction server-to-server — nothing here decides that money arrived.
  */
-import type { ClientCheckout } from '@/lib/billingApi';
+import type { ClientCheckout } from '@/lib/accountBillingApi';
 import { PADDLE_SANDBOX_PROVIDER, isPaddleProvider } from '../../shared/testGateways';
 
 declare global {
@@ -38,6 +38,11 @@ interface PaddleJs {
 const PADDLE_JS_URL = 'https://cdn.paddle.com/paddle/v2/paddle.js';
 
 let inflight: Promise<PaddleJs> | null = null;
+
+/** A server-provided checkout field as a string ('' when absent or not a string). */
+function str(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
 let initializedToken: string | null = null;
 
 /** A checkout the payment page opens with Paddle.js: live `paddle` or `paddle_sandbox`. */
@@ -50,7 +55,7 @@ export function isPaddleClientCheckout(checkout: ClientCheckout | null | undefin
  * in the sandbox (its token is a `test_` token, which the live environment
  * refuses), live `paddle` only when the server says its Sandbox Mode is on.
  */
-export function paddleEnvironmentOf(checkout: Pick<ClientCheckout, 'provider' | 'environment'>): 'sandbox' | 'production' {
+export function paddleEnvironmentOf(checkout: { provider: string; environment?: unknown }): 'sandbox' | 'production' {
   return checkout.provider === PADDLE_SANDBOX_PROVIDER || checkout.environment === 'sandbox' ? 'sandbox' : 'production';
 }
 
@@ -85,7 +90,11 @@ export async function openPaddleCheckout(
   checkout: ClientCheckout,
   opts: { locale?: string; onClosed?: () => void } = {},
 ): Promise<void> {
-  if (!checkout.transactionId || !checkout.clientToken || !checkout.successUrl) {
+  const transactionId = str(checkout.transactionId);
+  const clientToken = str(checkout.clientToken);
+  const successUrl = str(checkout.successUrl);
+  const customerEmail = str(checkout.customerEmail);
+  if (!transactionId || !clientToken || !successUrl) {
     throw new Error('paddle_checkout_incomplete');
   }
   const Paddle = await loadPaddle();
@@ -98,24 +107,24 @@ export async function openPaddleCheckout(
       } catch {
         /* the overlay may already be gone */
       }
-      window.location.assign(checkout.successUrl as string);
+      window.location.assign(successUrl);
     } else if (event?.name === 'checkout.closed' && !completed) {
       opts.onClosed?.();
     }
   };
 
-  if (initializedToken !== checkout.clientToken) {
+  if (initializedToken !== clientToken) {
     // Initialize may run once per page; the environment must be set before it.
     if (paddleEnvironmentOf(checkout) === 'sandbox') Paddle.Environment.set('sandbox');
-    Paddle.Initialize({ token: checkout.clientToken, eventCallback });
-    initializedToken = checkout.clientToken;
+    Paddle.Initialize({ token: clientToken, eventCallback });
+    initializedToken = clientToken;
   } else {
     Paddle.Update({ eventCallback });
   }
 
   Paddle.Checkout.open({
-    transactionId: checkout.transactionId,
+    transactionId,
     settings: { displayMode: 'overlay', ...(opts.locale ? { locale: opts.locale } : {}) },
-    ...(checkout.customerEmail ? { customer: { email: checkout.customerEmail } } : {}),
+    ...(customerEmail ? { customer: { email: customerEmail } } : {}),
   });
 }

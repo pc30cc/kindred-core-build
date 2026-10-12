@@ -1,7 +1,7 @@
 /**
  * Editions phase 3, server side (International = region_mode != 'iran').
  *
- *   - Calendar & time zone: billing notifications, invitation e-mails, the
+ *   - Calendar & time zone: invitation e-mails, the
  *     help-center article date and the operator's default availability zone
  *     are Jalali / Tehran in the Iranian edition only.
  *   - Phone: SMS phone verification (its only vendors are Iranian) is never
@@ -21,11 +21,7 @@ const state = vi.hoisted(() => ({
   phoneVerified: false,
   rpcCalls: [] as string[],
   rpcArgs: [] as Array<{ name: string; args: Record<string, unknown> }>,
-  jobs: [] as Array<Record<string, unknown>>,
-  /** The real SMS service (edition gate) or a stub that always succeeds (dispatcher tests). */
-  realSms: true,
 }));
-const sendSmsMock = vi.hoisted(() => vi.fn(async () => ({ success: true, provider: 'kavenegar' })));
 
 vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../server/services/platformRegion.js')>();
@@ -47,10 +43,6 @@ vi.mock('../../../server/supabase.js', () => ({
     rpc: async (name: string, args: Record<string, unknown> = {}) => {
       state.rpcCalls.push(name);
       state.rpcArgs.push({ name, args });
-      if (name === 'billing_v2_claim_notification_jobs') return { data: state.jobs, error: null };
-      if (name === 'billing_v2_resolve_billing_recipient') {
-        return { data: { email: 'a@b.c', phone: '+989121234567', locale: 'fa' }, error: null };
-      }
       if (name === 'is_workspace_member') return { data: true, error: null };
       if (name === 'workspace_owner_phone_verified') return { data: state.phoneVerified, error: null };
       if (name === 'phone_verification_state') {
@@ -61,23 +53,8 @@ vi.mock('../../../server/supabase.js', () => ({
   }),
 }));
 
-const { formatDate, renderBillingNotification, buildBillingTemplateData } = await import(
-  '../../../server/services/billing/notifications/messages.js'
-);
 const { formatExpiry, renderInviteEmail } = await import('../../../server/services/invitations/notificationTemplates.js');
 const { defaultTimezone } = await import('../../../server/routes/availability.js');
-vi.mock('../../../server/services/sms/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../server/services/sms/index.js')>();
-  return {
-    ...actual,
-    sendSms: (...a: Parameters<typeof actual.sendSms>) => (state.realSms ? actual.sendSms(...a) : sendSmsMock()),
-  };
-});
-vi.mock('../../../server/services/auth-email.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../server/services/auth-email.js')>()),
-  resolveWorkspaceAppUrl: async () => 'https://app.test/billing',
-}));
-const { dispatchBillingNotifications } = await import('../../../server/services/billing/notifications/dispatcher.js');
 const phone = await import('../../../server/services/phoneVerification/index.js');
 const sms = await import('../../../server/services/sms/index.js');
 const { isChannelAllowedInEdition, isIranianChannel, smsVerificationAvailable, editionDefaultTimeZone } = await import(
@@ -94,9 +71,6 @@ beforeEach(() => {
   state.phoneVerified = false;
   state.rpcCalls = [];
   state.rpcArgs = [];
-  state.jobs = [];
-  sendSmsMock.mockClear();
-  state.realSms = true;
 });
 
 describe('shared/edition.ts — phase 3 switches', () => {
@@ -110,37 +84,6 @@ describe('shared/edition.ts — phase 3 switches', () => {
     expect(smsVerificationAvailable('international')).toBe(false);
     expect(editionDefaultTimeZone('iran')).toBe('Asia/Tehran');
     expect(editionDefaultTimeZone('international')).toBe('UTC');
-  });
-});
-
-describe('billing notifications — dates', () => {
-  const jalali = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { dateStyle: 'medium', timeZone: 'Asia/Tehran' }).format(new Date(DUE));
-
-  it('Iran (and an unknown edition): Jalali on the Tehran clock, exactly as before', () => {
-    expect(formatDate(DUE, 'fa')).toBe(jalali);
-    expect(formatDate(DUE, 'fa', 'iran')).toBe(jalali);
-    expect(formatDate(DUE, 'fa', null)).toBe(jalali);
-    expect(formatDate(DUE, 'en', 'iran')).toBe(
-      new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'Asia/Tehran' }).format(new Date(DUE)),
-    );
-    const payload = { invoice_number: 'A1', amount_irr: 1_000_000, due_at: DUE };
-    expect(renderBillingNotification('invoice_issued', 'fa', payload)).toEqual(
-      renderBillingNotification('invoice_issued', 'fa', payload, { edition: 'iran' }),
-    );
-    expect(renderBillingNotification('invoice_issued', 'fa', payload).text).toContain(jalali);
-    expect(buildBillingTemplateData('fa', payload).due_at).toBe(jalali);
-  });
-
-  it('International: Gregorian on UTC for every language, Persian included', () => {
-    const gregorianFa = new Intl.DateTimeFormat('fa-IR-u-ca-gregory', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(DUE));
-    expect(formatDate(DUE, 'fa', 'international')).toBe(gregorianFa);
-    expect(formatDate(DUE, 'fa', 'international')).toContain('۲۰۲۶');
-    expect(formatDate(DUE, 'en', 'international')).toBe('Oct 9, 2026');
-    const payload = { invoice_number: 'A1', amount_irr: 2900, currency: 'USD', due_at: DUE };
-    const msg = renderBillingNotification('invoice_issued', 'fa', payload, { edition: 'international' });
-    expect(msg.text).toContain(gregorianFa);
-    expect(msg.text).not.toContain(jalali);
-    expect(buildBillingTemplateData('fa', payload, { edition: 'international' }).due_at).toBe(gregorianFa);
   });
 });
 
@@ -253,31 +196,5 @@ describe('SMS providers', () => {
     expect(await sms.sendSms(CONFIG, { to: '09121234567', body: 'x' })).toMatchObject({
       success: false, errorCode: 'sms_provider_not_configured',
     });
-  });
-});
-
-describe('billing notification SMS jobs', () => {
-  const smsJob = {
-    id: 'job-1', workspace_id: 'ws-1', invoice_id: null, notification_type: 'invoice_issued', channel: 'sms',
-    locale: 'fa', payload: { invoice_number: 'A1', amount_irr: 1_000_000, due_at: DUE },
-  };
-
-  it('Iran: sent through the SMS service, as before', async () => {
-    state.realSms = false;
-    state.jobs = [smsJob];
-    const r = await dispatchBillingNotifications(CONFIG);
-    expect(r).toMatchObject({ claimed: 1, sent: 1, skipped: 0 });
-    expect(sendSmsMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('International: skipped (no SMS vendor), never sent nor retried', async () => {
-    state.realSms = false;
-    state.edition = 'international';
-    state.jobs = [smsJob];
-    const r = await dispatchBillingNotifications(CONFIG);
-    expect(r).toMatchObject({ claimed: 1, sent: 0, skipped: 1, failed: 0 });
-    expect(sendSmsMock).not.toHaveBeenCalled();
-    const done = state.rpcArgs.find((c) => c.name === 'billing_v2_complete_notification_job');
-    expect(done?.args).toMatchObject({ p_status: 'skipped_no_recipient', p_error: 'sms_not_available_in_edition' });
   });
 });

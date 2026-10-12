@@ -1,5 +1,6 @@
 /**
- * Shared presentation helpers for the workspace billing screens.
+ * Shared presentation helpers for the billing screens (the workspace's
+ * account billing and Super Admin's finance pages).
  *
  * Nothing here computes money. These helpers only turn server-decided values
  * into labels, badges and page furniture — and they map every backend enum to
@@ -14,7 +15,6 @@ import { formatDate } from '@/lib/date';
 import { defaultCurrencyFor, formatAmountForEdition, formatToman } from '@/lib/money';
 import { formatPlanPrice } from '@/lib/planPrice';
 import { currentEdition } from '@/lib/edition';
-import type { TranslationKey } from '@/i18n';
 
 /** Jalali in fa in the Iranian edition, Gregorian elsewhere (src/lib/date.ts) — display only, never storage. */
 export function billingDate(value: string | null | undefined, locale: string): string {
@@ -47,25 +47,6 @@ export function Ltr({ children }: { children: ReactNode }) {
     <span dir="ltr" className="inline-block font-mono text-xs">
       {children}
     </span>
-  );
-}
-
-const INVOICE_VARIANTS: Record<string, string> = {
-  paid: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
-  open: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
-  partially_paid: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
-  past_due: 'bg-destructive/10 text-destructive border-destructive/20',
-  void: 'bg-muted text-muted-foreground border-border',
-  expired: 'bg-muted text-muted-foreground border-border',
-  refunded: 'bg-sky-500/10 text-sky-600 border-sky-500/20',
-  draft: 'bg-muted text-muted-foreground border-border',
-};
-
-export function InvoiceStatusBadge({ status, label }: { status: string; label: string }) {
-  return (
-    <Badge variant="outline" className={INVOICE_VARIANTS[status] ?? INVOICE_VARIANTS.draft}>
-      {label}
-    </Badge>
   );
 }
 
@@ -142,22 +123,4 @@ export function Pager({
       </div>
     </div>
   );
-}
-
-/** Server error code → translated message, with a safe generic fallback. */
-export function errorMessage(e: unknown, t: (k: TranslationKey) => string): string {
-  const err = e as { code?: unknown; message?: unknown; details?: unknown } | null | undefined;
-  const code = err?.code || err?.message;
-  // A gateway that refused the checkout: say so, with the gateway's own reason.
-  if (code === 'CHECKOUT_PROVIDER_ERROR') {
-    const details = (err?.details ?? null) as { providerMessage?: unknown } | null;
-    const reason = typeof details?.providerMessage === 'string' ? details.providerMessage.trim() : '';
-    const label = t('billing.errors.CHECKOUT_PROVIDER_ERROR' as TranslationKey);
-    return reason ? `${label} ${reason}` : label;
-  }
-  if (typeof code === 'string' && /^[A-Za-z_]+$/.test(code)) {
-    const translated = t(`billing.errors.${code}` as TranslationKey);
-    if (!translated.includes('billing.errors.')) return translated;
-  }
-  return t('billing.errors.generic');
 }

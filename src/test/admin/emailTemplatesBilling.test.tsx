@@ -1,6 +1,6 @@
 /**
  * Super Admin → Branding → Email templates lists the simple billing's mails
- * while billing v2 is off (shared/billingMode.ts), each with the variables
+ * (billing v2 and its mails were removed in phase 7A), each with the variables
  * its sender really fills. Every platform mail is edited there, per edition;
  * a billing mail missing from the list could only be changed in SQL.
  *
@@ -46,7 +46,6 @@ vi.mock('@/components/ui/select', async () => {
   };
 });
 
-const { LEGACY_BILLING_ENABLED } = await import('../../../shared/billingMode');
 const EmailTemplatesTab = (await import('@/components/admin/EmailTemplatesTab')).default;
 
 const SLUG_KEY = 'admin.brandingPage.emailTemplates.slugs';
@@ -140,11 +139,10 @@ describe('Branding → Email templates: the simple billing mails', () => {
   });
 
   it('are the mails the sender sends', () => {
-    expect(LEGACY_BILLING_ENABLED).toBe(false);
     expect(senderSlugs().sort()).toEqual([...slugs].sort());
   });
 
-  it('are the billing category while billing v2 is off, and v2 mails are not listed', async () => {
+  it('are the billing category, and billing v2\'s old mails are not listed', async () => {
     await renderTab();
     fireEvent.click(screen.getByText('[admin.brandingPage.emailTemplates.categories.billing]'));
     expect(listedSlugs()).toEqual(slugs);

@@ -35,7 +35,7 @@ describe('zarinpal_test (sandbox) provider', () => {
     expect(url).toBe('https://sandbox.zarinpal.com/pg/v4/payment/request.json');
     expect(JSON.parse(init.body).merchant_id).toBe('00000000-0000-0000-0000-000000000000');
     expect(out.paymentUrl).toBe('https://sandbox.zarinpal.com/pg/StartPay/S0000000000000000000000000000mock');
-    // Authority is stored on the intent by the caller (server/routes/billingCustomer.ts).
+    // The authority is stored on the payment by the caller (server/services/billing/account).
     expect(out.authority).toBe('S0000000000000000000000000000mock');
   });
 

@@ -71,7 +71,7 @@ async function deriveAlerts(req: object, workspaceId: string, userId: string) {
   const sb = getServiceClient(config);
   const period = new Date().toISOString().slice(0, 7);
 
-  const [planInfo, usageRes, overridesRes, paymentsRes, identity, renewal] = await Promise.all([
+  const [planInfo, usageRes, overridesRes, identity, renewal] = await Promise.all([
     getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId).catch(
       () => null,
     ),
@@ -85,12 +85,6 @@ async function deriveAlerts(req: object, workspaceId: string, userId: string) {
       .from('workspace_limit_overrides')
       .select('limit_key, limit_value')
       .eq('workspace_id', workspaceId),
-    sb
-      .from('billing_payments')
-      .select('id, status, created_at')
-      .eq('workspace_id', workspaceId)
-      .order('created_at', { ascending: false })
-      .limit(5),
     findIdentityById(config, userId).catch(() => null),
     renewalDueNotice(config, workspaceId).catch(() => null),
   ]);
@@ -171,22 +165,7 @@ async function deriveAlerts(req: object, workspaceId: string, userId: string) {
     });
   }
 
-  // ── 3. Failed payment in the last 14 days ────────────────
-  const failed = ((paymentsRes.data || []) as Array<{ id: string; status: string | null; created_at: string | null }>).find(
-    (p) =>
-      ['failed', 'canceled', 'cancelled'].includes(String(p.status)) &&
-      Date.now() - Date.parse(p.created_at || '') < 14 * DAY_MS,
-  );
-  if (failed) {
-    alerts.push({
-      id: `payment_failed_${failed.id}`,
-      kind: 'payment_failed',
-      severity: 'critical',
-      action: '/billing',
-    });
-  }
-
-  // ── 4. Quota pressure (>=80% warn, >=100% critical) ──────
+  // ── 3. Quota pressure (>=80% warn, >=100% critical) ──────
   const overrideMap = new Map<string, number>(
     ((overridesRes.data || []) as Array<{ limit_key: string; limit_value: unknown }>).map((o) => [o.limit_key, Number(o.limit_value)]),
   );

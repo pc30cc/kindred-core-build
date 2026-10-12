@@ -163,10 +163,16 @@ reserved blocks, so a full disk stops Postgres too.
     (2026-10-11 04:15), `263_billing_purge_ledger.sql` (19:13),
     `264_simple_billing_ai_packs.sql` (21:22), `265_billing_computed_locks.sql`
     (23:32; its three indexes were built CONCURRENTLY beforehand),
-    `266_simple_billing_admin.sql` (2026-10-12 00:38) and
+    `266_simple_billing_admin.sql` (2026-10-12 00:38),
     `267_billing_v2_retire.sql` (02:48; the move found nothing to credit and
-    no needs_review on either database). Full `pg_dump -Fc` copies taken
-    before 267: `/root/billing-v2-backup/` on `vps-50cc1602`.
+    no needs_review on either database), `268_billing_v2_archive.sql` (07:43),
+    `269_billing_revenue_archive.sql` and
+    `270_billing_admin_adjust_rate_limit.sql` (09:33). Full `pg_dump -Fc`
+    copies taken before 267 and before 268: `/root/billing-v2-backup/` on
+    `vps-50cc1602`.
+  - Since 269, deleted payments and ledger rows are copied to the append-only
+    `billing_revenue_archive` and `billing_ledger_archive` (revenue reports
+    include them). Never drop, empty or untrigger them; a CI rule forbids it.
   - Since 268 (`268_billing_v2_archive.sql`) the billing v2 tables live,
     intact, in the schema `billing_v2_archive` (no app role can read them;
     `webyar_backup` can). Never drop or empty that schema: it holds financial

@@ -302,7 +302,9 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       await ensureAuthChainInstalled(db);
       await db.end();
     }
-  });
+    // Reinstalls the same chain as beforeAll, so it needs the same budget:
+    // the default 10 s hook timeout failed this suite on a slow CI runner.
+  }, 180_000);
 
   beforeEach(() => {
     emailSendMock.mockReset();

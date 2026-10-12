@@ -195,7 +195,23 @@ interface PlanFormData {
   ai_allowance: Record<string, string>;
   /** The stored `ai_allowance`, so a currency this edition does not edit is kept as it is. */
   storedAiAllowance: Record<string, number>;
+  /**
+   * Lock limits (LOCK_LIMIT_KEYS) an existing plan does not name, with the
+   * registry default the form shows for them: saved only once changed.
+   */
+  absentLockLimits: Record<string, number>;
+  /** Lock limits the admin edited in this form: saved even when back at the shown default. */
+  touchedLockLimits: string[];
 }
+
+/**
+ * Limits that lock data over them (phase 4, "only explicit limits lock"): a
+ * plan that does not name one locks nothing by it. The form shows every
+ * limit with its registry default, so saving such a plan unchanged must not
+ * write that default (the Trial plan would get max_agents 1 and pause every
+ * agent; data_retention_days 30 would lock every older chat).
+ */
+const LOCK_LIMIT_KEYS = ['max_agents', 'max_contacts', 'max_kb_articles', 'data_retention_days'] as const;
 
 /**
  * The limit older readers still take the monthly AI credit from. Where the
@@ -214,7 +230,7 @@ const AI_ALLOWANCE_LIMIT_KEY = 'included_ai_allowance_irr';
  */
 const GRANTED_AI_ALLOWANCE_CURRENCIES: readonly string[] = ['IRR'];
 
-/** The retention field's value: null when empty (never deleted), NaN when it is not 1-3650 whole days. */
+/** The retention field's value: null when empty (never deleted), NaN when it is not PLAN_RETENTION_DAYS whole days. */
 function retentionDaysValue(text: string): number | null {
   if (!text.trim()) return null;
   const n = parsePlanPriceInput(text);
@@ -331,6 +347,10 @@ function buildFormFromRegistry(
     locked_data_retention_days: typeof retention === 'number' && retention > 0 ? String(retention) : '',
     ai_allowance: Object.fromEntries(aiCurrencies.map((cur) => [cur, planPriceInputValue(storedAiAllowance[cur], cur)])),
     storedAiAllowance,
+    absentLockLimits: plan?.id
+      ? Object.fromEntries(LOCK_LIMIT_KEYS.filter((k) => knownKeys.has(k) && !(k in planLim)).map((k) => [k, limits[k]]))
+      : {},
+    touchedLockLimits: [],
   };
 }
 
@@ -354,6 +374,11 @@ function formToPayload(form: PlanFormData) {
     aiAllowance.IRR = limitValue;
   }
   if (typeof aiAllowance.IRR === 'number') limits[AI_ALLOWANCE_LIMIT_KEY] = aiAllowance.IRR;
+  // A lock limit the plan did not name stays unnamed unless the admin edited
+  // it (typing the default itself makes it explicit, so it locks).
+  for (const [key, shown] of Object.entries(form.absentLockLimits)) {
+    if (!form.touchedLockLimits.includes(key) && limits[key] === shown) delete limits[key];
+  }
   const retention = retentionDaysValue(form.locked_data_retention_days);
   return {
     name: form.name,
@@ -447,7 +472,7 @@ function PlanFormDialog({
     }
     if (Number.isNaN(retentionDaysValue(form.locked_data_retention_days) as number)) {
       setActiveSection('general');
-      toast.error(t('admin.simpleBilling.plans.retentionHint'));
+      toast.error(t('admin.billingLocks.planRetention.invalid'));
       return;
     }
     const payload = formToPayload(form);
@@ -506,7 +531,13 @@ function PlanFormDialog({
     }));
   }
   function setLimit(key: string, val: number) {
-    setForm((f) => ({ ...f, limits: { ...f.limits, [key]: val } }));
+    setForm((f) => ({
+      ...f,
+      limits: { ...f.limits, [key]: val },
+      touchedLockLimits: key in f.absentLockLimits && !f.touchedLockLimits.includes(key)
+        ? [...f.touchedLockLimits, key]
+        : f.touchedLockLimits,
+    }));
   }
   function updateLocalized(locale: string, field: string, value: string) {
     setForm((f) => ({ ...f, localized: { ...f.localized, [locale]: { ...f.localized[locale], [field]: value } } }));
@@ -644,20 +675,22 @@ function PlanFormDialog({
                 </div>
               </div>
               <div className="space-y-1 sm:max-w-[50%]">
-                <Label htmlFor="plan-retention-days">{t('admin.simpleBilling.plans.retentionDays')}</Label>
+                <Label htmlFor="plan-retention-days">{t('admin.billingLocks.planRetention.label')}</Label>
                 <Input
                   id="plan-retention-days"
                   type="text"
                   inputMode="numeric"
                   dir="ltr"
-                  placeholder="—"
+                  placeholder={t('admin.billingLocks.planRetention.never')}
                   value={form.locked_data_retention_days}
                   aria-invalid={retentionInvalid || undefined}
                   onChange={(e) => setForm((f) => ({ ...f, locked_data_retention_days: e.target.value }))}
+                  data-testid="plan-locked-retention"
                 />
                 <p className={`text-[10px] ${retentionInvalid ? 'text-destructive' : 'text-muted-foreground'}`}>
                   {t('admin.simpleBilling.plans.retentionHint')}
                 </p>
+                <p className="text-[10px] text-muted-foreground">{t('admin.billingLocks.planRetention.hint')}</p>
               </div>
               <Separator />
               <div className="flex gap-6">

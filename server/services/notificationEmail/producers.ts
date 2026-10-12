@@ -16,12 +16,18 @@ import { resolveWorkspaceAppUrl } from '../auth-email.js';
 import { enqueueNotificationEmail, windowKey } from './queue.js';
 import { isTypeEnabled, loadNotificationEmailSettings } from './settings.js';
 import { NOTIFICATION_EMAILS, type NotificationEmailType } from './types.js';
+import { resolveLockState } from '../billing/locks/state.js';
+import { isMemberLocked } from '../billing/locks/predicates.js';
 
 function sb(config: ServerConfig) {
   return getServiceClient(config);
 }
 
-/** Every operator who may hear about this workspace, honouring the audience. */
+/**
+ * Every operator who may hear about this workspace, honouring the audience.
+ * Suspended members and members whose seat the plan has paused (simple
+ * billing phase 4) hear nothing.
+ */
 export async function audienceFor(
   config: ServerConfig,
   workspaceId: string,
@@ -41,9 +47,11 @@ export async function audienceFor(
   const rows = (data ?? []) as Array<{ user_id: string; role: string | null }>;
   const adminsOnly = NOTIFICATION_EMAILS[type].audience === 'admins';
   const skip = new Set(exclude);
+  const locks = await resolveLockState(config, workspaceId, ['member']);
 
   return rows
     .filter((r) => !skip.has(String(r.user_id)))
+    .filter((r) => !isMemberLocked(locks, String(r.user_id)))
     .filter((r) => !adminsOnly || ['owner', 'admin'].includes(String(r.role ?? '')))
     .map((r) => String(r.user_id));
 }

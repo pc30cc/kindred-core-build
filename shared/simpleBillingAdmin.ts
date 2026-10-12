@@ -643,5 +643,8 @@ export interface GatewayReadinessReport {
 
 // ─── Plans form (server/routes/plans.ts) ───────────────────────────────────
 
-/** Locked-data retention: empty (null) = never deleted, else 1 to 3650 days. */
-export const PLAN_RETENTION_DAYS = { min: 1, max: 3650 } as const;
+/**
+ * Locked-data retention: empty (null) = never deleted, else 1 to 36500 days
+ * (phase 4's range: the plan editor and the API accept the same values).
+ */
+export const PLAN_RETENTION_DAYS = { min: 1, max: 36_500 } as const;

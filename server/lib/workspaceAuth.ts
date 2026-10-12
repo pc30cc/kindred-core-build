@@ -22,12 +22,20 @@ import * as sessions from '../services/auth/sessions.js';
 import { verifyOriginForMutation, validateSessionToken } from '../services/auth/sessions.js';
 import { readSessionToken } from './sessionTransport.js';
 import { coalesce } from './inflight.js';
+import { resolveLockState } from '../services/billing/locks/state.js';
+import { isMemberLocked } from '../services/billing/locks/predicates.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-export type WorkspaceAuth = { userId: string; isAdmin: boolean; role: string | null };
+export type WorkspaceAuth = {
+  userId: string;
+  isAdmin: boolean;
+  role: string | null;
+  /** Set (only with `allowSeatLocked`) when the plan has paused this member's seat. */
+  seatLocked?: boolean;
+};
 
 /** An Express request, or a test double carrying the fields read here. */
 type AuthRequest = object & {
@@ -130,14 +138,32 @@ export async function requireUser(req: AuthRequest, res: AuthResponse): Promise<
 
 
 /**
+ * Whether the plan has paused `userId`'s seat in `workspaceId` (simple
+ * billing phase 4, design §5): the workspace has more non-owner, active
+ * members than `max_agents - 1`, and this member is among the most recently
+ * joined. The owner and suspended members are never paused. Reuses the
+ * cached lock state (60 s); nothing is paused while the edition's switch is
+ * off, and an unreadable state pauses nobody (fail open). Never throws.
+ */
+export async function isSeatLocked(config: ServerConfig, workspaceId: string, userId: string): Promise<boolean> {
+  const state = await resolveLockState(config, workspaceId, ['member']);
+  return isMemberLocked(state, userId);
+}
+
+/**
  * Authenticates the caller and verifies they may act on `workspaceId`.
  * `manage: true` additionally requires workspace owner/admin.
+ *
+ * A member whose seat the plan has paused gets 403 `seat_locked`, like a
+ * suspended one gets `membership_suspended`. `allowSeatLocked: true` lets
+ * them through with `seatLocked: true` instead — only for the reads that
+ * tell the app "your seat is paused" (GET /api/workspace-members/me).
  */
 export async function authorizeWorkspaceAccess(
   req: AuthRequest,
   res: AuthResponse,
   workspaceId: unknown,
-  opts: { manage?: boolean } = {},
+  opts: { manage?: boolean; allowSeatLocked?: boolean } = {},
 ): Promise<WorkspaceAuth | null> {
   const userId = await requireUser(req, res);
   if (!userId) return null;
@@ -185,12 +211,19 @@ export async function authorizeWorkspaceAccess(
   }
   const role = ((member as { role?: string } | null)?.role) ?? null;
 
+  // The plan's seat limit (simple billing phase 4): the most recently joined
+  // members past it keep their row but lose access until a seat is free.
+  const seatLocked = await isSeatLocked(config, workspaceId, userId);
+  if (seatLocked && !opts.allowSeatLocked) {
+    res.status(403).json({ error: 'seat_locked', upgrade_required: true });
+    return null;
+  }
 
   if (opts.manage && role !== 'owner' && role !== 'admin') {
     res.status(403).json({ error: 'Insufficient workspace permissions' });
     return null;
   }
-  return { userId, isAdmin: false, role };
+  return seatLocked ? { userId, isAdmin: false, role, seatLocked: true } : { userId, isAdmin: false, role };
 }
 
 /** Platform super-admin gate (`has_role(uid,'admin')`). */

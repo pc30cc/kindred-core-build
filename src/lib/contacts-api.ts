@@ -27,6 +27,58 @@ export interface BulkCreateResult {
   inserted: number;
 }
 
+/**
+ * Plan locks (simple billing phase 4). A contact over the plan's
+ * `max_contacts` comes back from the list redacted with `locked: true` (only
+ * its id and creation time); opening, editing or looking up its IP answers
+ * 403 `contact_locked`. A chat older than the plan's retention is listed with
+ * `locked_by_retention: true` and no content.
+ */
+export interface ContactLockFields {
+  locked?: boolean;
+}
+
+export interface ContactConversationLockFields {
+  locked_by_retention?: boolean;
+}
+
+/** The 403 a locked contact or chat answers with. */
+export interface LockedErrorBody {
+  error: 'contact_locked' | 'conversation_locked';
+  upgrade_required?: boolean;
+  /** contact_locked: the plan's max_contacts. */
+  limit?: number | null;
+  /** conversation_locked: the plan's data_retention_days. */
+  retention_days?: number | null;
+}
+
+/** Thrown when the server refuses a contact or chat locked by the plan. */
+export class PlanLockedError extends Error {
+  readonly status = 403;
+  readonly code: LockedErrorBody['error'];
+  readonly body: LockedErrorBody;
+  constructor(body: LockedErrorBody) {
+    super(body.error);
+    this.name = 'PlanLockedError';
+    this.code = body.error;
+    this.body = body;
+  }
+}
+
+/** True for the 403 `contact_locked` / `conversation_locked` answer. */
+export function isPlanLockedError(err: unknown, code?: LockedErrorBody['error']): err is PlanLockedError {
+  if (!(err instanceof PlanLockedError)) return false;
+  return code ? err.code === code : true;
+}
+
+/** A PlanLockedError for a 403 lock answer, else null. */
+export function planLockedErrorOf(status: number, json: unknown): PlanLockedError | null {
+  const body = json as Partial<LockedErrorBody> | null;
+  if (status !== 403 || !body) return null;
+  if (body.error !== 'contact_locked' && body.error !== 'conversation_locked') return null;
+  return new PlanLockedError(body as LockedErrorBody);
+}
+
 export const contactsApi = {
   async create(payload: CreateContactInput) {
     const res = await fetch(`${API_BASE}/api/contacts`, {
@@ -77,14 +129,14 @@ export const contactsApi = {
     const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(id)}`, {credentials: 'include', headers: {} });
     if (res.status === 404) return null;
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error || `Get failed: ${res.status}`);
+    if (!res.ok) throw planLockedErrorOf(res.status, json) ?? new Error(json.error || `Get failed: ${res.status}`);
     return json.contact;
   },
 
   async getConversations(contactId: string) {
     const res = await fetch(`${API_BASE}/api/contacts/${encodeURIComponent(contactId)}/conversations`, {credentials: 'include', headers: {} });
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error || `Get conversations failed: ${res.status}`);
+    if (!res.ok) throw planLockedErrorOf(res.status, json) ?? new Error(json.error || `Get conversations failed: ${res.status}`);
     return json.conversations;
   },
 
@@ -96,7 +148,7 @@ export const contactsApi = {
       body: JSON.stringify(patch),
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
+    if (!res.ok) throw planLockedErrorOf(res.status, json) ?? new Error(json.error || `Update failed: ${res.status}`);
     return json.contact;
   },
 

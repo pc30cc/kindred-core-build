@@ -230,9 +230,9 @@ describe('plan form: retention days and monthly AI credit', () => {
     expect(updatePlan.mock.calls[0][0].locked_data_retention_days).toBeNull();
   });
 
-  it('refuses a retention outside 1-3650 whole days', async () => {
+  it('refuses a retention outside 1-36500 whole days', async () => {
     const dialog = await openEditor();
-    for (const bad of ['0', '3651', '12.5', 'abc']) {
+    for (const bad of ['0', '36501', '12.5', 'abc']) {
       fireEvent.change(input('plan-retention-days'), { target: { value: bad } });
       expect(input('plan-retention-days').getAttribute('aria-invalid')).toBe('true');
       save(dialog);

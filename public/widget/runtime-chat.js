@@ -233,6 +233,10 @@
               var e = new Error('http_' + r.status);
               e.status = r.status;
               e.code = (body && body.code) || null;
+              // A plan limit names its key (`feature`): a 403 for
+              // max_conversations means the monthly chat quota is full, and
+              // the runtime switches to the leave-a-message form.
+              e.feature = (body && typeof body.feature === 'string') ? body.feature : null;
               throw e;
             });
           }

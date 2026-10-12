@@ -104,6 +104,10 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   // this real inbound+outbound Gmail mailbox.
   { key: 'gmail',       type: 'channel', label: 'Gmail',       group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 66 },
   { key: 'yahoomail',   type: 'channel', label: 'Yahoo Mail',  group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 67 },
+  // The `x` plugin's planChannelKey (server/plugins/registry.ts). Off unless a
+  // plan turns it on — what an unknown key already resolved to — but now a
+  // plan can name it, and a downgrade report can list it as stopped.
+  { key: 'x',           type: 'channel', label: 'X',           group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 68 },
   { key: 'voice',       type: 'channel', label: 'Voice Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
   { key: 'video',       type: 'channel', label: 'Video Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
 

@@ -66,8 +66,9 @@ function qs(params: Record<string, string | undefined>): string {
 }
 
 export const knowledgeBaseApi = {
+  /** `locked` (billing phase 4): over the plan's max_kb_articles, read-only. */
   async listArticles(workspaceId: string, locale?: string, status?: string) {
-    const { articles } = await request<{ articles: KnowledgeBaseArticleWithCategory[] }>(
+    const { articles } = await request<{ articles: Array<KnowledgeBaseArticleWithCategory & { locked?: boolean }> }>(
       `/articles${qs({ workspaceId, locale, status })}`,
     );
     return articles;

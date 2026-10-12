@@ -83,7 +83,7 @@ import {
   setOperatorMessageSoundEnabled,
 } from '@/features/notifications/operatorMessageSound';
 import { useOperatorBrowserNotifications } from '@/features/notifications/operatorBrowserNotification';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX, Lock } from 'lucide-react';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { usePanelTheme } from '@/themes/usePanelTheme';
@@ -467,7 +467,10 @@ export default function InboxPage() {
       : { scope },
   );
   const conversations = listedConversations as InboxConversation[] | undefined;
-  const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
+  // A chat locked by the plan's retention (phase 4) is never read: the server
+  // answers 403 conversation_locked, and the thread shows the locked panel.
+  const selectedLocked = !!conversations?.find((c) => c.id === selectedId)?.locked_by_retention;
+  const { data: rawMessages } = useConversationMessages(selectedLocked ? undefined : (selectedId ?? undefined));
   const sendMessage = useSendMessage(selectedId ?? undefined, workspace?.id);
   const updateConv = useUpdateConversation();
   const deleteAll = useDeleteAllConversations();
@@ -645,9 +648,11 @@ export default function InboxPage() {
 
 
   const [contactDrawerId, setContactDrawerId] = useState<string | null>(null);
+  // A contact over the plan's limit (D4) has no page to open.
+  const contactLocked = !!selected?.contacts?.locked;
   const openContactProfile = useCallback(() => {
     const cid = selected?.contact_id;
-    if (!cid || !contactsInPlan) return;
+    if (!cid || !contactsInPlan || selected?.contacts?.locked) return;
     setContactDrawerId(cid);
   }, [selected, contactsInPlan]);
 
@@ -1588,6 +1593,20 @@ export default function InboxPage() {
             </div>
           ) : (
             filteredConvos.map(conv => {
+              if (conv.locked_by_retention) {
+                return (
+                  <LockedConversationRow
+                    key={conv.id}
+                    id={conv.id}
+                    title={conversationTitle(conv, t, locale)}
+                    badge={t('inbox.locked.badge')}
+                    tooltip={typeof conv.retention_days === 'number'
+                      ? t('inbox.locked.tooltip', { days: String(conv.retention_days) })
+                      : t('inbox.locked.descNoDays')}
+                    dir={dir}
+                  />
+                );
+              }
               const isActive = selectedId === conv.id;
               const name = conversationTitle(conv, t, locale);
               const unreadCount = conv?.unread_count ?? 0;
@@ -1937,7 +1956,19 @@ export default function InboxPage() {
         'flex-1 flex flex-col min-w-0',
         !selectedId || showMobileList ? 'hidden md:flex' : 'flex'
       )}>
-        {!selected ? (
+        {selected?.locked_by_retention ? (
+          <LockedConversationPanel
+            title={t('inbox.locked.title')}
+            desc={typeof selected.retention_days === 'number'
+              ? t('inbox.locked.desc', { days: String(selected.retention_days) })
+              : t('inbox.locked.descNoDays')}
+            upgrade={t('inbox.locked.upgrade')}
+            back={t('inbox.locked.back')}
+            onUpgrade={() => navigate(`/${wsSlug}/billing`)}
+            onBack={() => { setSelectedId(null); setShowMobileList(true); }}
+            dir={dir}
+          />
+        ) : !selected ? (
           <div data-inbox="empty" className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-background px-6 text-center">
             {wsBranding?.logo_url ? (
               <img
@@ -1985,13 +2016,18 @@ export default function InboxPage() {
                   <button
                     type="button"
                     onClick={openContactProfile}
-                    disabled={!selected?.contact_id || !contactsInPlan}
+                    disabled={!selected?.contact_id || !contactsInPlan || contactLocked}
                     className="text-[14.5px] font-bold text-foreground hover:text-primary transition-colors disabled:hover:text-foreground disabled:cursor-default text-start"
-                    title={t('inbox.openContact') || 'View contact'}
+                    title={contactLocked ? t('inbox.locked.contactHidden') : (t('inbox.openContact') || 'View contact')}
                   >
                     {conversationTitle(selected, t, locale)}
                   </button>
                   <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
+                    {contactLocked && (
+                      <span data-inbox="contact-locked" className="inline-flex items-center gap-1 text-warning" title={t('inbox.locked.contactHidden')}>
+                        <Lock className="w-3 h-3" />{t('inbox.locked.contactName')}
+                      </span>
+                    )}
                     {(() => {
                       const ch = resolveChannelKey(selected?.metadata, selected?.contacts?.metadata);
                       if (ch === 'widget') return null;
@@ -2899,7 +2935,7 @@ export default function InboxPage() {
       {/* ═══════ RIGHT: Contact Sidebar ═══════
           Desktop ≥lg: inline panel (280px)
           Tablet/mobile: drawer overlay (slides from inline-end), backdrop tap closes */}
-      {selected && (showSidebar || activeCallConversationId === selectedId) && (
+      {selected && !selected.locked_by_retention && (showSidebar || activeCallConversationId === selectedId) && (
         <>
           {/* Mobile/tablet backdrop — only below lg */}
           <button
@@ -3032,7 +3068,7 @@ export default function InboxPage() {
                       <button
                         type="button"
                         onClick={openContactProfile}
-                        disabled={!selected?.contact_id || !contactsInPlan}
+                        disabled={!selected?.contact_id || !contactsInPlan || contactLocked}
                         title={t('inbox.openContact') || 'View contact'}
                         className="block w-full text-start text-[15px] font-bold text-foreground truncate hover:text-primary transition-colors disabled:hover:text-foreground disabled:cursor-default"
                       >
@@ -3274,6 +3310,73 @@ export default function InboxPage() {
         open={!!contactDrawerId}
         onOpenChange={(o) => { if (!o) setContactDrawerId(null); }}
       />
+    </div>
+  );
+}
+
+/**
+ * A chat older than the plan's retention (phase 4) in the list: the server
+ * sent no preview, so the row is a blurred placeholder that cannot be opened.
+ * A message from the visitor moves it back in, unlocked.
+ */
+function LockedConversationRow({ id, title, badge, tooltip, dir }: {
+  id: string;
+  title: string;
+  badge: string;
+  tooltip: string;
+  dir: 'ltr' | 'rtl';
+}) {
+  return (
+    <div
+      data-conv-id={id}
+      data-inbox="row"
+      data-state="locked"
+      aria-disabled="true"
+      title={tooltip}
+      className="relative px-3 py-3 border-b border-border/30 cursor-not-allowed select-none"
+      dir={dir}
+    >
+      <div className="flex items-start gap-3 pointer-events-none">
+        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+          <Lock className="w-4 h-4 text-muted-foreground" />
+        </div>
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-[14px] font-medium text-muted-foreground blur-[2px]">{title}</span>
+            <span className="inline-flex items-center gap-1 text-[10.5px] px-1.5 py-0.5 rounded-md font-medium bg-warning/10 text-warning shrink-0">
+              <Lock className="w-3 h-3" />{badge}
+            </span>
+          </div>
+          <span aria-hidden className="block h-3 w-3/4 rounded bg-muted-foreground/15 blur-sm" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** What a locked chat shows instead of its thread (a deep link to it, for one). */
+function LockedConversationPanel({ title, desc, upgrade, back, onUpgrade, onBack, dir }: {
+  title: string;
+  desc: string;
+  upgrade: string;
+  back: string;
+  onUpgrade: () => void;
+  onBack: () => void;
+  dir: 'ltr' | 'rtl';
+}) {
+  return (
+    <div data-inbox="locked" className="flex-1 flex flex-col items-center justify-center gap-4 bg-background px-6 text-center" dir={dir}>
+      <div className="w-14 h-14 rounded-2xl bg-warning/10 flex items-center justify-center">
+        <Lock className="h-6 w-6 text-warning" />
+      </div>
+      <div className="space-y-1.5 max-w-sm">
+        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+        <p className="text-sm text-muted-foreground">{desc}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button onClick={onUpgrade}>{upgrade}</Button>
+        <Button variant="outline" onClick={onBack}>{back}</Button>
+      </div>
     </div>
   );
 }

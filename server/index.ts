@@ -53,6 +53,8 @@ import { billingAccountRouter } from './routes/billingAccount.js';
 import { billingAccountAiRouter } from './routes/billingAccountAi.js';
 import { adminBillingV2Router } from './routes/adminBillingV2.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
+import { adminBillingLocksRouter } from './routes/adminBillingLocks.js';
+import { billingLockExportRouter } from './routes/billingLockExport.js';
 
 import { seoRouter } from './routes/seo.js';
 import { webAnalyticsRouter } from './routes/webAnalytics.js';
@@ -112,6 +114,7 @@ import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js'
 import { startBillingV2Schedulers } from './services/billing/scheduler/ticker.js';
 import { LEGACY_BILLING_ENABLED } from '../shared/billingMode.js';
 import { startSimpleBillingJob } from './services/billing/account/job.js';
+import { startLockExportWorker } from './services/billing/locks/exportWorker.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
 import { startPerfCollectors } from './services/observability/perf.js';
 import { startAutoActionsTicker } from './services/observability/autoActionsTicker.js';
@@ -510,6 +513,9 @@ app.use('/api/operator-activity', operatorActivityRouter);
 // Billing — checkout, webhooks, subscription management
 // Simulated in-house gateway page (test provider only; must be mounted first).
 app.use('/api/billing/test-gateway', internalTestGatewayRouter);
+// The owner's export of locked data (simple billing phase 4); before the
+// account router, whose /account/:workspaceId routes would take its download.
+app.use('/api/billing/account', billingLockExportRouter);
 app.use('/api/billing', billingAccountRouter);
 // AI credit packs of the simple billing (phase 5).
 app.use('/api/billing', billingAccountAiRouter);
@@ -522,6 +528,11 @@ app.use('/api/brand-radar', brandRadarRouter);
 
 // Billing Engine V2 rollout control — Platform Admin only (authorized in-router).
 app.use('/api/admin/billing-v2', adminBillingV2Router);
+
+// Billing locks (simple billing phase 4): the edition's switch and its
+// preview. Platform Super Admin only (gated in-router); before the finance
+// panel below, which owns the rest of /api/admin/billing.
+app.use('/api/admin/billing/locks', adminRateLimiter, adminBillingLocksRouter);
 
 // Unified billing — super-admin finance panel (currencies, gateways, tax,
 // coupons, metered items, global invoices/payments/customers).
@@ -745,6 +756,9 @@ const httpServer = app.listen(config.port, () => {
   // (runSimpleBillingCard: Paddle subscriptions kept in sync, card checkouts
   // and charges resolved, cards cancelled). SIMPLE_BILLING_JOB=off stops all.
   if (!LEGACY_BILLING_ENABLED && process.env.SIMPLE_BILLING_JOB !== 'off') startSimpleBillingJob(config);
+  // The owner's locked-data exports (phase 4): built in-process, one job at
+  // a time, like the privacy exports. Its files expire in the privacy sweep.
+  if (!LEGACY_BILLING_ENABLED) startLockExportWorker(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
   // Reporting-only: nothing on a request path reads alert_events, so this

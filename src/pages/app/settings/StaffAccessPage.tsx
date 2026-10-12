@@ -30,6 +30,8 @@ import {
 
 import { useTranslation } from '@/i18n';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { SeatLockedBadge, SeatLockedSummary } from '@/components/members/SeatLocked';
+import { isSeatLocked, type SeatLockable } from '@/hooks/useOwnSeat';
 import { useAuth } from '@/features/auth/AuthContext';
 
 import { Card } from '@/components/ui/card';
@@ -42,6 +44,16 @@ import {
 
 import { InvitationManagement } from '@/features/invitations/InvitationManagement';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+
+/** A row of GET /api/workspace-members, as far as this page reads it. */
+interface WorkspaceMemberRow extends SeatLockable {
+  id: string;
+  user_id: string;
+  role: string;
+  suspended_at?: string | null;
+  department_names?: string[] | null;
+  profile?: { full_name?: string | null; email?: string | null; avatar_url?: string | null } | null;
+}
 
 /**
  * Internal/staff role identifiers. These map 1:1 to the existing role
@@ -100,21 +112,21 @@ export default function StaffAccessPage() {
   const { data: allMembers = [], isLoading } = useQuery({
     queryKey: ['ws-members', wsId],
     queryFn: async () => {
-      const { members } = await staffApi<{ members: any[] }>(`/api/workspace-members?workspaceId=${wsId}`);
+      const { members } = await staffApi<{ members: WorkspaceMemberRow[] }>(`/api/workspace-members?workspaceId=${wsId}`);
       return members;
     },
     enabled: !!wsId,
   });
 
   const staffMembers = useMemo(
-    () => allMembers.filter((m: any) =>
+    () => allMembers.filter((m) =>
       m.role === 'owner' || (STAFF_ROLES as readonly string[]).includes(m.role),
     ),
     [allMembers],
   );
 
   const [search, setSearch] = useState('');
-  const visible = staffMembers.filter((m: any) =>
+  const visible = staffMembers.filter((m) =>
     !search ||
     m.profile?.full_name?.toLowerCase().includes(search.toLowerCase()) ||
     m.profile?.email?.toLowerCase().includes(search.toLowerCase()),
@@ -220,7 +232,7 @@ export default function StaffAccessPage() {
                 </Badge>
                 <span className="text-[10px] text-muted-foreground">
                   {(() => {
-                    const c = staffMembers.filter((m: any) => m.role === role).length;
+                    const c = staffMembers.filter((m) => m.role === role).length;
                     return t(c === 1 ? 'staffAccess.memberCount_one' : 'staffAccess.memberCount_other', { count: String(c) });
                   })()}
                 </span>
@@ -248,6 +260,8 @@ export default function StaffAccessPage() {
           </div>
         </div>
 
+        <SeatLockedSummary count={staffMembers.filter(isSeatLocked).length} />
+
         {isLoading ? (
           <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
         ) : visible.length === 0 ? (
@@ -268,7 +282,7 @@ export default function StaffAccessPage() {
           </div>
         ) : (
           <div className="divide-y divide-border/60">
-            {visible.map((m: any) => {
+            {visible.map((m) => {
               const isOwner = m.role === 'owner';
               const isCurrent = m.user_id === user?.id;
               return (
@@ -299,6 +313,7 @@ export default function StaffAccessPage() {
                           {t('memberBan.bannedBadge')}
                         </Badge>
                       )}
+                      {isSeatLocked(m) && <SeatLockedBadge />}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
                   </div>

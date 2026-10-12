@@ -28,13 +28,16 @@ import {
 } from '../../services/ai-agent/files/fileIngestion.js';
 import { SUPPORTED_MIMES, isSupportedMime } from '../../services/ai-agent/files/parsers.js';
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';
+import { serverConfigOf } from '../../lib/workspaceAuth.js';
+import { errorMessage } from '../../lib/errorMessage.js';
+import { resolveKbArticleQuota, isKbQuotaDenied } from '../../services/billing/kbArticleQuota.js';
 
 export const knowledgeRouter: Router = express.Router();
 
 
 // ─── Q&A CRUD ───
 knowledgeRouter.get('/qna', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -59,7 +62,7 @@ const qnaSchema = z.object({
 });
 
 knowledgeRouter.post('/qna', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = qnaSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
@@ -86,7 +89,7 @@ knowledgeRouter.post('/qna', async (req: Request, res: Response) => {
     .eq('workspace_id', workspaceId)
     .eq('locale', trimmedLocale)
     .limit(2000);
-  const dup = (existingRows || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
+  const dup = (existingRows || []).find((r: { id: string; question: string | null }) => normalizeQuestion(r.question || '') === normalized);
   if (dup) {
     return res.status(409).json({ error: 'duplicate_qna', existing_id: dup.id });
   }
@@ -108,7 +111,7 @@ knowledgeRouter.post('/qna', async (req: Request, res: Response) => {
 });
 
 knowledgeRouter.patch('/qna/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const qnaId = routeParam(req.params.id);
   if (!qnaId) return res.status(400).json({ error: 'invalid_params' });
   const sb = getServiceClient(config);
@@ -125,7 +128,7 @@ knowledgeRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   }
   const allowed = ['question','answer','locale','enabled'];
   const patch: Record<string, unknown> = {};
-  for (const k of allowed) if (k in req.body) patch[k] = (req.body as any)[k];
+  for (const k of allowed) if (k in req.body) patch[k] = (req.body as Record<string, unknown>)[k];
   if ('answer' in patch && (!patch.answer || !String(patch.answer).trim())) {
     return res.status(400).json({ error: 'answer_required' });
   }
@@ -135,8 +138,8 @@ knowledgeRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   // Duplicate-protection: if question or locale is changing, dedupe against
   // sibling rows in same (workspace_id, locale) using normalized form.
   if ('question' in patch || 'locale' in patch) {
-    const finalQuestion = ('question' in patch ? String(patch.question) : (existing as any).question) || '';
-    const finalLocale = ('locale' in patch ? String(patch.locale) : ((existing as any).locale || 'en')) || 'en';
+    const finalQuestion = ('question' in patch ? String(patch.question) : (existing as { question?: string | null }).question) || '';
+    const finalLocale = ('locale' in patch ? String(patch.locale) : ((existing as { locale?: string | null }).locale || 'en')) || 'en';
     const normalized = normalizeQuestion(finalQuestion);
     if (!normalized) return res.status(400).json({ error: 'question_required' });
     const { data: siblings } = await sb
@@ -146,7 +149,7 @@ knowledgeRouter.patch('/qna/:id', async (req: Request, res: Response) => {
       .eq('locale', finalLocale)
       .neq('id', req.params.id)
       .limit(2000);
-    const dup = (siblings || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
+    const dup = (siblings || []).find((r: { id: string; question: string | null }) => normalizeQuestion(r.question || '') === normalized);
     if (dup) return res.status(409).json({ error: 'duplicate_qna', existing_id: dup.id });
   }
   const { data, error } = await sb.from('ai_agent_qna').update(patch).eq('id', req.params.id).select('*').single();
@@ -158,7 +161,7 @@ knowledgeRouter.patch('/qna/:id', async (req: Request, res: Response) => {
 });
 
 knowledgeRouter.delete('/qna/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_qna').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -190,7 +193,7 @@ const qnaBulkSchema = z.object({
   })).min(1).max(200),
 });
 knowledgeRouter.post('/qna/bulk', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = qnaBulkSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, items } = parsed.data;
@@ -205,7 +208,7 @@ knowledgeRouter.post('/qna/bulk', async (req: Request, res: Response) => {
     .eq('workspace_id', workspaceId)
     .limit(5000);
   const existingKeys = new Set(
-    (existingRows || []).map((r: any) => `${(r.locale || 'en')}::${normalizeQuestion(r.question || '')}`)
+    (existingRows || []).map((r: { question: string | null; locale: string | null }) => `${(r.locale || 'en')}::${normalizeQuestion(r.question || '')}`)
   );
   const created: string[] = [];
   const skipped: { question: string; reason: string }[] = [];
@@ -235,7 +238,7 @@ knowledgeRouter.post('/qna/bulk', async (req: Request, res: Response) => {
 
 // ─── Q&A reindex single (owner/admin) ───
 knowledgeRouter.post('/qna/:id/reindex', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const qnaId = routeParam(req.params.id);
   if (!qnaId) return res.status(400).json({ error: 'invalid_params' });
   const sb = getServiceClient(config);
@@ -250,7 +253,7 @@ knowledgeRouter.post('/qna/:id/reindex', async (req: Request, res: Response) => 
 
 // ─── GET /sources — registry placeholder ───
 knowledgeRouter.get('/sources', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -271,7 +274,7 @@ knowledgeRouter.get('/sources', async (req: Request, res: Response) => {
 
 const rebuildSchema = z.object({ workspaceId: z.string().uuid() });
 knowledgeRouter.post('/knowledge-index/rebuild', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = rebuildSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const { workspaceId } = parsed.data;
@@ -283,13 +286,13 @@ knowledgeRouter.post('/knowledge-index/rebuild', async (req: Request, res: Respo
   try {
     const summary = await rebuildWorkspaceIndex(config, workspaceId);
     return res.json(summary);
-  } catch (err: any) {
-    return res.status(500).json({ error: 'rebuild_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'rebuild_failed', details: errorMessage(err) });
   }
 });
 
 knowledgeRouter.get('/knowledge-index/status', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -307,7 +310,7 @@ const syncSourceSchema = z.object({
   sourceId: z.string().min(1).max(200),
 });
 knowledgeRouter.post('/knowledge-index/sync-source', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = syncSourceSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const { workspaceId, sourceType, sourceId } = parsed.data;
@@ -323,7 +326,7 @@ knowledgeRouter.post('/knowledge-index/sync-source', async (req: Request, res: R
 // ─────────────────────────────────────────────────────────────────────
 
 knowledgeRouter.get('/train/overview', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -331,13 +334,13 @@ knowledgeRouter.get('/train/overview', async (req: Request, res: Response) => {
   try {
     const overview = await buildTrainOverview(config, workspaceId);
     return res.json(overview);
-  } catch (err: any) {
-    return res.status(500).json({ error: 'train_overview_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'train_overview_failed', details: errorMessage(err) });
   }
 });
 
 knowledgeRouter.get('/knowledge-index/chunks', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -349,8 +352,8 @@ knowledgeRouter.get('/knowledge-index/chunks', async (req: Request, res: Respons
   try {
     const r = await listChunks(config, workspaceId, { sourceType, status, query, limit });
     return res.json(r);
-  } catch (err: any) {
-    return res.status(500).json({ error: 'list_chunks_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'list_chunks_failed', details: errorMessage(err) });
   }
 });
 
@@ -360,7 +363,7 @@ const rebuildSourceSchema = z.object({
   sourceId: z.string().min(1).max(200),
 });
 knowledgeRouter.post('/knowledge-index/rebuild-source', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = rebuildSourceSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const { workspaceId, sourceType, sourceId } = parsed.data;
@@ -396,7 +399,7 @@ knowledgeRouter.post('/knowledge-index/rebuild-source', async (req: Request, res
 // ─────────────────────────────────────────────────────────────────────
 
 knowledgeRouter.get('/learning-candidates', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -436,7 +439,7 @@ const generateSchema = z.object({
 // existing candidate row, so denial only blocks NEW work — review/approve/
 // reject/convert routes remain ungated. Owner/admin auth still enforced.
 knowledgeRouter.post('/learning-candidates/generate', requireModule('ai_assistant'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = generateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
@@ -460,7 +463,7 @@ const candidatePatchSchema = z.object({
   suggested_title: z.string().max(200).optional(),
 });
 knowledgeRouter.patch('/learning-candidates/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const candidateId = routeParam(req.params.id);
   if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = candidatePatchSchema.safeParse(req.body || {});
@@ -517,8 +520,8 @@ knowledgeRouter.patch('/learning-candidates/:id', async (req: Request, res: Resp
         actorId: auth.userId,
         markReindexed: true,
       });
-    } catch (err: any) {
-      console.warn('[learning-candidates.patch] reindex failed:', err?.message);
+    } catch (err) {
+      console.warn('[learning-candidates.patch] reindex failed:', errorMessage(err));
     }
   }
   return res.json({ item: data });
@@ -531,7 +534,7 @@ const approveLearnedSchema = z.object({
   locale: z.string().max(10).optional(),
 });
 knowledgeRouter.post('/learning-candidates/:id/approve', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const candidateId = routeParam(req.params.id);
   if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = approveLearnedSchema.safeParse(req.body || {});
@@ -580,8 +583,8 @@ knowledgeRouter.post('/learning-candidates/:id/approve', async (req: Request, re
       actorId: auth.userId,
       markReindexed: false,
     });
-  } catch (err: any) {
-    console.warn('[learning-candidates.approve] reindex failed:', err?.message);
+  } catch (err) {
+    console.warn('[learning-candidates.approve] reindex failed:', errorMessage(err));
   }
   return res.json({ ok: true, candidate_id: cand.id });
 });
@@ -593,7 +596,7 @@ const convertQnaSchema = z.object({
   locale: z.string().max(10).optional(),
 });
 knowledgeRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const candidateId = routeParam(req.params.id);
   if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertQnaSchema.safeParse(req.body || {});
@@ -615,7 +618,7 @@ const convertKbSchema = z.object({
   publish: z.boolean().optional(),
 });
 knowledgeRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const candidateId = routeParam(req.params.id);
   if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertKbSchema.safeParse(req.body || {});
@@ -636,10 +639,23 @@ const candidateActionSchema = z.object({
   title: z.string().max(200).optional(),
 });
 
-async function loadCandidate(config: ServerConfig, id: string) {
+/** An ai_agent_learning_candidates row, as far as these routes read it. */
+interface LearningCandidateRow {
+  id: string;
+  workspace_id: string;
+  status: string;
+  question_text: string | null;
+  suggested_title: string | null;
+  suggested_answer: string | null;
+  answer_text: string | null;
+  locale: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+async function loadCandidate(config: ServerConfig, id: string): Promise<LearningCandidateRow | null> {
   const sb = getServiceClient(config);
   const { data } = await sb.from('ai_agent_learning_candidates').select('*').eq('id', id).maybeSingle();
-  return data as any | null;
+  return (data as LearningCandidateRow | null) ?? null;
 }
 
 // Shared helper: (re)index a learned_qna chunk for an approved candidate.
@@ -688,7 +704,7 @@ async function convertCandidateToQna(
   candidateId: string,
   body: { question?: string; answer?: string; locale?: string },
   auth: { userId: string | null },
-): Promise<{ status: number; payload: any }> {
+): Promise<{ status: number; payload: Record<string, unknown> }> {
   const cand = await loadCandidate(config, candidateId);
   if (!cand) return { status: 404, payload: { error: 'not_found' } };
   if (cand.status !== 'pending' && cand.status !== 'approved') {
@@ -710,7 +726,7 @@ async function convertCandidateToQna(
       .eq('workspace_id', cand.workspace_id)
       .eq('locale', locale)
       .limit(2000);
-    const hit = (existingRows || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
+    const hit = (existingRows || []).find((r: { id: string; question: string | null }) => normalizeQuestion(r.question || '') === normalized);
     if (hit) { qnaId = hit.id; duplicate = true; }
   }
   if (!qnaId) {
@@ -738,7 +754,7 @@ async function convertCandidateToKb(
   candidateId: string,
   body: { title?: string; answer?: string; locale?: string; publish?: boolean },
   auth: { userId: string | null },
-): Promise<{ status: number; payload: any }> {
+): Promise<{ status: number; payload: Record<string, unknown> }> {
   const cand = await loadCandidate(config, candidateId);
   if (!cand) return { status: 404, payload: { error: 'not_found' } };
   if (cand.status !== 'pending' && cand.status !== 'approved') {
@@ -750,6 +766,11 @@ async function convertCandidateToKb(
   if (!content) return { status: 400, payload: { error: 'answer_required' } };
   const locale = ((body.locale ?? cand.locale ?? 'en') as string).trim().toLowerCase() || 'en';
   const publish = !!body.publish;
+  // A new KB article counts against max_kb_articles like one written in the
+  // editor (fail closed: an unreadable plan or count answers 503). Without
+  // this a converted candidate went past the cap, and past the lock.
+  const quota = await resolveKbArticleQuota(config, cand.workspace_id);
+  if (isKbQuotaDenied(quota)) return { status: quota.status, payload: quota.body };
   const slug = await generateUniqueKbSlug(config, cand.workspace_id, locale, title);
   const { data: art, error: aErr } = await sb
     .from('knowledge_base_articles')
@@ -772,7 +793,7 @@ async function convertCandidateToKb(
 
 // Legacy aliases — call shared helpers directly. No req.url mutation.
 knowledgeRouter.post('/learning-candidates/:id/approve-qna', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const candidateId = routeParam(req.params.id);
   if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertQnaSchema.safeParse(req.body || {});
@@ -786,7 +807,7 @@ knowledgeRouter.post('/learning-candidates/:id/approve-qna', async (req: Request
   return res.status(result.status).json(result.payload);
 });
 knowledgeRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const candidateId = routeParam(req.params.id);
   if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertKbSchema.safeParse({ ...(req.body || {}), publish: false });
@@ -801,7 +822,7 @@ knowledgeRouter.post('/learning-candidates/:id/convert-kb', async (req: Request,
 });
 
 knowledgeRouter.post('/learning-candidates/:id/reject', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const candidateId = routeParam(req.params.id);
   if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const cand = await loadCandidate(config, candidateId);
@@ -871,7 +892,7 @@ async function generateUniqueKbSlug(
 }
 
 knowledgeRouter.get('/learning-candidates/stats', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -891,7 +912,7 @@ knowledgeRouter.get('/learning-candidates/stats', async (req: Request, res: Resp
 
 // ─── Data sources (web pages, files) ───
 knowledgeRouter.get('/data-sources', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -917,7 +938,7 @@ const websiteCreateSchema = z.object({
 });
 
 knowledgeRouter.post('/data-sources/website', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = websiteCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, base_url, name, include_rules, exclude_rules, crawl_depth, max_pages, refresh_interval } = parsed.data;
@@ -991,7 +1012,7 @@ const dataSourcePatchSchema = z.object({
 });
 
 knowledgeRouter.patch('/data-sources/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -1033,7 +1054,7 @@ knowledgeRouter.patch('/data-sources/:id', async (req: Request, res: Response) =
 });
 
 knowledgeRouter.delete('/data-sources/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -1060,7 +1081,7 @@ knowledgeRouter.delete('/data-sources/:id', async (req: Request, res: Response) 
 // If AI_KB_WORKER_INPROC=1 the local server will pick it up immediately;
 // otherwise a standalone worker can claim it.
 knowledgeRouter.post('/data-sources/:id/sync', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_data_sources').select('id, workspace_id, source_type, status').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -1089,7 +1110,7 @@ knowledgeRouter.post('/data-sources/:id/sync', async (req: Request, res: Respons
     .maybeSingle();
   let job: { id: string; status: string };
   if (active) {
-    job = active as any;
+    job = active as { id: string; status: string };
   } else {
     const created = await enqueueSourceSyncJob(config, {
       workspaceId: existing.workspace_id,
@@ -1118,7 +1139,7 @@ knowledgeRouter.post('/data-sources/:id/sync', async (req: Request, res: Respons
 // (preferred for clean audit history) when no queued/running job already
 // exists. Failed jobs are NEVER auto-claimed by the worker.
 knowledgeRouter.post('/data-sources/:id/retry-failed-job', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_data_sources').select('id, workspace_id, status').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -1135,7 +1156,8 @@ knowledgeRouter.post('/data-sources/:id/retry-failed-job', async (req: Request, 
     .limit(1)
     .maybeSingle();
   if (active) {
-    return res.json({ ok: true, jobId: (active as any).id, status: (active as any).status, reused: true, worker: getWorkerInfo() });
+    const reused = active as { id: string; status: string };
+    return res.json({ ok: true, jobId: reused.id, status: reused.status, reused: true, worker: getWorkerInfo() });
   }
   const created = await enqueueSourceSyncJob(config, {
     workspaceId: existing.workspace_id,
@@ -1158,7 +1180,7 @@ knowledgeRouter.post('/data-sources/:id/retry-failed-job', async (req: Request, 
 });
 
 knowledgeRouter.get('/data-sources/:id/logs', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -1176,7 +1198,7 @@ knowledgeRouter.get('/data-sources/:id/logs', async (req: Request, res: Response
 
 // ─── Discovered pages (E2) ───
 knowledgeRouter.get('/data-sources/:id/pages', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -1194,7 +1216,7 @@ knowledgeRouter.get('/data-sources/:id/pages', async (req: Request, res: Respons
 
 // ─── Sync jobs (latest per source) ───
 knowledgeRouter.get('/data-sources/:id/jobs', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -1211,7 +1233,7 @@ knowledgeRouter.get('/data-sources/:id/jobs', async (req: Request, res: Response
 });
 
 knowledgeRouter.post('/data-sources/jobs/:jobId/cancel', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const jobId = routeParam(req.params.jobId);
   if (!jobId) return res.status(400).json({ error: 'invalid_params' });
   const sb = getServiceClient(config);
@@ -1226,7 +1248,7 @@ knowledgeRouter.post('/data-sources/jobs/:jobId/cancel', async (req: Request, re
 
 // ─── Plan limits view (read-only, used by Web Pages UI) ───
 knowledgeRouter.get('/data-sources/limits', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -1244,7 +1266,7 @@ knowledgeRouter.get('/data-sources/limits', async (req: Request, res: Response) 
 
 // ─── Workspace registered domain helper (read-only) ───
 knowledgeRouter.get('/workspace-domain', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -1270,12 +1292,12 @@ const fileUploadSchema = z.object({
   dataBase64: z.string().min(1),
 });
 
-function ingestErrorResponse(res: Response, e: any) {
+function ingestErrorResponse(res: Response, e: unknown) {
   if (e instanceof IngestError) {
     return res.status(e.status).json({ error: e.code, details: e.details });
   }
-  console.warn('[ai-agent files] error:', e?.message);
-  return res.status(500).json({ error: 'internal_error', message: e?.message });
+  console.warn('[ai-agent files] error:', errorMessage(e));
+  return res.status(500).json({ error: 'internal_error', message: errorMessage(e) });
 }
 
 function validateUploadFileName(name: string): string | null {
@@ -1307,7 +1329,7 @@ function resolveMimeFromName(fileName: string, browserMime: string): string {
 }
 
 knowledgeRouter.post('/files/upload', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = fileUploadSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
   const { workspaceId, fileName, sizeBytes, dataBase64 } = parsed.data;
@@ -1363,7 +1385,7 @@ knowledgeRouter.post('/files/upload', async (req: Request, res: Response) => {
 });
 
 knowledgeRouter.get('/files', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -1381,12 +1403,12 @@ knowledgeRouter.get('/files', async (req: Request, res: Response) => {
   if (status) q = q.eq('status', status);
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
-  const items = query ? (data || []).filter((r: any) => (r.name || '').toLowerCase().includes(query)) : (data || []);
+  const items = query ? (data || []).filter((r: { name: string | null }) => (r.name || '').toLowerCase().includes(query)) : (data || []);
   return res.json({ items });
 });
 
 knowledgeRouter.get('/files/limits', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -1436,10 +1458,10 @@ const SECRET_KEY_SUBSTRINGS = [
   'api_key', 'apikey',
   'token', 'secret', 'password', 'credential',
 ];
-export function sanitizeAiFileMetadata(obj: any): any {
+export function sanitizeAiFileMetadata(obj: unknown): unknown {
   if (!obj || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(sanitizeAiFileMetadata);
-  const out: Record<string, any> = {};
+  const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     const lk = k.toLowerCase();
     if (SECRET_KEY_SUBSTRINGS.some((s) => lk.includes(s))) continue;
@@ -1449,7 +1471,7 @@ export function sanitizeAiFileMetadata(obj: any): any {
 }
 
 knowledgeRouter.post('/files/:id/reindex', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const fileId = routeParam(req.params.id);
   if (!fileId) return res.status(400).json({ error: 'invalid_params' });
   const src = await loadFileSource(config, fileId);
@@ -1465,7 +1487,7 @@ knowledgeRouter.post('/files/:id/reindex', async (req: Request, res: Response) =
 });
 
 knowledgeRouter.delete('/files/:id', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const fileId = routeParam(req.params.id);
   if (!fileId) return res.status(400).json({ error: 'invalid_params' });
   const src = await loadFileSource(config, fileId);
@@ -1481,7 +1503,7 @@ knowledgeRouter.delete('/files/:id', async (req: Request, res: Response) => {
 });
 
 knowledgeRouter.post('/files/:id/pause', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const fileId = routeParam(req.params.id);
   if (!fileId) return res.status(400).json({ error: 'invalid_params' });
   const src = await loadFileSource(config, fileId);
@@ -1495,7 +1517,7 @@ knowledgeRouter.post('/files/:id/pause', async (req: Request, res: Response) => 
 });
 
 knowledgeRouter.post('/files/:id/resume', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const fileId = routeParam(req.params.id);
   if (!fileId) return res.status(400).json({ error: 'invalid_params' });
   const src = await loadFileSource(config, fileId);
@@ -1512,7 +1534,7 @@ knowledgeRouter.post('/files/:id/resume', async (req: Request, res: Response) =>
 
 // ─── Pass E4-C: file preview (workspace-scoped, no storage URLs) ───
 knowledgeRouter.get('/files/:id/preview', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const fileId = routeParam(req.params.id);
   if (!fileId) return res.status(400).json({ error: 'invalid_params' });
   const src = await loadFileSource(config, fileId);
@@ -1523,7 +1545,7 @@ knowledgeRouter.get('/files/:id/preview', async (req: Request, res: Response) =>
   const sb = getServiceClient(config);
   const { data: source } = await sb.from('ai_data_sources').select('*').eq('id', req.params.id).maybeSingle();
   if (!source) return res.status(404).json({ error: 'not_found' });
-  const meta = (source.metadata as any) || {};
+  const meta = (source.metadata as Record<string, unknown> | null) || {};
   // Prefer active chunks; fall back to stale (paused) chunks.
   const PREVIEW_CHUNK_LIMIT = 5;
   const PREVIEW_TOTAL_BYTES = 10 * 1024;
@@ -1541,12 +1563,12 @@ knowledgeRouter.get('/files/:id/preview', async (req: Request, res: Response) =>
   if (chunks.length === 0 && source.status === 'paused') chunks = await fetchChunks('stale');
   let used = 0;
   const chunksPreview: Array<{ index: number; content: string; status: string }> = [];
-  for (const c of chunks) {
+  for (const c of chunks as Array<{ chunk_index: number; content: string | null; status: string }>) {
     const remaining = Math.max(0, PREVIEW_TOTAL_BYTES - used);
     if (remaining <= 0) break;
-    const text = String((c as any).content || '').slice(0, remaining);
+    const text = String(c.content || '').slice(0, remaining);
     used += text.length;
-    chunksPreview.push({ index: (c as any).chunk_index, content: text, status: (c as any).status });
+    chunksPreview.push({ index: c.chunk_index, content: text, status: c.status });
   }
   const text_preview = chunksPreview.map(c => c.content).join('\n\n---\n\n');
   return res.json({
@@ -1567,7 +1589,7 @@ knowledgeRouter.get('/files/:id/preview', async (req: Request, res: Response) =>
 
 // ─── Pass E4-C: file ingestion logs ───
 knowledgeRouter.get('/files/:id/logs', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const fileId = routeParam(req.params.id);
   if (!fileId) return res.status(400).json({ error: 'invalid_params' });
   const src = await loadFileSource(config, fileId);
@@ -1590,8 +1612,8 @@ knowledgeRouter.get('/files/:id/logs', async (req: Request, res: Response) => {
     .eq('job_type', 'file_ingest')
     .order('created_at', { ascending: false })
     .limit(20);
-  const items = (data || []).map((r: any) => ({ ...r, metadata: sanitizeAiFileMetadata(r.metadata) }));
-  const safeJobs = (jobs || []).map((j: any) => ({ ...j, last_error: typeof j.last_error === 'string' ? j.last_error : null }));
+  const items = (data || []).map((r: Record<string, unknown>) => ({ ...r, metadata: sanitizeAiFileMetadata(r.metadata) }));
+  const safeJobs = (jobs || []).map((j: Record<string, unknown>) => ({ ...j, last_error: typeof j.last_error === 'string' ? j.last_error : null }));
   return res.json({ items, jobs: safeJobs });
 });
 
@@ -1599,7 +1621,7 @@ knowledgeRouter.get('/files/:id/logs', async (req: Request, res: Response) => {
 // Returns the same friendly per-source items KnowledgePage needs, without
 // exposing any internal counts/metadata. Source-health remains advanced-only.
 knowledgeRouter.get('/knowledge/customer-summary', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -1607,7 +1629,7 @@ knowledgeRouter.get('/knowledge/customer-summary', async (req: Request, res: Res
   try {
     const limit = Math.min(parseInt(String(req.query.limit || '200'), 10) || 200, 500);
     const result = await getSourceHealth(config, workspaceId, { limit });
-    const items = (result.items || []).map((it: any) => ({
+    const items = (result.items || []).map((it) => ({
       source_id: it.source_id,
       source_type: it.source_type,
       title: it.title,
@@ -1616,7 +1638,7 @@ knowledgeRouter.get('/knowledge/customer-summary', async (req: Request, res: Res
       updated_at: it.last_indexed_at || null,
     }));
     return res.json({ items });
-  } catch (err: any) {
-    return res.status(500).json({ error: 'knowledge_summary_failed', details: err?.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'knowledge_summary_failed', details: errorMessage(err) });
   }
 });

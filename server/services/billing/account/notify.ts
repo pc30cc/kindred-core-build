@@ -30,6 +30,9 @@ export type BillingEmailSlug =
   | 'billing_card_renewed'
   | 'billing_card_payment_failed'
   | 'billing_card_removed'
+  // Locked data over the plan's limits is deleted on {deletion_date}: sent
+  // 30 and 7 days before (phase 4, migration 265, locks/retention.ts).
+  | 'billing_locked_data_deletion'
   // An AI credit pack was bought (phase 5, migration 264), every edition.
   | 'billing_ai_pack_purchased';
 

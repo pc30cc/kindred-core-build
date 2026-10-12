@@ -19,6 +19,7 @@
  *   file_not_active ↔ inactive_file_excluded
  *   website_not_active ↔ inactive_web_page_excluded
  *   candidate_not_approved ↔ unapproved_learned_qna_excluded
+ *   kb_locked ↔ locked_kb_excluded (simple billing phase 4: over max_kb_articles)
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -29,6 +30,7 @@ import {
   isFileSourceAllowed,
   isWebsiteSourceAllowed,
 } from './sourcePolicy.js';
+import { isKbArticleLocked, resolveKbLock } from '../knowledge-base/locks.js';
 
 export type HealthSourceType = 'qna' | 'learned_qna' | 'kb_article' | 'file' | 'website' | 'web_page';
 
@@ -39,6 +41,8 @@ export type HealthReason =
   | 'candidate_not_approved'
   | 'draft_kb'
   | 'kb_disabled_for_ai'
+  /** Simple billing phase 4: over the plan's max_kb_articles, hidden from the AI. */
+  | 'kb_locked'
   | 'file_not_active'
   | 'website_not_active'
   | 'source_missing'
@@ -110,11 +114,59 @@ function isSensitiveKey(lk: string): boolean {
 function isStorageishUrlKey(lk: string): boolean {
   return lk.endsWith('_url') && URL_LIKE_KEY_HINTS.some((h) => lk.includes(h));
 }
-function sanitizeMetaDeep(value: any, depth = 0): any {
+// Rows as selected below (the service client is untyped).
+interface ChunkHealthRow {
+  source_type: string | null;
+  source_id: string | null;
+  status: string | null;
+  embedding: unknown;
+  updated_at: string | null;
+  metadata: Record<string, unknown> | null;
+  title: string | null;
+  source_url: unknown;
+}
+interface QnaHealthRow {
+  id: string;
+  question: string | null;
+  enabled: boolean;
+  locale: string | null;
+  updated_at: string | null;
+}
+interface LearnedQnaHealthRow {
+  id: string;
+  question_text: string | null;
+  suggested_title: string | null;
+  normalized_question: string | null;
+  status: string;
+  locale: string | null;
+  updated_at: string | null;
+}
+interface KbArticleHealthRow {
+  id: string;
+  title: string | null;
+  status: string | null;
+  locale: string | null;
+  slug: string | null;
+  updated_at: string | null;
+  used_by_ai: boolean | null;
+  visible_in_widget: boolean | null;
+  created_at: string | null;
+}
+interface DataSourceHealthRow {
+  id: string;
+  source_type: string;
+  status: string;
+  name: string | null;
+  last_synced_at: string | null;
+  last_error: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+function sanitizeMetaDeep(value: unknown, depth = 0): unknown {
   if (depth > 8) return undefined;
   if (value === null || value === undefined) return value;
   if (Array.isArray(value)) {
-    const arr: any[] = [];
+    const arr: unknown[] = [];
     for (const v of value) {
       const s = sanitizeMetaDeep(v, depth + 1);
       if (s !== undefined) arr.push(s);
@@ -134,12 +186,12 @@ function sanitizeMetaDeep(value: any, depth = 0): any {
   }
   return value;
 }
-function sanitizeMeta(meta: any): Record<string, unknown> {
+function sanitizeMeta(meta: unknown): Record<string, unknown> {
   const s = sanitizeMetaDeep(meta);
   return (s && typeof s === 'object' && !Array.isArray(s)) ? s as Record<string, unknown> : {};
 }
 // File metadata must never expose any URL/path-like field.
-function sanitizeFileMeta(meta: any): Record<string, unknown> {
+function sanitizeFileMeta(meta: unknown): Record<string, unknown> {
   const base = sanitizeMeta(meta);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(base)) {
@@ -189,7 +241,7 @@ export async function getSourceHealth(
       .range(from, from + PAGE - 1);
     if (error) break;
     if (!data || data.length === 0) break;
-    for (const r of data as any[]) {
+    for (const r of data as ChunkHealthRow[]) {
       const t = r.source_type as string;
       const sid = r.source_id as string;
       if (!t || !sid) continue;
@@ -207,7 +259,7 @@ export async function getSourceHealth(
       const ts = (r.updated_at) as string | null;
       if (ts && (!agg.lastIndexedAt || ts > agg.lastIndexedAt)) agg.lastIndexedAt = ts;
       if (t === 'web_page') {
-        const meta = r.metadata || {};
+        const meta: Record<string, unknown> = r.metadata || {};
         if (!agg.parentId) agg.parentId = deriveWebPageParent(sid, meta);
         if (!agg.title) agg.title = (r.title as string) || (meta.page_title as string) || (meta.title as string) || null;
         if (!agg.pageUrl) {
@@ -246,7 +298,7 @@ export async function getSourceHealth(
       .select('id, question, enabled, locale, updated_at')
       .eq('workspace_id', workspaceId)
       .limit(limit);
-    for (const r of (data || []) as any[]) {
+    for (const r of (data || []) as QnaHealthRow[]) {
       if (!matchesQuery(r.question, q)) continue;
       const agg = chunkMap.get(key('qna', r.id)) || { active: 0, stale: 0, deleted: 0, embedded: 0, lastIndexedAt: null };
       const allowed = isQnaSourceAllowed({ workspace_id: workspaceId, enabled: r.enabled }, workspaceId);
@@ -274,7 +326,7 @@ export async function getSourceHealth(
       .select('id, question_text, suggested_title, normalized_question, status, locale, updated_at')
       .eq('workspace_id', workspaceId)
       .limit(limit);
-    for (const r of (data || []) as any[]) {
+    for (const r of (data || []) as LearnedQnaHealthRow[]) {
       const title = r.suggested_title || r.question_text || r.normalized_question || '(learned answer)';
       if (!matchesQuery(title, q)) continue;
       const agg = chunkMap.get(key('learned_qna', r.id)) || { active: 0, stale: 0, deleted: 0, embedded: 0, lastIndexedAt: null };
@@ -298,18 +350,23 @@ export async function getSourceHealth(
 
   // ── KB Articles ────────────────────────────────────────────────────────
   if (!filters.sourceType || filters.sourceType === 'kb_article') {
-    const { data } = await sb
-      .from('knowledge_base_articles')
-      .select('id, title, status, locale, slug, updated_at, used_by_ai, visible_in_widget')
-      .eq('workspace_id', workspaceId)
-      .limit(limit);
-    for (const r of (data || []) as any[]) {
+    const [{ data }, kbLock] = await Promise.all([
+      sb
+        .from('knowledge_base_articles')
+        .select('id, title, status, locale, slug, updated_at, used_by_ai, visible_in_widget, created_at')
+        .eq('workspace_id', workspaceId)
+        .limit(limit),
+      resolveKbLock(config, workspaceId),
+    ]);
+    for (const r of (data || []) as KbArticleHealthRow[]) {
       if (!matchesQuery(r.title, q)) continue;
       const agg = chunkMap.get(key('kb_article', r.id)) || { active: 0, stale: 0, deleted: 0, embedded: 0, lastIndexedAt: null };
       const published = String(r.status || '') === 'published';
       const aiEnabled = r.used_by_ai !== false;
+      const locked = isKbArticleLocked(kbLock, r);
       let reason: HealthReason = 'eligible';
-      if (!published) reason = 'draft_kb';
+      if (locked) reason = 'kb_locked';
+      else if (!published) reason = 'draft_kb';
       else if (!aiEnabled) reason = 'kb_disabled_for_ai';
       else if (agg.active === 0) reason = 'no_active_chunks';
       else if (agg.embedded === 0) reason = 'embedding_missing';
@@ -321,7 +378,7 @@ export async function getSourceHealth(
         active_chunks_count: agg.active, embedded_chunks_count: agg.embedded,
         stale_chunks_count: agg.stale, deleted_chunks_count: agg.deleted,
         last_indexed_at: agg.lastIndexedAt, last_error: null, last_warning: null,
-        metadata_summary: { locale: r.locale || null, slug: r.slug || null, updated_at: r.updated_at || null, used_by_ai: aiEnabled, visible_in_widget: r.visible_in_widget !== false },
+        metadata_summary: { locale: r.locale || null, slug: r.slug || null, updated_at: r.updated_at || null, used_by_ai: aiEnabled, visible_in_widget: r.visible_in_widget !== false, locked },
       });
     }
   }
@@ -334,12 +391,12 @@ export async function getSourceHealth(
       .eq('workspace_id', workspaceId)
       .in('source_type', ['file', 'website'])
       .limit(limit);
-    const websiteParents = new Map<string, any>();
-    for (const r of (data || []) as any[]) {
+    const websiteParents = new Map<string, DataSourceHealthRow>();
+    for (const r of (data || []) as DataSourceHealthRow[]) {
       const isFile = r.source_type === 'file';
       const isWebsite = r.source_type === 'website';
       if (isWebsite) websiteParents.set(r.id, r);
-      const meta = (r.metadata && typeof r.metadata === 'object') ? r.metadata : {};
+      const meta: Record<string, unknown> = (r.metadata && typeof r.metadata === 'object') ? r.metadata : {};
       const fileTitle = isFile
         ? (r.name || (meta.original_file_name as string) || '(file)')
         : (r.name || (meta.page_title as string) || (meta.title as string) || '(website)');
@@ -446,12 +503,19 @@ export async function getSourceHealth(
     if (it.eligible) summary.eligible += 1; else summary.not_eligible += 1;
     summary.active_chunks_total += it.active_chunks_count;
     summary.embedded_chunks_total += it.embedded_chunks_count;
-    if (it.source_type === 'qna') (it.status === 'enabled' ? summary.qna_enabled++ : summary.qna_disabled++);
-    else if (it.source_type === 'learned_qna') (it.status === 'approved' ? summary.learned_qna_approved++ : summary.learned_qna_unapproved++);
-    else if (it.source_type === 'kb_article') (it.status === 'published' ? summary.kb_published++ : summary.kb_draft++);
-    else if (it.source_type === 'file') (it.status === 'active' ? summary.files_active++ : summary.files_not_active++);
-    else if (it.source_type === 'website') (it.status === 'active' ? summary.websites_active++ : summary.websites_not_active++);
-    else if (it.source_type === 'web_page') (it.eligible ? summary.web_pages_eligible++ : summary.web_pages_not_eligible++);
+    if (it.source_type === 'qna') {
+      if (it.status === 'enabled') summary.qna_enabled++; else summary.qna_disabled++;
+    } else if (it.source_type === 'learned_qna') {
+      if (it.status === 'approved') summary.learned_qna_approved++; else summary.learned_qna_unapproved++;
+    } else if (it.source_type === 'kb_article') {
+      if (it.status === 'published') summary.kb_published++; else summary.kb_draft++;
+    } else if (it.source_type === 'file') {
+      if (it.status === 'active') summary.files_active++; else summary.files_not_active++;
+    } else if (it.source_type === 'website') {
+      if (it.status === 'active') summary.websites_active++; else summary.websites_not_active++;
+    } else if (it.source_type === 'web_page') {
+      if (it.eligible) summary.web_pages_eligible++; else summary.web_pages_not_eligible++;
+    }
   }
 
   return { items: filtered, summary };

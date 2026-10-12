@@ -14,6 +14,11 @@
  *   - listWorkspacePresence (server/services/widget/operatorPresence.ts)
  *   - the atomic public.claim_conversation() Postgres function
  *     (supabase/migrations/20260807132846_chat_routing_assignment.sql)
+ *
+ * Seats the plan has paused (simple billing phase 4, design §5): those
+ * members are never candidates (departments.ts), and a conversation still
+ * held by one goes back to routing on its next run instead of waiting for
+ * the hourly release (billing/locks/release.ts).
  */
 import { isBotProvider } from '../../shared/channels/botProviders.js';
 import type { ServerConfig } from '../config.js';
@@ -31,6 +36,8 @@ import { dispatchOutboundIfChannelConversation } from './channels/outbound.js';
 import { maybeQueueTelegramOfflineScreen } from './channels/telegram/offlineDelivery.js';
 import { notifyAssignment, notifyHandoff } from './push/index.js';
 import { onSupportConversationChanged } from './platformSupport/changes.js';
+import { resolveLockState } from './billing/locks/state.js';
+import { isMemberLocked } from './billing/locks/predicates.js';
 
 export type AssignmentMode = 'auto' | 'round_robin' | 'manual';
 
@@ -391,6 +398,46 @@ function notifyHandoffOnce(
 }
 
 /**
+ * When `assignedTo`'s seat is paused by the plan, hands the conversation
+ * back to the queue (only if it is still theirs) and announces it. Returns
+ * true when it was released. Never throws.
+ */
+async function releaseIfSeatLocked(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+  assignedTo: string,
+): Promise<boolean> {
+  try {
+    const state = await resolveLockState(config, workspaceId, ['member']);
+    if (!isMemberLocked(state, assignedTo)) return false;
+    const { data, error } = await getServiceClient(config)
+      .from('conversations')
+      .update({ assigned_to: null })
+      .eq('id', conversationId)
+      .eq('workspace_id', workspaceId)
+      .eq('assigned_to', assignedTo)
+      .select('id');
+    if (error || !Array.isArray(data) || data.length === 0) return false;
+    try {
+      await publishOperatorEvent(config, {
+        kind: 'conversation_updated',
+        conversation_id: conversationId,
+        workspace_id: workspaceId,
+        actor_id: null,
+        changes: { assigned_to: null },
+        reason: 'seat_locked',
+        updated_at: new Date().toISOString(),
+      });
+    } catch { /* best-effort */ }
+    return true;
+  } catch (err) {
+    console.warn('[chat-routing] seat-lock release failed:', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+/**
  * Route a conversation that just entered `needs_human` to an operator.
  * Idempotent — a conversation that's already assigned is left untouched.
  * Never throws; the handoff must always succeed even if routing fails.
@@ -409,6 +456,12 @@ export async function routeConversationToOperator(
       .maybeSingle();
     if (!conv) return { outcome: 'error', assignedTo: null };
     const metadata = ((conv as { metadata?: Record<string, unknown> | null }).metadata || {}) as Record<string, unknown>;
+
+    // Held by a member whose seat the plan paused: back to the queue, and
+    // routed below like any unassigned conversation.
+    if (conv.assigned_to && await releaseIfSeatLocked(config, args.workspaceId, args.conversationId, conv.assigned_to as string)) {
+      (conv as { assigned_to: string | null }).assigned_to = null;
+    }
 
     if (conv.assigned_to) {
       // Already assigned, so nobody is being routed — but the visitor has

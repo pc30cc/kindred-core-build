@@ -46,6 +46,7 @@ import { adminGrantPlanV2 } from '../services/billing/adminGrant.js';
 import { renewalDueNotice } from '../services/billing/account/renewalNotice.js';
 import { afterAdminAssignment } from '../services/billing/account/plans.js';
 import type { PlanDefinitionLike } from '../services/billing/entitlementFanout.js';
+import { lockSummary } from '../services/billing/locks/state.js';
 
 
 export const plansRouter = Router();
@@ -174,12 +175,15 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
     const info = resolved.value;
 
     const currentPeriod = new Date().toISOString().slice(0, 7);
-    const [modulesRead, channelsRead, usageRead, renewal] = await Promise.all([
+    const [modulesRead, channelsRead, usageRead, renewal, locks] = await Promise.all([
       supabase.from('workspace_module_overrides').select('module_key, enabled, admin_notes').eq('workspace_id', workspaceId),
       supabase.from('workspace_channel_overrides').select('channel_key, enabled, admin_notes').eq('workspace_id', workspaceId),
       supabase.from('workspace_usage_counters').select('*').eq('workspace_id', workspaceId).eq('period', currentPeriod).maybeSingle(),
       // The panel's "plan ends in N days" banner; never fails the snapshot.
       renewalDueNotice(serverConfigOf(req), workspaceId).catch(() => null),
+      // Computed locks over the plan's limits (phase 4); never fails the
+      // snapshot: unreadable = nothing locked.
+      lockSummary(serverConfigOf(req), workspaceId),
     ]);
     // Enforcement honours these overrides; a snapshot without them would show
     // a section the server refuses (or hide one it allows). A table that does
@@ -206,6 +210,9 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
             card_past_due: renewal.card_past_due === true,
           }
         : null,
+      // What the plan's limits lock now (counts per kind, the next deletion
+      // date); `enabled: false` while the edition's billing locks are off.
+      locks,
       // The plan's own JSON, for forward-compatible consumers.
       raw: { entitlements: info.entitlements, limits: info.planLimits },
     });
@@ -339,9 +346,37 @@ plansRouter.get('/admin/all', async (req, res) => {
 // per currency (the AI wallet's unit); while its key is IRR it is mirrored
 // into `limits.included_ai_allowance_irr`, which older readers still use
 // until phase 7.
+//
+// The fields phase 4 validated (its former cleanPlanExtras) keep its rules
+// and readable errors here, in the same schema:
+//   locked_data_retention_days  days locked data is kept, then deleted after
+//                               the 30/7-day notices: whole days from 1 to
+//                               36500 (a digits-only string is read as that
+//                               number); null or '' = never deleted
+//   is_hidden                   boolean
+//   ai_allowance                an object of whole amounts >= 0 per currency;
+//                               null = {}
+// A bad value of one of them answers 400 with phase 4's `error` text and
+// `field`, plus the `issues` every other refusal carries.
 
 const CURRENCY_KEY = /^[A-Z]{3}$/;
 const jsonObject = z.record(z.string(), z.unknown());
+
+const retentionDaysField = z.preprocess(
+  (v) => (v === '' ? null : typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : v),
+  z.number().int().min(PLAN_RETENTION_DAYS.min).max(PLAN_RETENTION_DAYS.max).nullable(),
+);
+const aiAllowanceField = z.preprocess(
+  (v) => (v === null ? {} : v),
+  z.record(z.string().regex(CURRENCY_KEY), z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)),
+);
+
+/** Phase 4's readable error per plan field it validated. */
+const PLAN_FIELD_ERRORS: Record<string, string> = {
+  locked_data_retention_days: `locked_data_retention_days must be a whole number of days greater than 0 and at most ${PLAN_RETENTION_DAYS.max} (or empty: never deleted)`,
+  is_hidden: 'is_hidden must be true or false',
+  ai_allowance: 'ai_allowance must be a JSON object of whole amounts >= 0 per currency (e.g. {"USD": 500})',
+};
 
 const planAdminSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -358,8 +393,8 @@ const planAdminSchema = z.object({
   default_currency: z.string().regex(CURRENCY_KEY).optional(),
   provider_price_ids: jsonObject.optional(),
   localized: jsonObject.optional(),
-  locked_data_retention_days: z.number().int().min(PLAN_RETENTION_DAYS.min).max(PLAN_RETENTION_DAYS.max).nullable().optional(),
-  ai_allowance: z.record(z.string().regex(CURRENCY_KEY), z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)).optional(),
+  locked_data_retention_days: retentionDaysField.optional(),
+  ai_allowance: aiAllowanceField.optional(),
 });
 
 const planCreateSchema = planAdminSchema.strict();
@@ -369,7 +404,17 @@ export type PlanAdminBody = z.infer<typeof planAdminSchema>;
 
 export type PlanBodyCheck =
   | { ok: true; data: Partial<PlanAdminBody> }
-  | { ok: false; body: { error: 'INVALID_REQUEST' | 'INVALID_PRICE'; issues: Array<{ path: string; message: string }> } };
+  | {
+      ok: false;
+      body: {
+        /** INVALID_REQUEST / INVALID_PRICE, or phase 4's readable text for one of its fields. */
+        error: string;
+        code: 'INVALID_REQUEST' | 'INVALID_PRICE';
+        /** The phase 4 field the first issue is about, if any. */
+        field?: string;
+        issues: Array<{ path: string; message: string }>;
+      };
+    };
 
 const isPriceAmount = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
@@ -402,11 +447,13 @@ export function checkPlanBody(raw: unknown, mode: 'create' | 'update', edition: 
       path: i.path.join('.') || (i.code === 'unrecognized_keys' ? (i as { keys?: string[] }).keys?.join(',') ?? '' : ''),
       message: i.code,
     }));
-    return { ok: false, body: { error: 'INVALID_REQUEST', issues } };
+    const field = parsed.error.issues.map((i) => String(i.path[0] ?? '')).find((k) => k in PLAN_FIELD_ERRORS);
+    if (field) return { ok: false, body: { error: PLAN_FIELD_ERRORS[field], code: 'INVALID_REQUEST', field, issues } };
+    return { ok: false, body: { error: 'INVALID_REQUEST', code: 'INVALID_REQUEST', issues } };
   }
   if (parsed.data.prices) {
     const issues = planPriceIssues(parsed.data.prices, edition);
-    if (issues.length) return { ok: false, body: { error: 'INVALID_PRICE', issues } };
+    if (issues.length) return { ok: false, body: { error: 'INVALID_PRICE', code: 'INVALID_PRICE', issues } };
   }
   return { ok: true, data: parsed.data };
 }
@@ -425,6 +472,34 @@ export function withAllowanceMirror(
   const limits = { ...(body.limits ?? stored ?? {}) };
   limits.included_ai_allowance_irr = irr;
   return { ...body, limits };
+}
+
+/**
+ * Phase 4's check of the plan fields it added (locked_data_retention_days,
+ * is_hidden, ai_allowance), now answered by the plan schema above so the
+ * routes and this helper share one rule. Returns the cleaned values of the
+ * fields present in `body`, or phase 4's readable error and the field.
+ */
+export interface PlanExtras {
+  locked_data_retention_days?: number | null;
+  is_hidden?: boolean;
+  ai_allowance?: Record<string, number>;
+}
+
+const planExtrasSchema = planAdminSchema.pick({ locked_data_retention_days: true, is_hidden: true, ai_allowance: true });
+
+export function cleanPlanExtras(body: Record<string, unknown>): { value: PlanExtras; error?: string; field?: string } {
+  const picked: Record<string, unknown> = {};
+  // A retention key with no value means never, as in phase 4; the others are skipped.
+  if ('locked_data_retention_days' in body) picked.locked_data_retention_days = body.locked_data_retention_days ?? null;
+  if (body.is_hidden !== undefined) picked.is_hidden = body.is_hidden;
+  if (body.ai_allowance !== undefined) picked.ai_allowance = body.ai_allowance;
+  const parsed = planExtrasSchema.safeParse(picked);
+  if (!parsed.success) {
+    const field = String(parsed.error.issues[0]?.path[0] ?? '');
+    return { value: {}, field, error: PLAN_FIELD_ERRORS[field] ?? 'invalid plan field' };
+  }
+  return { value: parsed.data };
 }
 
 plansRouter.post('/admin', async (req, res) => {

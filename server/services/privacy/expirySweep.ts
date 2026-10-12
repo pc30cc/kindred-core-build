@@ -31,6 +31,10 @@
  *
  * Failures don't crash the sweep — each row is independent. Provider
  * outages are logged so an operator can re-run later.
+ *
+ * The same hourly sweep also deletes the owner's locked-data exports (simple
+ * billing phase 4, billing_lock_exports) once their 7 days are over:
+ * server/services/billing/locks/exportWorker.ts purgeExpiredLockExports.
  */
 
 import type { ServerConfig } from '../../config.js';
@@ -39,6 +43,7 @@ import { resolvePrivacyStoragePolicy, PrivacyStorageNotConfigured } from './stor
 import { deleteWithConfig, logWorkspaceStorageUsage } from '../storage/index.js';
 import { deleteLegacyArtifact, legacyArtifactExists } from './artifactStore.js';
 import { writePrivacyAudit } from './audit.js';
+import { purgeExpiredLockExports } from '../billing/locks/exportWorker.js';
 
 const SWEEP_INTERVAL_MS = 60 * 60_000; // hourly
 const BATCH_SIZE = 100;
@@ -102,7 +107,19 @@ export async function purgeOne(config: ServerConfig, job: ExpiredJobRow): Promis
   return { ok: true, provider: 'local_legacy' };
 }
 
+/** Expired locked-data exports (billing_lock_exports). A missing table (265 not applied yet) is not an error. */
+async function sweepLockExports(config: ServerConfig): Promise<void> {
+  try {
+    const { purged, skipped } = await purgeExpiredLockExports(config);
+    if (purged || skipped) console.log(`[privacy expiry sweep] locked-data exports purged=${purged} skipped=${skipped}`);
+  } catch (err) {
+    const message = (err as Error)?.message || String(err);
+    if (!/billing_lock_exports/.test(message)) console.error('[privacy expiry sweep] locked-data exports:', message);
+  }
+}
+
 async function tick(config: ServerConfig): Promise<void> {
+  await sweepLockExports(config);
   const sb = getServiceClient(config);
   const nowIso = new Date().toISOString();
 

@@ -238,9 +238,20 @@ export default function PluginsPage() {
                             </Badge>
                           )}
                           {locked && !comingSoon && (
-                            <Badge variant="outline" className="gap-1">
-                              <Lock className="h-3 w-3" />{t('plugins.badge.planLocked')}
-                            </Badge>
+                            item.stopped ? (
+                              <Badge
+                                variant="outline"
+                                data-plugin-stopped=""
+                                title={t('plugins.badge.stoppedHint')}
+                                className="gap-1 border-amber-500/40 text-amber-600 dark:text-amber-400"
+                              >
+                                <Lock className="h-3 w-3" />{t('plugins.badge.stopped')}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="gap-1">
+                                <Lock className="h-3 w-3" />{t('plugins.badge.planLocked')}
+                              </Badge>
+                            )
                           )}
                         </div>
                         <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">

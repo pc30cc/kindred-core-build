@@ -178,6 +178,73 @@ export interface PlanQuote {
   next_period_amount_minor: number;
   next_period_returned_minor: number;
   reason?: string;
+  /**
+   * A change to another plan at the period end (kind 'schedule'): what the
+   * target plan locks, stops or blocks (phase 4). Absent when the server
+   * could not read it (locks fail open).
+   */
+  lock_report?: LockReport;
+}
+
+// ─── Phase 4: computed locks (server/services/billing/locks/report.ts) ────
+
+export interface LockReportCount {
+  /** The target plan's limit; null = unlimited. */
+  limit: number | null;
+  total: number;
+  locked: number;
+}
+
+/**
+ * The downgrade report: what moving to `plan_id` locks now. While the
+ * edition's billing locks are off (`locks_enabled: false`) the data counts
+ * are a preview and nothing is locked; modules, channels, the monthly quota
+ * and storage follow the plan either way.
+ */
+export interface LockReport {
+  locks_enabled: boolean;
+  plan_id: string;
+  /** Up to 50 of the locked articles, newest last. */
+  kb_article: LockReportCount & { items: Array<{ id: string; title: string | null }> };
+  contact: LockReportCount;
+  /** limit: max_agents (the owner's seat included); total: the seats held now. Names only for managers. */
+  member: LockReportCount & { items: Array<{ user_id: string; name: string | null; email: string | null }> };
+  /** Chats whose last activity is before `cutoff` are locked. */
+  conversation: { retention_days: number | null; total: number; locked: number; cutoff: string | null; oldest_kept: string | null };
+  conversation_quota: { limit: number | null; used_this_month: number; full: boolean };
+  storage: { limit_gb: number | null; used_gb: number; uploads_blocked: boolean };
+  /** Days locked data is kept before deletion; null = never deleted. */
+  locked_data_retention_days: number | null;
+  first_deletion_not_before: string | null;
+  modules_lost: Array<{ key: string; in_use: boolean }>;
+  channels_lost: Array<{ key: string; in_use: boolean }>;
+  channels_stop_messages: boolean;
+  /** The plan's monthly AI credit now and on the target plan (purchased credit stays). */
+  ai_credits: { current: number | null; target: number | null };
+  has_locks: boolean;
+}
+
+/** The change must be acknowledged (else 409 LOCKS_NOT_ACKNOWLEDGED): locks on and something listed. */
+export function lockReportNeedsAck(report: LockReport | null | undefined): boolean {
+  return Boolean(report && report.locks_enabled && report.has_locks);
+}
+
+/**
+ * The owner's export of locked data (server/routes/billingLockExport.ts):
+ * a ZIP of what is locked when it runs, kept 7 days.
+ */
+export type LockedExportStatus = 'pending' | 'running' | 'completed' | 'failed' | 'expired';
+
+export interface LockedExportJob {
+  id: string;
+  status: LockedExportStatus;
+  kinds: string[];
+  counts: Record<string, number>;
+  artifact_size_bytes?: number | null;
+  expires_at: string | null;
+  error?: string | null;
+  created_at: string;
+  updated_at?: string;
 }
 
 /** What the quoted action takes from the balance now, net of what it returns first (sent back as expectedNetMinor). */
@@ -327,7 +394,7 @@ export const accountBillingApi = {
   plans: (workspaceId: string) => request<{ currency: string; plans: PlanOption[] }>(`${base(workspaceId)}/plans`),
   quote: (workspaceId: string, planId: string, interval: BillingInterval) =>
     request<PlanQuote>(`${base(workspaceId)}/quote?planId=${encodeURIComponent(planId)}&interval=${interval}`),
-  buyPlan: (workspaceId: string, input: { planId: string; interval: BillingInterval; key: string; expectedNetMinor?: number }) =>
+  buyPlan: (workspaceId: string, input: { planId: string; interval: BillingInterval; key: string; expectedNetMinor?: number; acknowledgeLocks?: boolean }) =>
     request<PlanResult>(`${base(workspaceId)}/plan`, { method: 'POST', body: JSON.stringify(input) }),
   /**
    * `expectedPeriodEnd` and `expectedPriceMinor`: the period and price the
@@ -344,11 +411,31 @@ export const accountBillingApi = {
     }),
   upgrade: (workspaceId: string, planId: string, expectedNetMinor?: number) =>
     request<PlanResult>(`${base(workspaceId)}/upgrade`, { method: 'POST', body: JSON.stringify({ planId, expectedNetMinor }) }),
-  change: (workspaceId: string, planId: string, interval: BillingInterval | null, expectedNetMinor?: number) =>
+  /** `acknowledgeLocks`: the customer saw the downgrade report and accepted it. */
+  change: (workspaceId: string, planId: string, interval: BillingInterval | null, expectedNetMinor?: number, acknowledgeLocks?: boolean) =>
     request<PlanResult>(`${base(workspaceId)}/change`, {
       method: 'POST',
-      body: JSON.stringify({ planId, interval, expectedNetMinor }),
+      body: JSON.stringify({ planId, interval, expectedNetMinor, ...(acknowledgeLocks ? { acknowledgeLocks: true } : {}) }),
     }),
+  /** What a plan locks here (default: the plan in force, i.e. what is locked now). Managers only. */
+  lockReport: (workspaceId: string, planId?: string | null) =>
+    request<LockReport>(`${base(workspaceId)}/lock-report${planId ? `?planId=${encodeURIComponent(planId)}` : ''}`),
+  /** The latest export of locked data (owner only), or null. */
+  lockedExport: (workspaceId: string) => request<{ job: LockedExportJob | null }>(`${base(workspaceId)}/locked-export`),
+  /** Starts an export of what is locked now (owner only; 409 while one runs). */
+  startLockedExport: (workspaceId: string, kinds?: string[]) =>
+    request<{ job: LockedExportJob }>(`${base(workspaceId)}/locked-export`, {
+      method: 'POST',
+      body: JSON.stringify(kinds ? { kinds } : {}),
+    }),
+  /** A single-use download link for a completed export. */
+  lockedExportDownloadUrl: async (workspaceId: string, jobId: string) => {
+    const { token } = await request<{ token: string; expiresAt?: string | null }>(
+      `${base(workspaceId)}/locked-export/${encodeURIComponent(jobId)}/download-token`,
+      { method: 'POST' },
+    );
+    return `${API_BASE}/api/billing/account/locked-export/download?token=${encodeURIComponent(token)}`;
+  },
   /** With a saved card the server asks Paddle first; the answer carries the card as it is now. */
   setAutoRenew: (workspaceId: string, enabled: boolean) =>
     request<{ auto_renew: boolean; card?: CardView | null }>(`${base(workspaceId)}/auto-renew`, {
@@ -370,6 +457,8 @@ export const accountBillingApi = {
       expectedNetMinor?: number;
       /** Save the card and renew with it (plan or renewal): the full price is charged. */
       autoRenew?: boolean;
+      /** A plan: the report of what it locks was read and accepted (else 409 LOCKS_NOT_ACKNOWLEDGED while billing locks are on). */
+      acknowledgeLocks?: boolean;
     },
   ) => request<TopupStarted>(`${base(workspaceId)}/checkout`, { method: 'POST', body: JSON.stringify(input) }),
   /** Upgrade now, charging the quoted difference to the saved card (exactly the total the button showed). */

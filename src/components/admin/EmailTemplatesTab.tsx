@@ -52,6 +52,7 @@ const ACCOUNT_BILLING_SLUGS = [
   'billing_renewal_reminder', 'billing_renewed', 'billing_expired', 'billing_plan_changed', 'billing_change_scheduled',
   'billing_payment_receipt', 'billing_plan_activated', 'billing_trial_ending', 'billing_trial_ended',
   'billing_card_renewed', 'billing_card_payment_failed', 'billing_card_removed',
+  'billing_locked_data_deletion',
   'billing_ai_pack_purchased',
 ] as const;
 
@@ -116,6 +117,9 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   billing_card_renewed: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{card}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_card_payment_failed: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{amount}', '{card}', '{failure_reason}', '{due_at}'],
   billing_card_removed: [...ACCOUNT_BILLING_VARIABLES, '{card}', '{reason}', '{plan_name}', '{period_end}'],
+  // Phase 4: data locked over the plan's limits is deleted on {deletion_date};
+  // sent 30 and 7 days before ({days_left}), {locked_summary} e.g. "12 articles, 340 contacts".
+  billing_locked_data_deletion: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{days_left}', '{deletion_date}', '{locked_summary}', '{export_url}'],
   // An AI credit pack bought from the balance or online (phase 5, migration 264), in both editions.
   billing_ai_pack_purchased: [...ACCOUNT_BILLING_VARIABLES, '{pack_name}', '{credit}', '{amount}', '{balance}', '{ai_balance}'],
 };

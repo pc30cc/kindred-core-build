@@ -13,12 +13,20 @@
  * few seconds, for up to a minute. A declined card offers a top-up or the
  * online checkout. While the card's renewal failed, or Paddle is charging
  * it, plan changes wait, and the dialog says why.
+ *
+ * A downgrade, or a plan bought from a trial, Free or a lapsed plan, shows
+ * what the target plan locks (phase 4, LockReport) while the edition's
+ * billing locks are on (the server sends no report while they are off).
+ * When it lists anything, the change or the purchase waits
+ * for the customer to tick that they understand (the server refuses it
+ * otherwise: 409 LOCKS_NOT_ACKNOWLEDGED, with the report, which then shows).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import {
@@ -26,12 +34,15 @@ import {
   quoteNet,
   type AccountView,
   type BillingInterval,
+  lockReportNeedsAck,
+  type LockReport as LockReportData,
   type PlanOption,
   type PlanQuote,
 } from '@/lib/accountBillingApi';
 import { billingDate, money } from '../shared';
 import { PADDLE_MIN_CHARGE_MINOR, chargeFor } from '../../../../../shared/simpleBilling';
 import PlanFeatures from './PlanFeatures';
+import LockReport, { LockedExportButton } from './LockReport';
 import type { PayOnlineRequest } from './PayOnlineDialog';
 import { accountErrorText, billingMoment, cardFailureKind, cardLabel, isFuture, planLabel } from './accountUi';
 
@@ -95,6 +106,8 @@ export default function PlanPickerDialog({
   const [actionError, setActionError] = useState<string | null>(null);
   const [key, setKey] = useState(newKey);
   const [cardCharge, setCardCharge] = useState<CardCharge | null>(null);
+  // The downgrade report was read and accepted (sent as acknowledgeLocks).
+  const [locksAck, setLocksAck] = useState(false);
   // Bumped when the dialog opens or closes: a card charge still being asked
   // about stops asking.
   const session = useRef(0);
@@ -135,6 +148,7 @@ export default function PlanPickerDialog({
     let alive = true;
     setQuote(null);
     setLoadError(null);
+    setLocksAck(false);
     accountBillingApi
       .quote(workspaceId, selected, interval)
       .then((q) => alive && setQuote(q))
@@ -200,10 +214,15 @@ export default function PlanPickerDialog({
       onDone();
     } catch (e) {
       setActionError(accountErrorText(e, t));
-      const err = e as { code?: string; details?: { quote?: PlanQuote | null } | null };
-      // The server's new quote when the amount moved; otherwise ask again.
+      const err = e as { code?: string; details?: { quote?: PlanQuote | null; lock_report?: LockReportData | null } | null };
+      // The server's new quote when the amount moved; the report to accept
+      // when the change locks something; otherwise ask again.
       if (err?.code === 'QUOTE_CHANGED' && err.details?.quote) setQuote(err.details.quote);
-      else setQuoteNonce((n) => n + 1);
+      else if (err?.code === 'LOCKS_NOT_ACKNOWLEDGED' && err.details?.lock_report) {
+        const report = err.details.lock_report;
+        setQuote((q) => (q ? { ...q, lock_report: report } : q));
+        setLocksAck(false);
+      } else setQuoteNonce((n) => n + 1);
       setKey(newKey());
       // The card changed under the page (a failed renewal, a renewal under way, removed): show it.
       if (['CARD_PAST_DUE', 'CARD_RENEWAL_IN_PROGRESS', 'CARD_NOT_AVAILABLE', 'CARD_NOT_FOUND'].includes(String(err?.code))) onDone();
@@ -225,6 +244,8 @@ export default function PlanPickerDialog({
       expectedNetMinor: quoteNet(quote),
       fullPriceMinor: purpose === 'plan' ? quote.period_price_minor : null,
       title: t(purpose === 'plan' ? 'billing.account.picker.buyTitle' : 'billing.account.picker.upgradeTitle', { plan: chosenName }),
+      // A plan bought online locks what is over its limits as buying it from the balance does.
+      ...(purpose === 'plan' && locksAck ? { acknowledgeLocks: true } : {}),
     });
   };
 
@@ -436,9 +457,18 @@ export default function PlanPickerDialog({
                     : null}
                 onBuy={() => void run(() => accountBillingApi.buyPlan(workspaceId, {
                   planId: quote.plan_id, interval, key, expectedNetMinor: quoteNet(quote),
+                  ...(locksAck ? { acknowledgeLocks: true } : {}),
                 }))}
                 onUpgrade={() => void run(() => accountBillingApi.upgrade(workspaceId, quote.plan_id, quoteNet(quote)))}
-                onSchedule={() => void run(() => accountBillingApi.change(workspaceId, quote.plan_id, interval, quoteNet(quote, 'next_period')))}
+                onSchedule={() => void run(() => (locksAck
+                  ? accountBillingApi.change(workspaceId, quote.plan_id, interval, quoteNet(quote, 'next_period'), true)
+                  : accountBillingApi.change(workspaceId, quote.plan_id, interval, quoteNet(quote, 'next_period'))))}
+                locks={{
+                  ack: locksAck,
+                  onAck: setLocksAck,
+                  // The export link shows for the owner only.
+                  exportFor: workspaceId,
+                }}
                 onCancelChange={() => paid && void run(() => accountBillingApi.change(
                   workspaceId, paid.plan_id, paid.billing_interval, quoteNet(quote),
                 ))}
@@ -472,6 +502,7 @@ function QuoteSummary({
   onCancelChange,
   onPayOnline,
   onTopup,
+  locks = null,
 }: {
   quote: PlanQuote;
   planName: string;
@@ -492,6 +523,8 @@ function QuoteSummary({
   onCancelChange: () => void;
   onPayOnline: (purpose: 'plan' | 'upgrade') => void;
   onTopup?: (amountMinor: number) => void;
+  /** The downgrade report's acknowledgement, and the workspace whose locked data its owner can export. */
+  locks?: { ack: boolean; onAck: (ack: boolean) => void; exportFor: string | null } | null;
 }) {
   const { t } = useTranslation();
   const spinner = busy ? <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden /> : null;
@@ -524,14 +557,41 @@ function QuoteSummary({
       )}
     </div>
   );
-  const actions = (main: () => void, mainLabel: string, purpose: 'plan' | 'upgrade') =>
+  // What the target plan locks (a change to another plan at the period end):
+  // to be accepted before the change while locks are on and it lists anything.
+  const report = quote.lock_report ?? null;
+  const mustAck = lockReportNeedsAck(report);
+  const ackMissing = mustAck && !locks?.ack;
+  const lockReport = report && (
+    <LockReport
+      report={report}
+      effectiveAt={quote.effective_at}
+      footer={mustAck && (
+        <div className="space-y-2 border-t pt-2">
+          {mustAck && canManage && (
+            <label className="flex items-start gap-2 text-sm" data-testid="lock-report-ack">
+              <Checkbox
+                checked={Boolean(locks?.ack)}
+                onCheckedChange={(v) => locks?.onAck(v === true)}
+                disabled={busy}
+                className="mt-0.5"
+              />
+              <span>{t('billing.locks.report.acknowledge')}</span>
+            </label>
+          )}
+          {locks?.exportFor && <LockedExportButton workspaceId={locks.exportFor} />}
+        </div>
+      )}
+    />
+  );
+  const actions = (main: () => void, mainLabel: string, purpose: 'plan' | 'upgrade', needsAck = false) =>
     canManage && (
       <div className="flex flex-wrap gap-2">
         {covered ? (
-          <Button onClick={main} disabled={off}>{spinner}{mainLabel}</Button>
+          <Button onClick={main} disabled={off || needsAck} data-testid={`confirm-${purpose}`}>{spinner}{mainLabel}</Button>
         ) : (
           <>
-            <Button onClick={() => onPayOnline(purpose)} disabled={off}>{t('billing.account.picker.payOnline')}</Button>
+            <Button onClick={() => onPayOnline(purpose)} disabled={off || needsAck}>{t('billing.account.picker.payOnline')}</Button>
             <p className="w-full text-xs text-muted-foreground">
               {t('billing.account.picker.short', { amount: amount(quote.shortfall_minor) })}
             </p>
@@ -548,7 +608,8 @@ function QuoteSummary({
           {quote.returned_minor > 0 && (
             <p className="text-sm text-muted-foreground">{t('billing.account.picker.prepaidReleased', { amount: amount(quote.returned_minor) })}</p>
           )}
-          {actions(onBuy, t('billing.account.picker.payFromBalance', { amount: amount(Math.max(net, 0)) }), 'plan')}
+          {lockReport}
+          {actions(onBuy, t('billing.account.picker.payFromBalance', { amount: amount(Math.max(net, 0)) }), 'plan', ackMissing)}
         </>
       );
     case 'upgrade': {
@@ -605,7 +666,8 @@ function QuoteSummary({
                     : t('billing.account.picker.nextPeriodOption', { date: periodEnd })}
               </p>
               {renewalNote}
-              <Button variant="outline" onClick={onSchedule} disabled={off || laterShort > 0}>{t('billing.account.picker.fromNextPeriod')}</Button>
+              {lockReport}
+              <Button variant="outline" onClick={onSchedule} disabled={off || laterShort > 0 || ackMissing}>{t('billing.account.picker.fromNextPeriod')}</Button>
               {shortForChange(laterShort)}
             </div>
           )}
@@ -626,8 +688,11 @@ function QuoteSummary({
           </p>
           {prepaidLines(quote.amount_minor, quote.returned_minor)}
           {renewalNote}
+          {lockReport}
           {canManage && (
-            <Button onClick={onSchedule} disabled={off || quote.shortfall_minor > 0}>{spinner}{t('billing.account.picker.confirmChange')}</Button>
+            <Button onClick={onSchedule} disabled={off || quote.shortfall_minor > 0 || ackMissing} data-testid="confirm-change">
+              {spinner}{t('billing.account.picker.confirmChange')}
+            </Button>
           )}
           {shortForChange(quote.shortfall_minor)}
         </>

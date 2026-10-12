@@ -80,7 +80,21 @@ export function useConversations(
           avatar_url: string | null;
           visitor_code: string | null;
           metadata: Record<string, unknown> | null;
+          /**
+           * Over the plan's contact limit (phase 4, D4): the server sent it
+           * redacted. The chat stays usable; the contact's details and its
+           * page are not offered.
+           */
+          locked?: boolean;
         } | null;
+        /**
+         * Older than the plan's chat retention (phase 4): listed without its
+         * content; it cannot be opened, answered or changed. A message from
+         * the visitor reopens it.
+         */
+        locked_by_retention?: boolean;
+        /** The plan's data_retention_days, on a locked row. */
+        retention_days?: number | null;
         last_visitor_message?: { body: string; created_at: string; seen_at: string | null } | null;
         last_message?: { body: string; created_at: string; sender_type: string } | null;
         unread_count?: number;
@@ -103,7 +117,8 @@ export function useConversations(
       // (the contact's newest session is only a legacy fallback), so a
       // returning visitor no longer makes older threads show the newest
       // visit's country.
-      const ids = convos.map((c) => c.id).filter(Boolean);
+      // A chat locked by the plan's retention shows nothing about its visitor.
+      const ids = convos.filter((c) => !c.locked_by_retention).map((c) => c.id).filter(Boolean);
       try {
         const netByConv = await fetchVisitorNetworkForConversations(workspaceId!, ids);
         for (const c of convos) {

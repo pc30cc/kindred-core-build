@@ -19,6 +19,7 @@
 
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
+import { applyKbUnlockedFilter, resolveKbLock } from '../../knowledge-base/locks.js';
 import {
   TELEGRAM_COMMAND_ICONS,
   resolveLocalizedMessage,
@@ -246,7 +247,7 @@ export async function listFaqItems(
     .limit(120);
   if (error) throw new Error(error.message);
 
-  const rows = (data ?? []) as any[];
+  const rows = (data ?? []) as MenuRow[];
   for (const candidate of wanted) {
     const scoped = rows.filter((row) => String(row.locale ?? '').slice(0, 2).toLowerCase() === candidate);
     if (scoped.length) return scoped.slice(0, 60).map(toFaqEntry);
@@ -254,7 +255,10 @@ export async function listFaqItems(
   return rows.slice(0, 60).map(toFaqEntry);
 }
 
-function toFaqEntry(row: any): FaqEntry {
+/** A Q&A or article row as selected (the service client is untyped). */
+type MenuRow = Record<string, unknown>;
+
+function toFaqEntry(row: MenuRow): FaqEntry {
   return {
     id: String(row.id),
     question: String(row.question ?? '').slice(0, 500),
@@ -314,7 +318,8 @@ const ARTICLES_PER_PAGE = 6;
 
 /**
  * Published Knowledge Base articles for the workspace, preferring the
- * requested locale and falling back to the platform locale.
+ * requested locale and falling back to the platform locale. Articles the plan
+ * has locked (over max_kb_articles, simple billing phase 4) are left out.
  */
 export async function listHelpArticles(
   config: ServerConfig,
@@ -325,16 +330,20 @@ export async function listHelpArticles(
   const sb = getServiceClient(config);
   const wanted = [normalizeLocale(locale), normalizeLocale(fallback)].filter(Boolean) as string[];
 
-  const { data, error } = await sb
-    .from('knowledge_base_articles')
-    .select('id, title, excerpt, content, slug, locale, updated_at')
-    .eq('workspace_id', workspaceId)
-    .eq('status', 'published')
+  const kbLock = await resolveKbLock(config, workspaceId);
+  const { data, error } = await applyKbUnlockedFilter(
+    sb
+      .from('knowledge_base_articles')
+      .select('id, title, excerpt, content, slug, locale, updated_at')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'published'),
+    kbLock,
+  )
     .order('updated_at', { ascending: false })
     .limit(120);
   if (error) throw new Error(error.message);
 
-  const rows = (data ?? []) as any[];
+  const rows = (data ?? []) as MenuRow[];
   for (const candidate of wanted) {
     const scoped = rows.filter((row) => String(row.locale ?? '').slice(0, 2).toLowerCase() === candidate);
     if (scoped.length) return scoped.slice(0, 60).map(toArticle);
@@ -342,7 +351,7 @@ export async function listHelpArticles(
   return rows.slice(0, 60).map(toArticle);
 }
 
-function toArticle(row: any): HelpArticle {
+function toArticle(row: MenuRow): HelpArticle {
   return {
     id: String(row.id),
     title: String(row.title ?? '').slice(0, 200),

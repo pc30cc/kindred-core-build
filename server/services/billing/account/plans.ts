@@ -17,6 +17,9 @@ import { AccountBillingError, readAccount, type AccountRow } from './index.js';
 import { billingIntervalLabel, localizedPlanName, planNamesFor, sendBillingEmail } from './notify.js';
 import { v2NextPeriodPaid } from './renewalNotice.js';
 import { cancelCardNow, cardLabel, pullCardRenewal, readLiveCard, setCardAutoRenew } from './card.js';
+import { buildLockReport, reportNeedsAcknowledgement, type LockReport } from '../locks/report.js';
+import { locksEnabled } from '../locks/state.js';
+import { enqueueKnowledgeBaseCatchup } from '../../ai-agent/knowledgeIndex/kbEvents.js';
 
 export type BillingInterval = 'monthly' | 'yearly';
 
@@ -245,16 +248,27 @@ export interface PlanQuote {
   next_period_amount_minor: number;
   next_period_returned_minor: number;
   reason?: string;
+  /**
+   * A change to another plan at the period end (kind 'schedule'): what the
+   * target plan would lock, stop or block (phase 4, design §9). Absent when
+   * not asked for or unreadable.
+   */
+  lock_report?: LockReport;
 }
 
 const DAY_MS = 86_400_000;
 
-/** What choosing `planId` (with `interval`) would do now and cost: exactly what the SQL will do. */
+/**
+ * What choosing `planId` (with `interval`) would do now and cost: exactly what
+ * the SQL will do. With `withLockReport`, a change to another plan at the
+ * period end also carries the downgrade report.
+ */
 export async function quotePlanChange(
   config: ServerConfig,
   workspaceId: string,
   planId: string,
   interval: BillingInterval,
+  options: { withLockReport?: boolean } = {},
 ): Promise<PlanQuote> {
   await processDueNow(config, workspaceId);
   const [account, region, plan, paid] = await Promise.all([
@@ -314,7 +328,14 @@ export async function quotePlanChange(
     }
     if (plan.is_hidden) return { ...base, reason: 'plan_not_available' };
     if (price === null) return { ...base, reason: 'price_unavailable' };
-    return finish({ ...base, kind: 'purchase', amount_minor: price, period_price_minor: price, effective_at: new Date().toISOString() });
+    const purchase = finish({ ...base, kind: 'purchase', amount_minor: price, period_price_minor: price, effective_at: new Date().toISOString() });
+    // Buying a plan from a trial, Free or a lapsed one locks what is over its
+    // limits at once: its report too, while billing locks are on.
+    if (options.withLockReport && (await locksOn(config))) {
+      const report = await lockReportOrNull(config, workspaceId, planId);
+      if (report) purchase.lock_report = report;
+    }
+    return purchase;
   }
 
   const sameInterval = interval === paid.billing_interval;
@@ -371,7 +392,7 @@ export async function quotePlanChange(
   }
 
   // At the period end. A prepaid next period is re-priced now.
-  return finish({
+  const atPeriodEnd = finish({
     ...base,
     kind: 'schedule',
     amount_minor: laterTaken,
@@ -380,6 +401,35 @@ export async function quotePlanChange(
     next_period_price_minor: nextPrice(price),
     effective_at: paid.current_period_end,
   });
+  // An interval change on the same plan locks nothing. While billing locks
+  // are off nothing is reported to the customer (the Super Admin's preview
+  // and GET lock-report still compute it): the change locks nothing more
+  // than before.
+  if (options.withLockReport && planId !== paid.plan_id && (await locksOn(config))) {
+    const report = await lockReportOrNull(config, workspaceId, planId);
+    if (report) atPeriodEnd.lock_report = report;
+  }
+  return atPeriodEnd;
+}
+
+/** The billing locks kill switch; off when unreadable (S4). */
+async function locksOn(config: ServerConfig): Promise<boolean> {
+  if (config.selfHostBillingUnlimited === true) return false;
+  try {
+    return await locksEnabled(config);
+  } catch {
+    return false;
+  }
+}
+
+/** The downgrade report, or null when it cannot be read (locks fail open, S4). */
+async function lockReportOrNull(config: ServerConfig, workspaceId: string, planId: string): Promise<LockReport | null> {
+  try {
+    return await buildLockReport(config, workspaceId, planId);
+  } catch (e) {
+    console.warn('[billing-account] lock report:', e instanceof Error ? e.message : e);
+    return null;
+  }
 }
 
 /** What the action quoted takes from the balance now, net of what it returns first. */
@@ -462,6 +512,7 @@ export async function afterPlanChange(
         workspaceId,
         source: action === 'expired' ? 'subscription_canceled' : source,
       });
+      await applyComputedLocks(config, workspaceId, action);
     }
     // A next period the saved card paid starts: the card's payment was mailed
     // when it was settled (billing_renewed, and Paddle's own invoice).
@@ -523,13 +574,46 @@ export async function afterPlanChange(
   }
 }
 
+/**
+ * After a plan change was applied, while billing locks are on (phase 4):
+ * the agents past the new seat limit give their open chats back to the queue,
+ * and a move to Free re-syncs the AI index (a revocation queues no catch-up of
+ * its own, but the articles past the new limit must leave the AI). Locks write
+ * nothing else. Never throws.
+ */
+async function applyComputedLocks(config: ServerConfig, workspaceId: string, action: string): Promise<void> {
+  try {
+    if (!(await locksOn(config))) return;
+    const { releaseLockedAgentChats } = await import('../locks/release.js');
+    await releaseLockedAgentChats(config, workspaceId);
+    if (action === 'expired') await enqueueKnowledgeBaseCatchup(config, workspaceId);
+  } catch (e) {
+    console.warn('[billing-account] computed locks after plan change:', e instanceof Error ? e.message : e);
+  }
+}
+
 /** Buys a plan from the balance (on Free, a trial, or after a plan ran out). */
 export async function buyPlan(
   config: ServerConfig,
   workspaceId: string,
-  input: { planId: string; interval: BillingInterval; key: string; actorId: string | null; expectedNetMinor?: number },
+  input: {
+    planId: string;
+    interval: BillingInterval;
+    key: string;
+    actorId: string | null;
+    expectedNetMinor?: number;
+    acknowledgeLocks?: boolean;
+  },
 ): Promise<Record<string, unknown>> {
   await assertQuote(config, workspaceId, { planId: input.planId, interval: input.interval, kinds: ['purchase'], expectedNetMinor: input.expectedNetMinor });
+  // As scheduleChange: what the plan bought locks must be accepted first
+  // while billing locks are on.
+  if (input.acknowledgeLocks !== true && (await locksOn(config))) {
+    const report = await lockReportOrNull(config, workspaceId, input.planId);
+    if (reportNeedsAcknowledgement(report)) {
+      throw new AccountBillingError('LOCKS_NOT_ACKNOWLEDGED', 409, { lock_report: report });
+    }
+  }
   const result = await rpc(config, 'billing_account_purchase_plan', {
     p_workspace_id: workspaceId,
     p_plan_id: input.planId,
@@ -585,14 +669,33 @@ export async function upgradePlan(
   return result;
 }
 
-/** Schedules (or with the current plan and interval, cancels) a change at the period end. */
+/**
+ * Schedules (or with the current plan and interval, cancels) a change at the
+ * period end. A change to another plan whose downgrade report lists anything
+ * must be acknowledged (`acknowledgeLocks`) while billing locks are on, else
+ * 409 LOCKS_NOT_ACKNOWLEDGED with the report. No hash of the report is
+ * checked: its counts move all the time, and the dialog says they are final
+ * at the effective date.
+ */
 export async function scheduleChange(
   config: ServerConfig,
   workspaceId: string,
-  input: { planId: string; interval: BillingInterval | null; actorId: string | null; expectedNetMinor?: number },
+  input: {
+    planId: string;
+    interval: BillingInterval | null;
+    actorId: string | null;
+    expectedNetMinor?: number;
+    acknowledgeLocks?: boolean;
+  },
 ): Promise<Record<string, unknown>> {
+  const paid = await paidPeriodOf(config, workspaceId);
+  if (paid && input.planId !== paid.plan_id && input.acknowledgeLocks !== true && (await locksOn(config))) {
+    const report = await lockReportOrNull(config, workspaceId, input.planId);
+    if (reportNeedsAcknowledgement(report)) {
+      throw new AccountBillingError('LOCKS_NOT_ACKNOWLEDGED', 409, { lock_report: report });
+    }
+  }
   if (input.expectedNetMinor !== undefined) {
-    const paid = await paidPeriodOf(config, workspaceId);
     if (!paid) throw new AccountBillingError('QUOTE_CHANGED', 409, { quote: null });
     await assertQuote(config, workspaceId, {
       planId: input.planId,

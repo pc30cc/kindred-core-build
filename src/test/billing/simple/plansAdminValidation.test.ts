@@ -3,7 +3,8 @@
  * POST and PUT /api/plans/admin take a whitelist of billing_plans columns,
  * refuse an unknown key (400 INVALID_REQUEST with issues) and a negative or
  * fractional price of a currency the edition sells (400 INVALID_PRICE),
- * check the locked-data retention (1-3650 days or empty), store retention,
+ * check the locked-data retention (1-36500 days, a digits-only string, or
+ * empty), store retention,
  * ai_allowance and is_hidden on create, and mirror ai_allowance.IRR into
  * limits.included_ai_allowance_irr (D17).
  *
@@ -218,11 +219,11 @@ describe('PUT /api/plans/admin/:planId', () => {
     expect((await call('PUT', `/api/plans/admin/${PLAN_ID}`, { prices: { IRR: { monthly: 'legacy' } } })).json.error).toBe('INVALID_PRICE');
   });
 
-  it('retention: 1 to 3650 days, or null', async () => {
-    for (const days of [0, -5, 3651, 1.5, '30']) {
+  it('retention: 1 to 36500 days (phase 4\'s range; digits-only text is read as a number), or null / empty', async () => {
+    for (const days of [0, -5, 36501, 1.5, '1.5', 'abc', true]) {
       expect((await call('PUT', `/api/plans/admin/${PLAN_ID}`, { locked_data_retention_days: days })).status, String(days)).toBe(400);
     }
-    for (const days of [1, 3650, null]) {
+    for (const days of [1, 3650, 36500, '30', ' 45 ', '', null]) {
       expect((await call('PUT', `/api/plans/admin/${PLAN_ID}`, { locked_data_retention_days: days })).status, String(days)).toBe(200);
     }
   });

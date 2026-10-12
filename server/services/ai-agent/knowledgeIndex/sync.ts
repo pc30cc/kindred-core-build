@@ -15,6 +15,7 @@ import { chunkText, chunkQna } from './chunker.js';
 import { indexSource, getEmbedderForWorkspace, type SourceType } from './indexer.js';
 import { isUsableEmbeddingProvider, type EmbeddingProvider } from '../embeddings/index.js';
 import { getOrCreateSettings } from '../settings.js';
+import { isKbArticleLocked, resolveKbLock } from '../../knowledge-base/locks.js';
 
 const PLAN_BUDGETS: Record<string, number> = {
   free: 50,
@@ -70,12 +71,16 @@ export async function syncKnowledgeSource(
     if (input.sourceType === 'kb_article') {
       const { data: art } = await sb
         .from('knowledge_base_articles')
-        .select('id, workspace_id, slug, locale, title, content, status, used_by_ai')
+        .select('id, workspace_id, slug, locale, title, content, status, used_by_ai, created_at')
         .eq('id', input.sourceId)
         .maybeSingle();
       if (!art || art.workspace_id !== input.workspaceId) return;
-      if (art.status !== 'published' || art.used_by_ai === false) {
-        // Unpublished → mark all chunks deleted.
+      // Simple billing phase 4: an article over the plan's max_kb_articles is
+      // locked and invisible to the AI, so its chunks are retired like an
+      // unpublished one's; the catch-up after an upgrade re-adds them.
+      const locked = isKbArticleLocked(await resolveKbLock(config, input.workspaceId), art);
+      if (art.status !== 'published' || art.used_by_ai === false || locked) {
+        // Unpublished (or locked) → mark all chunks deleted.
         await indexSource(config, {
           workspaceId: input.workspaceId,
           sourceType: 'kb_article',
@@ -260,17 +265,26 @@ export async function rebuildWorkspaceIndex(
   // must NOT treat "no rows" as "nothing is eligible", otherwise a transient
   // database error would wipe the entire KB index. The failure is recorded and
   // the sweep is skipped.
-  const { data: articles, error: articlesError } = await sb
-    .from('knowledge_base_articles')
-    .select('id, slug, locale, title, content, status')
-    .eq('workspace_id', workspaceId)
-    .eq('status', 'published')
-    .eq('used_by_ai', true)
-    .limit(2000);
+  //
+  // Simple billing phase 4 — articles the plan has locked (over
+  // max_kb_articles) are not eligible: the sweep below retires their chunks,
+  // and the catch-up after an upgrade or a delete indexes them again. An
+  // unreadable lock state locks nothing (fail open), so it never retires.
+  const [{ data: publishedArticles, error: articlesError }, kbLock] = await Promise.all([
+    sb
+      .from('knowledge_base_articles')
+      .select('id, slug, locale, title, content, status, created_at')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'published')
+      .eq('used_by_ai', true)
+      .limit(2000),
+    resolveKbLock(config, workspaceId),
+  ]);
   const articleSetTrustworthy = !articlesError;
   if (articlesError) { distrust(); fail('kb_article_query_failed'); }
-  const eligibleArticleIds = new Set<string>((articles || []).map((a) => a.id as string));
-  for (const a of articles || []) {
+  const articles = (publishedArticles || []).filter((a) => !isKbArticleLocked(kbLock, a));
+  const eligibleArticleIds = new Set<string>(articles.map((a) => a.id as string));
+  for (const a of articles) {
     const chunks = chunkText([a.title, a.content].filter(Boolean).join('\n\n'));
     let r: Awaited<ReturnType<typeof indexSource>>;
     try {

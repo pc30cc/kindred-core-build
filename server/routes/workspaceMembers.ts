@@ -44,6 +44,10 @@ import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { runIdempotent, peekCommitted } from '../services/invitations/idempotency.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
+import { clearLockStateCache, resolveLockState } from '../services/billing/locks/state.js';
+import { isMemberLocked } from '../services/billing/locks/predicates.js';
+import { releaseLockedAgentChats } from '../services/billing/locks/release.js';
+import { invalidateDepartmentCache } from '../services/calls/departments.js';
 
 export const workspaceMembersRouter = Router();
 
@@ -160,7 +164,40 @@ async function isCanonicalOwner(
   return !!workspace && (workspace as { owner_id: string }).owner_id === userId;
 }
 
+/**
+ * A member was suspended, reinstated or removed: the seat ranks shift
+ * (simple billing phase 4, design §5). The cached lock state is dropped so
+ * the next request sees the new ranks, and the open chats of whoever is now
+ * past the seat limit go back to the queue. Best-effort and never awaited
+ * by the response: the change itself already succeeded.
+ */
+function afterSeatChange(config: ServerConfig, workspaceId: string): void {
+  clearLockStateCache(workspaceId);
+  // Routing's cached member list (who is suspended) follows at once.
+  invalidateDepartmentCache(workspaceId);
+  void releaseLockedAgentChats(config, workspaceId).catch(() => undefined);
+}
+
+// GET /api/workspace-members/me?workspaceId=... — the caller's own seat.
+// The one workspace read a member whose seat the plan paused still gets
+// (authorizeWorkspaceAccess answers `seat_locked` everywhere else), so the
+// app can say "your seat is paused" instead of failing on every call.
+workspaceMembersRouter.get('/me', async (req, res) => {
+  const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
+  const auth = await authorizeWorkspaceAccess(req, res, parsedQuery.data.workspaceId, { allowSeatLocked: true });
+  if (!auth) return;
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json({
+    user_id: auth.userId,
+    role: auth.isAdmin ? 'admin' : auth.role,
+    seat_locked: auth.seatLocked === true,
+  });
+});
+
 // GET /api/workspace-members?workspaceId=... — members with profile + department names.
+// Each member carries `seat_locked`: the plan has paused this seat (only
+// while billing locks are on; never the owner or a suspended member).
 workspaceMembersRouter.get('/', async (req, res) => {
   const parsedQuery = workspaceIdQuerySchema.safeParse(req.query);
   if (!parsedQuery.success) return res.status(400).json({ error: 'workspaceId is required' });
@@ -197,10 +234,12 @@ workspaceMembersRouter.get('/', async (req, res) => {
     deptsByUser.set(dm.user_id, list);
   }
 
+  const lockState = await resolveLockState(config, workspaceId, ['member']);
   const result = (members || []).map((m) => ({
     ...m,
     profile: (profiles || []).find((p) => p.id === m.user_id) || null,
     department_names: deptsByUser.get(m.user_id) || [],
+    seat_locked: isMemberLocked(lockState, m.user_id),
   }));
   return res.json({ members: result });
 });
@@ -297,6 +336,9 @@ workspaceMembersRouter.patch('/:memberId/suspension', async (req, res) => {
     .eq('id', req.params.memberId)
     .eq('workspace_id', workspaceId);
   if (error) return res.status(500).json({ error: error.message });
+  // A suspended member holds no seat (D3): suspending one can unpause the
+  // next, reinstating one can pause the most recently joined.
+  afterSeatChange(config, workspaceId);
   return res.json({ ok: true, suspended: parsedBody.data.suspended });
 });
 
@@ -390,6 +432,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     });
     if (error) return res.status(500).json({ error: error.message });
     await purgeAcceptedInvitation().catch(() => undefined);
+    afterSeatChange(config, workspaceId);
     return res.json({ ok: true, replayed: false, offboarding: data });
   }
 
@@ -407,6 +450,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     return res.status(500).json({ error: outcome.error.message });
   }
   await purgeAcceptedInvitation().catch(() => undefined);
+  if (!outcome.replayed) afterSeatChange(config, workspaceId);
   return res.json({
     ok: true,
     replayed: outcome.replayed,

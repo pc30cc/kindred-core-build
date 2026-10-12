@@ -507,7 +507,9 @@ permissions, events and the sandbox checks to run before switching it on:
   their rows go. Deleting a user keeps the ledger rows and payments of
   workspaces that survive (one the user topped up, say), with `actor_id` and
   `created_by` left pointing at the deleted user. Outside a purge the ledger
-  stays append-only.
+  stays append-only. Since 269 the money facts of the rows that go are kept
+  in two append-only archives the revenue report reads (phase 6, "Revenue
+  archive").
 - **The job's card step** (every 5 minutes): cards to sync, paid card
   checkouts with no card, upgrade charges still pending, cards still to
   cancel at Paddle, and renewals Paddle charged whose event never came.
@@ -810,8 +812,23 @@ instead (below).
   stale balance); the same key with another workspace, sign or amount is
   `KEY_REUSED`. A debit never takes the balance below zero
   (`INSUFFICIENT_BALANCE`). The actor is always the signed-in admin (a body
-  naming one is refused). At most 30 changes per admin per hour, counted in
-  memory per backend process (429 `TOO_MANY_ADJUSTMENTS`). Each change also
+  naming one is refused). At most 30 changes per admin per hour (429
+  `TOO_MANY_ADJUSTMENTS`), counted from the ledger, so every backend process
+  sees the same count: the admin's own `admin_credit` / `admin_debit` rows
+  (`actor_id`) of the last 60 minutes. The backend reads that count first
+  (`adjustRateLimit.ts`, the quick answer), and the booking enforces it
+  again (migration 270): `billing_account_admin_adjust` takes a per-admin
+  transaction lock (`pg_advisory_xact_lock` on the actor), counts, and
+  refuses the change past 30 (`billing_adjust_rate_limited`, the same 429).
+  So requests of one admin sent at the same moment, even each for another
+  workspace, book at most 30. A refused attempt books no row and does not
+  count; a replay of a key that already booked is not a new change and goes
+  through at the limit too; a NULL actor (267's move) is not limited. An
+  unreadable ledger answers 500 and books nothing. Deploying 270: apply it
+  to WebYar by hand (one transaction, lock_timeout 5s, no table locked; dry
+  run with its final `COMMIT;` turned into `ROLLBACK;`; re-runnable);
+  RESPOK's migrator applies it on push. The server code works with or
+  without it (without it only the quick read limits). Each change also
   writes an `audit_logs` row (`billing.admin_adjust`, shown in Finance →
   Audit), best effort and not on a replay. No mail goes to the customer; the
   row shows in the customer's history with its admin label. A credit is not
@@ -834,10 +851,10 @@ instead (below).
   date. "This year to date" always comes from the 12-month report: while it
   loads the tiles wait, and if it fails they say so with a retry, never a
   sum of a shorter period. Chart labels carry a two-digit year in both
-  calendars. Payments of a workspace deleted for good (`admin_purge_workspaces`)
-  go with it (`ON DELETE CASCADE`), so a closed month can come out lower
-  than a figure taken earlier; the page and the CSV say so. Keeping them
-  (an archive the report reads) is a follow-up.
+  calendars. Payments of a workspace deleted for good still count: since
+  269 they are archived as they go and the report reads the archive, so a
+  closed month does not change (the page and the CSV say so; see "Revenue
+  archive" below).
 - **Gateways.** A read-only card above the gateways table says, per gateway
   and account currency, whether it is offered and why not (not allowed in
   the edition, inactive, currency not accepted, cannot confirm a payment,
@@ -882,9 +899,50 @@ instead (below).
   `POST /api/billing/admin/plans` and `POST /api/admin/billing/reset`
   answered 410 `BILLING_V2_RETIRED` in phase 6; since phase 7A they are
   removed (404), with the flag and Finance's danger zone.
-- **Known limits.** A purged workspace's payments go with it (ON DELETE
-  CASCADE), so its revenue leaves the report; keeping them is a follow-up
-  (phase 7 did not change it). The adjust rate limit is per process.
+- **Known limits.** Payments purged before 269 was applied are gone (only a
+  backup taken before the purge has them), so a month that lost them stays
+  lower. Since 269 a purge no longer changes the report (below). (The adjust
+  rate limit, once per process, is counted from the ledger since the phase 6
+  follow-up, and enforced in the booking itself since 270.)
+- **Revenue archive (migration 269).** When a payment that is revenue
+  (succeeded, or carrying refunds) or a ledger row is deleted, whatever
+  deletes it (the purge of a workspace or of a user's workspaces, or a plain
+  workspace delete's cascade), an `AFTER DELETE` trigger copies its money
+  facts into `billing_revenue_archive` (payment id, purpose, provider,
+  source, status, currency, amount, net, tax, `tax_percent`,
+  `refunded_minor`, the refunds with their `refunded_at`, created / updated /
+  completed times, the workspace's id and name at that moment) or
+  `billing_ledger_archive` (ledger id, kind, amount, currency, net, tax,
+  receipt number, payment id, `created_at`, the workspace's id). No personal
+  data is copied (buyer, `created_by`, `actor_id`, description). A row 263's
+  purge keeps (a workspace that survives a user's deletion) is not
+  archived; the pruning job's unpaid attempts never are. A plain workspace
+  delete cascades after the workspace row is gone, so its name is empty
+  there. `billing_admin_revenue_days` and `billing_admin_ledger_days` add the
+  archived rows whose source row no longer exists (a row restored from a
+  backup counts once); the API and the page are unchanged (the report is
+  per month, currency, provider, source and purpose, never per workspace).
+  The archives are append-only for every role (a trigger refuses UPDATE and
+  DELETE, the owner's too). One change is let through: when a payment
+  restored from a backup is deleted again, its archive row gains the refunds
+  it got in between (and a higher `refunded_minor`, a later `updated_at`);
+  an archived refund is never changed or removed, and no other column
+  changes, so a closed month's refunds never drop. A second run of 269
+  creates a missing trigger only and never drops one (a DROP TRIGGER on
+  the payments or the ledger would take ACCESS EXCLUSIVE and could deadlock
+  with a settle or a refund in flight); no application role may INSERT, UPDATE, DELETE
+  or TRUNCATE them, and service_role may only SELECT (RLS on). So the only
+  way a row gets in is the real deletion of a revenue row, and it is that
+  row as it was. Their workspace column is `purged_workspace_id`, not
+  `workspace_id`, and they have no user column: the purge deletes from every
+  `public` table with a uuid `workspace_id`, `admin_delete_user` from every
+  one with a user column. No migration may drop, empty, rewrite or rename
+  them (`src/test/ci/migrationDataDestruction.test.ts`). Tests:
+  `src/test/integration/simpleBillingRevenueArchive.pg.test.ts`. Deploying:
+  apply 269 to WebYar by hand before merging (one transaction, lock_timeout
+  5s, dry run with its final `COMMIT;` turned into `ROLLBACK;`; re-runnable);
+  RESPOK's migrator applies it on push. Until it is applied the report and
+  the purge work as before.
 - **Deploying.** Apply 266 to WebYar's database by hand before merging, with
   a dry run inside `BEGIN ... ROLLBACK` first (the file has no
   `BEGIN`/`COMMIT` of its own and can be run twice); RESPOK's migrator

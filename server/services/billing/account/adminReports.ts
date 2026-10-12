@@ -17,7 +17,7 @@ import { getBillingRegion } from '../edition.js';
 import { cardAutoRenewEnabled } from '../providers/paddleSubscriptions.js';
 import { AccountBillingError, currentPlanView, getBillingSettings, getReceipt, listLedger, readAccount, type LedgerRow } from './index.js';
 import { readLiveCard } from './card.js';
-import { gatewayListing, gatewayNeedsConfig } from './gateways.js';
+import { gatewayListing, gatewayNeedsConfig, gatewayNote } from './gateways.js';
 import { isProviderAllowedInEdition, isRialCurrency, type Edition } from '../../../../shared/edition.js';
 import { isPaddleProvider, isTestPaymentProvider } from '../../../../shared/testGateways.js';
 import { vatPercentFor } from '../../../../shared/simpleBilling.js';
@@ -323,7 +323,9 @@ async function readLiability(config: ServerConfig): Promise<LiabilityRow[]> {
 /**
  * Revenue per month and currency of the edition's calendar: the last
  * `months` (the current one to date). The SQL returns local days; the months
- * are made here (decision D12).
+ * are made here (decision D12). Since 269 the SQL also counts the payments
+ * and ledger rows of workspaces deleted for good (billing_revenue_archive,
+ * billing_ledger_archive), so a closed month does not change.
  */
 export async function revenueReport(
   config: ServerConfig,
@@ -419,6 +421,8 @@ export async function gatewayReadiness(config: ServerConfig): Promise<GatewayRea
         listing,
       };
       if (isPaddleProvider(g.provider_name)) row.card_auto_renew = cardAutoRenewEnabled(settings ?? null);
+      const note = gatewayNote(g.provider_name);
+      if (note) row.note = note;
       return row;
     }),
   );
@@ -451,6 +455,8 @@ const ADJUST_SQL_ERRORS: ReadonlyArray<[string, number, string]> = [
   ['billing_account_currency_mismatch', 409, 'CURRENCY_CHANGED'],
   ['billing_insufficient_balance', 409, 'INSUFFICIENT_BALANCE'],
   ['billing_adjust_key_reused', 409, 'KEY_REUSED'],
+  // 270: the per-admin limit, enforced in the booking itself.
+  ['billing_adjust_rate_limited', 429, 'TOO_MANY_ADJUSTMENTS'],
   ['billing_adjust_too_large', 400, 'ADJUST_TOO_LARGE'],
   ['billing_adjust_reason_required', 400, 'INVALID_REQUEST'],
   ['billing_adjust_bad_category', 400, 'INVALID_REQUEST'],

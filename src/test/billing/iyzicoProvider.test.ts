@@ -23,13 +23,14 @@ const req: CheckoutRequest = {
 const FIXED_NOW = 1700000000000;
 const RND = String(FIXED_NOW);
 
-function expectedAuth(uri: string, body: string) {
-  const hash = crypto
-    .createHmac('sha256', 'mock-secret-key')
-    .update('mock-secret-key' + RND + body)
-    .digest('base64');
-  void uri;
-  return `IYZWS mock-api-key:${hash}`;
+/**
+ * IYZWSv2, as iyzico's official iyzipay-node client signs (lib/utils.js
+ * generateHashV2): HMAC-SHA256(secret, randomKey + uriPath + body) in hex,
+ * then base64("apiKey:<key>&randomKey:<rnd>&signature:<hex>").
+ */
+function expectedAuth(uri: string, body: string, rnd: string) {
+  const signature = crypto.createHmac('sha256', 'mock-secret-key').update(rnd + uri + body).digest('hex');
+  return `IYZWSv2 ${Buffer.from(`apiKey:mock-api-key&randomKey:${rnd}&signature:${signature}`).toString('base64')}`;
 }
 
 function mockJson(body: unknown) {
@@ -60,12 +61,12 @@ describe('iyzico createCheckoutSession', () => {
     const fetchMock = mockJson(ok);
     await iyzicoProvider.createCheckoutSession(config, req);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://api.iyzipay.com/payment/iyzi-pos/checkoutform/initialize/auth/ecom');
+    expect(url).toBe('https://api.iyzipay.com/payment/iyzipos/checkoutform/initialize/auth/ecom');
     expect(init.method).toBe('POST');
     expect(init.headers['Content-Type']).toBe('application/json');
-    expect(init.headers['x-iyzi-rnd']).toBe(RND);
+    expect(init.headers['x-iyzi-rnd']).toMatch(new RegExp(`^${RND}[0-9a-f]{8}$`));
     expect(init.headers['Authorization']).toBe(
-      expectedAuth('/payment/iyzi-pos/checkoutform/initialize/auth/ecom', init.body),
+      expectedAuth('/payment/iyzipos/checkoutform/initialize/auth/ecom', init.body, init.headers['x-iyzi-rnd']),
     );
     expect(JSON.parse(init.body)).toEqual({
       locale: 'tr',
@@ -98,7 +99,7 @@ describe('iyzico createCheckoutSession', () => {
     const fetchMock = mockJson(ok);
     await iyzicoProvider.createCheckoutSession({ ...config, sandbox: true }, req);
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://sandbox-api.iyzipay.com/payment/iyzi-pos/checkoutform/initialize/auth/ecom',
+      'https://sandbox-api.iyzipay.com/payment/iyzipos/checkoutform/initialize/auth/ecom',
     );
   });
 
@@ -200,41 +201,36 @@ describe('iyzico createCheckoutSession', () => {
 });
 
 describe('iyzico testConnection', () => {
-  it('sends the unchanged BIN check request with a valid signature', async () => {
+  it('sends a signed BIN check and succeeds only on status "success"', async () => {
     const fetchMock = mockJson({ status: 'success' });
     const out = await iyzicoProvider.testConnection(config);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.iyzipay.com/payment/bin/check');
     expect(init.method).toBe('POST');
-    expect(init.body).toBe(JSON.stringify({ locale: 'tr', conversationId: 'test' }));
-    expect(init.headers['x-iyzi-rnd']).toBe(RND);
-    expect(init.headers['Authorization']).toBe(expectedAuth('/payment/bin/check', init.body));
+    expect(init.body).toBe(JSON.stringify({ locale: 'en', conversationId: 'connection-test', binNumber: '554960' }));
+    expect(init.headers['Authorization']).toBe(expectedAuth('/payment/bin/check', init.body, init.headers['x-iyzi-rnd']));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(out.success).toBe(true);
-    expect(typeof out.latencyMs).toBe('number');
   });
 
-  it('reports invalid credentials only for failure + errorCode "1000"', async () => {
-    mockJson({ status: 'failure', errorCode: '1000' });
+  it('reports iyzico\'s error code and message', async () => {
+    mockJson({ status: 'failure', errorCode: '1000', errorMessage: 'Geçersiz imza' });
     const bad = await iyzicoProvider.testConnection(config);
-    expect(bad).toMatchObject({ success: false, error: 'Invalid credentials' });
+    expect(bad).toMatchObject({ success: false, error: 'iyzico 1000: Geçersiz imza' });
     expect(bad.error).not.toContain('mock-secret-key');
   });
 
-  it('does not coerce a numeric errorCode or a different status', async () => {
-    mockJson({ status: 'failure', errorCode: 1000 });
-    expect((await iyzicoProvider.testConnection(config)).success).toBe(true);
-    mockJson({ status: 'FAILURE', errorCode: '1000' });
-    expect((await iyzicoProvider.testConnection(config)).success).toBe(true);
-    mockJson({ status: 'failure', errorCode: '5001' });
-    expect((await iyzicoProvider.testConnection(config)).success).toBe(true);
+  it('is not a success for anything but status "success" (malformed bodies used to pass)', async () => {
+    for (const body of ['oops', 7, [], {}, { status: 'failure', errorCode: '5001' }, { status: 'SUCCESS' }]) {
+      mockJson(body);
+      expect((await iyzicoProvider.testConnection(config)).success).toBe(false);
+    }
   });
 
-  it('treats malformed bodies as reachable', async () => {
-    for (const body of ['oops', 7, [], {}]) {
-      mockJson(body);
-      expect((await iyzicoProvider.testConnection(config)).success).toBe(true);
-    }
+  it('checks the settings first, without calling iyzico', async () => {
+    const fetchMock = mockJson({ status: 'success' });
+    expect((await iyzicoProvider.testConnection({ provider: 'iyzico', api_key: 'k' })).error).toMatch(/secret key\) is empty/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('reports nullish bodies and network failures without leaking secrets', async () => {
@@ -246,6 +242,12 @@ describe('iyzico testConnection', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('socket hang up')));
     const out = await iyzicoProvider.testConnection(config);
     expect(out).toMatchObject({ success: false, error: 'socket hang up' });
+  });
+
+  it('a stored Test Modu "false" stays on the live host', async () => {
+    const fetchMock = mockJson({ status: 'success' });
+    await iyzicoProvider.testConnection({ ...config, sandbox: 'false' });
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.iyzipay.com/payment/bin/check');
   });
 });
 
@@ -261,8 +263,8 @@ describe('iyzico refundPayment', () => {
     expect(url).toBe('https://api.iyzipay.com/payment/refund');
     expect(init.method).toBe('POST');
     expect(init.headers['Content-Type']).toBe('application/json');
-    expect(init.headers['x-iyzi-rnd']).toBe(RND);
-    expect(init.headers['Authorization']).toBe(expectedAuth('/payment/refund', init.body));
+    expect(init.headers['x-iyzi-rnd']).toMatch(new RegExp(`^${RND}[0-9a-f]{8}$`));
+    expect(init.headers['Authorization']).toBe(expectedAuth('/payment/refund', init.body, init.headers['x-iyzi-rnd']));
     expect(JSON.parse(init.body)).toEqual({
       locale: 'tr',
       paymentTransactionId: 'PAY-MOCK-1',

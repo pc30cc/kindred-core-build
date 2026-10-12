@@ -3,7 +3,7 @@
  * answer may settle.
  *
  *   - "already verified" never settles an attempt with no recorded
- *     confirmation of its own (SEP / PayPing verify by an unbound reference);
+ *     confirmation of its own (SEP verifies by an unbound reference);
  *   - a gateway transaction already recorded for another payment is refused;
  *   - an attempt whose confirmation was recorded is settled from that record,
  *     without asking the gateway again;
@@ -143,6 +143,34 @@ describe('verifyAccountPayment', () => {
       verifyPayment.mockResolvedValue({ verified: true, providerRef: '987654321', amount: 1_100_000, status: 'already_verified' });
       const out = await verifyAccountPayment({} as never, { payment: zarinpal({ status: 'expired' }), providerConfig: {} as never, params });
       expect(out.status).toBe('pending');
+      expect(rpc).not.toHaveBeenCalled();
+    });
+  });
+
+  // Part C: Zibal, NextPay, IDPay and PayPing verify by this payment's own
+  // bound reference too; their "already verified" answers (201, -49,
+  // 101 / 200, 409 code 110) settle a pending payment the same way. SEP
+  // (RefNum, unbound) keeps the strict rule (first test above).
+  describe('"already verified" from the other authority-keyed gateways', () => {
+    it.each([
+      ['zibal', '3714061657', { trackId: '3714061657', success: '1', status: '2' }],
+      ['nextpay', 'tx-1', { trans_id: 'tx-1', order_id: 'p1' }],
+      ['idpay', 'idp-1', { id: 'idp-1', order_id: 'p1', status: '10' }],
+      ['payping', 'pc-1', { paymentCode: 'pc-1', paymentRefId: '555', status: '1' }],
+    ])('%s: settles a pending payment', async (provider, ref, params) => {
+      verifyPayment.mockResolvedValue({ verified: true, providerRef: 'REF-9', amount: 1_100_000, status: 'already_verified' });
+      rpc.mockResolvedValue({ data: { replayed: false, ledger_id: 'l7', receipt_number: 'R7', balance_minor: 1_000_000 }, error: null });
+      const out = await verifyAccountPayment({} as never, { payment: payment({ provider, provider_ref: ref }), providerConfig: {} as never, params });
+      expect(out).toMatchObject({ status: 'succeeded', ledgerId: 'l7' });
+      expect(rpc.mock.calls[0][1]).toMatchObject({ p_amount_minor: 1_100_000, p_provider_payment_id: 'REF-9' });
+    });
+
+    it('an "already verified" answer without an amount stays pending for review (the money is not failed)', async () => {
+      verifyPayment.mockResolvedValue({ verified: true, providerRef: 'REF-9', status: 'already_verified' });
+      const out = await verifyAccountPayment({} as never, {
+        payment: payment({ provider: 'zibal', provider_ref: '3714061657' }), providerConfig: {} as never, params: { trackId: '3714061657' },
+      });
+      expect(out).toEqual({ status: 'pending', reason: 'gateway_already_verified' });
       expect(rpc).not.toHaveBeenCalled();
     });
   });

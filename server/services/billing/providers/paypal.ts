@@ -3,9 +3,10 @@ import type {
 } from '../types.js';
 import crypto from 'crypto';
 import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
+import { isSettingOn, missingSettings, providerFetch } from './providerHttp.js';
 
 const baseUrl = (config: BillingProviderConfig) =>
-  config.sandbox ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+  isSettingOn(config.sandbox) ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
 
 /** Currencies an order may be priced in (the `billing_plans.prices` keys PayPal settles; no TRY). */
 export const PAYPAL_CURRENCIES = ['USD', 'EUR', 'GBP'] as const;
@@ -133,7 +134,7 @@ async function getAccessToken(config: BillingProviderConfig, opts: { fresh?: boo
   const cached = tokenCache.get(key);
   if (!opts.fresh && cached && cached.expiresAt > Date.now()) return cached.token;
 
-  const res = await fetch(`${baseUrl(config)}/v1/oauth2/token`, {
+  const res = await providerFetch('PayPal', `${baseUrl(config)}/v1/oauth2/token`, {
     method: 'POST',
     headers: {
       'Authorization': `Basic ${Buffer.from(`${config.client_id}:${config.client_secret}`).toString('base64')}`,
@@ -204,7 +205,7 @@ async function verifyPayPalTransmission(
   const token = await getAccessToken(config);
   const prefix = JSON.stringify({ ...fields, webhook_id: webhookId });
   const body = `${prefix.slice(0, -1)},"webhook_event":${rawBody}}`;
-  const res = await fetch(`${baseUrl(config)}/v1/notifications/verify-webhook-signature`, {
+  const res = await providerFetch('PayPal', `${baseUrl(config)}/v1/notifications/verify-webhook-signature`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body,
@@ -214,6 +215,16 @@ async function verifyPayPalTransmission(
   if (!res.ok) return false;
   const data = await res.json().catch(() => null);
   return asRecord(data)?.verification_status === 'SUCCESS';
+}
+
+/** What stops PayPal from taking a payment with these settings, or null. */
+export function paypalSettingsProblem(config: BillingProviderConfig | null | undefined): string | null {
+  return missingSettings('PayPal', config, [['client_id', 'Client ID'], ['client_secret', 'Client Secret'], ['webhook_id', 'Webhook ID']]);
+}
+
+/** Sandbox Mode on (read strictly: the string 'false' is off): payments are simulated at api-m.sandbox.paypal.com. */
+export function paypalTestMode(config: BillingProviderConfig | null | undefined): boolean {
+  return isSettingOn(config?.sandbox);
 }
 
 export const paypalProvider: BillingProviderHandler = {
@@ -252,7 +263,7 @@ export const paypalProvider: BillingProviderHandler = {
 
     const headers: Record<string, string> = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
     if (req.intentId) headers['PayPal-Request-Id'] = `order-${req.intentId}`;
-    const res = await fetch(`${baseUrl(config)}/v2/checkout/orders`, {
+    const res = await providerFetch('PayPal', `${baseUrl(config)}/v2/checkout/orders`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -298,7 +309,7 @@ export const paypalProvider: BillingProviderHandler = {
     const auth = { 'Authorization': `Bearer ${token}` };
 
     const readOrder = async (): Promise<PaymentVerification> => {
-      const res = await fetch(orderUrl, { headers: auth });
+      const res = await providerFetch('PayPal', orderUrl, { headers: auth });
       if (!res.ok) return { verified: false, providerRef: orderId, status: 'pending' };
       const order = await res.json().catch(() => null);
       return captureVerification(orderId, readPayPalOrderCapture(order));
@@ -310,7 +321,7 @@ export const paypalProvider: BillingProviderHandler = {
       return current.verified ? current : { verified: false, providerRef: orderId, status: 'canceled' };
     }
 
-    const res = await fetch(`${orderUrl}/capture`, {
+    const res = await providerFetch('PayPal', `${orderUrl}/capture`, {
       method: 'POST',
       headers: { ...auth, 'Content-Type': 'application/json', 'PayPal-Request-Id': `capture-${orderId}` },
       body: '{}',
@@ -403,7 +414,7 @@ export const paypalProvider: BillingProviderHandler = {
 
   async cancelSubscription(config: BillingProviderConfig, subscriptionId: string) {
     const token = await getAccessToken(config);
-    const res = await fetch(`${baseUrl(config)}/v1/billing/subscriptions/${subscriptionId}/cancel`, {
+    const res = await providerFetch('PayPal', `${baseUrl(config)}/v1/billing/subscriptions/${subscriptionId}/cancel`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: 'Customer requested cancellation' }),
@@ -424,7 +435,7 @@ export const paypalProvider: BillingProviderHandler = {
       body.amount = { value: minorToMajorString(amount), currency_code: code };
     }
     const token = await getAccessToken(config);
-    const res = await fetch(`${baseUrl(config)}/v2/payments/captures/${paymentId}/refund`, {
+    const res = await providerFetch('PayPal', `${baseUrl(config)}/v2/payments/captures/${paymentId}/refund`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -439,6 +450,8 @@ export const paypalProvider: BillingProviderHandler = {
 
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
+    const problem = paypalSettingsProblem(config);
+    if (problem) return { success: false, latencyMs: 0, error: problem };
     try {
       // Tests the credentials themselves: never answered from the cache.
       await getAccessToken(config, { fresh: true });

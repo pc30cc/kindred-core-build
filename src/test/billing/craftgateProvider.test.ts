@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import crypto from 'crypto';
 import { craftgateProvider } from '../../../server/services/billing/providers/craftgate.js';
 import type { BillingProviderConfig, CheckoutRequest } from '../../../server/services/billing/types.js';
 
@@ -53,13 +54,20 @@ describe('craftgate createCheckoutSession', () => {
     expect(url).toBe('https://sandbox-api.craftgate.io/payment/v1/checkout-payments/init');
     expect(init.method).toBe('POST');
     expect(init.headers['x-api-key']).toBe(MOCK_API_KEY);
-    expect(init.headers['x-auth-version']).toBe('v1');
+    // As craftgate-node-client signs: auth version '1', and
+    // base64(SHA-256(fullUrl + apiKey + secretKey + randomKey + body)).
+    expect(init.headers['x-auth-version']).toBe('1');
+    const expected = crypto.createHash('sha256')
+      .update(`${url}${MOCK_API_KEY}${MOCK_SECRET}${init.headers['x-rnd-key']}${init.body}`)
+      .digest('base64');
+    expect(init.headers['x-signature']).toBe(expected);
 
     const payload = JSON.parse(init.body as string);
     expect(payload.price).toBe(149.9);
     expect(payload.paidPrice).toBe(149.9);
     expect(payload.currency).toBe('TRY');
-    expect(payload.paymentGroup).toBe('SUBSCRIPTION_PAYMENT');
+    // Craftgate's PaymentGroup is PRODUCT or LISTING_OR_SUBSCRIPTION.
+    expect(payload.paymentGroup).toBe('LISTING_OR_SUBSCRIPTION');
     expect(payload.callbackUrl).toBe('https://app.test.localhost/callback');
     expect(payload.conversationId).toMatch(/^ws-1_\d+$/);
     expect(payload.items).toEqual([{ name: 'Plan plan-pro', price: 149.9 }]);
@@ -135,17 +143,27 @@ describe('craftgate refundPayment', () => {
 });
 
 describe('craftgate testConnection', () => {
-  it('succeeds on a valid installments response', async () => {
-    mockFetch(200, { data: { installmentPrices: [] } });
+  it('succeeds on a valid, signed installments lookup', async () => {
+    const fetchMock = mockFetch(200, { data: { items: [] } });
     const result = await craftgateProvider.testConnection?.(config);
     expect(result?.success).toBe(true);
+    const { url, init } = lastRequest(fetchMock);
+    expect(url).toBe('https://sandbox-api.craftgate.io/installment/v1/installments?binNumber=487074&price=100');
+    const expected = crypto.createHash('sha256').update(`${url}${MOCK_API_KEY}${MOCK_SECRET}${init.headers['x-rnd-key']}`).digest('base64');
+    expect(init.headers['x-signature']).toBe(expected);
+  });
+
+  it('checks the settings first, without calling Craftgate', async () => {
+    const fetchMock = mockFetch(200, {});
+    expect((await craftgateProvider.testConnection({ provider: 'craftgate', api_key: 'k' }))?.error).toBe('Craftgate: Secret Key is empty.');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('fails on a NOT_AUTHENTICATED error group', async () => {
     mockFetch(401, { errors: { errorGroup: 'NOT_AUTHENTICATED', errorDescription: 'bad key' } });
     const result = await craftgateProvider.testConnection?.(config);
     expect(result?.success).toBe(false);
-    expect(result?.error).toBe('Invalid credentials');
+    expect(result?.error).toBe('Craftgate: bad key');
   });
 
   it('fails without leaking credentials when the request throws', async () => {

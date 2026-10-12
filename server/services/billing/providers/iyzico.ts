@@ -1,5 +1,6 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
+import { isSettingOn, missingSettings, providerFetch, settingText } from './providerHttp.js';
 import crypto from 'crypto';
 
 // ── Local, iyzico-scoped JSON readers (Create + testConnection only) ──
@@ -55,18 +56,34 @@ function readIyzicoRefundTransactionId(body: unknown): string | undefined {
 }
 
 const baseUrl = (config: BillingProviderConfig) =>
-  config.sandbox ? 'https://sandbox-api.iyzipay.com' : (config.base_url as string || 'https://api.iyzipay.com');
+  isSettingOn(config.sandbox) ? 'https://sandbox-api.iyzipay.com' : (settingText(config.base_url) || 'https://api.iyzipay.com');
 
-function iyzicoAuth(config: BillingProviderConfig, uri: string, body: string): Record<string, string> {
-  const randomStr = Date.now().toString();
-  const hashStr = config.secret_key + randomStr;
-  const hash = crypto.createHmac('sha256', config.secret_key as string).update(hashStr + body).digest('base64');
-  const authStr = `IYZWS ${config.api_key}:${hash}`;
+/**
+ * iyzico's IYZWSv2 authorization (as its official iyzipay-node client signs):
+ * HMAC-SHA256(secret, randomKey + uriPath + body) in hex, then
+ * base64("apiKey:<key>&randomKey:<rnd>&signature:<hex>"). The earlier
+ * "IYZWS <key>:<base64 hmac>" header matched neither IYZWS v1 nor v2, so
+ * every call was refused as unauthenticated.
+ */
+export function iyzicoAuth(config: BillingProviderConfig, uri: string, body: string, randomKey: string = `${Date.now()}${crypto.randomBytes(4).toString('hex')}`): Record<string, string> {
+  const apiKey = settingText(config.api_key);
+  const signature = crypto.createHmac('sha256', settingText(config.secret_key)).update(randomKey + uri + body).digest('hex');
+  const auth = Buffer.from(`apiKey:${apiKey}&randomKey:${randomKey}&signature:${signature}`).toString('base64');
   return {
-    'Authorization': authStr,
-    'x-iyzi-rnd': randomStr,
+    'Authorization': `IYZWSv2 ${auth}`,
+    'x-iyzi-rnd': randomKey,
     'Content-Type': 'application/json',
   };
+}
+
+/** What stops iyzico from taking a payment with these settings, or null. */
+export function iyzicoSettingsProblem(config: BillingProviderConfig | null | undefined): string | null {
+  return missingSettings('iyzico', config, [['api_key', 'API Anahtarı (API key)'], ['secret_key', 'Gizli Anahtar (secret key)']]);
+}
+
+/** Test Modu on (read strictly): sandbox-api.iyzipay.com. */
+export function iyzicoTestMode(config: BillingProviderConfig | null | undefined): boolean {
+  return isSettingOn(config?.sandbox);
 }
 
 /** Currencies iyzico's checkout form charges (its API also lists IRR/NOK/RUB/CHF, never priced here). */
@@ -118,9 +135,9 @@ export const iyzicoProvider: BillingProviderHandler = {
       }],
     });
 
-    const res = await fetch(`${baseUrl(config)}/payment/iyzi-pos/checkoutform/initialize/auth/ecom`, {
+    const res = await providerFetch('iyzico', `${baseUrl(config)}/payment/iyzipos/checkoutform/initialize/auth/ecom`, {
       method: 'POST',
-      headers: iyzicoAuth(config, '/payment/iyzi-pos/checkoutform/initialize/auth/ecom', body),
+      headers: iyzicoAuth(config, '/payment/iyzipos/checkoutform/initialize/auth/ecom', body),
       body,
     });
     const data = await res.json();
@@ -156,7 +173,7 @@ export const iyzicoProvider: BillingProviderHandler = {
       currency: normalizeCurrencyCode(currency) || 'TRY',
       ip: '127.0.0.1',
     });
-    const res = await fetch(`${baseUrl(config)}/payment/refund`, {
+    const res = await providerFetch('iyzico', `${baseUrl(config)}/payment/refund`, {
       method: 'POST',
       headers: iyzicoAuth(config, '/payment/refund', body),
       body,
@@ -165,20 +182,27 @@ export const iyzicoProvider: BillingProviderHandler = {
     return { success: readIyzicoStatus(data) === 'success', refundId: readIyzicoRefundTransactionId(data) };
   },
 
+  /** A signed BIN lookup: success only when iyzico accepts the signature (status "success"). */
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
+    const problem = iyzicoSettingsProblem(config);
+    if (problem) return { success: false, latencyMs: 0, error: problem };
     try {
-      const body = JSON.stringify({ locale: 'tr', conversationId: 'test' });
-      const res = await fetch(`${baseUrl(config)}/payment/bin/check`, {
+      const path = '/payment/bin/check';
+      const body = JSON.stringify({ locale: 'en', conversationId: 'connection-test', binNumber: '554960' });
+      const res = await providerFetch('iyzico', `${baseUrl(config)}${path}`, {
         method: 'POST',
-        headers: iyzicoAuth(config, '/payment/bin/check', body),
+        headers: iyzicoAuth(config, path, body),
         body,
       });
       const data = await res.json();
-      if (readIyzicoStatus(data) === 'failure' && readIyzicoErrorCode(data) === '1000') {
-        return { success: false, latencyMs: Date.now() - start, error: 'Invalid credentials' };
-      }
-      return { success: true, latencyMs: Date.now() - start };
+      if (readIyzicoStatus(data) === 'success') return { success: true, latencyMs: Date.now() - start };
+      const code = readIyzicoErrorCode(data);
+      return {
+        success: false,
+        latencyMs: Date.now() - start,
+        error: `iyzico${code ? ` ${code}` : ''}: ${readIyzicoErrorMessage(data) || (code === '1000' ? 'invalid credentials' : 'request refused')}`,
+      };
     } catch (e: unknown) {
       return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }

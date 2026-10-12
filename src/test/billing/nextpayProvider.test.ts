@@ -38,8 +38,11 @@ describe('nextpay createCheckoutSession', () => {
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
     const payload = JSON.parse(init.body);
-    expect(Object.keys(payload).sort()).toEqual(['amount', 'api_key', 'callback_uri', 'customer_phone', 'order_id', 'payer_name']);
+    expect(Object.keys(payload).sort()).toEqual(['amount', 'api_key', 'callback_uri', 'currency', 'customer_phone', 'order_id', 'payer_name']);
     expect(payload.amount).toBe(250000);
+    // NextPay's amount is Toman unless the currency says otherwise: the Rial
+    // amount must be named IRR, or the customer is charged a tenth.
+    expect(payload.currency).toBe('IRR');
     expect(payload.callback_uri).toBe('https://app.test.localhost/callback');
     expect(payload.order_id).toMatch(/^ws-1_plan-pro_\d+$/);
     expect(payload.customer_phone).toBe('09000000000');
@@ -88,11 +91,24 @@ describe('nextpay createCheckoutSession', () => {
 });
 
 describe('nextpay testConnection', () => {
-  it('reports invalid api key on code -2', async () => {
+  it('reports NextPay\'s code when no token is issued', async () => {
     mockFetch({ code: -2 });
     const result = await nextpayProvider.testConnection(config);
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Invalid API key');
+    expect(result.error).toBe('NextPay code -2 (declined by the bank, or cancelled)');
+  });
+
+  it('asks for a real token in Rial with the platform\'s callback', async () => {
+    const fetchMock = mockFetch({ code: -1, trans_id: 'tx' });
+    expect((await nextpayProvider.testConnection({ ...config, probe_callback_url: 'https://app.webyar.ai/billing' })).success).toBe(true);
+    const payload = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+    expect(payload).toMatchObject({ currency: 'IRR', callback_uri: 'https://app.webyar.ai/billing' });
+  });
+
+  it('fails without an API key, without calling NextPay', async () => {
+    const fetchMock = mockFetch({ code: -1, trans_id: 'tx' });
+    expect((await nextpayProvider.testConnection({ provider: 'nextpay' })).error).toBe('NextPay: API key is empty.');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -132,12 +148,23 @@ describe('nextpay verifyPayment', () => {
     ['empty object', {}],
     ['array body', []],
     ['primitive body', 'oops'],
-  ])('keeps %s as failed', async (_label, body) => {
+  ])('settles nothing and ends nothing on %s', async (_label, body) => {
     mockFetch(body);
     const result = await nextpayProvider.verifyPayment!(config, verifyParams);
     expect(result.verified).toBe(false);
-    expect(result.status).toBe('failed');
-    expect(result.amount).toBe(250000);
+    expect(result.status).toBe('pending');
+  });
+
+  it('ends the payment on -2 (declined or cancelled)', async () => {
+    mockFetch({ code: -2 });
+    expect(await nextpayProvider.verifyPayment!(config, verifyParams)).toEqual({ verified: false, providerRef: 'tx-123', status: 'failed' });
+  });
+
+  it('reports -49 (already verified) as already_verified, with the server amount NextPay checked at token time', async () => {
+    mockFetch({ code: -49 });
+    expect(await nextpayProvider.verifyPayment!(config, verifyParams)).toEqual({
+      verified: true, providerRef: 'tx-123', amount: 250000, status: 'already_verified',
+    });
   });
 
   it.each([
@@ -149,9 +176,9 @@ describe('nextpay verifyPayment', () => {
     expect((await nextpayProvider.verifyPayment!(config, verifyParams)).providerRef).toBe('tx-123');
   });
 
-  it('throws on a null body like before', async () => {
+  it('throws on a null body (nothing is decided)', async () => {
     mockFetch(null);
-    await expect(nextpayProvider.verifyPayment!(config, verifyParams)).rejects.toThrow(TypeError);
+    await expect(nextpayProvider.verifyPayment!(config, verifyParams)).rejects.toThrow(/empty answer/);
   });
 
   it('defaults amount to 0 when not provided', async () => {
@@ -176,11 +203,11 @@ describe('nextpay testConnection (continued)', () => {
     expect((await nextpayProvider.testConnection(config)).success).toBe(true);
   });
 
-  it.each([['null', null], ['empty', {}], ['array', []], ['string code', { code: '-2' }]])(
-    'keeps malformed body (%s) as success like before',
+  it.each([['null', null], ['empty', {}], ['array', []], ['string code', { code: '-1' }]])(
+    'is not a success on a malformed body (%s): it used to pass',
     async (_label, body) => {
       mockFetch(body);
-      expect((await nextpayProvider.testConnection(config)).success).toBe(true);
+      expect((await nextpayProvider.testConnection(config)).success).toBe(false);
     },
   );
 

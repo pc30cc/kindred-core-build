@@ -4,6 +4,7 @@ import type {
 } from '../types.js';
 import crypto from 'crypto';
 import { minorFromProvider, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
+import { missingSettings, providerFetch, settingText } from './providerHttp.js';
 
 /** Local, Stripe-only helpers. Scope: checkout session create, billing portal, test connection. */
 function asStripeRecord(value: unknown): Record<string, unknown> | null {
@@ -130,6 +131,27 @@ function readStripeMetaString(obj: Record<string, unknown> | null, key: string):
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+/**
+ * What stops Stripe from taking a payment with these settings, or null.
+ * Stripe has no separate sandbox host: a test key (`sk_test_` / `rk_test_`)
+ * runs test mode, which stripeTestMode reports (customers are not offered a
+ * gateway in test mode; Super Admins are).
+ */
+export function stripeSettingsProblem(config: BillingProviderConfig | null | undefined): string | null {
+  const missing = missingSettings('Stripe', config, [['secret_key', 'Secret Key'], ['webhook_secret', 'Webhook Signing Secret']]);
+  if (missing) return missing;
+  const key = settingText(config?.secret_key);
+  if (/^pk_/.test(key)) return 'Stripe: the Secret Key field holds a publishable key (pk_…). Enter the secret key (sk_live_… or a restricted rk_live_…).';
+  if (!/^(sk|rk)_(live|test)_/.test(key)) return 'Stripe: the Secret Key must start with sk_live_ (or a restricted rk_live_ key).';
+  if (!/^whsec_/.test(settingText(config?.webhook_secret))) return 'Stripe: the Webhook Signing Secret must start with whsec_ (Developers → Webhooks → the endpoint → Signing secret).';
+  return null;
+}
+
+/** A test-mode key: payments are simulated. */
+export function stripeTestMode(config: BillingProviderConfig | null | undefined): boolean {
+  return /^(sk|rk)_test_/.test(settingText(config?.secret_key));
+}
+
 export const stripeProvider: BillingProviderHandler = {
   name: 'stripe',
   capabilities: {
@@ -186,7 +208,7 @@ export const stripeProvider: BillingProviderHandler = {
     // A retried create for the same payment intent returns the same session.
     if (req.intentId) headers['Idempotency-Key'] = `checkout:${req.intentId}`;
 
-    const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    const res = await providerFetch('Stripe', 'https://api.stripe.com/v1/checkout/sessions', {
       method: 'POST',
       headers,
       body: params.toString(),
@@ -212,7 +234,7 @@ export const stripeProvider: BillingProviderHandler = {
     if (!sessionId) return { verified: false, providerRef: '', status: 'failed' };
     const path = `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`;
 
-    const res = await fetch(path, { headers: { 'Authorization': `Bearer ${config.secret_key}` } });
+    const res = await providerFetch('Stripe', path, { headers: { 'Authorization': `Bearer ${config.secret_key}` } });
     const body: unknown = await res.json().catch(() => null);
     // Stripe unreachable or refusing: nothing definitive. The webhook can still
     // settle a paid session, and the customer's screen keeps polling.
@@ -232,7 +254,7 @@ export const stripeProvider: BillingProviderHandler = {
     }
     if (status === 'expired') return { verified: false, providerRef: sessionId, status: 'expired' };
     if (status === 'open' && params.canceled === '1') {
-      const expire = await fetch(`${path}/expire`, {
+      const expire = await providerFetch('Stripe', `${path}/expire`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
       });
@@ -246,7 +268,7 @@ export const stripeProvider: BillingProviderHandler = {
   async closeCheckout(config: BillingProviderConfig, sessionId: string): Promise<boolean> {
     const id = (sessionId || '').trim();
     if (!id) return false;
-    const res = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(id)}/expire`, {
+    const res = await providerFetch('Stripe', `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(id)}/expire`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
     });
@@ -333,7 +355,7 @@ export const stripeProvider: BillingProviderHandler = {
   },
 
   async getSubscriptionStatus(config: BillingProviderConfig, subscriptionId: string): Promise<SubscriptionStatus> {
-    const res = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
+    const res = await providerFetch('Stripe', `https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
       headers: { 'Authorization': `Bearer ${config.secret_key}` },
     });
     const sub = await res.json();
@@ -364,7 +386,7 @@ export const stripeProvider: BillingProviderHandler = {
     // away the paid remainder and makes a later resume impossible.
     const params = new URLSearchParams();
     params.set('cancel_at_period_end', 'true');
-    const res = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
+    const res = await providerFetch('Stripe', `https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -375,7 +397,7 @@ export const stripeProvider: BillingProviderHandler = {
   async resumeSubscription(config: BillingProviderConfig, subscriptionId: string) {
     const params = new URLSearchParams();
     params.set('cancel_at_period_end', 'false');
-    const res = await fetch(`https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
+    const res = await providerFetch('Stripe', `https://api.stripe.com/v1/subscriptions/${subscriptionId}`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -388,7 +410,7 @@ export const stripeProvider: BillingProviderHandler = {
     const params = new URLSearchParams();
     params.set('payment_intent', paymentId);
     if (amount) params.set('amount', String(amount));
-    const res = await fetch('https://api.stripe.com/v1/refunds', {
+    const res = await providerFetch('Stripe', 'https://api.stripe.com/v1/refunds', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -401,7 +423,7 @@ export const stripeProvider: BillingProviderHandler = {
     const params = new URLSearchParams();
     params.set('customer', customerId);
     params.set('return_url', returnUrl);
-    const res = await fetch('https://api.stripe.com/v1/billing_portal/sessions', {
+    const res = await providerFetch('Stripe', 'https://api.stripe.com/v1/billing_portal/sessions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${config.secret_key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -415,12 +437,14 @@ export const stripeProvider: BillingProviderHandler = {
 
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
+    const problem = stripeSettingsProblem(config);
+    if (problem) return { success: false, latencyMs: 0, error: problem };
     try {
-      const res = await fetch('https://api.stripe.com/v1/balance', {
+      const res = await providerFetch('Stripe', 'https://api.stripe.com/v1/balance', {
         headers: { 'Authorization': `Bearer ${config.secret_key}` },
       });
-      const data = await res.json();
-      if (!res.ok) return { success: false, latencyMs: Date.now() - start, error: readStripeErrorMessage(data) };
+      const data = await res.json().catch(() => null);
+      if (!res.ok) return { success: false, latencyMs: Date.now() - start, error: `Stripe HTTP ${res.status}: ${readStripeErrorMessage(data) || 'request refused'}` };
       return { success: true, latencyMs: Date.now() - start };
     } catch (e: unknown) {
       return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };

@@ -4370,6 +4370,7 @@ const en = {
           currency: 'Currency not enabled',
           cannot_confirm: 'Cannot confirm payments',
           test: 'Test, admins only',
+          not_configured: 'Settings incomplete',
         },
         cardAutoRenew: 'Automatic card renewal',
         cardAutoRenewOn: 'On',

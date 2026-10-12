@@ -2,18 +2,22 @@
 //
 // A gateway is listed when it is active in Super Admin → Finance → Gateways,
 // allowed in the edition, configured for the account's currency, able to
-// charge that currency, and able to CONFIRM a payment from the server
+// charge that currency, able to CONFIRM a payment from the server
 // (a verifyPayment lookup): the Iranian gateways in IRR, Paddle / Stripe /
-// PayPal in the currencies they charge. The Paddle sandbox is shown to
-// platform admins only unless its settings open it to customers.
+// PayPal in the currencies they charge, and (ZarinPal, Paddle) set up
+// with everything a payment needs. Test gateways (ZarinPal test, the
+// internal simulator, …) are shown to platform admins only; the Paddle
+// sandbox too, unless its settings open it to customers.
 
 import type { ServerConfig } from '../../../config.js';
 import { getProvider, resolveNamedBillingConfig } from '../index.js';
 import { listPayableGateways, type Gateway } from '../config/index.js';
 import { normalizeCurrencyCode } from '../providers/minorAmount.js';
 import { paddleSandboxOpenToCustomers } from '../providers/paddle-sandbox.js';
+import { isPaddleSandboxFlag, paddleSettingsProblem } from '../providers/paddle.js';
+import { zarinpalSettingsProblem } from '../providers/zarinpal.js';
 import { IRANIAN_PAYMENT_PROVIDERS, isCurrencyAllowedInEdition, isProviderAllowedInEdition, type Edition } from '../../../../shared/edition.js';
-import { PADDLE_SANDBOX_PROVIDER } from '../../../../shared/testGateways.js';
+import { PADDLE_SANDBOX_PROVIDER, isTestPaymentProvider } from '../../../../shared/testGateways.js';
 import type { GatewayListing, GatewayListingReason } from '../../../../shared/simpleBillingAdmin.js';
 import type { BillingProviderConfig, BillingProviderHandler } from '../types.js';
 
@@ -47,9 +51,26 @@ async function resolve(cfg: ServerConfig, workspaceId: string, providerName: str
   return resolveNamedBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId, providerName).catch(() => null);
 }
 
-/** Whether listing this gateway depends on its resolved settings (the sandbox switch, or the currencies they charge). */
+/**
+ * What a gateway's settings lack for it to take a payment, or null. Checked
+ * for the gateways that go live (ZarinPal, Paddle and its sandbox); the
+ * others are left as they are.
+ */
+const SETTINGS_CHECKS: Record<string, (config: BillingProviderConfig) => string | null> = {
+  zarinpal: (config) => zarinpalSettingsProblem(config),
+  paddle: (config) => paddleSettingsProblem(config, 'paddle'),
+  [PADDLE_SANDBOX_PROVIDER]: (config) => paddleSettingsProblem(config, PADDLE_SANDBOX_PROVIDER),
+};
+
+export function gatewaySettingsProblem(providerName: string, config: BillingProviderConfig): string | null {
+  return SETTINGS_CHECKS[providerName]?.(config) ?? null;
+}
+
+/** Whether listing this gateway depends on its resolved settings (their completeness, the sandbox switch, or the currencies they charge). */
 export function gatewayNeedsConfig(providerName: string): boolean {
-  return providerName === PADDLE_SANDBOX_PROVIDER || Boolean(getProvider(providerName)?.chargeableCurrencies);
+  return providerName === PADDLE_SANDBOX_PROVIDER
+    || Object.prototype.hasOwnProperty.call(SETTINGS_CHECKS, providerName)
+    || Boolean(getProvider(providerName)?.chargeableCurrencies);
 }
 
 /**
@@ -61,7 +82,7 @@ export function gatewayNeedsConfig(providerName: string): boolean {
  * (listPayableGateways).
  */
 export function gatewayListing(
-  gateway: Pick<Gateway, 'provider_name' | 'is_active' | 'currencies'> & { implemented?: boolean },
+  gateway: Pick<Gateway, 'provider_name' | 'is_active' | 'currencies'> & { implemented?: boolean; config?: Record<string, unknown> | null },
   currency: string,
   config: BillingProviderConfig | null | undefined,
   edition: Edition | null,
@@ -70,11 +91,18 @@ export function gatewayListing(
   const name = gateway.provider_name;
   const code = normalizeCurrencyCode(currency) ?? '';
   const reasons: GatewayListingReason[] = [];
+  let problem: string | null = null;
   const add = (reason: GatewayListingReason) => {
     if (!reasons.includes(reason)) reasons.push(reason);
   };
   if (edition && (!isProviderAllowedInEdition(name, edition) || !isCurrencyAllowedInEdition(code, edition))) add('not_in_edition');
   if (!gateway.is_active || gateway.implemented === false) add('inactive');
+  // A test gateway buys a real plan with simulated money: platform admins
+  // only, unless its Finance → Gateways row is opened to customers
+  // (`config.open_to_customers`). The Paddle sandbox has the same switch in
+  // its own settings (checked below, once they are read).
+  if (isTestPaymentProvider(name) && name !== PADDLE_SANDBOX_PROVIDER && !viewer.isPlatformAdmin
+      && !isPaddleSandboxFlag(gateway.config?.open_to_customers)) add('test');
   const configured = gateway.currencies ?? [];
   if (configured.length > 0 && !configured.includes(code) && !configured.includes(currency)) add('currency');
   const provider = getProvider(name);
@@ -88,11 +116,13 @@ export function gatewayListing(
     if (config === null) {
       add('cannot_confirm');
     } else {
+      problem = gatewaySettingsProblem(name, config);
+      if (problem) add('not_configured');
       if (name === PADDLE_SANDBOX_PROVIDER && !viewer.isPlatformAdmin && !paddleSandboxOpenToCustomers(config)) add('test');
       if (!canChargeAccount(name, code, config)) add('currency');
     }
   }
-  return { listed: reasons.length === 0, reasons };
+  return { listed: reasons.length === 0, reasons, ...(problem ? { problem } : {}) };
 }
 
 /** The gateways this viewer may pay an account in `currency` with, in Super Admin's order. */

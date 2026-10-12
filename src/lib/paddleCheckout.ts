@@ -43,7 +43,12 @@ let inflight: Promise<PaddleJs> | null = null;
 function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
-let initializedToken: string | null = null;
+/**
+ * The Paddle.js instance this page initialised, and with what. Paddle.js may
+ * be initialised once per loaded script, with its environment set before
+ * that: a checkout of the other environment (or token) needs a fresh script.
+ */
+let session: { paddle: PaddleJs; token: string; environment: 'sandbox' | 'production' } | null = null;
 
 /** A checkout the payment page opens with Paddle.js: live `paddle` or `paddle_sandbox`. */
 export function isPaddleClientCheckout(checkout: ClientCheckout | null | undefined): checkout is ClientCheckout {
@@ -53,7 +58,8 @@ export function isPaddleClientCheckout(checkout: ClientCheckout | null | undefin
 /**
  * The Paddle.js environment for a checkout: the sandbox gateway always opens
  * in the sandbox (its token is a `test_` token, which the live environment
- * refuses), live `paddle` only when the server says its Sandbox Mode is on.
+ * refuses); live `paddle` in production (the server always says so now that
+ * live Paddle has no Sandbox Mode).
  */
 export function paddleEnvironmentOf(checkout: { provider: string; environment?: unknown }): 'sandbox' | 'production' {
   return checkout.provider === PADDLE_SANDBOX_PROVIDER || checkout.environment === 'sandbox' ? 'sandbox' : 'production';
@@ -82,6 +88,21 @@ export function loadPaddle(): Promise<PaddleJs> {
 }
 
 /**
+ * Drops the loaded Paddle.js (window.Paddle and its script tag) and loads it
+ * again, so it can be initialised for another environment or token. Used when
+ * one page opens a sandbox checkout and then a live one (or the other way).
+ */
+async function reloadPaddle(): Promise<PaddleJs> {
+  if (typeof window !== 'undefined') delete window.Paddle;
+  if (typeof document !== 'undefined') {
+    document.querySelectorAll('script[data-paddle-loader]').forEach((el) => el.remove());
+  }
+  inflight = null;
+  session = null;
+  return loadPaddle();
+}
+
+/**
  * Opens the overlay for a server-created transaction. Resolves once it is
  * open; `onClosed` fires when the customer closes it without paying. On
  * completion the browser is sent to `successUrl`.
@@ -97,7 +118,11 @@ export async function openPaddleCheckout(
   if (!transactionId || !clientToken || !successUrl) {
     throw new Error('paddle_checkout_incomplete');
   }
-  const Paddle = await loadPaddle();
+  const environment = paddleEnvironmentOf(checkout);
+  let Paddle = await loadPaddle();
+  if (session && session.paddle === Paddle && (session.token !== clientToken || session.environment !== environment)) {
+    Paddle = await reloadPaddle();
+  }
   let completed = false;
   const eventCallback = (event: PaddleEvent) => {
     if (event?.name === 'checkout.completed') {
@@ -113,11 +138,11 @@ export async function openPaddleCheckout(
     }
   };
 
-  if (initializedToken !== clientToken) {
-    // Initialize may run once per page; the environment must be set before it.
-    if (paddleEnvironmentOf(checkout) === 'sandbox') Paddle.Environment.set('sandbox');
+  if (!session || session.paddle !== Paddle) {
+    // Initialize may run once per loaded script; the environment must be set before it.
+    if (environment === 'sandbox') Paddle.Environment.set('sandbox');
     Paddle.Initialize({ token: clientToken, eventCallback });
-    initializedToken = clientToken;
+    session = { paddle: Paddle, token: clientToken, environment };
   } else {
     Paddle.Update({ eventCallback });
   }

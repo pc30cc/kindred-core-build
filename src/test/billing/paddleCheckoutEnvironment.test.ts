@@ -1,8 +1,9 @@
 /**
  * Paddle.js environment on the payment page (src/lib/paddleCheckout.ts): the
  * sandbox gateway always opens in Paddle's sandbox (its `test_` token is
- * refused by the live environment); live `paddle` only when the server says
- * its Sandbox Mode is on.
+ * refused by the live environment); live `paddle` in production. A page
+ * that opens one and then the other loads Paddle.js again, since it can be
+ * initialised (and its environment set) only once per loaded script.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isPaddleClientCheckout, openPaddleCheckout, paddleEnvironmentOf } from '@/lib/paddleCheckout';
@@ -70,3 +71,52 @@ describe('openPaddleCheckout', () => {
     expect(paddle.Initialize).toHaveBeenCalledWith(expect.objectContaining({ token: 'live_token_b' }));
   });
 });
+
+describe('switching between the sandbox and live in one page', () => {
+  it('a live checkout after a sandbox one loads Paddle.js again and initialises it in production', async () => {
+    const first = fakePaddle();
+    (window as { Paddle?: unknown }).Paddle = first;
+    await openPaddleCheckout({ provider: 'paddle_sandbox', transactionId: 'txn_s', clientToken: 'test_switch', successUrl: 'https://app.test/s' });
+    expect(first.Environment.set).toHaveBeenCalledWith('sandbox');
+
+    // The fresh script defines a new window.Paddle when it loads.
+    const second = fakePaddle();
+    const append = vi.spyOn(document.head, 'appendChild').mockImplementation((node: Node) => {
+      (window as { Paddle?: unknown }).Paddle = second;
+      queueMicrotask(() => (node as HTMLScriptElement).onload?.(new Event('load')));
+      return node;
+    });
+    let appended = 0;
+    try {
+      await openPaddleCheckout({ provider: 'paddle', environment: 'production', transactionId: 'txn_l', clientToken: 'live_switch', successUrl: 'https://app.test/l' });
+      appended = append.mock.calls.length;
+    } finally {
+      append.mockRestore();
+    }
+    expect(appended).toBe(1);
+    expect(first.Initialize).toHaveBeenCalledTimes(1);
+    expect(first.Checkout.open).toHaveBeenCalledTimes(1);
+    expect(second.Environment.set).not.toHaveBeenCalled();
+    expect(second.Initialize).toHaveBeenCalledWith(expect.objectContaining({ token: 'live_switch' }));
+    expect(second.Checkout.open).toHaveBeenCalledWith(expect.objectContaining({ transactionId: 'txn_l' }));
+  });
+
+  it('the same token and environment again reuses the loaded Paddle.js (Update, no reload)', async () => {
+    const paddle = fakePaddle();
+    (window as { Paddle?: unknown }).Paddle = paddle;
+    const append = vi.spyOn(document.head, 'appendChild');
+    let appended = -1;
+    try {
+      await openPaddleCheckout({ provider: 'paddle', environment: 'production', transactionId: 'txn_1', clientToken: 'live_same', successUrl: 'https://app.test/1' });
+      await openPaddleCheckout({ provider: 'paddle', environment: 'production', transactionId: 'txn_2', clientToken: 'live_same', successUrl: 'https://app.test/2' });
+      appended = append.mock.calls.length;
+    } finally {
+      append.mockRestore();
+    }
+    expect(appended).toBe(0);
+    expect(paddle.Initialize).toHaveBeenCalledTimes(1);
+    expect(paddle.Update).toHaveBeenCalledTimes(1);
+    expect(paddle.Checkout.open).toHaveBeenCalledTimes(2);
+  });
+});
+

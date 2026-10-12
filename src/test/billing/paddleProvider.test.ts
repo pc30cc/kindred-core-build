@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import crypto from 'crypto';
-import { paddleProvider } from '../../../server/services/billing/providers/paddle.js';
+import {
+  paddleWire, paddleProvider as livePaddle, paddleClientCheckout, paddleCredentialProblem, paddleSettingsProblem,
+} from '../../../server/services/billing/providers/paddle.js';
 import type { BillingProviderConfig, CheckoutRequest } from '../../../server/services/billing/types.js';
 
-const MOCK_API_KEY = 'mock-paddle-key-not-real';
+const MOCK_API_KEY = 'pdl_sdbx_apikey_mock_not_real';
 
 const config: BillingProviderConfig = {
   provider: 'paddle',
@@ -50,7 +52,7 @@ describe('paddle createCheckoutSession', () => {
     const fetchMock = mockFetch(200, {
       data: { id: 'txn_01mock', checkout: { url: 'https://app.test.localhost/pay?intent=pi-1&provider=paddle&_ptxn=txn_01mock' } },
     });
-    const result = await paddleProvider.createCheckoutSession(config, req);
+    const result = await paddleWire.createCheckoutSession(config, req);
 
     const { url, init } = firstCall(fetchMock);
     expect(url).toBe('https://sandbox-api.paddle.com/transactions');
@@ -90,7 +92,7 @@ describe('paddle createCheckoutSession', () => {
 
   it('attaches the price to the configured catalog product when one is set', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_p' } });
-    await paddleProvider.createCheckoutSession({ ...config, product_id: 'pro_01abc' }, req);
+    await paddleWire.createCheckoutSession({ ...config, product_id: 'pro_01abc' }, req);
     const price = JSON.parse(firstCall(fetchMock).init.body as string).items[0].price;
     expect(price.product_id).toBe('pro_01abc');
     expect(price.product).toBeUndefined();
@@ -98,51 +100,51 @@ describe('paddle createCheckoutSession', () => {
 
   it('never sends a customer object (not a create-transaction field) — the e-mail is prefilled in Paddle.js', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_e' } });
-    await paddleProvider.createCheckoutSession(config, req);
+    await paddleWire.createCheckoutSession(config, req);
     expect(JSON.parse(firstCall(fetchMock).init.body as string).customer).toBeUndefined();
   });
 
   it('builds the return URL itself when Paddle sends no checkout url', async () => {
     mockFetch(200, { data: { id: 'txn_02mock' } });
-    const result = await paddleProvider.createCheckoutSession(config, req);
+    const result = await paddleWire.createCheckoutSession(config, req);
     expect(result.paymentUrl).toBe('https://app.test.localhost/pay?intent=pi-1&provider=paddle&_ptxn=txn_02mock');
     expect(result.sessionId).toBe('txn_02mock');
   });
 
   it('uses production for a live configuration', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_live' } });
-    const result = await paddleProvider.createCheckoutSession({ ...config, sandbox: false, client_token: 'live_client_token' }, req);
+    const result = await paddleWire.createCheckoutSession({ ...config, sandbox: false, api_key: 'pdl_live_apikey_mock', client_token: 'live_client_token' }, req);
     expect(firstCall(fetchMock).url).toBe('https://api.paddle.com/transactions');
     expect(result.clientCheckout?.environment).toBe('production');
   });
 
   it('refuses a checkout it could not open: no client-side token', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_x' } });
-    await expect(paddleProvider.createCheckoutSession({ ...config, client_token: '' }, req))
+    await expect(paddleWire.createCheckoutSession({ ...config, client_token: '' }, req))
       .rejects.toThrow('Paddle client-side token is not configured');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([['IRR'], ['XYZ']])('refuses %s before calling Paddle', async (currency) => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_x' } });
-    await expect(paddleProvider.createCheckoutSession(config, { ...req, currency })).rejects.toThrow(/Paddle cannot charge/);
+    await expect(paddleWire.createCheckoutSession(config, { ...req, currency })).rejects.toThrow(/Paddle cannot charge/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('refuses a missing amount', async () => {
     mockFetch(200, { data: { id: 'txn_x' } });
-    await expect(paddleProvider.createCheckoutSession(config, { ...req, metadata: {} }))
+    await expect(paddleWire.createCheckoutSession(config, { ...req, metadata: {} }))
       .rejects.toThrow('Paddle checkout needs a positive amount');
   });
 
   it('throws the provider error detail on an error envelope', async () => {
     mockFetch(400, { error: { code: 'invalid_field', detail: 'Invalid price' } });
-    await expect(paddleProvider.createCheckoutSession(config, req)).rejects.toThrow('Invalid price');
+    await expect(paddleWire.createCheckoutSession(config, req)).rejects.toThrow('Invalid price');
   });
 
   it('falls back to the generic message when the error envelope has no detail', async () => {
     mockFetch(400, { error: { code: 'invalid_price' } });
-    await expect(paddleProvider.createCheckoutSession(config, req)).rejects.toThrow('Paddle checkout failed');
+    await expect(paddleWire.createCheckoutSession(config, req)).rejects.toThrow('Paddle checkout failed');
   });
 
   it.each([
@@ -153,12 +155,12 @@ describe('paddle createCheckoutSession', () => {
     ['empty id', { data: { id: '' } }],
   ])('rejects malformed success response: %s', async (_label, body) => {
     mockFetch(200, body);
-    await expect(paddleProvider.createCheckoutSession(config, req)).rejects.toThrow('Paddle checkout failed');
+    await expect(paddleWire.createCheckoutSession(config, req)).rejects.toThrow('Paddle checkout failed');
   });
 
   it('does not leak the api key, authorization header or request body in the error', async () => {
     mockFetch(200, { data: {} });
-    await expect(paddleProvider.createCheckoutSession(config, req)).rejects.toSatisfy((e: Error) => {
+    await expect(paddleWire.createCheckoutSession(config, req)).rejects.toSatisfy((e: Error) => {
       return !e.message.includes(MOCK_API_KEY)
         && !e.message.includes('Bearer')
         && !e.message.includes('unit_price');
@@ -180,7 +182,7 @@ describe('paddle createCheckoutSession — card setup (recurring price, simple b
 
   it('makes the price recur, carries its custom_data and marks the card setup', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_setup' } });
-    const result = await paddleProvider.createCheckoutSession(config, setup);
+    const result = await paddleWire.createCheckoutSession(config, setup);
     const { url, init } = firstCall(fetchMock);
     expect(url).toBe('https://sandbox-api.paddle.com/transactions');
     expect(init.method).toBe('POST');
@@ -207,7 +209,7 @@ describe('paddle createCheckoutSession — card setup (recurring price, simple b
 
   it('yearly recurs every year and reuses an earlier Paddle customer (no e-mail prefill then)', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_setup_y' } });
-    const result = await paddleProvider.createCheckoutSession(config, {
+    const result = await paddleWire.createCheckoutSession(config, {
       ...setup, recurring: { interval: 'yearly' }, customerId: 'ctm_01hv8wt8nffez4p2t6typn4a5j',
     });
     const body = JSON.parse(firstCall(fetchMock).init.body as string);
@@ -218,7 +220,7 @@ describe('paddle createCheckoutSession — card setup (recurring price, simple b
 
   it('the one-time request is byte-for-byte unchanged without the new options', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_once' } });
-    await paddleProvider.createCheckoutSession(config, req);
+    await paddleWire.createCheckoutSession(config, req);
     expect(firstCall(fetchMock).init.body).toBe(JSON.stringify({
       items: [{
         quantity: 1,
@@ -238,7 +240,7 @@ describe('paddle createCheckoutSession — card setup (recurring price, simple b
 
   it('refuses an interval other than monthly or yearly before calling Paddle', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_x' } });
-    await expect(paddleProvider.createCheckoutSession(config, { ...setup, recurring: { interval: 'weekly' as 'monthly' } }))
+    await expect(paddleWire.createCheckoutSession(config, { ...setup, recurring: { interval: 'weekly' as 'monthly' } }))
       .rejects.toThrow(/monthly or yearly/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -251,33 +253,33 @@ describe('paddle verifyPayment (server-to-server transaction lookup)', () => {
 
   it.each([['paid'], ['completed']])('a %s transaction is the payment, with Paddle’s total and currency', async (status) => {
     const fetchMock = mockFetch(200, txn(status));
-    const out = await paddleProvider.verifyPayment!(config, { _ptxn: 'txn_1', amount: '2900' });
+    const out = await paddleWire.verifyPayment!(config, { _ptxn: 'txn_1', amount: '2900' });
     expect(firstCall(fetchMock).url).toBe('https://sandbox-api.paddle.com/transactions/txn_1');
     expect(out).toEqual({ verified: true, providerRef: 'txn_1', amount: 2900, currency: 'USD', paymentId: 'txn_1', status: 'paid' });
   });
 
   it('a canceled transaction is definitive', async () => {
     mockFetch(200, txn('canceled'));
-    expect(await paddleProvider.verifyPayment!(config, { _ptxn: 'txn_1' })).toEqual({
+    expect(await paddleWire.verifyPayment!(config, { _ptxn: 'txn_1' })).toEqual({
       verified: false, providerRef: 'txn_1', status: 'canceled',
     });
   });
 
   it.each([['draft'], ['ready'], ['billed'], ['past_due']])('a %s transaction is still pending', async (status) => {
     mockFetch(200, txn(status));
-    expect((await paddleProvider.verifyPayment!(config, { _ptxn: 'txn_1' })).status).toBe('pending');
+    expect((await paddleWire.verifyPayment!(config, { _ptxn: 'txn_1' })).status).toBe('pending');
   });
 
   it('a Paddle error or network failure is not a verdict', async () => {
     mockFetch(404, { error: { code: 'not_found', detail: 'nope' } });
-    expect((await paddleProvider.verifyPayment!(config, { _ptxn: 'txn_1' })).status).toBe('pending');
+    expect((await paddleWire.verifyPayment!(config, { _ptxn: 'txn_1' })).status).toBe('pending');
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
-    expect((await paddleProvider.verifyPayment!(config, { _ptxn: 'txn_1' })).status).toBe('pending');
+    expect((await paddleWire.verifyPayment!(config, { _ptxn: 'txn_1' })).status).toBe('pending');
   });
 
   it('without a transaction reference nothing is looked up', async () => {
     const fetchMock = mockFetch(200, txn('paid'));
-    expect(await paddleProvider.verifyPayment!(config, {})).toEqual({ verified: false, providerRef: '', status: 'failed' });
+    expect(await paddleWire.verifyPayment!(config, {})).toEqual({ verified: false, providerRef: '', status: 'failed' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -292,7 +294,7 @@ describe('paddle verifyWebhook event mapping', () => {
   }
   const map = async (event: unknown) => {
     const { body, headers } = signed(event);
-    return paddleProvider.verifyWebhook({ ...config, webhook_secret: secret }, headers, body);
+    return paddleWire.verifyWebhook({ ...config, webhook_secret: secret }, headers, body);
   };
   const transaction = {
     id: 'txn_1',
@@ -409,7 +411,7 @@ describe('paddle verifyWebhook — saved-card events (simple billing 3b)', () =>
     const body = JSON.stringify(event);
     const ts = Math.floor(Date.now() / 1000);
     const h1 = crypto.createHmac('sha256', secret).update(`${ts}:${body}`).digest('hex');
-    return paddleProvider.verifyWebhook({ ...config, webhook_secret: secret }, { 'paddle-signature': `ts=${ts};h1=${h1}` }, body);
+    return paddleWire.verifyWebhook({ ...config, webhook_secret: secret }, { 'paddle-signature': `ts=${ts};h1=${h1}` }, body);
   };
   const SUB = 'sub_01hv8x29kz0t586xy6zn1a62ny';
   // A renewal as Paddle sends it (its example transaction.past_due / completed
@@ -560,7 +562,7 @@ describe('paddle verifyWebhook — saved-card events (simple billing 3b)', () =>
 describe('paddle closeCheckout (a superseded checkout)', () => {
   it('cancels the transaction, which closes its checkout', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'txn_old', status: 'canceled' } });
-    expect(await paddleProvider.closeCheckout!(config, 'txn_old')).toBe(true);
+    expect(await paddleWire.closeCheckout!(config, 'txn_old')).toBe(true);
     const { url, init } = firstCall(fetchMock);
     expect(url).toBe('https://sandbox-api.paddle.com/transactions/txn_old');
     expect(init.method).toBe('PATCH');
@@ -569,34 +571,34 @@ describe('paddle closeCheckout (a superseded checkout)', () => {
 
   it('reports a transaction Paddle refuses to cancel (already paid) as not closed', async () => {
     mockFetch(400, { error: { code: 'transaction_immutable', detail: 'Transaction is billed' } });
-    expect(await paddleProvider.closeCheckout!(config, 'txn_paid')).toBe(false);
+    expect(await paddleWire.closeCheckout!(config, 'txn_paid')).toBe(false);
   });
 });
 
 describe('paddle testConnection', () => {
   it('succeeds on a valid event-types response', async () => {
     const fetchMock = mockFetch(200, { data: [{ name: 'transaction.completed' }] });
-    const result = await paddleProvider.testConnection?.(config);
+    const result = await paddleWire.testConnection?.(config);
     expect(result?.success).toBe(true);
     expect(firstCall(fetchMock).url).toBe('https://sandbox-api.paddle.com/event-types');
   });
 
   it('fails with the provider detail on an error envelope', async () => {
     mockFetch(403, { error: { code: 'forbidden', detail: 'Invalid API key' } });
-    const result = await paddleProvider.testConnection?.(config);
+    const result = await paddleWire.testConnection?.(config);
     expect(result?.success).toBe(false);
     expect(result?.error).toBe('Invalid API key');
   });
 
   it('treats a malformed body without an error envelope as reachable', async () => {
     mockFetch(200, null);
-    const result = await paddleProvider.testConnection?.(config);
+    const result = await paddleWire.testConnection?.(config);
     expect(result?.success).toBe(true);
   });
 
   it('fails without leaking the api key when the request throws', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
-    const result = await paddleProvider.testConnection?.(config);
+    const result = await paddleWire.testConnection?.(config);
     expect(result?.success).toBe(false);
     expect(result?.error).not.toContain(MOCK_API_KEY);
   });
@@ -616,7 +618,7 @@ describe('paddle testConnection', () => {
 
     it('also reads one subscription', async () => {
       const fetchMock = replies(200, { data: [], meta: { pagination: { per_page: 1 } } });
-      expect(await paddleProvider.testConnection(cardConfig)).toMatchObject({ success: true });
+      expect(await paddleWire.testConnection(cardConfig)).toMatchObject({ success: true });
       expect(fetchMock.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual([
         'https://sandbox-api.paddle.com/event-types',
         'https://sandbox-api.paddle.com/subscriptions?per_page=1',
@@ -625,26 +627,26 @@ describe('paddle testConnection', () => {
 
     it('names the missing Subscriptions permission on a 403', async () => {
       replies(403, { error: { type: 'request_error', code: 'forbidden', detail: 'You aren\'t permitted to perform this request.' } });
-      const result = await paddleProvider.testConnection(cardConfig);
+      const result = await paddleWire.testConnection(cardConfig);
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/"Subscriptions" read and write permission/);
     });
 
     it('reports any other failure of the subscriptions call', async () => {
       replies(500, { error: { code: 'internal_error', detail: 'Something went wrong' } });
-      expect(await paddleProvider.testConnection(cardConfig)).toMatchObject({ success: false, error: 'Paddle subscriptions: Something went wrong' });
+      expect(await paddleWire.testConnection(cardConfig)).toMatchObject({ success: false, error: 'Paddle subscriptions: Something went wrong' });
     });
 
     it('off (or saved as "false"): only the event types are read', async () => {
       const fetchMock = replies(403, {});
-      expect(await paddleProvider.testConnection({ ...config, card_auto_renew: 'false' })).toMatchObject({ success: true });
+      expect(await paddleWire.testConnection({ ...config, card_auto_renew: 'false' })).toMatchObject({ success: true });
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
 });
 
 describe('paddle cancelSubscription', () => {
-  const cancel = paddleProvider.cancelSubscription!;
+  const cancel = paddleWire.cancelSubscription!;
 
   it('succeeds and sends the unchanged request contract', async () => {
     const fetchMock = mockFetch(200, { data: { id: 'sub_01mock', status: 'canceled' } });
@@ -703,5 +705,86 @@ describe('paddle cancelSubscription', () => {
     const result = await cancel(config, 'sub_01mock');
     expect(JSON.stringify(result)).not.toContain(MOCK_API_KEY);
     expect(JSON.stringify(result)).not.toContain('Authorization');
+  });
+});
+
+// ─── Live `paddle` (the registered gateway) ────────────────────────────────
+
+const LIVE: BillingProviderConfig = {
+  provider: 'paddle',
+  api_key: 'pdl_live_apikey_mock_not_real',
+  client_token: 'live_mock_client_token',
+  webhook_secret: 'pdl_ntfset_mock',
+};
+
+describe('live paddle has no Sandbox Mode', () => {
+  // A stored Sandbox Mode on the live row sent everything to the sandbox,
+  // listed to every customer as a real gateway (its test payments counted as revenue).
+  it.each([[true], ['true'], ['on'], [1]])('ignores a stored sandbox switch (%s): api.paddle.com and Paddle.js production', async (sandbox) => {
+    const fetchMock = mockFetch(200, { data: { id: 'txn_live' } });
+    const result = await livePaddle.createCheckoutSession({ ...LIVE, sandbox }, req);
+    expect(firstCall(fetchMock).url).toBe('https://api.paddle.com/transactions');
+    expect(result.clientCheckout?.environment).toBe('production');
+  });
+
+  it('and so refuses sandbox credentials whatever the switch says', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'txn_x' } });
+    await expect(livePaddle.createCheckoutSession({ ...LIVE, sandbox: 'true', api_key: 'pdl_sdbx_apikey_x' }, req)).rejects.toThrow(/sandbox API key/);
+    await expect(livePaddle.createCheckoutSession({ ...LIVE, sandbox: true, client_token: 'test_x' }, req)).rejects.toThrow(/sandbox client-side token/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(livePaddle.validateConfig!({ ...LIVE, sandbox: 'true', api_key: 'pdl_sdbx_apikey_x' })).toMatch(/sandbox API key/);
+  });
+
+  it('verifies, closes, cancels and tests against the live API', async () => {
+    let fetchMock = mockFetch(200, { data: { id: 'txn_1', status: 'paid', currency_code: 'USD', details: { totals: { total: '2900' } } } });
+    await livePaddle.verifyPayment!({ ...LIVE, sandbox: 'true' }, { _ptxn: 'txn_1' });
+    expect(firstCall(fetchMock).url).toBe('https://api.paddle.com/transactions/txn_1');
+    fetchMock = mockFetch(200, { data: { id: 'txn_1' } });
+    await livePaddle.closeCheckout!({ ...LIVE, sandbox: true }, 'txn_1');
+    expect(firstCall(fetchMock).url).toBe('https://api.paddle.com/transactions/txn_1');
+    fetchMock = mockFetch(200, { data: {} });
+    await livePaddle.cancelSubscription!({ ...LIVE, sandbox: true }, 'sub_1');
+    expect(firstCall(fetchMock).url).toBe('https://api.paddle.com/subscriptions/sub_1/cancel');
+    fetchMock = mockFetch(200, { data: [] });
+    expect(await livePaddle.testConnection({ ...LIVE, sandbox: true })).toMatchObject({ success: true });
+    expect(firstCall(fetchMock).url).toBe('https://api.paddle.com/event-types');
+  });
+});
+
+describe('the secret API key never reaches the browser', () => {
+  it.each([
+    ['pdl_live_apikey_01abc'],
+    ['pdl_sdbx_apikey_01abc'],
+    ['xyz_apikey_01abc'],
+  ])('refuses %s in the Client-side Token field (save, test and checkout)', async (token) => {
+    const fetchMock = mockFetch(200, { data: { id: 'txn_x' } });
+    expect(livePaddle.validateConfig!({ ...LIVE, client_token: token })).toMatch(/Client-side Token field holds an API key/);
+    expect(await livePaddle.testConnection({ ...LIVE, client_token: token })).toMatchObject({ success: false, error: expect.stringMatching(/API key/) });
+    await expect(livePaddle.createCheckoutSession({ ...LIVE, client_token: token }, req)).rejects.toThrow(/API key/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('paddleClientCheckout itself refuses to hand an API key to the browser', () => {
+    expect(() => paddleClientCheckout({ ...LIVE, client_token: 'pdl_live_apikey_01abc' }, 'txn_1', 'https://app.test/pay')).toThrow(/API key/);
+    expect(paddleClientCheckout(LIVE, 'txn_1', 'https://app.test/pay')).toMatchObject({ clientToken: 'live_mock_client_token', environment: 'production' });
+  });
+
+  it('live requires a live_ token, and refuses a client-side token in the API key field', () => {
+    expect(paddleCredentialProblem({ ...LIVE, client_token: 'abc123' }, 'paddle')).toMatch(/starts with "live_"/);
+    expect(paddleCredentialProblem({ ...LIVE, api_key: 'live_abc' }, 'paddle')).toMatch(/API Key field holds a client-side token/);
+    expect(paddleCredentialProblem({ ...LIVE, api_key: 'test_abc' }, 'paddle_sandbox')).toMatch(/API Key field holds a client-side token/);
+    // A key made before Paddle added prefixes is still accepted on live.
+    expect(paddleCredentialProblem({ ...LIVE, api_key: '0123456789abcdef' }, 'paddle')).toBeNull();
+    expect(paddleCredentialProblem(LIVE, 'paddle')).toBeNull();
+  });
+});
+
+describe('paddleSettingsProblem (readiness)', () => {
+  it('names each empty field, then any credential problem', () => {
+    expect(paddleSettingsProblem({ provider: 'paddle' }, 'paddle')).toBe('Paddle: API Key, Client-side Token, Webhook Secret Key are empty.');
+    expect(paddleSettingsProblem({ ...LIVE, webhook_secret: ' ' }, 'paddle')).toBe('Paddle: Webhook Secret Key is empty.');
+    expect(paddleSettingsProblem({ ...LIVE, client_token: 'test_x' }, 'paddle')).toMatch(/sandbox client-side token/);
+    expect(paddleSettingsProblem(LIVE, 'paddle')).toBeNull();
+    expect(paddleSettingsProblem({ provider: 'paddle_sandbox', api_key: 'pdl_sdbx_apikey_x', client_token: 'test_x', webhook_secret: 's' }, 'paddle_sandbox')).toBeNull();
   });
 });

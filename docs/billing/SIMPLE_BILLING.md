@@ -40,6 +40,9 @@ billing data (2-4 invoices per database), so it can be replaced outright.
 | VAT | percent from Super Admin (10% today) | empty by default (Paddle computes tax itself) | percent (20% KDV) |
 | Auto-renew default | off (no stored cards) | on (saved card via Paddle subscription) | off |
 
+- Going live: only ZarinPal (WebYar) and Paddle (RESPOK, with card renewal)
+  are taken live; the other gateways stay inactive. Credentials, URLs, switch
+  order and smoke tests: [GATEWAY_GO_LIVE.md](GATEWAY_GO_LIVE.md).
 - A VAT field left empty is not shown anywhere.
 - An account's currency is fixed by its first money movement.
 - Each plan has its own monthly and yearly price per currency.

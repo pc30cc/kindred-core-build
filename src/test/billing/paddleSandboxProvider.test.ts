@@ -260,7 +260,7 @@ describe('paddle_sandbox: automatic card renewal through the wrapper (simple bil
   });
 });
 
-describe('live paddle: sandbox credentials only with its Sandbox Mode on', () => {
+describe('live paddle: never sandbox credentials (it has no Sandbox Mode)', () => {
   it('reads the stored toggle strings correctly (a saved "false" is off)', () => {
     expect(isPaddleSandboxFlag('false')).toBe(false);
     expect(isPaddleSandboxFlag('')).toBe(false);
@@ -276,7 +276,7 @@ describe('live paddle: sandbox credentials only with its Sandbox Mode on', () =>
     expect(result.clientCheckout).toMatchObject({ provider: 'paddle', environment: 'production' });
   });
 
-  it('refuses `_sdbx` / `test_` credentials while Sandbox Mode is off', async () => {
+  it('refuses `_sdbx` / `test_` credentials', async () => {
     const fetchMock = mockFetch({ data: { id: 'never' } });
     expect(paddleCredentialProblem({ ...LIVE, api_key: SANDBOX.api_key }, 'paddle')).toMatch(/sandbox API key.*Paddle — Sandbox \(test\)/);
     expect(paddleCredentialProblem({ ...LIVE, client_token: SANDBOX.client_token, sandbox: 'false' }, 'paddle')).toMatch(/sandbox client-side token/);
@@ -285,8 +285,8 @@ describe('live paddle: sandbox credentials only with its Sandbox Mode on', () =>
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('accepts them with Sandbox Mode on, and live (or pre-prefix) credentials with it off', () => {
-    expect(paddleProvider.validateConfig!({ ...SANDBOX, provider: 'paddle', sandbox: 'true' })).toBeNull();
+  it('refuses them even with a stored Sandbox Mode on; accepts live (or pre-prefix) credentials', () => {
+    expect(paddleProvider.validateConfig!({ ...SANDBOX, provider: 'paddle', sandbox: 'true' })).toMatch(/sandbox API key/);
     expect(paddleProvider.validateConfig!(LIVE)).toBeNull();
     expect(paddleProvider.validateConfig!({ ...LIVE, api_key: '0123456789abcdef0123456789abcdef' })).toBeNull();
   });

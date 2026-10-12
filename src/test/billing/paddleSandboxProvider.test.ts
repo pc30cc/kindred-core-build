@@ -18,8 +18,6 @@ import {
 } from '../../../server/services/billing/providers/paddle.js';
 import { getProvider, getAllProviders } from '../../../server/services/billing/index.js';
 import { getProviderReferenceContract } from '../../../server/services/billing/providerBinding.js';
-import { canCollectInvoice, isCardInvoiceProvider } from '../../../server/services/billing/cardInvoice.js';
-import { resolveChargeCurrency } from '../../../server/services/billing/chargeCurrency.js';
 import { isProviderAllowedInEdition, isIranianPaymentProvider } from '../../../shared/edition.js';
 import { isAlwaysTestGateway, isPaddleProvider, isTestPaymentProvider } from '../../../shared/testGateways.js';
 import type { BillingProviderConfig, CheckoutRequest } from '../../../server/services/billing/types.js';
@@ -102,12 +100,9 @@ describe('registry, edition and shared lists', () => {
     expect(getProviderReferenceContract('paddle_sandbox')).toMatchObject({ requiresPaymentReferenceBinding: true, callbackKeys: ['_ptxn'] });
   });
 
-  it('collects invoices in Paddle’s currencies (card-invoice flow, charge currency)', () => {
-    expect(isCardInvoiceProvider('paddle_sandbox')).toBe(true);
+  it('sells in Paddle’s currencies, never in Rial', () => {
     expect(paddleSandboxProvider.supportedCurrencies).toEqual(PADDLE_CURRENCIES);
-    for (const code of PADDLE_CURRENCIES) expect(canCollectInvoice('paddle_sandbox', code)).toBe(true);
-    expect(canCollectInvoice('paddle_sandbox', 'IRR')).toBe(false);
-    expect(resolveChargeCurrency(paddleSandboxProvider, 'eur')).toMatchObject({ currency: 'EUR' });
+    expect(paddleSandboxProvider.supportedCurrencies).not.toContain('IRR');
     expect(paddleSandboxProvider.capabilities).toEqual(paddleProvider.capabilities);
   });
 });

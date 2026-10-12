@@ -12,7 +12,6 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast';
 import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy, Receipt } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
-import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
 import type { Edition } from '../../../shared/edition';
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -37,17 +36,9 @@ interface DbTemplate {
   is_active: boolean | null;
 }
 
-// The billing category lists the mails of the billing that runs
-// (shared/billingMode.ts): billing v2's while it is on, otherwise the simple
-// billing's (server/services/billing/account/notify.ts), which migration 261
-// seeds per edition in fa/en/tr.
-const LEGACY_BILLING_SLUGS = [
-  'invoice_issued', 'invoice_reminder', 'invoice_due', 'invoice_past_due', 'wallet_autopay_insufficient',
-  'payment_received', 'subscription_restored', 'subscription_free_fallback', 'payment_success', 'payment_failed',
-  'subscription_renewed', 'subscription_cancelled', 'subscription_activated', 'wallet_deposit_received',
-  'ai_credit_purchased', 'trial_ending_soon', 'trial_expired',
-] as const;
-
+// The billing category lists the simple billing's mails
+// (server/services/billing/account/notify.ts), which migration 261 seeds per
+// edition in fa/en/tr.
 const ACCOUNT_BILLING_SLUGS = [
   'billing_renewal_reminder', 'billing_renewed', 'billing_expired', 'billing_plan_changed', 'billing_change_scheduled',
   'billing_payment_receipt', 'billing_plan_activated', 'billing_trial_ending', 'billing_trial_ended',
@@ -68,11 +59,8 @@ const CATEGORIES = [
   // were here before them. `operator_*` are the ones a sender exists for:
   // `services/notificationEmail/producers.ts` renders through each of them.
   { key: 'notification', icon: Bell, slugs: ['operator_unread_digest', 'operator_conversation_transcript', 'operator_invoice_paid', 'operator_weekly_summary', 'operator_product_update', 'offline_message_received', 'new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
-  { key: 'billing', icon: Receipt, slugs: LEGACY_BILLING_ENABLED ? LEGACY_BILLING_SLUGS : ACCOUNT_BILLING_SLUGS },
+  { key: 'billing', icon: Receipt, slugs: ACCOUNT_BILLING_SLUGS },
 ] as const;
-
-// Every billing v2 notification renders with the same server-provided context.
-const BILLING_VARIABLES = ['{brand}', '{year}', '{invoice_number}', '{amount}', '{due_at}', '{grace_ends_at}', '{plan_name}', '{action_url}'];
 
 // What every simple-billing mail carries (sendBillingEmail adds {workspace}
 // and {billing_url}; sendEmail the branding defaults), before its own values.
@@ -87,23 +75,11 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   invite_otp: ['{code}', '{expiry_minutes}', '{brand}', '{year}'],
   verification_code: ['{code}', '{minutes}', '{brand}', '{year}'],
   email_test: ['{brand}', '{year}'],
-  payment_success: ['{name}', '{brand}', '{amount}', '{currency}', '{plan}', '{invoice_url}'],
-  payment_failed: ['{name}', '{brand}', '{amount}', '{currency}', '{reason}', '{action_url}'],
-  subscription_renewed: ['{name}', '{brand}', '{plan}', '{next_date}', '{amount}'],
-  subscription_cancelled: ['{name}', '{brand}', '{plan}', '{end_date}'],
   new_conversation: ['{name}', '{brand}', '{visitor}', '{message}', '{action_url}'],
   task_assigned: ['{name}', '{brand}', '{task}', '{assigner}', '{action_url}'],
   account_expiry: ['{name}', '{brand}', '{days_left}', '{plan}', '{action_url}'],
   system_alert: ['{brand}', '{title}', '{message}', '{severity}'],
   offline_message_received: ['{brand}', '{contact_name}', '{contact_email}', '{message_body}', '{conversation_id}', '{action_url}'],
-  invoice_issued: BILLING_VARIABLES,
-  invoice_reminder: BILLING_VARIABLES,
-  invoice_due: BILLING_VARIABLES,
-  invoice_past_due: BILLING_VARIABLES,
-  wallet_autopay_insufficient: BILLING_VARIABLES,
-  payment_received: BILLING_VARIABLES,
-  subscription_restored: BILLING_VARIABLES,
-  subscription_free_fallback: BILLING_VARIABLES,
   billing_renewal_reminder: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{new_plan_name}', '{amount}', '{balance}', '{period_end}', '{days_left}'],
   billing_renewed: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{amount}', '{balance}', '{period_start}', '{period_end}'],
   billing_expired: [...ACCOUNT_BILLING_VARIABLES, '{plan_name}', '{expired_at}'],

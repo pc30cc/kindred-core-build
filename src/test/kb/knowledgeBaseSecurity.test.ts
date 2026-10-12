@@ -190,17 +190,15 @@ describe('Central entitlement-change funnel', () => {
   it('is wired into every real entitlement transition path', () => {
     expect(read('server/routes/plans.ts')).toMatch(/source: 'admin_assign'/);
     expect(read('server/routes/plans.ts')).toMatch(/source: 'admin_revoke'/);
-    expect(read('server/routes/billing.ts')).toMatch(/source: 'admin_grant'/);
-    // A provider payment no longer writes the subscription itself: it settles
-    // an invoice, and the card-gateway settlement funnels the change.
-    expect(read('server/services/billing/cardInvoice.ts')).toMatch(/handleWorkspaceEntitlementChanged/);
-    expect(read('server/services/billing/applyPayment.ts')).toMatch(/handleWorkspaceEntitlementChanged/);
+    // Simple billing: a purchase, renewal or plan change, and the due job.
+    expect(read('server/services/billing/account/plans.ts')).toMatch(/handleWorkspaceEntitlementChanged/);
+    expect(read('server/services/billing/account/job.ts')).toMatch(/handleWorkspaceEntitlementChanged/);
   });
 
   it('covers non-workspace-scoped transitions (plan edits, platform toggles)', () => {
     expect(src).toMatch(/handlePlanDefinitionChanged/);
     expect(src).toMatch(/handleBulkEntitlementChanged/);
-    expect(read('server/routes/billing.ts')).toMatch(/handlePlanDefinitionChanged/);
+    expect(read('server/routes/plans.ts')).toMatch(/handlePlanDefinitionChanged/);
     // The platform AI toggle funnels through the paginated fan-out helper,
     // which is itself implemented on top of the bulk funnel.
     expect(src).toMatch(/handlePlatformAiEnabled/);

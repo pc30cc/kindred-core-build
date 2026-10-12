@@ -146,13 +146,23 @@ suite('248 — app_review_seed / app_review_set_enabled (real PostgreSQL)', () =
 
   it('replaces the content on a second run instead of adding to it', async () => {
     await db.query(`SELECT public.app_review_seed()`);
-    const n = await one<{ conversations: number; contacts: number; periods: number }>(`
+    const n = await one<{
+      conversations: number; contacts: number; periods: number; status: string; end_year: number; grants: number;
+    }>(`
       SELECT (SELECT count(*)::int FROM public.conversations c WHERE c.workspace_id = w.id) AS conversations,
              (SELECT count(*)::int FROM public.contacts k WHERE k.workspace_id = w.id) AS contacts,
-             (SELECT count(*)::int FROM public.billing_subscription_periods p WHERE p.workspace_id = w.id) AS periods
-        FROM public.workspaces w WHERE w.slug = 'ws_appreview'`);
-    // The plan runs to 2099, so it is granted once.
-    expect(n).toEqual({ conversations: 13, contacts: 13, periods: 1 });
+             (SELECT count(*)::int FROM public.billing_subscription_periods p WHERE p.workspace_id = w.id) AS periods,
+             s.status::text AS status, extract(year FROM s.current_period_end)::int AS end_year,
+             (SELECT count(*)::int FROM public.plan_change_log l
+               WHERE l.workspace_id = w.id AND l.change_type = 'admin_grant') AS grants
+        FROM public.workspaces w
+        JOIN public.workspace_subscriptions s ON s.workspace_id = w.id
+       WHERE w.slug = 'ws_appreview'`);
+    // Since 267 the grant goes through simple billing: an active subscription
+    // to 2099 with its plan_change_log row, and no billing v2 period.
+    expect(n.periods).toBe(0);
+    expect(n).toMatchObject({ conversations: 13, contacts: 13, status: 'active', end_year: 2099 });
+    expect(n.grants).toBeGreaterThanOrEqual(1);
   });
 
   it('turns sign-in off and on, and keeps visitors live only while it is on', async () => {

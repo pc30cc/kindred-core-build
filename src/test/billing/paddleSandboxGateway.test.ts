@@ -1,8 +1,9 @@
 /**
  * The Paddle sandbox gateway through the HTTP routes: Finance → Gateways
- * listing, the customer's payment methods and checkout (admin-only unless
- * opened to customers), the Providers screen's credential check, its own
- * webhook endpoint, and the finance report's test marker.
+ * listing, the Providers screen's credential check and its own webhook
+ * endpoint. (Billing v2's payment page and finance report, which this suite
+ * also covered, were removed in phase 7A; simple billing's own checkout
+ * offers it through billingAccount.ts.)
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
@@ -16,17 +17,12 @@ const state = vi.hoisted(() => ({
   isPlatformAdmin: false,
   tables: {} as Record<string, Array<Record<string, unknown>>>,
   upserts: [] as Array<{ table: string; row: Record<string, unknown> }>,
-  invoice: null as Record<string, unknown> | null,
 }));
 
 vi.mock('../../../server/services/platformRegion.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../server/services/platformRegion.js')>();
   return { ...actual, getPlatformEdition: async () => state.edition };
 });
-
-// Billing v2's customer mutations answer 410 while v2 is retired
-// (server/middleware/billingV2Retired.ts); this suite covers them with v2 on.
-vi.mock('../../../shared/billingMode.js', () => ({ LEGACY_BILLING_ENABLED: true }));
 
 /** A tiny PostgREST-shaped fake over `state.tables`. */
 function fakeClient() {
@@ -64,19 +60,12 @@ vi.mock('../../../server/lib/workspaceAuth.js', async (importOriginal) => ({
   requireUser: async () => 'u1',
   serverConfigOf: (req: { serverConfig?: unknown }) => req.serverConfig,
 }));
-vi.mock('../../../server/services/billing/invoice/settle.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../server/services/billing/invoice/settle.js')>()),
-  getInvoice: async () => state.invoice,
-  beginCollection: async () => ({ collection_id: 'col-1' }),
-  releaseCollection: async () => undefined,
-}));
 vi.mock('../../../server/services/billing/callbackUrl.js', () => ({
   isAllowedBillingCallbackUrl: () => true,
   resolvePublicApiOrigin: async () => 'https://api.test',
 }));
 
-const { billingCustomerRouter } = await import('../../../server/routes/billingCustomer.js');
-const { billingRouter, billingWebhookRouter } = await import('../../../server/routes/billing.js');
+const { billingWebhookRouter } = await import('../../../server/routes/billing.js');
 const { adminBillingRouter } = await import('../../../server/routes/adminBilling.js');
 
 const SANDBOX_CREDENTIALS = {
@@ -94,8 +83,6 @@ beforeEach(() => {
   state.edition = 'international';
   state.isPlatformAdmin = false;
   state.upserts = [];
-  state.invoice = null;
-  const now = new Date().toISOString();
   state.tables = {
     billing_gateways: [
       { provider_name: 'stripe', is_active: true, is_test: false, currencies: ['USD'], countries: [], sort_order: 1, display_name: { en: 'Stripe' }, config: {} },
@@ -111,11 +98,6 @@ beforeEach(() => {
     provider_configs: [],
     billing_plans: [],
     workspace_subscriptions: [],
-    billing_payments: [
-      { id: 'pay-live', status: 'succeeded', amount: 2900, currency: 'USD', provider_name: 'paddle', created_at: now, paid_at: now, workspace_id: WS },
-      { id: 'pay-sbx', status: 'succeeded', amount: 4900, currency: 'USD', provider_name: 'paddle_sandbox', created_at: now, paid_at: now, workspace_id: WS },
-    ],
-    billing_payment_intents: [],
     workspaces: [{ id: WS, name: 'Acme' }],
   };
 });
@@ -128,8 +110,6 @@ app.use((req, _res, next) => {
 });
 app.use('/api/billing/webhook', billingWebhookRouter);
 app.use(express.json());
-app.use('/api/billing', billingCustomerRouter);
-app.use('/api/billing', billingRouter);
 app.use('/api/admin/billing', adminBillingRouter);
 const server = http.createServer(app).listen(0);
 afterAll(() => server.close());
@@ -189,8 +169,6 @@ describe('Finance → Gateways (Super Admin)', () => {
     expect(names(r.body.gateways)).toContain('paddle');
     expect((await call('PUT', '/api/admin/billing/gateways', { provider_name: 'paddle_sandbox', is_active: true })).status).toBe(400);
     expect((await call('GET', '/api/admin/billing/providers/paddle_sandbox')).status).toBe(400);
-    const providers = await call('GET', '/api/billing/providers');
-    expect(Object.keys(providers.body.providers)).not.toContain('paddle_sandbox');
   });
 });
 
@@ -218,39 +196,6 @@ describe('Providers screen: credentials of the wrong environment are refused', (
   });
 });
 
-describe('customer payment page: admin-only until opened to customers', () => {
-  const gatewaysPath = `/api/billing/workspaces/${WS}/gateways?currency=USD`;
-
-  it('a customer does not see it; a platform admin sees it marked as a test', async () => {
-    expect(names((await call('GET', gatewaysPath)).body.gateways)).toEqual(['stripe', 'paddle']);
-    state.isPlatformAdmin = true;
-    const r = await call('GET', gatewaysPath);
-    expect(names(r.body.gateways)).toEqual(['stripe', 'paddle', 'paddle_sandbox']);
-    expect(r.body.gateways.find((g: { provider_name: string }) => g.provider_name === 'paddle_sandbox').is_test).toBe(true);
-  });
-
-  it('every customer sees it once "Open to customers" is on', async () => {
-    state.tables.billing_provider_credentials[0].config = { ...SANDBOX_CREDENTIALS, open_to_customers: 'true' };
-    expect(names((await call('GET', gatewaysPath)).body.gateways)).toContain('paddle_sandbox');
-  });
-
-  it('a customer cannot check out through it by naming it, nor through a platform default', async () => {
-    state.invoice = { id: 'inv-1', workspace_id: WS, status: 'open', amount_due_irr: 2900, currency: 'USD', invoice_number: 'AB1' };
-    const named = await call('POST', `/api/billing/workspaces/${WS}/invoices/inv-1/checkout`, {
-      callbackUrl: 'https://app.test/acme/billing/pay/invoice/inv-1',
-      providerName: 'paddle_sandbox',
-    });
-    expect(named.status).toBe(400);
-    expect(named.body.error).toBe('NO_PROVIDER_CONFIGURED');
-  });
-
-  it('Iran: never offered', async () => {
-    state.edition = 'iran';
-    state.isPlatformAdmin = true;
-    expect(names((await call('GET', gatewaysPath)).body.gateways)).not.toContain('paddle_sandbox');
-  });
-});
-
 describe('webhook /api/billing/webhook/paddle_sandbox — its own secret', () => {
   function signed(secret: string, event: unknown) {
     const body = JSON.stringify(event);
@@ -272,17 +217,5 @@ describe('webhook /api/billing/webhook/paddle_sandbox — its own secret', () =>
     expect((await call('POST', '/api/billing/webhook/paddle_sandbox', live.body, live.headers)).status).toBe(400);
     const sandbox = signed(SANDBOX_CREDENTIALS.webhook_secret, event);
     expect((await call('POST', '/api/billing/webhook/paddle', sandbox.body, sandbox.headers)).status).toBe(400);
-  });
-});
-
-describe('finance report', () => {
-  it('keeps the sandbox money in the totals as before, and marks it as test money', async () => {
-    const r = await call('GET', '/api/billing/admin/finance-report');
-    expect(r.status).toBe(200);
-    expect(r.body.totals).toMatchObject({ grossRevenue: 7800, testRevenue: 4900, paymentCount: 2 });
-    const byProvider = Object.fromEntries(r.body.byProvider.map((p: { provider: string; test: boolean }) => [p.provider, p.test]));
-    expect(byProvider).toEqual({ paddle: false, paddle_sandbox: true });
-    const flags = Object.fromEntries(r.body.recentPayments.map((p: { id: string; is_test: boolean }) => [p.id, p.is_test]));
-    expect(flags).toEqual({ 'pay-live': false, 'pay-sbx': true });
   });
 });

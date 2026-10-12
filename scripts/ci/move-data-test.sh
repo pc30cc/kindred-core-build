@@ -145,7 +145,7 @@ ok "retry: the same move over the populated target, rows identical again"
 # ── failures leave the target exactly as it was ─────────────────────────
 # Trigger modes other than the default must survive a failed load too.
 for db in mvt_src mvt_dst; do
-  sql "$db" -c "ALTER TABLE public.workspaces ENABLE ALWAYS TRIGGER trg_billing_v2_seed_new_workspace" \
+  sql "$db" -c "ALTER TABLE public.workspaces ENABLE ALWAYS TRIGGER trg_billing_card_workspace_deleted" \
             -c "ALTER TABLE public.conversation_messages DISABLE TRIGGER trg_channel_enqueue_outbound"
 done
 
@@ -208,11 +208,11 @@ ok "failure (source written during the dump): exit 1, target unchanged"
 # and after all that, the move still works — and restores the trigger modes
 move run "$SRC" "$DST" || die "the move after the failures failed"
 same_rows mvt_src mvt_dst
-[ "$(sql mvt_dst -c "SELECT string_agg(tgenabled::text, '' ORDER BY tgname) FROM pg_trigger WHERE tgname IN ('trg_billing_v2_seed_new_workspace', 'trg_channel_enqueue_outbound')")" = AD ] \
+[ "$(sql mvt_dst -c "SELECT string_agg(tgenabled::text, '' ORDER BY tgname) FROM pg_trigger WHERE tgname IN ('trg_billing_card_workspace_deleted', 'trg_channel_enqueue_outbound')")" = AD ] \
   || die "trigger modes not kept (want ALWAYS / DISABLED)"
 ok "retry after the failures: rows identical; an ALWAYS trigger and a DISABLED one kept their modes"
 for db in mvt_src mvt_dst; do
-  sql "$db" -c "ALTER TABLE public.workspaces ENABLE TRIGGER trg_billing_v2_seed_new_workspace" \
+  sql "$db" -c "ALTER TABLE public.workspaces ENABLE TRIGGER trg_billing_card_workspace_deleted" \
             -c "ALTER TABLE public.conversation_messages ENABLE TRIGGER trg_channel_enqueue_outbound" \
             -c "DROP SEQUENCE mvt_free_counter"
 done

@@ -9,8 +9,8 @@
  *     check_channel_access, deduct_ai_credits): plan values, workspace
  *     overrides first, a plan's limit enforced, service_role only;
  *   - seat capacity: the plan's max_agents, unless a fixed limit is set;
- *   - the new-workspace trigger: nothing under the 'legacy' default, its
- *     wallet and audit rows under any other;
+ *   - (251's new-workspace trigger is gone since 267, which drops it with
+ *     the rest of billing v2's live triggers);
  *   - the billing policy a fresh chain ends with, and an administrator's
  *     value surviving 250 and 251 run again;
  *   - the tables production dropped: kept while they hold rows, dropped once
@@ -146,23 +146,6 @@ suite('251 — production parity, exercised on a database built by the whole cha
     await db.query('UPDATE public.workspace_seat_entitlement_mode SET seat_limit = 9 WHERE id');
     expect(await seats()).toMatchObject({ limit_value: 9, source: 'self_host_fixed_limit' });
     await db.query('UPDATE public.workspace_seat_entitlement_mode SET seat_limit = NULL WHERE id');
-  });
-
-  it('the new-workspace trigger adds its wallet and audit rows only when the policy default is not legacy', async () => {
-    // (billing_v2_rollout is written for every new workspace by the older
-    // trg_billing_enroll_workspace, so it is not this trigger's evidence.)
-    const rows = async (ws: string) =>
-      one<{ wallet: number; audit: number }>(
-        `SELECT (SELECT count(*)::int FROM public.billing_wallet_accounts WHERE workspace_id = $1) AS wallet,
-                (SELECT count(*)::int FROM public.billing_v2_audit
-                  WHERE workspace_id = $1 AND event = 'billing_v2_new_workspace_default') AS audit`, [ws]);
-    expect(await one('SELECT new_workspace_default_state AS s FROM public.billing_v2_policy WHERE id')).toEqual({ s: 'legacy' });
-    await db.query(`INSERT INTO public.workspaces (id, name, slug, owner_id) VALUES ('00000000-0000-0000-0000-00000000c251', 'L', 'l251', '${OWNER}')`);
-    expect(await rows('00000000-0000-0000-0000-00000000c251')).toEqual({ wallet: 0, audit: 0 });
-    await db.query(`UPDATE public.billing_v2_policy SET new_workspace_default_state = 'shadow' WHERE id`);
-    await db.query(`INSERT INTO public.workspaces (id, name, slug, owner_id) VALUES ('00000000-0000-0000-0000-00000000d251', 'S', 's251', '${OWNER}')`);
-    expect(await rows('00000000-0000-0000-0000-00000000d251')).toEqual({ wallet: 1, audit: 1 });
-    await db.query(`UPDATE public.billing_v2_policy SET new_workspace_default_state = 'legacy' WHERE id`);
   });
 
   it('billing policy: a fresh chain starts new workspaces on legacy, and 250 or 251 run again keeps what an administrator set', async () => {

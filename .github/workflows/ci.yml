@@ -138,22 +138,17 @@ jobs:
       #
       # --no-file-parallelism: these suites install schema into ONE shared
       # database, so they must not run concurrently.
-      # internalTestGatewayE2E.pg.test.ts replays the FULL Billing Engine V2
-      # migration chain in its own beforeAll (same as billingEngineV2.pg.test.ts
-      # itself) — sharing this database with it would re-run migration 116's
-      # backfill on top of billingEngineV2's own test mutations and trip its
-      # data-integrity check. Both get a dedicated fresh database in the
-      # ai-billing-db job below instead.
-      # billingEngineV2 / billingV2PhaseC / billingV2PhaseD0 replay the V2
-      # chain from 113 as well, and 113's CHECK constraints predate source
-      # values that later suites now write into billing_subscription_periods
-      # on the shared database. Each already runs on its own database in
-      # ai-billing-db, so they are excluded here rather than skipped.
+      # Billing v2's own suites (billingEngineV2, billingV2PhaseC/D0/E and
+      # internalTestGatewayE2E) were removed with its code in simple billing
+      # phase 7A; billingV2Retirement.pg.test.ts (migration 267) builds its own
+      # databases, so it runs here with the rest.
+      # billingProviderCredentialsMigration seeds its own pre-migration schema
+      # and runs on a fresh database in ai-billing-db below.
       - name: Integration tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
-        run: bunx vitest run src/test/integration --exclude '**/aiKbTailMigrationCompatibility.pg.test.ts' --exclude '**/internalTestGatewayE2E.pg.test.ts' --exclude '**/billingProviderCredentialsMigration.pg.test.ts' --exclude '**/billingEngineV2.pg.test.ts' --exclude '**/billingV2PhaseC.pg.test.ts' --exclude '**/billingV2PhaseD0.pg.test.ts' --no-file-parallelism
+        run: bunx vitest run src/test/integration --exclude '**/aiKbTailMigrationCompatibility.pg.test.ts' --exclude '**/billingProviderCredentialsMigration.pg.test.ts' --no-file-parallelism
 
   # MANDATORY financial gate. AI money invariants (advisory locks, immutable
   # usage ingestion, lot allocation, refunds, recovery lease, ACL) are proven
@@ -204,63 +199,8 @@ jobs:
           REQUIRE_BILLING_DB: '1'
         run: bunx vitest run src/test/integration/aiBillingFinancial.pg.test.ts --no-file-parallelism
 
-      # Billing Engine V2 runs on its OWN database: the V2 chain and the AI
-      # billing chain are different migration sets and must not share state.
-      # REQUIRE_BILLING_DB=1 makes a missing database FAIL the job instead of
-      # skipping — money invariants must never pass by absence.
-      - name: Create Billing Engine V2 database
-        env:
-          PGPASSWORD: postgres
-        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'CREATE DATABASE billing_v2'
-
-      - name: Billing Engine V2 invariants (Phase A + Phase B rollout)
-        env:
-          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing_v2
-          REQUIRE_BILLING_DB: '1'
-        run: bunx vitest run src/test/integration/billingEngineV2.pg.test.ts --no-file-parallelism
-
-      # Phase C schedulers get a FRESH database: the renewal/auto-pay/activation
-      # invariants must hold on a clean forward apply of 113–118.
-      - name: Create Billing Engine V2 Phase C database
-        env:
-          PGPASSWORD: postgres
-        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'CREATE DATABASE billing_v2_phase_c'
-
-      - name: Billing Engine V2 invariants (Phase C schedulers)
-        env:
-          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing_v2_phase_c
-          REQUIRE_BILLING_DB: '1'
-        run: bunx vitest run src/test/integration/billingV2PhaseC.pg.test.ts --no-file-parallelism
-
-      # Phase D0 entitlement cycles also demand a FRESH database: an annual
-      # plan must release AI allowance month by month, never 12x on day one.
-      - name: Create Billing Engine V2 Phase D0 database
-        env:
-          PGPASSWORD: postgres
-        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'CREATE DATABASE billing_v2_phase_d0'
-
-      - name: Billing Engine V2 invariants (Phase D0 entitlement cycles)
-        env:
-          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing_v2_phase_d0
-          REQUIRE_BILLING_DB: '1'
-        run: bunx vitest run src/test/integration/billingV2PhaseD0.pg.test.ts --no-file-parallelism
-
-      # Internal Test Gateway E2E replays the SAME migration chain as Billing
-      # Engine V2 (above) — it needs its own fresh database, never a shared one.
-      - name: Create Internal Test Gateway E2E database
-        env:
-          PGPASSWORD: postgres
-        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'CREATE DATABASE billing_internal_test_gateway'
-
-      - name: Internal Test Gateway E2E (checkout -> verify -> settlement -> AI credit) + ZarinPal sandbox contract
-        env:
-          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing_internal_test_gateway
-          REQUIRE_BILLING_DB: '1'
-        run: bunx vitest run src/test/integration/internalTestGatewayE2E.pg.test.ts --no-file-parallelism
-
       # The provider-credentials migration test seeds its OWN minimal
-      # pre-migration schema (it does not depend on the Billing Engine V2
-      # chain), but still gets a fresh database for isolation.
+      # pre-migration schema, and gets a fresh database for isolation.
       - name: Create billing provider credentials migration database
         env:
           PGPASSWORD: postgres

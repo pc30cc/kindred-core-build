@@ -8,7 +8,6 @@
  *   - Phone: no Iranian default country, international E.164 input, SMS
  *     verification (Iranian vendors only) hidden — its gate never blocks.
  *   - SMS providers: a neutral "not available" panel instead of Iranian vendors.
- *   - The Persian network-error hint names Iran in the Iranian edition only.
  *
  * Iranian-edition output (and an unknown edition, which behaves as before) is
  * pinned unchanged.
@@ -52,7 +51,6 @@ import { artDateTag } from '@/themes/art/charts/format';
 import { defaultPhoneCountry, isValidIntlPhone, normalizeIntlPhone, sanitizeIntlPhoneInput } from '@/lib/phone-countries';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { AdminSmsProviderPanel } from '@/features/providers/AdminSmsProviderCard';
-import { billingError } from '@/lib/billing-i18n';
 
 const D = new Date('2026-10-09T12:00:00Z');
 const config = (regionMode: string) => ({
@@ -172,22 +170,5 @@ describe('Super Admin → Providers → SMS', () => {
     state.data = config('iran');
     const { container } = render(<AdminSmsProviderPanel />);
     expect(container.querySelector('[data-sms-unavailable]')).toBeNull();
-  });
-});
-
-describe('billing network-error hint', () => {
-  const network = 'fetch failed';
-  it('Iran (and unknown): the Persian hint is unchanged', () => {
-    expect(billingError('fa', network)).toContain('خارج از ایران');
-    rememberEdition('iran');
-    expect(billingError('fa', network)).toContain('خارج از ایران');
-  });
-
-  it('International: neutral Persian wording; en/tr unchanged', () => {
-    const en = billingError('en', network);
-    rememberEdition('international');
-    expect(billingError('fa', network)).not.toContain('ایران');
-    expect(billingError('fa', network)).toContain('کلید API');
-    expect(billingError('en', network)).toBe(en);
   });
 });

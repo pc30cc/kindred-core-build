@@ -1,11 +1,10 @@
 /**
  * Test (sandbox) payment gateways: gateways that never move real money.
  *
- * Shared by the server (finance report, gateway listing, checkout) and the
- * client (payment page, finance report). Pure: no I/O.
+ * Shared by the server (gateway listing, checkout) and the client. Pure: no I/O.
  *
- * A payment made through one of these is recognised by its `provider_name`
- * (billing_payments / billing_payment_intents carry no separate test column);
+ * A payment made through one of these is recognised by its provider name
+ * (payment rows carry no separate test column);
  * Finance → Gateways' `is_test` marker is the operational flag the customer
  * sees ("Test gateway").
  */

@@ -196,13 +196,12 @@ export interface ServerConfig {
    * decide they should be — deliberately left writing because they are the
    * financial audit trail and each sits in a money path that deserves a
    * per-site review before being suppressed:
-   *   server/services/billing/rollout.ts:115      billing_v2_audit
-   *   server/services/billing/dunning/index.ts:127 billing_v2_audit
    *   server/services/ai-billing/degrade.ts:65     ai_billing_audit_log
-   *   server/routes/aiBilling.ts:807               ai_billing_audit_log
-   * (Both tables are ALSO written by Postgres functions, so gating these
-   * four would thin the trail without stopping it — another reason the
-   * decision belongs to an operator, not to this default.)
+   *   server/routes/aiBilling.ts:626               ai_billing_audit_log
+   * (The table is ALSO written by Postgres functions, so gating these two
+   * would thin the trail without stopping it — another reason the decision
+   * belongs to an operator, not to this default.) Billing v2's audit trail
+   * has had no TypeScript writer since phase 7 (migration 267).
    */
   complianceAuditLoggingEnabled?: boolean;
 

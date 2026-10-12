@@ -29,8 +29,6 @@ import { isNativePlatform } from "@/lib/native";
 import { lazyPage, type Preloadable } from "@/lib/perf/lazyPage";
 import { afterLoadWhenIdle, canPrefetch, installLinkPrefetch, warmServiceWorkerCache } from "@/lib/perf/prefetch";
 import { trackMediaCapture } from "@/lib/perf/chunkReload";
-import { LEGACY_BILLING_ENABLED } from "../shared/billingMode";
-import RetiredV2PaymentRoute from "@/components/billing/RetiredV2PaymentRoute";
 
 // Layouts and frames stay in the main bundle: they are what remains on screen
 // while a page's own code loads.
@@ -110,7 +108,6 @@ const AiAgentBehaviorPage = lazyPage(() => import("@/pages/app/ai-agent/Behavior
 const AiAgentOperatorAssistPage = lazyPage(() => import("@/pages/app/ai-agent/OperatorAssistPage"));
 const AiAgentActivityPage = lazyPage(() => import("@/pages/app/ai-agent/ActivityPage"));
 const BillingPage = lazyPage(() => import("@/pages/app/BillingPage"));
-const BillingPaymentPage = lazyPage(() => import("@/pages/app/billing/PaymentPage"));
 const BillingReceiptPage = lazyPage(() => import("@/pages/app/billing/account/ReceiptPage"));
 const SeoPage = lazyPage(() => import("@/pages/app/seo/SeoPage"));
 const WebAnalyticsPage = lazyPage(() => import("@/pages/app/analytics/WebAnalyticsPage"));
@@ -327,7 +324,7 @@ function workspacePagesFor(section: string, sub: string): Preloadable[] {
   switch (section) {
     case "contacts": return [sub ? ContactDetailPage : ContactsPage];
     case "plugins": return [sub ? PluginDetailPage : PluginsPage];
-    case "billing": return [sub === "pay" && LEGACY_BILLING_ENABLED ? BillingPaymentPage : sub === "receipts" ? BillingReceiptPage : BillingPage];
+    case "billing": return [sub === "receipts" ? BillingReceiptPage : BillingPage];
     case "knowledge-base":
       if (sub === "articles") return [KnowledgeArticleEditorPage];
       if (sub === "ai-builder") return [KnowledgeAiBuilderPage];
@@ -547,7 +544,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/finance" element={<AdminFinancePage />} />
                 <Route path="/admin/finance/accounts/:workspaceId" element={<AdminAccountDetailPage />} />
                 <Route path="/admin/audit-logs" element={<Navigate to="/admin/finance?tab=audit" replace />} />
-                <Route path="/admin/billing" element={<Navigate to={LEGACY_BILLING_ENABLED ? "/admin/finance?tab=billing" : "/admin/finance?tab=accounts"} replace />} />
+                <Route path="/admin/billing" element={<Navigate to="/admin/finance?tab=accounts" replace />} />
                 <Route path="/admin/plans" element={<AdminPlansPage />} />
                 <Route path="/admin/plugins" element={<AdminPluginsPage />} />
                 <Route path="/admin/plugins/:pluginId" element={<AdminPluginDetailPage />} />
@@ -587,11 +584,6 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="plugins" element={<RequireWorkspaceAdmin><PluginsPage /></RequireWorkspaceAdmin>} />
                 <Route path="plugins/:pluginId" element={<RequireWorkspaceAdmin><PluginDetailPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing" element={<RequireWorkspaceAdmin><BillingPage /></RequireWorkspaceAdmin>} />
-                {/* Billing v2's payment page; while v2 is retired
-                    (shared/billingMode.ts) it stays only for a bank's return
-                    of a payment started before, and any other link lands on
-                    the workspace's billing page. */}
-                <Route path="billing/pay/:kind/:id" element={LEGACY_BILLING_ENABLED ? <RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin> : <RetiredV2PaymentRoute page={<RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin>} />} />
                 <Route path="billing/receipts/:ledgerId" element={<RequireWorkspaceAdmin><BillingReceiptPage /></RequireWorkspaceAdmin>} />
                 {/* Every plan-gated section is gated at its route too (the
                     sidebar only hides the link): PlanLockedOverlay never

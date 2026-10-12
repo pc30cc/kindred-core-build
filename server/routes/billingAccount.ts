@@ -173,7 +173,7 @@ function returnUrls(browserUrl: string, paymentId: string, providerName: string,
   browserReturn.searchParams.set('provider', providerName);
   let gatewayCallback = browserReturn.toString();
   // Gateways refuse plain-http callbacks outside localhost; the API's return
-  // hop (billing.ts /api/billing/return) bounces to the stored return URL.
+  // hop (/api/billing/account-return below) bounces to the browser return URL.
   if (browserReturn.protocol !== 'https:' && browserReturn.hostname !== 'localhost' && browserReturn.hostname !== '127.0.0.1') {
     const fallback = new URL('/api/billing/account-return', apiOrigin);
     fallback.searchParams.set('payment', paymentId);

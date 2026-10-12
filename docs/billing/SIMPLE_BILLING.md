@@ -150,6 +150,9 @@ billing v2's 5-minute ticker (see "The hourly job" below).
 6. Super Admin screens. (Done: migration 266; see "Super Admin screens"
    below.)
 7. Move current subscriptions, back up and drop billing v2 code and tables.
+   7A (migration 267): the move and the removal of the v2 code; see "Phase
+   7A (migration 267)" below. 7B (migration 268, after a 48-hour soak):
+   archive the v2 tables and drop the v2 functions and columns.
 
 ## Technical design
 
@@ -866,14 +869,13 @@ instead (below).
 - **Billing settings.** AI packs are edited by phase 5's `AiPacksPanel` (same
   tab, `PUT /ai-packs`); the settings `PUT` keeps the stored packs when
   `ai_packs` is left out, as the settings form does.
-- **Users and Workspaces.** While `LEGACY_BILLING_ENABLED` is off, Users →
-  Finance lists the accounts of the workspaces the user owns (instead of
+- **Users and Workspaces.** Users → Finance lists the accounts of the workspaces the user owns (instead of
   billing v2's `UserFinanceCard`), and a workspace's page shows a read-only
   billing summary with a link to its account. Both pages open from `?id=`.
 - **Billing v2 retired.** `POST /api/billing/admin/grant`,
-  `POST /api/billing/admin/plans` and `POST /api/admin/billing/reset` answer
-  410 `BILLING_V2_RETIRED`, and Finance's danger zone is not shown, while
-  `LEGACY_BILLING_ENABLED` is off.
+  `POST /api/billing/admin/plans` and `POST /api/admin/billing/reset`
+  answered 410 `BILLING_V2_RETIRED` in phase 6; since phase 7A they are
+  removed (404), with the flag and Finance's danger zone.
 - **Known limits.** A purged workspace's payments go with it (ON DELETE
   CASCADE), so its revenue leaves the report; phase 7 decides whether to keep
   them. The adjust rate limit is per process.
@@ -887,3 +889,121 @@ instead (below).
   shows in the customer's history and in Finance → Audit); revenue shows
   Jalali months and Toman on WebYar, Gregorian months and USD (TRY when
   present) on RESPOK; the three v2 endpoints answer 410.
+
+### Phase 7A (migration 267)
+
+7A moves what billing v2 still holds into simple billing and removes the v2
+code. Nothing of v2's data is deleted or rewritten: the v2 tables, functions
+and columns stay until 7B (migration 268) archives them into the
+`billing_v2_archive` schema. 267 is compatible with the code from before 7A,
+so it is applied to WebYar's database by hand before the merge.
+
+**What 267 does** (one `BEGIN … COMMIT`, `SET LOCAL lock_timeout = '5s'`;
+it raises unless 265 and 266 are applied, and it can be run again):
+
+- creates the schema `billing_v2_archive` and its table `migration_log`
+  (one row per moved or waived item, `UNIQUE (source_table, source_id)`);
+  no role but the owner can read either;
+- `billing_account_process_due` no longer activates a v2 `scheduled` period
+  (otherwise a period the move prepaid would start twice and its prepayment
+  would come back); `billing_account_v2_next_period` becomes a stub that
+  returns NULL (same signature and grants, for the code from before 7A);
+- `app_review_seed_workspace` grants the App Review plan through simple
+  billing (`billing_account_write_subscription` to 2099, `admin_grant`, then
+  `billing_account_grant_month`), with no v2 period;
+- adds `billing_v2_migration_plan(p_workspace_id)`,
+  `billing_v2_migrate_to_simple(p_apply)` and
+  `billing_v2_migration_waive(table, id, reason, actor)`; none is executable
+  by `service_role`, `authenticated` or `anon` (operators and migrations
+  only);
+- runs the move (`billing_v2_migrate_to_simple(true)`) and prints its report
+  as `NOTICE billing v2 move: {json}`;
+- drops the v2 triggers on live tables: `trg_billing_enroll_workspace` and
+  `trg_billing_v2_seed_new_workspace` on `workspaces` (a new workspace gets
+  no v2 rows) and `trg_billing_v2_block_legacy_allowance` on
+  `workspace_ai_balance_lots`.
+
+**What moves.** IRR money is credited only in the `iran` edition (WebYar),
+never converted, through phase 6's `billing_account_admin_adjust` with
+category `migration` (an `admin_credit` with key `admin:v2:<table>:<id>`, no
+new receipt: v2's own document was the receipt):
+
+- a v2 wallet balance that matches its ledger (reason "Billing v2 wallet
+  balance");
+- an unapplied v2 payment, at its invoice's net share (subtotal − discount)
+  or at amount − refunds ("Billing v2 unapplied payment");
+- a paid v2 next period (`scheduled`): contiguous and in the future, it
+  becomes simple billing's prepaid next period (a credit and an equal
+  `renewal` debit, `next_period_prepaid_minor`, `next_period_start` and the
+  scheduled plan), exactly what `billing_account_renew` leaves; already due,
+  it is activated (subscription written, AI month granted once); replaced
+  (not contiguous), its money is credited to the balance;
+- subscription rows: `past_due` past its end and `free_fallback` become
+  `expired`, `past_due` still running becomes `active`, `canceled` at period
+  end becomes `active` with auto-renew off, a pending downgrade becomes the
+  account's scheduled change, through `billing_account_write_subscription`
+  (change `v2_migration`, a `plan_change_log` row, v2 columns cleared).
+
+Everything else is ignored (no money moved) or **`needs_review`**: nothing is
+written for it and it is listed in the report with a reason. In the
+`international` edition (RESPOK, a clone of WebYar's data) every v2 money
+item is `needs_review`. Other reasons: a wallet that does not match its
+ledger or is frozen, a payment not in IRR, a `processing` payment intent, a
+paid invoice never applied, an admin-granted next period with no money, a
+prepay when the account already has another scheduled change or prepayment,
+a subscription in `unpaid`, `incomplete`, `paused` or `suspended`, an amount
+above the adjust cap. Each item runs in its own sub-transaction under the
+account lock; a failed item is rolled back and reported, and that
+workspace's later items wait for the next run.
+
+**Reading the report and clearing items** (as `postgres`):
+
+```sql
+SELECT public.billing_v2_migrate_to_simple(false);  -- dry run: what would move, what needs review
+SELECT public.billing_v2_migrate_to_simple(true);   -- move what is unambiguous now
+-- after resolving an item by hand (e.g. Super Admin → Accounts → Credit, category migration):
+SELECT public.billing_v2_migration_waive('billing_payment_intents', '<id>', 'paid at the gateway; credited by hand');
+-- RESPOK's clone residue, after matching the ids against WebYar:
+SELECT public.billing_v2_migration_waive(NULL, NULL, 'clone_residue: RESPOK was cloned from WebYar on 2026-10-07; same ids in WebYar');
+```
+
+A waive needs a reason of at least 3 characters; an item already moved or
+waived is left as it is. 7B's migration 268 runs the move once more and
+refuses to archive anything while an item is still open.
+
+**Code removed in 7A.** The v2 routes (customer billing under
+`/api/billing/workspaces/*`, checkout, verify-callback, payment intents,
+status, portal, events, entitlement, `/api/billing/admin/*`,
+`/api/admin/billing-v2/*`, the v2 Super Admin finance routes, AI top-up), its
+services (invoices, payment intents, wallet, scheduler, dunning,
+notifications, customer actions), the workspace v2 billing pages and payment
+page, Finance's v2 tabs and the flag `LEGACY_BILLING_ENABLED`. What stays:
+`GET /api/billing/plans` (the landing page reads it), the gateway webhook
+(account payments, refunds and saved cards; an event naming neither, such as
+a late one about an old v2 intent, is answered 200 and logged
+`[billing] REVIEW`), gateways and provider credentials. Super Admin → assign
+plan writes the subscription with `billing_account_write_subscription`
+(change `admin_assign`), returns a replaced prepayment
+(`billing_account_admin_replaced`) and grants the month's AI credit
+(`billing_account_grant_month`). The dashboard's AI card reads the account
+AI section. `src/test/ci/noV2References.test.ts` keeps v2 tables, the
+columns 268 drops, removed RPCs, modules and API paths out of the code.
+
+**Deploying 7A.** Back up first (a `pg_dump -Fc` of the v2 tables and the
+simple billing tables on each database, copied off the server). Dry-run 267
+on WebYar with its final `COMMIT;` changed to `ROLLBACK;` (not inside
+`psql --single-transaction`: the file has its own `BEGIN`/`COMMIT`) and read
+the `NOTICE` report; do the same on RESPOK so its report is known before its
+migrator applies it. Resolve WebYar's `needs_review` items, apply 267 with
+`PGOPTIONS='-c lock_timeout=5s'` (re-run on a lock timeout: the whole file
+rolls back), record it in the migration ledger, then merge. Applying by hand follows
+the repository's procedure for WebYar's database (CLAUDE.md, "Migrations":
+a folder with `scripts/migrate-database.sh` and the file, `docker cp` into
+the database container, run as `postgres`). After the merge, smoke-test on
+both editions: assign a plan to a test workspace (subscription, AI credit,
+plan change log), create a workspace (no v2 rows), the billing page, a
+top-up and a renewal, the dashboard AI card, Super Admin → Finance, and one
+hourly-job tick in the logs. Then a 48-hour soak with at least one daily
+backup, and `billing_v2_migrate_to_simple(false)` on both databases with
+`needs_review` empty (or waived) before 7B.
+

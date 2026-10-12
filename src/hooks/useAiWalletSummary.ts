@@ -1,18 +1,19 @@
 /**
  * Workspace AI credit for dashboard surfaces.
  *
- * Single source of truth: the customer billing overview read-model — the
- * exact same numbers the Billing screen's "AI credit" tab renders. Reading a
- * second source (the AI ledger wallet) made the dashboard disagree with
- * Billing, so it is deliberately not used here.
+ * Single source of truth: the AI section of the account billing page
+ * (GET /api/billing/account/:workspaceId/ai) — the exact same wallet the
+ * Billing screen's AI credit card renders, so the dashboard never disagrees
+ * with Billing. A caller who may not read billing (403) or any other error
+ * gets null, and the card shows a dash.
  */
 import { useQuery } from '@tanstack/react-query';
-import { billingOverview } from '@/lib/billingApi';
+import { accountBillingApi } from '@/lib/accountBillingApi';
 
 export interface AiCreditSnapshot {
-  /** Remaining plan allowance for the running cycle (IRR). */
+  /** Remaining plan allowance for the running month (IRR). */
   cycleRemainingIrr: number;
-  /** Purchased credit that survives the cycle (IRR). */
+  /** Purchased credit that survives the month (IRR). */
   purchasedRemainingIrr: number;
   /** What the customer can still spend right now (IRR). */
   totalRemainingIrr: number;
@@ -25,9 +26,9 @@ export function useAiWalletSummary(workspaceId: string | undefined, enabled = tr
     staleTime: 30_000,
     queryFn: async () => {
       try {
-        const overview = await billingOverview(workspaceId!);
-        const cycleRemainingIrr = Number(overview.aiCycle?.remainingIrr ?? 0);
-        const purchasedRemainingIrr = Number(overview.aiPurchasedRemainingIrr ?? 0);
+        const section = await accountBillingApi.ai(workspaceId!);
+        const cycleRemainingIrr = Number(section.wallet?.plan_remaining ?? 0) || 0;
+        const purchasedRemainingIrr = Number(section.wallet?.purchased_remaining ?? 0) || 0;
         return {
           cycleRemainingIrr,
           purchasedRemainingIrr,

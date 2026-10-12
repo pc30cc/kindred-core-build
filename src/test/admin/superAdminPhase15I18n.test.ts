@@ -8,7 +8,6 @@ import tr from '@/i18n/locales/tr';
 
 const files = [
   'src/pages/admin/AiAgentControlPage.tsx',
-  'src/pages/admin/BillingPage.tsx',
   'src/pages/admin/WorkspacesPage.tsx',
   'src/pages/admin/WidgetSettingsPage.tsx',
   'src/pages/admin/widget-settings/PoweredBySection.tsx',
@@ -69,7 +68,7 @@ function untranslated(path: string): string[] {
 }
 
 describe('Super Admin phase 15 localization', () => {
-  it.each(['aiAgentControl', 'billingPage', 'workspacesPage', 'widgetSettingsPage'] as const)(
+  it.each(['aiAgentControl', 'workspacesPage', 'widgetSettingsPage'] as const)(
     'keeps the complete %s key tree identical in all locales',
     (namespace) => {
       const expected = leaves(en.admin[namespace]).sort();
@@ -82,11 +81,9 @@ describe('Super Admin phase 15 localization', () => {
     expect(untranslated(path)).toEqual([]);
   });
 
-  it('uses the active locale for billing and workspace dates and amounts', () => {
-    const billing = readFileSync(resolve(process.cwd(), files[1]), 'utf8');
-    const workspaces = readFileSync(resolve(process.cwd(), files[2]), 'utf8');
-    expect(billing).toContain('Intl.NumberFormat(normalizedLocale');
-    expect(billing).toContain('toLocaleDateString(dateLocale)');
+  it('uses the active locale for workspace dates', () => {
+    // (Billing v2's admin BillingPage was removed in phase 7A.)
+    const workspaces = readFileSync(resolve(process.cwd(), files[1]), 'utf8');
     expect(workspaces).toContain('Intl.DateTimeFormat(dateLocale');
   });
 });

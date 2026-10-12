@@ -46,8 +46,6 @@ export interface CardStateInput {
   paid: { plan_id: string; billing_interval: 'monthly' | 'yearly'; current_period_end: string } | null;
   /** A live prepaid next period's end (period_end(E, target interval)), or null. */
   prepaidNextEnd: string | null;
-  /** A billing v2 scheduled next period's end, or null. */
-  v2NextEnd: string | null;
   /** The plan of the next unpaid period: scheduled plan/interval, else the current ones. */
   target: { plan_id: string; is_free: boolean; interval: 'monthly' | 'yearly'; price_minor: number | null } | null;
   vatPercent: number | null;
@@ -71,11 +69,11 @@ export function setupHoldFrom(setup: { created_at: string }, card: { created_at:
 
 /**
  * The end of the last period already paid for: a prepaid next period's, else
- * a billing v2 scheduled period's, else the running period's. The card pays
- * the period after it.
+ * the running period's. The card pays the period after it. (Billing v2's
+ * scheduled next periods became prepaid next periods in migration 267.)
  */
-export function lastPaidEnd(input: Pick<CardStateInput, 'paid' | 'prepaidNextEnd' | 'v2NextEnd'>): string | null {
-  for (const candidate of [input.prepaidNextEnd, input.v2NextEnd, input.paid?.current_period_end ?? null]) {
+export function lastPaidEnd(input: Pick<CardStateInput, 'paid' | 'prepaidNextEnd'>): string | null {
+  for (const candidate of [input.prepaidNextEnd, input.paid?.current_period_end ?? null]) {
     if (candidate && Number.isFinite(ms(candidate))) return candidate;
   }
   return null;
@@ -121,7 +119,7 @@ export function cardFreeze(
 export function ownRenewalFreeze(input: CardStateInput): { frozen: boolean; until: string | null; at: string | null } {
   const open = { frozen: false, until: null, at: null };
   const live = input.card.status === 'active' || input.card.status === 'past_due';
-  if (!live || !input.paid || input.prepaidNextEnd || input.v2NextEnd) return open;
+  if (!live || !input.paid || input.prepaidNextEnd) return open;
   if (desiredCardState(input).kind !== 'renew') return open;
   const at = ms(input.paid.current_period_end) - CARD_RENEWAL_LEAD_MS;
   if (!Number.isFinite(at)) return open;

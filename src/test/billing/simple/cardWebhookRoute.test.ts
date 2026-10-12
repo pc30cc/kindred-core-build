@@ -29,7 +29,6 @@ const h = vi.hoisted(() => ({
   verifyWebhook: vi.fn(),
   claim: vi.fn(),
   finalize: vi.fn(async (..._a: unknown[]) => undefined),
-  processWebhookEvent: vi.fn(async (..._a: unknown[]) => undefined),
   cardEventOwner: vi.fn(),
   handleCardEvent: vi.fn(),
   accountWebhook: vi.fn(async (..._a: unknown[]) => 'settled'),
@@ -77,7 +76,6 @@ vi.mock('../../../../server/services/billing/index.js', async (importOriginal) =
   resolvePlatformBillingConfig: async () => h.platformConfig,
   claimBillingWebhookEvent: h.claim,
   finalizeBillingWebhookEvent: h.finalize,
-  processWebhookEvent: h.processWebhookEvent,
 }));
 vi.mock('../../../../server/services/billing/account/card.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../server/services/billing/account/card.js')>()),
@@ -142,7 +140,6 @@ beforeEach(() => {
   h.verifyWebhook.mockReset();
   h.claim.mockReset().mockResolvedValue({ claimed: true, eventRowId: 'row-1' });
   h.finalize.mockClear();
-  h.processWebhookEvent.mockClear();
   h.cardEventOwner.mockReset().mockResolvedValue(OWNER);
   h.handleCardEvent.mockReset().mockResolvedValue('handled');
   h.accountWebhook.mockClear();
@@ -179,7 +176,6 @@ describe('card events: ours', () => {
     const res = await post();
     expect(res.status).toBe(200);
     expect(h.accountWebhook).not.toHaveBeenCalled();
-    expect(h.processWebhookEvent).not.toHaveBeenCalled();
     expect(h.readAccountPayment).not.toHaveBeenCalled();
     expect(h.handleCardEvent).toHaveBeenCalledTimes(1);
   });
@@ -248,7 +244,6 @@ describe('card events: not ours', () => {
     expect(res).toEqual({ status: 200, json: { received: true, ignored: true } });
     expect(h.claim).not.toHaveBeenCalled();
     expect(h.handleCardEvent).not.toHaveBeenCalled();
-    expect(h.processWebhookEvent).not.toHaveBeenCalled();
     expect(warn.mock.calls.flat().join(' ')).toMatch(/ignored provider=paddle_sandbox reason=foreign_card subscription=sub_1/);
   });
 
@@ -293,11 +288,15 @@ describe('other events naming a subscription', () => {
     expect(h.claim.mock.calls[0][2]).toMatchObject({ workspaceId: WS, eventType: 'payment_succeeded' });
   });
 
-  it('a subscription of no card of ours leaves the workspace unresolved', async () => {
+  it('a subscription of no card of ours is foreign: acknowledged, logged REVIEW, nothing claimed or applied', async () => {
     h.verifyWebhook.mockResolvedValue({
       type: 'payment_succeeded', providerEventId: 'evt_other', providerSubscriptionId: 'sub_unknown', amount: 100, currency: 'USD', raw: {},
     });
-    expect((await post()).status).toBe(400);
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ received: true, ignored: true });
     expect(h.claim).not.toHaveBeenCalled();
+    expect(h.accountWebhook).not.toHaveBeenCalled();
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('REVIEW: webhook names no account payment or card'))).toBe(true);
   });
 });

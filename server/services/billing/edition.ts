@@ -1,12 +1,11 @@
 // ============================================================
 // BILLING × EDITION — what money may look like in this edition
 //
-// The Iranian edition (platform_settings.region_mode = 'iran') bills exactly
-// as before: IRR (shown as Toman), Iranian gateways, the Rial wallet and AI
-// credit top-ups. The International edition bills in USD through
-// international gateways only: an Iranian gateway is never listed, resolved
-// or charged, a Rial amount is never priced or collected, and the Rial-only
-// features (wallet, AI-credit top-up) answer "not available".
+// The Iranian edition (platform_settings.region_mode = 'iran') bills in IRR
+// (shown as Toman) through Iranian gateways. The International edition bills
+// in its region's currency (USD or TRY) through international gateways only:
+// an Iranian gateway is never listed, resolved or charged, and a Rial amount
+// is never priced or collected.
 //
 // Every check reads the edition through getPlatformEdition (cached, shared
 // with the locale clamp). When the edition cannot be read at all, money paths
@@ -16,7 +15,6 @@
 import type { ServerConfig } from '../../config.js';
 import { EditionUnavailableError, getPlatformEdition, getPlatformRegionMode } from '../platformRegion.js';
 import {
-  EDITION_PROFILE,
   currencyForEditionRegion,
   isCurrencyAllowedInEdition,
   isProviderAllowedInEdition,
@@ -30,7 +28,7 @@ export type { Edition, RegionCurrency, RegionMode };
 
 type DbConfig = Pick<ServerConfig, 'supabaseUrl' | 'supabaseServiceRoleKey'>;
 
-/** A request the edition does not allow: an Iranian gateway or Rial in International, a Rial-only feature. */
+/** A request the edition does not allow: an Iranian gateway or Rial in International. */
 export class EditionPolicyError extends Error {
   constructor(
     public code: 'PROVIDER_NOT_AVAILABLE_IN_EDITION' | 'CURRENCY_NOT_AVAILABLE_IN_EDITION' | 'FEATURE_NOT_AVAILABLE_IN_EDITION',
@@ -79,46 +77,6 @@ export function assertCurrencyAllowed(edition: Edition, currency: string | null 
       edition,
     });
   }
-}
-
-/**
- * Guard for creating a payment attempt or invoice: the gateway and the
- * currency must both belong to this edition. In the Iranian edition every
- * provider and currency stays allowed (no change from before).
- */
-export async function assertPaymentAllowedInEdition(
-  config: DbConfig,
-  input: { provider?: string | null; currency?: string | null },
-): Promise<Edition> {
-  const edition = await getPlatformEdition(config);
-  assertProviderAllowed(edition, input.provider);
-  assertCurrencyAllowed(edition, input.currency);
-  return edition;
-}
-
-/** The currency to issue in: the requested one (if the edition allows it), else the region's (IRR / TRY / USD). */
-export async function resolveEditionCurrency(config: DbConfig, requested?: string | null): Promise<string> {
-  const { edition, currency: regionCurrency } = await getBillingRegion(config);
-  const code = typeof requested === 'string' ? requested.trim().toUpperCase() : '';
-  const currency = /^[A-Z]{3}$/.test(code) ? code : regionCurrency;
-  assertCurrencyAllowed(edition, currency);
-  return currency;
-}
-
-export type EditionFeature = 'wallet' | 'aiCreditTopup';
-
-/** Refuses a Rial-only feature outside the Iranian edition. */
-export async function assertEditionFeature(config: DbConfig, feature: EditionFeature): Promise<Edition> {
-  const edition = await getPlatformEdition(config);
-  if (!EDITION_PROFILE[edition][feature]) {
-    throw new EditionPolicyError('FEATURE_NOT_AVAILABLE_IN_EDITION', 403, { feature, edition });
-  }
-  return edition;
-}
-
-/** Keeps only the gateways/providers this edition may list. */
-export function filterProvidersForEdition<T>(rows: T[], edition: Edition, nameOf: (row: T) => string): T[] {
-  return rows.filter((row) => isProviderAllowedInEdition(nameOf(row), edition));
 }
 
 /**

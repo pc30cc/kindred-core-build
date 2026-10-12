@@ -9,71 +9,36 @@
  */
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSearchParams } from 'react-router-dom';
-import {
-  CreditCard, Sparkles, FileText, LayoutDashboard, Coins,
-  Landmark, Percent, Gauge, Receipt, Users, TrendingUp, Wallet,
-} from 'lucide-react';
+import { CreditCard, Sparkles, FileText, TrendingUp, Wallet } from 'lucide-react';
 import { useTranslation } from '@/i18n';
-import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
-import AdminBillingPage from './BillingPage';
 import AdminAiBillingPage from './AiBillingPage';
 import AdminAuditLogsPage from './AuditLogsPage';
 import RevenueTab from './finance/RevenueTab';
 import AccountsTab from './finance/AccountsTab';
-import { CurrenciesTab, GatewaysTab, TaxCouponsTab, UsageItemsTab } from './finance/FinanceConfigTabs';
-import {
-  FinanceOverviewTab, InvoicesLedgerTab, PaymentsLedgerTab, CustomersLedgerTab,
-} from './finance/FinanceLedgerTabs';
-
-const TABS = [
-  'revenue', 'accounts', 'overview', 'billing', 'invoices', 'payments', 'customers',
-  'currencies', 'gateways', 'tax', 'usage', 'ai', 'audit',
-] as const;
-type TabKey = (typeof TABS)[number];
+import { GatewaysTab } from './finance/FinanceConfigTabs';
 
 /**
- * While billing v2 is hidden (shared/billingMode.ts) only what the simple
- * billing keeps is shown: its monthly revenue and accounts (phase 6),
- * gateways, AI cost and the audit trail. Plans are edited in their own page
- * (/admin/plans).
+ * The simple billing's monthly revenue and accounts (phase 6), gateways, AI
+ * cost and the audit trail. Plans are edited in their own page (/admin/plans).
  */
-const VISIBLE_TABS: readonly TabKey[] = LEGACY_BILLING_ENABLED
-  ? TABS
-  : ['revenue', 'accounts', 'gateways', 'ai', 'audit'];
+const TABS = ['revenue', 'accounts', 'gateways', 'ai', 'audit'] as const;
+type TabKey = (typeof TABS)[number];
 
 const LABELS: Record<'fa' | 'en' | 'tr', Record<TabKey, string>> = {
-  fa: {
-    revenue: 'درآمد', accounts: 'حساب‌ها',
-    overview: 'نمای کلی', billing: 'پلن‌ها', invoices: 'فاکتورها', payments: 'پرداخت‌ها',
-    customers: 'مشتریان', currencies: 'ارزها', gateways: 'درگاه‌ها', tax: 'مالیات و کوپن',
-    usage: 'مصرف', ai: 'هوش مصنوعی', audit: 'حسابرسی',
-  },
-  en: {
-    revenue: 'Revenue', accounts: 'Accounts',
-    overview: 'Overview', billing: 'Plans', invoices: 'Invoices', payments: 'Payments',
-    customers: 'Customers', currencies: 'Currencies', gateways: 'Gateways', tax: 'Tax & coupons',
-    usage: 'Usage', ai: 'AI', audit: 'Audit',
-  },
-  tr: {
-    revenue: 'Gelir', accounts: 'Hesaplar',
-    overview: 'Genel', billing: 'Planlar', invoices: 'Faturalar', payments: 'Ödemeler',
-    customers: 'Müşteriler', currencies: 'Para birimleri', gateways: 'Sağlayıcılar', tax: 'Vergi & kupon',
-    usage: 'Kullanım', ai: 'Yapay zeka', audit: 'Denetim',
-  },
+  fa: { revenue: 'درآمد', accounts: 'حساب‌ها', gateways: 'درگاه‌ها', ai: 'هوش مصنوعی', audit: 'حسابرسی' },
+  en: { revenue: 'Revenue', accounts: 'Accounts', gateways: 'Gateways', ai: 'AI', audit: 'Audit' },
+  tr: { revenue: 'Gelir', accounts: 'Hesaplar', gateways: 'Sağlayıcılar', ai: 'Yapay zeka', audit: 'Denetim' },
 };
 
 const ICONS: Record<TabKey, typeof CreditCard> = {
-  revenue: TrendingUp, accounts: Wallet,
-  overview: LayoutDashboard, billing: CreditCard, invoices: Receipt, payments: Landmark,
-  customers: Users, currencies: Coins, gateways: CreditCard, tax: Percent,
-  usage: Gauge, ai: Sparkles, audit: FileText,
+  revenue: TrendingUp, accounts: Wallet, gateways: CreditCard, ai: Sparkles, audit: FileText,
 };
 
 export default function AdminFinancePage() {
   const { t, locale } = useTranslation();
   const [params, setParams] = useSearchParams();
   const raw = params.get('tab') as TabKey | null;
-  const tab: TabKey = raw && VISIBLE_TABS.includes(raw) ? raw : VISIBLE_TABS[0];
+  const tab: TabKey = raw && TABS.includes(raw) ? raw : TABS[0];
   const lang = (['fa', 'en', 'tr'] as const).includes(locale as never) ? (locale as 'fa' | 'en' | 'tr') : 'en';
   const labels = LABELS[lang];
 
@@ -92,7 +57,7 @@ export default function AdminFinancePage() {
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
         <TabsList className="flex w-full flex-wrap justify-start gap-1 h-auto p-1">
-          {VISIBLE_TABS.map((key) => {
+          {TABS.map((key) => {
             const Icon = ICONS[key];
             return (
               <TabsTrigger key={key} value={key} className="gap-2">
@@ -105,15 +70,7 @@ export default function AdminFinancePage() {
 
         <TabsContent value="revenue" className="mt-0"><RevenueTab /></TabsContent>
         <TabsContent value="accounts" className="mt-0"><AccountsTab /></TabsContent>
-        <TabsContent value="overview" className="mt-0"><FinanceOverviewTab /></TabsContent>
-        <TabsContent value="billing" className="mt-0"><AdminBillingPage /></TabsContent>
-        <TabsContent value="invoices" className="mt-0"><InvoicesLedgerTab /></TabsContent>
-        <TabsContent value="payments" className="mt-0"><PaymentsLedgerTab /></TabsContent>
-        <TabsContent value="customers" className="mt-0"><CustomersLedgerTab /></TabsContent>
-        <TabsContent value="currencies" className="mt-0"><CurrenciesTab /></TabsContent>
         <TabsContent value="gateways" className="mt-0"><GatewaysTab /></TabsContent>
-        <TabsContent value="tax" className="mt-0"><TaxCouponsTab /></TabsContent>
-        <TabsContent value="usage" className="mt-0"><UsageItemsTab /></TabsContent>
         <TabsContent value="ai" className="mt-0"><AdminAiBillingPage /></TabsContent>
         <TabsContent value="audit" className="mt-0"><AdminAuditLogsPage /></TabsContent>
       </Tabs>

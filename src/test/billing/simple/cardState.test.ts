@@ -44,7 +44,6 @@ function input(over: Partial<CardStateInput> = {}): CardStateInput {
     autoRenew: true,
     paid: { plan_id: PRO, billing_interval: 'monthly', current_period_end: iso(E) },
     prepaidNextEnd: null,
-    v2NextEnd: null,
     target: { plan_id: PRO, is_free: false, interval: 'monthly', price_minor: 2900 },
     vatPercent: null,
     ...over,
@@ -136,12 +135,6 @@ describe('desiredCardState: the first matching rule wins', () => {
     expect(state.kind === 'renew' && state.nextBilledAt).toBe(iso(prepaidEnd - CARD_RENEWAL_LEAD_MS));
   });
 
-  it('with a billing v2 next period, charges for the period after it', () => {
-    const v2End = E + 30 * D;
-    const state = desiredCardState(input({ v2NextEnd: iso(v2End) }));
-    expect(state.kind === 'renew' && state.nextBilledAt).toBe(iso(v2End - CARD_RENEWAL_LEAD_MS));
-  });
-
   it('a period that ended before the due step ran cannot be renewed in time', () => {
     const state = desiredCardState(input({ paid: { plan_id: PRO, billing_interval: 'monthly', current_period_end: iso(NOW - 5 * MIN) } }));
     expect(state).toMatchObject({ kind: 'renew', feasible: false, nextBilledAt: iso(NOW + CARD_MIN_LEAD_FROM_NOW_MS) });
@@ -154,15 +147,14 @@ describe('desiredCardState: the first matching rule wins', () => {
   });
 });
 
-describe('lastPaidEnd: prepaid, else billing v2, else the running period', () => {
+describe('lastPaidEnd: prepaid, else the running period', () => {
   const paid = { plan_id: PRO, billing_interval: 'monthly' as const, current_period_end: iso(E) };
   it.each([
-    ['nothing paid', { paid: null, prepaidNextEnd: null, v2NextEnd: null }, null],
-    ['the running period only', { paid, prepaidNextEnd: null, v2NextEnd: null }, iso(E)],
-    ['a billing v2 next period', { paid, prepaidNextEnd: null, v2NextEnd: iso(E + 30 * D) }, iso(E + 30 * D)],
-    ['a prepaid next period wins over v2', { paid, prepaidNextEnd: iso(E + 31 * D), v2NextEnd: iso(E + 30 * D) }, iso(E + 31 * D)],
-    ['an unreadable prepaid end is skipped', { paid, prepaidNextEnd: 'garbage', v2NextEnd: null }, iso(E)],
-    ['a prepaid end without a running period still counts', { paid: null, prepaidNextEnd: iso(E + 31 * D), v2NextEnd: null }, iso(E + 31 * D)],
+    ['nothing paid', { paid: null, prepaidNextEnd: null }, null],
+    ['the running period only', { paid, prepaidNextEnd: null }, iso(E)],
+    ['a prepaid next period wins over the running one', { paid, prepaidNextEnd: iso(E + 31 * D) }, iso(E + 31 * D)],
+    ['an unreadable prepaid end is skipped', { paid, prepaidNextEnd: 'garbage' }, iso(E)],
+    ['a prepaid end without a running period still counts', { paid: null, prepaidNextEnd: iso(E + 31 * D) }, iso(E + 31 * D)],
   ] as const)('%s', (_name, value, expected) => {
     expect(lastPaidEnd(value)).toBe(expected);
   });
@@ -231,7 +223,6 @@ describe('ownRenewalFreeze: around the charge our own period expects, while its 
     ['5 hours after it, still unrecorded: frozen', due(5 * H), true],
     ['exactly 6 hours after: open again', due(CARD_FREEZE_MAX_AFTER_MS), false],
     ['the next period is prepaid (the renewal was recorded): open', { ...due(H), prepaidNextEnd: iso(E + 31 * D) }, false],
-    ['a billing v2 next period: open', { ...due(H), v2NextEnd: iso(E + 30 * D) }, false],
     ['auto-renew off: nothing to renew, open', { ...due(H), autoRenew: false }, false],
     ['the next period is Free: open', { ...due(H), target: { plan_id: PRO, is_free: true, interval: 'monthly', price_minor: 0 } as const }, false],
     ['no paid period: open', { ...due(H), paid: null, target: null }, false],

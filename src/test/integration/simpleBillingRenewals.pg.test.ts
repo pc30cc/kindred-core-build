@@ -464,50 +464,9 @@ suite('261 — simple billing renewals, upgrades and changes (real PostgreSQL, w
     expect(await sub(ws)).toMatchObject({ status: 'active', plan_id: proId });
   });
 
-  it('a paid period waiting in billing v2 starts at the due moment', async () => {
-    const ws = await makeWorkspace();
-    await credit(ws, 2900);
-    await purchase(ws, proId);
-    await makeDue(ws);
-    const s = await sub(ws);
-    await q(
-      `INSERT INTO public.billing_subscription_periods (workspace_id, plan_id, status, period_start, period_end, billing_interval, source)
-       VALUES ($1, $2, 'scheduled', $3, $3::timestamptz + interval '1 month', 'monthly', 'admin')`,
-      [ws, proId, s.current_period_end]);
-    expect(await fn(`SELECT public.billing_account_process_due($1) AS r`, [ws])).toMatchObject({ action: 'renewed', source: 'billing_v2' });
-    expect((await sub(ws)).status).toBe('active');
-    expect(Date.parse(String((await sub(ws)).current_period_end))).toBeGreaterThan(Date.now());
-  });
-
-  it('a next period already paid through billing v2 is renewed: no reminder, no second renewal, and a prepayment returns', async () => {
-    const ws = await makeWorkspace();
-    await credit(ws, 2900 * 2);
-    await purchase(ws, proId);
-    await fn(`SELECT public.billing_account_renew($1) AS r`, [ws]);
-    expect(await balanceOf(ws)).toBe(0);
-    await makeDue(ws);
-    const s = await sub(ws);
-    await q(
-      `INSERT INTO public.billing_subscription_periods (workspace_id, plan_id, status, period_start, period_end, billing_interval, source)
-       VALUES ($1, $2, 'scheduled', $3, $3::timestamptz + interval '1 month', 'monthly', 'admin')`,
-      [ws, proId, s.current_period_end]);
-    expect(await fn(`SELECT public.billing_account_process_due($1) AS r`, [ws])).toMatchObject({ action: 'renewed', source: 'billing_v2' });
-    // The account prepayment for the same next period comes back.
-    expect(await balanceOf(ws)).toBe(2900);
-    expect((await account(ws)).next_period_prepaid_minor).toBeNull();
-
-    const other = await makeWorkspace();
-    await credit(other, 2900 * 2);
-    await purchase(other, proId);
-    const o = await sub(other);
-    await q(
-      `INSERT INTO public.billing_subscription_periods (workspace_id, plan_id, status, period_start, period_end, billing_interval, source)
-       VALUES ($1, $2, 'scheduled', $3, $3::timestamptz + interval '1 month', 'monthly', 'admin')`,
-      [other, proId, o.current_period_end]);
-    expect((await q(`SELECT workspace_id FROM public.billing_account_reminder_candidates(40)`)).map((r) => r.workspace_id)).not.toContain(other);
-    await expect(fn(`SELECT public.billing_account_renew($1) AS r`, [other])).rejects.toThrow(/billing_already_renewed/);
-    expect(await balanceOf(other)).toBe(2900);
-  });
+  // A next period paid through billing v2 (a v2 'scheduled' period) is moved
+  // into the prepaid next period by migration 267 and no longer read by
+  // process_due, renew or the reminders: billingV2Retirement.pg.test.ts (R3).
 
   it('a renewal is charged only at the price the customer was shown', async () => {
     const ws = await makeWorkspace();

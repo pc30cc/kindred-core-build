@@ -8,13 +8,12 @@
  * same local shape. `toProviderFormat` is the one conversion, and every path
  * into `server/services/sms` has to go through it.
  *
- * This was not hypothetical. Three call sites passed E.164 straight to the
+ * This was not hypothetical. Call sites passed E.164 straight to the
  * provider:
  *
  *   server/services/verification/service.ts   guest order-lookup OTP
  *   server/services/invitations/worker.ts     invitation notification
- *   server/services/billing/notifications/    billing notification
- *     dispatcher.ts
+ *   (and billing v2's notification dispatcher, removed in phase 7A)
  *
  * all of which the vendor would refuse. Nothing caught it because the send
  * "succeeded" as far as the caller could see — the failure was a provider
@@ -73,9 +72,8 @@ describe('SMS recipients reach the vendor in local format', () => {
 
   it('finds the known callers, so a silent zero-match cannot pass this test', () => {
     const callers = files.filter((f) => sendToArguments(readFileSync(f, 'utf8')).length > 0);
-    // verification/service.ts, phoneVerification/index.ts, invitations/worker.ts,
-    // billing/notifications/dispatcher.ts
-    expect(callers.length).toBeGreaterThanOrEqual(4);
+    // verification/service.ts, phoneVerification/index.ts, invitations/worker.ts
+    expect(callers.length).toBeGreaterThanOrEqual(3);
   });
 
   it('every sendSms / sendSmsVerification recipient goes through toProviderFormat', () => {

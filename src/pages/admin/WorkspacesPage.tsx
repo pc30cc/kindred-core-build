@@ -20,7 +20,6 @@ import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
 import { toast } from '@/lib/toast';
 import WorkspaceBillingSummary from '@/components/admin/WorkspaceBillingSummary';
-import { LEGACY_BILLING_ENABLED } from '../../../shared/billingMode';
 import {
   Building2, Users, MessageSquare, BookUser, Trash2,
   Globe, Palette, Bot, Loader2, Shield, ArrowLeft,
@@ -318,7 +317,7 @@ function WorkspaceDetailView({
       </div>
 
       {/* The workspace's billing account (simple billing; read only, D25). */}
-      {!LEGACY_BILLING_ENABLED && ws?.id && <WorkspaceBillingSummary workspaceId={ws.id} />}
+      {ws?.id && <WorkspaceBillingSummary workspaceId={ws.id} />}
 
       {/* Owner phone verification — the workspace has no own phone state. */}
       {ws?.owner_id && (

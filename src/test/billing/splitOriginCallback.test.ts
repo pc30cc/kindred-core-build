@@ -98,44 +98,6 @@ describe('split-origin billing callback contract (APP != API)', () => {
     });
   });
 
-  describe('paymentReturnUrls (server/routes/billingCustomer.ts)', () => {
-    it('returns the customer straight to the app payment page, never to an /api URL', async () => {
-      const { paymentReturnUrls } = await import('../../../server/routes/billingCustomer.js');
-      const { browserReturnUrl, gatewayCallbackUrl } = paymentReturnUrls(
-        `${APP_ORIGIN}/acme/billing/pay/invoice/123`,
-        'intent-abc',
-        'internal_test',
-        API_ORIGIN,
-      );
-
-      const browser = new URL(browserReturnUrl);
-      const gateway = new URL(gatewayCallbackUrl);
-
-      expect(browser.origin).toBe(APP_ORIGIN);
-      expect(gateway.origin).toBe(APP_ORIGIN);
-      expect(gateway.pathname).toBe('/acme/billing/pay/invoice/123');
-      expect(gateway.pathname.startsWith('/api')).toBe(false);
-      expect(browser.searchParams.get('intent')).toBe('intent-abc');
-      expect(browser.searchParams.get('provider')).toBe('internal_test');
-      expect(gateway.searchParams.get('intent')).toBe('intent-abc');
-      expect(gateway.searchParams.get('provider')).toBe('internal_test');
-    });
-
-    it('falls back to the API return endpoint when the browser URL is not a safe public URL', async () => {
-      const { paymentReturnUrls } = await import('../../../server/routes/billingCustomer.js');
-      const { gatewayCallbackUrl } = paymentReturnUrls(
-        'http://insecure.example.com/acme/billing/pay/invoice/123',
-        'intent-abc',
-        'internal_test',
-        API_ORIGIN,
-      );
-      const gateway = new URL(gatewayCallbackUrl);
-      expect(gateway.origin).toBe(API_ORIGIN);
-      expect(gateway.pathname).toBe('/api/billing/return');
-    });
-  });
-
-
   describe('internal simulator (server/services/billing/providers/internal-test.ts)', () => {
     it('serves the simulator page from the API origin, independent of the browser callback', async () => {
       const { internalTestProvider } = await import(

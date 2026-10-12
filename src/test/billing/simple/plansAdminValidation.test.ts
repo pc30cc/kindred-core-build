@@ -8,10 +8,9 @@
  * ai_allowance and is_hidden on create, and mirror ai_allowance.IRR into
  * limits.included_ai_allowance_irr (D17).
  *
- * Also billing v2's last admin writers (decision D22): POST
- * /api/billing/admin/grant, /api/billing/admin/plans and
- * /api/admin/billing/reset answer 410 BILLING_V2_RETIRED while
- * LEGACY_BILLING_ENABLED is off, after the admin gate and before any write.
+ * Also billing v2's last admin writers: POST /api/billing/admin/grant,
+ * /api/billing/admin/plans and /api/admin/billing/reset (410 since phase 6,
+ * decision D22) were removed in phase 7A and answer 404, writing nothing.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
@@ -140,7 +139,16 @@ function call(method: string, path: string, body?: unknown, token: string | null
     const req = http.request({ host: '127.0.0.1', port, path, method, headers }, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
-      res.on('end', () => resolve({ status: res.statusCode || 0, json: JSON.parse(data || '{}') }));
+      res.on('end', () => {
+        // Express answers an unknown route with an HTML 404 page.
+        let json: Body = {};
+        try {
+          json = JSON.parse(data || '{}');
+        } catch {
+          json = { html: data };
+        }
+        resolve({ status: res.statusCode || 0, json });
+      });
     });
     req.on('error', reject);
     if (payload) req.write(payload);
@@ -266,20 +274,14 @@ describe('checkPlanBody', () => {
   });
 });
 
-describe('billing v2 admin writers are retired (410)', () => {
+describe('billing v2 admin writers are removed (phase 7A)', () => {
   it.each([
     ['/api/billing/admin/grant', { workspaceId: 'w', planId: 'p' }],
     ['/api/billing/admin/plans', { name: 'X', slug: 'x' }],
     ['/api/admin/billing/reset', { confirm: 'RESET-BILLING' }],
-  ])('%s answers 410 BILLING_V2_RETIRED and writes nothing', async (path, body) => {
+  ])('%s answers 404 and writes nothing', async (path, body) => {
     const res = await call('POST', path, body);
-    expect(res).toMatchObject({ status: 410, json: { error: 'BILLING_V2_RETIRED' } });
+    expect(res.status).toBe(404);
     expect(h.db.filter((t) => t !== 'rpc:has_role')).toEqual([]);
-  });
-
-  it.each(['/api/billing/admin/grant', '/api/billing/admin/plans', '/api/admin/billing/reset'])('%s still needs a platform admin first', async (path) => {
-    h.admin = false;
-    expect((await call('POST', path, {})).status).toBe(403);
-    expect((await call('POST', path, {}, null)).status).toBe(401);
   });
 });

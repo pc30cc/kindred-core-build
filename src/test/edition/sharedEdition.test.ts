@@ -15,7 +15,6 @@ import {
   parseEdition,
   resolveEdition,
 } from '../../../shared/edition';
-import { IRAN_PROVIDERS } from '../../../server/services/billing/paymentIntent';
 
 describe('resolveEdition', () => {
   it('is iran only for the exact region mode iran', () => {
@@ -59,8 +58,7 @@ describe('EDITION_PROFILE', () => {
 });
 
 describe('Iranian providers', () => {
-  it('has one canonical payment list, shared with the server', () => {
-    expect([...IRAN_PROVIDERS].sort()).toEqual([...IRANIAN_PAYMENT_PROVIDERS].sort());
+  it('has one canonical payment list', () => {
     expect(IRANIAN_PAYMENT_PROVIDERS).toEqual(
       expect.arrayContaining(['zarinpal', 'idpay', 'nextpay', 'payping', 'zibal', 'sep_shaparak', 'internal_test']),
     );

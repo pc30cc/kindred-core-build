@@ -53,10 +53,16 @@ describe('zibal createCheckoutSession', () => {
     expect('multiplexingInfos' in payload).toBe(false);
   });
 
-  it('includes multiplexingInfos when lazy_mode is on', async () => {
+  it('never sends an empty multiplexingInfos (Zibal refuses it: no "self" beneficiary), whatever lazy_mode says', async () => {
     const fetchMock = mockJson({ result: 100, trackId: 'trk' });
     await zibalProvider.createCheckoutSession({ ...config, lazy_mode: true }, req);
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).multiplexingInfos).toEqual([]);
+    expect('multiplexingInfos' in JSON.parse(fetchMock.mock.calls[0][1].body)).toBe(false);
+  });
+
+  it('uses the payment id as the order id when there is one', async () => {
+    const fetchMock = mockJson({ result: 100, trackId: 'trk' });
+    await zibalProvider.createCheckoutSession(config, { ...req, intentId: 'pay-1' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).orderId).toBe('pay-1');
   });
 
   it('defaults amount to 0 when metadata amount is absent', async () => {
@@ -74,12 +80,12 @@ describe('zibal createCheckoutSession', () => {
 
   it('does not coerce string "100" to success', async () => {
     mockJson({ result: '100', trackId: 'trk' });
-    await expect(zibalProvider.createCheckoutSession(config, req)).rejects.toThrow('Zibal error: undefined');
+    await expect(zibalProvider.createCheckoutSession(config, req)).rejects.toThrow('Zibal error: no result');
   });
 
   it('uses a valid string message', async () => {
     mockJson({ result: 102, message: 'merchant invalid' });
-    await expect(zibalProvider.createCheckoutSession(config, req)).rejects.toThrow('Zibal error: merchant invalid');
+    await expect(zibalProvider.createCheckoutSession(config, req)).rejects.toThrow('Zibal error: 102: merchant not found: merchant invalid');
   });
 
   it('falls back when message is malformed', async () => {
@@ -104,7 +110,7 @@ describe('zibal createCheckoutSession', () => {
   it('handles malformed bodies', async () => {
     for (const body of [null, undefined, 'oops', 42, [], {}]) {
       mockJson(body);
-      await expect(zibalProvider.createCheckoutSession(config, req)).rejects.toThrow('Zibal error: undefined');
+      await expect(zibalProvider.createCheckoutSession(config, req)).rejects.toThrow('Zibal error: no result');
     }
   });
 
@@ -124,22 +130,32 @@ describe('zibal createCheckoutSession', () => {
 });
 
 describe('zibal testConnection', () => {
-  it('reports invalid merchant for numeric 102 and 103', async () => {
-    for (const result of [102, 103]) {
-      mockJson({ result });
-      const out = await zibalProvider.testConnection(config);
-      expect(out.success).toBe(false);
-      expect(out.error).toBe('Invalid merchant');
-      expect(typeof out.latencyMs).toBe('number');
+  it('reports Zibal\'s code and meaning for an invalid or inactive merchant', async () => {
+    mockJson({ result: 102 });
+    expect(await zibalProvider.testConnection(config)).toEqual({ success: false, latencyMs: expect.any(Number), error: 'Zibal 102: merchant not found' });
+    mockJson({ result: 103 });
+    expect((await zibalProvider.testConnection(config)).error).toBe('Zibal 103: merchant is inactive');
+  });
+
+  it('is not a success for anything but a numeric 100 (it used to pass any other answer)', async () => {
+    for (const body of [{ result: '102' }, { result: 115 }, { result: '100' }]) {
+      mockJson(body);
+      expect((await zibalProvider.testConnection(config)).success).toBe(false);
     }
   });
 
-  it('does not coerce string "102"/"103"', async () => {
-    for (const result of ['102', '103']) {
-      mockJson({ result });
-      const out = await zibalProvider.testConnection(config);
-      expect(out.success).toBe(true);
-    }
+  it('sends the platform\'s callback (a domain Zibal does not allow fails here)', async () => {
+    const fetchMock = mockJson({ result: 100, trackId: 'x' });
+    await zibalProvider.testConnection({ ...config, probe_callback_url: 'https://app.webyar.ai/billing' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).callbackUrl).toBe('https://app.webyar.ai/billing');
+  });
+
+  it('refuses the sandbox merchant without calling Zibal', async () => {
+    const fetchMock = mockJson({ result: 100, trackId: 'x' });
+    const out = await zibalProvider.testConnection({ provider: 'zibal', merchant: 'zibal' });
+    expect(out.success).toBe(false);
+    expect(out.error).toMatch(/sandbox/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('succeeds on result 100', async () => {
@@ -147,10 +163,10 @@ describe('zibal testConnection', () => {
     expect((await zibalProvider.testConnection(config)).success).toBe(true);
   });
 
-  it('succeeds on malformed bodies', async () => {
+  it('fails on malformed bodies', async () => {
     for (const body of [null, undefined, 'oops', 7, [], {}]) {
       mockJson(body);
-      expect((await zibalProvider.testConnection(config)).success).toBe(true);
+      expect((await zibalProvider.testConnection(config)).success).toBe(false);
     }
   });
 
@@ -185,13 +201,42 @@ describe('zibal verifyPayment', () => {
     });
   });
 
-  it('treats 102/103 and other codes as failures', async () => {
+  it('202 (not paid / failed) and 203 end the payment; a merchant problem or an unknown answer does not', async () => {
+    for (const result of [202, 203]) {
+      mockJson({ result, refNumber: 'ref-1' });
+      expect(await zibalProvider.verifyPayment!(config, verifyParams)).toMatchObject({ verified: false, status: 'failed' });
+    }
     for (const result of [102, 103, 0, -1, '201']) {
       mockJson({ result, refNumber: 'ref-1' });
-      const out = await zibalProvider.verifyPayment!(config, verifyParams);
-      expect(out.verified).toBe(false);
-      expect(out.status).toBe('failed');
+      expect(await zibalProvider.verifyPayment!(config, verifyParams)).toMatchObject({ verified: false, status: 'pending' });
     }
+  });
+
+  it('201 without an amount asks /v1/inquiry, and reports the paid amount it confirms', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ json: async () => ({ result: 201, message: 'already verified' }) })
+      .mockResolvedValueOnce({ json: async () => ({ result: 100, status: 1, amount: 150000, refNumber: 'ref-9' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await zibalProvider.verifyPayment!(config, { trackId: '12345' });
+    expect(out).toEqual({ verified: true, providerRef: 'ref-9', amount: 150000, status: 'already_verified' });
+    expect(fetchMock.mock.calls[1][0]).toBe('https://gateway.zibal.ir/v1/inquiry');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ merchant: 'zibal-merchant-secret', trackId: 12345 });
+  });
+
+  it('201 whose inquiry does not show a verified payment reports no amount (never settles a guess)', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ json: async () => ({ result: 201 }) })
+      .mockResolvedValueOnce({ json: async () => ({ result: 100, status: 2, amount: 150000 }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await zibalProvider.verifyPayment!(config, verifyParams);
+    expect(out.status).toBe('already_verified');
+    expect(out.amount).toBeUndefined();
+  });
+
+  it('sends a numeric trackId as a number, as Zibal documents it', async () => {
+    const fetchMock = mockJson({ result: 100, refNumber: 'r', amount: 1 });
+    await zibalProvider.verifyPayment!(config, { trackId: '3714061657' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).trackId).toBe(3714061657);
   });
 
   it('reports 201 (already verified) as already_verified, never as a fresh success', async () => {
@@ -206,7 +251,7 @@ describe('zibal verifyPayment', () => {
       mockJson({ result });
       const out = await zibalProvider.verifyPayment!(config, verifyParams);
       expect(out.verified).toBe(false);
-      expect(out.status).toBe('failed');
+      expect(out.status).toBe('pending');
     }
   });
 
@@ -229,9 +274,10 @@ describe('zibal verifyPayment', () => {
   });
 
   it('never emits the literal "undefined" as providerRef', async () => {
-    mockJson({ result: 100 });
+    const fetchMock = mockJson({ result: 100 });
     const out = await zibalProvider.verifyPayment!(config, {});
-    expect(out.providerRef).toBe('');
+    expect(out).toEqual({ verified: false, providerRef: '', status: 'failed' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('passes finite amounts through and drops invalid ones', async () => {
@@ -249,14 +295,29 @@ describe('zibal verifyPayment', () => {
     for (const body of ['oops', 42, [], {}]) {
       mockJson(body);
       const out = await zibalProvider.verifyPayment!(config, verifyParams);
-      expect(out).toEqual({ verified: false, providerRef: 'trk-verify-1', amount: undefined, status: 'failed' });
+      expect(out).toEqual({ verified: false, providerRef: 'trk-verify-1', status: 'pending' });
     }
   });
 
-  it('keeps the TypeError for nullish bodies', async () => {
+  it('settles nothing and ends nothing on a nullish body', async () => {
     for (const body of [null, undefined]) {
       mockJson(body);
-      await expect(zibalProvider.verifyPayment!(config, verifyParams)).rejects.toThrow(TypeError);
+      expect(await zibalProvider.verifyPayment!(config, verifyParams)).toMatchObject({ verified: false, status: 'pending' });
+    }
+  });
+
+  it('gives up after the timeout with a message naming Zibal', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      })));
+      const pending = zibalProvider.verifyPayment!(config, verifyParams);
+      const assertion = expect(pending).rejects.toThrow('Zibal gateway unreachable: no answer within 20 s');
+      await vi.advanceTimersByTimeAsync(20_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -268,7 +329,7 @@ describe('zibal verifyPayment', () => {
   });
 
   it('does not leak merchant, trackId or body in errors', async () => {
-    mockJson(null);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 500, text: async () => '<html>oops</html>' }));
     const err = await zibalProvider.verifyPayment!(config, verifyParams).catch((e: Error) => e);
     const text = String((err as Error).message);
     expect(text).not.toContain('zibal-merchant-secret');

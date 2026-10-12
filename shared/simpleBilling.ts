@@ -49,6 +49,21 @@ export function chargeFor(netMinor: number, vatPercent: number | null): { net: n
   return { net: netMinor, tax, total: netMinor + tax };
 }
 
+/**
+ * `charge` landed on whole Toman (a multiple of 10 Rial), for a gateway that
+ * charges only whole Toman (PayPing). The net (the credit) never changes:
+ * the remainder comes off the VAT, or, when the VAT is smaller than it, the
+ * VAT is rounded up to the next Toman (at most 9 Rial). Without VAT an amount
+ * that is not whole Toman cannot be charged there: null.
+ */
+export function wholeTomanCharge(charge: { net: number; tax: number; total: number }): { net: number; tax: number; total: number } | null {
+  const rest = charge.total % 10;
+  if (rest === 0) return charge;
+  if (charge.tax <= 0) return null;
+  const tax = charge.tax >= rest ? charge.tax - rest : charge.tax + (10 - rest);
+  return { net: charge.net, tax, total: charge.net + tax };
+}
+
 /** Keys of the buyer's billing profile printed on receipts. */
 export const BILLING_PROFILE_KEYS = [
   'company',

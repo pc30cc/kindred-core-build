@@ -85,7 +85,29 @@ const FINANCIAL = [
   'billing_account_ledger',
   'billing_account_payments',
   'billing_account_cards',
+  'billing_revenue_archive',
+  'billing_ledger_archive',
 ] as const;
+
+/**
+ * 269's archives of the payments and ledger rows of deleted workspaces: what
+ * keeps a closed month of the revenue report from changing. Append-only, and
+ * written by their triggers alone; no migration drops, empties or renames
+ * them, at the top level or inside a function body.
+ */
+const REVENUE_ARCHIVES = ['billing_revenue_archive', 'billing_ledger_archive'] as const;
+const REVENUE_ARCHIVE_TABLE = String.raw`(?:"?public"?\.)?"?(?:${REVENUE_ARCHIVES.join('|')})"?\b`;
+const REVENUE_ARCHIVE_DESTRUCTION = new RegExp(
+  [
+    String.raw`\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:[\w."%]+\s*,\s*)*${REVENUE_ARCHIVE_TABLE}`,
+    String.raw`\bTRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?(?:[\w."%]+\s*,\s*)*${REVENUE_ARCHIVE_TABLE}`,
+    String.raw`\bDELETE\s+FROM\s+(?:ONLY\s+)?${REVENUE_ARCHIVE_TABLE}`,
+    String.raw`\bUPDATE\s+(?:ONLY\s+)?${REVENUE_ARCHIVE_TABLE}\s+SET\b`,
+    String.raw`\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${REVENUE_ARCHIVE_TABLE}\s+(?:SET\s+SCHEMA|RENAME|DROP\s+COLUMN|DISABLE\s+TRIGGER)\b`,
+    String.raw`\bDROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?trg_billing_(?:revenue|ledger)_archive_immutable\s+ON\s+${REVENUE_ARCHIVE_TABLE}(?![\s\S]{0,40}CREATE\s+TRIGGER\s+trg_billing_(?:revenue|ledger)_archive_immutable)`,
+  ].join('|'),
+  'i',
+);
 
 /** The schema 268 moved billing v2's tables into (kept indefinitely). */
 const ARCHIVE = 'billing_v2_archive';
@@ -197,6 +219,11 @@ describe('no migration destroys financial data as it applies', () => {
         expect(offenders).toEqual([]);
       });
 
+      it('nothing drops, empties, rewrites or renames the revenue archives (269) — not even inside a function body', () => {
+        const offenders = files.filter((f) => REVENUE_ARCHIVE_DESTRUCTION.test(code(f.sql))).map((f) => f.file);
+        expect(offenders).toEqual([]);
+      });
+
       it('a financial table leaves public only for the billing v2 archive', () => {
         const offenders = files.flatMap((f) => financialMovedElsewhere(code(f.sql)).map((m) => `${f.file}: ${m}`));
         expect(offenders).toEqual([]);
@@ -235,6 +262,37 @@ describe('no migration destroys financial data as it applies', () => {
     );
     expect(sql268).toMatch(/ALTER TABLE public\.%I SET SCHEMA billing_v2_archive/);
     expect(ARCHIVE_DESTRUCTION.test(code(sql268))).toBe(false);
+  });
+
+  it('the revenue archive rule catches what it is for, and leaves 269 alone', () => {
+    for (const sql of [
+      'DROP TABLE public.billing_revenue_archive;',
+      'drop table if exists x, billing_ledger_archive;',
+      'TRUNCATE billing_revenue_archive;',
+      'TRUNCATE TABLE public.x, public."billing_ledger_archive";',
+      'DELETE FROM public.billing_revenue_archive WHERE true;',
+      'UPDATE public.billing_ledger_archive SET amount_minor = 0;',
+      'ALTER TABLE public.billing_revenue_archive RENAME TO gone;',
+      'ALTER TABLE billing_ledger_archive DISABLE TRIGGER ALL;',
+      'DROP TRIGGER IF EXISTS trg_billing_revenue_archive_immutable ON public.billing_revenue_archive;',
+    ]) {
+      expect(REVENUE_ARCHIVE_DESTRUCTION.test(sql), sql).toBe(true);
+    }
+    for (const sql of [
+      'CREATE TABLE IF NOT EXISTS public.billing_revenue_archive (payment_id uuid PRIMARY KEY);',
+      'INSERT INTO public.billing_revenue_archive (payment_id) VALUES ($1) ON CONFLICT (payment_id) DO NOTHING;',
+      'SELECT a.currency FROM public.billing_ledger_archive a;',
+      'REVOKE ALL ON public.billing_revenue_archive FROM service_role;',
+      'DELETE FROM public.billing_account_payments WHERE id = $1;',
+    ]) {
+      expect(REVENUE_ARCHIVE_DESTRUCTION.test(sql), sql).toBe(false);
+    }
+    const sql269 = readFileSync(
+      join(CHAINS['self-host (database/migrations)'], '269_billing_revenue_archive.sql'),
+      'utf8',
+    );
+    expect(sql269).toMatch(/CREATE TRIGGER trg_billing_revenue_archive_immutable/);
+    expect(REVENUE_ARCHIVE_DESTRUCTION.test(code(sql269))).toBe(false);
   });
 
   it('the deliberate reset still exists, and is still service_role-only', () => {

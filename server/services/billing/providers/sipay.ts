@@ -1,5 +1,6 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
+import { missingSettings, providerFetch, settingText } from './providerHttp.js';
 import crypto from 'crypto';
 
 // ─── Local response parsers (checkout/create path only) ───────────
@@ -54,6 +55,11 @@ function readSipayRefundId(body: unknown): string | undefined {
 /** Currencies Sipay charges (`currency_code`). */
 export const SIPAY_CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
 
+/** What stops Sipay from taking a payment with these settings, or null. */
+export function sipaySettingsProblem(config: BillingProviderConfig | null | undefined): string | null {
+  return missingSettings('Sipay', config, [['merchant_key', 'Merchant Key'], ['app_key', 'App Key'], ['app_secret', 'App Secret']]);
+}
+
 export const sipayProvider: BillingProviderHandler = {
   name: 'sipay',
   capabilities: {
@@ -73,7 +79,7 @@ export const sipayProvider: BillingProviderHandler = {
       .update(`${config.merchant_key}${amount}${currency}${orderId}`)
       .digest('base64');
 
-    const res = await fetch('https://app.sipay.com.tr/ccpayment/api/paySmart3D', {
+    const res = await providerFetch('Sipay', 'https://app.sipay.com.tr/ccpayment/api/paySmart3D', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -121,7 +127,7 @@ export const sipayProvider: BillingProviderHandler = {
     const hashKey = crypto.createHmac('sha256', config.app_secret as string)
       .update(`${config.merchant_key}${paymentId}`)
       .digest('base64');
-    const res = await fetch('https://app.sipay.com.tr/ccpayment/api/refund', {
+    const res = await providerFetch('Sipay', 'https://app.sipay.com.tr/ccpayment/api/refund', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -138,13 +144,21 @@ export const sipayProvider: BillingProviderHandler = {
     return { success: readSipayRefundStatusCode(data) === '100', refundId: readSipayRefundId(data) };
   },
 
+  /** Asks Sipay for an API token with the app key and secret: success only when Sipay issues one (status_code 100). */
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
+    const problem = sipaySettingsProblem(config);
+    if (problem) return { success: false, latencyMs: 0, error: problem };
     try {
-      if (!config.merchant_key || !config.app_key || !config.app_secret) {
-        return { success: false, latencyMs: Date.now() - start, error: 'Missing credentials' };
-      }
-      return { success: true, latencyMs: Date.now() - start };
+      const res = await providerFetch('Sipay', 'https://app.sipay.com.tr/ccpayment/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ app_id: settingText(config.app_key), app_secret: settingText(config.app_secret) }),
+      });
+      const data: unknown = await res.json().catch(() => null);
+      const code = readSipayRefundStatusCode(data);
+      if (String(code) === '100') return { success: true, latencyMs: Date.now() - start };
+      return { success: false, latencyMs: Date.now() - start, error: `Sipay${code !== undefined ? ` ${code}` : ` HTTP ${res.status}`}: ${readSipayError(data) || 'token refused'}` };
     } catch (e: unknown) {
       return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }

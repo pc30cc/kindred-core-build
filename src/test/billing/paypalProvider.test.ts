@@ -6,7 +6,7 @@ import {
   readPayPalOAuthError,
 } from '../../../server/services/billing/providers/paypal.js';
 
-const config = { provider: 'paypal', client_id: 'client-id-mock', client_secret: 'client-secret-mock', sandbox: true };
+const config = { provider: 'paypal', client_id: 'client-id-mock', client_secret: 'client-secret-mock', webhook_id: 'WH-MOCK', sandbox: true };
 
 function mockJson(body: unknown, ok = true) {
   const fn = vi.fn().mockResolvedValue({ ok, status: ok ? 200 : 401, json: async () => body });
@@ -389,7 +389,7 @@ describe('paypal verifyWebhook (verify-webhook-signature API)', () => {
 
   it('is not verified without a configured webhook id or the transmission headers', async () => {
     const fn = mockVerification('SUCCESS');
-    await expect(paypalProvider.verifyWebhook(config, transmission, JSON.stringify(capture))).resolves.toBeNull();
+    await expect(paypalProvider.verifyWebhook({ ...config, webhook_id: '' }, transmission, JSON.stringify(capture))).resolves.toBeNull();
     await expect(paypalProvider.verifyWebhook(webhookConfig, {}, JSON.stringify(capture))).resolves.toBeNull();
     expect(fn).not.toHaveBeenCalled();
   });
@@ -610,4 +610,23 @@ describe('readPayPalRefundId', () => {
   it.each([null, undefined, 'x', 4, [], {}, { id: '' }, { id: 5 }, { id: true }, { id: {} }])(
     'rejects %#', (b) => expect(readPayPalRefundId(b)).toBeUndefined()
   );
+});
+
+describe('paypal Sandbox Mode is read strictly (Part C)', () => {
+  it('the stored string "false" talks to the live host (a truthiness check sent it to the sandbox)', async () => {
+    clearPayPalTokenCache();
+    const fn = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ access_token: 'tok', expires_in: 3600 }) }));
+    vi.stubGlobal('fetch', fn);
+    await paypalProvider.testConnection({ ...config, sandbox: 'false' });
+    expect((fn.mock.calls[0] as unknown as [string])[0]).toBe('https://api-m.paypal.com/v1/oauth2/token');
+    await paypalProvider.testConnection({ ...config, sandbox: 'true' });
+    expect((fn.mock.calls[1] as unknown as [string])[0]).toBe('https://api-m.sandbox.paypal.com/v1/oauth2/token');
+  });
+
+  it('the connection test checks the settings first', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await paypalProvider.testConnection({ provider: 'paypal', client_id: 'x' })).error).toBe('PayPal: Client Secret, Webhook ID are empty.');
+    expect(fn).not.toHaveBeenCalled();
+  });
 });

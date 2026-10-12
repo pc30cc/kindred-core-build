@@ -31,6 +31,15 @@ const report: GatewayReadinessReport = {
     currencies: ['USD'],
     listing: { USD: { listed: false, reasons: ['not_configured'], problem: 'Paddle: Webhook Secret Key is empty.' } },
     card_auto_renew: true,
+  }, {
+    provider_name: 'sep_shaparak',
+    display_name: { en: 'SEP' },
+    is_active: false,
+    is_test: false,
+    implemented: true,
+    currencies: ['IRR'],
+    listing: { USD: { listed: false, reasons: ['not_in_edition', 'inactive'] } },
+    note: 'SEP (Saman) did not answer from the production server (Canada) within 15 s.',
   }],
 };
 
@@ -46,5 +55,12 @@ describe('GatewaysReadinessCard', () => {
     expect(screen.getByTestId('gateway-settings-problem').textContent).toBe('Paddle: Webhook Secret Key is empty.');
     const link = screen.getByText('Settings incomplete').closest('a');
     expect(link?.getAttribute('href')).toBe('/admin/providers?type=billing&provider=paddle');
+  });
+
+  it('shows a gateway\'s caveat (Part C: SEP and IDPay did not answer from the production server)', () => {
+    render(<MemoryRouter><GatewaysReadinessCard /></MemoryRouter>);
+    const notes = screen.getAllByTestId('gateway-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0].textContent).toMatch(/did not answer from the production server/);
   });
 });

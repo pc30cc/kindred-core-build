@@ -7,6 +7,7 @@ import {
   readIdPayCheckoutLink,
   readIdPayCheckoutId,
 } from '../../../server/services/billing/providers/idpay';
+import { idpayTestProvider } from '../../../server/services/billing/providers/idpay-test';
 import type { BillingProviderConfig, CheckoutRequest } from '../../../server/services/billing/types';
 
 const API_KEY = 'test-api-key-MOCK';
@@ -81,10 +82,11 @@ describe('idpay createCheckoutSession', () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://api.idpay.ir/v1.1/payment');
     expect(init.method).toBe('POST');
+    // Live IDPay never runs the sandbox, whatever its stored switch says.
     expect(init.headers).toEqual({
       'Content-Type': 'application/json',
       'X-API-KEY': API_KEY,
-      'X-SANDBOX': '1',
+      'X-SANDBOX': '0',
     });
     expect(JSON.parse(init.body as string)).toEqual({
       order_id: 'ws-1_pro_1700000000000',
@@ -96,11 +98,24 @@ describe('idpay createCheckoutSession', () => {
     });
   });
 
-  it('sends X-SANDBOX 0 in production mode', async () => {
+  it('live IDPay ignores a stored sandbox switch (the string "false" used to read as on); idpay_test always runs the sandbox', async () => {
+    for (const sandbox of [false, true, 'false', 'true']) {
+      const fetchMock = mockJson({ id: 'a', link: 'https://idpay.ir/p/a' });
+      await idpayProvider.createCheckoutSession({ provider: 'idpay', api_key: API_KEY, sandbox }, checkoutReq);
+      const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect((init.headers as Record<string, string>)['X-SANDBOX']).toBe('0');
+    }
     const fetchMock = mockJson({ id: 'a', link: 'https://idpay.ir/p/a' });
-    await idpayProvider.createCheckoutSession({ provider: 'idpay', api_key: API_KEY, sandbox: false }, checkoutReq);
+    await idpayTestProvider.createCheckoutSession({ provider: 'idpay_test', sandbox: 'false' }, checkoutReq);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect((init.headers as Record<string, string>)['X-SANDBOX']).toBe('0');
+    expect((init.headers as Record<string, string>)['X-SANDBOX']).toBe('1');
+  });
+
+  it('uses the payment id as the order id when there is one', async () => {
+    const fetchMock = mockJson({ id: 'a', link: 'https://idpay.ir/p/a' });
+    await idpayProvider.createCheckoutSession(config, { ...checkoutReq, intentId: 'pay-1' });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string).order_id).toBe('pay-1');
   });
 
   it('defaults amount to 0 when metadata amount is absent', async () => {
@@ -177,36 +192,35 @@ describe('idpay createCheckoutSession', () => {
 });
 
 describe('idpay testConnection', () => {
-  it('succeeds when no auth error code is present', async () => {
+  it('succeeds only when IDPay answers a payment link', async () => {
     mockJson({ id: 'test', link: 'https://idpay.ir/p/test' });
     const r = await idpayProvider.testConnection(config);
     expect(r.success).toBe(true);
     expect(typeof r.latencyMs).toBe('number');
   });
 
-  it.each([[11], [12]])('reports invalid API key for error_code %s', async (code) => {
+  it.each([
+    [11, 'IDPay 11 (the user is blocked)'],
+    [12, 'IDPay 12 (the API key was not found)'],
+    [34, 'IDPay 34'],
+  ])('reports IDPay error %s by its meaning', async (code, error) => {
     mockJson({ error_code: code });
     const r = await idpayProvider.testConnection(config);
-    expect(r).toEqual({ success: false, latencyMs: 0, error: 'Invalid API key' });
+    expect(r).toEqual({ success: false, latencyMs: 0, error });
   });
 
-  it('treats string error codes as success (unchanged strict-equality semantics)', async () => {
-    mockJson({ error_code: '12' });
-    await expect(idpayProvider.testConnection(config)).resolves.toMatchObject({ success: true });
-  });
-
-  it.each([[{}], [[]], ['oops'], [{ error_code: { a: 1 } }], [{ error_code: 34 }]])(
-    'treats non-auth/malformed bodies as success %#',
+  it.each([[{}], [[]], ['oops'], [{ error_code: { a: 1 } }], [{ error_code: '12' }], [null]])(
+    'is not a success on a malformed body %# (it used to pass)',
     async (body) => {
       mockJson(body);
-      await expect(idpayProvider.testConnection(config)).resolves.toMatchObject({ success: true });
+      await expect(idpayProvider.testConnection(config)).resolves.toMatchObject({ success: false });
     }
   );
 
-  it('returns failure on nullish body', async () => {
-    mockJson(null);
-    const r = await idpayProvider.testConnection(config);
-    expect(r.success).toBe(false);
+  it('fails without an API key, without calling IDPay', async () => {
+    const fn = mockJson({ id: 'test', link: 'https://idpay.ir/p/test' });
+    expect((await idpayProvider.testConnection({ provider: 'idpay' })).error).toBe('IDPay: API key is empty.');
+    expect(fn).not.toHaveBeenCalled();
   });
 
   it('returns failure on network error without leaking the API key', async () => {
@@ -232,7 +246,7 @@ describe('idpay verifyPayment', () => {
     expect(init.headers).toEqual({
       'Content-Type': 'application/json',
       'X-API-KEY': API_KEY,
-      'X-SANDBOX': '1',
+      'X-SANDBOX': '0',
     });
     expect(JSON.parse(init.body as string)).toEqual({ id: 'pay-MOCK-1', order_id: 'ws-1_pro_1700000000000' });
     expect(r).toEqual({ verified: true, providerRef: 'trk-MOCK', amount: 150000, status: 'success' });
@@ -255,16 +269,32 @@ describe('idpay verifyPayment', () => {
     expect((init.headers as Record<string, string>)['X-SANDBOX']).toBe('0');
   });
 
-  it.each([[200], [0], [-1], ['100'], ['101'], [{ code: 100 }], [true], [undefined]])(
-    'treats non-numeric/other status %# as unverified failure',
+  it('reports status 200 (verified and settled) as already_verified', async () => {
+    mockJson({ status: 200, track_id: 'trk-MOCK', amount: 150000 });
+    await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toMatchObject({ verified: true, status: 'already_verified' });
+  });
+
+  it.each([[0], [-1], [7]])('ends the payment on a numeric status below 100 (%s)', async (status) => {
+    mockJson({ status, track_id: 'trk-MOCK' });
+    await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toMatchObject({ verified: false, status: 'failed' });
+  });
+
+  it.each([['100'], ['101'], [{ code: 100 }], [true], [undefined]])(
+    'settles nothing and ends nothing on a non-numeric status %#',
     async (status) => {
       mockJson({ status, track_id: 'trk-MOCK' });
       await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toMatchObject({
         verified: false,
-        status: 'failed',
+        status: 'pending',
       });
     }
   );
+
+  it('a return without the payment id is not sent to IDPay', async () => {
+    const fn = mockJson({ status: 100 });
+    await expect(idpayProvider.verifyPayment!(config, { order_id: 'x' })).resolves.toEqual({ verified: false, providerRef: '', status: 'failed' });
+    expect(fn).not.toHaveBeenCalled();
+  });
 
   it.each([
     [{ status: 100, track_id: 'trk-MOCK' }, 'trk-MOCK'],
@@ -294,19 +324,24 @@ describe('idpay verifyPayment', () => {
   });
 
   it.each([[{}], [[]], ['oops'], [7], [{ error_code: 12, error_message: 'bad key' }]])(
-    'handles malformed verify bodies %#',
+    'settles nothing and ends nothing on a malformed body or a key error %#',
     async (body) => {
       mockJson(body);
       await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toEqual({
         verified: false,
         providerRef: '',
         amount: undefined,
-        status: 'failed',
+        status: 'pending',
       });
     }
   );
 
-  it.each([[null], [undefined]])('throws TypeError on nullish verify body (%#)', async (body) => {
+  it('error 53 (not paid) ends the payment', async () => {
+    mockJson({ error_code: 53, error_message: 'not paid' });
+    await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toMatchObject({ verified: false, status: 'failed' });
+  });
+
+  it.each([[null], [undefined]])('throws TypeError on an empty verify body (%#)', async (body) => {
     mockJson(body);
     await expect(idpayProvider.verifyPayment!(config, verifyParams)).rejects.toThrow(TypeError);
   });

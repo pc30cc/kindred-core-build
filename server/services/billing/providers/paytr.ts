@@ -1,5 +1,6 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import { minorToMajorString, requireSupportedCurrency } from './minorAmount.js';
+import { isSettingOn, missingSettings, providerFetch, settingText } from './providerHttp.js';
 import crypto from 'crypto';
 
 // Local, PayTR-specific parsers for the get-token response only.
@@ -69,6 +70,56 @@ export function workspaceIdFromPaytrOid(oid: string): string | undefined {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/** What stops PayTR from taking a payment with these settings, or null. */
+export function paytrSettingsProblem(config: BillingProviderConfig | null | undefined): string | null {
+  return missingSettings('PayTR', config, [['merchant_id', 'Mağaza No'], ['merchant_key', 'Mağaza Anahtarı'], ['merchant_salt', 'Mağaza Salt']]);
+}
+
+/** Test Modu on (read strictly): PayTR's test_mode=1, no money moves. */
+export function paytrTestMode(config: BillingProviderConfig | null | undefined): boolean {
+  return isSettingOn(config?.sandbox);
+}
+
+/** The iFrame token request PayTR expects (exported for the connection test). */
+export function paytrTokenParams(
+  config: BillingProviderConfig,
+  input: { orderId: string; userIp: string; email: string; amountMinor: number; currency: string; okUrl: string; failUrl: string; basketName: string; userName: string; userPhone: string; testMode: boolean },
+): URLSearchParams {
+  const merchantId = settingText(config.merchant_id);
+  const merchantKey = settingText(config.merchant_key);
+  const merchantSalt = settingText(config.merchant_salt);
+  const currency = input.currency;
+  const noInstallment = currency === 'TL' ? '0' : '1';
+  const maxInstallment = currency === 'TL' ? '12' : '0';
+  const testMode = input.testMode ? '1' : '0';
+  // `payment_amount` is the minor unit (kuruş / cent); a basket line price is decimal.
+  const basketJson = Buffer.from(JSON.stringify([[input.basketName, minorToMajorString(input.amountMinor), 1]])).toString('base64');
+  // PayTR iFrame API token: HMAC-SHA256(merchant_key) over merchant_id, user_ip,
+  // merchant_oid, email, payment_amount, user_basket, no_installment,
+  // max_installment, currency, test_mode — then merchant_salt.
+  const hashStr = `${merchantId}${input.userIp}${input.orderId}${input.email}${input.amountMinor}${basketJson}${noInstallment}${maxInstallment}${currency}${testMode}${merchantSalt}`;
+  const token = crypto.createHmac('sha256', merchantKey).update(hashStr).digest('base64');
+  const params = new URLSearchParams();
+  params.set('merchant_id', merchantId);
+  params.set('user_ip', input.userIp);
+  params.set('merchant_oid', input.orderId);
+  params.set('email', input.email);
+  params.set('payment_amount', String(input.amountMinor));
+  params.set('paytr_token', token);
+  params.set('user_basket', basketJson);
+  params.set('debug_on', input.testMode ? '1' : '0');
+  params.set('no_installment', noInstallment);
+  params.set('max_installment', maxInstallment);
+  params.set('currency', currency);
+  params.set('test_mode', testMode);
+  params.set('merchant_ok_url', input.okUrl);
+  params.set('merchant_fail_url', input.failUrl);
+  params.set('user_name', input.userName);
+  params.set('user_phone', input.userPhone);
+  params.set('user_address', 'Turkey');
+  return params;
+}
+
 export const paytrProvider: BillingProviderHandler = {
   name: 'paytr',
   capabilities: {
@@ -81,48 +132,24 @@ export const paytrProvider: BillingProviderHandler = {
   webhookAckBody: 'OK',
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    const merchantId = config.merchant_id as string;
-    const merchantKey = config.merchant_key as string;
-    const merchantSalt = config.merchant_salt as string;
     // The amount is priced in `req.currency`; it is sent under that code only.
     const currency = paytrCurrencyParam(requireSupportedCurrency('PayTR', req.currency, PAYTR_CURRENCIES));
     const amount = parseInt(String(req.metadata?.amount || '0'));
-    const orderId = paytrMerchantOid(req.workspaceId);
-    const userIp = req.metadata?.ip || '127.0.0.1';
-    const email = req.customerEmail || 'user@example.com';
-    // Installments exist for lira cards only.
-    const noInstallment = currency === 'TL' ? '0' : '1';
-    const maxInstallment = currency === 'TL' ? '12' : '0';
-    const testMode = config.sandbox ? '1' : '0';
+    const params = paytrTokenParams(config, {
+      orderId: paytrMerchantOid(req.workspaceId),
+      userIp: req.metadata?.ip || '127.0.0.1',
+      email: req.customerEmail || 'user@example.com',
+      amountMinor: amount,
+      currency,
+      okUrl: req.callbackUrl,
+      failUrl: req.callbackUrl,
+      basketName: `Plan ${req.planId}`,
+      userName: req.customerName || 'User',
+      userPhone: req.metadata?.phone || '',
+      testMode: paytrTestMode(config),
+    });
 
-    // `payment_amount` is the minor unit (kuruş / cent); a basket line price is decimal.
-    const basketJson = Buffer.from(JSON.stringify([[`Plan ${req.planId}`, minorToMajorString(amount), 1]])).toString('base64');
-    // PayTR iFrame API token: HMAC-SHA256(merchant_key) over merchant_id, user_ip,
-    // merchant_oid, email, payment_amount, user_basket, no_installment,
-    // max_installment, currency, test_mode — then merchant_salt.
-    const hashStr = `${merchantId}${userIp}${orderId}${email}${amount}${basketJson}${noInstallment}${maxInstallment}${currency}${testMode}${merchantSalt}`;
-    const token = crypto.createHmac('sha256', merchantKey).update(hashStr).digest('base64');
-
-    const params = new URLSearchParams();
-    params.set('merchant_id', merchantId);
-    params.set('user_ip', userIp);
-    params.set('merchant_oid', orderId);
-    params.set('email', email);
-    params.set('payment_amount', String(amount));
-    params.set('paytr_token', token);
-    params.set('user_basket', basketJson);
-    params.set('debug_on', config.sandbox ? '1' : '0');
-    params.set('no_installment', noInstallment);
-    params.set('max_installment', maxInstallment);
-    params.set('currency', currency);
-    params.set('test_mode', testMode);
-    params.set('merchant_ok_url', req.callbackUrl);
-    params.set('merchant_fail_url', req.callbackUrl);
-    params.set('user_name', req.customerName || 'User');
-    params.set('user_phone', req.metadata?.phone || '');
-    params.set('user_address', 'Turkey');
-
-    const res = await fetch('https://www.paytr.com/odeme/api/get-token', {
+    const res = await providerFetch('PayTR', 'https://www.paytr.com/odeme/api/get-token', {
       method: 'POST',
       body: params,
     });
@@ -168,23 +195,33 @@ export const paytrProvider: BillingProviderHandler = {
     };
   },
 
+  /**
+   * A real iFrame token request in PayTR's test mode (no money moves):
+   * success only when PayTR issues a token, so a wrong store number, key or
+   * salt fails with PayTR's own reason.
+   */
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
+    const problem = paytrSettingsProblem(config);
+    if (problem) return { success: false, latencyMs: 0, error: problem };
     try {
-      // PayTR doesn't have a health endpoint; validate credentials format
-      if (!config.merchant_id || !config.merchant_key || !config.merchant_salt) {
-        return { success: false, latencyMs: Date.now() - start, error: 'Missing required credentials' };
-      }
-      // Try a minimal token request
-      const res = await fetch('https://www.paytr.com/odeme/api/get-token', { method: 'POST', body: new URLSearchParams({ merchant_id: config.merchant_id as string }) });
-      const data = await res.json();
-      // Any response means endpoint is reachable
-      const record = readPayTrRecord(data);
-      const reason = readPayTrCreateError(record);
-      if (readPayTrCreateStatus(record) === 'error' && reason?.includes('Üye işyeri')) {
-        return { success: false, latencyMs: Date.now() - start, error: 'Invalid merchant credentials' };
-      }
-      return { success: true, latencyMs: Date.now() - start };
+      const params = paytrTokenParams(config, {
+        orderId: `TEST${Date.now()}`,
+        userIp: '127.0.0.1',
+        email: 'connection-test@example.com',
+        amountMinor: 100,
+        currency: 'TL',
+        okUrl: 'https://test.localhost/ok',
+        failUrl: 'https://test.localhost/fail',
+        basketName: 'Connection test',
+        userName: 'Connection test',
+        userPhone: '0000000000',
+        testMode: true,
+      });
+      const res = await providerFetch('PayTR', 'https://www.paytr.com/odeme/api/get-token', { method: 'POST', body: params });
+      const record = readPayTrRecord(await res.json());
+      if (readPayTrCreateStatus(record) === 'success' && readPayTrCreateToken(record)) return { success: true, latencyMs: Date.now() - start };
+      return { success: false, latencyMs: Date.now() - start, error: `PayTR: ${readPayTrCreateError(record) || 'token refused'}` };
     } catch (e: unknown) {
       return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }

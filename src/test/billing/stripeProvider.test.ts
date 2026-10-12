@@ -409,7 +409,7 @@ describe('stripe testConnection', () => {
     mockJson({ error: { message: 'Invalid API Key provided' } }, false);
     const result = await stripeProvider.testConnection(config);
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Invalid API Key provided');
+    expect(result.error).toMatch(/^Stripe HTTP \d+: Invalid API Key provided$/);
   });
 
   it.each([
@@ -417,11 +417,18 @@ describe('stripe testConnection', () => {
     ['null', null],
     ['array', []],
     ['primitive', 1],
-  ])('returns undefined error for malformed failure body %s', async (_label, body) => {
+  ])('names the refusal for a malformed failure body %s', async (_label, body) => {
     mockJson(body, false);
     const result = await stripeProvider.testConnection(config);
     expect(result.success).toBe(false);
-    expect(result.error).toBeUndefined();
+    expect(result.error).toMatch(/request refused/);
+  });
+
+  it('checks the settings first, without calling Stripe', async () => {
+    const fetchMock = mockJson({ object: 'balance' });
+    expect((await stripeProvider.testConnection({ provider: 'stripe', secret_key: 'pk_live_x', webhook_secret: WEBHOOK_SECRET })).error).toMatch(/publishable/);
+    expect((await stripeProvider.testConnection({ provider: 'stripe', secret_key: SECRET })).error).toBe('Stripe: Webhook Signing Secret is empty.');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns failure on network error', async () => {

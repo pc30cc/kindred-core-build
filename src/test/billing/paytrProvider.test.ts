@@ -229,27 +229,35 @@ describe('paytr createCheckoutSession (network failure)', () => {
 });
 
 describe('paytr testConnection', () => {
-  it('fails fast when credentials are missing', async () => {
+  it('fails fast when credentials are missing, naming them', async () => {
     const fetchMock = mockJson({ status: 'error' });
     const res = await paytrProvider.testConnection({ provider: 'paytr' });
     expect(res.success).toBe(false);
-    expect(res.error).toBe('Missing required credentials');
+    expect(res.error).toBe('PayTR: Mağaza No, Mağaza Anahtarı, Mağaza Salt are empty.');
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it('reports invalid credentials on the known provider reason', async () => {
-    mockJson({ status: 'error', reason: 'Üye işyeri bulunamadı' });
-    const res = await paytrProvider.testConnection(config);
-    expect(res.success).toBe(false);
-    expect(res.error).toBe('Invalid merchant credentials');
-  });
-  it('treats any other reachable response as success', async () => {
-    mockJson({ status: 'error', reason: 'zorunlu alan eksik' });
+  it('asks for a real iFrame token in test mode, signed with the stored key and salt', async () => {
+    const fetchMock = mockJson({ status: 'success', token: 'tok' });
     const res = await paytrProvider.testConnection(config);
     expect(res.success).toBe(true);
+    const params = new URLSearchParams(String(fetchMock.mock.calls[0][1].body));
+    expect(params.get('test_mode')).toBe('1');
+    expect(params.get('paytr_token')).toBeTruthy();
   });
-  it('handles a non-string reason without throwing', async () => {
+  it('reports PayTR\'s reason (any refusal used to pass)', async () => {
+    mockJson({ status: 'failed', reason: 'paytr_token gecersiz' });
+    expect(await paytrProvider.testConnection(config)).toMatchObject({ success: false, error: 'PayTR: paytr_token gecersiz' });
     mockJson({ status: 'error', reason: { a: 1 } });
-    const res = await paytrProvider.testConnection(config);
-    expect(res.success).toBe(true);
+    expect(await paytrProvider.testConnection(config)).toMatchObject({ success: false, error: 'PayTR: token refused' });
+  });
+});
+
+describe('paytr Test Modu is read strictly (Part C)', () => {
+  it('the stored string "false" creates a live token (test_mode 0)', async () => {
+    const fetchMock = mockJson({ status: 'success', token: 'tok' });
+    await paytrProvider.createCheckoutSession({ ...config, sandbox: 'false' }, req);
+    const params = new URLSearchParams(String(fetchMock.mock.calls[0][1].body));
+    expect(params.get('test_mode')).toBe('0');
+    expect(params.get('debug_on')).toBe('0');
   });
 });

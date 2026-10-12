@@ -228,9 +228,18 @@ describe('lemon squeezy cancelSubscription', () => {
 });
 
 describe('lemon squeezy testConnection', () => {
+  const tcConfig = { ...config, webhook_secret: 'whsec' };
+
+  it('checks the settings first (the webhook secret confirms its payments), without calling Lemon Squeezy', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await lemonSqueezyProvider.testConnection!(config)).error).toBe('Lemon Squeezy: Webhook Signing Secret is empty.');
+    expect(fn).not.toHaveBeenCalled();
+  });
+
   it('succeeds on a valid store response and keeps the endpoint', async () => {
     const fetchMock = mockFetch(200, { data: { type: 'stores', id: MOCK_STORE_ID, attributes: { name: 'Mock Store' } } });
-    const result = await lemonSqueezyProvider.testConnection!(config);
+    const result = await lemonSqueezyProvider.testConnection!(tcConfig);
     expect(result.success).toBe(true);
     const { url, init } = firstCall(fetchMock);
     expect(url).toBe(`https://api.lemonsqueezy.com/v1/stores/${MOCK_STORE_ID}`);
@@ -239,14 +248,14 @@ describe('lemon squeezy testConnection', () => {
 
   it('fails with the error detail', async () => {
     mockFetch(401, { errors: [{ detail: 'Unauthenticated.' }] });
-    const result = await lemonSqueezyProvider.testConnection!(config);
+    const result = await lemonSqueezyProvider.testConnection!(tcConfig);
     expect(result.success).toBe(false);
     expect(result.error).toBe('Unauthenticated.');
   });
 
   it('fails with undefined detail when the error entry has none', async () => {
     mockFetch(401, { errors: [{ title: 'Unauthorized' }] });
-    const result = await lemonSqueezyProvider.testConnection!(config);
+    const result = await lemonSqueezyProvider.testConnection!(tcConfig);
     expect(result).toMatchObject({ success: false, error: undefined });
   });
 
@@ -256,21 +265,21 @@ describe('lemon squeezy testConnection', () => {
     ['array', []],
   ])('treats malformed body without errors (%s) as success, as before', async (_label, body) => {
     mockFetch(200, body);
-    const result = await lemonSqueezyProvider.testConnection!(config);
+    const result = await lemonSqueezyProvider.testConnection!(tcConfig);
     expect(result.success).toBe(true);
   });
 
   it('returns failure without retrying on network errors', async () => {
     const fn = vi.fn(async () => { throw new Error('network down'); });
     vi.stubGlobal('fetch', fn);
-    const result = await lemonSqueezyProvider.testConnection!(config);
+    const result = await lemonSqueezyProvider.testConnection!(tcConfig);
     expect(result).toMatchObject({ success: false, error: 'network down' });
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
   it('does not leak the api key in the failure result', async () => {
     mockFetch(401, { errors: [{ detail: 'Unauthenticated.' }] });
-    const result = await lemonSqueezyProvider.testConnection!(config);
+    const result = await lemonSqueezyProvider.testConnection!(tcConfig);
     expect(JSON.stringify(result)).not.toContain(MOCK_API_KEY);
   });
 });
@@ -365,5 +374,16 @@ describe('lemon squeezy verifyWebhook event mapping', () => {
   it('events this platform does not act on are acknowledged as ignored', async () => {
     const event = await map({ meta: { ...meta, event_name: 'license_key_created' }, data: { id: '5' } });
     expect(event?.type).toBe('ignored');
+  });
+});
+
+describe('lemon squeezy Test Mode is read strictly (Part C)', () => {
+  it('the stored string "false" creates a live checkout', async () => {
+    for (const [test_mode, expected] of [['false', false], [false, false], ['true', true], [true, true]] as const) {
+      const fetchMock = mockFetch(201, { data: { id: 'chk', attributes: { url: 'https://x.lemonsqueezy.com/checkout/c' } } });
+      await lemonSqueezyProvider.createCheckoutSession({ ...config, test_mode }, req);
+      const body = JSON.parse(String(firstCall(fetchMock).init.body));
+      expect(body.data.attributes.test_mode === true).toBe(expected);
+    }
   });
 });

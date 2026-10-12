@@ -5,7 +5,7 @@ Only two gateways are going live:
 - **ZarinPal**, for WebYar (Iran edition, IRR).
 - **Paddle**, for RESPOK (International edition, USD/EUR), with automatic card renewal.
 
-All other gateways stay in the Providers portal but **inactive** in Finance → Gateways. That covers Zibal, PayPing, NextPay, SEP, IDPay, Stripe, PayPal, Lemon Squeezy, iyzico, PayTR, Sipay, Paratika, Craftgate and manual. They will be checked when each one is switched on later. Do not switch them on.
+All other gateways stay in the Providers portal but **inactive** in Finance → Gateways. That covers Zibal, PayPing, NextPay, SEP, IDPay, Stripe, PayPal, Lemon Squeezy, iyzico, PayTR, Sipay, Paratika, Craftgate and manual. Do not switch them on yet. They were audited against their providers' current APIs in October 2026; section 4 says, for each one, what to enter, where, and what to know before it is switched on.
 
 Live and test are separate gateways that run the same code:
 
@@ -137,3 +137,138 @@ These are refused on save, with a message saying why:
 3. Make a small **real** payment, check it with the smoke test, and refund it if wanted.
 4. Switch the test gateways off: `zarinpal_test` and `internal_test` on WebYar, `paddle_sandbox` on RESPOK (or keep it admins-only).
 5. Leave every other gateway inactive.
+
+---
+
+## 4. The other gateways (inactive; for when they are switched on)
+
+What every one of them now has, the same as ZarinPal and Paddle:
+
+- **Settings check.** Each gateway's required credentials are checked (`gatewaySettingsProblem`, `server/services/billing/account/gateways.ts`). An active gateway with an empty or wrong field is not offered to customers. The readiness card shows **Settings incomplete** and names the field.
+- **Test mode is admins-only.** A Stripe test key (`sk_test_…`) or a sandbox switch (PayPal, iyzico, PayTR, Craftgate, Lemon Squeezy Test Mode) puts the gateway in its provider's test mode. Customers are not offered it; Super Admins are, so they can try it.
+- **Switches are read strictly.** The Providers screen stores toggles as strings, and the string `'false'` used to read as on. That is the defect that sent live ZarinPal to its sandbox. Now only `true`, `'true'`, `'1'`, `'on'` and `'yes'` are on, for every gateway.
+- **Timeouts.** Every call to a gateway gives up after **20 s**, except SEP's verify, which waits up to **120 s**: SEP does not undo a verify, and a retry only gets "already verified" (ResultCode 2), which settles nothing on its own. Checkout then fails with "<gateway> gateway unreachable: no answer within 20 s" instead of holding the customer's page. A non-JSON answer (an HTML error page, a firewall) is reported with the gateway's name and HTTP status.
+- **A real Test button.** **Test** in Providers makes a real call: a payment request that is never paid, a token request, or a signed lookup. It shows success only when the gateway accepts it; otherwise it shows the gateway's own code and message. Before, several of them reported success for almost any answer, and Sipay's never called Sipay at all.
+- **Readiness notes.** The card shows a caveat under some gateways (IDPay, SEP, PayPing, and the gateways that cannot take account payments).
+
+### Callback addresses
+
+| Gateway | WebYar (Iran) | RESPOK (International) |
+|---|---|---|
+| Zibal, NextPay (the customer comes back with a GET) | `https://app.webyar.ai/<workspace>/billing?payment=<id>&provider=<name>&…` | not offered |
+| SEP, IDPay, PayPing (the result is POSTed as a form) | `https://api.webyar.ai/api/billing/account-return?payment=<id>&provider=<name>` | not offered |
+| Stripe, PayPal (return pages) | (not offered in Iran) | `https://app.respok.app/<workspace>/billing?payment=<id>&provider=<name>&…` |
+| Webhooks (Stripe, PayPal, Lemon Squeezy, PayTR) | (not offered in Iran) | `https://api.respok.app/api/billing/webhook/<name>` |
+
+The app's billing page cannot receive a POST. So SEP, IDPay and PayPing send their result to the API's **return hop**. The hop accepts the form or a GET query, flattens PayPing's `data` JSON, and redirects (303) to the payment's own billing page on this platform's app; it redirects nowhere else. Register **both** `app.webyar.ai` and `api.webyar.ai` as the website/callback domain wherever a panel asks. The Test button sends the same callback a real checkout sends, so a domain the gateway refuses fails there.
+
+### "Already verified"
+
+Zibal, NextPay, IDPay and PayPing verify by the reference stored on the payment, like ZarinPal. If a verify takes the money but its answer is lost (a restart, a network cut, the 20 s timeout), the next try gets "already verified": Zibal 201, NextPay -49, IDPay 101 or 200, PayPing 409 with code 110. That answer settles the pending payment once, under the same amount and unique-reference checks. Zibal's 201 carries no amount, so the amount is read from Zibal's `/v1/inquiry`. If no amount can be read, the payment stays pending and is logged `REVIEW`; it is not failed. SEP verifies by a second, unbound reference (`RefNum`), so its "already verified" (ResultCode 2) still settles nothing on its own (logged `REVIEW`). That is why SEP's verify waits 120 s instead of 20 s. If a `REVIEW ... gateway says already verified` line still appears for SEP, the customer has paid: check the payment in SEP's panel and settle it by hand (Finance → the account → credit the amount, category `correction`, the RefNum in the reason).
+
+---
+
+### 4.1 Zibal (WebYar, IRR)
+
+| Field in Providers | Where to get it |
+|---|---|
+| **Merchant code** (`merchant`, required) | Zibal panel → the gateway → merchant code. The merchant `zibal` is Zibal's sandbox (any payment "succeeds", no money moves), so it is refused on save and on the card. |
+
+- API: `gateway.zibal.ir/v1/request`, `/start/{trackId}`, `/v1/verify`, `/v1/inquiry`. Amounts are **Rial**, sent as is.
+- Callback: GET to the app's billing page (`trackId`, `success`, `status`, `orderId`). Register `app.webyar.ai` on the gateway. If the gateway has an IP list, add **192.99.68.134**; otherwise Zibal answers 115.
+- Zibal now needs a valid `Referer` on the redirect to `/start/…`. A normal browser redirect sends one.
+- The old **Lazy mode** switch sent an empty `multiplexingInfos`, which Zibal refuses (no "self" beneficiary). It is removed and ignored.
+- Verify results: 100 = verified, 201 = already verified (see above), 202 = not paid or failed (the payment ends). Anything else leaves the payment pending.
+- No refunds API is used. Refund in the Zibal panel, then book a debit in Super Admin → Finance → Accounts → Adjust.
+
+### 4.2 PayPing (WebYar, IRR)
+
+| Field | Where to get it |
+|---|---|
+| **Bearer token** (`bearer_token`, required) | PayPing panel → Developers → a token with the payment scope. |
+
+- The adapter now uses **API v3**: `api.payping.ir/v3/pay` → `paymentCode`, `/v3/pay/start/{code}`, and `/v3/pay/verify` with `paymentRefId`, `paymentCode` and `amount`. v2 (`/v2/pay`, `gotoipg`) is retired, so the old adapter would no longer work.
+- **Amounts are Toman** in every PayPing service. The Rial amount is divided by 10, and only an exact division is sent. When VAT makes the total land on an odd Rial, the VAT of a PayPing checkout is rounded to whole Toman (down by the odd Rial, or up to the next Toman when the VAT is smaller than that; at most 9 Rial; the credit itself never changes). An amount without VAT that is not whole Toman is refused before any payment row exists (400 `AMOUNT_NOT_WHOLE_TOMAN`, with a message to the customer), never sent to PayPing.
+- Callback: PayPing **POSTs** a form (`status`, `errorCode`, `data` JSON with `paymentCode`, `paymentRefId`, `amount`). It goes to the API hop: register `api.webyar.ai` (and `app.webyar.ai`) as the return domain.
+- PayPing returns an unverified payment to the payer after **10 minutes**. A verify that answers 202 or 5xx is still settling and stays pending. A 4xx ends the payment.
+
+### 4.3 NextPay (WebYar, IRR)
+
+| Field | Where to get it |
+|---|---|
+| **API key** (`api_key`, required) | NextPay panel → the gateway → API key. |
+
+- API: `nextpay.org/nx/gateway/token` (code -1 = token issued), `/payment/{trans_id}`, `/verify` (code 0 = verified, -49 = already verified).
+- **Units: defect fixed.** NextPay's `amount` is **Toman unless `currency` says otherwise**. The adapter sent the Rial amount without a currency, which would have charged a **tenth** of the price. It now always sends `currency: 'IRR'`. Verify sends the same Rial amount, and NextPay refuses another amount.
+- Callback: GET to the app's billing page (`trans_id`, `order_id`, `amount`). Register `app.webyar.ai`.
+- Verify -2 ends the payment. Any other code leaves it pending; the codes in circulation disagree, so they are shown as numbers.
+
+### 4.4 SEP — Saman (WebYar, IRR)
+
+| Field | Where to get it |
+|---|---|
+| **Terminal number** (`terminal_id`, required) | The terminal number SEP issued (digits only). |
+| Merchant key | Not used: SEP's OnlinePG needs only the terminal number. Now optional. |
+
+- API: `sep.shaparak.ir/onlinepg/onlinepg` (action `token`, status 1 = token), `/OnlinePG/SendToken?token=…`, and `/verifyTxnRandomSessionkey/ipg/VerifyTransaction` with `RefNum` and `TerminalNumber`. ResultCode 0 = verified, 2 = already verified. Amounts are **Rial**.
+- Callback: SEP **POSTs** a form (`State`, `Status`, `RefNum`, `ResNum`, `Token`, `TraceNo`, `Amount`, …). It goes to the API hop. A return without `RefNum` (cancelled at the bank) ends the payment without calling SEP.
+- The verified amount is read from `TransactionDetail.OrginalAmount` (SEP's own spelling), then `OriginalAmount`, then `AffectiveAmount`.
+- SEP reverses a payment that is not verified within **30 minutes**.
+- **Reachability: warning.** SEP answers only registered server IPs, in practice from inside Iran. From the production server (Canada, 192.99.68.134) it did not answer within 15 s. The readiness card says so. Before switching SEP on, have the server's IP registered with SEP and press **Test**. Without that, every checkout fails after 20 s.
+
+### 4.5 IDPay (WebYar, IRR)
+
+| Field | Where to get it |
+|---|---|
+| **API key** (`api_key`, required) | IDPay panel → web service. |
+
+- API: `api.idpay.ir/v1.1/payment` → `id`, `link`; `/payment/verify` with `id` and `order_id`. Status 100 = verified; 101 and 200 = already verified. Amounts are **Rial**.
+- **Sandbox: defect fixed.** Live `idpay` always sends `X-SANDBOX: 0`. Its stored "test mode" switch is removed and ignored: the string `'false'` read as on, which would have sent real customers to IDPay's sandbox. To test, use the separate **IDPay-Test** gateway (`idpay_test`), which always sends `X-SANDBOX: 1` and is admins-only.
+- Callback: IDPay **POSTs** by default (`status`, `track_id`, `id`, `order_id`). It goes to the API hop.
+- **Reachability: warning.** IDPay did not answer from the production server within 15 s in the October 2026 probe, and the service has been reported shut down. The readiness card says so. Press **Test** before anything else.
+
+### 4.6 Stripe (RESPOK, USD/EUR/GBP/TRY)
+
+| Field | Where to get it |
+|---|---|
+| **Secret Key** (`secret_key`, required) | dashboard.stripe.com → Developers → API keys: `sk_live_…`, or a restricted `rk_live_…` with Checkout Sessions write, Refunds write and Balance read. A `pk_…` key is refused. `sk_test_…` runs test mode, which only Super Admins are offered. |
+| **Webhook Signing Secret** (`webhook_secret`, required) | Developers → Webhooks → endpoint **`https://api.respok.app/api/billing/webhook/stripe`** → Signing secret (`whsec_…`). Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`. |
+
+- One Checkout Session per payment, cards only, inline `price_data` in **minor units** (cents; kuruş for TRY, 2 decimals). It expires after 31 minutes. Verified by `GET /v1/checkout/sessions/{id}`: `complete` + `paid`, with Stripe's own amount and currency.
+- Return: `…/billing?payment=<id>&provider=stripe&session_id=cs_…`; cancel adds `canceled=1`, which expires the open session.
+- Refunds made in Stripe arrive as `charge.refunded` (running total) and are taken back once.
+- Test: `GET /v1/balance`; it shows "Stripe HTTP <status>: <message>" when Stripe refuses.
+
+### 4.7 PayPal (RESPOK, USD/EUR/GBP; no TRY)
+
+| Field | Where to get it |
+|---|---|
+| **Client ID**, **Client Secret** (required) | developer.paypal.com → Apps & Credentials → the **Live** REST app. |
+| **Webhook ID** (required) | The same app → Webhooks → **`https://api.respok.app/api/billing/webhook/paypal`**, events `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`. Its id. |
+| Sandbox Mode | **Off** for live. Read strictly now: it used to treat the stored `'false'` as on and call `api-m.sandbox.paypal.com` with live credentials. On = admins-only. |
+
+- Orders v2, intent CAPTURE, decimal `value` from minor units. The server captures on the customer's return (`token=<order id>`); an already captured order is read back. Refunds arrive as `PAYMENT.CAPTURE.REFUNDED`.
+- Test: an OAuth token with the stored credentials.
+
+### 4.8 Gateways that cannot take an account payment yet
+
+Simple billing confirms a payment by looking it up from the server (`verifyPayment`) or by a signed webhook naming the payment. These gateways have neither in this platform, so the readiness card shows **Cannot confirm** for every account currency, whatever their settings:
+
+| Gateway | Credentials (Providers) | Webhook / notes |
+|---|---|---|
+| **Lemon Squeezy** | API Key, Store ID, Variant ID, Webhook Signing Secret | Webhook-only (`https://api.respok.app/api/billing/webhook/lemon_squeezy`, events `order_created`, `order_refunded`). Test Mode is read strictly. |
+| **iyzico** | API Anahtarı, Gizli Anahtar (Test Modu → sandbox-api.iyzipay.com) | **Defect fixed:** requests were signed with a header that was neither IYZWS v1 nor v2, so iyzico would refuse every call. They are now signed with **IYZWSv2**, as iyzico's official client signs, and the checkout form is initialized at `/payment/iyzipos/checkoutform/initialize/auth/ecom` (no hyphen, as in the official client; it was `iyzi-pos`, which does not exist). Its callback is unsigned and is not accepted as proof of payment. |
+| **PayTR** | Mağaza No, Mağaza Anahtarı, Mağaza Salt (Test Modu → `test_mode=1`) | Notification URL `https://api.respok.app/api/billing/webhook/paytr` (HMAC-checked; answered `OK`). The Test button now asks for a real test-mode iFrame token. |
+| **Sipay** | Merchant Key, App Key, App Secret | The Test button now asks Sipay for an API token (it used to make no call). The checkout request (`paySmart3D`, hash key) was not verified against Sipay's current documents; review it before use. |
+| **Paratika** | Üye İşyeri Kodu, API Kullanıcı, API Şifre | The adapter still calls Asseco's **integration (test)** host `entegrasyon.asseco-see.com.tr`; it needs the production host before use. The Test button now passes only when a session is issued. |
+| **Craftgate** | API Key, Secret Key (Test Modu → sandbox-api.craftgate.io) | **Defect fixed:** requests were signed with an HMAC and `x-auth-version: v1`, which Craftgate refuses. They are now signed as Craftgate's official client signs (SHA-256 of URL + key + secret + random key + body, version `1`), with the payment group `LISTING_OR_SUBSCRIPTION`. |
+
+Taking account payments with any of these needs a server-side lookup (for example iyzico's checkout-form retrieve, or Craftgate's `GET /payment/v1/checkout-payments/{token}`) and a review against the provider's documents. That is work for when one of them is wanted.
+
+### 4.9 Switching one of these on
+
+1. Enter the credentials (4.1 to 4.7) and save. A credential of the wrong kind is refused with the reason.
+2. Register the callback domains (`app.webyar.ai` and `api.webyar.ai` for the Iranian gateways), the server IP **192.99.68.134** where the gateway has an IP list, and the webhook URLs for Stripe and PayPal.
+3. Press **Test**. It must succeed; for SEP and IDPay, this also proves the gateway answers this server.
+4. Finance → Gateways: switch it on for its currency. The readiness card must show **Listed**.
+5. Make a small real payment, as in the ZarinPal and Paddle smoke tests: success with a receipt; reload shows the same receipt; a cancel ends as failed; the gateway's panel shows the same amount.

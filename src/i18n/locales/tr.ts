@@ -345,6 +345,7 @@ const tr: TranslationKeys = {
         PERIOD_CHANGED: 'Bu dönem zaten yenilendi veya değişti. Planın şu anki durumu artık bu kartta.',
         IDEMPOTENCY_CONFLICT: 'Bu istek başka bir ödeme için zaten kullanıldı. Lütfen yeniden deneyin.',
         TOO_MANY_CHECKOUTS: 'Son bir saatte çok fazla ödeme denemesi yapıldı. Biraz bekleyip yeniden deneyin.',
+        AMOUNT_NOT_WHOLE_TOMAN: 'PayPing yalnızca tam Toman tutarları tahsil eder. Tam Toman bir tutar ya da başka bir ödeme yöntemi seçin.',
         CARD_NOT_AVAILABLE: 'Kartla otomatik ödeme bu çalışma alanında kullanılamıyor.',
         CARD_ALREADY_SAVED: 'Bu çalışma alanı için zaten kayıtlı bir kart var.',
         CARD_SETUP_IN_PROGRESS: 'Bu çalışma alanı için bir kart şu anda kaydediliyor. Birkaç dakika bekleyip sayfayı yenileyin.',
@@ -4329,8 +4330,8 @@ const tr: TranslationKeys = {
           paddle: 'Sütunlar bizim tahsilatımızı gösterir. Paddle ile USD ödemelerinde Paddle kendi vergisini ayrıca ekler, bu yüzden oradaki KDV sütunumuz boştur.',
           chargeback: 'Ters ibrazın geri alınması burada kaydedilmez ve bu rakamları değiştirmez.',
           refundMonth: 'Her iade, ödemenin ayında değil yapıldığı ayda sayılır.',
-          purged: 'Kalıcı olarak silinen çalışma alanlarının ödemeleri artık sayılmaz; bu yüzden kapanmış bir ay, daha önce alınan bir rakamdan düşük çıkabilir.',
-          csvNote: 'Kalıcı olarak silinen çalışma alanlarının ödemeleri dahil değildir.',
+          purged: 'Kalıcı olarak silinen çalışma alanlarının ödemeleri sayılmaya devam eder: çalışma alanı silinirken arşivlenir, bu yüzden kapanmış bir ay değişmez.',
+          csvNote: 'Kalıcı olarak silinen çalışma alanlarının ödemeleri de dahildir (çalışma alanı silinirken arşivlendi).',
         },
         empty: 'Bu dönemde ödeme yok.',
         purpose: {

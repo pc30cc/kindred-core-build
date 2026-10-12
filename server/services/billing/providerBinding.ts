@@ -41,9 +41,11 @@ const CONTRACTS: Record<string, ProviderReferenceContract> = {
   zibal:               { requiresPaymentReferenceBinding: true, callbackKeys: ['trackId', 'trackid', 'track_id'] },
   // NextPay create returns `trans_id`; callback echoes `trans_id`.
   nextpay:             { requiresPaymentReferenceBinding: true, callbackKeys: ['trans_id', 'transid'] },
-  // PayPing create returns the payment `code`; callback echoes `code` (+ refid).
-  payping:             { requiresPaymentReferenceBinding: true, callbackKeys: ['code'] },
-  // SEP/Shaparak create returns a `token`; the bank posts `Token` back.
+  // PayPing v3 create returns `paymentCode`; the callback's `data` JSON echoes
+  // it as `paymentCode` (+ paymentRefId), flattened by the API's return hop
+  // (v2 named it `code`).
+  payping:             { requiresPaymentReferenceBinding: true, callbackKeys: ['paymentCode', 'code'] },
+  // SEP/Shaparak create returns a `token`; the bank posts `Token` back (through the API's return hop).
   sep_shaparak:        { requiresPaymentReferenceBinding: true, callbackKeys: ['Token', 'token'] },
   // Local sandbox mirrors ZarinPal's authority contract.
   iranpardakht_sandbox:{ requiresPaymentReferenceBinding: true, callbackKeys: ['authority', 'Authority'] },
@@ -103,4 +105,16 @@ export function extractProviderRefCandidates(providerName: string, params: unkno
     if (value && !out.includes(value)) out.push(value);
   }
   return out;
+}
+
+/**
+ * Gateways that send the customer back with an HTTP POST (a form) instead of
+ * a GET: SEP, IDPay (its default) and PayPing v3. The app's page cannot
+ * receive a POST, so their callback is the API's return hop
+ * (/api/billing/account-return), which hands the fields to the page.
+ */
+const POST_RETURN_GATEWAYS = new Set(['sep_shaparak', 'idpay', 'idpay_test', 'payping']);
+
+export function gatewayReturnsByPost(providerName: string): boolean {
+  return POST_RETURN_GATEWAYS.has(providerName);
 }

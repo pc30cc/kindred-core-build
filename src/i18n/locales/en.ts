@@ -343,6 +343,7 @@ const en = {
         PERIOD_CHANGED: 'This period was already renewed or has changed. The plan card now shows where it stands.',
         IDEMPOTENCY_CONFLICT: 'This request was already used for a different charge. Please try again.',
         TOO_MANY_CHECKOUTS: 'Too many payment attempts in the last hour. Please wait a little and try again.',
+        AMOUNT_NOT_WHOLE_TOMAN: 'PayPing charges whole Toman only. Choose an amount in whole Toman, or another payment method.',
         CARD_NOT_AVAILABLE: 'Automatic card payments are not available for this workspace.',
         CARD_ALREADY_SAVED: 'A card is already saved for this workspace.',
         CARD_SETUP_IN_PROGRESS: 'A card is already being saved for this workspace. Wait a few minutes, then refresh the page.',
@@ -4340,8 +4341,8 @@ const en = {
           paddle: 'Columns show our charge. For USD paid through Paddle, Paddle adds its own tax on top, so our VAT is empty there.',
           chargeback: 'A chargeback reversal is not booked here: it does not change these numbers.',
           refundMonth: 'A refund counts in the month it happened, not in the month of the payment.',
-          purged: 'Payments of workspaces deleted for good are no longer counted, so a closed month can come out lower than a figure taken before.',
-          csvNote: 'Payments of workspaces deleted for good are not included.',
+          purged: 'Payments of workspaces deleted for good still count: they are archived when the workspace is deleted, so a closed month does not change.',
+          csvNote: 'Includes the payments of workspaces deleted for good (archived when the workspace was deleted).',
         },
         empty: 'No payments in this period.',
         purpose: {

@@ -574,8 +574,9 @@ const billingVendors: ProviderVendor[] = [
     docsUrl: 'https://idpay.ir/web-service',
     locales: ['fa'], currency: 'IRR',
     fields: [
-      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
-      { key: 'sandbox', label: 'حالت تست', type: 'toggle' },
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true, hint: 'پنل IDPay ← وب‌سرویس. نشانی بازگشت: https://<دامنهٔ API>/api/billing/account-return' },
+      // No sandbox switch here: live IDPay always runs live (providers/idpay.ts).
+      // To test, use the separate "IDPay-Test" gateway (idpay_test).
     ],
   },
   {
@@ -626,7 +627,7 @@ const billingVendors: ProviderVendor[] = [
     docsUrl: 'https://nextpay.org/docs',
     locales: ['fa'], currency: 'IRR',
     fields: [
-      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true, hint: 'پنل نکست‌پی ← درگاه‌ها ← کلید API (مبلغ همیشه به ریال ارسال می‌شود)' },
     ],
   },
   {
@@ -635,7 +636,7 @@ const billingVendors: ProviderVendor[] = [
     docsUrl: 'https://docs.payping.ir',
     locales: ['fa'], currency: 'IRR',
     fields: [
-      { key: 'bearer_token', label: 'توکن Bearer', type: 'password', required: true },
+      { key: 'bearer_token', label: 'توکن Bearer', type: 'password', required: true, hint: 'پنل پی‌پینگ ← توسعه‌دهندگان ← توکن با دسترسی پرداخت (API نسخهٔ ۳). نشانی بازگشت: https://<دامنهٔ API>/api/billing/account-return' },
     ],
   },
   {
@@ -644,8 +645,7 @@ const billingVendors: ProviderVendor[] = [
     docsUrl: 'https://docs.zibal.ir',
     locales: ['fa'], currency: 'IRR',
     fields: [
-      { key: 'merchant', label: 'مرچنت کد', type: 'password', required: true },
-      { key: 'lazy_mode', label: 'حالت Lazy', type: 'toggle', hint: 'تأیید دستی تراکنش' },
+      { key: 'merchant', label: 'مرچنت کد', type: 'password', required: true, hint: 'پنل زیبال ← درگاه ← کد مرچنت. مرچنت «zibal» سندباکس است و پذیرفته نمی‌شود' },
     ],
   },
   {
@@ -653,8 +653,9 @@ const billingVendors: ProviderVendor[] = [
     description: 'درگاه مستقیم بانک سامان — شاپرک',
     locales: ['fa'], currency: 'IRR',
     fields: [
-      { key: 'terminal_id', label: 'شماره ترمینال', type: 'text', required: true },
-      { key: 'merchant_key', label: 'کلید مرچنت', type: 'password', required: true },
+      { key: 'terminal_id', label: 'شماره ترمینال', type: 'text', required: true, hint: 'شمارهٔ ترمینال سامان‌کیش. IP سرور باید نزد سپ ثبت شده باشد. نشانی بازگشت: https://<دامنهٔ API>/api/billing/account-return' },
+      // SEP's OnlinePG (token + VerifyTransaction) needs only the terminal number.
+      { key: 'merchant_key', label: 'کلید مرچنت (استفاده نمی‌شود)', type: 'password', required: false },
     ],
   },
 

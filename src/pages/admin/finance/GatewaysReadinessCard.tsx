@@ -124,6 +124,11 @@ export default function GatewaysReadinessCard({ refreshKey }: { refreshKey?: str
                         {g.is_test && <Badge variant="secondary">{sbLabel(t, 'common.test')}</Badge>}
                       </div>
                       <span className="font-mono text-xs text-muted-foreground" dir="ltr">{g.provider_name}</span>
+                      {g.note && (
+                        <p className="mt-1 max-w-xs text-[11px] leading-snug text-amber-700 dark:text-amber-400" dir="ltr" data-testid="gateway-note">
+                          {g.note}
+                        </p>
+                      )}
                       {g.card_auto_renew !== undefined && (
                         <div className="mt-1 text-xs">
                           <Link

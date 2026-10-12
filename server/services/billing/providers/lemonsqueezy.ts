@@ -1,6 +1,7 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import crypto from 'crypto';
 import { minorFromProvider, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
+import { isSettingOn, missingSettings, providerFetch, settingText } from './providerHttp.js';
 
 /**
  * A Lemon Squeezy store sells in ONE currency (set when the store is created)
@@ -77,7 +78,7 @@ function readLemonSqueezyCheckout(body: unknown): { id: string; url: string } | 
 }
 
 async function lsApi(config: BillingProviderConfig, path: string, method = 'GET', body?: unknown) {
-  const res = await fetch(`https://api.lemonsqueezy.com/v1${path}`, {
+  const res = await providerFetch('Lemon Squeezy', `https://api.lemonsqueezy.com/v1${path}`, {
     method,
     headers: {
       'Authorization': `Bearer ${config.api_key}`,
@@ -110,6 +111,18 @@ export function verifyLemonSqueezySignature(secret: string, signature: string, r
   if (!secret || !signature) return false;
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
   return timingSafeHexEqual(expected, signature.trim());
+}
+
+/** What stops Lemon Squeezy from taking a payment with these settings, or null. */
+export function lemonSqueezySettingsProblem(config: BillingProviderConfig | null | undefined): string | null {
+  return missingSettings('Lemon Squeezy', config, [
+    ['api_key', 'API Key'], ['store_id', 'Store ID'], ['variant_id', 'Variant ID'], ['webhook_secret', 'Webhook Signing Secret'],
+  ]);
+}
+
+/** Test Mode on (read strictly: the string 'false' is off). */
+export function lemonSqueezyTestMode(config: BillingProviderConfig | null | undefined): boolean {
+  return isSettingOn(config?.test_mode);
 }
 
 export const lemonSqueezyProvider: BillingProviderHandler = {
@@ -162,7 +175,7 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
           },
           checkout_options: { discount: false },
           expires_at: new Date(Date.now() + CHECKOUT_LINK_TTL_MS).toISOString(),
-          ...(config.test_mode ? { test_mode: true } : {}),
+          ...(isSettingOn(config.test_mode) ? { test_mode: true } : {}),
         },
         relationships: {
           store: { data: { type: 'stores', id: String(config.store_id) } },
@@ -275,8 +288,10 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
 
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
+    const problem = lemonSqueezySettingsProblem(config);
+    if (problem) return { success: false, latencyMs: 0, error: problem };
     try {
-      const data: unknown = await lsApi(config, `/stores/${config.store_id}`);
+      const data: unknown = await lsApi(config, `/stores/${encodeURIComponent(settingText(config.store_id))}`);
       const error = readLemonSqueezyError(data);
       if (error !== null) return { success: false, latencyMs: Date.now() - start, error: error.detail };
       return { success: true, latencyMs: Date.now() - start };

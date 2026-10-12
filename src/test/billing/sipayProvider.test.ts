@@ -132,17 +132,24 @@ describe('sipay createCheckoutSession', () => {
 });
 
 describe('sipay testConnection', () => {
-  it('succeeds with full credentials and makes no network call', async () => {
-    const fetchMock = mockJson({});
+  it('asks Sipay for an API token with the app key and secret (it used to make no call and always pass)', async () => {
+    const fetchMock = mockJson({ status_code: 100, data: { token: 't' } });
     const out = await sipayProvider.testConnection(config);
     expect(out.success).toBe(true);
-    expect(fetchMock).not.toHaveBeenCalled();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://app.sipay.com.tr/ccpayment/api/token');
+    expect(Object.keys(JSON.parse(init.body)).sort()).toEqual(['app_id', 'app_secret']);
   });
 
-  it('fails without credentials, leaking nothing', async () => {
+  it('reports Sipay\'s refusal', async () => {
+    mockJson({ status_code: 30, message: 'Invalid credentials' });
+    expect(await sipayProvider.testConnection(config)).toMatchObject({ success: false, error: 'Sipay 30: Invalid credentials' });
+  });
+
+  it('fails without credentials, naming them, leaking nothing', async () => {
     const out = await sipayProvider.testConnection({ provider: 'sipay' });
     expect(out.success).toBe(false);
-    expect(out.error).toBe('Missing credentials');
+    expect(out.error).toBe('Sipay: Merchant Key, App Key, App Secret are empty.');
   });
 });
 

@@ -30,6 +30,8 @@ import {
 import { isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
 import { getProvider, resolveNamedBillingConfig } from '../services/billing/index.js';
 import { resolveAppBaseUrl } from '../services/auth-email.js';
+import { resolvePublicApiOrigin } from '../services/billing/callbackUrl.js';
+import { gatewayReturnsByPost } from '../services/billing/providerBinding.js';
 
 export const adminBillingRouter = Router();
 
@@ -131,8 +133,10 @@ const NO_WORKSPACE = '00000000-0000-0000-0000-000000000000';
  * gateway's own connection test (testConnection) with the SAVED settings,
  * exactly as a checkout would resolve them. Answers { success, error }; the
  * error is the gateway's own message (a wrong merchant id, a key without a
- * permission), never a secret. ZarinPal's probe uses this platform's app
- * address as the callback, so a domain the terminal does not allow fails here.
+ * permission), never a secret. The Iranian gateways' probes send the
+ * callback a real checkout sends (this platform's app address, or the API's
+ * return hop for a gateway that posts its result), so a domain the terminal
+ * does not allow fails here.
  */
 adminBillingRouter.post('/providers/:providerName/test', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
@@ -141,8 +145,12 @@ adminBillingRouter.post('/providers/:providerName/test', async (req, res) => {
     assertProviderAllowed(await getPlatformEdition(config), req.params.providerName);
     const resolved = await resolveNamedBillingConfig(config.supabaseUrl, config.supabaseServiceRoleKey, NO_WORKSPACE, req.params.providerName);
     if (!resolved) return res.status(404).json({ error: 'Unknown provider' });
-    const appBase = await resolveAppBaseUrl(config).catch(() => '');
-    const probe = /^https:\/\//i.test(appBase) ? { probe_callback_url: `${appBase}/billing` } : {};
+    // The callback a real checkout would send: the app's billing page, or the
+    // API's return hop for a gateway that posts its result (SEP, IDPay, PayPing).
+    const base = gatewayReturnsByPost(req.params.providerName)
+      ? await resolvePublicApiOrigin(config.supabaseUrl, config.supabaseServiceRoleKey).then((o) => `${o}/api/billing/account-return`).catch(() => '')
+      : await resolveAppBaseUrl(config).then((b) => (b ? `${b}/billing` : '')).catch(() => '');
+    const probe = /^https:\/\//i.test(base) ? { probe_callback_url: base } : {};
     const result = await resolved.provider.testConnection({ ...resolved.config, ...probe, provider: req.params.providerName });
     res.json({ success: result.success, latency_ms: result.latencyMs, ...(result.error ? { error: result.error } : {}) });
   } catch (e) { fail(res, e); }

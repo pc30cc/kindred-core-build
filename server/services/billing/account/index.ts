@@ -609,15 +609,19 @@ function settledOutcome(settled: SettleResult): VerifyOutcome {
 
 /**
  * Gateways whose verify is keyed by the checkout reference stored on the
- * payment (ZarinPal's authority, bound fail-closed before the call): an
- * "already verified" answer (ZarinPal 101) can only be about this payment.
+ * payment (bound fail-closed before the call): ZarinPal's authority, Zibal's
+ * trackId, NextPay's trans_id, IDPay's payment id, PayPing's payment code
+ * (with the callback's payment reference, which PayPing refuses for another
+ * code). An "already verified" answer (ZarinPal 101, Zibal 201, NextPay -49,
+ * IDPay 101 / 200, PayPing 409 code 110) can only be about this payment.
  * It is what a retry gets when the first verify took the money but its
- * answer was lost (restart, network cut), so it settles a PENDING payment
- * that recorded no confirmation yet, under the same checks as a first
- * success (server amount, unique gateway transaction id). SEP and PayPing
- * verify by a second, unbound reference and keep the strict rule.
+ * answer was lost (restart, network cut, the 20 s timeout), so it settles a
+ * PENDING payment that recorded no confirmation yet, under the same checks
+ * as a first success (the amount the gateway or the server-bound request
+ * confirms, unique gateway transaction id). SEP verifies by a second,
+ * unbound reference (RefNum) and keeps the strict rule.
  */
-const AUTHORITY_KEYED_VERIFY = new Set(['zarinpal', 'zarinpal_test']);
+const AUTHORITY_KEYED_VERIFY = new Set(['zarinpal', 'zarinpal_test', 'zibal', 'nextpay', 'idpay', 'idpay_test', 'payping']);
 
 function acceptsAlreadyVerified(payment: AccountPaymentRow): boolean {
   return AUTHORITY_KEYED_VERIFY.has(payment.provider)
@@ -644,9 +648,9 @@ function isCardGateway(providerName: string): boolean {
  *   - "not paid yet" stays pending; only a definitive cancel/fail ends it;
  *   - an "already verified" answer never settles an attempt that has no
  *     recorded confirmation of its own: the gateway transaction may be
- *     another attempt's (SEP / PayPing verify by an unbound reference).
- *     ZarinPal is the exception (acceptsAlreadyVerified): its verify is keyed
- *     by this payment's own bound authority;
+ *     another attempt's (SEP verifies by an unbound reference). The
+ *     gateways whose verify is keyed by this payment's own bound reference
+ *     are the exception (acceptsAlreadyVerified, AUTHORITY_KEYED_VERIFY);
  *   - a gateway transaction already recorded for another payment is refused
  *     (unique per provider): one real payment settles one attempt;
  *   - a charge made on a saved card has no checkout to ask about: an upgrade
@@ -709,7 +713,13 @@ export async function verifyAccountPayment(
   // Iranian gateways answer in Rial without naming it; card gateways name it.
   const currency = normalizeCurrencyCode(result.currency) || payment.currency;
   const gatewayTxn = (result.paymentId || result.providerRef || payment.provider_ref || '').trim();
-  if (confirmed === null || confirmed !== payment.amount_minor || currency !== payment.currency || !gatewayTxn) {
+  if (confirmed === null && result.status === ALREADY_VERIFIED_STATUS) {
+    // The gateway took the money earlier but does not say how much now: a
+    // person checks it against the gateway's panel; the payment is not failed.
+    console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} gateway says already verified but reports no amount`);
+    return { status: 'pending', reason: 'gateway_already_verified' };
+  }
+  if (confirmed === null ||confirmed !== payment.amount_minor || currency !== payment.currency || !gatewayTxn) {
     console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} gateway ${confirmed} ${currency} ref=${gatewayTxn || '-'} != ${payment.amount_minor} ${payment.currency}`);
     if (payment.status === 'pending') await failAccountPayment(config, payment.id, 'failed', 'gateway_amount_mismatch');
     return { status: 'failed', reason: 'PAYMENT_AMOUNT_MISMATCH' };

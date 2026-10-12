@@ -1,5 +1,6 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
+import { missingSettings, providerFetch } from './providerHttp.js';
 
 // ─── Local, minimal parsers (Create/session + testConnection only) ───
 // Deliberately scoped: no shared billing helper, no verify/refund parsing.
@@ -44,6 +45,11 @@ function readParatikaPgTranId(body: unknown): string | undefined {
 /** Currencies Paratika's payment session charges (`CURRENCY`). */
 export const PARATIKA_CURRENCIES = ['TRY', 'USD', 'EUR'] as const;
 
+/** What stops Paratika from taking a payment with these settings, or null. */
+export function paratikaSettingsProblem(config: BillingProviderConfig | null | undefined): string | null {
+  return missingSettings('Paratika', config, [['merchant_code', 'Üye İşyeri Kodu'], ['merchant_user', 'API Kullanıcı'], ['merchant_password', 'API Şifre']]);
+}
+
 export const paratikaProvider: BillingProviderHandler = {
   name: 'paratika',
   capabilities: {
@@ -72,7 +78,7 @@ export const paratikaProvider: BillingProviderHandler = {
     params.set('MERCHANTPAYMENTID', orderId);
     params.set('CUSTOMER', req.customerEmail || '');
 
-    const res = await fetch('https://entegrasyon.asseco-see.com.tr/fim/api', {
+    const res = await providerFetch('Paratika', 'https://entegrasyon.asseco-see.com.tr/fim/api', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -115,7 +121,7 @@ export const paratikaProvider: BillingProviderHandler = {
     if (amount) params.set('AMOUNT', (amount / 100).toFixed(2));
     params.set('CURRENCY', normalizeCurrencyCode(currency) || 'TRY');
 
-    const res = await fetch('https://entegrasyon.asseco-see.com.tr/fim/api', {
+    const res = await providerFetch('Paratika', 'https://entegrasyon.asseco-see.com.tr/fim/api', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -126,10 +132,9 @@ export const paratikaProvider: BillingProviderHandler = {
 
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
+    const problem = paratikaSettingsProblem(config);
+    if (problem) return { success: false, latencyMs: 0, error: problem };
     try {
-      if (!config.merchant_code || !config.merchant_user || !config.merchant_password) {
-        return { success: false, latencyMs: Date.now() - start, error: 'Missing credentials' };
-      }
       const params = new URLSearchParams();
       params.set('ACTION', 'SESSIONTOKEN');
       params.set('MERCHANTUSER', config.merchant_user as string);
@@ -139,15 +144,17 @@ export const paratikaProvider: BillingProviderHandler = {
       params.set('RETURNURL', 'https://test.localhost');
       params.set('AMOUNT', '1.00');
       params.set('CURRENCY', 'TRY');
+      params.set('MERCHANTPAYMENTID', `test-${Date.now()}`);
 
-      const res = await fetch('https://entegrasyon.asseco-see.com.tr/fim/api', {
+      const res = await providerFetch('Paratika', 'https://entegrasyon.asseco-see.com.tr/fim/api', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString(),
       });
       const data = await res.json();
-      if (readParatikaResponseCode(data) === '99') return { success: false, latencyMs: Date.now() - start, error: 'Auth failed' };
-      return { success: true, latencyMs: Date.now() - start };
+      // Success only when a payment session was actually issued ('00').
+      if (readParatikaResponseCode(data) === '00' && readParatikaSessionToken(data)) return { success: true, latencyMs: Date.now() - start };
+      return { success: false, latencyMs: Date.now() - start, error: `Paratika ${readParatikaResponseCode(data) ?? `HTTP ${res.status}`}: ${readParatikaError(data) || 'session refused'}` };
     } catch (e: unknown) {
       return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }

@@ -4,8 +4,10 @@
 // allowed in the edition, configured for the account's currency, able to
 // charge that currency, able to CONFIRM a payment from the server
 // (a verifyPayment lookup): the Iranian gateways in IRR, Paddle / Stripe /
-// PayPal in the currencies they charge, and (ZarinPal, Paddle) set up
-// with everything a payment needs. Test gateways (ZarinPal test, the
+// PayPal in the currencies they charge, and set up with everything a
+// payment needs (SETTINGS_CHECKS). A gateway whose settings put it in the
+// provider's test mode (a Stripe test key, a sandbox switch) is shown, like
+// the test gateways, to platform admins only. Test gateways (ZarinPal test, the
 // internal simulator, …) are shown to platform admins only; the Paddle
 // sandbox too, unless its settings open it to customers.
 
@@ -16,6 +18,19 @@ import { normalizeCurrencyCode } from '../providers/minorAmount.js';
 import { paddleSandboxOpenToCustomers } from '../providers/paddle-sandbox.js';
 import { isPaddleSandboxFlag, paddleSettingsProblem } from '../providers/paddle.js';
 import { zarinpalSettingsProblem } from '../providers/zarinpal.js';
+import { zibalSettingsProblem } from '../providers/zibal.js';
+import { paypingSettingsProblem } from '../providers/payping.js';
+import { nextpaySettingsProblem } from '../providers/nextpay.js';
+import { sepSettingsProblem } from '../providers/sep.js';
+import { idpaySettingsProblem } from '../providers/idpay.js';
+import { stripeSettingsProblem, stripeTestMode } from '../providers/stripe.js';
+import { paypalSettingsProblem, paypalTestMode } from '../providers/paypal.js';
+import { lemonSqueezySettingsProblem, lemonSqueezyTestMode } from '../providers/lemonsqueezy.js';
+import { iyzicoSettingsProblem, iyzicoTestMode } from '../providers/iyzico.js';
+import { paytrSettingsProblem, paytrTestMode } from '../providers/paytr.js';
+import { sipaySettingsProblem } from '../providers/sipay.js';
+import { paratikaSettingsProblem } from '../providers/paratika.js';
+import { craftgateSettingsProblem, craftgateTestMode } from '../providers/craftgate.js';
 import { IRANIAN_PAYMENT_PROVIDERS, isCurrencyAllowedInEdition, isProviderAllowedInEdition, type Edition } from '../../../../shared/edition.js';
 import { PADDLE_SANDBOX_PROVIDER, isTestPaymentProvider } from '../../../../shared/testGateways.js';
 import type { GatewayListing, GatewayListingReason } from '../../../../shared/simpleBillingAdmin.js';
@@ -52,15 +67,69 @@ async function resolve(cfg: ServerConfig, workspaceId: string, providerName: str
 }
 
 /**
- * What a gateway's settings lack for it to take a payment, or null. Checked
- * for the gateways that go live (ZarinPal, Paddle and its sandbox); the
- * others are left as they are.
+ * What a gateway's settings lack for it to take a payment, or null: the
+ * credentials it needs (named as the Providers screen names them), and a
+ * credential of the wrong kind (a sandbox merchant or key on a live gateway).
+ * An active gateway with a problem is not listed (`not_configured`).
  */
 const SETTINGS_CHECKS: Record<string, (config: BillingProviderConfig) => string | null> = {
   zarinpal: (config) => zarinpalSettingsProblem(config),
   paddle: (config) => paddleSettingsProblem(config, 'paddle'),
   [PADDLE_SANDBOX_PROVIDER]: (config) => paddleSettingsProblem(config, PADDLE_SANDBOX_PROVIDER),
+  zibal: zibalSettingsProblem,
+  payping: paypingSettingsProblem,
+  nextpay: nextpaySettingsProblem,
+  sep_shaparak: sepSettingsProblem,
+  idpay: idpaySettingsProblem,
+  stripe: stripeSettingsProblem,
+  paypal: paypalSettingsProblem,
+  lemon_squeezy: lemonSqueezySettingsProblem,
+  iyzico: iyzicoSettingsProblem,
+  paytr: paytrSettingsProblem,
+  sipay: sipaySettingsProblem,
+  paratika: paratikaSettingsProblem,
+  craftgate: craftgateSettingsProblem,
 };
+
+/**
+ * Gateways whose settings can switch them to the provider's test mode (a
+ * Stripe test key, PayPal's or a Turkish gateway's sandbox switch). In test
+ * mode no money moves, so, like a test gateway, only platform admins are
+ * offered it (`test`).
+ */
+const TEST_MODE_CHECKS: Record<string, (config: BillingProviderConfig) => boolean> = {
+  stripe: stripeTestMode,
+  paypal: paypalTestMode,
+  lemon_squeezy: lemonSqueezyTestMode,
+  iyzico: iyzicoTestMode,
+  paytr: paytrTestMode,
+  craftgate: craftgateTestMode,
+};
+
+export function gatewayTestMode(providerName: string, config: BillingProviderConfig): boolean {
+  return TEST_MODE_CHECKS[providerName]?.(config) ?? false;
+}
+
+/**
+ * A caveat about a gateway the Super Admin should read before switching it
+ * on (shown on the readiness card), or null.
+ */
+const GATEWAY_NOTES: Record<string, string> = {
+  idpay: 'IDPay did not answer from the production server (Canada) within 15 s in the October 2026 probe, and the service has been reported shut down. Press Test in Providers first: checkout fails after 20 s while IDPay does not answer.',
+  idpay_test: 'IDPay did not answer from the production server (Canada) within 15 s in the October 2026 probe. Checkout fails after 20 s while it does not answer.',
+  sep_shaparak: 'SEP (Saman) did not answer from the production server (Canada) within 15 s in the October 2026 probe: SEP answers only registered server IPs, in practice inside Iran. Press Test in Providers first: checkout fails after 20 s while SEP does not answer.',
+  payping: 'PayPing charges whole Toman: a total that is not a multiple of 10 Rial is refused at checkout.',
+  lemon_squeezy: 'Lemon Squeezy is confirmed only by its webhook; account payments need a server-side lookup, so it is not offered for them.',
+  iyzico: 'iyzico has no server-side payment lookup in this platform yet, so it is not offered for account payments.',
+  paytr: 'PayTR has no server-side payment lookup in this platform yet, so it is not offered for account payments.',
+  sipay: 'Sipay has no server-side payment lookup in this platform yet, so it is not offered for account payments; its checkout request was not verified against Sipay\'s current documents.',
+  paratika: 'Paratika has no server-side payment lookup in this platform yet, so it is not offered for account payments; its adapter still calls Asseco\'s integration (test) host.',
+  craftgate: 'Craftgate has no server-side payment lookup in this platform yet, so it is not offered for account payments.',
+};
+
+export function gatewayNote(providerName: string): string | null {
+  return GATEWAY_NOTES[providerName] ?? null;
+}
 
 export function gatewaySettingsProblem(providerName: string, config: BillingProviderConfig): string | null {
   return SETTINGS_CHECKS[providerName]?.(config) ?? null;
@@ -70,6 +139,7 @@ export function gatewaySettingsProblem(providerName: string, config: BillingProv
 export function gatewayNeedsConfig(providerName: string): boolean {
   return providerName === PADDLE_SANDBOX_PROVIDER
     || Object.prototype.hasOwnProperty.call(SETTINGS_CHECKS, providerName)
+    || Object.prototype.hasOwnProperty.call(TEST_MODE_CHECKS, providerName)
     || Boolean(getProvider(providerName)?.chargeableCurrencies);
 }
 
@@ -119,6 +189,7 @@ export function gatewayListing(
       problem = gatewaySettingsProblem(name, config);
       if (problem) add('not_configured');
       if (name === PADDLE_SANDBOX_PROVIDER && !viewer.isPlatformAdmin && !paddleSandboxOpenToCustomers(config)) add('test');
+      if (!viewer.isPlatformAdmin && gatewayTestMode(name, config)) add('test');
       if (!canChargeAccount(name, code, config)) add('currency');
     }
   }

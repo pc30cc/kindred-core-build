@@ -5,7 +5,7 @@
  *   - live ZarinPal: its merchant id (a UUID);
  *   - live Paddle and the Paddle sandbox: API key, client-side token and
  *     webhook secret, of the right environment.
- * The other gateways are left as they were.
+ * Every other gateway: gatewaySettingsAllGateways.test.ts.
  */
 import { describe, expect, it } from 'vitest';
 import { gatewayListing, gatewayNeedsConfig, gatewaySettingsProblem } from '../../../server/services/billing/account/gateways.js';
@@ -22,8 +22,8 @@ describe('gatewayNeedsConfig', () => {
     expect(gatewayNeedsConfig('paddle_sandbox')).toBe(true);
   });
 
-  it('leaves the test gateways and the gateways that stay off as they were', () => {
-    for (const name of ['zarinpal_test', 'internal_test', 'zibal', 'payping', 'nextpay', 'sep', 'idpay', 'stripe', 'paypal']) {
+  it('leaves the test gateways as they were (the other gateways: gatewaySettingsAllGateways.test.ts)', () => {
+    for (const name of ['zarinpal_test', 'internal_test']) {
       expect(gatewayNeedsConfig(name)).toBe(false);
       expect(gatewaySettingsProblem(name, { provider: name })).toBeNull();
     }

@@ -46,7 +46,7 @@ export function adjustAmountProblem(minor: unknown, currency: string): AdjustAmo
   return null;
 }
 
-/** At most this many credits and debits per Super Admin per window, per server process. */
+/** At most this many credits and debits per Super Admin per window, counted from the ledger (shared by every server process). */
 export const ADJUST_RATE_LIMIT = { max: 30, windowMs: 60 * 60 * 1000 } as const;
 
 /** The error codes POST .../adjust answers with (besides INVALID_REQUEST and NOT_FOUND). */
@@ -638,6 +638,8 @@ export interface GatewayReadiness {
   listing: Record<string, GatewayListing>;
   /** Paddle only: the Super Admin's "Automatic card renewal (Multi Region)" switch. */
   card_auto_renew?: boolean;
+  /** A caveat to read before switching the gateway on (e.g. it did not answer from the production server). */
+  note?: string;
 }
 
 export interface GatewayReadinessReport {

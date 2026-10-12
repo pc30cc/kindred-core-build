@@ -1,5 +1,6 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import { majorToMinor, minorToMajorString, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
+import { isSettingOn, missingSettings, providerFetch, settingText } from './providerHttp.js';
 import crypto from 'crypto';
 
 // --- Local runtime narrowing for Craftgate JSON bodies (no shared helper, no casts) ---
@@ -50,19 +51,40 @@ function readCraftgateRefundId(body: unknown): string | undefined {
 }
 
 const baseUrl = (config: BillingProviderConfig) =>
-  config.sandbox ? 'https://sandbox-api.craftgate.io' : 'https://api.craftgate.io';
+  isSettingOn(config.sandbox) ? 'https://sandbox-api.craftgate.io' : 'https://api.craftgate.io';
 
-function craftgateHeaders(config: BillingProviderConfig, path: string, body?: string) {
-  const randomStr = Date.now().toString();
-  const hashStr = path + (body || '') + randomStr;
-  const signature = crypto.createHmac('sha256', config.secret_key as string).update(hashStr).digest('base64');
+/**
+ * Craftgate's request signature (as its official craftgate-node-client signs):
+ * base64(SHA-256(fullUrl + apiKey + secretKey + randomKey + body)), with
+ * `x-auth-version: 1`. The earlier HMAC over path + body + randomKey with
+ * `x-auth-version: v1` was refused as unauthenticated.
+ */
+export function craftgateHeaders(
+  config: BillingProviderConfig,
+  fullUrl: string,
+  body?: string,
+  randomKey: string = crypto.randomBytes(8).toString('hex'),
+): Record<string, string> {
+  const apiKey = settingText(config.api_key);
+  const hashStr = [fullUrl, apiKey, settingText(config.secret_key), randomKey, body || ''].join('');
+  const signature = crypto.createHash('sha256').update(hashStr).digest('base64');
   return {
-    'x-auth-version': 'v1',
-    'x-rnd-key': randomStr,
-    'x-api-key': config.api_key as string,
+    'x-auth-version': '1',
+    'x-rnd-key': randomKey,
+    'x-api-key': apiKey,
     'x-signature': signature,
     'Content-Type': 'application/json',
   };
+}
+
+/** What stops Craftgate from taking a payment with these settings, or null. */
+export function craftgateSettingsProblem(config: BillingProviderConfig | null | undefined): string | null {
+  return missingSettings('Craftgate', config, [['api_key', 'API Key'], ['secret_key', 'Secret Key']]);
+}
+
+/** Test Modu on (read strictly): sandbox-api.craftgate.io. */
+export function craftgateTestMode(config: BillingProviderConfig | null | undefined): boolean {
+  return isSettingOn(config?.sandbox);
 }
 
 /** Currencies Craftgate's checkout charges (`currency`). */
@@ -88,16 +110,17 @@ export const craftgateProvider: BillingProviderHandler = {
       price: amount,
       paidPrice: amount,
       currency,
-      paymentGroup: 'SUBSCRIPTION_PAYMENT',
+      // Craftgate's PaymentGroup is PRODUCT or LISTING_OR_SUBSCRIPTION ('SUBSCRIPTION_PAYMENT' was refused).
+      paymentGroup: 'LISTING_OR_SUBSCRIPTION',
       conversationId: orderId,
       callbackUrl: req.callbackUrl,
       items: [{ name: `Plan ${req.planId}`, price: amount }],
     };
     const bodyStr = JSON.stringify(bodyObj);
 
-    const res = await fetch(`${baseUrl(config)}${path}`, {
+    const res = await providerFetch('Craftgate', `${baseUrl(config)}${path}`, {
       method: 'POST',
-      headers: craftgateHeaders(config, path, bodyStr),
+      headers: craftgateHeaders(config, `${baseUrl(config)}${path}`, bodyStr),
       body: bodyStr,
     });
     const data = await res.json();
@@ -129,9 +152,9 @@ export const craftgateProvider: BillingProviderHandler = {
     if (amount) bodyObj.refundPrice = amount / 100;
     const bodyStr = JSON.stringify(bodyObj);
 
-    const res = await fetch(`${baseUrl(config)}${path}`, {
+    const res = await providerFetch('Craftgate', `${baseUrl(config)}${path}`, {
       method: 'POST',
-      headers: craftgateHeaders(config, path, bodyStr),
+      headers: craftgateHeaders(config, `${baseUrl(config)}${path}`, bodyStr),
       body: bodyStr,
     });
     const data = await res.json();
@@ -139,19 +162,22 @@ export const craftgateProvider: BillingProviderHandler = {
     return { success: errors === null, refundId: readCraftgateRefundId(data) };
   },
 
+  /** A signed installment lookup: success only when Craftgate answers without errors. */
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
+    const problem = craftgateSettingsProblem(config);
+    if (problem) return { success: false, latencyMs: 0, error: problem };
     try {
-      const path = '/payment/v1/installments';
-      const res = await fetch(`${baseUrl(config)}${path}?binNumber=454360`, {
-        headers: craftgateHeaders(config, path),
-      });
+      const url = `${baseUrl(config)}/installment/v1/installments?binNumber=487074&price=100`;
+      const res = await providerFetch('Craftgate', url, { headers: craftgateHeaders(config, url) });
       const data = await res.json();
       const errors = readCraftgateError(data);
-      if (errors !== null && errors.errorGroup === 'NOT_AUTHENTICATED') {
-        return { success: false, latencyMs: Date.now() - start, error: 'Invalid credentials' };
-      }
-      return { success: true, latencyMs: Date.now() - start };
+      if (errors === null && res.ok !== false) return { success: true, latencyMs: Date.now() - start };
+      return {
+        success: false,
+        latencyMs: Date.now() - start,
+        error: `Craftgate: ${errors?.errorDescription || (errors?.errorGroup === 'NOT_AUTHENTICATED' ? 'invalid credentials' : `HTTP ${res.status}`)}`,
+      };
     } catch (e: unknown) {
       return { success: false, latencyMs: Date.now() - start, error: e instanceof Error ? e.message : String(e) };
     }

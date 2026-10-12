@@ -118,7 +118,7 @@ describe('paratika testConnection', () => {
     const fetchMock = mockJson({});
     const result = await paratikaProvider.testConnection({ provider: 'paratika' });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Missing credentials');
+    expect(result.error).toBe('Paratika: Üye İşyeri Kodu, API Kullanıcı, API Şifre are empty.');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -130,12 +130,12 @@ describe('paratika testConnection', () => {
   it('returns auth failure for responseCode 99', async () => {
     mockJson({ responseCode: '99' });
     const result = await paratikaProvider.testConnection(CONFIG);
-    expect(result).toMatchObject({ success: false, error: 'Auth failed' });
+    expect(result).toMatchObject({ success: false, error: 'Paratika 99: session refused' });
   });
 
-  it.each([['null', null], ['array', []], ['empty', {}]])('treats malformed body (%s) as success as before', async (_l, body) => {
+  it.each([['null', null], ['array', []], ['empty', {}], ['00 without a session', { responseCode: '00' }]])('is not a success on a malformed body (%s): it used to pass', async (_l, body) => {
     mockJson(body);
-    expect((await paratikaProvider.testConnection(CONFIG)).success).toBe(true);
+    expect((await paratikaProvider.testConnection(CONFIG)).success).toBe(false);
   });
 
   it('reports network failure without leaking credentials', async () => {

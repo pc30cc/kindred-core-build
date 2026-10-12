@@ -37,7 +37,8 @@
 // ============================================================================
 
 import crypto from 'node:crypto';
-import { Router } from 'express';
+import express, { Router } from 'express';
+import { gatewayReturnsByPost } from '../services/billing/providerBinding.js';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
@@ -98,6 +99,7 @@ import {
   PADDLE_MIN_CHARGE_MINOR,
   TOPUP_LIMITS,
   chargeFor,
+  wholeTomanCharge,
   topupAmountProblem,
   vatPercentFor,
 } from '../../shared/simpleBilling.js';
@@ -172,9 +174,12 @@ function returnUrls(browserUrl: string, paymentId: string, providerName: string,
   browserReturn.searchParams.set('payment', paymentId);
   browserReturn.searchParams.set('provider', providerName);
   let gatewayCallback = browserReturn.toString();
-  // Gateways refuse plain-http callbacks outside localhost; the API's return
-  // hop (/api/billing/account-return below) bounces to the browser return URL.
-  if (browserReturn.protocol !== 'https:' && browserReturn.hostname !== 'localhost' && browserReturn.hostname !== '127.0.0.1') {
+  // The API's return hop (/api/billing/account-return below) bounces to the
+  // browser return URL: for a gateway that posts its result as a form (SEP,
+  // IDPay, PayPing; the app's page cannot receive a POST), and for a
+  // plain-http app outside localhost, which gateways refuse.
+  const plainHttp = browserReturn.protocol !== 'https:' && browserReturn.hostname !== 'localhost' && browserReturn.hostname !== '127.0.0.1';
+  if (plainHttp || gatewayReturnsByPost(providerName)) {
     const fallback = new URL('/api/billing/account-return', apiOrigin);
     fallback.searchParams.set('payment', paymentId);
     fallback.searchParams.set('provider', providerName);
@@ -350,7 +355,15 @@ async function startAccountCheckout(
 
     const settings = await getBillingSettings(cfg);
     const vat = vatPercentFor(settings.vat_percent, input.currency);
-    const charge = chargeFor(input.netMinor, vat);
+    let charge = chargeFor(input.netMinor, vat);
+    // PayPing charges whole Toman only (providers/payping.ts paypingToman).
+    if (resolved.provider.name === 'payping' && input.currency.toUpperCase() === 'IRR') {
+      const whole = wholeTomanCharge(charge);
+      if (!whole) {
+        return res.status(400).json({ error: 'AMOUNT_NOT_WHOLE_TOMAN', details: { provider: 'payping', amount_minor: charge.total } });
+      }
+      charge = whole;
+    }
 
     let card: Awaited<ReturnType<typeof prepareCardSetup>> | null = null;
     if (input.cardSetup) {
@@ -983,13 +996,48 @@ async function trustedReturnOrigins(cfg: ReturnType<typeof serverConfigOf>): Pro
   return origins;
 }
 
-// ─── Gateway callback hop for a non-https app origin ─────────────────────
+// ─── Gateway callback hop (form-posting gateways, non-https app origin) ──
 // Forwards the gateway's result to the exact return URL stored on the
 // payment at checkout. Never answers with data; only an allow-listed page.
-billingAccountRouter.get('/account-return', async (req, res) => {
+// A gateway may come back with a GET (query) or a POST (form: SEP, IDPay,
+// PayPing); a PayPing v3 `data` field holds JSON, flattened into the query.
+
+/** The fields a gateway sent back: the query, then a posted form (form fields win), `data` JSON flattened. */
+export function gatewayReturnFields(query: unknown, body: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  const take = (source: unknown) => {
+    if (typeof source !== 'object' || source === null || Array.isArray(source)) return;
+    for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
+      if (typeof value === 'string') out[key] = value.slice(0, 2000);
+      else if (typeof value === 'number' && Number.isFinite(value)) out[key] = String(value);
+    }
+  };
+  take(query);
+  take(body);
+  const data = out.data;
+  if (data && data.trim().startsWith('{')) {
+    try {
+      const parsed: unknown = JSON.parse(data);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+          if (key in out) continue;
+          if (typeof value === 'string' && value) out[key] = value.slice(0, 2000);
+          else if (typeof value === 'number' && Number.isFinite(value)) out[key] = String(value);
+        }
+        delete out.data;
+      }
+    } catch {
+      /* not JSON: kept as it came */
+    }
+  }
+  return out;
+}
+
+async function accountReturnHop(req: express.Request, res: express.Response) {
   try {
-    const paymentId = typeof req.query.payment === 'string' ? req.query.payment : '';
-    const providerName = typeof req.query.provider === 'string' ? req.query.provider : '';
+    const fields = gatewayReturnFields(req.query, req.method === 'POST' ? req.body : undefined);
+    const paymentId = fields.payment || '';
+    const providerName = fields.provider || '';
     const cfg = serverConfigOf(req);
     const payment = paymentId ? await readAccountPayment(cfg, paymentId) : null;
     if (!payment || payment.provider !== providerName || !payment.return_url) {
@@ -1000,9 +1048,9 @@ billingAccountRouter.get('/account-return', async (req, res) => {
     if (!(await trustedReturnOrigins(cfg)).has(destination.origin.toLowerCase())) {
       return res.status(400).type('text/plain').send('Invalid payment return.');
     }
-    for (const [key, value] of Object.entries(req.query)) {
+    for (const [key, value] of Object.entries(fields)) {
       if (key === 'payment' || key === 'provider') continue;
-      if (typeof value === 'string') destination.searchParams.set(key, value);
+      destination.searchParams.set(key, value);
     }
     destination.searchParams.set('payment', payment.id);
     destination.searchParams.set('provider', payment.provider);
@@ -1016,4 +1064,7 @@ billingAccountRouter.get('/account-return', async (req, res) => {
   } catch {
     return res.status(502).type('text/plain').send('Payment return is temporarily unavailable.');
   }
-});
+}
+
+billingAccountRouter.get('/account-return', accountReturnHop);
+billingAccountRouter.post('/account-return', express.urlencoded({ extended: false, limit: '64kb' }), accountReturnHop);

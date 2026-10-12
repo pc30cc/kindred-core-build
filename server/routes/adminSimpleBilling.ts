@@ -36,13 +36,13 @@ import {
   ACCOUNT_CURRENCIES,
   ACCOUNT_SORTS,
   ADJUST_CATEGORIES,
-  ADJUST_RATE_LIMIT,
   ADJUST_REASON_MAX,
   ADJUST_REASON_MIN,
   REVENUE_MONTHS,
   adjustAmountProblem,
   parseAccountFilter,
 } from '../../shared/simpleBillingAdmin.js';
+import { adjustAllowed } from '../services/billing/account/adjustRateLimit.js';
 import { aiWalletRate } from '../services/billing/account/aiPacks.js';
 import { getBillingMode } from '../services/ai-billing/mode.js';
 import { SELLER_KEYS, cleanProfile, vatPercentFor } from '../../shared/simpleBilling.js';
@@ -318,7 +318,8 @@ adminSimpleBillingRouter.get('/accounts/:workspaceId/receipts/:ledgerId', async 
 // ─── Manual credit and debit (phase 6) ─────────────────────────────────────
 // Safeguards (decision D2): a reason and a category, the balance and the
 // currency the dialog showed (409 when either moved), a key that makes a
-// double submit replay, a per-admin rate limit, and an audit row. The actor
+// double submit replay, a per-admin rate limit (counted from the ledger,
+// services/billing/account/adjustRateLimit.ts), and an audit row. The actor
 // is the signed-in Super Admin, never a field of the body.
 
 const adjustSchema = z.object({
@@ -333,27 +334,6 @@ const adjustSchema = z.object({
   expectedBalanceMinor: z.number().int().min(0),
   commandKey: z.string().uuid(),
 }).strict();
-
-/** Adjust timestamps per admin (in memory, per process; decision D2). */
-const adjustLog = new Map<string, number[]>();
-
-/** Records an attempt and answers whether it is within the limit. */
-function adjustAllowed(adminId: string, now = Date.now()): boolean {
-  const since = now - ADJUST_RATE_LIMIT.windowMs;
-  const recent = (adjustLog.get(adminId) ?? []).filter((t) => t > since);
-  if (recent.length >= ADJUST_RATE_LIMIT.max) {
-    adjustLog.set(adminId, recent);
-    return false;
-  }
-  recent.push(now);
-  adjustLog.set(adminId, recent);
-  return true;
-}
-
-/** Tests only: forget every admin's recent adjustments. */
-export function resetAdjustRateLimit(): void {
-  adjustLog.clear();
-}
 
 function clientIp(req: Request): string | null {
   return (req.ip || req.socket?.remoteAddress || '').slice(0, 64) || null;
@@ -376,7 +356,8 @@ adminSimpleBillingRouter.post('/accounts/:workspaceId/adjust', async (req, res) 
     // The server decides the currency (decision D5): the account's, else the region's (accountCurrency's rule).
     const currency = detail.currency;
     if (currency !== body.currency) return res.status(409).json({ error: 'CURRENCY_CHANGED', account: detail });
-    if (!adjustAllowed(actorId)) return res.status(429).json({ error: 'TOO_MANY_ADJUSTMENTS' });
+    // Counted from the ledger, shared by every process; a replay of a booked key is not a new change.
+    if (!(await adjustAllowed(cfg, actorId, body.commandKey))) return res.status(429).json({ error: 'TOO_MANY_ADJUSTMENTS' });
     const amountMinor = body.direction === 'debit' ? -body.amountMinor : body.amountMinor;
     const reason = body.reason.trim();
     let outcome;

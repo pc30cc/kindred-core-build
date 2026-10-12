@@ -7,7 +7,8 @@
  * - Credit and debit: the actor is the signed-in admin, never the body; the
  *   currency is the server's (409 CURRENCY_CHANGED); each SQL exception maps
  *   to its code; an audit row is written, but not on a replay, and a failed
- *   audit write still answers 200; 30 an hour per admin, then 429.
+ *   audit write still answers 200; 30 an hour per admin, counted from the
+ *   ledger (so shared by every process), then 429; a replay is not counted.
  * - Reading an account changes nothing: processDueNow, ensureAccount,
  *   syncCard and cardView are never called.
  * - /revenue validates `months`; /settings validates and keeps `ai_packs`.
@@ -27,6 +28,7 @@ const h = vi.hoisted(() => ({
   rpcCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
   rpc: {} as Record<string, (args: Record<string, unknown>) => { data?: unknown; error?: { message: string } | null }>,
   auditInsert: 'ok' as 'ok' | 'error' | 'throw',
+  ledgerReadError: null as string | null,
   edition: 'international' as 'iran' | 'international',
   regionMode: 'multi' as string,
   admins: new Set<string>(),
@@ -54,6 +56,7 @@ vi.mock('../../../../server/supabase.js', () => {
       let range: [number, number] | null = null;
       let wantCount = false;
       const result = () => {
+        if (table === 'billing_account_ledger' && h.ledgerReadError) return { data: null, error: { message: h.ledgerReadError }, count: null };
         let out = rows().filter((r) => matches(r, filters));
         if (order) {
           const { col, asc } = order;
@@ -70,10 +73,14 @@ vi.mock('../../../../server/supabase.js', () => {
         },
         eq: (col: string, val: unknown) => { filters.push((r) => r[col] === val); return b; },
         in: (col: string, vals: unknown[]) => { filters.push((r) => vals.includes(r[col])); return b; },
+        gte: (col: string, val: unknown) => { filters.push((r) => String(r[col]) >= String(val)); return b; },
         order: (col: string, opts?: { ascending?: boolean }) => { order = { col, asc: opts?.ascending !== false }; return b; },
         range: (from: number, to: number) => { range = [from, to]; return b; },
         limit: () => b,
-        maybeSingle: async () => ({ data: result().data[0] ?? null, error: null }),
+        maybeSingle: async () => {
+          const r = result();
+          return { data: r.data?.[0] ?? null, error: r.error };
+        },
         single: async () => ({ data: result().data[0] ?? null, error: null }),
         then: (resolve: (v: unknown) => void, reject: (e: unknown) => void) => Promise.resolve(result()).then(resolve, reject),
         insert: (row: Row) => {
@@ -154,7 +161,6 @@ vi.mock('../../../../server/services/billing/index.js', async (importOriginal) =
 });
 
 const { adminRouter } = await import('../../../../server/routes/admin.js');
-const { resetAdjustRateLimit } = await import('../../../../server/routes/adminSimpleBilling.js');
 
 const app = express();
 app.use((req, _res, next) => {
@@ -207,7 +213,7 @@ function adjustBody(over: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
-  resetAdjustRateLimit();
+  h.ledgerReadError = null;
   h.edition = 'international';
   h.regionMode = 'multi';
   h.auditInsert = 'ok';
@@ -238,6 +244,12 @@ beforeEach(() => {
   h.rpc = {
     billing_account_admin_adjust: (args) => {
       const balance = 1000 + Number(args.p_amount_minor);
+      // Books the row the SQL would (the rate limit counts these).
+      h.db.billing_account_ledger.push({
+        id: LEDGER, workspace_id: args.p_workspace_id, kind: Number(args.p_amount_minor) > 0 ? 'admin_credit' : 'admin_debit',
+        amount_minor: args.p_amount_minor, actor_id: args.p_actor_id, idempotency_key: `admin:${String(args.p_command_key)}`,
+        created_at: new Date().toISOString(),
+      });
       return { data: { replayed: false, ledger_id: LEDGER, balance_minor: balance } };
     },
     billing_admin_liability: () => ({ data: [{ currency: 'USD', accounts: 1, positive_accounts: 1, balance_minor: 1000, prepaid_minor: 0 }] }),
@@ -472,14 +484,71 @@ describe('POST /accounts/:workspaceId/adjust', () => {
     expect(res).toMatchObject({ status: 200, json: { replayed: false, balance_minor: 1500 } });
   });
 
+  const keyOf = (i: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(i).padStart(12, '0')}`;
+  /** Ledger rows of `actor`, as another backend process would have booked them, `ageMs` ago. */
+  function seedAdjusts(n: number, actor: string, ageMs = 60_000, kind = 'admin_credit') {
+    for (let i = 0; i < n; i++) {
+      h.db.billing_account_ledger.push({
+        id: `seed-${h.db.billing_account_ledger.length}`, workspace_id: WS, kind, amount_minor: 100, actor_id: actor,
+        idempotency_key: `admin:${keyOf(h.db.billing_account_ledger.length)}`, created_at: new Date(Date.now() - ageMs).toISOString(),
+      });
+    }
+  }
+
   it('30 an hour per admin, then 429 TOO_MANY_ADJUSTMENTS (another admin is not limited)', async () => {
-    for (let i = 0; i < 30; i++) expect((await call('POST', path, 'admin-token', adjustBody())).status).toBe(200);
-    expect(await call('POST', path, 'admin-token', adjustBody())).toMatchObject({ status: 429, json: { error: 'TOO_MANY_ADJUSTMENTS' } });
+    for (let i = 0; i < 30; i++) {
+      expect((await call('POST', path, 'admin-token', adjustBody({ commandKey: keyOf(1000 + i), direction: i % 2 ? 'debit' : 'credit' }))).status).toBe(200);
+    }
+    expect(await call('POST', path, 'admin-token', adjustBody({ commandKey: keyOf(2000) }))).toMatchObject({ status: 429, json: { error: 'TOO_MANY_ADJUSTMENTS' } });
     expect(adjustCalls()).toHaveLength(30);
     const OTHER = '99999999-9999-4999-8999-999999999999';
     h.admins.add(OTHER);
     h.sessions['other-token'] = OTHER;
-    expect((await call('POST', path, 'other-token', adjustBody())).status).toBe(200);
+    expect((await call('POST', path, 'other-token', adjustBody({ commandKey: keyOf(2001) }))).status).toBe(200);
+  });
+
+  it('the count is the ledger\'s, so changes booked by another process count too', async () => {
+    seedAdjusts(29, ADMIN);
+    expect((await call('POST', path, 'admin-token', adjustBody({ commandKey: keyOf(3000) }))).status).toBe(200);
+    expect((await call('POST', path, 'admin-token', adjustBody({ commandKey: keyOf(3001) }))).status).toBe(429);
+    expect(adjustCalls()).toHaveLength(1);
+  });
+
+  it('only the admin\'s own admin_credit / admin_debit rows of the last hour count', async () => {
+    seedAdjusts(30, ADMIN, 61 * 60_000);
+    seedAdjusts(30, ADMIN, 60_000, 'topup');
+    seedAdjusts(30, '99999999-9999-4999-8999-999999999999');
+    seedAdjusts(29, ADMIN, 60_000, 'admin_debit');
+    expect((await call('POST', path, 'admin-token', adjustBody({ commandKey: keyOf(4000) }))).status).toBe(200);
+    expect((await call('POST', path, 'admin-token', adjustBody({ commandKey: keyOf(4001) }))).status).toBe(429);
+  });
+
+  it('a refused attempt books nothing and does not count', async () => {
+    seedAdjusts(29, ADMIN);
+    for (let i = 0; i < 5; i++) expect((await call('POST', path, 'admin-token', adjustBody({ currency: 'TRY' }))).status).toBe(409);
+    h.rpc.billing_account_admin_adjust = () => ({ error: { message: 'billing_adjust_balance_changed' } });
+    for (let i = 0; i < 5; i++) expect((await call('POST', path, 'admin-token', adjustBody({ commandKey: keyOf(5000 + i) }))).status).toBe(409);
+    h.rpc.billing_account_admin_adjust = () => ({ data: { replayed: false, ledger_id: LEDGER, balance_minor: 1500 } });
+    expect((await call('POST', path, 'admin-token', adjustBody({ commandKey: keyOf(5100) }))).status).toBe(200);
+  });
+
+  it('at the limit, a replay of a key that already booked still answers the first booking', async () => {
+    seedAdjusts(30, ADMIN);
+    const booked = String(h.db.billing_account_ledger[29].idempotency_key).slice('admin:'.length);
+    h.rpc.billing_account_admin_adjust = () => ({ data: { replayed: true, ledger_id: LEDGER, balance_minor: 1500 } });
+    expect(await call('POST', path, 'admin-token', adjustBody({ commandKey: booked }))).toMatchObject({ status: 200, json: { replayed: true } });
+    expect(adjustCalls()).toHaveLength(1);
+    expect(h.db.audit_logs).toEqual([]);
+    expect((await call('POST', path, 'admin-token', adjustBody({ commandKey: keyOf(6000) }))).status).toBe(429);
+    expect(adjustCalls()).toHaveLength(1);
+  });
+
+  it('fails closed: an unreadable ledger is a 500 and nothing is booked', async () => {
+    h.ledgerReadError = 'connection reset';
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await call('POST', path, 'admin-token', adjustBody())).toMatchObject({ status: 500, json: { error: 'INTERNAL_ERROR' } });
+    spy.mockRestore();
+    expect(adjustCalls()).toHaveLength(0);
   });
 });
 

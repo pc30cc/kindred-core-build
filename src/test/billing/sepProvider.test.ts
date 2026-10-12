@@ -8,7 +8,7 @@ import {
 } from '../../../server/services/billing/providers/sep';
 import type { BillingProviderConfig, CheckoutRequest } from '../../../server/services/billing/types';
 
-const TERMINAL = 'TERMINAL_MOCK_0001';
+const TERMINAL = '98765432';
 const config: BillingProviderConfig = { provider: 'sep_shaparak', terminal_id: TERMINAL };
 
 const req: CheckoutRequest = {
@@ -69,7 +69,7 @@ describe('SEP createCheckoutSession — success', () => {
     const result = await sepProvider.createCheckoutSession(config, req);
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://sep.shaparak.ir/OnlinePG/OnlinePG');
+    expect(url).toBe('https://sep.shaparak.ir/onlinepg/onlinepg');
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
     expect(JSON.parse(init.body)).toEqual({
@@ -84,6 +84,12 @@ describe('SEP createCheckoutSession — success', () => {
       paymentUrl: 'https://sep.shaparak.ir/OnlinePG/SendToken?token=TOKEN_MOCK_ABC',
       sessionId: 'TOKEN_MOCK_ABC',
     });
+  });
+
+  it('uses the payment id as ResNum when there is one', async () => {
+    const fetchMock = mockJson({ status: 1, token: 't' });
+    await sepProvider.createCheckoutSession(config, { ...req, intentId: 'pay-1' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).ResNum).toBe('pay-1');
   });
 
   it('defaults amount to 0 when metadata amount is missing', async () => {
@@ -146,35 +152,31 @@ describe('SEP createCheckoutSession — malformed body', () => {
 });
 
 describe('SEP testConnection', () => {
-  it('succeeds for a valid response', async () => {
-    mockJson({ status: 1, token: 'tok' });
-    const r = await sepProvider.testConnection(config);
+  it('succeeds only when SEP issues a token, with the platform\'s callback', async () => {
+    const fetchMock = mockJson({ status: 1, token: 'tok' });
+    const r = await sepProvider.testConnection({ ...config, probe_callback_url: 'https://api.webyar.ai/api/billing/account-return' });
     expect(r.success).toBe(true);
-    expect(typeof r.latencyMs).toBe('number');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).RedirectUrl).toBe('https://api.webyar.ai/api/billing/account-return');
   });
-  it('reports invalid terminal for status -1', async () => {
-    mockJson({ status: -1 });
-    const r = await sepProvider.testConnection(config);
-    expect(r).toMatchObject({ success: false, error: 'Invalid terminal ID' });
+  it('reports SEP\'s error code and description', async () => {
+    mockJson({ status: -1, errorCode: 5, errorDesc: 'Invalid terminal' });
+    expect(await sepProvider.testConnection(config)).toMatchObject({ success: false, error: 'SEP 5: Invalid terminal' });
   });
   it.each([
     ['other failure status', { status: -5 }],
-    ['string status', { status: '-1' }],
+    ['string status', { status: '1', token: 'tok' }],
     ['empty object', {}],
     ['array', []],
     ['primitive', 'x'],
-  ])('still reports reachable endpoint for %s', async (_l, body) => {
-    mockJson(body);
-    const r = await sepProvider.testConnection(config);
-    expect(r.success).toBe(true);
-  });
-  it.each([
     ['null body', null],
-    ['undefined body', undefined],
-  ])('reports failure for %s', async (_l, body) => {
+  ])('is not a success for %s (it used to report the endpoint reachable)', async (_l, body) => {
     mockJson(body);
-    const r = await sepProvider.testConnection(config);
-    expect(r.success).toBe(false);
+    expect((await sepProvider.testConnection(config)).success).toBe(false);
+  });
+  it('refuses a terminal number that is not digits, without calling SEP', async () => {
+    const fetchMock = mockJson({ status: 1, token: 'tok' });
+    expect((await sepProvider.testConnection({ provider: 'sep_shaparak', terminal_id: 'abc' })).error).toMatch(/digits/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
   it('handles network failure', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
@@ -211,7 +213,7 @@ describe('sep verifyPayment', () => {
     expect(url).toBe(VERIFY_URL);
     expect(init.method).toBe('POST');
     expect(init.headers['Content-Type']).toBe('application/json');
-    expect(JSON.parse(init.body)).toEqual({ RefNum: 'REFNUM_MOCK_0001', TerminalNumber: TERMINAL });
+    expect(JSON.parse(init.body)).toEqual({ RefNum: 'REFNUM_MOCK_0001', TerminalNumber: Number(TERMINAL) });
     expect(out).toEqual({
       verified: true,
       providerRef: 'REFNUM_MOCK_0001',
@@ -256,8 +258,8 @@ describe('sep verifyPayment', () => {
   it('returns OrginalAmount only when it is a finite number', async () => {
     const cases: Array<[unknown, number | undefined]> = [
       [250000, 250000],
-      [0, 0],
-      [-5, -5],
+      [0, undefined],
+      [-5, undefined],
       ['250000', undefined],
       [Number.POSITIVE_INFINITY, undefined],
       [Number.NaN, undefined],
@@ -272,16 +274,26 @@ describe('sep verifyPayment', () => {
     }
   });
 
-  it('never renames OrginalAmount nor falls back to AffectiveAmount', async () => {
-    mockJson({ ResultCode: 1, TransactionDetail: { OriginalAmount: 111, AffectiveAmount: 222 } });
-    expect((await sepProvider.verifyPayment!(config, verifyParams)).amount).toBeUndefined();
+  it('reads SEP\'s documented `OrginalAmount`, then `OriginalAmount`, then `AffectiveAmount`', async () => {
+    mockJson({ ResultCode: 0, TransactionDetail: { OriginalAmount: 111, AffectiveAmount: 222 } });
+    expect((await sepProvider.verifyPayment!(config, verifyParams)).amount).toBe(111);
+    mockJson({ ResultCode: 0, TransactionDetail: { AffectiveAmount: 222 } });
+    expect((await sepProvider.verifyPayment!(config, verifyParams)).amount).toBe(222);
+    mockJson({ ResultCode: 0, TransactionDetail: { OrginalAmount: 333, OriginalAmount: 111 } });
+    expect((await sepProvider.verifyPayment!(config, verifyParams)).amount).toBe(333);
+  });
+
+  it('a return without RefNum (cancelled at the bank) is not sent to SEP', async () => {
+    const fetchMock = mockJson({ ResultCode: 0 });
+    expect(await sepProvider.verifyPayment!(config, { State: 'CanceledByUser', Token: 't' })).toEqual({ verified: false, providerRef: '', status: 'canceled' });
+    expect(await sepProvider.verifyPayment!(config, { Token: 't' })).toEqual({ verified: false, providerRef: '', status: 'failed' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('keeps the request RefNum as the provider reference', async () => {
     mockJson({ ResultCode: 1, TransactionDetail: { RefNum: 'OTHER_REF', OrginalAmount: 1 } });
     expect((await sepProvider.verifyPayment!(config, verifyParams)).providerRef).toBe('REFNUM_MOCK_0001');
 
-    mockJson({ ResultCode: 1, TransactionDetail: { OrginalAmount: 1 } });
     expect((await sepProvider.verifyPayment!(config, {})).providerRef).toBe('');
   });
 
@@ -310,5 +322,31 @@ describe('sep verifyPayment', () => {
     expect(serialized).not.toContain(TERMINAL);
     expect(serialized).not.toContain('09120000000');
     expect(serialized).not.toContain('TransactionDetail');
+  });
+});
+
+describe('sep timeouts', () => {
+  function slowFetch(delayMs: number, body: unknown) {
+    const fn = vi.fn((_url: string, init: RequestInit) => new Promise((resolve, reject) => {
+      const t = setTimeout(() => resolve({ json: async () => body }), delayMs);
+      init.signal?.addEventListener('abort', () => { clearTimeout(t); reject(new Error('aborted')); });
+    }));
+    vi.stubGlobal('fetch', fn);
+    return fn;
+  }
+
+  it('verify waits well past the 20 s create/test deadline (SEP verifies slowly and never undoes a verify)', async () => {
+    slowFetch(25_000, { Success: true, ResultCode: 0, TransactionDetail: { OrginalAmount: 250000 } });
+    const pending = sepProvider.verifyPayment(config, { RefNum: 'ref-slow', State: 'OK' });
+    await vi.advanceTimersByTimeAsync(25_000);
+    await expect(pending).resolves.toMatchObject({ verified: true, status: 'success', amount: 250000 });
+  });
+
+  it('create still gives up after 20 s', async () => {
+    slowFetch(25_000, { status: 1, token: 'tok' });
+    const pending = sepProvider.createCheckoutSession(config, req);
+    const check = expect(pending).rejects.toThrow(/SEP gateway unreachable: no answer within 20 s/);
+    await vi.advanceTimersByTimeAsync(21_000);
+    await check;
   });
 });

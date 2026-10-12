@@ -906,8 +906,19 @@ it raises unless 265 and 266 are applied, and it can be run again):
   no role but the owner can read either;
 - `billing_account_process_due` no longer activates a v2 `scheduled` period
   (otherwise a period the move prepaid would start twice and its prepayment
-  would come back); `billing_account_v2_next_period` becomes a stub that
-  returns NULL (same signature and grants, for the code from before 7A);
+  would come back); `billing_account_v2_next_period` (same signature and
+  grants, for the code from before 7A) names only a v2 next period the move
+  left to a person (`needs_review`, or an item whose apply failed): until it
+  is resolved or waived, renew and the saved card refuse a second charge
+  (`billing_already_renewed`), no reminder is sent, and `process_due` holds
+  the workspace as it is (`{action: 'none', reason: 'v2_period_needs_review'}`)
+  instead of renewing it from the balance or dropping it to Free. A period
+  the move acted on, or one waived, no longer counts;
+- `billing_account_grant_month`: a billing v2 period or cycle AI lot blocks a
+  month only when it was granted within the period being funded. A v2 lot of
+  a replaced period (the v2 month running when Super Admin assigns a plan)
+  stays the customer's and no longer keeps the new period from its month's
+  AI credit; a v2 period that simply runs on is still never funded twice;
 - `app_review_seed_workspace` grants the App Review plan through simple
   billing (`billing_account_write_subscription` to 2099, `admin_grant`, then
   `billing_account_grant_month`), with no v2 period;
@@ -935,20 +946,35 @@ new receipt: v2's own document was the receipt):
 - a paid v2 next period (`scheduled`): contiguous and in the future, it
   becomes simple billing's prepaid next period (a credit and an equal
   `renewal` debit, `next_period_prepaid_minor`, `next_period_start` and the
-  scheduled plan), exactly what `billing_account_renew` leaves; already due,
-  it is activated (subscription written, AI month granted once); replaced
-  (not contiguous), its money is credited to the balance;
+  scheduled plan), exactly what `billing_account_renew` leaves; already due
+  and still running, it is activated (subscription written, AI month granted
+  once); replaced (not contiguous), its money is credited to the balance
+  ("Billing v2 next period, replaced"). Its money is also credited, and
+  nothing is activated, when the period has already ended (v2 never started
+  it: "Billing v2 next period, never started") or when its subscription was
+  `canceled` (the move does not turn a canceled subscription back on:
+  "Billing v2 next period, subscription canceled");
 - subscription rows: `past_due` past its end and `free_fallback` become
   `expired`, `past_due` still running becomes `active`, `canceled` at period
   end becomes `active` with auto-renew off, a pending downgrade becomes the
   account's scheduled change, through `billing_account_write_subscription`
   (change `v2_migration`, a `plan_change_log` row, v2 columns cleared).
 
+A payment intent is never a second copy of money v2 recorded elsewhere: a
+`processing` or `succeeded` intent with a linked payment that received the
+money (`succeeded`, `partially_refunded`, `refunded`) is ignored, because
+that payment is the item the move credits (or reviews, or ignores as
+already applied); one whose wallet deposit reached the v2 wallet is ignored
+because the wallet is credited. Its details name the linked payment, its
+state and its `migration_log` action.
+
 Everything else is ignored (no money moved) or **`needs_review`**: nothing is
-written for it and it is listed in the report with a reason. In the
+written for it and it is listed in the report with a reason and the item's
+details (for an intent: any linked payment, its invoice and deposit). In the
 `international` edition (RESPOK, a clone of WebYar's data) every v2 money
 item is `needs_review`. Other reasons: a wallet that does not match its
-ledger or is frozen, a payment not in IRR, a `processing` payment intent, a
+ledger or is frozen, a payment not in IRR, a `processing` payment intent
+whose money v2 never recorded (no payment that received it, no deposit), a
 paid invoice never applied, an admin-granted next period with no money, a
 prepay when the account already has another scheduled change or prepayment,
 a subscription in `unpaid`, `incomplete`, `paused` or `suspended`, an amount

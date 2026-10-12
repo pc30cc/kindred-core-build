@@ -11,12 +11,20 @@
 --        billing_account_process_due   no longer activates a v2 `scheduled`
 --                                      period (the move prepays it instead;
 --                                      both together would give the customer
---                                      the period and the money back);
---        billing_account_v2_next_period a stub that returns NULL, signature
---                                      and grants kept, so its callers
---                                      (renew, card_apply_renewal,
---                                      reminder_candidates and the server code
---                                      from before 7A) keep working;
+--                                      the period and the money back); a v2
+--                                      period the move left to a person holds
+--                                      the workspace as it is instead;
+--        billing_account_v2_next_period names only a v2 next period the move
+--                                      left to a person (needs_review): renew,
+--                                      card_apply_renewal and
+--                                      reminder_candidates keep refusing a
+--                                      second charge for it until it is
+--                                      resolved or waived; signature and
+--                                      grants kept for the code from before 7A;
+--        billing_account_grant_month   a v2 AI lot blocks a month only when it
+--                                      was granted within the period funded,
+--                                      so a period that replaced a v2 one (a
+--                                      Super Admin assignment) gets its month;
 --        app_review_seed_workspace     grants its plan through simple billing
 --                                      instead of building a v2 period.
 --   4. Three functions, executable by the migration owner (postgres) only:
@@ -49,14 +57,18 @@
 --   * A wallet balance that matches its ledger is credited; an unapplied
 --     payment is credited at its invoice's net share (or amount - refunds).
 --   * A `scheduled` v2 period paid by invoice is prepaid (contiguous, in the
---     future), activated (already due), or credited (its subscription was
---     replaced); anything else is needs_review.
+--     future), activated (already due and still running), or credited (its
+--     subscription was replaced or canceled, or the period already ended
+--     without ever starting); anything else is needs_review.
 --   * Subscriptions leave v2's states through billing_account_write_subscription
 --     (change 'v2_migration'): past_due / free_fallback / canceled become
 --     active or expired, canceled-at-period-end turns auto-renew off, a
 --     pending downgrade becomes the account's scheduled change.
---   * Processing intents, succeeded intents with no payment, fresh pending
---     intents and paid invoices never applied are needs_review.
+--   * An intent whose money v2 recorded (a linked payment that received it,
+--     or its deposit in the v2 wallet) is ignored: that payment or wallet is
+--     the money item. Other processing intents, succeeded intents with no
+--     payment, fresh pending intents and paid invoices never applied are
+--     needs_review; the report carries each item's details.
 -- No v2 row is changed or deleted: the move only adds simple-billing rows and
 -- log rows. needs_review items are left untouched for a person (268 refuses
 -- to archive while any is open).
@@ -114,6 +126,8 @@ REVOKE ALL ON TABLE billing_v2_archive.migration_log FROM PUBLIC, anon, authenti
 -- ─── 3a. process_due without v2 ───────────────────────────────────────────
 -- 262's body (unchanged by 263-266, checked with pg_get_functiondef at 266)
 -- without the block that activated a v2 `scheduled` period and its v_v2.
+-- In its place: a v2 period still waiting for a person holds the workspace
+-- (3b). 268 removes that hold with the function it calls.
 CREATE OR REPLACE FUNCTION public.billing_account_process_due(p_workspace_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
@@ -130,11 +144,21 @@ DECLARE
   v_result   jsonb;
   v_reason   text;
   v_card     public.billing_account_cards;
+  v_held     uuid;
 BEGIN
   v_acc := public.billing_account_lock(p_workspace_id);
   v_sub := public.billing_account_paid_subscription(p_workspace_id);
   IF v_sub.id IS NULL OR v_sub.current_period_end > now() THEN
     RETURN jsonb_build_object('action', 'none');
+  END IF;
+
+  -- A next period paid through billing v2 that the move left to a person
+  -- (billing_account_v2_next_period): the workspace stays as it is (its
+  -- subscription still reads active) until that person decides. Neither a
+  -- second charge from the balance nor a drop to Free.
+  v_held := public.billing_account_v2_next_period(p_workspace_id);
+  IF v_held IS NOT NULL THEN
+    RETURN jsonb_build_object('action', 'none', 'reason', 'v2_period_needs_review', 'period_id', v_held);
   END IF;
 
   -- A prepayment made for another period (the period was replaced) returns.
@@ -227,16 +251,36 @@ BEGIN
 END;
 $$;
 
--- ─── 3b. The v2 next period: always none ──────────────────────────────────
+-- ─── 3b. The v2 next period: only one the move left to a person ─────────
 -- Same signature, attributes and grants (CREATE OR REPLACE keeps them), so
 -- the callers from 261/262 and the server code from before 7A keep working.
--- 268 removes the callers' conditions and then the function.
+-- A v2 `scheduled` period the move acted on (prepaid, activated, credited)
+-- or a person waived is in migration_log: it no longer counts, the simple
+-- billing's own rows carry it. One the move could not decide (needs_review,
+-- or an item whose apply failed) still counts until a person resolves it:
+-- renew and the card refuse a second charge (billing_already_renewed), no
+-- reminder is sent, and process_due holds the workspace as it is (below)
+-- instead of renewing it from the balance or dropping it to Free. A period
+-- on the free plan with no money never counted. The answer comes from the
+-- move's own plan, the one function that reads v2 tables; only a period row
+-- carries details.period_id. 268 removes the callers' conditions and then
+-- the function.
 CREATE OR REPLACE FUNCTION public.billing_account_v2_next_period(p_workspace_id uuid)
 RETURNS uuid
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
+DECLARE
+  v_id uuid;
 BEGIN
-  RETURN NULL;
+  IF p_workspace_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+  SELECT pl.source_id INTO v_id
+    FROM public.billing_v2_migration_plan(p_workspace_id) pl
+   WHERE pl.details ? 'period_id' AND pl.action <> 'ignored'
+   ORDER BY (pl.details->>'period_start')::timestamptz, pl.source_id
+   LIMIT 1;
+  RETURN v_id;
 END;
 $$;
 
@@ -302,6 +346,137 @@ BEGIN
     FROM d JOIN (VALUES ('Sales', 'me'), ('Support', 'me'), ('Sales', 'owner'), ('Support', 'mate')) m(name, who)
       ON m.name = d.name;
   RETURN v_ws;
+END;
+$$;
+
+-- ─── 3d. The month's AI credit after a replaced v2 period ─────────────────
+-- 261's billing_account_grant_month (unchanged by 262-266), with one change:
+-- a billing v2 period or cycle lot blocks the month only when it was granted
+-- within the period being funded. Before, any v2 lot overlapping the month
+-- blocked it, so a Super Admin assignment (or anything else that starts a
+-- new period) over a running v2 month granted nothing until that lot's
+-- period had passed. A v2 period that simply runs on (the subscription's
+-- dates are the v2 period's) is still never funded twice.
+CREATE OR REPLACE FUNCTION public.billing_account_grant_month(
+  p_workspace_id uuid,
+  p_plan_id      uuid,
+  p_period_start timestamptz,
+  p_period_end   timestamptz,
+  p_source       text DEFAULT 'plan',
+  p_amount       numeric DEFAULT NULL,
+  p_at           timestamptz DEFAULT now()
+) RETURNS numeric
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_k           integer;
+  v_cycle_start timestamptz;
+  v_cycle_end   timestamptz;
+  v_cycle_id    text;
+  v_amount      numeric;
+  v_lot         public.workspace_ai_balance_lots;
+  v_left        numeric;
+  v_entry       uuid;
+  v_retired     integer := 0;
+BEGIN
+  IF p_period_start IS NULL OR p_period_end IS NULL OR p_at < p_period_start OR p_at >= p_period_end THEN
+    RETURN 0;
+  END IF;
+  -- The month of the period that contains p_at, on the same boundaries
+  -- billing_add_months draws (month ends clamp).
+  v_k := public.billing_whole_months(p_period_start, p_at);
+  WHILE v_k > 0 AND public.billing_add_months(p_period_start, v_k) > p_at LOOP
+    v_k := v_k - 1;
+  END LOOP;
+  WHILE public.billing_add_months(p_period_start, v_k + 1) <= p_at LOOP
+    v_k := v_k + 1;
+  END LOOP;
+  v_cycle_start := public.billing_add_months(p_period_start, v_k);
+  v_cycle_end := least(public.billing_add_months(p_period_start, v_k + 1), p_period_end);
+  v_cycle_id := 'cycle:account:' || to_char(v_cycle_start AT TIME ZONE 'UTC', 'YYYYMMDD"T"HH24MISS');
+  v_amount := coalesce(p_amount, public.billing_plan_ai_allowance(p_plan_id, p_workspace_id));
+  IF v_amount IS NULL OR v_amount <= 0 THEN
+    RETURN 0;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.workspace_ai_balance_lots
+     WHERE workspace_id = p_workspace_id
+       AND source_type = 'PLAN_ALLOWANCE'
+       AND billing_cycle_id = v_cycle_id
+       AND allowance_source = p_source
+  ) THEN
+    RETURN 0;
+  END IF;
+  -- A month billing v2 funded itself (its own period or cycle lot covering
+  -- part of this month) is not funded twice. Lots of other paths (a trial,
+  -- the Free plan's calendar month) are another plan's credit and do not
+  -- count. Only a lot granted within this period counts (267): billing v2
+  -- granted a period's lots when it started it (never before its start), so
+  -- a lot granted before p_period_start belongs to a period this one
+  -- replaced, such as the v2 month running when a Super Admin assigns a
+  -- plan. That lot stays the customer's, and the new period is funded too,
+  -- as billing v2 did.
+  IF p_source = 'plan' AND EXISTS (
+    SELECT 1 FROM public.workspace_ai_balance_lots
+     WHERE workspace_id = p_workspace_id
+       AND source_type = 'PLAN_ALLOWANCE'
+       AND coalesce(allowance_source, 'plan') = 'plan'
+       AND (billing_cycle_id LIKE 'period:%'
+            OR (billing_cycle_id LIKE 'cycle:%' AND billing_cycle_id NOT LIKE 'cycle:account:%'))
+       AND created_at >= p_period_start
+       AND created_at < v_cycle_end
+       AND (expires_at IS NULL OR expires_at > v_cycle_start)
+  ) THEN
+    RETURN 0;
+  END IF;
+  IF p_source = 'plan' THEN
+    -- The old calendar grant funded this month of this period already.
+    IF EXISTS (
+      SELECT 1 FROM public.workspace_ai_balance_lots
+       WHERE workspace_id = p_workspace_id
+         AND source_type = 'PLAN_ALLOWANCE'
+         AND billing_cycle_id ~ '^[0-9]{4}-[0-9]{2}$'
+         AND created_at >= greatest(p_period_start, v_cycle_start)
+         AND created_at < v_cycle_end
+    ) THEN
+      RETURN 0;
+    END IF;
+    -- What is left of older calendar lots expires (what is reserved by a
+    -- reply in flight stays until it settles).
+    PERFORM public.ai_wallet_lock(p_workspace_id);
+    FOR v_lot IN
+      SELECT * FROM public.workspace_ai_balance_lots
+       WHERE workspace_id = p_workspace_id
+         AND source_type = 'PLAN_ALLOWANCE'
+         AND billing_cycle_id ~ '^[0-9]{4}-[0-9]{2}$'
+         AND state IN ('ACTIVE', 'EXPIRING')
+         AND remaining_amount > 0
+       FOR UPDATE
+    LOOP
+      v_left := v_lot.remaining_amount - v_lot.reserved_amount;
+      IF v_left > 0 THEN
+        INSERT INTO public.workspace_ai_ledger (workspace_id, entry_type, amount, billing_cycle_id, reason)
+        VALUES (v_lot.workspace_id, 'EXPIRATION', -v_left, v_lot.billing_cycle_id, 'legacy_allowance_superseded')
+        RETURNING id INTO v_entry;
+        INSERT INTO public.workspace_ai_ledger_allocations (ledger_entry_id, lot_id, amount)
+        VALUES (v_entry, v_lot.id, v_left);
+      END IF;
+      UPDATE public.workspace_ai_balance_lots
+         SET remaining_amount = v_lot.reserved_amount,
+             state = CASE WHEN v_lot.reserved_amount > 0 THEN 'EXPIRING' ELSE 'EXPIRED' END,
+             updated_at = now()
+       WHERE id = v_lot.id;
+      v_retired := v_retired + 1;
+    END LOOP;
+    IF v_retired > 0 THEN
+      PERFORM public.ai_wallet_project(p_workspace_id);
+    END IF;
+  END IF;
+  PERFORM public.ai_grant_allowance(
+    p_workspace_id, v_amount, v_cycle_id, p_source, v_cycle_end,
+    'account_allowance:' || p_workspace_id::text || ':' || v_cycle_id || ':' || p_source
+  );
+  RETURN v_amount;
 END;
 $$;
 
@@ -476,6 +651,7 @@ BEGIN
                WHEN x.s_status IN ('unpaid', 'incomplete', 'paused', 'suspended') THEN 'needs_review:subscription_needs_review'
                WHEN x.period_start > now() THEN
                  CASE
+                   WHEN x.s_status = 'canceled' THEN 'credit_replaced:subscription_canceled'
                    WHEN x.contiguous AND x.eff = 'active' AND NOT coalesce(x.s_plan_free, true) THEN
                      CASE WHEN x.acc_sched IS NOT NULL AND x.acc_sched IS DISTINCT FROM x.plan_id
                           THEN 'needs_review:account_has_scheduled_change'
@@ -486,7 +662,17 @@ BEGIN
                  END
                ELSE
                  CASE
-                   WHEN x.s_ended OR x.contiguous THEN 'activate'
+                   -- Already over: it was never started (v2 started a period
+                   -- only for an active subscription), so the customer had
+                   -- none of it. The money returns to the balance; nothing is
+                   -- activated for dates that have passed.
+                   WHEN x.period_end <= now() THEN
+                     CASE WHEN x.s_ended OR NOT x.follows_current THEN 'credit_replaced:period_elapsed'
+                          ELSE 'needs_review:period_dates_disagree' END
+                   -- The customer canceled: the move does not turn the
+                   -- subscription back on; the money returns to the balance.
+                   WHEN x.s_status = 'canceled' THEN 'credit_replaced:subscription_canceled'
+                   WHEN x.contiguous OR (x.s_ended AND x.follows_current) THEN 'activate'
                    WHEN NOT x.follows_current THEN 'credit_replaced'
                    ELSE 'needs_review:period_dates_disagree'
                  END
@@ -499,6 +685,7 @@ BEGIN
            jsonb_strip_nulls(jsonb_build_object(
              'reason', CASE WHEN k.verdict LIKE 'needs_review:%' THEN split_part(k.verdict, ':', 2) END,
              'category', CASE WHEN k.verdict LIKE 'ignored:%' THEN split_part(k.verdict, ':', 2) END,
+             'credit_cause', CASE WHEN k.verdict LIKE 'credit_replaced:%' THEN split_part(k.verdict, ':', 2) END,
              'period_id', k.id,
              'plan_id', k.plan_id,
              'billing_interval', k.billing_interval,
@@ -518,7 +705,11 @@ BEGIN
              'credit_reason', CASE split_part(k.verdict, ':', 1)
                WHEN 'prepay' THEN 'Billing v2 prepaid next period'
                WHEN 'activate' THEN 'Billing v2 prepaid next period'
-               WHEN 'credit_replaced' THEN 'Billing v2 next period, replaced' END
+               WHEN 'credit_replaced' THEN
+                 CASE split_part(k.verdict, ':', 2)
+                   WHEN 'period_elapsed' THEN 'Billing v2 next period, never started'
+                   WHEN 'subscription_canceled' THEN 'Billing v2 next period, subscription canceled'
+                   ELSE 'Billing v2 next period, replaced' END END
            ))
       FROM k
      ORDER BY k.workspace_id;
@@ -637,23 +828,52 @@ BEGIN
   END IF;
 
   -- ── Payment intents (review only) ──
+  -- An intent's money is counted once. When the gateway's money reached v2
+  -- as a payment linked to the intent (the callback recorded it, then failed
+  -- to apply it and left the intent `processing`), that payment is the item
+  -- the move credits or reviews; when it reached the v2 wallet as the
+  -- intent's own deposit, the wallet is. The intent is then ignored, with the
+  -- link in its details. Only an intent whose money v2 never recorded is
+  -- needs_review (a person checks the gateway).
   IF to_regclass('public.billing_payment_intents') IS NOT NULL
-     AND to_regclass('public.billing_payments') IS NOT NULL THEN
+     AND to_regclass('public.billing_payments') IS NOT NULL
+     AND to_regclass('public.billing_invoices') IS NOT NULL
+     AND to_regclass('public.billing_wallet_ledger') IS NOT NULL THEN
     RETURN QUERY
-    WITH k AS (
+    WITH t AS (
+      SELECT t.*,
+             lp.id AS lp_id, lp.status AS lp_status, lp.reconciliation_state AS lp_recon,
+             (SELECT l.action FROM billing_v2_archive.migration_log l
+               WHERE l.source_table = 'billing_payments' AND l.source_id = lp.id) AS lp_logged,
+             i.status AS inv_status,
+             (t.wallet_deposit_id IS NOT NULL AND EXISTS (
+               SELECT 1 FROM public.billing_wallet_ledger wl
+                WHERE wl.wallet_deposit_id = t.wallet_deposit_id AND wl.entry_type = 'deposit')) AS deposit_credited
+        FROM public.billing_payment_intents t
+        LEFT JOIN LATERAL (
+          SELECT b.id, b.status, b.reconciliation_state FROM public.billing_payments b
+           WHERE b.payment_intent_id = t.id
+           ORDER BY (b.status IN ('succeeded', 'partially_refunded', 'refunded')) DESC, b.created_at DESC, b.id
+           LIMIT 1) lp ON true
+        LEFT JOIN public.billing_invoices i ON i.id = t.invoice_id
+       WHERE (p_workspace_id IS NULL OR t.workspace_id = p_workspace_id)
+         AND NOT EXISTS (SELECT 1 FROM billing_v2_archive.migration_log l
+                          WHERE l.source_table = 'billing_payment_intents' AND l.source_id = t.id)
+    ), k AS (
       SELECT t.*,
              CASE
+               WHEN t.status IN ('processing', 'succeeded')
+                    AND t.lp_status IN ('succeeded', 'partially_refunded', 'refunded')
+                 THEN 'ignored:intent_paid_via_payment'
+               WHEN t.status IN ('processing', 'succeeded') AND t.deposit_credited
+                 THEN 'ignored:intent_paid_via_wallet_deposit'
                WHEN t.status = 'processing' THEN 'needs_review:intent_processing'
-               WHEN t.status = 'succeeded'
-                    AND NOT EXISTS (SELECT 1 FROM public.billing_payments b WHERE b.payment_intent_id = t.id)
+               WHEN t.status = 'succeeded' AND t.lp_id IS NULL
                  THEN 'needs_review:intent_succeeded_without_payment'
                WHEN t.status = 'pending' AND t.created_at > now() - interval '1 day' THEN 'needs_review:intent_pending_recent'
                ELSE 'ignored:intent_' || t.status
              END AS verdict
-        FROM public.billing_payment_intents t
-       WHERE (p_workspace_id IS NULL OR t.workspace_id = p_workspace_id)
-         AND NOT EXISTS (SELECT 1 FROM billing_v2_archive.migration_log l
-                          WHERE l.source_table = 'billing_payment_intents' AND l.source_id = t.id)
+        FROM t
     )
     SELECT 'billing_payment_intents'::text, k.id, k.workspace_id, split_part(k.verdict, ':', 1),
            coalesce(k.final_amount_irr, k.amount_irr), 'IRR'::text,
@@ -664,7 +884,15 @@ BEGIN
              'provider', k.provider_name,
              'provider_ref', k.provider_ref,
              'purchase_type', k.purchase_type,
-             'created_at', k.created_at
+             'created_at', k.created_at,
+             'linked_payment_id', k.lp_id,
+             'linked_payment_status', k.lp_status,
+             'linked_payment_reconciliation_state', k.lp_recon,
+             'linked_payment_migration_action', k.lp_logged,
+             'invoice_id', k.invoice_id,
+             'invoice_status', k.inv_status,
+             'wallet_deposit_id', k.wallet_deposit_id,
+             'wallet_deposit_credited', CASE WHEN k.wallet_deposit_id IS NOT NULL THEN k.deposit_credited END
            ))
       FROM k
      ORDER BY k.workspace_id;
@@ -780,7 +1008,7 @@ BEGIN
 
       IF r.action = 'needs_review' THEN
         v_review := v_review || jsonb_build_array(
-          (v_item - 'action') || jsonb_build_object('reason', r.details->>'reason'));
+          (v_item - 'action') || jsonb_build_object('reason', r.details->>'reason', 'details', r.details));
         CONTINUE;
       END IF;
 

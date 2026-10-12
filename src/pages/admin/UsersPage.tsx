@@ -38,6 +38,7 @@ import { formatPattern as format } from '@/lib/date';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import UserBillingAccountsCard from '@/components/admin/UserBillingAccountsCard';
+import { assignExpiresAt, assignExpiryPrefill, type ExpiryPrefill } from './assignPlanExpiry';
 import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
@@ -1118,6 +1119,7 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
+  const [expiryPrefill, setExpiryPrefill] = useState<ExpiryPrefill | null>(null);
 
   const sub = planData?.subscription;
   const plan = planData?.plan;
@@ -1127,8 +1129,10 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
     setSelectedPlanId(plan?.id || '');
     // Only a future end is offered: the assign route refuses one in the past
     // (an ended subscription's end), and an empty field means one interval on.
-    const end = sub?.current_period_end ? new Date(sub.current_period_end) : null;
-    setExpiresAt(end && end.getTime() > Date.now() ? end.toISOString().slice(0, 10) : '');
+    // Left as shown, the exact end is sent back (assignPlanExpiry.ts).
+    const prefill = assignExpiryPrefill(sub?.current_period_end);
+    setExpiryPrefill(prefill);
+    setExpiresAt(prefill?.date ?? '');
     setDialogOpen(true);
   };
 
@@ -1138,7 +1142,7 @@ function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: strin
       await assignPlan.mutateAsync({
         workspaceId: workspace.id,
         planId: selectedPlanId,
-        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+        expiresAt: assignExpiresAt(expiresAt, expiryPrefill),
       });
       toast.success(t('admin.users.planAssigned'));
       setDialogOpen(false);

@@ -720,7 +720,7 @@ plansRouter.post('/admin/assign', async (req, res) => {
   // The month's AI credit, granted now rather than at the next hourly tick.
   // `p_at` is the period's own start, so a database clock a moment behind
   // this server's cannot place "now" before the period and skip the grant.
-  const { error: grantError } = await supabase.rpc('billing_account_grant_month', {
+  const { data: granted, error: grantError } = await supabase.rpc('billing_account_grant_month', {
     p_workspace_id: workspaceId,
     p_plan_id: planId,
     p_period_start: start.toISOString(),
@@ -728,7 +728,12 @@ plansRouter.post('/admin/assign', async (req, res) => {
     p_at: start.toISOString(),
   });
   // The plan is assigned either way; the hourly job grants the month later.
+  // A month granted nothing (the plan has no AI credit, or a lot of this
+  // period already funds it) is said in the log, so a missing credit is seen.
   if (grantError) console.warn('[plans] admin assign: AI credit grant failed:', grantError.message);
+  else if (!(Number(granted) > 0)) {
+    console.info('[plans] admin assign: no AI credit granted for the month', { workspaceId, planId });
+  }
 
   // Central entitlement-change funnel: clears the cache AND enqueues the
   // deterministic KB catch-up (a plan change may newly grant `ai_assistant`).

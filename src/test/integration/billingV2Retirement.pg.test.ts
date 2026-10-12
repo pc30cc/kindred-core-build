@@ -143,15 +143,16 @@ function helpers(c: pg.Client) {
   /** A v2 period; times are seconds from now. */
   async function period(ws: string, o: {
     plan: string; status?: string; startIn: number; endIn: number; invoice?: string | null; source?: string; interval?: string;
+    aiAllowance?: number;
   }): Promise<string> {
     const row = await one(
       `INSERT INTO public.billing_subscription_periods
-         (workspace_id, subscription_id, plan_id, invoice_id, billing_interval, period_start, period_end, status, source)
+         (workspace_id, subscription_id, plan_id, invoice_id, billing_interval, period_start, period_end, status, source, ai_allowance_irr)
        VALUES ($1, (SELECT id FROM public.workspace_subscriptions WHERE workspace_id = $1), $2, $3, $4,
-               now() + make_interval(secs => $5::float8), now() + make_interval(secs => $6::float8), $7, $8)
+               now() + make_interval(secs => $5::float8), now() + make_interval(secs => $6::float8), $7, $8, $9)
        RETURNING id`,
       [ws, o.plan, o.invoice ?? null, o.interval ?? 'monthly', o.startIn, o.endIn, o.status ?? 'scheduled',
-        o.source ?? (o.invoice ? 'invoice' : 'admin')],
+        o.source ?? (o.invoice ? 'invoice' : 'admin'), o.aiAllowance ?? 0],
     );
     return String(row.id);
   }
@@ -185,13 +186,26 @@ function helpers(c: pg.Client) {
     return String(row.id);
   }
 
-  async function intent(ws: string, o: { status: string; amount?: number; ageHours?: number }): Promise<string> {
+  async function intent(ws: string, o: {
+    status: string; amount?: number; ageHours?: number; plan?: string; invoice?: string | null; deposit?: string | null;
+  }): Promise<string> {
     const row = await one(
       `INSERT INTO public.billing_payment_intents
-         (workspace_id, purchase_type, provider_name, amount_irr, status, created_at, billing_engine_version)
-       VALUES ($1, 'wallet_deposit', 'zarinpal', $2, $3, now() - make_interval(hours => $4), 'v2') RETURNING id`,
-      [ws, o.amount ?? 5_000_000, o.status, o.ageHours ?? 0],
+         (workspace_id, purchase_type, plan_id, billing_interval, provider_name, amount_irr, status, created_at,
+          billing_engine_version, invoice_id, wallet_deposit_id)
+       VALUES ($1, CASE WHEN $5::uuid IS NULL THEN 'wallet_deposit' ELSE 'subscription' END, $5,
+               CASE WHEN $5::uuid IS NULL THEN NULL ELSE 'monthly' END, 'zarinpal', $2, $3,
+               now() - make_interval(hours => $4), 'v2', $6, $7) RETURNING id`,
+      [ws, o.amount ?? 5_000_000, o.status, o.ageHours ?? 0, o.plan ?? null, o.invoice ?? null, o.deposit ?? null],
     );
+    return String(row.id);
+  }
+
+  /** A v2 wallet deposit document (pending), for an intent to name. */
+  async function depositDoc(ws: string, amount: number): Promise<string> {
+    const row = await one(
+      `INSERT INTO public.billing_wallet_deposits (workspace_id, document_number, amount_irr)
+       VALUES ($1, $2, $3) RETURNING id`, [ws, `WD${randomUUID().slice(0, 8)}`, amount]);
     return String(row.id);
   }
 
@@ -208,7 +222,7 @@ function helpers(c: pg.Client) {
   const logOf = (table: string, id: string) =>
     one(`SELECT * FROM billing_v2_archive.migration_log WHERE source_table = $1 AND source_id = $2`, [table, id]);
 
-  return { q, one, num, planId, workspace, sub, invoice, period, periodAfterSub, walletDeposit, payment, intent, move, account, ledger, subOf, changes, logOf };
+  return { q, one, num, planId, workspace, sub, invoice, period, periodAfterSub, walletDeposit, payment, intent, depositDoc, move, account, ledger, subOf, changes, logOf };
 }
 
 /** Runs 267 as one query (as the chain does) and returns the move's NOTICE report. */
@@ -289,6 +303,12 @@ suite('267 — billing v2 retired, every workspace moved into simple billing (re
       wPastDueRunning: '', sPastDueRunning: '',
       wUnpaid: '', sUnpaid: '',
       wPlainV2: '', sPlainV2: '',
+      // Review fixes.
+      wIntentPaid: '', intentPaid: '', payOfIntent: '', intentFailedPay: '', failedPay: '',
+      wIntentDeposit: '', intentDeposit: '', walletOfDeposit: '',
+      wElapsed: '', pElapsed: '', sElapsed: '',
+      wCanceledDue: '', pCanceledDue: '', sCanceledDue: '',
+      wHeld: '', pHeld: '',
     };
     let dry: Report;
     let inTx: Report;
@@ -353,6 +373,44 @@ suite('267 — billing v2 retired, every workspace moved into simple billing (re
       f.intentProcessing = await h.intent(f.wReview, { status: 'processing' });
       f.intentOld = await h.intent(f.wReview, { status: 'pending', ageHours: 72 });
       f.invoiceUnapplied = await h.invoice(f.wReview, { type: 'ai_credit_purchase', subtotal: 5_000_000, tax: 500_000 });
+
+      // Review fix: an intent whose money v2 recorded is not reviewed again.
+      // The callback parked its payment unapplied (the invoice had expired)
+      // and left the intent `processing`; the payment is the money item.
+      f.wIntentPaid = await h.workspace();
+      const lapsed = await h.invoice(f.wIntentPaid, { status: 'expired', subtotal: 5_000_000 });
+      f.intentPaid = await h.intent(f.wIntentPaid, { status: 'processing', plan: pro, invoice: lapsed });
+      f.payOfIntent = await h.payment(f.wIntentPaid, { amount: 5_000_000, invoice: lapsed, intent: f.intentPaid });
+      // A processing intent whose only payment failed: still for a person, with the link shown.
+      f.intentFailedPay = await h.intent(f.wIntentPaid, { status: 'processing', amount: 700_000 });
+      f.failedPay = await h.payment(f.wIntentPaid, { amount: 700_000, status: 'failed', recon: 'settled', intent: f.intentFailedPay });
+      // A processing intent whose deposit reached the v2 wallet: the wallet is the money item.
+      f.wIntentDeposit = await h.workspace();
+      const doc = await h.depositDoc(f.wIntentDeposit, 3_000_000);
+      f.intentDeposit = await h.intent(f.wIntentDeposit, { status: 'processing', amount: 3_000_000, deposit: doc });
+      await c.query(`SELECT public.billing_wallet_apply_deposit($1, 3000000)`, [doc]);
+      f.walletOfDeposit = String((await h.one(`SELECT id FROM public.billing_wallet_accounts WHERE workspace_id = $1`, [f.wIntentDeposit])).id);
+
+      // Review fix: a paid next period that already ended, behind a canceled
+      // subscription (v2 never started it): the money returns, nothing is activated.
+      f.wElapsed = await h.workspace();
+      f.sElapsed = await h.sub(f.wElapsed, { plan: pro, status: 'canceled', startIn: -70 * 86400, endIn: -40 * 86400 });
+      f.pElapsed = await h.period(f.wElapsed, {
+        plan: pro, startIn: -40 * 86400, endIn: -10 * 86400, invoice: await h.invoice(f.wElapsed, { subtotal: 1_000_000 }),
+      });
+      // ...and one still running, behind a subscription the customer canceled.
+      f.wCanceledDue = await h.workspace();
+      f.sCanceledDue = await h.sub(f.wCanceledDue, { plan: pro, status: 'canceled', startIn: -30 * 86400 - 7200, endIn: -7200 });
+      f.pCanceledDue = await h.periodAfterSub(f.wCanceledDue, { plan: pro, invoice: await h.invoice(f.wCanceledDue, { subtotal: 2_000_000 }) });
+
+      // Review fix: a paid next period the move leaves to a person (the
+      // customer also scheduled a change in simple billing) keeps blocking a
+      // second charge. The account has money and renews automatically.
+      f.wHeld = await h.workspace();
+      await h.sub(f.wHeld, { plan: enterprise, endIn: 10 * 86400 });
+      f.pHeld = await h.periodAfterSub(f.wHeld, { plan: enterprise, invoice: await h.invoice(f.wHeld, { subtotal: 50_000_000 }) });
+      await c.query(`SELECT public.billing_account_admin_adjust($1, 20000000, 'IRR', 'test money', NULL, $2, 'other')`, [f.wHeld, `held:${f.wHeld}`]);
+      await c.query(`UPDATE public.billing_accounts SET auto_renew = true, scheduled_plan_id = $2, scheduled_interval = 'monthly' WHERE workspace_id = $1`, [f.wHeld, pro]);
 
       // R5 subscriptions.
       f.wPastDueEnded = await h.workspace();
@@ -422,9 +480,16 @@ suite('267 — billing v2 retired, every workspace moved into simple billing (re
         ['workspace_subscriptions', f.sDowngrade, 'schedule_change', ''],
         ['workspace_subscriptions', f.sPendingCancel, 'auto_renew_off', ''],
         ['workspace_subscriptions', f.sPastDueRunning, 'normalize', ''],
+        // Review fixes.
+        ['billing_payments', f.payOfIntent, 'credit', 5_000_000],
+        ['billing_wallet_accounts', f.walletOfDeposit, 'credit', 3_000_000],
+        ['billing_subscription_periods', f.pElapsed, 'credit_replaced', 1_000_000],
+        ['workspace_subscriptions', f.sElapsed, 'normalize', ''],
+        ['billing_subscription_periods', f.pCanceledDue, 'credit_replaced', 2_000_000],
+        ['workspace_subscriptions', f.sCanceledDue, 'normalize', ''],
       ].map((e) => e.join(':')).sort();
       expect(keys(report.actions)).toEqual(expected);
-      expect(report.totals).toEqual({ credited_minor: 61_000_000, prepaid_minor: 29_000_000 });
+      expect(report.totals).toEqual({ credited_minor: 72_000_000, prepaid_minor: 29_000_000 });
 
       expect(reviewKeys(report.needs_review)).toEqual([
         `billing_invoices:${f.invoiceUnapplied}:invoice_paid_not_applied`,
@@ -432,11 +497,14 @@ suite('267 — billing v2 retired, every workspace moved into simple billing (re
         `billing_subscription_periods:${f.pAdminNext}:period_without_payment`,
         `billing_wallet_accounts:${f.walletBad}:wallet_ledger_mismatch`,
         `workspace_subscriptions:${f.sUnpaid}:subscription_status_unpaid`,
+        `billing_payment_intents:${f.intentFailedPay}:intent_processing`,
+        `billing_subscription_periods:${f.pHeld}:account_has_scheduled_change`,
       ].sort());
       expect(report.ignored).toEqual({
-        payment_settled: 1, intent_pending: 1, invoice_expired: 1, invoice_paid: 3,
-        // prepay, due, replaced, admin-next and the plain one: active v2 rows with nothing pending.
-        subscription_unchanged: 5,
+        payment_settled: 1, payment_failed: 1, intent_pending: 1, invoice_expired: 2, invoice_paid: 6,
+        intent_paid_via_payment: 1, intent_paid_via_wallet_deposit: 1,
+        // prepay, due, replaced, admin-next, held and the plain one: active v2 rows with nothing pending.
+        subscription_unchanged: 6,
       });
     });
 
@@ -610,9 +678,90 @@ suite('267 — billing v2 retired, every workspace moved into simple billing (re
     });
 
     it('R5 no v2 row was changed or deleted by the move', async () => {
-      expect(await h.num(`SELECT count(*)::int AS n FROM public.billing_subscription_periods WHERE status = 'scheduled'`)).toBe(4);
-      expect(await h.num(`SELECT count(*)::int AS n FROM public.billing_payments WHERE reconciliation_state = 'unapplied'`)).toBe(2);
-      expect(await h.num(`SELECT count(*)::int AS n FROM public.billing_payment_intents WHERE status = 'processing'`)).toBe(1);
+      expect(await h.num(`SELECT count(*)::int AS n FROM public.billing_subscription_periods WHERE status = 'scheduled'`)).toBe(7);
+      expect(await h.num(`SELECT count(*)::int AS n FROM public.billing_payments WHERE reconciliation_state = 'unapplied'`)).toBe(3);
+      expect(await h.num(`SELECT count(*)::int AS n FROM public.billing_payment_intents WHERE status = 'processing'`)).toBe(4);
+    });
+
+    it('review fix: an intent whose payment the move credits is not reviewed again (money counted once)', async () => {
+      // The payment is credited once, at its invoice's net.
+      expect((await h.ledger(f.wIntentPaid)).map((r) => [r.kind, r.amount, r.idempotency_key])).toEqual([
+        ['admin_credit', 5_000_000, `admin:v2:billing_payments:${f.payOfIntent}`],
+      ]);
+      // The intent is no review item: following the runbook for it would credit the same money again.
+      expect(reviewOf(report, f.intentPaid)).toBeUndefined();
+      const plan = await h.q(`SELECT action, details FROM public.billing_v2_migration_plan($1) WHERE source_id = $2`, [f.wIntentPaid, f.intentPaid]);
+      expect(plan).toEqual([{ action: 'ignored', details: expect.objectContaining({
+        category: 'intent_paid_via_payment', linked_payment_id: f.payOfIntent, linked_payment_status: 'succeeded',
+        linked_payment_reconciliation_state: 'unapplied', linked_payment_migration_action: 'credit',
+      }) }]);
+      // An intent whose only payment failed stays for a person, and the report shows the link.
+      expect(reviewOf(report, f.intentFailedPay)).toMatchObject({
+        reason: 'intent_processing', amount_minor: 700_000,
+        details: expect.objectContaining({ linked_payment_id: f.failedPay, linked_payment_status: 'failed' }),
+      });
+    });
+
+    it('review fix: an intent whose deposit reached the v2 wallet is not reviewed; the wallet is credited once', async () => {
+      expect(reviewOf(report, f.intentDeposit)).toBeUndefined();
+      expect((await h.ledger(f.wIntentDeposit)).map((r) => [r.kind, r.amount, r.idempotency_key])).toEqual([
+        ['admin_credit', 3_000_000, `admin:v2:billing_wallet_accounts:${f.walletOfDeposit}`],
+      ]);
+      const plan = await h.q(`SELECT action, details->>'category' AS category FROM public.billing_v2_migration_plan($1) WHERE source_id = $2`,
+        [f.wIntentDeposit, f.intentDeposit]);
+      expect(plan).toEqual([{ action: 'ignored', category: 'intent_paid_via_wallet_deposit' }]);
+    });
+
+    it('review fix: a paid next period that already ended returns its money; the canceled subscription stays ended', async () => {
+      const rows = await h.ledger(f.wElapsed);
+      expect(rows.map((r) => [r.kind, r.amount, r.balance_after, (r.description as Row).reason])).toEqual([
+        ['admin_credit', 1_000_000, 1_000_000, 'Billing v2 next period, never started'],
+      ]);
+      expect(Number((await h.account(f.wElapsed)).balance_minor)).toBe(1_000_000);
+      const sub = await h.subOf(f.wElapsed);
+      expect(sub.status).toBe('expired');
+      expect(at(sub.current_period_end)).toBeLessThan(Date.now() - 39 * 86400_000);
+      expect((await h.changes(f.wElapsed)).map((x) => x.change_type)).toEqual(['v2_migration']);
+      expect(await h.num(`SELECT count(*)::int AS n FROM public.workspace_ai_balance_lots WHERE workspace_id = $1`, [f.wElapsed])).toBe(0);
+      expect((await h.logOf('billing_subscription_periods', f.pElapsed)).details).toMatchObject({ credit_cause: 'period_elapsed' });
+    });
+
+    it('review fix: a running paid period behind a canceled subscription is credited, not activated', async () => {
+      expect((await h.ledger(f.wCanceledDue)).map((r) => [r.kind, r.amount, (r.description as Row).reason])).toEqual([
+        ['admin_credit', 2_000_000, 'Billing v2 next period, subscription canceled'],
+      ]);
+      expect((await h.subOf(f.wCanceledDue)).status).toBe('expired');
+      expect((await h.changes(f.wCanceledDue)).map((x) => x.change_type)).toEqual(['v2_migration']);
+    });
+
+    it('review fix: a paid next period left to a person still blocks a second charge and holds the due moment', async () => {
+      expect(reviewOf(report, f.pHeld)).toMatchObject({ reason: 'account_has_scheduled_change', amount_minor: 50_000_000 });
+      expect((await h.one(`SELECT public.billing_account_v2_next_period($1) AS id`, [f.wHeld])).id).toBe(f.pHeld);
+      await expect(c.query(`SELECT public.billing_account_renew($1)`, [f.wHeld])).rejects.toThrow(/billing_already_renewed/);
+      // No reminder for a period that is paid.
+      expect(await h.num(`SELECT count(*)::int AS n FROM public.billing_account_reminder_candidates(30) WHERE workspace_id = $1`, [f.wHeld])).toBe(0);
+
+      await c.query('BEGIN');
+      try {
+        // The due moment passes: neither a renewal from the balance nor a drop to Free.
+        await c.query(`
+          UPDATE public.workspace_subscriptions
+             SET current_period_start = current_period_start - interval '11 days',
+                 current_period_end = current_period_end - interval '11 days'
+           WHERE workspace_id = $1`, [f.wHeld]);
+        const res = (await h.one(`SELECT public.billing_account_process_due($1) AS r`, [f.wHeld])).r as Row;
+        expect(res).toEqual({ action: 'none', reason: 'v2_period_needs_review', period_id: f.pHeld });
+        expect((await h.ledger(f.wHeld)).map((r) => r.kind)).toEqual(['admin_credit']);
+        expect(await h.subOf(f.wHeld)).toMatchObject({ status: 'active', plan_id: enterprise });
+
+        // Once a person decides (here: waived), simple billing takes over.
+        await c.query(`SELECT public.billing_v2_migration_waive('billing_subscription_periods', $1, 'credited by hand')`, [f.pHeld]);
+        expect((await h.one(`SELECT public.billing_account_v2_next_period($1) AS id`, [f.wHeld])).id).toBeNull();
+        const after = (await h.one(`SELECT public.billing_account_process_due($1) AS r`, [f.wHeld])).r as Row;
+        expect(after.action).not.toBe('none');
+      } finally {
+        await c.query('ROLLBACK');
+      }
     });
 
     it('R7 a second move finds everything done; 267 runs again with nothing to do', async () => {
@@ -790,6 +939,36 @@ suite('267 — billing v2 retired, every workspace moved into simple billing (re
       // The simple-billing callers of the stub still run.
       await c.query(`SELECT * FROM public.billing_account_reminder_candidates(30)`);
       await c.query(`SELECT public.billing_account_process_due($1)`, [ws]);
+    });
+
+    it('review fix: a Super Admin assignment over a running v2 month grants the new month at once', async () => {
+      await c.query(`UPDATE public.billing_plans SET ai_allowance = jsonb_build_object('IRR', 5000000::bigint) WHERE id = $1`, [enterprise]);
+      const ws = await h.workspace();
+      await c.query(`INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status) VALUES ($1, $2, 'active')`, [ws, free]);
+      // Ten days into a v2 Pro month (its cycle lot runs 20 more days).
+      const v2 = await h.period(ws, { plan: pro, startIn: -10 * 86400, endIn: 20 * 86400, source: 'admin', aiAllowance: 1_000_000 });
+      await c.query(`SELECT public.billing_activate_period($1)`, [v2]);
+      const v2Lots = await h.q(`
+        SELECT billing_cycle_id FROM public.workspace_ai_balance_lots
+         WHERE workspace_id = $1 AND source_type = 'PLAN_ALLOWANCE' AND billing_cycle_id NOT LIKE 'cycle:account:%'`, [ws]);
+      expect(v2Lots.length).toBeGreaterThan(0);
+      // The v2 month itself, running on, is still not funded twice.
+      const p = await h.one(`SELECT period_start, period_end FROM public.billing_subscription_periods WHERE id = $1`, [v2]);
+      expect(Number((await h.one(`SELECT public.billing_account_grant_month($1, $2, $3, $4) AS n`, [ws, pro, p.period_start, p.period_end])).n)).toBe(0);
+
+      // POST /api/plans/admin/assign, as server/routes/plans.ts runs it.
+      const span = await h.one(`SELECT now() AS s, now() + interval '30 days' AS e`);
+      await c.query(`SELECT public.billing_account_write_subscription($1, $2, 'monthly', $3, $4, 'active', 'admin_assign', NULL, '{"source":"admin_assign"}')`,
+        [ws, enterprise, span.s, span.e]);
+      await c.query(`SELECT public.billing_account_admin_replaced($1)`, [ws]);
+      const granted = await h.one(`SELECT public.billing_account_grant_month($1, $2, $3, $4, 'plan', NULL, $3) AS n`, [ws, enterprise, span.s, span.e]);
+      expect(Number(granted.n)).toBe(5_000_000);
+      // Granted once: the hourly job finds the month funded.
+      expect(Number((await h.one(`SELECT public.billing_account_grant_month($1, $2, $3, $4) AS n`, [ws, enterprise, span.s, span.e])).n)).toBe(0);
+      // The v2 lot stays the customer's.
+      expect(await h.num(`
+        SELECT count(*)::int AS n FROM public.workspace_ai_balance_lots
+         WHERE workspace_id = $1 AND source_type = 'PLAN_ALLOWANCE' AND billing_cycle_id NOT LIKE 'cycle:account:%'`, [ws])).toBe(v2Lots.length);
     });
   });
 

@@ -24,6 +24,7 @@ import {
 } from '../services/database/selfhostMigration.js';
 import { compareWithTarget } from '../services/database/inventoryCompare.js';
 import { generateSqlDump } from '../services/database/sqlDump.js';
+import { listBackupTables } from '../services/database/archiveExport.js';
 import { createGzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import {
@@ -70,11 +71,14 @@ adminDatabaseRouter.get('/backup', async (req, res) => {
   // ?full=1 → include the schema (DDL) so the dump can rebuild an empty database.
   const includeSchema = req.query.full === '1' || req.query.full === 'true';
 
-  const { data: tables, error: listError } = await sb.rpc('admin_list_export_tables', {
-    _actor_user_id: actorId,
-    _scope: 'all',
-  });
-  if (listError) return res.status(500).json({ error: listError.message });
+  // public's tables, then billing_v2_archive's (migration 268) as
+  // 'billing_v2_archive.<table>': billing v2's records are part of a backup.
+  let tableNames: string[];
+  try {
+    tableNames = await listBackupTables(sb, actorId);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
 
   let schema: string[] = [];
   if (includeSchema) {
@@ -86,10 +90,6 @@ adminDatabaseRouter.get('/backup', async (req, res) => {
       typeof s === 'string' ? s : s.admin_export_schema_ddl,
     );
   }
-
-  const tableNames: string[] = ((tables as unknown as (string | { admin_list_export_tables: string })[]) ?? []).map(
-    (t) => (typeof t === 'string' ? t : t.admin_list_export_tables),
-  );
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');

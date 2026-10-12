@@ -14,6 +14,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ROLE_BOOTSTRAP, fetchSchemaStatements } from './selfhostMigration.js';
+import { ARCHIVE_SCHEMA, archiveKey, fetchArchiveTables } from './archiveExport.js';
 
 const PAGE_SIZE = 500;
 const INSERT_BATCH = 200;
@@ -35,7 +36,7 @@ const NUMERIC_TYPES = new Set([
 ]);
 
 function quote(text: string): string {
-  return `'${text.replace(/\u0000/g, '').replace(/'/g, "''")}'`;
+  return `'${text.split('\u0000').join('').replace(/'/g, "''")}'`;
 }
 
 function ident(name: string): string {
@@ -75,7 +76,9 @@ export function formatLiteral(value: unknown, type: string): string {
 }
 
 const HEADER = `--
--- Full dump of the public schema (structure + data).
+-- Full dump of the public schema (structure + data), plus the rows of
+-- billing_v2_archive (billing v2's records, archived by migration 268), whose
+-- tables the target's migrations create.
 -- Restore into a self-hosted Supabase / PostgreSQL instance with:
 --   gunzip -c dump.sql.gz | psql "postgresql://postgres:PASSWORD@localhost:5432/postgres"
 --
@@ -107,7 +110,7 @@ BEGIN
     JOIN pg_class t ON t.oid = d.refobjid
     JOIN pg_namespace tn ON tn.oid = t.relnamespace
     JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
-    WHERE c.relkind = 'S' AND n.nspname = 'public'
+    WHERE c.relkind = 'S' AND n.nspname IN ('public', 'billing_v2_archive')
   LOOP
     BEGIN
       EXECUTE format('SELECT setval(%L, COALESCE((SELECT MAX(%s) FROM %s), 0) + 1, false)', r.seq, r.col, r.tbl);
@@ -117,6 +120,47 @@ BEGIN
 END
 $seq$;
 `;
+
+/** One table's rows as batched INSERTs into `schema`.`table`. */
+async function* tableInserts(
+  sb: SupabaseClient,
+  actorId: string,
+  schema: string,
+  table: string,
+  meta: ColumnMeta[],
+): AsyncGenerator<string> {
+  const columns = meta.filter((c) => !c.generated);
+  if (columns.length === 0) return;
+  const typeOf = new Map(columns.map((c) => [c.name, c.type]));
+  const allowed = new Set(columns.map((c) => c.name));
+  const exportName = schema === 'public' ? table : archiveKey(table);
+
+  yield `\n-- ${exportName}\n`;
+
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await sb.rpc('admin_export_table', {
+      _actor_user_id: actorId,
+      _table: exportName,
+      _limit: PAGE_SIZE,
+      _offset: offset,
+    });
+    if (error) throw new Error(`${exportName}: ${error.message}`);
+    const page = (data as Record<string, unknown>[] | null) ?? [];
+    if (page.length === 0) break;
+
+    for (let i = 0; i < page.length; i += INSERT_BATCH) {
+      const batch = page.slice(i, i + INSERT_BATCH);
+      const cols = Object.keys(batch[0]).filter((c) => allowed.has(c));
+      if (cols.length === 0) break;
+      const values = batch
+        .map((row) => `  (${cols.map((c) => formatLiteral(row[c], typeOf.get(c) ?? 'text')).join(', ')})`)
+        .join(',\n');
+      yield `INSERT INTO ${ident(schema)}.${ident(table)} (${cols.map(ident).join(', ')}) VALUES\n${values}\nON CONFLICT DO NOTHING;\n`;
+    }
+
+    if (page.length < PAGE_SIZE) break;
+  }
+}
 
 export interface SqlDumpOptions {
   includeSchema: boolean;
@@ -173,35 +217,21 @@ export async function* generateSqlDump(
   yield `\n--\n-- Data (${tables.length} tables)\n--\nSET session_replication_role = 'replica';\n`;
 
   for (const table of tables) {
-    const columns = (meta[table] ?? []).filter((c) => !c.generated);
-    if (columns.length === 0) continue;
-    const typeOf = new Map(columns.map((c) => [c.name, c.type]));
-    const allowed = new Set(columns.map((c) => c.name));
+    yield* tableInserts(sb, actorId, 'public', table, meta[table] ?? []);
+  }
 
-    yield `\n-- ${table}\n`;
-
-    for (let offset = 0; ; offset += PAGE_SIZE) {
-      const { data, error } = await sb.rpc('admin_export_table', {
-        _actor_user_id: actorId,
-        _table: table,
-        _limit: PAGE_SIZE,
-        _offset: offset,
-      });
-      if (error) throw new Error(`${table}: ${error.message}`);
-      const page = (data as Record<string, unknown>[] | null) ?? [];
-      if (page.length === 0) break;
-
-      for (let i = 0; i < page.length; i += INSERT_BATCH) {
-        const batch = page.slice(i, i + INSERT_BATCH);
-        const cols = Object.keys(batch[0]).filter((c) => allowed.has(c));
-        if (cols.length === 0) break;
-        const values = batch
-          .map((row) => `  (${cols.map((c) => formatLiteral(row[c], typeOf.get(c) ?? 'text')).join(', ')})`)
-          .join(',\n');
-        yield `INSERT INTO public.${ident(table)} (${cols.map(ident).join(', ')}) VALUES\n${values}\nON CONFLICT DO NOTHING;\n`;
-      }
-
-      if (page.length < PAGE_SIZE) break;
+  // billing_v2_archive: billing v2's records since 268. The target's
+  // migrations (267, 268) create its tables; without them these INSERTs fail
+  // and psql says so, after the warning below.
+  const archive = await fetchArchiveTables(sb, actorId);
+  const archived = Object.keys(archive);
+  if (archived.length > 0) {
+    yield `\n--\n-- ${ARCHIVE_SCHEMA} (${archived.length} tables): billing v2's records, archived by migration 268\n--\n` +
+      `DO $archive$ BEGIN IF to_regnamespace('${ARCHIVE_SCHEMA}') IS NULL THEN ` +
+      `RAISE WARNING '${ARCHIVE_SCHEMA} does not exist: apply the migrations (267, 268) first, or its rows below are not loaded'; ` +
+      `END IF; END $archive$;\n`;
+    for (const table of archived) {
+      yield* tableInserts(sb, actorId, ARCHIVE_SCHEMA, table, archive[table]);
     }
   }
 

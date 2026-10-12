@@ -163,6 +163,13 @@ On the hosted project the evidence was read on 2026-10-05:
   - Leaving it to run (`RUN_AGAIN`) is the decision to move to V2, and it
     belongs to the owner. Note that the file runs without a transaction and
     ends with a check that can raise, leaving its earlier updates committed.
+  - Billing v2 has since been retired (`docs/billing/SIMPLE_BILLING.md`,
+    phase 7): 267 moved every workspace into simple billing and 268 moved
+    the v2 tables into the schema `billing_v2_archive` and dropped the v2
+    functions and the `workspace_subscriptions` columns 116 fills. On a
+    database where 268 ran, `baseline-evidence.sql` reports this line as
+    `archived`, and 116 has nothing left to do: record it with
+    `ASSUME_APPLIED`, never `RUN_AGAIN`.
 
 If you are instead starting from a brand-new, empty database, skip this
 step. Let the workflow (or a manual run of `migrate-database.sh`) apply the

@@ -29,14 +29,14 @@ existing `billing_provider_credentials` table.
 ## What the integration needs from Paddle
 
 - **No catalog product or price.** Each checkout creates a transaction with a
-  non-catalog, one-time price for exactly the invoice amount (tax-inclusive,
+  non-catalog, one-time price for exactly the payment's amount (tax-inclusive,
   `tax_mode: internal`), with an inline product named after the plan. The
   optional *Product ID* attaches that price to an existing product instead; it
   must be a product of the **sandbox** catalog (`pro_…`).
 - **Events** the provider handles (`paddle.ts → verifyWebhook`):
   - `transaction.paid`, `transaction.completed` of a checkout (origin `api` /
-    `web`) — settle the invoice or account payment (the second one is an
-    idempotent no-op);
+    `web`) — credit the account payment (the second one is an idempotent
+    no-op);
   - `adjustment.created`, `adjustment.updated` — an approved refund, or an
     approved chargeback (marked as one), is recorded once per adjustment; an
     approved `chargeback_reverse` books nothing and is logged
@@ -50,8 +50,8 @@ existing `billing_provider_credentials` table.
     `intent_id`, which Paddle copies onto the subscription and its renewals).
   Every other event (`transaction.payment_failed` of a checkout included: the
   checkout stays open for another try) is acknowledged and ignored.
-- **Currencies:** USD, EUR, GBP, TRY (the same as live Paddle). RESPOK
-  invoices in USD.
+- **Currencies:** USD, EUR, GBP, TRY (the same as live Paddle). RESPOK's
+  accounts are in USD.
 
 ## Setup (RESPOK)
 
@@ -86,13 +86,13 @@ existing `billing_provider_credentials` table.
    `paddle` gateway likewise refuses `_sdbx` / `test_` credentials unless its
    own *Sandbox Mode* is on.
    Saving on that screen also makes the saved vendor the platform's *default*
-   billing provider (as for every vendor). The invoice engine does not use
-   that default for the sandbox (customers pick a gateway from Finance →
-   Gateways, and the sandbox is never a non-admin's fallback), but if the
-   legacy default matters, save the live gateway again afterwards.
+   billing provider (as for every vendor). Simple billing does not use that
+   default (customers pick from the active gateways of their account's
+   currency, and the sandbox is never a non-admin's fallback), but to keep
+   the live gateway as the default, save it again afterwards.
 7. **Switch it on.** Super Admin → *Finance* → *Gateways* → *Paddle — Sandbox
    (test)*: active, currency USD. It is always marked as a test gateway.
-8. **Check.** Super Admin → *Billing* → *Providers* → *Paddle — Sandbox (test)*
+8. **Check.** Super Admin → *Providers* → *Billing* → *Paddle — Sandbox (test)*
    → *Test* should answer OK (it calls `GET /event-types` on the sandbox, and
    with *Automatic card renewal* on also `GET /subscriptions?per_page=1`, which
    fails with a message naming the missing *Subscriptions* permission).
@@ -100,7 +100,7 @@ existing `billing_provider_credentials` table.
 ## Testing a payment
 
 Signed in as a Super Admin (or any account once *Open to customers* is on),
-open an unpaid invoice → *Pay*. The gateway shows as **Paddle — Sandbox
+open a workspace's *Billing* page → top up, or buy a plan. The gateway shows as **Paddle — Sandbox
 (test)** with the "Test gateway" mark, and a note with the test card while it
 is selected. Paddle's test cards (any future expiry, any CVC, any name):
 
@@ -110,9 +110,9 @@ is selected. Paddle's test cards (any future expiry, any CVC, any name):
 | `4000 0038 0000 0446` | paid after a 3-D Secure challenge |
 | `4000 0000 0000 0002` | declined (the checkout stays open) |
 
-After a payment, the customer returns to the payment page (`…&_ptxn=txn_…`),
+After a payment, the customer returns to the billing page (`…&_ptxn=txn_…`),
 which verifies the transaction with sandbox-api.paddle.com; the
-`transaction.paid` webhook settles the same invoice (idempotently).
+`transaction.paid` webhook credits the same payment (idempotently).
 
 Sandbox behaviour to expect:
 
@@ -220,12 +220,13 @@ period) by hand.
 
 Payments and intents carry their gateway in `provider_name`; there is no
 separate test column (the same convention as `zarinpal_test`,
-`internal_test`, …). `shared/testGateways.ts` lists the test gateways. The
-finance report (`/api/billing/admin/finance-report`) keeps their money in the
-totals, as before, and marks it: `byProvider[].test`, `recentPayments[].is_test`
-and `totals.testRevenue` (the part of `grossRevenue` that came through test
-gateways). Super Admin → Billing → Report shows a "Test gateway" badge on
-those providers.
+`internal_test`, …). `shared/testGateways.ts` lists the test gateways.
+Super Admin → Finance → Revenue leaves their money out unless "Include test
+gateways" is on, and an account's payments carry `is_test` (shown as a "Test
+gateway" mark). Billing v2's finance report
+(`/api/billing/admin/finance-report`) was removed in phase 7A; billing v2's
+own sandbox payments are in `billing_v2_archive` since 268
+(`docs/billing/SIMPLE_BILLING.md`).
 
 ## Removing it
 

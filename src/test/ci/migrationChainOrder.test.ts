@@ -52,6 +52,13 @@ describe('self-host GoTrue bootstrap', () => {
  * may not get the order wrong for a table the hosted chain creates itself.
  * So the self-host chain is read first, as the baseline the hosted chain
  * sits on.
+ *
+ * The baseline is everything the self-host chain has EVER created or added,
+ * not what is left at its end: 268_billing_v2_archive.sql moves those v2
+ * tables into the schema billing_v2_archive and drops nine v2 columns of
+ * workspace_subscriptions on the self-host chain, while the hosted project
+ * (which never ran 267 or 268) still has them in public. Its migrations were
+ * written against that, so they are read against it.
  */
 const SELF_HOST_DIR = 'database/migrations';
 
@@ -440,9 +447,10 @@ export function analyzeChain(dir: string, files: string[]) {
       // A column the hosted chain never declared is only a problem if the
       // self-host chain does not declare it either — workspace_subscriptions
       // is created here but gains current_period_id, next_invoice_at and
-      // billing_engine_version over there. Nullability below stays purely
-      // hosted-chain-driven, since that is the only side whose declarations
-      // this scanner has read.
+      // billing_engine_version over there (268 drops them again at the end
+      // of that chain; the baseline is every column it ever declared).
+      // Nullability below stays purely hosted-chain-driven, since that is
+      // the only side whose declarations this scanner has read.
       const alsoInSelfHost = selfHostColumns().get(table);
       for (const c of cols) {
         if (!state.has(c) && !alsoInSelfHost?.has(c)) {

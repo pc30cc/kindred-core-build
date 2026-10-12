@@ -306,7 +306,7 @@ already changed.
 
 | Phase | Writes to | On failure |
 | --- | --- | --- |
-| 1. Preflight (as `check`). Also stops when a target table holds rows and the source has no table of that name: the copy would not replace them and the schemas could not match, so what happens to them is left to you | nothing | nothing changed |
+| 1. Preflight (as `check`). Also stops when a target table holds rows and the source has no table of that name: the copy would not replace them and the schemas could not match, so what happens to them is left to you; and when the source's `billing_v2_archive` holds records, unless `BILLING_V2_ARCHIVE=separately` (below) | nothing | nothing changed |
 | 2. Confirmation: type `replace`, or `YES=1`. It comes **before** anything is written, and lists the migrations phase 3 will apply | nothing | nothing changed |
 | 3. Target schema: `scripts/migrate-database.sh` on the target, if migrations are missing. A migration can convert or delete rows already on the target, not only change its schema (251 does both; it keeps legacy tables that still hold rows) | the **target's schema**, and rows a migration converts | **Not undone.** Migrations are forward-only and run outside phase 6's transaction. Files before the failing one are applied and recorded in `_schema_migrations`. The failing file is not recorded and may be **partly** applied, because files run statement by statement (some cannot run in one transaction, e.g. `CREATE INDEX CONCURRENTLY`). No data was copied. Fix the cause and run again; if the failing file is not safe to run twice, first undo the part of it that applied. |
 | 4. Schema match: the target must present the source's schema (functions, triggers, constraints, columns, policies, rules, grants…) up to the reviewed differences in `scripts/db/schema-parity-allowlist.txt` | nothing | no data copied; the migrations phase 3 applied stay applied |
@@ -320,10 +320,9 @@ Phase 6 in detail, all inside one transaction:
    would re-run side effects the source already holds, such as seeding
    billing rows for every loaded workspace.
 2. Make the foreign keys that form a cycle between tables
-   `DEFERRABLE INITIALLY DEFERRED`, e.g. `workspace_subscriptions` ⇄
-   `billing_subscription_periods` and `billing_payments` ⇄
-   `billing_payment_intents` ⇄ `billing_wallet_deposits`. Rows that reference
-   each other cannot be loaded one table at a time.
+   `DEFERRABLE INITIALLY DEFERRED`, e.g. `billing_account_cards` ⇄
+   `billing_account_payments` and `seo_urls` ⇄ `seo_crawl_observations`.
+   Rows that reference each other cannot be loaded one table at a time.
 3. Empty `public`'s tables, `TRUNCATE … RESTART IDENTITY` (no `CASCADE`).
 4. Load the rows. Every other foreign key is **enforced** as each table goes
    in.
@@ -357,6 +356,40 @@ is refused, not silently copied in part. The target's public data is replaced,
 and its ledger (`public._schema_migrations`) is kept. The source is only ever
 read.
 
+**`billing_v2_archive` is not copied.** The script copies the `public` schema
+only. Since migrations 267 and 268 the schema `billing_v2_archive` holds
+billing v2's records (invoices, payments, wallets, periods, the log of their
+move into simple billing; `docs/billing/SIMPLE_BILLING.md`, "Phase 7B").
+When the source's archive holds anything the target's migrations do not
+create, `check` and `run` stop and name each table with its row count. That
+counts every table — coupons and exchange rates included, which no migration
+seeds — except the five whose rows migrations seed on every database
+(currencies, the default tax rate, usage items, the v2 policy, the retired
+email templates). Those count only when their content differs from the
+target's (an edited tax rate, say), compared without their random ids and
+timestamps; on a target whose migrations have not built the archive yet,
+that comparison runs again after phase 3. To move anyway, run again with
+`BILLING_V2_ARCHIVE=separately`; the script then says, without stopping,
+what it leaves behind and prints the command that copies it. Once the move
+is done, run that command as a superuser on the target (and a role that can
+read the archive on the source; it is closed to `service_role`):
+
+```sh
+{ echo 'TRUNCATE billing_v2_archive.<every table>;'
+  pg_dump --data-only --disable-triggers --schema=billing_v2_archive "$SOURCE_DATABASE_URL"
+} | psql --single-transaction -v ON_ERROR_STOP=1 "$TARGET_DATABASE_URL"
+```
+
+It replaces the target's whole archive (which then holds only the rows its
+migrations seeded) in one transaction. The archive's tables keep their
+foreign keys to each other — an invoice and a coupon redemption reference
+their coupon, a payment its intent and back — so copying only some of them
+would fail on a foreign key part-way; `--disable-triggers` (superuser) lets
+the rows that reference each other in a cycle load. Afterwards `check`
+reports that the target's archive already holds exactly the same. A target
+whose archive holds other records is refused: copying would replace them,
+so what happens to them is left to you.
+
 `scripts/ci/move-data-test.sh` runs all of this in CI on `postgres:16` and
 `pgvector/pgvector:pg17`, against throwaway databases:
 
@@ -371,7 +404,12 @@ read.
 - a Supabase-like target owned by a non-superuser `BYPASSRLS` role, with
   `FORCE RLS` tables, and the move back out of it;
 - refusals for an RLS-filtered source role, a target role that does not own
-  the tables, and the same database twice.
+  the tables, and the same database twice;
+- a record in the source's `billing_v2_archive`, a coupon or exchange rate
+  only the source has, or an edited seeded tax rate: `check` and `run`
+  refuse until `BILLING_V2_ARCHIVE=separately`; the printed command then
+  copies the whole archive (a coupon with its invoice and redemption) in one
+  transaction, and a target archive holding other records is refused.
 
 After every failure the target's rows, triggers, constraints and sequences
 are compared with their state before the run.

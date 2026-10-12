@@ -13,6 +13,8 @@
  *   - the 9 dropped workspace_subscriptions columns;
  *   - the removed RPCs (every `billing_v2_*` function, the v2 engine, wallet,
  *     enrolment and notification functions, billing_account_v2_next_period);
+ *     the schema name `billing_v2_archive` itself is allowed: Super Admin's
+ *     exports read the archive by it (server/services/database/archiveExport.ts);
  *   - the removed client and flag modules (`billingApi`, `billingMode`,
  *     `LEGACY_BILLING_ENABLED`);
  *   - the removed v2 API paths (in app code; a test may use an old URL as a
@@ -118,7 +120,7 @@ const V2_FUNCTIONS = [
 const RULES: Array<{ name: string; re: RegExp; tests?: false }> = [
   { name: 'v2 table', re: new RegExp(`\\b(${V2_TABLES.join('|')})\\b`) },
   { name: 'dropped column', re: new RegExp(`\\b(${V2_COLUMNS.join('|')})\\b`) },
-  { name: 'removed RPC', re: new RegExp(`\\b(billing_v2_[a-z0-9_]+|${V2_FUNCTIONS.join('|')})\\b`) },
+  { name: 'removed RPC', re: new RegExp(`\\b(billing_v2_(?!archive\\b)[a-z0-9_]+|${V2_FUNCTIONS.join('|')})\\b`) },
   { name: 'removed module or flag', re: /\bLEGACY_BILLING_ENABLED\b|\bbillingApi\b|\bbillingMode\b|billing-i18n|billingV2Retired|billingCustomer|adminBillingV2/ },
   {
     name: 'removed v2 API path',
@@ -165,6 +167,9 @@ describe('billing v2 is gone from the code (phase 7A)', () => {
     // What stays is not caught.
     expect(hit(".from('billing_account_payments'); 'billing_payment_receipt'; /api/billing/account-return; /api/billing/plans")).toEqual([]);
     expect(hit(".from('billing_gateways'); .from('billing_events'); .from('billing_provider_credentials')")).toEqual([]);
+    // The archive's schema is named by the exports that read it (268); its tables are not.
+    expect(hit("const ARCHIVE_SCHEMA = 'billing_v2_archive'; rpc('admin_export_archive_tables')")).toEqual([]);
+    expect(hit("'billing_v2_archive_x'")).toEqual(['removed RPC']);
   });
 
   it('no file names a v2 table, a dropped column, a removed RPC, module or API path', () => {

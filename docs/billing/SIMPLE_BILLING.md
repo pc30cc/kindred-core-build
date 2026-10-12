@@ -153,14 +153,17 @@ billing v2's 5-minute ticker (see "The hourly job" below).
 6. Super Admin screens. (Done: migration 266; see "Super Admin screens"
    below.)
 7. Move current subscriptions, back up and drop billing v2 code and tables.
+   (Done once 268 is applied to a database: 267 and 268 in the repository;
+   WebYar's database is migrated by hand, RESPOK's by its migrator.)
    7A (migration 267): the move and the removal of the v2 code; see "Phase
    7A (migration 267)" below. 7B (migration 268, after a 48-hour soak):
-   archive the v2 tables and drop the v2 functions and columns.
+   archive the v2 tables and drop the v2 functions and columns; see "Phase
+   7B (migration 268)" below.
 
 ## Technical design
 
-Names avoid billing v2's tables (`billing_payments` and `billing_wallet_*`
-exist there until phase 7).
+Names avoid billing v2's tables (`billing_payments`, `billing_wallet_*` and
+the rest, which 268 moved into the schema `billing_v2_archive`).
 
 ### Which plan a workspace is on
 
@@ -225,9 +228,9 @@ the old period's next one returns to the balance and a scheduled change is
 dropped (`billing_account_admin_replaced`), whatever the new end date. A
 prepayment made for a period replaced in any other way returns as soon as
 the page, a quote, a checkout or a billing action sees it
-(`billing_account_release_stale_prepaid`). Billing v2's customer endpoints that would write it (plan
-change, invoice and wallet payments, v2 checkout, cancel/resume) answer
-410 `BILLING_V2_RETIRED` while `LEGACY_BILLING_ENABLED` is off.
+(`billing_account_release_stale_prepaid`). Billing v2's customer endpoints
+that would write it (plan change, invoice and wallet payments, v2 checkout,
+cancel/resume) were removed in phase 7A.
 
 Every amount the page shows comes from the quote (`GET .../quote`), which
 mirrors the SQL exactly: what the action takes from the balance now
@@ -250,15 +253,15 @@ price, balance or period moved meanwhile the server answers 409
   renewal is its own charge. The page (and the job) name the period they
   renew (`p_expected_period_end`): once it was renewed or replaced, a retry
   or a second tab renews nothing (`PERIOD_CHANGED`); a second renewal of a
-  prepaid period is refused (`ALREADY_RENEWED`), as is one whose next period
-  was already paid through billing v2 (a `scheduled` service period, which
-  the due moment starts; no reminder either). The page also sends the price
+  prepaid period is refused (`ALREADY_RENEWED`). (Until 268, a next period
+  paid through billing v2 and left to a person by 267's move was refused
+  the same way; 268 runs only once none is left.) The page also sends the price
   it showed (`p_expected_price_minor`): a price or scheduled change that
   moved since answers `QUOTE_CHANGED` and charges nothing.
 - **The due moment** (`billing_account_process_due`; the job every 5
   minutes, and the billing page, a quote or a checkout of that workspace at
-  once): a next period paid through billing v2 (`scheduled`) starts; else a
-  prepaid next period starts; else, with auto-renew on and enough balance,
+  once): a prepaid next period starts (267 turned a next period paid
+  through billing v2 into one); else, with auto-renew on and enough balance,
   it is paid from the balance and starts; else (or when Free is scheduled)
   the subscription becomes `expired` and the workspace is on Free at once.
   The plan stays on the row, so the page offers "Renew <plan>" (a purchase
@@ -304,7 +307,8 @@ price, balance or period moved meanwhile the server answers 409
   did, so the two never add up. The AI wallet counts in its own unit
   (Rial).
 - Billing v2's guard and lifecycle-mail triggers on `workspace_subscriptions`
-  are dropped; its other tables and functions stay until phase 7.
+  are dropped; its other triggers and functions went in 268, and its tables
+  are in `billing_v2_archive` (see "Phase 7B (migration 268)").
 
 ### The hourly job (server/services/billing/account/job.ts)
 
@@ -731,9 +735,8 @@ spent first.
   `{ai_balance}` (empty without a rate) besides the common variables. A pack
   paid online also gets `billing_payment_receipt`.
 - **The old Rial top-up** (`/api/ai-billing/.../topup/config|preview|checkout`)
-  answers 410 `BILLING_V2_RETIRED` while `LEGACY_BILLING_ENABLED` is off; an
-  old intent already paid is still credited by its verify callback. Super
-  Admin's manual AI credit stays.
+  and its verify callback were removed in phase 7A (404); 267 credited what
+  an old intent had paid. Super Admin's manual AI credit stays.
 - **Not in this phase.** The plan's monthly AI credit per currency
   (`billing_plans.ai_allowance.USD`) is still read as IRR; phase 6's plan
   screens take it up.
@@ -752,8 +755,7 @@ Everything is behind the single platform admin role (`requirePlatformAdmin`);
 there is no finance sub-role. A credit or debit has its own safeguards
 instead (below).
 
-- **Where.** Finance (`/admin/finance`) shows, while `LEGACY_BILLING_ENABLED`
-  is off, the tabs Revenue (the default), Accounts, Gateways, AI and Audit.
+- **Where.** Finance (`/admin/finance`) shows the tabs Revenue (the default), Accounts, Gateways, AI and Audit.
   An account opens at `/admin/finance/accounts/:workspaceId`.
   `/admin/billing` redirects to `finance?tab=accounts`. Plans, prices and
   Billing settings stay in Plans (`/admin/plans`), whose tabs follow
@@ -865,7 +867,8 @@ instead (below).
   be stored but never granted): the limit `included_ai_allowance_irr` stays
   in the limits editor and `ai_allowance.IRR` takes its value. A stored USD
   or TRY value is kept as it is, and plan cards show only the IRR credit.
-  When phase 7 makes the grant read other currencies, they join
+  When the grant reads other currencies (a follow-up, not part of phase
+  7), they join
   `GRANTED_AI_ALLOWANCE_CURRENCIES` in `PlansPage.tsx`. The VAT of each
   currency is shown read-only next to the prices, with a link to Billing
   settings.
@@ -880,8 +883,8 @@ instead (below).
   answered 410 `BILLING_V2_RETIRED` in phase 6; since phase 7A they are
   removed (404), with the flag and Finance's danger zone.
 - **Known limits.** A purged workspace's payments go with it (ON DELETE
-  CASCADE), so its revenue leaves the report; phase 7 decides whether to keep
-  them. The adjust rate limit is per process.
+  CASCADE), so its revenue leaves the report; keeping them is a follow-up
+  (phase 7 did not change it). The adjust rate limit is per process.
 - **Deploying.** Apply 266 to WebYar's database by hand before merging, with
   a dry run inside `BEGIN ... ROLLBACK` first (the file has no
   `BEGIN`/`COMMIT` of its own and can be run twice); RESPOK's migrator
@@ -897,8 +900,8 @@ instead (below).
 
 7A moves what billing v2 still holds into simple billing and removes the v2
 code. Nothing of v2's data is deleted or rewritten: the v2 tables, functions
-and columns stay until 7B (migration 268) archives them into the
-`billing_v2_archive` schema. 267 is compatible with the code from before 7A,
+and columns stay until 7B (migration 268) archives the tables into the
+`billing_v2_archive` schema and drops the functions and columns. 267 is compatible with the code from before 7A,
 so it is applied to WebYar's database by hand before the merge.
 
 **What 267 does** (one `BEGIN … COMMIT`, `SET LOCAL lock_timeout = '5s'`;
@@ -1036,3 +1039,192 @@ hourly-job tick in the logs. Then a 48-hour soak with at least one daily
 backup, and `billing_v2_migrate_to_simple(false)` on both databases with
 `needs_review` empty (or waived) before 7B.
 
+
+### Phase 7B (migration 268)
+
+7B archives what is left of billing v2. No financial row is copied away or
+deleted: the v2 tables move, whole, into the schema `billing_v2_archive`
+(`ALTER TABLE … SET SCHEMA`), next to 267's `migration_log`. What goes is
+code: the v2 functions and triggers, and nine columns of
+`workspace_subscriptions` that only v2 used. 7B changes no server or client
+code; 7A already stopped every reader (`noV2References.test.ts`). Phase 7
+counts as done on a database once 268 is applied there.
+
+**What 268 does** (one `BEGIN … COMMIT`, `SET LOCAL lock_timeout = '5s'`,
+no `CASCADE` anywhere; it can be run again, and a second run finds nothing
+to do):
+
+0. **Locks first.** Its first statement takes `ACCESS EXCLUSIVE` on
+   `workspaces`, `billing_plans`, `workspace_subscriptions` and then each v2
+   table still in `public`, in that order — the order requests take them.
+   Taken step by step instead (the column drop in 4 before the foreign keys
+   to `workspaces` in 5), a request holding `workspaces` and then reading
+   `workspace_subscriptions` would deadlock with it. Requests on those
+   tables wait until the COMMIT (a second or two).
+
+1. **Guards, before any change.** It raises unless 267 is applied. While v2
+   tables are still in `public` it runs the move once more
+   (`billing_v2_migrate_to_simple(true)`, which picks up anything written
+   since 267) and raises `billing_v2_unmigrated: n item(s): …` (up to 20
+   items, with a hint) if any `needs_review` item is neither resolved nor
+   waived. Then every money item in `migration_log` (`credit`, `prepay`,
+   `activate`, `credit_replaced`) must have its `admin_credit` ledger row
+   (key `admin:v2:<table>:<id>`, same amount and currency), and per currency
+   the log's total must equal the ledger's `admin:v2:` credits
+   (`billing_v2_log_ledger_mismatch`); workspaces deleted since are left out,
+   since their ledger went with them. A raise rolls everything back: nothing
+   is archived.
+2. **Simple billing stops asking about v2.** `billing_account_renew`,
+   `billing_card_apply_renewal`, `billing_account_reminder_candidates` and
+   `billing_account_process_due` are redefined from their latest versions
+   with only the `billing_account_v2_next_period` condition removed
+   (including 267's `v2_period_needs_review` hold in `process_due`; the
+   guard made sure no such period is left), keeping their grants; then
+   `billing_account_v2_next_period` is dropped.
+   `billing_account_write_subscription` no longer clears the dropped columns
+   (it still clears `canceled_at`, `past_due_since`, `grace_period_ends_at`
+   and `free_fallback_at`). `admin_reset_settings_tables` no longer lists the
+   v2 configuration tables. `billing_account_grant_month` names no v2 table
+   and is unchanged: old v2 AI lots stay in `workspace_ai_balance_lots` and
+   still keep a month from being funded twice.
+3. **Triggers and functions dropped.** Every trigger on a v2 table, then
+   every overload of every `billing_v2_*` function (the move's three
+   functions too: their work is done, their log stays) and of the v2 engine
+   (`billing_activate_period`, `billing_activate_due_periods`,
+   `billing_settle_invoice`, `billing_apply_invoice_effects`,
+   `billing_apply_subscription_payment`, the collection functions,
+   `billing_recover_unapplied_invoices`), the v2 wallet
+   (`billing_wallet_*`), the legacy allowance
+   (`billing_legacy_allowance_active`, `billing_retire_legacy_allowance`),
+   the freeze and append-only guards, the v2 notifications
+   (`billing_notify_*`), `billing_enroll_workspace` and
+   `admin_reset_billing_data`. Kept: `billing_touch_updated_at`
+   (`billing_gateways`), `billing_purge_active`, `expire_stale_trials` and
+   every `billing_account_*`, `billing_card_*`, `billing_lock*` and
+   `billing_admin_*` function.
+4. **Columns dropped** from `workspace_subscriptions`, with their foreign
+   keys and checks: `current_period_id`, `v2_allowance_effective_period_id`,
+   `billing_engine_version`, `billing_v2_effective_at`, `billing_anchor_at`,
+   `next_invoice_at`, `next_plan_id`, `pending_change_type`,
+   `pending_change_currency`. `billing_interval`, `trial_start`,
+   `free_fallback_at`, `past_due_since`, `grace_period_ends_at` and
+   `canceled_at` stay: they still have readers (entitlement, plan selection,
+   the plan banner), and since 267 they stay NULL.
+5. **The 28 v2 tables move** to `billing_v2_archive` with every row, index,
+   identity, check and the foreign keys between them: `billing_payments`,
+   `billing_payment_intents`, `billing_payment_allocations`,
+   `billing_subscription_applications`, `billing_subscription_periods`,
+   `billing_invoices`, `billing_invoice_lines`,
+   `billing_invoice_applications`, `billing_invoice_collections`,
+   `billing_wallet_accounts`, `billing_wallet_ledger`,
+   `billing_wallet_deposits`, `billing_period_allowance_grants`,
+   `billing_entitlement_cycles`, `billing_notification_jobs`,
+   `billing_retention_signals`, `billing_v2_audit`, `billing_v2_rollout`,
+   `billing_v2_policy`, `billing_v2_workspace_policy`, `billing_v2_jobs`,
+   `billing_v2_worker_health`, `billing_currencies`,
+   `billing_exchange_rates`, `billing_tax_rates`, `billing_coupons`,
+   `billing_coupon_redemptions`, `billing_usage_items`. Before the move each
+   loses its policies and its foreign keys to tables that stay
+   (`workspaces`, `billing_plans`, `workspace_subscriptions`), so deleting or
+   purging a workspace, or deleting a plan, neither stops at an archived row
+   nor cascades into one (`admin_purge_workspaces` scans `public` only). The
+   dropped keys' definitions are printed in the `NOTICE billing v2 archive:
+   …` line, with each table's row count. Afterwards `PUBLIC`, `anon`,
+   `authenticated` and `service_role` have no access to the schema or its
+   tables; row level security stays on, with no policy. `billing_gateways`,
+   `billing_provider_credentials` and `billing_events` stay in `public`
+   (simple billing uses them).
+6. **Data.** The email templates only v2 sent (`subscription_activated`,
+   `wallet_deposit_received`, `ai_credit_purchased`, `trial_ending_soon`,
+   `trial_expired`) are copied with every column into
+   `billing_v2_archive.email_templates` (plus `archived_at`), then deleted
+   from `public.email_templates`. The retention policies of the archived
+   tables are deleted (the retention job reads `public`). Plans with
+   `limits.included_ai_allowance_irr` and no `ai_allowance.IRR` get it as
+   `ai_allowance.IRR` (`billing_plan_ai_allowance` reads that first, so no
+   plan's month changes); the limits key stays, as it is also the
+   per-workspace override key.
+7. **Backup role.** When the role `webyar_backup` exists and is not a member
+   of `pg_read_all_data`, it gets `USAGE` on the schema and `SELECT` on its
+   tables, so the in-app `pg_dump` keeps working
+   (`docs/operations/DATABASE_BACKUPS.md`). On WebYar it is a member of
+   `pg_read_all_data` already, so nothing is granted there.
+   Super Admin → Database's JSON backup, SQL dump and one-click migration
+   read the archive too: `admin_export_archive_tables` lists its tables and
+   columns, and `admin_export_table` takes `billing_v2_archive.<table>`. The
+   JSON backup carries them as `billing_v2_archive.<table>` keys (its restore
+   reloads `public` only), the SQL dump as `INSERT INTO
+   "billing_v2_archive".…` (the target's migrations create the tables), and
+   the migration copies them into the target's archive (a target without it
+   gets a warning per table).
+8. **Post-checks** (`billing_v2_archive_check_failed`, listing every
+   failure, and the whole file rolls back): no v2 table left in `public`; no
+   foreign key across the archive's edge; outside the archive no function
+   body, view, trigger or policy names an archived table, a dropped column or
+   a removed function (matched in any letter case: an unquoted
+   `PUBLIC.BILLING_INVOICES` is the same table), and no object depends on an
+   archived table; no application role can reach the archive.
+
+**Reading the archive.** As `postgres` (or the backup role):
+`\dt billing_v2_archive.*`, then for instance `SELECT * FROM
+billing_v2_archive.billing_invoices WHERE workspace_id = '<id>'`. The
+records are complete; the v2 engine that interpreted them is gone. No
+migration may drop the archive, empty or rename its tables, or move them
+out (`src/test/ci/migrationDataDestruction.test.ts`), and a financial table
+may only ever move into `billing_v2_archive`. Removing it later needs its
+own deliberate migration and a change to that test.
+
+**Restoring a table** (by a person, as `postgres`, only when a record must
+live in `public` again; reading it in place is usually enough):
+
+```sql
+BEGIN;
+ALTER TABLE billing_v2_archive.billing_invoices SET SCHEMA public;  -- indexes and keys between v2 tables move with it
+-- the keys to public that 268 dropped: copy each definition from 268's NOTICE
+-- (or from the migration that created it); NOT VALID, because rows of
+-- workspaces or plans deleted since would fail the check:
+ALTER TABLE public.billing_invoices ADD CONSTRAINT billing_invoices_workspace_id_fkey
+  FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE NOT VALID;
+COMMIT;
+```
+
+Its policies and grants are not restored (no code reads it any more; take
+them from the migrations that created them if one should). An email
+template comes back with `INSERT INTO public.email_templates (<columns>)
+SELECT <columns> FROM billing_v2_archive.email_templates WHERE slug = '…'`.
+The off-server dumps taken before 267 and before 268 (below) restore with
+`pg_restore` into a scratch database, never over the live one.
+
+**Moving a database.** `scripts/db/move-data.sh` copies `public` only; it
+stops when the source's archive holds records unless
+`BILLING_V2_ARCHIVE=separately`, and prints the command that copies the
+whole archive in one transaction (`docs/DATABASE.md` §6).
+
+**Deploying 7B** (after 7A has run everywhere for at least 48 hours, with at
+least one daily backup since, and `billing_v2_migrate_to_simple(false)`
+showing no open `needs_review` on both databases, or every item waived; on
+RESPOK the clone residue is waived as `clone_residue` after matching its ids
+against WebYar):
+
+1. Check RESPOK's overlay (`/data/respok/migrator/overlay.sql`) for the 28
+   table names and the 9 column names; the overlay runs after every
+   migration, so a match is fixed and proved with
+   `/root/respok/overlay-guard-test.sh` before the merge.
+2. Back up both databases: `pg_dump -Fc` of the v2 tables, the simple
+   billing tables, `workspace_subscriptions`, `plan_change_log`,
+   `email_templates`, `data_retention_policies` and `-n billing_v2_archive`;
+   `pg_restore -l` the file and copy it off the server. Check `df -h /`
+   (below 75%), then Coolify's "Backup now".
+3. WebYar: dry-run 268 with its final `COMMIT;` turned into `ROLLBACK;`
+   (not inside `psql --single-transaction`), read the `NOTICE` lines, then
+   apply it by hand at a quiet time with `PGOPTIONS='-c lock_timeout=5s'`
+   (the locks on `workspaces`, `billing_plans` and `workspace_subscriptions`
+   are held until the `COMMIT`; on a timeout everything rolls back, run it
+   again) and record it in the migration ledger.
+4. Merge 7B. RESPOK's migrator applies 268. If it raises
+   `billing_v2_unmigrated`, nothing was archived: resolve or waive the
+   items, then queue the DB Migrator (app 40) again.
+5. After: Super Admin → Database → Backup on both databases (the in-app
+   `pg_dump` must succeed with the new schema; on RESPOK confirm which role
+   it uses, see `DATABASE_BACKUPS.md`), `\dt billing_v2_archive.*` with row
+   counts compared with the dump, and 7A's smoke test again.

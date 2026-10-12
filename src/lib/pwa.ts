@@ -10,17 +10,13 @@
 import { createElement } from 'react';
 import { isNativePlatform } from '@/lib/native';
 import { toast } from '@/hooks/use-toast';
-import { ToastAction } from '@/components/ui/toast';
-import { getStoredLocale, loadLocaleMessages } from '@/i18n';
+import { AppUpdateAction, AppUpdateDescription, AppUpdateTitle } from '@/components/common/AppUpdateToast';
 
 let updateToastShown = false;
 
-async function promptForUpdate(registration: ServiceWorkerRegistration) {
+function promptForUpdate(registration: ServiceWorkerRegistration) {
   if (updateToastShown) return;
   updateToastShown = true;
-  // In the reader's language (i18n `appUpdate`); Persian reads exactly as
-  // it always did.
-  const copy = (await loadLocaleMessages(getStoredLocale())).appUpdate;
 
   const applyUpdate = () => {
     const waiting = registration.waiting;
@@ -31,13 +27,17 @@ async function promptForUpdate(registration: ServiceWorkerRegistration) {
     waiting.postMessage('SKIP_WAITING');
   };
 
+  // The text is rendered inside the app's I18nProvider (the Toaster sits
+  // there), so it is in the page's current language (i18n `appUpdate`) and
+  // follows a language switch while the toast is open.
   toast({
-    title: copy.title,
-    description: copy.description,
+    // `title` is typed `string` (Radix's HTML attribute); the Toaster renders any node.
+    title: createElement(AppUpdateTitle) as never,
+    description: createElement(AppUpdateDescription),
     // No auto-dismiss — this app can stay open in the inbox for a full
     // shift, so a self-dismissing toast could easily be missed.
     duration: Infinity,
-    action: createElement(ToastAction, { altText: copy.refresh, onClick: applyUpdate }, copy.refresh) as never,
+    action: createElement(AppUpdateAction, { onClick: applyUpdate }) as never,
   });
 }
 
@@ -87,7 +87,7 @@ export function registerServiceWorker(): void {
     navigator.serviceWorker.register('/sw.js').then((registration) => {
       // A worker may already be sitting in "waiting" from a previous visit
       // (e.g. this tab was open across a deploy).
-      if (registration.waiting && registration.active) void promptForUpdate(registration);
+      if (registration.waiting && registration.active) promptForUpdate(registration);
 
       registration.addEventListener('updatefound', () => {
         const installing = registration.installing;
@@ -97,7 +97,7 @@ export function registerServiceWorker(): void {
           // already-controlled page, not the very first install (which has
           // nothing to prompt about — there is no older version to leave).
           if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-            void promptForUpdate(registration);
+            promptForUpdate(registration);
           }
         });
       });

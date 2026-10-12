@@ -611,14 +611,19 @@ export function bucketRevenue(input: BucketRevenueInput): RevenueReport {
  * - `inactive`: switched off in Finance → Gateways (or no handler ships);
  * - `currency`: not set for this currency in Finance → Gateways, or it cannot charge it;
  * - `cannot_confirm`: the server cannot look its payment up (no verify path), or it has no usable settings;
- * - `test`: a sandbox shown to platform admins only.
+ * - `test`: a sandbox shown to platform admins only;
+ * - `not_configured`: its settings are missing something it needs to take a
+ *   payment (ZarinPal's merchant id, Paddle's keys and webhook secret); the
+ *   listing's `problem` names it.
  */
-export const GATEWAY_LISTING_REASONS = ['not_in_edition', 'inactive', 'currency', 'cannot_confirm', 'test'] as const;
+export const GATEWAY_LISTING_REASONS = ['not_in_edition', 'inactive', 'currency', 'cannot_confirm', 'test', 'not_configured'] as const;
 export type GatewayListingReason = (typeof GATEWAY_LISTING_REASONS)[number];
 
 export interface GatewayListing {
   listed: boolean;
   reasons: GatewayListingReason[];
+  /** With `not_configured`: what is missing or wrong in the gateway's settings, for the Super Admin. */
+  problem?: string;
 }
 
 export interface GatewayReadiness {

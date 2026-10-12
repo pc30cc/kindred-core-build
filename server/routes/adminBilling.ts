@@ -28,7 +28,8 @@ import {
   getPlatformEdition,
 } from '../services/billing/edition.js';
 import { isProviderAllowedInEdition, isRialCurrency } from '../../shared/edition.js';
-import { getProvider } from '../services/billing/index.js';
+import { getProvider, resolveNamedBillingConfig } from '../services/billing/index.js';
+import { resolveAppBaseUrl } from '../services/auth-email.js';
 
 export const adminBillingRouter = Router();
 
@@ -119,5 +120,30 @@ adminBillingRouter.put('/providers/:providerName', async (req, res) => {
     if (problem) return res.status(400).json({ error: problem, code: 'invalid_provider_credentials' });
     const credentials = await upsertProviderCredentials(cfg(req), req.params.providerName, body.config);
     res.json({ provider_name: credentials.provider_name, config: credentials.config });
+  } catch (e) { fail(res, e); }
+});
+
+/** Platform-wide settings are read for this placeholder workspace (no workspace override applies). */
+const NO_WORKSPACE = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * The Providers screen's Test button for a billing gateway: runs the
+ * gateway's own connection test (testConnection) with the SAVED settings,
+ * exactly as a checkout would resolve them. Answers { success, error }; the
+ * error is the gateway's own message (a wrong merchant id, a key without a
+ * permission), never a secret. ZarinPal's probe uses this platform's app
+ * address as the callback, so a domain the terminal does not allow fails here.
+ */
+adminBillingRouter.post('/providers/:providerName/test', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  try {
+    const config = cfg(req);
+    assertProviderAllowed(await getPlatformEdition(config), req.params.providerName);
+    const resolved = await resolveNamedBillingConfig(config.supabaseUrl, config.supabaseServiceRoleKey, NO_WORKSPACE, req.params.providerName);
+    if (!resolved) return res.status(404).json({ error: 'Unknown provider' });
+    const appBase = await resolveAppBaseUrl(config).catch(() => '');
+    const probe = /^https:\/\//i.test(appBase) ? { probe_callback_url: `${appBase}/billing` } : {};
+    const result = await resolved.provider.testConnection({ ...resolved.config, ...probe, provider: req.params.providerName });
+    res.json({ success: result.success, latency_ms: result.latencyMs, ...(result.error ? { error: result.error } : {}) });
   } catch (e) { fail(res, e); }
 });

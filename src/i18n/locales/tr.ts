@@ -4359,6 +4359,7 @@ const tr: TranslationKeys = {
           currency: 'Para birimi açık değil',
           cannot_confirm: 'Ödemeleri doğrulayamıyor',
           test: 'Test, yalnızca yöneticiler',
+          not_configured: 'Ayarlar eksik',
         },
         cardAutoRenew: 'Kartla otomatik yenileme',
         cardAutoRenewOn: 'Açık',

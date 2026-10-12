@@ -672,7 +672,7 @@ describe('phase 6 translations (admin.simpleBilling)', () => {
     ...['topup', 'renewal', 'upgrade', 'ai_pack', 'plan'].map((k) => `revenue.purpose.${k}`),
     ...['checkout', 'card_setup', 'card_renewal', 'card_charge'].map((k) => `revenue.source.${k}`),
     'gateways.readinessTitle', 'gateways.listed', 'gateways.notListed',
-    ...['not_in_edition', 'inactive', 'currency', 'cannot_confirm', 'test'].map((k) => `gateways.reason.${k}`),
+    ...['not_in_edition', 'inactive', 'currency', 'cannot_confirm', 'test', 'not_configured'].map((k) => `gateways.reason.${k}`),
     'gateways.cardAutoRenew', 'gateways.fix',
     ...['retentionDays', 'retentionHint', 'aiAllowance', 'aiAllowanceHint', 'vatFromSettings', 'editVat'].map((k) => `plans.${k}`),
     ...['title', 'credit', 'price', 'active', 'add', 'remove', 'invalid'].map((k) => `aiPacks.${k}`),

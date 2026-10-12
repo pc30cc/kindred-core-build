@@ -56,7 +56,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as any).error || `Request failed: ${res.status}`);
+  if (!res.ok) throw new Error((body as { error?: string }).error || `Request failed: ${res.status}`);
   return body as T;
 }
 
@@ -233,6 +233,25 @@ export async function testProviderConnection(
   message: string;
   checkedAt: number;
 }> {
+  // A billing gateway is tested on the server with its SAVED settings
+  // (POST /api/admin/billing/providers/:name/test): ZarinPal's merchant and
+  // terminal, Paddle's key and its permissions. The browser registry has no
+  // health check for them.
+  if (type === 'billing') {
+    try {
+      const result = await apiFetch<{ success: boolean; error?: string }>(
+        `/api/admin/billing/providers/${encodeURIComponent(providerName)}/test`,
+        { method: 'POST', body: '{}' },
+      );
+      return {
+        status: result.success ? 'healthy' : 'auth_failed',
+        message: result.success ? 'Connection successful — the gateway accepted these settings.' : (result.error || 'The gateway refused these settings.'),
+        checkedAt: Date.now(),
+      };
+    } catch (e) {
+      return { status: 'network_error', message: e instanceof Error ? e.message : String(e), checkedAt: Date.now() };
+    }
+  }
   const health = await providerRegistry.checkHealth(type, providerName);
   const checkedAt = Date.now();
 

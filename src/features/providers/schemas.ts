@@ -498,11 +498,12 @@ const billingVendors: ProviderVendor[] = [
     docsUrl: 'https://developer.paddle.com',
     locales: ['en'], currency: 'USD/EUR',
     fields: [
-      { key: 'api_key', label: 'API Key', type: 'password', required: true, hint: 'Permissions: Transactions read + write and Notification settings read; with Automatic card renewal on also Subscriptions read + write' },
-      { key: 'client_token', label: 'Client-side Token', type: 'text', required: true, hint: 'live_... or test_... — opens the checkout on the payment page (approve the app domain in Paddle)' },
-      { key: 'webhook_secret', label: 'Webhook Secret Key', type: 'password', required: true, hint: 'Notification destination secret — events: transaction.paid, transaction.completed, adjustment.created, adjustment.updated; with Automatic card renewal on also transaction.created, transaction.billed, transaction.payment_failed, transaction.past_due, transaction.canceled, subscription.created, subscription.activated, subscription.updated, subscription.past_due, subscription.paused, subscription.resumed, subscription.canceled' },
-      { key: 'product_id', label: 'Product ID (optional)', type: 'text', placeholder: 'pro_...', hint: 'Catalog product the checkout price is attached to; empty = a one-off product per checkout' },
-      { key: 'sandbox', label: 'Sandbox Mode', type: 'toggle', hint: 'Off for the live account. To test, use the separate "Paddle — Sandbox (test)" gateway instead: sandbox keys (_sdbx / test_) are refused here while this is off' },
+      { key: 'api_key', label: 'API Key', type: 'password', required: true, placeholder: 'pdl_live_apikey_...', hint: 'vendors.paddle.com → Developer tools → Authentication → API keys. Permissions: Transactions read + write and Notification settings read; with Automatic card renewal on also Subscriptions read + write. Secret: never paste it in the Client-side Token field' },
+      { key: 'client_token', label: 'Client-side Token', type: 'text', required: true, placeholder: 'live_...', hint: 'vendors.paddle.com → Developer tools → Authentication → Client-side tokens. Must start with "live_" (public: it is sent to the payment page). Approve the app domain in Paddle' },
+      { key: 'webhook_secret', label: 'Webhook Secret Key', type: 'password', required: true, hint: 'vendors.paddle.com → Developer tools → Notifications: destination https://<api domain>/api/billing/webhook/paddle (not /paddle_sandbox) — events: transaction.paid, transaction.completed, adjustment.created, adjustment.updated; with Automatic card renewal on also transaction.created, transaction.billed, transaction.payment_failed, transaction.past_due, transaction.canceled, subscription.created, subscription.activated, subscription.updated, subscription.past_due, subscription.paused, subscription.resumed, subscription.canceled' },
+      { key: 'product_id', label: 'Product ID (optional)', type: 'text', placeholder: 'pro_...', hint: 'A product in the LIVE catalog the checkout price is attached to; empty = a one-off product per checkout' },
+      // No Sandbox Mode here: live Paddle always runs live (providers/paddle.ts).
+      // To test, use the separate "Paddle — Sandbox (test)" gateway below.
       { key: 'card_auto_renew', label: 'Automatic card renewal (Multi Region)', type: 'toggle', hint: 'Off by default. On: Multi Region / Global accounts (USD) can save a card at checkout, and Paddle charges it for each renewal. Needs the Subscriptions read + write permission on the API key and the extra notification events listed under the webhook secret (the Test button checks the permission)' },
     ],
   },
@@ -559,8 +560,9 @@ const billingVendors: ProviderVendor[] = [
     docsUrl: 'https://docs.zarinpal.com',
     locales: ['fa'], currency: 'IRR',
     fields: [
-      { key: 'merchant_id', label: 'شناسه مرچنت (Merchant ID)', type: 'password', required: true, hint: '36 کاراکتر UUID' },
-      { key: 'sandbox', label: 'حالت تست (Sandbox)', type: 'toggle' },
+      { key: 'merchant_id', label: 'شناسه مرچنت (Merchant ID)', type: 'password', required: true, placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', hint: '36 کاراکتر UUID — پنل زرین‌پال ← درگاه‌ها (ترمینال). دامنهٔ اپ باید روی ترمینال ثبت شده باشد؛ اگر ترمینال محدودیت IP دارد، IP سرور را اضافه کنید' },
+      // No sandbox switch here: live ZarinPal always runs live (providers/zarinpal.ts).
+      // To test, use the separate "ZarinPal-Test" gateway (zarinpal_test).
       { key: 'currency', label: 'واحد پول', type: 'select', options: [
         { value: 'IRR', label: 'ریال (IRR)' }, { value: 'IRT', label: 'تومان (IRT)' },
       ]},

@@ -4355,6 +4355,7 @@ const fa: TranslationKeys = {
           currency: 'ارز فعال نیست',
           cannot_confirm: 'امکان تأیید پرداخت ندارد',
           test: 'تست، فقط برای مدیران',
+          not_configured: 'تنظیمات ناقص است',
         },
         cardAutoRenew: 'تمدید خودکار با کارت',
         cardAutoRenewOn: 'روشن',

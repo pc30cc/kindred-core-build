@@ -607,6 +607,25 @@ function settledOutcome(settled: SettleResult): VerifyOutcome {
   };
 }
 
+/**
+ * Gateways whose verify is keyed by the checkout reference stored on the
+ * payment (ZarinPal's authority, bound fail-closed before the call): an
+ * "already verified" answer (ZarinPal 101) can only be about this payment.
+ * It is what a retry gets when the first verify took the money but its
+ * answer was lost (restart, network cut), so it settles a PENDING payment
+ * that recorded no confirmation yet, under the same checks as a first
+ * success (server amount, unique gateway transaction id). SEP and PayPing
+ * verify by a second, unbound reference and keep the strict rule.
+ */
+const AUTHORITY_KEYED_VERIFY = new Set(['zarinpal', 'zarinpal_test']);
+
+function acceptsAlreadyVerified(payment: AccountPaymentRow): boolean {
+  return AUTHORITY_KEYED_VERIFY.has(payment.provider)
+    && payment.status === 'pending'
+    && !payment.verified_at
+    && Boolean((payment.provider_ref || '').trim());
+}
+
 /** Card gateways send back their own reference; Iranian gateways must echo ours exactly. */
 function isCardGateway(providerName: string): boolean {
   return !IRANIAN.has(providerName);
@@ -625,7 +644,9 @@ function isCardGateway(providerName: string): boolean {
  *   - "not paid yet" stays pending; only a definitive cancel/fail ends it;
  *   - an "already verified" answer never settles an attempt that has no
  *     recorded confirmation of its own: the gateway transaction may be
- *     another attempt's (SEP / PayPing verify by an unbound reference);
+ *     another attempt's (SEP / PayPing verify by an unbound reference).
+ *     ZarinPal is the exception (acceptsAlreadyVerified): its verify is keyed
+ *     by this payment's own bound authority;
  *   - a gateway transaction already recorded for another payment is refused
  *     (unique per provider): one real payment settles one attempt;
  *   - a charge made on a saved card has no checkout to ask about: an upgrade
@@ -679,7 +700,7 @@ export async function verifyAccountPayment(
     return { status: 'pending' };
   }
 
-  if (result.status === ALREADY_VERIFIED_STATUS) {
+  if (result.status === ALREADY_VERIFIED_STATUS && !acceptsAlreadyVerified(payment)) {
     console.error(`[billing-account] REVIEW payment=${payment.id} provider=${payment.provider} gateway says already verified, but this attempt recorded no confirmation`);
     return { status: 'pending', reason: 'gateway_already_verified' };
   }

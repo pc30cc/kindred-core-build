@@ -135,6 +135,11 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
               ('paddle_sandbox', '{"en":"Paddle sandbox"}', true, true, '{USD}', 2)
        ON CONFLICT (provider_name) DO UPDATE SET is_active = true, currencies = EXCLUDED.currencies`,
     );
+    // A test gateway is for platform admins unless opened to customers; this suite pays as a customer.
+    await chain.db.query(
+      `UPDATE public.billing_gateways SET config = coalesce(config, '{}'::jsonb) || '{"open_to_customers": true}'::jsonb
+        WHERE provider_name = 'internal_test'`,
+    );
     await chain.db.query(
       `INSERT INTO public.billing_provider_credentials (provider_name, config)
        VALUES ('paddle_sandbox', $1::jsonb)

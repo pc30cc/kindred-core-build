@@ -495,7 +495,8 @@ billingAccountRouter.post('/account/:workspaceId/topup', async (req, res) => {
     if (parsed.data.currency && parsed.data.currency.toUpperCase() !== currency) {
       return res.status(409).json({ error: 'CURRENCY_CHANGED', details: { currency } });
     }
-    const problem = topupAmountProblem(parsed.data.amountMinor, currency);
+    // A platform Super Admin may also pay the one-unit test top-up.
+    const problem = topupAmountProblem(parsed.data.amountMinor, currency, { adminTest: auth.isAdmin });
     if (problem) return res.status(400).json({ error: problem });
     return startAccountCheckout(req, res, auth, {
       currency,

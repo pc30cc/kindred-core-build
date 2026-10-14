@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  ADMIN_TEST_TOPUP,
   BILLING_PROFILE_KEYS,
   TOPUP_LIMITS,
   chargeFor,
@@ -34,6 +35,18 @@ describe('top-up limits', () => {
   it('Iran: 10,000 Toman minimum (100,000 Rial)', () => {
     expect(topupAmountProblem(99_999, 'IRR')).toBe('TOPUP_AMOUNT_TOO_SMALL');
     expect(topupAmountProblem(100_000, 'IRR')).toBeNull();
+  });
+
+  it('a Super Admin may pay exactly the one-unit test top-up, never another small amount', () => {
+    expect(ADMIN_TEST_TOPUP.USD).toBe(100);
+    expect(topupAmountProblem(100, 'USD')).toBe('TOPUP_AMOUNT_TOO_SMALL');
+    expect(topupAmountProblem(100, 'USD', { adminTest: true })).toBeNull();
+    expect(topupAmountProblem(99, 'USD', { adminTest: true })).toBe('TOPUP_AMOUNT_TOO_SMALL');
+    expect(topupAmountProblem(200, 'USD', { adminTest: true })).toBe('TOPUP_AMOUNT_TOO_SMALL');
+    expect(topupAmountProblem(100, 'TRY', { adminTest: true })).toBeNull();
+    // Not in Iran: Rial gateways keep their minimum.
+    expect(ADMIN_TEST_TOPUP.IRR).toBeUndefined();
+    expect(topupAmountProblem(100, 'IRR', { adminTest: true })).toBe('TOPUP_AMOUNT_TOO_SMALL');
   });
 });
 

@@ -18,13 +18,30 @@ export const TOPUP_LIMITS: Readonly<Record<string, { min: number; max: number }>
   GBP: { min: 500, max: 5_000_000 },
 };
 
+/**
+ * The one test top-up a platform Super Admin may start below the minimum, so a
+ * live gateway can be tried with real money: one unit of the currency (net,
+ * minor units). Not in Iran (IRR): Rial gateways have their own test mode.
+ */
+export const ADMIN_TEST_TOPUP: Readonly<Record<string, number>> = {
+  USD: 100,
+  EUR: 100,
+  GBP: 100,
+  TRY: 100,
+};
+
 export type TopupAmountProblem = 'TOPUP_AMOUNT_INVALID' | 'TOPUP_AMOUNT_TOO_SMALL' | 'TOPUP_AMOUNT_TOO_LARGE' | 'CURRENCY_NOT_SUPPORTED';
 
 /** Why a top-up amount cannot be charged, or null when it can. */
-export function topupAmountProblem(netMinor: unknown, currency: string): TopupAmountProblem | null {
+export function topupAmountProblem(
+  netMinor: unknown,
+  currency: string,
+  opts: { adminTest?: boolean } = {},
+): TopupAmountProblem | null {
   const limits = TOPUP_LIMITS[currency.toUpperCase()];
   if (!limits) return 'CURRENCY_NOT_SUPPORTED';
   if (typeof netMinor !== 'number' || !Number.isSafeInteger(netMinor) || netMinor <= 0) return 'TOPUP_AMOUNT_INVALID';
+  if (opts.adminTest && netMinor === ADMIN_TEST_TOPUP[currency.toUpperCase()]) return null;
   if (netMinor < limits.min) return 'TOPUP_AMOUNT_TOO_SMALL';
   if (netMinor > limits.max) return 'TOPUP_AMOUNT_TOO_LARGE';
   return null;

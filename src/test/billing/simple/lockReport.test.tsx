@@ -31,6 +31,7 @@ const i18n = vi.hoisted(() => ({
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: i18n.t, locale: 'en', dir: 'ltr' }),
 }));
+vi.mock('@/hooks/useAdmin', () => ({ useIsGlobalAdmin: () => ({ data: false }) }));
 vi.mock('@/lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/paddleCheckout', () => ({ openPaddleCheckout: vi.fn() }));
 vi.mock('@/lib/edition', async (orig) => ({ ...(await orig<object>()), currentEdition: () => 'international' }));

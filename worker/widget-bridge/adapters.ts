@@ -75,7 +75,8 @@ export class DomAdapter implements BridgeAdapter {
     }
     await this.optionalClick(root, this.selectors.formSubmit);
     const composer = root.locator(this.selectors.composer!);
-    await composer.waitFor({ state: 'visible', timeout: 15000 });
+    try { await composer.waitFor({ state: 'visible', timeout: 15000 }); }
+    catch { throw new Error('composer_unavailable'); }
     if (await composer.count() !== 1 || !await composer.isEditable()) throw new Error('composer_unavailable');
   }
   async send(body: string): Promise<boolean> {

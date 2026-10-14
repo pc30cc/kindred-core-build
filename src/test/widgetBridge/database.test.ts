@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import express from 'express';
 import request from 'supertest';
 import { BridgeStore, type LeasedContact } from '../../../worker/widget-bridge/store.js';
-import { sendNext } from '../../../worker/widget-bridge/index.js';
+import { sendNext, syncReplies } from '../../../worker/widget-bridge/index.js';
 import type { BridgeAdapter } from '../../../worker/widget-bridge/adapters.js';
 import type { Queryable } from '../../../server/db/postgrest/types.js';
 
@@ -128,6 +128,17 @@ describe('standalone bridge database and API', () => {
     await new BridgeStore(gate.pool, 'webyar', randomUUID()).claim();
     expect(await store().hasWaiting()).toBe(false);
   });
+  it('pauses unsupported/verification-blocked forms instead of repeatedly submitting default details', async () => {
+    const contact = await connected(); await queue(contact).expect(202);
+    await store().release(contact, 'composer_unavailable'); await store().reap();
+    expect(await store().claim()).toBeNull();
+    const response = await request(app).get(api('/contacts')).expect(200);
+    expect(response.body.contacts[0].enabled).toBe(false);
+    expect(response.body.contacts[0].last_error).toBe('composer_unavailable');
+    await queue(contact).expect(409);
+    await request(app).patch(api(`/contacts/${contact.id}`)).send({ enabled: true }).expect(200);
+    expect((await store().claim())?.id).toBe(contact.id);
+  });
   it('posts queued messages through the worker and receives replies without echoing or duplicates', async () => {
     const contact = await connected(); await queue(contact).expect(202);
     const remote = adapter(); const persist = vi.fn(async () => {});
@@ -139,6 +150,17 @@ describe('standalone bridge database and API', () => {
     expect(response.body.messages.map((m: { direction: string; delivery: string }) => [m.direction, m.delivery])).toEqual([
       ['outbound','sent'], ['inbound','received'],
     ]);
+  });
+  it('syncs a large rendered history across batches without silently losing replies beyond the first batch', async () => {
+    const contact = await connected(); const remote = adapter();
+    const replies = Array.from({ length: 305 }, (_, i) => ({ key: `history-${i}`, body: `History ${i}` }));
+    remote.receive = async () => replies;
+    const cache = new Map<string, string>();
+    await syncReplies(store(), contact, remote, cache);
+    await syncReplies(store(), contact, remote, cache);
+    await syncReplies(store(), contact, remote, cache);
+    const { rows } = await db.query<{ body: string }>('SELECT body FROM widget_bridge_messages ORDER BY created_at,id');
+    expect(rows.map(row => row.body)).toEqual(replies.map(reply => reply.body));
   });
   it('does not dispatch if saving session continuity fails', async () => {
     const contact = await connected(); await queue(contact).expect(202); const remote = adapter();

@@ -33,6 +33,16 @@ export async function sendNext(store: BridgeStore, contact: LeasedContact, adapt
   }
 }
 
+/** Bound DB batches without marking unpersisted replies as already received. */
+export async function syncReplies(store: BridgeStore, contact: LeasedContact, adapter: BridgeAdapter, received: Map<string, string>) {
+  const incoming = await adapter.receive();
+  const snapshot = adapter.acknowledge ? incoming.slice(0, 200) : incoming;
+  const changed = snapshot.filter(message => received.get(message.key) !== message.body).slice(0, 200);
+  await store.receive(contact, changed);
+  for (const message of changed) received.set(message.key, message.body);
+  adapter.acknowledge?.(snapshot.length);
+}
+
 export async function startWidgetBridgeWorker() {
   const config = bridgeConfig();
   const store = new BridgeStore(bridgePool(), config.appId, randomUUID());
@@ -102,11 +112,7 @@ export async function startWidgetBridgeWorker() {
             lastRotationCheck = Date.now();
             if (await store.hasWaiting()) break;
           }
-          const incoming = await adapter.receive();
-          const changed = incoming.filter(message => received.get(message.key) !== message.body);
-          await store.receive(contact, changed);
-          for (const message of changed) received.set(message.key, message.body);
-          adapter.acknowledge?.(incoming.length);
+          await syncReplies(store, contact, adapter, received);
           await sendNext(store, contact, adapter, persist);
           if (Date.now() - lastPersist > 30000) { await persist(); lastPersist = Date.now(); }
           await pause(1500);

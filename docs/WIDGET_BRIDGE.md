@@ -124,7 +124,9 @@ outbound transport.
 Only text is bridged. Attachments, OTP/CAPTCHA, consent checkboxes, custom
 required questions and login-gated widgets require further adapters/manual
 intervention; the worker reports a safe error instead of guessing or bypassing
-them. Closed shadow roots are unsupported. Sites with no supported widget
+them. Missing required identity, unsupported widgets, ambiguous configuration
+and blocked composers pause the site connection for manual re-enabling,
+instead of repeatedly submitting a pre-chat/verification form. Closed shadow roots are unsupported. Sites with no supported widget
 report `unsupported_widget`. Some sites block browser automation.
 
 Each contact has its own browser context and encrypted cookies/localStorage /

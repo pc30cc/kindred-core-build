@@ -97,14 +97,17 @@ export class BridgeStore {
     if (!rows.length) throw new Error('connection_stopped');
   }
   async release(contact: LeasedContact, error: string | null) {
+    const needsAttention = error !== null && ['unsupported_widget','widget_not_found','ambiguous_widget',
+      'identity_required','composer_unavailable'].includes(error);
     // Even if configuration changed, release OUR lease. Never erase a newer
     // worker's lease or revive a deleted/disabled session.
     await this.db.query(`UPDATE widget_bridge_contacts SET lease_owner=NULL,lease_until=NULL,
+      enabled=CASE WHEN generation=$4 AND $7 THEN false ELSE enabled END,
       next_poll_at=now()+CASE WHEN $6 IN ('unsupported_widget','identity_required','ambiguous_widget') THEN interval '5 minutes' ELSE interval '30 seconds' END,
       status=CASE WHEN generation=$4 THEN $5 ELSE status END,
       last_error=CASE WHEN generation=$4 THEN $6 ELSE last_error END
       WHERE id=$1 AND app_id=$2 AND lease_owner=$3`,
-      [contact.id, this.appId, this.workerId, contact.generation, error ? 'error' : 'idle', error]);
+      [contact.id, this.appId, this.workerId, contact.generation, error ? 'error' : 'idle', error, needsAttention]);
   }
   async reap() {
     await this.db.query(`UPDATE widget_bridge_contacts SET status='idle' WHERE app_id=$1

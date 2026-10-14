@@ -305,6 +305,8 @@ export async function makeAdapter(page: Page, provider: BridgeProvider, selector
   if (!allowed.length || (provider !== 'auto' && !allowed.includes(provider))) throw new Error('provider_not_allowed');
   let blocked = false;
   if (provider === 'custom') return new DomAdapter(page, selectors);
+  await page.mouse.move(0, 0);
+  await page.mouse.move(1, 1);
   // Wait for lazy-loaded widgets instead of reporting unsupported while the
   // site's initial HTML is still being rendered.
   for (let i = 0; i < 30; i++) {

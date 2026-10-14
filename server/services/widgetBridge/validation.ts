@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isBridgeProviderSite } from '../../../shared/widgetBridgeTargets.js';
 import { bridgeProviders } from '../../../shared/widgetBridge.js';
 import { isSafeOutboundUrl } from '../../../shared/net/hostGuard.js';
 
@@ -25,7 +26,7 @@ export const bridgeContactSchema = z.object({
   url: z.string().trim().max(2048).refine(value => {
     if (!isSafeOutboundUrl(value)) return false;
     return !new URL(value).port || new URL(value).port === '443';
-  }, 'public_https_required'),
+  }, 'public_https_required').refine(value => !isBridgeProviderSite(value), 'provider_site_blocked'),
   provider: z.enum(['auto', 'webyar', 'crisp', 'raychat', 'goftino', 'custom']).default('auto'),
   selectors: bridgeSelectorsSchema.default({}),
   enabled: z.boolean().default(false),

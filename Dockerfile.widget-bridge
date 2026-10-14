@@ -10,6 +10,7 @@ RUN npm ci --omit=dev && npx playwright install --with-deps chromium \
 COPY worker/widget-bridge ./worker/widget-bridge
 COPY shared/net/hostGuard.ts ./shared/net/hostGuard.ts
 COPY shared/widgetBridge.ts ./shared/widgetBridge.ts
+COPY shared/widgetBridgeTargets.ts ./shared/widgetBridgeTargets.ts
 COPY server/db/pool.ts ./server/db/pool.ts
 COPY server/db/postgrest/types.ts ./server/db/postgrest/types.ts
 COPY server/lib/pluginCrypto.ts ./server/lib/pluginCrypto.ts

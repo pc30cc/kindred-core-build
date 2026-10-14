@@ -1,3 +1,4 @@
+import { guardBridgePage } from '../worker/widget-bridge/targetGuard';
 import { test, expect } from '@playwright/test';
 import { makeAdapter, DomAdapter, CrispAdapter, RaychatAdapter, GoftinoAdapter } from '../worker/widget-bridge/adapters';
 
@@ -172,4 +173,32 @@ test('provider policy rejects an explicitly disallowed widget before touching it
   await expect(makeAdapter(page, 'auto', {}, [])).rejects.toThrow('provider_not_allowed');
   expect(await page.evaluate(() => (globalThis as unknown as { visitorPosts: string[] }).visitorPosts)).toEqual([]);
   await expect(page.frameLocator('#goftino_w').locator('#box-chat')).toBeHidden();
+});
+
+
+test('provider assets and iframes work, but a top-level provider destination is blocked', async ({ page }) => {
+  await page.route('**/*', route => route.fulfill({contentType:'text/html',body:route.request().url().includes('bridge-fixture') ? '<iframe src="https://www.goftino.com/widget-test"></iframe>' : '<p>Provider asset</p>'}));
+  const guard = await guardBridgePage(page);
+  await page.goto('https://bridge-fixture.test/');
+  await expect(page.frameLocator('iframe').locator('p')).toHaveText('Provider asset');
+  expect(()=>guard()).not.toThrow();
+  await page.goto('https://www.goftino.com/').catch(()=>{});
+  expect(()=>guard()).toThrow('provider_site_blocked');
+});
+
+test('top-level redirect destinations are checked before adapter interaction', async ({ page }) => {
+  // Initial mocked response works offline; redirected requests cannot reach a real provider.
+  await page.context().setOffline(true);
+  await page.route('**/*', route => route.request().url().includes('bridge-fixture') ? route.fulfill({status:302,headers:{location:'https://goftino.com/'}}) : route.fulfill({contentType:'text/html',body:'Provider site'}));
+  const guard = await guardBridgePage(page);
+  await page.goto('https://bridge-fixture.test/').catch(()=>{});
+  expect(()=>guard()).toThrow('provider_site_blocked');
+});
+
+test('detection wakes widgets loaded only on the first pointer interaction', async ({ page }) => {
+  await page.setContent(`<html><body><script>
+    window.addEventListener('mouseover', () => { window.$crisp = {get:()=> 'session',push:()=>{}}; }, {once:true});
+  </script></body></html>`);
+  const adapter = await makeAdapter(page,'auto',{});
+  expect(adapter).toBeInstanceOf(CrispAdapter);
 });

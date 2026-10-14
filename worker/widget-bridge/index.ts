@@ -9,22 +9,27 @@ import { startBridgeEgress } from './egress.js';
 import { BridgeStore, type LeasedContact } from './store.js';
 import { makeAdapter, type BridgeAdapter } from './adapters.js';
 
+import { assertBridgeTarget } from '../../shared/widgetBridgeTargets.js';
+import { guardBridgePage } from './targetGuard.js';
+
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const SAFE_ERRORS = new Set(['unsupported_widget','widget_not_found','ambiguous_widget','identity_required',
-  'composer_unavailable','send_unavailable','connection_stopped','provider_not_allowed','message_too_long']);
+  'composer_unavailable','send_unavailable','connection_stopped','provider_not_allowed','provider_site_blocked','message_too_long']);
 const safeError = (err: unknown) => err instanceof Error && SAFE_ERRORS.has(err.message) ? err.message : 'widget_connection_failed';
 
 /** The irreversible step is fenced and marked before touching the widget. */
-export async function sendNext(store: BridgeStore, contact: LeasedContact, adapter: BridgeAdapter, persist: () => Promise<void>) {
+export async function sendNext(store: BridgeStore, contact: LeasedContact, adapter: BridgeAdapter, persist: () => Promise<void>, guard: () => void = () => assertBridgeTarget(contact.url)) {
   const message = await store.next(contact);
   if (!message) return;
   let dispatching = false;
   try {
+    guard();
     await adapter.prepare(contact.identity);
     // Save the visitor identity BEFORE any message can leave the process.
     await persist();
     if (!await store.dispatch(contact, message)) return;
     dispatching = true;
+    guard();
     const posted = await adapter.send(message.body);
     await persist();
     await store.finish(contact, message, posted ? 'sent' : 'uncertain', posted ? null : 'send_not_confirmed');
@@ -69,6 +74,7 @@ export async function startWidgetBridgeWorker() {
       let heartbeat: ReturnType<typeof setInterval> | undefined;
       let error: string | null = null;
       try {
+        assertBridgeTarget(contact.url);
         await store.recover(contact);
         // A slow navigation must still renew its lease. Failure closes the
         // context, so a partitioned worker cannot keep sending indefinitely.
@@ -87,10 +93,15 @@ export async function startWidgetBridgeWorker() {
         const page = await context.newPage();
         context.on('page', extra => { if (extra !== page) void extra.close(); });
         page.setDefaultTimeout(10000);
-        await page.goto(contact.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        const guard = await guardBridgePage(page);
+        try { await page.goto(contact.url, { waitUntil: 'domcontentloaded', timeout: 30000 }); }
+        catch (err) { guard(); throw err; }
+        guard();
         const adapter = await makeAdapter(page, contact.provider, contact.selectors, contact.allowed_providers);
+        guard();
         await adapter.prepare(contact.identity);
         const persist = async () => {
+          guard();
           if (stopped || stopping) throw new Error('connection_stopped');
           const state = JSON.stringify(await context!.storageState({ indexedDB: true }));
           if (state.length > 1000000) throw new Error('widget_connection_failed');
@@ -114,7 +125,7 @@ export async function startWidgetBridgeWorker() {
             if (await store.hasWaiting()) break;
           }
           await syncReplies(store, contact, adapter, received);
-          await sendNext(store, contact, adapter, persist);
+          await sendNext(store, contact, adapter, persist, guard);
           if (await store.yieldForBatch(contact)) break;
           if (Date.now() - lastPersist > 30000) { await persist(); lastPersist = Date.now(); }
           await pause(1500);

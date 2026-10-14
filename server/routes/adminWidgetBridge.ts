@@ -1,3 +1,4 @@
+import { isBridgeProviderSite } from '../../shared/widgetBridgeTargets.js';
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
@@ -101,7 +102,7 @@ adminWidgetBridgeRouter.get('/contacts', handle(async (req, res) => {
 
 adminWidgetBridgeRouter.post('/contacts', handle(async (req, res) => {
   const parsed = bridgeContactSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'invalid_contact' }); return; }
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues.some(issue => issue.message === 'provider_site_blocked') ? 'provider_site_blocked' : 'invalid_contact' }); return; }
   const value = parsed.data;
   if (!(await checkOutboundUrl(value.url)).ok) { res.status(400).json({ error: 'public_https_required' }); return; }
   const url = new URL(value.url); url.hash = '';
@@ -120,6 +121,8 @@ adminWidgetBridgeRouter.patch('/contacts/:id', handle(async (req, res) => {
   const id = uuid.safeParse(req.params.id);
   const body = z.object({ enabled: z.boolean() }).strict().safeParse(req.body);
   if (!id.success || !body.success) { res.status(400).json({ error: 'invalid_contact' }); return; }
+  const target = await bridgePool().query(`SELECT url FROM widget_bridge_contacts WHERE ${scoped} AND id=$4`, [...params(res),id.data]);
+  if (body.data.enabled && target.rows[0] && isBridgeProviderSite(target.rows[0].url)) { res.status(400).json({ error: 'provider_site_blocked' }); return; }
   const { rows } = await bridgePool().query(`WITH changed AS (
     UPDATE widget_bridge_contacts SET enabled=$5,generation=generation+1,next_poll_at=now(),status='idle',last_error=NULL
     WHERE ${scoped} AND id=$4 AND NOT deleting RETURNING ${columns}
@@ -164,6 +167,8 @@ adminWidgetBridgeRouter.post('/contacts/:id/messages', handle(async (req, res) =
   const parsed = bridgeMessageSchema.safeParse(req.body);
   if (!id.success || !parsed.success) { res.status(400).json({ error: 'invalid_message' }); return; }
   const { body, clientMessageId } = parsed.data;
+  const target = await bridgePool().query(`SELECT url FROM widget_bridge_contacts WHERE ${scoped} AND id=$4`, [...params(res),id.data]);
+  if (target.rows[0] && isBridgeProviderSite(target.rows[0].url)) { res.status(400).json({ error: 'provider_site_blocked' }); return; }
   const { rows } = await bridgePool().query(`INSERT INTO widget_bridge_messages(contact_id,direction,body,delivery,dedupe_key)
     SELECT c.id,'outbound',$5,'queued',$6 FROM widget_bridge_contacts c
     JOIN widget_bridge_settings s USING(app_id,owner_id,workspace_id)
@@ -199,7 +204,7 @@ adminWidgetBridgeRouter.get('/batches/:id', handle(async (req, res) => {
     FROM widget_bridge_batches b CROSS JOIN LATERAL jsonb_array_elements_text(b.sites) WITH ORDINALITY site(url,position)
     LEFT JOIN widget_bridge_messages m ON m.batch_id=b.id AND m.batch_position=site.position
     WHERE b.app_id=$1 AND b.owner_id=$2 AND b.workspace_id=$3 AND b.id=$4 ORDER BY site.position`, [...params(res),id.data]);
-  res.json({ items: rows });
+  res.json({ items: rows.map(row => isBridgeProviderSite(row.url) && row.delivery === 'skipped' ? { ...row, error: 'provider_site_blocked' } : row) });
 }));
 
 adminWidgetBridgeRouter.post('/batches', handle(async (req, res) => {
@@ -225,6 +230,7 @@ adminWidgetBridgeRouter.post('/batches', handle(async (req, res) => {
   ), contacts AS (
     INSERT INTO widget_bridge_contacts(app_id,owner_id,workspace_id,name,url,provider,enabled)
     SELECT $1,$2,$3,substring(url from '^https://([^/:]+)'),url,'auto',true FROM sites
+    WHERE NOT (url = ANY($8::text[]))
     ON CONFLICT(app_id,owner_id,workspace_id,url) DO UPDATE SET url=EXCLUDED.url,next_poll_at=now()
       WHERE widget_bridge_contacts.enabled AND NOT widget_bridge_contacts.deleting
     RETURNING id,url
@@ -233,7 +239,7 @@ adminWidgetBridgeRouter.post('/batches', handle(async (req, res) => {
     SELECT c.id,'outbound',$5,'queued',$4::text||':'||s.position,b.id,s.position,
       statement_timestamp()+s.position*interval '1 microsecond'
     FROM contacts c JOIN sites s USING(url) CROSS JOIN batch b RETURNING id
-  ) SELECT id FROM batch`, [...params(res),clientBatchId,body,JSON.stringify(urls),hash]);
+  ) SELECT id FROM batch`, [...params(res),clientBatchId,body,JSON.stringify(urls),hash,urls.filter(isBridgeProviderSite)]);
   if (!rows.length) { res.status(409).json({ error: 'batch_conflict' }); return; }
   res.status(202).json({ batch: rows[0] });
 }));

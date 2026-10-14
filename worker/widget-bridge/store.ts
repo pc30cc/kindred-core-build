@@ -120,7 +120,7 @@ export class BridgeStore {
   }
   async release(contact: LeasedContact, error: string | null) {
     const needsAttention = error !== null && ['unsupported_widget','widget_not_found','ambiguous_widget',
-      'identity_required','composer_unavailable','provider_not_allowed'].includes(error);
+      'identity_required','composer_unavailable','provider_not_allowed','provider_site_blocked'].includes(error);
     // Even if configuration changed, release OUR lease. Never erase a newer
     // worker's lease or revive a deleted/disabled session.
     await this.db.query(`WITH released AS (UPDATE widget_bridge_contacts SET lease_owner=NULL,lease_until=NULL,

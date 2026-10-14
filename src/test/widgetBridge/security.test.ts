@@ -1,3 +1,4 @@
+import { isBridgeProviderSite, bridgeProviderDomains } from '../../../shared/widgetBridgeTargets.js';
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { publicDestination } from '../../../worker/widget-bridge/egress.js';
@@ -41,5 +42,19 @@ describe('widget bridge network and identity boundaries', () => {
     const same = messageKeys([{ id: null, body: 'Hi' }, { id: null, body: 'Hi' }]);
     expect(same).toHaveLength(2); expect(same[0].key).not.toBe(same[1].key);
     expect(messageKeys([{ id: 'a', body: 'Hi' }, { id: 'a', body: 'Hi again' }])).toEqual([{ key: 'id:a', body: 'Hi again' }]);
+  });
+});
+
+
+describe('provider website destinations', () => {
+  it.each(bridgeProviderDomains)('blocks %s and its subdomains with normalized hostnames', domain => {
+    for (const url of [`https://${domain}`, `https://www.${domain}/chat`, `https://SUPPORT.${domain.toUpperCase()}./`]) {
+      expect(isBridgeProviderSite(url)).toBe(true);
+      expect(bridgeContactSchema.safeParse({ url }).success).toBe(false);
+    }
+  });
+  it.each(['https://tayebatstore.ir', 'https://www.tayebatstore.ir', 'https://notgoftino.com', 'https://goftino.com.example.org', 'https://example.com/goftino.com'])('allows customer target %s without substring matches', url => {
+    expect(isBridgeProviderSite(url)).toBe(false);
+    expect(bridgeContactSchema.safeParse({ url }).success).toBe(true);
   });
 });

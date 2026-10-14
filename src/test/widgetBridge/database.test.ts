@@ -351,3 +351,34 @@ it('processes a configured round sequentially with a gap after each site, then w
   expect((await request(app).get(api('/batches'))).body.batches[0]).toMatchObject({status:'paused',sent:3,pending:1});
   expect(await store().claim()).toBeNull();
 });
+
+
+describe('provider website exclusion through API and worker', () => {
+  it('rejects a provider contact with a specific reason', async () => {
+    const result = await request(app).post(api('/contacts')).send({ url: 'https://www.goftino.com', enabled: true }).expect(400);
+    expect(result.body.error).toBe('provider_site_blocked');
+    expect((await db.query('SELECT * FROM widget_bridge_contacts')).rows).toHaveLength(0);
+  });
+  it('retains blocked batch rows as skipped without creating contacts or messages', async () => {
+    await request(app).put(api('/settings')).send({ enabled: true, identity }).expect(200);
+    const id = randomUUID();
+    await request(app).post(api('/batches')).send({ clientBatchId:id, body:'Hello', urls:['https://goftino.com', 'https://tayebatstore.ir', 'https://docs.crisp.chat'] }).expect(202);
+    const result = await request(app).get(api(`/batches/${id}`)).expect(200);
+    expect(result.body.items.map((item: { delivery:string })=>item.delivery)).toEqual(['skipped','queued','skipped']);
+    expect(result.body.items[0].error).toBe('provider_site_blocked');
+    expect((await db.query('SELECT url FROM widget_bridge_contacts')).rows).toEqual([{url:'https://tayebatstore.ir/'}]);
+    expect((await db.query('SELECT * FROM widget_bridge_messages')).rows).toHaveLength(1);
+  });
+  it('fences legacy contacts at queue, enable and worker dispatch', async () => {
+    const contact = await connected();
+    await queue(contact).expect(202);
+    await db.query('UPDATE widget_bridge_contacts SET url=$1 WHERE id=$2',['https://support.goftino.com',contact.id]);
+    const blocked = { ...contact,url:'https://support.goftino.com' };
+    expect((await queue(blocked).expect(400)).body.error).toBe('provider_site_blocked');
+    await request(app).patch(api(`/contacts/${contact.id}`)).send({enabled:true}).expect(400);
+    const widget = adapter();
+    await sendNext(store(),blocked,widget,async()=>{});
+    expect(widget.prepare).not.toHaveBeenCalled(); expect(widget.send).not.toHaveBeenCalled();
+    expect((await db.query('SELECT delivery,error FROM widget_bridge_messages')).rows).toEqual([{delivery:'failed',error:'provider_site_blocked'}]);
+  });
+});

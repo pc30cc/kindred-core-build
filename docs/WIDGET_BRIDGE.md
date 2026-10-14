@@ -266,7 +266,7 @@ integration inventory is:
 - `src/i18n/locales/{en,fa,tr}.ts`: bridge dictionary import/property.
 - Delete feature-owned files: `server/routes/adminWidgetBridge.ts`,
   `server/services/widgetBridge/`, `worker/widget-bridge/`,
-  `shared/widgetBridge.ts`, `src/features/widget-bridge/`,
+  `shared/widgetBridge.ts`, `shared/widgetBridgeTargets.ts`, `src/features/widget-bridge/`,
   `src/pages/admin/WidgetBridgePage.tsx`, `src/pages/app/WidgetBridgeInboxPage.tsx`,
   `src/i18n/widgetBridge.ts`, `src/test/widgetBridge/`, `e2e/widgetBridge.spec.ts`,
   `Dockerfile.widget-bridge` and `deploy/widget-bridge/`.
@@ -277,3 +277,23 @@ The standalone worker is not registered in the main worker dispatcher. Missing
 bridge configuration/database is confined to this module's endpoints and does
 not prevent the main app from booting. Preserve or delete the separate bridge
 database independently after stopping both applications' bridge workers.
+
+## Provider websites and live Goftino check
+
+The module rejects individual contacts/messages for `goftino.com`, `raychat.io`,
+`crisp.chat`, `webyar.ai`, `respok.app` and their subdomains. Batch imports retain
+these rows as skipped with `provider_site_blocked`, without creating contacts or
+messages. The same policy fences previously stored contacts and the worker's
+actual top-level page (including redirects). Embedded provider iframes, scripts
+and APIs on a customer website remain available. The module-owned list lives in
+`shared/widgetBridgeTargets.ts`; extend it when adding another supported provider
+or a provider-owned domain. It is not an exhaustive registry of all vendors.
+
+Detection moves the pointer without clicking to wake interaction-gated widgets.
+A user-authorized browser check on 2026-10-14 at `https://www.tayebatstore.ir/`
+confirmed this lazy-loading behavior and the Goftino iframe/composer. One clearly
+marked Persian test message was submitted through the real composer and remained
+visible after reload and reopening the chat. No identity fields were required.
+This verifies the real site's visitor chat path, not deployment of this worker,
+operator receipt/read status, or replies arriving in the application's inbox.
+The dedicated worker and separate database still require deployment.

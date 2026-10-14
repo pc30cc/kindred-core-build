@@ -15,12 +15,13 @@ CAPTCHA solving or paid discovery API are involved.
 
 ## Independence from WebYar and RESPOK
 
-**No migration runs against either application's database.** The three tables
+**No migration runs against either application's database.** The four tables
 in `deploy/widget-bridge/schema.sql` must be installed in a **new database**:
 
-- `widget_bridge_settings`: switches and default identity;
+- `widget_bridge_settings`: switches, allowed providers and default identity;
 - `widget_bridge_contacts`: site identity/configuration and encrypted browser state;
-- `widget_bridge_messages`: incoming text and the outbound queue.
+- `widget_bridge_messages`: incoming text and the outbound queue;
+- `widget_bridge_batches`: ordered site lists, shared message and batch state.
 
 These tables have no foreign keys or triggers pointing to app records. Site
 contacts live here, not in the main app's Contacts table. Both backends and
@@ -92,6 +93,39 @@ cannot read, configure or send bridge messages even by direct API calls.
    send from the bridge, reply in the remote operator panel, then check that
    the reply arrives once. Disabling and deleting the connection are required
    acceptance checks before adding other sites.
+
+## Provider selection and ordered batches
+
+The Super Admin selects allowed provider types in the bridge settings. Both
+manual and batch sends enforce this allowlist in the worker before opening a
+widget or filling its identity. A custom adapter must be enabled explicitly
+in the allowlist. Saving settings fences old sessions and cancels existing
+batches and unsent messages.
+
+Paste one HTTPS website per line and a shared message (up to 2,000 characters).
+The UI adds HTTPS to bare domains. A batch accepts up to 500 unique URLs, keeps
+first-occurrence order, removes fragments and exact URL duplicates, and stores
+its message, site list and progress in `widget_bridge_batches` in the dedicated
+database. Existing enabled bridge contacts retain their provider/selectors;
+disabled or deleting contacts are skipped. New contacts are named after their
+host and use automatic detection. No ordinary app contacts are created.
+
+Only one running batch is accepted per app/owner/workspace, enforced by a
+partial unique index. The outbox gates later batch positions on all preceding
+attempts reaching a terminal result, including across workers and restarts.
+Browser setup failures finish the current attempt and allow the next site.
+Unknown delivery is not retried. Active sessions yield browser capacity when
+the next batch site is waiting. This is ordered **submission**, not a guarantee
+that remote operators will receive/read messages in that same order.
+
+The panel shows totals and per-site results and can stop the batch. Stopping
+fences affected sessions, cancels pending messages and marks in-flight sends
+uncertain. It cannot withdraw a message whose external send has started.
+Contacts and replies remain available in this module's paginated inbox.
+The module's purge operation removes batches together with settings, contacts,
+messages and encrypted sessions, scoped to the selected app/owner/workspace.
+Applying `schema.sql` again upgrades an existing dedicated bridge database;
+it must never be run against either main application database.
 
 ## Widget coverage and limits
 
@@ -183,7 +217,7 @@ live third-party site was messaged by the automated tests.
   of its bridge messages. Expired deletions can complete even when the worker
   is stopped (the contact list also reaps expired rows).
 - “Delete this inbox’s bridge data” removes only the current app/admin/workspace
-  settings, contacts, sessions and messages, after active leases close. Other
+  settings, batches, contacts, sessions and messages, after active leases close. Other
   bridge inboxes and all main app records remain untouched.
 - To remove the entire feature, unset `WIDGET_BRIDGE_ENABLED` on both backends,
   stop the two dedicated workers through Coolify with container cleanup off,
@@ -200,3 +234,32 @@ e2e/widgetBridge.spec.ts` runs controlled browser fixtures covering shadow DOM,
 identity, server rejection, two-way messages, Crisp/Raychat events and iframe scoping.
 These tests create only disposable in-memory database state; production schemas
 and third-party inboxes are untouched.
+
+## Removing the code
+
+Keep this feature in its own PR/merge commit. After disabling both backends and
+stopping both dedicated workers, revert that feature merge in a new PR and run
+typecheck, tests and build before deployment. This removes the integration
+points together with the module; deleting only a folder would leave imports.
+No core-database rollback is involved. For a later manual removal, the complete
+integration inventory is:
+
+- `server/routes/admin.ts`: bridge router import and mount.
+- `src/App.tsx`: two lazy page imports and their bridge routes.
+- `src/components/layout/AppSidebar.tsx`: bridge settings hook and inbox link.
+- `src/components/layout/AdminSidebar.tsx`: bridge navigation item and title handling.
+- `src/pages/admin/WorkspacesPage.tsx`: bridge settings link.
+- `src/i18n/locales/{en,fa,tr}.ts`: bridge dictionary import/property.
+- Delete feature-owned files: `server/routes/adminWidgetBridge.ts`,
+  `server/services/widgetBridge/`, `worker/widget-bridge/`,
+  `shared/widgetBridge.ts`, `src/features/widget-bridge/`,
+  `src/pages/admin/WidgetBridgePage.tsx`, `src/pages/app/WidgetBridgeInboxPage.tsx`,
+  `src/i18n/widgetBridge.ts`, `src/test/widgetBridge/`, `e2e/widgetBridge.spec.ts`,
+  `Dockerfile.widget-bridge` and `deploy/widget-bridge/`.
+- Remove the PGlite dev dependency only if no remaining tests use it, then
+  regenerate both npm and Bun lockfiles with the project's pinned tools.
+
+The standalone worker is not registered in the main worker dispatcher. Missing
+bridge configuration/database is confined to this module's endpoints and does
+not prevent the main app from booting. Preserve or delete the separate bridge
+database independently after stopping both applications' bridge workers.

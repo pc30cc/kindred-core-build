@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { directPool } from '../db/index.js';
 import { BridgeError, bridgeConfig, bridgePool } from '../services/widgetBridge/config.js';
-import { bridgeSettingsSchema, bridgeContactSchema, bridgeMessageSchema } from '../services/widgetBridge/validation.js';
+import { bridgeSettingsSchema, bridgeContactSchema, bridgeMessageSchema, bridgeBatchSchema } from '../services/widgetBridge/validation.js';
 import { checkOutboundUrl } from '../../shared/net/hostGuard.js';
 
 export const adminWidgetBridgeRouter = Router();
@@ -45,27 +46,29 @@ adminWidgetBridgeRouter.use(async (req, res, next) => {
 });
 
 adminWidgetBridgeRouter.get('/settings', handle(async (_req, res) => {
-  const { rows } = await bridgePool().query(`SELECT enabled,identity FROM widget_bridge_settings WHERE ${scoped}`, params(res));
-  res.json({ settings: rows[0] || { enabled: false, identity: { name: '', email: '', phone: '' } } });
+  const { rows } = await bridgePool().query(`SELECT enabled,identity,allowed_providers AS "allowedProviders" FROM widget_bridge_settings WHERE ${scoped}`, params(res));
+  res.json({ settings: rows[0] || { enabled: false, identity: { name: '', email: '', phone: '' }, allowedProviders: ['webyar','crisp','raychat','goftino','custom'] } });
 }));
 
 adminWidgetBridgeRouter.put('/settings', handle(async (req, res) => {
   const parsed = bridgeSettingsSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'invalid_settings' }); return; }
-  const { enabled, identity } = parsed.data;
+  const { enabled, identity, allowedProviders } = parsed.data;
   // Setting changes fence existing sessions and cancel unsent messages.
   // Dispatching messages are deliberately uncertain: never retry blindly.
   await bridgePool().query(`WITH saved AS (
-    INSERT INTO widget_bridge_settings(app_id,owner_id,workspace_id,enabled,identity)
-    VALUES($1,$2,$3,$4,$5::jsonb) ON CONFLICT(app_id,owner_id,workspace_id)
-    DO UPDATE SET enabled=EXCLUDED.enabled,deleting=false,identity=EXCLUDED.identity,updated_at=now() RETURNING *
+    INSERT INTO widget_bridge_settings(app_id,owner_id,workspace_id,enabled,identity,allowed_providers)
+    VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb) ON CONFLICT(app_id,owner_id,workspace_id)
+    DO UPDATE SET enabled=EXCLUDED.enabled,deleting=false,identity=EXCLUDED.identity,allowed_providers=EXCLUDED.allowed_providers,updated_at=now() RETURNING *
+  ), batches_stopped AS (
+    UPDATE widget_bridge_batches SET status='cancelled' WHERE ${scoped} AND status='running' RETURNING id
   ), fenced AS (
     UPDATE widget_bridge_contacts SET generation=generation+1,next_poll_at=now(),status='idle'
     WHERE ${scoped} AND EXISTS(SELECT 1 FROM saved) RETURNING id
   ) UPDATE widget_bridge_messages SET delivery=CASE WHEN delivery='dispatching' THEN 'uncertain' ELSE 'cancelled' END,
     error='settings_changed' WHERE contact_id IN (SELECT id FROM fenced)
-    AND delivery IN ('queued','preparing','dispatching')`, [...params(res), enabled, JSON.stringify(identity)]);
-  res.json({ settings: { enabled, identity } });
+    AND delivery IN ('queued','preparing','dispatching')`, [...params(res), enabled, JSON.stringify(identity), JSON.stringify(allowedProviders)]);
+  res.json({ settings: { enabled, identity, allowedProviders } });
 }));
 
 adminWidgetBridgeRouter.delete('/settings', handle(async (_req, res) => {
@@ -81,15 +84,19 @@ adminWidgetBridgeRouter.delete('/settings', handle(async (_req, res) => {
   res.status(202).json({ deleting: true });
 }));
 
-adminWidgetBridgeRouter.get('/contacts', handle(async (_req, res) => {
+adminWidgetBridgeRouter.get('/contacts', handle(async (req, res) => {
+  const before = req.query.before === undefined ? null : uuid.safeParse(req.query.before);
+  if (before && !before.success) { res.status(400).json({ error: 'invalid_cursor' }); return; }
   // Finish expired deletions even when the dedicated worker is stopped.
   await bridgePool().query(`DELETE FROM widget_bridge_contacts WHERE ${scoped} AND deleting
     AND (lease_until IS NULL OR lease_until<now())`, params(res));
   await bridgePool().query(`DELETE FROM widget_bridge_settings s WHERE ${scoped} AND deleting
     AND NOT EXISTS(SELECT 1 FROM widget_bridge_contacts c WHERE c.app_id=s.app_id AND c.owner_id=s.owner_id AND c.workspace_id=s.workspace_id)`, params(res));
   const { rows } = await bridgePool().query(`SELECT ${columns} FROM widget_bridge_contacts
-    WHERE ${scoped} ORDER BY created_at DESC LIMIT 100`, params(res));
-  res.json({ contacts: rows });
+    WHERE ${scoped} AND ($4::uuid IS NULL OR (created_at,id)<
+      (SELECT created_at,id FROM widget_bridge_contacts WHERE ${scoped} AND id=$4))
+    ORDER BY created_at DESC,id DESC LIMIT 100`, [...params(res),before && before.success ? before.data : null]);
+  res.json({ contacts: rows, hasMore: rows.length===100 });
 }));
 
 adminWidgetBridgeRouter.post('/contacts', handle(async (req, res) => {
@@ -169,4 +176,81 @@ adminWidgetBridgeRouter.post('/contacts/:id/messages', handle(async (req, res) =
   if (!rows.length) { res.status(409).json({ error: 'bridge_disabled_or_queue_full' }); return; }
   await bridgePool().query('UPDATE widget_bridge_contacts SET next_poll_at=now() WHERE id=$1', [id.data]);
   res.status(202).json({ message: rows[0] });
+}));
+
+adminWidgetBridgeRouter.get('/batches', handle(async (_req, res) => {
+  const { rows } = await bridgePool().query(`SELECT b.id,b.body,b.status,b.created_at,jsonb_array_length(b.sites) AS total,
+    count(m.id) FILTER (WHERE m.delivery IN ('queued','preparing','dispatching'))::int AS pending,
+    count(m.id) FILTER (WHERE m.delivery='sent')::int AS sent,
+    count(m.id) FILTER (WHERE m.delivery='failed')::int AS failed,
+    count(m.id) FILTER (WHERE m.delivery='uncertain')::int AS uncertain,
+    (jsonb_array_length(b.sites)-count(m.id) FILTER (WHERE m.delivery<>'cancelled'))::int AS skipped
+    FROM widget_bridge_batches b LEFT JOIN widget_bridge_messages m ON m.batch_id=b.id
+    WHERE b.app_id=$1 AND b.owner_id=$2 AND b.workspace_id=$3
+    GROUP BY b.id ORDER BY b.created_at DESC LIMIT 20`, params(res));
+  res.json({ batches: rows });
+}));
+
+adminWidgetBridgeRouter.get('/batches/:id', handle(async (req, res) => {
+  const id = uuid.safeParse(req.params.id);
+  if (!id.success) { res.status(400).json({ error: 'invalid_batch' }); return; }
+  const { rows } = await bridgePool().query(`SELECT site.url,site.position::int,m.contact_id,
+    COALESCE(m.delivery,'skipped') AS delivery,m.error
+    FROM widget_bridge_batches b CROSS JOIN LATERAL jsonb_array_elements_text(b.sites) WITH ORDINALITY site(url,position)
+    LEFT JOIN widget_bridge_messages m ON m.batch_id=b.id AND m.batch_position=site.position
+    WHERE b.app_id=$1 AND b.owner_id=$2 AND b.workspace_id=$3 AND b.id=$4 ORDER BY site.position`, [...params(res),id.data]);
+  res.json({ items: rows });
+}));
+
+adminWidgetBridgeRouter.post('/batches', handle(async (req, res) => {
+  const parsed = bridgeBatchSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'invalid_batch' }); return; }
+  const { body, clientBatchId } = parsed.data;
+  const urls = [...new Set(parsed.data.urls.map(value => { const u = new URL(value); u.hash=''; return u.toString(); }))];
+  const hash = createHash('sha256').update(JSON.stringify({ body, urls })).digest('hex');
+  const existing = await bridgePool().query(`SELECT id,request_hash FROM widget_bridge_batches WHERE ${scoped} AND id=$4`, [...params(res),clientBatchId]);
+  if (existing.rows.length) {
+    if (existing.rows[0].request_hash !== hash) { res.status(409).json({ error: 'batch_conflict' }); return; }
+    res.status(202).json({ batch: { id: clientBatchId } }); return;
+  }
+  // One atomic statement: an active-scope unique index prevents two campaigns
+  // from being accepted concurrently. Retries cannot duplicate destinations.
+  const { rows } = await bridgePool().query(`WITH batch AS (
+    INSERT INTO widget_bridge_batches(id,app_id,owner_id,workspace_id,body,sites,request_hash)
+    SELECT $4,$1,$2,$3,$5,$6::jsonb,$7 FROM widget_bridge_settings
+    WHERE ${scoped} AND enabled AND NOT deleting AND jsonb_array_length(allowed_providers)>0
+    ON CONFLICT DO NOTHING RETURNING *
+  ), sites AS (
+    SELECT site.url,site.position FROM batch CROSS JOIN LATERAL jsonb_array_elements_text(batch.sites) WITH ORDINALITY site(url,position)
+  ), contacts AS (
+    INSERT INTO widget_bridge_contacts(app_id,owner_id,workspace_id,name,url,provider,enabled)
+    SELECT $1,$2,$3,substring(url from '^https://([^/:]+)'),url,'auto',true FROM sites
+    ON CONFLICT(app_id,owner_id,workspace_id,url) DO UPDATE SET url=EXCLUDED.url,next_poll_at=now()
+      WHERE widget_bridge_contacts.enabled AND NOT widget_bridge_contacts.deleting
+    RETURNING id,url
+  ), messages AS (
+    INSERT INTO widget_bridge_messages(contact_id,direction,body,delivery,dedupe_key,batch_id,batch_position,created_at)
+    SELECT c.id,'outbound',$5,'queued',$4::text||':'||s.position,b.id,s.position,
+      statement_timestamp()+s.position*interval '1 microsecond'
+    FROM contacts c JOIN sites s USING(url) CROSS JOIN batch b RETURNING id
+  ) SELECT id FROM batch`, [...params(res),clientBatchId,body,JSON.stringify(urls),hash]);
+  if (!rows.length) { res.status(409).json({ error: 'batch_conflict' }); return; }
+  res.status(202).json({ batch: rows[0] });
+}));
+
+adminWidgetBridgeRouter.delete('/batches/:id', handle(async (req, res) => {
+  const id = uuid.safeParse(req.params.id);
+  if (!id.success) { res.status(400).json({ error: 'invalid_batch' }); return; }
+  const { rows } = await bridgePool().query(`WITH stopped AS (
+    UPDATE widget_bridge_batches SET status='cancelled' WHERE ${scoped} AND id=$4 AND status='running' RETURNING id
+  ), fenced AS (
+    UPDATE widget_bridge_contacts SET generation=generation+1,next_poll_at=now()
+    WHERE id IN (SELECT contact_id FROM widget_bridge_messages WHERE batch_id IN (SELECT id FROM stopped)
+      AND delivery IN ('queued','preparing','dispatching')) RETURNING id
+  ), cancelled AS (
+    UPDATE widget_bridge_messages SET delivery=CASE WHEN delivery='dispatching' THEN 'uncertain' ELSE 'cancelled' END,
+      error='batch_cancelled' WHERE batch_id IN (SELECT id FROM stopped)
+      AND delivery IN ('queued','preparing','dispatching') RETURNING id
+  ) SELECT id FROM stopped`, [...params(res),id.data]);
+  res.json({ stopped: rows.length>0 });
 }));

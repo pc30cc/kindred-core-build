@@ -1,15 +1,16 @@
+import { bridgeProviders } from '../../../shared/widgetBridge';
+import { BatchPanel } from './BatchPanel';
 import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useTranslation, type TranslationKey } from '@/i18n';
-import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { AlertCircle, Loader2, Trash2, ExternalLink, Settings2 } from 'lucide-react';
-import { useBridgeSettings } from './hooks';
-import { bridgeRequest, type BridgeContact, type BridgeSettings, type BridgeProvider, type BridgeSelectors } from './api';
+import { useBridgeSettings, useBridgeContacts } from './hooks';
+import { bridgeRequest, type BridgeSettings, type BridgeProvider, type BridgeSelectors } from './api';
 
 export function BridgeErrorNotice({ error }: { error: unknown }) {
   const { t } = useTranslation();
@@ -26,10 +27,9 @@ const selectorFields: Array<keyof BridgeSelectors> = ['frame','root','launcher',
 
 export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: string; slug: string }) {
   const { t, dir } = useTranslation();
-  const { user } = useAuth();
   const qc = useQueryClient();
   const settings = useBridgeSettings(workspaceId);
-  const [form, setForm] = useState<BridgeSettings>({ enabled: false, identity: { name: '', email: '', phone: '' } });
+  const [form, setForm] = useState<BridgeSettings>({ enabled: false, identity: { name: '', email: '', phone: '' }, allowedProviders: [...bridgeProviders] });
   const [dirty, setDirty] = useState(false);
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
@@ -39,17 +39,15 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
   useEffect(() => {
     if (settings.data && !dirty) setForm({
       enabled: settings.data.settings.enabled,
+      allowedProviders: settings.data.settings.allowedProviders || [...bridgeProviders],
       identity: { name: '', email: '', phone: '', ...settings.data.settings.identity },
     });
   }, [settings.data, dirty]);
-  const contacts = useQuery({
-    queryKey: ['widget-bridge-contacts', user?.id, workspaceId],
-    queryFn: () => bridgeRequest<{ contacts: BridgeContact[] }>(workspaceId, '/contacts'),
-    enabled: !!settings.data, retry: false, refetchInterval: 10000,
-  });
+  const contacts = useBridgeContacts(workspaceId, !!settings.data);
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['widget-bridge-settings'] });
     void qc.invalidateQueries({ queryKey: ['widget-bridge-contacts'] });
+    void qc.invalidateQueries({ queryKey: ['widget-bridge-batches'] });
   };
   const save = useMutation({
     mutationFn: () => bridgeRequest(workspaceId, '/settings', 'PUT', form),
@@ -90,11 +88,20 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
             onChange={event => { setDirty(true); setForm({ ...form, identity: { ...form.identity, [field]: event.target.value } }); }} />
         </div>)}
       </div>
+      <fieldset className="mt-5 space-y-3"><legend className="text-sm font-medium">{t('widgetBridge.allowedProviders')}</legend>
+        <p className="text-xs text-muted-foreground">{t('widgetBridge.allowedProvidersHelp')}</p>
+        <div className="flex flex-wrap gap-4">{bridgeProviders.map(value => <label key={value} className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={form.allowedProviders.includes(value)} onChange={event => {
+            setDirty(true); setForm({ ...form, allowedProviders: event.target.checked ? [...form.allowedProviders,value] : form.allowedProviders.filter(p => p!==value) });
+          }} />{value==='custom' ? t('widgetBridge.custom') : value==='webyar' ? 'WebYar / RESPOK' : value==='goftino' ? 'Goftino' : value==='crisp' ? 'Crisp' : 'Raychat'}
+        </label>)}</div>
+      </fieldset>
       <p className="mt-3 text-xs text-muted-foreground">{t('widgetBridge.settingsChangeNotice')}</p>
       <Button className="mt-4" disabled={save.isPending || !form.identity.name.trim()} onClick={() => save.mutate()}>{t('widgetBridge.save')}</Button>
       {save.isSuccess && !dirty && <p role="status" className="mt-2 text-sm text-success">{t('widgetBridge.saved')}</p>}
       {save.error && <BridgeErrorNotice error={save.error} />}
     </div>
+    <BatchPanel workspaceId={workspaceId} enabled={!dirty && !!settings.data?.settings.enabled && form.allowedProviders.length>0} />
     <form className="space-y-4 rounded-xl border p-5" onSubmit={event => { event.preventDefault(); create.mutate(); }}>
       <h2 className="font-semibold">{t('widgetBridge.addSite')}</h2>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -137,6 +144,7 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
         <Button variant="ghost" size="icon" disabled={remove.isPending || contact.deleting} aria-label={t('widgetBridge.deleteSite')}
           onClick={() => { if (window.confirm(t('widgetBridge.deleteConfirm'))) remove.mutate(contact.id); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
       </div>)}
+      {contacts.hasNextPage && <Button variant="outline" disabled={contacts.isFetchingNextPage} onClick={() => void contacts.fetchNextPage()}>{t('widgetBridge.moreSites')}</Button>}
       {(change.error || remove.error) && <BridgeErrorNotice error={change.error || remove.error} />}
       <p className="mt-3 text-xs text-muted-foreground">{t('widgetBridge.isolation')}</p>
       <Button variant="destructive" className="mt-4" disabled={purge.isPending}

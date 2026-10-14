@@ -16,7 +16,15 @@ export interface BridgeSelectors {
   messageIdAttribute?: string;
 }
 export interface BridgeIdentity { name: string; email: string; phone: string }
-export interface BridgeSettings { enabled: boolean; identity: BridgeIdentity }
+export const bridgeProviders = ['webyar', 'crisp', 'raychat', 'goftino', 'custom'] as const;
+export type BridgeAllowedProvider = typeof bridgeProviders[number];
+export interface BridgeSettings { enabled: boolean; identity: BridgeIdentity; allowedProviders: BridgeAllowedProvider[] }
+export interface BridgeBatch {
+  id: string; body: string; status: 'running' | 'completed' | 'cancelled'; created_at: string;
+  total: number; pending: number; sent: number; failed: number; uncertain: number; skipped: number;
+}
+export interface BridgeBatchItem { url: string; position: number; contact_id: string | null; delivery: string; error: string | null }
+
 export interface BridgeContact {
   id: string;
   name: string;
@@ -36,6 +44,8 @@ export interface BridgeMessage {
   body: string;
   delivery: 'queued' | 'preparing' | 'dispatching' | 'sent' | 'received' | 'failed' | 'uncertain' | 'cancelled';
   dedupe_key: string;
+  batch_id?: string | null;
+  batch_position?: number | null;
   error: string | null;
   created_at: string;
 }

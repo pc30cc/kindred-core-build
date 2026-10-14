@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Page, Locator } from '@playwright/test';
-import type { BridgeIdentity, BridgeProvider, BridgeSelectors } from '../../shared/widgetBridge.js';
+import { bridgeProviders, type BridgeAllowedProvider, type BridgeIdentity, type BridgeProvider, type BridgeSelectors } from '../../shared/widgetBridge.js';
 
 export interface RemoteMessage { key: string; body: string }
 export interface BridgeAdapter {
@@ -301,7 +301,9 @@ export class GoftinoAdapter implements BridgeAdapter {
   acknowledge(count: number) { this.messages.splice(0, count); }
 }
 
-export async function makeAdapter(page: Page, provider: BridgeProvider, selectors: BridgeSelectors): Promise<BridgeAdapter> {
+export async function makeAdapter(page: Page, provider: BridgeProvider, selectors: BridgeSelectors, allowed: readonly BridgeAllowedProvider[] = bridgeProviders): Promise<BridgeAdapter> {
+  if (!allowed.length || (provider !== 'auto' && !allowed.includes(provider))) throw new Error('provider_not_allowed');
+  let blocked = false;
   if (provider === 'custom') return new DomAdapter(page, selectors);
   // Wait for lazy-loaded widgets instead of reporting unsupported while the
   // site's initial HTML is still being rendered.
@@ -309,22 +311,30 @@ export async function makeAdapter(page: Page, provider: BridgeProvider, selector
     if ((provider === 'auto' || provider === 'goftino') && await page.evaluate(() => {
       const sdk = (globalThis as unknown as { Goftino?: { open?: unknown } }).Goftino;
       return typeof sdk?.open === 'function';
-    }) && await page.locator(selectors.frame || '#goftino_w').count() === 1) return new GoftinoAdapter(page, selectors);
+    }) && await page.locator(selectors.frame || '#goftino_w').count() === 1) {
+      if (allowed.includes('goftino')) return new GoftinoAdapter(page, selectors);
+      blocked = true;
+    }
     if ((provider === 'auto' || provider === 'raychat') && await page.evaluate(() => {
       const sdk = (globalThis as unknown as { Raychat?: { sendMessage?: unknown } }).Raychat;
       return typeof sdk?.sendMessage === 'function';
-    })) return new RaychatAdapter(page);
+    })) {
+      if (allowed.includes('raychat')) return new RaychatAdapter(page);
+      blocked = true;
+    }
     if ((provider === 'auto' || provider === 'crisp') && await page.evaluate(() => Boolean((globalThis as unknown as { $crisp?: unknown }).$crisp))) {
-      return new CrispAdapter(page);
+      if (allowed.includes('crisp')) return new CrispAdapter(page);
+      blocked = true;
     }
     if (provider === 'auto' || provider === 'webyar') {
       for (const frame of page.frames()) {
         if (await frame.locator('.shell [data-home-action="chat"], .shell [data-msg-input], .shell .launcher').count()) {
-          return new WebyarAdapter(page, { ...webyar, ...selectors });
+          if (allowed.includes('webyar')) return new WebyarAdapter(page, { ...webyar, ...selectors });
+          blocked = true;
         }
       }
     }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
-  throw new Error('unsupported_widget');
+  throw new Error(blocked ? 'provider_not_allowed' : 'unsupported_widget');
 }

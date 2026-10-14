@@ -66,9 +66,9 @@ beforeEach(async () => {
 });
 
 describe('standalone bridge database and API', () => {
-  it('creates only the three bridge tables, no main-app records', async () => {
+  it('creates only isolated bridge tables, no main-app records', async () => {
     const { rows } = await db.query<{ tablename: string }>("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename");
-    expect(rows.map(row => row.tablename)).toEqual(['widget_bridge_contacts','widget_bridge_messages','widget_bridge_settings']);
+    expect(rows.map(row => row.tablename)).toEqual(['widget_bridge_batches','widget_bridge_contacts','widget_bridge_messages','widget_bridge_settings']);
   });
   it('rejects ordinary users before touching the bridge database', async () => {
     gate.admin = false;
@@ -228,5 +228,71 @@ describe('standalone bridge database and API', () => {
     expect([...earlier.body.messages,...latest.body.messages].map(m => m.body)).toEqual(
       Array.from({ length: 105 }, (_, i) => `Reply ${i}`),
     );
+  });
+});
+
+
+describe('ordered site batches', () => {
+  function batch(urls = ['https://first.example.com', 'https://second.example.com'], clientBatchId = randomUUID()) {
+    return request(app).post(api('/batches')).send({ urls, body: 'Batch hello', clientBatchId });
+  }
+  it('deduplicates sites, preserves order across workers, and resumes after restart', async () => {
+    await request(app).put(api('/settings')).send({ enabled: true, identity, allowedProviders: ['goftino'] }).expect(200);
+    const id = randomUUID();
+    const urls = ['https://first.example.com', 'https://first.example.com/#duplicate', 'https://second.example.com'];
+    await batch(urls,id).expect(202); await batch(urls,id).expect(202);
+    await batch(['https://third.example.com']).expect(409);
+    const first = (await store().claim())!; expect(first.name).toBe('first.example.com');
+    expect(first.allowed_providers).toEqual(['goftino']);
+    expect(await new BridgeStore(gate.pool,'webyar',randomUUID()).claim()).toBeNull();
+    const message = (await store().next(first))!;
+    await store().dispatch(first,message);
+    expect(await new BridgeStore(gate.pool,'webyar',randomUUID()).claim()).toBeNull();
+    await db.query("UPDATE widget_bridge_contacts SET lease_until=now()-interval '1 second' WHERE id=$1",[first.id]);
+    const restarted = (await store().claim())!; await store().recover(restarted);
+    const second = (await new BridgeStore(gate.pool,'webyar',randomUUID()).claim())!;
+    expect(second.name).toBe('second.example.com');
+    const progress = await request(app).get(api(`/batches/${id}`)).expect(200);
+    expect(progress.body.items.map((x: { delivery: string }) => x.delivery)).toEqual(['uncertain','queued']);
+    expect((await db.query('SELECT * FROM widget_bridge_messages')).rows).toHaveLength(2);
+  });
+  it('moves past a failed widget and cancels pending sends without touching normal contacts', async () => {
+    await request(app).put(api('/settings')).send({ enabled: true, identity }).expect(200);
+    const id = randomUUID(); await batch(undefined,id).expect(202);
+    const first = (await store().claim())!;
+    await store().release(first,'provider_not_allowed');
+    const second = (await store().claim())!; expect(second.name).toBe('second.example.com');
+    const msg = (await store().next(second))!;
+    await request(app).delete(api(`/batches/${id}`)).expect(200);
+    expect(await store().dispatch(second,msg)).toBe(false);
+    const items = (await request(app).get(api(`/batches/${id}`))).body.items;
+    expect(items.map((x: { delivery: string }) => x.delivery)).toEqual(['failed','cancelled']);
+    expect((await db.query('SELECT * FROM widget_bridge_contacts')).rows).toHaveLength(2);
+  });
+  it('skips disabled existing contacts, completes, and isolates purge by app', async () => {
+    await request(app).put(api('/settings')).send({ enabled: true, identity }).expect(200);
+    await request(app).post(api('/contacts')).send({ url:'https://first.example.com',enabled:false }).expect(201);
+    const id = randomUUID(); await batch(undefined,id).expect(202);
+    const second = (await store().claim())!; const remote = adapter();
+    await sendNext(store(),second,remote,async()=>{}); await store().release(second,null); await store().reap();
+    const batches = (await request(app).get(api('/batches'))).body.batches;
+    expect(batches[0]).toMatchObject({ status:'completed',sent:1,skipped:1,total:2 });
+    vi.stubEnv('WIDGET_BRIDGE_APP_ID','respok');
+    expect((await request(app).get(api('/batches'))).body.batches).toEqual([]);
+    await request(app).delete(api('/settings')).expect(202);
+    vi.stubEnv('WIDGET_BRIDGE_APP_ID','webyar');
+    expect((await request(app).get(api('/batches'))).body.batches).toHaveLength(1);
+    await request(app).delete(api('/settings')).expect(202);
+    expect((await db.query('SELECT * FROM widget_bridge_batches')).rows).toHaveLength(0);
+  });
+  it('rejects unsafe lists and requires allowed providers; settings changes cancel batches', async () => {
+    await request(app).put(api('/settings')).send({ enabled:true,identity,allowedProviders:[] }).expect(200);
+    await batch().expect(409);
+    await request(app).put(api('/settings')).send({ enabled:true,identity,allowedProviders:['crisp'] }).expect(200);
+    await batch(['https://127.0.0.1']).expect(400);
+    const id=randomUUID();await batch(undefined,id).expect(202);
+    await request(app).put(api('/settings')).send({ enabled:true,identity,allowedProviders:['goftino'] }).expect(200);
+    expect((await request(app).get(api('/batches'))).body.batches[0].status).toBe('cancelled');
+    expect((await request(app).get(api(`/batches/${id}`))).body.items.every((x: {delivery:string})=>x.delivery==='cancelled')).toBe(true);
   });
 });

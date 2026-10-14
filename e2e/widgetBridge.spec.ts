@@ -164,3 +164,12 @@ test('Goftino refuses overlong messages without truncating or submitting them', 
   expect(await page.evaluate(() => (globalThis as unknown as { visitorPosts: string[] }).visitorPosts)).toEqual([]);
   await expect(page.frameLocator('#goftino_w').locator('#m')).toHaveValue('');
 });
+
+
+test('provider policy rejects an explicitly disallowed widget before touching its form', async ({ page }) => {
+  await openGoftinoFixture(page);
+  await expect(makeAdapter(page, 'goftino', {}, ['crisp'])).rejects.toThrow('provider_not_allowed');
+  await expect(makeAdapter(page, 'auto', {}, [])).rejects.toThrow('provider_not_allowed');
+  expect(await page.evaluate(() => (globalThis as unknown as { visitorPosts: string[] }).visitorPosts)).toEqual([]);
+  await expect(page.frameLocator('#goftino_w').locator('#box-chat')).toBeHidden();
+});

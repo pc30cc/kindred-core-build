@@ -33,6 +33,8 @@ beforeEach(() => {
   state.request.mockReset().mockImplementation(async (_workspace: string, path: string, method = 'GET', body?: unknown) => {
     if (path === '/settings' && method === 'GET') return { settings: { enabled: state.enabled, identity: { name: 'Default Admin', email: 'admin@example.com', phone: '+90555' } } };
     if (path === '/settings' && method === 'PUT') { state.enabled = (body as { enabled: boolean }).enabled; return { settings: body }; }
+    if (path === '/batches') return method === 'POST' ? { batch: { id: 'batch-1' } } : { batches: [] };
+    if (path === '/batches/batch-1') return { items: [] };
     if (path === '/contacts') return { contacts: [contact] };
     if (path.endsWith('/messages') && method === 'GET') return { messages: [{ id: 'reply-1', body: 'Remote reply', direction: 'inbound', delivery: 'received', created_at: '2026-10-14T08:00:00Z' }], hasMore: false };
     return { message: { id: 'queued-1', delivery: 'queued' } };
@@ -50,7 +52,21 @@ describe('Super Admin bridge UI', () => {
     fireEvent.click(screen.getByLabelText('Enable widget bridge'));
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(state.request).toHaveBeenCalledWith('workspace-1', '/settings', 'PUT', {
-      enabled: false, identity: { name: 'My name', email: 'admin@example.com', phone: '+90555' },
+      allowedProviders: ['webyar','crisp','raychat','goftino','custom'], enabled: false, identity: { name: 'My name', email: 'admin@example.com', phone: '+90555' },
+    }));
+  });
+  it('saves the provider selection and starts a deduplicated ordered website batch', async () => {
+    mount(<WidgetBridgeSettingsPanel workspaceId="workspace-1" slug="admin" />);
+    await screen.findByLabelText('Default name');
+    fireEvent.click(screen.getByLabelText('Crisp'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(state.request).toHaveBeenCalledWith('workspace-1', '/settings', 'PUT', expect.objectContaining({ allowedProviders: ['webyar','raychat','goftino','custom'] })));
+    fireEvent.change(screen.getByLabelText('Website list (one per line)'), { target: { value: 'first.example.com\nhttps://first.example.com/#same\nsecond.example.com' } });
+    fireEvent.change(screen.getByLabelText('Message for all sites'), { target: { value: 'Shared message' } });
+    await waitFor(() => expect((screen.getByRole('button', { name:'Start sequential sending' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Start sequential sending' }));
+    await waitFor(() => expect(state.request).toHaveBeenCalledWith('workspace-1','/batches','POST', {
+      urls: ['https://first.example.com/','https://second.example.com/'], body: 'Shared message', clientBatchId: '00000000-0000-4000-8000-000000000010',
     }));
   });
   it('shows received replies and queues the admin’s message instead of opening a site in the UI', async () => {

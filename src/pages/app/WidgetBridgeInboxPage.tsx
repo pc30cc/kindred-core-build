@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
@@ -8,9 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Settings, Globe, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useBridgeSettings } from '@/features/widget-bridge/hooks';
+import { useBridgeSettings, useBridgeContacts } from '@/features/widget-bridge/hooks';
 import { BridgeErrorNotice } from '@/features/widget-bridge/SettingsPanel';
-import { bridgeRequest, type BridgeContact, type BridgeMessage } from '@/features/widget-bridge/api';
+import { bridgeRequest, type BridgeMessage } from '@/features/widget-bridge/api';
 
 export default function WidgetBridgeInboxPage() {
   const { t, dir, locale } = useTranslation();
@@ -22,11 +22,7 @@ export default function WidgetBridgeInboxPage() {
   const [draft, setDraft] = useState('');
   const draftRequest = useRef<{ body: string; contactId: string; id: string } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
-  const contacts = useQuery({
-    queryKey: ['widget-bridge-contacts', user?.id, workspace?.id],
-    enabled: !!workspace && !!settings.data, retry: false, refetchInterval: 5000,
-    queryFn: () => bridgeRequest<{ contacts: BridgeContact[] }>(workspace!.id, '/contacts'),
-  });
+  const contacts = useBridgeContacts(workspace?.id, !!settings.data);
   const contact = contacts.data?.contacts.find(value => value.id === selectedId && !value.deleting);
   const messages = useInfiniteQuery({
     queryKey: ['widget-bridge-messages', user?.id, workspace?.id, selectedId],
@@ -73,6 +69,7 @@ export default function WidgetBridgeInboxPage() {
             <p dir="ltr" className="truncate text-xs text-muted-foreground">{new URL(value.url).hostname}</p>
             <p className="mt-1 text-xs text-muted-foreground">{t(`widgetBridge.status.${value.enabled ? value.status : 'disabled'}` as TranslationKey)}</p>
           </div></button>)}
+        {contacts.hasNextPage && <Button variant="ghost" disabled={contacts.isFetchingNextPage} onClick={() => void contacts.fetchNextPage()}>{t('widgetBridge.moreSites')}</Button>}
       </aside>
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         {!contact ? <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">{t('widgetBridge.selectSite')}</div> : <>

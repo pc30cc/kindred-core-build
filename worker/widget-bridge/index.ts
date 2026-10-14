@@ -11,7 +11,7 @@ import { makeAdapter, type BridgeAdapter } from './adapters.js';
 
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const SAFE_ERRORS = new Set(['unsupported_widget','widget_not_found','ambiguous_widget','identity_required',
-  'composer_unavailable','send_unavailable','connection_stopped']);
+  'composer_unavailable','send_unavailable','connection_stopped','provider_not_allowed','message_too_long']);
 const safeError = (err: unknown) => err instanceof Error && SAFE_ERRORS.has(err.message) ? err.message : 'widget_connection_failed';
 
 /** The irreversible step is fenced and marked before touching the widget. */
@@ -87,7 +87,7 @@ export async function startWidgetBridgeWorker() {
         context.on('page', extra => { if (extra !== page) void extra.close(); });
         page.setDefaultTimeout(10000);
         await page.goto(contact.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        const adapter = await makeAdapter(page, contact.provider, contact.selectors);
+        const adapter = await makeAdapter(page, contact.provider, contact.selectors, contact.allowed_providers);
         await adapter.prepare(contact.identity);
         const persist = async () => {
           if (stopped || stopping) throw new Error('connection_stopped');
@@ -114,6 +114,7 @@ export async function startWidgetBridgeWorker() {
           }
           await syncReplies(store, contact, adapter, received);
           await sendNext(store, contact, adapter, persist);
+          if (await store.yieldForBatch(contact)) break;
           if (Date.now() - lastPersist > 30000) { await persist(); lastPersist = Date.now(); }
           await pause(1500);
         }

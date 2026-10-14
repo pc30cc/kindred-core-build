@@ -62,3 +62,33 @@ ALTER TABLE widget_bridge_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE widget_bridge_messages ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON widget_bridge_settings, widget_bridge_contacts, widget_bridge_messages FROM PUBLIC;
 COMMIT;
+
+-- Re-runnable upgrades for the optional bridge database only.
+BEGIN;
+ALTER TABLE widget_bridge_settings ADD COLUMN IF NOT EXISTS allowed_providers jsonb NOT NULL
+  DEFAULT '["webyar","crisp","raychat","goftino","custom"]';
+CREATE TABLE IF NOT EXISTS widget_bridge_batches (
+  id uuid PRIMARY KEY,
+  app_id text NOT NULL,
+  owner_id uuid NOT NULL,
+  workspace_id uuid NOT NULL,
+  body text NOT NULL CHECK (length(body) BETWEEN 1 AND 2000),
+  sites jsonb NOT NULL,
+  request_hash text NOT NULL,
+  status text NOT NULL DEFAULT 'running' CHECK (status IN ('running','completed','cancelled')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (app_id,owner_id,workspace_id)
+    REFERENCES widget_bridge_settings(app_id,owner_id,workspace_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS widget_bridge_batches_active
+  ON widget_bridge_batches(app_id,owner_id,workspace_id) WHERE status='running';
+ALTER TABLE widget_bridge_messages ADD COLUMN IF NOT EXISTS batch_id uuid
+  REFERENCES widget_bridge_batches(id) ON DELETE CASCADE;
+ALTER TABLE widget_bridge_messages ADD COLUMN IF NOT EXISTS batch_position integer;
+CREATE UNIQUE INDEX IF NOT EXISTS widget_bridge_messages_batch_position
+  ON widget_bridge_messages(batch_id,batch_position) WHERE batch_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS widget_bridge_messages_batch_pending
+  ON widget_bridge_messages(batch_id,batch_position) WHERE delivery IN ('queued','preparing','dispatching');
+ALTER TABLE widget_bridge_batches ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON widget_bridge_batches FROM PUBLIC;
+COMMIT;

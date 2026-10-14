@@ -46,29 +46,29 @@ adminWidgetBridgeRouter.use(async (req, res, next) => {
 });
 
 adminWidgetBridgeRouter.get('/settings', handle(async (_req, res) => {
-  const { rows } = await bridgePool().query(`SELECT enabled,identity,allowed_providers AS "allowedProviders" FROM widget_bridge_settings WHERE ${scoped}`, params(res));
-  res.json({ settings: rows[0] || { enabled: false, identity: { name: '', email: '', phone: '' }, allowedProviders: ['webyar','crisp','raychat','goftino','custom'] } });
+  const { rows } = await bridgePool().query(`SELECT enabled,identity,allowed_providers AS "allowedProviders",round_size AS "roundSize",interval_seconds AS "intervalSeconds" FROM widget_bridge_settings WHERE ${scoped}`, params(res));
+  res.json({ settings: rows[0] || { enabled: false, identity: { name: '', email: '', phone: '' }, allowedProviders: ['webyar','crisp','raychat','goftino','custom'], roundSize: 1, intervalSeconds: 30 } });
 }));
 
 adminWidgetBridgeRouter.put('/settings', handle(async (req, res) => {
   const parsed = bridgeSettingsSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'invalid_settings' }); return; }
-  const { enabled, identity, allowedProviders } = parsed.data;
+  const { enabled, identity, allowedProviders, roundSize, intervalSeconds } = parsed.data;
   // Setting changes fence existing sessions and cancel unsent messages.
   // Dispatching messages are deliberately uncertain: never retry blindly.
   await bridgePool().query(`WITH saved AS (
-    INSERT INTO widget_bridge_settings(app_id,owner_id,workspace_id,enabled,identity,allowed_providers)
-    VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb) ON CONFLICT(app_id,owner_id,workspace_id)
-    DO UPDATE SET enabled=EXCLUDED.enabled,deleting=false,identity=EXCLUDED.identity,allowed_providers=EXCLUDED.allowed_providers,updated_at=now() RETURNING *
+    INSERT INTO widget_bridge_settings(app_id,owner_id,workspace_id,enabled,identity,allowed_providers,round_size,interval_seconds)
+    VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8) ON CONFLICT(app_id,owner_id,workspace_id)
+    DO UPDATE SET enabled=EXCLUDED.enabled,deleting=false,identity=EXCLUDED.identity,allowed_providers=EXCLUDED.allowed_providers,round_size=EXCLUDED.round_size,interval_seconds=EXCLUDED.interval_seconds,updated_at=now() RETURNING *
   ), batches_stopped AS (
-    UPDATE widget_bridge_batches SET status='cancelled' WHERE ${scoped} AND status='running' RETURNING id
+    UPDATE widget_bridge_batches SET status='cancelled' WHERE ${scoped} AND status IN ('running','paused') RETURNING id
   ), fenced AS (
     UPDATE widget_bridge_contacts SET generation=generation+1,next_poll_at=now(),status='idle'
     WHERE ${scoped} AND EXISTS(SELECT 1 FROM saved) RETURNING id
   ) UPDATE widget_bridge_messages SET delivery=CASE WHEN delivery='dispatching' THEN 'uncertain' ELSE 'cancelled' END,
     error='settings_changed' WHERE contact_id IN (SELECT id FROM fenced)
-    AND delivery IN ('queued','preparing','dispatching')`, [...params(res), enabled, JSON.stringify(identity), JSON.stringify(allowedProviders)]);
-  res.json({ settings: { enabled, identity, allowedProviders } });
+    AND delivery IN ('queued','preparing','dispatching')`, [...params(res), enabled, JSON.stringify(identity), JSON.stringify(allowedProviders),roundSize,intervalSeconds]);
+  res.json({ settings: { enabled, identity, allowedProviders, roundSize, intervalSeconds } });
 }));
 
 adminWidgetBridgeRouter.delete('/settings', handle(async (_req, res) => {
@@ -179,7 +179,7 @@ adminWidgetBridgeRouter.post('/contacts/:id/messages', handle(async (req, res) =
 }));
 
 adminWidgetBridgeRouter.get('/batches', handle(async (_req, res) => {
-  const { rows } = await bridgePool().query(`SELECT b.id,b.body,b.status,b.created_at,jsonb_array_length(b.sites) AS total,
+  const { rows } = await bridgePool().query(`SELECT b.id,b.body,b.status,b.created_at,b.round_size,b.interval_seconds,b.approved_through,b.review_version,b.next_send_at,jsonb_array_length(b.sites) AS total,
     count(m.id) FILTER (WHERE m.delivery IN ('queued','preparing','dispatching'))::int AS pending,
     count(m.id) FILTER (WHERE m.delivery='sent')::int AS sent,
     count(m.id) FILTER (WHERE m.delivery='failed')::int AS failed,
@@ -216,8 +216,8 @@ adminWidgetBridgeRouter.post('/batches', handle(async (req, res) => {
   // One atomic statement: an active-scope unique index prevents two campaigns
   // from being accepted concurrently. Retries cannot duplicate destinations.
   const { rows } = await bridgePool().query(`WITH batch AS (
-    INSERT INTO widget_bridge_batches(id,app_id,owner_id,workspace_id,body,sites,request_hash)
-    SELECT $4,$1,$2,$3,$5,$6::jsonb,$7 FROM widget_bridge_settings
+    INSERT INTO widget_bridge_batches(id,app_id,owner_id,workspace_id,body,sites,request_hash,round_size,interval_seconds,approved_through)
+    SELECT $4,$1,$2,$3,$5,$6::jsonb,$7,round_size,interval_seconds,round_size FROM widget_bridge_settings
     WHERE ${scoped} AND enabled AND NOT deleting AND jsonb_array_length(allowed_providers)>0
     ON CONFLICT DO NOTHING RETURNING *
   ), sites AS (
@@ -242,7 +242,7 @@ adminWidgetBridgeRouter.delete('/batches/:id', handle(async (req, res) => {
   const id = uuid.safeParse(req.params.id);
   if (!id.success) { res.status(400).json({ error: 'invalid_batch' }); return; }
   const { rows } = await bridgePool().query(`WITH stopped AS (
-    UPDATE widget_bridge_batches SET status='cancelled' WHERE ${scoped} AND id=$4 AND status='running' RETURNING id
+    UPDATE widget_bridge_batches SET status='cancelled' WHERE ${scoped} AND id=$4 AND status IN ('running','paused') RETURNING id
   ), fenced AS (
     UPDATE widget_bridge_contacts SET generation=generation+1,next_poll_at=now()
     WHERE id IN (SELECT contact_id FROM widget_bridge_messages WHERE batch_id IN (SELECT id FROM stopped)
@@ -253,4 +253,23 @@ adminWidgetBridgeRouter.delete('/batches/:id', handle(async (req, res) => {
       AND delivery IN ('queued','preparing','dispatching') RETURNING id
   ) SELECT id FROM stopped`, [...params(res),id.data]);
   res.json({ stopped: rows.length>0 });
+}));
+
+
+adminWidgetBridgeRouter.post('/batches/:id/continue', handle(async (req, res) => {
+  const id = uuid.safeParse(req.params.id);
+  const body = z.object({ reviewVersion: z.number().int().nonnegative() }).strict().safeParse(req.body);
+  if (!id.success || !body.success) { res.status(400).json({ error: 'invalid_batch' }); return; }
+  // Versioned approvals cannot accidentally approve another round on retry.
+  const { rows } = await bridgePool().query(`UPDATE widget_bridge_batches b SET status='running',
+    approved_through=CASE WHEN EXISTS(SELECT 1 FROM widget_bridge_messages m WHERE m.batch_id=b.id
+      AND m.batch_position<=b.approved_through AND m.delivery='queued') THEN b.approved_through
+      ELSE LEAST(jsonb_array_length(b.sites),b.approved_through+b.round_size) END
+    WHERE b.app_id=$1 AND b.owner_id=$2 AND b.workspace_id=$3 AND b.id=$4
+      AND b.status='paused' AND b.review_version=$5
+      AND EXISTS(SELECT 1 FROM widget_bridge_settings s WHERE s.app_id=b.app_id AND s.owner_id=b.owner_id
+        AND s.workspace_id=b.workspace_id AND s.enabled AND NOT s.deleting)
+    RETURNING id`, [...params(res),id.data,body.data.reviewVersion]);
+  if (!rows.length) { res.status(409).json({ error: 'batch_conflict' }); return; }
+  res.json({ batch: rows[0] });
 }));

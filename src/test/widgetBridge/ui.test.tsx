@@ -52,15 +52,17 @@ describe('Super Admin bridge UI', () => {
     fireEvent.click(screen.getByLabelText('Enable widget bridge'));
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(state.request).toHaveBeenCalledWith('workspace-1', '/settings', 'PUT', {
-      allowedProviders: ['webyar','crisp','raychat','goftino','custom'], enabled: false, identity: { name: 'My name', email: 'admin@example.com', phone: '+90555' },
+      roundSize:1, intervalSeconds:30, allowedProviders: ['webyar','crisp','raychat','goftino','custom'], enabled: false, identity: { name: 'My name', email: 'admin@example.com', phone: '+90555' },
     }));
   });
   it('saves the provider selection and starts a deduplicated ordered website batch', async () => {
     mount(<WidgetBridgeSettingsPanel workspaceId="workspace-1" slug="admin" />);
     await screen.findByLabelText('Default name');
     fireEvent.click(screen.getByLabelText('Crisp'));
+    fireEvent.change(screen.getByLabelText('Sites per round (1–50)'), { target:{value:'3'} });
+    fireEvent.change(screen.getByLabelText('Wait between sites (seconds, 5–3600)'), { target:{value:'60'} });
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
-    await waitFor(() => expect(state.request).toHaveBeenCalledWith('workspace-1', '/settings', 'PUT', expect.objectContaining({ allowedProviders: ['webyar','raychat','goftino','custom'] })));
+    await waitFor(() => expect(state.request).toHaveBeenCalledWith('workspace-1', '/settings', 'PUT', expect.objectContaining({ roundSize:3,intervalSeconds:60,allowedProviders: ['webyar','raychat','goftino','custom'] })));
     fireEvent.change(screen.getByLabelText('Website list (one per line)'), { target: { value: 'first.example.com\nhttps://first.example.com/#same\nsecond.example.com' } });
     fireEvent.change(screen.getByLabelText('Message for all sites'), { target: { value: 'Shared message' } });
     await waitFor(() => expect((screen.getByRole('button', { name:'Start sequential sending' }) as HTMLButtonElement).disabled).toBe(false));
@@ -68,6 +70,16 @@ describe('Super Admin bridge UI', () => {
     await waitFor(() => expect(state.request).toHaveBeenCalledWith('workspace-1','/batches','POST', {
       urls: ['https://first.example.com/','https://second.example.com/'], body: 'Shared message', clientBatchId: '00000000-0000-4000-8000-000000000010',
     }));
+  });
+  it('continues only the reviewed batch version from the pause button', async () => {
+    const original=state.request.getMockImplementation()!;
+    state.request.mockImplementation(async (...args: unknown[]) => {
+      if (args[1]==='/batches' && (!args[2] || args[2]==='GET')) return { batches:[{id:'paused-1',body:'Review me',status:'paused',review_version:7,round_size:1,interval_seconds:30,total:2,pending:1,sent:1,failed:0,uncertain:0,skipped:0}] };
+      return original(...args);
+    });
+    mount(<WidgetBridgeSettingsPanel workspaceId="workspace-1" slug="admin" />);
+    fireEvent.click(await screen.findByRole('button',{name:'Approve and continue'}));
+    await waitFor(()=>expect(state.request).toHaveBeenCalledWith('workspace-1','/batches/paused-1/continue','POST',{reviewVersion:7}));
   });
   it('shows received replies and queues the admin’s message instead of opening a site in the UI', async () => {
     mount(<WidgetBridgeInboxPage />);

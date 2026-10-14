@@ -237,7 +237,7 @@ describe('ordered site batches', () => {
     return request(app).post(api('/batches')).send({ urls, body: 'Batch hello', clientBatchId });
   }
   it('deduplicates sites, preserves order across workers, and resumes after restart', async () => {
-    await request(app).put(api('/settings')).send({ enabled: true, identity, allowedProviders: ['goftino'] }).expect(200);
+    await request(app).put(api('/settings')).send({ roundSize:2, intervalSeconds:5, enabled: true, identity, allowedProviders: ['goftino'] }).expect(200);
     const id = randomUUID();
     const urls = ['https://first.example.com', 'https://first.example.com/#duplicate', 'https://second.example.com'];
     await batch(urls,id).expect(202); await batch(urls,id).expect(202);
@@ -250,6 +250,9 @@ describe('ordered site batches', () => {
     expect(await new BridgeStore(gate.pool,'webyar',randomUUID()).claim()).toBeNull();
     await db.query("UPDATE widget_bridge_contacts SET lease_until=now()-interval '1 second' WHERE id=$1",[first.id]);
     const restarted = (await store().claim())!; await store().recover(restarted);
+    expect(await new BridgeStore(gate.pool,'webyar',randomUUID()).claim()).toBeNull();
+    await request(app).post(api(`/batches/${id}/continue`)).send({ reviewVersion:1 }).expect(200);
+    await db.query("UPDATE widget_bridge_batches SET next_send_at=now()-interval '1 second' WHERE id=$1",[id]);
     const second = (await new BridgeStore(gate.pool,'webyar',randomUUID()).claim())!;
     expect(second.name).toBe('second.example.com');
     const progress = await request(app).get(api(`/batches/${id}`)).expect(200);
@@ -257,10 +260,13 @@ describe('ordered site batches', () => {
     expect((await db.query('SELECT * FROM widget_bridge_messages')).rows).toHaveLength(2);
   });
   it('moves past a failed widget and cancels pending sends without touching normal contacts', async () => {
-    await request(app).put(api('/settings')).send({ enabled: true, identity }).expect(200);
+    await request(app).put(api('/settings')).send({ roundSize:2, intervalSeconds:5, enabled: true, identity }).expect(200);
     const id = randomUUID(); await batch(undefined,id).expect(202);
     const first = (await store().claim())!;
     await store().release(first,'provider_not_allowed');
+    expect(await store().claim()).toBeNull();
+    await request(app).post(api(`/batches/${id}/continue`)).send({ reviewVersion:1 }).expect(200);
+    await db.query("UPDATE widget_bridge_batches SET next_send_at=now()-interval '1 second' WHERE id=$1",[id]);
     const second = (await store().claim())!; expect(second.name).toBe('second.example.com');
     const msg = (await store().next(second))!;
     await request(app).delete(api(`/batches/${id}`)).expect(200);
@@ -270,7 +276,7 @@ describe('ordered site batches', () => {
     expect((await db.query('SELECT * FROM widget_bridge_contacts')).rows).toHaveLength(2);
   });
   it('skips disabled existing contacts, completes, and isolates purge by app', async () => {
-    await request(app).put(api('/settings')).send({ enabled: true, identity }).expect(200);
+    await request(app).put(api('/settings')).send({ roundSize:2, intervalSeconds:5, enabled: true, identity }).expect(200);
     await request(app).post(api('/contacts')).send({ url:'https://first.example.com',enabled:false }).expect(201);
     const id = randomUUID(); await batch(undefined,id).expect(202);
     const second = (await store().claim())!; const remote = adapter();
@@ -295,4 +301,53 @@ describe('ordered site batches', () => {
     expect((await request(app).get(api('/batches'))).body.batches[0].status).toBe('cancelled');
     expect((await request(app).get(api(`/batches/${id}`))).body.items.every((x: {delivery:string})=>x.delivery==='cancelled')).toBe(true);
   });
+});
+
+
+describe('paced rounds and approval', () => {
+  it('defaults to one site, enforces cooldown, and rejects stale approvals', async () => {
+    await request(app).put(api('/settings')).send({ enabled:true,identity }).expect(200);
+    const id=randomUUID();
+    await request(app).post(api('/batches')).send({ clientBatchId:id,body:'One at a time',urls:['https://one.example.com','https://two.example.com','https://three.example.com'] }).expect(202);
+    const first=(await store().claim())!;
+    await sendNext(store(),first,adapter(),async()=>{});
+    await store().reap();
+    const progress=(await request(app).get(api('/batches'))).body.batches[0];
+    expect(progress).toMatchObject({status:'paused',round_size:1,interval_seconds:30,approved_through:1,review_version:1,sent:1});
+    expect(await store().claim()).toBeNull();
+    await request(app).post(api(`/batches/${id}/continue`)).send({reviewVersion:1}).expect(200);
+    await request(app).post(api(`/batches/${id}/continue`)).send({reviewVersion:1}).expect(409);
+    expect(await store().claim()).toBeNull(); // approval cannot bypass cooldown
+    await db.query("UPDATE widget_bridge_batches SET next_send_at=now()-interval '1 second' WHERE id=$1",[id]);
+    const second=(await store().claim())!;expect(second.name).toBe('two.example.com');
+    await sendNext(store(),second,adapter(),async()=>{});await store().reap();
+    await request(app).post(api(`/batches/${id}/continue`)).send({reviewVersion:1}).expect(409);
+    expect((await request(app).get(api('/batches'))).body.batches[0]).toMatchObject({status:'paused',review_version:2,sent:2});
+    await request(app).delete(api(`/batches/${id}`)).expect(200);
+    expect((await request(app).get(api(`/batches/${id}`))).body.items[2].delivery).toBe('cancelled');
+  });
+  it('allows configured rounds but stops immediately at an uncertain send', async () => {
+    await request(app).put(api('/settings')).send({enabled:true,identity,roundSize:3,intervalSeconds:10}).expect(200);
+    await request(app).post(api('/batches')).send({clientBatchId:randomUUID(),body:'Careful',urls:['https://one.example.com','https://two.example.com']}).expect(202);
+    const first=(await store().claim())!; const remote=adapter();remote.send=async()=>false;
+    await sendNext(store(),first,remote,async()=>{});
+    expect((await request(app).get(api('/batches'))).body.batches[0]).toMatchObject({status:'paused',uncertain:1,pending:1});
+    expect(await store().claim()).toBeNull();
+    await request(app).put(api('/settings')).send({enabled:true,identity,roundSize:0,intervalSeconds:1}).expect(400);
+  });
+});
+
+it('processes a configured round sequentially with a gap after each site, then waits for approval', async () => {
+  await request(app).put(api('/settings')).send({enabled:true,identity,roundSize:3,intervalSeconds:60}).expect(200);
+  const id=randomUUID();
+  await request(app).post(api('/batches')).send({clientBatchId:id,body:'Slow round',urls:[1,2,3,4].map(n=>`https://site${n}.example.com`)}).expect(202);
+  for (let n=1;n<=3;n++) {
+    const contact=(await store().claim())!; expect(contact.name).toBe(`site${n}.example.com`);
+    await sendNext(store(),contact,adapter(),async()=>{});
+    expect(await store().claim()).toBeNull();
+    await db.query("UPDATE widget_bridge_batches SET next_send_at=now()-interval '1 second' WHERE id=$1",[id]);
+  }
+  await store().reap();
+  expect((await request(app).get(api('/batches'))).body.batches[0]).toMatchObject({status:'paused',sent:3,pending:1});
+  expect(await store().claim()).toBeNull();
 });

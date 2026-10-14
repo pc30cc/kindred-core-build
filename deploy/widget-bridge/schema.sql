@@ -92,3 +92,18 @@ CREATE INDEX IF NOT EXISTS widget_bridge_messages_batch_pending
 ALTER TABLE widget_bridge_batches ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON widget_bridge_batches FROM PUBLIC;
 COMMIT;
+
+-- Pacing and explicit approval between small rounds.
+BEGIN;
+ALTER TABLE widget_bridge_settings ADD COLUMN IF NOT EXISTS round_size integer NOT NULL DEFAULT 1 CHECK (round_size BETWEEN 1 AND 50);
+ALTER TABLE widget_bridge_settings ADD COLUMN IF NOT EXISTS interval_seconds integer NOT NULL DEFAULT 30 CHECK (interval_seconds BETWEEN 5 AND 3600);
+ALTER TABLE widget_bridge_batches ADD COLUMN IF NOT EXISTS round_size integer NOT NULL DEFAULT 1;
+ALTER TABLE widget_bridge_batches ADD COLUMN IF NOT EXISTS interval_seconds integer NOT NULL DEFAULT 30;
+ALTER TABLE widget_bridge_batches ADD COLUMN IF NOT EXISTS approved_through integer NOT NULL DEFAULT 1;
+ALTER TABLE widget_bridge_batches ADD COLUMN IF NOT EXISTS next_send_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE widget_bridge_batches ADD COLUMN IF NOT EXISTS review_version integer NOT NULL DEFAULT 0;
+ALTER TABLE widget_bridge_batches DROP CONSTRAINT IF EXISTS widget_bridge_batches_status_check;
+ALTER TABLE widget_bridge_batches ADD CONSTRAINT widget_bridge_batches_status_check CHECK (status IN ('running','paused','completed','cancelled'));
+DROP INDEX IF EXISTS widget_bridge_batches_active;
+CREATE UNIQUE INDEX widget_bridge_batches_active ON widget_bridge_batches(app_id,owner_id,workspace_id) WHERE status IN ('running','paused');
+COMMIT;

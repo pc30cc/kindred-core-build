@@ -11,6 +11,8 @@ export const bridgeSelectorsSchema = z.object({
 }).strict();
 export const bridgeSettingsSchema = z.object({
   enabled: z.boolean(),
+  roundSize: z.number().int().min(1).max(50).default(1),
+  intervalSeconds: z.number().int().min(5).max(3600).default(30),
   allowedProviders: z.array(z.enum(bridgeProviders)).max(5).default([...bridgeProviders]),
   identity: z.object({
     name: z.string().trim().min(1).max(200),

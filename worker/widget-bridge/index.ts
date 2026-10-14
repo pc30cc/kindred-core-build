@@ -52,7 +52,8 @@ export async function startWidgetBridgeWorker() {
   const stop = () => { stopping = true; };
   process.once('SIGTERM', stop); process.once('SIGINT', stop);
   const active = new Map<string, Promise<void>>();
-  const maxContexts = Math.min(8, Math.max(1, Number(process.env.WIDGET_BRIDGE_MAX_SESSIONS) || 4));
+  // One live site per worker: round size controls count, never concurrency.
+  const maxContexts = 1;
   const sessionMs = Math.min(1800000, Math.max(60000, Number(process.env.WIDGET_BRIDGE_SESSION_MS) || 600000));
   try {
     browser = await chromium.launch({

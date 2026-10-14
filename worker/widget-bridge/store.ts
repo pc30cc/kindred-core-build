@@ -14,7 +14,8 @@ export interface LeasedContact extends BridgeContact {
 
 // No later batch row becomes eligible until every earlier attempt is terminal.
 const batchEligible = `(m.batch_id IS NULL OR (
-  EXISTS(SELECT 1 FROM widget_bridge_batches b WHERE b.id=m.batch_id AND b.status='running')
+  EXISTS(SELECT 1 FROM widget_bridge_batches b WHERE b.id=m.batch_id AND b.status='running'
+    AND m.batch_position<=b.approved_through AND b.next_send_at<=now())
   AND NOT EXISTS(SELECT 1 FROM widget_bridge_messages earlier WHERE earlier.batch_id=m.batch_id
     AND earlier.batch_position<m.batch_position AND earlier.delivery IN ('queued','preparing','dispatching'))
 ))`;
@@ -55,11 +56,14 @@ export class BridgeStore {
     return rows.length > 0;
   }
   async recover(contact: LeasedContact) {
-    await this.db.query(`UPDATE widget_bridge_messages SET
+    await this.db.query(`WITH recovered AS (UPDATE widget_bridge_messages SET
       delivery=CASE WHEN delivery='dispatching' THEN 'uncertain' ELSE 'queued' END,
       error=CASE WHEN delivery='dispatching' THEN 'worker_interrupted' ELSE NULL END
       WHERE contact_id=$1 AND delivery IN ('preparing','dispatching')
-        AND EXISTS(SELECT 1 FROM widget_bridge_contacts WHERE id=$1 AND app_id=$2 AND lease_owner=$3 AND generation=$4 AND lease_until>now())`,
+        AND EXISTS(SELECT 1 FROM widget_bridge_contacts WHERE id=$1 AND app_id=$2 AND lease_owner=$3 AND generation=$4 AND lease_until>now()) RETURNING batch_id,delivery
+    ) UPDATE widget_bridge_batches SET status='paused',review_version=review_version+1,
+      next_send_at=now()+interval_seconds*interval '1 second'
+      WHERE status='running' AND id IN (SELECT batch_id FROM recovered WHERE delivery='uncertain')`,
       [contact.id, this.appId, this.workerId, contact.generation]);
   }
   async next(contact: LeasedContact): Promise<BridgeMessage | null> {
@@ -84,9 +88,13 @@ export class BridgeStore {
     return rows.length > 0;
   }
   async finish(contact: LeasedContact, message: BridgeMessage, delivery: 'sent' | 'failed' | 'uncertain', error: string | null = null) {
-    await this.db.query(`UPDATE widget_bridge_messages m SET delivery=$1,error=$2 FROM widget_bridge_contacts c
+    await this.db.query(`WITH finished AS (UPDATE widget_bridge_messages m SET delivery=$1,error=$2 FROM widget_bridge_contacts c
       WHERE m.id=$3 AND c.id=m.contact_id AND c.id=$4 AND c.app_id=$5 AND c.lease_owner=$6 AND c.generation=$7
-      AND m.delivery IN ('preparing','dispatching')`, [delivery, error, message.id, contact.id, this.appId, this.workerId, contact.generation]);
+      AND m.delivery IN ('preparing','dispatching') RETURNING m.batch_id
+    ) UPDATE widget_bridge_batches SET next_send_at=now()+interval_seconds*interval '1 second',
+      status=CASE WHEN $1='sent' THEN status ELSE 'paused' END,
+      review_version=review_version+CASE WHEN $1='sent' THEN 0 ELSE 1 END
+      WHERE status='running' AND id IN (SELECT batch_id FROM finished)`, [delivery, error, message.id, contact.id, this.appId, this.workerId, contact.generation]);
   }
   async receive(contact: LeasedContact, messages: RemoteMessage[]) {
     if (!messages.length) return;
@@ -121,9 +129,12 @@ export class BridgeStore {
       status=CASE WHEN generation=$4 THEN $5 ELSE status END,
       last_error=CASE WHEN generation=$4 THEN $6 ELSE last_error END
       WHERE id=$1 AND app_id=$2 AND lease_owner=$3 RETURNING id,generation
-    ) UPDATE widget_bridge_messages SET delivery=CASE WHEN delivery='dispatching' THEN 'uncertain' ELSE 'failed' END,error=$6
+    ), failed AS (UPDATE widget_bridge_messages SET delivery=CASE WHEN delivery='dispatching' THEN 'uncertain' ELSE 'failed' END,error=$6
       WHERE contact_id IN (SELECT id FROM released WHERE generation=$4) AND batch_id IS NOT NULL AND $6::text IS NOT NULL
-      AND delivery IN ('queued','preparing','dispatching')`,
+      AND delivery IN ('queued','preparing','dispatching') RETURNING batch_id
+    ) UPDATE widget_bridge_batches SET status='paused',review_version=review_version+1,
+      next_send_at=now()+interval_seconds*interval '1 second'
+      WHERE status='running' AND id IN (SELECT batch_id FROM failed)`,
       [contact.id, this.appId, this.workerId, contact.generation, error ? 'error' : 'idle', error, needsAttention]);
   }
   async yieldForBatch(contact: LeasedContact) {
@@ -147,8 +158,13 @@ export class BridgeStore {
       error='connection_stopped' FROM widget_bridge_contacts c,widget_bridge_settings s
       WHERE c.id=m.contact_id AND c.app_id=$1 AND s.app_id=c.app_id AND s.owner_id=c.owner_id AND s.workspace_id=c.workspace_id
       AND (NOT c.enabled OR NOT s.enabled OR c.deleting) AND m.delivery IN ('queued','preparing','dispatching')`, [this.appId]);
-    await this.db.query(`UPDATE widget_bridge_batches b SET status='completed' WHERE b.app_id=$1 AND b.status='running'
+    await this.db.query(`UPDATE widget_bridge_batches b SET status='completed' WHERE b.app_id=$1 AND b.status IN ('running','paused')
       AND NOT EXISTS(SELECT 1 FROM widget_bridge_messages m WHERE m.batch_id=b.id
         AND m.delivery IN ('queued','preparing','dispatching'))`, [this.appId]);
+    await this.db.query(`UPDATE widget_bridge_batches b SET status='paused',review_version=review_version+1
+      WHERE b.app_id=$1 AND b.status='running'
+      AND EXISTS(SELECT 1 FROM widget_bridge_messages m WHERE m.batch_id=b.id AND m.delivery='queued')
+      AND NOT EXISTS(SELECT 1 FROM widget_bridge_messages m WHERE m.batch_id=b.id
+        AND m.batch_position<=b.approved_through AND m.delivery IN ('queued','preparing','dispatching'))`, [this.appId]);
   }
 }

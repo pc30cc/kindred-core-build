@@ -65,7 +65,6 @@ cannot read, configure or send bridge messages even by direct API calls.
    | `WIDGET_BRIDGE_DATABASE_ROLE` | `none` (default; connect as the dedicated table owner) |
    | `WIDGET_BRIDGE_DATABASE_SSL` | `disable` on the private network, or `verify-full` for remote TLS |
    | `WIDGET_BRIDGE_DATABASE_SSL_CA` | CA PEM/file when required |
-   | `WIDGET_BRIDGE_MAX_SESSIONS` | `4` default, hard cap 8 per worker |
    | `WIDGET_BRIDGE_SESSION_MS` | `600000` default; minimum session before rotating for waiting sites |
 
    `PLATFORM_SIGNING_SECRET` and `PLUGIN_SECRETS_MASTER_KEY` are unchanged. The
@@ -110,13 +109,28 @@ database. Existing enabled bridge contacts retain their provider/selectors;
 disabled or deleting contacts are skipped. New contacts are named after their
 host and use automatic detection. No ordinary app contacts are created.
 
-Only one running batch is accepted per app/owner/workspace, enforced by a
+Only one running or paused batch is accepted per app/owner/workspace, enforced by a
 partial unique index. The outbox gates later batch positions on all preceding
 attempts reaching a terminal result, including across workers and restarts.
-Browser setup failures finish the current attempt and allow the next site.
+Browser setup failures finish the current attempt and immediately pause the batch for review.
 Unknown delivery is not retried. Active sessions yield browser capacity when
 the next batch site is waiting. This is ordered **submission**, not a guarantee
 that remote operators will receive/read messages in that same order.
+
+Settings include **sites per round (1–50, default 1)** and **minimum interval
+between attempts (5–3600 seconds, default 30)**. These are copied into each
+batch so its policy is stable. Even a 50-site round submits one site at a time;
+the worker uses one browser context, never 50 parallel pages. Keep one worker
+instance per app when you want that per-app browser limit.
+
+After the approved round finishes, the batch pauses for review. The Super Admin
+uses **Approve and continue** to authorize the next round. Failed/uncertain
+attempts pause immediately, even within a round; approval then permits the
+remaining unattempted sites, not a retry of the failed message. A versioned
+review token rejects stale/repeated approval requests. The database enforces
+both the approved position and cooldown at claim, prepare and dispatch. Approval
+does not bypass an unfinished cooldown. Successful widget submission is not an
+operator read receipt; the admin reviews outcomes before continuing.
 
 The panel shows totals and per-site results and can stop the batch. Stopping
 fences affected sessions, cancels pending messages and marks in-flight sends
@@ -188,7 +202,7 @@ redirects, iframe requests and WebSockets use an HTTPS-only CONNECT proxy that
 validates all DNS answers and connects to the validated public IP (no second
 lookup). Private/metadata/loopback addresses and non-443 ports are blocked.
 
-The concurrency cap bounds browser resource use; additional enabled sites wait
+Each worker uses one browser context at a time; additional enabled sites wait
 and rotate fairly. Active sessions remain open when no other enabled site is
 waiting, rather than needlessly creating a receive gap every ten minutes.
 Provider events are received while a session is active.

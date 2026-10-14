@@ -29,7 +29,7 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
   const { t, dir } = useTranslation();
   const qc = useQueryClient();
   const settings = useBridgeSettings(workspaceId);
-  const [form, setForm] = useState<BridgeSettings>({ enabled: false, identity: { name: '', email: '', phone: '' }, allowedProviders: [...bridgeProviders] });
+  const [form, setForm] = useState<BridgeSettings>({ enabled: false, identity: { name: '', email: '', phone: '' }, allowedProviders: [...bridgeProviders], roundSize: 1, intervalSeconds: 30 });
   const [dirty, setDirty] = useState(false);
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
@@ -40,6 +40,8 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
     if (settings.data && !dirty) setForm({
       enabled: settings.data.settings.enabled,
       allowedProviders: settings.data.settings.allowedProviders || [...bridgeProviders],
+      roundSize: settings.data.settings.roundSize ?? 1,
+      intervalSeconds: settings.data.settings.intervalSeconds ?? 30,
       identity: { name: '', email: '', phone: '', ...settings.data.settings.identity },
     });
   }, [settings.data, dirty]);
@@ -96,8 +98,17 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
           }} />{value==='custom' ? t('widgetBridge.custom') : value==='webyar' ? 'WebYar / RESPOK' : value==='goftino' ? 'Goftino' : value==='crisp' ? 'Crisp' : 'Raychat'}
         </label>)}</div>
       </fieldset>
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2"><Label htmlFor="bridge-round-size">{t('widgetBridge.pacing.roundSize')}</Label>
+          <Input id="bridge-round-size" type="number" min={1} max={50} value={form.roundSize}
+            onChange={event => { setDirty(true); setForm({ ...form, roundSize: Number(event.target.value) }); }} /></div>
+        <div className="space-y-2"><Label htmlFor="bridge-interval">{t('widgetBridge.pacing.interval')}</Label>
+          <Input id="bridge-interval" type="number" min={5} max={3600} value={form.intervalSeconds}
+            onChange={event => { setDirty(true); setForm({ ...form, intervalSeconds: Number(event.target.value) }); }} /></div>
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground">{t('widgetBridge.pacing.help')}</p>
       <p className="mt-3 text-xs text-muted-foreground">{t('widgetBridge.settingsChangeNotice')}</p>
-      <Button className="mt-4" disabled={save.isPending || !form.identity.name.trim()} onClick={() => save.mutate()}>{t('widgetBridge.save')}</Button>
+      <Button className="mt-4" disabled={save.isPending || !form.identity.name.trim() || !Number.isInteger(form.roundSize) || form.roundSize<1 || form.roundSize>50 || !Number.isInteger(form.intervalSeconds) || form.intervalSeconds<5 || form.intervalSeconds>3600} onClick={() => save.mutate()}>{t('widgetBridge.save')}</Button>
       {save.isSuccess && !dirty && <p role="status" className="mt-2 text-sm text-success">{t('widgetBridge.saved')}</p>}
       {save.error && <BridgeErrorNotice error={save.error} />}
     </div>

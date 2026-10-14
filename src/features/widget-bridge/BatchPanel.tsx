@@ -29,8 +29,9 @@ export function BatchPanel({ workspaceId, enabled }: { workspaceId: string; enab
     return bridgeRequest<{ batch: { id: string } }>(workspaceId, '/batches', 'POST', { urls, body, clientBatchId: requestId.current });
   }, onSuccess: result => { setSelected(result.batch.id); setSites(''); requestId.current = null; invalidate(); } });
   const stop = useMutation({ mutationFn: (id: string) => bridgeRequest(workspaceId, `/batches/${id}`, 'DELETE'), onSuccess: invalidate });
-  const active = batches.data?.batches.some(batch => batch.status === 'running');
-  const error = start.error || stop.error || batches.error || items.error;
+  const resume = useMutation({ mutationFn: (batch: BridgeBatch) => bridgeRequest(workspaceId, `/batches/${batch.id}/continue`, 'POST', { reviewVersion: batch.review_version }), onSuccess: invalidate });
+  const active = batches.data?.batches.some(batch => batch.status === 'running' || batch.status === 'paused');
+  const error = start.error || stop.error || resume.error || batches.error || items.error;
   return <section className="space-y-4 rounded-xl border p-5">
     <h2 className="font-semibold">{t('widgetBridge.batch.title')}</h2>
     <p className="text-sm text-muted-foreground">{t('widgetBridge.batch.description')}</p>
@@ -52,8 +53,11 @@ export function BatchPanel({ workspaceId, enabled }: { workspaceId: string; enab
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="ghost" className="max-w-full truncate" onClick={() => setSelected(batch.id)}>{batch.body.slice(0,60)}</Button>
           <span className="text-sm">{t(`widgetBridge.batch.${batch.status}`)}</span>
-          {batch.status==='running' && <Button variant="destructive" disabled={stop.isPending} onClick={() => stop.mutate(batch.id)}>{t('widgetBridge.batch.stop')}</Button>}
+          {batch.status==='paused' && <Button disabled={resume.isPending || !enabled} onClick={() => resume.mutate(batch)}>{t('widgetBridge.pacing.continue')}</Button>}
+          {(batch.status==='running' || batch.status==='paused') && <Button variant="destructive" disabled={stop.isPending} onClick={() => stop.mutate(batch.id)}>{t('widgetBridge.batch.stop')}</Button>}
         </div>
+        <p className="text-xs text-muted-foreground">{t('widgetBridge.pacing.roundSize')}: {batch.round_size} · {t('widgetBridge.pacing.interval')}: {batch.interval_seconds}</p>
+        {batch.status==='paused' && <p className="my-2 text-sm">{t('widgetBridge.pacing.review')}</p>}
         <p className="text-xs text-muted-foreground">{t('widgetBridge.batch.count')}: {batch.total} · {t('widgetBridge.delivery.sent')}: {batch.sent} · {t('widgetBridge.delivery.queued')}: {batch.pending} · {t('widgetBridge.delivery.failed')}: {batch.failed} · {t('widgetBridge.delivery.uncertain')}: {batch.uncertain} · {t('widgetBridge.batch.skipped')}: {batch.skipped}</p>
       </div>)}
     </div>

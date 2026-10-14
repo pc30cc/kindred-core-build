@@ -18,9 +18,10 @@ export interface BridgeSelectors {
 export interface BridgeIdentity { name: string; email: string; phone: string }
 export const bridgeProviders = ['webyar', 'crisp', 'raychat', 'goftino', 'custom'] as const;
 export type BridgeAllowedProvider = typeof bridgeProviders[number];
-export interface BridgeSettings { enabled: boolean; identity: BridgeIdentity; allowedProviders: BridgeAllowedProvider[] }
+export interface BridgeSettings { enabled: boolean; identity: BridgeIdentity; allowedProviders: BridgeAllowedProvider[]; roundSize: number; intervalSeconds: number }
 export interface BridgeBatch {
-  id: string; body: string; status: 'running' | 'completed' | 'cancelled'; created_at: string;
+  id: string; body: string; status: 'running' | 'paused' | 'completed' | 'cancelled'; created_at: string;
+  round_size: number; interval_seconds: number; approved_through: number; review_version: number; next_send_at: string;
   total: number; pending: number; sent: number; failed: number; uncertain: number; skipped: number;
 }
 export interface BridgeBatchItem { url: string; position: number; contact_id: string | null; delivery: string; error: string | null }

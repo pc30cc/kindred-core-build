@@ -1,5 +1,5 @@
 /** Browser-neutral API types; never expose encrypted browser sessions. */
-export type BridgeProvider = 'auto' | 'webyar' | 'crisp' | 'raychat' | 'custom';
+export type BridgeProvider = 'auto' | 'webyar' | 'crisp' | 'raychat' | 'goftino' | 'custom';
 export interface BridgeSelectors {
   frame?: string;
   root?: string;

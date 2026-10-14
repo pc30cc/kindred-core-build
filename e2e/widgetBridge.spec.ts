@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { makeAdapter, DomAdapter, CrispAdapter, RaychatAdapter } from '../worker/widget-bridge/adapters';
+import { makeAdapter, DomAdapter, CrispAdapter, RaychatAdapter, GoftinoAdapter } from '../worker/widget-bridge/adapters';
 
 const identity = { name: 'Admin', email: 'admin@example.com', phone: '+905551234567' };
 const fixture = `<!doctype html><html><body><div id="host"></div><script>
@@ -112,4 +112,55 @@ test('Raychat uses visitor sendMessage, receives replies and refuses a rejected 
   expect(replies[1].key).not.toBe(replies[2].key);
   expect(await page.evaluate(() => (globalThis as unknown as { offlineCalls: number }).offlineCalls)).toBe(0);
   adapter.acknowledge?.(3); expect(await adapter.receive()).toEqual([]);
+});
+
+// DOM selectors observed in Goftino's live widget; SDK contract from its docs.
+const goftinoFixture = `<!doctype html><input id="m" value="unrelated"><iframe id="goftino_w" title="goftino_widget"></iframe><script>
+window.displayOnlyCalls=0;window.visitorPosts=[];
+const frame=document.querySelector('iframe');
+frame.contentDocument.body.innerHTML='<div id="box-widget-icon">Chat</div><div id="box-chat" hidden><div id="chatbox"></div><form id="box-send"><textarea id="m" maxlength="2000"></textarea><div class="fix-content"><a class="btn-send">Send</a></div></form></div>';
+window.Goftino={setUser:(value)=>{window.identity=value},open:()=>{frame.contentDocument.querySelector('#box-chat').hidden=false},sendMessage:()=>{window.displayOnlyCalls++}};
+frame.contentDocument.querySelector('.btn-send').onclick=async()=>{const input=frame.contentDocument.querySelector('#m');const body=input.value;const bubble=frame.contentDocument.createElement('div');bubble.textContent=body;frame.contentDocument.querySelector('#chatbox').append(bubble);const response=await fetch('/visitor-message',{method:'POST',body});if(response.ok){window.visitorPosts.push(body);input.value='';window.dispatchEvent(new CustomEvent('goftino_sendMessage',{detail:{type:'text',content:body}}));}};
+</script>`;
+
+async function openGoftinoFixture(page: import('@playwright/test').Page, accepted = true) {
+  await page.route('https://goftino-fixture.test/**', route => route.fulfill(route.request().method() === 'POST'
+    ? { status: accepted ? 200 : 503, body: '{}' }
+    : { contentType: 'text/html', body: goftinoFixture }));
+  await page.goto('https://goftino-fixture.test/');
+}
+
+test('Goftino auto detection sends through iframe visitor form and receives operator events', async ({ page }) => {
+  await openGoftinoFixture(page);
+  const adapter = await makeAdapter(page, 'auto', {}); expect(adapter).toBeInstanceOf(GoftinoAdapter);
+  await adapter.prepare(identity); await adapter.prepare(identity); // listeners installed only once
+  expect(await adapter.send('Hello Goftino')).toBe(true);
+  await expect(page.locator('#m')).toHaveValue('unrelated');
+  expect(await page.evaluate(() => (globalThis as unknown as { visitorPosts: string[] }).visitorPosts)).toEqual(['Hello Goftino']);
+  expect(await page.evaluate(() => (globalThis as unknown as { displayOnlyCalls: number }).displayOnlyCalls)).toBe(0);
+  expect(await page.evaluate(() => (globalThis as unknown as { identity: unknown }).identity)).toEqual({ ...identity, forceUpdate: true });
+  await page.evaluate(() => {
+    for (const detail of [{ type: 'text', content: 'Reply' }, { type: 'text', content: 'Reply' }, { type: 'file', content: 'attachment' }]) {
+      window.dispatchEvent(new CustomEvent('goftino_getMessage', { detail }));
+    }
+  });
+  await expect.poll(async () => (await adapter.receive()).length).toBe(2);
+  const replies = await adapter.receive(); expect(replies.map(m => m.body)).toEqual(['Reply', 'Reply']);
+  expect(replies[0].key).not.toBe(replies[1].key);
+  adapter.acknowledge?.(2); expect(await adapter.receive()).toEqual([]);
+});
+
+test('Goftino optimistic bubble and incoming event do not confirm rejected visitor send', async ({ page }) => {
+  await openGoftinoFixture(page, false);
+  const adapter = await makeAdapter(page, 'goftino', {}); await adapter.prepare(identity);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('goftino_getMessage', { detail: { type: 'text', content: 'Rejected message' } })));
+  expect(await adapter.send('Rejected message')).toBe(false);
+});
+
+test('Goftino refuses overlong messages without truncating or submitting them', async ({ page }) => {
+  await openGoftinoFixture(page);
+  const adapter = await makeAdapter(page, 'goftino', {}); await adapter.prepare(identity);
+  await expect(adapter.send('x'.repeat(2001))).rejects.toThrow('message_too_long');
+  expect(await page.evaluate(() => (globalThis as unknown as { visitorPosts: string[] }).visitorPosts)).toEqual([]);
+  await expect(page.frameLocator('#goftino_w').locator('#m')).toHaveValue('');
 });

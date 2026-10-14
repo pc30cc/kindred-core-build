@@ -232,11 +232,84 @@ export class RaychatAdapter implements BridgeAdapter {
   acknowledge(count: number) { this.messages.splice(0, count); }
 }
 
+/** Goftino.sendMessage is display-only. Submit through its visitor form. */
+export class GoftinoAdapter implements BridgeAdapter {
+  private messages: RemoteMessage[] = [];
+  private sent = new Map<string, number>();
+  private installed = false;
+  private readonly selectors: BridgeSelectors;
+  constructor(private readonly page: Page, selectors: BridgeSelectors = {}) {
+    this.selectors = {
+      frame: '#goftino_w', root: 'body', launcher: '#box-widget-icon',
+      composer: '#box-send textarea#m', send: '#box-send .fix-content .btn-send',
+      ...selectors,
+    };
+  }
+  async prepare(identity: BridgeIdentity) {
+    await this.page.waitForFunction(() => {
+      const sdk = (globalThis as unknown as { Goftino?: { open?: unknown; setUser?: unknown } }).Goftino;
+      return typeof sdk?.open === 'function' && typeof sdk?.setUser === 'function';
+    }, undefined, { timeout: 15000 });
+    if (!this.installed) {
+      await this.page.exposeFunction('__bridgeGoftinoEvent', (kind: string, data: Record<string, unknown>) => {
+        if (data.type !== 'text' || typeof data.content !== 'string' || !data.content.trim()) return;
+        if (kind === 'sent') this.sent.set(data.content, (this.sent.get(data.content) || 0) + 1);
+        else {
+          // Published events do not promise message IDs or offline history.
+          const id = data.id ?? data.messageId ?? randomUUID();
+          this.messages.push({ key: `goftino:${String(id).slice(0, 200)}`, body: data.content.trim().slice(0, 4000) });
+        }
+      });
+      await this.page.evaluate(() => {
+        const win = globalThis as unknown as {
+          addEventListener(event: string, callback: (event: { detail: unknown }) => void): void;
+          __bridgeGoftinoEvent(kind: string, data: unknown): void;
+        };
+        win.addEventListener('goftino_sendMessage', event => win.__bridgeGoftinoEvent('sent', event.detail));
+        win.addEventListener('goftino_getMessage', event => win.__bridgeGoftinoEvent('received', event.detail));
+      });
+      this.installed = true;
+    }
+    await this.page.evaluate(identity => {
+      const sdk = (globalThis as unknown as { Goftino: { setUser(value: unknown): void; open(): void } }).Goftino;
+      sdk.setUser({ ...identity, forceUpdate: true }); sdk.open();
+    }, identity);
+    await new DomAdapter(this.page, this.selectors).prepare(identity);
+  }
+  async send(body: string) {
+    const root = this.page.frameLocator(this.selectors.frame!).locator(this.selectors.root!);
+    const composer = root.locator(this.selectors.composer!);
+    if (await root.count() !== 1 || await composer.count() !== 1 || !await composer.isEditable()) throw new Error('composer_unavailable');
+    const limit = Number(await composer.getAttribute('maxlength'));
+    if (limit > 0 && body.length > limit) throw new Error('message_too_long');
+    const before = this.sent.get(body) || 0;
+    await composer.fill(body, { timeout: 5000 });
+    if (this.selectors.send) {
+      const send = root.locator(this.selectors.send);
+      if (await send.count() !== 1 || !await send.isEnabled()) throw new Error('send_unavailable');
+      await send.click({ timeout: 5000 });
+    } else { await composer.press('Enter', { timeout: 5000 }); }
+    // A bubble alone may be optimistic. Require the visitor-send event,
+    // matching this message; incoming events never confirm an outbound send.
+    for (let i = 0; i < 20; i++) {
+      if ((this.sent.get(body) || 0) > before) return true;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    return false;
+  }
+  async receive() { return this.messages.slice(0, 200); }
+  acknowledge(count: number) { this.messages.splice(0, count); }
+}
+
 export async function makeAdapter(page: Page, provider: BridgeProvider, selectors: BridgeSelectors): Promise<BridgeAdapter> {
   if (provider === 'custom') return new DomAdapter(page, selectors);
   // Wait for lazy-loaded widgets instead of reporting unsupported while the
   // site's initial HTML is still being rendered.
   for (let i = 0; i < 30; i++) {
+    if ((provider === 'auto' || provider === 'goftino') && await page.evaluate(() => {
+      const sdk = (globalThis as unknown as { Goftino?: { open?: unknown } }).Goftino;
+      return typeof sdk?.open === 'function';
+    }) && await page.locator(selectors.frame || '#goftino_w').count() === 1) return new GoftinoAdapter(page, selectors);
     if ((provider === 'auto' || provider === 'raychat') && await page.evaluate(() => {
       const sdk = (globalThis as unknown as { Raychat?: { sendMessage?: unknown } }).Raychat;
       return typeof sdk?.sendMessage === 'function';

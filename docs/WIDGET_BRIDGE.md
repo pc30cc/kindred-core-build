@@ -95,7 +95,7 @@ cannot read, configure or send bridge messages even by direct API calls.
 
 ## Widget coverage and limits
 
-Automatic adapters currently cover **WebYar/RESPOK**, **Crisp** and **Raychat
+Automatic adapters currently cover **WebYar/RESPOK**, **Crisp**, **Goftino** and **Raychat
 versions exposing the visitor `sendMessage` SDK**. WebYar
 supports open shadow DOM / iframes, pre-chat identity and the real
 `/api/widget/message` acceptance receipt. Crisp uses its published
@@ -105,7 +105,23 @@ for visitor sends, identity, and incoming/outgoing events. Raychat uses its
 accepted send result and the visitor-send event. Message text is
 never treated as an AI instruction.
 
-Other widgets (Goftino, older Raychat versions, Tawk, Chatwoot, etc.) use the custom scoped DOM
+Goftino uses its published `setUser` and `open` methods for identity and opening,
+then fills the real visitor textarea inside `#goftino_w` and clicks its send
+button. It never calls the display-only `Goftino.sendMessage`. The matching
+`goftino_sendMessage` visitor event confirms the submission; a rendered bubble
+alone does not. This event is not a delivery/read receipt from an operator.
+Operator replies arrive through `goftino_getMessage`; non-text events are ignored.
+Default DOM selectors were inspected in the live widget on the official docs
+page. Browser fixtures verify the visitor form/event contract; a live two-party
+acceptance test on a site you control is still required before production use.
+Selector overrides allow site-specific pre-chat fields and submit buttons;
+unknown mandatory questions pause the connection rather than being answered.
+The widget's textarea maxlength is enforced without silently truncating a message.
+Goftino's published events do not promise stable message IDs or an offline history
+API. Replies without IDs get distinct arrival IDs; replay deduplication and
+backfill of replies received while the worker was offline are not guaranteed.
+
+Other widgets (older Raychat versions, Tawk, Chatwoot, etc.) use the custom scoped DOM
 adapter after their selectors are configured and tested for the particular
 site. This is **not a promise of universal provider support**. A custom adapter
 requires a widget root, composer and separate incoming/outgoing text selectors;

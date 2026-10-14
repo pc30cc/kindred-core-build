@@ -33,7 +33,7 @@ Turn the sync off with `launchctl bootout gui/$(id -u)/ai.webyar.xcode-sync`.
 ## Production server: `vps-50cc1602` (since 2026-10-07, verified 2026-10-08)
 
 WebYar runs on `vps-50cc1602` (public IP `192.99.68.134`, Desktop Commander
-device `47ef9de3-8e34-4b08-89c6-f38ab1b6aabc`), under that server's own
+device `7b4d1a32-e6fe-475e-a178-9fc2a16a7097`), under that server's own
 Coolify 4.4.1. Its dashboard has no domain: `http://192.99.68.134:8000`.
 The old Coolify on `analyticsme.site` is no longer used for WebYar (owner,
 2026-10-08): do not deploy, start, stop or change anything there.

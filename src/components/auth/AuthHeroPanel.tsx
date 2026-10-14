@@ -49,7 +49,8 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
   const { locale } = useTranslation();
   const isFa = locale === 'fa';
   // The International edition shows its own caller in the phone (a Mixkit
-  // stock clip, free licence); the Iranian edition keeps its own.
+  // stock clip #39799, free licence, cropped to a medium shot); the Iranian
+  // edition keeps its own.
   const international = useInternationalMode();
   return (
     <div className={`relative hidden overflow-hidden border-s border-border/60 bg-secondary/40 text-foreground lg:flex ${className ?? ''}`}>

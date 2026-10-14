@@ -113,6 +113,14 @@ suite('adjust rate limit counted from the ledger (real PostgreSQL, whole chain)'
     for (const pool of pools) await pool.end();
     await db?.end();
     if (admin) {
+      // pool.end() resolves before every socket has closed: dropping WITH
+      // (FORCE) at once can terminate a backend whose client is still open,
+      // and that client's 57P01 then surfaces as an unhandled error.
+      for (let i = 0; i < 50; i++) {
+        const { rows } = await admin.query<{ n: number }>('SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1', [DB]);
+        if (rows[0].n === 0) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
       await admin.query(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`);
       await admin.end();
     }
@@ -175,6 +183,8 @@ suite('adjust rate limit counted from the ledger (real PostgreSQL, whole chain)'
     const workspaces: string[] = [];
     for (let i = 0; i < n; i++) workspaces.push(await makeWorkspace());
     const pool = new pg.Pool({ connectionString: dbUrl, max: n });
+    // An idle client cut off later must not crash the run.
+    pool.on('error', () => {});
     try {
       // Every connection open first, so the requests really overlap.
       const clients = await Promise.all(workspaces.map(() => pool.connect()));

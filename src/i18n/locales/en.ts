@@ -632,6 +632,13 @@ const en = {
     viewAll: 'View all',
   },
   auth: {
+    legalLinks: {
+      label: 'Legal',
+      terms: 'Terms of Use',
+      privacy: 'Privacy Policy',
+      refund: 'Refund Policy',
+      sla: 'Service Level Agreement',
+    },
     login: 'Log in',
     signup: 'Sign up',
     logout: 'Log out',

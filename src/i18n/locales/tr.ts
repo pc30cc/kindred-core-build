@@ -634,6 +634,13 @@ const tr: TranslationKeys = {
     viewAll: 'Tümünü gör',
   },
   auth: {
+    legalLinks: {
+      label: 'Yasal',
+      terms: 'Kullanım Koşulları',
+      privacy: 'Gizlilik Politikası',
+      refund: 'İade Politikası',
+      sla: 'Hizmet Seviyesi Sözleşmesi',
+    },
     login: 'Giriş yap',
     signup: 'Kayıt ol',
     logout: 'Çıkış yap',

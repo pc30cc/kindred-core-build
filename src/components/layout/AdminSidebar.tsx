@@ -17,6 +17,7 @@ const adminNav = [
   { group: 'overview', key: 'dashboard', path: '/admin', icon: LayoutDashboard },
   { group: 'overview', key: 'users', path: '/admin/users', icon: Users },
   { group: 'overview', key: 'workspaces', path: '/admin/workspaces', icon: Building2 },
+  { group: 'overview', key: 'widgetBridge', path: '/admin/widget-bridge', icon: MessageSquare },
   { group: 'platform', key: 'providers', path: '/admin/providers', icon: Plug },
   { group: 'platform', key: 'mapGeo', path: '/admin/map-geo', icon: MapPin },
   { group: 'experience', key: 'widgetSettings', path: '/admin/widget-settings', icon: MessageSquare },
@@ -93,7 +94,7 @@ export function AdminSidebar({ mobileOpen = false, onMobileClose }: { mobileOpen
             key={item.key}
             to={item.path}
             onClick={onMobileClose}
-            title={collapsed ? t(`admin.nav.${item.key}` as TranslationKey) : undefined}
+            title={collapsed ? t((item.key === 'widgetBridge' ? 'widgetBridge.title' : `admin.nav.${item.key}`) as TranslationKey) : undefined}
             className={cn(
               'group relative mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200',
               isActive(item.path)
@@ -103,7 +104,7 @@ export function AdminSidebar({ mobileOpen = false, onMobileClose }: { mobileOpen
           >
             {isActive(item.path) && <span className="absolute inset-y-2 start-0 w-0.5 rounded-full bg-primary" />}
             <item.icon className="h-[18px] w-[18px] shrink-0 transition-transform group-hover:scale-105" />
-            {!collapsed && <span className="truncate">{t(`admin.nav.${item.key}` as TranslationKey)}</span>}
+            {!collapsed && <span className="truncate">{t((item.key === 'widgetBridge' ? 'widgetBridge.title' : `admin.nav.${item.key}`) as TranslationKey)}</span>}
           </Link>
           </div>;
         })}

@@ -1,6 +1,8 @@
 import type { TranslationKeys } from './en';
+import { widgetBridgeTr } from '../widgetBridge';
 
 const tr: TranslationKeys = {
+  widgetBridge: widgetBridgeTr,
     billing: {
     locks: {
       report: {

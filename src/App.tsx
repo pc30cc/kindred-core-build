@@ -134,6 +134,8 @@ const PrivacyRequestsPage = lazyPage(() => import("@/pages/app/PrivacyRequestsPa
 const AdminDashboardPage = lazyPage(() => import("@/pages/admin/DashboardPage"));
 const AdminUsersPage = lazyPage(() => import("@/pages/admin/UsersPage"));
 const AdminWorkspacesPage = lazyPage(() => import("@/pages/admin/WorkspacesPage"));
+const AdminWidgetBridgePage = lazyPage(() => import("@/pages/admin/WidgetBridgePage"));
+const WidgetBridgeInboxPage = lazyPage(() => import("@/pages/app/WidgetBridgeInboxPage"));
 const AdminProvidersPage = lazyPage(() => import("@/pages/admin/ProvidersPage"));
 const AdminSystemPage = lazyPage(() => import("@/pages/admin/SystemPage"));
 const AdminRetentionPage = lazyPage(() => import("@/pages/admin/RetentionPage"));
@@ -517,6 +519,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin" element={<AdminDashboardPage />} />
                 <Route path="/admin/users" element={<AdminUsersPage />} />
                 <Route path="/admin/workspaces" element={<AdminWorkspacesPage />} />
+                <Route path="/admin/widget-bridge" element={<AdminWidgetBridgePage />} />
                 <Route path="/admin/providers" element={<AdminProvidersPage />} />
                 <Route path="/admin/map-geo" element={<AdminMapGeoPage />} />
                 <Route path="/admin/widget-settings" element={<AdminWidgetSettingsPage />} />
@@ -577,6 +580,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
               <Route path="/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
                 <Route index element={<OverviewPage />} />
                 <Route path="inbox" element={<InboxPage />} />
+                <Route path="inbox/widget-bridge" element={<RequireAdmin><WidgetBridgeInboxPage /></RequireAdmin>} />
                 <Route path="contacts" element={<PlanLockedOverlay moduleKey="contacts"><ContactsPage /></PlanLockedOverlay>} />
                 <Route path="contacts/:id" element={<PlanLockedOverlay moduleKey="contacts"><ContactDetailPage /></PlanLockedOverlay>} />
                 <Route path="visitors" element={<PlanLockedOverlay moduleKey="visitor_tracking"><VisitorsPage /></PlanLockedOverlay>} />

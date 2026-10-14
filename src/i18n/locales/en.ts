@@ -1,4 +1,6 @@
+import { widgetBridgeEn } from '../widgetBridge';
 const en = {
+  widgetBridge: widgetBridgeEn,
     billing: {
     locks: {
       report: {

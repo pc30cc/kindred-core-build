@@ -48,6 +48,7 @@ import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { pluginsApi } from '@/lib/plugins-api';
 import { channelLabel, type ChannelKey } from '@/components/inbox/ChannelBadge';
+import { useBridgeSettings } from '@/features/widget-bridge/hooks';
 
 /** Colorful icon chip shared by every sidebar entry. */
 function NavChip({
@@ -108,6 +109,8 @@ export function AppSidebar({
   const { data: isAdmin } = useIsGlobalAdmin();
   const { platformName } = useBrandingContext();
   const { workspace, workspaces } = useActiveWorkspace();
+  const bridgeSettings = useBridgeSettings(workspace?.id, !!isAdmin && workspace?.owner_id === user?.id);
+  const bridgeAvailable = !!isAdmin && workspace?.owner_id === user?.id && !!bridgeSettings.data && !bridgeSettings.error;
   const { data: profile } = useProfile();
   const wsPath = useWorkspacePath();
   const { data: branding } = useBranding(workspace?.id);
@@ -552,7 +555,7 @@ export function AppSidebar({
           );
           return (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
-            <Link to={wsPath('/inbox')} className={itemCls(!q && !f && !ch && (!st || st === 'open'))}>
+            <Link to={wsPath('/inbox')} className={itemCls(location.pathname.endsWith('/inbox') && !q && !f && !ch && (!st || st === 'open'))}>
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
               <span>{t('inbox.open') || 'Open'}</span>
             </Link>
@@ -624,7 +627,7 @@ export function AppSidebar({
             )}
 
             {/* Other inboxes — one per installed inbox-capable channel plugin. */}
-            {pluginChannels.length > 0 && (
+            {(pluginChannels.length > 0 || bridgeAvailable) && (
               <div className="pt-1.5">
                 <button
                   type="button"
@@ -645,6 +648,10 @@ export function AppSidebar({
                     <span className="truncate">{channelLabel(c.key as ChannelKey) || c.label}</span>
                   </Link>
                 ))}
+                {otherInboxesOpen && bridgeAvailable && <Link
+                  to={wsPath('/inbox/widget-bridge')}
+                  className={itemCls(location.pathname.endsWith('/inbox/widget-bridge'))}
+                ><MessageSquare className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{t('widgetBridge.title')}</span></Link>}
               </div>
             )}
           </div>

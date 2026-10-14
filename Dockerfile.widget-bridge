@@ -1,0 +1,23 @@
+# Independent opt-in worker image; ordinary workers never install a browser.
+FROM node:22-bookworm-slim
+WORKDIR /app
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+COPY worker/widget-bridge/package.json worker/widget-bridge/package-lock.json ./
+RUN npm ci --omit=dev && npx playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 bridge \
+    && chmod -R a+rX /ms-playwright
+COPY worker/widget-bridge ./worker/widget-bridge
+COPY shared/net/hostGuard.ts ./shared/net/hostGuard.ts
+COPY shared/widgetBridge.ts ./shared/widgetBridge.ts
+COPY server/db/pool.ts ./server/db/pool.ts
+COPY server/db/postgrest/types.ts ./server/db/postgrest/types.ts
+COPY server/lib/pluginCrypto.ts ./server/lib/pluginCrypto.ts
+COPY server/services/widgetBridge/config.ts ./server/services/widgetBridge/config.ts
+USER bridge
+ENV NODE_ENV=production
+# Chromium sandbox must remain enabled. Configure the container's seccomp
+# profile to permit its unprivileged user namespaces; see the runbook.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "Date.now()-Number(require('fs').readFileSync('/tmp/widget-bridge-health','utf8'))<45000 || process.exit(1)"
+CMD ["node", "node_modules/tsx/dist/cli.mjs", "worker/widget-bridge/index.ts"]

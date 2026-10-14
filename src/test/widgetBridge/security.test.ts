@@ -1,3 +1,4 @@
+import { SessionRelay } from '../../../worker/widget-bridge/sessionRelay.js';
 import { isBridgeProviderSite, bridgeProviderDomains } from '../../../shared/widgetBridgeTargets.js';
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
@@ -56,5 +57,35 @@ describe('provider website destinations', () => {
   it.each(['https://tayebatstore.ir', 'https://www.tayebatstore.ir', 'https://notgoftino.com', 'https://goftino.com.example.org', 'https://example.com/goftino.com'])('allows customer target %s without substring matches', url => {
     expect(isBridgeProviderSite(url)).toBe(false);
     expect(bridgeContactSchema.safeParse({ url }).success).toBe(true);
+  });
+});
+
+
+describe('two-way session relay', () => {
+  const identity = {name:'Admin',email:'',phone:''};
+  it('prepares once and forwards both directions without rewriting messages', async () => {
+    const remote = {prepare:vi.fn(async()=>{}),send:vi.fn(async()=>true),receive:vi.fn(async()=>[{key:'1',body:'Reply'}]),acknowledge:vi.fn()};
+    const relay = new SessionRelay(remote,()=>{});
+    await relay.prepare(identity); await relay.send('سلام');
+    expect(await relay.receive()).toEqual([{key:'1',body:'Reply'}]);
+    relay.acknowledge?.(1);
+    await relay.prepare(identity); await relay.send('سلام');
+    expect(remote.prepare).toHaveBeenCalledTimes(1);
+    expect(remote.send.mock.calls).toEqual([['سلام'],['سلام']]);
+    expect(remote.acknowledge).toHaveBeenCalledWith(1);
+  });
+  it('does not add acknowledgement semantics to snapshot adapters', () => {
+    const relay = new SessionRelay({prepare:async()=>{},send:async()=>true,receive:async()=>[]},()=>{});
+    expect(relay.acknowledge).toBeUndefined();
+  });
+  it('refuses changed identity and stopped connections before sending', async () => {
+    let stopped = false;
+    const remote = {prepare:vi.fn(async()=>{}),send:vi.fn(async()=>true),receive:vi.fn(async()=>[])};
+    const relay = new SessionRelay(remote,()=>{if(stopped)throw new Error('connection_stopped');});
+    await relay.prepare(identity);
+    await expect(relay.prepare({...identity,name:'Different'})).rejects.toThrow('connection_stopped');
+    stopped=true;
+    await expect(relay.send('سلام')).rejects.toThrow('connection_stopped');
+    expect(remote.send).not.toHaveBeenCalled();
   });
 });

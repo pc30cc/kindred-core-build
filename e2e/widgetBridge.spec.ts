@@ -1,3 +1,4 @@
+import { SessionRelay } from '../worker/widget-bridge/sessionRelay';
 import { guardBridgePage } from '../worker/widget-bridge/targetGuard';
 import { test, expect } from '@playwright/test';
 import { makeAdapter, DomAdapter, CrispAdapter, RaychatAdapter, GoftinoAdapter } from '../worker/widget-bridge/adapters';
@@ -201,4 +202,27 @@ test('detection wakes widgets loaded only on the first pointer interaction', asy
   </script></body></html>`);
   const adapter = await makeAdapter(page,'auto',{});
   expect(adapter).toBeInstanceOf(CrispAdapter);
+});
+
+
+test('Goftino relay exchanges replies in the same page without navigation or repeated identity setup', async ({ page }) => {
+  let navigations = 0;
+  page.on('framenavigated', frame=>{if(frame===page.mainFrame())navigations++;});
+  await openGoftinoFixture(page);
+  await page.evaluate(()=>{
+    const win = globalThis as unknown as {Goftino:{setUser:(value:unknown)=>void};identitySetCount:number};
+    const setUser = win.Goftino.setUser; win.identitySetCount=0;
+    win.Goftino.setUser=value=>{win.identitySetCount++;setUser(value);};
+  });
+  const relay = new SessionRelay(await makeAdapter(page,'goftino',{}),()=>{});
+  await relay.prepare(identity); expect(await relay.send('سلام')).toBe(true);
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('goftino_getMessage',{detail:{type:'text',content:'Operator reply'}})));
+  await expect.poll(async()=> (await relay.receive()).length).toBe(1);
+  expect((await relay.receive())[0].body).toBe('Operator reply');
+  relay.acknowledge?.(1);
+  await relay.prepare(identity); expect(await relay.send('سلام')).toBe(true);
+  expect(navigations).toBe(1);
+  expect(await page.evaluate(()=>(globalThis as unknown as {identitySetCount:number}).identitySetCount)).toBe(1);
+  expect(await page.evaluate(()=>(globalThis as unknown as {visitorPosts:string[]}).visitorPosts)).toEqual(['سلام','سلام']);
+  expect(await relay.receive()).toEqual([]);
 });

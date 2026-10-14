@@ -11,6 +11,7 @@ import { makeAdapter, type BridgeAdapter } from './adapters.js';
 
 import { assertBridgeTarget } from '../../shared/widgetBridgeTargets.js';
 import { guardBridgePage } from './targetGuard.js';
+import { SessionRelay } from './sessionRelay.js';
 
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const SAFE_ERRORS = new Set(['unsupported_widget','widget_not_found','ambiguous_widget','identity_required',
@@ -97,7 +98,7 @@ export async function startWidgetBridgeWorker() {
         try { await page.goto(contact.url, { waitUntil: 'domcontentloaded', timeout: 30000 }); }
         catch (err) { guard(); throw err; }
         guard();
-        const adapter = await makeAdapter(page, contact.provider, contact.selectors, contact.allowed_providers);
+        const adapter = new SessionRelay(await makeAdapter(page, contact.provider, contact.selectors, contact.allowed_providers), guard);
         guard();
         await adapter.prepare(contact.identity);
         const persist = async () => {

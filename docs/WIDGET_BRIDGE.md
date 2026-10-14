@@ -297,3 +297,24 @@ visible after reload and reopening the chat. No identity fields were required.
 This verifies the real site's visitor chat path, not deployment of this worker,
 operator receipt/read status, or replies arriving in the application's inbox.
 The dedicated worker and separate database still require deployment.
+
+
+## Reusing the live conversation bridge
+
+`SessionRelay` prepares identity/listeners once and forwards subsequent outbound
+text and inbound operator messages through the same adapter and browser page.
+It does not navigate for each reply, append text, or create another visitor.
+A second authorized live browser message containing exactly `سلام` was sent to
+the same Tayebat conversation and displayed successfully without reloading.
+The initial longer test had already been sent before that wording instruction.
+
+This is a live browser-backed relay, not a browser-free Goftino transport. A
+worker still has one live site at a time: batch advancement, fair rotation,
+restart or a broken session can require reopening a site with encrypted saved
+visitor state. Replies during disconnected intervals are not guaranteed to be
+backfilled by SDK adapters. A browser-free integration would need a supported
+provider transport with authorized credentials. Goftino's public server API
+(https://api.goftino.com/) requires the destination account's `goftino-key`,
+including `send_message_from_user` and Webhook configuration; a public widget
+ID alone does not grant that access. No such credential is available for the
+third-party test store, and this PR does not pretend to provide that transport.

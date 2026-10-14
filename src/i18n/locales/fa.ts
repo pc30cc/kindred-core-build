@@ -231,6 +231,7 @@ const fa: TranslationKeys = {
         title: 'افزایش موجودی',
         amount: 'مبلغ',
         amountHint: 'از {{min}} تا {{max}}.',
+        adminTest: 'تست {{amount}} (سوپر ادمین)',
         quick: 'مبالغ پیشنهادی',
         gateway: 'روش پرداخت',
         noGateway: 'در حال حاضر هیچ درگاه پرداختی در دسترس نیست. لطفاً بعداً دوباره تلاش کنید.',

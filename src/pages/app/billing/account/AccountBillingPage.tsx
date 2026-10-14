@@ -390,6 +390,7 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           workspaceId={workspaceId}
           slug={slug}
           currency={view.currency}
+          edition={view.edition}
           vatPercent={view.vat_percent}
           gateways={view.gateways}
           onCurrencyChanged={() => void load()}

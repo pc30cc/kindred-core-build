@@ -10,12 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useTranslation } from '@/i18n';
 import { parsePlanPriceInput, planPriceDecimals } from '@/lib/planPrice';
 import { toast } from '@/lib/toast';
 import { accountBillingApi, type AccountGateway } from '@/lib/accountBillingApi';
 import { money } from '../shared';
-import { TOPUP_LIMITS, chargeFor, topupAmountProblem } from '../../../../../shared/simpleBilling';
+import { ADMIN_TEST_TOPUP, TOPUP_LIMITS, chargeFor, topupAmountProblem } from '../../../../../shared/simpleBilling';
 import GatewayPicker from './GatewayPicker';
 import {
   QUICK_TOPUPS,
@@ -35,6 +36,8 @@ export interface TopupDialogProps {
   vatPercent: number | null;
   gateways: AccountGateway[];
   onCurrencyChanged?: () => void;
+  /** The edition the server reports for this account ('international' abroad). */
+  edition?: string | null;
   /** Opens with this amount filled in (what a change is missing), never below the minimum. */
   initialAmountMinor?: number | null;
 }
@@ -49,6 +52,7 @@ export default function TopupDialog({
   gateways,
   onCurrencyChanged,
   initialAmountMinor = null,
+  edition = null,
 }: TopupDialogProps) {
   const { t, locale, dir } = useTranslation();
   const [raw, setRaw] = useState('');
@@ -65,9 +69,12 @@ export default function TopupDialog({
   const [error, setError] = useState<string | null>(null);
 
   const limits = TOPUP_LIMITS[currency];
+  // A platform Super Admin, abroad, can pay one unit to try a live gateway.
+  const { data: isGlobalAdmin } = useIsGlobalAdmin();
+  const adminTestMinor = isGlobalAdmin && edition === 'international' ? ADMIN_TEST_TOPUP[currency] ?? null : null;
   const display = parsePlanPriceInput(raw);
   const minor = display === null ? null : toMinorAmount(display, currency);
-  const problem = minor === null ? (raw.trim() ? 'TOPUP_AMOUNT_INVALID' : null) : topupAmountProblem(minor, currency);
+  const problem = minor === null ? (raw.trim() ? 'TOPUP_AMOUNT_INVALID' : null) : topupAmountProblem(minor, currency, { adminTest: adminTestMinor !== null });
   const charge = useMemo(() => (minor && !problem ? chargeFor(minor, vatPercent) : null), [minor, problem, vatPercent]);
   const chosen = gateways.find((g) => g.provider_name === provider) ?? gateways[0];
 
@@ -140,6 +147,19 @@ export default function TopupDialog({
                   {money(toMinorAmount(amount, currency) ?? 0, locale, currency)}
                 </Button>
               ))}
+              {adminTestMinor !== null && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-dashed border-amber-500 text-amber-700 dark:text-amber-400"
+                  disabled={busy}
+                  onClick={() => setRaw(String(toDisplayAmount(adminTestMinor, currency)))}
+                  data-admin-test-topup=""
+                >
+                  {t('billing.account.topup.adminTest', { amount: money(adminTestMinor, locale, currency) })}
+                </Button>
+              )}
             </div>
             {problem && raw.trim() && (
               <p className="text-sm text-destructive">{t(`billing.account.errors.${problem}` as never)}</p>

@@ -16,6 +16,8 @@ vi.mock('@/i18n', () => ({
     dir: 'ltr',
   }),
 }));
+const admin = { current: false };
+vi.mock('@/hooks/useAdmin', () => ({ useIsGlobalAdmin: () => ({ data: admin.current }) }));
 vi.mock('@/lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const openPaddle = vi.fn();
 vi.mock('@/lib/paddleCheckout', () => ({ openPaddleCheckout: (...a: unknown[]) => openPaddle(...a) }));
@@ -86,6 +88,7 @@ beforeEach(() => {
   window.sessionStorage.clear();
   for (const fn of Object.values(api)) fn.mockReset();
   openPaddle.mockReset();
+  admin.current = false;
   api.view.mockResolvedValue(VIEW);
   api.ledger.mockResolvedValue(LEDGER);
 });
@@ -129,6 +132,31 @@ describe('AccountBillingPage', () => {
     expect(vatLabel.nextElementSibling).toHaveTextContent('$10.00');
     const totalLabel = within(dialog).getByText('billing.account.topup.total');
     expect(totalLabel.nextElementSibling).toHaveTextContent('$110.00');
+  });
+
+  it('offers the $1 test top-up to a Super Admin only, and sends it', async () => {
+    renderAt('/acme/billing');
+    fireEvent.click(await screen.findByText('billing.account.balance.topup'));
+    let dialog = await screen.findByRole('dialog');
+    expect(dialog.querySelector('[data-admin-test-topup]')).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText('billing.account.topup.amount'), { target: { value: '1' } });
+    expect(within(dialog).getByText('billing.account.errors.TOPUP_AMOUNT_TOO_SMALL')).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    admin.current = true;
+    api.topup.mockResolvedValue({
+      success: true, paymentId: 'pay1', provider: 'paddle', currency: 'USD', net_minor: 100, tax_minor: 0, amount_minor: 100,
+      clientCheckout: { provider: 'paddle', transactionId: 'txn_1', clientToken: 'tok', successUrl: 'x' },
+    });
+    fireEvent.click(screen.getByText('billing.account.balance.topup'));
+    dialog = await screen.findByRole('dialog');
+    const test = dialog.querySelector('[data-admin-test-topup]') as HTMLElement;
+    expect(test).not.toBeNull();
+    fireEvent.click(test);
+    expect(within(dialog).queryByText(/TOPUP_AMOUNT_TOO_SMALL/)).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText('billing.account.topup.pay'));
+    await waitFor(() => expect(api.topup).toHaveBeenCalledWith('ws-1', expect.objectContaining({ amountMinor: 100, currency: 'USD' })));
   });
 
   it('refuses an amount below the minimum before calling the server', async () => {

@@ -231,6 +231,7 @@ const tr: TranslationKeys = {
         title: 'Bakiye yükle',
         amount: 'Tutar',
         amountHint: '{{min}} ile {{max}} arasında.',
+        adminTest: 'Test {{amount}} (Süper Yönetici)',
         quick: 'Hızlı tutarlar',
         gateway: 'Ödeme yöntemi',
         noGateway: 'Şu anda kullanılabilir bir ödeme yöntemi yok. Lütfen daha sonra tekrar deneyin.',

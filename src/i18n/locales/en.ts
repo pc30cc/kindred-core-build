@@ -229,6 +229,7 @@ const en = {
         title: 'Top up your balance',
         amount: 'Amount',
         amountHint: 'Between {{min}} and {{max}}.',
+        adminTest: 'Test {{amount}} (Super Admin)',
         quick: 'Quick amounts',
         gateway: 'Payment method',
         noGateway: 'No payment method is available right now. Please try again later.',

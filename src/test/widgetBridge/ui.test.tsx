@@ -10,6 +10,7 @@ import WidgetBridgeInboxPage from '../../pages/app/WidgetBridgeInboxPage';
 
 const state = vi.hoisted(() => ({
   enabled: true,
+  lists: {} as Record<string, {urls:string[];includeShared:boolean}>,
   request: vi.fn(),
 }));
 vi.mock('@/features/auth/AuthContext', () => ({ useAuth: () => ({ user: { id: 'admin-1' } }) }));
@@ -29,10 +30,12 @@ function mount(component: React.ReactNode) {
   return render(<QueryClientProvider client={client}><MemoryRouter>{component}</MemoryRouter></QueryClientProvider>);
 }
 beforeEach(() => {
-  state.enabled = true;
+  state.enabled = true; state.lists = {};
   state.request.mockReset().mockImplementation(async (_workspace: string, path: string, method = 'GET', body?: unknown) => {
     if (path === '/settings' && method === 'GET') return { settings: { enabled: state.enabled, identity: { name: 'Default Admin', email: 'admin@example.com', phone: '+90555' } } };
     if (path === '/settings' && method === 'PUT') { state.enabled = (body as { enabled: boolean }).enabled; return { settings: body }; }
+    if (path === '/site-lists') return {lists:state.lists};
+    if (path.startsWith('/site-lists/') && method === 'PUT') { const key=path.split('/').pop()!; state.lists={...state.lists,[key]:body as {urls:string[];includeShared:boolean}}; return {list:state.lists[key]}; }
     if (path === '/batches') return method === 'POST' ? { batch: { id: 'batch-1' } } : { batches: [] };
     if (path === '/batches/batch-1') return { items: [] };
     if (path === '/contacts?aiReplied=true') return { contacts: [{ ...contact, ai_replied_at:'2026-10-14T10:00:00Z', ai_reply_source:'widget_label', ai_reply_label:'AI assistant' }], hasMore:false };
@@ -114,4 +117,33 @@ it('prepares selected AI follow-ups without sending until the batch start button
   fireEvent.change(screen.getByLabelText('Message for all sites'),{target:{value:'سلام'}});
   fireEvent.click(screen.getByRole('button',{name:'Start sequential sending'}));
   await waitFor(()=>expect(state.request).toHaveBeenCalledWith('workspace-1','/batches','POST',expect.objectContaining({urls:[contact.url],body:'سلام'})));
+});
+
+
+it('keeps provider drafts separate and combines shared sites only when opted in', async () => {
+  state.lists={shared:{urls:['https://first.example.com/','https://shared.example.com/'],includeShared:false}};
+  mount(<WidgetBridgeSettingsPanel workspaceId="workspace-1" slug="admin" />);
+  await screen.findByLabelText('Default name');
+  const provider=screen.getByLabelText('Website list provider');
+  const sites=screen.getByLabelText('Saved websites (one per line)');
+  fireEvent.change(sites,{target:{value:'first.example.com\nsecond.example.com'}});
+  fireEvent.change(provider,{target:{value:'crisp'}});
+  expect((sites as HTMLTextAreaElement).value).toBe('');
+  fireEvent.change(provider,{target:{value:'goftino'}});
+  expect((sites as HTMLTextAreaElement).value).toBe('first.example.com\nsecond.example.com');
+  fireEvent.click(screen.getByLabelText('Include shared websites for this provider'));
+  fireEvent.click(screen.getByRole('button',{name:'Save website list'}));
+  await screen.findByText('Website list saved.');
+  fireEvent.click(screen.getByRole('button',{name:'Prepare saved list'}));
+  expect((screen.getByLabelText('Website list (one per line)') as HTMLTextAreaElement).value).toBe('https://first.example.com/\nhttps://second.example.com/\nhttps://shared.example.com/');
+  expect((screen.getByLabelText('Provider for this batch') as HTMLSelectElement).value).toBe('goftino');
+  expect(state.request.mock.calls.filter(call=>call[1]==='/batches' && call[2]==='POST')).toHaveLength(0);
+  fireEvent.click(screen.getByLabelText('Include shared websites for this provider'));
+  fireEvent.click(screen.getByRole('button',{name:'Save website list'}));
+  await waitFor(()=>expect((screen.getByRole('button',{name:'Prepare saved list'}) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button',{name:'Prepare saved list'}));
+  expect((screen.getByLabelText('Website list (one per line)') as HTMLTextAreaElement).value).toBe('https://first.example.com/\nhttps://second.example.com/');
+  fireEvent.change(screen.getByLabelText('Message for all sites'),{target:{value:'سلام'}});
+  fireEvent.click(screen.getByRole('button',{name:'Start sequential sending'}));
+  await waitFor(()=>expect(state.request).toHaveBeenCalledWith('workspace-1','/batches','POST',expect.objectContaining({provider:'goftino',urls:['https://first.example.com/','https://second.example.com/']})));
 });

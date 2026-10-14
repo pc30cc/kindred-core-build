@@ -5,6 +5,7 @@ import { bridgeProviders, type BridgeAllowedProvider, type BridgeIdentity, type 
 
 export interface RemoteMessage { key: string; body: string; aiLabel?: string }
 export interface BridgeAdapter {
+  readonly provider?: BridgeAllowedProvider;
   prepare(identity: BridgeIdentity): Promise<void>;
   send(body: string): Promise<boolean>;
   receive(): Promise<RemoteMessage[]>;
@@ -312,9 +313,10 @@ export class GoftinoAdapter implements BridgeAdapter {
 }
 
 export async function makeAdapter(page: Page, provider: BridgeProvider, selectors: BridgeSelectors, allowed: readonly BridgeAllowedProvider[] = bridgeProviders): Promise<BridgeAdapter> {
+  const identified = (adapter: BridgeAdapter, kind: BridgeAllowedProvider) => Object.assign(adapter, { provider: kind });
   if (!allowed.length || (provider !== 'auto' && !allowed.includes(provider))) throw new Error('provider_not_allowed');
   let blocked = false;
-  if (provider === 'custom') return new DomAdapter(page, selectors);
+  if (provider === 'custom') return identified(new DomAdapter(page, selectors), 'custom');
   await page.mouse.move(0, 0);
   await page.mouse.move(1, 1);
   // Wait for lazy-loaded widgets instead of reporting unsupported while the
@@ -324,24 +326,24 @@ export async function makeAdapter(page: Page, provider: BridgeProvider, selector
       const sdk = (globalThis as unknown as { Goftino?: { open?: unknown } }).Goftino;
       return typeof sdk?.open === 'function';
     }) && await page.locator(selectors.frame || '#goftino_w').count() === 1) {
-      if (allowed.includes('goftino')) return new GoftinoAdapter(page, selectors);
+      if (allowed.includes('goftino')) return identified(new GoftinoAdapter(page, selectors), 'goftino');
       blocked = true;
     }
     if ((provider === 'auto' || provider === 'raychat') && await page.evaluate(() => {
       const sdk = (globalThis as unknown as { Raychat?: { sendMessage?: unknown } }).Raychat;
       return typeof sdk?.sendMessage === 'function';
     })) {
-      if (allowed.includes('raychat')) return new RaychatAdapter(page);
+      if (allowed.includes('raychat')) return identified(new RaychatAdapter(page), 'raychat');
       blocked = true;
     }
     if ((provider === 'auto' || provider === 'crisp') && await page.evaluate(() => Boolean((globalThis as unknown as { $crisp?: unknown }).$crisp))) {
-      if (allowed.includes('crisp')) return new CrispAdapter(page);
+      if (allowed.includes('crisp')) return identified(new CrispAdapter(page), 'crisp');
       blocked = true;
     }
     if (provider === 'auto' || provider === 'webyar') {
       for (const frame of page.frames()) {
         if (await frame.locator('.shell [data-home-action="chat"], .shell [data-msg-input], .shell .launcher').count()) {
-          if (allowed.includes('webyar')) return new WebyarAdapter(page, { ...webyar, ...selectors });
+          if (allowed.includes('webyar')) return identified(new WebyarAdapter(page, { ...webyar, ...selectors }), 'webyar');
           blocked = true;
         }
       }

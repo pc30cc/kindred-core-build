@@ -50,8 +50,8 @@ cannot read, configure or send bridge messages even by direct API calls.
    been performed by this PR.
 2. Apply `deploy/widget-bridge/schema.sql` **as that login in that database**.
    First verify `SELECT current_database(), current_user` and dry-run inside
-   a transaction. The file includes BEGIN/COMMIT, so replace its final COMMIT
-   with ROLLBACK for the dry-run. This file is intentionally outside
+   a transaction. The file includes multiple BEGIN/COMMIT blocks: remove every standalone
+   BEGIN/COMMIT and wrap the whole file in one BEGIN/ROLLBACK for the dry-run. This file is intentionally outside
    `database/migrations` / `supabase/migrations`; neither brand's migrator
    should run it.
 3. Add these env vars to each backend and its new dedicated worker:
@@ -345,3 +345,26 @@ responder header «هوش مصنوعی ایران سرور». The browser test r
 This is recorded here for later import/manual marking; it is not a seeded live
 contact because the bridge database and worker have not been deployed. Do not
 resend automatically on deployment.
+
+## Provider and shared website lists
+
+Super Admin settings store one list per supported provider plus a shared list in
+`widget_bridge_settings.site_lists` in the isolated bridge database. Each provider
+has its own persisted `includeShared` toggle, off by default. Saving one list does
+not replace other lists, change contacts, or interrupt active batches. An empty
+list clears that list. Inbox data deletion removes all these lists as well.
+
+Save a list, then prepare it to fill the batch draft. Provider sites come first,
+followed by optional shared sites; normalized duplicates are removed in order.
+Each saved list and the combined draft are limited to 500 sites. Preparing does
+not send messages. Review the final draft and explicitly start the paced batch.
+A provider-specific batch stores `required_provider` on each queued message; the
+worker verifies the detected adapter before sending each message, including
+for existing contacts and live sessions. A mismatch fails the attempt and pauses
+the batch for review. Shared-only batches use the globally allowed providers.
+
+Deployment order: apply the additive schema to the dedicated bridge DB first,
+then upgrade both bridge workers before exposing the new backend batch endpoint.
+Old workers do not enforce `required_provider`; stop only bridge workers through
+Coolify if backend and worker rollout cannot otherwise be ordered. Queued work
+waits while stopped. Do not run old workers against new provider-specific batches.

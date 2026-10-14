@@ -1,5 +1,22 @@
 /** Browser-neutral API types; never expose encrypted browser sessions. */
 export type BridgeProvider = 'auto' | 'webyar' | 'crisp' | 'raychat' | 'goftino' | 'custom';
+export type BridgeListKey = 'shared' | BridgeAllowedProvider;
+export interface BridgeSiteList { urls: string[]; includeShared: boolean }
+export type BridgeSiteLists = Partial<Record<BridgeListKey, BridgeSiteList>>;
+export interface BridgeBatchDraft { urls: string[]; provider?: BridgeAllowedProvider }
+export function normalizeBridgeUrls(values: string[]): string[] {
+  return [...new Set(values.map(value => {
+    const raw = value.trim();
+    if (!raw) return '';
+    const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    parsed.hash = ''; return parsed.toString();
+  }).filter(Boolean))];
+}
+export function bridgeListDraft(lists: BridgeSiteLists, key: BridgeListKey): BridgeBatchDraft {
+  const own = lists[key];
+  return { urls: normalizeBridgeUrls([...(own?.urls || []), ...(key !== 'shared' && own?.includeShared ? lists.shared?.urls || [] : [])]),
+    ...(key === 'shared' ? {} : { provider: key }) };
+}
 export interface BridgeSelectors {
   frame?: string;
   root?: string;
@@ -49,6 +66,7 @@ export interface BridgeMessage {
   delivery: 'queued' | 'preparing' | 'dispatching' | 'sent' | 'received' | 'failed' | 'uncertain' | 'cancelled';
   dedupe_key: string;
   ai_label?: string | null;
+  required_provider?: BridgeAllowedProvider | null;
   batch_id?: string | null;
   batch_position?: number | null;
   error: string | null;

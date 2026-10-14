@@ -25,6 +25,7 @@ export async function sendNext(store: BridgeStore, contact: LeasedContact, adapt
   let dispatching = false;
   try {
     guard();
+    if (message.required_provider && message.required_provider !== adapter.provider) throw new Error('provider_not_allowed');
     await adapter.prepare(contact.identity);
     // Save the visitor identity BEFORE any message can leave the process.
     await persist();

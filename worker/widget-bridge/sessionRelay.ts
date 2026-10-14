@@ -3,6 +3,7 @@ import type { BridgeAdapter, RemoteMessage } from './adapters.js';
 
 /** Reuse one prepared visitor session for both directions; no navigation here. */
 export class SessionRelay implements BridgeAdapter {
+  get provider() { return this.adapter.provider; }
   private prepared: Promise<void> | undefined;
   private identityKey: string | undefined;
   private ready = false;

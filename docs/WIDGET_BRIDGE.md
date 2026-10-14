@@ -34,8 +34,9 @@ The bridge pool is lazy and capped at two connections per process. A missing
 or failed bridge database returns 503 only from bridge endpoints, never from
 normal inbox/auth/channel endpoints. There is no browser dependency in the
 normal worker image, and `WORKER_KIND=all` does not start this worker. The
-existing app database is used **read-only** to authenticate the Super Admin
-and verify `workspaces.owner_id`; customer workspaces and ordinary members
+existing authentication/admin guards remain in place, and a **read-only**
+lookup verifies `workspaces.owner_id`. No bridge records are stored in the
+app database; customer workspaces and ordinary members
 cannot read, configure or send bridge messages even by direct API calls.
 
 ## Provisioning (separate, opt-in deployment)
@@ -64,7 +65,7 @@ cannot read, configure or send bridge messages even by direct API calls.
    | `WIDGET_BRIDGE_DATABASE_SSL` | `disable` on the private network, or `verify-full` for remote TLS |
    | `WIDGET_BRIDGE_DATABASE_SSL_CA` | CA PEM/file when required |
    | `WIDGET_BRIDGE_MAX_SESSIONS` | `4` default, hard cap 8 per worker |
-   | `WIDGET_BRIDGE_SESSION_MS` | `600000` default; fair rotation every 10 minutes |
+   | `WIDGET_BRIDGE_SESSION_MS` | `600000` default; minimum session before rotating for waiting sites |
 
    `PLATFORM_SIGNING_SECRET` and `PLUGIN_SECRETS_MASTER_KEY` are unchanged. The
    dedicated worker needs neither an app `DATABASE_URL` nor app credentials.
@@ -136,7 +137,9 @@ validates all DNS answers and connects to the validated public IP (no second
 lookup). Private/metadata/loopback addresses and non-443 ports are blocked.
 
 The concurrency cap bounds browser resource use; additional enabled sites wait
-and rotate fairly. Provider events are received while a session is active.
+and rotate fairly. Active sessions remain open when no other enabled site is
+waiting, rather than needlessly creating a receive gap every ten minutes.
+Provider events are received while a session is active.
 WebYar/custom adapters read rendered history after reconnect; Crisp/Raychat SDK
 adapters receive operator events, so offline or rotation gaps are not
 guaranteed to be backfilled. Raychat events lacking a stable ID receive a

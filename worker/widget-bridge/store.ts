@@ -24,6 +24,14 @@ export class BridgeStore {
       RETURNING c.*,s.identity`, [this.appId, this.workerId]);
     return rows[0] || null;
   }
+  async hasWaiting() {
+    const { rows } = await this.db.query<{ waiting: boolean }>(`SELECT EXISTS(
+      SELECT 1 FROM widget_bridge_contacts c JOIN widget_bridge_settings s USING(app_id,owner_id,workspace_id)
+      WHERE c.app_id=$1 AND c.enabled AND s.enabled AND NOT c.deleting AND c.next_poll_at<=now()
+        AND (c.lease_until IS NULL OR c.lease_until<now())
+    ) AS waiting`, [this.appId]);
+    return rows[0]?.waiting === true;
+  }
   async alive(contact: LeasedContact) {
     const { rows } = await this.db.query(`UPDATE widget_bridge_contacts c
       SET lease_until=now()+interval '45 seconds',last_seen_at=now()

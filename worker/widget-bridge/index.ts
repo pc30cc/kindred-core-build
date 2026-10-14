@@ -92,9 +92,16 @@ export async function startWidgetBridgeWorker() {
         await persist();
         const started = Date.now();
         let lastPersist = Date.now();
+        let lastRotationCheck = started;
         const received = new Map<string, string>();
-        while (!stopping && !stopped && Date.now() - started < sessionMs) {
+        while (!stopping && !stopped) {
           if (!await store.alive(contact)) break;
+          // Do not create a receive gap every ten minutes for a lone active
+          // contact. Rotate only when another site is actually waiting.
+          if (Date.now() - started >= sessionMs && Date.now() - lastRotationCheck > 30000) {
+            lastRotationCheck = Date.now();
+            if (await store.hasWaiting()) break;
+          }
           const incoming = await adapter.receive();
           const changed = incoming.filter(message => received.get(message.key) !== message.body);
           await store.receive(contact, changed);

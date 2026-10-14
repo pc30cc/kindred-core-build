@@ -120,6 +120,14 @@ describe('standalone bridge database and API', () => {
     expect(await new BridgeStore(gate.pool, 'webyar', randomUUID()).claim()).toBeNull();
     expect(await new BridgeStore(gate.pool, 'respok', randomUUID()).claim()).toBeNull();
   });
+  it('keeps a live session open unless another enabled site is waiting for capacity', async () => {
+    await connected();
+    expect(await store().hasWaiting()).toBe(false);
+    await request(app).post(api('/contacts')).send({ url: 'https://waiting.example.com', enabled: true }).expect(201);
+    expect(await store().hasWaiting()).toBe(true);
+    await new BridgeStore(gate.pool, 'webyar', randomUUID()).claim();
+    expect(await store().hasWaiting()).toBe(false);
+  });
   it('posts queued messages through the worker and receives replies without echoing or duplicates', async () => {
     const contact = await connected(); await queue(contact).expect(202);
     const remote = adapter(); const persist = vi.fn(async () => {});

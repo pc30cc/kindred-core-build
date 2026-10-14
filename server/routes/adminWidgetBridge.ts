@@ -1,3 +1,4 @@
+import type { BridgeBatchItem } from '../../shared/widgetBridge.js';
 import { isBridgeProviderSite } from '../../shared/widgetBridgeTargets.js';
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
@@ -123,7 +124,7 @@ adminWidgetBridgeRouter.patch('/contacts/:id', handle(async (req, res) => {
   const id = uuid.safeParse(req.params.id);
   const body = z.object({ enabled: z.boolean() }).strict().safeParse(req.body);
   if (!id.success || !body.success) { res.status(400).json({ error: 'invalid_contact' }); return; }
-  const target = await bridgePool().query(`SELECT url FROM widget_bridge_contacts WHERE ${scoped} AND id=$4`, [...params(res),id.data]);
+  const target = await bridgePool().query<{ url: string }>(`SELECT url FROM widget_bridge_contacts WHERE ${scoped} AND id=$4`, [...params(res),id.data]);
   if (body.data.enabled && target.rows[0] && isBridgeProviderSite(target.rows[0].url)) { res.status(400).json({ error: 'provider_site_blocked' }); return; }
   const { rows } = await bridgePool().query(`WITH changed AS (
     UPDATE widget_bridge_contacts SET enabled=$5,generation=generation+1,next_poll_at=now(),status='idle',last_error=NULL
@@ -181,7 +182,7 @@ adminWidgetBridgeRouter.post('/contacts/:id/messages', handle(async (req, res) =
   const parsed = bridgeMessageSchema.safeParse(req.body);
   if (!id.success || !parsed.success) { res.status(400).json({ error: 'invalid_message' }); return; }
   const { body, clientMessageId } = parsed.data;
-  const target = await bridgePool().query(`SELECT url FROM widget_bridge_contacts WHERE ${scoped} AND id=$4`, [...params(res),id.data]);
+  const target = await bridgePool().query<{ url: string }>(`SELECT url FROM widget_bridge_contacts WHERE ${scoped} AND id=$4`, [...params(res),id.data]);
   if (target.rows[0] && isBridgeProviderSite(target.rows[0].url)) { res.status(400).json({ error: 'provider_site_blocked' }); return; }
   const { rows } = await bridgePool().query(`INSERT INTO widget_bridge_messages(contact_id,direction,body,delivery,dedupe_key)
     SELECT c.id,'outbound',$5,'queued',$6 FROM widget_bridge_contacts c
@@ -213,7 +214,7 @@ adminWidgetBridgeRouter.get('/batches', handle(async (_req, res) => {
 adminWidgetBridgeRouter.get('/batches/:id', handle(async (req, res) => {
   const id = uuid.safeParse(req.params.id);
   if (!id.success) { res.status(400).json({ error: 'invalid_batch' }); return; }
-  const { rows } = await bridgePool().query(`SELECT site.url,site.position::int,m.contact_id,
+  const { rows } = await bridgePool().query<BridgeBatchItem>(`SELECT site.url,site.position::int,m.contact_id,
     COALESCE(m.delivery,'skipped') AS delivery,m.error
     FROM widget_bridge_batches b CROSS JOIN LATERAL jsonb_array_elements_text(b.sites) WITH ORDINALITY site(url,position)
     LEFT JOIN widget_bridge_messages m ON m.batch_id=b.id AND m.batch_position=site.position

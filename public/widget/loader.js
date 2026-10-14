@@ -1068,7 +1068,10 @@
       var titleEl = document.createElement("span");
       titleEl.className = "label-title";
       titleEl.textContent = label;
-      if (fab.textColor) titleEl.style.color = fab.textColor;
+      // The card is always white: a light colour (the default is the
+      // launcher's white icon colour) would leave an empty white box, so
+      // only a colour that reads on white is applied.
+      if (fab.textColor && readsOnWhite(fab.textColor)) titleEl.style.color = fab.textColor;
       fabLabelEl.appendChild(titleEl);
       if (subLabel) {
         var subEl = document.createElement("span");
@@ -1082,6 +1085,18 @@
       shellDiv2.appendChild(fabLabelEl);
     }
 
+  }
+
+  /** True when a #rgb / #rrggbb colour is dark enough to read on white (WCAG contrast >= 3). */
+  function readsOnWhite(hex) {
+    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || "").trim());
+    if (!m) return false;
+    var h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h, 16);
+    function lin(c) { c = c / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+    var l = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+    return 1.05 / (l + 0.05) >= 3;
   }
 
   /** Launcher shadow is DERIVED from the brand colour — never configured. */

@@ -172,6 +172,22 @@ export const FAB_ICONS: Record<string, string> = {
   smile: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>',
 };
 
+/**
+ * True when a #rgb / #rrggbb colour is dark enough to read on white (WCAG
+ * contrast >= 3). Same rule as the widget loader's readsOnWhite: the label
+ * card is white, so a light text colour would leave an empty white box.
+ */
+function readsOnWhite(hex: unknown): boolean {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex ?? '').trim());
+  if (!m) return false;
+  let h = m[1];
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const n = parseInt(h, 16);
+  const lin = (c: number) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const l = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  return 1.05 / (l + 0.05) >= 3;
+}
+
 function esc(v: unknown): string {
   return String(v ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
@@ -596,7 +612,7 @@ export function WidgetLivePreview({
     box-shadow:0 8px 20px rgba(0,0,0,.12);pointer-events:none;
     ${pos === 'bottom-left' ? `left:${fabSize + 10}px` : `right:${fabSize + 10}px`};
     transition:transform .62s cubic-bezier(.33,1,.68,1);transform:translateY(0);}
-  .fab-label .label-title{font-size:13px;font-weight:600;line-height:1.3;color:${esc(s.fab_text_color && s.fab_text_color !== '#fff' && s.fab_text_color !== '#ffffff' ? s.fab_text_color : '#1c2024')};}
+  .fab-label .label-title{font-size:13px;font-weight:600;line-height:1.3;color:${esc(s.fab_text_color && readsOnWhite(s.fab_text_color) ? s.fab_text_color : '#1c2024')};}
   .fab-label .label-sub{font-size:11px;line-height:1.3;color:#60646c;}
   .fab-label.enter{transform:translateY(var(--gs-fab-exit,112px));}
   .fab-label.open{transform:translateY(var(--gs-fab-exit,112px));pointer-events:none;}

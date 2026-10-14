@@ -180,6 +180,13 @@ describe('standalone bridge database and API', () => {
     vi.stubEnv('WIDGET_BRIDGE_APP_ID', 'respok');
     expect((await request(app).get(api('/contacts')).expect(200)).body.contacts).toHaveLength(1);
   });
+  it('cannot add a new contact while a workspace purge is closing its sessions', async () => {
+    const contact = await connected();
+    await request(app).delete(api('/settings')).expect(202);
+    await request(app).post(api('/contacts')).send({ url: 'https://another.example.com', enabled: true }).expect(409);
+    await store().release(contact, null); await store().reap();
+    expect((await db.query('SELECT * FROM widget_bridge_settings')).rows).toHaveLength(0);
+  });
   it('reads thread history with a scoped keyset cursor', async () => {
     const contact = await connected();
     await store().receive(contact, Array.from({ length: 105 }, (_, i) => ({ key: `reply-${i}`, body: `Reply ${i}` })));

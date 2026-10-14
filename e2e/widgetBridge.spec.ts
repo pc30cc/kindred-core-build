@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { makeAdapter, DomAdapter, CrispAdapter } from '../worker/widget-bridge/adapters';
+import { makeAdapter, DomAdapter, CrispAdapter, RaychatAdapter } from '../worker/widget-bridge/adapters';
 
 const identity = { name: 'Admin', email: 'admin@example.com', phone: '+905551234567' };
 const fixture = `<!doctype html><html><body><div id="host"></div><script>
@@ -72,4 +72,40 @@ test('custom configuration is scoped to its iframe and never fills unrelated for
   await expect(page.frameLocator('#chat-frame').locator('#name')).toHaveValue('Admin');
   expect(await adapter.receive()).toEqual([{ key: 'id:a', body: 'Agent reply' }]);
   await expect(adapter.prepare({ ...identity, email: '' })).rejects.toThrow('identity_required');
+});
+
+test('Raychat uses visitor sendMessage, receives replies and refuses a rejected send', async ({ page }) => {
+  await page.setContent('<html><body></body></html>');
+  await page.evaluate(() => {
+    const callbacks = new Map<string, (value: unknown) => void>();
+    const win = globalThis as unknown as { Raychat: unknown; emitReply: (value: unknown) => void; offlineCalls: number; identity: unknown };
+    win.offlineCalls = 0;
+    win.Raychat = {
+      on: (event: string, callback: (value: unknown) => void) => callbacks.set(event, callback),
+      setUser: (value: unknown) => { win.identity = value; }, openWidget: () => {},
+      sendOfflineMessage: () => { win.offlineCalls++; },
+      sendMessage: (body: string) => {
+        if (body === 'Reject me') return { success: false, error: 'INPUT_DISABLED' };
+        callbacks.get('raychat_sendMessage')?.({ detail: { type: 'text', content: body } });
+        return { success: true, message: { id: 'pending-1' } };
+      },
+    };
+    win.emitReply = value => callbacks.get('raychat_getMessage')?.({ detail: value });
+  });
+  const adapter = await makeAdapter(page, 'auto', {}); expect(adapter).toBeInstanceOf(RaychatAdapter);
+  await adapter.prepare(identity);
+  expect(await adapter.send('Hello Raychat')).toBe(true);
+  expect(await adapter.send('Reject me')).toBe(false);
+  await page.evaluate(() => {
+    const emit = (globalThis as unknown as { emitReply: (value: unknown) => void }).emitReply;
+    emit({ type: 'text', content: 'Raychat reply', id: 'r1' });
+    emit({ type: 'text', content: 'Same reply without ID' });
+    emit({ type: 'text', content: 'Same reply without ID' });
+  });
+  await expect.poll(async () => (await adapter.receive()).length).toBe(3);
+  const replies = await adapter.receive();
+  expect(replies[0]).toEqual({ key: 'raychat:r1', body: 'Raychat reply' });
+  expect(replies[1].key).not.toBe(replies[2].key);
+  expect(await page.evaluate(() => (globalThis as unknown as { offlineCalls: number }).offlineCalls)).toBe(0);
+  adapter.acknowledge?.(3); expect(await adapter.receive()).toEqual([]);
 });

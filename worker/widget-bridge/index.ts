@@ -7,7 +7,7 @@ import { bridgeConfig, bridgePool } from '../../server/services/widgetBridge/con
 import { encryptPluginSecret, decryptPluginSecret } from '../../server/lib/pluginCrypto.js';
 import { startBridgeEgress } from './egress.js';
 import { BridgeStore, type LeasedContact } from './store.js';
-import { makeAdapter, CrispAdapter, type BridgeAdapter } from './adapters.js';
+import { makeAdapter, type BridgeAdapter } from './adapters.js';
 
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const SAFE_ERRORS = new Set(['unsupported_widget','widget_not_found','ambiguous_widget','identity_required',
@@ -99,7 +99,7 @@ export async function startWidgetBridgeWorker() {
           const changed = incoming.filter(message => received.get(message.key) !== message.body);
           await store.receive(contact, changed);
           for (const message of changed) received.set(message.key, message.body);
-          if (adapter instanceof CrispAdapter) adapter.acknowledge(incoming.length);
+          adapter.acknowledge?.(incoming.length);
           await sendNext(store, contact, adapter, persist);
           if (Date.now() - lastPersist > 30000) { await persist(); lastPersist = Date.now(); }
           await pause(1500);

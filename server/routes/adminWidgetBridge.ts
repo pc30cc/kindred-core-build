@@ -102,7 +102,7 @@ adminWidgetBridgeRouter.post('/contacts', handle(async (req, res) => {
   const { rows } = await bridgePool().query(`INSERT INTO widget_bridge_contacts
     (app_id,owner_id,workspace_id,name,url,provider,selectors,enabled)
     SELECT $1,$2,$3,$4,$5,$6,$7::jsonb,$8 FROM widget_bridge_settings
-    WHERE ${scoped}
+    WHERE ${scoped} AND NOT deleting
     ON CONFLICT(app_id,owner_id,workspace_id,url) DO NOTHING RETURNING ${columns}`,
     [...params(res), name, url.toString(), value.provider, JSON.stringify(value.selectors), value.enabled]);
   if (!rows.length) { res.status(409).json({ error: 'save_settings_or_duplicate_site' }); return; }

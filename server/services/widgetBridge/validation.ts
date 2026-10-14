@@ -22,7 +22,7 @@ export const bridgeContactSchema = z.object({
     if (!isSafeOutboundUrl(value)) return false;
     return !new URL(value).port || new URL(value).port === '443';
   }, 'public_https_required'),
-  provider: z.enum(['auto', 'webyar', 'crisp', 'custom']).default('auto'),
+  provider: z.enum(['auto', 'webyar', 'crisp', 'raychat', 'custom']).default('auto'),
   selectors: bridgeSelectorsSchema.default({}),
   enabled: z.boolean().default(false),
 }).strict().superRefine((value, ctx) => {

@@ -94,14 +94,17 @@ cannot read, configure or send bridge messages even by direct API calls.
 
 ## Widget coverage and limits
 
-Automatic adapters currently cover **WebYar/RESPOK** and **Crisp**. WebYar
+Automatic adapters currently cover **WebYar/RESPOK**, **Crisp** and **Raychat
+versions exposing the visitor `sendMessage` SDK**. WebYar
 supports open shadow DOM / iframes, pre-chat identity and the real
 `/api/widget/message` acceptance receipt. Crisp uses its published
 [`$crisp` SDK](https://docs.crisp.chat/guides/chatbox-sdks/web-sdk/dollar-crisp/)
-for visitor sends, identity, and incoming/outgoing events. Message text is
+for visitor sends, identity, and incoming/outgoing events. Raychat uses its
+[published visitor SDK](https://raychat.io/documentation) and requires both an
+accepted send result and the visitor-send event. Message text is
 never treated as an AI instruction.
 
-Other widgets (Goftino, Raychat, Tawk, Chatwoot, etc.) use the custom scoped DOM
+Other widgets (Goftino, older Raychat versions, Tawk, Chatwoot, etc.) use the custom scoped DOM
 adapter after their selectors are configured and tested for the particular
 site. This is **not a promise of universal provider support**. A custom adapter
 requires a widget root, composer and separate incoming/outgoing text selectors;
@@ -111,7 +114,11 @@ message ID attributes are recommended: fallback text + occurrence IDs assume
 a stable rendered history and cannot guarantee deduplication if a widget
 virtualizes/reorders/removes its history. A custom send is confirmed only when
 a new outgoing bubble appears; it does not prove delivery/read by an operator.
-WebYar additionally requires a server message ID.
+WebYar additionally requires a server message ID. Do not implement Goftino
+outbound sends using `Goftino.sendMessage`: its [developer documentation](https://www.goftino.com/docs)
+states that this is display-only and does not become a real conversation
+message. Likewise, never use Raychat's display-only `sendOfflineMessage` as an
+outbound transport.
 
 Only text is bridged. Attachments, OTP/CAPTCHA, consent checkboxes, custom
 required questions and login-gated widgets require further adapters/manual
@@ -130,9 +137,11 @@ lookup). Private/metadata/loopback addresses and non-443 ports are blocked.
 
 The concurrency cap bounds browser resource use; additional enabled sites wait
 and rotate fairly. Provider events are received while a session is active.
-WebYar/custom adapters read rendered history after reconnect; Crisp's SDK
-adapter only receives its operator events, so offline or rotation gaps are not
-guaranteed to be backfilled. This limitation must be resolved with a tested
+WebYar/custom adapters read rendered history after reconnect; Crisp/Raychat SDK
+adapters receive operator events, so offline or rotation gaps are not
+guaranteed to be backfilled. Raychat events lacking a stable ID receive a
+unique arrival ID; duplicate provider event replays without IDs cannot be
+deduplicated reliably. This limitation must be resolved with a tested
 history adapter before promising continuous capture across many sites. No
 live third-party site was messaged by the automated tests.
 
@@ -167,6 +176,6 @@ live third-party site was messaged by the automated tests.
 `npm test -- src/test/widgetBridge` runs PostgreSQL (PGlite) API/worker tests
 and network/encryption/validation checks. `npx playwright test
 e2e/widgetBridge.spec.ts` runs controlled browser fixtures covering shadow DOM,
-identity, server rejection, two-way messages, Crisp events and iframe scoping.
+identity, server rejection, two-way messages, Crisp/Raychat events and iframe scoping.
 These tests create only disposable in-memory database state; production schemas
 and third-party inboxes are untouched.

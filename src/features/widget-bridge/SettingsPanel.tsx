@@ -107,7 +107,7 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
         <select id="bridge-provider" className="h-10 w-full rounded-md border bg-background px-3" value={provider}
           onChange={event => { const value = event.target.value as BridgeProvider; setProvider(value); setAdvanced(value === 'custom'); }}>
           <option value="auto">{t('widgetBridge.auto')}</option><option value="webyar">WebYar / RESPOK</option>
-          <option value="crisp">Crisp</option><option value="custom">{t('widgetBridge.custom')}</option>
+          <option value="crisp">Crisp</option><option value="raychat">Raychat</option><option value="custom">{t('widgetBridge.custom')}</option>
         </select>
         <p className="text-xs text-muted-foreground">{t('widgetBridge.supported')}</p>
       </div>

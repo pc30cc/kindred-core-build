@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Page, Locator } from '@playwright/test';
 import type { BridgeIdentity, BridgeProvider, BridgeSelectors } from '../../shared/widgetBridge.js';
 
@@ -7,6 +7,7 @@ export interface BridgeAdapter {
   prepare(identity: BridgeIdentity): Promise<void>;
   send(body: string): Promise<boolean>;
   receive(): Promise<RemoteMessage[]>;
+  acknowledge?(count: number): void;
 }
 
 export function messageKeys(messages: Array<{ id: string | null; body: string }>): RemoteMessage[] {
@@ -176,11 +177,64 @@ export class CrispAdapter implements BridgeAdapter {
   acknowledge(count: number) { this.messages.splice(0, count); }
 }
 
+/** Current Raychat visitor SDK; never use its display-only offline method. */
+export class RaychatAdapter implements BridgeAdapter {
+  private messages: RemoteMessage[] = [];
+  private sent = new Map<string, number>();
+  private installed = false;
+  constructor(private readonly page: Page) {}
+  async prepare(identity: BridgeIdentity) {
+    await this.page.waitForFunction(() => {
+      const sdk = (globalThis as unknown as { Raychat?: { sendMessage?: unknown; on?: unknown } }).Raychat;
+      return typeof sdk?.sendMessage === 'function' && typeof sdk?.on === 'function';
+    }, undefined, { timeout: 15000 });
+    if (!this.installed) {
+      await this.page.exposeFunction('__bridgeRaychatEvent', (kind: string, data: Record<string, unknown>) => {
+        if (data.type !== 'text' || typeof data.content !== 'string') return;
+        if (kind === 'sent') this.sent.set(data.content, (this.sent.get(data.content) || 0) + 1);
+        else {
+          const id = data.id ?? data._id ?? data.messageId ?? data.timestamp ?? randomUUID();
+          this.messages.push({ key: `raychat:${String(id).slice(0, 200)}`, body: data.content.trim().slice(0, 4000) });
+        }
+      });
+      await this.page.evaluate(() => {
+        const win = globalThis as unknown as { Raychat: { on(event: string, fn: (event: { detail: Record<string, unknown> }) => void): void }; __bridgeRaychatEvent(kind: string, data: unknown): void };
+        win.Raychat.on('raychat_getMessage', event => win.__bridgeRaychatEvent('received', event.detail));
+        win.Raychat.on('raychat_sendMessage', event => win.__bridgeRaychatEvent('sent', event.detail));
+      });
+      this.installed = true;
+    }
+    await this.page.evaluate(identity => {
+      const sdk = (globalThis as unknown as { Raychat: { setUser(identity: unknown): void; openWidget(): void } }).Raychat;
+      sdk.setUser({ ...identity, updateOnce: false }); sdk.openWidget();
+    }, identity);
+  }
+  async send(body: string) {
+    const before = this.sent.get(body) || 0;
+    const accepted = await this.page.evaluate(body => {
+      const sdk = (globalThis as unknown as { Raychat: { sendMessage(body: string): { success?: boolean } } }).Raychat;
+      return sdk.sendMessage(body)?.success === true;
+    }, body);
+    if (!accepted) return false;
+    for (let i = 0; i < 20; i++) {
+      if ((this.sent.get(body) || 0) > before) return true;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    return false;
+  }
+  async receive() { return this.messages.slice(0, 200); }
+  acknowledge(count: number) { this.messages.splice(0, count); }
+}
+
 export async function makeAdapter(page: Page, provider: BridgeProvider, selectors: BridgeSelectors): Promise<BridgeAdapter> {
   if (provider === 'custom') return new DomAdapter(page, selectors);
   // Wait for lazy-loaded widgets instead of reporting unsupported while the
   // site's initial HTML is still being rendered.
   for (let i = 0; i < 30; i++) {
+    if ((provider === 'auto' || provider === 'raychat') && await page.evaluate(() => {
+      const sdk = (globalThis as unknown as { Raychat?: { sendMessage?: unknown } }).Raychat;
+      return typeof sdk?.sendMessage === 'function';
+    })) return new RaychatAdapter(page);
     if ((provider === 'auto' || provider === 'crisp') && await page.evaluate(() => Boolean((globalThis as unknown as { $crisp?: unknown }).$crisp))) {
       return new CrispAdapter(page);
     }

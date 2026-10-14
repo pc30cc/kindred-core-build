@@ -147,7 +147,7 @@ function helpers(c: pg.Client) {
             AND c.relname = ANY ($1::text[] || ARRAY['email_templates', 'migration_log'])) AS tables,
         (SELECT array_agg(attname ORDER BY attname) FROM pg_attribute
           WHERE attrelid = 'public.workspace_subscriptions'::regclass AND attnum > 0 AND NOT attisdropped) AS sub_columns,
-        (SELECT array_agg(p.oid::regprocedure::text ORDER BY 1) FROM pg_proc p
+        (SELECT array_agg(p.oid::regprocedure::text ORDER BY p.oid::regprocedure::text) FROM pg_proc p
           WHERE p.pronamespace = 'public'::regnamespace AND p.proname LIKE 'billing%') AS billing_functions,
         (SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
           WHERE c.relnamespace = 'billing_v2_archive'::regnamespace) AS archive_policies,

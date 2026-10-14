@@ -203,5 +203,8 @@ describe('standalone bridge database and API', () => {
     const earlier = await request(app).get(api(`/contacts/${contact.id}/messages?before=${latest.body.messages[0].id}`)).expect(200);
     expect(earlier.body.messages).toHaveLength(5);
     expect(new Set([...earlier.body.messages,...latest.body.messages].map(m => m.id)).size).toBe(105);
+    expect([...earlier.body.messages,...latest.body.messages].map(m => m.body)).toEqual(
+      Array.from({ length: 105 }, (_, i) => `Reply ${i}`),
+    );
   });
 });

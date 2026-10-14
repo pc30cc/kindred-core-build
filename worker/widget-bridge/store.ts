@@ -77,12 +77,15 @@ export class BridgeStore {
   async receive(contact: LeasedContact, messages: RemoteMessage[]) {
     if (!messages.length) return;
     const unique = [...new Map(messages.map(message => [message.key, message])).values()].slice(0, 200);
-    await this.db.query(`INSERT INTO widget_bridge_messages(contact_id,direction,body,delivery,dedupe_key)
-      SELECT c.id,'inbound',incoming.body,'received',incoming.key
-      FROM jsonb_to_recordset($1::jsonb) AS incoming(key text,body text),widget_bridge_contacts c,widget_bridge_settings s
+    await this.db.query(`INSERT INTO widget_bridge_messages(contact_id,direction,body,delivery,dedupe_key,created_at)
+      SELECT c.id,'inbound',incoming.item->>'body','received',incoming.item->>'key',
+        statement_timestamp()+incoming.ordinality*interval '1 microsecond'
+      FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS incoming(item,ordinality),
+        widget_bridge_contacts c,widget_bridge_settings s
       WHERE c.id=$2 AND c.app_id=$3 AND c.lease_owner=$4 AND c.generation=$5 AND c.lease_until>now()
         AND c.enabled AND NOT c.deleting AND s.app_id=c.app_id AND s.owner_id=c.owner_id AND s.workspace_id=c.workspace_id AND s.enabled
-        AND length(incoming.body) BETWEEN 1 AND 4000
+        AND length(incoming.item->>'body') BETWEEN 1 AND 4000
+      ORDER BY incoming.ordinality
       ON CONFLICT(contact_id,direction,dedupe_key) DO UPDATE SET body=EXCLUDED.body
       WHERE widget_bridge_messages.body<>EXCLUDED.body`,
     [JSON.stringify(unique), contact.id, this.appId, this.workerId, contact.generation]);

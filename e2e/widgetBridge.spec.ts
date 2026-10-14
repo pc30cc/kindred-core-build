@@ -71,6 +71,10 @@ test('custom configuration is scoped to its iframe and never fills unrelated for
   await expect(page.locator('#name')).toHaveValue('leave-alone');
   await expect(page.frameLocator('#chat-frame').locator('#name')).toHaveValue('Admin');
   expect(await adapter.receive()).toEqual([{ key: 'id:a', body: 'Agent reply' }]);
+  await page.frameLocator('#chat-frame').locator('#email').fill('');
+  await adapter.prepare({ ...identity, email: '' });
+  await expect(page.frameLocator('#chat-frame').locator('#email')).toHaveValue('');
+  await page.frameLocator('#chat-frame').locator('#email').evaluate(field => field.setAttribute('required', ''));
   await expect(adapter.prepare({ ...identity, email: '' })).rejects.toThrow('identity_required');
 });
 

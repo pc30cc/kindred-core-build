@@ -64,7 +64,12 @@ export class DomAdapter implements BridgeAdapter {
       if (!selector) continue;
       const field = root.locator(selector);
       if (await field.count() === 1 && await field.isVisible()) {
-        if (!identity[key]) throw new Error('identity_required');
+        if (!identity[key]) {
+          if (await field.getAttribute('required') !== null || await field.getAttribute('aria-required') === 'true') {
+            throw new Error('identity_required');
+          }
+          continue;
+        }
         await field.fill(identity[key], { timeout: 5000 });
       }
     }

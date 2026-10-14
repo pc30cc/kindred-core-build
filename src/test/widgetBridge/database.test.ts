@@ -382,3 +382,44 @@ describe('provider website exclusion through API and worker', () => {
     expect((await db.query('SELECT delivery,error FROM widget_bridge_messages')).rows).toEqual([{delivery:'failed',error:'provider_site_blocked'}]);
   });
 });
+
+
+describe('AI reply follow-up classification', () => {
+  it('marks a contact only with an actual stored AI reply after an outbound attempt, and scopes the list', async () => {
+    const contact = await connected();
+    await store().receive(contact,[{key:'welcome',body:'Welcome',aiLabel:'هوش مصنوعی ایران سرور'}]);
+    expect((await request(app).get(api('/contacts?aiReplied=true')).expect(200)).body.contacts).toEqual([]);
+    await queue(contact).expect(202); await sendNext(store(),contact,adapter(),async()=>{});
+    await store().receive(contact,[{key:'ai-response',body:'سلام، بفرمایید.',aiLabel:'هوش مصنوعی ایران سرور'}]);
+    const list = await request(app).get(api('/contacts?aiReplied=true')).expect(200);
+    expect(list.body.contacts).toHaveLength(1);
+    expect(list.body.contacts[0]).toMatchObject({id:contact.id,ai_reply_source:'widget_label',ai_reply_label:'هوش مصنوعی ایران سرور'});
+    const messages = await request(app).get(api(`/contacts/${contact.id}/messages`)).expect(200);
+    expect(messages.body.messages.find((m:{dedupe_key:string})=>m.dedupe_key==='ai-response').ai_label).toBe('هوش مصنوعی ایران سرور');
+    vi.stubEnv('WIDGET_BRIDGE_APP_ID','respok');
+    expect((await request(app).get(api('/contacts?aiReplied=true')).expect(200)).body.contacts).toEqual([]);
+    await request(app).put(api(`/contacts/${contact.id}/ai-reply`)).send({aiReplied:false}).expect(404);
+  });
+  it('supports manual marks and corrections without creating sends or re-adding duplicate replies', async () => {
+    const contact = await connected();
+    await queue(contact).expect(202); await sendNext(store(),contact,adapter(),async()=>{});
+    const message = {key:'ai',body:'Reply',aiLabel:'AI assistant'};
+    await store().receive(contact,[message]);
+    await request(app).put(api(`/contacts/${contact.id}/ai-reply`)).send({aiReplied:false}).expect(200);
+    await store().receive(contact,[message]);
+    expect((await request(app).get(api('/contacts?aiReplied=true')).expect(200)).body.contacts).toEqual([]);
+    await request(app).put(api(`/contacts/${contact.id}/ai-reply`)).send({aiReplied:true}).expect(200);
+    expect((await request(app).get(api('/contacts?aiReplied=true')).expect(200)).body.contacts[0].ai_reply_source).toBe('manual');
+    expect((await db.query("SELECT * FROM widget_bridge_messages WHERE direction='outbound'")).rows).toHaveLength(1);
+    await request(app).get(api('/contacts?aiReplied=maybe')).expect(400);
+  });
+  it('does not classify human prose or persist classification from a stale worker', async () => {
+    const contact = await connected();
+    await queue(contact).expect(202); await sendNext(store(),contact,adapter(),async()=>{});
+    await store().receive(contact,[{key:'human',body:'I am an AI assistant',aiLabel:'Ali'}]);
+    await db.query('UPDATE widget_bridge_contacts SET generation=generation+1 WHERE id=$1',[contact.id]);
+    await store().receive(contact,[{key:'stale',body:'Hi',aiLabel:'AI assistant'}]);
+    expect((await request(app).get(api('/contacts?aiReplied=true')).expect(200)).body.contacts).toEqual([]);
+    expect((await db.query("SELECT * FROM widget_bridge_messages WHERE dedupe_key='stale'")).rows).toHaveLength(0);
+  });
+});

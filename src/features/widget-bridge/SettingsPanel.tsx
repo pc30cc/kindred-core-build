@@ -1,4 +1,5 @@
 import { bridgeProviders } from '../../../shared/widgetBridge';
+import { AiReplyPanel } from './AiReplyPanel';
 import { BatchPanel } from './BatchPanel';
 import { useEffect, useState } from 'react';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
@@ -16,7 +17,7 @@ export function BridgeErrorNotice({ error }: { error: unknown }) {
   const { t } = useTranslation();
   const code = error instanceof Error ? error.message : 'bridge_unavailable';
   const known = ['bridge_unavailable','bridge_database_must_be_separate','bridge_workspace_forbidden',
-    'invalid_contact','save_settings_or_duplicate_site','bridge_disabled_or_queue_full','public_https_required','invalid_settings'];
+    'provider_site_blocked','invalid_contact','save_settings_or_duplicate_site','bridge_disabled_or_queue_full','public_https_required','invalid_settings'];
   const key = known.includes(code) ? code : 'bridge_unavailable';
   return <p role="alert" className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{t(`widgetBridge.errors.${key}` as TranslationKey)}
@@ -35,6 +36,7 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
   const [name, setName] = useState('');
   const [provider, setProvider] = useState<BridgeProvider>('auto');
   const [selectors, setSelectors] = useState<BridgeSelectors>({});
+  const [followup, setFollowup] = useState<{ urls: string[] } | null>(null);
   const [advanced, setAdvanced] = useState(false);
   useEffect(() => {
     if (settings.data && !dirty) setForm({
@@ -112,7 +114,8 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
       {save.isSuccess && !dirty && <p role="status" className="mt-2 text-sm text-success">{t('widgetBridge.saved')}</p>}
       {save.error && <BridgeErrorNotice error={save.error} />}
     </div>
-    <BatchPanel workspaceId={workspaceId} enabled={!dirty && !!settings.data?.settings.enabled && form.allowedProviders.length>0} />
+    <AiReplyPanel workspaceId={workspaceId} onPrepare={urls => setFollowup({ urls })} />
+    <BatchPanel followup={followup} workspaceId={workspaceId} enabled={!dirty && !!settings.data?.settings.enabled && form.allowedProviders.length>0} />
     <form className="space-y-4 rounded-xl border p-5" onSubmit={event => { event.preventDefault(); create.mutate(); }}>
       <h2 className="font-semibold">{t('widgetBridge.addSite')}</h2>
       <div className="grid gap-4 sm:grid-cols-2">

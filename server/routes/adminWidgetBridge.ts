@@ -11,7 +11,7 @@ import { checkOutboundUrl } from '../../shared/net/hostGuard.js';
 export const adminWidgetBridgeRouter = Router();
 type Scope = { appId: string; ownerId: string; workspaceId: string };
 const uuid = z.string().uuid();
-const columns = 'id,name,url,provider,selectors,enabled,deleting,status,last_error,last_seen_at';
+const columns = 'id,name,url,provider,selectors,enabled,deleting,status,last_error,last_seen_at,ai_replied_at,ai_reply_label,ai_reply_source';
 const params = (res: Response) => {
   const scope = res.locals.bridgeScope as Scope;
   return [scope.appId, scope.ownerId, scope.workspaceId];
@@ -88,13 +88,15 @@ adminWidgetBridgeRouter.delete('/settings', handle(async (_req, res) => {
 adminWidgetBridgeRouter.get('/contacts', handle(async (req, res) => {
   const before = req.query.before === undefined ? null : uuid.safeParse(req.query.before);
   if (before && !before.success) { res.status(400).json({ error: 'invalid_cursor' }); return; }
+  const filter = req.query.aiReplied;
+  if (filter !== undefined && filter !== 'true') { res.status(400).json({ error: 'invalid_cursor' }); return; }
   // Finish expired deletions even when the dedicated worker is stopped.
   await bridgePool().query(`DELETE FROM widget_bridge_contacts WHERE ${scoped} AND deleting
     AND (lease_until IS NULL OR lease_until<now())`, params(res));
   await bridgePool().query(`DELETE FROM widget_bridge_settings s WHERE ${scoped} AND deleting
     AND NOT EXISTS(SELECT 1 FROM widget_bridge_contacts c WHERE c.app_id=s.app_id AND c.owner_id=s.owner_id AND c.workspace_id=s.workspace_id)`, params(res));
   const { rows } = await bridgePool().query(`SELECT ${columns} FROM widget_bridge_contacts
-    WHERE ${scoped} AND ($4::uuid IS NULL OR (created_at,id)<
+    WHERE ${scoped} ${filter === 'true' ? 'AND ai_replied_at IS NOT NULL AND NOT deleting' : ''} AND ($4::uuid IS NULL OR (created_at,id)<
       (SELECT created_at,id FROM widget_bridge_contacts WHERE ${scoped} AND id=$4))
     ORDER BY created_at DESC,id DESC LIMIT 100`, [...params(res),before && before.success ? before.data : null]);
   res.json({ contacts: rows, hasMore: rows.length===100 });
@@ -135,6 +137,18 @@ adminWidgetBridgeRouter.patch('/contacts/:id', handle(async (req, res) => {
   res.json({ contact: rows[0] });
 }));
 
+adminWidgetBridgeRouter.put('/contacts/:id/ai-reply', handle(async (req, res) => {
+  const id = uuid.safeParse(req.params.id);
+  const body = z.object({ aiReplied: z.boolean() }).strict().safeParse(req.body);
+  if (!id.success || !body.success) { res.status(400).json({ error: 'invalid_contact' }); return; }
+  const { rows } = await bridgePool().query(`UPDATE widget_bridge_contacts SET
+    ai_replied_at=CASE WHEN $5 THEN now() ELSE NULL END,
+    ai_reply_source=CASE WHEN $5 THEN 'manual' ELSE NULL END,ai_reply_label=NULL
+    WHERE ${scoped} AND id=$4 AND NOT deleting RETURNING ${columns}`, [...params(res),id.data,body.data.aiReplied]);
+  if (!rows.length) { res.status(404).json({ error: 'contact_not_found' }); return; }
+  res.json({ contact: rows[0] });
+}));
+
 adminWidgetBridgeRouter.delete('/contacts/:id', handle(async (req, res) => {
   const id = uuid.safeParse(req.params.id);
   if (!id.success) { res.status(400).json({ error: 'invalid_contact' }); return; }
@@ -153,7 +167,7 @@ adminWidgetBridgeRouter.get('/contacts/:id/messages', handle(async (req, res) =>
   const id = uuid.safeParse(req.params.id);
   const before = req.query.before === undefined ? null : uuid.safeParse(req.query.before);
   if (!id.success || (before && !before.success)) { res.status(400).json({ error: 'invalid_cursor' }); return; }
-  const { rows } = await bridgePool().query(`SELECT m.id,m.contact_id,m.direction,m.body,m.delivery,m.dedupe_key,m.error,m.created_at
+  const { rows } = await bridgePool().query(`SELECT m.id,m.contact_id,m.direction,m.body,m.delivery,m.dedupe_key,m.error,m.ai_label,m.created_at
     FROM widget_bridge_messages m JOIN widget_bridge_contacts c ON c.id=m.contact_id
     WHERE c.app_id=$1 AND c.owner_id=$2 AND c.workspace_id=$3 AND c.id=$4
       AND ($5::uuid IS NULL OR (m.created_at,m.id)<

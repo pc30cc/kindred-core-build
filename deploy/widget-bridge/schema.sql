@@ -107,3 +107,14 @@ ALTER TABLE widget_bridge_batches ADD CONSTRAINT widget_bridge_batches_status_ch
 DROP INDEX IF EXISTS widget_bridge_batches_active;
 CREATE UNIQUE INDEX widget_bridge_batches_active ON widget_bridge_batches(app_id,owner_id,workspace_id) WHERE status IN ('running','paused');
 COMMIT;
+
+-- Follow-up classification belongs only to the optional bridge database.
+BEGIN;
+ALTER TABLE widget_bridge_contacts ADD COLUMN IF NOT EXISTS ai_replied_at timestamptz;
+ALTER TABLE widget_bridge_contacts ADD COLUMN IF NOT EXISTS ai_reply_label text;
+ALTER TABLE widget_bridge_contacts ADD COLUMN IF NOT EXISTS ai_reply_source text CHECK (ai_reply_source IN ('widget_label','manual'));
+ALTER TABLE widget_bridge_messages ADD COLUMN IF NOT EXISTS ai_label text;
+CREATE INDEX IF NOT EXISTS widget_bridge_contacts_ai_followup
+  ON widget_bridge_contacts(app_id,owner_id,workspace_id,created_at DESC,id DESC)
+  WHERE ai_replied_at IS NOT NULL AND NOT deleting;
+COMMIT;

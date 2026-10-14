@@ -318,3 +318,30 @@ provider transport with authorized credentials. Goftino's public server API
 including `send_message_from_user` and Webhook configuration; a public widget
 ID alone does not grant that access. No such credential is available for the
 third-party test store, and this PR does not pretend to provide that transport.
+
+
+## AI-replied follow-up list
+
+AI-replied contacts can be filtered in the inbox and selected in Settings for a
+later paced batch. Preparing a follow-up only fills the draft website list; it
+never sends, schedules or enables disabled contacts. The existing round approval,
+provider allowlist, provider-domain blocks and deduplication still apply.
+
+The Goftino adapter snapshots its explicit responder header when an incoming
+text event arrives. A clear AI label marks that message and, once an outbound
+attempt exists, adds its contact to the list atomically with message persistence.
+No classification uses reply speed or prose. Other providers and ambiguous
+headers need the Super Admin's manual mark. Manual correction clears the contact
+mark without deleting history; replaying an unchanged message does not re-add it.
+A fresh AI reply may add it again. This is evidence of a labelled AI response,
+not a guarantee about the provider's internals or the next responder being human.
+
+All fields and the filtered index belong only to the separate bridge database.
+Re-run its schema.sql before deploying this revision; purge remains scoped and
+cascading. No live database has been modified by this implementation.
+
+Observed manual-test follow-up (2026-10-14): https://www.iranserver.com/ — Goftino
+responder header «هوش مصنوعی ایران سرور». The browser test received two replies.
+This is recorded here for later import/manual marking; it is not a seeded live
+contact because the bridge database and worker have not been deployed. Do not
+resend automatically on deployment.

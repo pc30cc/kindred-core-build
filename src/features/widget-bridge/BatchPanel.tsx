@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { bridgeRequest } from './api';
 import type { BridgeBatch, BridgeBatchItem } from '../../../shared/widgetBridge';
 
-export function BatchPanel({ workspaceId, enabled }: { workspaceId: string; enabled: boolean }) {
+export function BatchPanel({ workspaceId, enabled, followup }: { workspaceId: string; enabled: boolean; followup?: { urls: string[] } | null }) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -15,6 +15,7 @@ export function BatchPanel({ workspaceId, enabled }: { workspaceId: string; enab
   const [body, setBody] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const requestId = useRef<string | null>(null);
+  useEffect(() => { if (followup) { setSites(followup.urls.join('\n')); requestId.current = null; } }, [followup]);
   const urls = [...new Set(sites.split(/\r?\n/).map(url => url.trim()).filter(Boolean).map(url => {
     const value = /^https?:\/\//i.test(url) ? url : `https://${url}`;
     try { const parsed = new URL(value); parsed.hash = ''; return parsed.toString(); } catch { return value; }

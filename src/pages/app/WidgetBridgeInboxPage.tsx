@@ -18,11 +18,12 @@ export default function WidgetBridgeInboxPage() {
   const workspace = useCurrentWorkspace();
   const qc = useQueryClient();
   const settings = useBridgeSettings(workspace?.id);
+  const [aiOnly, setAiOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const draftRequest = useRef<{ body: string; contactId: string; id: string } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
-  const contacts = useBridgeContacts(workspace?.id, !!settings.data);
+  const contacts = useBridgeContacts(workspace?.id, !!settings.data, aiOnly);
   const contact = contacts.data?.contacts.find(value => value.id === selectedId && !value.deleting);
   const messages = useInfiniteQuery({
     queryKey: ['widget-bridge-messages', user?.id, workspace?.id, selectedId],
@@ -40,6 +41,10 @@ export default function WidgetBridgeInboxPage() {
       if (draftRequest.current?.id === value.id) { setDraft(''); draftRequest.current = null; }
       void qc.invalidateQueries({ queryKey: ['widget-bridge-messages'] });
     },
+  });
+  const classify = useMutation({
+    mutationFn: (value: { id: string; aiReplied: boolean }) => bridgeRequest(workspace!.id, `/contacts/${value.id}/ai-reply`, 'PUT', { aiReplied: value.aiReplied }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey:['widget-bridge-contacts'] }); },
   });
   const thread = [...(messages.data?.pages || [])].reverse().flatMap(page => page.messages);
   const lastMessageId = thread[thread.length - 1]?.id;
@@ -60,6 +65,7 @@ export default function WidgetBridgeInboxPage() {
     </div><Button variant="outline" asChild><Link to="/admin/widget-bridge"><Settings className="me-2 h-4 w-4" />{t('widgetBridge.settings')}</Link></Button></header>
     <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
       <aside className="max-h-48 shrink-0 overflow-auto border-b sm:max-h-none sm:w-72 sm:border-b-0 sm:border-e" aria-label={t('widgetBridge.sites')}>
+        <label className="flex items-center gap-2 p-3 text-sm"><input type="checkbox" checked={aiOnly} onChange={event => { setAiOnly(event.target.checked); setSelectedId(null); }} />{t('widgetBridge.ai.title')}</label>
         {contacts.error && <BridgeErrorNotice error={contacts.error} />}
         {!contacts.data?.contacts.length && <p className="p-4 text-sm text-muted-foreground">{t('widgetBridge.empty')}</p>}
         {contacts.data?.contacts.filter(value => !value.deleting).map(value => <button key={value.id}
@@ -67,6 +73,7 @@ export default function WidgetBridgeInboxPage() {
           className={cn('flex w-full items-start gap-3 border-b p-4 text-start hover:bg-muted/50', selectedId === value.id && 'bg-primary/10')}>
           <Globe className="mt-1 h-5 w-5 shrink-0 text-primary" /><div className="min-w-0"><p className="truncate font-medium">{value.name}</p>
             <p dir="ltr" className="truncate text-xs text-muted-foreground">{new URL(value.url).hostname}</p>
+            {value.ai_replied_at && <p className="text-xs text-primary">{t('widgetBridge.ai.title')}</p>}
             <p className="mt-1 text-xs text-muted-foreground">{t(`widgetBridge.status.${value.enabled ? value.status : 'disabled'}` as TranslationKey)}</p>
           </div></button>)}
         {contacts.hasNextPage && <Button variant="ghost" disabled={contacts.isFetchingNextPage} onClick={() => void contacts.fetchNextPage()}>{t('widgetBridge.moreSites')}</Button>}
@@ -75,6 +82,8 @@ export default function WidgetBridgeInboxPage() {
         {!contact ? <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">{t('widgetBridge.selectSite')}</div> : <>
           <div className="border-b px-4 py-3"><h2 className="font-medium">{contact.name}</h2>
             <p className="text-xs text-muted-foreground">{t(`widgetBridge.status.${contact.status}` as TranslationKey)}</p>
+            <Button variant="ghost" disabled={classify.isPending} onClick={()=>classify.mutate({id:contact.id,aiReplied:!contact.ai_replied_at})}>{t(contact.ai_replied_at ? 'widgetBridge.ai.clear' : 'widgetBridge.ai.mark')}</Button>
+            {classify.error && <BridgeErrorNotice error={classify.error} />}
             {contact.last_error && <p className="mt-1 text-xs text-destructive">{t(`widgetBridge.remoteErrors.${contact.last_error}` as TranslationKey)}</p>}
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
@@ -82,6 +91,7 @@ export default function WidgetBridgeInboxPage() {
             {messages.error && <BridgeErrorNotice error={messages.error} />}
             {thread.map(message => <div key={message.id} className={cn('flex', message.direction === 'outbound' ? 'justify-end' : 'justify-start')}>
               <div className={cn('max-w-[85%] rounded-xl p-3', message.direction === 'outbound' ? 'bg-primary/10' : 'bg-muted')}>
+                {message.ai_label && <p className="mb-1 text-xs text-primary">{t('widgetBridge.ai.title')}: {message.ai_label}</p>}
                 <p className="whitespace-pre-wrap break-words text-sm">{message.body}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{new Date(message.created_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
                   {' · '}{t(`widgetBridge.delivery.${message.delivery}`)}</p>

@@ -1,3 +1,4 @@
+import { explicitAiResponder } from './aiReply.js';
 import type { Queryable } from '../../server/db/postgrest/types.js';
 import type { BridgeContact, BridgeIdentity, BridgeMessage, BridgeAllowedProvider } from '../../shared/widgetBridge.js';
 import type { SecretEnvelope } from '../../server/lib/pluginCrypto.js';
@@ -98,9 +99,9 @@ export class BridgeStore {
   }
   async receive(contact: LeasedContact, messages: RemoteMessage[]) {
     if (!messages.length) return;
-    const unique = [...new Map(messages.map(message => [message.key, message])).values()].slice(0, 200);
-    await this.db.query(`INSERT INTO widget_bridge_messages(contact_id,direction,body,delivery,dedupe_key,created_at)
-      SELECT c.id,'inbound',incoming.item->>'body','received',incoming.item->>'key',
+    const unique = [...new Map(messages.map(message => [message.key, { ...message, aiLabel: explicitAiResponder(message.aiLabel) }])).values()].slice(0, 200);
+    await this.db.query(`WITH received AS (INSERT INTO widget_bridge_messages(contact_id,direction,body,delivery,dedupe_key,ai_label,created_at)
+      SELECT c.id,'inbound',incoming.item->>'body','received',incoming.item->>'key',incoming.item->>'aiLabel',
         statement_timestamp()+incoming.ordinality*interval '1 microsecond'
       FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS incoming(item,ordinality),
         widget_bridge_contacts c,widget_bridge_settings s
@@ -109,7 +110,13 @@ export class BridgeStore {
         AND length(incoming.item->>'body') BETWEEN 1 AND 4000
       ORDER BY incoming.ordinality
       ON CONFLICT(contact_id,direction,dedupe_key) DO UPDATE SET body=EXCLUDED.body
-      WHERE widget_bridge_messages.body<>EXCLUDED.body`,
+      WHERE widget_bridge_messages.body<>EXCLUDED.body RETURNING contact_id,ai_label
+    ) UPDATE widget_bridge_contacts c SET ai_replied_at=now(),
+      ai_reply_label=(SELECT ai_label FROM received WHERE ai_label IS NOT NULL LIMIT 1),ai_reply_source='widget_label'
+      WHERE c.id=$2 AND c.app_id=$3 AND c.lease_owner=$4 AND c.generation=$5 AND c.lease_until>now()
+        AND c.ai_replied_at IS NULL AND EXISTS(SELECT 1 FROM received WHERE ai_label IS NOT NULL)
+        AND EXISTS(SELECT 1 FROM widget_bridge_messages m WHERE m.contact_id=c.id AND m.direction='outbound'
+          AND m.delivery IN ('sent','dispatching','uncertain'))`,
     [JSON.stringify(unique), contact.id, this.appId, this.workerId, contact.generation]);
   }
   async saveSession(contact: LeasedContact, envelope: SecretEnvelope) {

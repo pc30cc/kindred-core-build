@@ -12,14 +12,14 @@ export function useBridgeSettings(workspaceId?: string, allowed = true) {
   });
 }
 
-export function useBridgeContacts(workspaceId?: string, enabled = true) {
+export function useBridgeContacts(workspaceId?: string, enabled = true, aiOnly = false) {
   const { user } = useAuth();
   const query = useInfiniteQuery({
-    queryKey: ['widget-bridge-contacts', user?.id, workspaceId],
+    queryKey: ['widget-bridge-contacts', user?.id, workspaceId, aiOnly],
     enabled: !!workspaceId && enabled, retry: false, refetchInterval: 10000,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => bridgeRequest<{ contacts: BridgeContact[]; hasMore: boolean }>(workspaceId!,
-      `/contacts${pageParam ? `?before=${pageParam}` : ''}`),
+      `/contacts${aiOnly ? '?aiReplied=true' : ''}${pageParam ? `${aiOnly ? '&' : '?'}before=${pageParam}` : ''}`),
     getNextPageParam: page => page.hasMore ? page.contacts[page.contacts.length - 1]?.id : undefined,
   });
   return { ...query, data: query.data ? { contacts: [...new Map(query.data.pages.flatMap(page => page.contacts).map(c => [c.id,c])).values()] } : undefined };

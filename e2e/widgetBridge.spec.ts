@@ -226,3 +226,21 @@ test('Goftino relay exchanges replies in the same page without navigation or rep
   expect(await page.evaluate(()=>(globalThis as unknown as {visitorPosts:string[]}).visitorPosts)).toEqual(['سلام','سلام']);
   expect(await relay.receive()).toEqual([]);
 });
+
+
+test('Goftino captures the responder header for each reply, not message wording or the later header', async ({ page }) => {
+  await openGoftinoFixture(page);
+  const adapter = await makeAdapter(page,'goftino',{}); await adapter.prepare(identity);
+  await page.evaluate(()=>{
+    const frame=document.querySelector<HTMLIFrameElement>('#goftino_w')!;
+    const header=frame.contentDocument!.createElement('div'); header.id='box-header';
+    header.textContent='هوش مصنوعی ایران سرور'; frame.contentDocument!.body.append(header);
+    window.dispatchEvent(new CustomEvent('goftino_getMessage',{detail:{type:'text',content:'AI reply'}}));
+    header.textContent='Ali';
+    window.dispatchEvent(new CustomEvent('goftino_getMessage',{detail:{type:'text',content:'I am an AI assistant'}}));
+  });
+  await expect.poll(async()=>(await adapter.receive()).length).toBe(2);
+  const replies=await adapter.receive();
+  expect(replies[0].aiLabel).toBe('هوش مصنوعی ایران سرور');
+  expect(replies[1].aiLabel).toBeUndefined();
+});

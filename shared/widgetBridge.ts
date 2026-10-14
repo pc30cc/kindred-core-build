@@ -37,6 +37,9 @@ export interface BridgeContact {
   status: string;
   last_error: string | null;
   last_seen_at: string | null;
+  ai_replied_at?: string | null;
+  ai_reply_label?: string | null;
+  ai_reply_source?: 'widget_label' | 'manual' | null;
 }
 export interface BridgeMessage {
   id: string;
@@ -45,6 +48,7 @@ export interface BridgeMessage {
   body: string;
   delivery: 'queued' | 'preparing' | 'dispatching' | 'sent' | 'received' | 'failed' | 'uncertain' | 'cancelled';
   dedupe_key: string;
+  ai_label?: string | null;
   batch_id?: string | null;
   batch_position?: number | null;
   error: string | null;

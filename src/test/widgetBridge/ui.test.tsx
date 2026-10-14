@@ -35,6 +35,7 @@ beforeEach(() => {
     if (path === '/settings' && method === 'PUT') { state.enabled = (body as { enabled: boolean }).enabled; return { settings: body }; }
     if (path === '/batches') return method === 'POST' ? { batch: { id: 'batch-1' } } : { batches: [] };
     if (path === '/batches/batch-1') return { items: [] };
+    if (path === '/contacts?aiReplied=true') return { contacts: [{ ...contact, ai_replied_at:'2026-10-14T10:00:00Z', ai_reply_source:'widget_label', ai_reply_label:'AI assistant' }], hasMore:false };
     if (path === '/contacts') return { contacts: [contact] };
     if (path.endsWith('/messages') && method === 'GET') return { messages: [{ id: 'reply-1', body: 'Remote reply', direction: 'inbound', delivery: 'received', created_at: '2026-10-14T08:00:00Z' }], hasMore: false };
     return { message: { id: 'queued-1', delivery: 'queued' } };
@@ -99,4 +100,18 @@ describe('Super Admin bridge UI', () => {
     expect((screen.getByLabelText('Write a message…') as HTMLTextAreaElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(true);
   });
+});
+
+
+it('prepares selected AI follow-ups without sending until the batch start button is pressed', async () => {
+  mount(<WidgetBridgeSettingsPanel workspaceId="workspace-1" slug="admin" />);
+  await screen.findByText('AI assistant', {exact:false});
+  const section = screen.getByText('Answered by AI').closest('section')!;
+  fireEvent.click(section.querySelector('input[type="checkbox"]')!);
+  fireEvent.click(screen.getByRole('button',{name:/Prepare selected sites for follow-up/}));
+  expect((screen.getByLabelText('Website list (one per line)') as HTMLTextAreaElement).value).toBe(contact.url);
+  expect(state.request.mock.calls.filter(call=>call[1]==='/batches' && call[2]==='POST')).toHaveLength(0);
+  fireEvent.change(screen.getByLabelText('Message for all sites'),{target:{value:'سلام'}});
+  fireEvent.click(screen.getByRole('button',{name:'Start sequential sending'}));
+  await waitFor(()=>expect(state.request).toHaveBeenCalledWith('workspace-1','/batches','POST',expect.objectContaining({urls:[contact.url],body:'سلام'})));
 });

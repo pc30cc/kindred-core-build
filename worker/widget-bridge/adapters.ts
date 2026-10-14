@@ -1,8 +1,9 @@
+import { explicitAiResponder } from './aiReply.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Page, Locator } from '@playwright/test';
 import { bridgeProviders, type BridgeAllowedProvider, type BridgeIdentity, type BridgeProvider, type BridgeSelectors } from '../../shared/widgetBridge.js';
 
-export interface RemoteMessage { key: string; body: string }
+export interface RemoteMessage { key: string; body: string; aiLabel?: string }
 export interface BridgeAdapter {
   prepare(identity: BridgeIdentity): Promise<void>;
   send(body: string): Promise<boolean>;
@@ -257,7 +258,7 @@ export class GoftinoAdapter implements BridgeAdapter {
         else {
           // Published events do not promise message IDs or offline history.
           const id = data.id ?? data.messageId ?? randomUUID();
-          this.messages.push({ key: `goftino:${String(id).slice(0, 200)}`, body: data.content.trim().slice(0, 4000) });
+          this.messages.push({ key: `goftino:${String(id).slice(0, 200)}`, body: data.content.trim().slice(0, 4000), ...(explicitAiResponder(data.bridgeResponderLabel) ? { aiLabel: explicitAiResponder(data.bridgeResponderLabel) } : {}) });
         }
       });
       await this.page.evaluate(() => {
@@ -266,7 +267,16 @@ export class GoftinoAdapter implements BridgeAdapter {
           __bridgeGoftinoEvent(kind: string, data: unknown): void;
         };
         win.addEventListener('goftino_sendMessage', event => win.__bridgeGoftinoEvent('sent', event.detail));
-        win.addEventListener('goftino_getMessage', event => win.__bridgeGoftinoEvent('received', event.detail));
+        win.addEventListener('goftino_getMessage', event => {
+          let label = '';
+          try {
+            const doc = (globalThis as unknown as { document: { querySelector(selector: string): { contentDocument?: { querySelector(selector: string): { innerText?: string } | null } } | null } }).document;
+            const frame = doc.querySelector('#goftino_w');
+            label = frame?.contentDocument?.querySelector('#box-header')?.innerText || '';
+          } catch { /* Cross-origin widgets remain unclassified. */ }
+          const detail = event.detail && typeof event.detail === 'object' ? event.detail : {};
+          win.__bridgeGoftinoEvent('received', { ...detail, bridgeResponderLabel: label });
+        });
       });
       this.installed = true;
     }

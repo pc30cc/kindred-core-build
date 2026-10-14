@@ -1,3 +1,4 @@
+import { explicitAiResponder } from '../../../worker/widget-bridge/aiReply.js';
 import { SessionRelay } from '../../../worker/widget-bridge/sessionRelay.js';
 import { isBridgeProviderSite, bridgeProviderDomains } from '../../../shared/widgetBridgeTargets.js';
 // @vitest-environment node
@@ -87,5 +88,15 @@ describe('two-way session relay', () => {
     stopped=true;
     await expect(relay.send('سلام')).rejects.toThrow('connection_stopped');
     expect(remote.send).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('explicit AI responder labels', () => {
+  it.each(['هوش مصنوعی ایران سرور','AI assistant','Yapay zekâ destek'])('recognizes explicit label %s', label => {
+    expect(explicitAiResponder(label)).toBe(label);
+  });
+  it.each(['سلام، بفرمایید.','مشاوره خرید','Ali','I am an AI assistant','سوالی درباره هوش مصنوعی دارم'])('does not infer AI from ambiguous label or prose %s', label => {
+    expect(explicitAiResponder(label)).toBeUndefined();
   });
 });

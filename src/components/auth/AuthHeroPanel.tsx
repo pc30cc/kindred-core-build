@@ -1,8 +1,10 @@
 import { MessageSquare, Phone, Sparkles, BarChart3, Zap, Bot, MicOff, Camera, Video, PhoneOff } from 'lucide-react';
 import { LoopVideo } from '@/components/site/LoopVideo';
 import callerWoman from '@/assets/caller-woman.jpg';
+import callerWomanIntl from '@/assets/caller-woman-intl.jpg';
 import operatorMan from '@/assets/operator-man.jpg';
 import { useTranslation } from '@/i18n';
+import { useInternationalMode } from '@/lib/internationalMode';
 import { siApple, siAndroid, siMacos, siPwa, siWoocommerce, siWordpress, siTelegram, siWhatsapp, siInstagram } from 'simple-icons';
 import { ShoppingCart, Server } from 'lucide-react';
 
@@ -46,6 +48,9 @@ const CHIPS = [
 export function AuthHeroPanel({ title, subtitle, className }: Props) {
   const { locale } = useTranslation();
   const isFa = locale === 'fa';
+  // The International edition shows its own caller in the phone (a Mixkit
+  // stock clip, free licence); the Iranian edition keeps its own.
+  const international = useInternationalMode();
   return (
     <div className={`relative hidden overflow-hidden border-s border-border/60 bg-secondary/40 text-foreground lg:flex ${className ?? ''}`}>
       {/* Aurora backdrop */}
@@ -68,8 +73,10 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
             <div className="relative h-full w-full overflow-hidden rounded-[36px] bg-secondary">
               <div className="absolute top-2 left-1/2 z-20 h-[20px] w-[72px] -translate-x-1/2 rounded-full bg-background" />
               <LoopVideo
-                src="/auth-media/caller-woman.mp4"
-                poster={callerWoman}
+                // A new source needs a new <video>: the edition can become known after the first paint.
+                key={international ? 'intl' : 'iran'}
+                src={international ? '/auth-media/caller-woman-intl.mp4' : '/auth-media/caller-woman.mp4'}
+                poster={international ? callerWomanIntl : callerWoman}
                 title="Video call"
                 className="absolute inset-0 h-full w-full object-cover object-top"
               />

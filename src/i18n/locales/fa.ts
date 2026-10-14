@@ -634,6 +634,13 @@ const fa: TranslationKeys = {
     viewAll: 'مشاهده همه',
   },
   auth: {
+    legalLinks: {
+      label: 'قوانین',
+      terms: 'شرایط استفاده',
+      privacy: 'حریم خصوصی',
+      refund: 'سیاست بازپرداخت',
+      sla: 'توافق‌نامه‌ی سطح خدمات',
+    },
     login: 'ورود',
     signup: 'ثبت‌نام',
     logout: 'خروج',

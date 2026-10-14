@@ -2,6 +2,7 @@ import { BrandWordmark } from '@/components/brand/BrandLoader';
 import { toLatinKeyboard } from '@/lib/latinKeyboard';
 import { useState, useEffect, useMemo } from 'react';
 import { AuthHeroPanel } from '@/components/auth/AuthHeroPanel';
+import { AuthLegalLinks } from '@/components/auth/AuthLegalLinks';
 import { BrandLockup } from '@/components/brand/BrandLogo';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
@@ -276,6 +277,7 @@ export default function LoginPage() {
           </div>
           <BrandWordmark className="mt-6" />
         </div>
+        <AuthLegalLinks className="shrink-0 px-6 pb-6" />
       </div>
 
       <AuthHeroPanel

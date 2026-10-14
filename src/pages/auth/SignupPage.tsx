@@ -3,6 +3,7 @@ import { useState, useMemo, useRef } from 'react';
 import { AdsMeasurementConsent } from '@/components/AdsMeasurementConsent';
 import { trackSuccessfulSignup } from '@/lib/googleAds';
 import { AuthHeroPanel } from '@/components/auth/AuthHeroPanel';
+import { AuthLegalLinks } from '@/components/auth/AuthLegalLinks';
 import { BrandLockup } from '@/components/brand/BrandLogo';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
@@ -239,6 +240,7 @@ export default function SignupPage() {
           )}
           <BrandWordmark className="mt-6" />
         </div>
+        <AuthLegalLinks className="shrink-0 px-6 pb-6" />
       </div>
 
       <AuthHeroPanel

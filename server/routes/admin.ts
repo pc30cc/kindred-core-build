@@ -39,6 +39,7 @@ import { adminBackupRouter } from './adminBackup.js';
 import { adminMobileAppRouter } from './adminMobileApp.js';
 import { adminSimpleBillingRouter } from './adminSimpleBilling.js';
 import { adminPlatformSupportRouter } from './adminPlatformSupport.js';
+import { adminWidgetBridgeRouter } from './adminWidgetBridge.js';
 import { adminDesktopAppRouter } from './adminDesktopApp.js';
 import { adminMacosAppRouter } from './adminMacosApp.js';
 import { adminNotificationsRouter } from './adminNotifications.js';
@@ -134,6 +135,7 @@ adminRouter.use('/backup', adminBackupRouter);
 adminRouter.use('/mobile-app', adminMobileAppRouter);
 adminRouter.use('/simple-billing', adminSimpleBillingRouter);
 adminRouter.use('/platform-support', adminPlatformSupportRouter);
+adminRouter.use('/widget-bridge', adminWidgetBridgeRouter);
 adminRouter.use('/desktop-app', adminDesktopAppRouter);
 adminRouter.use('/macos-app', adminMacosAppRouter);
 

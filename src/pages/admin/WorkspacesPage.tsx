@@ -1,5 +1,5 @@
 import { useState, useDeferredValue, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
@@ -102,6 +102,7 @@ export default function AdminWorkspacesPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-foreground">{t('admin.workspacesPage.title')}</h1>
+        <Button variant="outline" asChild><Link to="/admin/widget-bridge">{t('widgetBridge.title')}</Link></Button>
         <span className="text-sm text-muted-foreground">{t('admin.workspacesPage.total', { count: count ?? 0 })}</span>
       </div>
 

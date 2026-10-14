@@ -1,0 +1,11 @@
+{
+  "name": "widget-bridge-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@playwright/test": "1.58.2",
+    "pg": "8.22.0",
+    "tsx": "4.21.0"
+  }
+}

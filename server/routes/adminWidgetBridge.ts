@@ -1,4 +1,4 @@
-import type { BridgeBatchItem } from '../../shared/widgetBridge.js';
+import { bridgeProviders, type BridgeSiteLists, type BridgeBatchItem } from '../../shared/widgetBridge.js';
 import { isBridgeProviderSite } from '../../shared/widgetBridgeTargets.js';
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { directPool } from '../db/index.js';
 import { BridgeError, bridgeConfig, bridgePool } from '../services/widgetBridge/config.js';
-import { bridgeSettingsSchema, bridgeContactSchema, bridgeMessageSchema, bridgeBatchSchema } from '../services/widgetBridge/validation.js';
+import { bridgeSiteListSchema, bridgeSettingsSchema, bridgeContactSchema, bridgeMessageSchema, bridgeBatchSchema } from '../services/widgetBridge/validation.js';
 import { checkOutboundUrl } from '../../shared/net/hostGuard.js';
 
 export const adminWidgetBridgeRouter = Router();
@@ -84,6 +84,24 @@ adminWidgetBridgeRouter.delete('/settings', handle(async (_req, res) => {
   await bridgePool().query(`DELETE FROM widget_bridge_settings s WHERE ${scoped} AND deleting
     AND NOT EXISTS(SELECT 1 FROM widget_bridge_contacts c WHERE c.app_id=s.app_id AND c.owner_id=s.owner_id AND c.workspace_id=s.workspace_id)`, params(res));
   res.status(202).json({ deleting: true });
+}));
+
+// Editing a saved list never starts/stops a conversation or changes an active batch.
+adminWidgetBridgeRouter.get('/site-lists', handle(async (_req, res) => {
+  const { rows } = await bridgePool().query<{ site_lists: BridgeSiteLists }>(`SELECT site_lists FROM widget_bridge_settings WHERE ${scoped} AND NOT deleting`, params(res));
+  res.json({ lists: rows[0]?.site_lists || {} });
+}));
+adminWidgetBridgeRouter.put('/site-lists/:provider', handle(async (req, res) => {
+  const key = z.enum(['shared', ...bridgeProviders]).safeParse(req.params.provider);
+  const body = bridgeSiteListSchema.safeParse(req.body);
+  if (!key.success || !body.success) { res.status(400).json({ error: 'invalid_site_list' }); return; }
+  const value = { ...body.data, includeShared: key.data === 'shared' ? false : body.data.includeShared };
+  // Update only this provider's key; concurrent saves of other lists are preserved.
+  const { rows } = await bridgePool().query(`UPDATE widget_bridge_settings SET
+    site_lists=jsonb_set(site_lists,ARRAY[$4::text],$5::jsonb,true),updated_at=now()
+    WHERE ${scoped} AND NOT deleting RETURNING app_id`, [...params(res),key.data,JSON.stringify(value)]);
+  if (!rows.length) { res.status(409).json({ error: 'save_settings_first' }); return; }
+  res.json({ list: value });
 }));
 
 adminWidgetBridgeRouter.get('/contacts', handle(async (req, res) => {
@@ -225,9 +243,9 @@ adminWidgetBridgeRouter.get('/batches/:id', handle(async (req, res) => {
 adminWidgetBridgeRouter.post('/batches', handle(async (req, res) => {
   const parsed = bridgeBatchSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'invalid_batch' }); return; }
-  const { body, clientBatchId } = parsed.data;
+  const { body, clientBatchId, provider } = parsed.data;
   const urls = [...new Set(parsed.data.urls.map(value => { const u = new URL(value); u.hash=''; return u.toString(); }))];
-  const hash = createHash('sha256').update(JSON.stringify({ body, urls })).digest('hex');
+  const hash = createHash('sha256').update(JSON.stringify({ body, urls, ...(provider ? { provider } : {}) })).digest('hex');
   const existing = await bridgePool().query(`SELECT id,request_hash FROM widget_bridge_batches WHERE ${scoped} AND id=$4`, [...params(res),clientBatchId]);
   if (existing.rows.length) {
     if (existing.rows[0].request_hash !== hash) { res.status(409).json({ error: 'batch_conflict' }); return; }
@@ -239,22 +257,23 @@ adminWidgetBridgeRouter.post('/batches', handle(async (req, res) => {
     INSERT INTO widget_bridge_batches(id,app_id,owner_id,workspace_id,body,sites,request_hash,round_size,interval_seconds,approved_through)
     SELECT $4,$1,$2,$3,$5,$6::jsonb,$7,round_size,interval_seconds,round_size FROM widget_bridge_settings
     WHERE ${scoped} AND enabled AND NOT deleting AND jsonb_array_length(allowed_providers)>0
+      AND ($9::text IS NULL OR allowed_providers ? $9::text)
     ON CONFLICT DO NOTHING RETURNING *
   ), sites AS (
     SELECT site.url,site.position FROM batch CROSS JOIN LATERAL jsonb_array_elements_text(batch.sites) WITH ORDINALITY site(url,position)
   ), contacts AS (
     INSERT INTO widget_bridge_contacts(app_id,owner_id,workspace_id,name,url,provider,enabled)
-    SELECT $1,$2,$3,substring(url from '^https://([^/:]+)'),url,'auto',true FROM sites
+    SELECT $1,$2,$3,substring(url from '^https://([^/:]+)'),url,COALESCE($9::text,'auto'),true FROM sites
     WHERE NOT (url = ANY($8::text[]))
     ON CONFLICT(app_id,owner_id,workspace_id,url) DO UPDATE SET url=EXCLUDED.url,next_poll_at=now()
       WHERE widget_bridge_contacts.enabled AND NOT widget_bridge_contacts.deleting
     RETURNING id,url
   ), messages AS (
-    INSERT INTO widget_bridge_messages(contact_id,direction,body,delivery,dedupe_key,batch_id,batch_position,created_at)
+    INSERT INTO widget_bridge_messages(contact_id,direction,body,delivery,dedupe_key,batch_id,batch_position,created_at,required_provider)
     SELECT c.id,'outbound',$5,'queued',$4::text||':'||s.position,b.id,s.position,
-      statement_timestamp()+s.position*interval '1 microsecond'
+      statement_timestamp()+s.position*interval '1 microsecond',$9::text
     FROM contacts c JOIN sites s USING(url) CROSS JOIN batch b RETURNING id
-  ) SELECT id FROM batch`, [...params(res),clientBatchId,body,JSON.stringify(urls),hash,urls.filter(isBridgeProviderSite)]);
+  ) SELECT id FROM batch`, [...params(res),clientBatchId,body,JSON.stringify(urls),hash,urls.filter(isBridgeProviderSite),provider || null]);
   if (!rows.length) { res.status(409).json({ error: 'batch_conflict' }); return; }
   res.status(202).json({ batch: rows[0] });
 }));

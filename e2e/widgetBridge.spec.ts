@@ -20,6 +20,8 @@ test('worker opens a shadow widget, fills details, posts and receives distinct r
   ));
   await page.goto('https://bridge-fixture.test/');
   const adapter = await makeAdapter(page, 'auto', {});
+  expect(adapter.provider).toBe('webyar');
+  expect(new SessionRelay(adapter, () => {}).provider).toBe('webyar');
   await adapter.prepare(identity);
   await expect(page.locator('[data-prechat="name"]')).toHaveValue('Admin');
   await expect(page.locator('[data-prechat="email"]')).toHaveValue('admin@example.com');
@@ -55,7 +57,7 @@ test('Crisp SDK adapter captures replies and visitor send events independently',
     };
     win.emitReply = value => callbacks.get('message:received')?.(value);
   });
-  const adapter = await makeAdapter(page, 'auto', {}); expect(adapter).toBeInstanceOf(CrispAdapter);
+  const adapter = await makeAdapter(page, 'auto', {}); expect(adapter).toBeInstanceOf(CrispAdapter); expect(adapter.provider).toBe('crisp');
   await adapter.prepare(identity); expect(await adapter.send('Hello Crisp')).toBe(true);
   await page.evaluate(() => (globalThis as unknown as { emitReply: (value: unknown) => void }).emitReply({ type: 'text', content: 'Crisp reply', fingerprint: 123 }));
   await expect.poll(async () => (await adapter.receive()).length).toBe(1);

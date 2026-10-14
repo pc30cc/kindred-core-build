@@ -1,5 +1,7 @@
 import { bridgeProviders } from '../../../shared/widgetBridge';
 import { AiReplyPanel } from './AiReplyPanel';
+import { SiteListsPanel } from './SiteListsPanel';
+import type { BridgeBatchDraft } from '../../../shared/widgetBridge';
 import { BatchPanel } from './BatchPanel';
 import { useEffect, useState } from 'react';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
@@ -36,7 +38,7 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
   const [name, setName] = useState('');
   const [provider, setProvider] = useState<BridgeProvider>('auto');
   const [selectors, setSelectors] = useState<BridgeSelectors>({});
-  const [followup, setFollowup] = useState<{ urls: string[] } | null>(null);
+  const [followup, setFollowup] = useState<BridgeBatchDraft | null>(null);
   const [advanced, setAdvanced] = useState(false);
   useEffect(() => {
     if (settings.data && !dirty) setForm({
@@ -52,6 +54,7 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
     void qc.invalidateQueries({ queryKey: ['widget-bridge-settings'] });
     void qc.invalidateQueries({ queryKey: ['widget-bridge-contacts'] });
     void qc.invalidateQueries({ queryKey: ['widget-bridge-batches'] });
+    void qc.invalidateQueries({ queryKey: ['widget-bridge-site-lists'] });
   };
   const save = useMutation({
     mutationFn: () => bridgeRequest(workspaceId, '/settings', 'PUT', form),
@@ -114,6 +117,7 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
       {save.isSuccess && !dirty && <p role="status" className="mt-2 text-sm text-success">{t('widgetBridge.saved')}</p>}
       {save.error && <BridgeErrorNotice error={save.error} />}
     </div>
+    <SiteListsPanel workspaceId={workspaceId} onPrepare={setFollowup} />
     <AiReplyPanel workspaceId={workspaceId} onPrepare={urls => setFollowup({ urls })} />
     <BatchPanel followup={followup} workspaceId={workspaceId} enabled={!dirty && !!settings.data?.settings.enabled && form.allowedProviders.length>0} />
     <form className="space-y-4 rounded-xl border p-5" onSubmit={event => { event.preventDefault(); create.mutate(); }}>

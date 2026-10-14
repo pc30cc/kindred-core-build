@@ -118,3 +118,10 @@ CREATE INDEX IF NOT EXISTS widget_bridge_contacts_ai_followup
   ON widget_bridge_contacts(app_id,owner_id,workspace_id,created_at DESC,id DESC)
   WHERE ai_replied_at IS NOT NULL AND NOT deleting;
 COMMIT;
+
+-- Provider-specific and shared saved lists stay in the dedicated database.
+BEGIN;
+ALTER TABLE widget_bridge_settings ADD COLUMN IF NOT EXISTS site_lists jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE widget_bridge_messages ADD COLUMN IF NOT EXISTS required_provider text
+  CHECK (required_provider IN ('webyar','crisp','raychat','goftino','custom'));
+COMMIT;

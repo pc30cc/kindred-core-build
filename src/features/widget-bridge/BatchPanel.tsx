@@ -5,17 +5,18 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { bridgeRequest } from './api';
-import type { BridgeBatch, BridgeBatchItem } from '../../../shared/widgetBridge';
+import { bridgeProviders, type BridgeBatchDraft, type BridgeProvider, type BridgeBatch, type BridgeBatchItem } from '../../../shared/widgetBridge';
 
-export function BatchPanel({ workspaceId, enabled, followup }: { workspaceId: string; enabled: boolean; followup?: { urls: string[] } | null }) {
+export function BatchPanel({ workspaceId, enabled, followup }: { workspaceId: string; enabled: boolean; followup?: BridgeBatchDraft | null }) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const qc = useQueryClient();
   const [sites, setSites] = useState('');
+  const [provider, setProvider] = useState<BridgeProvider>('auto');
   const [body, setBody] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const requestId = useRef<string | null>(null);
-  useEffect(() => { if (followup) { setSites(followup.urls.join('\n')); requestId.current = null; } }, [followup]);
+  useEffect(() => { if (followup) { setSites(followup.urls.join('\n')); setProvider(followup.provider || 'auto'); requestId.current = null; } }, [followup]);
   const urls = [...new Set(sites.split(/\r?\n/).map(url => url.trim()).filter(Boolean).map(url => {
     const value = /^https?:\/\//i.test(url) ? url : `https://${url}`;
     try { const parsed = new URL(value); parsed.hash = ''; return parsed.toString(); } catch { return value; }
@@ -27,7 +28,7 @@ export function BatchPanel({ workspaceId, enabled, followup }: { workspaceId: st
   const invalidate = () => { void qc.invalidateQueries({ queryKey }); void qc.invalidateQueries({ queryKey: ['widget-bridge-contacts'] }); };
   const start = useMutation({ mutationFn: () => {
     requestId.current ||= crypto.randomUUID();
-    return bridgeRequest<{ batch: { id: string } }>(workspaceId, '/batches', 'POST', { urls, body, clientBatchId: requestId.current });
+    return bridgeRequest<{ batch: { id: string } }>(workspaceId, '/batches', 'POST', { urls, body, ...(provider === 'auto' ? {} : { provider }), clientBatchId: requestId.current });
   }, onSuccess: result => { setSelected(result.batch.id); setSites(''); requestId.current = null; invalidate(); } });
   const stop = useMutation({ mutationFn: (id: string) => bridgeRequest(workspaceId, `/batches/${id}`, 'DELETE'), onSuccess: invalidate });
   const resume = useMutation({ mutationFn: (batch: BridgeBatch) => bridgeRequest(workspaceId, `/batches/${batch.id}/continue`, 'POST', { reviewVersion: batch.review_version }), onSuccess: invalidate });
@@ -36,6 +37,13 @@ export function BatchPanel({ workspaceId, enabled, followup }: { workspaceId: st
   return <section className="space-y-4 rounded-xl border p-5">
     <h2 className="font-semibold">{t('widgetBridge.batch.title')}</h2>
     <p className="text-sm text-muted-foreground">{t('widgetBridge.batch.description')}</p>
+    <div className="space-y-2"><Label htmlFor="bridge-batch-provider">{t('widgetBridge.lists.sendProvider')}</Label>
+      <select id="bridge-batch-provider" className="h-10 w-full rounded-md border bg-background px-3" value={provider} disabled={start.isPending}
+        onChange={event => { setProvider(event.target.value as BridgeProvider); requestId.current = null; }}>
+        <option value="auto">{t('widgetBridge.lists.allProviders')}</option>
+        {bridgeProviders.map(value => <option key={value} value={value}>{value === 'custom' ? t('widgetBridge.custom') : value === 'webyar' ? 'WebYar / RESPOK' : value === 'goftino' ? 'Goftino' : value === 'crisp' ? 'Crisp' : 'Raychat'}</option>)}
+      </select>
+    </div>
     <div className="space-y-2"><Label htmlFor="bridge-batch-sites">{t('widgetBridge.batch.sites')}</Label>
       <textarea id="bridge-batch-sites" dir="ltr" rows={7} maxLength={1024000} className="w-full rounded-md border bg-background p-3 text-sm"
         value={sites} disabled={start.isPending} onChange={event => { setSites(event.target.value); requestId.current = null; }} />

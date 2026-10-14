@@ -423,3 +423,65 @@ describe('AI reply follow-up classification', () => {
     expect((await db.query("SELECT * FROM widget_bridge_messages WHERE dedupe_key='stale'")).rows).toHaveLength(0);
   });
 });
+
+describe('provider website lists', () => {
+  it('saves independent normalized lists and preserves them across settings changes', async () => {
+    await request(app).put(api('/site-lists/goftino')).send({urls:[]}).expect(409);
+    await request(app).put(api('/settings')).send({enabled:true,identity}).expect(200);
+    await request(app).put(api('/site-lists/shared')).send({urls:['shared.example.com'],includeShared:true}).expect(200);
+    await request(app).put(api('/site-lists/crisp')).send({urls:['crisp-example.com']}).expect(200);
+    await request(app).put(api('/site-lists/goftino')).send({urls:['example.com','https://example.com/#duplicate'],includeShared:true}).expect(200);
+    await request(app).put(api('/settings')).send({enabled:true,identity}).expect(200);
+    expect((await request(app).get(api('/site-lists')).expect(200)).body.lists).toEqual({
+      shared:{urls:['https://shared.example.com/'],includeShared:false},
+      crisp:{urls:['https://crisp-example.com/'],includeShared:false},
+      goftino:{urls:['https://example.com/'],includeShared:true},
+    });
+    await request(app).put(api('/site-lists/goftino')).send({urls:[],includeShared:false}).expect(200);
+    expect((await request(app).get(api('/site-lists'))).body.lists.crisp.urls).toHaveLength(1);
+    expect((await request(app).get(api('/site-lists'))).body.lists.goftino.urls).toEqual([]);
+    await request(app).delete(api('/settings')).expect(202); await store().reap();
+    expect((await request(app).get(api('/site-lists'))).body.lists).toEqual({});
+  });
+  it('rejects unsafe lists and isolates their application, owner and workspace', async () => {
+    await request(app).put(api('/settings')).send({enabled:true,identity}).expect(200);
+    for(const urls of [['http://example.com'],['https://127.0.0.1'],['https://example.com:8443'],Array(501).fill('example.com')]) {
+      await request(app).put(api('/site-lists/goftino')).send({urls}).expect(400);
+    }
+    await request(app).put(api('/site-lists/unknown')).send({urls:[]}).expect(400);
+    await request(app).put(api('/site-lists/goftino')).send({urls:['example.com']}).expect(200);
+    vi.stubEnv('WIDGET_BRIDGE_APP_ID','respok');
+    expect((await request(app).get(api('/site-lists'))).body.lists).toEqual({});
+    await request(app).put(api('/site-lists/goftino')).send({urls:[]}).expect(409);
+    vi.stubEnv('WIDGET_BRIDGE_APP_ID','webyar'); gate.owner=randomUUID();
+    expect((await request(app).get(api('/site-lists'))).body.lists).toEqual({});
+    gate.owner=owner; gate.workspace=randomUUID();
+    expect((await request(app).get(api('/site-lists'))).body.lists).toEqual({});
+    gate.workspace=workspace; gate.admin=false;
+    await request(app).get(api('/site-lists')).expect(403);
+    await request(app).put(api('/site-lists/goftino')).send({urls:[]}).expect(403);
+  });
+  it('binds provider batches and refuses a different adapter even for an already connected auto contact', async () => {
+    const contact=await connected(); const id=randomUUID();
+    const payload={clientBatchId:id,body:'سلام',urls:[contact.url],provider:'goftino'};
+    await request(app).post(api('/batches')).send(payload).expect(202);
+    await request(app).post(api('/batches')).send({...payload,provider:'crisp'}).expect(409);
+    await request(app).put(api('/site-lists/goftino')).send({urls:[]}).expect(200);
+    expect((await request(app).get(api('/batches'))).body.batches[0].status).toBe('running');
+    const remote=Object.assign(adapter(),{provider:'crisp' as const});
+    await sendNext(store(),contact,remote,async()=>{});
+    expect(remote.prepare).not.toHaveBeenCalled(); expect(remote.send).not.toHaveBeenCalled();
+    expect((await db.query('SELECT delivery,required_provider FROM widget_bridge_messages')).rows[0]).toMatchObject({delivery:'failed',required_provider:'goftino'});
+    expect((await request(app).get(api('/batches'))).body.batches[0].status).toBe('paused');
+  });
+  it('accepts only allowed providers and sends once with the matching adapter', async () => {
+    await request(app).put(api('/settings')).send({enabled:true,identity,allowedProviders:['goftino']}).expect(200);
+    const payload={clientBatchId:randomUUID(),body:'سلام',urls:['https://example.com'],provider:'crisp'};
+    await request(app).post(api('/batches')).send(payload).expect(409);
+    await request(app).post(api('/batches')).send({...payload,provider:'goftino'}).expect(202);
+    const contact=(await store().claim())!; expect(contact.provider).toBe('goftino');
+    const remote=Object.assign(adapter(),{provider:'goftino' as const});
+    await sendNext(store(),contact,remote,async()=>{}); await sendNext(store(),contact,remote,async()=>{});
+    expect(remote.send).toHaveBeenCalledExactlyOnceWith('سلام');
+  });
+});

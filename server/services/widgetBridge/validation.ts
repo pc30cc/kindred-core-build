@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isBridgeProviderSite } from '../../../shared/widgetBridgeTargets.js';
-import { bridgeProviders } from '../../../shared/widgetBridge.js';
+import { bridgeProviders, normalizeBridgeUrls } from '../../../shared/widgetBridge.js';
 import { isSafeOutboundUrl } from '../../../shared/net/hostGuard.js';
 
 const selector = z.string().trim().max(300).optional();
@@ -42,9 +42,24 @@ export const bridgeMessageSchema = z.object({
 
 export const bridgeBatchSchema = z.object({
   clientBatchId: z.string().uuid(),
+  provider: z.enum(bridgeProviders).optional(),
   body: z.string().trim().min(1).max(2000),
   urls: z.array(z.string().trim().max(2048).refine(value => {
     if (!isSafeOutboundUrl(value)) return false;
     return !new URL(value).port || new URL(value).port === '443';
   })).min(1).max(500),
 }).strict();
+
+export const bridgeSiteListSchema = z.object({
+  urls: z.array(z.string().trim().min(1).max(2048)).max(500),
+  includeShared: z.boolean().default(false),
+}).strict().transform((value, ctx) => {
+  try {
+    const urls = normalizeBridgeUrls(value.urls);
+    if (urls.some(url => url.length > 2048 || !isSafeOutboundUrl(url) || (new URL(url).port && new URL(url).port !== '443'))) throw new Error('invalid_url');
+    return { ...value, urls };
+  } catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'public_https_required' });
+    return z.NEVER;
+  }
+});

@@ -10,7 +10,9 @@
       that name would put the other brand's name back into this APK.
     -->
     <application>
-        <activity android:name="com.platform.app.MainActivity">
+        <activity
+            android:name="com.platform.app.MainActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

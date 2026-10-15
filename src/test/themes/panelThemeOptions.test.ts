@@ -1,7 +1,7 @@
 /**
  * A panel theme's options (shared/panelThemes.ts, migration 254): Art's
- * layout (top menu or side menu) and colour scheme, chosen by the Super Admin
- * for everyone.
+ * layout (top menu or side menu) and colour scheme, and Vivid's colour
+ * scheme, chosen by the Super Admin for everyone.
  *
  * The promises this checks:
  *   - What is stored is only ever read through resolvePanelThemeOptions, so a
@@ -27,6 +27,7 @@ import {
   ART_PALETTES,
   INTERNATIONAL_ART_PALETTES,
   PANEL_THEME_OPTIONS,
+  VIVID_PALETTES,
   artPaletteFor,
   artPalettesFor,
   PANEL_THEME_OPTION_KEYS,
@@ -44,6 +45,20 @@ describe('the options', () => {
     expect(PANEL_THEME_OPTIONS.art).toEqual({ layout: ART_LAYOUTS, palette: ART_PALETTES });
     expect(PANEL_THEME_OPTIONS.classic).toEqual({});
     expect([...PANEL_THEME_OPTION_KEYS].sort()).toEqual(['layout', 'palette']);
+  });
+
+  it('Vivid has a colour scheme only, coral (the receipt’s colours) first', () => {
+    expect(VIVID_PALETTES).toEqual(['coral', 'ocean', 'violet', 'emerald', 'amber']);
+    expect(PANEL_THEME_OPTIONS.vivid).toEqual({ palette: VIVID_PALETTES });
+    expect(resolvePanelThemeOptions('vivid', {})).toEqual({ palette: 'coral' });
+    expect(resolvePanelThemeOptions('vivid', { vivid: { palette: 'emerald' } })).toEqual({ palette: 'emerald' });
+    // Art's schemes are not Vivid's, and Vivid reads its own entry only.
+    expect(resolvePanelThemeOptions('vivid', { vivid: { palette: 'clay' } })).toEqual({ palette: 'coral' });
+    expect(resolvePanelThemeOptions('vivid', { art: { palette: 'ocean' } })).toEqual({ palette: 'coral' });
+    expect(resolvePanelThemeOptions('art', { vivid: { palette: 'ocean' } })).toEqual({ layout: 'topnav', palette: 'clay' });
+    for (const palette of VIVID_PALETTES) expect(isValidPanelThemeOptions('vivid', { palette })).toBe(true);
+    expect(isValidPanelThemeOptions('vivid', { palette: 'clay' })).toBe(false);
+    expect(isValidPanelThemeOptions('vivid', { layout: 'sidebar' })).toBe(false);
   });
 
   it('resolves what is stored, every missing or unknown value to its default', () => {
@@ -179,7 +194,9 @@ describe('Super Admin → Panel theme', () => {
   it('sends options only where they can be kept, and never reports a save the server did not make', () => {
     const page = read('src/pages/admin/PanelThemePage.tsx');
     // Before migration 254 "Use for everyone" switches the theme alone.
-    expect(page).toMatch(/theme === 'art' && artDirty && optionsSaveable \? \{ theme, options: \{ \.\.\.art \} \} : \{ theme \}/);
+    expect(page).toMatch(/if \(theme === 'art' && artDirty && optionsSaveable\) return \{ theme, options: \{ \.\.\.art \} \};/);
+    expect(page).toMatch(/if \(theme === 'vivid' && vividDirty && optionsSaveable\) return \{ theme, options: \{ \.\.\.vivid \} \};/);
+    expect(page).toMatch(/return \{ theme \};/);
     // An older backend (mid-deploy) answers 200 without the options.
     expect(page).toMatch(/'options_not_saved'/);
     // The international-only scheme is listed only in international mode, and
@@ -197,6 +214,7 @@ describe('Super Admin → Panel theme', () => {
     };
     expect(panelThemeLabel(t, { theme: 'art', options: { layout: 'sidebar', palette: 'sage' } })).toBe('Art · Side menu · Sage');
     expect(panelThemeLabel(t, { theme: 'classic', options: {} })).toBe('Classic');
+    expect(panelThemeLabel(t, { theme: 'vivid', options: { palette: 'ocean' } })).toBe('Vivid · Ocean');
   });
 
   it('draws every colour scheme in both modes without failing on a missing swatch', () => {
@@ -212,6 +230,20 @@ describe('Super Admin → Panel theme', () => {
     // Classic has no colour schemes.
     const classic = panelThemes.find((theme) => theme.id === 'classic')!;
     expect(previewSwatches(classic, 'light', 'ocean')).toEqual(classic.light);
+    // Vivid: coral is its base; every scheme draws the strip and the tint.
+    const vivid = panelThemes.find((theme) => theme.id === 'vivid')!;
+    for (const mode of ['light', 'dark'] as const) {
+      expect(previewSwatches(vivid, mode)).toEqual(vivid[mode]);
+      expect(previewSwatches(vivid, mode, 'coral')).toEqual(vivid[mode]);
+      expect(previewSwatches(vivid, mode, 'clay')).toEqual(vivid[mode]);
+      for (const palette of VIVID_PALETTES) {
+        const swatches = previewSwatches(vivid, mode, palette);
+        expect(swatches.strip).toMatch(/^linear-gradient\(/);
+        expect(swatches.tint).toMatch(/^hsl\(/);
+        expect(swatches.accents).toHaveLength(4);
+      }
+      expect(previewSwatches(vivid, mode, 'violet').primary).not.toBe(vivid[mode].primary);
+    }
   });
 
   it.each([
@@ -235,6 +267,13 @@ describe('Super Admin → Panel theme', () => {
     }
     for (const palette of ART_PALETTES) expect(page.palettes[palette], `palettes.${palette}`).toBeTruthy();
     expect(page.how5).toBeTruthy();
+    const vivid = messages.admin.panelThemes as unknown as {
+      vividOptions: Record<string, string>;
+      vividPalettes: Record<string, string>;
+    };
+    for (const key of ['title', 'palette']) expect(vivid.vividOptions[key], `vividOptions.${key}`).toBeTruthy();
+    expect(Object.keys(vivid.vividPalettes).sort()).toEqual([...VIVID_PALETTES].sort());
+    for (const palette of VIVID_PALETTES) expect(vivid.vividPalettes[palette], `vividPalettes.${palette}`).toBeTruthy();
 
     const shell = messages.artShell as unknown as Record<string, string>;
     for (const key of [

@@ -236,6 +236,19 @@ describe('PUT /api/admin/management/panel-theme — options', () => {
     });
   });
 
+  it('activates Vivid with its colour scheme, Art’s entry kept, and refuses Art’s schemes for it', async () => {
+    withOptions({ art: { layout: 'sidebar', palette: 'sage' } });
+    const res = await put('admin-token', { theme: 'vivid', options: { palette: 'emerald' } });
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ theme: 'vivid', options: { palette: 'emerald' } });
+    expect(state.branding[0]).toMatchObject({
+      workspace_panel_theme: 'vivid',
+      workspace_panel_theme_options: { art: { layout: 'sidebar', palette: 'sage' }, vivid: { palette: 'emerald' } },
+    });
+    expect((await put('admin-token', { theme: 'vivid', options: { palette: 'sage' } })).status).toBe(400);
+    expect((await put('admin-token', { theme: 'vivid', options: { layout: 'sidebar' } })).status).toBe(400);
+  });
+
   it('accepts every layout and colour scheme Art offers', async () => {
     withOptions({});
     for (const layout of ['topnav', 'sidebar']) {

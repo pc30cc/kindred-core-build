@@ -4482,6 +4482,17 @@ const en = {
         graphite: 'Graphite',
         respok: 'Respok',
       },
+      vividOptions: {
+        title: 'Customise Vivid',
+        palette: 'Colour scheme',
+      },
+      vividPalettes: {
+        coral: 'Coral',
+        ocean: 'Ocean',
+        violet: 'Violet',
+        emerald: 'Emerald',
+        amber: 'Amber',
+      },
       themes: {
         classic: {
           name: 'Classic',
@@ -4496,6 +4507,13 @@ const en = {
           trait1: 'A top menu with pills, or an inset side menu that folds into a rail',
           trait2: 'Pill buttons, filled fields, underline tabs and card-row tables',
           trait3: 'Seven colour schemes and refined charts, light and dark',
+        },
+        vivid: {
+          name: 'Vivid',
+          description: 'Inspired by the billing receipt: white cards topped by a thin colour strip, figures in the brand colour on a soft tint, and coloured section labels. Colourful, but clean.',
+          trait1: 'A two-colour strip across the top of every card',
+          trait2: 'Figures and page headers on a soft tinted panel',
+          trait3: 'Five colour schemes, light and dark',
         },
       },
     },

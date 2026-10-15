@@ -1,0 +1,172 @@
+/*
+ * Vivid's colour schemes (Super Admin → Panel theme → Vivid → colour).
+ * AppLayout puts <html data-panel-palette="<id>"> next to
+ * data-panel-theme="vivid"; ids are VIVID_PALETTES in shared/panelThemes.ts.
+ * `coral`, the colours of the billing receipt, is the default and the
+ * fallback for a missing or unknown value: its tokens are theme.css's own.
+ *
+ * A scheme sets, for light and dark, exactly these tokens (everything else
+ * in theme.css is shared, or derived from these):
+ *   --primary / --primary-foreground   buttons, links, figures, the current item
+ *   --ring                             the focus ring
+ *   --accent / --accent-foreground     hover and selected tints, and their text
+ *   --background, --sidebar-background the canvas and the sidebar, faintly tinted
+ *   --vivid-from / --vivid-to          the strip's two stops (decorative)
+ *   --vivid-tint                       the hero and figure panels' tint
+ *   --vivid-chart-1 ... 4              chart series (1 = --primary)
+ *
+ * Checked by src/test/themes/vividPalettes.test.ts: text on the scheme's
+ * colour, the colour as text on the cards, the canvas, its own 10% tint and
+ * the hero tint at 4.5:1; muted text on the tint, the canvas and the sidebar
+ * at 4.5:1; the focus ring and every series at 3:1 on the cards; and the
+ * Super Admin's swatches (palettes.ts) show these very colours.
+ *
+ * Specificity: `:root[...][data-panel-palette]:not(.dark)` and
+ * `:root[...][data-panel-palette].dark` both outrank theme.css's
+ * `:root[...]` and `:root[...].dark`, so a scheme's light values never leak
+ * into dark mode and the other way round.
+ */
+
+/* ── Ocean: a deep sea blue, its strip running into teal. */
+
+:root[data-panel-theme="vivid"][data-panel-palette="ocean"]:not(.dark) {
+  --primary: 205 88% 34%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 205 85% 42%;
+  --accent: 204 85% 96.3%;
+  --accent-foreground: 205 88% 26%;
+  --background: 204 40% 97.6%;
+  --sidebar-background: 204 55% 98.2%;
+  --vivid-from: 205 90% 48%;
+  --vivid-to: 178 72% 42%;
+  --vivid-tint: 204 85% 96.3%;
+  --vivid-chart-1: 205 88% 34%;
+  --vivid-chart-2: 178 75% 30%;
+  --vivid-chart-3: 14 75% 50%;
+  --vivid-chart-4: 262 50% 52%;
+}
+
+:root[data-panel-theme="vivid"][data-panel-palette="ocean"].dark {
+  --primary: 200 90% 64%;
+  --primary-foreground: 205 60% 9%;
+  --ring: 200 90% 64%;
+  --accent: 204 40% 15%;
+  --accent-foreground: 200 90% 80%;
+  --background: 215 22% 7.5%;
+  --sidebar-background: 215 22% 9%;
+  --vivid-from: 200 92% 60%;
+  --vivid-to: 174 70% 50%;
+  --vivid-tint: 204 40% 15%;
+  --vivid-chart-1: 200 90% 64%;
+  --vivid-chart-2: 172 60% 52%;
+  --vivid-chart-3: 16 85% 66%;
+  --vivid-chart-4: 262 70% 74%;
+}
+
+/* ── Violet: a clear violet, its strip running into orchid. */
+
+:root[data-panel-theme="vivid"][data-panel-palette="violet"]:not(.dark) {
+  --primary: 262 58% 50%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 262 62% 58%;
+  --accent: 262 85% 97%;
+  --accent-foreground: 262 58% 38%;
+  --background: 262 35% 97.8%;
+  --sidebar-background: 262 50% 98.4%;
+  --vivid-from: 262 80% 62%;
+  --vivid-to: 312 70% 60%;
+  --vivid-tint: 262 85% 97%;
+  --vivid-chart-1: 262 58% 50%;
+  --vivid-chart-2: 322 62% 46%;
+  --vivid-chart-3: 199 80% 36%;
+  --vivid-chart-4: 30 85% 40%;
+}
+
+:root[data-panel-theme="vivid"][data-panel-palette="violet"].dark {
+  --primary: 262 85% 76%;
+  --primary-foreground: 262 45% 12%;
+  --ring: 262 85% 76%;
+  --accent: 262 30% 17%;
+  --accent-foreground: 262 90% 86%;
+  --background: 250 18% 7.5%;
+  --sidebar-background: 250 18% 9%;
+  --vivid-from: 262 85% 70%;
+  --vivid-to: 314 75% 68%;
+  --vivid-tint: 262 30% 17%;
+  --vivid-chart-1: 262 85% 76%;
+  --vivid-chart-2: 320 75% 70%;
+  --vivid-chart-3: 195 75% 58%;
+  --vivid-chart-4: 34 90% 60%;
+}
+
+/* ── Emerald: a deep green, its strip running into teal. */
+
+:root[data-panel-theme="vivid"][data-panel-palette="emerald"]:not(.dark) {
+  --primary: 160 84% 25%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 160 70% 32%;
+  --accent: 152 60% 95.5%;
+  --accent-foreground: 160 84% 20%;
+  --background: 150 30% 97.5%;
+  --sidebar-background: 150 45% 98.2%;
+  --vivid-from: 152 68% 40%;
+  --vivid-to: 178 72% 38%;
+  --vivid-tint: 152 60% 95.5%;
+  --vivid-chart-1: 160 84% 25%;
+  --vivid-chart-2: 199 80% 36%;
+  --vivid-chart-3: 30 85% 40%;
+  --vivid-chart-4: 262 50% 52%;
+}
+
+:root[data-panel-theme="vivid"][data-panel-palette="emerald"].dark {
+  --primary: 156 60% 52%;
+  --primary-foreground: 160 60% 7%;
+  --ring: 156 60% 52%;
+  --accent: 156 30% 14%;
+  --accent-foreground: 156 65% 74%;
+  --background: 190 18% 7.5%;
+  --sidebar-background: 190 18% 9%;
+  --vivid-from: 152 60% 48%;
+  --vivid-to: 176 65% 46%;
+  --vivid-tint: 156 30% 14%;
+  --vivid-chart-1: 156 60% 52%;
+  --vivid-chart-2: 195 75% 58%;
+  --vivid-chart-3: 30 92% 60%;
+  --vivid-chart-4: 262 70% 74%;
+}
+
+/* ── Amber: a burnt amber, its strip running from gold into orange. */
+
+:root[data-panel-theme="vivid"][data-panel-palette="amber"]:not(.dark) {
+  --primary: 28 92% 34%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 30 90% 40%;
+  --accent: 40 95% 95%;
+  --accent-foreground: 26 90% 27%;
+  --background: 40 50% 97.4%;
+  --sidebar-background: 40 70% 98%;
+  --vivid-from: 40 96% 52%;
+  --vivid-to: 18 92% 56%;
+  --vivid-tint: 40 95% 95%;
+  --vivid-chart-1: 28 92% 34%;
+  --vivid-chart-2: 350 60% 46%;
+  --vivid-chart-3: 199 80% 34%;
+  --vivid-chart-4: 160 84% 25%;
+}
+
+:root[data-panel-theme="vivid"][data-panel-palette="amber"].dark {
+  --primary: 38 95% 60%;
+  --primary-foreground: 30 60% 8%;
+  --ring: 38 95% 60%;
+  --accent: 36 35% 14%;
+  --accent-foreground: 40 95% 76%;
+  --background: 30 14% 7.5%;
+  --sidebar-background: 30 14% 9%;
+  --vivid-from: 42 96% 56%;
+  --vivid-to: 20 92% 60%;
+  --vivid-tint: 36 35% 14%;
+  --vivid-chart-1: 38 95% 60%;
+  --vivid-chart-2: 350 75% 70%;
+  --vivid-chart-3: 195 75% 58%;
+  --vivid-chart-4: 156 60% 52%;
+}

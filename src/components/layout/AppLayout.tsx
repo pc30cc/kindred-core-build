@@ -397,11 +397,12 @@ export function AppLayout() {
           <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
             <SheetContent side={dir === 'rtl' ? 'right' : 'left'} className="w-[280px] p-0">
               <SheetTitle className="sr-only">{t('nav.menu')}</SheetTitle>
-              <AppSidebar variant="drawer" onNavigate={() => setMobileNavOpen(false)} />
+              <AppSidebar variant="drawer" onNavigate={() => setMobileNavOpen(false)} sectionLabels={panelTheme.theme === 'vivid'} />
             </SheetContent>
           </Sheet>
         ) : (
-          <AppSidebar />
+          // Vivid names the menu's groups; Classic keeps its plain list.
+          <AppSidebar sectionLabels={panelTheme.theme === 'vivid'} />
         )}
         <div data-shell="frame" className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />

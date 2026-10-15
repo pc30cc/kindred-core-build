@@ -25,7 +25,7 @@ import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useProfile } from '@/hooks/useProfile';
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { Fragment, useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
 import { useWorkspaceCapacity } from '@/features/workspace/useWorkspaceCapacity';
@@ -88,9 +88,33 @@ function NavTip({ label, enabled, children }: { label: string; enabled: boolean;
   );
 }
 
+/**
+ * The main menu's groups, by meaning, when the sidebar names them (the Vivid
+ * panel theme): Inbox sits under "Conversations" above, so the first group
+ * continues it without a label of its own. An entry no group names is kept,
+ * in the last group.
+ */
+const NAV_SECTIONS: { label: TranslationKey | null; keys: string[] }[] = [
+  { label: null, keys: ['emailInbox', 'callCenter'] },
+  { label: 'artShell.sideCustomers', keys: ['contacts', 'visitors'] },
+  { label: 'artShell.sideAi', keys: ['aiAgent', 'knowledgeBase'] },
+  { label: 'artShell.sideGrowth', keys: ['seo', 'webAnalytics'] },
+  { label: 'artShell.sideManage', keys: ['team'] },
+];
+
+/** A group's name over its entries (only with `sectionLabels`). */
+function NavSectionLabel({ text }: { text: string }) {
+  return (
+    <div data-nav-section className="select-none truncate">
+      {text}
+    </div>
+  );
+}
+
 export function AppSidebar({
   variant = 'rail',
   onNavigate,
+  sectionLabels = false,
 }: {
   /** 'rail' = the permanent desktop nav column (default, unchanged behavior).
    *  'drawer' = full-width content for the mobile Sheet drawer: always
@@ -99,6 +123,10 @@ export function AppSidebar({
   /** Drawer mode only — called once per navigation so the caller can close
    *  the Sheet. Not used in rail mode. */
   onNavigate?: () => void;
+  /** Group the menu under named sections (Conversations, Customers, AI,
+   *  Growth, Manage, Tools). Off (the classic sidebar) unless the panel
+   *  theme asks for it (Vivid). */
+  sectionLabels?: boolean;
 }) {
   const { t, dir } = useTranslation();
   const { locale, setLocale } = useI18n();
@@ -300,6 +328,15 @@ export function AppSidebar({
     { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, accent: 'cyan', locked: false },
     { key: 'team', path: '/team', icon: UserCog, accent: 'rose', locked: false },
   ] as const;
+
+  // The same entries in their named groups (sectionLabels); empty groups drop.
+  const groupedNav = NAV_SECTIONS.map((section, index) => ({
+    label: section.label,
+    items: mainNav.filter((item) =>
+      section.keys.includes(item.key) ||
+      (index === NAV_SECTIONS.length - 1 && !NAV_SECTIONS.some((other) => other.keys.includes(item.key))),
+    ),
+  })).filter((section) => section.items.length > 0);
 
   const bottomNav = [
     { key: 'search', path: '#', icon: Search, accent: 'sky' },
@@ -521,7 +558,12 @@ export function AppSidebar({
       </div>
 
       {/* Inbox section */}
-      <div className="px-3 mt-2">
+      {sectionLabels && (
+        <div className="px-3">
+          <NavSectionLabel text={t('artShell.sideConversations')} />
+        </div>
+      )}
+      <div className={cn('px-3', !sectionLabels && 'mt-2')}>
         <NavTip label={t('nav.inbox')} enabled={collapsed}>
         <Link
           to={wsPath('/inbox')}
@@ -673,7 +715,10 @@ export function AppSidebar({
             ))}
           </div>
         ) : null}
-        {mainNav.map(item => (
+        {(sectionLabels ? groupedNav : [{ label: null, items: [...mainNav] }]).map(({ label, items }, groupIndex) => (
+          <Fragment key={label ?? `group-${groupIndex}`}>
+          {label && <NavSectionLabel text={t(label)} />}
+          {items.map(item => (
           <NavTip key={item.key} label={t(`nav.${item.key}` as TranslationKey)} enabled={collapsed}>
           <Link
             to={wsPath(item.path)}
@@ -695,11 +740,14 @@ export function AppSidebar({
             )}
           </Link>
           </NavTip>
+          ))}
+          </Fragment>
         ))}
       </nav>
 
       {/* Bottom section */}
       <div className="px-3 pb-2 space-y-0.5">
+        {sectionLabels && <NavSectionLabel text={t('artShell.sideTools')} />}
         {bottomNav.map(item => (
           <NavTip key={item.key} label={t(`nav.${item.key}` as TranslationKey)} enabled={collapsed}>
           <Link

@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { previewSwatches, type ArtPreviewOptions, type PanelThemeInfo, type PanelThemeSwatches } from './registry';
+import { previewSwatches, type ArtPreviewOptions, type PanelThemeInfo, type PanelThemeSwatches, type VividPreviewOptions } from './registry';
 import type { ArtLayout } from '../../shared/panelThemes';
 
 const NAV_WIDTHS = [62, 48, 70, 54, 66, 44];
@@ -9,6 +9,10 @@ const BARS = [38, 56, 44, 72, 58, 84, 64, 92, 70];
 
 const tint = (color: string, percent: number) => `color-mix(in srgb, ${color} ${percent}%, transparent)`;
 
+/** A card's background: plain, or (Vivid) topped by the theme's strip. */
+const strip = (s: PanelThemeSwatches) =>
+  s.strip ? `${s.strip} top / 100% 3px no-repeat, ${s.card}` : s.card;
+
 type Mode = 'light' | 'dark';
 
 /**
@@ -16,20 +20,23 @@ type Mode = 'light' | 'dark';
  * layout (a sidebar rail; a top bar with navigation pills; or, for Art's
  * side-menu layout, an inset menu panel) — for the theme cards on Super
  * Admin → Panel theme. Purely decorative: the card around it carries the
- * theme's name. `art`: Art's chosen layout and colour scheme.
+ * theme's name. `art`: Art's chosen layout and colour scheme; `vivid`:
+ * Vivid's chosen colour scheme (its cards are drawn with the strip).
  */
 export function ThemePreview({
   theme,
   mode,
   art,
+  vivid,
   className,
 }: {
   theme: PanelThemeInfo;
   mode: Mode;
   art?: ArtPreviewOptions;
+  vivid?: VividPreviewOptions;
   className?: string;
 }) {
-  const s = previewSwatches(theme, mode, art?.palette);
+  const s = previewSwatches(theme, mode, art?.palette ?? vivid?.palette);
   const ring = `0 0 0 1px ${s.line}`;
   const frame = theme.id === 'art' && art ? (art.layout === 'sidebar' ? 'inset' : 'topnav') : theme.layout;
 
@@ -66,7 +73,10 @@ function SideRail({ s }: { s: PanelThemeSwatches }) {
             <div
               key={width}
               className="flex items-center gap-1.5 rounded-[5px] px-[5%] py-[4%]"
-              style={{ background: active ? tint(s.primary, 14) : 'transparent' }}
+              style={{
+                background: active ? (s.tint ?? tint(s.primary, 14)) : 'transparent',
+                borderInlineStart: active && s.strip ? `2px solid ${s.primary}` : undefined,
+              }}
             >
               <span
                 className="aspect-square w-[15%] shrink-0 rounded-[30%]"
@@ -201,12 +211,16 @@ function Page({ s, variant }: { s: PanelThemeSwatches; variant: 'classic' | 'top
               className="flex flex-col gap-1.5 p-[7%]"
               style={{
                 borderRadius: radius,
-                background: i === 0 && !art ? `linear-gradient(135deg, ${tint(s.primary, 16)}, ${s.card})` : s.card,
+                background: s.tint
+                  ? s.tint
+                  : i === 0 && !art
+                    ? `linear-gradient(135deg, ${tint(s.primary, 16)}, ${s.card})`
+                    : s.card,
                 boxShadow: ring,
               }}
             >
               <span className="h-[3px] w-[48%] rounded-full" style={{ background: s.muted, opacity: 0.6 }} />
-              <span className="h-[7px] w-[62%] rounded-full" style={{ background: s.ink, opacity: 0.85 }} />
+              <span className="h-[7px] w-[62%] rounded-full" style={{ background: s.tint ? s.primary : s.ink, opacity: 0.85 }} />
               <span className="h-[3px] w-[36%] rounded-full" style={{ background: art ? s.accents[i] : s.accents[i + 1], opacity: 0.9 }} />
             </div>
           ))}
@@ -214,7 +228,7 @@ function Page({ s, variant }: { s: PanelThemeSwatches; variant: 'classic' | 'top
 
         <div
           className="flex flex-1 items-end gap-[3%] px-[4%] pb-[4%] pt-[6%]"
-          style={{ borderRadius: radius, background: s.card, boxShadow: ring }}
+          style={{ borderRadius: radius, background: strip(s), boxShadow: ring }}
         >
           {BARS.map((height, i) => (
             <span

@@ -3,7 +3,9 @@
  * Panel theme): the colours each theme's preview card is drawn with. Names
  * and descriptions are translated under `admin.panelThemes.themes.<id>`;
  * Art's layouts and colour schemes under `admin.panelThemes.layouts.<id>`
- * and `admin.panelThemes.palettes.<id>` (their colours: art/palettes.ts).
+ * and `admin.panelThemes.palettes.<id>` (their colours: art/palettes.ts);
+ * Vivid's colour schemes under `admin.panelThemes.vividPalettes.<id>`
+ * (their colours: vivid/palettes.ts).
  *
  * A new theme: its id in shared/panelThemes.ts, its stylesheet in
  * src/themes/<id>/theme.css (imported in src/main.tsx), optionally a palette
@@ -11,12 +13,15 @@
  */
 import type { TranslationKey } from '@/i18n';
 import { ART_PALETTE_SWATCHES } from './art/palettes';
+import { VIVID_PALETTE_SWATCHES } from './vivid/palettes';
 import {
   PANEL_THEME_IDS,
+  VIVID_PALETTES,
   type ArtLayout,
   type ArtPalette,
   type PanelThemeId,
   type PanelThemeSelection,
+  type VividPalette,
 } from '../../shared/panelThemes';
 
 /** The colours a preview card paints, as CSS colours. */
@@ -36,6 +41,10 @@ export interface PanelThemeSwatches {
   accents: [string, string, string, string];
   /** The brand mark. */
   mark: string;
+  /** A strip across the top of every card (Vivid), if the theme draws one. */
+  strip?: string;
+  /** The tint of the hero and figure panels (Vivid), if the theme has one. */
+  tint?: string;
 }
 
 export interface PanelThemeInfo {
@@ -44,6 +53,43 @@ export interface PanelThemeInfo {
   layout: 'sidebar' | 'topnav';
   light: PanelThemeSwatches;
   dark: PanelThemeSwatches;
+}
+
+/** Vivid's preview colours under one of its schemes (vivid/palettes.ts, theme.css). */
+function vividSwatches(mode: 'light' | 'dark', palette: VividPalette): PanelThemeSwatches {
+  const s = VIVID_PALETTE_SWATCHES[palette][mode];
+  const strip = `linear-gradient(90deg, ${s.strip[0]}, ${s.strip[1]})`;
+  return mode === 'light'
+    ? {
+        canvas: s.canvas,
+        sidebar: s.sidebar,
+        surface: s.canvas,
+        card: 'hsl(0 0% 100%)',
+        ink: 'hsl(222 30% 13%)',
+        muted: 'hsl(222 12% 40%)',
+        line: 'hsl(220 18% 90%)',
+        primary: s.primary,
+        primaryInk: s.primaryInk,
+        accents: s.series,
+        mark: `linear-gradient(135deg, ${s.strip[0]}, ${s.strip[1]})`,
+        strip,
+        tint: s.tint,
+      }
+    : {
+        canvas: s.canvas,
+        sidebar: s.sidebar,
+        surface: s.canvas,
+        card: 'hsl(225 15% 11.5%)',
+        ink: 'hsl(220 20% 95%)',
+        muted: 'hsl(220 12% 68%)',
+        line: 'hsl(225 13% 19%)',
+        primary: s.primary,
+        primaryInk: s.primaryInk,
+        accents: s.series,
+        mark: `linear-gradient(135deg, ${s.strip[0]}, ${s.strip[1]})`,
+        strip,
+        tint: s.tint,
+      };
 }
 
 const PANEL_THEMES: Record<PanelThemeId, PanelThemeInfo> = {
@@ -107,6 +153,13 @@ const PANEL_THEMES: Record<PanelThemeId, PanelThemeInfo> = {
       mark: 'linear-gradient(135deg, hsl(19 69% 58%), hsl(340 57% 63%))',
     },
   },
+  // Coral, its default scheme; previewSwatches lays the others over it.
+  vivid: {
+    id: 'vivid',
+    layout: 'sidebar',
+    light: vividSwatches('light', 'coral'),
+    dark: vividSwatches('dark', 'coral'),
+  },
 };
 
 /** Every theme, in the order the admin page lists them. */
@@ -124,6 +177,9 @@ export function panelThemeLabel(t: (key: TranslationKey) => string, selection: P
       t(`admin.panelThemes.palettes.${selection.options.palette}` as TranslationKey),
     );
   }
+  if (selection.theme === 'vivid') {
+    parts.push(t(`admin.panelThemes.vividPalettes.${selection.options.palette}` as TranslationKey));
+  }
   return parts.join(' · ');
 }
 
@@ -135,14 +191,27 @@ export interface ArtPreviewOptions {
   palette: ArtPalette;
 }
 
+/** Vivid's options as the preview draws them (the Super Admin page's draft). */
+export interface VividPreviewOptions {
+  palette: VividPalette;
+}
+
 /**
- * A theme's preview colours, with Art's colour scheme laid over its base:
- * the scheme's main colour, papers and chart series (art/palettes.ts). A
- * scheme without swatches yet keeps the base colours.
+ * A theme's preview colours, with its colour scheme laid over its base: for
+ * Art the scheme's main colour, papers and chart series (art/palettes.ts),
+ * for Vivid the scheme's own swatches (vivid/palettes.ts). A scheme without
+ * swatches yet, or a scheme of another theme, keeps the base colours.
  */
-export function previewSwatches(theme: PanelThemeInfo, mode: 'light' | 'dark', palette?: ArtPalette): PanelThemeSwatches {
+export function previewSwatches(
+  theme: PanelThemeInfo,
+  mode: 'light' | 'dark',
+  palette?: ArtPalette | VividPalette,
+): PanelThemeSwatches {
   const base = theme[mode];
-  const swatch = theme.id === 'art' && palette ? ART_PALETTE_SWATCHES[palette]?.[mode] : null;
+  if (theme.id === 'vivid') {
+    return palette && (VIVID_PALETTES as readonly string[]).includes(palette) ? vividSwatches(mode, palette as VividPalette) : base;
+  }
+  const swatch = theme.id === 'art' && palette ? ART_PALETTE_SWATCHES[palette as ArtPalette]?.[mode] : null;
   if (!swatch) return base;
   return {
     ...base,

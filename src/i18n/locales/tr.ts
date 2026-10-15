@@ -303,6 +303,7 @@ const tr: TranslationKeys = {
         reference: 'Ödeme referansı',
         thanks: 'Ödemeniz için teşekkür ederiz.',
         electronic: 'Bu makbuz elektronik olarak düzenlenmiştir.',
+        paddleTax: 'Varsa satış vergisi veya KDV, yetkili satıcımız Paddle tarafından bu tutarın üzerine tahsil edilmiştir; Paddle’ın size e-postayla gönderdiği faturada yer alır.',
       },
       ai: {
         title: 'Yapay zeka kredisi',

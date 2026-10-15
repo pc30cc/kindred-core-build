@@ -350,6 +350,8 @@ describe('Account detail', () => {
     expect(await within(dialog).findByText('RS2026-000042')).toBeInTheDocument();
     expect(within(dialog).getByText('Platform Inc.')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /Print/ })).toBeInTheDocument();
+    // Paid through Paddle: the buyer's tax is on Paddle's invoice, said on the receipt.
+    expect(dialog.querySelector('[data-receipt-paddle-tax]')).toHaveTextContent(/collected by Paddle/);
   });
 
   it('lists payments with the review badge and expands their refunds', async () => {

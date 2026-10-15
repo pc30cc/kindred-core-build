@@ -21,6 +21,7 @@ import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
 import { Ltr, billingDate, money } from '../shared';
 import { gatewayLabel } from './accountUi';
 import { SELLER_KEYS, BILLING_PROFILE_KEYS } from '../../../../../shared/simpleBilling';
+import { isPaddleProvider } from '../../../../../shared/testGateways';
 
 const LTR_KEYS = new Set(['economic_code', 'national_id', 'registration_number', 'vat_id', 'postal_code', 'phone', 'email', 'invoice_email', 'website']);
 
@@ -219,6 +220,9 @@ export default function ReceiptDocument({ receipt, locale, dir }: ReceiptDocumen
             <div className="space-y-1">
               <p className="text-sm font-semibold text-slate-800">{t('billing.account.receipt.thanks')}</p>
               <p>{t('billing.account.receipt.electronic')}</p>
+              {/* Paddle is the merchant of record: the buyer's tax was added on top
+                  and is on Paddle's own invoice, never in this account's credit. */}
+              {isPaddleProvider(providerId) && <p data-receipt-paddle-tax="">{t('billing.account.receipt.paddleTax')}</p>}
             </div>
             {(site || supportEmail) && (
               <p className="flex flex-wrap gap-x-3 text-slate-400">

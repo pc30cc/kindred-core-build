@@ -301,6 +301,7 @@ const en = {
         reference: 'Payment reference',
         thanks: 'Thank you for your payment.',
         electronic: 'This receipt was issued electronically.',
+        paddleTax: 'Sales tax or VAT, if any, was collected by Paddle, our reseller and merchant of record, on top of this amount; it appears on the invoice Paddle e-mailed you.',
       },
       ai: {
         title: 'AI credit',

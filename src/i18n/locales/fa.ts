@@ -303,6 +303,7 @@ const fa: TranslationKeys = {
         reference: 'شناسه‌ی پرداخت',
         thanks: 'از پرداخت شما سپاسگزاریم.',
         electronic: 'این رسید به‌صورت الکترونیکی صادر شده است.',
+        paddleTax: 'مالیات یا VAT (در صورت وجود) را Paddle، فروشندهٔ رسمی و نمایندهٔ فروش ما، جدا از این مبلغ دریافت کرده و در فاکتوری که Paddle برایتان ایمیل کرده آمده است.',
       },
       ai: {
         title: 'اعتبار هوش مصنوعی',
@@ -4567,7 +4568,7 @@ const fa: TranslationKeys = {
         },
         appCard: 'این اپلیکیشن',
         environmentCard: 'وضعیت استقرار',
-        environmentHint: 'آنچه این سرور می‌بیند: کلیدهای پوش در محیط آن، و پروژهٔ نیتیو iOS ‏(ios/Webyar) همان‌طور که با این نسخه مستقر شده است.',
+        environmentHint: 'آنچه این سرور می‌بیند: کلیدهای پوش در محیط آن، و پروژهٔ نیتیو iOS ‏({{iosDir}}) همان‌طور که با این نسخه مستقر شده است.',
         sandbox: 'Sandbox',
         invalidKey: 'تنظیم شده، ولی خوانا نیست',
         env: {
@@ -4664,7 +4665,7 @@ const fa: TranslationKeys = {
       },
       build: {
         title: 'نسخه و هدف استقرار',
-        caption: 'آنچه App Store Connect و چک‌لیست انتظار دارند. نسخهٔ خود اپ در ios/Webyar/project.yml است و راهنمای build همین نسخه و شمارهٔ build را در دستور آرشیو می‌گذارد.',
+        caption: 'آنچه App Store Connect و چک‌لیست انتظار دارند. نسخهٔ خود اپ در {{iosDir}}/project.yml است و راهنمای build همین نسخه و شمارهٔ build را در دستور آرشیو می‌گذارد.',
         version: 'نسخه نمایشی',
         versionHint: 'آنچه مشتری می‌بیند، مثلاً ۱.۲.۰. برای هر انتشار عمومی باید افزایش یابد.',
         buildNumber: 'شماره بیلد',
@@ -4700,7 +4701,7 @@ const fa: TranslationKeys = {
         deepLinks: 'لینک‌های عمیق',
         deepLinksHint: 'اینکه لینکی از بیرون اپ چگونه صفحه‌ای درون آن را باز می‌کند.',
         urlScheme: 'طرح آدرس اختصاصی',
-        urlSchemeHint: 'فقط حروف کوچک، مثلاً webyar. اگر استفاده نمی‌شود خالی بگذارید.',
+        urlSchemeHint: 'فقط حروف کوچک، مثلاً {{urlSchemeExample}}. اگر استفاده نمی‌شود خالی بگذارید.',
         associatedDomains: 'دامنه‌های مرتبط',
         associatedDomainsHint: 'هر دامنه باید /.well-known/apple-app-site-association را روی HTTPS سرو کند.',
       },
@@ -4772,7 +4773,7 @@ const fa: TranslationKeys = {
         dataTypesNeeded: 'مانیفست حریم خصوصی اپ داده را در این دسته‌ها جمع می‌کند: {{categories}}. همهٔ این‌ها را اینجا و در App Store Connect تیک بزنید.',
         thirdPartySdks: 'SDKهای شخص ثالث',
         thirdPartySdksHint: 'هر کدام مانیفست حریم خصوصی خود را لازم دارد و داده‌اش به حساب شما است.',
-        manifestPreview: 'مانیفست حریم خصوصی اپ (ios/Webyar/Resources/PrivacyInfo.xcprivacy)',
+        manifestPreview: 'مانیفست حریم خصوصی اپ ({{iosDir}}/Resources/PrivacyInfo.xcprivacy)',
       },
       appStore: {
         title: 'چک‌لیست ارسال',
@@ -4831,7 +4832,7 @@ const fa: TranslationKeys = {
       },
       reviewAccount: {
         heading: 'اکانت بررسی اپل',
-        caption: 'اکانتی که اپل با آن وارد می‌شود: apple@webyar.ai، مدیر فضای کاری انگلیسی «{{brandLatin}} Demo» با همهٔ امکانات.',
+        caption: 'اکانتی که اپل با آن وارد می‌شود (در پایین آمده است): مدیر فضای کاری انگلیسی «{{brandLatin}} Demo» با همهٔ امکانات.',
         enabled: 'اجازهٔ ورود دارد',
         enabledHint: 'پیش از ارسال هر نسخه روشنش کنید و بعد از پایان بررسی خاموش. خاموش کردن، اکانت را از همهٔ دستگاه‌ها خارج می‌کند.',
         missing: 'هنوز ساخته نشده',
@@ -4911,7 +4912,7 @@ const fa: TranslationKeys = {
           },
           capabilities: {
             title: 'فعال‌سازی قابلیت‌ها',
-            body: 'روی همان App ID قابلیت Push Notifications را فعال کنید؛ این تنها قابلیتی است که اپ اعلام می‌کند (ios/Webyar/project.yml). قابلیتی که در اپ باشد ولی روی App ID نباشد، امضا را ناموفق می‌کند.',
+            body: 'روی همان App ID قابلیت Push Notifications را فعال کنید؛ این تنها قابلیتی است که اپ اعلام می‌کند ({{iosDir}}/project.yml). قابلیتی که در اپ باشد ولی روی App ID نباشد، امضا را ناموفق می‌کند.',
           },
           apnsKey: {
             title: 'ساخت کلید APNs',
@@ -4923,15 +4924,15 @@ const fa: TranslationKeys = {
           },
           configure: {
             title: 'تکمیل همین تنظیمات',
-            body: 'تب‌های همین صفحه را کامل کنید تا چک‌لیست اپ استور هیچ مانعی نداشته باشد. تنظیمات build خود اپ (شناسهٔ باندل، تیم، نسخه) در ios/Webyar/project.yml است.',
+            body: 'تب‌های همین صفحه را کامل کنید تا چک‌لیست اپ استور هیچ مانعی نداشته باشد. تنظیمات build خود اپ (شناسهٔ باندل، تیم، نسخه) در {{iosDir}}/project.yml است.',
           },
           build: {
             title: 'ساخت پروژهٔ Xcode',
-            body: 'روی مک XcodeGen را نصب کنید (brew install xcodegen) و در ios/Webyar دستور xcodegen generate را اجرا کنید. پروژه از project.yml ساخته می‌شود و در مخزن نیست، پس بعد از هر pull دوباره اجرایش کنید.',
+            body: 'روی مک XcodeGen را نصب کنید (brew install xcodegen) و در {{iosDir}} دستور xcodegen generate را اجرا کنید. پروژه از project.yml ساخته می‌شود و در مخزن نیست، پس بعد از هر pull دوباره اجرایش کنید.',
           },
           archive: {
             title: 'آرشیو در Xcode',
-            body: 'فایل Webyar.xcodeproj را باز کنید، scheme ‏Webyar و Any iOS Device را انتخاب کنید و سپس Product → Archive، با شمارهٔ build بالاتر از آپلود قبلی. ابتدا اپ را روی دستگاه واقعی اجرا و اجرا شدن، ورود و یک اعلان را بررسی کنید.',
+            body: 'فایل {{iosProject}} را باز کنید، scheme ‏{{iosScheme}} و Any iOS Device را انتخاب کنید و سپس Product → Archive، با شمارهٔ build بالاتر از آپلود قبلی. ابتدا اپ را روی دستگاه واقعی اجرا و اجرا شدن، ورود و یک اعلان را بررسی کنید.',
           },
           upload: {
             title: 'آپلود بیلد',
@@ -4993,12 +4994,12 @@ const fa: TranslationKeys = {
         appIcon: {
           title: 'آیکون اپ کامل است',
           requirement: 'یک PNG با ابعاد ۱۰۲۴×۱۰۲۴ بدون کانال آلفا و بدون گوشه گرد.',
-          fix: 'آن را در ios/Webyar/Resources/Assets.xcassets/AppIcon.appiconset قرار دهید و سپس npm run ios:project-facts را اجرا کنید. شفافیت رایج‌ترین دلیل شکست آپلود است؛ تصویر را روی پس‌زمینهٔ یکدست تخت کنید.',
+          fix: 'آن را در {{iosDir}}/Resources/Assets.xcassets/AppIcon.appiconset قرار دهید و سپس npm run ios:project-facts را اجرا کنید. شفافیت رایج‌ترین دلیل شکست آپلود است؛ تصویر را روی پس‌زمینهٔ یکدست تخت کنید.',
         },
         launchScreen: {
           title: 'صفحه شروع موجود است',
           requirement: 'هر اپ به استوری‌بورد شروع نیاز دارد تا تمام صفحه را پر کند.',
-          fix: 'به‌صورت UILaunchScreen در ios/Webyar/project.yml اعلام شده است. آن را نگه دارید؛ بدون آن اپ با حاشیهٔ سیاه نمایش داده می‌شود.',
+          fix: 'به‌صورت UILaunchScreen در {{iosDir}}/project.yml اعلام شده است. آن را نگه دارید؛ بدون آن اپ با حاشیهٔ سیاه نمایش داده می‌شود.',
         },
         orientations: {
           title: 'حداقل یک جهت',
@@ -5058,7 +5059,7 @@ const fa: TranslationKeys = {
         privacyManifest: {
           title: 'مانیفست حریم خصوصی موجود است',
           requirement: 'فایل PrivacyInfo.xcprivacy که هر API نیازمند دلیل را اعلام می‌کند.',
-          fix: 'فایل ios/Webyar/Resources/PrivacyInfo.xcprivacy را با APIهای نیازمند دلیلی که اینجا فهرست شده‌اند هماهنگ نگه دارید؛ این فایل در تارگت اپ قرار می‌گیرد. اپل آپلود بدون آن را رد می‌کند.',
+          fix: 'فایل {{iosDir}}/Resources/PrivacyInfo.xcprivacy را با APIهای نیازمند دلیلی که اینجا فهرست شده‌اند هماهنگ نگه دارید؛ این فایل در تارگت اپ قرار می‌گیرد. اپل آپلود بدون آن را رد می‌کند.',
         },
         privacyNutritionLabels: {
           title: 'پاسخ‌های App Privacy اعلام شده',
@@ -5153,12 +5154,12 @@ const fa: TranslationKeys = {
         pushCapability: {
           title: 'قابلیت پوش فعال است',
           requirement: 'entitlementهای تارگت اپ aps-environment را اعلام می‌کنند.',
-          fix: 'aps-environment را زیر entitlements در ios/Webyar/project.yml نگه دارید (XcodeGen آن را در build می‌نویسد) و Push Notifications را روی App ID در پورتال Apple Developer فعال کنید.',
+          fix: 'aps-environment را زیر entitlements در {{iosDir}}/project.yml نگه دارید (XcodeGen آن را در build می‌نویسد) و Push Notifications را روی App ID در پورتال Apple Developer فعال کنید.',
         },
         pushBackgroundMode: {
           title: 'حالت پس‌زمینهٔ بی‌استفاده برای پوش اعلام نشده',
           requirement: 'اپ اعلان نمایش می‌دهد و اعلان بی‌صدا نمی‌فرستد، پس نباید حالت پس‌زمینهٔ remote-notification را اعلام کند: App Review به حالت‌های پس‌زمینه‌ای که اپ از آن‌ها استفاده نمی‌کند ایراد می‌گیرد.',
-          fix: 'remote-notification را از UIBackgroundModes در ios/Webyar/project.yml بردارید و سپس npm run ios:project-facts را اجرا کنید.',
+          fix: 'remote-notification را از UIBackgroundModes در {{iosDir}}/project.yml بردارید و سپس npm run ios:project-facts را اجرا کنید.',
         },
         pushServerCredentials: {
           title: 'کلید APNs روی سرور',
@@ -5178,7 +5179,7 @@ const fa: TranslationKeys = {
         encryptionDeclaration: {
           title: 'اعلام رمزنگاری در Info.plist',
           requirement: 'کلید ITSAppUsesNonExemptEncryption باعث می‌شود App Store Connect در هر آپلود سؤال نکند.',
-          fix: 'به‌صورت ITSAppUsesNonExemptEncryption در ios/Webyar/project.yml اعلام شده است؛ آن را با پاسخ انطباق صادرات در تب انتشار هماهنگ نگه دارید.',
+          fix: 'به‌صورت ITSAppUsesNonExemptEncryption در {{iosDir}}/project.yml اعلام شده است؛ آن را با پاسخ انطباق صادرات در تب انتشار هماهنگ نگه دارید.',
         },
         noExternalPayments: {
           title: 'بدون لینک پرداخت خارجی',
@@ -9327,7 +9328,7 @@ const fa: TranslationKeys = {
       brandNamePlaceholder: 'نام فضای کاری شما',
       brandNameHint: 'در بالای ویجت نمایش داده می‌شود. به‌صورت پیش‌فرض نام فضای کاری است.',
       replyTimeDefault: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
-      fabLabelPlaceholder: 'مثلاً: وب یار دستیار ویژه شما',
+      fabLabelPlaceholder: 'مثلاً: {{brand}} دستیار ویژه شما',
       fabLabelPlaceholderIntl: 'مثلاً: دستیار ویژه شما',
       colorsSection: 'رنگ‌ها',
       textsSection: 'متن‌ها',
@@ -9587,7 +9588,7 @@ const fa: TranslationKeys = {
         download: 'دانلود برای OpenCart {{version}}',
         versionHint: 'نسخه را پایین صفحهٔ مدیریت OpenCart ببینید. نسخه‌های قدیمی‌تر از 3.0.5 و نسخه‌های 4.0.x پشتیبانی نمی‌شوند.',
         stepsTitle: 'مراحل نصب',
-        step1: 'در مدیریت OpenCart به «افزونه‌ها ← نصب‌کننده» بروید و فایل ‎.ocmod.zip‎ را بارگذاری کنید. (OpenCart 4.1: نام فایل را webyar.ocmod.zip نگه دارید و سپس «نصب» را بزنید.)',
+        step1: 'در مدیریت OpenCart به «افزونه‌ها ← نصب‌کننده» بروید و فایل ‎.ocmod.zip‎ را بارگذاری کنید. (OpenCart 4.1: نام فایل را {{file}} نگه دارید و سپس «نصب» را بزنید.)',
         step2: '«افزونه‌ها ← افزونه‌ها ← ماژول‌ها» را باز کنید، «{{brandPlugin}}» را نصب و سپس ویرایش کنید.',
         step3: 'برای اتصال، فروشگاه باید با https:// باز شود.',
         step4: 'نیازی به وارد کردن آدرس نیست: افزونه {{brand}} را می‌شناسد و تا وقتی متصل است خودش را به‌روز نگه می‌دارد (فقط نسخه‌های امضاشده؛ در ماژول قابل خاموش کردن است).',
@@ -9723,7 +9724,7 @@ const fa: TranslationKeys = {
         description: 'افزونهٔ {{brand}} را دانلود کنید، روی WHMCS خود بارگذاری کنید و از پنل مدیریت WHMCS به این ورک‌اسپیس متصل کنید. نیازی به کپی کلید API نیست.',
         download: 'دانلود افزونهٔ WHMCS (.zip)',
         stepsTitle: 'مراحل نصب',
-        step1: 'فایل را در پوشهٔ اصلی WHMCS از حالت فشرده خارج کنید. فقط پوشهٔ modules/addons/webyar/ اضافه می‌شود.',
+        step1: 'فایل را در پوشهٔ اصلی WHMCS از حالت فشرده خارج کنید. فقط پوشهٔ {{folder}} اضافه می‌شود.',
         step2: 'در مدیریت WHMCS: System Settings ← Addon Modules ← {{brandPlugin}} ← Activate؛ سپس با Configure نقش‌های مدیری را که اجازهٔ مدیریت افزونه را دارند انتخاب کنید.',
         step3: "منوی Addons ← {{brandPlugin}} را باز کنید و آدرس نمایش‌داده‌شده را بررسی کنید:",
         step4: 'روی «Connect to {{brandPlugin}}» کلیک کنید، این ورک‌اسپیس را انتخاب و تأیید کنید. به WHMCS بازمی‌گردید و وضعیت «متصل» نمایش داده می‌شود.',

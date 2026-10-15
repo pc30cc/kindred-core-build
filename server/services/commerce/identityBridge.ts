@@ -14,6 +14,7 @@ import { readInstallationSecret } from './credentials.js';
 import { ensureVisitorContact } from '../widget/anonymousContact.js';
 import { syncStoreContact } from './storeContact.js';
 import { isDirectProvider } from './providers.js';
+import { PLUGIN_DIALECTS } from './pluginDialect.js';
 
 const ASSERTION_MAX_AGE_MS = 2 * 60 * 1000; // the plugin issues a fresh one every load — matches spec's "short-lived (2 minute)"
 const LINK_TTL_MS = 24 * 60 * 60 * 1000;
@@ -41,7 +42,8 @@ export interface CustomerContextAssertion {
   issued_at: number; // epoch seconds
   expires_at: number; // epoch seconds
   nonce: string;
-  audience: 'webyar-widget';
+  /** Either plugin dialect's audience (pluginDialect.ts). */
+  audience: string;
   /**
    * OpenCart (direct connectors): the store inside the installation, the
    * customer group the store applies, and an OPAQUE session reference the
@@ -93,7 +95,7 @@ export async function verifyAndBindCustomerContext(
     throw new CommerceError('identity_expired', 'malformed assertion payload');
   }
 
-  if (payload.audience !== 'webyar-widget') throw new CommerceError('identity_expired', 'wrong audience');
+  if (!PLUGIN_DIALECTS.some((d) => d.identityAudience === payload.audience)) throw new CommerceError('identity_expired', 'wrong audience');
 
   const connection = await resolveConnection(config, workspaceId, connectionId, String(payload.installation_id ?? ''));
   if (!connection) throw new CommerceError('commerce_not_connected', 'no active connection for this workspace');

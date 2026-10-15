@@ -3,7 +3,7 @@
  *
  * Translates the canonical CommerceConnector contract into signed calls
  * against the webyar-woocommerce plugin's narrow REST surface
- * (/wp-json/webyar/v1/**, see docs/commerce/CONNECTOR_PROTOCOL.md). This is
+ * (/wp-json/webyar/v1/** — /wp-json/respok/v1/** for the International build, ../pluginDialect.ts; see docs/commerce/CONNECTOR_PROTOCOL.md). This is
  * the ONLY file in the platform allowed to know that surface exists — the
  * Commerce Gateway, the AI tool layer, and every caller above them see only
  * CommerceProduct/CommerceOrder/etc.
@@ -37,12 +37,23 @@ import {
 import type { ProductReviewsResult } from '../../../../shared/commerce/types.js';
 import { commerceHttpRequest } from '../httpClient.js';
 import { buildSignedHeaders } from '../signing.js';
+import { dialectForProtocol, headerName, type PluginDialect } from '../pluginDialect.js';
 import { sanitizeCommerceText, sanitizeUrl, boundedArray } from '../sanitize.js';
 
 export interface WooCommerceTransport {
   origin: string;
   installationId: string;
   secret: string;
+  /**
+   * The connection's protocol version: picks the plugin dialect (REST
+   * namespace and header names, ../pluginDialect.ts). Legacy when absent.
+   */
+  protocolVersion?: string | null;
+}
+
+/** The plugin's REST base for a dialect: `/wp-json/<module code>/v1`. */
+export function wooRestBase(dialect: Readonly<PluginDialect>): string {
+  return `/wp-json/${dialect.moduleCode}/v1`;
 }
 
 const MAX_PRODUCTS_PER_CALL = 20;
@@ -182,13 +193,19 @@ export function normalizeWooCommerceProduct(value: unknown): CommerceProduct | n
 export class WooCommerceConnector implements CommerceConnector {
   readonly providerType = 'woocommerce';
 
-  constructor(private readonly transport: WooCommerceTransport) {}
+  private readonly dialect: Readonly<PluginDialect>;
 
-  private async call(ctx: CommerceConnectorContext, method: 'GET' | 'POST', path: string, body?: unknown): Promise<Wire | null> {
+  constructor(private readonly transport: WooCommerceTransport) {
+    this.dialect = dialectForProtocol(transport.protocolVersion);
+  }
+
+  /** `route` is relative to the plugin's REST base (e.g. `/health`). */
+  private async call(ctx: CommerceConnectorContext, method: 'GET' | 'POST', route: string, body?: unknown): Promise<Wire | null> {
+    const path = `${wooRestBase(this.dialect)}${route}`;
     const bodyStr = body !== undefined ? JSON.stringify(body) : '';
     const url = `${this.transport.origin}${path}`;
-    const headers = buildSignedHeaders(this.transport.secret, this.transport.installationId, method, path, bodyStr);
-    headers['X-WebYar-Correlation'] = ctx.correlationId;
+    const headers = buildSignedHeaders(this.transport.secret, this.transport.installationId, method, path, bodyStr, this.dialect);
+    headers[headerName(this.dialect, 'Correlation')] = ctx.correlationId;
 
     const remaining = ctx.deadlineAt - Date.now();
     if (remaining <= 0) throw new CommerceError('commerce_timeout', 'commerce tool deadline exceeded');
@@ -212,7 +229,7 @@ export class WooCommerceConnector implements CommerceConnector {
   }
 
   async getStoreInfo(ctx: CommerceConnectorContext): Promise<StoreInfo> {
-    const data = await this.call(ctx, 'GET', '/wp-json/webyar/v1/health');
+    const data = await this.call(ctx, 'GET', '/health');
     return {
       name: sanitizeCommerceText(data?.store_name, 200) ?? 'Store',
       currency: typeof data?.currency === 'string' ? data.currency : 'USD',
@@ -224,7 +241,7 @@ export class WooCommerceConnector implements CommerceConnector {
 
   async searchProducts(ctx: CommerceConnectorContext, input: ProductSearchInput): Promise<ProductSearchResult> {
     const limit = Math.min(Math.max(input.filters.limit ?? 8, 1), MAX_PRODUCTS_PER_CALL);
-    const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/products/search', {
+    const data = await this.call(ctx, 'POST', '/products/search', {
       text: input.filters.text ?? null,
       min_price: input.filters.minPrice?.amountMinor ?? null,
       max_price: input.filters.maxPrice?.amountMinor ?? null,
@@ -248,14 +265,14 @@ export class WooCommerceConnector implements CommerceConnector {
 
   async getProducts(ctx: CommerceConnectorContext, ids: string[]): Promise<CommerceProduct[]> {
     const bounded = ids.slice(0, MAX_PRODUCTS_PER_CALL);
-    const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/products/resolve', { ids: bounded });
+    const data = await this.call(ctx, 'POST', '/products/resolve', { ids: bounded });
     return wireList(data?.products, bounded.length)
       .map(normalizeWooCommerceProduct)
       .filter((p): p is CommerceProduct => !!p);
   }
 
   async getAvailability(ctx: CommerceConnectorContext, input: AvailabilityInput): Promise<AvailabilityResult> {
-    const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/products/availability', {
+    const data = await this.call(ctx, 'POST', '/products/availability', {
       product_id: input.productExternalId,
       variant_id: input.variantExternalId ?? null,
     });
@@ -275,7 +292,7 @@ export class WooCommerceConnector implements CommerceConnector {
     ctx: CommerceConnectorContext,
     input: { productExternalId: string; limit?: number },
   ): Promise<ProductReviewsResult> {
-    const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/products/reviews', {
+    const data = await this.call(ctx, 'POST', '/products/reviews', {
       product_id: input.productExternalId,
       limit: input.limit ?? 5,
     });
@@ -303,7 +320,7 @@ export class WooCommerceConnector implements CommerceConnector {
   }
 
   async getOrder(ctx: CommerceConnectorContext, input: AuthorizedOrderLookup): Promise<CommerceOrder> {
-    const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/orders/lookup', {
+    const data = await this.call(ctx, 'POST', '/orders/lookup', {
       order_id: input.externalOrderId,
       authorization: input,
     });
@@ -334,7 +351,7 @@ export class WooCommerceConnector implements CommerceConnector {
   }
 
   async getTracking(ctx: CommerceConnectorContext, input: AuthorizedOrderLookup): Promise<TrackingResult> {
-    const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/orders/tracking', {
+    const data = await this.call(ctx, 'POST', '/orders/tracking', {
       order_id: input.externalOrderId,
       authorization: input,
     });
@@ -356,7 +373,7 @@ export class WooCommerceConnector implements CommerceConnector {
 
   async getCustomerOrders(ctx: CommerceConnectorContext, input: AuthorizedCustomerLookup): Promise<CommerceOrderSummary[]> {
     const limit = Math.min(Math.max(input.limit ?? 5, 1), 10);
-    const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/orders/lookup', {
+    const data = await this.call(ctx, 'POST', '/orders/lookup', {
       customer_id: input.externalCustomerId,
       authorization: input,
       limit,
@@ -388,7 +405,7 @@ export class WooCommerceConnector implements CommerceConnector {
     capabilities: string[];
     catalogReady: boolean;
   }> {
-    const data = await this.call(ctx, 'GET', '/wp-json/webyar/v1/health');
+    const data = await this.call(ctx, 'GET', '/health');
     return {
       protocolVersion: typeof data?.protocol_version === 'string' ? data.protocol_version : 'unknown',
       connectorVersion: typeof data?.connector_version === 'string' ? data.connector_version : null,
@@ -404,7 +421,7 @@ export class WooCommerceConnector implements CommerceConnector {
     ctx: CommerceConnectorContext,
     input: { externalOrderId: string; email?: string; phone?: string },
   ): Promise<{ matched: boolean }> {
-    const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/orders/verify-contact', {
+    const data = await this.call(ctx, 'POST', '/orders/verify-contact', {
       order_id: input.externalOrderId,
       email: input.email ?? null,
       phone: input.phone ?? null,

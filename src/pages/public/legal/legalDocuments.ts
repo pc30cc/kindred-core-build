@@ -8,6 +8,7 @@
  * domain. A change here is a change to a legal text: make it on the site too,
  * and move the effective date.
  */
+import { SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
 
 export type LegalDocumentId = 'privacy' | 'terms';
 
@@ -34,8 +35,12 @@ export interface LegalDocument {
  * one. `{email}` in a paragraph is drawn as a link to that address.
  */
 
-/** The Iranian edition's contact address (the default the pages fall back to). */
-export const LEGAL_CONTACT_EMAIL = 'info@webyar.ai';
+/**
+ * The Iranian edition's contact address (the default the pages fall back to).
+ * A build without the Iranian kit (RESPOK's) has none: its pages use the
+ * platform's own support address.
+ */
+export const LEGAL_CONTACT_EMAIL = SHIPS_IRAN_KIT ? 'info@webyar.ai' : '';
 
 export const LEGAL_CHROME = {
   brand: '{{brandLatin}}',

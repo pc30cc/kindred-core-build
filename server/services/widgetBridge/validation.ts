@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { isBridgeProviderSite } from '../../../shared/widgetBridgeTargets.js';
-import { bridgeProviders, normalizeBridgeUrls } from '../../../shared/widgetBridge.js';
+import { normalizeBridgeUrls } from '../../../shared/widgetBridge.js';
+import { acceptedBridgeProviders, storedBridgeProviders, toStoredProvider, toStoredProviderList } from './providerIds.js';
+
+// Provider ids are accepted as the API's (`platform`) or the stored legacy id,
+// and parse to the stored id (providerIds.ts).
+const allowedProvider = z.enum(acceptedBridgeProviders).transform(id => toStoredProvider(id));
 import { isSafeOutboundUrl } from '../../../shared/net/hostGuard.js';
 
 const selector = z.string().trim().max(300).optional();
@@ -14,7 +19,8 @@ export const bridgeSettingsSchema = z.object({
   enabled: z.boolean(),
   roundSize: z.number().int().min(1).max(50).default(1),
   intervalSeconds: z.number().int().min(5).max(3600).default(30),
-  allowedProviders: z.array(z.enum(bridgeProviders)).max(5).default([...bridgeProviders]),
+  allowedProviders: z.array(z.enum(acceptedBridgeProviders)).max(acceptedBridgeProviders.length)
+    .transform(ids => toStoredProviderList(ids)).default([...storedBridgeProviders]),
   identity: z.object({
     name: z.string().trim().min(1).max(200),
     email: z.union([z.string().email().max(254), z.literal('')]),
@@ -27,7 +33,7 @@ export const bridgeContactSchema = z.object({
     if (!isSafeOutboundUrl(value)) return false;
     return !new URL(value).port || new URL(value).port === '443';
   }, 'public_https_required').refine(value => !isBridgeProviderSite(value), 'provider_site_blocked'),
-  provider: z.enum(['auto', 'webyar', 'crisp', 'raychat', 'goftino', 'custom']).default('auto'),
+  provider: z.enum(['auto', ...acceptedBridgeProviders] as const).transform(id => toStoredProvider(id)).default('auto'),
   selectors: bridgeSelectorsSchema.default({}),
   enabled: z.boolean().default(false),
 }).strict().superRefine((value, ctx) => {
@@ -42,7 +48,7 @@ export const bridgeMessageSchema = z.object({
 
 export const bridgeBatchSchema = z.object({
   clientBatchId: z.string().uuid(),
-  provider: z.enum(bridgeProviders).optional(),
+  provider: allowedProvider.optional(),
   body: z.string().trim().min(1).max(2000),
   urls: z.array(z.string().trim().max(2048).refine(value => {
     if (!isSafeOutboundUrl(value)) return false;

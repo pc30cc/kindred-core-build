@@ -14,7 +14,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminFetch } from '@/hooks/useAdmin';
 import type { Edition } from '../../shared/edition';
-import { NATIVE_APP_BRANDS, nativeAppBrand } from '../../shared/nativeAppBrands';
+import { nativeAppBrand } from '../../shared/nativeAppBrands';
 
 export type MacUpdateChannel = 'stable' | 'beta';
 export type MacDefaultLanguage = 'system' | 'fa' | 'en' | 'tr';
@@ -86,10 +86,8 @@ export interface MacosAppPayload {
 /**
  * Where Sparkle looks when the appcast is cleared; the server restores it on save.
  * WebYar's feed in the Iranian edition, RESPOK's in the International one
- * (shared/nativeAppBrands.ts): use macosDefaultAppcastUrl(edition).
+ * (shared/nativeAppBrands.ts).
  */
-export const MACOS_DEFAULT_APPCAST_URL = NATIVE_APP_BRANDS.iran.macAppcastUrl;
-
 export function macosDefaultAppcastUrl(edition: Edition | null | undefined): string {
   return nativeAppBrand(edition).macAppcastUrl;
 }

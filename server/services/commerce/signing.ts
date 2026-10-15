@@ -15,7 +15,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
+import { headerName, isKnownProtocolVersion, LEGACY_DIALECT, type PluginDialect } from './pluginDialect.js';
 
 export const CLOCK_SKEW_SECONDS = 300;
 export const MAX_BODY_BYTES = 256 * 1024;
@@ -66,18 +66,22 @@ export function generateNonce(): string {
   return randomBytes(16).toString('hex');
 }
 
-/** Builds the outbound signed headers for a WebYar → plugin call. */
+/**
+ * Builds the outbound signed headers for a WebYar → plugin call, in the
+ * dialect the store's plugin speaks (pluginDialect.ts; legacy when omitted).
+ */
 export function buildSignedHeaders(
   secret: string,
   installationId: string,
   method: string,
   canonicalPath: string,
   body: string,
+  dialect: Readonly<PluginDialect> = LEGACY_DIALECT,
 ): Record<string, string> {
   const timestamp = String(Math.floor(Date.now() / 1000));
   const nonce = generateNonce();
   const signature = computeSignature(secret, {
-    protocolVersion: COMMERCE_PROTOCOL_VERSION,
+    protocolVersion: dialect.protocol,
     method,
     canonicalPath,
     installationId,
@@ -86,11 +90,11 @@ export function buildSignedHeaders(
     bodySha256Hex: sha256Hex(body),
   });
   return {
-    'X-WebYar-Installation': installationId,
-    'X-WebYar-Timestamp': timestamp,
-    'X-WebYar-Nonce': nonce,
-    'X-WebYar-Signature': signature,
-    'X-WebYar-Protocol': COMMERCE_PROTOCOL_VERSION,
+    [headerName(dialect, 'Installation')]: installationId,
+    [headerName(dialect, 'Timestamp')]: timestamp,
+    [headerName(dialect, 'Nonce')]: nonce,
+    [headerName(dialect, 'Signature')]: signature,
+    [headerName(dialect, 'Protocol')]: dialect.protocol,
     'Content-Type': 'application/json',
   };
 }
@@ -120,7 +124,9 @@ export async function verifyIncomingSignature(
     direction: 'inbound' | 'outbound';
   },
 ): Promise<VerifyOutcome> {
-  if (input.protocolVersion !== COMMERCE_PROTOCOL_VERSION) return { ok: false, reason: 'protocol_mismatch' };
+  // Either dialect's protocol (pluginDialect.ts): the string-to-sign starts
+  // with the one the plugin sent, so a signature never verifies under the other.
+  if (!isKnownProtocolVersion(input.protocolVersion)) return { ok: false, reason: 'protocol_mismatch' };
   if (Buffer.byteLength(input.rawBody, 'utf8') > MAX_BODY_BYTES) return { ok: false, reason: 'body_too_large' };
 
   const ts = Number(input.timestamp);

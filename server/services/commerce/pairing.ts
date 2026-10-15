@@ -18,6 +18,7 @@ import { storeInstallationSecret } from './credentials.js';
 import { getProviderDescriptor, isKnownProvider } from './connectors/registry.js';
 import { OpenCartConnector, claimUpdateNudge, isOlderConnector } from './connectors/opencart.js';
 import { writeCommerceAudit } from './audit.js';
+import { dialectFromRedirectUri, isKnownProtocolVersion } from './pluginDialect.js';
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
@@ -297,6 +298,10 @@ export async function exchangePairingCode(
   const storeId = descriptor.usesCatalogIndex
     ? data.requested_origin
     : String(data.requested_base_url || data.requested_origin);
+  // Which build of the plugin is pairing (pluginDialect.ts): its callback URL
+  // names its module code. Every later call to the store uses that dialect;
+  // the handshake then records the protocol the store itself reports.
+  const protocolVersion = dialectFromRedirectUri(String(data.redirect_uri ?? '')).protocol;
   const { data: connectionRow, error: connError } = await sb
     .from('commerce_connections')
     .upsert(
@@ -306,7 +311,7 @@ export async function exchangePairingCode(
         provider_type: descriptor.providerType,
         store_id: storeId,
         approved_origin: data.requested_origin,
-        protocol_version: 'webyar-commerce/1',
+        protocol_version: protocolVersion,
         capabilities: [],
         health: 'reconnecting',
         catalog_ready: false,
@@ -341,7 +346,7 @@ export async function exchangePairingCode(
     installationSecret,
     workspaceId: data.workspace_id,
     storeId,
-    protocolVersion: 'webyar-commerce/1',
+    protocolVersion,
     providerType: descriptor.providerType,
     usesCatalogIndex: descriptor.usesCatalogIndex,
   };
@@ -361,7 +366,7 @@ export async function runCapabilityHandshake(
   const sb = getServiceClient(config);
   let query = sb
     .from('commerce_connections')
-    .select('id, installation_id, approved_origin, store_id, provider_type, workspace_id, revoked_at, health, external_store_id, platform_version')
+    .select('id, installation_id, approved_origin, store_id, provider_type, workspace_id, revoked_at, health, external_store_id, platform_version, protocol_version')
     .eq('id', connectionId);
   // A dashboard caller names the workspace it is authorized for; the handshake
   // must then only ever touch that workspace's own connection.
@@ -387,6 +392,7 @@ export async function runCapabilityHandshake(
         baseUrl: String(connection.store_id || connection.approved_origin),
         installationId: connection.installation_id,
         secret,
+        protocolVersion: (connection as { protocol_version?: string | null }).protocol_version ?? null,
       },
       {
         workspaceId: connection.workspace_id,
@@ -398,7 +404,7 @@ export async function runCapabilityHandshake(
       },
     );
 
-    const health = handshake.protocolVersion !== 'webyar-commerce/1'
+    const health = !isKnownProtocolVersion(handshake.protocolVersion)
       ? 'protocol_mismatch'
       : handshake.schemaOk === false ? 'degraded' : 'connected';
     const now = new Date().toISOString();
@@ -464,7 +470,7 @@ export async function runCapabilityHandshake(
  */
 async function runOpenCartHandshake(
   config: ServerConfig,
-  connection: { id: string; installation_id: string; approved_origin: string; workspace_id: string; store_id: string; external_store_id: string | null; platform_version: string | null },
+  connection: { id: string; installation_id: string; approved_origin: string; workspace_id: string; store_id: string; external_store_id: string | null; platform_version: string | null; protocol_version?: string | null },
 ): Promise<void> {
   const sb = getServiceClient(config);
   const now = new Date().toISOString();
@@ -482,6 +488,7 @@ async function runOpenCartHandshake(
       installationId: connection.installation_id,
       secret,
       platformVersion,
+      protocolVersion: connection.protocol_version ?? null,
     }).negotiateCapabilities({
       workspaceId: connection.workspace_id,
       connectionId: connection.id,
@@ -501,7 +508,7 @@ async function runOpenCartHandshake(
 
     const sameStore = handshake.storeId === String(connection.external_store_id ?? '')
       && !!handshake.storeUrl && normalizeBase(handshake.storeUrl) === normalizeBase(connection.store_id);
-    const health = handshake.protocolVersion !== 'webyar-commerce/1' ? 'protocol_mismatch' : sameStore ? 'connected' : 'stale_origin';
+    const health = !isKnownProtocolVersion(handshake.protocolVersion) ? 'protocol_mismatch' : sameStore ? 'connected' : 'stale_origin';
     await sb.from('commerce_connections').update({
       connector_version: handshake.connectorVersion,
       platform_version: handshake.platformVersion,
@@ -530,7 +537,7 @@ async function runOpenCartHandshake(
 
 async function requestOpenCartUpdate(
   sb: ReturnType<typeof getServiceClient>,
-  connection: { id: string; installation_id: string; approved_origin: string; workspace_id: string; store_id: string; external_store_id: string | null },
+  connection: { id: string; installation_id: string; approved_origin: string; workspace_id: string; store_id: string; external_store_id: string | null; protocol_version?: string | null },
   secret: string,
   platformVersion: string | null,
 ): Promise<void> {
@@ -542,6 +549,7 @@ async function requestOpenCartUpdate(
       installationId: connection.installation_id,
       secret,
       platformVersion,
+      protocolVersion: connection.protocol_version ?? null,
     }).requestSelfUpdate({
       workspaceId: connection.workspace_id,
       connectionId: connection.id,

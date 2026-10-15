@@ -30,18 +30,35 @@
  * sign again). A new, unsigned version builds normally; stores simply do not
  * pick it up until it is signed.
  *
- * Env: WEBYAR_BRAND_NAME overrides the brand shown in the OpenCart admin.
+ * Two editions from the same source (scripts/build/pluginEdition.mjs), as
+ * the client build's brand asks (scripts/build/brand.mjs):
+ *   iran   → opencart/4.1/webyar.ocmod.zip, opencart/3.0/webyar-oc3.ocmod.zip,
+ *            opencart/manifest.json                      (as always)
+ *   respok → opencart/4.1/respok.ocmod.zip, opencart/3.0/respok-oc3.ocmod.zip,
+ *            opencart/respok-manifest.json (extension code respok, namespace
+ *            Opencart\…\Extension\Respok, X-Platform-* headers, RESPOK texts)
+ *   both   → both.
+ * OpenCart rules both keep: 4.1 takes the extension code (folder
+ * extension/<code>/, namespace …\Extension\<Code>, route
+ * extension/<code>/module/<code>) from the uploaded file's name, so the 4.1
+ * archive is exactly <code>.ocmod.zip; 3.0 installs the upload/ tree, routes
+ * extension/module/<code>.
+ *
+ * Env: WEBYAR_BRAND_NAME overrides the brand shown in the OpenCart admin
+ * (Iran edition only).
  */
 import { execFileSync } from 'node:child_process';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveBuildBrand } from './build/brand.mjs';
+import { EDITION_CODE, pluginEditionsFor, respokText, transformTreeToRespok } from './build/pluginEdition.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = join(root, 'plugins', 'webyar-opencart');
-const outDir = join(root, 'public', 'downloads', 'opencart');
+const OUT_DIR = join(root, 'public', 'downloads', 'opencart');
 
 const protocolSource = readFileSync(join(src, 'core', 'Protocol.php'), 'utf8');
 const version = protocolSource.match(/CONNECTOR_VERSION = '([^']+)'/)?.[1];
@@ -49,11 +66,14 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error('CONNECTOR_VER
 const updatePublicKey = protocolSource.match(/UPDATE_PUBLIC_KEY = '([^']+)'/)?.[1];
 if (!updatePublicKey) throw new Error('UPDATE_PUBLIC_KEY not found in core/Protocol.php');
 
-const BRAND = {
+// The Iran edition's names; the respok edition rewrites the staged result.
+const IRAN_BRAND = {
   en: process.env.WEBYAR_BRAND_NAME || 'Web Yar',
   fa: process.env.WEBYAR_BRAND_NAME || 'وب‌یار',
   tr: process.env.WEBYAR_BRAND_NAME || 'Web Yar',
 };
+const DEFAULT_BRAND = { en: 'Web Yar', fa: 'وب‌یار', tr: 'Web Yar' };
+let BRAND = IRAN_BRAND;
 // Directory names OpenCart language packs commonly use for each locale.
 const LANGUAGE_DIRS = { en: ['en-gb'], fa: ['fa-ir', 'fa'], tr: ['tr-tr', 'tr'] };
 // Every file carries one date, fixed per VERSION (reproducible builds) but
@@ -133,7 +153,7 @@ function zipDir(dir, outFile) {
   return createHash('sha256').update(readFileSync(outFile)).digest('hex');
 }
 
-function buildOc4(work, outFile) {
+function buildOc4(work, outFile, edition) {
   const dir = join(work, 'oc4');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'install.json'), `${JSON.stringify({
@@ -149,10 +169,11 @@ function buildOc4(work, outFile) {
   copyCore(join(dir, 'system', 'library', 'webyar'), join(src, 'oc4', 'Oc4Platform.php'), '4.1.x');
   writeLanguages(join(dir, 'admin', 'language'), join('module', 'webyar.php'), '4.1.x');
   writeLanguages(join(dir, 'catalog', 'language'), join('module', 'webyar.php'), '4.1.x');
+  if (edition === 'respok') transformTreeToRespok(dir);
   return zipDir(dir, outFile);
 }
 
-function buildOc3(work, outFile) {
+function buildOc3(work, outFile, edition) {
   const dir = join(work, 'oc3');
   const upload = join(dir, 'upload');
   mkdirSync(upload, { recursive: true });
@@ -162,19 +183,29 @@ function buildOc3(work, outFile) {
   copyCore(join(upload, 'system', 'library', 'webyar'), join(src, 'oc3', 'Oc3Platform.php'), '3.0.5.x');
   writeLanguages(join(upload, 'admin', 'language'), join('extension', 'module', 'webyar.php'), '3.0.5.x');
   writeLanguages(join(upload, 'catalog', 'language'), join('extension', 'module', 'webyar.php'), '3.0.5.x');
+  if (edition === 'respok') transformTreeToRespok(dir);
   return zipDir(dir, outFile);
 }
 
-const TARGETS = { oc4: join('4.1', 'webyar.ocmod.zip'), oc3: join('3.0', 'webyar-oc3.ocmod.zip') };
+/** Package files of an edition: the 4.1 archive MUST be <extension code>.ocmod.zip. */
+export function openCartTargets(edition) {
+  const code = EDITION_CODE[edition];
+  return {
+    oc4: join('4.1', `${code}.ocmod.zip`),
+    oc3: join('3.0', `${code}-oc3.ocmod.zip`),
+    // The update feed each edition's Updater reads (core/Updater.php MANIFEST_PATH).
+    manifest: edition === 'iran' ? 'manifest.json' : `${code}-manifest.json`,
+  };
+}
 
 function sha256File(file) {
   return existsSync(file) ? createHash('sha256').update(readFileSync(file)).digest('hex') : null;
 }
 
 /** The committed manifest when its signature verifies, else null. */
-function signedManifest() {
-  const manifestFile = join(outDir, 'manifest.json');
-  const sigFile = join(outDir, 'manifest.json.sig');
+function signedManifest(outDir, manifestName) {
+  const manifestFile = join(outDir, manifestName);
+  const sigFile = join(outDir, `${manifestName}.sig`);
   if (!existsSync(manifestFile) || !existsSync(sigFile)) return null;
   const body = readFileSync(manifestFile);
   return verifyManifest(body, readFileSync(sigFile, 'utf8').trim()) ? JSON.parse(body.toString('utf8')) : null;
@@ -189,47 +220,70 @@ function verifyManifest(body, signatureB64) {
   }
 }
 
-const work = mkdtempSync(join(tmpdir(), 'webyar-opencart-'));
-try {
-  const built = join(work, 'out');
-  const fresh = { oc4: buildOc4(work, join(built, TARGETS.oc4)), oc3: buildOc3(work, join(built, TARGETS.oc3)) };
-  const signed = signedManifest();
-  const signedSha = (line) => signed?.packages?.find((p) => p.opencart === line)?.sha256;
-  const frozen = signed?.version === version
-    && sha256File(join(outDir, TARGETS.oc4)) === signedSha('4.1.x')
-    && sha256File(join(outDir, TARGETS.oc3)) === signedSha('3.0.5.x')
-    && !process.env.WEBYAR_OPENCART_REBUILD;
+/**
+ * Builds one edition into `outDir` (the opencart/ downloads folder); returns
+ * what it wrote or kept. Exported for the tests, which build into a temp dir.
+ */
+export function packageOpenCart({ edition = 'iran', outDir = OUT_DIR, log = console } = {}) {
+  BRAND = edition === 'iran' ? IRAN_BRAND : DEFAULT_BRAND;
+  const code = EDITION_CODE[edition];
+  const TARGETS = openCartTargets(edition);
+  const protocol = edition === 'iran' ? protocolSource.match(/PROTOCOL_VERSION = '([^']+)'/)?.[1] : respokText(protocolSource).match(/PROTOCOL_VERSION = '([^']+)'/)?.[1];
+  if (!protocol) throw new Error('PROTOCOL_VERSION not found in core/Protocol.php');
+  const work = mkdtempSync(join(tmpdir(), 'webyar-opencart-'));
+  try {
+    const built = join(work, 'out');
+    const fresh = { oc4: buildOc4(work, join(built, TARGETS.oc4), edition), oc3: buildOc3(work, join(built, TARGETS.oc3), edition) };
+    const signed = signedManifest(outDir, TARGETS.manifest);
+    const signedSha = (line) => signed?.packages?.find((p) => p.opencart === line)?.sha256;
+    const frozen = signed?.version === version
+      && sha256File(join(outDir, TARGETS.oc4)) === signedSha('4.1.x')
+      && sha256File(join(outDir, TARGETS.oc3)) === signedSha('3.0.5.x')
+      && !process.env.WEBYAR_OPENCART_REBUILD;
 
-  if (frozen) {
-    // The signed release is what stores verify and install: keep it byte for byte.
-    if (fresh.oc4 !== signedSha('4.1.x') || fresh.oc3 !== signedSha('3.0.5.x')) {
-      console.warn(`[opencart] ${version} is signed and frozen; the source now builds different packages — bump CONNECTOR_VERSION and sign the new manifest to release them.`);
+    if (frozen) {
+      // The signed release is what stores verify and install: keep it byte for byte.
+      if (fresh.oc4 !== signedSha('4.1.x') || fresh.oc3 !== signedSha('3.0.5.x')) {
+        log.warn(`[opencart] ${code} ${version} is signed and frozen; the source now builds different packages — bump CONNECTOR_VERSION and sign the new manifest to release them.`);
+      }
+      log.log(`[opencart] kept signed ${code} ${version}: 4.1 ${signedSha('4.1.x').slice(0, 12)}…, 3.0 ${signedSha('3.0.5.x').slice(0, 12)}…`);
+    } else {
+      for (const target of [TARGETS.oc4, TARGETS.oc3]) {
+        mkdirSync(dirname(join(outDir, target)), { recursive: true });
+        cpSync(join(built, target), join(outDir, target));
+      }
+      const file4 = TARGETS.oc4.split('/').pop();
+      const file3 = TARGETS.oc3.split('/').pop();
+      const manifest = {
+        slug: `${code}-opencart`,
+        version,
+        protocol,
+        packages: [
+          { opencart: '4.1.x', tested: ['4.1.0.0', '4.1.0.4'], php: '>=8.1', path: `/downloads/opencart/4.1/${file4}`, file: file4, sha256: fresh.oc4 },
+          { opencart: '3.0.5.x', tested: ['3.0.5.1'], php: '>=8.1', path: `/downloads/opencart/3.0/${file3}`, file: file3, sha256: fresh.oc3 },
+        ],
+      };
+      const body = `${JSON.stringify(manifest, null, 2)}\n`;
+      writeFileSync(join(outDir, TARGETS.manifest), body);
+      const sigFile = join(outDir, `${TARGETS.manifest}.sig`);
+      if (!existsSync(sigFile) || !verifyManifest(Buffer.from(body), readFileSync(sigFile, 'utf8').trim())) {
+        log.warn(`[opencart] ${TARGETS.manifest}.sig does not match ${version}: connected stores will not auto-update to it until the manifest is signed on the release host.`);
+      }
+      log.log(`[opencart] built ${code} ${version}: 4.1 ${fresh.oc4.slice(0, 12)}…, 3.0 ${fresh.oc3.slice(0, 12)}…`);
     }
-    console.log(`[opencart] kept signed ${version}: 4.1 ${signedSha('4.1.x').slice(0, 12)}…, 3.0 ${signedSha('3.0.5.x').slice(0, 12)}…`);
-  } else {
-    for (const target of Object.values(TARGETS)) {
-      mkdirSync(dirname(join(outDir, target)), { recursive: true });
-      cpSync(join(built, target), join(outDir, target));
-    }
-    const manifest = {
-      slug: 'webyar-opencart',
-      version,
-      protocol: 'webyar-commerce/1',
-      packages: [
-        { opencart: '4.1.x', tested: ['4.1.0.0', '4.1.0.4'], php: '>=8.1', path: '/downloads/opencart/4.1/webyar.ocmod.zip', file: 'webyar.ocmod.zip', sha256: fresh.oc4 },
-        { opencart: '3.0.5.x', tested: ['3.0.5.1'], php: '>=8.1', path: '/downloads/opencart/3.0/webyar-oc3.ocmod.zip', file: 'webyar-oc3.ocmod.zip', sha256: fresh.oc3 },
-      ],
-    };
-    const body = `${JSON.stringify(manifest, null, 2)}\n`;
-    writeFileSync(join(outDir, 'manifest.json'), body);
-    const sigFile = join(outDir, 'manifest.json.sig');
-    if (!existsSync(sigFile) || !verifyManifest(Buffer.from(body), readFileSync(sigFile, 'utf8').trim())) {
-      console.warn(`[opencart] manifest.json.sig does not match ${version}: connected stores will not auto-update to it until the manifest is signed on the release host.`);
-    }
-    console.log(`[opencart] built ${version}: 4.1 ${fresh.oc4.slice(0, 12)}…, 3.0 ${fresh.oc3.slice(0, 12)}…`);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
   }
-} finally {
-  rmSync(work, { recursive: true, force: true });
+  if (!existsSync(join(outDir, TARGETS.oc4))) throw new Error(`[opencart] ${TARGETS.oc4} was not produced`);
+  return { code, version, oc4: join(outDir, TARGETS.oc4), oc3: join(outDir, TARGETS.oc3), manifest: join(outDir, TARGETS.manifest) };
 }
 
-if (!existsSync(join(outDir, '4.1', 'webyar.ocmod.zip'))) process.exit(1);
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  try {
+    for (const edition of pluginEditionsFor(resolveBuildBrand(process.env))) packageOpenCart({ edition });
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
+}

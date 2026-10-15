@@ -18,9 +18,11 @@ import type { LedgerEntry } from '@/lib/accountBillingApi';
 import { useBrandTokens } from '@/lib/brand';
 import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
 import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
+import { SHIPS_IRAN_KIT } from '../../../../../shared/buildBrand';
 import { Ltr, billingDate, money } from '../shared';
 import { gatewayLabel } from './accountUi';
 import { SELLER_KEYS, BILLING_PROFILE_KEYS } from '../../../../../shared/simpleBilling';
+import { isPaddleProvider } from '../../../../../shared/testGateways';
 
 const LTR_KEYS = new Set(['economic_code', 'national_id', 'registration_number', 'vat_id', 'postal_code', 'phone', 'email', 'invoice_email', 'website']);
 
@@ -45,7 +47,7 @@ function BrandHead({ international, kit }: { international: boolean; kit: boolea
   if (international) {
     return <img src={INTL_BRAND.horizontal.light} alt={brand} className="h-10 w-auto" draggable={false} data-receipt-logo="intl" />;
   }
-  if (kit) {
+  if (SHIPS_IRAN_KIT && kit) {
     return <img src={WEBYAR_BRAND.logo.light} alt={WEBYAR_BRAND.name} className="h-11 w-auto" draggable={false} data-receipt-logo="webyar" />;
   }
   return (
@@ -102,7 +104,7 @@ export default function ReceiptDocument({ receipt, locale, dir }: ReceiptDocumen
   const { siteUrl, supportEmail } = useBrandTokens(locale);
   const international = useInternationalMode();
   const kit = useWebyarKit() && !international;
-  const accent = international ? RESPOK_ACCENT : kit ? WEBYAR_BRAND.themeColor : 'hsl(var(--primary))';
+  const accent = international ? RESPOK_ACCENT : SHIPS_IRAN_KIT && kit ? WEBYAR_BRAND.themeColor : 'hsl(var(--primary))';
 
   const currency = receipt.currency;
   const net = receipt.net_minor ?? receipt.amount_minor;
@@ -219,6 +221,9 @@ export default function ReceiptDocument({ receipt, locale, dir }: ReceiptDocumen
             <div className="space-y-1">
               <p className="text-sm font-semibold text-slate-800">{t('billing.account.receipt.thanks')}</p>
               <p>{t('billing.account.receipt.electronic')}</p>
+              {/* Paddle is the merchant of record: the buyer's tax was added on top
+                  and is on Paddle's own invoice, never in this account's credit. */}
+              {isPaddleProvider(providerId) && <p data-receipt-paddle-tax="">{t('billing.account.receipt.paddleTax')}</p>}
             </div>
             {(site || supportEmail) && (
               <p className="flex flex-wrap gap-x-3 text-slate-400">

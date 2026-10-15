@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import type { MobileAppSettings, MobileAppPayload } from '@/hooks/useMobileApp';
 import { APP_PRIVACY_CATEGORIES as DATA_TYPES, appPrivacyCategoriesFor } from '../../../../shared/mobile/appPrivacy';
+import { useIosProjectText } from './useIosProjectText';
 
 export function MobilePrivacyTab({
   draft,
@@ -29,6 +30,7 @@ export function MobilePrivacyTab({
   nativeProject?: MobileAppPayload['environment']['nativeProject'];
 }) {
   const { t } = useTranslation();
+  const ios = useIosProjectText();
   const manifestApiTypes = nativeProject?.privacyApiTypes ?? [];
   const manifestDataTypes = nativeProject?.privacyDataTypes ?? [];
   const neededTypes = appPrivacyCategoriesFor(manifestDataTypes);
@@ -200,7 +202,7 @@ export function MobilePrivacyTab({
         />
 
         <CodeBlock
-          label={t('admin.mobileApp.privacy.manifestPreview')}
+          label={t('admin.mobileApp.privacy.manifestPreview', ios)}
           value={JSON.stringify(
             {
               NSPrivacyTracking: draft.att_enabled,

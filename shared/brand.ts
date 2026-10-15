@@ -21,6 +21,7 @@
  * notifications). Pure: no I/O.
  */
 import type { Edition } from './edition.js';
+import { SHIPS_IRAN_KIT } from './buildBrand.js';
 
 export const BRAND_TOKENS = ['brand', 'brandLatin', 'brandPlugin', 'supportEmail', 'siteUrl'] as const;
 export type BrandToken = (typeof BRAND_TOKENS)[number];
@@ -79,13 +80,15 @@ function siteHost(url: string | null | undefined): string {
  * (null) give today's WebYar strings; `international` gives the platform's
  * own identity — its name in every name token, its site and support e-mail —
  * and never a WebYar word (a missing name falls back to the site's host).
+ * A build without the Iranian kit (shared/buildBrand.ts: RESPOK's) knows only
+ * the International identity, whatever the edition reads.
  */
 export function brandTokensFor(
   edition: Edition | null | undefined,
   locale: unknown,
   identity?: BrandIdentity | null,
 ): BrandTokens {
-  if (edition !== 'international') {
+  if (SHIPS_IRAN_KIT && edition !== 'international') {
     const loc = baseLocale(locale);
     return {
       brand: IRAN_BRAND.brand[loc] ?? IRAN_BRAND.brand.en,

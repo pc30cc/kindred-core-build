@@ -1,7 +1,22 @@
+import { SHIPS_IRAN_KIT } from '../../shared/buildBrand';
+
 // Public campaign identifiers, scoped to the owner's production domains.
 export const GOOGLE_ADS_ID = 'AW-11183167040';
 export const SIGNUP_SEND_TO = `${GOOGLE_ADS_ID}/_HRMCLijlJIdEMCsxtQp`;
-const CONSENT_COOKIE = 'webyar_ads_measurement';
+
+/**
+ * The site the campaign measures: the Iranian edition's domains only. A build
+ * without the Iranian kit (shared/buildBrand.ts: RESPOK's) has none, so it
+ * never measures and carries none of them.
+ */
+const ADS_SITE = SHIPS_IRAN_KIT
+  ? {
+      consentCookie: 'webyar_ads_measurement',
+      hosts: ['webyar.ai', 'www.webyar.ai', 'app.webyar.ai'],
+      linkerDomains: ['webyar.ai', 'app.webyar.ai'],
+      cookieDomain: 'webyar.ai',
+    }
+  : null;
 type Consent = 'granted' | 'denied' | null;
 type Tag = (...args: unknown[]) => void;
 type AdsWindow = Window & { dataLayer?: unknown[]; gtag?: Tag };
@@ -10,14 +25,14 @@ const sent = new Set<string>();
 const pending = new Set<string>();
 
 export function isAdsProduction(): boolean {
-  return typeof window !== 'undefined' && window.location.protocol === 'https:' &&
-    ['webyar.ai', 'www.webyar.ai', 'app.webyar.ai'].includes(window.location.hostname);
+  return ADS_SITE !== null && typeof window !== 'undefined' && window.location.protocol === 'https:' &&
+    ADS_SITE.hosts.includes(window.location.hostname);
 }
 
 export function readAdsConsent(): Consent {
-  if (!isAdsProduction()) return 'denied';
+  if (!ADS_SITE || !isAdsProduction()) return 'denied';
   if ((navigator as Navigator & { globalPrivacyControl?: boolean }).globalPrivacyControl) return 'denied';
-  const value = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(`${CONSENT_COOKIE}=`))?.split('=')[1];
+  const value = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(`${ADS_SITE.consentCookie}=`))?.split('=')[1];
   return value === 'granted' || value === 'denied' ? value : null;
 }
 
@@ -38,7 +53,7 @@ function safeReferrer(): string {
 }
 
 export function initGoogleAds(): boolean {
-  if (!isAdsProduction() || readAdsConsent() !== 'granted') return false;
+  if (!ADS_SITE || !isAdsProduction() || readAdsConsent() !== 'granted') return false;
   const w = window as AdsWindow;
   if (configured.has(w)) return true;
   w.dataLayer ??= [];
@@ -49,10 +64,10 @@ export function initGoogleAds(): boolean {
   });
   w.gtag('consent', 'update', { ad_storage: 'granted' });
   w.gtag('js', new Date());
-  w.gtag('set', 'linker', { domains: ['webyar.ai', 'app.webyar.ai'] });
+  w.gtag('set', 'linker', { domains: ADS_SITE.linkerDomains });
   w.gtag('config', GOOGLE_ADS_ID, {
     send_page_view: false, allow_ad_personalization_signals: false,
-    allow_google_signals: false, cookie_domain: 'webyar.ai',
+    allow_google_signals: false, cookie_domain: ADS_SITE.cookieDomain,
     page_location: safeLocation(), page_referrer: safeReferrer(),
   });
   if (!document.querySelector('script[src*="googletagmanager.com/gtag/js"]')) {
@@ -66,9 +81,9 @@ export function initGoogleAds(): boolean {
 }
 
 export function setAdsConsent(consent: Exclude<Consent, null>): void {
-  if (!isAdsProduction()) return;
+  if (!ADS_SITE || !isAdsProduction()) return;
   if ((navigator as Navigator & { globalPrivacyControl?: boolean }).globalPrivacyControl) consent = 'denied';
-  document.cookie = `${CONSENT_COOKIE}=${consent}; Domain=webyar.ai; Path=/; Max-Age=31536000; SameSite=Lax; Secure`;
+  document.cookie = `${ADS_SITE.consentCookie}=${consent}; Domain=${ADS_SITE.cookieDomain}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`;
   if (consent === 'denied') {
     pending.clear();
     (window as AdsWindow).gtag?.('consent', 'update', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });

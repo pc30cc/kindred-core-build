@@ -5,7 +5,7 @@
  * Each edition has its own templates and its own default, so the two
  * products never share a look:
  *
- *   - `iran`          — `default`: the shipped WebYar design, exactly as it
+ *   - `iran`          — `default`: the Iran region's shipped design, exactly as it
  *                       always was (same assets, same bytes).
  *   - `international` — `intl`: the RESPOK look. Today it is a skin over the
  *                       shared renderer (the same script and base stylesheet,
@@ -29,6 +29,7 @@
  * Pure: no I/O.
  */
 import type { Edition } from './edition.js';
+import { SHIPS_IRAN_KIT } from './buildBrand.js';
 
 // ─── Chat widget ───────────────────────────────────────────────────────────
 
@@ -75,8 +76,13 @@ export const EDITION_CHAT_WIDGET_TEMPLATES: Readonly<Record<Edition, EditionTemp
   international: { default: 'intl', offered: ['intl'] },
 };
 
-/** Ids a template used to be called (persisted in old rows and embeds). */
-const LEGACY_CHAT_TEMPLATE_IDS: Readonly<Record<string, ChatWidgetTemplateId>> = { 'web-yar': 'default' };
+/**
+ * Ids a template used to be called (persisted in old rows and embeds). Only
+ * the Iran region's rows carry one; the RESPOK build leaves the alias out
+ * (SHIPS_IRAN_KIT is a build-time literal there), and the International
+ * edition resolves any id it does not offer to `intl` regardless.
+ */
+const LEGACY_CHAT_TEMPLATE_IDS: Readonly<Record<string, ChatWidgetTemplateId>> = SHIPS_IRAN_KIT ? { 'web-yar': 'default' } : {};
 
 function normalizeId(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';

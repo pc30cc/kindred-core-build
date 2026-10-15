@@ -9,6 +9,9 @@
  * failed read) the app behaves as it always did — the Iranian look and money —
  * except where a hint says otherwise (see cachedEdition). A failed read never
  * overwrites a known edition.
+ *
+ * A build without the Iranian kit (shared/buildBrand.ts SHIPS_IRAN_KIT: the
+ * RESPOK build) is the International edition from the first paint on.
  */
 import {
   EDITION_PROFILE,
@@ -20,6 +23,7 @@ import {
   type RegionCurrency,
   type RegionMode,
 } from '../../shared/edition';
+import { SHIPS_IRAN_KIT } from '../../shared/buildBrand';
 
 export { EDITION_PROFILE, parseEdition, resolveEdition, type Edition };
 
@@ -44,6 +48,8 @@ function read(key: string): string | null {
  * one (RESPOK browsers from before editions existed).
  */
 export function cachedEdition(): Edition | null {
+  // A build without the Iranian kit (RESPOK's) is only ever the International edition.
+  if (!SHIPS_IRAN_KIT) return 'international';
   const stored = parseEdition(read(EDITION_CACHE_KEY));
   if (stored) return stored;
   if (read(REGION_MODE_CACHE_KEY) === 'iran') return 'iran';
@@ -65,6 +71,7 @@ export function rememberEdition(edition: Edition): void {
 
 /** The edition as far as this page knows it: the config's, else the cache's, else null. */
 export function knownEdition(): Edition | null {
+  if (!SHIPS_IRAN_KIT) return 'international';
   return known ?? cachedEdition();
 }
 

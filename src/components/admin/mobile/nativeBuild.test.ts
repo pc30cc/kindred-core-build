@@ -29,6 +29,12 @@ describe('the iOS build commands', () => {
     expect(archive).toContain('-archivePath build/Respok.xcarchive');
     expect(archive).not.toContain('-scheme Webyar');
   });
+
+  it('never name the Iran brand abroad: the project by globs that match it', () => {
+    const commands = iosBuildCommands(settings, 'international');
+    expect(commands.slice(1, 4)).toEqual(['cd ios/*', 'xcodegen generate', 'open *.xcodeproj']);
+    expect(commands.join('\n')).not.toMatch(/web\s*yar/i);
+  });
 });
 
 describe('the Android release commands', () => {

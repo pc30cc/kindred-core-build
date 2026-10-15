@@ -1780,7 +1780,7 @@
 
   function prepare() {
     if (!document.fonts || typeof document.fonts.load !== 'function') return Promise.resolve();
-    var sample = 'سلام وب یار';
+    var sample = 'سلام دنیا';
     var loads = [400, 500, 600].map(function (weight) {
       return document.fonts.load(String(weight) + ' 16px IRANSans', sample).catch(function () { return []; });
     });

@@ -14,6 +14,7 @@ import { getProviderDescriptor } from './connectors/registry.js';
 import { upsertProductInIndex } from './productIndex.js';
 import { commerceHttpRequest } from './httpClient.js';
 import { buildSignedHeaders } from './signing.js';
+import { dialectForProtocol } from './pluginDialect.js';
 import { catalogExportPaths } from './catalogPaths.js';
 
 const MAX_PAGES_PER_RUN = 20; // bounds one worker tick to <= 1000 products
@@ -72,9 +73,12 @@ async function fetchProductPage(
   secret: string,
   page: number,
   modifiedAfter: string | null,
+  protocolVersion: string | null = null,
 ): Promise<{ products: unknown[]; hasMore: boolean }> {
-  const { signedPath, requestPath } = catalogExportPaths(page, modifiedAfter);
-  const headers = buildSignedHeaders(secret, installationId, 'GET', signedPath, '');
+  // The plugin dialect the store speaks (pluginDialect.ts): REST namespace and header names.
+  const dialect = dialectForProtocol(protocolVersion);
+  const { signedPath, requestPath } = catalogExportPaths(page, modifiedAfter, dialect);
+  const headers = buildSignedHeaders(secret, installationId, 'GET', signedPath, '', dialect);
   const res = await commerceHttpRequest({ url: `${origin}${requestPath}`, method: 'GET', headers, retryable: true });
   if (res.status >= 400) throw new CommerceError('commerce_live_unavailable', `catalog export failed: ${res.status}`);
   const body = (res.json && typeof res.json === 'object' ? res.json : {}) as { products?: unknown; has_more?: unknown };
@@ -92,7 +96,7 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
   const sb = getServiceClient(config);
   const { data: connection, error: connError } = await sb
     .from('commerce_connections')
-    .select('id, workspace_id, installation_id, approved_origin, revoked_at, provider_type')
+    .select('id, workspace_id, installation_id, approved_origin, revoked_at, provider_type, protocol_version')
     .eq('id', job.connection_id)
     .maybeSingle();
   if (connError) throw new Error(connError.message);
@@ -209,6 +213,7 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
     while (hasMore && pagesThisRun < MAX_PAGES_PER_RUN) {
       const { products, hasMore: more } = await fetchProductPage(
         config, job.connection_id, connection.installation_id, connection.approved_origin, secret, page, modifiedAfter,
+        (connection as { protocol_version?: string | null }).protocol_version ?? null,
       );
 
       const seen: string[] = [];

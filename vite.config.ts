@@ -7,6 +7,8 @@ import { createHash } from "crypto";
 import { componentTagger } from "lovable-tagger";
 import { vendorChunk } from "./scripts/build/vendorChunks.mjs";
 import { precompressFiles } from "./scripts/build/precompress.mjs";
+import { IRAN_BRAND_PATTERNS, resolveBuildBrand } from "./scripts/build/brand.mjs";
+import { brandIndexHtml } from "./scripts/build/brandIndexHtml.mjs";
 
 /**
  * Generates dist/sw.js (the PWA service worker) from
@@ -166,9 +168,105 @@ function precompress(): Plugin {
   };
 }
 
+/**
+ * The RESPOK build leaves out the Iran region's static files: its brand
+ * folder, its Android download and its edition of the commerce plugins
+ * (scripts/build/pluginEdition.mjs). Everything else Iran-only is left out of
+ * the bundle by the build-brand constants (shared/buildBrand.ts).
+ *
+ * The site-wide icons at the root (/favicon.png, /apple-touch-icon.png: the
+ * Iranian kit's) are RESPOK's own in its build (public/brand/intl/).
+ */
+const IRAN_CODE = ["web", "yar"].join("");
+const IRAN_ONLY_PUBLIC = [
+  ["brand", IRAN_CODE],
+  ["downloads", `${["Web", "yar"].join("")}-Android.apk`],
+  ["downloads", `${["Web", "yar"].join("")}-Android.json`],
+  // Commerce plugins, Iran edition (signed releases: .sig beside each manifest).
+  ...[`${IRAN_CODE}-woocommerce`, `${IRAN_CODE}-whmcs`].flatMap((slug) => [".zip", ".json", ".json.sig"].map((ext) => ["downloads", `${slug}${ext}`])),
+  ["downloads", "opencart", "4.1", `${IRAN_CODE}.ocmod.zip`],
+  ["downloads", "opencart", "3.0", `${IRAN_CODE}-oc3.ocmod.zip`],
+  ["downloads", "opencart", "manifest.json"],
+  ["downloads", "opencart", "manifest.json.sig"],
+];
+
+/** The Iran build leaves out the International edition of the commerce plugins. */
+const INTL_ONLY_PUBLIC = [
+  ...["respok-woocommerce", "respok-whmcs"].flatMap((slug) => [".zip", ".json", ".json.sig"].map((ext) => ["downloads", `${slug}${ext}`])),
+  ["downloads", "opencart", "4.1", "respok.ocmod.zip"],
+  ["downloads", "opencart", "3.0", "respok-oc3.ocmod.zip"],
+  ["downloads", "opencart", "respok-manifest.json"],
+  ["downloads", "opencart", "respok-manifest.json.sig"],
+];
+const RESPOK_ROOT_ICONS: Array<[string, string]> = [
+  ["favicon.png", "public/brand/intl/android-chrome-192x192.png"],
+  ["apple-touch-icon.png", "public/brand/intl/apple-touch-icon.png"],
+];
+
+function brandPublicFiles(brand: string): Plugin {
+  return {
+    name: "brand-public-files",
+    apply: "build",
+    async writeBundle(options) {
+      const leaveOut = brand === "respok" ? IRAN_ONLY_PUBLIC : brand === "iran" ? INTL_ONLY_PUBLIC : [];
+      const outDir = options.dir ?? path.resolve(__dirname, "dist");
+      for (const parts of leaveOut) {
+        fs.rmSync(path.join(outDir, ...parts), { recursive: true, force: true });
+      }
+      if (brand !== "respok") return;
+      for (const [target, source] of RESPOK_ROOT_ICONS) {
+        fs.copyFileSync(path.resolve(__dirname, source), path.join(outDir, target));
+      }
+    },
+  };
+}
+
+/**
+ * The Iranian kit's own images in src/assets (named for its brand, as
+ * scripts/build/brandAudit.mjs finds them) are not built into the RESPOK
+ * bundle: an import of one resolves to an empty URL there. Its code only
+ * reads them behind SHIPS_IRAN_KIT, but Vite emits an imported image even
+ * when the code that uses it is left out.
+ */
+const IRAN_ONLY_ASSET = "\0iran-only-asset";
+
+function iranOnlyAssets(brand: string): Plugin {
+  const assetsDir = path.resolve(__dirname, "src/assets") + path.sep;
+  return {
+    name: "iran-only-assets",
+    enforce: "pre",
+    apply: "build",
+    resolveId(source, importer) {
+      if (brand !== "respok") return null;
+      const file = source.startsWith("@/")
+        ? path.resolve(__dirname, "src", source.slice(2))
+        : path.isAbsolute(source) ? source : importer ? path.resolve(path.dirname(importer), source) : source;
+      const rel = file.startsWith(assetsDir) ? file.slice(assetsDir.length) : null;
+      return rel && IRAN_BRAND_PATTERNS.some((re: RegExp) => re.test(rel)) ? IRAN_ONLY_ASSET : null;
+    },
+    load(id) {
+      return id === IRAN_ONLY_ASSET ? 'export default "";' : null;
+    },
+  };
+}
+
+/** index.html per build brand: scripts/build/brandIndexHtml.mjs. */
+function brandIndexHtmlPlugin(brand: string): Plugin {
+  return {
+    name: "brand-index-html",
+    transformIndexHtml: {
+      order: "pre",
+      handler: (html) => brandIndexHtml(html, brand),
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  // respok | iran | both (scripts/build/brand.mjs): from VITE_BRAND, else the
+  // deployment's API origin; `both` for dev and anything unknown.
+  const brand = resolveBuildBrand({ ...env, ...process.env });
   // Preview/dev only: when VITE_API_BASE_URL is empty (same-origin build),
   // there is no local Express to answer /api, so login 404s inside the
   // Lovable preview while the deployed site works through nginx. Fall back
@@ -231,9 +329,18 @@ export default defineConfig(({ mode }) => {
         : {}),
 
     },
+    // shared/buildBrand.ts: literals, so Iran-only branches leave the RESPOK bundle.
+    define: {
+      "globalThis.__BUILD_BRAND__": JSON.stringify(brand),
+      "globalThis.__SHIPS_IRAN_KIT__": JSON.stringify(brand !== "respok"),
+      "globalThis.__SHIPS_INTL_KIT__": JSON.stringify(brand !== "iran"),
+    },
     plugins: [
       react(),
       pwaBuild(),
+      brandPublicFiles(brand),
+      brandIndexHtmlPlugin(brand),
+      iranOnlyAssets(brand),
       bootHints(),
       precompress(),
       mode === "development" && componentTagger(),

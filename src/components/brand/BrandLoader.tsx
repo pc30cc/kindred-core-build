@@ -17,11 +17,22 @@
  * three dots arrive one by one; `.wy-kit-loader`, styled in index.html like
  * the rest) and its Persian logotype at the foot. An edition not known yet
  * keeps the arcs and "WEBYAR AI".
+ *
+ * A build without the Iranian kit (shared/buildBrand.ts SHIPS_IRAN_KIT: the
+ * RESPOK build) is always in international mode; the kit's loader, its
+ * logotype and "WEBYAR AI" are left out of it.
  */
 import { cn } from '@/lib/utils';
 import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
 import { IntlBrandImage, WebyarBrandImage } from './BrandLogo';
 import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
+import { SHIPS_IRAN_KIT } from '../../../shared/buildBrand';
+
+/** International mode, which a build without the Iranian kit is always in. */
+function useIntl(): boolean {
+  const intlMode = useInternationalMode();
+  return !SHIPS_IRAN_KIT || intlMode;
+}
 
 /** The kit's loader (loader/web/webyar-loader.html), drawn by index.html's `.wy-kit-*` styles. */
 function WebyarKitLoader({ className }: { className?: string }) {
@@ -38,9 +49,9 @@ import { brandName, useBrandVersion } from '@/lib/brand';
 
 /** The two turning arcs on their own. */
 export function BrandLoader({ className }: { className?: string; size?: string; logoUrl?: string | null; label?: string; showLabel?: boolean }) {
-  const international = useInternationalMode();
+  const international = useIntl();
   const kit = useWebyarKit();
-  if (kit && !international) return <WebyarKitLoader className={className} />;
+  if (SHIPS_IRAN_KIT && kit && !international) return <WebyarKitLoader className={className} />;
   return (
     <div className={cn('wy-loader', international && 'wy-intl', className)} role="status" aria-label="Loading">
       <span className="wy-track" aria-hidden />
@@ -60,9 +71,9 @@ export function BrandLoader({ className }: { className?: string; size?: string; 
 
 /** "WEBYAR AI" — always Latin and left-to-right: it is the mark, not prose. */
 export function BrandFooter() {
-  const international = useInternationalMode();
+  const international = useIntl();
   const kit = useWebyarKit();
-  if (kit && !international) {
+  if (SHIPS_IRAN_KIT && kit && !international) {
     return (
       <div className="wy-footer wy-kit-footer" aria-hidden>
         <img className="wy-kit-light" src={WEBYAR_BRAND.logo.light} alt="" draggable={false} />
@@ -78,6 +89,7 @@ export function BrandFooter() {
       </div>
     );
   }
+  if (!SHIPS_IRAN_KIT) return null;
   return (
     <div className="wy-footer" aria-hidden>
       <span className="wy-name">WEBYAR</span>
@@ -88,9 +100,9 @@ export function BrandFooter() {
 
 /** The same "WEBYAR AI" mark, in normal flow (e.g. under the auth cards). */
 export function BrandWordmark({ className }: { className?: string }) {
-  const international = useInternationalMode();
+  const international = useIntl();
   const kit = useWebyarKit();
-  if (kit && !international) {
+  if (SHIPS_IRAN_KIT && kit && !international) {
     return (
       <div aria-hidden className={cn('flex justify-center opacity-70 select-none', className)}>
         <WebyarBrandImage className="h-8" />
@@ -104,6 +116,7 @@ export function BrandWordmark({ className }: { className?: string }) {
       </div>
     );
   }
+  if (!SHIPS_IRAN_KIT) return null;
   return (
     <div
       dir="ltr"
@@ -119,13 +132,14 @@ export function BrandWordmark({ className }: { className?: string }) {
 
 /** Full-viewport loading screen: identical to the iOS launch screen. */
 export function BrandLoaderScreen(_props: { logoUrl?: string | null } = {}) {
-  const international = useInternationalMode();
+  const international = useIntl();
   const kit = useWebyarKit() && !international;
   useBrandVersion();
   // "WEBYAR AI" is the mark before the edition is known; abroad it is the
   // platform's name; in the Iranian edition the kit's «وب‌یار».
+  const label = international ? brandName('en') : SHIPS_IRAN_KIT ? (kit ? WEBYAR_BRAND.name : 'WEBYAR AI') : '';
   return (
-    <div className="wy-launch wy-inline" aria-label={international ? brandName('en') : kit ? WEBYAR_BRAND.name : 'WEBYAR AI'}>
+    <div className="wy-launch wy-inline" aria-label={label}>
       <BrandLoader />
       <BrandFooter />
     </div>

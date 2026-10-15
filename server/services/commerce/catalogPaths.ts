@@ -9,7 +9,12 @@
 /** Products requested per catalog-export page. */
 export const PAGE_SIZE = 50;
 
-const CATALOG_EXPORT_ROUTE = '/wp-json/webyar/v1/catalog/export';
+import { LEGACY_DIALECT, type PluginDialect } from './pluginDialect.js';
+
+/** The catalog-export route under the plugin's REST base, per dialect (pluginDialect.ts). */
+export function catalogExportRoute(dialect: Readonly<PluginDialect> = LEGACY_DIALECT): string {
+  return `/wp-json/${dialect.moduleCode}/v1/catalog/export`;
+}
 
 /**
  * Splits the export URL into the path that gets SIGNED and the path that
@@ -26,7 +31,9 @@ const CATALOG_EXPORT_ROUTE = '/wp-json/webyar/v1/catalog/export';
 export function catalogExportPaths(
   page: number,
   modifiedAfter: string | null,
+  dialect: Readonly<PluginDialect> = LEGACY_DIALECT,
 ): { signedPath: string; requestPath: string } {
+  const CATALOG_EXPORT_ROUTE = catalogExportRoute(dialect);
   const query = new URLSearchParams({ page: String(page), per_page: String(PAGE_SIZE) });
   if (modifiedAfter) query.set('modified_after', modifiedAfter);
   return { signedPath: CATALOG_EXPORT_ROUTE, requestPath: `${CATALOG_EXPORT_ROUTE}?${query.toString()}` };

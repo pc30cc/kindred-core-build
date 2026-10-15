@@ -18,11 +18,10 @@
 
 export const WHMCS_PROVIDER = 'whmcs' as const;
 
-/** Logical path covered by the request signature (independent of where WHMCS is mounted). */
-export const WHMCS_API_CANONICAL_PATH = '/webyar/whmcs/v1' as const;
-
-/** Where the addon's machine endpoint lives, relative to the WHMCS System URL. */
-export const WHMCS_API_ENDPOINT_PATH = '/modules/addons/webyar/api.php' as const;
+// The addon's endpoint path and the logical path its request signature
+// covers depend on which build of the addon a WHMCS runs (Iran or
+// International): server/services/commerce/pluginDialect.ts and
+// connectors/whmcs.ts whmcsEndpointPath().
 
 /** Assertion envelope prefix — lets the identity route tell a WHMCS assertion from a WooCommerce one. */
 export const WHMCS_ASSERTION_PREFIX = 'whmcs1' as const;

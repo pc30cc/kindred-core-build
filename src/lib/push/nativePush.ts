@@ -19,8 +19,22 @@ import { isNativePlatform, getNativePlatform } from '@/lib/native';
 import { authFetch } from '@/lib/authFetch';
 import { API_BASE } from '@/lib/apiBase';
 import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
+import { SHIPS_IRAN_KIT } from '../../../shared/buildBrand';
 
-const DEVICE_ID_KEY = 'webyar.push.deviceId';
+const DEVICE_ID_KEY = 'push.deviceId';
+/**
+ * The id's key before it was renamed. Only the Iranian build (SHIPS_IRAN_KIT)
+ * reads it, once, to keep the same id (the server's upsert key) under
+ * DEVICE_ID_KEY; a build without that kit (RESPOK's) neither names nor reads it.
+ */
+const LEGACY_DEVICE_ID_KEY = SHIPS_IRAN_KIT ? 'webyar.push.deviceId' : null;
+/**
+ * The Android channel the server names in every FCM message
+ * (platform_settings.android_channel_id). Only the Iranian build keeps the
+ * historical id; this branch only runs in a Capacitor Android shell, which
+ * no build ships today (the Android apps are native, android/).
+ */
+const ANDROID_MESSAGES_CHANNEL = SHIPS_IRAN_KIT ? 'webyar_messages' : 'messages';
 
 export interface PushNavigationTarget {
   workspaceId: string;
@@ -41,6 +55,13 @@ function deviceId(): string {
   let id: string | null = null;
   try {
     id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id && LEGACY_DEVICE_ID_KEY) {
+      id = localStorage.getItem(LEGACY_DEVICE_ID_KEY);
+      if (id) {
+        localStorage.setItem(DEVICE_ID_KEY, id);
+        localStorage.removeItem(LEGACY_DEVICE_ID_KEY);
+      }
+    }
   } catch {
     /* storage unavailable */
   }
@@ -236,7 +257,7 @@ export async function initNativePush(workspaceId?: string | null): Promise<void>
       if (getNativePlatform() === 'android') {
         try {
           await FirebaseMessaging.createChannel({
-            id: 'webyar_messages',
+            id: ANDROID_MESSAGES_CHANNEL,
             name: 'Messages',
             description: 'New customer messages',
             importance: 5,

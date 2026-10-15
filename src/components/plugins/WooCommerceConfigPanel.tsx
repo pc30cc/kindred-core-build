@@ -30,8 +30,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, CheckCircle2, XCircle, RefreshCw, Download } from 'lucide-react';
+import { COMMERCE_PLUGIN_DOWNLOADS } from './pluginDownloads';
 
-const PLUGIN_DOWNLOAD_PATH = '/downloads/webyar-woocommerce.zip';
+/** This build's edition of the plugin (./pluginDownloads.ts). */
+const PLUGIN_DOWNLOAD_PATH = COMMERCE_PLUGIN_DOWNLOADS.wooCommerceZip;
 
 interface CommerceConnection {
   id: string;

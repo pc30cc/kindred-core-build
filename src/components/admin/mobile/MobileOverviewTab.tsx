@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import type { MobileAppPayload } from '@/hooks/useMobileApp';
 import { cn } from '@/lib/utils';
+import { useIosProjectText } from './useIosProjectText';
 
 export function MobileOverviewTab({
   data,
@@ -19,6 +20,7 @@ export function MobileOverviewTab({
   onGoToTab: (tab: string) => void;
 }) {
   const { t } = useTranslation();
+  const ios = useIosProjectText();
   const { summary, checks, environment, settings } = data;
 
   const blockers = checks.filter((c) => c.severity === 'blocker' && c.status !== 'pass');
@@ -135,7 +137,7 @@ export function MobileOverviewTab({
               </CardTitle>
             </div>
             <p className="text-xs text-muted-foreground">
-              {t('admin.mobileApp.overview.environmentHint')}
+              {t('admin.mobileApp.overview.environmentHint', ios)}
             </p>
           </CardHeader>
           <CardContent className="space-y-2">

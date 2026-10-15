@@ -22,7 +22,7 @@
  * outline in Away #A9A7BC). prefers-reduced-motion: nothing moves or scales;
  * the glyph and chevron swap with a 120ms fade.
  *
- * Customisation, the same rule as WebYar's button (shared/webyarLauncher.ts):
+ * Customisation, the same rule as the local kit's button (shared/localKitLauncher.ts):
  * a workspace colour other than the seeded #3B82F6 keeps its own solid
  * colour and the glyph is drawn in one colour (its icon colour), as the kit
  * does for any colour but Ink; away then outlines the answer pill in that

@@ -21,10 +21,10 @@
  * old browser just mean no cache, never a broken inbox.
  */
 
-const DB_NAME = 'webyar-email-cache';
+const DB_NAME = 'email-cache';
 const DB_VERSION = 1;
 const STORE = 'entries';
-const CHANNEL = 'webyar-email-cache';
+const CHANNEL = 'email-cache';
 
 export const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const MAX_ENTRIES_PER_SCOPE = 300;
@@ -66,11 +66,31 @@ export function cursorKey(scope: string): string {
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 
+/**
+ * The cache was kept under a prefixed name (`<prefix>-email-cache`) before it
+ * was renamed to DB_NAME. Such a database still holds mail on this device, and
+ * sign-out no longer clears it, so it is deleted, unread, the first time the
+ * cache is opened.
+ */
+function dropRenamedDatabases(): void {
+  try {
+    if (typeof indexedDB.databases !== 'function') return;
+    indexedDB.databases().then((dbs) => {
+      for (const { name } of dbs) {
+        if (name && name !== DB_NAME && name.endsWith(`-${DB_NAME}`)) indexedDB.deleteDatabase(name);
+      }
+    }, () => undefined);
+  } catch {
+    /* best effort */
+  }
+}
+
 function openDb(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve) => {
     try {
       if (typeof indexedDB === 'undefined') return resolve(null);
+      dropRenamedDatabases();
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;

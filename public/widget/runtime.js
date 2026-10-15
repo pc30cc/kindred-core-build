@@ -100,10 +100,10 @@
      * A Persian product URL reaches the widget percent-encoded, because that
      * is the only form that survives HTTP:
      *
-     *   https://p.webyar.ai/product/%d8%a7%d8%b3%d9%be%db%8c%da%a9%d8%b1-…/
+     *   https://shop.example/product/%d8%a7%d8%b3%d9%be%db%8c%da%a9%d8%b1-…/
      *
      * This is what the link's `title` shows, so a visitor who wants to check
-     * where a button goes sees «p.webyar.ai/product/اسپیکر-بلوتوثی-رزونانس»
+     * where a button goes sees «shop.example/product/اسپیکر-بلوتوثی-رزونانس»
      * rather than a line of escapes. The scheme is dropped and the host kept:
      * where it goes is the part that matters.
      */
@@ -9205,7 +9205,7 @@
     // Operator typing renders a small "Support is typing…" indicator above
     // the composer; auto-hides after 3.5s. Visitor self-echo is filtered.
     var typingHideTimer = null;
-    // The loader may draw the same signal on its launcher (WebYar's button:
+    // The loader may draw the same signal on its launcher (the local kit's button:
     // its dots bob); optional, so an older loader simply ignores it.
     function launcherTyping(on) {
       if (shell && typeof shell.setOperatorTyping === 'function') {

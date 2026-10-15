@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { bridgeRequest } from './api';
 import { bridgeProviders, bridgeListDraft, normalizeBridgeUrls, type BridgeListKey, type BridgeSiteLists, type BridgeSiteList, type BridgeBatchDraft } from '../../../shared/widgetBridge';
+import { bridgeProviderLabel } from './providerLabel';
 
 export function SiteListsPanel({ workspaceId, onPrepare }: { workspaceId: string; onPrepare: (draft: BridgeBatchDraft) => void }) {
   const { t } = useTranslation();
@@ -37,7 +38,7 @@ export function SiteListsPanel({ workspaceId, onPrepare }: { workspaceId: string
     <select id="bridge-list-provider" className="h-10 w-full rounded-md border bg-background px-3" value={key} disabled={save.isPending}
       onChange={event => { setKey(event.target.value as BridgeListKey); save.reset(); }}>
       <option value="shared">{t('widgetBridge.lists.shared')}</option>
-      {bridgeProviders.map(provider => <option key={provider} value={provider}>{provider === 'custom' ? t('widgetBridge.custom') : provider === 'webyar' ? 'WebYar / RESPOK' : provider === 'goftino' ? 'Goftino' : provider === 'crisp' ? 'Crisp' : 'Raychat'}</option>)}
+      {bridgeProviders.map(provider => <option key={provider} value={provider}>{bridgeProviderLabel(provider, t)}</option>)}
     </select>
     <Label htmlFor="bridge-saved-sites">{t('widgetBridge.lists.sites')}</Label>
     <textarea id="bridge-saved-sites" dir="ltr" rows={6} maxLength={1024000} className="w-full rounded-md border bg-background p-3 text-sm"

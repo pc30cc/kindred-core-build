@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation, type TranslationKey } from '@/i18n';
+import { knownEdition } from '@/lib/edition';
+import { SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
 import {
   BackupApiError,
   deleteDatabaseBackup,
@@ -88,6 +90,15 @@ function ftpInput(form: FormState): BackupFtpInput {
     secure: form.ftpSecure,
     verifyTls: form.ftpVerify,
   };
+}
+
+/**
+ * The FTP folder's example: the server's default for the edition
+ * (databaseBackupSettings.ts defaultFtpPath). The RESPOK build
+ * (SHIPS_IRAN_KIT false) only knows the neutral one.
+ */
+function ftpPathPlaceholder(): string {
+  return SHIPS_IRAN_KIT && knownEdition() !== 'international' ? '/webyar-backups' : '/backups';
 }
 
 function formatBytes(n: number | null | undefined): string {
@@ -548,7 +559,7 @@ export function DatabaseBackupsSection() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground text-start">{t('admin.database.savePath')}</Label>
-                <Input value={form.ftpPath} onChange={(e) => patch({ ftpPath: e.target.value })} placeholder="/webyar-backups" dir="ltr" className="bg-input border-border text-foreground text-start" />
+                <Input value={form.ftpPath} onChange={(e) => patch({ ftpPath: e.target.value })} placeholder={ftpPathPlaceholder()} dir="ltr" className="bg-input border-border text-foreground text-start" />
               </div>
               <div className={cn('flex items-center justify-between gap-4', isRtl && 'flex-row-reverse')}>
                 <span className="text-sm text-foreground">{t('admin.database.backups.secure')}</span>

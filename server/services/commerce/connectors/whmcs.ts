@@ -25,13 +25,21 @@ import {
   type CommerceErrorCode,
 } from '../../../../shared/commerce/types.js';
 import {
-  WHMCS_API_CANONICAL_PATH,
-  WHMCS_API_ENDPOINT_PATH,
   type WhmcsGrantRef,
   type WhmcsOp,
 } from '../../../../shared/commerce/whmcs.js';
 import { commerceHttpRequest, type CommerceHttpRequest, type CommerceHttpResponse } from '../httpClient.js';
 import { buildSignedHeaders } from '../signing.js';
+import { dialectForProtocol, headerName, type PluginDialect } from '../pluginDialect.js';
+
+/**
+ * Where the addon's machine endpoint lives, relative to the WHMCS System URL:
+ * `modules/addons/<module code>/api.php` (the addon folder is the module
+ * name WHMCS knows it by; ../pluginDialect.ts).
+ */
+export function whmcsEndpointPath(dialect: Readonly<PluginDialect>): string {
+  return `/modules/addons/${dialect.moduleCode}/api.php`;
+}
 
 export interface WhmcsTransport {
   /** Approved origin (scheme://host[:port]) — re-checked against baseUrl on every call. */
@@ -40,6 +48,8 @@ export interface WhmcsTransport {
   baseUrl: string;
   installationId: string;
   secret: string;
+  /** The connection's protocol version: picks the addon dialect (../pluginDialect.ts). Legacy when absent. */
+  protocolVersion?: string | null;
 }
 
 export interface WhmcsCallOptions {
@@ -115,7 +125,11 @@ export class WhmcsConnector {
     if (base.origin !== this.transport.origin) {
       throw new CommerceError('commerce_not_connected', 'WHMCS base url is outside the approved origin');
     }
-    return `${this.transport.baseUrl.replace(/\/+$/, '')}${WHMCS_API_ENDPOINT_PATH}`;
+    return `${this.transport.baseUrl.replace(/\/+$/, '')}${whmcsEndpointPath(this.dialect())}`;
+  }
+
+  private dialect(): Readonly<PluginDialect> {
+    return dialectForProtocol(this.transport.protocolVersion);
   }
 
   async call(op: WhmcsOp, params: Record<string, unknown>, opts: WhmcsCallOptions): Promise<WhmcsCallResult> {
@@ -137,8 +151,9 @@ export class WhmcsConnector {
         params,
         grant: opts.grant ? { id: opts.grant.grantId, uid: opts.grant.userId, cid: opts.grant.clientId } : null,
       });
-      const headers = buildSignedHeaders(this.transport.secret, this.transport.installationId, 'POST', WHMCS_API_CANONICAL_PATH, body);
-      headers['X-WebYar-Correlation'] = opts.correlationId;
+      const dialect = this.dialect();
+      const headers = buildSignedHeaders(this.transport.secret, this.transport.installationId, 'POST', dialect.whmcsCanonicalPath, body, dialect);
+      headers[headerName(dialect, 'Correlation')] = opts.correlationId;
 
       try {
         const res = await this.request({

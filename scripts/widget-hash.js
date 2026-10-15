@@ -9,9 +9,11 @@
  *   node scripts/widget-hash.js
  */
 import { createHash } from 'crypto';
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs';
 import { resolve, join, dirname, relative } from 'path';
 import { fileURLToPath } from 'url';
+import { resolveBuildBrand } from './build/brand.mjs';
+import { isWidgetSource, transformWidgetAsset } from './build/widgetBrand.mjs';
 
 // NOTE: Do NOT use `import.meta.dirname` — it was only added in Node 20.11.
 // Some `node:20-alpine` images shipped with older 20.x patch versions
@@ -29,6 +31,21 @@ const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, '..');
 const SRC_DIR = join(ROOT, 'public', 'widget');
 const OUT_DIR = join(ROOT, 'dist', 'widget');
+
+// The build brand (scripts/build/brand.mjs): every widget JS/CSS file is
+// minified without comments, and the RESPOK build leaves out the Iran
+// region's local kit (scripts/build/widgetBrand.mjs). Hashes, the manifest
+// and loaderVersion are all of the shipped bytes.
+const BRAND = resolveBuildBrand(process.env);
+const shipped = new Map();
+function shippedBytes(file) {
+  if (!shipped.has(file)) {
+    const raw = readFileSync(join(SRC_DIR, file));
+    shipped.set(file, isWidgetSource(file) ? Buffer.from(transformWidgetAsset(file, raw, BRAND), 'utf8') : raw);
+  }
+  return shipped.get(file);
+}
+console.log(`[widget-hash] build brand: ${BRAND}`);
 
 // Fail loudly if the source dir is missing — otherwise the script would
 // happily write an empty manifest and the bad image would only blow up
@@ -125,7 +142,7 @@ for (const file of HASHED_FILES) {
     console.warn(`[widget-hash] Skipping missing file: ${file}`);
     continue;
   }
-  const buf = readFileSync(src);
+  const buf = shippedBytes(file);
   const hash = contentHash(buf);
   const ext = file.split('.').pop();
   const base = file.replace(`.${ext}`, '');
@@ -161,8 +178,7 @@ for (const logical of VENDOR_FILES) {
 for (const file of STABLE_FILES) {
   const src = join(SRC_DIR, file);
   if (!existsSync(src)) continue;
-  copyFileSync(src, join(OUT_DIR, file));
-  const buf = readFileSync(src);
+  writeFileSync(join(OUT_DIR, file), shippedBytes(file));
   manifest[file] = file;
   console.log(`[widget-hash] ${file} copied`);
 }
@@ -170,7 +186,16 @@ for (const file of STABLE_FILES) {
 // Loader version from its content hash
 const loaderSrc = join(SRC_DIR, 'loader.js');
 if (existsSync(loaderSrc)) {
-  manifest['loaderVersion'] = contentHash(readFileSync(loaderSrc));
+  manifest['loaderVersion'] = contentHash(shippedBytes('loader.js'));
+}
+
+// `vite build` already copied public/widget/ into dist/widget/ as it is
+// (comments, and for RESPOK the local kit, included). Every such top-level
+// JS/CSS copy is served too (/widget/<name>), so it is replaced by the
+// shipped bytes as well.
+for (const file of readdirSync(SRC_DIR)) {
+  if (!isWidgetSource(file) || !existsSync(join(OUT_DIR, file))) continue;
+  writeFileSync(join(OUT_DIR, file), shippedBytes(file));
 }
 
 const manifestPath = join(OUT_DIR, 'widget-manifest.json');

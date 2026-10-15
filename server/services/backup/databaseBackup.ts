@@ -44,6 +44,7 @@ import {
 } from '../storage/index.js';
 import { decryptBackupBuffer, encryptBackupFile, isBackupEncryptionReady } from './backupCrypto.js';
 import { FtpClient } from './ftpClient.js';
+import { getPlatformEditionOrNull } from '../platformRegion.js';
 import {
   BACKUP_SETTINGS_KEY,
   computeNextBackupRun,
@@ -379,11 +380,20 @@ function localPathOf(file: string): string {
 
 // ── Settings ─────────────────────────────────────────────────────────────
 
+/**
+ * The first word of backup ids and probe files, which Super Admin and the
+ * backup destination see: the Iranian edition's as it always was (also for
+ * an edition that cannot be read), a neutral one in the International edition.
+ */
+export async function backupNamePrefix(config: ServerConfig): Promise<string> {
+  return (await getPlatformEditionOrNull(config)) === 'international' ? 'platform' : 'webyar';
+}
+
 export async function getBackupSettings(config: ServerConfig): Promise<DatabaseBackupSettings> {
   const sb = getServiceClient(config);
   const { data, error } = await sb.from('app_runtime_config').select('value').eq('key', BACKUP_SETTINGS_KEY).maybeSingle();
   if (error) throw new DatabaseBackupError('backup_settings_read_failed', 500, error.message);
-  return normalizeBackupSettings((data as { value?: unknown } | null)?.value);
+  return normalizeBackupSettings((data as { value?: unknown } | null)?.value, await getPlatformEditionOrNull(config));
 }
 
 export async function saveBackupSettings(config: ServerConfig, settings: DatabaseBackupSettings): Promise<void> {
@@ -675,7 +685,7 @@ export async function startDatabaseBackup(
     try {
       await reapInterruptedRuns(config);
       const startedAt = new Date();
-      const backupId = `webyar-db-${stamp(startedAt)}-${randomBytes(4).toString('hex')}`;
+      const backupId = `${await backupNamePrefix(config)}-db-${stamp(startedAt)}-${randomBytes(4).toString('hex')}`;
       const { data, error } = await getServiceClient(config)
         .from('backup_runs')
         .insert({
@@ -1002,8 +1012,9 @@ export interface DestinationTestInput {
 }
 
 export async function testBackupDestination(config: ServerConfig, input: DestinationTestInput): Promise<Record<string, unknown>> {
-  const probe = `webyar-probe-${randomBytes(6).toString('hex')}`;
-  const body = Buffer.from(`webyar backup destination test ${new Date().toISOString()}\n`);
+  const prefix = await backupNamePrefix(config);
+  const probe = `${prefix}-probe-${randomBytes(6).toString('hex')}`;
+  const body = Buffer.from(`${prefix} backup destination test ${new Date().toISOString()}\n`);
   if (input.destination === 'local') {
     const status = await localBackupStatus();
     if (!status.writable) throw new DatabaseBackupError('local_dir_not_writable', 500);
@@ -1040,7 +1051,7 @@ export async function testBackupDestination(config: ServerConfig, input: Destina
       port: f?.port ?? saved.port,
       username,
       password,
-      dir: f ? normalizeFtpPath(f.path ?? '') : saved.path,
+      dir: f ? normalizeFtpPath(f.path ?? '', await getPlatformEditionOrNull(config)) : saved.path,
       secure: f?.secure ?? saved.secure,
       verifyTls: f?.verifyTls ?? saved.verifyTls,
     };
@@ -1102,7 +1113,7 @@ async function recordFailedScheduledRun(config: ServerConfig, settings: Database
   const e = err instanceof DatabaseBackupError ? err : new DatabaseBackupError('backup_failed', 500, (err as Error)?.message);
   const now = new Date();
   const row = {
-    backup_id: `webyar-db-${stamp(now)}-${randomBytes(4).toString('hex')}`,
+    backup_id: `${await backupNamePrefix(config)}-db-${stamp(now)}-${randomBytes(4).toString('hex')}`,
     kind: 'logical',
     status: 'failed',
     started_at: now.toISOString(),

@@ -28,13 +28,7 @@ export { IRAN_BRAND_PATTERNS };
  * binary built outside this web build belongs here; remove an entry as soon
  * as its source is clean.
  */
-export const KNOWN_EXCEPTIONS = new Map([
-  [
-    'downloads/RESPOK-Android.apk',
-    'built from android/ (native Kotlin app, its own CI and signing): its namespace and theme still carry the Iran name; '
-      + 'needs a rename there and a new signed release',
-  ],
-]);
+export const KNOWN_EXCEPTIONS = new Map();
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 

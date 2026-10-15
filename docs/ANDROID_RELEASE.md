@@ -4,6 +4,40 @@ Everything here is about the difference between a build that runs and a build
 that can be *published*. They are not the same thing, and the gap is mostly
 made of things that fail late.
 
+## Before the next release: what is already out (read first)
+
+Published copies, as of 2026-10-15:
+
+| App | Where | Version | Signed with |
+|-----|-------|---------|-------------|
+| WebYar `com.webyar.ai` | Cafe Bazaar (the owner uploaded it on 2026-10-15) and `app.webyar.ai/downloads/Webyar-Android.apk` | 1.6, `versionCode` 27 | `webyar-release.jks` (cert SHA-256 `f1ed448f…0160142`) |
+| RESPOK `com.respok.app` | `app.respok.app/downloads/RESPOK-Android.apk` only (not on Google Play yet) | 1.0.2, `versionCode` 3 | `respok-release.jks` (cert SHA-256 `c71c4665…b8ee500`) |
+
+**The next WebYar release is the first built from the brand-neutral sources**
+(#323: code namespace `com.platform.app`, shared class names). Nothing a
+phone or a store checks has changed, and it stays an in-place update only if
+all of these hold:
+
+1. `applicationId` stays `com.webyar.ai` (the `webyar` flavor sets it; never
+   change it).
+2. Signed with **`webyar-release.jks`**, the same certificate as every earlier
+   WebYar version. Bazaar and phones refuse an update signed with any other key.
+3. `versionCode` **above the one on Bazaar** (27 for 1.6; check Bazaar's
+   developer panel before building), e.g. `-Pwebyar.versionCode=28
+   -Pwebyar.versionName=1.7`.
+4. The same APK goes to Bazaar and to `public/downloads/Webyar-Android.apk`
+   (with its `.json` sidecar), so the site and the store never offer
+   different builds under one version.
+5. After installing it over 1.6 on a phone, check that the user is still
+   signed in and keeps their settings (the flavor keeps WebYar's store, key
+   and database names), that a home-screen shortcut still opens the app
+   (the `com.webyar.ai.MainActivity` alias in `src/webyar/AndroidManifest.xml`),
+   and that notifications arrive on the `webyar_messages` channel.
+
+RESPOK's next version must be above `versionCode` 3. On Google Play, the
+first upload fixes the app's signing setup for good: see "The signing keys"
+below before doing it.
+
 ## Two apps from one source
 
 `android/` builds two apps, one per brand, from the same code. They are the

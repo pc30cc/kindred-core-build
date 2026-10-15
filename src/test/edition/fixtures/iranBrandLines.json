@@ -159,6 +159,16 @@
    "locale": "en",
    "source": "      readOnly: 'Read-only access. Nothing is copied from WHMCS into {{brandPlugin}}.',",
    "iran": "      readOnly: 'Read-only access. Nothing is copied from WHMCS into Web Yar.',"
+  },
+  {
+   "locale": "en",
+   "source": "      body: 'It keeps working, but it does not receive updates from {{brand}}. Install the {{brand}} plugin (it can sit beside the old one), connect it, then remove the old plugin.',",
+   "iran": "      body: 'It keeps working, but it does not receive updates from Webyar. Install the Webyar plugin (it can sit beside the old one), connect it, then remove the old plugin.',"
+  },
+  {
+   "locale": "en",
+   "source": "      download: 'Download the {{brand}} plugin',",
+   "iran": "      download: 'Download the Webyar plugin',"
   }
  ],
  "src/i18n/locales/fa.ts": [
@@ -326,6 +336,16 @@
    "locale": "fa",
    "source": "      fabLabelPlaceholder: 'مثلاً: {{brand}} دستیار ویژه شما',",
    "iran": "      fabLabelPlaceholder: 'مثلاً: وب‌یار دستیار ویژه شما',"
+  },
+  {
+   "locale": "fa",
+   "source": "      body: 'همچنان کار می‌کند، ولی از {{brand}} به‌روزرسانی نمی‌گیرد. افزونهٔ {{brand}} را نصب کنید (کنار افزونهٔ قبلی هم نصب می‌شود)، آن را وصل کنید و بعد افزونهٔ قبلی را حذف کنید.',",
+   "iran": "      body: 'همچنان کار می‌کند، ولی از وب‌یار به‌روزرسانی نمی‌گیرد. افزونهٔ وب‌یار را نصب کنید (کنار افزونهٔ قبلی هم نصب می‌شود)، آن را وصل کنید و بعد افزونهٔ قبلی را حذف کنید.',"
+  },
+  {
+   "locale": "fa",
+   "source": "      download: 'دانلود افزونهٔ {{brand}}',",
+   "iran": "      download: 'دانلود افزونهٔ وب‌یار',"
   }
  ],
  "src/i18n/locales/tr.ts": [
@@ -488,6 +508,16 @@
    "locale": "en",
    "source": "      readOnly: 'Salt okunur erişim. WHMCS’ten {{brandPlugin}}’a hiçbir veri kopyalanmaz.',",
    "iran": "      readOnly: 'Salt okunur erişim. WHMCS’ten Web Yar’a hiçbir veri kopyalanmaz.',"
+  },
+  {
+   "locale": "tr",
+   "source": "      body: 'Çalışmaya devam eder, ancak {{brand}} üzerinden güncelleme almaz. {{brand}} eklentisini kurun (eskisinin yanına kurulabilir), bağlayın ve ardından eski eklentiyi kaldırın.',",
+   "iran": "      body: 'Çalışmaya devam eder, ancak Webyar üzerinden güncelleme almaz. Webyar eklentisini kurun (eskisinin yanına kurulabilir), bağlayın ve ardından eski eklentiyi kaldırın.',"
+  },
+  {
+   "locale": "tr",
+   "source": "      download: '{{brand}} eklentisini indir',",
+   "iran": "      download: 'Webyar eklentisini indir',"
   }
  ],
  "src/pages/public/legal/legalDocuments.ts": [

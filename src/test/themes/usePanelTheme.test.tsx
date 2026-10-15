@@ -36,6 +36,7 @@ afterEach(() => {
   delete document.documentElement.dataset.panelTheme;
   delete document.documentElement.dataset.panelLayout;
   delete document.documentElement.dataset.panelPalette;
+  delete document.documentElement.dataset.panelFamily;
 });
 
 describe('usePanelTheme', () => {
@@ -224,5 +225,32 @@ describe('useApplyPanelTheme', () => {
     expect(root.hasAttribute('data-panel-theme')).toBe(false);
     expect(root.hasAttribute('data-panel-layout')).toBe(false);
     expect(root.hasAttribute('data-panel-palette')).toBe(false);
+  });
+
+  it('marks Art and Vivid as Art’s family, so both wear Art’s stylesheets; Classic carries none', () => {
+    const root = document.documentElement;
+    const { rerender, unmount } = renderHook(({ theme, options }) => useApplyPanelTheme(theme, options), {
+      initialProps: { theme: 'art', options: undefined } as { theme: 'art' | 'vivid' | 'classic'; options?: object },
+    });
+    expect(root.getAttribute('data-panel-family')).toBe('art');
+
+    // A scheme saved before Vivid had a layout: Art's default layout.
+    rerender({ theme: 'vivid', options: { palette: 'ocean' } });
+    expect(root.getAttribute('data-panel-theme')).toBe('vivid');
+    expect(root.getAttribute('data-panel-family')).toBe('art');
+    expect(root.getAttribute('data-panel-layout')).toBe('topnav');
+    expect(root.getAttribute('data-panel-palette')).toBe('ocean');
+
+    rerender({ theme: 'vivid', options: { layout: 'sidebar', palette: 'neon' } });
+    expect(root.getAttribute('data-panel-layout')).toBe('sidebar');
+    expect(root.getAttribute('data-panel-palette')).toBe('coral');
+
+    rerender({ theme: 'classic', options: undefined });
+    expect(root.hasAttribute('data-panel-family')).toBe(false);
+
+    rerender({ theme: 'vivid', options: undefined });
+    unmount();
+    expect(root.hasAttribute('data-panel-family')).toBe(false);
+    expect(root.hasAttribute('data-panel-theme')).toBe(false);
   });
 });

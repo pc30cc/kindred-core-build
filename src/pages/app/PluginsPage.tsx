@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { useEdition } from '@/hooks/useEdition';
 import { isChannelAllowedInEdition } from '../../../shared/edition';
 import { usePanelTheme } from '@/themes/usePanelTheme';
+import { isArtFamilyTheme } from '../../../shared/panelThemes';
 import {
   CheckCircle2, Clock, Lock, Puzzle, Search, Settings2, Trash2, Wrench,
 } from 'lucide-react';
@@ -31,7 +32,7 @@ export default function PluginsPage() {
   const { t, dir } = useTranslation();
   // Defense in depth: the server lists no Bale outside the Iranian edition.
   const { edition } = useEdition();
-  const isArt = usePanelTheme().theme === 'art';
+  const isArt = isArtFamilyTheme(usePanelTheme().theme);
   const { workspace } = useActiveWorkspace();
   const workspaceId = workspace?.id ?? '';
   const qc = useQueryClient();

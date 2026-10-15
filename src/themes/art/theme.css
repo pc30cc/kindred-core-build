@@ -5,9 +5,11 @@
  * pills (src/themes/art/shell), and pages centred on the paper; surfaces are
  * hairline-ringed paper.
  *
- * Everything here applies only under <html data-panel-theme="art">, which the
- * workspace panel sets while it is open (src/themes/usePanelTheme.ts). The
- * classic theme has no rules: it is the panel's own index.css, untouched.
+ * Everything here applies only under <html data-panel-family="art">, which the
+ * workspace panel sets while it is open (src/themes/usePanelTheme.ts) for Art
+ * and for the themes built on it (Vivid: src/themes/vivid). Art's own colour
+ * schemes (palettes.css) stay keyed to data-panel-theme="art". The classic
+ * theme has no rules: it is the panel's own index.css, untouched.
  *
  * How it reaches every page without editing them:
  *   1. Tokens: the panel's colour variables (index.css) get Lart's palette.
@@ -26,7 +28,7 @@
 
 /* ── 1. Tokens ─────────────────────────────────────────────────────────── */
 
-:root[data-panel-theme="art"] {
+:root[data-panel-family="art"] {
   --background: 40 50% 97.5%;
   --foreground: 221 26% 10.5%;
   --card: 40 69% 99.1%;
@@ -118,7 +120,7 @@
   color-scheme: light;
 }
 
-:root[data-panel-theme="art"].dark {
+:root[data-panel-family="art"].dark {
   --background: 221 23% 8%;
   --foreground: 40 23% 92.8%;
   --card: 221 19% 12.4%;
@@ -203,7 +205,7 @@
 
 /* The call stage stays dark in both modes: its status colours are the dark
    mode's, so they read on it. */
-:root[data-panel-theme="art"] .bg-call-stage {
+:root[data-panel-family="art"] .bg-call-stage {
   --success: 144 47% 58%;
   --warning: 39 78% 61.8%;
   --destructive: 359 81% 66.7%;
@@ -214,14 +216,14 @@
 
 /* Art has its own frame, src/themes/art/shell/ArtShell.tsx: no sidebar, a top
    bar with the navigation as pills, then the page on ivory paper. */
-:root[data-panel-theme="art"] body,
-:root[data-panel-theme="art"] [data-shell="app"] {
+:root[data-panel-family="art"] body,
+:root[data-panel-family="art"] [data-shell="app"] {
   background-color: hsl(var(--background));
   background-image: none;
 }
 
 /* Glows and aurora blobs: Art is calm. */
-:root[data-panel-theme="art"] [data-shell-decor] {
+:root[data-panel-family="art"] [data-shell-decor] {
   display: none !important;
 }
 
@@ -230,7 +232,7 @@
    pseudo-elements: the frame must not become a stacking context, or a page's
    own fixed overlay (the phone inbox's contact drawer, z-50) would sink under
    the bottom tab bar (z-40) that sits outside it. */
-:root[data-panel-theme="art"] [data-shell="frame"] {
+:root[data-panel-family="art"] [data-shell="frame"] {
   --art-light-start: 100%;
   --art-light-end: 0%;
   background-color: hsl(var(--background));
@@ -241,20 +243,20 @@
 }
 
 /* The light sits at the top end: right in LTR, left in RTL. */
-:root[data-panel-theme="art"] [dir="rtl"] [data-shell="frame"] {
+:root[data-panel-family="art"] [dir="rtl"] [data-shell="frame"] {
   --art-light-start: 0%;
   --art-light-end: 100%;
 }
 
 /* A normal page: one centred column with room to breathe. Full-bleed pages
    (inbox, settings, ...) fill the frame edge to edge instead. */
-:root[data-panel-theme="art"] [data-shell="main"][data-layout="page"] {
+:root[data-panel-family="art"] [data-shell="main"][data-layout="page"] {
   padding-block: 2rem 3rem;
   padding-inline: max(2rem, calc((100% - var(--art-content-max)) / 2));
 }
 
 @media (max-width: 767px) {
-  :root[data-panel-theme="art"] [data-shell="main"][data-layout="page"] {
+  :root[data-panel-family="art"] [data-shell="main"][data-layout="page"] {
     padding-block: 1.25rem 2rem;
     padding-inline: 1rem;
   }
@@ -262,7 +264,7 @@
 
 /* ── 3. The bars ───────────────────────────────────────────────────────── */
 
-:root[data-panel-theme="art"] [data-shell="header"] {
+:root[data-panel-family="art"] [data-shell="header"] {
   background-color: hsl(var(--background));
   box-shadow: 0 1px 0 0 hsl(var(--foreground) / 0.07);
 }
@@ -272,17 +274,17 @@
    that runs edge to edge (the inboxes, visitors: ArtShell's `data-row`), it
    spans the window like the context bar and the app's columns under it. */
 @media (min-width: 1024px) {
-  :root[data-panel-theme="art"] [data-shell="header"] {
+  :root[data-panel-family="art"] [data-shell="header"] {
     padding-inline: max(2rem, calc((100% - var(--art-content-max)) / 2));
   }
 
-  :root[data-panel-theme="art"] [data-shell="header"][data-row="wide"] {
+  :root[data-panel-family="art"] [data-shell="header"][data-row="wide"] {
     padding-inline: 1.25rem;
   }
 
   /* ... while the pills keep the room they have over a page, so the same
      ones are in view on every page (ArtPrimaryNav measures what fits). */
-  :root[data-panel-theme="art"] [data-shell="header"][data-row="wide"] > [data-shell="primary-nav"] {
+  :root[data-panel-family="art"] [data-shell="header"][data-row="wide"] > [data-shell="primary-nav"] {
     margin-inline-end: calc(2 * (max(2rem, (100vw - var(--art-content-max)) / 2) - 1.25rem));
   }
 }
@@ -290,40 +292,40 @@
 /* A tablet's bar: the workspace by its mark alone (its name is in the
    switcher's menu and its label), so the pills get the room. */
 @media (min-width: 768px) and (max-width: 1023px) {
-  :root[data-panel-theme="art"] [data-shell="header"] [data-shell="workspace-switcher"] {
+  :root[data-panel-family="art"] [data-shell="header"] [data-shell="workspace-switcher"] {
     padding-inline-end: 0.5rem;
   }
 
-  :root[data-panel-theme="art"] [data-shell="header"] [data-shell="workspace-switcher"] > [data-shell="workspace-mark"] + span {
+  :root[data-panel-family="art"] [data-shell="header"] [data-shell="workspace-switcher"] > [data-shell="workspace-mark"] + span {
     display: none;
   }
 }
 
-:root[data-panel-theme="art"] [data-shell="context-bar"] {
+:root[data-panel-family="art"] [data-shell="context-bar"] {
   background-color: hsl(var(--background));
   box-shadow: inset 0 -1px 0 0 hsl(var(--foreground) / 0.07);
 }
 
 /* AlertsMenu (classic) as one of the bar's round icon buttons. */
-:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"] {
+:root[data-panel-family="art"] [data-shell="header-alerts"] [data-slot="button"] {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 9999px;
   color: hsl(var(--muted-foreground));
 }
 
-:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"]:hover,
-:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"][data-state="open"] {
+:root[data-panel-family="art"] [data-shell="header-alerts"] [data-slot="button"]:hover,
+:root[data-panel-family="art"] [data-shell="header-alerts"] [data-slot="button"][data-state="open"] {
   background-color: hsl(var(--muted));
   color: hsl(var(--foreground));
 }
 
-:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"] > svg {
+:root[data-panel-family="art"] [data-shell="header-alerts"] [data-slot="button"] > svg {
   width: 1.25rem;
   height: 1.25rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="header-alerts"] [data-slot="button"] > span {
+:root[data-panel-family="art"] [data-shell="header-alerts"] [data-slot="button"] > span {
   inset-block-start: 0.3125rem;
   inset-inline-end: 0.3125rem;
   box-shadow: 0 0 0 2px hsl(var(--background));
@@ -331,34 +333,34 @@
 
 /* UserMenu (classic): only the avatar in the bar; its panel as an Art menu.
    Keyed to its markup: button > [avatar wrapper, name block, chevron]. */
-:root[data-panel-theme="art"] [data-shell="account"] > div > button {
+:root[data-panel-family="art"] [data-shell="account"] > div > button {
   border-radius: 9999px;
   padding: 0.125rem;
   transition: background-color 0.15s ease;
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] > div > button:hover {
+:root[data-panel-family="art"] [data-shell="account"] > div > button:hover {
   background-color: hsl(var(--muted));
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] > div > button > div:first-child > :first-child {
+:root[data-panel-family="art"] [data-shell="account"] > div > button > div:first-child > :first-child {
   width: 2.25rem;
   height: 2.25rem;
   box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.08);
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] [data-slot="avatar-fallback"] {
+:root[data-panel-family="art"] [data-shell="account"] [data-slot="avatar-fallback"] {
   background-color: hsl(var(--primary) / 0.1);
   color: hsl(var(--primary));
   --tw-ring-color: hsl(var(--primary) / 0.18);
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] > div > button > div:nth-child(2),
-:root[data-panel-theme="art"] [data-shell="account"] > div > button > svg {
+:root[data-panel-family="art"] [data-shell="account"] > div > button > div:nth-child(2),
+:root[data-panel-family="art"] [data-shell="account"] > div > button > svg {
   display: none;
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] > div > div {
+:root[data-panel-family="art"] [data-shell="account"] > div > div {
   margin-top: 0.625rem;
   border-color: transparent;
   border-radius: 1rem;
@@ -366,42 +368,42 @@
   box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.07), 0 18px 40px -16px hsl(var(--art-shadow) / 0.28), 0 2px 6px -2px hsl(var(--art-shadow) / 0.08);
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] > div > div > a,
-:root[data-panel-theme="art"] [data-shell="account"] > div > div > button {
+:root[data-panel-family="art"] [data-shell="account"] > div > div > a,
+:root[data-panel-family="art"] [data-shell="account"] > div > div > button {
   min-height: 2.5rem;
   border-radius: 0.625rem;
   padding-block: 0.5rem;
   padding-inline: 0.75rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] > div > div > a:hover,
-:root[data-panel-theme="art"] [data-shell="account"] > div > div > button:hover {
+:root[data-panel-family="art"] [data-shell="account"] > div > div > a:hover,
+:root[data-panel-family="art"] [data-shell="account"] > div > div > button:hover {
   background-color: hsl(var(--muted));
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] > div > div > a > svg,
-:root[data-panel-theme="art"] [data-shell="account"] > div > div > button > svg {
+:root[data-panel-family="art"] [data-shell="account"] > div > div > a > svg,
+:root[data-panel-family="art"] [data-shell="account"] > div > div > button > svg {
   width: 1.125rem;
   height: 1.125rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] > div > div > div.border-t,
-:root[data-panel-theme="art"] [data-shell="account"] > div > div > div.border-b {
+:root[data-panel-family="art"] [data-shell="account"] > div > div > div.border-t,
+:root[data-panel-family="art"] [data-shell="account"] > div > div > div.border-b {
   border-color: hsl(var(--foreground) / 0.07);
 }
 
-:root[data-panel-theme="art"] [data-shell="account"] > div > div > div.border-b {
+:root[data-panel-family="art"] [data-shell="account"] > div > div > div.border-b {
   margin-bottom: 0.25rem;
   padding-inline: 0.75rem;
 }
 
 /* PlanStatusBanner (classic) as one slim, centred line under the bar.
    Keyed to its markup: box > row > [icon, text block > title, text, link]. */
-:root[data-panel-theme="art"] [data-shell="plan-strip"]:empty {
+:root[data-panel-family="art"] [data-shell="plan-strip"]:empty {
   display: none;
 }
 
-:root[data-panel-theme="art"] [data-shell="plan-strip"] > div {
+:root[data-panel-family="art"] [data-shell="plan-strip"] > div {
   margin: 0;
   border-width: 0;
   border-radius: 0;
@@ -411,17 +413,17 @@
   box-shadow: inset 0 -1px 0 0 hsl(var(--primary) / 0.12);
 }
 
-:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div {
+:root[data-panel-family="art"] [data-shell="plan-strip"] > div > div {
   align-items: center;
   justify-content: center;
 }
 
-:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > svg {
+:root[data-panel-family="art"] [data-shell="plan-strip"] > div > div > svg {
   margin-top: 0;
   color: hsl(var(--primary));
 }
 
-:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div {
+:root[data-panel-family="art"] [data-shell="plan-strip"] > div > div > div {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -429,28 +431,28 @@
   row-gap: 0.125rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > * {
+:root[data-panel-family="art"] [data-shell="plan-strip"] > div > div > div > * {
   margin-top: 0;
   font-size: 0.8125rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > p:first-child {
+:root[data-panel-family="art"] [data-shell="plan-strip"] > div > div > div > p:first-child {
   color: hsl(var(--foreground));
 }
 
-:root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > a {
+:root[data-panel-family="art"] [data-shell="plan-strip"] > div > div > div > a {
   color: hsl(var(--primary));
   font-weight: 600;
 }
 
 /* "Upgrade ↗" points outwards in RTL too. */
-:root[data-panel-theme="art"] [dir="rtl"] [data-shell="plan-strip"] a > svg {
+:root[data-panel-family="art"] [dir="rtl"] [data-shell="plan-strip"] a > svg {
   transform: scaleX(-1);
 }
 
 /* On a phone: the title and the way to upgrade, on one line. */
 @media (max-width: 767px) {
-  :root[data-panel-theme="art"] [data-shell="plan-strip"] > div > div > div > p:nth-child(2) {
+  :root[data-panel-family="art"] [data-shell="plan-strip"] > div > div > div > p:nth-child(2) {
     display: none;
   }
 }
@@ -458,27 +460,27 @@
 /* Strips that scroll sideways when they do not fit (the context bar's views,
    a page's row of pills or tabs): the edge that hides more fades out
    (strips.ts sets `data-art-fade`). */
-:root[data-panel-theme="art"] [data-art-fade="start"] {
+:root[data-panel-family="art"] [data-art-fade="start"] {
   -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem);
   mask-image: linear-gradient(to right, transparent, #000 1.5rem);
 }
 
-:root[data-panel-theme="art"] [data-art-fade="end"] {
+:root[data-panel-family="art"] [data-art-fade="end"] {
   -webkit-mask-image: linear-gradient(to left, transparent, #000 1.5rem);
   mask-image: linear-gradient(to left, transparent, #000 1.5rem);
 }
 
-:root[data-panel-theme="art"] [dir="rtl"] [data-art-fade="start"] {
+:root[data-panel-family="art"] [dir="rtl"] [data-art-fade="start"] {
   -webkit-mask-image: linear-gradient(to left, transparent, #000 1.5rem);
   mask-image: linear-gradient(to left, transparent, #000 1.5rem);
 }
 
-:root[data-panel-theme="art"] [dir="rtl"] [data-art-fade="end"] {
+:root[data-panel-family="art"] [dir="rtl"] [data-art-fade="end"] {
   -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem);
   mask-image: linear-gradient(to right, transparent, #000 1.5rem);
 }
 
-:root[data-panel-theme="art"] [data-art-fade="both"] {
+:root[data-panel-family="art"] [data-art-fade="both"] {
   -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
   mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
 }
@@ -490,8 +492,8 @@
    over the list's padding to its very edge (a sticky box otherwise stops
    inside it), take no room (the negative margin, its flex gap included) and
    let clicks through. */
-:root[data-panel-theme="art"] :is([data-art-fade-y="start"], [data-art-fade-y="both"])::before,
-:root[data-panel-theme="art"] :is([data-art-fade-y="end"], [data-art-fade-y="both"])::after {
+:root[data-panel-family="art"] :is([data-art-fade-y="start"], [data-art-fade-y="both"])::before,
+:root[data-panel-family="art"] :is([data-art-fade-y="end"], [data-art-fade-y="both"])::after {
   --art-veil-color: var(--art-veil-paper, hsl(var(--card)));
   content: "";
   position: sticky;
@@ -502,20 +504,20 @@
   pointer-events: none;
 }
 
-:root[data-panel-theme="art"] :is([data-art-fade-y="start"], [data-art-fade-y="both"])::before {
+:root[data-panel-family="art"] :is([data-art-fade-y="start"], [data-art-fade-y="both"])::before {
   top: calc(-1 * var(--art-veil-start, 0px));
   margin-bottom: calc(-2.75rem - var(--art-veil-gap, 0px));
   background-image: linear-gradient(to top, transparent, var(--art-veil-color) 85%);
 }
 
-:root[data-panel-theme="art"] :is([data-art-fade-y="end"], [data-art-fade-y="both"])::after {
+:root[data-panel-family="art"] :is([data-art-fade-y="end"], [data-art-fade-y="both"])::after {
   bottom: calc(-1 * var(--art-veil-end, 0px));
   margin-top: calc(-2.75rem - var(--art-veil-gap, 0px));
   background-image: linear-gradient(to bottom, transparent, var(--art-veil-color) 85%);
 }
 
 /* The alerts sheet's own close (AlertsMenu): a round icon button. */
-:root[data-panel-theme="art"] [data-shell="alerts-close"] {
+:root[data-panel-family="art"] [data-shell="alerts-close"] {
   width: 2.25rem;
   height: 2.25rem;
   border-color: transparent;
@@ -524,7 +526,7 @@
   box-shadow: none;
 }
 
-:root[data-panel-theme="art"] [data-shell="alerts-close"]:hover {
+:root[data-panel-family="art"] [data-shell="alerts-close"]:hover {
   border-color: transparent;
   background-color: hsl(var(--muted));
 }
@@ -532,18 +534,18 @@
 /* Its heading's bell and the all-clear mark: circles, as Art's icon buttons
    and empty states are; the all-clear a calm stone circle with a halo, the
    green kept to the check itself. */
-:root[data-panel-theme="art"] [data-shell="alerts-sheet"] [data-alerts="icon"] {
+:root[data-panel-family="art"] [data-shell="alerts-sheet"] [data-alerts="icon"] {
   border-color: var(--art-ui-field-edge, transparent);
   border-radius: 9999px;
   background-color: var(--art-ui-field, hsl(var(--muted)));
 }
 
-:root[data-panel-theme="art"] [data-shell="alerts-sheet"] [data-alerts="icon"][data-critical] {
+:root[data-panel-family="art"] [data-shell="alerts-sheet"] [data-alerts="icon"][data-critical] {
   border-color: transparent;
   background-color: hsl(var(--destructive) / 0.1);
 }
 
-:root[data-panel-theme="art"] [data-shell="alerts-sheet"] [data-alerts="clear"] {
+:root[data-panel-family="art"] [data-shell="alerts-sheet"] [data-alerts="clear"] {
   width: 3.5rem;
   height: 3.5rem;
   margin-bottom: 0.5rem;
@@ -555,7 +557,7 @@
   color: hsl(var(--success));
 }
 
-:root[data-panel-theme="art"] [data-shell="alerts-sheet"] [data-alerts="clear"] > svg {
+:root[data-panel-family="art"] [data-shell="alerts-sheet"] [data-alerts="clear"] > svg {
   width: 1.5rem;
   height: 1.5rem;
 }
@@ -564,11 +566,11 @@
    under the page: slim strips in the plan strip's clay, with a pill. The
    phone's is left out while the page itself asks for the same thing
    (PhoneVerificationGate, with its own form): one call to action at a time. */
-:root[data-panel-theme="art"] [data-shell="app"]:has([data-shell="main"] [data-gate="owner"]) [data-shell="notice"][data-notice="phone"] {
+:root[data-panel-family="art"] [data-shell="app"]:has([data-shell="main"] [data-gate="owner"]) [data-shell="notice"][data-notice="phone"] {
   display: none;
 }
 
-:root[data-panel-theme="art"] [data-shell="notice"] {
+:root[data-panel-family="art"] [data-shell="notice"] {
   border-top-width: 0;
   padding-block: 0.4375rem;
   padding-inline: 1rem;
@@ -578,30 +580,30 @@
   backdrop-filter: none;
 }
 
-:root[data-panel-theme="art"] [data-shell="notice"] > div {
+:root[data-panel-family="art"] [data-shell="notice"] > div {
   flex-wrap: nowrap;
   justify-content: center;
   column-gap: 0.625rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-icon] {
+:root[data-panel-family="art"] [data-shell="notice"] [data-notice-icon] {
   width: auto;
   height: auto;
   background-color: transparent;
   color: hsl(var(--primary));
 }
 
-:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-icon] > svg {
+:root[data-panel-family="art"] [data-shell="notice"] [data-notice-icon] > svg {
   width: 0.875rem;
   height: 0.875rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-text] {
+:root[data-panel-family="art"] [data-shell="notice"] [data-notice-text] {
   flex: 0 1 auto;
   font-size: 0.8125rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-action] {
+:root[data-panel-family="art"] [data-shell="notice"] [data-notice-action] {
   height: 2rem;
   padding-block: 0;
   padding-inline: 0.875rem;
@@ -613,27 +615,27 @@
   font-weight: 600;
 }
 
-:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-action]:hover:not(:disabled) {
+:root[data-panel-family="art"] [data-shell="notice"] [data-notice-action]:hover:not(:disabled) {
   background-color: hsl(var(--primary) / 0.9);
 }
 
-:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-action]:focus-visible {
+:root[data-panel-family="art"] [data-shell="notice"] [data-notice-action]:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.6);
 }
 
-:root[data-panel-theme="art"] [data-shell="notice"] [data-notice-dismiss] {
+:root[data-panel-family="art"] [data-shell="notice"] [data-notice-dismiss] {
   border-radius: 9999px;
   padding: 0.375rem;
 }
 
 /* On a phone: the sentence (up to two lines) and the pill, on one row. */
 @media (max-width: 767px) {
-  :root[data-panel-theme="art"] [data-shell="notice"] > div {
+  :root[data-panel-family="art"] [data-shell="notice"] > div {
     justify-content: space-between;
   }
 
-  :root[data-panel-theme="art"] [data-shell="notice"] [data-notice-text] {
+  :root[data-panel-family="art"] [data-shell="notice"] [data-notice-text] {
     flex: 1 1 auto;
     display: -webkit-box;
     overflow: hidden;
@@ -642,7 +644,7 @@
     font-size: 0.75rem;
   }
 
-  :root[data-panel-theme="art"] [data-shell="notice"] [data-notice-detail] {
+  :root[data-panel-family="art"] [data-shell="notice"] [data-notice-detail] {
     display: none;
   }
 }
@@ -650,31 +652,31 @@
 /* ── 4. Phones ─────────────────────────────────────────────────────────── */
 
 /* MobileBottomNav (classic): the current tab sits on a clay pill. */
-:root[data-panel-theme="art"] [data-shell="bottom-nav"] {
+:root[data-panel-family="art"] [data-shell="bottom-nav"] {
   background-color: hsl(var(--background) / 0.94);
   border-top-color: hsl(var(--foreground) / 0.07);
 }
 
-:root[data-panel-theme="art"] [data-shell="bottom-nav"] > a > span:first-child,
-:root[data-panel-theme="art"] [data-shell="bottom-nav"] > button > span:first-child {
+:root[data-panel-family="art"] [data-shell="bottom-nav"] > a > span:first-child,
+:root[data-panel-family="art"] [data-shell="bottom-nav"] > button > span:first-child {
   width: 3.5rem;
   height: 2rem;
   border-radius: 9999px;
   transition: background-color 0.15s ease;
 }
 
-:root[data-panel-theme="art"] [data-shell="bottom-nav"] > a > span:last-child,
-:root[data-panel-theme="art"] [data-shell="bottom-nav"] > button > span:last-child {
+:root[data-panel-family="art"] [data-shell="bottom-nav"] > a > span:last-child,
+:root[data-panel-family="art"] [data-shell="bottom-nav"] > button > span:last-child {
   font-size: 0.6875rem;
 }
 
-:root[data-panel-theme="art"] [data-shell="bottom-nav"] [data-active="true"] > span:first-child {
+:root[data-panel-family="art"] [data-shell="bottom-nav"] [data-active="true"] > span:first-child {
   background-color: hsl(var(--primary) / 0.12);
 }
 
 /* The needs-human count: the same clay circle as on the header's Inbox pill
    and the context bar, not a red alarm. */
-:root[data-panel-theme="art"] [data-shell="bottom-nav"] [data-nav-count] {
+:root[data-panel-family="art"] [data-shell="bottom-nav"] [data-nav-count] {
   top: -0.3125rem;
   inset-inline-end: 0.375rem;
   height: 1.125rem;
@@ -691,11 +693,11 @@
 /* While a conversation is open on a phone, it gets the room: the inbox's
    tabs and views come back with the list (InboxPage marks the open thread). */
 @media (max-width: 767px) {
-  :root[data-panel-theme="art"] [data-shell="app"]:has([data-inbox-thread-open="true"]) [data-shell="context-bar"] {
+  :root[data-panel-family="art"] [data-shell="app"]:has([data-inbox-thread-open="true"]) [data-shell="context-bar"] {
     display: none;
   }
 }
 
-:root[data-panel-theme="art"] [data-shell="drawer"] {
+:root[data-panel-family="art"] [data-shell="drawer"] {
   background-color: hsl(var(--background));
 }

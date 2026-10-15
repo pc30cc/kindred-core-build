@@ -16,19 +16,20 @@ const ART_STAGE: Record<'light' | 'dark', PreviewStage> = {
   dark: { background: '#171A21', bar: '#252932' },
 };
 
-// Read from <html> (AppLayout sets `data-panel-theme`, the colour mode sets
+// Read from <html> (AppLayout sets `data-panel-family` for Art and the themes
+// built on it, the colour mode sets
 // `.dark`), so the preview follows a switch of either without any provider.
 function snapshot(): 'none' | 'light' | 'dark' {
   if (typeof document === 'undefined') return 'none';
   const root = document.documentElement;
-  if (root.getAttribute('data-panel-theme') !== 'art') return 'none';
+  if (root.getAttribute('data-panel-family') !== 'art') return 'none';
   return root.classList.contains('dark') ? 'dark' : 'light';
 }
 
 function subscribe(onChange: () => void) {
   if (typeof MutationObserver === 'undefined') return () => {};
   const observer = new MutationObserver(onChange);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-panel-theme'] });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-panel-family'] });
   return () => observer.disconnect();
 }
 

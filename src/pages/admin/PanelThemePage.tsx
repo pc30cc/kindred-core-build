@@ -6,8 +6,9 @@
  * No theme is removed: Classic is the panel's own design and stays one click
  * away. A theme may have options, chosen here for everyone too
  * (workspace_panel_theme_options): Art's layout (top menu or side menu) and
- * colour scheme, Vivid's colour scheme. "Preview in my panel" wears a theme, with the options picked
- * on its card, in this tab only (src/themes/usePanelTheme.ts) before
+ * colour scheme, and the same for Vivid (Art with the receipt's accent).
+ * "Preview in my panel" wears a theme, with the options picked on its card,
+ * in this tab only (src/themes/usePanelTheme.ts) before
  * activating it for everyone. Themes come from src/themes/registry.ts; a new
  * one appears here by itself.
  */
@@ -31,6 +32,7 @@ import {
   previewSwatches,
   type ArtPreviewOptions,
   type PanelThemeInfo,
+  type PanelThemeSwatches,
   type VividPreviewOptions,
 } from '@/themes/registry';
 import { ArtLayoutSketch, ThemePreview } from '@/themes/ThemePreview';
@@ -139,11 +141,11 @@ export default function PanelThemePage() {
     palette: next.palette === artShown.palette ? art.palette : next.palette,
   });
 
-  // Vivid's colour scheme as stored, and the Super Admin's unsaved choice.
+  // Vivid's layout and colour scheme as stored, and the Super Admin's unsaved choice.
   const storedVivid: VividPreviewOptions = resolvePanelThemeOptions('vivid', storedOptions);
   const [vividDraft, setVividDraft] = useState<VividPreviewOptions | null>(null);
   const vivid = vividDraft ?? storedVivid;
-  const vividDirty = vivid.palette !== storedVivid.palette;
+  const vividDirty = vivid.palette !== storedVivid.palette || vivid.layout !== storedVivid.layout;
 
   const refresh = () =>
     Promise.all([
@@ -310,7 +312,10 @@ export default function PanelThemePage() {
                   saveable={optionsSaveable}
                   dirty={vividDirty}
                   busy={activate.isPending}
-                  onChange={(next) => setVividDraft(next.palette === storedVivid.palette ? null : next)}
+                  theme={theme}
+                  onChange={(next) =>
+                    setVividDraft(next.palette === storedVivid.palette && next.layout === storedVivid.layout ? null : next)
+                  }
                   onReset={() => setVividDraft(null)}
                 />
               )}
@@ -517,52 +522,13 @@ function ArtOptions({
       </div>
 
       <div className="mt-3 space-y-4">
-        <div className="space-y-2">
-          <div id="art-layout-label" className="text-xs font-medium text-muted-foreground">
-            {tk('admin.panelThemes.options.layout')}
-          </div>
-          <RadioGroupPrimitive.Root
-            aria-labelledby="art-layout-label"
-            value={value.layout}
-            onValueChange={(layout) => onChange({ ...value, layout: layout as ArtLayout })}
-            className="grid grid-cols-2 gap-3"
-          >
-            {ART_LAYOUTS.map((layout) => {
-              const selected = value.layout === layout;
-              return (
-                <RadioGroupPrimitive.Item
-                  key={layout}
-                  value={layout}
-                  data-art-layout={layout}
-                  className={cn(
-                    'group relative flex flex-col gap-2 rounded-xl border bg-background p-2.5 text-start transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                    selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-foreground/25',
-                  )}
-                >
-                  <ArtLayoutSketch layout={layout} swatches={swatches} />
-                  <span className="flex items-start gap-2 px-0.5">
-                    <span
-                      aria-hidden
-                      className={cn(
-                        'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors',
-                        selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40',
-                      )}
-                    >
-                      {selected && <Check className="h-3 w-3" strokeWidth={3} />}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium leading-5">{tk(`admin.panelThemes.layouts.${layout}.name`)}</span>
-                      <span className="mt-0.5 hidden text-xs leading-snug text-muted-foreground sm:block">
-                        {tk(`admin.panelThemes.layouts.${layout}.description`)}
-                      </span>
-                    </span>
-                  </span>
-                </RadioGroupPrimitive.Item>
-              );
-            })}
-          </RadioGroupPrimitive.Root>
-        </div>
+        <LayoutPicker
+          id="art-layout-label"
+          value={value.layout}
+          swatches={swatches}
+          attribute="data-art-layout"
+          onChange={(layout) => onChange({ ...value, layout })}
+        />
 
         <div className="space-y-2">
           <div id="art-palette-label" className="text-xs font-medium text-muted-foreground">
@@ -599,12 +565,84 @@ function ArtOptions({
 }
 
 /**
- * Vivid's options on its card: the colour scheme, as named swatches (a radio
- * group, like Art's).
+ * A layout choice of an Art-drawn theme (Art, Vivid): the top menu or the
+ * side menu, as two sketches in the theme's colours (a radio group; arrow
+ * keys move the choice in the page's direction).
+ */
+function LayoutPicker({
+  id,
+  value,
+  swatches,
+  attribute,
+  onChange,
+}: {
+  id: string;
+  value: ArtLayout;
+  swatches: PanelThemeSwatches;
+  /** The data attribute naming each choice (`data-art-layout`, ...). */
+  attribute: `data-${string}`;
+  onChange: (layout: ArtLayout) => void;
+}) {
+  const { t } = useTranslation();
+  const tk = (key: string) => t(key as TranslationKey);
+  return (
+    <div className="space-y-2">
+      <div id={id} className="text-xs font-medium text-muted-foreground">
+        {tk('admin.panelThemes.options.layout')}
+      </div>
+      <RadioGroupPrimitive.Root
+        aria-labelledby={id}
+        value={value}
+        onValueChange={(layout) => onChange(layout as ArtLayout)}
+        className="grid grid-cols-2 gap-3"
+      >
+        {ART_LAYOUTS.map((layout) => {
+          const selected = value === layout;
+          return (
+            <RadioGroupPrimitive.Item
+              key={layout}
+              value={layout}
+              {...{ [attribute]: layout }}
+              className={cn(
+                'group relative flex flex-col gap-2 rounded-xl border bg-background p-2.5 text-start transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-foreground/25',
+              )}
+            >
+              <ArtLayoutSketch layout={layout} swatches={swatches} />
+              <span className="flex items-start gap-2 px-0.5">
+                <span
+                  aria-hidden
+                  className={cn(
+                    'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors',
+                    selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40',
+                  )}
+                >
+                  {selected && <Check className="h-3 w-3" strokeWidth={3} />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium leading-5">{tk(`admin.panelThemes.layouts.${layout}.name`)}</span>
+                  <span className="mt-0.5 hidden text-xs leading-snug text-muted-foreground sm:block">
+                    {tk(`admin.panelThemes.layouts.${layout}.description`)}
+                  </span>
+                </span>
+              </span>
+            </RadioGroupPrimitive.Item>
+          );
+        })}
+      </RadioGroupPrimitive.Root>
+    </div>
+  );
+}
+
+/**
+ * Vivid's options on its card, like Art's: the layout (Art's two frames) and
+ * the colour scheme, as named swatches.
  */
 function VividOptions({
   value,
   mode,
+  theme,
   saveable,
   dirty,
   busy,
@@ -613,6 +651,7 @@ function VividOptions({
 }: {
   value: VividPreviewOptions;
   mode: Mode;
+  theme: PanelThemeInfo;
   saveable: boolean;
   /** Differs from what is stored. */
   dirty: boolean;
@@ -655,14 +694,22 @@ function VividOptions({
         )}
       </div>
 
-      <div className="mt-3 space-y-2">
+      <LayoutPicker
+        id="vivid-layout-label"
+        value={value.layout}
+        swatches={previewSwatches(theme, mode, value.palette)}
+        attribute="data-vivid-layout"
+        onChange={(layout) => onChange({ ...value, layout })}
+      />
+
+      <div className="mt-4 space-y-2">
         <div id="vivid-palette-label" className="text-xs font-medium text-muted-foreground">
           {tk('admin.panelThemes.vividOptions.palette')}
         </div>
         <RadioGroupPrimitive.Root
           aria-labelledby="vivid-palette-label"
           value={value.palette}
-          onValueChange={(palette) => onChange({ palette: palette as VividPalette })}
+          onValueChange={(palette) => onChange({ ...value, palette: palette as VividPalette })}
           className="grid grid-cols-5 gap-1.5"
         >
           {VIVID_PALETTES.map((palette) => {
@@ -671,8 +718,13 @@ function VividOptions({
               <PaletteChip
                 key={palette}
                 value={palette}
-                // The ring shows the strip's two stops and two chart series.
-                swatch={{ ...swatch, series: [swatch.strip[0], swatch.strip[1], swatch.series[2], swatch.series[3]] }}
+                // One accent on Art's paper, ringed by the accent alone.
+                swatch={{
+                  primary: swatch.primary,
+                  primaryInk: swatch.primaryInk,
+                  canvas: ART_PALETTE_SWATCHES.clay[mode].canvas,
+                  series: [swatch.strip[0], swatch.strip[1], swatch.strip[0], swatch.strip[1]],
+                }}
                 attributes={{ 'data-vivid-palette': palette }}
                 selected={value.palette === palette}
                 label={tk(`admin.panelThemes.vividPalettes.${palette}`)}

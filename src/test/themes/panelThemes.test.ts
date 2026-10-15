@@ -138,7 +138,13 @@ describe('the Art stylesheets', () => {
   const strip = (path: string) => read(path).replace(/\/\*[\s\S]*?\*\//g, '');
   const css = strip('src/themes/art/theme.css');
 
-  it.each(FILES)('%s applies only under <html data-panel-theme="art">', (path) => {
+  // Art's shared stylesheets apply to the Art family (Art, and Vivid drawn
+  // by it); Art's own colour schemes to Art alone. Both selectors have the
+  // same specificity, so Art wears exactly what it wore before the family.
+  const ownScope = (path: string) =>
+    path.endsWith('/palettes.css') ? ':root[data-panel-theme="art"]' : ':root[data-panel-family="art"]';
+
+  it.each(FILES)('%s applies only under <html data-panel-family="art"> (palettes: data-panel-theme="art")', (path) => {
     const selectors: string[] = [];
     // Every rule's selector list, inside or outside @media; @keyframes steps are not selectors.
     const source = strip(path).replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
@@ -148,7 +154,14 @@ describe('the Art stylesheets', () => {
     }
     expect(selectors.length).toBeGreaterThan(5);
     for (const selector of selectors) {
-      expect(selector.startsWith(':root[data-panel-theme="art"]'), selector).toBe(true);
+      expect(selector.startsWith(ownScope(path)), selector).toBe(true);
+    }
+  });
+
+  it('keys no shared rule to Art alone, and no colour scheme to the family', () => {
+    for (const path of FILES) {
+      const other = path.endsWith('/palettes.css') ? 'data-panel-family' : 'data-panel-theme';
+      expect(strip(path), path).not.toContain(other);
     }
   });
 
@@ -156,7 +169,7 @@ describe('the Art stylesheets', () => {
     for (const token of ['--background', '--primary', '--sidebar-background', '--card', '--border', '--ring']) {
       expect(css.match(new RegExp(`\\s${token}:`, 'g'))?.length ?? 0).toBeGreaterThanOrEqual(2);
     }
-    expect(css).toContain(':root[data-panel-theme="art"].dark {');
+    expect(css).toContain(':root[data-panel-family="art"].dark {');
   });
 
   it('is loaded by the app', () => {
@@ -169,46 +182,58 @@ describe('the Vivid stylesheets', () => {
   const FILES = ['src/themes/vivid/theme.css', 'src/themes/vivid/palettes.css'];
   const strip = (path: string) => read(path).replace(/\/\*[\s\S]*?\*\//g, '');
   const css = strip('src/themes/vivid/theme.css');
+  const selectorsOf = (path: string) => {
+    const selectors: string[] = [];
+    const rule = /([^{}@;]+)\{[^{}]*\}/g;
+    const source = strip(path);
+    for (let m = rule.exec(source); m; m = rule.exec(source)) selectors.push(...splitSelectors(m[1]));
+    return selectors;
+  };
 
   it.each(FILES)('%s applies only under <html data-panel-theme="vivid">', (path) => {
-    const selectors: string[] = [];
-    const source = strip(path).replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
-    const rule = /([^{}@;]+)\{[^{}]*\}/g;
-    for (let m = rule.exec(source); m; m = rule.exec(source)) selectors.push(...splitSelectors(m[1]));
+    const selectors = selectorsOf(path);
     expect(selectors.length).toBeGreaterThan(5);
     for (const selector of selectors) {
       expect(selector.startsWith(':root[data-panel-theme="vivid"]'), selector).toBe(true);
     }
   });
 
-  it('defines the panel tokens for light and dark', () => {
-    for (const token of ['--background', '--primary', '--sidebar-background', '--card', '--border', '--ring', '--vivid-from', '--vivid-to', '--vivid-tint']) {
+  it('is a small layer over Art: it sets the accent, never Art’s paper, ink or frame', () => {
+    // Art's stylesheets do the drawing; Vivid's file is a thin layer.
+    expect(selectorsOf('src/themes/vivid/theme.css').length).toBeLessThan(40);
+    for (const token of ['--background', '--foreground', '--card', '--muted', '--muted-foreground', '--border', '--sidebar-background', '--art-side']) {
+      expect(css, token).not.toMatch(new RegExp(`\\s${token}:`));
+    }
+    for (const token of ['--primary', '--ring', '--vivid-from', '--vivid-to', '--vivid-tint', '--art-chart-1']) {
       expect(css.match(new RegExp(`\\s${token}:`, 'g'))?.length ?? 0, token).toBeGreaterThanOrEqual(2);
     }
     expect(css).toContain(':root[data-panel-theme="vivid"].dark {');
   });
 
-  it('places the sidebar’s current-item bar with logical insets (right to left in Persian)', () => {
-    expect(css).toMatch(/\.nav-glow::after \{[^}]*inset-inline-start: 0;/);
+  it('draws the strip and the panel with logical directions (right to left in Persian)', () => {
+    expect(css).toMatch(/\[dir="rtl"\] \{\s*--vivid-strip: linear-gradient\(270deg/);
     expect(css).not.toMatch(/(?:^|[\s;{])(?:left|right):/);
     expect(css).not.toMatch(/(?:margin|padding|border)-(?:left|right)/);
   });
 
-  it('is brand-neutral: no product name or brand colour literal in the theme', () => {
+  it('is brand-neutral: no product name in the theme', () => {
     for (const path of [...FILES, 'src/themes/vivid/palettes.ts']) {
       expect(read(path)).not.toMatch(/webyar|respok|وب‌?یار|رسپاک/i);
     }
   });
 
-  it('is loaded by the app', () => {
+  it('is loaded by the app after Art’s stylesheets', () => {
     const main = read('src/main.tsx');
     for (const path of FILES) expect(main).toContain(`import "./${path.replace('src/', '')}";`);
+    expect(main.indexOf('./themes/vivid/theme.css')).toBeGreaterThan(main.indexOf('./themes/art/charts.css'));
   });
 
-  it('names the sidebar’s groups only for Vivid, so the classic sidebar is unchanged', () => {
+  it('wears Art’s frame and Art’s Tailwind pigments', () => {
     const layout = read('src/components/layout/AppLayout.tsx');
-    expect(layout.match(/sectionLabels=\{panelTheme\.theme === 'vivid'\}/g)).toHaveLength(2);
-    expect(read('src/components/layout/AppSidebar.tsx')).toMatch(/sectionLabels = false,/);
+    expect(layout.match(/isArtFamilySelection\(panelTheme\)/g)).toHaveLength(2);
+    expect(read('src/components/layout/AppSidebar.tsx')).not.toMatch(/sectionLabels/);
+    expect(paletteVariables(artPalette)).toEqual(paletteVariables(artPalette));
+    expect(read('src/themes/palette.ts')).toMatch(/vivid: artPalette,/);
   });
 });
 

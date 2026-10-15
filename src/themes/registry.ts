@@ -41,10 +41,8 @@ export interface PanelThemeSwatches {
   accents: [string, string, string, string];
   /** The brand mark. */
   mark: string;
-  /** A strip across the top of every card (Vivid), if the theme draws one. */
+  /** A strip across the top of the main cards (Vivid), if the theme draws one. */
   strip?: string;
-  /** The tint of the hero and figure panels (Vivid), if the theme has one. */
-  tint?: string;
 }
 
 export interface PanelThemeInfo {
@@ -55,41 +53,55 @@ export interface PanelThemeInfo {
   dark: PanelThemeSwatches;
 }
 
-/** Vivid's preview colours under one of its schemes (vivid/palettes.ts, theme.css). */
+const ART: PanelThemeInfo = {
+  id: 'art',
+  layout: 'topnav',
+  light: {
+    canvas: 'hsl(37 42% 95.4%)',
+    sidebar: 'hsl(37 42% 95.4%)',
+    surface: 'hsl(40 50% 97.5%)',
+    card: 'hsl(40 69% 99.1%)',
+    ink: 'hsl(221 26% 10.5%)',
+    muted: 'hsl(31 8% 38.3%)',
+    line: 'hsl(34 20% 87%)',
+    primary: 'hsl(17 57% 41%)',
+    primaryInk: 'hsl(40 50% 98.4%)',
+    accents: ['hsl(16 63% 46.5%)', 'hsl(175 100% 26.8%)', 'hsl(39 94% 40%)', 'hsl(338 49% 54.9%)'],
+    mark: 'linear-gradient(135deg, hsl(17 57% 46%), hsl(338 49% 55%))',
+  },
+  dark: {
+    canvas: 'hsl(221 29% 5.8%)',
+    sidebar: 'hsl(221 29% 5.8%)',
+    surface: 'hsl(221 23% 8%)',
+    card: 'hsl(221 19% 11.7%)',
+    ink: 'hsl(40 23% 92.8%)',
+    muted: 'hsl(37 7% 63.7%)',
+    line: 'hsl(221 13% 17.5%)',
+    primary: 'hsl(19 69% 60.9%)',
+    primaryInk: 'hsl(15 33% 8.9%)',
+    accents: ['hsl(16 69% 56.9%)', 'hsl(175 80% 35.2%)', 'hsl(38 69% 45.3%)', 'hsl(340 57% 63.2%)'],
+    mark: 'linear-gradient(135deg, hsl(19 69% 58%), hsl(340 57% 63%))',
+  },
+};
+
+/**
+ * Vivid's preview colours under one of its schemes (vivid/palettes.ts,
+ * theme.css): Art's clay paper and ink, with the scheme's one accent and the
+ * strip across the cards.
+ */
 function vividSwatches(mode: 'light' | 'dark', palette: VividPalette): PanelThemeSwatches {
+  const paper = ART_PALETTE_SWATCHES.clay[mode];
   const s = VIVID_PALETTE_SWATCHES[palette][mode];
-  const strip = `linear-gradient(90deg, ${s.strip[0]}, ${s.strip[1]})`;
-  return mode === 'light'
-    ? {
-        canvas: s.canvas,
-        sidebar: s.sidebar,
-        surface: s.canvas,
-        card: 'hsl(0 0% 100%)',
-        ink: 'hsl(222 30% 13%)',
-        muted: 'hsl(222 12% 40%)',
-        line: 'hsl(220 18% 90%)',
-        primary: s.primary,
-        primaryInk: s.primaryInk,
-        accents: s.series,
-        mark: `linear-gradient(135deg, ${s.strip[0]}, ${s.strip[1]})`,
-        strip,
-        tint: s.tint,
-      }
-    : {
-        canvas: s.canvas,
-        sidebar: s.sidebar,
-        surface: s.canvas,
-        card: 'hsl(225 15% 11.5%)',
-        ink: 'hsl(220 20% 95%)',
-        muted: 'hsl(220 12% 68%)',
-        line: 'hsl(225 13% 19%)',
-        primary: s.primary,
-        primaryInk: s.primaryInk,
-        accents: s.series,
-        mark: `linear-gradient(135deg, ${s.strip[0]}, ${s.strip[1]})`,
-        strip,
-        tint: s.tint,
-      };
+  return {
+    ...ART[mode],
+    surface: paper.canvas,
+    card: paper.surface,
+    primary: s.primary,
+    primaryInk: s.primaryInk,
+    accents: s.series,
+    mark: s.primary,
+    strip: `linear-gradient(90deg, ${s.strip[0]}, ${s.strip[1]})`,
+  };
 }
 
 const PANEL_THEMES: Record<PanelThemeId, PanelThemeInfo> = {
@@ -123,40 +135,11 @@ const PANEL_THEMES: Record<PanelThemeId, PanelThemeInfo> = {
       mark: 'linear-gradient(120deg, hsl(170 65% 56%), hsl(210 85% 62%) 45%, hsl(272 80% 68%))',
     },
   },
-  art: {
-    id: 'art',
-    layout: 'topnav',
-    light: {
-      canvas: 'hsl(37 42% 95.4%)',
-      sidebar: 'hsl(37 42% 95.4%)',
-      surface: 'hsl(40 50% 97.5%)',
-      card: 'hsl(40 69% 99.1%)',
-      ink: 'hsl(221 26% 10.5%)',
-      muted: 'hsl(31 8% 38.3%)',
-      line: 'hsl(34 20% 87%)',
-      primary: 'hsl(17 57% 41%)',
-      primaryInk: 'hsl(40 50% 98.4%)',
-      accents: ['hsl(16 63% 46.5%)', 'hsl(175 100% 26.8%)', 'hsl(39 94% 40%)', 'hsl(338 49% 54.9%)'],
-      mark: 'linear-gradient(135deg, hsl(17 57% 46%), hsl(338 49% 55%))',
-    },
-    dark: {
-      canvas: 'hsl(221 29% 5.8%)',
-      sidebar: 'hsl(221 29% 5.8%)',
-      surface: 'hsl(221 23% 8%)',
-      card: 'hsl(221 19% 11.7%)',
-      ink: 'hsl(40 23% 92.8%)',
-      muted: 'hsl(37 7% 63.7%)',
-      line: 'hsl(221 13% 17.5%)',
-      primary: 'hsl(19 69% 60.9%)',
-      primaryInk: 'hsl(15 33% 8.9%)',
-      accents: ['hsl(16 69% 56.9%)', 'hsl(175 80% 35.2%)', 'hsl(38 69% 45.3%)', 'hsl(340 57% 63.2%)'],
-      mark: 'linear-gradient(135deg, hsl(19 69% 58%), hsl(340 57% 63%))',
-    },
-  },
+  art: ART,
   // Coral, its default scheme; previewSwatches lays the others over it.
   vivid: {
     id: 'vivid',
-    layout: 'sidebar',
+    layout: 'topnav',
     light: vividSwatches('light', 'coral'),
     dark: vividSwatches('dark', 'coral'),
   },
@@ -178,7 +161,10 @@ export function panelThemeLabel(t: (key: TranslationKey) => string, selection: P
     );
   }
   if (selection.theme === 'vivid') {
-    parts.push(t(`admin.panelThemes.vividPalettes.${selection.options.palette}` as TranslationKey));
+    parts.push(
+      t(`admin.panelThemes.layouts.${selection.options.layout}.name` as TranslationKey),
+      t(`admin.panelThemes.vividPalettes.${selection.options.palette}` as TranslationKey),
+    );
   }
   return parts.join(' · ');
 }
@@ -193,6 +179,7 @@ export interface ArtPreviewOptions {
 
 /** Vivid's options as the preview draws them (the Super Admin page's draft). */
 export interface VividPreviewOptions {
+  layout: ArtLayout;
   palette: VividPalette;
 }
 

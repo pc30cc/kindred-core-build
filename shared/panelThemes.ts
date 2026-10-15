@@ -56,7 +56,9 @@ export function artPaletteFor(palette: ArtPalette, international: boolean): ArtP
 
 /**
  * Vivid's colour schemes (src/themes/vivid/palettes.css); `coral`, the
- * colours of the billing receipt, is the default.
+ * colours of the billing receipt, is the default. Vivid is Art with the
+ * receipt's accent: Art's frame and both of its layouts, Art's stylesheets,
+ * and one accent colour per scheme laid over them.
  */
 export const VIVID_PALETTES = ['coral', 'ocean', 'violet', 'emerald', 'amber'] as const;
 export type VividPalette = (typeof VIVID_PALETTES)[number];
@@ -65,8 +67,25 @@ export type VividPalette = (typeof VIVID_PALETTES)[number];
 export const PANEL_THEME_OPTIONS = {
   classic: {},
   art: { layout: ART_LAYOUTS, palette: ART_PALETTES },
-  vivid: { palette: VIVID_PALETTES },
+  vivid: { layout: ART_LAYOUTS, palette: VIVID_PALETTES },
 } as const satisfies Record<PanelThemeId, Record<string, readonly string[]>>;
+
+/**
+ * The themes drawn in Art's frame (src/themes/art/shell) with Art's
+ * stylesheets: the panel carries <html data-panel-family="art"> for them, and
+ * each adds only its own layer (data-panel-theme="<id>").
+ */
+export const ART_FAMILY_THEMES = ['art', 'vivid'] as const satisfies readonly PanelThemeId[];
+export type ArtFamilyTheme = (typeof ART_FAMILY_THEMES)[number];
+
+export function isArtFamilyTheme(theme: PanelThemeId): theme is ArtFamilyTheme {
+  return (ART_FAMILY_THEMES as readonly string[]).includes(theme);
+}
+
+/** The family attribute of a theme (`art`), or null for one of its own (Classic). */
+export function panelThemeFamily(theme: PanelThemeId): 'art' | null {
+  return isArtFamilyTheme(theme) ? 'art' : null;
+}
 
 export type PanelThemeOptions<T extends PanelThemeId = PanelThemeId> = {
   -readonly [K in keyof (typeof PANEL_THEME_OPTIONS)[T]]: (typeof PANEL_THEME_OPTIONS)[T][K] extends readonly (infer V)[] ? V : never;
@@ -93,6 +112,13 @@ export function resolvePanelThemeOptions<T extends PanelThemeId>(theme: T, raw: 
  * options there are: `if (s.theme === 'art') s.options.layout`.
  */
 export type PanelThemeSelection = { [T in PanelThemeId]: { theme: T; options: PanelThemeOptions<T> } }[PanelThemeId];
+
+/** A selection drawn in Art's frame: its options carry Art's `layout`. */
+export function isArtFamilySelection(
+  selection: PanelThemeSelection,
+): selection is Extract<PanelThemeSelection, { theme: ArtFamilyTheme }> {
+  return isArtFamilyTheme(selection.theme);
+}
 
 /** `theme` with its options resolved from `raw` (the stored object for all themes). */
 export function resolvePanelThemeSelection(theme: PanelThemeId, raw: unknown): PanelThemeSelection {

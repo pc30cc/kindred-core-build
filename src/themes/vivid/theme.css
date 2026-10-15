@@ -1,159 +1,95 @@
 /*
- * Vivid — a workspace panel theme ("قالب") after the billing receipt: white
- * cards on a faintly tinted canvas, each main card topped by a thin
- * two-colour strip, figures in the scheme's colour on a soft tinted panel,
- * small coloured capitals over the sections, and outlined status pills.
- * Colourful, but clean: the classic panel's glows, blobs and meteors are not
- * drawn.
+ * Vivid — Art, with the billing receipt's warmth. A workspace panel theme
+ * ("قالب") drawn entirely by Art: Art's frame (src/themes/art/shell, both of
+ * its layouts) and Art's stylesheets, which apply under
+ * <html data-panel-family="art"> (src/themes/usePanelTheme.ts sets it for Art
+ * and Vivid). This file is only Vivid's small layer on top, under
+ * <html data-panel-theme="vivid">:
  *
- * Vivid keeps the classic frame (AppSidebar, AppTopBar): it is this
- * stylesheet, plus the sidebar's group labels (AppSidebar `sectionLabels`).
- * Everything here applies only under <html data-panel-theme="vivid">, which
- * the workspace panel sets while it is open (src/themes/usePanelTheme.ts),
- * so the classic theme, the Super Admin panel and the sign-in pages never
- * change.
+ *   1. One accent colour per scheme (coral, the receipt's, is the default;
+ *      the others: palettes.css) over Art's own paper and ink.
+ *   2. The receipt's few signature touches, and nothing more:
+ *      - a thin strip in the accent across the top of a page's main cards
+ *        (not on nested cards, not on small tiles);
+ *      - one soft-tinted panel per page for its key figure (the dashboard's
+ *        greeting, the billing balance), the figure in the accent;
+ *      - small capitals in the accent over the side menu's groups;
+ *      - outlined status pills;
+ *      - icon tiles in one soft tint of the accent instead of many hues.
  *
- * Tokens: the panel's colour variables (index.css). The values below are
- * the default scheme, coral; palettes.css repaints the scheme-specific ones
- * (the list is in that file's header) for the Super Admin's other schemes.
- * Rules use tokens only, never colour literals, so every scheme reaches them.
+ * Specificity: the tokens' selectors equal Art's (`:root[...]` and
+ * `:root[...].dark`) and this file loads after Art's, so Vivid's values win;
+ * a scheme's own block (palettes.css) outranks both.
  */
 
-/* ── 1. Tokens ─────────────────────────────────────────────────────────── */
+/* ── 1. Tokens: coral, the default scheme ──────────────────────────────── */
 
 :root[data-panel-theme="vivid"] {
-  /* The scheme (coral): repainted per scheme in palettes.css. */
   --primary: 4 70% 46%;
   --primary-foreground: 0 0% 100%;
-  --ring: 4 76% 54%;
-  --accent: 8 85% 96.5%;
-  --accent-foreground: 4 70% 36%;
-  --background: 20 45% 97.6%;
-  --sidebar-background: 10 60% 98.2%;
-  --vivid-from: 4 86% 60%;
-  --vivid-to: 26 95% 56%;
-  --vivid-tint: 8 85% 96.5%;
-  --vivid-chart-1: 4 70% 46%;
-  --vivid-chart-2: 26 90% 42%;
-  --vivid-chart-3: 199 80% 38%;
-  --vivid-chart-4: 262 50% 52%;
-
-  /* Neutrals, shared by every scheme. */
-  --foreground: 222 30% 13%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 30% 13%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 30% 13%;
-  --secondary: 220 20% 95.5%;
-  --secondary-foreground: 222 28% 16%;
-  --muted: 220 20% 95.5%;
-  --muted-foreground: 222 12% 40%;
-  --border: 220 18% 90%;
-  --input: 220 16% 85%;
-  --radius: 0.75rem;
-
-  --destructive: 354 72% 45%;
-  --destructive-foreground: 0 0% 100%;
-  --success: 152 70% 27%;
-  --success-foreground: 0 0% 100%;
-  --warning: 30 90% 33%;
-  --warning-foreground: 0 0% 100%;
-  --info: 210 80% 40%;
-  --info-foreground: 0 0% 100%;
-
-  --surface-elevated: 0 0% 100%;
-  --surface-sunken: 220 20% 96%;
-
-  /* Derived from the scheme: never repainted, they follow it. */
-  --gold: var(--primary);
-  --gold-foreground: var(--primary-foreground);
-  --sidebar-foreground: 222 26% 18%;
-  --sidebar-muted-foreground: 222 12% 40%;
-  --sidebar-primary: var(--primary);
-  --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: var(--vivid-tint);
-  --sidebar-accent-foreground: var(--accent-foreground);
-  --sidebar-border: 220 18% 91%;
-  --sidebar-ring: var(--ring);
-  --brand-teal: var(--vivid-from);
-  --brand-violet: var(--vivid-to);
-  --brand-sky: var(--vivid-chart-3);
-  --brand-coral: var(--vivid-chart-2);
-
-  /* The receipt's strip, and the tinted panel its figure sits on. */
-  --vivid-strip: linear-gradient(90deg, hsl(var(--vivid-from)), hsl(var(--vivid-to)));
-  --vivid-strip-size: 4px;
-  --vivid-panel: linear-gradient(135deg, hsl(var(--vivid-tint)), hsl(var(--vivid-tint) / 0.55));
-  --vivid-panel-line: hsl(var(--primary) / 0.16);
-  --gradient-primary: var(--vivid-strip);
-  --gradient-brand: var(--vivid-strip);
-  --gradient-gold: var(--vivid-strip);
-  --gradient-soft: var(--vivid-panel);
-  --gradient-sidebar: linear-gradient(180deg, hsl(var(--sidebar-background)), hsl(var(--sidebar-background)));
-  --gradient-surface: linear-gradient(180deg, hsl(var(--card)), hsl(var(--card)));
-  --gradient-card-hover: linear-gradient(180deg, hsl(var(--card)), hsl(var(--card)));
-
-  /* Shadows: soft and neutral, paper on a desk. */
-  --vivid-shadow: 222 30% 20%;
-  --shadow-card: 0 1px 2px hsl(var(--vivid-shadow) / 0.05), 0 8px 24px -18px hsl(var(--vivid-shadow) / 0.22);
-  --shadow-glow: 0 1px 2px hsl(var(--vivid-shadow) / 0.06), 0 14px 30px -18px hsl(var(--vivid-shadow) / 0.3);
-  --shadow-elevated: 0 18px 40px -18px hsl(var(--vivid-shadow) / 0.3);
-
-  color-scheme: light;
+  --gold: 4 70% 46%;
+  --gold-foreground: 0 0% 100%;
+  --ring: 4 62% 54%;
+  --accent: 8 70% 94%;
+  --accent-foreground: 4 70% 33%;
+  --sidebar-primary: 4 70% 46%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 4 62% 54%;
+  --vivid-from: 4 70% 46%;
+  --vivid-to: 16 82% 58%;
+  --vivid-tint: 10 75% 96%;
+  --art-chart-1: 4 58% 54%;
+  --art-chart-2: 250 41% 28%;
+  --art-chart-3: 174 72% 34%;
+  --art-chart-4: 48 70% 38%;
+  --art-chart-5: 317 32% 42%;
+  --art-chart-6: 211 58% 41%;
 }
 
 :root[data-panel-theme="vivid"].dark {
-  --primary: 6 88% 67%;
+  --primary: 6 80% 66%;
   --primary-foreground: 4 45% 10%;
-  --ring: 6 88% 67%;
-  --accent: 6 32% 15%;
-  --accent-foreground: 6 90% 80%;
-  --background: 225 16% 7.5%;
-  --sidebar-background: 225 16% 9%;
-  --vivid-from: 6 90% 64%;
-  --vivid-to: 28 95% 60%;
-  --vivid-tint: 6 32% 15%;
-  --vivid-chart-1: 6 88% 67%;
-  --vivid-chart-2: 30 92% 60%;
-  --vivid-chart-3: 195 75% 58%;
-  --vivid-chart-4: 262 70% 74%;
+  --gold: 6 80% 66%;
+  --gold-foreground: 4 45% 10%;
+  --ring: 6 75% 64%;
+  --accent: 6 25% 17%;
+  --accent-foreground: 6 85% 80%;
+  --sidebar-primary: 6 80% 66%;
+  --sidebar-primary-foreground: 4 45% 10%;
+  --sidebar-ring: 6 75% 64%;
+  --vivid-from: 6 80% 66%;
+  --vivid-to: 18 85% 64%;
+  --vivid-tint: 6 28% 14%;
+  --art-chart-1: 6 80% 66%;
+  --art-chart-2: 246 60% 72%;
+  --art-chart-3: 187 59% 44%;
+  --art-chart-4: 39 81% 58%;
+  --art-chart-5: 331 53% 65%;
+  --art-chart-6: 204 66% 65%;
+}
 
-  --foreground: 220 20% 95%;
-  --card: 225 15% 11.5%;
-  --card-foreground: 220 20% 95%;
-  --popover: 225 15% 12.5%;
-  --popover-foreground: 220 20% 95%;
-  --secondary: 225 14% 16%;
-  --secondary-foreground: 220 18% 90%;
-  --muted: 225 14% 15%;
-  --muted-foreground: 220 12% 68%;
-  --border: 225 13% 19%;
-  --input: 225 12% 23%;
+/* What follows from the scheme: Art's gradients, frame light and brand
+   hues all take the one accent (Art's would bring its second hues). Set for
+   both modes, so Art's own dark values never show through. */
+:root[data-panel-theme="vivid"],
+:root[data-panel-theme="vivid"].dark {
+  --brand-teal: var(--vivid-from);
+  --brand-sky: var(--vivid-from);
+  --brand-violet: var(--vivid-to);
+  --brand-coral: var(--vivid-to);
+  --art-grad-from: var(--vivid-from);
+  --art-grad-to: var(--vivid-to);
+  --art-brand-from: var(--vivid-from);
+  --art-brand-via: var(--vivid-from);
+  --art-soft-from: var(--vivid-tint);
+  --art-soft-to: var(--vivid-tint);
 
-  --destructive: 356 85% 68%;
-  --destructive-foreground: 356 40% 10%;
-  --success: 150 55% 55%;
-  --success-foreground: 150 50% 8%;
-  --warning: 38 90% 60%;
-  --warning-foreground: 35 60% 9%;
-  --info: 205 85% 66%;
-  --info-foreground: 210 50% 9%;
-
-  --surface-elevated: 225 15% 14%;
-  --surface-sunken: 225 16% 6.5%;
-
-  --sidebar-foreground: 220 16% 84%;
-  --sidebar-muted-foreground: 220 12% 66%;
-  --sidebar-border: 225 14% 15%;
-
-  --vivid-panel: linear-gradient(135deg, hsl(var(--vivid-tint)), hsl(var(--vivid-tint) / 0.6));
-  --vivid-panel-line: hsl(var(--primary) / 0.22);
-  --vivid-shadow: 225 40% 2%;
-  --shadow-card: 0 1px 2px hsl(var(--vivid-shadow) / 0.5), 0 10px 26px -16px hsl(var(--vivid-shadow) / 0.7);
-  --shadow-glow: 0 1px 2px hsl(var(--vivid-shadow) / 0.5), 0 16px 34px -16px hsl(var(--vivid-shadow) / 0.8);
-  --shadow-elevated: 0 18px 40px -16px hsl(var(--vivid-shadow) / 0.85);
-
-  color-scheme: dark;
+  /* The receipt's strip: the accent, warming a little towards its end. */
+  --vivid-strip: linear-gradient(90deg, hsl(var(--vivid-from)), hsl(var(--vivid-to)));
+  --vivid-strip-size: 3px;
+  /* The tinted panel the page's key figure sits on, and its edge. */
+  --vivid-panel: linear-gradient(160deg, hsl(var(--vivid-tint)), hsl(var(--vivid-tint) / 0.45));
+  --vivid-panel-line: hsl(var(--primary) / 0.16);
 }
 
 /* The strip runs from the reading start: right to left in Persian. */
@@ -161,222 +97,28 @@
   --vivid-strip: linear-gradient(270deg, hsl(var(--vivid-from)), hsl(var(--vivid-to)));
 }
 
-/* ── 2. The frame ──────────────────────────────────────────────────────── */
+/* ── 2. The strip on a page's main cards ───────────────────────────────── */
 
-/* The canvas: flat and faintly tinted, lit softly by the scheme at the top. */
-:root[data-panel-theme="vivid"] body,
-:root[data-panel-theme="vivid"] [data-shell="app"] {
-  background-color: hsl(var(--background));
-  background-image: none;
-}
-
-:root[data-panel-theme="vivid"] [data-shell="frame"] {
-  background-image: radial-gradient(70rem 18rem at 50% -8rem, hsl(var(--vivid-tint) / 0.9), transparent 70%);
-}
-
-/* Glows, aurora blobs, dot fields and meteors: Vivid is clean. */
-:root[data-panel-theme="vivid"] [data-shell-decor],
-:root[data-panel-theme="vivid"] [data-shell="main"] .pointer-events-none.blur-3xl,
-:root[data-panel-theme="vivid"] [data-shell="main"] .pointer-events-none.blur-2xl,
-:root[data-panel-theme="vivid"] [data-shell="main"] .pointer-events-none.blur-xl,
-:root[data-panel-theme="vivid"] [data-shell="main"] .pointer-events-none.bg-dots,
-:root[data-panel-theme="vivid"] .meteor,
-:root[data-panel-theme="vivid"] .beam-border::before,
-:root[data-panel-theme="vivid"] .magic-card::before,
-:root[data-panel-theme="vivid"] .spotlight::after,
-:root[data-panel-theme="vivid"] .btn-shimmer::after {
-  display: none !important;
-}
-
-:root[data-panel-theme="vivid"] .animate-aurora {
-  animation: none;
-}
-
-/* The top bar: a white band carrying the receipt's strip on its top edge. */
-:root[data-panel-theme="vivid"] [data-shell="topbar"] {
-  background-color: hsl(var(--card) / 0.92);
-  background-image: var(--vivid-strip);
-  background-size: 100% 3px;
-  background-repeat: no-repeat;
-  background-position: top;
-  border-bottom-color: hsl(var(--border));
-}
-
-/* The sidebar: a very light tint of the scheme. */
-:root[data-panel-theme="vivid"] [data-shell="sidebar"] {
-  background-color: hsl(var(--sidebar-background));
-  background-image: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-/* Its group labels (Conversations, Customers, ...): small capitals in the
-   scheme's colour, like the receipt's "Seller" and "Customer". */
-:root[data-panel-theme="vivid"] [data-nav-section] {
-  padding: 0.85rem 0.75rem 0.3rem;
-  font-size: 0.675rem;
-  font-weight: 700;
-  line-height: 1rem;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: hsl(var(--primary));
-}
-
-/* Capitals and tracking mean nothing in Persian script (tracking breaks its
-   joins): there the label is a little larger instead. */
-:root[data-panel-theme="vivid"] [dir="rtl"] [data-nav-section] {
-  font-size: 0.75rem;
-  letter-spacing: 0;
-}
-
-:root[data-panel-theme="vivid"] [data-shell="sidebar"][data-collapsed="true"] [data-nav-section] {
-  height: 1px;
-  margin: 0.6rem 0.9rem 0.3rem;
-  padding: 0;
-  overflow: hidden;
-  color: transparent;
-  background-color: hsl(var(--sidebar-border));
-}
-
-/* Items: the current one is a tinted pill with a bar in the scheme's colour
-   on its reading-start edge (a logical inset, so it flips in Persian). */
-:root[data-panel-theme="vivid"] [data-shell="sidebar"] [data-nav-item],
-:root[data-panel-theme="vivid"] [data-shell="sidebar"] .nav-glow {
-  position: relative;
-}
-
-:root[data-panel-theme="vivid"] [data-shell="sidebar"] .nav-glow {
-  background-image: none;
-  background-color: hsl(var(--sidebar-accent));
-  box-shadow: none;
-  color: hsl(var(--sidebar-accent-foreground));
-}
-
-:root[data-panel-theme="vivid"] [data-shell="sidebar"] .nav-glow::after {
-  inset-block: 7px;
-  inset-inline-start: 0;
-  width: 3px;
-  border-radius: 9999px;
-  background-image: var(--vivid-strip);
-  box-shadow: none;
-}
-
-/* A little tighter than classic, so the named groups fit. */
-:root[data-panel-theme="vivid"] [data-shell="sidebar"][data-collapsed="false"] [data-nav-item] {
-  padding-block: 0.3rem;
-}
-
-:root[data-panel-theme="vivid"] [data-shell="sidebar"][data-collapsed="false"] [data-nav-chip] {
-  height: 1.75rem;
-  width: 1.75rem;
-}
-
-/* Icon chips: quiet until current, then the strip's colours. */
-:root[data-panel-theme="vivid"] [data-nav-chip] {
-  background-image: none;
-  background-color: transparent;
-  box-shadow: none;
-  color: hsl(var(--sidebar-muted-foreground));
-  --tw-ring-shadow: 0 0 #0000;
-}
-
-:root[data-panel-theme="vivid"] .group:hover [data-nav-chip][data-active="false"] {
-  background-image: none;
-  background-color: hsl(var(--sidebar-accent));
-  color: hsl(var(--sidebar-accent-foreground));
-  box-shadow: none;
-  transform: none;
-}
-
-:root[data-panel-theme="vivid"] [data-nav-chip][data-active="true"] {
-  background-image: linear-gradient(135deg, hsl(var(--vivid-from)), hsl(var(--vivid-to)));
-  color: hsl(0 0% 100%);
-  box-shadow: 0 4px 10px -4px hsl(var(--vivid-from) / 0.6);
-}
-
-:root[data-panel-theme="vivid"].dark [data-nav-chip][data-active="true"] {
-  color: hsl(var(--primary-foreground));
-}
-
-/* The workspace mark keeps the strip's colours, without the glow. */
-:root[data-panel-theme="vivid"] [data-shell="workspace-mark"] {
-  box-shadow: none;
-}
-
-/* ── 3. Cards: white, ringed, topped by the receipt's strip ───────────── */
-
-/* Every main card (a shadcn Card, the classic magic / stat / elevated cards,
-   a page's own bordered bg-card box): pure white, a hairline, a soft shadow,
-   and the strip along its top edge. The strip is a background layer clipped
-   by the card's own rounding (no pseudo-element, no overflow change), so
-   nothing inside the card moves. A card inside another card has no strip. */
-:root[data-panel-theme="vivid"] [data-shell="main"] :is([data-slot="card"], .magic-card, .card-elevated, .bg-card.border):not([class*="bg-gradient"], [data-figure], .stat-card):not(:is([data-slot="card"], .magic-card, .stat-card, .card-elevated, .bg-card.border, [data-page-hero], [data-section-layout="settings"] [data-section-content] > div > :not([data-page-hero])) *) {
-  background-color: hsl(var(--card));
+/* A page's main cards: a shadcn Card, or one of the dashboard's panels, that
+   sits in no other card and is not one tile of a row of three or more
+   equal tiles (a grid whose cells span columns holds main cards).
+   The strip is a background layer clipped by the card's own rounding (no
+   pseudo-element, no overflow change), so nothing inside moves. The
+   exclusions sit in :where(), so the key figure's panel (below) still wins. */
+:root[data-panel-theme="vivid"] [data-shell="main"] :is([data-slot="card"], [data-panel]):not(:where([data-slot="card"], [data-panel], [data-page-hero], .magic-card) *):not(:where([class*="grid-cols-3"]:not(:has(> [class*="col-span-"])), [class*="grid-cols-4"], [class*="grid-cols-5"], [class*="grid-cols-6"]) > *) {
   background-image: var(--vivid-strip);
   background-size: 100% var(--vivid-strip-size);
   background-repeat: no-repeat;
   background-position: top;
   background-origin: border-box;
-  border-top-color: transparent;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  box-shadow: var(--shadow-card);
 }
 
-/* A settings page sits on one white sheet under its hero, topped by the
-   strip; the cards inside it are plain. */
-:root[data-panel-theme="vivid"] [data-section-layout="settings"] [data-section-content] > div > :not([data-page-hero]) {
-  padding: 1.5rem;
-  border: 1px solid hsl(var(--border));
-  border-top-color: transparent;
-  border-radius: 1rem;
-  background-color: hsl(var(--card));
-  background-image: var(--vivid-strip);
-  background-size: 100% var(--vivid-strip-size);
-  background-repeat: no-repeat;
-  background-position: top;
-  background-origin: border-box;
-  box-shadow: var(--shadow-card);
-}
+/* ── 3. One tinted panel per page, for its key figure ──────────────────── */
 
-/* Small cards (pills, chips, list rows) carry no strip: only boxes of some
-   size are "cards". */
-:root[data-panel-theme="vivid"] [data-shell="main"] :is(.bg-card.border).rounded-full,
-:root[data-panel-theme="vivid"] [data-shell="main"] :is(.bg-card.border).rounded-md,
-:root[data-panel-theme="vivid"] [data-shell="main"] :is(.bg-card.border).rounded-lg:not([data-slot="card"]) {
-  background-image: none;
-  border-top-color: hsl(var(--border));
-  box-shadow: none;
-}
-
-:root[data-panel-theme="vivid"] [data-shell="main"] :is(.magic-card, .stat-card, .card-elevated):hover {
-  border-color: hsl(var(--border));
-  border-top-color: transparent;
-  box-shadow: var(--shadow-glow);
-}
-
-:root[data-panel-theme="vivid"] .glass {
-  background-color: hsl(var(--card));
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-/* Dialogs and sheets wear the strip too. */
-:root[data-panel-theme="vivid"] [data-slot="dialog-content"],
-:root[data-panel-theme="vivid"] [data-slot="alert-dialog-content"] {
-  background-image: var(--vivid-strip);
-  background-size: 100% var(--vivid-strip-size);
-  background-repeat: no-repeat;
-  background-position: top;
-  background-origin: border-box;
-  border-top-color: transparent;
-}
-
-/* ── 4. Heroes and figures: the receipt's tinted total ────────────────── */
-
-/* A page's hero (the dashboard greeting, Settings, AI, ...): the soft tint,
-   ringed in the scheme's colour, its title in the scheme's colour. */
-:root[data-panel-theme="vivid"] [data-page-hero] {
+/* The dashboard's greeting and the billing balance: the receipt's total,
+   a soft tint of the accent, the figure in the accent (4.5:1 on the tint). */
+:root[data-panel-theme="vivid"] [data-page-hero="dashboard"],
+:root[data-panel-theme="vivid"] [data-shell="main"] [data-slot="card"]:has([data-testid="account-balance"]) {
   background-color: hsl(var(--card));
   background-image: var(--vivid-strip), var(--vivid-panel);
   background-size: 100% var(--vivid-strip-size), 100% 100%;
@@ -384,180 +126,59 @@
   background-position: top, center;
   background-origin: border-box;
   border-color: var(--vivid-panel-line);
-  border-top-color: transparent;
-  box-shadow: var(--shadow-card);
 }
 
-/* Gradient text reads as the scheme's colour (at 4.5:1 on the tint). */
-:root[data-panel-theme="vivid"] .text-brand {
-  background-image: none;
-  -webkit-background-clip: border-box;
-  background-clip: border-box;
+/* Art draws the greeting flat on the paper; Vivid puts it on its panel. */
+:root[data-panel-theme="vivid"] [data-page-hero="dashboard"] {
+  border-width: 1px;
+  border-radius: 1.25rem;
+  padding: 1.5rem 1.75rem;
+  box-shadow: var(--art-page-card-shadow);
+}
+
+:root[data-panel-theme="vivid"] [data-page-hero="dashboard"] h1,
+:root[data-panel-theme="vivid"] [data-page-hero="dashboard"] h1 .text-brand,
+:root[data-panel-theme="vivid"] [data-shell="main"] [data-testid="account-balance"] {
   color: hsl(var(--primary));
 }
 
-:root[data-panel-theme="vivid"] .text-shine {
-  animation: none;
-  background-image: none;
-  color: inherit;
-}
+/* ── 4. Labels and pills ───────────────────────────────────────────────── */
 
-/* The hero's chips and quick actions: white pills on the tint. */
-:root[data-panel-theme="vivid"] [data-page-hero] :is([data-hero-eyebrow], [data-hero-aside], [data-hero-actions] > a) {
-  background-color: hsl(var(--card));
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  border-color: var(--vivid-panel-line);
-}
-
-/* KPI tiles and stat cards: the tinted panel, the figure in the scheme's
-   colour; their own accent line stays on top. */
-:root[data-panel-theme="vivid"] [data-shell="main"] :is([data-figure], .stat-card):not(:is([data-slot="card"], .magic-card, .card-elevated, .bg-card.border) *) {
-  background-color: hsl(var(--card));
-  background-image: var(--vivid-panel);
-  background-size: 100% 100%;
-  border-color: var(--vivid-panel-line);
-}
-
-:root[data-panel-theme="vivid"] [data-shell="main"] :is([data-figure], .stat-card):hover {
-  border-color: hsl(var(--primary) / 0.35);
-}
-
-:root[data-panel-theme="vivid"] [data-shell="main"] [data-figure] .tabular-nums,
-:root[data-panel-theme="vivid"] [data-shell="main"] .stat-card :is(.text-2xl, .text-3xl).font-bold {
-  color: hsl(var(--primary));
-  font-weight: 800;
-}
-
-/* A card whose title is a figure (a balance, a credit): the scheme's colour. */
-:root[data-panel-theme="vivid"] [data-shell="main"] [data-slot="card-title"].tabular-nums {
-  color: hsl(var(--primary));
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
-/* A hero's icon tile and the section menu's mark: the strip's colours. */
-:root[data-panel-theme="vivid"] [data-page-hero] [data-hero-icon],
-:root[data-panel-theme="vivid"] [data-section-nav-mark] {
-  background-image: linear-gradient(135deg, hsl(var(--vivid-from)), hsl(var(--vivid-to)));
-  color: hsl(0 0% 100%);
-  box-shadow: 0 6px 14px -8px hsl(var(--vivid-from) / 0.8);
-}
-
-:root[data-panel-theme="vivid"].dark :is([data-page-hero] [data-hero-icon], [data-section-nav-mark]) {
-  color: hsl(var(--primary-foreground));
-}
-
-/* The dashboard's plan panel: the tint, its plan name in the scheme's colour. */
-:root[data-panel-theme="vivid"] [data-plan-current] {
-  background-image: var(--vivid-panel);
-  border-color: var(--vivid-panel-line);
-}
-
-:root[data-panel-theme="vivid"] [data-plan-current] .text-lg,
-:root[data-panel-theme="vivid"] [data-plan-current] .text-xl {
+/* The side menu's group names: small capitals in the accent, like the
+   receipt's "Seller" and "Customer". */
+:root[data-panel-theme="vivid"] [data-side-label] {
+  font-size: 0.65625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: hsl(var(--primary));
 }
 
-/* ── 5. Text, labels and pills ─────────────────────────────────────────── */
-
-:root[data-panel-theme="vivid"] [data-shell="main"] h1:is(.text-2xl, .text-xl, .text-3xl),
-:root[data-panel-theme="vivid"] [data-shell="main"] .page-header {
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
-:root[data-panel-theme="vivid"] [dir="rtl"] [data-shell="main"] h1:is(.text-2xl, .text-xl, .text-3xl),
-:root[data-panel-theme="vivid"] [dir="rtl"] [data-shell="main"] .page-header {
+/* Capitals and tracking mean nothing in Persian script (tracking breaks its
+   joins): there the name is only coloured. */
+:root[data-panel-theme="vivid"] [dir="rtl"] [data-side-label] {
+  font-size: 0.71875rem;
   letter-spacing: 0;
 }
 
-/* Small letter-spaced capitals (a section's eyebrow, a table's head): the
-   scheme's colour, like the receipt's "Seller" over its box. */
-:root[data-panel-theme="vivid"] [data-shell="main"] .uppercase:is(.text-xs, .text-\[10px\], .text-\[11px\]):is(.tracking-wide, .tracking-wider, .tracking-widest):is(.text-muted-foreground, .text-sidebar-muted-foreground) {
-  color: hsl(var(--primary));
-}
-
-:root[data-panel-theme="vivid"] [data-shell="sidebar"] .uppercase.tracking-wide {
-  color: hsl(var(--primary));
-}
-
-/* Badges are outlined pills in their own colour, like the receipt's PAID. */
+/* Status pills are outlined in their own colour, like the receipt's PAID. */
 :root[data-panel-theme="vivid"] [data-slot="badge"] {
-  border-width: 1.5px;
+  background-color: transparent;
+  border-color: color-mix(in oklab, currentColor 55%, transparent);
 }
 
-:root[data-panel-theme="vivid"] [data-slot="badge"].border-transparent {
-  border-color: color-mix(in srgb, currentColor 50%, transparent);
+:root[data-panel-theme="vivid"] [data-slot="badge"]:hover {
+  background-color: color-mix(in oklab, currentColor 7%, transparent);
 }
 
-:root[data-panel-theme="vivid"] [data-slot="badge"].bg-primary.text-primary-foreground {
-  background-color: hsl(var(--primary) / 0.08);
-  color: hsl(var(--accent-foreground));
-}
+/* ── 5. Icon tiles: one soft tint of the accent ────────────────────────── */
 
-:root[data-panel-theme="vivid"] [data-slot="badge"].bg-destructive.text-destructive-foreground {
-  background-color: hsl(var(--destructive) / 0.08);
-  color: hsl(var(--destructive));
-}
-
-:root[data-panel-theme="vivid"] [data-slot="badge"].bg-secondary.text-secondary-foreground {
-  background-color: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-}
-
-/* ── 6. Controls ───────────────────────────────────────────────────────── */
-
-/* The shimmering call-to-action: a calm solid button in the scheme's colour
-   (white text on the strip's lighter stops would miss 4.5:1). */
-:root[data-panel-theme="vivid"] .btn-shimmer {
-  background-image: none !important;
-  background-color: hsl(var(--primary)) !important;
-  color: hsl(var(--primary-foreground)) !important;
-  box-shadow: 0 6px 16px -8px hsl(var(--primary) / 0.7);
-}
-
-:root[data-panel-theme="vivid"] [data-slot="button"][data-variant="default"] {
-  box-shadow: 0 1px 2px hsl(var(--vivid-shadow) / 0.12), 0 6px 14px -8px hsl(var(--primary) / 0.65);
-}
-
-/* Tabs: a tinted track, the current tab white with the scheme's colour. */
-:root[data-panel-theme="vivid"] [data-slot="tabs-list"] {
-  background-color: hsl(var(--vivid-tint));
-}
-
-:root[data-panel-theme="vivid"] [data-slot="tabs-trigger"][data-state="active"] {
-  background-color: hsl(var(--card));
-  color: hsl(var(--accent-foreground));
-  box-shadow: 0 1px 2px hsl(var(--vivid-shadow) / 0.1), inset 0 0 0 1px var(--vivid-panel-line);
-}
-
-/* ── 7. Charts ─────────────────────────────────────────────────────────── */
-
-/* The dashboard's activity chart draws in the scheme's series (its stops set
-   inline colours from the Tailwind palette, hence !important). */
-:root[data-panel-theme="vivid"] [data-chart-gradient="fill"] stop:nth-child(1) {
-  stop-color: hsl(var(--vivid-chart-1)) !important;
-  stop-opacity: 0.32 !important;
-}
-
-:root[data-panel-theme="vivid"] [data-chart-gradient="fill"] stop:nth-child(2) {
-  stop-color: hsl(var(--vivid-chart-2)) !important;
-  stop-opacity: 0.1 !important;
-}
-
-:root[data-panel-theme="vivid"] [data-chart-gradient="fill"] stop:nth-child(3) {
-  stop-color: hsl(var(--vivid-chart-2)) !important;
-}
-
-:root[data-panel-theme="vivid"] [data-chart-gradient="stroke"] stop:nth-child(1) {
-  stop-color: hsl(var(--vivid-chart-1)) !important;
-}
-
-:root[data-panel-theme="vivid"] [data-chart-gradient="stroke"] stop:nth-child(2) {
-  stop-color: hsl(var(--vivid-from)) !important;
-}
-
-:root[data-panel-theme="vivid"] [data-chart-gradient="stroke"] stop:nth-child(3) {
-  stop-color: hsl(var(--vivid-chart-2)) !important;
+/* Art turns a page's gradient icon squares into soft tiles of their own
+   hues; Vivid gives them all the one accent. */
+:root[data-panel-theme="vivid"] [data-shell="main"] :where(.bg-gradient-to-br.items-center.justify-center:has(> svg:only-child)),
+:root[data-panel-theme="vivid"] [data-shell="main"] :is([data-panel-icon], [data-figure-icon], [data-hero-icon], [data-section-nav-icon], [data-section-nav-mark]) {
+  background-image: none;
+  background-color: hsl(var(--primary) / 0.1);
+  color: var(--art-ui-tint-text);
+  box-shadow: none;
 }

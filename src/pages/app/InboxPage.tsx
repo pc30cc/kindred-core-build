@@ -87,6 +87,7 @@ import { Volume2, VolumeX, Lock } from 'lucide-react';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { usePanelTheme } from '@/themes/usePanelTheme';
+import { isArtFamilyTheme } from '../../../shared/panelThemes';
 import {
   systemMessageText, invitationStatusText, attachmentPreviewText,
   type SystemMessageMeta, type AttachmentPreviewKind,
@@ -334,7 +335,7 @@ export default function InboxPage() {
   const scope: 'mine' | 'all' = canSwitchScope && inboxScope === 'all' ? 'all' : 'mine';
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
-  const isArt = usePanelTheme().theme === 'art';
+  const isArt = isArtFamilyTheme(usePanelTheme().theme);
   // Art: below 1024px the details are a drawer over the thread, so they wait
   // to be asked for instead of covering every conversation that is opened.
   const [showSidebar, setShowSidebar] = useState(

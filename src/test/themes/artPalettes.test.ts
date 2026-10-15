@@ -27,6 +27,10 @@ type Tokens = Record<string, string>;
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 const ROOT = ':root[data-panel-theme="art"]';
+// Art's shared stylesheets are keyed to the family (Art and the themes drawn
+// by it, Vivid); its own schemes (palettes.css) to the theme. Both have the
+// same specificity, so the later rule wins whichever it is.
+const FAMILY = ':root[data-panel-family="art"]';
 // Art's stylesheets in the order src/main.tsx loads them: of two rules with the same selector, the later wins.
 const FILES = ['theme', 'components', 'pages', 'inbox', 'sidebar', 'palettes', 'charts'].map((name) => `src/themes/art/${name}.css`);
 const PALETTES_CSS = 'src/themes/art/palettes.css';
@@ -55,11 +59,12 @@ function topLevelRules(css: string): { selector: string; body: string }[] {
   return rules;
 }
 
-/** The custom properties set by the rules whose selector is exactly `selector`, later ones winning. */
-function tokensOf(css: string, selector: string): Tokens {
+/** The custom properties set by the rules whose selector is exactly `selector` (or one of them), later ones winning. */
+function tokensOf(css: string, selector: string | string[]): Tokens {
+  const selectors = Array.isArray(selector) ? selector : [selector];
   const out: Tokens = {};
   for (const rule of topLevelRules(css)) {
-    if (rule.selector !== selector) continue;
+    if (!selectors.includes(rule.selector)) continue;
     for (const declaration of rule.body.split(';')) {
       const colon = declaration.indexOf(':');
       const name = declaration.slice(0, colon).trim();
@@ -71,9 +76,9 @@ function tokensOf(css: string, selector: string): Tokens {
 
 const sheets = FILES.map(read);
 const palettesCss = read(PALETTES_CSS);
-const merged = (selector: string): Tokens => Object.assign({}, ...sheets.map((css) => tokensOf(css, selector)));
-const LIGHT_BASE = merged(ROOT);
-const DARK_BASE = { ...LIGHT_BASE, ...merged(`${ROOT}.dark`) };
+const merged = (selectors: string[]): Tokens => Object.assign({}, ...sheets.map((css) => tokensOf(css, selectors)));
+const LIGHT_BASE = merged([FAMILY, ROOT]);
+const DARK_BASE = { ...LIGHT_BASE, ...merged([`${FAMILY}.dark`, `${ROOT}.dark`]) };
 const schemeSelector = (id: ArtPalette, mode: Mode) =>
   `${ROOT}[data-panel-palette="${id}"]${mode === 'light' ? ':not(.dark)' : '.dark'}`;
 
@@ -191,7 +196,7 @@ describe('the schemes in palettes.css', () => {
 
   it('draws the theme’s gradients from tokens a scheme repaints', () => {
     const theme = read('src/themes/art/theme.css');
-    for (const selector of [ROOT, `${ROOT}.dark`]) {
+    for (const selector of [FAMILY, `${FAMILY}.dark`]) {
       const own = tokensOf(theme, selector);
       for (const name of ['--gradient-primary', '--gradient-brand', '--gradient-soft', '--gradient-sidebar', '--gradient-card-hover', '--gradient-surface']) {
         const value = own[name] ?? LIGHT_BASE[name];

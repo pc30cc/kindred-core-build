@@ -22,14 +22,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, RefreshCw, Download, CheckCircle2, XCircle } from 'lucide-react';
+import { COMMERCE_PLUGIN_DOWNLOADS } from './pluginDownloads';
 
-export const OPENCART_MANIFEST_PATH = '/downloads/opencart/manifest.json';
+/** This build's edition of the extension (./pluginDownloads.ts). */
+export const OPENCART_MANIFEST_PATH = COMMERCE_PLUGIN_DOWNLOADS.openCartManifest;
 
 /** Fallback when the manifest cannot be read; kept in step with the build script. */
-const DEFAULT_PACKAGES: OpenCartPackage[] = [
-  { opencart: '4.1.x', path: '/downloads/opencart/4.1/webyar.ocmod.zip', file: 'webyar.ocmod.zip', php: '>=8.1' },
-  { opencart: '3.0.5.x', path: '/downloads/opencart/3.0/webyar-oc3.ocmod.zip', file: 'webyar-oc3.ocmod.zip', php: '>=8.1' },
-];
+const DEFAULT_PACKAGES: OpenCartPackage[] = COMMERCE_PLUGIN_DOWNLOADS.openCartPackages;
 
 interface OpenCartPackage {
   opencart: string;
@@ -185,7 +184,7 @@ export function OpenCartConfigPanel({ workspaceId }: { workspaceId: string }) {
           <div>
             <h3 className="text-sm font-semibold mb-2">{t('plugins.opencart.connect.stepsTitle')}</h3>
             <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-              <li>{t('plugins.opencart.connect.step1')}</li>
+              <li>{t('plugins.opencart.connect.step1', { file: COMMERCE_PLUGIN_DOWNLOADS.openCartOc4File })}</li>
               <li>{t('plugins.opencart.connect.step2')}</li>
               <li>{t('plugins.opencart.connect.step3')}</li>
               <li>{t('plugins.opencart.connect.step4')}</li>

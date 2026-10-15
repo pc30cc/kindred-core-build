@@ -169,19 +169,40 @@ function precompress(): Plugin {
 
 /**
  * The RESPOK build leaves out the Iran region's static files: its brand
- * folder and its Android download. Everything else Iran-only is left out of
+ * folder, its Android download and its edition of the commerce plugins
+ * (scripts/build/pluginEdition.mjs). Everything else Iran-only is left out of
  * the bundle by the build-brand constants (shared/buildBrand.ts).
  */
-const IRAN_ONLY_PUBLIC = [["brand", ["web", "yar"].join("")], ["downloads", `${["Web", "yar"].join("")}-Android.apk`], ["downloads", `${["Web", "yar"].join("")}-Android.json`]];
+const IRAN_CODE = ["web", "yar"].join("");
+const IRAN_ONLY_PUBLIC = [
+  ["brand", IRAN_CODE],
+  ["downloads", `${["Web", "yar"].join("")}-Android.apk`],
+  ["downloads", `${["Web", "yar"].join("")}-Android.json`],
+  // Commerce plugins, Iran edition (signed releases: .sig beside each manifest).
+  ...[`${IRAN_CODE}-woocommerce`, `${IRAN_CODE}-whmcs`].flatMap((slug) => [".zip", ".json", ".json.sig"].map((ext) => ["downloads", `${slug}${ext}`])),
+  ["downloads", "opencart", "4.1", `${IRAN_CODE}.ocmod.zip`],
+  ["downloads", "opencart", "3.0", `${IRAN_CODE}-oc3.ocmod.zip`],
+  ["downloads", "opencart", "manifest.json"],
+  ["downloads", "opencart", "manifest.json.sig"],
+];
+
+/** The Iran build leaves out the International edition of the commerce plugins. */
+const INTL_ONLY_PUBLIC = [
+  ...["respok-woocommerce", "respok-whmcs"].flatMap((slug) => [".zip", ".json", ".json.sig"].map((ext) => ["downloads", `${slug}${ext}`])),
+  ["downloads", "opencart", "4.1", "respok.ocmod.zip"],
+  ["downloads", "opencart", "3.0", "respok-oc3.ocmod.zip"],
+  ["downloads", "opencart", "respok-manifest.json"],
+  ["downloads", "opencart", "respok-manifest.json.sig"],
+];
 
 function brandPublicFiles(brand: string): Plugin {
   return {
     name: "brand-public-files",
     apply: "build",
     async writeBundle(options) {
-      if (brand !== "respok") return;
+      const leaveOut = brand === "respok" ? IRAN_ONLY_PUBLIC : brand === "iran" ? INTL_ONLY_PUBLIC : [];
       const outDir = options.dir ?? path.resolve(__dirname, "dist");
-      for (const parts of IRAN_ONLY_PUBLIC) {
+      for (const parts of leaveOut) {
         fs.rmSync(path.join(outDir, ...parts), { recursive: true, force: true });
       }
     },

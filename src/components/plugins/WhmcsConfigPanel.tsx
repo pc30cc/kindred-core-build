@@ -30,8 +30,10 @@ import { toast } from '@/hooks/use-toast';
 import { formatDateTime } from '@/lib/date';
 import { Loader2, RefreshCw, Download, ShieldCheck } from 'lucide-react';
 import { WHMCS_CONNECTION_PERMISSIONS, WHMCS_DEFAULT_PERMISSIONS } from '../../../shared/commerce/whmcs';
+import { COMMERCE_PLUGIN_DOWNLOADS } from './pluginDownloads';
 
-const ADDON_DOWNLOAD_PATH = '/downloads/webyar-whmcs.zip';
+/** This build's edition of the addon (./pluginDownloads.ts). */
+const ADDON_DOWNLOAD_PATH = COMMERCE_PLUGIN_DOWNLOADS.whmcsZip;
 /** After a check, the button rests this long before it can run another. */
 const CHECK_COOLDOWN_MS = 10_000;
 
@@ -194,7 +196,7 @@ export function WhmcsConfigPanel({ workspaceId }: { workspaceId: string }) {
           <div>
             <h3 className="text-sm font-semibold mb-2">{t('plugins.whmcs.connect.stepsTitle')}</h3>
             <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-              <li>{t('plugins.whmcs.connect.step1')}</li>
+              <li>{t('plugins.whmcs.connect.step1', { folder: COMMERCE_PLUGIN_DOWNLOADS.whmcsAddonDir })}</li>
               <li>{t('plugins.whmcs.connect.step2')}</li>
               <li>
                 {t('plugins.whmcs.connect.step3')}{' '}

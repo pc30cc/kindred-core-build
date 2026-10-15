@@ -6,9 +6,9 @@
 FROM node:20.18-alpine AS build
 WORKDIR /app
 
-# zip — used by scripts/build-woocommerce-plugin-zip.mjs (part of `npm run
-# build`) to package plugins/webyar-woocommerce/ into the downloadable
-# public/downloads/webyar-woocommerce.zip served by nginx.
+# zip — used by the commerce plugin packagers (scripts/build-*-zip.mjs, part
+# of `npm run build`) to package plugins/* into the downloadable
+# public/downloads/*.zip served by nginx (the brand's edition of each).
 # Retried with a fallback mirror: the deploy server's fetch of the
 # dl-cdn.alpinelinux.org index fails intermittently ("temporary error"),
 # which surfaced as "zip (no such package)" and failed the whole deploy.
@@ -26,8 +26,12 @@ COPY . .
 
 # Build-time env vars (pass via --build-arg or Coolify env)
 ARG VITE_API_BASE_URL
+# Optional override of the build brand (respok | iran | both); empty = from
+# VITE_API_BASE_URL (scripts/build/brand.mjs).
+ARG VITE_BRAND
 
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_BRAND=$VITE_BRAND
 
 RUN npm run build
 
@@ -36,10 +40,11 @@ RUN npm run build
 # back to unhashed assets — which silently breaks production.
 RUN test -f /app/dist/widget/widget-manifest.json || (echo "❌ widget-manifest.json missing from build output" && ls -la /app/dist/widget/ && exit 1)
 RUN echo "✅ widget assets:" && ls -la /app/dist/widget/
-RUN test -f /app/dist/downloads/webyar-woocommerce.zip || (echo "❌ webyar-woocommerce.zip missing from build output" && exit 1)
-RUN test -f /app/dist/downloads/webyar-whmcs.zip || (echo "❌ webyar-whmcs.zip missing from build output" && exit 1)
-RUN test -f /app/dist/downloads/Webyar-Android.apk || (echo "❌ Webyar-Android.apk missing from build output" && exit 1)
-RUN test -f /app/dist/downloads/opencart/4.1/webyar.ocmod.zip && test -f /app/dist/downloads/opencart/3.0/webyar-oc3.ocmod.zip && test -f /app/dist/downloads/opencart/manifest.json || (echo "❌ OpenCart packages missing from build output" && exit 1)
+# The downloads this build's brand serves (commerce plugins: WooCommerce,
+# WHMCS, OpenCart 4.1/3.0 + manifest; the Android app), and none of the Iran
+# region's in a RESPOK build. The brand comes from VITE_BRAND / VITE_API_BASE_URL
+# exactly as `npm run build` derived it (scripts/build/brand.mjs).
+RUN node scripts/build/assertDist.mjs /app/dist
 
 # ── Serve with nginx ───────────────────────────────────────
 FROM nginx:alpine

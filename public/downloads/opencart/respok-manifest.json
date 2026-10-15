@@ -1,0 +1,28 @@
+{
+  "slug": "respok-opencart",
+  "version": "1.1.2",
+  "protocol": "platform-commerce/1",
+  "packages": [
+    {
+      "opencart": "4.1.x",
+      "tested": [
+        "4.1.0.0",
+        "4.1.0.4"
+      ],
+      "php": ">=8.1",
+      "path": "/downloads/opencart/4.1/respok.ocmod.zip",
+      "file": "respok.ocmod.zip",
+      "sha256": "0a254fa9dc4db3c8177c1afc34e39da2af1d880b0201f1f780db60b87b51f197"
+    },
+    {
+      "opencart": "3.0.5.x",
+      "tested": [
+        "3.0.5.1"
+      ],
+      "php": ">=8.1",
+      "path": "/downloads/opencart/3.0/respok-oc3.ocmod.zip",
+      "file": "respok-oc3.ocmod.zip",
+      "sha256": "81cdf1ebe3895d62c4c2884a8f646a4392df29e459fe75b511d30e153903fa88"
+    }
+  ]
+}

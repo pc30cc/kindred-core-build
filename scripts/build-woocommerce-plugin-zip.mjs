@@ -29,6 +29,17 @@
  * A new, unsigned version builds normally; stores do not pick it up until it
  * is signed. WEBYAR_WOOCOMMERCE_REBUILD=1 forces a fresh build.
  *
+ * Two editions from the same source (scripts/build/pluginEdition.mjs), as
+ * the client build's brand asks (scripts/build/brand.mjs):
+ *   iran   → public/downloads/webyar-woocommerce.{zip,json}   (as always)
+ *   respok → public/downloads/respok-woocommerce.{zip,json}   (renamed copy:
+ *            folder/slug/text domain respok-woocommerce, REST namespace
+ *            respok/v1, X-Platform-* headers, RESPOK texts and icon)
+ *   both   → both.
+ * WordPress rules both keep: the zip's single top folder is the slug, the
+ * main file is <slug>/<slug>.php, the text domain is the slug, and
+ * languages/<slug>-<locale>.mo matches it.
+ *
  * Run:  node scripts/build-woocommerce-plugin-zip.mjs
  */
 import { execFileSync } from 'node:child_process';
@@ -37,14 +48,18 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fixedTimeFor, readPublicKey, sha256File, signedManifest, verifyManifest } from './plugin-release-signature.mjs';
+import { resolveBuildBrand } from './build/brand.mjs';
+import { EDITION_CODE, pluginEditionsFor, transformTreeToRespok } from './build/pluginEdition.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN_SLUG = 'webyar-woocommerce';
 const PLUGIN_SRC = join(ROOT, 'plugins', PLUGIN_SLUG);
 const OUT_DIR = join(ROOT, 'public', 'downloads');
-const OUT_FILE = join(OUT_DIR, `${PLUGIN_SLUG}.zip`);
-const MANIFEST_FILE = join(OUT_DIR, `${PLUGIN_SLUG}.json`);
-const SIG_FILE = `${MANIFEST_FILE}.sig`;
+
+/** The package slug (folder, main file, text domain, file names) of an edition. */
+export function wooCommerceSlug(edition) {
+  return `${EDITION_CODE[edition]}-woocommerce`;
+}
 
 // Files/dirs to ship — everything else in plugins/webyar-woocommerce/ is
 // dev-only tooling (vendor/, tests/, composer.*, phpunit.xml.dist, .gitignore).
@@ -83,13 +98,13 @@ function pluginVersion() {
   return version;
 }
 
-/** The manifest body (exact bytes that get signed) for this zip. */
-function manifestBody(version, sha256, size) {
-  const previous = previousManifest();
-  const source = readFileSync(join(PLUGIN_SRC, `${PLUGIN_SLUG}.php`), 'utf8');
+/** The manifest body (exact bytes that get signed) for this zip, read from the staged (edition's) plugin. */
+function manifestBody(pluginDir, slug, manifestFile, version, sha256, size) {
+  const previous = previousManifest(manifestFile);
+  const source = readFileSync(join(pluginDir, `${slug}.php`), 'utf8');
   let changelog = '';
   let changelogFa = '';
-  const readme = join(PLUGIN_SRC, 'readme.txt');
+  const readme = join(pluginDir, 'readme.txt');
   if (existsSync(readme)) {
     const section = readFileSync(readme, 'utf8').split(/^==\s*Changelog\s*==$/m)[1];
     if (section) changelog = section.split(/^==/m)[0].trim();
@@ -98,10 +113,10 @@ function manifestBody(version, sha256, size) {
   }
 
   const manifest = {
-    slug: PLUGIN_SLUG,
+    slug,
     version,
     // Path only — the plugin resolves it against its configured Web Yar URL.
-    package: `/downloads/${PLUGIN_SLUG}.zip`,
+    package: `/downloads/${slug}.zip`,
     // What the plugin checks the downloaded archive against before WordPress
     // unpacks it; trusted only because the whole manifest is signed.
     sha256,
@@ -120,14 +135,13 @@ function manifestBody(version, sha256, size) {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
-function previousManifest() {
+function previousManifest(manifestFile) {
   try {
-    return JSON.parse(readFileSync(MANIFEST_FILE, 'utf8'));
+    return JSON.parse(readFileSync(manifestFile, 'utf8'));
   } catch {
     return null;
   }
 }
-
 function listFiles(dir) {
   const out = [];
   for (const entry of readdirSync(dir).sort()) {
@@ -149,18 +163,25 @@ function assertZipAvailable() {
   }
 }
 
-function main() {
+/**
+ * Packages one edition into `outDir` (<slug>.zip + <slug>.json); returns
+ * what it wrote or kept. Exported for the tests, which build into a temp dir.
+ */
+export function packageWooCommerce({ edition = 'iran', outDir = OUT_DIR, log = console } = {}) {
   if (!existsSync(PLUGIN_SRC)) {
     throw new Error(`Plugin source not found at ${PLUGIN_SRC}`);
   }
   assertZipAvailable();
   const version = pluginVersion();
-  const publicKey = readPublicKey(join(PLUGIN_SRC, 'src', 'Support', 'Updater.php'));
+  const slug = wooCommerceSlug(edition);
+  const outFile = join(outDir, `${slug}.zip`);
+  const manifestFile = join(outDir, `${slug}.json`);
+  const sigFile = `${manifestFile}.sig`;
 
   const work = mkdtempSync(join(tmpdir(), 'webyar-wc-zip-'));
   const stageRoot = join(work, 'stage');
-  const stagePluginDir = join(stageRoot, PLUGIN_SLUG);
-  mkdirSync(stagePluginDir, { recursive: true });
+  const sourceStageDir = join(stageRoot, PLUGIN_SLUG);
+  mkdirSync(sourceStageDir, { recursive: true });
 
   try {
     for (const entry of SHIP) {
@@ -170,50 +191,59 @@ function main() {
         if (entry === 'languages' || entry === 'assets') continue;
         throw new Error(`Expected plugin file/dir missing: ${src}`);
       }
-      cpSync(src, join(stagePluginDir, entry), { recursive: true });
+      cpSync(src, join(sourceStageDir, entry), { recursive: true });
     }
+    // The International edition: the same staged files, renamed and rewritten.
+    if (edition === 'respok') transformTreeToRespok(stageRoot);
+    const stagePluginDir = join(stageRoot, slug);
+    if (!existsSync(join(stagePluginDir, `${slug}.php`))) throw new Error(`staged plugin has no ${slug}/${slug}.php`);
+    const publicKey = readPublicKey(join(stagePluginDir, 'src', 'Support', 'Updater.php'));
 
     // -X: no extra file attributes; -D: no directory entries; a sorted
     // explicit list and one fixed date per version: same source, same bytes.
-    // Run from stageRoot so every entry starts with "webyar-woocommerce/" —
-    // required for WordPress's Plugins → Add New → Upload Plugin.
+    // Run from stageRoot so every entry starts with "<slug>/" — required for
+    // WordPress's Plugins → Add New → Upload Plugin.
     const time = fixedTimeFor(version);
     const files = listFiles(stagePluginDir).map((f) => relative(stageRoot, f));
     for (const f of files) utimesSync(join(stageRoot, f), time, time);
-    const built = join(work, `${PLUGIN_SLUG}.zip`);
+    const built = join(work, `${slug}.zip`);
     execFileSync('zip', ['-X', '-q', '-D', built, ...files], { cwd: stageRoot, stdio: 'inherit' });
     if (!existsSync(built)) {
       throw new Error(`zip reported success but ${built} was not created`);
     }
     const fresh = sha256File(built);
 
-    const signed = signedManifest(MANIFEST_FILE, publicKey);
+    const signed = signedManifest(manifestFile, publicKey);
     const frozen = signed?.version === version
-      && sha256File(OUT_FILE) === signed.sha256
+      && sha256File(outFile) === signed.sha256
       && !process.env.WEBYAR_WOOCOMMERCE_REBUILD;
     if (frozen) {
       // The signed release is what stores verify and install: keep it byte for byte.
       if (fresh !== signed.sha256) {
-        console.warn(`[woocommerce] ${version} is signed and frozen; the source now builds a different zip — bump the plugin Version and sign the new manifest to release it.`);
+        log.warn(`[woocommerce] ${slug} ${version} is signed and frozen; the source now builds a different zip — bump the plugin Version and sign the new manifest to release it.`);
       }
-      console.log(`✅ WordPress plugin: kept signed v${version} (${signed.sha256.slice(0, 12)}…)`);
-      return;
+      log.log(`✅ WordPress plugin: kept signed ${slug} v${version} (${signed.sha256.slice(0, 12)}…)`);
+      return { slug, version, zip: outFile, manifest: manifestFile, kept: true };
     }
 
-    mkdirSync(OUT_DIR, { recursive: true });
-    cpSync(built, OUT_FILE);
-    const body = manifestBody(version, fresh, readFileSync(OUT_FILE).length);
-    writeFileSync(MANIFEST_FILE, body, 'utf8');
-    if (!existsSync(SIG_FILE) || !verifyManifest(Buffer.from(body), readFileSync(SIG_FILE, 'utf8'), publicKey)) {
+    mkdirSync(outDir, { recursive: true });
+    cpSync(built, outFile);
+    const body = manifestBody(stagePluginDir, slug, manifestFile, version, fresh, readFileSync(outFile).length);
+    writeFileSync(manifestFile, body, 'utf8');
+    if (!existsSync(sigFile) || !verifyManifest(Buffer.from(body), readFileSync(sigFile, 'utf8'), publicKey)) {
       // A stale signature would make stores report "signature invalid"
       // instead of the truth: this version is not signed yet.
-      rmSync(SIG_FILE, { force: true });
-      console.warn(`[woocommerce] ${PLUGIN_SLUG}.json is not signed for v${version}: stores will not be offered this update until the manifest is signed on the release host (see scripts/plugin-release-signature.mjs).`);
+      rmSync(sigFile, { force: true });
+      log.warn(`[woocommerce] ${slug}.json is not signed for v${version}: stores will not be offered this update until the manifest is signed on the release host (see scripts/plugin-release-signature.mjs).`);
     }
-    console.log(`✅ WordPress plugin packaged: ${OUT_FILE.replace(ROOT + '/', '')} (v${version}, ${fresh.slice(0, 12)}…)`);
+    log.log(`✅ WordPress plugin packaged: ${outFile.replace(ROOT + '/', '')} (v${version}, ${fresh.slice(0, 12)}…)`);
+    return { slug, version, zip: outFile, manifest: manifestFile, kept: false };
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
 }
 
-main();
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  for (const edition of pluginEditionsFor(resolveBuildBrand(process.env))) packageWooCommerce({ edition });
+}

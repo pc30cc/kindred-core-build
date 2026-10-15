@@ -247,3 +247,30 @@ dialect its connection recorded (`commerce_connections.protocol_version`):
 set at pairing from the module code in the plugin's callback URL, then from
 the protocol the store reports in its handshake. An unknown value is the
 legacy dialect. Each build of the web app offers only its brand's packages.
+
+### Signing a release (both editions)
+
+Installed plugins only take an update whose manifest carries an Ed25519
+signature from the one release key they trust (`UPDATE_PUBLIC_KEY`, the same
+for every plugin and both editions). The key lives on the release host, never
+in this repository. After a build has produced new packages and manifests:
+
+```sh
+node scripts/sign-plugin-releases.mjs --key /path/to/release-key.pem --edition respok --dry-run   # what would be signed
+node scripts/sign-plugin-releases.mjs --key /path/to/release-key.pem --edition respok             # or: iran | all
+git add public/downloads/*.json.sig public/downloads/opencart/*.json.sig && git commit
+```
+
+The script refuses a key whose public half is not `UPDATE_PUBLIC_KEY`, skips a
+manifest whose `.sig` already verifies, and refuses a manifest whose archive
+no longer matches its sha256/size (rebuild first). Once signed, a version is
+frozen: rebuilds keep its archive byte for byte.
+
+### A store on the previous build
+
+A store that paired with the Iran-named build keeps working on either
+deployment (both dialects are accepted), but the International deployment
+does not serve that build's update feed. Its connections API marks such a
+connection `plugin_edition: 'previous'` (and shows its protocol as
+`commerce/1`), and the RESPOK panel asks the owner to install the RESPOK
+plugin, pair it, then remove the old one (`PreviousPluginNotice`).

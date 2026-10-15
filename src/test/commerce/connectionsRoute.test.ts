@@ -23,6 +23,10 @@ vi.mock('../../../server/lib/workspaceAuth.js', () => ({
   authorizeWorkspaceAccess: async () => ({ userId: 'user-1', isAdmin: true }),
 }));
 vi.mock('../../../server/middleware/featureGating.js', () => ({ checkModuleAccess: async () => ({ allowed: true }) }));
+// The platform's edition comes from a cached settings read (platformRegion.ts),
+// not from a per-request query; the tests count the commerce queries only.
+const edition = { current: 'iran' as 'iran' | 'international' };
+vi.mock('../../../server/services/platformRegion.js', () => ({ getPlatformEditionOrNull: async () => edition.current }));
 vi.mock('../../../server/services/commerce/lifecycle.js', () => ({
   disconnectConnection: async () => {},
   rotateConnectionCredential: async () => {},

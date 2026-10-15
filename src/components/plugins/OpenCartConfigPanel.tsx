@@ -23,6 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, RefreshCw, Download, CheckCircle2, XCircle } from 'lucide-react';
 import { COMMERCE_PLUGIN_DOWNLOADS } from './pluginDownloads';
+import { PreviousPluginNotice } from './PreviousPluginNotice';
 
 /** This build's edition of the extension (./pluginDownloads.ts). */
 const OPENCART_MANIFEST_PATH = COMMERCE_PLUGIN_DOWNLOADS.openCartManifest;
@@ -46,6 +47,8 @@ interface Connection {
   platform_version: string | null;
   connector_version: string | null;
   protocol_version: string;
+  /** 'previous' when the store runs the previous build of the plugin (PreviousPluginNotice). */
+  plugin_edition?: string;
   capabilities: string[];
   permissions: Record<string, boolean>;
   health: string;
@@ -218,6 +221,7 @@ export function OpenCartConfigPanel({ workspaceId }: { workspaceId: string }) {
               <div className="grid gap-1 sm:grid-cols-2">
                 <div>{t('plugins.opencart.connection.opencartVersion')}: <code dir="ltr">{connection.platform_version ?? '—'}</code></div>
                 <div>{t('plugins.opencart.connection.extensionVersion')}: <code dir="ltr">{connection.connector_version ?? '—'}</code></div>
+                <PreviousPluginNotice pluginEdition={connection.plugin_edition} downloadPath={COMMERCE_PLUGIN_DOWNLOADS.openCartPackages[0].path} />
                 <div>{t('plugins.opencart.connection.protocol')}: <code dir="ltr">{connection.protocol_version}</code></div>
                 <div>{t('plugins.opencart.connection.lastCheck')}: {connection.last_health_check_at ? new Date(connection.last_health_check_at).toLocaleString() : '—'}</div>
               </div>

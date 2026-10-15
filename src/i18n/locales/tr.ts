@@ -9523,6 +9523,11 @@ const tr: TranslationKeys = {
     },
   },
   plugins: {
+    previousEdition: {
+      title: 'Bu mağaza eklentinin önceki sürümünü kullanıyor',
+      body: 'Çalışmaya devam eder, ancak {{brand}} üzerinden güncelleme almaz. {{brand}} eklentisini kurun (eskisinin yanına kurulabilir), bağlayın ve ardından eski eklentiyi kaldırın.',
+      download: '{{brand}} eklentisini indir',
+    },
     title: 'Eklentiler',
     subtitle: 'Harici kanalları ve servisleri çalışma alanınıza bağlayın.',
     catalogEmpty: 'Henüz kullanılabilir eklenti yok.',

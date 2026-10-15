@@ -1,0 +1,1666 @@
+package com.platform.app.core.net
+
+import com.platform.app.core.media.AttachmentRules
+import com.platform.app.core.model.SupportAttachment
+import com.platform.app.core.model.SupportConversation
+import com.platform.app.core.model.SupportHistory
+import com.platform.app.core.model.SupportHours
+import com.platform.app.core.model.SupportInterval
+import com.platform.app.core.model.SupportItem
+import com.platform.app.core.model.SupportPostResult
+import com.platform.app.core.model.SupportRating
+import com.platform.app.core.model.SupportStatus
+import com.platform.app.core.model.AnalyticsDay
+import com.platform.app.core.model.MobileAppConfig
+import com.platform.app.core.model.AnalyticsEvent
+import com.platform.app.core.model.AnalyticsEvents
+import com.platform.app.core.model.AnalyticsOverview
+import com.platform.app.core.model.AnalyticsPage
+import com.platform.app.core.model.AnalyticsPages
+import com.platform.app.core.model.AnalyticsRow
+import com.platform.app.core.model.AnalyticsRows
+import com.platform.app.core.model.LiveVisitor
+import com.platform.app.core.model.StartChatResult
+import com.platform.app.core.model.VisitorContactRef
+import com.platform.app.core.model.VisitorConversationRef
+import com.platform.app.core.model.VisitorGeo
+import com.platform.app.core.model.VisitorMapConfig
+import com.platform.app.core.model.VisitorMapResponse
+import com.platform.app.core.model.VisitorMarker
+import com.platform.app.core.model.VisitorPageEntry
+import com.platform.app.core.model.VisitorPageHistory
+import com.platform.app.core.model.VisitorPageView
+import com.platform.app.core.model.NotificationPrefs
+import com.platform.app.core.model.NotificationPrefsUpdate
+import com.platform.app.core.model.Account
+import com.platform.app.core.model.AccountProfile
+import com.platform.app.core.model.AccountSession
+import com.platform.app.core.model.AccountSessionsResponse
+import com.platform.app.core.model.AvailabilityPrefs
+import com.platform.app.core.model.AvailabilityResponse
+import com.platform.app.core.model.AvailabilityStatus
+import com.platform.app.core.model.AvailabilityUpdate
+import com.platform.app.core.model.CallChannel
+import com.platform.app.core.model.CallInvitation
+import com.platform.app.core.model.CallToken
+import com.platform.app.core.model.CannedResponse
+import com.platform.app.core.model.ChannelInbox
+import com.platform.app.core.model.Colleague
+import com.platform.app.core.model.ColleaguesResponse
+import com.platform.app.core.model.Contact
+import com.platform.app.core.model.Conversation
+import com.platform.app.core.model.ConversationContact
+import com.platform.app.core.model.ConversationNote
+import com.platform.app.core.model.ConversationPriority
+import com.platform.app.core.model.ConversationStatus
+import com.platform.app.core.model.EmailAddress
+import com.platform.app.core.model.EmailMessageView
+import com.platform.app.core.model.EmailThreadResponse
+import com.platform.app.core.model.EmailThreadSummary
+import com.platform.app.core.model.EmailThreadsResponse
+import com.platform.app.core.model.EmailFolder
+import com.platform.app.core.model.EmailMailFolder
+import com.platform.app.core.model.EmailMailbox
+import com.platform.app.core.model.EffectiveBool
+import com.platform.app.core.model.Entitlements
+import com.platform.app.core.model.GmailConnection
+import com.platform.app.core.model.InboxCounts
+import com.platform.app.core.model.InboxFilter
+import com.platform.app.core.model.MemberProfile
+import com.platform.app.core.model.Message
+import com.platform.app.core.model.MessagePreview
+import com.platform.app.core.model.MessageAttachment
+import com.platform.app.core.model.Promotions
+import com.platform.app.core.model.SayNowVoice
+import com.platform.app.core.model.SenderType
+import com.platform.app.core.model.SentMessage
+import com.platform.app.core.model.TeamMessage
+import com.platform.app.core.model.TeamThreadResponse
+import com.platform.app.core.model.User
+import com.platform.app.core.model.VisitorProfile
+import com.platform.app.core.model.Workspace
+import com.platform.app.core.model.WorkspaceAccess
+import com.platform.app.core.model.WorkspaceMember
+import java.time.Instant
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/**
+ * A backend that answers from memory.
+ *
+ * It exists so every screen can be laid out, reviewed and screenshotted
+ * without a live server or a real account, and so the UI tests need no
+ * account, no network and no credentials anywhere in the test target.
+ *
+ * The content is deliberately awkward rather than tidy — a very long Latin
+ * name beside Persian ones, mixed scripts in one list, a three-digit unread
+ * count, a visitor who never gave a name — because a layout only proves
+ * itself against the cases that break it, not against neat sample rows that
+ * fit by luck.
+ *
+ * This file lives in `src/debug`, so a release build physically cannot
+ * contain it. That is the Android equivalent of the `#if DEBUG` the Swift
+ * original is wrapped in, and it is the stronger of the two: there is no
+ * build flag to get this wrong with.
+ */
+class SampleApi : ServerApi {
+
+    private val lock = Mutex()
+    private val statuses = mutableMapOf<String, ConversationStatus>()
+    private val extraMessages = mutableMapOf<String, MutableList<Message>>()
+
+    override suspend fun hasToken(): Boolean = true
+
+    // MARK: - Auth
+
+    override suspend fun logIn(email: String, password: String): User = OPERATOR
+    override suspend fun currentUser(): User = OPERATOR
+    override suspend fun logOut() {}
+    override suspend fun discardSession() {}
+    override suspend fun requestPasswordReset(email: String, locale: String) {}
+    override suspend fun refreshOrigin() {}
+
+    /**
+     * Two of them, on purpose.
+     *
+     * Settings shows the operator every workspace they belong to, and with a
+     * single one the list, the checkmark and the "switch to this one" tap all
+     * go untested — the one-workspace row is a different branch. Most real
+     * accounts have one; the interesting one is the account that has two.
+     */
+    override suspend fun workspaces(): List<Workspace> = listOf(
+        Workspace(id = "ws-1", name = "Sample Workspace", slug = "sample"),
+        Workspace(id = "ws-2", name = "Second Workspace", slug = "second"),
+    )
+
+    // MARK: - Conversations
+
+    override suspend fun conversations(workspaceId: String, filter: InboxFilter): List<Conversation> {
+        val all = lock.withLock {
+            CONVERSATIONS.map { c -> statuses[c.id]?.let { c.copy(status = it) } ?: c }
+        }
+        return when (filter) {
+            InboxFilter.OPEN ->
+                all.filter { it.status == ConversationStatus.OPEN || it.status == ConversationStatus.PENDING }
+            InboxFilter.NEEDS_HUMAN ->
+                all.filter {
+                    (it.status == ConversationStatus.OPEN || it.status == ConversationStatus.PENDING) &&
+                        it.assignedTo == null
+                }
+            InboxFilter.PENDING -> all.filter { it.status == ConversationStatus.PENDING }
+            InboxFilter.RESOLVED ->
+                all.filter { it.status == ConversationStatus.RESOLVED || it.status == ConversationStatus.CLOSED }
+            InboxFilter.AI -> all.filter { it.lastMessage?.senderType == "ai" }
+            // Nothing in the sample set is spam, and an empty queue is the
+            // honest picture of a healthy workspace.
+            InboxFilter.SPAM -> emptyList()
+        }
+    }
+
+    override suspend fun messages(conversationId: String): List<Message> = lock.withLock {
+        (MESSAGES[conversationId].orEmpty()) + (extraMessages[conversationId].orEmpty())
+    }
+
+    override suspend fun send(
+        body: String,
+        conversationId: String,
+        workspaceId: String,
+        clientMessageId: String,
+        attachmentId: String?,
+    ) {
+        sendMessage(body, conversationId, workspaceId, clientMessageId, attachmentId)
+    }
+
+    /**
+     * Like the server: the key is kept in `metadata.client_message_id`, and a
+     * replay of the same key answers with the original row instead of adding
+     * a second one — which is what the outbox's retry relies on.
+     */
+    override suspend fun sendMessage(
+        body: String,
+        conversationId: String,
+        workspaceId: String,
+        clientMessageId: String,
+        attachmentId: String?,
+    ): SentMessage = lock.withLock {
+        val thread = extraMessages.getOrPut(conversationId) { mutableListOf() }
+        val existing = thread.firstOrNull { it.clientMessageId == clientMessageId }
+        val row = existing ?: Message(
+            id = "m-${System.nanoTime()}",
+            conversationId = conversationId,
+            senderType = SenderType.AGENT,
+            senderId = OPERATOR.id,
+            body = body,
+            createdAt = Instant.now(),
+            senderName = OPERATOR.fullName,
+            metadata = buildJsonObject { put("client_message_id", JsonPrimitive(clientMessageId)) },
+        ).also { thread.add(it) }
+        SentMessage(
+            id = row.id,
+            conversationId = conversationId,
+            senderType = row.senderType,
+            senderId = row.senderId,
+            body = row.body,
+            createdAt = row.createdAt,
+            metadata = row.metadata,
+        )
+    }
+
+    override suspend fun markSeen(conversationId: String) {}
+
+    override suspend fun setStatus(status: ConversationStatus, conversationId: String, workspaceId: String) {
+        lock.withLock { statuses[conversationId] = status }
+    }
+
+    override suspend fun inboxCounts(workspaceId: String, scope: String): InboxCounts =
+        InboxCounts(open = 4, pending = 1, resolved = 2, all = 7, needsHuman = 2, automated = 1)
+
+    override suspend fun contacts(workspaceId: String): List<Contact> = CONTACTS
+
+    /** Every section on, and a support link so About → Support has somewhere to go. */
+    override suspend fun mobileAppConfig(): MobileAppConfig =
+        MobileAppConfig.DEFAULT.copy(supportUrl = "https://example.net/help")
+
+    /**
+     * Everything on, so no screen is hidden behind a plan while it is being
+     * laid out.
+     *
+     * And it has to be SAID rather than left empty. Every gate is
+     * fail-closed — only a key that is exactly true is on — so an empty
+     * snapshot would turn every module OFF and hide tabs such as Contacts.
+     */
+    override suspend fun entitlements(workspaceId: String): Entitlements =
+        Entitlements(
+            workspaceId = workspaceId,
+            modules = ON.associateWith { EffectiveBool(value = true) },
+            features = FEATURES.associateWith { EffectiveBool(value = true) },
+            channels = CHANNELS.associateWith { EffectiveBool(value = true) },
+            plan = Entitlements.PlanSummary(slug = "pro", name = "Pro", tier = "pro"),
+        )
+
+    /**
+     * An owner, with the AI switched on, shown to customers and answering, and
+     * the call center on — so every section the plan carries is laid out.
+     */
+    override suspend fun workspaceAccess(workspaceId: String): WorkspaceAccess =
+        WorkspaceAccess(
+            role = "owner",
+            aiAgentEnabled = true,
+            aiCustomerVisible = true,
+            aiAutoAnswer = true,
+            callCenterVisible = true,
+        )
+
+    override suspend fun account(): Account = Account(
+        id = OPERATOR.id,
+        email = OPERATOR.email,
+        emailConfirmedAt = "2026-01-01T00:00:00Z",
+        profile = AccountProfile(id = OPERATOR.id, fullName = OPERATOR.fullName, preferredLocale = "fa"),
+    )
+
+
+    // MARK: - Conversation actions
+    //
+    // Accepted and forgotten. The sample backend exists to lay screens out,
+    // not to model a workflow: a take-over that changed state here would have
+    // to model assignment, presence and the AI's own view of the thread, and
+    // every screenshot would then depend on the order the shots were taken in.
+
+    override suspend fun takeOverConversation(conversationId: String, workspaceId: String) {}
+    override suspend fun claim(conversationId: String, workspaceId: String) {}
+    override suspend fun aiSayNow(conversationId: String, body: String, voice: SayNowVoice) {}
+
+    override suspend fun updateConversation(
+        conversationId: String,
+        workspaceId: String,
+        status: ConversationStatus?,
+        priority: ConversationPriority?,
+        assignedTo: Assignee?,
+        tags: List<String>?,
+    ) {
+        // Status is the one that shows on a list row, so it is the one worth
+        // remembering across a screenshot pass.
+        status?.let { lock.withLock { statuses[conversationId] = it } }
+    }
+
+    // MARK: - Attachments
+
+    override suspend fun uploadAttachment(
+        conversationId: String?,
+        workspaceId: String,
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
+    ): String = "att-sample"
+
+    override suspend fun attachmentData(id: String): ByteArray = ByteArray(0)
+
+    // MARK: - Canned responses
+    //
+    // The first reply carries TWO placeholders, one that resolves and one that
+    // cannot — which is the pair that matters, because the rule is that an
+    // unresolvable name keeps its braces so the operator sees it before they
+    // send it.
+
+    override suspend fun cannedResponses(
+        workspaceId: String,
+        locale: String,
+        query: String,
+    ): List<CannedResponse> {
+        val all = CANNED
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return all
+        return all.filter { q in it.shortcut.lowercase() || q in it.title.lowercase() }
+    }
+
+    override suspend fun trackCannedResponseUse(id: String, workspaceId: String) {}
+
+    // MARK: - Notes
+
+    override suspend fun notes(conversationId: String, workspaceId: String): List<ConversationNote> =
+        lock.withLock { notesByConversation[conversationId].orEmpty().toList() }
+
+    override suspend fun addNote(conversationId: String, workspaceId: String, body: String) {
+        lock.withLock {
+            notesByConversation.getOrPut(conversationId) { mutableListOf() }.add(
+                ConversationNote(
+                    id = "note-${System.nanoTime()}",
+                    body = body,
+                    authorId = OPERATOR.id,
+                    author = MemberProfile(id = OPERATOR.id, fullName = OPERATOR.fullName, email = OPERATOR.email),
+                    createdAt = Instant.now(),
+                )
+            )
+        }
+    }
+
+    override suspend fun deleteNote(conversationId: String, workspaceId: String, noteId: String) {
+        lock.withLock { notesByConversation[conversationId]?.removeAll { it.id == noteId } }
+    }
+
+    // MARK: - People
+
+    override suspend fun workspaceMembers(workspaceId: String): List<WorkspaceMember> = MEMBERS
+
+    override suspend fun visitorIntelByConversation(
+        workspaceId: String,
+        conversationIds: List<String>,
+    ): Map<String, VisitorProfile> = conversationIds.mapNotNull { id ->
+        INTEL[id]?.let { id to it }
+    }.toMap()
+
+    override suspend fun visitorIntelByContact(
+        workspaceId: String,
+        contactIds: List<String>,
+    ): Map<String, VisitorProfile> = contactIds.mapNotNull { id ->
+        INTEL_BY_CONTACT[id]?.let { id to it }
+    }.toMap()
+
+    // MARK: - Team chat
+
+    override suspend fun colleagues(workspaceId: String): ColleaguesResponse =
+        ColleaguesResponse(colleagues = COLLEAGUES, totalUnread = 2, me = OPERATOR.id)
+
+    override suspend fun teamThread(workspaceId: String, peerId: String): TeamThreadResponse =
+        TeamThreadResponse(
+            messages = lock.withLock { teamMessages[peerId].orEmpty().toList() },
+            me = OPERATOR.id,
+        )
+
+    override suspend fun sendTeamMessage(
+        workspaceId: String,
+        recipientId: String,
+        body: String,
+        attachmentId: String?,
+    ) {
+        lock.withLock {
+            teamMessages.getOrPut(recipientId) { mutableListOf() }.add(
+                TeamMessage(
+                    id = "tm-${System.nanoTime()}",
+                    senderId = OPERATOR.id,
+                    recipientId = recipientId,
+                    body = body,
+                    createdAt = Instant.now(),
+                )
+            )
+        }
+    }
+
+    override suspend fun markTeamThreadRead(workspaceId: String, peerId: String) {}
+
+    // MARK: - Platform support
+
+    /**
+     * The platform's team, online, with one earlier conversation it answered
+     * and resolved three days ago — so Settings shows the row with an unread
+     * reply, the chat opens on a history, and the rating card has something
+     * to rate. A message starts a new conversation that «رضا نوری» joins and
+     * answers once, the way a team that is online would.
+     */
+    private val supportLock = Any()
+    private val supportStart: Instant = Instant.now().minusSeconds(3 * 86_400L)
+    private val supportConversations = mutableListOf(
+        SupportConversation(
+            id = "sc-1",
+            status = SupportConversation.STATUS_RESOLVED,
+            createdAt = supportStart,
+            endedAt = supportStart.plusSeconds(3_600),
+            canRate = true,
+        ),
+    )
+    private val supportItems = mutableListOf(
+        SupportItem(
+            id = "si-1",
+            conversationId = "sc-1",
+            body = "سلام، مبلغ فاکتور این ماه دو بار از کارتم کم شده است.",
+            author = SupportItem.AUTHOR_ME,
+            createdAt = supportStart,
+        ),
+        SupportItem(
+            id = "si-2",
+            conversationId = "sc-1",
+            kind = SupportItem.KIND_JOINED,
+            author = SupportItem.AUTHOR_TEAM,
+            senderName = SUPPORT_AGENT,
+            createdAt = supportStart.plusSeconds(300),
+        ),
+        SupportItem(
+            id = "si-3",
+            conversationId = "sc-1",
+            body = "سلام، بررسی کردیم؛ مبلغ اضافه تا ۷۲ ساعت آینده به حسابتان برمی‌گردد. ممنون از صبرتان.",
+            author = SupportItem.AUTHOR_TEAM,
+            senderName = SUPPORT_AGENT,
+            createdAt = supportStart.plusSeconds(720),
+        ),
+    )
+    private val supportFiles = mutableMapOf<String, ByteArray>()
+
+    /** Until when the operator has read the chat: before the team's answer, so it counts as new. */
+    private var supportReadAt: Instant = supportStart.plusSeconds(600)
+
+    override suspend fun supportStatus(): SupportStatus = synchronized(supportLock) {
+        SupportStatus(
+            enabled = true,
+            available = true,
+            online = true,
+            teamName = "پشتیبانی نمونه",
+            unread = supportItems.count { it.fromTeam && !it.isJoin && (it.createdAt ?: Instant.EPOCH) > supportReadAt },
+            hours = SupportHours(
+                timezone = "Asia/Tehran",
+                weekly = listOf("sat", "sun", "mon", "tue", "wed").associateWith { listOf(SupportInterval("09:00", "17:00")) } +
+                    ("thu" to listOf(SupportInterval("09:00", "13:00"))),
+            ),
+        )
+    }
+
+    override suspend fun supportHistory(): SupportHistory = synchronized(supportLock) {
+        SupportHistory(
+            conversations = supportConversations.toList(),
+            items = supportItems.toList(),
+            activeConversationId = supportConversations.lastOrNull { !it.ended }?.id,
+        )
+    }
+
+    override suspend fun sendSupportMessage(
+        body: String,
+        clientMessageId: String,
+        conversationId: String?,
+        workspaceId: String?,
+    ): SupportPostResult =
+        synchronized(supportLock) {
+            if (body.isBlank()) throw ApiError.Server(400, "invalid_body")
+            appendSupport(clientMessageId, conversationId) { conversationId, at ->
+                SupportItem(
+                    id = "si-${supportItems.size + 1}",
+                    conversationId = conversationId,
+                    body = body.trim(),
+                    author = SupportItem.AUTHOR_ME,
+                    createdAt = at,
+                    clientMessageId = clientMessageId,
+                )
+            }
+        }
+
+    override suspend fun sendSupportAttachment(
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
+        clientMessageId: String,
+        conversationId: String?,
+        workspaceId: String?,
+    ): SupportPostResult = synchronized(supportLock) {
+        if (bytes.size > 2 * 1024 * 1024) throw ApiError.Server(413, "file_too_large")
+        if (mimeType !in AttachmentRules.PICKABLE_MIME_TYPES) throw ApiError.Server(400, "file_type_not_allowed")
+        appendSupport(clientMessageId, conversationId) { conversationId, at ->
+            val id = "sa-${supportFiles.size + 1}"
+            supportFiles[id] = bytes
+            SupportItem(
+                id = "si-${supportItems.size + 1}",
+                conversationId = conversationId,
+                author = SupportItem.AUTHOR_ME,
+                createdAt = at,
+                clientMessageId = clientMessageId,
+                attachments = listOf(
+                    SupportAttachment(id, fileName, mimeType, bytes.size.toLong(), AttachmentRules.kindOf(mimeType)),
+                ),
+            )
+        }
+    }
+
+    /**
+     * The item [clientMessageId] names, if it was sent before; else a new
+     * one — into [target] while it is open (an ended one refuses it, as the
+     * server does), or, with no target, the open conversation or the first
+     * of a new one, which the agent joins and answers.
+     */
+    private fun appendSupport(
+        clientMessageId: String,
+        target: String?,
+        make: (String, Instant) -> SupportItem,
+    ): SupportPostResult {
+        supportItems.firstOrNull { it.clientMessageId == clientMessageId }?.let { sent ->
+            return SupportPostResult(supportConversations.first { it.id == sent.conversationId }, sent)
+        }
+        if (target != null) {
+            val named = supportConversations.firstOrNull { it.id == target }
+                ?: throw ApiError.Server(404, "conversation_not_found")
+            if (named.ended) throw ApiError.Server(409, "conversation_ended")
+        }
+        val now = Instant.now()
+        val active = supportConversations.lastOrNull { !it.ended }
+        val conversation = active ?: SupportConversation(
+            id = "sc-${supportConversations.size + 1}",
+            status = SupportConversation.STATUS_OPEN,
+            createdAt = now,
+        ).also { supportConversations += it }
+        val item = make(conversation.id, now)
+        supportItems += item
+        supportReadAt = now
+        if (active == null) {
+            supportItems += SupportItem(
+                id = "si-${supportItems.size + 1}",
+                conversationId = conversation.id,
+                kind = SupportItem.KIND_JOINED,
+                author = SupportItem.AUTHOR_TEAM,
+                senderName = SUPPORT_AGENT,
+                createdAt = now.plusMillis(1),
+            )
+            supportItems += SupportItem(
+                id = "si-${supportItems.size + 1}",
+                conversationId = conversation.id,
+                body = "سلام! پیامتان رسید. چند لحظه صبر کنید تا بررسی کنم.",
+                author = SupportItem.AUTHOR_TEAM,
+                senderName = SUPPORT_AGENT,
+                createdAt = now.plusMillis(2),
+            )
+        }
+        return SupportPostResult(conversation, item)
+    }
+
+    /** The team ends a conversation, as the inbox would: for tests of what the chat does next. */
+    internal fun endSupportConversation(id: String, status: String = SupportConversation.STATUS_RESOLVED) =
+        synchronized(supportLock) {
+            val index = supportConversations.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                supportConversations[index] = supportConversations[index].copy(
+                    status = status,
+                    endedAt = Instant.now(),
+                    canRate = supportItems.any { it.conversationId == id && it.fromTeam && !it.isJoin },
+                )
+            }
+        }
+
+    override suspend fun supportAttachmentData(id: String): ByteArray = synchronized(supportLock) {
+        supportFiles[id] ?: throw ApiError.Server(404, "attachment_not_found")
+    }
+
+    override suspend fun rateSupportConversation(conversationId: String, score: Int, comment: String?): SupportConversation =
+        synchronized(supportLock) {
+            val index = supportConversations.indexOfFirst { it.id == conversationId }
+            if (index < 0) throw ApiError.Server(404, "conversation_not_found")
+            if (score !in 1..5) throw ApiError.Server(400, "invalid_rating")
+            val conversation = supportConversations[index]
+            if (conversation.rating != null) throw ApiError.Server(409, "already_rated")
+            if (!conversation.canRate) throw ApiError.Server(409, "not_ratable")
+            conversation.copy(
+                rating = SupportRating(score, comment?.takeIf { it.isNotBlank() }, Instant.now()),
+                canRate = false,
+            ).also { supportConversations[index] = it }
+        }
+
+    override suspend fun markSupportRead() = synchronized(supportLock) {
+        // Everything so far, the auto-reply stamped a moment ahead included.
+        supportReadAt = maxOf(Instant.now(), supportItems.maxOf { it.createdAt ?: Instant.EPOCH })
+    }
+
+    // MARK: - Channels and email
+
+    override suspend fun channelInboxes(workspaceId: String): List<ChannelInbox> =
+        listOf(ChannelInbox("telegram"), ChannelInbox("bale"), ChannelInbox("whatsapp"))
+
+    override suspend fun emailThreads(workspaceId: String, search: String?): List<EmailThreadSummary> {
+        val q = search?.trim()?.lowercase().orEmpty()
+        if (q.isEmpty()) return EMAIL_THREADS
+        return EMAIL_THREADS.filter { q in it.subject.orEmpty().lowercase() }
+    }
+
+    override suspend fun emailThread(workspaceId: String, threadId: String, mailbox: String?, mailFolder: String?): EmailThreadResponse =
+        EmailThreadResponse(
+            thread = (EMAIL_THREADS + YAHOO_THREADS + FOLDER_THREADS).firstOrNull { it.id == threadId } ?: EMAIL_THREADS.first(),
+            messages = FOLDER_MESSAGES[threadId] ?: EMAIL_MESSAGES,
+        )
+
+    /**
+     * Gmail's whole menu — its folders with their counts and two labels — so
+     * the drawer is drawn as a real mailbox fills it; Yahoo's three.
+     */
+    override suspend fun emailFolders(workspaceId: String, mailbox: String?): List<EmailMailFolder> =
+        if (mailbox == "yahoo") {
+            listOf(
+                EmailMailFolder("inbox", unread = YAHOO_THREADS.count { it.isRead == false }),
+                EmailMailFolder("starred"),
+                EmailMailFolder("sent"),
+            )
+        } else {
+            listOf(
+                EmailMailFolder("inbox", unread = EMAIL_THREADS.count { it.isRead == false }),
+                EmailMailFolder("starred"),
+                EmailMailFolder("important"),
+                EmailMailFolder("sent"),
+                EmailMailFolder("drafts", total = 1),
+                EmailMailFolder("all"),
+                EmailMailFolder("spam", unread = 1),
+                EmailMailFolder("trash"),
+                EmailMailFolder("label:Label_clients", kind = "label", name = "مشتریان"),
+                EmailMailFolder("label:Label_news", kind = "label", name = "خبرنامه‌ها", unread = 1),
+            )
+        }
+
+    private suspend fun gmailFolder(workspaceId: String, id: String?, search: String?): List<EmailThreadSummary> =
+        when (id ?: EmailMailFolder.INBOX) {
+            EmailMailFolder.INBOX -> emailThreads(workspaceId, search)
+            "starred" -> EMAIL_THREADS.filter { it.isStarred == true }
+            "important" -> EMAIL_THREADS.take(1)
+            "sent" -> FOLDER_THREADS.filter { it.id == "s-1" }
+            "drafts" -> FOLDER_THREADS.filter { it.id == "d-1" }
+            "all" -> listOf(EMAIL_THREADS[0]) + FOLDER_THREADS.filter { it.id == "n-1" || it.id == "s-1" } + EMAIL_THREADS[1]
+            "spam" -> FOLDER_THREADS.filter { it.id == "sp-1" }
+            "label:Label_news" -> FOLDER_THREADS.filter { it.id == "n-1" || it.id == "n-2" }
+            "label:Label_clients" -> EMAIL_THREADS.filter { it.id == "t-2" }
+            else -> emptyList()
+        }
+
+    /**
+     * Two mailboxes, on purpose: the switcher, the per-mailbox counts and a
+     * notification naming its mailbox are only drawn when there is more than
+     * one, and most real workspaces have one.
+     */
+    override suspend fun emailMailboxes(workspaceId: String): List<EmailMailbox> = listOf(
+        EmailMailbox("gmail", "support@example.org", "connected", EMAIL_THREADS.count { it.isRead == false }),
+        EmailMailbox("yahoo", "sales@example.org", "connected", YAHOO_THREADS.count { it.isRead == false }),
+    )
+
+    override suspend fun emailThreadsPage(
+        workspaceId: String,
+        folder: EmailFolder,
+        search: String?,
+        before: String?,
+        mailbox: String?,
+        mailFolder: String?,
+    ): EmailThreadsResponse {
+        if (before != null) return EmailThreadsResponse()
+        val all = if (mailbox == "yahoo") {
+            when (mailFolder ?: EmailMailFolder.INBOX) {
+                EmailMailFolder.INBOX -> YAHOO_THREADS
+                "starred" -> YAHOO_THREADS.filter { it.isStarred == true }
+                else -> emptyList()
+            }
+        } else {
+            gmailFolder(workspaceId, mailFolder, search)
+        }
+        return EmailThreadsResponse(
+            threads = when (folder) {
+                EmailFolder.INBOX -> all
+                EmailFolder.UNREAD -> all.filter { it.isRead == false }
+                EmailFolder.STARRED -> all.filter { it.isStarred == true }
+            },
+        )
+    }
+
+    override suspend fun setEmailThreadRead(workspaceId: String, threadId: String, isRead: Boolean, mailbox: String?) {}
+    override suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean, mailbox: String?) {}
+    override suspend fun sendEmail(
+        workspaceId: String,
+        threadId: String?,
+        to: List<String>,
+        subject: String,
+        body: String,
+    ) {}
+
+    override suspend fun gmailConnection(workspaceId: String): GmailConnection? =
+        GmailConnection(connected = true, emailAddress = "support@example.org", status = "active")
+
+    // MARK: - Availability and promotions
+
+    override suspend fun availability(): AvailabilityResponse = AVAILABILITY
+
+    override suspend fun updateAvailability(update: AvailabilityUpdate): AvailabilityResponse = AVAILABILITY
+
+    /**
+     * Off.
+     *
+     * A promotion that lands mid-screenshot ruins the shot, and the card has
+     * its own screenshot path. `PromotionCenter`'s own rules are unit-tested
+     * rather than exercised here.
+     */
+    override suspend fun promotions(workspaceId: String, locale: String): Promotions = Promotions.NONE
+
+    // MARK: - Calls
+
+    override suspend fun inviteToCall(
+        workspaceId: String,
+        conversationId: String,
+        channel: CallChannel,
+    ): CallInvitation = CallInvitation(
+        id = "inv-1",
+        status = "pending",
+        channel = channel.wire,
+        conversationId = conversationId,
+        expiresAt = Instant.now().plusSeconds(120),
+    )
+
+    override suspend fun cancelInvitation(id: String) {}
+
+    override suspend fun invitation(id: String): CallInvitation =
+        CallInvitation(id = id, status = "pending", channel = "audio")
+
+    /**
+     * There is no room to join, and saying so is the honest answer.
+     *
+     * A fabricated token would send the call screen into a connection attempt
+     * against a signalling URL that does not exist, and the failure would
+     * arrive seconds later looking like a network fault rather than like the
+     * sample backend having no media server.
+     */
+    override suspend fun callToken(callSessionId: String, displayName: String?): CallToken =
+        throw ApiError.Server(status = 501, serverMessage = "sample backend has no media server")
+
+    override suspend fun hangUp(callSessionId: String) {}
+
+    override suspend fun acceptCenterCall(workspaceId: String, callSessionId: String) {}
+
+    override suspend fun endCenterCall(workspaceId: String, callSessionId: String) {}
+
+    override suspend fun endCall(callSessionId: String, reason: String) {}
+
+    // MARK: - Account
+
+    override suspend fun updateProfile(
+        fullName: String?,
+        preferredLocale: String?,
+        firstName: String?,
+        lastName: String?,
+        phone: String?,
+    ): Account = account()
+
+    override suspend fun uploadAvatar(
+        bytes: ByteArray,
+        contentType: String,
+        fileName: String?,
+    ): AccountProfile? = AccountProfile(id = OPERATOR.id, fullName = OPERATOR.fullName)
+
+    override suspend fun deleteAvatar() {}
+
+    override suspend fun sessions(): AccountSessionsResponse = SESSIONS
+
+    override suspend fun revokeSession(id: String) {}
+
+    // MARK: - Visitors and Website analytics
+
+    override suspend fun liveVisitors(workspaceId: String, includeOffline: Boolean): List<LiveVisitor> =
+        if (includeOffline) LIVE_VISITORS else LIVE_VISITORS.filter { it.status != "offline" }
+
+    override suspend fun visitorPageHistory(workspaceId: String, sessionId: String): VisitorPageHistory {
+        val now = Instant.now()
+        return VisitorPageHistory(
+            entry = VisitorPageEntry(
+                landingUrl = "https://example.org/",
+                landingTitle = "Example — live chat for your site",
+                landedAt = now.minusSeconds(14 * 60),
+            ),
+            items = listOf(
+                VisitorPageView(3, "https://example.org/pricing", "Pricing", now.minusSeconds(60)),
+                VisitorPageView(2, "https://example.org/features/ai", "AI agent", now.minusSeconds(6 * 60)),
+                VisitorPageView(1, "https://example.org/", "Example — live chat for your site", now.minusSeconds(14 * 60)),
+            ),
+            current = VisitorPageView(4, "https://example.org/pricing#business", "Pricing — Business", now.minusSeconds(20)),
+        )
+    }
+
+    override suspend fun startChatWithVisitor(workspaceId: String, sessionId: String): StartChatResult =
+        StartChatResult(ok = true, conversationId = "c-1", created = false)
+
+    override suspend fun visitorMapConfig(workspaceId: String): VisitorMapConfig = VisitorMapConfig(enabled = true)
+
+    override suspend fun visitorMap(workspaceId: String): VisitorMapResponse = VisitorMapResponse(
+        LIVE_VISITORS.mapNotNull { v ->
+            val geo = v.geo ?: return@mapNotNull null
+            VisitorMarker(v.id, v.status, geo.latitude, geo.longitude, geo.country, geo.countryCode, geo.city, v.currentPage)
+        },
+    )
+
+    override suspend fun analyticsOverview(workspaceId: String, start: String, end: String): AnalyticsOverview {
+        val from = java.time.LocalDate.parse(start)
+        val to = java.time.LocalDate.parse(end)
+        val days = generateSequence(from) { it.plusDays(1) }.takeWhile { !it.isAfter(to) }.toList()
+        // A week's rhythm over a slow climb, the same for the same day whatever the range.
+        val trend = days.map { d ->
+            val base = 60 + (d.toEpochDay() % 97).toInt() / 3
+            val weekday = if (d.dayOfWeek.value >= 6) -18 else 0
+            val sessions = maxOf(4, base + weekday + (d.toEpochDay() % 7).toInt() * 3)
+            AnalyticsDay(d.toString(), sessions, sessions * 3 - (d.toEpochDay() % 5).toInt())
+        }
+        val sessions = trend.sumOf { it.sessions ?: 0 }
+        val views = trend.sumOf { it.pageviews ?: 0 }
+        return AnalyticsOverview(
+            sessions = sessions,
+            pageviews = views,
+            avgPagesPerSession = views.toDouble() / maxOf(1, sessions),
+            uniqueVisitors = sessions * 7 / 10,
+            bounceRate = 38.0 + (from.toEpochDay() % 9),
+            avgVisitDurationSeconds = 134.0 + (from.toEpochDay() % 40),
+            trend = trend,
+            topChannels = SAMPLE_CHANNELS.map { (k, share) -> AnalyticsRow(k, sessions = sessions * share / 100) },
+            topPages = SAMPLE_PAGES.map { (path, share) -> AnalyticsPage(path, views * share / 100) },
+        )
+    }
+
+    override suspend fun analyticsLiveVisitors(workspaceId: String): Int = LIVE_VISITORS.count { it.status == "online" }
+
+    override suspend fun analyticsTrafficSources(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows =
+        AnalyticsRows(
+            when (dimension) {
+                "source" -> listOf(
+                    AnalyticsRow("google", "google", 812, 2440), AnalyticsRow("(direct)", "(direct)", 530, 1302),
+                    AnalyticsRow("instagram.com", "instagram.com", 214, 505), AnalyticsRow("t.me", "t.me", 120, 288),
+                    AnalyticsRow("bing", "bing", 41, 99),
+                )
+                "campaign" -> listOf(
+                    AnalyticsRow("spring_sale", "spring_sale", 244, 720), AnalyticsRow("newsletter_03", "newsletter_03", 96, 301),
+                    AnalyticsRow("(unknown)", "(unknown)", 1377, 3613),
+                )
+                else -> SAMPLE_CHANNELS.map { (k, share) -> AnalyticsRow(k, sessions = 1717 * share / 100, pageviews = 4600 * share / 100) }
+            },
+        )
+
+    override suspend fun analyticsGeography(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows =
+        AnalyticsRows(
+            when (dimension) {
+                "city" -> listOf(
+                    AnalyticsRow("Tehran", "Tehran", 690), AnalyticsRow("Mashhad", "Mashhad", 212), AnalyticsRow("Isfahan", "Isfahan", 188),
+                    AnalyticsRow("Istanbul", "Istanbul", 141), AnalyticsRow("Berlin", "Berlin", 66), AnalyticsRow("(unknown)", "(unknown)", 40),
+                )
+                "language" -> listOf(
+                    AnalyticsRow("fa-IR", "fa-IR", 1180), AnalyticsRow("en-US", "en-US", 290), AnalyticsRow("tr-TR", "tr-TR", 170),
+                    AnalyticsRow("de-DE", "de-DE", 77),
+                )
+                else -> listOf(
+                    AnalyticsRow("Iran", "Iran", 1203), AnalyticsRow("Turkey", "Turkey", 188), AnalyticsRow("Germany", "Germany", 121),
+                    AnalyticsRow("United States", "United States", 98), AnalyticsRow("Canada", "Canada", 55), AnalyticsRow("(unknown)", "(unknown)", 52),
+                )
+            },
+        )
+
+    override suspend fun analyticsTechnology(workspaceId: String, dimension: String, start: String, end: String): AnalyticsRows =
+        AnalyticsRows(
+            when (dimension) {
+                "os" -> listOf(
+                    AnalyticsRow("Android", "Android", 820), AnalyticsRow("Windows", "Windows", 505), AnalyticsRow("iOS", "iOS", 250),
+                    AnalyticsRow("macOS", "macOS", 104), AnalyticsRow("Linux", "Linux", 38),
+                )
+                "browser" -> listOf(
+                    AnalyticsRow("Chrome", "Chrome", 1102), AnalyticsRow("Safari", "Safari", 301), AnalyticsRow("Firefox", "Firefox", 160),
+                    AnalyticsRow("Edge", "Edge", 120), AnalyticsRow("Samsung Internet", "Samsung Internet", 34),
+                )
+                else -> listOf(AnalyticsRow("mobile", "mobile", 1044), AnalyticsRow("desktop", "desktop", 611), AnalyticsRow("tablet", "tablet", 62))
+            },
+        )
+
+    override suspend fun analyticsPages(workspaceId: String, kind: String, start: String, end: String): AnalyticsPages =
+        AnalyticsPages(
+            when (kind) {
+                "entry" -> listOf(AnalyticsPage("/", 902), AnalyticsPage("/blog/live-chat-tips", 311), AnalyticsPage("/pricing", 240))
+                "exit" -> listOf(AnalyticsPage("/pricing", 512), AnalyticsPage("/", 388), AnalyticsPage("/signup", 190))
+                else -> SAMPLE_PAGES.map { (path, share) -> AnalyticsPage(path, 4600 * share / 100) }
+            },
+        )
+
+    override suspend fun analyticsEvents(workspaceId: String, start: String, end: String): AnalyticsEvents =
+        AnalyticsEvents(
+            listOf(
+                AnalyticsEvent("chat_started", 402, 377, 0.22),
+                AnalyticsEvent("signup_click", 188, 170, 0.099),
+                AnalyticsEvent("pricing_view", 944, 610, 0.355),
+                AnalyticsEvent("file_download", 51, 44, 0.026),
+            ),
+        )
+
+    override suspend fun revokeOtherSessions(): Int = 0
+
+    override suspend fun changePassword(current: String, new: String) {}
+
+    /**
+     * Held in memory, and shaped like the DEPLOYED server rather than like
+     * `server/routes/notifications.ts` in this repository — the two differ,
+     * and the one the app actually meets is the one worth rehearsing
+     * against. See [NotificationPrefs].
+     */
+    private var prefs = NotificationPrefs(
+        disableAll = false,
+        pushScope = "all",
+        pushPreview = true,
+        pushInternalNotes = true,
+        pushWhenOnline = true,
+        pushWhenOffline = true,
+        playSound = true,
+        quietHoursEnabled = false,
+    )
+
+    override suspend fun notificationPrefs(): NotificationPrefs = prefs
+
+    override suspend fun updateNotificationPrefs(
+        update: NotificationPrefsUpdate,
+    ): NotificationPrefs {
+        prefs = prefs.copy(
+            disableAll = update.disableAll ?: prefs.disableAll,
+            pushScope = update.pushScope ?: prefs.pushScope,
+            pushPreview = update.pushPreview ?: prefs.pushPreview,
+            pushInternalNotes = update.pushInternalNotes ?: prefs.pushInternalNotes,
+            pushWhenOnline = update.pushWhenOnline ?: prefs.pushWhenOnline,
+            pushWhenOffline = update.pushWhenOffline ?: prefs.pushWhenOffline,
+            playSound = update.playSound ?: prefs.playSound,
+            quietHoursEnabled = update.quietHoursEnabled ?: prefs.quietHoursEnabled,
+            quietHoursStart = update.quietHoursStart ?: prefs.quietHoursStart,
+            quietHoursEnd = update.quietHoursEnd ?: prefs.quietHoursEnd,
+            quietHoursTimezone = update.quietHoursTimezone ?: prefs.quietHoursTimezone,
+        )
+        return prefs
+    }
+
+    private val notesByConversation = mutableMapOf<String, MutableList<ConversationNote>>()
+    /**
+     * Seeded, not empty: every preview in the colleagues list needs a thread
+     * behind it, or the thread opens blank.
+     */
+    private val teamMessages: MutableMap<String, MutableList<TeamMessage>> =
+        TEAM_THREADS.mapValues { it.value.toMutableList() }.toMutableMap()
+
+    private companion object {
+        /** The support team's agent in the sample. */
+        const val SUPPORT_AGENT = "رضا نوری"
+
+        val SAMPLE_CHANNELS = listOf(
+            "organic_search" to 46, "direct" to 28, "organic_social" to 12, "referral" to 8, "paid_search" to 4, "email" to 2,
+        )
+        val SAMPLE_PAGES = listOf(
+            "/" to 31, "/pricing" to 18, "/features/ai" to 11, "/blog/live-chat-tips" to 9, "/signup" to 6, "/fa/درباره-ما" to 3,
+        )
+
+        val LIVE_VISITORS: List<LiveVisitor>
+            get() {
+                val now = Instant.now()
+                fun geo(country: String, code: String, region: String?, city: String, lat: Double, lng: Double) =
+                    VisitorGeo(country, code, region, city, lat, lng)
+                return listOf(
+                    LiveVisitor(
+                        id = "vs-1", status = "online", currentPage = "https://example.org/pricing#business",
+                        lastActivityAt = now.minusSeconds(20), browser = "Chrome 131", device = "mobile", os = "Android 15",
+                        referrer = "https://www.google.com/", geo = geo("Iran", "IR", "Tehran", "Tehran", 35.69, 51.39),
+                        ipDisplay = "5.160.•••.•••",
+                        contact = VisitorContactRef("ct-1", name = "Sara Ahmadi", email = "sara@example.com"),
+                        conversation = VisitorConversationRef("c-1", "open"),
+                    ),
+                    LiveVisitor(
+                        id = "vs-2", status = "online", currentPage = "https://example.org/features/ai",
+                        lastActivityAt = now.minusSeconds(95), browser = "Safari 18", device = "desktop", os = "macOS 15",
+                        geo = geo("Turkey", "TR", "Istanbul", "Istanbul", 41.01, 28.97), ipDisplay = "88.230.•••.•••",
+                        contact = VisitorContactRef("ct-9", visitorCode = "4ZTK"),
+                    ),
+                    LiveVisitor(
+                        id = "vs-3", status = "idle", currentPage = "https://example.org/blog/live-chat-tips",
+                        lastActivityAt = now.minusSeconds(7 * 60), browser = "Firefox 133", device = "desktop", os = "Windows 11",
+                        referrer = "https://t.me/", geo = geo("Iran", "IR", "Razavi Khorasan", "Mashhad", 36.30, 59.60),
+                    ),
+                    LiveVisitor(
+                        id = "vs-4", status = "online", currentPage = "https://example.org/",
+                        lastActivityAt = now.minusSeconds(40), browser = "Chrome 131", device = "desktop", os = "Linux",
+                        geo = geo("Germany", "DE", "Berlin", "Berlin", 52.52, 13.40),
+                    ),
+                    LiveVisitor(
+                        id = "vs-5", status = "offline", currentPage = "https://example.org/signup",
+                        lastActivityAt = now.minusSeconds(2 * 3600), browser = "Safari 18", device = "tablet", os = "iPadOS 18",
+                        geo = geo("Canada", "CA", "Ontario", "Toronto", 43.65, -79.38),
+                    ),
+                )
+            }
+
+        val OPERATOR = User(
+            id = "u-1",
+            email = "operator@example.org",
+            fullName = "Sara Karimi",
+            emailVerifiedFlag = true,
+        )
+
+        fun ago(minutes: Long): Instant = Instant.now().minusSeconds(minutes * 60)
+
+        /**
+         * [ago], but never before today's midnight: a sample that means
+         * "today", built just after midnight, would fall on yesterday, draw
+         * an extra day header and move the thread — and fail the tests that
+         * run a few minutes into the day. Such times are moved to a few
+         * seconds past midnight instead, keeping their order.
+         */
+        fun agoToday(minutes: Long): Instant {
+            val midnight = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()
+            val wanted = ago(minutes)
+            return if (wanted.isBefore(midnight)) midnight.plusSeconds((30 - minutes).coerceAtLeast(1)) else wanted
+        }
+
+        /**
+         * The `metadata.channel` a conversation carries when it did not come
+         * in through the widget.
+         *
+         * Without this the channel strip would list three inboxes and every
+         * one of them would be empty, because nothing in the fixture would be
+         * filed under a channel.
+         */
+        fun channel(key: String): JsonElement =
+            buildJsonObject { put("channel", JsonPrimitive(key)) }
+
+        /**
+         * The keys `AppSidebar.tsx` gates a whole section on. Only a key that is
+         * exactly true is on, so each one the app reads is listed by its
+         * registry name (`email_inbox`, not `email`).
+         */
+        val ON = listOf(
+            "contacts", "email", "team_chat", "voice_video", "canned_responses",
+            "email_inbox", "visitor_tracking", "call_center", "ai_assistant", "web_analytics",
+        )
+
+        /** The keys a single control inside a screen asks about. */
+        val FEATURES = listOf(
+            // The website widget's own keys, as a real plan carries them. They
+            // do not reach the operator's composer.
+            "widget_attachments", "widget_voice_notes", "widget_emoji", "canned_responses",
+            // The two extra inbox queues. Without these the chip strip is one
+            // chip wide and the screen hides it.
+            "inbox_needs_human", "inbox_ai_queue",
+            // The Colleagues row.
+            "inbox_team_chat",
+        )
+
+        val CHANNELS = listOf("chat_widget", "voice", "video", "telegram", "bale", "whatsapp")
+
+        // MARK: - The awkward cases
+        //
+        // Every list below is chosen to break a layout that only works on
+        // tidy rows: a saved reply whose placeholder cannot resolve, a
+        // colleague with no name at all, an email subject long enough to wrap
+        // twice, a session from a device nobody recognises.
+
+        val CANNED = listOf(
+            CannedResponse(
+                id = "cr-1",
+                shortcut = "hi",
+                title = "Greeting",
+                // Two placeholders: one that resolves and one that cannot,
+                // which is exactly the pair the interpolation rule is about.
+                body = "سلام {{contact.name}} عزیز، به {{workspace.name}} خوش آمدید.",
+                locale = "fa",
+                usageCount = 128,
+            ),
+            CannedResponse(
+                id = "cr-2",
+                shortcut = "wait",
+                title = "Looking into it",
+                body = "همین الان بررسی می‌کنم و خبر می‌دهم.",
+                locale = "fa",
+                usageCount = 41,
+            ),
+            CannedResponse(
+                id = "cr-3",
+                shortcut = "bye",
+                title = "Closing",
+                body = "Thanks for getting in touch — {{agent.first_name}}",
+                locale = "en",
+                usageCount = 7,
+            ),
+        )
+
+        val MEMBERS = listOf(
+            WorkspaceMember(
+                id = "m-1", userId = "u-1", role = "owner",
+                profile = MemberProfile(id = "u-1", fullName = "Sara Karimi", email = "operator@example.org"),
+                departmentNames = listOf("پشتیبانی"),
+            ),
+            WorkspaceMember(
+                id = "m-2", userId = "u-2", role = "agent",
+                profile = MemberProfile(id = "u-2", fullName = "Reza Ahmadi", email = "reza@example.org"),
+            ),
+            // Suspended: the transfer list must show them and refuse to hand
+            // them work, rather than pretending they are not there.
+            WorkspaceMember(
+                id = "m-3", userId = "u-3", role = "agent",
+                suspendedAt = ago(60 * 24 * 30),
+                profile = MemberProfile(id = "u-3", fullName = "Mehdi Tavakoli", email = "mehdi@example.org"),
+            ),
+        )
+
+        val INTEL = mapOf(
+            "c-1" to VisitorProfile(
+                geo = VisitorProfile.Geo(countryCode = "IR", country = "Iran", city = "Tehran"),
+                device = VisitorProfile.Device(browser = "Chrome", os = "Windows", device = "desktop"),
+                lastSeenAt = Instant.parse("2025-03-02T09:12:00Z"),
+            ),
+            "c-2" to VisitorProfile(
+                // A country the server knew only by its code. The detail has
+                // to name it anyway.
+                geo = VisitorProfile.Geo(countryCode = "DE", city = "Berlin"),
+                device = VisitorProfile.Device(browser = "Safari", os = "macOS", device = "desktop"),
+                lastSeenAt = Instant.parse("2025-03-01T18:40:00Z"),
+            ),
+            // No geo at all — a visitor behind a VPN, or an IP the privacy
+            // policy would not resolve. The row still has to render.
+            "c-4" to VisitorProfile(
+                device = VisitorProfile.Device(browser = "Firefox", os = "Android", device = "mobile"),
+            ),
+        )
+
+        /**
+         * The same answers, keyed the other way.
+         *
+         * Derived rather than written out, because the two have to agree: a
+         * visitor filed as a Mac in Germany on the inbox and as bare initials
+         * on the contacts list is the exact inconsistency the shared endpoint
+         * exists to prevent, and hand-keeping two maps in step is how that
+         * creeps in. The link is the conversation's `contactId`.
+         *
+         * `by lazy` rather than a plain initializer: `CONVERSATIONS` is
+         * declared further down, and an object's properties initialize in the
+         * order they are written, so an eager version of this would read a
+         * null the day somebody moved either one.
+         */
+        val INTEL_BY_CONTACT: Map<String, VisitorProfile> by lazy {
+            CONVERSATIONS.mapNotNull { conversation ->
+                val contactId = conversation.contactId ?: return@mapNotNull null
+                INTEL[conversation.id]?.let { contactId to it }
+            }.toMap()
+        }
+
+        val COLLEAGUES = listOf(
+            Colleague(
+                userId = "u-2", role = "agent", fullName = "Reza Ahmadi",
+                email = "reza@example.org", unread = 2,
+                lastMessage = Colleague.LastTeamMessage(
+                    body = "اون تیکت رو دیدی؟", createdAt = ago(14), outgoing = false,
+                ),
+            ),
+            Colleague(
+                userId = "u-3", role = "admin", fullName = "Mehdi Tavakoli",
+                email = "mehdi@example.org", unread = 0,
+                lastMessage = Colleague.LastTeamMessage(
+                    body = null, createdAt = ago(300), outgoing = true, attachmentKind = "image",
+                ),
+            ),
+            // Name absent entirely: `displayName` has to fall through to the
+            // email, and the avatar has to draw initials from that.
+            Colleague(userId = "u-9", role = "agent", email = "newcomer@example.org", unread = 0),
+        )
+
+        /**
+         * What the previews in [COLLEAGUES] are previews OF.
+         *
+         * Keyed by the peer, which is how `teamThread` reads them. Reza's
+         * thread ends on his question, unanswered, so the badge of 2 on his
+         * row has something behind it; Mehdi's ends on a photo we sent, which
+         * is the attachment-only preview case.
+         */
+        val TEAM_THREADS: Map<String, List<TeamMessage>> = mapOf(
+            "u-2" to listOf(
+                TeamMessage(
+                    id = "tm-1", senderId = "u-2", recipientId = "u-1",
+                    body = "سلام، صبح بخیر", createdAt = ago(60 * 26),
+                ),
+                TeamMessage(
+                    id = "tm-2", senderId = "u-1", recipientId = "u-2",
+                    body = "صبح بخیر رضا جان", createdAt = ago(60 * 25),
+                ),
+                // Yesterday above, today below: the transcript has to draw a
+                // day header between these two.
+                TeamMessage(
+                    id = "tm-3", senderId = "u-2", recipientId = "u-1",
+                    body = "اون تیکت مربوط به پرداخت رو بررسی کردی؟",
+                    createdAt = agoToday(16),
+                ),
+                TeamMessage(
+                    id = "tm-4", senderId = "u-2", recipientId = "u-1",
+                    body = "اون تیکت رو دیدی؟", createdAt = agoToday(14),
+                ),
+            ),
+            "u-3" to listOf(
+                TeamMessage(
+                    id = "tm-5", senderId = "u-3", recipientId = "u-1",
+                    body = "این اسکرین‌شات رو برات می‌فرستم", createdAt = ago(320),
+                ),
+                TeamMessage(
+                    id = "tm-6", senderId = "u-1", recipientId = "u-3",
+                    body = null, createdAt = ago(300),
+                    attachment = MessageAttachment(
+                        id = "ta-1", fileName = "screenshot.png",
+                        mimeType = "image/png", sizeBytes = 184_320, kind = "image",
+                    ),
+                ),
+            ),
+            // u-9 has no thread at all: a colleague you have never written to,
+            // which is the empty transcript this screen also has to draw.
+        )
+
+        val EMAIL_THREADS = listOf(
+            EmailThreadSummary(
+                id = "t-1",
+                provider = "gmail",
+                subject = "Invoice #2026-0914 and the renewal terms we discussed last week",
+                participants = listOf(
+                    EmailAddress("billing@example.com"),
+                    EmailAddress("support@example.org"),
+                ),
+                lastMessageAt = ago(45),
+                isRead = false,
+                isStarred = true,
+                lastMessageSnippet = "Please find attached the invoice for…",
+            ),
+            EmailThreadSummary(
+                id = "t-2",
+                provider = "gmail",
+                subject = "سؤال درباره‌ی افزونه‌ی تلگرام",
+                participants = listOf(EmailAddress("maryam@example.com")),
+                lastMessageAt = ago(60 * 20),
+                isRead = true,
+                isStarred = false,
+                lastMessageSnippet = "سلام، می‌خواستم بدانم…",
+            ),
+        )
+
+        val YAHOO_THREADS = listOf(
+            EmailThreadSummary(
+                id = "y-1",
+                provider = "yahoo",
+                subject = "درخواست همکاری فروش",
+                participants = listOf(EmailAddress("partner@example.com")),
+                lastMessageAt = ago(30),
+                isRead = false,
+                isStarred = false,
+                lastMessageSnippet = "سلام، برای همکاری در فروش…",
+            ),
+        )
+
+        val EMAIL_MESSAGES = listOf(
+            EmailMessageView(
+                id = "em-1",
+                direction = "inbound",
+                fromAddress = "billing@example.com",
+                toAddresses = listOf(EmailAddress("support@example.org")),
+                textBody = "Please find attached the invoice for September.",
+                sentAt = ago(90),
+                isRead = true,
+            ),
+            // HTML only, which is the common case and the one that proves
+            // `EmailBody.plainText` is doing something.
+            EmailMessageView(
+                id = "em-2",
+                direction = "outbound",
+                fromAddress = "support@example.org",
+                toAddresses = listOf(EmailAddress("billing@example.com")),
+                htmlBody = "<div><p>Thanks &mdash; received.</p><p>We&#39;ll process it today.</p></div>",
+                sentAt = ago(45),
+                deliveryStatus = "sent",
+            ),
+        )
+
+        /**
+         * The threads of the other folders: a newsletter laid out for a
+         * 600-pixel desktop column and a security alert (the "Newsletters"
+         * label), a reply in Sent, a draft, a spam. Not in the inbox, which
+         * the tests hold to its two threads.
+         */
+        val FOLDER_THREADS = listOf(
+            EmailThreadSummary(
+                id = "n-1",
+                provider = "gmail",
+                subject = "Acme Weekly: four new features landed this month",
+                participants = listOf(EmailAddress("\"Acme Weekly\" <news@acme-mail.example>")),
+                lastMessageAt = ago(80),
+                isRead = false,
+                isStarred = false,
+                lastMessageSnippet = "Hi there — here is everything that shipped in September…",
+                labels = listOf("Label_news"),
+            ),
+            EmailThreadSummary(
+                id = "n-2",
+                provider = "gmail",
+                subject = "Security alert: new sign-in on Android",
+                participants = listOf(EmailAddress("\"Google\" <no-reply@accounts.google.example>")),
+                lastMessageAt = ago(60 * 26),
+                isRead = true,
+                isStarred = false,
+                lastMessageSnippet = "A new sign-in on Android. If this was you, you don't need to do anything.",
+                labels = listOf("Label_news"),
+            ),
+            EmailThreadSummary(
+                id = "s-1",
+                provider = "gmail",
+                subject = "Re: پیشنهاد قیمت برای پلن سازمانی",
+                participants = listOf(EmailAddress("ceo@example.com")),
+                lastMessageAt = ago(60 * 3),
+                isRead = true,
+                isStarred = false,
+                lastMessageSnippet = "سلام، پیشنهاد قیمت پیوست شد.",
+            ),
+            EmailThreadSummary(
+                id = "d-1",
+                provider = "gmail",
+                subject = "پاسخ به درخواست دمو",
+                participants = listOf(EmailAddress("reza@example.com")),
+                lastMessageAt = ago(60 * 5),
+                isRead = true,
+                isStarred = false,
+                lastMessageSnippet = "سلام رضا، برای دمو فردا ساعت ۱۰…",
+            ),
+            EmailThreadSummary(
+                id = "sp-1",
+                provider = "gmail",
+                subject = "You have won a prize!!!",
+                participants = listOf(EmailAddress("win@lottery.example")),
+                lastMessageAt = ago(60 * 9),
+                isRead = false,
+                isStarred = false,
+                lastMessageSnippet = "Claim your reward now",
+            ),
+        )
+
+        /** A newsletter as they are written: a 600-pixel table, `min-width` on the body, cells that must not wrap. */
+        private val NEWSLETTER_HTML = """
+            <!doctype html><html><head><meta name="viewport" content="width=600"><title>Acme Weekly</title>
+            <style type="text/css">
+            <!--
+            body { margin:0; padding:0; min-width:600px; background:#eef1f5 }
+            table.wrap { width:600px }
+            h1 { font-size:30px; line-height:36px; color:#0b3d91; margin:0 0 12px }
+            .btn td { white-space:nowrap }
+            @media only screen and (max-width:480px) { .hide-mobile { display:none !important } }
+            -->
+            </style></head>
+            <body style="min-width:600px">
+            <table class="wrap" width="600" cellpadding="0" cellspacing="0" align="center" style="width:600px;background:#ffffff">
+            <tr><td nowrap style="padding:24px 32px;background:#0b3d91;color:#ffffff;font-size:22px;font-weight:bold">ACME WEEKLY &middot; September product digest</td></tr>
+            <tr><td style="padding:28px 32px">
+            <h1>Four new features landed this month</h1>
+            <p style="font-size:16px;line-height:24px;color:#333333">Hi there — here is everything that shipped in September, from the new analytics dashboard to faster exports. The full notes are at https://www.acme-product.example/releases/2026/september/full-release-notes-with-every-detail-and-screenshot</p>
+            <table width="536" cellpadding="0" cellspacing="0"><tr>
+            <td width="268" valign="top" style="padding-right:12px"><div style="width:256px;height:110px;background:#dbe7ff;border-radius:8px"></div><p style="font-size:15px;line-height:22px"><b>Analytics dashboard</b><br>Every metric on one screen, updated live.</p></td>
+            <td width="268" valign="top" style="padding-left:12px"><div style="width:256px;height:110px;background:#ffe7d6;border-radius:8px"></div><p style="font-size:15px;line-height:22px"><b>Faster exports</b><br>CSV and PDF exports now finish in seconds.</p></td>
+            </tr></table>
+            <table class="btn" cellpadding="0" cellspacing="0" style="margin-top:20px"><tr><td style="background:#0b3d91;border-radius:6px;padding:12px 28px"><a href="https://www.acme-product.example/whats-new" style="color:#ffffff;text-decoration:none;font-weight:bold">See what's new in your workspace &rarr;</a></td></tr></table>
+            </td></tr>
+            <tr><td nowrap style="padding:16px 32px;background:#f4f6f9;color:#8a94a6;font-size:12px">You are receiving this because you signed up at acme-product.example &middot; Unsubscribe &middot; Preferences &middot; 123 Market Street, San Francisco, CA 94103</td></tr>
+            </table></body></html>
+        """.trimIndent()
+
+        /** A security alert as Google sends one: a fixed 516-pixel card and a long link. */
+        private val ALERT_HTML = """
+            <html><head><title>Security alert</title><style>.card{width:516px;min-width:516px;border:1px solid #dadce0;border-radius:8px}</style></head>
+            <body><table class="card" width="516" align="center" cellpadding="0" cellspacing="0"><tr><td style="padding:40px 20px;text-align:center">
+            <div style="font-size:24px;color:#202124">A new sign-in on Android</div>
+            <div style="font-size:14px;color:#3c4043;padding-top:8px">support@example.org</div>
+            <div style="font-size:14px;line-height:20px;color:#3c4043;padding-top:20px;text-align:left">We noticed a new sign-in to your account on an Android device. If this was you, you don't need to do anything. If not, we'll help you secure your account.</div>
+            <div style="padding-top:32px"><a href="https://accounts.google.example/AccountChooser?Email=support@example.org&amp;continue=https://myaccount.google.example/alert/nt/1727654400000?rfn%3D31%26rfnc%3D1%26eid%3D-1234567890" style="font-size:14px;color:#ffffff;background:#4184f3;border-radius:5px;padding:10px 24px;text-decoration:none">Check activity</a></div>
+            <div style="font-size:12px;color:#5f6368;padding-top:24px;text-align:left">You can also see security activity at https://myaccount.google.example/notifications</div>
+            </td></tr></table></body></html>
+        """.trimIndent()
+
+        val FOLDER_MESSAGES: Map<String, List<EmailMessageView>> = mapOf(
+            "n-1" to listOf(
+                EmailMessageView(
+                    id = "nm-1",
+                    direction = "inbound",
+                    fromAddress = "\"Acme Weekly\" <news@acme-mail.example>",
+                    toAddresses = listOf(EmailAddress("support@example.org")),
+                    htmlBody = NEWSLETTER_HTML,
+                    sentAt = ago(80),
+                    isRead = false,
+                ),
+            ),
+            "n-2" to listOf(
+                EmailMessageView(
+                    id = "nm-2",
+                    direction = "inbound",
+                    fromAddress = "\"Google\" <no-reply@accounts.google.example>",
+                    toAddresses = listOf(EmailAddress("support@example.org")),
+                    htmlBody = ALERT_HTML,
+                    sentAt = ago(60 * 26),
+                    isRead = true,
+                ),
+            ),
+            "s-1" to listOf(
+                EmailMessageView(
+                    id = "sm-1",
+                    direction = "inbound",
+                    fromAddress = "ceo@example.com",
+                    toAddresses = listOf(EmailAddress("support@example.org")),
+                    textBody = "سلام، لطفاً پیشنهاد قیمت پلن سازمانی را برای ۵۰ کاربر بفرستید.",
+                    sentAt = ago(60 * 4),
+                    isRead = true,
+                ),
+                EmailMessageView(
+                    id = "sm-2",
+                    direction = "outbound",
+                    fromAddress = "support@example.org",
+                    toAddresses = listOf(EmailAddress("ceo@example.com")),
+                    htmlBody = "<div dir=\"rtl\"><p>سلام،</p><p>پیشنهاد قیمت پلن سازمانی برای ۵۰ کاربر پیوست شد. اگر سؤالی بود در خدمتیم.</p><p>با احترام<br>تیم پشتیبانی نمونه</p></div>",
+                    sentAt = ago(60 * 3),
+                    deliveryStatus = "sent",
+                ),
+            ),
+            "d-1" to listOf(
+                EmailMessageView(
+                    id = "dm-1",
+                    direction = "outbound",
+                    fromAddress = "support@example.org",
+                    toAddresses = listOf(EmailAddress("reza@example.com")),
+                    textBody = "سلام رضا، برای دمو فردا ساعت ۱۰ صبح در خدمتیم.",
+                    sentAt = ago(60 * 5),
+                    deliveryStatus = "draft",
+                ),
+            ),
+            "sp-1" to listOf(
+                EmailMessageView(
+                    id = "spm-1",
+                    direction = "inbound",
+                    fromAddress = "win@lottery.example",
+                    toAddresses = listOf(EmailAddress("support@example.org")),
+                    textBody = "Claim your reward now",
+                    sentAt = ago(60 * 9),
+                    isRead = false,
+                ),
+            ),
+        )
+
+        val AVAILABILITY = AvailabilityResponse(
+            prefs = AvailabilityPrefs(
+                forceOffline = false,
+                availableWhenUsingApp = true,
+                scheduleEnabled = false,
+                timezone = "Asia/Tehran",
+            ),
+            status = AvailabilityStatus(state = "online"),
+        )
+
+        val SESSIONS = AccountSessionsResponse(
+            sessions = listOf(
+                AccountSession(
+                    id = "s-1",
+                    browser = "Mobile app",
+                    os = "Android 16",
+                    device = "Pixel 6",
+                    city = "Tehran",
+                    country = "Iran",
+                    countryCode = "IR",
+                    isCurrent = true,
+                    createdAt = ago(60 * 24 * 3),
+                    lastActiveAt = ago(1),
+                ),
+                // No location at all, which is what a privacy-restricted IP
+                // gives back — the row has to render without a place.
+                AccountSession(
+                    id = "s-2",
+                    browser = "Chrome 141",
+                    os = "macOS",
+                    device = "desktop",
+                    isCurrent = false,
+                    createdAt = ago(60 * 24 * 40),
+                    lastActiveAt = ago(60 * 26),
+                ),
+            ),
+            currentSessionId = "s-1",
+        )
+
+
+        val CONVERSATIONS: List<Conversation> = listOf(
+            Conversation(
+                id = "c-1",
+                workspaceId = "ws-1",
+                contactId = "p-1",
+                status = ConversationStatus.OPEN,
+                priority = ConversationPriority.URGENT,
+                tags = emptyList(),
+                createdAt = ago(90),
+                updatedAt = ago(4),
+                contact = ConversationContact(name = "مریم حسینی", email = "maryam@example.com"),
+                lastMessage = MessagePreview(
+                    body = "سلام، سفارش من هنوز ارسال نشده. می‌تونید وضعیتش رو بررسی کنید؟",
+                    createdAt = ago(4),
+                    senderType = "contact",
+                ),
+                unreadCount = 3,
+                aiState = "human_active",
+            ),
+            Conversation(
+                id = "c-2",
+                workspaceId = "ws-1",
+                contactId = "p-2",
+                status = ConversationStatus.OPEN,
+                assignedTo = "u-1",
+                priority = ConversationPriority.HIGH,
+                tags = emptyList(),
+                createdAt = ago(300),
+                updatedAt = ago(52),
+                contact = ConversationContact(
+                    name = "Alexander Konstantinopoulos",
+                    email = "alexander.konstantinopoulos@verylongcompanyname.example",
+                ),
+                // Deliberately long: proves the preview truncates at two lines
+                // instead of pushing the timestamp or the badge out of the row.
+                lastMessage = MessagePreview(
+                    body = "Thanks for getting back to me. I tried the steps you suggested but the " +
+                        "export still fails at around 80% with a timeout, and it happens on both of " +
+                        "our accounts.",
+                    createdAt = ago(52),
+                    senderType = "contact",
+                ),
+                // Three digits, because a badge sized for one is the bug.
+                unreadCount = 128,
+                aiState = "human_active",
+            ),
+            Conversation(
+                id = "c-3",
+                workspaceId = "ws-1",
+                contactId = "p-3",
+                status = ConversationStatus.OPEN,
+                priority = ConversationPriority.NORMAL,
+                tags = emptyList(),
+                createdAt = ago(600),
+                updatedAt = ago(140),
+                // No name at all: the visitor who never introduced themselves,
+                // which is also the case a saved reply's {{contact.name}} has
+                // nothing to resolve against.
+                contact = ConversationContact(visitorCode = "8F2C"),
+                lastMessage = MessagePreview(
+                    body = "Merhaba, fiyatlandırma hakkında bilgi alabilir miyim?",
+                    createdAt = ago(140),
+                    senderType = "contact",
+                ),
+                unreadCount = 0,
+                metadata = channel("telegram"),
+            ),
+            Conversation(
+                id = "c-4",
+                workspaceId = "ws-1",
+                contactId = "p-4",
+                status = ConversationStatus.PENDING,
+                priority = ConversationPriority.NORMAL,
+                tags = emptyList(),
+                createdAt = ago(1400),
+                updatedAt = ago(380),
+                contact = ConversationContact(name = "Emre Yılmaz", email = "emre@example.com"),
+                // An AI-owned thread, so the automated queue is not empty.
+                lastMessage = MessagePreview(
+                    body = "Tabii, hemen kontrol ediyorum.",
+                    createdAt = ago(380),
+                    senderType = "ai",
+                ),
+                unreadCount = 0,
+                aiState = "ai_managed",
+                metadata = channel("whatsapp"),
+            ),
+            Conversation(
+                id = "c-5",
+                workspaceId = "ws-1",
+                contactId = "p-5",
+                status = ConversationStatus.RESOLVED,
+                assignedTo = "u-1",
+                priority = ConversationPriority.LOW,
+                tags = emptyList(),
+                createdAt = ago(5000),
+                updatedAt = ago(2800),
+                contact = ConversationContact(name = "علی رضایی"),
+                // No body at all: an attachment-only message, the row that
+                // must still render a preview line rather than an empty one.
+                lastMessage = MessagePreview(
+                    body = null,
+                    createdAt = ago(2800),
+                    senderType = "contact",
+                    senderName = "علی رضایی",
+                    attachmentKind = "image",
+                ),
+                unreadCount = 0,
+            ),
+        )
+
+        val MESSAGES: Map<String, List<Message>> = mapOf(
+            "c-1" to listOf(
+                msg("m-1", "c-1", SenderType.CONTACT, "سلام وقت بخیر", 95),
+                msg("m-2", "c-1", SenderType.AI, "سلام! چطور می‌تونم کمکتون کنم؟", 94),
+                msg("m-3", "c-1", SenderType.CONTACT, "سفارش شمارهٔ ۴۸۱۲۰ رو دو هفته پیش ثبت کردم و هنوز چیزی به دستم نرسیده.", 92),
+                msg("m-4", "c-1", SenderType.SYSTEM, "Sara Karimi joined the conversation", 60),
+                msg("m-5", "c-1", SenderType.AGENT, "سلام مریم جان، الان بررسی می‌کنم و چند لحظهٔ دیگر خبر می‌دهم.", 58),
+                msg("m-6", "c-1", SenderType.CONTACT, "ممنون، منتظر می‌مانم.", 10),
+                msg("m-7", "c-1", SenderType.AGENT, "بررسی کردم. سفارش در انبار آماده شده ولی هنوز تحویل پست نشده.", 9),
+                msg("m-8", "c-1", SenderType.CONTACT, "یعنی چند روز دیگر طول می‌کشد؟", 8),
+                msg("m-9", "c-1", SenderType.AGENT, "امروز تحویل پست می‌شود و معمولاً دو تا سه روز کاری طول می‌کشد.", 7),
+                msg("m-10", "c-1", SenderType.CONTACT, "کد رهگیری‌اش را هم می‌فرستید؟", 6),
+                msg("m-11", "c-1", SenderType.AGENT, "بله، به محض ثبت در سامانهٔ پست برایتان می‌فرستم.", 5),
+                msg("m-12", "c-1", SenderType.CONTACT, "ممنون می‌شم", 4),
+                msg("m-13", "c-1", SenderType.CONTACT, "سلام، سفارش من هنوز ارسال نشده. می‌تونید وضعیتش رو بررسی کنید؟", 3),
+            ),
+            "c-2" to listOf(
+                msg("n-1", "c-2", SenderType.CONTACT, "Hi — we're hitting an issue exporting our reports.", 320),
+                msg("n-2", "c-2", SenderType.AGENT, "Sorry about that. Could you tell me roughly how large the export is, and whether it fails at the same point every time?", 310),
+                msg("n-3", "c-2", SenderType.CONTACT, "Thanks for getting back to me. I tried the steps you suggested but the export still fails at around 80% with a timeout, and it happens on both of our accounts.", 52),
+            ),
+            "c-3" to listOf(
+                msg("t-1", "c-3", SenderType.CONTACT, "Merhaba, fiyatlandırma hakkında bilgi alabilir miyim?", 140),
+            ),
+            "c-4" to listOf(
+                msg("a-1", "c-4", SenderType.CONTACT, "Siparişim ne zaman kargoya verilir?", 400),
+                msg("a-2", "c-4", SenderType.AI, "Tabii, hemen kontrol ediyorum.", 380),
+            ),
+        )
+
+        fun msg(
+            id: String,
+            conversationId: String,
+            sender: SenderType,
+            body: String,
+            minutesAgo: Long,
+        ) = Message(
+            id = id,
+            conversationId = conversationId,
+            senderType = sender,
+            senderId = if (sender == SenderType.AGENT) "u-1" else null,
+            body = body,
+            createdAt = ago(minutesAgo),
+            senderName = if (sender == SenderType.AGENT) "Sara Karimi" else null,
+        )
+
+        val CONTACTS: List<Contact> = listOf(
+            Contact(id = "p-1", workspaceId = "ws-1", name = "مریم حسینی", email = "maryam@example.com", createdAt = ago(9000)),
+            Contact(id = "p-2", workspaceId = "ws-1", name = "Alexander Konstantinopoulos", email = "alexander.konstantinopoulos@verylongcompanyname.example", createdAt = ago(8000)),
+            Contact(id = "p-3", workspaceId = "ws-1", visitorCode = "8F2C", createdAt = ago(700)),
+            Contact(id = "p-4", workspaceId = "ws-1", name = "Emre Yılmaz", email = "emre@example.com", createdAt = ago(6000)),
+            Contact(id = "p-5", workspaceId = "ws-1", name = "علی رضایی", phone = "+989121234567", createdAt = ago(5200)),
+        )
+    }
+}

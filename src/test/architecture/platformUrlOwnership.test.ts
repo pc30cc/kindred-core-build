@@ -423,11 +423,11 @@ describe('the legacy domain survives only where it is meant to', () => {
       'guards the historical seeds above; names them by design',
     'src/test/architecture/platformUrlOwnership.test.ts':
       'this file — it searches for the string',
-    'android/app/src/test/kotlin/com/webyar/ai/core/AppBrandRulesTest.kt':
+    'android/app/src/test/kotlin/com/platform/app/core/AppBrandRulesTest.kt':
       "proves RESPOK's Android origin allowlist refuses WebYar's legacy host",
-    'android/app/src/testRespok/kotlin/com/webyar/ai/core/AppBrandTest.kt':
+    'android/app/src/testRespok/kotlin/com/platform/app/core/AppBrandTest.kt':
       'proves the RESPOK build refuses the legacy host as its API origin',
-    'android/app/src/testWebyar/kotlin/com/webyar/ai/core/AppBrandTest.kt':
+    'android/app/src/testWebyar/kotlin/com/platform/app/core/AppBrandTest.kt':
       'proves the WebYar build keeps accepting it, as before',
   };
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_TEMPLATES, defaultPushTemplates, normalizePushSettings, renderTemplate } from './platformSettings.js';
+import {
+  ANDROID_MESSAGES_CHANNEL,
+  DEFAULT_TEMPLATES,
+  defaultPushTemplates,
+  normalizePushSettings,
+  pushPlatformDefaults,
+  renderTemplate,
+} from './platformSettings.js';
 
 /**
  * The private-mode push title ("Webyar" for WebYar's apps) is the edition's
@@ -38,5 +45,31 @@ describe('push templates — per edition', () => {
     expect(t.title).toEqual({ default: '{{sender}} wrote', en: '{{sender}} wrote' });
     expect(t.body).toEqual({ default: '{{preview}}', en: '{{preview}}' });
     expect(t.privateTitle).toEqual({ default: 'RESPOK', fa: '{{brand}}' });
+  });
+});
+
+/**
+ * The Android channel a push names is the one the edition's own app creates:
+ * WebYar's app keeps `webyar_messages` (its operators' notification settings
+ * hang on it); RESPOK's app is brand-neutral and has `messages` only.
+ */
+describe('Android notification channel — per edition', () => {
+  it('the Iranian edition (and an unknown one) keeps what was stored, as always', () => {
+    expect(pushPlatformDefaults('iran').android_channel_id).toBe('webyar_messages');
+    expect(pushPlatformDefaults(null).android_channel_id).toBe('webyar_messages');
+    expect(normalizePushSettings({ android_channel_id: 'webyar_messages' }, 'iran').android_channel_id).toBe('webyar_messages');
+    expect(normalizePushSettings({ android_channel_id: 'custom' }, null).android_channel_id).toBe('custom');
+    expect(normalizePushSettings({}, 'iran').android_channel_id).toBe('webyar_messages');
+  });
+
+  it("the International edition never names WebYar's channel, even from a cloned row", () => {
+    expect(pushPlatformDefaults('international').android_channel_id).toBe('messages');
+    expect(normalizePushSettings({ android_channel_id: 'webyar_messages' }, 'international').android_channel_id).toBe('messages');
+    expect(normalizePushSettings({}, 'international').android_channel_id).toBe('messages');
+    expect(ANDROID_MESSAGES_CHANNEL.international).toBe('messages');
+  });
+
+  it('keeps a channel the International edition chose itself', () => {
+    expect(normalizePushSettings({ android_channel_id: 'alerts' }, 'international').android_channel_id).toBe('alerts');
   });
 });

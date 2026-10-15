@@ -9538,6 +9538,11 @@ const en = {
     },
   },
   plugins: {
+    previousEdition: {
+      title: 'This store runs the previous build of the plugin',
+      body: 'It keeps working, but it does not receive updates from {{brand}}. Install the {{brand}} plugin (it can sit beside the old one), connect it, then remove the old plugin.',
+      download: 'Download the {{brand}} plugin',
+    },
     title: 'Plugins',
     subtitle: 'Connect external channels and services to your workspace.',
     catalogEmpty: 'No plugins are available yet.',

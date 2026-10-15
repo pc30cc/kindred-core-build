@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      RESPOK's launcher entry: the activity itself, by its own name.
+
+      RESPOK 1.0.1 (2026-10-10) was launched by the activity's previous
+      name; a shortcut pinned with that build is removed by the launcher when
+      the app updates, and the app's icon in the app drawer stays. Keeping
+      that name would put the other brand's name back into this APK.
+    -->
+    <application>
+        <activity
+            android:name="com.platform.app.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

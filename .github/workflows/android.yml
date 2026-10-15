@@ -45,6 +45,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # RESPOK's app must not name the Iranian edition anywhere: src/main,
+      # src/respok, src/debug, src/release, the build scripts (outside that
+      # edition's own flavor block) and the ProGuard rules are shared with or
+      # belong to RESPOK. Seconds, with no Gradle, so it runs first and a
+      # stray name fails the run before the build spends half an hour.
+      - name: Brand-neutral sources (RESPOK)
+        working-directory: android
+        run: tools/check-brand-neutral.sh
+
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
@@ -115,6 +124,15 @@ jobs:
       - name: Build debug (WebYar and RESPOK)
         working-directory: android
         run: ./gradlew "$GRADLE_JVMARGS" :app:assembleWebyarDebug :app:assembleRespokDebug --stacktrace
+
+      # What actually ships, on every run: every entry name and every byte
+      # (dex string pools, resources.arsc, the binary manifest, assets) of
+      # RESPOK's debug APK, read for the Iranian edition's name. The debug
+      # build is not minified, so every class and member name is in it as
+      # written; the minified one is checked below, when it is built.
+      - name: Brand-neutral APK (RESPOK debug)
+        working-directory: android
+        run: tools/check-brand-neutral.sh --apk-only app/build/outputs/apk/respok/debug/*universal*.apk
 
       # The Room cache's schema, as the build just exported it. Uploaded so a
       # schema change can be committed from any machine, including one that
@@ -212,6 +230,15 @@ jobs:
           set -eu
           ./gradlew "$GRADLE_JVMARGS" :app:assembleWebyarMinified :app:assembleRespokMinified --stacktrace
           find app/build/outputs/apk -path '*minified*' -name '*.apk' -exec ls -lh {} \;
+
+      # The app RESPOK ships, as R8 left it: every APK of the RESPOK minified
+      # build (the universal one and each ABI's) must not contain the
+      # Iranian edition's name or art anywhere. WebYar's APK is not checked:
+      # it is that edition.
+      - name: Brand-neutral APK (RESPOK minified)
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        working-directory: android
+        run: tools/check-brand-neutral.sh --apk-only app/build/outputs/apk/respok/minified/*.apk
 
 # NO EMULATOR JOB YET, and that is a measurement rather than an omission.
 #

@@ -7,8 +7,8 @@
   the loader's own size (40dp): track, comet from the top with its bead, and
   the fainter inner arc from the bottom. Change LaunchLoader, change this.
 
-  The colours are the brand's (values/colors.xml: WebYar's turquoise here,
-  RESPOK's Ink and Signal from src/respok/res), the same ones LaunchLoader
+  The colours are the brand's (each flavor's values/colors.xml: turquoise for
+  the Iranian edition, RESPOK's Signal Deep and Signal), the same ones LaunchLoader
   reads, so only the geometry lives in this file.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"

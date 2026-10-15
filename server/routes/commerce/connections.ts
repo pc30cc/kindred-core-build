@@ -20,6 +20,8 @@ import { runCapabilityHandshake } from '../../services/commerce/pairing.js';
 import { enqueueSyncJob } from '../../services/commerce/sync.js';
 import { isDirectProvider } from '../../services/commerce/providers.js';
 import { getProviderDescriptor } from '../../services/commerce/connectors/registry.js';
+import { dialectForProtocol } from '../../services/commerce/pluginDialect.js';
+import { getPlatformEditionOrNull } from '../../services/platformRegion.js';
 
 export const commerceConnectionsRouter = Router({ mergeParams: true });
 
@@ -68,6 +70,29 @@ function project(row: Record<string, unknown>, extra: string[] = []): Record<str
   return out;
 }
 
+/** The protocol the International edition shows for either plugin dialect (the stored value stays as it is). */
+export const INTERNATIONAL_PROTOCOL_LABEL = 'commerce/1';
+
+/**
+ * A connection as the browser sees it. `plugin_edition` says whether the
+ * store runs the previous (Iran-named) build of the plugin or the current
+ * one: the International edition's panel asks such a store to install its
+ * own plugin, since the previous build gets no updates there. In the
+ * International edition the protocol is shown without the dialect's name;
+ * the Iran edition's response is unchanged apart from the added field.
+ */
+export function presentConnection(
+  row: Record<string, unknown>,
+  edition: 'iran' | 'international' | null,
+  extra: string[] = [],
+): Record<string, unknown> {
+  const out = project(row, extra);
+  const legacy = dialectForProtocol(typeof row.protocol_version === 'string' ? row.protocol_version : null).id === 'legacy';
+  out.plugin_edition = legacy ? 'previous' : 'current';
+  if (edition === 'international' && 'protocol_version' in out) out.protocol_version = INTERNATIONAL_PROTOCOL_LABEL;
+  return out;
+}
+
 commerceConnectionsRouter.get('/:workspaceId/commerce/connections', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
@@ -85,7 +110,8 @@ commerceConnectionsRouter.get('/:workspaceId/commerce/connections', async (req, 
     .is('revoked_at', null)
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: 'internal_error' });
-  res.json({ connections: (data ?? []).map((row: Record<string, unknown>) => project(row)) });
+  const edition = await getPlatformEditionOrNull(config);
+  res.json({ connections: (data ?? []).map((row: Record<string, unknown>) => presentConnection(row, edition)) });
 });
 
 commerceConnectionsRouter.get('/:workspaceId/commerce/connections/:connectionId', async (req, res) => {
@@ -105,7 +131,7 @@ commerceConnectionsRouter.get('/:workspaceId/commerce/connections/:connectionId'
   // A live-queried provider has no product index and no sync jobs — do not
   // spend two queries proving it.
   if (getProviderDescriptor(String(data.provider_type))?.usesCatalogIndex === false) {
-    return res.json({ connection: project(data, ['workspace_id']), productCount: null, lastSyncJob: null });
+    return res.json({ connection: presentConnection(data, await getPlatformEditionOrNull(serverConfigOf(req)), ['workspace_id']), productCount: null, lastSyncJob: null });
   }
 
   const [{ count: productCount }, { data: syncJobs }] = await Promise.all([
@@ -113,7 +139,7 @@ commerceConnectionsRouter.get('/:workspaceId/commerce/connections/:connectionId'
     sb.from('commerce_sync_jobs').select('job_type, status, created_at').eq('connection_id', data.id).order('created_at', { ascending: false }).limit(1),
   ]);
 
-  res.json({ connection: project(data, ['workspace_id']), productCount: productCount ?? 0, lastSyncJob: syncJobs?.[0] ?? null });
+  res.json({ connection: presentConnection(data, await getPlatformEditionOrNull(serverConfigOf(req)), ['workspace_id']), productCount: productCount ?? 0, lastSyncJob: syncJobs?.[0] ?? null });
 });
 
 commerceConnectionsRouter.post('/:workspaceId/commerce/connections/:connectionId/disconnect', async (req, res) => {

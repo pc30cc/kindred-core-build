@@ -24,8 +24,10 @@ import { readFileSync, existsSync } from 'node:fs';
 
 const GENERATOR = 'scripts/android/strings-from-ios.mjs';
 const SWIFT = 'ios/Webyar/Sources/Localization/Strings.swift';
-const KOTLIN = 'android/app/src/main/kotlin/com/webyar/ai/i18n/Strings.kt';
-const MANUAL = 'android/app/src/main/kotlin/com/webyar/ai/i18n/StringsManual.kt';
+const KOTLIN = 'android/app/src/main/kotlin/com/platform/app/i18n/Strings.kt';
+// The lines that name the product: the Iranian flavor's own, never in src/main.
+const BRAND = 'android/app/src/webyar/kotlin/com/platform/app/i18n/StringsBrand.kt';
+const MANUAL = 'android/app/src/main/kotlin/com/platform/app/i18n/StringsManual.kt';
 
 describe('Android strings are generated from the iOS ones', () => {
   it('the committed Strings.kt is what the generator produces today', () => {
@@ -60,7 +62,7 @@ describe('Android strings are generated from the iOS ones', () => {
     const declared = [...swift.matchAll(/^\s*static func ([A-Za-z0-9_]+)\(/gm)].map((m) => m[1]);
     expect(declared.length).toBeGreaterThan(200);
 
-    const kotlin = readFileSync(KOTLIN, 'utf8') + readFileSync(MANUAL, 'utf8');
+    const kotlin = readFileSync(KOTLIN, 'utf8') + readFileSync(MANUAL, 'utf8') + readFileSync(BRAND, 'utf8');
     const missing = declared.filter((name) => !new RegExp(`fun ${name}\\(`).test(kotlin));
     expect(
       missing,

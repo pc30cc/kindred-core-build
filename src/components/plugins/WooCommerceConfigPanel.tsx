@@ -31,6 +31,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, CheckCircle2, XCircle, RefreshCw, Download } from 'lucide-react';
 import { COMMERCE_PLUGIN_DOWNLOADS } from './pluginDownloads';
+import { PreviousPluginNotice } from './PreviousPluginNotice';
 
 /** This build's edition of the plugin (./pluginDownloads.ts). */
 const PLUGIN_DOWNLOAD_PATH = COMMERCE_PLUGIN_DOWNLOADS.wooCommerceZip;
@@ -41,6 +42,8 @@ interface CommerceConnection {
   store_id: string;
   approved_origin: string;
   protocol_version: string;
+  /** 'previous' when the store runs the previous build of the plugin (PreviousPluginNotice). */
+  plugin_edition?: string;
   connector_version: string | null;
   woocommerce_version: string | null;
   wordpress_version: string | null;
@@ -198,6 +201,7 @@ export function WooCommerceConfigPanel({ workspaceId }: { workspaceId: string })
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
+          <PreviousPluginNotice pluginEdition={connection.plugin_edition} downloadPath={COMMERCE_PLUGIN_DOWNLOADS.wooCommerceZip} />
           <div>{t('plugins.woocommerce.connection.protocol')}: <code dir="ltr">{connection.protocol_version}</code></div>
           <div dir="auto">
             {t('plugins.woocommerce.connection.versions', {

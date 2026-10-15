@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      WebYar's launcher entry, under the name every installed WebYar knows
+      its activity by: `com.webyar.ai.MainActivity`, from before the code's
+      package became com.platform.app.
+
+      A launcher keeps a home-screen icon, a pinned shortcut or a widget by
+      component name (package + class). Had the launcher entry moved to the
+      renamed class, every operator's home-screen icon would vanish at the
+      update. The alias keeps that component alive and opens the real
+      activity; the notifications an earlier version posted (which name the
+      old component too) still open the app.
+
+      Only WebYar's build has this: RESPOK's APK must not contain WebYar's
+      name (src/respok/AndroidManifest.xml has its own launcher entry).
+    -->
+    <application>
+        <!-- The target, merged with its declaration in src/main. Named here
+             so that the merged manifest declares it before the alias, which
+             the package parser of older Android versions requires. -->
+        <activity android:name="com.platform.app.MainActivity" />
+
+        <activity-alias
+            android:name="com.webyar.ai.MainActivity"
+            android:targetActivity="com.platform.app.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+</manifest>

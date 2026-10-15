@@ -278,11 +278,48 @@ export const PUSH_PLATFORM_DEFAULTS: PushPlatformSettings = {
   updated_at: null,
 };
 
-/** The platform defaults for an edition (only the templates differ; see defaultPushTemplates). */
+/**
+ * The Android notification channel an edition's pushes name
+ * (`android.notification.channel_id`): the channel its native Android app
+ * creates (`CHANNEL_MESSAGES` per flavor in android/app/build.gradle.kts).
+ *
+ * WebYar's app (Iran) keeps `webyar_messages`, the channel every installed
+ * copy's notification settings hang on. RESPOK's app (International) is
+ * brand-neutral and creates `messages`; a push naming a channel the phone
+ * does not have lands in the app's default channel instead, with none of the
+ * operator's settings.
+ */
+export const ANDROID_MESSAGES_CHANNEL: Readonly<Record<Edition, string>> = {
+  iran: 'webyar_messages',
+  international: 'messages',
+};
+
+/**
+ * The platform defaults for an edition: the templates (see
+ * defaultPushTemplates) and the Android channel differ.
+ */
 export function pushPlatformDefaults(edition: Edition | null | undefined): PushPlatformSettings {
   return edition === 'international'
-    ? { ...PUSH_PLATFORM_DEFAULTS, templates: defaultPushTemplates(edition) }
+    ? {
+        ...PUSH_PLATFORM_DEFAULTS,
+        android_channel_id: ANDROID_MESSAGES_CHANNEL.international,
+        templates: defaultPushTemplates(edition),
+      }
     : PUSH_PLATFORM_DEFAULTS;
+}
+
+/**
+ * The stored Android channel as the International edition may send it: one
+ * that names WebYar (a database cloned from WebYar's, where the column's
+ * default `webyar_messages` was saved) becomes RESPOK's own channel, which is
+ * the only one RESPOK's app has. Iran (and an unknown edition): untouched.
+ */
+function androidChannelForEdition(channel: unknown, edition: Edition | null): string {
+  const value = typeof channel === 'string' && channel.trim() ? channel.trim() : null;
+  if (edition === 'international') {
+    return value && !pointsAtWebyar(value) ? value : ANDROID_MESSAGES_CHANNEL.international;
+  }
+  return value ?? PUSH_PLATFORM_DEFAULTS.android_channel_id;
 }
 
 const CACHE_TTL_MS = 30_000;
@@ -375,6 +412,7 @@ export function normalizePushSettings(
   out.critical_alert_volume = Number(
     row.critical_alert_volume ?? PUSH_PLATFORM_DEFAULTS.critical_alert_volume,
   );
+  out.android_channel_id = androidChannelForEdition(row.android_channel_id, edition);
   out.updated_at = (row.updated_at as string | null) ?? null;
   return out as unknown as PushPlatformSettings;
 }

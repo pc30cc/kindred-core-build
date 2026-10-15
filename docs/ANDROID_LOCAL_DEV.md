@@ -21,13 +21,16 @@ The app is two apps from one source, WebYar and RESPOK: the `webyar` and
 `respok` product flavors (`docs/ANDROID_RELEASE.md` has the table). Every
 task names one — `assembleRespokDebug`, `testRespokDebugUnitTest`,
 `installRespokDebug` — and the unflavored ones (`testDebugUnitTest`,
-`installDebug`) no longer exist. Both install side by side. RESPOK's package
-is `com.respok.app` while the code's stays `com.webyar.ai`, so the commands
-below read, for RESPOK:
+`installDebug`) no longer exist. Both install side by side. The code's
+package is `com.platform.app` in both (named after neither brand: RESPOK's
+APK must not contain WebYar's name). WebYar's launcher entry is still
+`com.webyar.ai.MainActivity`, an `<activity-alias>` of the real activity in
+`src/webyar/AndroidManifest.xml`, so the WebYar commands below work as they
+always did. For RESPOK they read:
 
 ```
-adb shell am start -n com.respok.app/com.webyar.ai.MainActivity
-adb shell setprop wrap.com.respok.app "WEBYAR_SAMPLE=1"
+adb shell am start -n com.respok.app/com.platform.app.MainActivity
+adb shell setprop wrap.com.respok.app "RESPOK_SAMPLE=1"
 adb shell pidof com.respok.app
 ```
 
@@ -324,8 +327,10 @@ the picture was fine and the transcript was not scrolled far enough.
 
 ## Seeing the sample data on a device
 
-`Backend` (in `src/debug`) only reaches `SampleApi` when `webyar.sample` is
-set as a JVM property or `WEBYAR_SAMPLE=1` is in the environment — which the
+`Backend` (in `src/debug`) only reaches `SampleApi` when `<brand>.sample`
+(`webyar.sample`, `respok.sample`) is set as a JVM property or
+`<BRAND>_SAMPLE=1` (`WEBYAR_SAMPLE=1`, `RESPOK_SAMPLE=1`) is in the
+environment — which the
 instrumentation runner does and `adb shell am start` cannot. A plain launch
 therefore talks to the real server and stops at the login screen, which is
 the intended behaviour, not a fault.
@@ -563,4 +568,5 @@ Two smaller things that cost time:
   `window_animation_scale`/`transition_animation_scale`/`animator_duration_scale`
   set to `0` makes it succeed — though Compose may still hand back a collapsed
   tree with one `android.view.View`, in which case screenshots plus
-  `adb logcat -s WebyarApi:D` are the more dependable pair.
+  `adb logcat -s WebyarApi:D` (RESPOK: `RESPOKApi:D`) are the more dependable
+  pair.

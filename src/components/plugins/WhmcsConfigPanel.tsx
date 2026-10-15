@@ -31,6 +31,7 @@ import { formatDateTime } from '@/lib/date';
 import { Loader2, RefreshCw, Download, ShieldCheck } from 'lucide-react';
 import { WHMCS_CONNECTION_PERMISSIONS, WHMCS_DEFAULT_PERMISSIONS } from '../../../shared/commerce/whmcs';
 import { COMMERCE_PLUGIN_DOWNLOADS } from './pluginDownloads';
+import { PreviousPluginNotice } from './PreviousPluginNotice';
 
 /** This build's edition of the addon (./pluginDownloads.ts). */
 const ADDON_DOWNLOAD_PATH = COMMERCE_PLUGIN_DOWNLOADS.whmcsZip;
@@ -44,6 +45,8 @@ interface CommerceConnection {
   store_name?: string | null;
   approved_origin: string;
   protocol_version: string;
+  /** 'previous' when the store runs the previous build of the plugin (PreviousPluginNotice). */
+  plugin_edition?: string;
   connector_version: string | null;
   platform_version?: string | null;
   permissions: Record<string, boolean> | null;
@@ -249,6 +252,7 @@ export function WhmcsConfigPanel({ workspaceId }: { workspaceId: string }) {
         <CardContent className="space-y-2 text-sm">
           <div>{t('plugins.whmcs.connection.addonVersion')}: <code dir="ltr">{connection.connector_version ?? '—'}</code></div>
           <div>{t('plugins.whmcs.connection.whmcsVersion')}: <code dir="ltr">{connection.platform_version ?? '—'}</code></div>
+          <PreviousPluginNotice pluginEdition={connection.plugin_edition} downloadPath={COMMERCE_PLUGIN_DOWNLOADS.whmcsZip} />
           <div>{t('plugins.whmcs.connection.protocol')}: <code dir="ltr">{connection.protocol_version}</code></div>
           {errorText && <div className="text-destructive">{errorText}</div>}
           <div className="flex flex-wrap gap-2 pt-2">

@@ -63,20 +63,20 @@
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 
     <!--
-      `WebyarApp` builds the app's graph lazily and configures Coil and
+      `PlatformApp` builds the app's graph lazily and configures Coil and
       WorkManager; see its class note. Backup stays off:
       the cache database and the attachment files are covered by the same
       `data_extraction_rules.xml` as the session token.
     -->
     <application
-        android:name=".WebyarApp"
+        android:name=".PlatformApp"
         android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
-        android:theme="@style/Theme.Webyar"
+        android:theme="@style/Theme.App"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true">
 
@@ -98,19 +98,21 @@
           this same activity through `onNewIntent` and opens the conversation
           on top of where the operator was, rather than stacking a second
           copy of the whole app underneath the first.
+
+          No launcher entry here: each flavor's own manifest
+          (src/<flavor>/AndroidManifest.xml) says how the launcher reaches
+          this activity. One flavor's installed phones know it by the name it
+          had before the code's package was renamed, and only that flavor's
+          manifest may carry that name.
         -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:theme="@style/Theme.Webyar"
+            android:theme="@style/Theme.App"
             android:windowSoftInputMode="adjustResize"
             android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|density|fontScale|layoutDirection|navigation">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!--
@@ -152,7 +154,7 @@
           Not exported: only Google Play services' own intent reaches it.
         -->
         <service
-            android:name=".core.push.WebyarMessagingService"
+            android:name=".core.push.PushMessagingService"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
@@ -166,7 +168,7 @@
         -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="webyar_messages" />
+            android:value="${messagesChannel}" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_stat_brand" />
@@ -182,7 +184,7 @@
             android:value="false" />
 
         <!--
-          WorkManager starts when first asked (`WebyarApp` is its
+          WorkManager starts when first asked (`PlatformApp` is its
           Configuration.Provider), not from a content provider at every
           launch: it has nothing to do at cold start, and a cold start is
           what this app is measured on.

@@ -34,6 +34,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Webyar"
+rootProject.name = "platform-android"
 include(":app")
 include(":baselineprofile")

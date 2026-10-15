@@ -1,0 +1,371 @@
+package com.platform.app.ui.components
+
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.unit.dp
+
+/**
+ * The glyphs `material-icons-core` does not carry.
+ *
+ * The core artifact is a curated subset — `Mic` and a document icon are not in
+ * it — and `material-icons-extended` is several megabytes and a noticeable
+ * drag on every compile, for a handful of shapes. So the shapes are here, as
+ * the same SVG path data any icon set would ship, turned into an `ImageVector`
+ * by Compose's own parser.
+ *
+ * Paths are Material Symbols' own, on the 24-unit grid every Material icon
+ * uses, so these sit at the same optical weight as the ones that did make the
+ * cut.
+ */
+object Glyph {
+
+    /** A microphone. Voice notes, and nothing else so far. */
+    val Mic: ImageVector by lazy {
+        vector(
+            "Mic",
+            "M12 14q-1.25 0-2.12-.88T9 11V5q0-1.25.88-2.12T12 2q1.25 0 2.13.88T15 5v6q0 1.25-.87 " +
+                "2.12T12 14Zm-1 7v-3.08q-2.6-.35-4.3-2.32T5 11h2q0 2.08 1.46 3.54T12 16q2.08 0 " +
+                "3.54-1.46T17 11h2q0 2.63-1.7 4.6T13 17.92V21h-2Z",
+        )
+    }
+
+    /**
+     * A smiling face, for the emoji strip.
+     *
+     * `SentimentSatisfied` is `material-icons-extended` only, and pulling in
+     * several megabytes for one shape is the trade this file exists to avoid.
+     */
+    val Mood: ImageVector by lazy {
+        vector(
+            "Mood",
+            "M15.5 11q.63 0 1.06-.44Q17 10.13 17 9.5q0-.63-.44-1.06Q16.13 8 15.5 8q-.63 0-1.06.44Q14 8.87 14 " +
+                "9.5q0 .63.44 1.06.43.44 1.06.44Zm-7 0q.63 0 1.06-.44Q10 10.13 10 9.5q0-.63-.44-1.06Q9.13 8 " +
+                "8.5 8q-.63 0-1.06.44Q7 8.87 7 9.5q0 .63.44 1.06.43.44 1.06.44Zm3.5 6.5q1.7 0 3.11-.96 " +
+                "1.41-.95 2.04-2.54H6.85q.63 1.59 2.04 2.54 1.41.96 3.11.96Zm0 4.5q-2.08 0-3.9-.79-1.83-.79-3.19-2.15" +
+                "-1.36-1.36-2.14-3.18Q2 14.07 2 12t.78-3.9q.78-1.83 2.14-3.19Q6.28 3.55 8.1 2.77 9.92 2 12 " +
+                "2q2.08 0 3.9.77 1.83.78 3.19 2.14 1.36 1.36 2.14 3.19.77 1.82.77 3.9 0 2.07-.77 3.89-.78 " +
+                "1.82-2.14 3.18-1.36 1.36-3.19 2.15-1.82.79-3.9.79Zm0-2q3.35 0 5.67-2.33Q20 15.35 20 12t-2.33-5.67" +
+                "Q15.35 4 12 4T6.33 6.33Q4 8.65 4 12t2.33 5.67Q8.65 20 12 20Z",
+        )
+    }
+
+    /**
+     * A headset with a microphone: the platform's support team — the row in
+     * Settings, the chat's bar, and the inbox label of the conversations it
+     * answers.
+     */
+    val Headset: ImageVector by lazy {
+        vector(
+            "Headset",
+            "M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h4v1h-7v2h6" +
+                "c1.66 0 3-1.34 3-3V10c0-4.97-4.03-9-9-9Z",
+        )
+    }
+
+    /** A question mark in a circle: Settings → About → Support. */
+    val Help: ImageVector by lazy {
+        vector(
+            "Help",
+            "M11 18h2v-2h-2v2Zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Zm0 18c-4.41 0-8-3.59-8-8" +
+                "s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8Zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2" +
+                "c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4Z",
+        )
+    }
+
+    /**
+     * A lightning bolt, for saved replies.
+     *
+     * Not `Icons.Filled.Face`, which is a face — next to an emoji button that
+     * is also a face, on a row where one inserts a smiley and the other opens
+     * a list of canned answers. A bolt is what the web console uses and what
+     * "quick reply" looks like everywhere else.
+     */
+    val Bolt: ImageVector by lazy {
+        vector(
+            "Bolt",
+            "M7.85 22 9.6 14H5.5l6.7-12h1.75l-1.75 8h4.1L9.6 22H7.85Z",
+        )
+    }
+
+    /**
+     * Two bars. `Icons.Filled.PlayArrow` is in the core set and its partner
+     * is not, which would leave a transport with one drawn icon and one
+     * borrowed shape.
+     */
+    val Pause: ImageVector by lazy {
+        vector(
+            "Pause",
+            "M14 19V5h4v14h-4Zm-8 0V5h4v14H6Z",
+        )
+    }
+
+    /**
+     * A microphone with a line through it.
+     *
+     * The call controls need both states as shapes, not one shape lit and
+     * unlit: a round button on a black screen gives an operator nothing to
+     * compare "highlighted" against, and being wrong about it means talking
+     * to nobody. The iOS screen swaps the shape for the same reason.
+     *
+     * This one and the five below are Material Icons' own paths rather than
+     * Material Symbols', which is what [Mic] above is drawn from. The two
+     * sets differ by a hair of optical weight at 24dp and not at all at the
+     * 22dp these are rendered at, and a shape whose geometry is certain beats
+     * one that merely matches in spirit.
+     */
+    val MicOff: ImageVector by lazy {
+        vector(
+            "MicOff",
+            "M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11" +
+                ".02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 " +
+                "1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 " +
+                "0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 " +
+                "21 21 19.73 4.27 3z",
+        )
+    }
+
+    /** A video camera, for the camera control on a video call. */
+    val Videocam: ImageVector by lazy {
+        vector(
+            "Videocam",
+            "M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 " +
+                "1-1v-3.5l4 4v-11l-4 4z",
+        )
+    }
+
+    /** The same camera, struck through. */
+    val VideocamOff: ImageVector by lazy {
+        vector(
+            "VideocamOff",
+            "M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 " +
+                "1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z",
+        )
+    }
+
+    /**
+     * A loudspeaker, sounding.
+     *
+     * The waves are the whole signal: with the loudspeaker off the same cone
+     * is drawn without them, which is how every phone's own dialler — and the
+     * iOS screen this mirrors — says "in your ear" rather than "in the room".
+     */
+    val Speaker: ImageVector by lazy {
+        vector(
+            "Speaker",
+            "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 " +
+                "2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 " +
+                "7-4.49 7-8.77s-2.99-7.86-7-8.77z",
+        )
+    }
+
+    /** The same cone with the sound gone: the earpiece, not the room. */
+    val SpeakerOff: ImageVector by lazy {
+        vector(
+            "SpeakerOff",
+            "M7 9v6h4l5 5V4l-5 5H7z",
+        )
+    }
+
+    /**
+     * A handset tipped over: what every phone on earth means by "end the
+     * call", and what the iOS screen puts under the same thumb.
+     */
+    val CallEnd: ImageVector by lazy {
+        vector(
+            "CallEnd",
+            "M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 " +
+                "1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 " +
+                "0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 " +
+                "0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 " +
+                "9.25 13.6 9 12 9z",
+        )
+    }
+
+    /** A handset upright: answer the call. */
+    val Call: ImageVector by lazy {
+        vector(
+            "Call",
+            "M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 " +
+                "2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 " +
+                "0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z",
+        )
+    }
+
+    /** A document. Any attachment that is not a picture. */
+    val Document: ImageVector by lazy {
+        vector(
+            "Document",
+            "M7 21q-.83 0-1.41-.59T5 19V5q0-.83.59-1.41T7 3h7l5 5v11q0 .83-.59 1.41T17 21H7Zm6-13V5H7v14h10V9h-4Z",
+        )
+    }
+
+    /** A paperclip, for the attach control where a plus would read as "new". */
+    val Paperclip: ImageVector by lazy {
+        vector(
+            "Paperclip",
+            "M18 15.75q0 2.4-1.68 4.08T12.25 21.5q-2.4 0-4.07-1.67T6.5 15.75V6.25q0-1.77 " +
+                "1.24-3.01T10.75 2q1.77 0 3.01 1.24T15 6.25v8.9q0 1.15-.8 1.95t-1.95.8q-1.15 " +
+                "0-1.95-.8t-.8-1.95V6.5h1.5v9.15q0 .52.36.87t.89.36q.52 0 .88-.36t.37-.87v-8.9q0-1.15-.8-1.95T10.75 " +
+                "3.5q-1.15 0-1.95.8t-.8 1.95v9.5q0 1.77 1.24 3.01T12.25 20q1.77 0 3.01-1.24T16.5 15.75V6.5H18v9.25Z",
+        )
+    }
+
+    /**
+     * Three sparkles — the AI. Its queue, and the face of an assistant whose
+     * workspace has not given it one.
+     */
+    val Sparkle: ImageVector by lazy {
+        vector(
+            "Sparkle",
+            "M19 9l-1.25-2.75L15 5l2.75-1.25L19 1l1.25 2.75L23 5l-2.75 1.25Zm0 14-1.25-2.75L15 19l2.75-1.25L19 15" +
+                "l1.25 2.75L23 19l-2.75 1.25ZM9 20l-2.5-5.5L1 12l5.5-2.5L9 4l2.5 5.5L17 12l-5.5 2.5Z",
+        )
+    }
+
+    /** The delete key, on the emoji panel. */
+    val Backspace: ImageVector by lazy {
+        vector(
+            "Backspace",
+            "M9 19l-7-7 7-7h12q.83 0 1.41.59T23 7v10q0 .83-.59 1.41T21 19H9Zm.83-2H21V7H9.83l-5 5 5 5Z" +
+                "M13.4 16l2.6-2.6 2.6 2.6 1.4-1.4-2.6-2.6 2.6-2.6L18.6 8 16 10.6 13.4 8 12 9.4l2.6 2.6L12 14.6l1.4 1.4Z",
+        )
+    }
+
+    /** A keyboard: back from the emoji panel to typing. */
+    val Keyboard: ImageVector by lazy {
+        vector(
+            "Keyboard",
+            "M4 19q-.83 0-1.41-.59T2 17V7q0-.83.59-1.41T4 5h16q.83 0 1.41.59T22 7v10q0 .83-.59 1.41T20 19H4Zm0-2h16V7H4v10Z" +
+                "M8 16h8v-2H8v2Zm-3-3h2v-2H5v2Zm3 0h2v-2H8v2Zm3 0h2v-2h-2v2Zm3 0h2v-2h-2v2Zm3 0h2v-2h-2v2Z" +
+                "M5 10h2V8H5v2Zm3 0h2V8H8v2Zm3 0h2V8h-2v2Zm3 0h2V8h-2v2Zm3 0h2V8h-2v2Z",
+        )
+    }
+
+    /** An empty star: a mail not starred. */
+    val StarOutline: ImageVector by lazy {
+        vector(
+            "StarOutline",
+            "m8.85 16.83 3.15-1.9 3.15 1.93-.83-3.6 2.78-2.4-3.65-.33L12 7.13l-1.45 3.4-3.65.32 2.78 2.43-.83 3.55Z" +
+                "M5.83 21l1.62-7.03L2 9.24l7.2-.63L12 2l2.8 6.63 7.2.63-5.45 4.73L18.18 21 12 17.27 5.83 21Z" +
+                "M12 12.25Z",
+        )
+    }
+
+    /** A clock with an arrow running back: what is over — closed conversations. */
+    val History: ImageVector by lazy {
+        vector(
+            "History",
+            "M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7" +
+                "c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18Z" +
+                "m-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12Z",
+        )
+    }
+
+    /** Three lines: every inbox. */
+    val Menu: ImageVector by lazy {
+        vector("Menu", "M3 18v-2h18v2H3Zm0-5v-2h18v2H3Zm0-5V6h18v2H3Z")
+    }
+
+    /** An exclamation mark: a thread marked urgent. */
+    val PriorityHigh: ImageVector by lazy {
+        vector("PriorityHigh", "M10 3h4v12h-4ZM12 17a2 2 0 1 1 0 4 2 2 0 1 1 0-4Z")
+    }
+
+    /** An arrow up: a thread marked high. */
+    val ArrowUp: ImageVector by lazy {
+        vector("ArrowUp", "M11 20V7.83l-5.6 5.6L4 12l8-8 8 8-1.4 1.43-5.6-5.6V20h-2Z")
+    }
+
+    /** A clock face: waiting on the customer. */
+    val Schedule: ImageVector by lazy {
+        vector(
+            "Schedule",
+            "m15.3 16.7 1.4-1.4-3.7-3.7V7h-2v5.4ZM12 22q-2.08 0-3.9-.79-1.83-.79-3.18-2.14-1.35-1.35-2.14-3.18" +
+                "Q2 14.07 2 12t.79-3.9q.79-1.82 2.14-3.18Q6.28 3.57 8.1 2.79 9.92 2 12 2q2.08 0 3.9.79 1.82.79 3.18 " +
+                "2.14 1.35 1.35 2.14 3.18Q22 9.92 22 12t-.79 3.9q-.79 1.83-2.14 3.18-1.35 1.35-3.18 2.14Q14.08 22 12 " +
+                "22Zm0-2q3.33 0 5.67-2.33Q20 15.33 20 12t-2.33-5.67Q15.33 4 12 4T6.33 6.33Q4 8.67 4 12t2.33 5.67Q8.67 " +
+                "20 12 20Z",
+        )
+    }
+
+    /** A wrench: the platform is down for maintenance. */
+    val Build: ImageVector by lazy {
+        vector(
+            "Build",
+            "M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1" +
+                "c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4Z",
+        )
+    }
+
+    // The mailbox's folders, for its menu.
+
+    /** A tray: a mailbox's inbox. */
+    val Inbox: ImageVector by lazy {
+        vector(
+            "Inbox",
+            "M19 3H4.99c-1.11 0-1.98.89-1.98 2L3 19c0 1.1.88 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.11-.9-2-2-2Zm0 12h-4" +
+                "c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10Z",
+        )
+    }
+
+    /** An open envelope: drafts. */
+    val Drafts: ImageVector by lazy {
+        vector(
+            "Drafts",
+            "M21.99 8c0-.72-.37-1.35-.94-1.7L12 1 2.95 6.3C2.38 6.65 2 7.28 2 8v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2" +
+                "l-.01-10ZM12 13 3.74 7.84 12 3l8.26 4.84L12 13Z",
+        )
+    }
+
+    /** A stop sign with an exclamation mark: spam. */
+    val Report: ImageVector by lazy {
+        vector(
+            "Report",
+            "M15.73 3H8.27L3 8.27v7.46L8.27 21h7.46L21 15.73V8.27L15.73 3ZM12 17.3c-.72 0-1.3-.58-1.3-1.3 " +
+                "0-.72.58-1.3 1.3-1.3.72 0 1.3.58 1.3 1.3 0 .72-.58 1.3-1.3 1.3Zm1-4.3h-2V7h2v6Z",
+        )
+    }
+
+    /** A tag: a mailbox's own label. */
+    val Label: ImageVector by lazy {
+        vector(
+            "Label",
+            "M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 " +
+                "1.27-.33 1.63-.84L22 12l-4.37-6.16Z",
+        )
+    }
+
+    /** A tag with a notch: what the mailbox marks important. */
+    val LabelImportant: ImageVector by lazy {
+        vector(
+            "LabelImportant",
+            "M3.5 18.99 14.5 19c.67 0 1.27-.33 1.63-.84L20.5 12l-4.37-6.16c-.36-.51-.96-.84-1.63-.84l-11 .01L8.34 12 3.5 18.99Z",
+        )
+    }
+
+    /**
+     * Turns SVG path data into an icon.
+     *
+     * `defaultWidth`/`Height` in dp and a 24-unit viewport is what every
+     * Material icon declares, and it is what lets `Icon` size and tint these
+     * exactly as it sizes and tints the ones from the library.
+     */
+    private fun vector(name: String, pathData: String): ImageVector =
+        ImageVector.Builder(
+            name = name,
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                pathData = PathParser().parsePathString(pathData).toNodes(),
+                // Unspecified, so `Icon` supplies the tint — an icon with its
+                // own colour baked in ignores the theme and shows up white on
+                // white the first time somebody turns dark mode on.
+                fill = SolidColor(Color.Black),
+            )
+        }.build()
+}

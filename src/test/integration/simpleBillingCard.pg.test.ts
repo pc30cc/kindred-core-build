@@ -126,6 +126,9 @@ const t = (v: unknown): number => (v instanceof Date ? v.getTime() : Date.parse(
 let chainRef: FullChainDatabase | null = null;
 const fake = new FakePaddle({
   webhookSecret: SECRET,
+  // Paddle adds the buyer's 20% tax on top of every price (tax_mode external):
+  // every scenario credits, compares and refunds the price without it.
+  buyerTaxPercent: 20,
   // What our payment row looked like when Paddle was asked to charge it (I5).
   inspectCharge: async (paymentId) => {
     if (!paymentId || !chainRef) return null;
@@ -340,6 +343,7 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
 
     // I2: every paid transaction of ours (amount > 0) is exactly one succeeded
     // payment with one credit; nothing is credited that Paddle did not collect.
+    // The amount is the price Paddle collected, without the buyer's tax it added.
     const workspaces = new Set((await q(`SELECT id FROM public.workspaces`)).map((r) => String(r.id)));
     const payments = await q(`
       SELECT p.id, p.workspace_id, p.status, p.amount_minor, p.provider_payment_id,
@@ -352,7 +356,7 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     for (const txn of fake.transactions.values()) {
       const ws = fake.transactionWorkspace(txn.id);
       if (!fake.isOurs(txn.id) || !ws || !workspaces.has(ws)) continue;
-      const amount = Number(txn.details.totals.grand_total);
+      const amount = Number(txn.details.totals.grand_total) - Number(txn.details.totals.tax);
       if (!['paid', 'completed'].includes(txn.status) || amount <= 0) continue;
       collected.set(ws, (collected.get(ws) ?? 0) + amount);
       const rows = byTxn.get(txn.id) ?? [];
@@ -638,7 +642,7 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     // The checkout Paddle was asked for: a recurring price, the full price, what each renewal is for.
     const checkout = fake.transactions.get(txnId)!;
     expect(checkout.items[0].price).toMatchObject({
-      unit_price: { amount: '2900', currency_code: 'USD' }, billing_cycle: { interval: 'month', frequency: 1 }, tax_mode: 'internal',
+      unit_price: { amount: '2900', currency_code: 'USD' }, billing_cycle: { interval: 'month', frequency: 1 }, tax_mode: 'external',
       custom_data: { plan_id: st.pro, interval: 'monthly', net_minor: 2900, tax_minor: 0 },
     });
     expect(checkout.custom_data).toEqual({ workspace_id: ws, intent_id: paymentId, card_setup: '1' });
@@ -965,7 +969,7 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     expect(charges).toHaveLength(1);
     expect(charges[0].body).toMatchObject({
       effective_from: 'immediately', on_payment_failure: 'prevent_change',
-      items: [{ quantity: 1, price: { unit_price: { amount: '7000', currency_code: 'USD' }, tax_mode: 'internal', custom_data: { payment_id: paymentId, workspace_id: ws } } }],
+      items: [{ quantity: 1, price: { unit_price: { amount: '7000', currency_code: 'USD' }, tax_mode: 'external', custom_data: { payment_id: paymentId, workspace_id: ws } } }],
     });
     const chargeTxn = fake.transactionsOf(subId).find((x) => x.origin === 'subscription_charge')!;
     expect(await one(`SELECT source, purpose, status, provider_ref, card_id, amount_minor FROM public.billing_account_payments WHERE id = $1`, [paymentId]))
@@ -1077,7 +1081,8 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     // Paddle renews: the new plan, for a year.
     await toPaddleDate(ws, subId, MINUTE);
     const renewal = fake.transactionsOf(subId).find((x) => x.origin === 'subscription_recurring')!;
-    expect(renewal.details.totals.grand_total).toBe('29000');
+    // The price, plus the buyer's 20% tax on top.
+    expect(renewal.details.totals).toMatchObject({ subtotal: '29000', tax: '5800', grand_total: '34800' });
     await settle();
     const paid = await one(`SELECT * FROM public.billing_account_payments WHERE provider_ref = $1`, [renewal.id]);
     expect(paid).toMatchObject({ source: 'card_renewal', purpose: 'renewal', status: 'succeeded' });
@@ -1341,8 +1346,9 @@ suite('saved card, end to end with a stateful Paddle (real routes, postgres-only
     const ws = await newWorkspace('Card S16');
     const { subId, cardId } = await buyWithCard(ws, 'pro');
     await toPaddleDate(ws, subId, -MINUTE);
-    // Paddle took a customer credit off: 25.00 collected for a 29.00 renewal.
-    const renewal = fake.renew(subId, { grandTotalMinor: 2500 })!;
+    // Paddle took a customer credit off: 25.00 of the price collected for a
+    // 29.00 renewal (plus the buyer's 20% tax on 29.00, 5.80, which is Paddle's).
+    const renewal = fake.renew(subId, { grandTotalMinor: 2500 + 580 })!;
     expect(renewal.status).toBe('completed');
     await settle();
     expect(await one(`SELECT source, purpose, status, review, amount_minor FROM public.billing_account_payments WHERE provider_ref = $1`, [renewal.id]))

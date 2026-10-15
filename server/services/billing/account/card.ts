@@ -1063,7 +1063,7 @@ async function onTransactionEvent(
   occurredAt: string | null,
 ): Promise<'handled' | 'ignored'> {
   if (!txn) return 'ignored';
-  const amount = txn.grandTotalMinor ?? txn.totalMinor ?? 0;
+  const amount = txn.chargedMinor ?? 0;
   const paid = PAID.has(txn.status);
   if (amount <= 0) {
     // A card change (subscription_payment_method_change) charges nothing.
@@ -1256,7 +1256,7 @@ async function earlierDateBlocked(
       blocked = blocked ?? 'renewal_in_flight';
       continue;
     }
-    const amount = txn.grandTotalMinor ?? txn.totalMinor ?? 0;
+    const amount = txn.chargedMinor ?? 0;
     const payment = amount > 0 ? await recordCharge(config, card, txn, amount) : null;
     if (!payment) {
       blocked = blocked ?? 'renewal_not_recorded';
@@ -1574,7 +1574,7 @@ async function resolveChargeTransaction(
   payment: CardPayment,
   txn: PaddleTransaction,
 ): Promise<{ status: 'succeeded'; settled: SettleResult } | { status: 'failed'; reason: string } | { status: 'pending' }> {
-  const amount = txn.grandTotalMinor ?? txn.totalMinor ?? 0;
+  const amount = txn.chargedMinor ?? 0;
   if (amount > 0) {
     const bound = await recordCharge(config, card, txn, amount);
     if (bound && bound.id !== payment.id) {
@@ -1680,11 +1680,11 @@ export async function chargeCardForUpgrade(
       productId: str(gateway.paddle.product_id),
       customData: { payment_id: paymentId, workspace_id: workspaceId },
     })];
-    // What Paddle would charge must be exactly this, with no Paddle credit.
+    // What Paddle would charge (before the buyer's tax it adds) must be exactly this, with no Paddle credit.
     const preview = await previewCharge(gateway.paddle, card.subscription_id, items);
     if (!preview.ok) return refuse('charge_preview_failed', providerError(preview));
-    if (preview.grandTotalMinor !== charge.total || (preview.creditMinor ?? 0) !== 0) {
-      console.error(`[billing-card] REVIEW payment=${paymentId} Paddle's preview charges ${preview.grandTotalMinor} (credit ${preview.creditMinor}), not ${charge.total}`);
+    if (preview.chargedMinor !== charge.total || (preview.creditMinor ?? 0) !== 0) {
+      console.error(`[billing-card] REVIEW payment=${paymentId} Paddle's preview charges ${preview.chargedMinor} before tax (${preview.grandTotalMinor} with it, credit ${preview.creditMinor}), not ${charge.total}`);
       return refuse('charge_preview_mismatch', new AccountBillingError('CARD_PROVIDER_ERROR', 502, { code: 'preview_mismatch' }));
     }
     // From here Paddle may charge: the row is resolved by looking the charge up, never retried.
@@ -1937,7 +1937,7 @@ export async function pullCardRenewal(config: ServerConfig, workspaceId: string)
     let pulled = false;
     for (const txn of [...list.transactions].reverse()) {
       if (txn.origin !== 'subscription_recurring' || !PAID.has(txn.status)) continue;
-      const amount = txn.grandTotalMinor ?? txn.totalMinor ?? 0;
+      const amount = txn.chargedMinor ?? 0;
       if (amount <= 0) continue;
       const payment = await recordCharge(config, card, txn, amount);
       if (!payment || payment.status === 'succeeded') continue;

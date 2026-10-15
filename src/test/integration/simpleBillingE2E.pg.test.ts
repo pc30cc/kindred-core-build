@@ -59,7 +59,8 @@ vi.mock('../../../server/middleware/security.js', async (importOriginal) => {
 
 // ── Paddle's API, answered locally (fakePaddle.ts); nothing else may leave this machine ──
 const WEBHOOK_SECRET = 'pdl_ntfset_test_secret_for_this_suite';
-const paddle = new FakePaddle({ webhookSecret: WEBHOOK_SECRET });
+// Paddle adds the buyer's 20% tax on top of the price: the account is credited the price.
+const paddle = new FakePaddle({ webhookSecret: WEBHOOK_SECRET, buyerTaxPercent: 20 });
 const originals = { http: http.request };
 let guard: OutboundGuard | null = null;
 
@@ -525,7 +526,8 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const checkout = start.json.clientCheckout as { provider: string; transactionId: string; successUrl: string };
     expect(checkout.provider).toBe('paddle_sandbox');
     const txn = paddle.transactions.get(checkout.transactionId)!;
-    expect(txn).toMatchObject({ currency_code: 'USD', details: { totals: { total: '2500' } } });
+    // The price, and the buyer's 20% tax Paddle adds on top of it.
+    expect(txn).toMatchObject({ currency_code: 'USD', details: { totals: { subtotal: '2500', tax: '500', total: '3000' } } });
     expect(txn.custom_data?.intent_id).toBe(start.json.paymentId);
 
     // Paddle collects it and notifies.
@@ -533,7 +535,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const body = JSON.stringify({
       event_id: 'evt_test_1',
       event_type: 'transaction.paid',
-      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom_data, details: { totals: { total: '2500' } } },
+      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom_data, items: txn.items, details: txn.details },
     });
     const ts = Math.floor(Date.now() / 1000);
     const h1 = crypto.createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');
@@ -639,7 +641,7 @@ suite('simple billing top-up, end to end (real routes, postgres-only)', () => {
     const body = JSON.stringify({
       event_id: 'evt_plan_1',
       event_type: 'transaction.paid',
-      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom_data, details: { totals: { total: txn.details.totals.total } } },
+      data: { id: checkout.transactionId, status: 'paid', currency_code: 'USD', custom_data: txn.custom_data, items: txn.items, details: txn.details },
     });
     const ts = Math.floor(Date.now() / 1000);
     const h1 = crypto.createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');

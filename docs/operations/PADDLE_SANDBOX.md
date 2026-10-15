@@ -29,8 +29,10 @@ existing `billing_provider_credentials` table.
 ## What the integration needs from Paddle
 
 - **No catalog product or price.** Each checkout creates a transaction with a
-  non-catalog, one-time price for exactly the payment's amount (tax-inclusive,
-  `tax_mode: internal`), with an inline product named after the plan. The
+  non-catalog, one-time price for exactly the payment's amount (tax-EXCLUSIVE,
+  `tax_mode: external`, set explicitly so the dashboard's setting cannot change
+  it: Paddle adds the buyer's own sales tax or VAT on top, the buyer pays it,
+  and the account is credited the price), with an inline product named after the plan. The
   optional *Product ID* attaches that price to an existing product instead; it
   must be a product of the **sandbox** catalog (`pro_…`).
 - **Events** the provider handles (`paddle.ts → verifyWebhook`):
@@ -182,10 +184,11 @@ retry failed payments.
    then on again before the date).
 7. `payments[].method_details.card` (`type`, `last4`, `expiry_month`,
    `expiry_year`) is present on the checkout and on a renewal.
-8. Under `tax_mode: internal`, a reverse-charged business buyer's
-   transaction `total` still equals our price. If it does not, the money is
-   still credited (as a top-up, logged REVIEW) but the renewal is not
-   applied, and the tax mode needs a decision.
+8. Under `tax_mode: external` (since 2026-10-15; `internal` before, which
+   made the seller pay the tax out of the price), the transaction's `total`
+   minus its `tax` equals our price, also for a reverse-charged business
+   buyer (tax 0). If it does not, the money is still credited (as a top-up,
+   logged REVIEW) but the renewal is not applied.
 
 The reconciler (`card.ts` `syncCard`) also relies on these:
 

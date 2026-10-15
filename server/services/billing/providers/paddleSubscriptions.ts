@@ -2,7 +2,8 @@ import type {
   BillingProviderConfig, PaddleCardDetails, PaddleCardEvent, PaddleSubscription, PaddleSubscriptionItem, PaddleTransaction,
 } from '../types.js';
 import {
-  PADDLE_CURRENCIES, isPaddleSandboxFlag, livePaddleConfig, paddleApiBase, paddleClientCheckout, paddleCredentialProblem,
+  PADDLE_CURRENCIES, isPaddleSandboxFlag, livePaddleConfig, paddleAmountBeforeTax, paddleApiBase, paddleClientCheckout,
+  paddleCredentialProblem, paddlePricesIncludeTax,
 } from './paddle.js';
 import { minorFromProvider, normalizeCurrencyCode, requireSupportedCurrency } from './minorAmount.js';
 import { PADDLE_SANDBOX_PROVIDER } from '../../../../shared/testGateways.js';
@@ -277,6 +278,7 @@ export function readTransaction(data: unknown): PaddleTransaction | null {
     currency: normalizeCurrencyCode(txn.currency_code) ?? null,
     totalMinor: minor(totals?.total),
     grandTotalMinor: minor(totals?.grand_total),
+    chargedMinor: paddleAmountBeforeTax(totals?.grand_total ?? totals?.total, totals?.tax, paddlePricesIncludeTax(txn)) ?? null,
     creditMinor: minor(totals?.credit),
     itemCustomData: (Array.isArray(txn.items) ? txn.items : []).map((item) => customData(asRecord(asRecord(item)?.price)?.custom_data)),
     customData: customData(txn.custom_data),
@@ -456,9 +458,10 @@ function clip(text: string, max: number): string {
 }
 
 /**
- * A non-catalog price for exactly `amountMinor`, tax-INCLUSIVE like the
- * checkout's (`tax_mode: internal`), attached to the configured catalog
- * product or to an inline one. Paddle's length limits differ per endpoint.
+ * A non-catalog price for exactly `amountMinor`, tax-EXCLUSIVE like the
+ * checkout's (`tax_mode: external`: Paddle adds the buyer's tax on top),
+ * attached to the configured catalog product or to an inline one. Paddle's
+ * length limits differ per endpoint.
  */
 function itemPrice(input: ItemInput, limits: { name: number; description: number }): Record<string, unknown> {
   if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) {
@@ -473,7 +476,7 @@ function itemPrice(input: ItemInput, limits: { name: number; description: number
     description,
     name,
     unit_price: { amount: String(input.amountMinor), currency_code: currency },
-    tax_mode: 'internal',
+    tax_mode: 'external',
     ...(productId ? { product_id: productId } : { product: { name: clip(input.name, 200) || name, tax_category: 'standard' } }),
     custom_data: { ...input.customData },
   };
@@ -513,15 +516,17 @@ export async function previewCharge(
   config: BillingProviderConfig,
   id: string,
   items: ChargeItem[],
-): Promise<PaddleResult<unknown> & { grandTotalMinor: number | null; creditMinor: number | null }> {
+): Promise<PaddleResult<unknown> & { grandTotalMinor: number | null; chargedMinor: number | null; creditMinor: number | null }> {
   const body = chargeBody(items);
   const path = subscriptionPath(id, '/charge/preview');
-  if (!path) return { ...missingId(), grandTotalMinor: null, creditMinor: null };
+  if (!path) return { ...missingId(), grandTotalMinor: null, chargedMinor: null, creditMinor: null };
   const result = await paddleRequest(config, path, { method: 'POST', body });
   const totals = asRecord(asRecord(asRecord(asRecord(result.data)?.immediate_transaction)?.details)?.totals);
   return {
     ...result,
     grandTotalMinor: result.ok ? minor(totals?.grand_total) : null,
+    // The charge's own items are tax-exclusive: the buyer's tax comes on top.
+    chargedMinor: result.ok ? paddleAmountBeforeTax(totals?.grand_total, totals?.tax, false) ?? null : null,
     creditMinor: result.ok ? minor(totals?.credit) : null,
   };
 }

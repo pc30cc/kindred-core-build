@@ -156,7 +156,7 @@ const RENEWAL = {
     { price: { ...SPEC_TRANSACTIONS[2].items[0].price, custom_data: { plan_id: 'plan-pro', interval: 'monthly', net_minor: 2900, tax_minor: 0 } }, quantity: 1 },
     { price: { ...SPEC_TRANSACTIONS[2].items[0].price, custom_data: null }, quantity: 1 },
   ],
-  details: { totals: { ...SPEC_TRANSACTIONS[2].details.totals, total: '2900', grand_total: '2900', credit: '0' } },
+  details: { totals: { ...SPEC_TRANSACTIONS[2].details.totals, subtotal: '2900', tax: '0', total: '2900', grand_total: '2900', credit: '0' } },
 };
 
 /** "Preview a one-time charge for a subscription (200)" — the parts read. */
@@ -352,6 +352,8 @@ describe('readTransaction / readCardDetails', () => {
       totalMinor: 43549,
       grandTotalMinor: 43549,
       creditMinor: 0,
+      // The price without the buyer's tax (3549) Paddle added on top.
+      chargedMinor: 40000,
       itemCustomData: [{}],
       customData: {},
       card: { brand: 'visa', last4: '3184', expMonth: 1, expYear: 2025 },
@@ -461,7 +463,7 @@ describe('subscription calls', () => {
           description: 'Pro plan, monthly',
           name: 'Pro (monthly)',
           unit_price: { amount: '2900', currency_code: 'USD' },
-          tax_mode: 'internal',
+          tax_mode: 'external',
           product: { name: 'Pro (monthly)', tax_category: 'standard' },
           custom_data: { plan_id: 'plan-pro', interval: 'monthly', net_minor: 2900, tax_minor: 0 },
           billing_cycle: { interval: 'month', frequency: 1 },
@@ -561,7 +563,7 @@ describe('items', () => {
         description: 'Upgrade Pro → Business (difference)',
         name: 'Upgrade to Business',
         unit_price: { amount: '2000', currency_code: 'USD' },
-        tax_mode: 'internal',
+        tax_mode: 'external',
         product: { name: 'Upgrade to Business', tax_category: 'standard' },
         custom_data: { payment_id: 'pay-1', workspace_id: 'ws-1' },
       },
@@ -605,12 +607,13 @@ describe('one-time charges', () => {
     const { calls } = stubFetch({ status: 200, body: { data: SPEC_CHARGE_PREVIEW } });
     const result = await previewCharge(LIVE, SUB, [item]);
     expect(calls[0]).toMatchObject({ url: `https://api.paddle.com/subscriptions/${SUB}/charge/preview`, method: 'POST', body });
-    expect(result).toMatchObject({ ok: true, grandTotalMinor: 21666, creditMinor: 0 });
+    // Our items are tax-exclusive: what pays the price is the total without the buyer's tax.
+    expect(result).toMatchObject({ ok: true, grandTotalMinor: 21666, chargedMinor: 19900, creditMinor: 0 });
   });
 
   it('previewCharge: no totals when the preview failed', async () => {
     stubFetch({ status: 400, body: { error: { code: 'subscription_update_when_past_due', detail: 'past due' } } });
-    expect(await previewCharge(LIVE, SUB, [item])).toMatchObject({ ok: false, grandTotalMinor: null, creditMinor: null });
+    expect(await previewCharge(LIVE, SUB, [item])).toMatchObject({ ok: false, grandTotalMinor: null, chargedMinor: null, creditMinor: null });
   });
 
   it('createCharge: POST …/charge, immediately, prevent_change', async () => {

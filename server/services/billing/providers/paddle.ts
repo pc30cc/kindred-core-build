@@ -50,15 +50,39 @@ function readString(record: Record<string, unknown> | null, key: string): string
 }
 
 /**
- * Amount and currency Paddle collected for a transaction: `details.totals.total`
- * (lowest denomination, as a string) and `currency_code`. With tax-inclusive
- * prices (tax_mode `internal`, see createCheckoutSession) the total equals the
- * price the customer was quoted; Paddle takes its tax out of it.
+ * True when the transaction's prices are tax-INCLUSIVE (every item's price
+ * has `tax_mode: internal`): prices this platform created before Paddle's tax
+ * was added on top. Every price created now is `external`.
+ */
+export function paddlePricesIncludeTax(txn: Record<string, unknown> | null): boolean {
+  const items = Array.isArray(txn?.items) ? txn.items : [];
+  return items.length > 0 && items.every((item) => asRecord(asRecord(item)?.price)?.tax_mode === 'internal');
+}
+
+/**
+ * The part of a Paddle amount that pays OUR price: `total` (or `grand_total`)
+ * without the tax Paddle, as merchant of record, added on top for the buyer.
+ * Prices are tax-exclusive (`tax_mode: external`, see createCheckoutSession),
+ * so the customer pays the quoted price plus their own tax, and that tax is
+ * never credited to the account. An older tax-inclusive price
+ * (`includesTax`) already contains its tax: the whole amount pays it.
+ */
+export function paddleAmountBeforeTax(amount: unknown, tax: unknown, includesTax: boolean): number | undefined {
+  const paid = minorFromProvider(amount);
+  if (paid === undefined || includesTax) return paid;
+  const taxMinor = minorFromProvider(tax) ?? 0;
+  return taxMinor <= paid ? paid - taxMinor : undefined;
+}
+
+/**
+ * Amount and currency Paddle collected for a transaction, before the tax it
+ * added on top (`details.totals.total - tax`, lowest denomination): the price
+ * the customer was quoted, which is what the account is credited.
  */
 export function readPaddleTransactionTotal(txn: Record<string, unknown> | null): { amount?: number; currency?: string } {
   const totals = asRecord(asRecord(txn?.details)?.totals);
   return {
-    amount: minorFromProvider(totals?.total),
+    amount: paddleAmountBeforeTax(totals?.total, totals?.tax, paddlePricesIncludeTax(txn)),
     currency: normalizeCurrencyCode(txn?.currency_code),
   };
 }
@@ -306,9 +330,10 @@ export const paddleWire: BillingProviderHandler = {
   /**
    * Paddle Billing (API v2) transaction for exactly the amount being
    * collected: one non-catalog, one-time price of `metadata.amount` (lowest
-   * denomination of `req.currency`), tax-INCLUSIVE (`tax_mode: internal`) so
-   * the customer pays the plan price and Paddle, as merchant of record, takes
-   * the tax out of it. `custom_data` carries workspace, intent and invoice.
+   * denomination of `req.currency`), tax-EXCLUSIVE (`tax_mode: external`):
+   * Paddle, as merchant of record, adds the buyer's tax on top, so the
+   * customer pays it and the seller keeps the whole price. (An explicit mode,
+   * not `account_setting`: the amount check depends on it.) `custom_data` carries workspace, intent and invoice.
    *
    * Paddle Billing has no redirect checkout of its own: the browser opens the
    * transaction with Paddle.js (`clientCheckout`), which needs the client-side
@@ -348,7 +373,7 @@ export const paddleWire: BillingProviderHandler = {
           description: name,
           name,
           unit_price: { amount: String(amount), currency_code: currency },
-          tax_mode: 'internal',
+          tax_mode: 'external',
           ...(productId ? { product_id: productId } : { product: { name, tax_category: 'standard' } }),
           ...(recurring ? { billing_cycle: { interval: recurring.interval === 'yearly' ? 'year' : 'month', frequency: 1 } } : {}),
           ...(req.priceCustomData ? { custom_data: req.priceCustomData } : {}),
@@ -512,7 +537,9 @@ export const paddleWire: BillingProviderHandler = {
         type: 'refund_processed',
         refundId: adjustmentId,
         providerPaymentId: readString(data, 'transaction_id'),
-        amount: minorFromProvider(asRecord(data?.totals)?.total),
+        // The refund without the buyer's tax Paddle refunds with it (prices are
+        // tax-exclusive): the part of the price the account is debited.
+        amount: paddleAmountBeforeTax(asRecord(data?.totals)?.total, asRecord(data?.totals)?.tax, false),
         currency: normalizeCurrencyCode(data?.currency_code),
         ...(action === 'chargeback' ? { chargeback: true } : {}),
       };

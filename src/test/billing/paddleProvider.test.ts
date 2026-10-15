@@ -66,8 +66,8 @@ describe('paddle createCheckoutSession', () => {
           name: 'Pro (monthly) — invoice AB12345678',
           // Lowest denomination, as Paddle wants it: $29.00.
           unit_price: { amount: '2900', currency_code: 'USD' },
-          // The customer pays the quoted price; Paddle takes its tax out of it.
-          tax_mode: 'internal',
+          // Paddle adds the buyer's tax on top of the quoted price.
+          tax_mode: 'external',
           product: { name: 'Pro (monthly) — invoice AB12345678', tax_category: 'standard' },
         },
       }],
@@ -193,7 +193,7 @@ describe('paddle createCheckoutSession — card setup (recurring price, simple b
           description: 'Pro (monthly)',
           name: 'Pro (monthly)',
           unit_price: { amount: '2900', currency_code: 'USD' },
-          tax_mode: 'internal',
+          tax_mode: 'external',
           product: { name: 'Pro (monthly)', tax_category: 'standard' },
           billing_cycle: { interval: 'month', frequency: 1 },
           custom_data: { plan_id: 'plan-pro', interval: 'monthly', net_minor: 2900, tax_minor: 0 },
@@ -228,7 +228,7 @@ describe('paddle createCheckoutSession — card setup (recurring price, simple b
           description: 'Pro (monthly) — invoice AB12345678',
           name: 'Pro (monthly) — invoice AB12345678',
           unit_price: { amount: '2900', currency_code: 'USD' },
-          tax_mode: 'internal',
+          tax_mode: 'external',
           product: { name: 'Pro (monthly) — invoice AB12345678', tax_category: 'standard' },
         },
       }],
@@ -247,15 +247,28 @@ describe('paddle createCheckoutSession — card setup (recurring price, simple b
 });
 
 describe('paddle verifyPayment (server-to-server transaction lookup)', () => {
-  const txn = (status: string) => ({
-    data: { id: 'txn_1', status, currency_code: 'USD', details: { totals: { total: '2900', tax: '483', subtotal: '2417' } } },
+  // A $29.00 price with the buyer's $4.83 tax added on top by Paddle.
+  const txn = (status: string, taxMode = 'external') => ({
+    data: {
+      id: 'txn_1', status, currency_code: 'USD',
+      items: [{ quantity: 1, price: { tax_mode: taxMode, unit_price: { amount: '2900', currency_code: 'USD' } } }],
+      details: taxMode === 'internal'
+        ? { totals: { total: '2900', tax: '483', subtotal: '2417' } }
+        : { totals: { total: '3383', tax: '483', subtotal: '2900' } },
+    },
   });
 
-  it.each([['paid'], ['completed']])('a %s transaction is the payment, with Paddle’s total and currency', async (status) => {
+  it.each([['paid'], ['completed']])('a %s transaction is the payment: the quoted price, without the buyer’s tax', async (status) => {
     const fetchMock = mockFetch(200, txn(status));
     const out = await paddleWire.verifyPayment!(config, { _ptxn: 'txn_1', amount: '2900' });
     expect(firstCall(fetchMock).url).toBe('https://sandbox-api.paddle.com/transactions/txn_1');
     expect(out).toEqual({ verified: true, providerRef: 'txn_1', amount: 2900, currency: 'USD', paymentId: 'txn_1', status: 'paid' });
+  });
+
+  it('an older tax-inclusive price is paid by its whole total', async () => {
+    mockFetch(200, txn('paid', 'internal'));
+    const out = await paddleWire.verifyPayment!(config, { _ptxn: 'txn_1', amount: '2900' });
+    expect(out).toMatchObject({ verified: true, amount: 2900 });
   });
 
   it('a canceled transaction is definitive', async () => {
@@ -302,7 +315,9 @@ describe('paddle verifyWebhook event mapping', () => {
     customer_id: 'ctm_1',
     currency_code: 'EUR',
     custom_data: { workspace_id: 'ws-1', intent_id: 'pi-1', invoice_id: 'inv-1' },
-    details: { totals: { total: '4900' } },
+    items: [{ quantity: 1, price: { tax_mode: 'external', unit_price: { amount: '4900', currency_code: 'EUR' } } }],
+    // €49.00 plus the buyer's €9.80 VAT, which Paddle collects for itself.
+    details: { totals: { subtotal: '4900', tax: '980', total: '5880' } },
   };
 
   it.each([['transaction.paid'], ['transaction.completed']])('%s settles the intent in custom_data', async (type) => {
@@ -390,7 +405,8 @@ describe('paddle verifyWebhook event mapping', () => {
       providerEventId: 'adjustment_adj_01hvgf2s84dr6reszzg29zbvcm_approved',
       refundId: 'adj_01hvgf2s84dr6reszzg29zbvcm',
       providerPaymentId: 'txn_01hv8wnvvtedwjrhfhpr9vkq9w',
-      amount: 47600,
+      // Without the buyer's tax refunded with it: the part of the price.
+      amount: 40000,
       currency: 'USD',
       chargeback: true,
     });

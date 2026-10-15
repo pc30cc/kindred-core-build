@@ -25,6 +25,7 @@ import {
   useAcknowledgeRequirement,
   type CheckGroup, type MobileAppSettings, type ReadinessCheck, type ReadinessSummary,
 } from '@/hooks/useMobileApp';
+import { useIosProjectText } from './useIosProjectText';
 
 const GROUP_ORDER: CheckGroup[] = [
   'identity', 'build', 'privacy', 'account', 'review', 'store', 'push', 'compliance', 'technical',
@@ -151,6 +152,7 @@ function CheckRow({
   pending: boolean;
 }) {
   const { t } = useTranslation();
+  const ios = useIosProjectText();
   const [open, setOpen] = useState(false);
 
   const Icon =
@@ -212,7 +214,7 @@ function CheckRow({
                 {t('admin.mobileApp.appStore.fixLabel')}
               </p>
               <p className="mt-1 whitespace-pre-line text-muted-foreground">
-                {t(`admin.mobileApp.checks.${check.id}.fix` as TranslationKey)}
+                {t(`admin.mobileApp.checks.${check.id}.fix` as TranslationKey, ios)}
               </p>
             </div>
             {check.evidence && (

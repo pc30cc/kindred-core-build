@@ -17,6 +17,7 @@ import { useEdition } from '@/hooks/useEdition';
 import { SettingsSection, CodeBlock } from '@/components/admin/settings/SettingsFields';
 import type { MobileAppSettings } from '@/hooks/useMobileApp';
 import { iosBuildCommands } from './nativeBuild';
+import { useIosProjectText } from './useIosProjectText';
 
 /** The ordered procedure; the copy for each step lives in i18n. */
 const STEPS = [
@@ -28,6 +29,7 @@ export function MobileBuildGuideTab({ settings }: { settings: MobileAppSettings 
   const { t } = useTranslation();
   const { edition } = useEdition();
   const commands = iosBuildCommands(settings, edition).join('\n');
+  const ios = useIosProjectText();
 
   return (
     <div className="space-y-4">
@@ -52,7 +54,7 @@ export function MobileBuildGuideTab({ settings }: { settings: MobileAppSettings 
                   {t(`admin.mobileApp.buildGuide.steps.${step}.title` as TranslationKey)}
                 </p>
                 <p className="mt-0.5 whitespace-pre-line text-xs text-muted-foreground">
-                  {t(`admin.mobileApp.buildGuide.steps.${step}.body` as TranslationKey)}
+                  {t(`admin.mobileApp.buildGuide.steps.${step}.body` as TranslationKey, ios)}
                 </p>
               </div>
             </div>

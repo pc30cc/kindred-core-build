@@ -12,6 +12,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import type { MobileAppSettings } from '@/hooks/useMobileApp';
+import { useIosProjectText } from './useIosProjectText';
 
 const ORIENTATIONS = ['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right'] as const;
 
@@ -23,6 +24,7 @@ export function MobileBuildTab({
   set: (patch: Partial<MobileAppSettings>) => void;
 }) {
   const { t } = useTranslation();
+  const ios = useIosProjectText();
 
   const toggleOrientation = (value: string, on: boolean) => {
     const next = on
@@ -37,7 +39,7 @@ export function MobileBuildTab({
       <SettingsSection
         icon={Hammer}
         heading={t('admin.mobileApp.build.title')}
-        caption={t('admin.mobileApp.build.caption')}
+        caption={t('admin.mobileApp.build.caption', ios)}
       >
         <FieldGrid>
           <TextField
@@ -156,7 +158,7 @@ export function MobileBuildTab({
       >
         <TextField
           label={t('admin.mobileApp.build.urlScheme')}
-          hint={t('admin.mobileApp.build.urlSchemeHint')}
+          hint={t('admin.mobileApp.build.urlSchemeHint', ios)}
           value={draft.url_scheme ?? ''}
           dir="ltr"
           onChange={(value) => set({ url_scheme: value.trim().toLowerCase() || null })}

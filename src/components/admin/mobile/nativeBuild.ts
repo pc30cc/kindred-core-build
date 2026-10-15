@@ -7,6 +7,8 @@
  */
 import type { Edition } from '../../../../shared/edition';
 import { nativeAppBrand } from '../../../../shared/nativeAppBrands';
+import { SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
+import { iosProjectText } from './iosProjectText';
 
 /**
  * The commands a Mac with Xcode runs, from a fresh checkout to an archive of
@@ -17,13 +19,16 @@ export function iosBuildCommands(
   edition: Edition | null,
 ): string[] {
   const scheme = nativeAppBrand(edition).iosScheme;
+  // The project's folder and file (iosProjectText.ts): their exact names in
+  // Iran, globs that match them in the International edition.
+  const { iosDir, iosProject } = iosProjectText(edition);
   return [
     'brew install xcodegen',
-    'cd ios/Webyar',
+    `cd ${iosDir}`,
     'xcodegen generate',
-    'open Webyar.xcodeproj',
+    `open ${iosProject}`,
     [
-      `xcodebuild -project Webyar.xcodeproj -scheme ${scheme} -configuration Release`,
+      `xcodebuild -project ${iosProject} -scheme ${scheme} -configuration Release`,
       `-destination "generic/platform=iOS" -archivePath build/${scheme}.xcarchive`,
       `MARKETING_VERSION=${settings.marketing_version} CURRENT_PROJECT_VERSION=${settings.build_number} archive`,
     ].join(' \\\n  '),
@@ -61,5 +66,6 @@ export function androidApkFile(edition: Edition | null): string {
  * International edition, which never falls back to a WebYar address.
  */
 export function appReviewAccountFallback(edition: Edition | null): string {
-  return edition === 'international' ? '' : 'apple@webyar.ai';
+  // The RESPOK build (SHIPS_IRAN_KIT false) never carries WebYar's address.
+  return edition === 'international' || !SHIPS_IRAN_KIT ? '' : 'apple@webyar.ai';
 }

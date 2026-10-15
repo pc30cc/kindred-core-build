@@ -4571,7 +4571,7 @@ const tr: TranslationKeys = {
         },
         appCard: 'Bu uygulama',
         environmentCard: 'Dağıtım durumu',
-        environmentHint: 'Bu sunucunun gördükleri: ortamındaki push anahtarları ve bu dağıtımla gelen yerel iOS projesi (ios/Webyar).',
+        environmentHint: 'Bu sunucunun gördükleri: ortamındaki push anahtarları ve bu dağıtımla gelen yerel iOS projesi ({{iosDir}}).',
         sandbox: 'Sandbox',
         invalidKey: 'Ayarlı ama okunamıyor',
         env: {
@@ -4668,7 +4668,7 @@ const tr: TranslationKeys = {
       },
       build: {
         title: 'Sürüm ve dağıtım hedefi',
-        caption: 'App Store Connect’in ve kontrol listesinin beklediği değerler. Uygulamanın kendi kopyası ios/Webyar/project.yml içindedir; derleme kılavuzu bu sürümü ve derleme numarasını arşiv komutuna ekler.',
+        caption: 'App Store Connect’in ve kontrol listesinin beklediği değerler. Uygulamanın kendi kopyası {{iosDir}}/project.yml içindedir; derleme kılavuzu bu sürümü ve derleme numarasını arşiv komutuna ekler.',
         version: 'Pazarlama sürümü',
         versionHint: 'Müşterilerin gördüğü değer, örn. 1.2.0. Her genel sürümde artmalıdır.',
         buildNumber: 'Derleme numarası',
@@ -4704,7 +4704,7 @@ const tr: TranslationKeys = {
         deepLinks: 'Derin bağlantılar',
         deepLinksHint: 'Uygulama dışından gelen bir bağlantının içeride bir ekranı nasıl açacağı.',
         urlScheme: 'Özel URL şeması',
-        urlSchemeHint: 'Yalnızca küçük harfler, örn. webyar. Kullanılmıyorsa boş bırakın.',
+        urlSchemeHint: 'Yalnızca küçük harfler, örn. {{urlSchemeExample}}. Kullanılmıyorsa boş bırakın.',
         associatedDomains: 'İlişkili alan adları',
         associatedDomainsHint: 'Her alan adı /.well-known/apple-app-site-association dosyasını HTTPS üzerinden sunmalıdır.',
       },
@@ -4776,7 +4776,7 @@ const tr: TranslationKeys = {
         dataTypesNeeded: 'Uygulamanın gizlilik bildirimi şu kategorilerde veri topluyor: {{categories}}. Bunların her birini burada ve App Store Connect’te işaretleyin.',
         thirdPartySdks: 'Üçüncü taraf SDK’ları',
         thirdPartySdksHint: 'Her birinin kendi gizlilik bildirimi gerekir ve verileri sizin sayılır.',
-        manifestPreview: 'Uygulamanın gizlilik bildirimi (ios/Webyar/Resources/PrivacyInfo.xcprivacy)',
+        manifestPreview: 'Uygulamanın gizlilik bildirimi ({{iosDir}}/Resources/PrivacyInfo.xcprivacy)',
       },
       appStore: {
         title: 'Gönderim kontrol listesi',
@@ -4835,7 +4835,7 @@ const tr: TranslationKeys = {
       },
       reviewAccount: {
         heading: 'App Review hesabı',
-        caption: 'Apple’ın giriş yaptığı hesap: apple@webyar.ai, tüm özellikleri açık İngilizce "{{brandLatin}} Demo" çalışma alanının yöneticisi.',
+        caption: 'Apple’ın giriş yaptığı hesap (aşağıda gösterilir): tüm özellikleri açık İngilizce "{{brandLatin}} Demo" çalışma alanının yöneticisi.',
         enabled: 'Giriş yapabilir',
         enabledHint: 'Bir sürüm göndermeden önce açın, inceleme bitince kapatın. Kapatmak hesabın tüm oturumlarını kapatır.',
         missing: 'Henüz oluşturulmadı',
@@ -4915,7 +4915,7 @@ const tr: TranslationKeys = {
           },
           capabilities: {
             title: 'Yetenekleri etkinleştirin',
-            body: 'Bu App ID üzerinde Push Notifications’ı etkinleştirin: uygulamanın bildirdiği tek yetenek budur (ios/Webyar/project.yml). Uygulamada olup App ID’de olmayan bir yetenek imzalamayı başarısız kılar.',
+            body: 'Bu App ID üzerinde Push Notifications’ı etkinleştirin: uygulamanın bildirdiği tek yetenek budur ({{iosDir}}/project.yml). Uygulamada olup App ID’de olmayan bir yetenek imzalamayı başarısız kılar.',
           },
           apnsKey: {
             title: 'APNs anahtarını oluşturun',
@@ -4927,15 +4927,15 @@ const tr: TranslationKeys = {
           },
           configure: {
             title: 'Bu ayarları doldurun',
-            body: 'App Store kontrol listesinde engel kalmayana kadar buradaki sekmeleri tamamlayın. Uygulamanın kendi derleme ayarları (paket tanımlayıcısı, takım, sürüm) ios/Webyar/project.yml içindedir.',
+            body: 'App Store kontrol listesinde engel kalmayana kadar buradaki sekmeleri tamamlayın. Uygulamanın kendi derleme ayarları (paket tanımlayıcısı, takım, sürüm) {{iosDir}}/project.yml içindedir.',
           },
           build: {
             title: 'Xcode projesini oluşturun',
-            body: 'Bir Mac’te XcodeGen’i kurun (brew install xcodegen) ve ios/Webyar içinde xcodegen generate komutunu çalıştırın. Proje project.yml’den üretilir ve depoya eklenmez, bu yüzden her pull’dan sonra yeniden çalıştırın.',
+            body: 'Bir Mac’te XcodeGen’i kurun (brew install xcodegen) ve {{iosDir}} içinde xcodegen generate komutunu çalıştırın. Proje project.yml’den üretilir ve depoya eklenmez, bu yüzden her pull’dan sonra yeniden çalıştırın.',
           },
           archive: {
             title: 'Xcode’da arşivleyin',
-            body: 'Webyar.xcodeproj’u açın, Webyar şemasını ve Any iOS Device’ı seçin, ardından son yüklemeden yüksek bir derleme numarasıyla Product → Archive. Önce uygulamayı gerçek bir cihazda çalıştırın ve açılışı, oturum açmayı ve bir bildirimi kontrol edin.',
+            body: '{{iosProject}} projesini açın, {{iosScheme}} şemasını ve Any iOS Device’ı seçin, ardından son yüklemeden yüksek bir derleme numarasıyla Product → Archive. Önce uygulamayı gerçek bir cihazda çalıştırın ve açılışı, oturum açmayı ve bir bildirimi kontrol edin.',
           },
           upload: {
             title: 'Derlemeyi yükleyin',
@@ -4997,12 +4997,12 @@ const tr: TranslationKeys = {
         appIcon: {
           title: 'Uygulama simgesi eksiksiz',
           requirement: 'Alfa kanalı ve yuvarlatılmış köşesi olmayan 1024×1024 PNG.',
-          fix: 'ios/Webyar/Resources/Assets.xcassets/AppIcon.appiconset klasörüne ekleyin, ardından npm run ios:project-facts komutunu çalıştırın. Şeffaflık en yaygın yükleme hatasıdır; görseli düz bir arka plan üzerine düzleştirin.',
+          fix: '{{iosDir}}/Resources/Assets.xcassets/AppIcon.appiconset klasörüne ekleyin, ardından npm run ios:project-facts komutunu çalıştırın. Şeffaflık en yaygın yükleme hatasıdır; görseli düz bir arka plan üzerine düzleştirin.',
         },
         launchScreen: {
           title: 'Açılış ekranı mevcut',
           requirement: 'Her uygulamanın tüm ekranı doldurabilmesi için bir açılış storyboard’u gerekir.',
-          fix: 'ios/Webyar/project.yml içinde UILaunchScreen olarak bildirilmiştir. Koruyun; o olmadan uygulama siyah kenarlıkla görünür.',
+          fix: '{{iosDir}}/project.yml içinde UILaunchScreen olarak bildirilmiştir. Koruyun; o olmadan uygulama siyah kenarlıkla görünür.',
         },
         orientations: {
           title: 'En az bir yön',
@@ -5062,7 +5062,7 @@ const tr: TranslationKeys = {
         privacyManifest: {
           title: 'Gizlilik bildirimi mevcut',
           requirement: 'Uygulamanın çağırdığı her gerekçeli API’yi bildiren PrivacyInfo.xcprivacy.',
-          fix: 'ios/Webyar/Resources/PrivacyInfo.xcprivacy dosyasını burada listelenen gerekçeli API’lerle uyumlu tutun; dosya uygulama hedefine eklenir. Apple bu dosya olmadan yüklemeleri reddeder.',
+          fix: '{{iosDir}}/Resources/PrivacyInfo.xcprivacy dosyasını burada listelenen gerekçeli API’lerle uyumlu tutun; dosya uygulama hedefine eklenir. Apple bu dosya olmadan yüklemeleri reddeder.',
         },
         privacyNutritionLabels: {
           title: 'App Privacy yanıtları beyan edildi',
@@ -5157,12 +5157,12 @@ const tr: TranslationKeys = {
         pushCapability: {
           title: 'Push yeteneği etkin',
           requirement: 'Uygulama hedefinin yetkilendirmeleri aps-environment bildiriyor.',
-          fix: 'ios/Webyar/project.yml içinde entitlements altında aps-environment’ı koruyun (XcodeGen bunu derlemeye yazar) ve Apple Developer portalında App ID üzerinde Push Notifications’ı etkinleştirin.',
+          fix: '{{iosDir}}/project.yml içinde entitlements altında aps-environment’ı koruyun (XcodeGen bunu derlemeye yazar) ve Apple Developer portalında App ID üzerinde Push Notifications’ı etkinleştirin.',
         },
         pushBackgroundMode: {
           title: 'Push için kullanılmayan arka plan modu yok',
           requirement: 'Uygulama bildirim gösterir ve sessiz bildirim göndermez; bu yüzden remote-notification arka plan modunu bildirmemelidir: App Review, uygulamanın kullanmadığı arka plan modlarını işaretler.',
-          fix: 'ios/Webyar/project.yml içindeki UIBackgroundModes’tan remote-notification’ı kaldırın, ardından npm run ios:project-facts komutunu çalıştırın.',
+          fix: '{{iosDir}}/project.yml içindeki UIBackgroundModes’tan remote-notification’ı kaldırın, ardından npm run ios:project-facts komutunu çalıştırın.',
         },
         pushServerCredentials: {
           title: 'Sunucuda APNs kimlik bilgileri',
@@ -5182,7 +5182,7 @@ const tr: TranslationKeys = {
         encryptionDeclaration: {
           title: 'Şifreleme Info.plist’te beyan edildi',
           requirement: 'ITSAppUsesNonExemptEncryption, App Store Connect’in her yüklemede sormasını engeller.',
-          fix: 'ios/Webyar/project.yml içinde ITSAppUsesNonExemptEncryption olarak bildirilmiştir; Yayın sekmesindeki ihracat uyumluluğu yanıtıyla uyumlu tutun.',
+          fix: '{{iosDir}}/project.yml içinde ITSAppUsesNonExemptEncryption olarak bildirilmiştir; Yayın sekmesindeki ihracat uyumluluğu yanıtıyla uyumlu tutun.',
         },
         noExternalPayments: {
           title: 'Harici ödeme bağlantısı yok',

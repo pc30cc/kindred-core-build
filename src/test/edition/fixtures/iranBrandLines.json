@@ -32,8 +32,8 @@
   },
   {
    "locale": "en",
-   "source": "        caption: 'The account Apple signs in with: apple@webyar.ai, an admin of the English \"{{brandLatin}} Demo\" workspace with every feature on.',",
-   "iran": "        caption: 'The account Apple signs in with: apple@webyar.ai, an admin of the English \"Webyar Demo\" workspace with every feature on.',"
+   "source": "        caption: 'The account Apple signs in with (shown below): an admin of the English \"{{brandLatin}} Demo\" workspace with every feature on.',",
+   "iran": "        caption: 'The account Apple signs in with (shown below): an admin of the English \"Webyar Demo\" workspace with every feature on.',"
   },
   {
    "locale": "en",
@@ -194,8 +194,8 @@
   },
   {
    "locale": "en",
-   "source": "        caption: 'اکانتی که اپل با آن وارد می‌شود: apple@webyar.ai، مدیر فضای کاری انگلیسی «{{brandLatin}} Demo» با همهٔ امکانات.',",
-   "iran": "        caption: 'اکانتی که اپل با آن وارد می‌شود: apple@webyar.ai، مدیر فضای کاری انگلیسی «Webyar Demo» با همهٔ امکانات.',"
+   "source": "        caption: 'اکانتی که اپل با آن وارد می‌شود (در پایین آمده است): مدیر فضای کاری انگلیسی «{{brandLatin}} Demo» با همهٔ امکانات.',",
+   "iran": "        caption: 'اکانتی که اپل با آن وارد می‌شود (در پایین آمده است): مدیر فضای کاری انگلیسی «Webyar Demo» با همهٔ امکانات.',"
   },
   {
    "locale": "en",
@@ -321,6 +321,11 @@
    "locale": "fa",
    "source": "      readOnly: 'دسترسی فقط‌خواندنی. هیچ داده‌ای از WHMCS در {{brand}} کپی نمی‌شود.',",
    "iran": "      readOnly: 'دسترسی فقط‌خواندنی. هیچ داده‌ای از WHMCS در وب‌یار کپی نمی‌شود.',"
+  },
+  {
+   "locale": "fa",
+   "source": "      fabLabelPlaceholder: 'مثلاً: {{brand}} دستیار ویژه شما',",
+   "iran": "      fabLabelPlaceholder: 'مثلاً: وب‌یار دستیار ویژه شما',"
   }
  ],
  "src/i18n/locales/tr.ts": [
@@ -356,8 +361,8 @@
   },
   {
    "locale": "en",
-   "source": "        caption: 'Apple’ın giriş yaptığı hesap: apple@webyar.ai, tüm özellikleri açık İngilizce \"{{brandLatin}} Demo\" çalışma alanının yöneticisi.',",
-   "iran": "        caption: 'Apple’ın giriş yaptığı hesap: apple@webyar.ai, tüm özellikleri açık İngilizce \"Webyar Demo\" çalışma alanının yöneticisi.',"
+   "source": "        caption: 'Apple’ın giriş yaptığı hesap (aşağıda gösterilir): tüm özellikleri açık İngilizce \"{{brandLatin}} Demo\" çalışma alanının yöneticisi.',",
+   "iran": "        caption: 'Apple’ın giriş yaptığı hesap (aşağıda gösterilir): tüm özellikleri açık İngilizce \"Webyar Demo\" çalışma alanının yöneticisi.',"
   },
   {
    "locale": "en",

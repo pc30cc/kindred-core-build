@@ -178,15 +178,27 @@ describe.skipIf(!HAS_ZIP)('commerce plugin editions, built from one source', () 
     });
 
     it.skipIf(!HAS_PHP)('every PHP file parses', () => {
-      const bad: string[] = [];
+      const files: string[] = [];
       for (const zip of walk(out.respok).filter((f) => f.endsWith('.zip'))) {
         const into = join(work, 'lint', relative(out.respok, zip));
-        for (const entry of unpack(zip, into).filter((e) => e.endsWith('.php'))) {
-          try { execFileSync('php', ['-l', join(into, entry)], { stdio: 'pipe' }); } catch { bad.push(`${relative(out.respok, zip)}!${entry}`); }
-        }
+        for (const entry of unpack(zip, into).filter((e) => e.endsWith('.php'))) files.push(join(into, entry));
       }
-      expect(bad).toEqual([]);
-    });
+      expect(files.length).toBeGreaterThan(0);
+      // One PHP process parses them all (TOKEN_PARSE raises the ParseError
+      // `php -l` reports); a process per file took ~10 s on CI.
+      const lint = join(work, 'lint.php');
+      writeFileSync(lint, [
+        '<?php',
+        '$bad = [];',
+        'foreach (array_slice($argv, 1) as $f) {',
+        '  try { token_get_all(file_get_contents($f), TOKEN_PARSE); }',
+        '  catch (\\Throwable $e) { $bad[] = $f . ": " . $e->getMessage(); }',
+        '}',
+        'echo implode("\\n", $bad);',
+      ].join('\n'));
+      const bad = execFileSync('php', [lint, ...files], { encoding: 'utf8' }).trim();
+      expect(bad).toBe('');
+    }, 60_000);
 
     it.skipIf(!HAS_PHP)('the rewritten OpenCart core passes its own unit tests, signing as the server does', () => {
       // Lay the rewritten core and tests out as the repo does, with the real

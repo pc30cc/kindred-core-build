@@ -1,7 +1,7 @@
 import { MessageSquare, Phone, Sparkles, BarChart3, Zap, Bot, MicOff, Camera, Video, PhoneOff } from 'lucide-react';
 import { LoopVideo } from '@/components/site/LoopVideo';
 import callerWoman from '@/assets/caller-woman.jpg';
-import callerWomanIntl from '@/assets/caller-woman-intl.jpg';
+import callerWomanIntl from '@/assets/caller-woman-respok.jpg';
 import operatorMan from '@/assets/operator-man.jpg';
 import { useTranslation } from '@/i18n';
 import { useInternationalMode } from '@/lib/internationalMode';
@@ -48,9 +48,9 @@ const CHIPS = [
 export function AuthHeroPanel({ title, subtitle, className }: Props) {
   const { locale } = useTranslation();
   const isFa = locale === 'fa';
-  // The International edition shows its own caller in the phone (a Mixkit
-  // stock clip #39799, free licence, cropped to a medium shot); the Iranian
-  // edition keeps its own.
+  // The International edition shows its own caller in the phone: the same
+  // AI-generated woman and room as the Iranian edition's clip, without a
+  // headscarf (generated with Lovable, like caller-woman.mp4).
   const international = useInternationalMode();
   return (
     <div className={`relative hidden overflow-hidden border-s border-border/60 bg-secondary/40 text-foreground lg:flex ${className ?? ''}`}>
@@ -76,7 +76,7 @@ export function AuthHeroPanel({ title, subtitle, className }: Props) {
               <LoopVideo
                 // A new source needs a new <video>: the edition can become known after the first paint.
                 key={international ? 'intl' : 'iran'}
-                src={international ? '/auth-media/caller-woman-intl.mp4' : '/auth-media/caller-woman.mp4'}
+                src={international ? '/auth-media/caller-woman-respok.mp4' : '/auth-media/caller-woman.mp4'}
                 poster={international ? callerWomanIntl : callerWoman}
                 title="Video call"
                 className="absolute inset-0 h-full w-full object-cover object-top"

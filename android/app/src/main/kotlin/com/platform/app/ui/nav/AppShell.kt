@@ -1,0 +1,776 @@
+package com.platform.app.ui.nav
+
+import com.platform.app.core.AppBrand
+import androidx.compose.material3.Badge
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.platform.app.feature.inbox.badgeText
+import com.platform.app.feature.inbox.inboxBadgeCount
+import com.platform.app.feature.inbox.rememberTeamUnread
+import com.platform.app.ui.components.unreadDescription
+import com.platform.app.ui.design.AppTheme
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigation.BackNavigationBehavior
+import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItem
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
+import androidx.compose.material3.adaptive.navigationsuite.rememberNavigationSuiteScaffoldState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberDecoratedNavEntries
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.scene.Scene
+import androidx.navigation3.ui.NavDisplay
+import com.platform.app.core.model.CallChannel
+import com.platform.app.core.net.ServerApi
+import com.platform.app.feature.analytics.AnalyticsSection
+import com.platform.app.feature.analytics.AnalyticsViewModel
+import com.platform.app.feature.contacts.ContactsViewModel
+import com.platform.app.feature.visitors.VisitorsViewModel
+import com.platform.app.ui.components.InsightGlyph
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.platform.app.feature.email.EmailInboxViewModel
+import com.platform.app.feature.inbox.InboxViewModel
+import com.platform.app.feature.promo.PromoFullScreen
+import com.platform.app.feature.promo.PromotionCenter
+import com.platform.app.feature.team.ColleaguesViewModel
+import com.platform.app.i18n.Language
+import com.platform.app.i18n.Str
+import com.platform.app.i18n.StrAndroid
+import com.platform.app.ui.AppState
+import com.platform.app.ui.AppTab
+import com.platform.app.ui.components.ShapeFrame
+import com.platform.app.ui.components.LocalEntryAnimatedScope
+import com.platform.app.ui.components.LocalSharedTransitionScope
+import androidx.navigation3.ui.LocalNavAnimatedContentScope
+import com.platform.app.ui.design.ExpressiveShapes
+import com.platform.app.ui.design.Motion
+import com.platform.app.ui.design.Space
+import com.platform.app.feature.email.EmailReplyMode
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import com.platform.app.MainActivity
+
+/**
+ * The signed-in shell.
+ *
+ * - **Navigation 3.** One back stack per tab ([Navigator]); the stacks are
+ *   plain lists the app owns and they survive process death.
+ * - **Adaptive.** [NavigationSuiteScaffold] puts Material's short navigation
+ *   bar on a phone and a navigation rail on a tablet, a foldable or a phone
+ *   turned sideways. On a wide window the list-detail strategy lays a list and
+ *   the thing opened from it side by side — the inbox and a chat, the contacts
+ *   and a contact — from the same back stack a phone shows one at a time.
+ * - **Motion.** Moving deeper slides along the reading direction (mirrored in
+ *   Persian); switching tabs fades through, because tabs are siblings, not a
+ *   sequence; Back is predictive — the gesture previews the screen underneath.
+ *
+ * Which tabs exist is the plan's decision, not this file's — [AppState.tabs]
+ * answers that. The stacks are always all three even when the bar lists two:
+ * a stack nobody can reach costs nothing.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class, ExperimentalMaterial3AdaptiveApi::class)
+@Composable
+fun AppShell(
+    appState: AppState,
+    api: ServerApi,
+    conversations: InboxViewModel,
+    contacts: ContactsViewModel,
+    colleagues: ColleaguesViewModel,
+    email: EmailInboxViewModel,
+    promotions: PromotionCenter,
+    language: Language,
+    modifier: Modifier = Modifier,
+    // The language read when it is needed rather than captured: these outlive
+    // a language change, which rebuilds the shell around them.
+    visitors: VisitorsViewModel = viewModel { VisitorsViewModel(api) { appState.language.value } },
+    analytics: AnalyticsViewModel = viewModel {
+        AnalyticsViewModel(api, { appState.language.value }, onLocked = appState::refreshPlan)
+    },
+) {
+    val tabs by appState.tabs.collectAsStateWithLifecycle()
+    val selectedTab by appState.selectedTab.collectAsStateWithLifecycle()
+    val appConfig by appState.appConfig.collectAsStateWithLifecycle()
+    val navigator = rememberNavigator(
+        currentTab = { appState.selectedTab.value },
+        selectTab = appState::selectTab,
+    )
+
+    // Back in the foreground: Super Admin may have changed the plan meanwhile,
+    // so a plan over three minutes old is asked for again. No timer runs while
+    // the app is away.
+    LifecycleStartEffect(appState) {
+        appState.refreshPlanIfStale()
+        onStopOrDispose { }
+    }
+
+    // A plan change can take away the tab that is open — switching workspace
+    // is the ordinary way that happens.
+    LaunchedEffect(tabs) {
+        if (selectedTab !in tabs) appState.selectTab(AppTab.INBOX)
+    }
+
+    // Another workspace is another set of conversations, contacts and
+    // visitors: every tab goes back to its root, so nothing opened in the
+    // last one stays on a stack to be read under the new one. Saved with the
+    // stacks, so a process that died in one workspace and comes back in
+    // another (it was left meanwhile) is cleared the same way.
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+
+    // What the Inbox tab's badge counts, read whichever tab is open: the
+    // badge matters most when the Inbox is not the tab on screen. The inbox
+    // model is bound here too, not only by the inbox, so a workspace switched
+    // from another tab counts the new workspace's Open queue at once.
+    LaunchedEffect(workspace?.id) { workspace?.id?.let(conversations::bind) }
+    val openUnread by conversations.openUnread.collectAsStateWithLifecycle()
+    val plan by appState.entitlements.collectAsStateWithLifecycle()
+    val teamUnread = rememberTeamUnread(
+        api = api,
+        workspaceId = workspace?.id,
+        teamChat = plan.value?.featureEnabled("inbox_team_chat") == true,
+        signals = rememberTeamSignals(),
+    )
+    val inboxBadge = inboxBadgeCount(openUnread, teamUnread.value)
+
+    // The mailboxes' unread counts, for the inbox's Email row and its menu's
+    // dot — watched from here, whichever tab is open, and live: the email
+    // model follows the mailbox-changed signal on its own. Counted only
+    // where the Email row is shown at all (an owner or admin, on a plan
+    // with the module).
+    val access by appState.access.collectAsStateWithLifecycle()
+    val emailAllowed = access.isAdmin && plan.value?.moduleEnabled("email_inbox") == true
+    LaunchedEffect(workspace?.id, emailAllowed) {
+        if (emailAllowed) workspace?.id?.let(email::track)
+    }
+    // Back in the front: mail may have come meanwhile, with no signal heard.
+    LifecycleResumeEffect(emailAllowed) {
+        if (emailAllowed) email.refreshMailboxes()
+        onPauseOrDispose { }
+    }
+    val emailMailboxes by email.mailboxes.collectAsStateWithLifecycle()
+    val emailUnread by email.unread.collectAsStateWithLifecycle()
+
+    // A team thread is marked read as it is opened; the badge asks again as
+    // it closes, rather than at the next poll. Team threads live on the
+    // inbox's stack.
+    LaunchedEffect(navigator, teamUnread) {
+        var previous: NavKey? = null
+        snapshotFlow { navigator.stack(AppTab.INBOX).lastOrNull() }.collect { top ->
+            if (previous is TeamThreadKey && top !is TeamThreadKey) teamUnread.nudge()
+            previous = top
+        }
+    }
+    var knownWorkspace by rememberSaveable { mutableStateOf<String?>(null) }
+    fun enterWorkspace(id: String?) {
+        if (id == null) return
+        val before = knownWorkspace
+        knownWorkspace = id
+        if (before != null && before != id) AppTab.entries.forEach(navigator::popToRoot)
+    }
+    LaunchedEffect(workspace?.id) { enterWorkspace(workspace?.id) }
+
+    // A notification tap: once the session and the workspaces are known, and
+    // the workspace it names is checked to be this operator's, the Inbox tab
+    // opens the conversation — by id, from the cache. A tap that switches
+    // workspace clears the stacks first, and not after the chat is open.
+    // A colleague's message opens their thread, over the colleagues' list,
+    // so Back goes where it would have had the thread been opened by hand.
+    val pendingLink by appState.pendingLink.collectAsStateWithLifecycle()
+    val workspaces by appState.workspaces.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingLink, workspaces) {
+        val link = appState.resolvePendingLink() ?: return@LaunchedEffect
+        enterWorkspace(appState.selectedWorkspace.value?.id)
+        val thread = link.threadId
+        if (link.opensEmailThread && thread != null) {
+            // The list under it shows the mailbox the mail arrived in.
+            appState.selectedWorkspace.value?.id?.let { email.bind(it, link.provider) }
+            val top = navigator.stack(AppTab.INBOX).lastOrNull()
+            if (top !is EmailThreadKey && top != EmailKey) navigator.open(EmailKey)
+            navigator.open(EmailThreadKey(thread, link.provider))
+            return@LaunchedEffect
+        }
+        if (link.opensSupportThread) {
+            // The platform team's reply: the support chat, in Settings where
+            // support lives — one chat, whichever conversation it is in.
+            navigator.open(SupportChatKey)
+            return@LaunchedEffect
+        }
+        val peer = link.peerId
+        if (link.opensTeamThread && peer != null) {
+            // The inbox under it shows the colleagues' chats.
+            conversations.showColleagues()
+            navigator.open(TeamThreadKey(peer))
+            return@LaunchedEffect
+        }
+        val id = link.conversationId ?: return@LaunchedEffect
+        navigator.open(ChatKey(id))
+    }
+
+    // A ringing call the operator opened — Answer, or the ring itself — once
+    // the session and the workspaces are known and the call is this
+    // operator's. Over whatever was on screen; Back returns to it.
+    val pendingCall by appState.pendingCall.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val activity = context as? MainActivity
+    LaunchedEffect(pendingCall, workspaces) {
+        val call = appState.resolvePendingCall()
+        if (call == null) {
+            // Dropped rather than still waiting — rung for a workspace this
+            // operator's list does not have (joined since the list was read):
+            // no call screen will open, so none will take the app back off
+            // the lock screen, which the ring's tap put it over. Left there,
+            // whatever is open — an inbox, a customer's chat — shows to
+            // whoever holds the locked phone.
+            val waiting = appState.pendingCall.value != null
+            val ringing = navigator.stack(AppTab.INBOX).any { it is IncomingCallKey }
+            if (!waiting && !ringing) activity?.showOverLockScreen(false)
+            return@LaunchedEffect
+        }
+        enterWorkspace(appState.selectedWorkspace.value?.id)
+        navigator.open(
+            IncomingCallKey(
+                callId = call.callId,
+                workspaceId = call.workspaceId,
+                channel = call.channel.wire,
+                caller = call.caller,
+                answer = call.answer,
+            )
+        )
+    }
+
+    // A sign-out the server did not confirm leaves the operator signed in —
+    // and says so, from whichever tab they are on by the time it fails,
+    // rather than leaving a confirmed Sign out to look like a dead button.
+    val signOutFailed by appState.signOutFailed.collectAsStateWithLifecycle()
+    LaunchedEffect(signOutFailed) {
+        if (!signOutFailed) return@LaunchedEffect
+        Toast.makeText(context.applicationContext, Str.signOutFailed(language), Toast.LENGTH_LONG).show()
+        appState.signOutFailureShown()
+    }
+
+    val entryProvider = entryProvider<NavKey> {
+        entry<InboxKey>(
+            metadata = ListDetailSceneStrategy.listPane(
+                sceneKey = InboxKey,
+                detailPlaceholder = { DetailPlaceholder(StrAndroid.pickConversation(language)) },
+            ) + tabOf(AppTab.INBOX),
+        ) {
+            WithEntryScope {
+                InboxRoute(
+                    appState = appState,
+                    conversations = conversations,
+                    language = language,
+                    onOpenConversation = { navigator.open(ChatKey(it)) },
+                    colleagues = colleagues,
+                    onOpenTeamThread = { navigator.open(TeamThreadKey(it)) },
+                    onOpenEmail = { provider ->
+                        provider?.let(email::selectMailbox)
+                        navigator.open(EmailKey)
+                    },
+                    promotions = promotions,
+                    bottomInset = 0.dp,
+                    teamUnread = teamUnread.value,
+                    mailboxes = emailMailboxes,
+                    emailUnread = emailUnread,
+                )
+            }
+        }
+        entry<ChatKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = InboxKey) + tabOf(AppTab.INBOX)) { key ->
+            WithEntryScope {
+                ChatRoute(
+                    conversationId = key.conversationId,
+                    appState = appState,
+                    api = api,
+                    conversations = conversations,
+                    language = language,
+                    onBack = { navigator.back() },
+                    onStartCall = { channel -> navigator.open(CallKey(key.conversationId, channel.wire)) },
+                    onOpenVisitor = { navigator.open(it) },
+                )
+            }
+        }
+        entry<VisitorKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = InboxKey) + tabOf(AppTab.INBOX)) { key ->
+            VisitorContactRoute(
+                key = key,
+                contacts = contacts,
+                conversations = conversations,
+                language = language,
+                onBack = { navigator.back() },
+            )
+        }
+        entry<IncomingCallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
+            IncomingCallRoute(
+                key = key,
+                api = api,
+                language = language,
+                onDone = { navigator.back() },
+            )
+        }
+        entry<CallKey>(metadata = tabOf(AppTab.INBOX)) { key ->
+            CallRoute(
+                conversationId = key.conversationId,
+                channel = CallChannel.from(key.channel),
+                appState = appState,
+                api = api,
+                conversations = conversations,
+                language = language,
+                onDone = { navigator.back() },
+            )
+        }
+        entry<TeamThreadKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = InboxKey) + tabOf(AppTab.INBOX)) { key ->
+            TeamThreadRoute(
+                peerId = key.peerId,
+                appState = appState,
+                api = api,
+                colleagues = colleagues,
+                language = language,
+                onBack = { navigator.back() },
+            )
+        }
+        entry<EmailKey>(
+            metadata = ListDetailSceneStrategy.listPane(
+                sceneKey = EmailKey,
+                detailPlaceholder = { DetailPlaceholder(StrAndroid.pickItem(language)) },
+            ) + tabOf(AppTab.INBOX),
+        ) {
+            EmailInboxRoute(
+                appState = appState,
+                email = email,
+                language = language,
+                onOpenThread = { navigator.open(EmailThreadKey(it, email.provider.value, email.mailFolder.value)) },
+                onCompose = { navigator.open(EmailComposeKey(mailbox = email.provider.value)) },
+                onBack = { navigator.back() },
+            )
+        }
+        entry<EmailThreadKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = EmailKey) + tabOf(AppTab.INBOX)) { key ->
+            EmailThreadRoute(
+                threadId = key.threadId,
+                mailbox = key.mailbox,
+                folder = key.folder,
+                appState = appState,
+                api = api,
+                email = email,
+                language = language,
+                onBack = { navigator.back() },
+                onReply = { mode -> navigator.open(EmailComposeKey(key.threadId, mode.name, key.mailbox)) },
+            )
+        }
+        entry<EmailComposeKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = EmailKey) + tabOf(AppTab.INBOX)) { key ->
+            EmailComposeRoute(
+                sourceThreadId = key.sourceThreadId,
+                mailbox = key.mailbox,
+                mode = key.mode?.let { raw -> EmailReplyMode.entries.firstOrNull { it.name == raw } },
+                appState = appState,
+                api = api,
+                email = email,
+                language = language,
+                onClose = { navigator.back() },
+            )
+        }
+        entry<ContactsKey>(
+            metadata = ListDetailSceneStrategy.listPane(
+                sceneKey = ContactsKey,
+                detailPlaceholder = { DetailPlaceholder(StrAndroid.pickContact(language)) },
+            ) + tabOf(AppTab.CONTACTS),
+        ) {
+            ContactsRoute(
+                appState = appState,
+                contacts = contacts,
+                language = language,
+                onOpenContact = { navigator.open(ContactKey(it)) },
+                bottomInset = 0.dp,
+            )
+        }
+        entry<ContactKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = ContactsKey) + tabOf(AppTab.CONTACTS)) { key ->
+            ContactDetailRoute(
+                contactId = key.contactId,
+                appState = appState,
+                contacts = contacts,
+                language = language,
+                onBack = { navigator.back() },
+            )
+        }
+        entry<VisitorsKey>(
+            metadata = ListDetailSceneStrategy.listPane(
+                sceneKey = VisitorsKey,
+                detailPlaceholder = { DetailPlaceholder(StrAndroid.pickVisitor(language)) },
+            ) + tabOf(AppTab.VISITORS),
+        ) {
+            VisitorsRoute(
+                appState = appState,
+                visitors = visitors,
+                language = language,
+                selectedId = (navigator.stack(AppTab.VISITORS).lastOrNull() as? LiveVisitorKey)?.sessionId,
+                onOpenVisitor = { navigator.open(LiveVisitorKey(it)) },
+            )
+        }
+        entry<LiveVisitorKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = VisitorsKey) + tabOf(AppTab.VISITORS)) { key ->
+            LiveVisitorRoute(
+                appState = appState,
+                sessionId = key.sessionId,
+                visitors = visitors,
+                language = language,
+                onBack = { navigator.back() },
+                onOpenChat = { navigator.open(VisitorChatKey(it)) },
+            )
+        }
+        entry<VisitorChatKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = VisitorsKey) + tabOf(AppTab.VISITORS)) { key ->
+            WithEntryScope {
+                ChatRoute(
+                    conversationId = key.conversationId,
+                    appState = appState,
+                    api = api,
+                    conversations = conversations,
+                    language = language,
+                    onBack = { navigator.back() },
+                    onStartCall = { channel -> navigator.open(CallKey(key.conversationId, channel.wire)) },
+                    onOpenVisitor = { navigator.open(it) },
+                )
+            }
+        }
+        entry<AnalyticsKey>(
+            metadata = ListDetailSceneStrategy.listPane(
+                sceneKey = AnalyticsKey,
+                detailPlaceholder = { DetailPlaceholder(StrAndroid.pickReport(language)) },
+            ) + tabOf(AppTab.ANALYTICS),
+        ) {
+            AnalyticsRoute(
+                appState = appState,
+                analytics = analytics,
+                language = language,
+                selected = (navigator.stack(AppTab.ANALYTICS).lastOrNull() as? AnalyticsSectionKey)?.let { AnalyticsSection.from(it.section) },
+                onOpenSection = { navigator.open(AnalyticsSectionKey(it.wire)) },
+            )
+        }
+        entry<AnalyticsSectionKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = AnalyticsKey) + tabOf(AppTab.ANALYTICS)) { key ->
+            AnalyticsSectionRoute(
+                appState = appState,
+                section = AnalyticsSection.from(key.section),
+                analytics = analytics,
+                language = language,
+                onBack = { navigator.back() },
+            )
+        }
+        entry<SettingsKey>(
+            metadata = ListDetailSceneStrategy.listPane(
+                sceneKey = SettingsKey,
+                detailPlaceholder = { DetailPlaceholder(StrAndroid.pickItem(language)) },
+            ) + tabOf(AppTab.SETTINGS),
+        ) {
+            SettingsRoute(
+                appState = appState,
+                api = api,
+                language = language,
+                onOpenProfile = { navigator.open(ProfileKey) },
+                onOpenSecurity = { navigator.open(SecurityKey) },
+                onOpenNotifications = { navigator.open(NotificationsKey) },
+                onOpenSupportChat = { navigator.open(SupportChatKey) },
+                bottomInset = 0.dp,
+            )
+        }
+        entry<ProfileKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
+            ProfileRoute(
+                api = api,
+                language = language,
+                onBack = { navigator.back() },
+                config = appConfig,
+                onSaved = appState::refreshAccount,
+                onAvatarChanged = appState::avatarChanged,
+            )
+        }
+        entry<SecurityKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
+            SecurityRoute(api = api, language = language, onBack = { navigator.back() })
+        }
+        entry<NotificationsKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
+            NotificationsRoute(api = api, language = language, onBack = { navigator.back() })
+        }
+        entry<SupportChatKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
+            SupportChatRoute(
+                appState = appState,
+                api = api,
+                language = language,
+                onBack = { navigator.back() },
+                onOpenClosed = { navigator.open(SupportClosedKey) },
+            )
+        }
+        entry<SupportClosedKey>(metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS)) {
+            SupportClosedRoute(
+                api = api,
+                language = language,
+                onBack = { navigator.back() },
+                onOpen = { navigator.open(SupportClosedConversationKey(it)) },
+            )
+        }
+        entry<SupportClosedConversationKey>(
+            metadata = ListDetailSceneStrategy.detailPane(sceneKey = SettingsKey) + tabOf(AppTab.SETTINGS),
+        ) { key ->
+            SupportClosedConversationRoute(
+                appState = appState,
+                api = api,
+                language = language,
+                conversationId = key.conversationId,
+                onBack = { navigator.back() },
+            )
+        }
+    }
+
+    // Every tab's stack is decorated on every composition, not only the one
+    // in front: that is what keeps a tab's scroll positions and view models
+    // while another tab is open. Each stack has decorators of its own.
+    val decorated = AppTab.entries.associateWith { tab ->
+        key(tab) {
+            rememberDecoratedNavEntries(
+                backStack = navigator.stack(tab),
+                entryDecorators = listOf(
+                    rememberSaveableStateHolderNavEntryDecorator(),
+                    rememberViewModelStoreNavEntryDecorator(),
+                ),
+                entryProvider = entryProvider,
+            )
+        }
+    }
+    // The inbox's root sits under every other tab, so Back from another tab's
+    // root lands there — with the predictive preview showing it.
+    val entries = if (selectedTab == AppTab.INBOX) {
+        decorated.getValue(AppTab.INBOX)
+    } else {
+        decorated.getValue(AppTab.INBOX).take(1) + decorated.getValue(selectedTab)
+    }
+
+    val adaptiveInfo = currentWindowAdaptiveInfo()
+    val suiteType = NavigationSuiteScaffoldDefaults.navigationSuiteType(adaptiveInfo)
+    val isBar = suiteType == NavigationSuiteType.ShortNavigationBarCompact ||
+        suiteType == NavigationSuiteType.ShortNavigationBarMedium
+    // A bar leaves a pushed screen — a chat, a thread — to have the whole
+    // height; a rail, beside the content, stays.
+    val showSuite = !isBar || navigator.top?.isRoot() != false
+    val suiteState = rememberNavigationSuiteScaffoldState()
+    LaunchedEffect(showSuite) {
+        if (showSuite) suiteState.show() else suiteState.hide()
+    }
+
+    // One screen per Back, as on a phone. Material's default pops until the
+    // panes change, and on a wide window a list with a placeholder beside it
+    // looks the same as a list with a contact beside it — so Back from a
+    // contact would pop the contact AND the Contacts list, and leave the tab.
+    val listDetail = rememberListDetailSceneStrategy<NavKey>(
+        backNavigationBehavior = BackNavigationBehavior.PopLatest,
+    )
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+
+    Box(modifier.fillMaxSize()) {
+        NavigationSuiteScaffold(
+            navigationItems = {
+                tabs.forEach { tab ->
+                    val item = tab.item(language)
+                    NavigationSuiteItem(
+                        selected = tab == selectedTab,
+                        onClick = { navigator.select(tab) },
+                        icon = {
+                            Icon(
+                                if (tab == selectedTab) item.selectedIcon else item.icon,
+                                contentDescription = null,
+                            )
+                        },
+                        label = { Text(item.title, maxLines = 1) },
+                        navigationSuiteType = suiteType,
+                        badge = if (tab == AppTab.INBOX && inboxBadge > 0) {
+                            {
+                                // The system's red badge, with the count in
+                                // the reader's digits, 99+ past that. The
+                                // number is said as "3 unread", not read out
+                                // bare after the tab's name.
+                                Badge(
+                                    containerColor = AppTheme.colors.badge,
+                                    contentColor = AppTheme.colors.onBadge,
+                                ) {
+                                    Text(
+                                        badgeText(inboxBadge, language),
+                                        modifier = Modifier.semantics {
+                                            contentDescription = unreadDescription(inboxBadge, language)
+                                        },
+                                    )
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                }
+            },
+            navigationSuiteType = suiteType,
+            state = suiteState,
+        ) {
+            SharedTransitionLayout {
+                CompositionLocalProvider(LocalSharedTransitionScope provides this) {
+                    NavDisplay(
+                        entries = entries,
+                        onBack = { navigator.back() },
+                        sceneStrategies = listOf(listDetail),
+                        sharedTransitionScope = this,
+                        transitionSpec = { forward(rtl) },
+                        popTransitionSpec = { backward(rtl) },
+                    )
+                }
+            }
+        }
+
+        // Over everything, including the navigation. A full-screen promotion
+        // with a bar on top of it is a card the operator can navigate out
+        // from under without ever closing.
+        val fullscreen by promotions.fullscreen.collectAsStateWithLifecycle()
+        fullscreen?.let {
+            PromoFullScreen(
+                creative = it,
+                language = language,
+                onDismiss = promotions::dismissFullScreen,
+            )
+        }
+    }
+}
+
+private const val TAB_METADATA = AppBrand.id + ".tab"
+
+private fun tabOf(tab: AppTab): Map<String, Any> = mapOf(TAB_METADATA to tab)
+
+private fun Scene<NavKey>.tab(): Any? = entries.lastOrNull()?.metadata?.get(TAB_METADATA)
+
+/**
+ * Deeper into a tab: Material's shared axis along the reading direction —
+ * the new screen comes in from the end, the old one gives way towards the
+ * start, both a fifth of the width, on the Expressive springs. Between tabs:
+ * fade through, which says "somewhere else" rather than "further in".
+ */
+private fun AnimatedContentTransitionScope<Scene<NavKey>>.forward(rtl: Boolean): ContentTransform =
+    if (initialState.tab() != targetState.tab()) {
+        fadeThrough()
+    } else {
+        (slideInHorizontally(Motion.slowSpatial()) { width -> if (rtl) -width / 5 else width / 5 } +
+            fadeIn(Motion.effects())) togetherWith
+            (slideOutHorizontally(Motion.slowSpatial()) { width -> if (rtl) width / 5 else -width / 5 } +
+                fadeOut(Motion.fastEffects()))
+    }
+
+private fun AnimatedContentTransitionScope<Scene<NavKey>>.backward(rtl: Boolean): ContentTransform =
+    if (initialState.tab() != targetState.tab()) {
+        fadeThrough()
+    } else {
+        (slideInHorizontally(Motion.slowSpatial()) { width -> if (rtl) width / 5 else -width / 5 } +
+            fadeIn(Motion.effects())) togetherWith
+            (slideOutHorizontally(Motion.slowSpatial()) { width -> if (rtl) -width / 5 else width / 5 } +
+                fadeOut(Motion.fastEffects()))
+    }
+
+private fun fadeThrough(): ContentTransform =
+    (fadeIn(Motion.effects()) + scaleIn(Motion.spatial(), initialScale = 0.94f)) togetherWith
+        fadeOut(Motion.fastEffects())
+
+/**
+ * What the detail pane shows on a wide window before anything is opened:
+ * an expressive shape, and one line saying what goes here.
+ */
+@Composable
+private fun DetailPlaceholder(text: String) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Space.xl),
+            modifier = Modifier.padding(Space.xxl).widthIn(max = 320.dp),
+        ) {
+            ShapeFrame(
+                polygon = ExpressiveShapes.cookie9,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(120.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.Email,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(40.dp),
+                )
+            }
+            Text(
+                text,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** One destination in the bar or rail. */
+private data class TabItem(val title: String, val icon: ImageVector, val selectedIcon: ImageVector)
+
+@Composable
+private fun AppTab.item(language: Language): TabItem = when (this) {
+    AppTab.INBOX -> TabItem(Str.tabInbox(language), Icons.Outlined.Email, Icons.Filled.Email)
+    AppTab.CONTACTS -> TabItem(Str.tabContacts(language), Icons.Outlined.Person, Icons.Filled.Person)
+    AppTab.VISITORS -> TabItem(StrAndroid.tabVisitors(language), Icons.Outlined.LocationOn, Icons.Filled.LocationOn)
+    AppTab.ANALYTICS -> TabItem(StrAndroid.tabAnalytics(language), InsightGlyph.BarChart, InsightGlyph.BarChart)
+    AppTab.SETTINGS -> TabItem(Str.tabSettings(language), Icons.Outlined.Settings, Icons.Filled.Settings)
+}
+
+/**
+ * Hands the entry's enter/exit scope to the screen inside it, for the shared
+ * avatar. Read here, inside the entry, where Navigation 3 provides it.
+ */
+@Composable
+private fun WithEntryScope(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalEntryAnimatedScope provides LocalNavAnimatedContentScope.current, content = content)
+}

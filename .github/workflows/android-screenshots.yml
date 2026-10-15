@@ -50,7 +50,7 @@ jobs:
       # the same arguments records those into roborazzi/respok.
       - name: Record screenshots
         working-directory: android
-        run: ./gradlew :app:testWebyarDebugUnitTest --tests 'com.webyar.ai.screenshots.*' -Proborazzi.test.record=true --stacktrace
+        run: ./gradlew :app:testWebyarDebugUnitTest --tests 'com.platform.app.screenshots.*' -Proborazzi.test.record=true --stacktrace
 
       - name: Publish to screenshots/${{ github.ref_name }}
         env:

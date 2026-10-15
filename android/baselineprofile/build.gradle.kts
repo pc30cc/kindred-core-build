@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.webyar.ai.baselineprofile"
+    namespace = "com.platform.app.baselineprofile"
     compileSdk = 37
 
     defaultConfig {
@@ -27,7 +27,7 @@ android {
     // The app's brands (app/build.gradle.kts), so each of its variants has
     // one here to drive: without them variant matching fails. The code is
     // the same in both, and the profile is merged into the app's src/main,
-    // so generating from WebYar alone is enough; RESPOK's is here so it can
+    // so generating from one brand alone is enough; the other is here so it can
     // be driven too. `targetAppId` is the package each one starts
     // (StartupProfile).
     flavorDimensions += "brand"

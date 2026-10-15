@@ -8,14 +8,14 @@ plugins {
     // Room's annotation processor, and the plugin that exports its schema.
     alias(libs.plugins.ksp)
     alias(libs.plugins.androidx.room)
-    // Screenshot tests: `recordRoborazziWebyarDebug` writes the PNGs.
+    // Screenshot tests: `recordRoborazzi<Brand>Debug` writes the PNGs.
     alias(libs.plugins.roborazzi)
 }
 
 /**
  * A release value, from a Gradle property or the environment.
  *
- * Property first so `-Pwebyar.versionCode=42` beats a stale shell export,
+ * Property first so `-P<brand>.versionCode=42` beats a stale shell export,
  * which is the order somebody debugging a wrong version number expects.
  */
 fun releaseString(property: String, variable: String): String? =
@@ -32,15 +32,15 @@ fun literal(value: String): String =
 /**
  * Firebase's client configuration — for push — from the build, never from a
  * committed google-services.json, under the brand's own names:
- * `-Pwebyar.firebase.appId` or `WEBYAR_FIREBASE_APP_ID` for WebYar,
- * `-Prespok.firebase.appId` or `RESPOK_FIREBASE_APP_ID` for RESPOK, and so on.
+ * `-P<brand>.firebase.appId` or `<BRAND>_FIREBASE_APP_ID` (for RESPOK,
+ * `-Prespok.firebase.appId` or `RESPOK_FIREBASE_APP_ID`), and so on.
  *
  * A build without these is a build without push of its own: the app then
  * takes the project Super Admin names, which is what every release, every
  * fork, every CI run and every debug build on a laptop wants. A value set
  * here wins over Super Admin's (`core/push/PushConfig.kt`), which is why each
- * brand reads only its own: WebYar's exported in a shell must never send
- * RESPOK's phones to WebYar's Firebase project.
+ * brand reads only its own: the other brand's exported in a shell must never
+ * send this brand's phones to that brand's Firebase project.
  */
 fun com.android.build.api.dsl.VariantDimension.firebase(brand: String, env: String) {
     fun value(property: String, variable: String) =
@@ -56,7 +56,7 @@ fun com.android.build.api.dsl.VariantDimension.firebase(brand: String, env: Stri
  *
  * Read from the tasks actually asked for, because the two cannot both be
  * configured: see the note in `splits`. Only the task's own name is matched,
- * so a path like `:app:bundleWebyarRelease` counts and an unrelated `:app:assemble`
+ * so a path like `:app:bundleRespokRelease` counts and an unrelated `:app:assemble`
  * does not.
  */
 val buildingAppBundle: Boolean = gradle.startParameter.taskNames.any {
@@ -64,11 +64,11 @@ val buildingAppBundle: Boolean = gradle.startParameter.taskNames.any {
 }
 
 android {
-    // The code's package, the same for both brands: R, BuildConfig, the
-    // ProGuard keep rules, the Room schema folder and the baseline profile
-    // all name classes by it. What a phone knows an app by is the
-    // applicationId, which each brand sets below.
-    namespace = "com.webyar.ai"
+    // The code's package, the same for both brands and named after neither:
+    // R, BuildConfig, the ProGuard keep rules, the Room schema folder and the
+    // baseline profile all name classes by it, so it is in every APK. What a
+    // phone knows an app by is the applicationId, which each brand sets below.
+    namespace = "com.platform.app"
     compileSdk = 37
 
     defaultConfig {
@@ -95,44 +95,56 @@ android {
         }
     }
 
-    signingConfigs {
-        /**
-         * Each brand's release key, from the environment: `WEBYAR_KEYSTORE`,
-         * `WEBYAR_KEYSTORE_PASSWORD`, `WEBYAR_KEY_ALIAS`, `WEBYAR_KEY_PASSWORD`,
-         * and the same four with `RESPOK_`.
-         *
-         * No keystore, no password and no alias is committed. A release build
-         * on a machine without them produces an unsigned APK, which is the
-         * correct outcome: an unsigned artifact cannot be installed by
-         * accident, whereas one signed with a key from the repository can be
-         * installed by anybody who has ever cloned it.
-         *
-         * WebYar's is the key every WebYar release so far was signed with,
-         * and must stay so: a phone refuses an update signed by another.
-         */
-        for ((brand, env) in listOf("webyar" to "WEBYAR", "respok" to "RESPOK")) {
-            create("${brand}Release") {
-                val store = System.getenv("${env}_KEYSTORE")
-                if (store != null && file(store).exists()) {
-                    storeFile = file(store)
-                    storePassword = System.getenv("${env}_KEYSTORE_PASSWORD")
-                    keyAlias = System.getenv("${env}_KEY_ALIAS")
-                    keyPassword = System.getenv("${env}_KEY_PASSWORD")
-                }
+    /**
+     * A brand's release key, from the environment: `<ENV>_KEYSTORE`,
+     * `<ENV>_KEYSTORE_PASSWORD`, `<ENV>_KEY_ALIAS` and `<ENV>_KEY_PASSWORD`
+     * (`RESPOK_KEYSTORE` and so on for RESPOK). Each flavor below asks for its
+     * own, and only its own.
+     *
+     * No keystore, no password and no alias is committed. A release build
+     * on a machine without them produces an unsigned APK, which is the
+     * correct outcome: an unsigned artifact cannot be installed by
+     * accident, whereas one signed with a key from the repository can be
+     * installed by anybody who has ever cloned it.
+     *
+     * The Iranian edition's is the key every one of its releases so far was
+     * signed with, and must stay so: a phone refuses an update signed by
+     * another.
+     */
+    fun releaseKey(brand: String, env: String) =
+        signingConfigs.create("${brand}Release") {
+            val store = System.getenv("${env}_KEYSTORE")
+            if (store != null && file(store).exists()) {
+                storeFile = file(store)
+                storePassword = System.getenv("${env}_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("${env}_KEY_ALIAS")
+                keyPassword = System.getenv("${env}_KEY_PASSWORD")
             }
-        }
-    }
+        }.takeIf { it.storeFile != null }
 
     /**
-     * Two apps from one source, installable side by side: WebYar (the Iranian
-     * edition, webyar.ai) and RESPOK (the International edition, respok.app).
+     * Two apps from one source, installable side by side: the Iranian edition
+     * (the first block) and RESPOK (the International edition, respok.app).
      * The Windows app makes the same split with `Brand.cs`, the Mac app with
      * its `Respok` target; `core/AppBrand.kt` reads what is set here.
      *
-     * Everything that differs is in these two blocks or in `src/respok`
-     * (name, icons, launch colours); the rest is shared. Every task names its
-     * brand: `assembleWebyarRelease`, `bundleRespokRelease`,
+     * Everything that differs is in these two blocks or in each flavor's own
+     * source set (`src/<flavor>`: name, icons, launch colours, the copy that
+     * names the product, manifest entries); `src/main` is shared and names
+     * neither brand. Every task names its brand: `bundleRespokRelease`,
      * `testRespokDebugUnitTest`.
+     *
+     * RESPOK's APK must not contain the other brand's name in any form: not
+     * in a class, a resource, a string or a file name.
+     * `tools/check-brand-neutral.sh` checks the sources (everything outside
+     * the first flavor block and its `src/` folders) and the built APK.
+     *
+     * The names an installed app keeps on the phone (`STORE_NAME`,
+     * `KEY_ALIAS`, `CACHE_DATABASE`, `PUSH_PREFS`, `PROMO_PREFS`,
+     * `CHANNEL_MESSAGES`, `CHANNEL_CALLS`, `CALL_ACTION_PREFIX`) are set per
+     * flavor. The Iranian edition's are exactly the ones it has always
+     * shipped: changing one signs every operator out, drops their cache or
+     * leaves their notification settings on a channel nothing posts to.
      */
     flavorDimensions += "brand"
     productFlavors {
@@ -155,7 +167,7 @@ android {
             // its own, and docs/ANDROID_RELEASE.md says which.
             versionCode = releaseInt("webyar.versionCode", "WEBYAR_VERSION_CODE") ?: 1
             versionName = releaseString("webyar.versionName", "WEBYAR_VERSION_NAME") ?: "0.1.0"
-            signingConfig = signingConfigs.getByName("webyarRelease").takeIf { it.storeFile != null }
+            signingConfig = releaseKey("webyar", "WEBYAR")
 
             buildConfigField("String", "BRAND_ID", literal("webyar"))
             buildConfigField("String", "BRAND_NAME", literal("Webyar"))
@@ -165,7 +177,28 @@ android {
             buildConfigField("String", "DEFAULT_LANGUAGE", literal("fa"))
             buildConfigField("boolean", "JALALI_DATES", "true")
             buildConfigField("String", "REALTIME_CLIENT_NAME", literal("webyar-android"))
+            // The signature at the foot of the launch and sign-in screens.
+            buildConfigField("String", "WORDMARK", literal("WEBYAR"))
+            buildConfigField("String", "WORDMARK_SUFFIX", literal("AI"))
             firebase("webyar", "WEBYAR")
+
+            // What every installed WebYar already has on the phone, exactly as
+            // it shipped before the code's package was renamed. NEVER change
+            // one: the DataStore and the Keystore alias hold the session (a
+            // new name signs every operator out), the cache database and the
+            // preferences files are read by name, the channels are what the
+            // operator's notification settings are attached to (and what the
+            // server names in every push), and an action is what a ringing
+            // call's buttons send.
+            buildConfigField("String", "STORE_NAME", literal("webyar"))
+            buildConfigField("String", "KEY_ALIAS", literal("com.webyar.ai.session"))
+            buildConfigField("String", "CACHE_DATABASE", literal("webyar-cache.db"))
+            buildConfigField("String", "PUSH_PREFS", literal("webyar.firebase"))
+            buildConfigField("String", "PROMO_PREFS", literal("webyar.promotions"))
+            buildConfigField("String", "CHANNEL_MESSAGES", literal("webyar_messages"))
+            buildConfigField("String", "CHANNEL_CALLS", literal("webyar_calls"))
+            buildConfigField("String", "CALL_ACTION_PREFIX", literal("com.webyar.ai.call"))
+            manifestPlaceholders["messagesChannel"] = "webyar_messages"
         }
         create("respok") {
             dimension = "brand"
@@ -173,15 +206,11 @@ android {
             // database, which Super Admin uses to pick this app's client out
             // of a google-services.json.
             applicationId = "com.respok.app"
-            // RESPOK's own numbers first; then the ones a WebYar-shaped
-            // command passes (Super Admin's build command uses
-            // -Pwebyar.versionCode for both brands), so either builds the
-            // version asked for.
-            versionCode = releaseInt("respok.versionCode", "RESPOK_VERSION_CODE")
-                ?: releaseInt("webyar.versionCode", "WEBYAR_VERSION_CODE") ?: 1
-            versionName = releaseString("respok.versionName", "RESPOK_VERSION_NAME")
-                ?: releaseString("webyar.versionName", "WEBYAR_VERSION_NAME") ?: "1.0.0"
-            signingConfig = signingConfigs.getByName("respokRelease").takeIf { it.storeFile != null }
+            // RESPOK's own numbers (Super Admin's build command passes
+            // -Prespok.versionCode and -Prespok.versionName).
+            versionCode = releaseInt("respok.versionCode", "RESPOK_VERSION_CODE") ?: 1
+            versionName = releaseString("respok.versionName", "RESPOK_VERSION_NAME") ?: "1.0.0"
+            signingConfig = releaseKey("respok", "RESPOK")
 
             buildConfigField("String", "BRAND_ID", literal("respok"))
             buildConfigField("String", "BRAND_NAME", literal("RESPOK"))
@@ -191,7 +220,25 @@ android {
             buildConfigField("String", "DEFAULT_LANGUAGE", literal("en"))
             buildConfigField("boolean", "JALALI_DATES", "false")
             buildConfigField("String", "REALTIME_CLIENT_NAME", literal("respok-android"))
+            // Its name alone, with nothing after it.
+            buildConfigField("String", "WORDMARK", literal("RESPOK"))
+            buildConfigField("String", "WORDMARK_SUFFIX", literal(""))
             firebase("respok", "RESPOK")
+
+            // Brand-neutral names for what the app keeps on the phone. RESPOK
+            // 1.0.1 (2026-10-10) used the other edition's names; a phone that
+            // updates from it signs in once more and starts a fresh cache and
+            // new notification channels. Reading the old names here would put
+            // the other brand's name back into this APK, so they are not read.
+            buildConfigField("String", "STORE_NAME", literal("settings"))
+            buildConfigField("String", "KEY_ALIAS", literal("app.session"))
+            buildConfigField("String", "CACHE_DATABASE", literal("cache.db"))
+            buildConfigField("String", "PUSH_PREFS", literal("push.firebase"))
+            buildConfigField("String", "PROMO_PREFS", literal("promotions"))
+            buildConfigField("String", "CHANNEL_MESSAGES", literal("messages"))
+            buildConfigField("String", "CHANNEL_CALLS", literal("calls"))
+            buildConfigField("String", "CALL_ACTION_PREFIX", literal("app.call"))
+            manifestPlaceholders["messagesChannel"] = "messages"
         }
     }
 
@@ -206,7 +253,7 @@ android {
 
             // NO signingConfig here, ever: each brand's flavor names its own
             // key. A build type's signingConfig wins over a flavor's, so one
-            // set here would sign both apps with it — RESPOK with WebYar's key
+            // set here would sign both apps with it — RESPOK with the other's key
             // or the other way round, which Play then binds to that app for
             // good. The check after this block refuses that build.
         }

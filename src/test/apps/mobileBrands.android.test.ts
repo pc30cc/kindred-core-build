@@ -3,12 +3,19 @@
  * product flavors of android/app/build.gradle.kts. These checks keep the
  * pieces that name a brand in step, so a new line of copy, a new icon density
  * or a new CI step cannot leave RESPOK's app saying "Webyar", wearing WebYar's
- * icon, signed with WebYar's key or untested. (The app's own unit tests prove
- * the same inside each build: src/test/.../BrandStrTest.kt, AppBrandRulesTest.kt
- * and each flavor's AppBrandTest.kt.) The desktop apps' counterpart is
- * desktopBrands.test.ts.
+ * icon, signed with WebYar's key or untested.
+ *
+ * RESPOK's APK must not contain WebYar's name at all, so everything that names
+ * WebYar lives in WebYar's own flavor (android/app/src/webyar, its block of
+ * the build script) and the shared code (src/main, package com.platform.app)
+ * names neither brand. android/tools/check-brand-neutral.sh proves that for
+ * the sources and for the built APK (CI runs it on both); the app's own unit
+ * tests prove the rest inside each build (src/test/.../BrandStrTest.kt,
+ * AppBrandRulesTest.kt, each flavor's AppBrandTest.kt and RESPOK's
+ * BrandCopyTest.kt). The desktop apps' counterpart is desktopBrands.test.ts.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NATIVE_APP_BRANDS } from '../../../shared/nativeAppBrands';
@@ -18,8 +25,10 @@ const read = (p: string) => readFileSync(path.join(root, p), 'utf8');
 
 const APP = 'android/app';
 const MAIN = `${APP}/src/main`;
+const WEBYAR_SRC = `${APP}/src/webyar`;
 const RESPOK = `${APP}/src/respok`;
-const KOTLIN = `${MAIN}/kotlin/com/webyar/ai`;
+const PKG = 'kotlin/com/platform/app';
+const KOTLIN = `${MAIN}/${PKG}`;
 
 /** WebYar in any spelling (shared/nativeAppBrands.ts): not the Turkish "Web yardım". */
 const WEBYAR = /[Ww][Ee][Bb] ?[Yy][Aa][Rr](?!\p{Ll})|وب[‌ ]?یار|وبیار/u;
@@ -38,16 +47,22 @@ function block(source: string, opener: string): string {
   throw new Error(`${opener} never closes`);
 }
 
-/** Every Kotlin file under a folder. */
-function kotlinFiles(dir: string): string[] {
+/** Every file under a folder. */
+function files(dir: string): string[] {
   const out: string[] = [];
+  if (!existsSync(path.join(root, dir))) return out;
   for (const entry of readdirSync(path.join(root, dir), { withFileTypes: true })) {
     const p = `${dir}/${entry.name}`;
-    if (entry.isDirectory()) out.push(...kotlinFiles(p));
-    else if (entry.name.endsWith('.kt')) out.push(p);
+    if (entry.isDirectory()) out.push(...files(p));
+    else out.push(p);
   }
   return out;
 }
+
+const kotlinFiles = (dir: string) => files(dir).filter((f) => f.endsWith('.kt'));
+
+/** `fun name(l: Language): String` functions of a string table. */
+const functionNames = (source: string) => new Set([...source.matchAll(/fun (\w+)\(l: Language\)/g)].map((m) => m[1]));
 
 /** The string literals on a file's code lines (comment lines skipped). */
 function literals(source: string): string[] {
@@ -55,14 +70,6 @@ function literals(source: string): string[] {
     .split('\n')
     .filter((line) => !/^\s*(\*|\/\*|\/\/)/.test(line))
     .flatMap((line) => [...line.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]));
-}
-
-/** `fun name(l: Language): String = when (l) { … }` functions of a string table, with their text. */
-function stringFunctions(source: string): Map<string, string> {
-  const out = new Map<string, string>();
-  const parts = source.split(/\n\s*fun (\w+)\(/);
-  for (let i = 1; i < parts.length; i += 2) out.set(parts[i], parts[i + 1]);
-  return out;
 }
 
 describe('the two flavors', () => {
@@ -78,8 +85,10 @@ describe('the two flavors', () => {
       expect(body).toContain(`applicationId = "${brand.androidPackage}"`);
       expect(body).toContain('dimension = "brand"');
     }
-    // One code package for both: R, BuildConfig, ProGuard rules and the Room schema name it.
-    expect(gradle).toMatch(/namespace = "com\.webyar\.ai"/);
+    // One code package for both, named after neither: it is in every APK
+    // (R, BuildConfig, the ProGuard rules and the Room schema name it).
+    expect(gradle).toMatch(/namespace = "com\.platform\.app"/);
+    expect(existsSync(path.join(root, `${APP}/schemas/com.platform.app.core.cache.CacheDatabase/1.json`))).toBe(true);
   });
 
   it('give WebYar exactly what it shipped with, and RESPOK its own', () => {
@@ -96,19 +105,40 @@ describe('the two flavors', () => {
     expect(r).toContain('"JALALI_DATES", "false"');
     expect(r).toContain('releaseInt("respok.versionCode", "RESPOK_VERSION_CODE")');
     expect(r).toContain('firebase("respok", "RESPOK")');
-    // RESPOK never builds against WebYar: no WebYar host, no WebYar Firebase names.
-    expect(r).not.toMatch(/webyar\.ai|WEBYAR_FIREBASE|webyar\.firebase/);
+    // RESPOK never names WebYar: no host, no Firebase names, no storage names.
+    expect(r).not.toMatch(/webyar/i);
+  });
+
+  it("keep WebYar's names on the phone, and give RESPOK neutral ones", () => {
+    // Renaming one of WebYar's signs every operator out, drops their cache or
+    // leaves their notification settings on a channel nothing posts to.
+    const shipped: Record<string, [string, string]> = {
+      STORE_NAME: ['webyar', 'settings'],
+      KEY_ALIAS: ['com.webyar.ai.session', 'app.session'],
+      CACHE_DATABASE: ['webyar-cache.db', 'cache.db'],
+      PUSH_PREFS: ['webyar.firebase', 'push.firebase'],
+      PROMO_PREFS: ['webyar.promotions', 'promotions'],
+      CHANNEL_MESSAGES: ['webyar_messages', 'messages'],
+      CHANNEL_CALLS: ['webyar_calls', 'calls'],
+      CALL_ACTION_PREFIX: ['com.webyar.ai.call', 'app.call'],
+    };
+    for (const [field, [iran, international]] of Object.entries(shipped)) {
+      expect(flavors.iran).toContain(`buildConfigField("String", "${field}", literal("${iran}"))`);
+      expect(flavors.international).toContain(`buildConfigField("String", "${field}", literal("${international}"))`);
+    }
+    expect(flavors.iran).toContain('manifestPlaceholders["messagesChannel"] = "webyar_messages"');
+    expect(flavors.international).toContain('manifestPlaceholders["messagesChannel"] = "messages"');
+    // The channel the server names in every push is the flavor's.
+    expect(read(`${MAIN}/AndroidManifest.xml`)).toContain('android:value="${messagesChannel}"');
   });
 
   it('sign each brand with its own key, never the other', () => {
-    expect(gradle).toContain('listOf("webyar" to "WEBYAR", "respok" to "RESPOK")');
     for (const name of ['KEYSTORE', 'KEYSTORE_PASSWORD', 'KEY_ALIAS', 'KEY_PASSWORD']) {
       expect(gradle).toContain(`System.getenv("\${env}_${name}")`);
     }
-    expect(flavors.iran).toContain('signingConfigs.getByName("webyarRelease")');
-    expect(flavors.iran).not.toContain('respokRelease');
-    expect(flavors.international).toContain('signingConfigs.getByName("respokRelease")');
-    expect(flavors.international).not.toContain('webyarRelease');
+    expect(flavors.iran).toContain('signingConfig = releaseKey("webyar", "WEBYAR")');
+    expect(flavors.iran).not.toContain('respok');
+    expect(flavors.international).toContain('signingConfig = releaseKey("respok", "RESPOK")');
     // A build type's key would win over both flavors' keys.
     const release = block(gradle, 'release {');
     expect(release).not.toMatch(/^\s*signingConfig\s*=/m);
@@ -123,21 +153,55 @@ describe('the two flavors', () => {
   });
 });
 
-describe("RESPOK's resources", () => {
-  const mipmaps = readdirSync(path.join(root, `${MAIN}/res`)).filter((d) => d.startsWith('mipmap-'));
+describe('the launcher entry', () => {
+  it("keeps WebYar's home-screen icons: its old component name, as an alias, in WebYar's build only", () => {
+    const main = read(`${MAIN}/AndroidManifest.xml`);
+    expect(main).not.toContain('android.intent.category.LAUNCHER');
+    const webyar = read(`${WEBYAR_SRC}/AndroidManifest.xml`);
+    expect(webyar).toMatch(/<activity-alias\s+android:name="com\.webyar\.ai\.MainActivity"\s+android:targetActivity="com\.platform\.app\.MainActivity"/);
+    expect(webyar).toContain('android.intent.category.LAUNCHER');
+    // The target is declared before the alias (older Android requires it).
+    expect(webyar.indexOf('<activity android:name="com.platform.app.MainActivity"')).toBeLessThan(webyar.indexOf('<activity-alias'));
+    const respok = read(`${RESPOK}/AndroidManifest.xml`);
+    expect(respok).toContain('<activity android:name="com.platform.app.MainActivity">');
+    expect(respok).toContain('android.intent.category.LAUNCHER');
+    expect(respok).not.toMatch(WEBYAR);
+  });
+});
 
-  it('cover every launcher icon WebYar has, at every density', () => {
-    expect(mipmaps.length).toBeGreaterThanOrEqual(6);
-    for (const dir of mipmaps) {
-      for (const file of readdirSync(path.join(root, `${MAIN}/res/${dir}`))) {
-        expect(existsSync(path.join(root, `${RESPOK}/res/${dir}/${file}`)), `${dir}/${file} would show WebYar's`).toBe(true);
-      }
+describe('the brand art', () => {
+  const mipmaps = readdirSync(path.join(root, `${WEBYAR_SRC}/res`)).filter((d) => d.startsWith('mipmap-'));
+
+  it('is each flavor\'s own, none of it in src/main', () => {
+    expect(readdirSync(path.join(root, `${MAIN}/res`)).filter((d) => d.startsWith('mipmap-'))).toEqual([]);
+    for (const icon of ['ic_launcher_background', 'ic_launcher_foreground', 'ic_launcher_monochrome', 'ic_stat_brand']) {
+      expect(existsSync(path.join(root, `${MAIN}/res/drawable/${icon}.xml`)), icon).toBe(false);
     }
+    expect(existsSync(path.join(root, `${MAIN}/res/values/strings.xml`))).toBe(false);
+    expect(existsSync(path.join(root, `${MAIN}/ic_launcher-playstore.png`))).toBe(false);
+    expect(existsSync(path.join(root, `${WEBYAR_SRC}/ic_launcher-playstore.png`))).toBe(true);
+    expect(existsSync(path.join(root, `${RESPOK}/ic_launcher-playstore.png`))).toBe(true);
   });
 
-  it('name every layer their adaptive icon uses', () => {
+  it('covers every launcher icon in both flavors, at every density', () => {
+    expect(mipmaps.length).toBeGreaterThanOrEqual(6);
+    for (const dir of mipmaps) {
+      for (const file of readdirSync(path.join(root, `${WEBYAR_SRC}/res/${dir}`))) {
+        expect(existsSync(path.join(root, `${RESPOK}/res/${dir}/${file}`)), `RESPOK has no ${dir}/${file}`).toBe(true);
+      }
+    }
+    for (const dir of readdirSync(path.join(root, `${RESPOK}/res`)).filter((d) => d.startsWith('mipmap-'))) {
+      for (const file of readdirSync(path.join(root, `${RESPOK}/res/${dir}`))) {
+        expect(existsSync(path.join(root, `${WEBYAR_SRC}/res/${dir}/${file}`)), `WebYar has no ${dir}/${file}`).toBe(true);
+      }
+    }
+    expect(existsSync(path.join(root, `${WEBYAR_SRC}/res/drawable/ic_stat_brand.xml`))).toBe(true);
+    expect(existsSync(path.join(root, `${RESPOK}/res/drawable/ic_stat_brand.xml`))).toBe(true);
+  });
+
+  it('names every layer the adaptive icons use', () => {
     for (const [dir, colors] of [
-      [`${MAIN}/res`, `${MAIN}/res/values/colors.xml`],
+      [`${WEBYAR_SRC}/res`, `${WEBYAR_SRC}/res/values/colors.xml`],
       [`${RESPOK}/res`, `${RESPOK}/res/values/ic_launcher_background.xml`],
     ] as const) {
       for (const icon of ['ic_launcher', 'ic_launcher_round']) {
@@ -152,111 +216,80 @@ describe("RESPOK's resources", () => {
         }
       }
     }
-    // The old icon's raster layers are gone: nothing references them any more.
-    for (const dir of mipmaps) {
-      expect(existsSync(path.join(root, `${MAIN}/res/${dir}/ic_launcher_background.png`))).toBe(false);
-      expect(existsSync(path.join(root, `${MAIN}/res/${dir}/ic_launcher_monochrome.png`))).toBe(false);
-    }
   });
 
-  it('give it its name and launch colours', () => {
+  it('gives each its name and launch colours', () => {
     expect(read(`${RESPOK}/res/values/strings.xml`)).toMatch(/<string name="app_name">RESPOK<\/string>/);
-    expect(read(`${MAIN}/res/values/strings.xml`)).toMatch(/<string name="app_name">Webyar<\/string>/);
+    expect(read(`${WEBYAR_SRC}/res/values/strings.xml`)).toMatch(/<string name="app_name">Webyar<\/string>/);
     for (const name of ['brand_deep', 'brand_bright', 'brand_deep_clear']) {
-      expect(read(`${MAIN}/res/values/colors.xml`)).toContain(`name="${name}"`);
+      expect(read(`${WEBYAR_SRC}/res/values/colors.xml`)).toContain(`name="${name}"`);
       expect(read(`${RESPOK}/res/values/colors.xml`)).toContain(`name="${name}"`);
+      expect(read(`${MAIN}/res/values/colors.xml`)).not.toContain(`name="${name}"`);
     }
     expect(read(`${RESPOK}/res/values/colors.xml`)).toMatch(/name="brand_bright">#FFFF5A3C</);
-    expect(read(`${MAIN}/res/values/colors.xml`)).toMatch(/name="brand_bright">#FF16C7A8</);
+    expect(read(`${WEBYAR_SRC}/res/values/colors.xml`)).toMatch(/name="brand_bright">#FF16C7A8</);
     // The loader drawable takes its colours from those, so one copy serves both brands.
     expect(read(`${MAIN}/res/drawable/launch_loader.xml`)).not.toMatch(/android:(stroke|fill)?[Cc]olor="#/);
-  });
-
-  it('let no WebYar string resource through', () => {
-    const own = read(`${RESPOK}/res/values/strings.xml`);
-    for (const dir of readdirSync(path.join(root, `${MAIN}/res`)).filter((d) => d.startsWith('values'))) {
-      const file = path.join(root, `${MAIN}/res/${dir}/strings.xml`);
-      if (!existsSync(file)) continue;
-      for (const [, name, text] of readFileSync(file, 'utf8').matchAll(/<string name="(\w+)">([^<]*)</g)) {
-        if (WEBYAR.test(text)) expect(own, `${dir}/${name}`).toContain(`name="${name}"`);
-      }
-    }
-    for (const [, , text] of own.matchAll(/<string name="(\w+)">([^<]*)</g)) expect(text).not.toMatch(WEBYAR);
   });
 });
 
 describe('copy that names the product', () => {
+  const webyarCopy = read(`${WEBYAR_SRC}/${PKG}/i18n/BrandCopy.kt`);
+  const respokCopy = read(`${RESPOK}/${PKG}/i18n/BrandCopy.kt`);
   const brandStr = read(`${KOTLIN}/i18n/BrandStr.kt`);
-  const brandObject = brandStr.split('internal object RespokStr')[0];
-  const respokObject = brandStr.split('internal object RespokStr')[1];
-  const branded = new Set([...brandObject.matchAll(/fun (\w+)\(l: Language\)/g)].map((m) => m[1]));
   const tables = ['Strings.kt', 'StringsManual.kt', 'StringsAndroid.kt', 'StringsInsights.kt', 'StringsEmail.kt'];
 
-  it('is all in BrandStr', () => {
+  it('is in no shared table: each flavor has its own BrandCopy, behind BrandStr', () => {
     for (const table of tables) {
-      for (const [name, body] of stringFunctions(read(`${KOTLIN}/i18n/${table}`))) {
-        if (literals(body).some((text) => WEBYAR.test(text))) {
-          expect(branded.has(name), `${table}: ${name} names WebYar and RESPOK's build would show it`).toBe(true);
-        }
-      }
+      expect(read(`${KOTLIN}/i18n/${table}`), table).not.toMatch(WEBYAR);
     }
+    const lines = functionNames(brandStr);
+    expect(lines.size).toBe(7);
+    expect([...functionNames(webyarCopy)].sort()).toEqual([...lines].sort());
+    expect([...functionNames(respokCopy)].sort()).toEqual([...lines].sort());
+    for (const name of lines) expect(brandStr).toContain(`fun ${name}(l: Language): String = BrandCopy.${name}(l)`);
   });
 
   it("has RESPOK's wording that never names WebYar", () => {
-    const respok = new Set([...respokObject.matchAll(/fun (\w+)\(l: Language\)/g)].map((m) => m[1]));
-    expect([...respok].sort()).toEqual([...branded].sort());
-    for (const text of literals(respokObject)) {
-      expect(text).not.toMatch(WEBYAR);
+    expect(respokCopy).not.toMatch(WEBYAR);
+    for (const text of literals(respokCopy)) {
+      // The one line Turkish words without a name is the iOS app's own.
+      if (text.startsWith('Web konsolu')) continue;
       expect(text).toMatch(/RESPOK/);
     }
     // The desktop apps' words (strings.respok.json), Turkish suffixes included.
     const desktop = JSON.parse(read('windows-native/src/Webyar.Core/Localization/strings.respok.json')) as Record<string, Record<string, string>>;
     for (const key of ['pushPrimerBody', 'pushDeniedTitle', 'signOutConfirm']) {
-      for (const lang of ['en', 'fa', 'tr']) expect(literals(respokObject)).toContain(desktop[lang][key]);
+      for (const lang of ['en', 'fa', 'tr']) expect(literals(respokCopy)).toContain(desktop[lang][key]);
     }
   });
 
   it('is shown only through BrandStr', () => {
-    const direct = /(?<![A-Za-z])(Str\.(appName|pushPrimerBody|pushDeniedTitle|pushPresenceFooter|signOutConfirm)|StrManual\.brandWordmark|StrAndroid\.maintenanceTitle)\(/;
+    const direct = /(?<![A-Za-z])(BrandCopy|StrBrand)\.\w+\(/;
     for (const file of kotlinFiles(KOTLIN)) {
       if (file.endsWith('/i18n/BrandStr.kt')) continue;
       read(file)
         .split('\n')
         .filter((line) => !/^\s*(\*|\/\*|\/\/)/.test(line))
-        .forEach((line) => expect(line, `${file} shows WebYar's copy directly`).not.toMatch(direct));
+        .forEach((line) => expect(line, `${file} shows a flavor's copy directly`).not.toMatch(direct));
+    }
+  });
+});
+
+describe('the shared code names neither brand', () => {
+  it('in any file under src/main, src/debug or src/release (names, code, comments)', () => {
+    for (const dir of [MAIN, `${APP}/src/debug`, `${APP}/src/release`, RESPOK]) {
+      for (const file of files(dir)) {
+        expect(file, 'file name').not.toMatch(WEBYAR);
+        if (/\.(png|ttf|jpg|webp)$/.test(file)) continue;
+        expect(read(file), file).not.toMatch(WEBYAR);
+      }
     }
   });
 
-  it('leaves only internal identifiers naming WebYar in the shipped code', () => {
-    // Never shown to anyone, and the same in both apps on purpose: storage names (renaming
-    // one signs every WebYar operator out or drops their cache), the notification channel
-    // ids and call actions the server and the system know the app by, log tags, and names
-    // that never leave the phone. Each app has its own sandbox, so sharing them is safe.
-    const internal: Record<string, RegExp> = {
-      'core/AppBrand.kt': /^WEBYAR$/,
-      'core/Diag.kt': /^Webyar\.\$area$/,
-      'core/cache/CacheDatabase.kt': /^webyar-cache\.db$/,
-      'core/net/ApiClient.kt': /^WebyarApi$/,
-      'core/push/CallNotifications.kt': /^(webyar_calls|com\.webyar\.ai\.call\.(ANSWER|SHOW|DECLINE))$/,
-      'core/push/Notifications.kt': /^webyar_messages$/,
-      'core/push/PushConfig.kt': /^webyar\.firebase$/,
-      'core/storage/SecureStore.kt': /^(webyar|webyar\.secure|com\.webyar\.ai\.session)$/,
-      'feature/email/EmailReader.kt': /^(webyar-attachment|inline\.webyar\.invalid)$/,
-      'feature/promo/PromotionCenter.kt': /^webyar\.(promotions|noPromotions)$/,
-      'feature/visitors/VisitorsMap.kt': /^webyar-\$\{template\.hashCode\(\)\}$/,
-      'ui/nav/AppShell.kt': /^webyar\.tab$/,
-    };
-    const brandTables = ['i18n/Strings.kt', 'i18n/StringsManual.kt', 'i18n/StringsAndroid.kt'];
-    for (const file of kotlinFiles(KOTLIN)) {
-      const rel = path.relative(KOTLIN, file);
-      if (brandTables.includes(rel)) continue; // WebYar's own copy, behind BrandStr (above)
-      for (const text of literals(read(file))) {
-        if (!WEBYAR.test(text)) continue;
-        expect(internal[rel]?.test(text), `${rel}: "${text}" names WebYar; route it through BrandStr or AppBrand`).toBe(true);
-      }
-    }
-    // The channel the server names in every push, in both apps.
-    expect(read(`${MAIN}/AndroidManifest.xml`)).toContain('android:value="webyar_messages"');
+  it('is checked by the script CI runs, which agrees', () => {
+    const out = execFileSync('bash', ['android/tools/check-brand-neutral.sh'], { cwd: root, encoding: 'utf8' });
+    expect(out).toContain('Sources: brand-neutral');
   });
 });
 
@@ -279,6 +312,13 @@ describe('CI builds and tests both brands', () => {
     }
   });
 
+  it("and checks RESPOK's sources and APKs for WebYar's name", () => {
+    expect(ci).toContain('run: tools/check-brand-neutral.sh\n');
+    expect(ci).toContain('tools/check-brand-neutral.sh --apk-only app/build/outputs/apk/respok/debug/');
+    expect(ci).toContain('tools/check-brand-neutral.sh --apk-only app/build/outputs/apk/respok/minified/');
+    expect(ci).not.toMatch(/check-brand-neutral\.sh[^\n]*apk\/webyar/);
+  });
+
   it('with no task name from before the flavors, which would no longer exist', () => {
     // What runs, not what the comments say about the names from before.
     const steps = (yaml: string) => yaml.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n');
@@ -287,6 +327,7 @@ describe('CI builds and tests both brands', () => {
       expect(workflow).not.toMatch(/apk\/minified|(?<![A-Za-z])debugRuntimeClasspath|ksp\/debug|buildConfig\/debug/);
     }
     expect(shots).toContain(':app:testWebyarDebugUnitTest');
+    expect(shots).toContain("--tests 'com.platform.app.screenshots.*'");
     expect(shots).toContain('roborazzi/webyar');
   });
 });

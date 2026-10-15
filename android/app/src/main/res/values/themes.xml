@@ -4,7 +4,7 @@
          background and the system bars are transparent before the first
          frame. Without it the launch shows the platform default and then
          flashes to the app's own colour. -->
-    <style name="Theme.Webyar" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.App" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowBackground">@drawable/launch_window</item>

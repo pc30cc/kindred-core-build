@@ -169,7 +169,7 @@ describe('chat widget assets on the server', () => {
   it('default (WebYar) messages get the same polish, without reaching the intl skin', () => {
     const base = read('public/widget/presentation-default.css');
     const skin = read('public/widget/presentation-intl.css');
-    const at = base.indexOf('/* ─── Message layout polish (the WebYar look)');
+    const at = base.indexOf('/* ─── Message layout polish (the default look)');
     expect(at).toBeGreaterThan(-1);
     const block = base.slice(at);
     const rule = (selector: string) => {

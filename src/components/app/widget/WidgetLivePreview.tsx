@@ -17,11 +17,12 @@ import { resolveChatWidgetTemplate, widgetDateHints } from '../../../../shared/w
 import { INTL_BRAND } from '../../../../shared/internationalMode';
 import { WEBYAR_BRAND, isUncustomisedColor, useWebyarKit } from '@/lib/webyarBrand';
 import {
-  WEBYAR_LAUNCHER_BASE_SIZE,
-  WEBYAR_LAUNCHER_CHAT_GLYPH,
-  WEBYAR_LAUNCHER_CLOSE_GLYPH,
-  WEBYAR_LAUNCHER_CSS,
-} from '../../../../shared/webyarLauncher';
+  LOCAL_KIT_LAUNCHER_BASE_SIZE,
+  LOCAL_KIT_LAUNCHER_CHAT_GLYPH,
+  LOCAL_KIT_LAUNCHER_CLOSE_GLYPH,
+  LOCAL_KIT_LAUNCHER_CSS,
+} from '../../../../shared/localKitLauncher';
+import { SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
 import {
   RESPOK_LAUNCHER_BASE_SIZE,
   RESPOK_LAUNCHER_CHAT_GLYPH,
@@ -271,9 +272,12 @@ export function WidgetLivePreview({
   // The International edition previews its own template and dates
   // (shared/widgetTemplates.ts); the Iranian edition exactly as before.
   const { isInternational } = useEdition();
-  // The Iranian edition (known, never assumed) previews WebYar's floating
-  // button and logo credit, as loader.js / the bootstrap draw them.
-  const webyarKit = useWebyarKit() && !isInternational;
+  // The Iranian edition (known, never assumed) previews its local kit's
+  // floating button and logo credit, as loader.js / the bootstrap draw them.
+  // SHIPS_IRAN_KIT is a build-time literal: the RESPOK build drops every
+  // branch below that reads it, and the kit's strings and logo with them.
+  const iranKitEdition = useWebyarKit();
+  const localKit = SHIPS_IRAN_KIT && iranKitEdition && !isInternational;
   // The International edition previews RESPOK's floating button (the kit's
   // Thread chat button), as loader.js draws it for the `intl` template.
   const respokKit = isInternational;
@@ -353,11 +357,11 @@ export function WidgetLivePreview({
       1.4,
       Math.max(0.8, !isFinite(rawScale) || rawScale <= 0 ? 1 : rawScale > 3 ? rawScale / 100 : rawScale),
     );
-    const fabSize = Math.round((webyarKit ? WEBYAR_LAUNCHER_BASE_SIZE : respokKit ? RESPOK_LAUNCHER_BASE_SIZE : 56) * fabScale);
-    // WebYar's button (shared/webyarLauncher.ts): the kit's gradient unless
+    const fabSize = Math.round((SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_BASE_SIZE : respokKit ? RESPOK_LAUNCHER_BASE_SIZE : 56) * fabScale);
+    // The local kit's button (shared/localKitLauncher.ts): its gradient unless
     // the workspace chose its own colour; its bubble unless it chose an icon.
-    const kitBrand = webyarKit && isUncustomisedColor(s.primary_color);
-    const kitBubble = webyarKit && (!s.fab_icon || s.fab_icon === 'chat' || !FAB_ICONS[s.fab_icon as string]);
+    const kitBrand = SHIPS_IRAN_KIT && localKit && isUncustomisedColor(s.primary_color);
+    const kitBubble = SHIPS_IRAN_KIT && localKit && (!s.fab_icon || s.fab_icon === 'chat' || !FAB_ICONS[s.fab_icon as string]);
     // RESPOK's button (shared/respokLauncher.ts): Ink + Signal unless the
     // workspace chose its own colour; the kit's pills unless it chose an icon.
     const rpkBrand = respokKit && isUncustomisedColor(s.primary_color);
@@ -441,11 +445,11 @@ export function WidgetLivePreview({
         ? {
             // The International template credits the platform with its logo,
             // as the widget bootstrap does (server/routes/widget.ts).
-            // The Iranian edition (known, never assumed) credits WebYar with
-            // the kit's Persian logotype the same way.
+            // The Iranian edition (known, never assumed) credits its platform
+            // with the local kit's Persian logotype the same way.
             poweredBy: isInternational && poweredBy
               ? { ...poweredBy, logo: `${window.location.origin}${INTL_BRAND.horizontal.light}` }
-              : webyarKit && poweredBy
+              : SHIPS_IRAN_KIT && localKit && poweredBy
                 ? { ...poweredBy, logo: `${window.location.origin}${WEBYAR_BRAND.logo.light}` }
                 : poweredBy,
             showPoweredBy: poweredBy !== null,
@@ -621,7 +625,7 @@ export function WidgetLivePreview({
   [data-smart-surface]{transition:opacity .22s ease, transform .22s ease;}
   [data-smart-surface][hidden]{display:none!important;}
   [data-smart-surface].smart-enter{opacity:0;transform:translateY(6px);}
-  ${webyarKit ? WEBYAR_LAUNCHER_CSS : ''}
+  ${SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_CSS : ''}
   ${respokKit ? RESPOK_LAUNCHER_CSS : ''}
 </style>
 </head>
@@ -633,9 +637,9 @@ export function WidgetLivePreview({
   </div>
   <div class="shell pos-${pos}${s.fab_animation === true ? ' anim-on' : ''}">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
-    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${webyarKit ? ` wy-kit${kitBrand ? ' wy-kit-brand' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}` : ''}" id="gs-launcher" aria-label="chat">
-      ${kitBubble ? WEBYAR_LAUNCHER_CHAT_GLYPH : rpkPills ? RESPOK_LAUNCHER_CHAT_GLYPH : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
-      ${webyarKit ? WEBYAR_LAUNCHER_CLOSE_GLYPH : respokKit ? RESPOK_LAUNCHER_CLOSE_GLYPH : '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>'}
+    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${SHIPS_IRAN_KIT && localKit ? ` lk-kit${kitBrand ? ' lk-kit-brand' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}` : ''}" id="gs-launcher" aria-label="chat">
+      ${SHIPS_IRAN_KIT && kitBubble ? LOCAL_KIT_LAUNCHER_CHAT_GLYPH : rpkPills ? RESPOK_LAUNCHER_CHAT_GLYPH : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
+      ${SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_CLOSE_GLYPH : respokKit ? RESPOK_LAUNCHER_CLOSE_GLYPH : '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>'}
       ${fabImage ? `<img class="fab-img" alt="" src="${esc(fabImage)}">` : ''}
     </button>
     ${s.fab_label ? `<div class="fab-label"><span class="label-title">${esc(s.fab_label)}</span></div>` : ''}
@@ -1002,7 +1006,7 @@ export function WidgetLivePreview({
   }, [
     settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
-    smartScenario?.rtl, stageBackground, stageBar, isInternational, webyarKit, respokKit,
+    smartScenario?.rtl, stageBackground, stageBar, isInternational, localKit, respokKit,
   ]);
 
   return (

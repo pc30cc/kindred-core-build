@@ -6,6 +6,13 @@
   'use strict';
   if (window.CallCenterWidget && window.CallCenterWidget.__mounted__) return;
 
+  // The Iran region's local kit (its "powered by" words) is shipped only
+  // where that region is served. The RESPOK build (scripts/build/
+  // widgetBrand.mjs) deletes every block between the `@iran-kit` markers and
+  // sets this to false, so the minifier drops each `if (LOCAL_KIT ...)`
+  // branch too: every use of what those blocks define sits in such a branch.
+  var LOCAL_KIT = true;
+
   var STATES = {
     LOADING: 'loading',
     ONLINE: 'online_available',
@@ -124,12 +131,14 @@
     return str;
   }
 
+  /* @iran-kit:begin */
   /**
-   * The brand the "powered by" line credits in the Iranian edition — and
-   * whenever the bootstrap names no edition (an older backend): exactly the
-   * words it always showed.
+   * The platform the "powered by" line credits in the Iran region's edition —
+   * and whenever the bootstrap names no edition (an older backend): exactly
+   * the words it always showed.
    */
-  var IRAN_POWERED_BY_BRAND = { en: 'Web Yar', fa: 'وب یار', tr: 'Web Yar' };
+  var LOCAL_POWERED_BY_BRAND = { en: 'Web Yar', fa: 'وب یار', tr: 'Web Yar' };
+  /* @iran-kit:end */
 
   function normalizeLocale(locale) {
     locale = String(locale || '').toLowerCase().slice(0, 2);
@@ -586,12 +595,13 @@
   /**
    * The platform the "powered by" line credits. The International edition
    * takes it from the bootstrap (the platform's own name, the same source
-   * the chat widget uses; none = no line); anything else keeps the Iranian
-   * words exactly.
+   * the chat widget uses; none = no line); anything else keeps the Iran
+   * region's words exactly. (The RESPOK build has no such words: there every
+   * edition takes the bootstrap's name.)
    */
   CallCenterWidgetCtor.prototype.poweredByBrand = function () {
     var b = this.bootstrap || {};
-    if (b.edition !== 'international') return IRAN_POWERED_BY_BRAND[this.locale] || IRAN_POWERED_BY_BRAND.en;
+    if (LOCAL_KIT && b.edition !== 'international') return LOCAL_POWERED_BY_BRAND[this.locale] || LOCAL_POWERED_BY_BRAND.en;
     var pb = b.powered_by;
     if (!pb || typeof pb !== 'object') return '';
     var names = pb.brands && typeof pb.brands === 'object' ? pb.brands : {};
@@ -603,16 +613,16 @@
    * The International edition's credit drawn with the platform's logo: the
    * localized label split around the brand ("Powered by ‹logo›",
    * "‹logo› tarafından desteklenmektedir") and the logo's absolute URL.
-   * The Iranian edition draws WebYar's logotype the same way when the
+   * The Iran region's edition draws its local logotype the same way when the
    * bootstrap carries `powered_by_logo`. null — draw the text as before —
    * without a logo, or when the workspace wrote its own "powered by" text.
    */
   CallCenterWidgetCtor.prototype.poweredByParts = function () {
     var b = this.bootstrap || {};
     // The Iranian edition (edition 'iran' exactly, never an unknown one)
-    // draws WebYar's Persian logotype in the brand's place when the server
+    // draws its local Persian logotype in the brand's place when the server
     // names it (`powered_by_logo`); without it the words stay as they were.
-    var iranKit = b.edition === 'iran' && typeof b.powered_by_logo === 'string' && !!b.powered_by_logo;
+    var iranKit = LOCAL_KIT && b.edition === 'iran' && typeof b.powered_by_logo === 'string' && !!b.powered_by_logo;
     if (!iranKit && (b.edition !== 'international' || !b.powered_by)) return null;
     var logo = iranKit ? b.powered_by_logo : b.powered_by.logo;
     if (typeof logo !== 'string' || !logo) return null;

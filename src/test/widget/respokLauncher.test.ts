@@ -3,7 +3,7 @@
  * the loader's launcher): worn by the chat widget's `intl` template ONLY when
  * the bootstrap says the platform is the International edition
  * (`edition: 'international'`, `templateId: 'intl'`). The Iranian edition
- * keeps WebYar's button (webyarLauncher.test.ts); an unknown edition and an
+ * keeps its local kit's button (localKitLauncher.test.ts); an unknown edition and an
  * older backend keep the old launcher.
  *
  * Boots the SHIPPED loader.js in jsdom and checks the launcher's markup,
@@ -100,12 +100,12 @@ describe('the launcher per edition', () => {
     expect(launcher.classList.contains('rpk-kit')).toBe(true);
     expect(launcher.classList.contains('rpk-kit-brand')).toBe(true);
     expect(launcher.classList.contains('rpk-kit-away')).toBe(false);
-    expect(launcher.classList.contains('wy-kit')).toBe(false);
+    expect(launcher.classList.contains('lk-kit')).toBe(false);
     expect(launcher.querySelector('svg.chat-icon.rpk-kit-glyph .rpk-kit-q')).not.toBeNull();
     expect(launcher.querySelector('svg.chat-icon.rpk-kit-glyph .rpk-kit-a')).not.toBeNull();
     expect(launcher.querySelector('svg.close-icon.rpk-kit-glyph .rpk-kit-chev')).not.toBeNull();
     expect(root.querySelector('style[data-rpk-kit]')!.textContent).toBe(RESPOK_LAUNCHER_CSS);
-    expect(root.querySelector('style[data-wy-kit]')).toBeNull();
+    expect(root.querySelector('style[data-lk-kit]')).toBeNull();
     expect(root.querySelector('.shell')!.getAttribute('style')).toContain('--gs-fab-size: 60px');
   });
 
@@ -160,6 +160,6 @@ describe('the launcher per edition', () => {
     expect(launcher.querySelector('.badge')!.classList.contains('rpk-kit-bump')).toBe(true);
     push(['setUnread', 2]);
     expect(launcher.querySelector('.badge')!.classList.contains('rpk-kit-still')).toBe(true);
-    expect(launcher.classList.contains('wy-kit-nudge')).toBe(false);
+    expect(launcher.classList.contains('lk-kit-nudge')).toBe(false);
   });
 });

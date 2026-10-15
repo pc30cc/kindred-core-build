@@ -91,7 +91,7 @@ describe('Iranian text is byte-identical (fixture of every replaced line)', () =
     for (const line of lines) {
       expect(source.split('\n'), `${file}: line no longer present`).toContain(line.source);
       if (file.endsWith('call-widget/runtime.js')) {
-        // The call widget's own `{brand}` (public/call-widget/runtime.js IRAN_POWERED_BY_BRAND).
+        // The call widget's own `{brand}` (public/call-widget/runtime.js LOCAL_POWERED_BY_BRAND).
         const iran = { en: 'Web Yar', fa: 'وب یار', tr: 'Web Yar' }[line.locale as 'en' | 'fa' | 'tr'];
         expect(line.source.replace('{brand}', iran)).toBe(line.iran);
       } else {

@@ -38,6 +38,13 @@
   var LOADER_VERSION = "2026-08-06-smart-engagement-v1";
   var ELEMENT_TAG = "gs-widget";
 
+  // The Iran region's local kit (its floating button) is shipped only where
+  // that region is served. The RESPOK build (scripts/build/widgetBrand.mjs)
+  // deletes every block between the `@iran-kit` markers and sets this to
+  // false, so the minifier drops each `if (LOCAL_KIT ...)` branch too: every
+  // use of what those blocks define must sit inside such a branch.
+  var LOCAL_KIT = true;
+
   // DEBUG defaults to OFF in production. Opt in via:
   //   window.__gs_debug = true          (developer console)
   //   localStorage.setItem('gs:debug','1')  (same key runtime.js/
@@ -663,55 +670,58 @@
 
   ].join("");
 
-  // ─── WebYar's floating button (the brand kit, Iranian edition only) ───
-  // Worn by the `default` template when the bootstrap says the platform is
-  // the Iranian edition (config.edition === "iran" exactly; an older backend
-  // or an unknown edition keeps the launcher above, as does every other
-  // region mode). Byte-identical with shared/webyarLauncher.ts (the operator
-  // preview's copy; src/test/widget/webyarLauncher.test.ts). Injected as its
-  // own <style> only when worn, so other editions' shadow DOM is unchanged.
-  var WEBYAR_KIT_CSS = ".launcher.wy-kit.wy-kit-brand{background:linear-gradient(140deg,#22D3B4,#0B7D6C);box-shadow:0 12px 28px rgba(11,125,108,.36),0 3px 8px rgba(18,20,31,.16);--wy-kit-dot:#18AD94;--wy-kit-ring:#16C7A8;}.launcher.wy-kit:not(.open):not(.enter):hover{transform:translateY(-3px) scale(1.06);transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease;}.launcher.wy-kit.wy-kit-brand:not(.open):not(.enter):hover{box-shadow:0 18px 36px rgba(11,125,108,.42),0 4px 10px rgba(18,20,31,.16);}.launcher.wy-kit svg.wy-kit-glyph{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:none;overflow:visible;transform-origin:50% 50%;transition:transform .2s cubic-bezier(.4,0,1,1),opacity .16s ease;}.launcher.wy-kit .wy-kit-body{fill:currentColor;transition:fill .25s ease;}.launcher.wy-kit .wy-kit-dot{fill:var(--wy-kit-dot,var(--gs-primary,#0B7D6C));transform-box:fill-box;transform-origin:50% 50%;transition:fill .25s ease;}.launcher.wy-kit .wy-kit-chev{fill:none;stroke:currentColor;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round;}.launcher.wy-kit svg.close-icon.wy-kit-glyph{display:block;opacity:0;transform:rotate(45deg) scale(.6);transition:transform .2s ease,opacity .14s ease;}.launcher.wy-kit.open svg.chat-icon.wy-kit-glyph{display:block;opacity:0;transform:rotate(-35deg) scale(.3);}.launcher.wy-kit.open svg.close-icon.wy-kit-glyph{opacity:1;transform:none;transition:transform .26s cubic-bezier(.2,.9,.3,1.2) .06s,opacity .2s ease .06s;}.launcher.wy-kit.wy-kit-enter{animation:wy-kit-fab-in .62s cubic-bezier(.2,1.25,.4,1) backwards;}.launcher.wy-kit.wy-kit-enter .wy-kit-body{transform-box:fill-box;transform-origin:50% 50%;animation:wy-kit-body-in .5s cubic-bezier(.2,1.2,.4,1) .12s backwards;}.launcher.wy-kit.wy-kit-enter .wy-kit-dot{animation:wy-kit-dot-in .32s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.wy-kit.wy-kit-enter .wy-kit-d1{animation-delay:.45s;}.launcher.wy-kit.wy-kit-enter .wy-kit-d2{animation-delay:.65s;}.launcher.wy-kit.wy-kit-enter .wy-kit-d3{animation-delay:.85s;}.launcher.wy-kit:not(.open):hover .wy-kit-dot{animation:wy-kit-wave .62s ease-in-out;}.launcher.wy-kit:not(.open):hover .wy-kit-d2{animation-delay:.08s;}.launcher.wy-kit:not(.open):hover .wy-kit-d3{animation-delay:.16s;}.launcher.wy-kit.wy-kit-closing:not(.open) .wy-kit-dot{animation:wy-kit-dot-in .26s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.wy-kit.wy-kit-closing:not(.open) .wy-kit-d1{animation-delay:.12s;}.launcher.wy-kit.wy-kit-closing:not(.open) .wy-kit-d2{animation-delay:.2s;}.launcher.wy-kit.wy-kit-closing:not(.open) .wy-kit-d3{animation-delay:.28s;}.launcher.wy-kit.wy-kit-typing:not(.open) .wy-kit-dot,.launcher.wy-kit.wy-kit-typing:not(.open):hover .wy-kit-dot{animation:wy-kit-type 1.3s ease-in-out infinite;}.launcher.wy-kit.wy-kit-typing:not(.open) .wy-kit-d2,.launcher.wy-kit.wy-kit-typing:not(.open):hover .wy-kit-d2{animation-delay:.16s;}.launcher.wy-kit.wy-kit-typing:not(.open) .wy-kit-d3,.launcher.wy-kit.wy-kit-typing:not(.open):hover .wy-kit-d3{animation-delay:.32s;}.launcher.wy-kit .wy-kit-ping{position:absolute;inset:0;border-radius:inherit;border:2px solid var(--wy-kit-ring,var(--gs-primary,#16C7A8));opacity:0;pointer-events:none;}.launcher.wy-kit.wy-kit-pinging:not(.open) .wy-kit-ping{animation:wy-kit-ping 1.8s cubic-bezier(.2,.6,.3,1) 2;}.launcher.wy-kit .badge{top:-6px;right:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;border:0;background:#FFB423;color:#12141F;font:800 13px/24px Vazirmatn,Tahoma,'Segoe UI',sans-serif;box-shadow:0 0 0 3px #fff;animation:wy-kit-badge-in .45s cubic-bezier(.3,1.6,.5,1);}.launcher.wy-kit.open .badge{display:none;}.launcher.wy-kit.wy-kit-nudge:not(.open){animation:wy-kit-nudge .6s ease-in-out;}.launcher.wy-kit.wy-kit-brand.wy-kit-offline{background:#12141F;--wy-kit-dot:#12141F;}.launcher.wy-kit.wy-kit-brand.wy-kit-offline .wy-kit-body{fill:#16C7A8;}@keyframes wy-kit-fab-in{0%{opacity:0;transform:translateY(18px) scale(.6);}100%{opacity:1;transform:none;}}@keyframes wy-kit-body-in{0%{opacity:0;transform:scale(.7);}100%{opacity:1;transform:none;}}@keyframes wy-kit-type{0%,60%,100%{transform:none;opacity:.55;}25%{transform:translateY(-2.5px);opacity:1;}}@keyframes wy-kit-ping{0%{opacity:.6;transform:scale(1);}100%{opacity:0;transform:scale(1.75);}}@keyframes wy-kit-dot-in{0%{opacity:0;transform:scale(.4);}100%{opacity:1;transform:none;}}@keyframes wy-kit-wave{0%,100%{transform:none;}35%{transform:translateY(-2.5px);}}@keyframes wy-kit-badge-in{0%{transform:scale(0);}60%{transform:scale(1.18);}100%{transform:scale(1);}}@keyframes wy-kit-nudge{0%,100%{transform:none;}20%{transform:rotate(-10deg);}45%{transform:rotate(8deg);}70%{transform:rotate(-4deg);}}@media(prefers-reduced-motion:reduce){.launcher.wy-kit,.launcher.wy-kit *{animation:none!important;}.launcher.wy-kit:not(.open):not(.enter):hover{transform:none;}.launcher.wy-kit svg.wy-kit-glyph,.launcher.wy-kit svg.close-icon.wy-kit-glyph,.launcher.wy-kit.open svg.close-icon.wy-kit-glyph{transition:opacity .15s ease;}.launcher.wy-kit.open svg.chat-icon.wy-kit-glyph,.launcher.wy-kit svg.close-icon.wy-kit-glyph{transform:none;}}";
-  var WEBYAR_KIT_CHAT_GLYPH = "<svg class=\"chat-icon wy-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"wy-kit-body\" d=\"M42.28 27.95A12.4 12.4 0 0 0 21.7 17.01A12.4 12.4 0 0 0 30.43 38.62A7.75 7.75 0 0 0 22.95 46.14A0.43 0.43 0 0 1 22.56 46.56A21.7 21.7 0 0 0 42.28 27.95Z\"/><path class=\"wy-kit-dot wy-kit-d1\" d=\"M35.21 24.12L37.32 26.23L35.21 28.34L33.1 26.23Z\"/><path class=\"wy-kit-dot wy-kit-d2\" d=\"M30 24.12L32.11 26.23L30 28.34L27.89 26.23Z\"/><path class=\"wy-kit-dot wy-kit-d3\" d=\"M24.79 24.12L26.9 26.23L24.79 28.34L22.69 26.23Z\"/></svg>";
-  var WEBYAR_KIT_CLOSE_GLYPH = "<svg class=\"close-icon wy-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"wy-kit-chev\" d=\"M22 27l8 8 8-8\"/></svg>";
-  var WEBYAR_KIT_PING = "<span class=\"wy-kit-ping\" aria-hidden=\"true\"></span>";
   // The platform colour every deployment was seeded with: never a choice, so
-  // the kit's gradient is shown in its place (shared/webyarBrand.ts). RESPOK's
-  // button (below) follows the same rule with its Ink ground.
-  var WEBYAR_KIT_UNCUSTOMISED_COLOR = "#3b82f6";
-  function webyarKitOn(config) {
+  // a kit's own ground is shown in its place (both regions' buttons).
+  var KIT_UNCUSTOMISED_COLOR = "#3b82f6";
+  function kitBrandColor(config) {
+    var c = String((config && config.primaryColor) || "").trim().toLowerCase();
+    return !c || c === KIT_UNCUSTOMISED_COLOR;
+  }
+
+  /* @iran-kit:begin */
+  // ─── The Iran region's floating button (its local brand kit) ───
+  // Worn by the `default` template when the bootstrap says the platform is
+  // the Iran region's edition (config.edition === "iran" exactly; an older
+  // backend or an unknown edition keeps the launcher above, as does every
+  // other region mode). Byte-identical with shared/localKitLauncher.ts (the
+  // operator preview's copy; src/test/widget/localKitLauncher.test.ts).
+  // Injected as its own <style> only when worn, so other editions' shadow DOM
+  // is unchanged.
+  var LOCAL_KIT_CSS = ".launcher.lk-kit.lk-kit-brand{background:linear-gradient(140deg,#22D3B4,#0B7D6C);box-shadow:0 12px 28px rgba(11,125,108,.36),0 3px 8px rgba(18,20,31,.16);--lk-kit-dot:#18AD94;--lk-kit-ring:#16C7A8;}.launcher.lk-kit:not(.open):not(.enter):hover{transform:translateY(-3px) scale(1.06);transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease;}.launcher.lk-kit.lk-kit-brand:not(.open):not(.enter):hover{box-shadow:0 18px 36px rgba(11,125,108,.42),0 4px 10px rgba(18,20,31,.16);}.launcher.lk-kit svg.lk-kit-glyph{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:none;overflow:visible;transform-origin:50% 50%;transition:transform .2s cubic-bezier(.4,0,1,1),opacity .16s ease;}.launcher.lk-kit .lk-kit-body{fill:currentColor;transition:fill .25s ease;}.launcher.lk-kit .lk-kit-dot{fill:var(--lk-kit-dot,var(--gs-primary,#0B7D6C));transform-box:fill-box;transform-origin:50% 50%;transition:fill .25s ease;}.launcher.lk-kit .lk-kit-chev{fill:none;stroke:currentColor;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round;}.launcher.lk-kit svg.close-icon.lk-kit-glyph{display:block;opacity:0;transform:rotate(45deg) scale(.6);transition:transform .2s ease,opacity .14s ease;}.launcher.lk-kit.open svg.chat-icon.lk-kit-glyph{display:block;opacity:0;transform:rotate(-35deg) scale(.3);}.launcher.lk-kit.open svg.close-icon.lk-kit-glyph{opacity:1;transform:none;transition:transform .26s cubic-bezier(.2,.9,.3,1.2) .06s,opacity .2s ease .06s;}.launcher.lk-kit.lk-kit-enter{animation:lk-kit-fab-in .62s cubic-bezier(.2,1.25,.4,1) backwards;}.launcher.lk-kit.lk-kit-enter .lk-kit-body{transform-box:fill-box;transform-origin:50% 50%;animation:lk-kit-body-in .5s cubic-bezier(.2,1.2,.4,1) .12s backwards;}.launcher.lk-kit.lk-kit-enter .lk-kit-dot{animation:lk-kit-dot-in .32s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.lk-kit.lk-kit-enter .lk-kit-d1{animation-delay:.45s;}.launcher.lk-kit.lk-kit-enter .lk-kit-d2{animation-delay:.65s;}.launcher.lk-kit.lk-kit-enter .lk-kit-d3{animation-delay:.85s;}.launcher.lk-kit:not(.open):hover .lk-kit-dot{animation:lk-kit-wave .62s ease-in-out;}.launcher.lk-kit:not(.open):hover .lk-kit-d2{animation-delay:.08s;}.launcher.lk-kit:not(.open):hover .lk-kit-d3{animation-delay:.16s;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-dot{animation:lk-kit-dot-in .26s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-d1{animation-delay:.12s;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-d2{animation-delay:.2s;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-d3{animation-delay:.28s;}.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-dot,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-dot{animation:lk-kit-type 1.3s ease-in-out infinite;}.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-d2,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-d2{animation-delay:.16s;}.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-d3,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-d3{animation-delay:.32s;}.launcher.lk-kit .lk-kit-ping{position:absolute;inset:0;border-radius:inherit;border:2px solid var(--lk-kit-ring,var(--gs-primary,#16C7A8));opacity:0;pointer-events:none;}.launcher.lk-kit.lk-kit-pinging:not(.open) .lk-kit-ping{animation:lk-kit-ping 1.8s cubic-bezier(.2,.6,.3,1) 2;}.launcher.lk-kit .badge{top:-6px;right:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;border:0;background:#FFB423;color:#12141F;font:800 13px/24px Vazirmatn,Tahoma,'Segoe UI',sans-serif;box-shadow:0 0 0 3px #fff;animation:lk-kit-badge-in .45s cubic-bezier(.3,1.6,.5,1);}.launcher.lk-kit.open .badge{display:none;}.launcher.lk-kit.lk-kit-nudge:not(.open){animation:lk-kit-nudge .6s ease-in-out;}.launcher.lk-kit.lk-kit-brand.lk-kit-offline{background:#12141F;--lk-kit-dot:#12141F;}.launcher.lk-kit.lk-kit-brand.lk-kit-offline .lk-kit-body{fill:#16C7A8;}@keyframes lk-kit-fab-in{0%{opacity:0;transform:translateY(18px) scale(.6);}100%{opacity:1;transform:none;}}@keyframes lk-kit-body-in{0%{opacity:0;transform:scale(.7);}100%{opacity:1;transform:none;}}@keyframes lk-kit-type{0%,60%,100%{transform:none;opacity:.55;}25%{transform:translateY(-2.5px);opacity:1;}}@keyframes lk-kit-ping{0%{opacity:.6;transform:scale(1);}100%{opacity:0;transform:scale(1.75);}}@keyframes lk-kit-dot-in{0%{opacity:0;transform:scale(.4);}100%{opacity:1;transform:none;}}@keyframes lk-kit-wave{0%,100%{transform:none;}35%{transform:translateY(-2.5px);}}@keyframes lk-kit-badge-in{0%{transform:scale(0);}60%{transform:scale(1.18);}100%{transform:scale(1);}}@keyframes lk-kit-nudge{0%,100%{transform:none;}20%{transform:rotate(-10deg);}45%{transform:rotate(8deg);}70%{transform:rotate(-4deg);}}@media(prefers-reduced-motion:reduce){.launcher.lk-kit,.launcher.lk-kit *{animation:none!important;}.launcher.lk-kit:not(.open):not(.enter):hover{transform:none;}.launcher.lk-kit svg.lk-kit-glyph,.launcher.lk-kit svg.close-icon.lk-kit-glyph,.launcher.lk-kit.open svg.close-icon.lk-kit-glyph{transition:opacity .15s ease;}.launcher.lk-kit.open svg.chat-icon.lk-kit-glyph,.launcher.lk-kit svg.close-icon.lk-kit-glyph{transform:none;}}";
+  var LOCAL_KIT_CHAT_GLYPH = "<svg class=\"chat-icon lk-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"lk-kit-body\" d=\"M42.28 27.95A12.4 12.4 0 0 0 21.7 17.01A12.4 12.4 0 0 0 30.43 38.62A7.75 7.75 0 0 0 22.95 46.14A0.43 0.43 0 0 1 22.56 46.56A21.7 21.7 0 0 0 42.28 27.95Z\"/><path class=\"lk-kit-dot lk-kit-d1\" d=\"M35.21 24.12L37.32 26.23L35.21 28.34L33.1 26.23Z\"/><path class=\"lk-kit-dot lk-kit-d2\" d=\"M30 24.12L32.11 26.23L30 28.34L27.89 26.23Z\"/><path class=\"lk-kit-dot lk-kit-d3\" d=\"M24.79 24.12L26.9 26.23L24.79 28.34L22.69 26.23Z\"/></svg>";
+  var LOCAL_KIT_CLOSE_GLYPH = "<svg class=\"close-icon lk-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"lk-kit-chev\" d=\"M22 27l8 8 8-8\"/></svg>";
+  var LOCAL_KIT_PING = "<span class=\"lk-kit-ping\" aria-hidden=\"true\"></span>";
+  function localKitOn(config) {
     if (!config || config.edition !== "iran") return false;
     var tpl = config.templateId == null || config.templateId === "" ? "default" : String(config.templateId);
     return tpl === "default";
-  }
-  function webyarKitBrandColor(config) {
-    var c = String((config && config.primaryColor) || "").trim().toLowerCase();
-    return !c || c === WEBYAR_KIT_UNCUSTOMISED_COLOR;
   }
   var PERSIAN_DIGITS = "\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9";
   function persianDigits(text) {
     return String(text).replace(/[0-9]/g, function (d) { return PERSIAN_DIGITS.charAt(+d); });
   }
-  // WebYar's button: the attention ring spreads twice (3.6s), once, 6s after
-  // the entrance, only while the chat is closed (the kit's ping()).
-  var WEBYAR_KIT_PING_AFTER = 6000;
-  function webyarKitPing() {
-    if (!launcherEl || isOpen || !launcherEl.classList.contains("wy-kit")) return;
+  // The local kit's button: the attention ring spreads twice (3.6s), once,
+  // 6s after the entrance, only while the chat is closed (the kit's ping()).
+  var LOCAL_KIT_PING_AFTER = 6000;
+  function localKitPing() {
+    if (!launcherEl || isOpen || !launcherEl.classList.contains("lk-kit")) return;
     var pinged = launcherEl;
-    pinged.classList.add("wy-kit-pinging");
-    setTimeout(function () { pinged.classList.remove("wy-kit-pinging"); }, 3800);
+    pinged.classList.add("lk-kit-pinging");
+    setTimeout(function () { pinged.classList.remove("lk-kit-pinging"); }, 3800);
   }
-  // WebYar's button: the three dots bob while the operator is typing (the
-  // runtime's "Support is typing…" signal, shell.setOperatorTyping).
+  function ensureLocalKitStyle() {
+    if (!shadowRoot || shadowRoot.querySelector("style[data-lk-kit]")) return;
+    var kitStyle = document.createElement("style");
+    kitStyle.setAttribute("data-lk-kit", "");
+    kitStyle.textContent = LOCAL_KIT_CSS;
+    shadowRoot.appendChild(kitStyle);
+  }
+  /* @iran-kit:end */
+  // The local kit's button: the three dots bob while the operator is typing
+  // (the runtime's "Support is typing…" signal, shell.setOperatorTyping).
   function setOperatorTyping(on) {
     if (!launcherEl) return;
-    if (launcherEl.classList.contains("wy-kit")) launcherEl.classList.toggle("wy-kit-typing", !!on);
-  }
-  function ensureWebyarKitStyle() {
-    if (!shadowRoot || shadowRoot.querySelector("style[data-wy-kit]")) return;
-    var kitStyle = document.createElement("style");
-    kitStyle.setAttribute("data-wy-kit", "");
-    kitStyle.textContent = WEBYAR_KIT_CSS;
-    shadowRoot.appendChild(kitStyle);
+    if (LOCAL_KIT && launcherEl.classList.contains("lk-kit")) launcherEl.classList.toggle("lk-kit-typing", !!on);
   }
 
   // ─── RESPOK's floating button (the brand kit's Thread chat button,
@@ -997,7 +1007,7 @@
   function applyFabConfig(config, posClass) {
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
-    var kit = webyarKitOn(config);
+    var kit = LOCAL_KIT && localKitOn(config);
     var rpkKit = !kit && respokKitOn(config);
     // The kits' buttons are 60px at 100% (the scale still applies).
     var size = Math.round((kit || rpkKit ? 60 : 56) * scale);
@@ -1020,20 +1030,20 @@
     var imgHtml = imageUrl
       ? '<img class="fab-img" alt="" aria-hidden="true" decoding="async" fetchpriority="low" src="' + imageUrl.replace(/"/g, "&quot;") + '">'
       : '';
-    if (kit) {
-      // WebYar's button: the kit's bubble (or the workspace's own icon when
-      // it picked one other than `chat`) and the kit's chevron for "open".
-      ensureWebyarKitStyle();
-      launcherEl.classList.add("wy-kit");
-      var kitBrand = webyarKitBrandColor(config);
-      launcherEl.classList.toggle("wy-kit-brand", kitBrand);
+    if (LOCAL_KIT && kit) {
+      // The local kit's button: its bubble (or the workspace's own icon when
+      // it picked one other than `chat`) and its chevron for "open".
+      ensureLocalKitStyle();
+      launcherEl.classList.add("lk-kit");
+      var kitBrand = kitBrandColor(config);
+      launcherEl.classList.toggle("lk-kit-brand", kitBrand);
       var offline = !!(config.availability && config.availability.state === "offline");
-      launcherEl.classList.toggle("wy-kit-offline", kitBrand && offline);
+      launcherEl.classList.toggle("lk-kit-offline", kitBrand && offline);
       launcherEl.innerHTML =
         (String(fab.icon || "chat") === "chat" || !FAB_ICONS[fab.icon]
-          ? WEBYAR_KIT_CHAT_GLYPH
+          ? LOCAL_KIT_CHAT_GLYPH
           : '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>') +
-        WEBYAR_KIT_CLOSE_GLYPH + WEBYAR_KIT_PING + imgHtml;
+        LOCAL_KIT_CLOSE_GLYPH + LOCAL_KIT_PING + imgHtml;
     } else if (rpkKit) {
       // RESPOK's button: the kit's Thread pills (or the workspace's own icon
       // when it picked one other than `chat`) and the kit's chevron for
@@ -1041,7 +1051,7 @@
       // its own ground and draws the pills in its icon colour.
       ensureRespokKitStyle();
       launcherEl.classList.add("rpk-kit");
-      launcherEl.classList.toggle("rpk-kit-brand", webyarKitBrandColor(config));
+      launcherEl.classList.toggle("rpk-kit-brand", kitBrandColor(config));
       launcherEl.classList.toggle("rpk-kit-away", !!(config.availability && config.availability.state === "offline"));
       launcherEl.innerHTML =
         (String(fab.icon || "chat") === "chat" || !FAB_ICONS[fab.icon]
@@ -1141,16 +1151,16 @@
         // Entry: force a genuine below-viewport → resting-position movement.
         // No opacity animation is involved.
         var labelEl = shellDiv && shellDiv.querySelector(".gs-fab-label");
-        if (launcherEl.classList.contains("wy-kit")) {
-          // WebYar's button arrives the kit's way instead (CSS: it springs in,
+        if (LOCAL_KIT && launcherEl.classList.contains("lk-kit")) {
+          // The local kit's button arrives its own way instead (CSS: it springs in,
           // the bubble grows, then the three dots appear one by one; nothing
           // moves with reduced motion), and pings once 6s later if the chat
           // has not been opened.
           var kitLauncher = launcherEl;
           kitLauncher.classList.remove("enter");
-          kitLauncher.classList.add("wy-kit-enter");
-          setTimeout(function () { kitLauncher.classList.remove("wy-kit-enter"); }, 1400);
-          setTimeout(function () { webyarKitPing(); }, WEBYAR_KIT_PING_AFTER);
+          kitLauncher.classList.add("lk-kit-enter");
+          setTimeout(function () { kitLauncher.classList.remove("lk-kit-enter"); }, 1400);
+          setTimeout(function () { localKitPing(); }, LOCAL_KIT_PING_AFTER);
         } else {
           playFabEntry(launcherEl);
         }
@@ -1433,14 +1443,14 @@
     }
     if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
     if (fabLabelEl) fabLabelEl.classList.toggle("open", !!isOpen);
-    // WebYar's button: opening ends its entrance and ping; closing brings its
-    // three dots back one by one (the kit's is-closing).
-    if (launcherEl && launcherEl.classList.contains("wy-kit")) {
-      if (isOpen) launcherEl.classList.remove("wy-kit-enter", "wy-kit-pinging", "wy-kit-closing");
+    // The local kit's button: opening ends its entrance and ping; closing
+    // brings its three dots back one by one (the kit's is-closing).
+    if (LOCAL_KIT && launcherEl && launcherEl.classList.contains("lk-kit")) {
+      if (isOpen) launcherEl.classList.remove("lk-kit-enter", "lk-kit-pinging", "lk-kit-closing");
       else if (was) {
         var closing = launcherEl;
-        closing.classList.add("wy-kit-closing");
-        setTimeout(function () { closing.classList.remove("wy-kit-closing"); }, 700);
+        closing.classList.add("lk-kit-closing");
+        setTimeout(function () { closing.classList.remove("lk-kit-closing"); }, 700);
       }
     }
     syncLauncherLabel();
@@ -1977,22 +1987,22 @@
     if (!launcherEl) return;
     var existing = launcherEl.querySelector(".badge");
     if (existing) existing.remove();
-    var kitBadge = launcherEl.classList.contains("wy-kit");
+    var kitBadge = LOCAL_KIT && launcherEl.classList.contains("lk-kit");
     if (count > 0) {
       var badge = document.createElement("span");
       badge.className = "badge";
       badge.textContent = count > 9 ? "9+" : String(count);
-      // WebYar's button: Persian digits in a Persian widget, and one nudge
-      // when the first unread message arrives.
-      if (kitBadge && String((configData && configData.locale) || "").toLowerCase().split("-")[0] === "fa") {
+      // The local kit's button: Persian digits in a Persian widget, and one
+      // nudge when the first unread message arrives.
+      if (LOCAL_KIT && kitBadge && String((configData && configData.locale) || "").toLowerCase().split("-")[0] === "fa") {
         badge.textContent = persianDigits(badge.textContent);
       }
-      if (kitBadge && !(lastUnreadCount > 0)) {
+      if (LOCAL_KIT && kitBadge && !(lastUnreadCount > 0)) {
         var nudged = launcherEl;
-        nudged.classList.remove("wy-kit-nudge");
+        nudged.classList.remove("lk-kit-nudge");
         void nudged.offsetWidth;
-        nudged.classList.add("wy-kit-nudge");
-        setTimeout(function () { nudged.classList.remove("wy-kit-nudge"); }, 700);
+        nudged.classList.add("lk-kit-nudge");
+        setTimeout(function () { nudged.classList.remove("lk-kit-nudge"); }, 700);
       }
       // RESPOK's button: the badge springs in the first time, bumps when it
       // was already showing and a message arrived, and keeps still when the

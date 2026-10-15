@@ -62,9 +62,14 @@
   /**
    * Ids this template used to be called. An embed or a settings row written
    * before the rename still resolves here instead of 404ing on assets that
-   * no longer exist.
+   * no longer exist. Only the Iran region's rows carry one, so the RESPOK
+   * build (scripts/build/widgetBrand.mjs) leaves the alias out: an unknown
+   * id resolves to the default template there anyway.
    */
-  var LEGACY_IDS = { 'web-yar': 'default' };
+  var LEGACY_IDS = {};
+  /* @iran-kit:begin */
+  LEGACY_IDS['web-yar'] = 'default';
+  /* @iran-kit:end */
 
   function resolve(id) {
     if (id && TEMPLATES[id]) return TEMPLATES[id];

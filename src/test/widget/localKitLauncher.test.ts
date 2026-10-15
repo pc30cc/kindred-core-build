@@ -1,5 +1,5 @@
 /**
- * WebYar's floating button (the brand kit's floating-button/, ported into the
+ * The Iran region's floating button (its local kit's floating-button/, ported into the
  * loader's launcher): worn by the chat widget's `default` template ONLY when
  * the bootstrap says the platform is the Iranian edition (`edition: 'iran'`).
  * An unknown edition and an older backend that sends none keep the launcher
@@ -8,7 +8,7 @@
  *
  * Boots the SHIPPED loader.js in jsdom (as publicApiBehavioral.test.ts does)
  * and checks the launcher's markup, classes and badge; and proves the
- * loader's copy of the kit is byte-identical with shared/webyarLauncher.ts,
+ * loader's copy of the kit is byte-identical with shared/localKitLauncher.ts,
  * the operator preview's.
  *
  * @vitest-environment jsdom
@@ -17,11 +17,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  WEBYAR_LAUNCHER_CHAT_GLYPH,
-  WEBYAR_LAUNCHER_CLOSE_GLYPH,
-  WEBYAR_LAUNCHER_CSS,
-  WEBYAR_LAUNCHER_PING,
-} from '../../../shared/webyarLauncher';
+  LOCAL_KIT_LAUNCHER_CHAT_GLYPH,
+  LOCAL_KIT_LAUNCHER_CLOSE_GLYPH,
+  LOCAL_KIT_LAUNCHER_CSS,
+  LOCAL_KIT_LAUNCHER_PING,
+} from '../../../shared/localKitLauncher';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const LOADER_SRC = read('public/widget/loader.js');
@@ -70,29 +70,29 @@ describe('the loader carries the kit byte-for-byte', () => {
       expect(m, name).not.toBeNull();
       return JSON.parse(m![1]) as string;
     };
-    expect(literal('WEBYAR_KIT_CSS')).toBe(WEBYAR_LAUNCHER_CSS);
-    expect(literal('WEBYAR_KIT_CHAT_GLYPH')).toBe(WEBYAR_LAUNCHER_CHAT_GLYPH);
-    expect(literal('WEBYAR_KIT_CLOSE_GLYPH')).toBe(WEBYAR_LAUNCHER_CLOSE_GLYPH);
-    expect(literal('WEBYAR_KIT_PING')).toBe(WEBYAR_LAUNCHER_PING);
-    expect(read('src/components/app/widget/WidgetLivePreview.tsx')).toContain('WEBYAR_LAUNCHER_CSS');
+    expect(literal('LOCAL_KIT_CSS')).toBe(LOCAL_KIT_LAUNCHER_CSS);
+    expect(literal('LOCAL_KIT_CHAT_GLYPH')).toBe(LOCAL_KIT_LAUNCHER_CHAT_GLYPH);
+    expect(literal('LOCAL_KIT_CLOSE_GLYPH')).toBe(LOCAL_KIT_LAUNCHER_CLOSE_GLYPH);
+    expect(literal('LOCAL_KIT_PING')).toBe(LOCAL_KIT_LAUNCHER_PING);
+    expect(read('src/components/app/widget/WidgetLivePreview.tsx')).toContain('LOCAL_KIT_LAUNCHER_CSS');
   });
 
   it('honours reduced motion and adds no global script or inline handler', () => {
-    expect(WEBYAR_LAUNCHER_CSS).toContain('@media(prefers-reduced-motion:reduce)');
-    expect(WEBYAR_LAUNCHER_CSS).toContain('linear-gradient(140deg,#22D3B4,#0B7D6C)');
-    expect(WEBYAR_LAUNCHER_CSS).toContain('background:#FFB423');
-    expect(LOADER_SRC).not.toContain('WebyarLauncher');
-    expect(WEBYAR_LAUNCHER_CHAT_GLYPH + WEBYAR_LAUNCHER_CLOSE_GLYPH).not.toMatch(/\son[a-z]+=/i);
+    expect(LOCAL_KIT_LAUNCHER_CSS).toContain('@media(prefers-reduced-motion:reduce)');
+    expect(LOCAL_KIT_LAUNCHER_CSS).toContain('linear-gradient(140deg,#22D3B4,#0B7D6C)');
+    expect(LOCAL_KIT_LAUNCHER_CSS).toContain('background:#FFB423');
+    expect(LOADER_SRC).not.toContain('LocalKitLauncher');
+    expect(LOCAL_KIT_LAUNCHER_CHAT_GLYPH + LOCAL_KIT_LAUNCHER_CLOSE_GLYPH).not.toMatch(/\son[a-z]+=/i);
   });
 });
 
 describe('the launcher per edition', () => {
   // The International edition wears RESPOK's own button instead
-  // (src/test/widget/respokLauncher.test.ts), never WebYar's.
-  it('international: never WebYar\'s kit', async () => {
+  // (src/test/widget/respokLauncher.test.ts), never the local kit's.
+  it('international: never the local kit', async () => {
     const { root, launcher } = await boot({ edition: 'international', templateId: 'intl' });
-    expect(launcher.classList.contains('wy-kit')).toBe(false);
-    expect(root.querySelector('style[data-wy-kit]')).toBeNull();
+    expect(launcher.classList.contains('lk-kit')).toBe(false);
+    expect(root.querySelector('style[data-lk-kit]')).toBeNull();
   });
 
   it.each([
@@ -102,25 +102,25 @@ describe('the launcher per edition', () => {
     const { root, launcher } = await boot(extra);
     expect(launcher.className.replace(/ enter$/, '')).toBe('launcher bottom-right revealed');
     expect(launcher.innerHTML).toBe(OLD_LAUNCHER_HTML);
-    expect(root.querySelector('style[data-wy-kit]')).toBeNull();
+    expect(root.querySelector('style[data-lk-kit]')).toBeNull();
     expect(root.querySelector('.shell')!.getAttribute('style')).toContain('--gs-fab-size: 56px');
   });
 
   it('Iran: the kit\'s gradient, bubble and chevron at 60px, with its stylesheet', async () => {
     const { root, launcher } = await boot({ edition: 'iran' });
-    expect(launcher.classList.contains('wy-kit')).toBe(true);
-    expect(launcher.classList.contains('wy-kit-brand')).toBe(true);
-    expect(launcher.classList.contains('wy-kit-offline')).toBe(false);
-    expect(launcher.querySelector('svg.chat-icon.wy-kit-glyph .wy-kit-body')).not.toBeNull();
-    expect(launcher.querySelectorAll('svg.chat-icon .wy-kit-dot')).toHaveLength(3);
-    expect(launcher.querySelector('svg.close-icon.wy-kit-glyph .wy-kit-chev')).not.toBeNull();
-    expect(root.querySelector('style[data-wy-kit]')!.textContent).toBe(WEBYAR_LAUNCHER_CSS);
+    expect(launcher.classList.contains('lk-kit')).toBe(true);
+    expect(launcher.classList.contains('lk-kit-brand')).toBe(true);
+    expect(launcher.classList.contains('lk-kit-offline')).toBe(false);
+    expect(launcher.querySelector('svg.chat-icon.lk-kit-glyph .lk-kit-body')).not.toBeNull();
+    expect(launcher.querySelectorAll('svg.chat-icon .lk-kit-dot')).toHaveLength(3);
+    expect(launcher.querySelector('svg.close-icon.lk-kit-glyph .lk-kit-chev')).not.toBeNull();
+    expect(root.querySelector('style[data-lk-kit]')!.textContent).toBe(LOCAL_KIT_LAUNCHER_CSS);
     expect(root.querySelector('.shell')!.getAttribute('style')).toContain('--gs-fab-size: 60px');
   });
 
   it('Iran with the International template id (never offered there) still keeps the old launcher', async () => {
     const { launcher } = await boot({ edition: 'iran', templateId: 'intl' });
-    expect(launcher.classList.contains('wy-kit')).toBe(false);
+    expect(launcher.classList.contains('lk-kit')).toBe(false);
   });
 
   it('Iran honours the workspace\'s colour, icon, size and position', async () => {
@@ -128,13 +128,13 @@ describe('the launcher per edition', () => {
       edition: 'iran', primaryColor: '#E11D48', position: 'bottom-left',
       fab: { icon: 'headset', scale: 120, iconColor: '#111111' },
     });
-    expect(launcher.classList.contains('wy-kit')).toBe(true);
-    expect(launcher.classList.contains('wy-kit-brand')).toBe(false);
+    expect(launcher.classList.contains('lk-kit')).toBe(true);
+    expect(launcher.classList.contains('lk-kit-brand')).toBe(false);
     expect(launcher.classList.contains('bottom-left')).toBe(true);
     expect(launcher.style.color).toBe('rgb(17, 17, 17)');
     // Its own icon at rest; the kit's chevron for "open".
-    expect(launcher.querySelector('svg.chat-icon')!.classList.contains('wy-kit-glyph')).toBe(false);
-    expect(launcher.querySelector('svg.close-icon.wy-kit-glyph')).not.toBeNull();
+    expect(launcher.querySelector('svg.chat-icon')!.classList.contains('lk-kit-glyph')).toBe(false);
+    expect(launcher.querySelector('svg.close-icon.lk-kit-glyph')).not.toBeNull();
     expect(root.querySelector('.shell')!.getAttribute('style')).toContain('--gs-fab-size: 72px');
     expect((root.querySelector('.shell') as HTMLElement).style.getPropertyValue('--gs-primary')).toBe('#E11D48');
   });
@@ -143,12 +143,12 @@ describe('the launcher per edition', () => {
     const { launcher } = await boot({ edition: 'iran', fab: { imageUrl: 'https://cdn.example/fab.png' } });
     expect(launcher.classList.contains('has-image')).toBe(true);
     expect(launcher.querySelector('img.fab-img')!.getAttribute('src')).toBe('https://cdn.example/fab.png');
-    expect(launcher.querySelector('svg.chat-icon.wy-kit-glyph')).not.toBeNull();
+    expect(launcher.querySelector('svg.chat-icon.lk-kit-glyph')).not.toBeNull();
   });
 
   it('Iran outside working hours: the kit\'s offline look (only with the kit\'s colours)', async () => {
     const { launcher } = await boot({ edition: 'iran', availability: { state: 'offline' } });
-    expect(launcher.classList.contains('wy-kit-offline')).toBe(true);
+    expect(launcher.classList.contains('lk-kit-offline')).toBe(true);
   });
 
   it('Iran: the unread badge is saffron-styled with Persian digits in Persian', async () => {
@@ -156,7 +156,7 @@ describe('the launcher per edition', () => {
     (window as unknown as { __gs: { push: (c: unknown[]) => void } }).__gs.push(['setUnread', 3]);
     const launcher = document.querySelector('gs-widget')!.shadowRoot!.querySelector('.launcher')!;
     expect(launcher.querySelector('.badge')!.textContent).toBe('۳');
-    expect(launcher.classList.contains('wy-kit-nudge')).toBe(true);
+    expect(launcher.classList.contains('lk-kit-nudge')).toBe(true);
   });
 
   it('International: the badge keeps Latin digits and no nudge', async () => {
@@ -164,37 +164,37 @@ describe('the launcher per edition', () => {
     (window as unknown as { __gs: { push: (c: unknown[]) => void } }).__gs.push(['setUnread', 3]);
     const launcher = document.querySelector('gs-widget')!.shadowRoot!.querySelector('.launcher')!;
     expect(launcher.querySelector('.badge')!.textContent).toBe('3');
-    expect(launcher.classList.contains('wy-kit-nudge')).toBe(false);
+    expect(launcher.classList.contains('lk-kit-nudge')).toBe(false);
   });
 });
 
-// The kit's full motion set (floating-button/web/webyar-launcher.css): the
+// The kit's full motion set (floating-button/web/ launcher stylesheet): the
 // entrance, the typing dots, the attention ping and the open/close morph,
 // with the kit's timings and easings, all switched off by reduced motion.
 describe('the kit\'s animations', () => {
   it('carries the kit\'s keyframes, timings and easings', () => {
-    const css = WEBYAR_LAUNCHER_CSS;
+    const css = LOCAL_KIT_LAUNCHER_CSS;
     // Entrance: the button springs in, the bubble grows, the dots appear.
-    expect(css).toContain('.launcher.wy-kit.wy-kit-enter{animation:wy-kit-fab-in .62s cubic-bezier(.2,1.25,.4,1) backwards;}');
-    expect(css).toContain('animation:wy-kit-body-in .5s cubic-bezier(.2,1.2,.4,1) .12s backwards;');
-    expect(css).toContain('@keyframes wy-kit-fab-in{0%{opacity:0;transform:translateY(18px) scale(.6);}100%{opacity:1;transform:none;}}');
-    expect(css).toContain('@keyframes wy-kit-body-in{0%{opacity:0;transform:scale(.7);}100%{opacity:1;transform:none;}}');
+    expect(css).toContain('.launcher.lk-kit.lk-kit-enter{animation:lk-kit-fab-in .62s cubic-bezier(.2,1.25,.4,1) backwards;}');
+    expect(css).toContain('animation:lk-kit-body-in .5s cubic-bezier(.2,1.2,.4,1) .12s backwards;');
+    expect(css).toContain('@keyframes lk-kit-fab-in{0%{opacity:0;transform:translateY(18px) scale(.6);}100%{opacity:1;transform:none;}}');
+    expect(css).toContain('@keyframes lk-kit-body-in{0%{opacity:0;transform:scale(.7);}100%{opacity:1;transform:none;}}');
     // Typing: the dots bob in turn, never while the panel is open.
-    expect(css).toContain('.launcher.wy-kit.wy-kit-typing:not(.open) .wy-kit-dot,.launcher.wy-kit.wy-kit-typing:not(.open):hover .wy-kit-dot{animation:wy-kit-type 1.3s ease-in-out infinite;}');
-    expect(css).toContain('@keyframes wy-kit-type{0%,60%,100%{transform:none;opacity:.55;}25%{transform:translateY(-2.5px);opacity:1;}}');
+    expect(css).toContain('.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-dot,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-dot{animation:lk-kit-type 1.3s ease-in-out infinite;}');
+    expect(css).toContain('@keyframes lk-kit-type{0%,60%,100%{transform:none;opacity:.55;}25%{transform:translateY(-2.5px);opacity:1;}}');
     // Ping: a turquoise ring spreads twice.
-    expect(css).toContain('.launcher.wy-kit.wy-kit-pinging:not(.open) .wy-kit-ping{animation:wy-kit-ping 1.8s cubic-bezier(.2,.6,.3,1) 2;}');
-    expect(css).toContain('@keyframes wy-kit-ping{0%{opacity:.6;transform:scale(1);}100%{opacity:0;transform:scale(1.75);}}');
-    expect(css).toContain('--wy-kit-ring:#16C7A8;');
-    // Open/close morph (lottie/webyar-launcher-open.json): bubble -35deg
+    expect(css).toContain('.launcher.lk-kit.lk-kit-pinging:not(.open) .lk-kit-ping{animation:lk-kit-ping 1.8s cubic-bezier(.2,.6,.3,1) 2;}');
+    expect(css).toContain('@keyframes lk-kit-ping{0%{opacity:.6;transform:scale(1);}100%{opacity:0;transform:scale(1.75);}}');
+    expect(css).toContain('--lk-kit-ring:#16C7A8;');
+    // Open/close morph (the kit.s open lottie): bubble -35deg
     // to .3 in 200ms, chevron from 45deg/.6 in 260ms after 60ms; on close
     // the dots come back one by one.
-    expect(css).toContain('.launcher.wy-kit.open svg.chat-icon.wy-kit-glyph{display:block;opacity:0;transform:rotate(-35deg) scale(.3);}');
+    expect(css).toContain('.launcher.lk-kit.open svg.chat-icon.lk-kit-glyph{display:block;opacity:0;transform:rotate(-35deg) scale(.3);}');
     expect(css).toContain('transform:rotate(45deg) scale(.6);');
     expect(css).toContain('transition:transform .26s cubic-bezier(.2,.9,.3,1.2) .06s,opacity .2s ease .06s;');
-    expect(css).toContain('.launcher.wy-kit.wy-kit-closing:not(.open) .wy-kit-dot{animation:wy-kit-dot-in .26s cubic-bezier(.3,1.45,.5,1) backwards;}');
+    expect(css).toContain('.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-dot{animation:lk-kit-dot-in .26s cubic-bezier(.3,1.45,.5,1) backwards;}');
     // Reduced motion stops every one of them.
-    expect(css).toMatch(/@media\(prefers-reduced-motion:reduce\)\{\.launcher\.wy-kit,\.launcher\.wy-kit \*\{animation:none!important;\}/);
+    expect(css).toMatch(/@media\(prefers-reduced-motion:reduce\)\{\.launcher\.lk-kit,\.launcher\.lk-kit \*\{animation:none!important;\}/);
     // No Lottie player, no new global.
     expect(LOADER_SRC).not.toMatch(/lottie|bodymovin/i);
   });
@@ -211,22 +211,22 @@ describe('the kit\'s animations', () => {
     new Function(LOADER_SRC).call(window);
     for (let i = 0; i < 12; i++) await vi.advanceTimersByTimeAsync(0);
     const launcher = document.querySelector('gs-widget')!.shadowRoot!.querySelector('.launcher')!;
-    expect(launcher.classList.contains('wy-kit-enter')).toBe(true);
+    expect(launcher.classList.contains('lk-kit-enter')).toBe(true);
     expect(launcher.classList.contains('enter')).toBe(false);
-    expect(launcher.querySelector('.wy-kit-ping')).not.toBeNull();
+    expect(launcher.querySelector('.lk-kit-ping')).not.toBeNull();
     await vi.advanceTimersByTimeAsync(1500);
-    expect(launcher.classList.contains('wy-kit-enter')).toBe(false);
+    expect(launcher.classList.contains('lk-kit-enter')).toBe(false);
     await vi.advanceTimersByTimeAsync(5000);
-    expect(launcher.classList.contains('wy-kit-pinging')).toBe(true);
+    expect(launcher.classList.contains('lk-kit-pinging')).toBe(true);
     await vi.advanceTimersByTimeAsync(4000);
-    expect(launcher.classList.contains('wy-kit-pinging')).toBe(false);
+    expect(launcher.classList.contains('lk-kit-pinging')).toBe(false);
     vi.useRealTimers();
   });
 
   it('the runtime\'s operator-typing signal reaches the launcher (optional on both sides)', () => {
     const runtime = read('public/widget/runtime.js');
     expect(LOADER_SRC).toContain('setOperatorTyping: setOperatorTyping,');
-    expect(LOADER_SRC).toMatch(/if \(launcherEl\.classList\.contains\("wy-kit"\)\) launcherEl\.classList\.toggle\("wy-kit-typing", !!on\);/);
+    expect(LOADER_SRC).toMatch(/if \(LOCAL_KIT && launcherEl\.classList\.contains\("lk-kit"\)\) launcherEl\.classList\.toggle\("lk-kit-typing", !!on\);/);
     expect(runtime).toContain("if (shell && typeof shell.setOperatorTyping === 'function')");
     expect(runtime).toMatch(/function showOperatorTyping\(\) \{\s+\/\/[^\n]*\n\s+launcherTyping\(true\);/);
   });
@@ -236,7 +236,7 @@ describe('the kit\'s animations', () => {
     ['unknown', { edition: null }],
   ])('%s: none of it', async (_name, extra) => {
     const { launcher } = await boot(extra);
-    expect(launcher.classList.contains('wy-kit-enter')).toBe(false);
-    expect(launcher.querySelector('.wy-kit-ping')).toBeNull();
+    expect(launcher.classList.contains('lk-kit-enter')).toBe(false);
+    expect(launcher.querySelector('.lk-kit-ping')).toBeNull();
   });
 });

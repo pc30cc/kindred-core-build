@@ -365,7 +365,7 @@
 span.wy-powered { cursor: default; }
 a.wy-powered:hover { color: var(--wy-text); }
 /* The platform's logo in the brand's place (config.poweredBy.logo; the
-   Iranian edition's WebYar logotype): small, on the label's centre line.
+   Iran region's local logotype): small, on the label's centre line.
    The International skin sizes its own over this rule. */
 .wy-powered .wy-powered-logo {
   display: inline-block;
@@ -1931,9 +1931,9 @@ a.wy-powered:hover { color: var(--wy-text); }
   .wy-view-chat .emoji-btn { transition: none; }
 }
 
-/* ─── Message layout polish (the WebYar look) ───────────────────────────
-   The same fixes the International skin got in #286, in WebYar's own
-   measures and colours (shared/webyarBrand.ts: ink #12141F, mist #E3E6EB,
+/* ─── Message layout polish (the default look) ──────────────────────────
+   The same fixes the International skin got in #286, in the default's own
+   measures and colours (the local kit: ink #12141F, mist #E3E6EB,
    paper #F4F6F8), right-to-left first. Every selector below is one the
    International skin (its own stylesheet, loaded after this one) sets
    itself with the same specificity, so RESPOK's rendering is its own and

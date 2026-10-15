@@ -163,7 +163,7 @@ describe('the launcher entry', () => {
     // The target is declared before the alias (older Android requires it).
     expect(webyar.indexOf('<activity android:name="com.platform.app.MainActivity"')).toBeLessThan(webyar.indexOf('<activity-alias'));
     const respok = read(`${RESPOK}/AndroidManifest.xml`);
-    expect(respok).toContain('<activity android:name="com.platform.app.MainActivity">');
+    expect(respok).toMatch(/<activity\s+android:name="com\.platform\.app\.MainActivity"\s+android:exported="true">/);
     expect(respok).toContain('android.intent.category.LAUNCHER');
     expect(respok).not.toMatch(WEBYAR);
   });

@@ -2,7 +2,7 @@
   "slug": "respok-woocommerce",
   "version": "1.2.6",
   "package": "/downloads/respok-woocommerce.zip",
-  "sha256": "f10750d68a7cbc7c1f54c4512a97d85cf196dd47888fb88a87e07dc791ed0172",
+  "sha256": "05c64648a7f9afaeb397ad34c2c2aff8d2bdbd8a8b34f7390c74b778888b37f8",
   "size": 67353,
   "requires": "6.0",
   "requires_php": "7.4",

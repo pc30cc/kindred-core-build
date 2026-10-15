@@ -12,7 +12,7 @@
       "php": ">=8.1",
       "path": "/downloads/opencart/4.1/respok.ocmod.zip",
       "file": "respok.ocmod.zip",
-      "sha256": "78f72bb9cf61f00a78153b46a4fdc116d706e4bfe2fdb0b0550e165735babc4f"
+      "sha256": "b8036573d30168d692c0bff97b7575e1e61ad9209e6b752331323cfc6cb7084b"
     },
     {
       "opencart": "3.0.5.x",
@@ -22,7 +22,7 @@
       "php": ">=8.1",
       "path": "/downloads/opencart/3.0/respok-oc3.ocmod.zip",
       "file": "respok-oc3.ocmod.zip",
-      "sha256": "7538714a10951bcc120fa3c272a13bb25e788f4fde6d72cb0402b9d53a650b3c"
+      "sha256": "cc25222142b59820639ecc4df3e45b5b6a04da195f4bec77799f5d06db31da55"
     }
   ]
 }

@@ -104,8 +104,9 @@ function buildZip(stage, version, edition) {
   for (const f of files) utimesSync(join(stage, f), time, time);
   const zip = join(stage, '..', `${slug}.zip`);
   // -X: no extra attributes; -D: no directory entries (the updater creates
-  // parents itself); explicit sorted list: stable entry order.
-  execFileSync('zip', ['-X', '-q', '-D', zip, ...files], { cwd: stage, stdio: 'inherit' });
+  // parents itself); explicit sorted list: stable entry order. zip writes
+  // local time, so TZ=UTC makes a Mac build byte-identical to CI's.
+  execFileSync('zip', ['-X', '-q', '-D', zip, ...files], { cwd: stage, stdio: 'inherit', env: { ...process.env, TZ: 'UTC' } });
   if (!existsSync(zip)) throw new Error(`zip reported success but ${zip} was not created`);
   return zip;
 }

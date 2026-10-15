@@ -2,7 +2,7 @@
   "slug": "respok-whmcs",
   "version": "1.2.3",
   "package": "/downloads/respok-whmcs.zip",
-  "sha256": "8d80e895629451d91bd0cfdc7c0d4305d5ef56317f203a3f28cfe4f59e71e198",
+  "sha256": "fbdeccf3540d00cb2507f3750e2627eeeb218792235b652ce01d5ba69c3661a5",
   "size": 67209,
   "requires_whmcs": "8.0",
   "requires_php": "7.2"

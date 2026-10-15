@@ -2,7 +2,7 @@
   "slug": "webyar-woocommerce",
   "version": "1.2.6",
   "package": "/downloads/webyar-woocommerce.zip",
-  "sha256": "d95cdf1d69ab31f07a8f32b0e9b625c76c78005d4b58c1b8a5454c67ab237074",
+  "sha256": "5ed84098cfc61f1135b6365b221b7eca2e1624982a6181619a28e2856d3adf46",
   "size": 73960,
   "requires": "6.0",
   "requires_php": "7.4",

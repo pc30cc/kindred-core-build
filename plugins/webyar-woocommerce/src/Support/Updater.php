@@ -58,7 +58,7 @@ final class Updater {
 	 * WEBYAR_UPDATE_PUBLIC_KEY in wp-config.php (editing wp-config.php is
 	 * already full control of the site, so this opens nothing new).
 	 */
-	public const UPDATE_PUBLIC_KEY = 'vbNNY6jM7bZvxmvV39oRSZ4XSZ7EMks/eEyyVcrwPKQ=';
+	public const UPDATE_PUBLIC_KEY = 'iJCSU0mlkdMHBC1Plne4j1zrTyJZi5+yv0R53Z/mOrU=';
 
 	public function register(): void {
 		add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'inject_update' ) );

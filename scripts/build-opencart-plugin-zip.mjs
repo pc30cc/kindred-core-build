@@ -149,7 +149,8 @@ function zipDir(dir, outFile) {
   for (const f of files) utimesSync(join(dir, f), FIXED_TIME, FIXED_TIME);
   mkdirSync(dirname(outFile), { recursive: true });
   rmSync(outFile, { force: true });
-  execFileSync('zip', ['-X', '-q', '-D', outFile, ...files], { cwd: dir });
+  // zip writes local time: TZ=UTC makes a Mac build byte-identical to CI's.
+  execFileSync('zip', ['-X', '-q', '-D', outFile, ...files], { cwd: dir, env: { ...process.env, TZ: 'UTC' } });
   return createHash('sha256').update(readFileSync(outFile)).digest('hex');
 }
 

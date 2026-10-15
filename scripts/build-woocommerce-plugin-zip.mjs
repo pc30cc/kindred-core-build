@@ -202,12 +202,13 @@ export function packageWooCommerce({ edition = 'iran', outDir = OUT_DIR, log = c
     // -X: no extra file attributes; -D: no directory entries; a sorted
     // explicit list and one fixed date per version: same source, same bytes.
     // Run from stageRoot so every entry starts with "<slug>/" — required for
-    // WordPress's Plugins → Add New → Upload Plugin.
+    // WordPress's Plugins → Add New → Upload Plugin. zip writes local time,
+    // so TZ=UTC makes a Mac build byte-identical to CI's.
     const time = fixedTimeFor(version);
     const files = listFiles(stagePluginDir).map((f) => relative(stageRoot, f));
     for (const f of files) utimesSync(join(stageRoot, f), time, time);
     const built = join(work, `${slug}.zip`);
-    execFileSync('zip', ['-X', '-q', '-D', built, ...files], { cwd: stageRoot, stdio: 'inherit' });
+    execFileSync('zip', ['-X', '-q', '-D', built, ...files], { cwd: stageRoot, stdio: 'inherit', env: { ...process.env, TZ: 'UTC' } });
     if (!existsSync(built)) {
       throw new Error(`zip reported success but ${built} was not created`);
     }

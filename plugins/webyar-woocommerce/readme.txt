@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 9.4
-Stable tag: 1.2.5
+Stable tag: 1.2.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -47,6 +47,9 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 == Changelog ==
 
+= 1.2.6 =
+* Updates are signed with a new WebYar release key. Install this version once by hand; later updates arrive automatically.
+
 = 1.2.5 =
 * Updates install only when signed by the WebYar release key and matching its checksum.
 * Only administrators can connect, disconnect or change the WebYar URL (https only).
@@ -74,6 +77,9 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 * First release of the WebYar store connection.
 
 == Changelog fa_IR ==
+
+= 1.2.6 =
+* به‌روزرسانی‌ها با کلید امضای جدید وب‌یار امضا می‌شوند. این نسخه را یک بار دستی نصب کنید؛ به‌روزرسانی‌های بعدی خودکار می‌رسند.
 
 = 1.2.5 =
 * به‌روزرسانی فقط با امضای وب‌یار و تطابق چک‌سام نصب می‌شود.

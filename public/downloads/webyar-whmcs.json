@@ -1,9 +1,9 @@
 {
   "slug": "webyar-whmcs",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "package": "/downloads/webyar-whmcs.zip",
-  "sha256": "822221b343093c6487079fe31b2d874412125d2e26c86d68468b6c80aca4fdd2",
-  "size": 278743,
+  "sha256": "99abef8af9e094bcff8e942ba82f953771a346e1753119c0cc92ba5d31b63c62",
+  "size": 278742,
   "requires_whmcs": "8.0",
   "requires_php": "7.2"
 }

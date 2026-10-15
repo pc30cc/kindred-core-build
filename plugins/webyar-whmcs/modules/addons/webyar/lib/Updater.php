@@ -31,7 +31,7 @@ final class Updater
      * A staging install can set WEBYAR_UPDATE_PUBLIC_KEY in the server
      * environment (like WEBYAR_APP_URL), which already means full control.
      */
-    const UPDATE_PUBLIC_KEY = 'vbNNY6jM7bZvxmvV39oRSZ4XSZ7EMks/eEyyVcrwPKQ=';
+    const UPDATE_PUBLIC_KEY = 'iJCSU0mlkdMHBC1Plne4j1zrTyJZi5+yv0R53Z/mOrU=';
     /** Status codes the admin page shows as-is; anything else reads "failed". */
     const STATUS_CODES = array('integrity', 'incompatible', 'filesystem', 'archive', 'unsigned', 'signature', 'unsupported');
     public static $downloadOverride = null;

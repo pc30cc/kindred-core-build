@@ -67,5 +67,6 @@ export function androidApkFile(edition: Edition | null): string {
  */
 export function appReviewAccountFallback(edition: Edition | null): string {
   // The RESPOK build (SHIPS_IRAN_KIT false) never carries WebYar's address.
-  return edition === 'international' || !SHIPS_IRAN_KIT ? '' : 'apple@webyar.ai';
+  if (SHIPS_IRAN_KIT && edition !== 'international') return 'apple@webyar.ai';
+  return '';
 }

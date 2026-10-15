@@ -197,6 +197,12 @@ export interface PaddleTransaction {
   grandTotalMinor: number | null;
   /** `details.totals.credit`: Paddle customer credit applied. */
   creditMinor: number | null;
+  /**
+   * What was charged for OUR price: `grand_total` without the buyer's tax
+   * Paddle added on top (the whole `grand_total` for an older tax-inclusive
+   * price). Compared with, and credited as, the payment's amount.
+   */
+  chargedMinor: number | null;
   /** items[].price.custom_data, in order ({} for an item without any). */
   itemCustomData: Record<string, unknown>[];
   customData: Record<string, unknown>;

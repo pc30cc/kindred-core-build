@@ -230,6 +230,7 @@ const en = {
         amount: 'Amount',
         amountHint: 'Between {{min}} and {{max}}.',
         adminTest: 'Test {{amount}} (Super Admin)',
+        taxAtCheckout: 'Sales tax or VAT for your country, if any, is added on top at checkout.',
         quick: 'Quick amounts',
         gateway: 'Payment method',
         noGateway: 'No payment method is available right now. Please try again later.',

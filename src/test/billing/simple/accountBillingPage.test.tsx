@@ -115,6 +115,8 @@ describe('AccountBillingPage', () => {
     fireEvent.change(within(dialog).getByLabelText('billing.account.topup.amount'), { target: { value: '50' } });
     expect(within(dialog).queryByText(/billing\.account\.topup\.vat/)).not.toBeInTheDocument();
     expect(within(dialog).getAllByText('$50.00').length).toBeGreaterThan(0);
+    // Paddle adds the buyer's own tax on top: said before paying.
+    expect(within(dialog).getByText('billing.account.topup.taxAtCheckout')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByText('billing.account.topup.pay'));
     await waitFor(() => expect(api.topup).toHaveBeenCalledWith('ws-1', expect.objectContaining({ amountMinor: 5000, currency: 'USD', providerName: 'paddle' })));
     await waitFor(() => expect(openPaddle).toHaveBeenCalled());

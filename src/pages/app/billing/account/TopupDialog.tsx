@@ -17,6 +17,7 @@ import { toast } from '@/lib/toast';
 import { accountBillingApi, type AccountGateway } from '@/lib/accountBillingApi';
 import { money } from '../shared';
 import { ADMIN_TEST_TOPUP, TOPUP_LIMITS, chargeFor, topupAmountProblem } from '../../../../../shared/simpleBilling';
+import { isPaddleProvider } from '../../../../../shared/testGateways';
 import GatewayPicker from './GatewayPicker';
 import {
   QUICK_TOPUPS,
@@ -185,6 +186,10 @@ export default function TopupDialog({
                 <dd className="tabular-nums">{money(charge.total, locale, currency)}</dd>
               </div>
             </dl>
+          )}
+
+          {charge && isPaddleProvider(chosen?.provider_name ?? '') && (
+            <p className="text-xs text-muted-foreground" data-paddle-tax-note="">{t('billing.account.topup.taxAtCheckout')}</p>
           )}
 
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}

@@ -232,6 +232,7 @@ const tr: TranslationKeys = {
         amount: 'Tutar',
         amountHint: '{{min}} ile {{max}} arasında.',
         adminTest: 'Test {{amount}} (Süper Yönetici)',
+        taxAtCheckout: 'Ülkenizin satış vergisi veya KDV’si varsa ödeme sırasında bu tutara eklenir.',
         quick: 'Hızlı tutarlar',
         gateway: 'Ödeme yöntemi',
         noGateway: 'Şu anda kullanılabilir bir ödeme yöntemi yok. Lütfen daha sonra tekrar deneyin.',

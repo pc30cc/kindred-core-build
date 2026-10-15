@@ -244,6 +244,12 @@ export interface FakePaddleOptions {
   post?: WebhookPoster;
   /** Looked up when a /charge arrives, before it is answered: our payment row for its item's payment_id (I5). */
   inspectCharge?: (paymentId: string | null) => Promise<Json | null>;
+  /**
+   * The buyer's tax Paddle adds ON TOP of a tax-exclusive price
+   * (`tax_mode: external`), in percent; 0 (none) unless set. A tax-inclusive
+   * price (`internal`) carries no extra tax.
+   */
+  buyerTaxPercent?: number;
 }
 
 // ─── Small helpers ──────────────────────────────────────────────────────────
@@ -297,16 +303,17 @@ function minorOf(value: unknown): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
-function totalsOf(amount: number, currency: string, credit = 0): FakeTotals {
+/** Totals of `amount` (the prices) plus `tax` on top, less Paddle `credit`. */
+function totalsOf(amount: number, currency: string, credit = 0, tax = 0): FakeTotals {
   return {
     subtotal: String(amount),
     discount: '0',
-    tax: '0',
-    total: String(amount),
+    tax: String(tax),
+    total: String(amount + tax),
     credit: String(credit),
     credit_to_balance: '0',
     balance: '0',
-    grand_total: String(Math.max(0, amount - credit)),
+    grand_total: String(Math.max(0, amount + tax - credit)),
     fee: null,
     earnings: null,
     currency_code: currency,
@@ -338,6 +345,7 @@ export class FakePaddle {
   private readonly secret: string;
   private post: WebhookPoster | null;
   private readonly inspectCharge: FakePaddleOptions['inspectCharge'];
+  private readonly buyerTaxPercent: number;
   private readonly subMeta = new Map<string, SubMeta>();
   private readonly txnMeta = new Map<string, TxnMeta>();
   private seq = 0;
@@ -347,6 +355,19 @@ export class FakePaddle {
     this.secret = options.webhookSecret;
     this.post = options.post ?? null;
     this.inspectCharge = options.inspectCharge;
+    this.buyerTaxPercent = options.buyerTaxPercent ?? 0;
+  }
+
+  /** The buyer's tax on a tax-exclusive amount. */
+  private taxOn(amount: number): number {
+    return Math.round((amount * this.buyerTaxPercent) / 100);
+  }
+
+  /** The buyer's tax on the items' tax-exclusive prices (none on a tax-inclusive one). */
+  private itemsTax(items: Array<{ price: FakePrice; quantity: number }>): number {
+    return this.taxOn(items
+      .filter((item) => item.price.tax_mode !== 'internal')
+      .reduce((sum, item) => sum + Number(item.price.unit_price.amount) * item.quantity, 0));
   }
 
   /** Where notifications are delivered (the webhook route). */
@@ -663,7 +684,7 @@ export class FakePaddle {
       billing_details: null,
       billing_period: null,
       items,
-      details: { totals: totalsOf(this.itemsTotal(items), currency), line_items: [] },
+      details: { totals: totalsOf(this.itemsTotal(items), currency, 0, this.itemsTax(items)), line_items: [] },
       payments: [],
       checkout: { url: null },
       created_at: now,
@@ -947,15 +968,15 @@ export class FakePaddle {
     const answer: Json = {
       ...(clone(next) as unknown as Json),
       immediate_transaction: immediate > 0
-        ? { billing_period: next.current_billing_period, details: { totals: totalsOf(immediate, sub.currency_code) }, items: clone(next.items.map((i) => ({ price: i.price, quantity: i.quantity }))) }
+        ? { billing_period: next.current_billing_period, details: { totals: totalsOf(immediate, sub.currency_code, 0, this.taxOn(immediate)) }, items: clone(next.items.map((i) => ({ price: i.price, quantity: i.quantity }))) }
         : null,
       next_transaction: next.status === 'active' && next.next_billed_at
         ? {
             billing_period: { starts_at: nextPeriodStart, ends_at: addCycle(nextPeriodStart, next.billing_cycle) },
-            details: { totals: totalsOf(newAmount, sub.currency_code) },
+            details: { totals: totalsOf(newAmount, sub.currency_code, 0, this.taxOn(newAmount)) },
           }
         : null,
-      recurring_transaction_details: { totals: totalsOf(newAmount, sub.currency_code) },
+      recurring_transaction_details: { totals: totalsOf(newAmount, sub.currency_code, 0, this.taxOn(newAmount)) },
       update_summary: changesBilling && mode !== 'do_not_bill'
         ? {
             credit: { amount: '0', currency_code: sub.currency_code },
@@ -975,9 +996,9 @@ export class FakePaddle {
   /** An update that bills (a mode other than do_not_bill): Paddle charges the card now. */
   private billUpdate(sub: FakeSubscription, amount: number, now: string): void {
     const txn = this.newSubscriptionTransaction(sub, 'subscription_update', sub.items.map((i) => ({ price: clone(i.price), quantity: i.quantity, proration: null })), now);
-    txn.details.totals = totalsOf(amount, sub.currency_code);
+    txn.details.totals = totalsOf(amount, sub.currency_code, 0, this.taxOn(amount));
     this.emitTxn('transaction.created', txn);
-    this.capture(txn, this.meta(sub.id).card, amount);
+    this.capture(txn, this.meta(sub.id).card, minorOf(txn.details.totals.grand_total) ?? amount);
     Object.assign(txn, { status: 'paid', billed_at: now });
     this.emitTxn('transaction.paid', txn);
     txn.status = 'completed';
@@ -1009,7 +1030,7 @@ export class FakePaddle {
       billing_details: null,
       billing_period: period,
       items,
-      details: { totals: totalsOf(this.itemsTotal(items), sub.currency_code), line_items: [] },
+      details: { totals: totalsOf(this.itemsTotal(items), sub.currency_code, 0, this.itemsTax(items)), line_items: [] },
       payments: [],
       checkout: null,
       created_at: now,
@@ -1086,7 +1107,7 @@ export class FakePaddle {
       return {
         ...(clone(sub) as unknown as Json),
         immediate_transaction: from === 'immediately'
-          ? { billing_period: sub.current_billing_period, details: { totals: totalsOf(amount, sub.currency_code) }, items: clone(items) }
+          ? { billing_period: sub.current_billing_period, details: { totals: totalsOf(amount, sub.currency_code, 0, this.itemsTax(items)) }, items: clone(items) }
           : null,
         next_transaction: null,
         update_summary: {
@@ -1104,18 +1125,20 @@ export class FakePaddle {
     }
     meta.chargesAt.push(Date.now());
     const txn = this.newSubscriptionTransaction(sub, 'subscription_charge', items, now, sub.current_billing_period ? clone(sub.current_billing_period) : null);
+    // What the card is charged: the price plus the buyer's tax.
+    const charged = minorOf(txn.details.totals.grand_total) ?? amount;
     this.emitTxn('transaction.created', txn);
     if (meta.declineNext) {
       const code = meta.declineNext;
       meta.declineNext = null;
-      this.decline(txn, meta.card, amount, code);
+      this.decline(txn, meta.card, charged, code);
       this.emitTxn('transaction.payment_failed', txn);
       // prevent_change: nothing applies; the attempt ends.
       Object.assign(txn, { status: 'canceled', updated_at: now });
       this.emitTxn('transaction.canceled', txn);
       throw new PaddleRefusal(400, 'subscription_payment_declined', 'The payment was declined');
     }
-    this.capture(txn, meta.card, amount);
+    this.capture(txn, meta.card, charged);
     Object.assign(txn, { status: 'paid', updated_at: now });
     this.emitTxn('transaction.paid', txn);
     txn.status = 'completed';
@@ -1162,7 +1185,7 @@ export class FakePaddle {
     const items = sub.items.map((i) => ({ price: clone(i.price), quantity: i.quantity, proration: null }));
     const txn = this.newSubscriptionTransaction(sub, 'subscription_recurring', items, now, { starts_at: start, ends_at: end });
     const total = this.itemsTotal(items);
-    if (opts.grandTotalMinor !== undefined) txn.details.totals = totalsOf(total, sub.currency_code, total - opts.grandTotalMinor);
+    if (opts.grandTotalMinor !== undefined) txn.details.totals = totalsOf(total, sub.currency_code, total + this.itemsTax(items) - opts.grandTotalMinor, this.itemsTax(items));
     this.emitTxn('transaction.created', txn);
     this.emitTxn('transaction.billed', txn);
     const decline = opts.decline ?? meta.declineNext;
@@ -1344,6 +1367,8 @@ export class FakePaddle {
     if (!txn || txn.status !== 'completed') throw new Error(`fake Paddle: ${txnId} cannot be adjusted`);
     const full = minorOf(txn.details.totals.grand_total) ?? 0;
     const amount = amountMinor ?? full;
+    const txnTax = minorOf(txn.details.totals.tax) ?? 0;
+    const refundTax = full > 0 ? Math.round((amount * txnTax) / full) : 0;
     const now = new Date().toISOString();
     const adj: FakeAdjustment = {
       id: this.id('adj'),
@@ -1355,7 +1380,11 @@ export class FakePaddle {
       currency_code: txn.currency_code,
       status: action === 'refund' ? 'pending_approval' : 'approved',
       items: [{ item_id: crypto.randomUUID(), type: amount === full ? 'full' : 'partial', amount: String(amount) }],
-      totals: { subtotal: String(amount), tax: '0', total: String(amount), fee: '0', earnings: String(amount), currency_code: txn.currency_code },
+      // The buyer's tax goes back with the price, in proportion.
+      totals: {
+        subtotal: String(amount - refundTax), tax: String(refundTax), total: String(amount), fee: '0', earnings: String(amount - refundTax),
+        currency_code: txn.currency_code,
+      },
       created_at: now,
       updated_at: now,
     };

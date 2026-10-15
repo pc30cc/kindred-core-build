@@ -10,8 +10,8 @@
  * and its domains; and, by content hash, for every Iran-only image the repo
  * holds (public/brand/<iran>/ and the kit's src assets), whatever its name.
  *
- *   node scripts/build/brandAudit.mjs [distDir] [--strict] [--force]
- *     --strict (or BRAND_AUDIT_STRICT=1): exit 1 on a finding
+ *   node scripts/build/brandAudit.mjs [distDir] [--force]
+ *     exit 1 on a finding outside KNOWN_EXCEPTIONS (BRAND_AUDIT_STRICT=0: report only)
  *     --force: audit even when the build brand is not respok
  */
 import { createHash } from 'crypto';
@@ -22,6 +22,19 @@ import { fileURLToPath } from 'url';
 import { IRAN_BRAND_PATTERNS, resolveBuildBrand } from './brand.mjs';
 
 export { IRAN_BRAND_PATTERNS };
+
+/**
+ * Files the audit knows about and lets through, each with its reason. Only a
+ * binary built outside this web build belongs here; remove an entry as soon
+ * as its source is clean.
+ */
+export const KNOWN_EXCEPTIONS = new Map([
+  [
+    'downloads/RESPOK-Android.apk',
+    'built from android/ (native Kotlin app, its own CI and signing): its namespace and theme still carry the Iran name; '
+      + 'needs a rename there and a new signed release',
+  ],
+]);
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -89,10 +102,15 @@ if (isMain) {
     console.log(`[brand-audit] build brand "${brand}": nothing to check`);
     process.exit(0);
   }
-  const findings = auditDist(distDir);
-  // Report-only until the last pieces (the commerce plugins' RESPOK edition)
-  // are in; BRAND_AUDIT_STRICT=1 or --strict fails the build.
-  const strict = process.env.BRAND_AUDIT_STRICT === '1' || process.argv.includes('--strict');
+  const all = auditDist(distDir);
+  const excepted = all.filter((f) => KNOWN_EXCEPTIONS.has(f.slice(0, f.indexOf(':'))));
+  const findings = all.filter((f) => !excepted.includes(f));
+  for (const f of excepted) {
+    const file = f.slice(0, f.indexOf(':'));
+    console.warn(`[brand-audit] known exception ${file}: ${KNOWN_EXCEPTIONS.get(file)}`);
+  }
+  // Fails the build; BRAND_AUDIT_STRICT=0 only reports (a local look at a dist).
+  const strict = process.env.BRAND_AUDIT_STRICT !== '0';
   if (findings.length) {
     console.error(`[brand-audit] ${strict ? 'FAIL' : 'WARN'}: ${findings.length} finding(s) in ${distDir} carry the Iran brand:`);
     for (const f of findings) console.error(`  ${f}`);

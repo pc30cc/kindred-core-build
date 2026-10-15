@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -787,48 +787,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      ai_agent_reply_now_claims: {
-        Row: {
-          claim_key: string
-          claimed_at: string
-          conversation_id: string
-          created_at: string
-          expires_at: string
-          idempotency_key: string
-          operation: string
-          result: Json | null
-          status: string
-          updated_at: string
-          workspace_id: string
-        }
-        Insert: {
-          claim_key: string
-          claimed_at?: string
-          conversation_id: string
-          created_at?: string
-          expires_at?: string
-          idempotency_key: string
-          operation?: string
-          result?: Json | null
-          status?: string
-          updated_at?: string
-          workspace_id: string
-        }
-        Update: {
-          claim_key?: string
-          claimed_at?: string
-          conversation_id?: string
-          created_at?: string
-          expires_at?: string
-          idempotency_key?: string
-          operation?: string
-          result?: Json | null
-          status?: string
-          updated_at?: string
-          workspace_id?: string
-        }
-        Relationships: []
       }
       ai_agent_routing_rules: {
         Row: {
@@ -4973,8 +4931,118 @@ export type Database = {
           },
         ]
       }
+      billing_lock_clocks: {
+        Row: {
+          cutoff_at: string | null
+          deleted_at: string | null
+          episode_key: string
+          kind: string
+          locked_count: number
+          notice_30_at: string | null
+          notice_7_at: string | null
+          since: string
+          workspace_id: string
+        }
+        Insert: {
+          cutoff_at?: string | null
+          deleted_at?: string | null
+          episode_key: string
+          kind: string
+          locked_count?: number
+          notice_30_at?: string | null
+          notice_7_at?: string | null
+          since: string
+          workspace_id: string
+        }
+        Update: {
+          cutoff_at?: string | null
+          deleted_at?: string | null
+          episode_key?: string
+          kind?: string
+          locked_count?: number
+          notice_30_at?: string | null
+          notice_7_at?: string | null
+          since?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_lock_clocks_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_lock_exports: {
+        Row: {
+          artifact_size_bytes: number | null
+          artifact_storage_key: string | null
+          artifact_storage_provider: string | null
+          attempts: number
+          counts: Json
+          created_at: string
+          download_token_hash: string | null
+          error: string | null
+          expires_at: string | null
+          id: string
+          kinds: string[]
+          locked_at: string | null
+          requested_by: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          artifact_size_bytes?: number | null
+          artifact_storage_key?: string | null
+          artifact_storage_provider?: string | null
+          attempts?: number
+          counts?: Json
+          created_at?: string
+          download_token_hash?: string | null
+          error?: string | null
+          expires_at?: string | null
+          id?: string
+          kinds: string[]
+          locked_at?: string | null
+          requested_by: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          artifact_size_bytes?: number | null
+          artifact_storage_key?: string | null
+          artifact_storage_provider?: string | null
+          attempts?: number
+          counts?: Json
+          created_at?: string
+          download_token_hash?: string | null
+          error?: string | null
+          expires_at?: string | null
+          id?: string
+          kinds?: string[]
+          locked_at?: string | null
+          requested_by?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_lock_exports_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_plans: {
         Row: {
+          ai_allowance: Json
           created_at: string | null
           default_currency: string
           description: string | null
@@ -4985,6 +5053,7 @@ export type Database = {
           is_hidden: boolean
           limits: Json
           localized: Json
+          locked_data_retention_days: number | null
           name: string
           prices: Json
           provider_price_ids: Json
@@ -4994,6 +5063,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          ai_allowance?: Json
           created_at?: string | null
           default_currency?: string
           description?: string | null
@@ -5004,6 +5074,7 @@ export type Database = {
           is_hidden?: boolean
           limits?: Json
           localized?: Json
+          locked_data_retention_days?: number | null
           name: string
           prices?: Json
           provider_price_ids?: Json
@@ -5013,6 +5084,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          ai_allowance?: Json
           created_at?: string | null
           default_currency?: string
           description?: string | null
@@ -5023,6 +5095,7 @@ export type Database = {
           is_hidden?: boolean
           limits?: Json
           localized?: Json
+          locked_data_retention_days?: number | null
           name?: string
           prices?: Json
           provider_price_ids?: Json
@@ -5088,6 +5161,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      billing_settings: {
+        Row: {
+          ai_packs: Json
+          edition: string
+          locks_enabled: boolean
+          receipt_prefix: string
+          seller: Json
+          updated_at: string
+          updated_by: string | null
+          vat_percent: Json
+        }
+        Insert: {
+          ai_packs?: Json
+          edition: string
+          locks_enabled?: boolean
+          receipt_prefix?: string
+          seller?: Json
+          updated_at?: string
+          updated_by?: string | null
+          vat_percent?: Json
+        }
+        Update: {
+          ai_packs?: Json
+          edition?: string
+          locks_enabled?: boolean
+          receipt_prefix?: string
+          seller?: Json
+          updated_at?: string
+          updated_by?: string | null
+          vat_percent?: Json
+        }
+        Relationships: []
       }
       billing_subscription_applications: {
         Row: {
@@ -6391,7 +6497,6 @@ export type Database = {
           widget_default_locale: string | null
           widget_enabled_locales: string[] | null
           widget_position: string
-          widget_template_id: string
           widget_theme: Json
           workspace_id: string
         }
@@ -6423,7 +6528,6 @@ export type Database = {
           widget_default_locale?: string | null
           widget_enabled_locales?: string[] | null
           widget_position?: string
-          widget_template_id?: string
           widget_theme?: Json
           workspace_id: string
         }
@@ -6455,7 +6559,6 @@ export type Database = {
           widget_default_locale?: string | null
           widget_enabled_locales?: string[] | null
           widget_position?: string
-          widget_template_id?: string
           widget_theme?: Json
           workspace_id?: string
         }
@@ -6840,7 +6943,6 @@ export type Database = {
           size_bytes: number | null
           storage_path: string
           storage_provider: string
-          workspace_id: string
         }
         Insert: {
           call_session_id: string
@@ -6857,7 +6959,6 @@ export type Database = {
           size_bytes?: number | null
           storage_path: string
           storage_provider: string
-          workspace_id: string
         }
         Update: {
           call_session_id?: string
@@ -6874,7 +6975,6 @@ export type Database = {
           size_bytes?: number | null
           storage_path?: string
           storage_provider?: string
-          workspace_id?: string
         }
         Relationships: [
           {
@@ -6882,13 +6982,6 @@ export type Database = {
             columns: ["call_session_id"]
             isOneToOne: false
             referencedRelation: "call_sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "call_recordings_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
         ]
@@ -8825,6 +8918,7 @@ export type Database = {
           created_at: string
           cta_url: string | null
           dismissible: boolean
+          edition: string
           ends_at: string | null
           id: string
           image_url: string | null
@@ -8844,6 +8938,7 @@ export type Database = {
           created_at?: string
           cta_url?: string | null
           dismissible?: boolean
+          edition?: string
           ends_at?: string | null
           id?: string
           image_url?: string | null
@@ -8863,6 +8958,7 @@ export type Database = {
           created_at?: string
           cta_url?: string | null
           dismissible?: boolean
+          edition?: string
           ends_at?: string | null
           id?: string
           image_url?: string | null
@@ -8888,6 +8984,7 @@ export type Database = {
           contacts_enabled: boolean
           created_at: string
           download_url: string | null
+          edition: string
           id: string
           latest_version: string | null
           minimum_supported_version: string | null
@@ -8910,6 +9007,7 @@ export type Database = {
           contacts_enabled?: boolean
           created_at?: string
           download_url?: string | null
+          edition?: string
           id?: string
           latest_version?: string | null
           minimum_supported_version?: string | null
@@ -8932,6 +9030,7 @@ export type Database = {
           contacts_enabled?: boolean
           created_at?: string
           download_url?: string | null
+          edition?: string
           id?: string
           latest_version?: string | null
           minimum_supported_version?: string | null
@@ -9460,22 +9559,15 @@ export type Database = {
           claim_expires_at: string | null
           claim_token: string | null
           completed_at: string | null
-          completed_generation: number
           created_at: string
-          cursor_generation: number | null
           cursor_workspace_id: string | null
           failed_count: number
           id: string
           last_error_code: string | null
           next_attempt_at: string
-          permanent_failure_count: number
           plan_id: string | null
           processed_count: number
-          processing_generation: number | null
-          requested_generation: number
-          retryable_failure_count: number
           scope: string
-          skipped_ineligible_count: number
           source: string
           status: string
           updated_at: string
@@ -9486,22 +9578,15 @@ export type Database = {
           claim_expires_at?: string | null
           claim_token?: string | null
           completed_at?: string | null
-          completed_generation?: number
           created_at?: string
-          cursor_generation?: number | null
           cursor_workspace_id?: string | null
           failed_count?: number
           id?: string
           last_error_code?: string | null
           next_attempt_at?: string
-          permanent_failure_count?: number
           plan_id?: string | null
           processed_count?: number
-          processing_generation?: number | null
-          requested_generation?: number
-          retryable_failure_count?: number
           scope: string
-          skipped_ineligible_count?: number
           source: string
           status?: string
           updated_at?: string
@@ -9512,22 +9597,15 @@ export type Database = {
           claim_expires_at?: string | null
           claim_token?: string | null
           completed_at?: string | null
-          completed_generation?: number
           created_at?: string
-          cursor_generation?: number | null
           cursor_workspace_id?: string | null
           failed_count?: number
           id?: string
           last_error_code?: string | null
           next_attempt_at?: string
-          permanent_failure_count?: number
           plan_id?: string | null
           processed_count?: number
-          processing_generation?: number | null
-          requested_generation?: number
-          retryable_failure_count?: number
           scope?: string
-          skipped_ineligible_count?: number
           source?: string
           status?: string
           updated_at?: string
@@ -10071,6 +10149,7 @@ export type Database = {
           default_launch_at_login: boolean
           dock_badge_enabled: boolean
           download_url: string | null
+          edition: string
           email_enabled: boolean
           id: string
           latest_version: string | null
@@ -10115,6 +10194,7 @@ export type Database = {
           default_launch_at_login?: boolean
           dock_badge_enabled?: boolean
           download_url?: string | null
+          edition?: string
           email_enabled?: boolean
           id?: string
           latest_version?: string | null
@@ -10159,6 +10239,7 @@ export type Database = {
           default_launch_at_login?: boolean
           dock_badge_enabled?: boolean
           download_url?: string | null
+          edition?: string
           email_enabled?: boolean
           id?: string
           latest_version?: string | null
@@ -10230,7 +10311,6 @@ export type Database = {
           android_version_name: string
           app_group_id: string | null
           app_name: string
-          app_review_seeded_at: string | null
           app_sku: string | null
           apple_app_id: string | null
           apple_team_id: string | null
@@ -10264,6 +10344,7 @@ export type Database = {
           demo_account_username: string | null
           device_family: string
           display_name: string
+          edition: string
           encryption_exempt: boolean
           encryption_notes: string | null
           id: string
@@ -10354,7 +10435,6 @@ export type Database = {
           android_version_name?: string
           app_group_id?: string | null
           app_name?: string
-          app_review_seeded_at?: string | null
           app_sku?: string | null
           apple_app_id?: string | null
           apple_team_id?: string | null
@@ -10388,6 +10468,7 @@ export type Database = {
           demo_account_username?: string | null
           device_family?: string
           display_name?: string
+          edition?: string
           encryption_exempt?: boolean
           encryption_notes?: string | null
           id?: string
@@ -10478,7 +10559,6 @@ export type Database = {
           android_version_name?: string
           app_group_id?: string | null
           app_name?: string
-          app_review_seeded_at?: string | null
           app_sku?: string | null
           apple_app_id?: string | null
           apple_team_id?: string | null
@@ -10512,6 +10592,7 @@ export type Database = {
           demo_account_username?: string | null
           device_family?: string
           display_name?: string
+          edition?: string
           encryption_exempt?: boolean
           encryption_notes?: string | null
           id?: string
@@ -11573,7 +11654,6 @@ export type Database = {
           region_currency: string | null
           region_mode: string
           signup_default_plan_mode: string
-          signup_enabled: boolean
           signup_trial_days: number
           signup_trial_plan_id: string | null
           signup_verification_gate: string
@@ -11596,7 +11676,6 @@ export type Database = {
           region_currency?: string | null
           region_mode?: string
           signup_default_plan_mode?: string
-          signup_enabled?: boolean
           signup_trial_days?: number
           signup_trial_plan_id?: string | null
           signup_verification_gate?: string
@@ -11619,7 +11698,6 @@ export type Database = {
           region_currency?: string | null
           region_mode?: string
           signup_default_plan_mode?: string
-          signup_enabled?: boolean
           signup_trial_days?: number
           signup_trial_plan_id?: string | null
           signup_verification_gate?: string
@@ -11663,110 +11741,6 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
-      }
-      platform_support_settings: {
-        Row: {
-          enabled: boolean
-          id: boolean
-          updated_at: string
-          updated_by: string | null
-          workspace_id: string | null
-        }
-        Insert: {
-          enabled?: boolean
-          id?: boolean
-          updated_at?: string
-          updated_by?: string | null
-          workspace_id?: string | null
-        }
-        Update: {
-          enabled?: boolean
-          id?: boolean
-          updated_at?: string
-          updated_by?: string | null
-          workspace_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "platform_support_settings_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "platform_support_settings_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      platform_support_threads: {
-        Row: {
-          conversation_id: string
-          created_at: string
-          rated_at: string | null
-          rating: number | null
-          rating_comment: string | null
-          source_workspace_id: string | null
-          support_workspace_id: string
-          user_id: string
-          user_read_at: string | null
-        }
-        Insert: {
-          conversation_id: string
-          created_at?: string
-          rated_at?: string | null
-          rating?: number | null
-          rating_comment?: string | null
-          source_workspace_id?: string | null
-          support_workspace_id: string
-          user_id: string
-          user_read_at?: string | null
-        }
-        Update: {
-          conversation_id?: string
-          created_at?: string
-          rated_at?: string | null
-          rating?: number | null
-          rating_comment?: string | null
-          source_workspace_id?: string | null
-          support_workspace_id?: string
-          user_id?: string
-          user_read_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "platform_support_threads_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: true
-            referencedRelation: "conversations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "platform_support_threads_source_workspace_id_fkey"
-            columns: ["source_workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "platform_support_threads_support_workspace_id_fkey"
-            columns: ["support_workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "platform_support_threads_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       plugin_platform_state: {
         Row: {
@@ -12116,6 +12090,7 @@ export type Database = {
           dispatch_log_purged_at: string | null
           dispatch_log_purged_count: number | null
           dispatch_log_retention_days: number
+          edition: string
           id: string
           interruption_level: string
           mention_bypasses_quiet_hours: boolean
@@ -12151,6 +12126,7 @@ export type Database = {
           dispatch_log_purged_at?: string | null
           dispatch_log_purged_count?: number | null
           dispatch_log_retention_days?: number
+          edition?: string
           id?: string
           interruption_level?: string
           mention_bypasses_quiet_hours?: boolean
@@ -12186,6 +12162,7 @@ export type Database = {
           dispatch_log_purged_at?: string | null
           dispatch_log_purged_count?: number | null
           dispatch_log_retention_days?: number
+          edition?: string
           id?: string
           interruption_level?: string
           mention_bypasses_quiet_hours?: boolean
@@ -16750,7 +16727,6 @@ export type Database = {
           secondary_color: string | null
           shadow_color: string | null
           show_logo: boolean | null
-          show_powered_by: boolean | null
           show_team_avatars: boolean
           smart_engagement_enabled: boolean
           store_raw_ip: boolean
@@ -16812,7 +16788,6 @@ export type Database = {
           secondary_color?: string | null
           shadow_color?: string | null
           show_logo?: boolean | null
-          show_powered_by?: boolean | null
           show_team_avatars?: boolean
           smart_engagement_enabled?: boolean
           store_raw_ip?: boolean
@@ -16874,7 +16849,6 @@ export type Database = {
           secondary_color?: string | null
           shadow_color?: string | null
           show_logo?: boolean | null
-          show_powered_by?: boolean | null
           show_team_avatars?: boolean
           smart_engagement_enabled?: boolean
           store_raw_ip?: boolean
@@ -19616,13 +19590,10 @@ export type Database = {
         Args: {
           _claim_token: string
           _cursor_workspace_id: string
-          _generation: number
+          _failed: number
           _id: string
           _lease_seconds?: number
-          _permanent_failures?: number
-          _processed?: number
-          _retryable_failures?: number
-          _skipped_ineligible?: number
+          _processed: number
           _worker_id: string
         }
         Returns: boolean
@@ -19852,43 +19823,6 @@ export type Database = {
         Args: { p_workspace_id: string }
         Returns: undefined
       }
-      app_review_keep_visitors_live: { Args: never; Returns: number }
-      app_review_seed: { Args: { _password_hash?: string }; Returns: Json }
-      app_review_seed_contacts: { Args: { _ws: string }; Returns: Json }
-      app_review_seed_inbox: {
-        Args: { _ids: Json; _p: Json; _ws: string }
-        Returns: undefined
-      }
-      app_review_seed_inbox_more: {
-        Args: { _ids: Json; _p: Json; _ws: string }
-        Returns: undefined
-      }
-      app_review_seed_page_views: { Args: { _ws: string }; Returns: undefined }
-      app_review_seed_people: {
-        Args: { _password_hash: string }
-        Returns: Json
-      }
-      app_review_seed_plan: { Args: never; Returns: string }
-      app_review_seed_team: {
-        Args: { _p: Json; _ws: string }
-        Returns: undefined
-      }
-      app_review_seed_thread: {
-        Args: { _c: Json; _ids: Json; _m: Json; _p: Json; _ws: string }
-        Returns: string
-      }
-      app_review_seed_title: { Args: { _path: string }; Returns: string }
-      app_review_seed_traffic: { Args: { _ws: string }; Returns: undefined }
-      app_review_seed_visitors: {
-        Args: { _contacts: Json; _ws: string }
-        Returns: Json
-      }
-      app_review_seed_workspace: {
-        Args: { _p: Json; _plan: string }
-        Returns: string
-      }
-      app_review_set_enabled: { Args: { _enabled: boolean }; Returns: Json }
-      app_review_status: { Args: never; Returns: Json }
       archive_invitation_v2: {
         Args: { _actor_id: string; _invitation_id: string }
         Returns: Json
@@ -20164,6 +20098,31 @@ export type Database = {
         Args: { p_force?: boolean; p_workspace_id: string }
         Returns: Json
       }
+      billing_v2_migrate_to_simple: {
+        Args: { p_apply?: boolean }
+        Returns: Json
+      }
+      billing_v2_migration_plan: {
+        Args: { p_workspace_id?: string }
+        Returns: {
+          action: string
+          amount_minor: number
+          currency: string
+          details: Json
+          source_id: string
+          source_table: string
+          workspace_id: string
+        }[]
+      }
+      billing_v2_migration_waive: {
+        Args: {
+          p_actor?: string
+          p_reason: string
+          p_source_id: string
+          p_source_table: string
+        }
+        Returns: undefined
+      }
       billing_v2_note_worker_run: {
         Args: {
           p_batch: number
@@ -20438,18 +20397,12 @@ export type Database = {
           attempts: number
           claim_expires_at: string
           claim_token: string
-          cursor_generation: number
           cursor_workspace_id: string
           failed_count: number
           id: string
-          permanent_failure_count: number
           plan_id: string
           processed_count: number
-          processing_generation: number
-          requested_generation: number
-          retryable_failure_count: number
           scope: string
-          skipped_ineligible_count: number
           source: string
         }[]
       }
@@ -20607,16 +20560,12 @@ export type Database = {
       complete_entitlement_fanout: {
         Args: {
           _claim_token: string
-          _cursor_workspace_id?: string
-          _generation: number
+          _failed?: number
           _id: string
-          _permanent_failures?: number
           _processed?: number
-          _retryable_failures?: number
-          _skipped_ineligible?: number
           _worker_id: string
         }
-        Returns: string
+        Returns: boolean
       }
       complete_kb_change_events: {
         Args: { _claim_token: string; _ids: string[]; _worker_id: string }
@@ -20635,21 +20584,6 @@ export type Database = {
           changed: boolean
           changed_at: string
           new_status: string
-        }[]
-      }
-      conversation_inbox_counters: {
-        Args: { p_sees_all: boolean; p_user_id: string; p_workspace_id: string }
-        Returns: {
-          inbox_automated: number
-          inbox_main: number
-          inbox_needs_human: number
-          inbox_spam: number
-          tab_all: number
-          tab_automated: number
-          tab_needs_human: number
-          tab_open: number
-          tab_pending: number
-          tab_resolved: number
         }[]
       }
       count_recent_login_failures: {
@@ -20809,13 +20743,12 @@ export type Database = {
         Args: {
           _claim_token: string
           _error_code: string
-          _generation: number
           _id: string
           _max_attempts?: number
           _retry_seconds?: number
           _worker_id: string
         }
-        Returns: string
+        Returns: boolean
       }
       fail_kb_change_events: {
         Args: {
@@ -21116,14 +21049,6 @@ export type Database = {
         Returns: Json
       }
       patch_conversation_metadata: {
-        Args: {
-          p_conversation_id: string
-          p_patch: Json
-          p_workspace_id: string
-        }
-        Returns: Json
-      }
-      patch_conversation_runtime_flags: {
         Args: {
           p_conversation_id: string
           p_patch: Json

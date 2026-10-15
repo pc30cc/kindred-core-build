@@ -14,18 +14,6 @@ import { IRAN_BRAND_PATTERNS } from '../../scripts/build/brandAudit.mjs';
 import { brandTokensFor, fillBrandTokens } from '../../shared/brand';
 import { iosProjectText } from '@/components/admin/mobile/iosProjectText';
 
-/**
- * Keys owned by the commerce plugins' work, not by the locale texts: they name
- * the plugins' own file and folder names (webyar.ocmod.zip,
- * modules/addons/webyar/), which change together with the plugin packages
- * (plugins/*, public/downloads/*). Remove an entry once that work renames
- * the package; nothing else may be added here.
- */
-const PLUGIN_OWNED_KEYS = new Set([
-  'plugins.opencart.connect.step1',
-  'plugins.whmcs.connect.step1',
-]);
-
 function* strings(value: unknown, path: string[] = []): Generator<[string, string]> {
   if (typeof value === 'string') {
     yield [path.join('.'), value];
@@ -40,7 +28,7 @@ const brandHits = (text: string) => IRAN_BRAND_PATTERNS.some((re: RegExp) => re.
 describe('locale texts never name the Iran brand', () => {
   it.each(Object.keys(LOCALES) as Array<keyof typeof LOCALES>)('%s: raw values', (locale) => {
     const offenders = [...strings(LOCALES[locale])]
-      .filter(([key, text]) => !PLUGIN_OWNED_KEYS.has(key) && brandHits(text))
+      .filter(([, text]) => brandHits(text))
       .map(([key, text]) => `${key}: ${text}`);
     expect(offenders).toEqual([]);
   });
@@ -51,7 +39,6 @@ describe('locale texts never name the Iran brand', () => {
     });
     const ios = iosProjectText('international');
     const offenders = [...strings(LOCALES[locale])]
-      .filter(([key]) => !PLUGIN_OWNED_KEYS.has(key))
       .map(([key, text]): [string, string] => [
         key,
         Object.entries(ios).reduce((t, [k, v]) => t.split(`{{${k}}}`).join(v), fillBrandTokens(text, tokens)),
@@ -59,16 +46,6 @@ describe('locale texts never name the Iran brand', () => {
       .filter(([, text]) => brandHits(text))
       .map(([key, text]) => `${key}: ${text}`);
     expect(offenders).toEqual([]);
-  });
-
-  it('the allowlist only names keys that exist and still need it', () => {
-    for (const locale of Object.values(LOCALES)) {
-      const all = new Map(strings(locale));
-      for (const key of PLUGIN_OWNED_KEYS) {
-        expect(all.has(key), key).toBe(true);
-        expect(brandHits(all.get(key)!), key).toBe(true);
-      }
-    }
   });
 });
 

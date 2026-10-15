@@ -1,4 +1,4 @@
-import { bridgeProviders, type BridgeSiteLists, type BridgeBatchItem } from '../../shared/widgetBridge.js';
+import type { BridgeBatchItem } from '../../shared/widgetBridge.js';
 import { isBridgeProviderSite } from '../../shared/widgetBridgeTargets.js';
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
@@ -8,6 +8,7 @@ import { directPool } from '../db/index.js';
 import { BridgeError, bridgeConfig, bridgePool } from '../services/widgetBridge/config.js';
 import { bridgeSiteListSchema, bridgeSettingsSchema, bridgeContactSchema, bridgeMessageSchema, bridgeBatchSchema } from '../services/widgetBridge/validation.js';
 import { checkOutboundUrl } from '../../shared/net/hostGuard.js';
+import { acceptedBridgeProviders, apiBridgeContact, apiBridgeSettings, apiBridgeSiteLists, storedBridgeProviders, toStoredProvider } from '../services/widgetBridge/providerIds.js';
 
 export const adminWidgetBridgeRouter = Router();
 type Scope = { appId: string; ownerId: string; workspaceId: string };
@@ -49,7 +50,8 @@ adminWidgetBridgeRouter.use(async (req, res, next) => {
 
 adminWidgetBridgeRouter.get('/settings', handle(async (_req, res) => {
   const { rows } = await bridgePool().query(`SELECT enabled,identity,allowed_providers AS "allowedProviders",round_size AS "roundSize",interval_seconds AS "intervalSeconds" FROM widget_bridge_settings WHERE ${scoped}`, params(res));
-  res.json({ settings: rows[0] || { enabled: false, identity: { name: '', email: '', phone: '' }, allowedProviders: ['webyar','crisp','raychat','goftino','custom'], roundSize: 1, intervalSeconds: 30 } });
+  // Provider ids are stored as before and returned as the API's (providerIds.ts).
+  res.json({ settings: apiBridgeSettings(rows[0] || { enabled: false, identity: { name: '', email: '', phone: '' }, allowedProviders: [...storedBridgeProviders], roundSize: 1, intervalSeconds: 30 }) });
 }));
 
 adminWidgetBridgeRouter.put('/settings', handle(async (req, res) => {
@@ -70,7 +72,7 @@ adminWidgetBridgeRouter.put('/settings', handle(async (req, res) => {
   ) UPDATE widget_bridge_messages SET delivery=CASE WHEN delivery='dispatching' THEN 'uncertain' ELSE 'cancelled' END,
     error='settings_changed' WHERE contact_id IN (SELECT id FROM fenced)
     AND delivery IN ('queued','preparing','dispatching')`, [...params(res), enabled, JSON.stringify(identity), JSON.stringify(allowedProviders),roundSize,intervalSeconds]);
-  res.json({ settings: { enabled, identity, allowedProviders, roundSize, intervalSeconds } });
+  res.json({ settings: apiBridgeSettings({ enabled, identity, allowedProviders, roundSize, intervalSeconds }) });
 }));
 
 adminWidgetBridgeRouter.delete('/settings', handle(async (_req, res) => {
@@ -88,11 +90,12 @@ adminWidgetBridgeRouter.delete('/settings', handle(async (_req, res) => {
 
 // Editing a saved list never starts/stops a conversation or changes an active batch.
 adminWidgetBridgeRouter.get('/site-lists', handle(async (_req, res) => {
-  const { rows } = await bridgePool().query<{ site_lists: BridgeSiteLists }>(`SELECT site_lists FROM widget_bridge_settings WHERE ${scoped} AND NOT deleting`, params(res));
-  res.json({ lists: rows[0]?.site_lists || {} });
+  const { rows } = await bridgePool().query<{ site_lists: Record<string, unknown> | null }>(`SELECT site_lists FROM widget_bridge_settings WHERE ${scoped} AND NOT deleting`, params(res));
+  res.json({ lists: apiBridgeSiteLists(rows[0]?.site_lists) });
 }));
 adminWidgetBridgeRouter.put('/site-lists/:provider', handle(async (req, res) => {
-  const key = z.enum(['shared', ...bridgeProviders]).safeParse(req.params.provider);
+  // The list key is the provider's stored id; the API's id and the legacy one both name it.
+  const key = z.enum(['shared', ...acceptedBridgeProviders] as const).transform(id => toStoredProvider(id)).safeParse(req.params.provider);
   const body = bridgeSiteListSchema.safeParse(req.body);
   if (!key.success || !body.success) { res.status(400).json({ error: 'invalid_site_list' }); return; }
   const value = { ...body.data, includeShared: key.data === 'shared' ? false : body.data.includeShared };
@@ -118,7 +121,7 @@ adminWidgetBridgeRouter.get('/contacts', handle(async (req, res) => {
     WHERE ${scoped} ${filter === 'true' ? 'AND ai_replied_at IS NOT NULL AND NOT deleting' : ''} AND ($4::uuid IS NULL OR (created_at,id)<
       (SELECT created_at,id FROM widget_bridge_contacts WHERE ${scoped} AND id=$4))
     ORDER BY created_at DESC,id DESC LIMIT 100`, [...params(res),before && before.success ? before.data : null]);
-  res.json({ contacts: rows, hasMore: rows.length===100 });
+  res.json({ contacts: rows.map(apiBridgeContact), hasMore: rows.length===100 });
 }));
 
 adminWidgetBridgeRouter.post('/contacts', handle(async (req, res) => {
@@ -135,7 +138,7 @@ adminWidgetBridgeRouter.post('/contacts', handle(async (req, res) => {
     ON CONFLICT(app_id,owner_id,workspace_id,url) DO NOTHING RETURNING ${columns}`,
     [...params(res), name, url.toString(), value.provider, JSON.stringify(value.selectors), value.enabled]);
   if (!rows.length) { res.status(409).json({ error: 'save_settings_or_duplicate_site' }); return; }
-  res.status(201).json({ contact: rows[0] });
+  res.status(201).json({ contact: apiBridgeContact(rows[0]) });
 }));
 
 adminWidgetBridgeRouter.patch('/contacts/:id', handle(async (req, res) => {
@@ -153,7 +156,7 @@ adminWidgetBridgeRouter.patch('/contacts/:id', handle(async (req, res) => {
     AND delivery IN ('queued','preparing','dispatching') RETURNING id
   ) SELECT * FROM changed`, [...params(res), id.data, body.data.enabled]);
   if (!rows.length) { res.status(404).json({ error: 'contact_not_found' }); return; }
-  res.json({ contact: rows[0] });
+  res.json({ contact: apiBridgeContact(rows[0]) });
 }));
 
 adminWidgetBridgeRouter.put('/contacts/:id/ai-reply', handle(async (req, res) => {
@@ -165,7 +168,7 @@ adminWidgetBridgeRouter.put('/contacts/:id/ai-reply', handle(async (req, res) =>
     ai_reply_source=CASE WHEN $5 THEN 'manual' ELSE NULL END,ai_reply_label=NULL
     WHERE ${scoped} AND id=$4 AND NOT deleting RETURNING ${columns}`, [...params(res),id.data,body.data.aiReplied]);
   if (!rows.length) { res.status(404).json({ error: 'contact_not_found' }); return; }
-  res.json({ contact: rows[0] });
+  res.json({ contact: apiBridgeContact(rows[0]) });
 }));
 
 adminWidgetBridgeRouter.delete('/contacts/:id', handle(async (req, res) => {

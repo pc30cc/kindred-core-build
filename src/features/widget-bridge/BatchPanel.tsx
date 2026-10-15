@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { bridgeRequest } from './api';
 import { bridgeProviders, type BridgeBatchDraft, type BridgeProvider, type BridgeBatch, type BridgeBatchItem } from '../../../shared/widgetBridge';
+import { bridgeProviderLabel } from './providerLabel';
 
 export function BatchPanel({ workspaceId, enabled, followup }: { workspaceId: string; enabled: boolean; followup?: BridgeBatchDraft | null }) {
   const { t } = useTranslation();
@@ -41,7 +42,7 @@ export function BatchPanel({ workspaceId, enabled, followup }: { workspaceId: st
       <select id="bridge-batch-provider" className="h-10 w-full rounded-md border bg-background px-3" value={provider} disabled={start.isPending}
         onChange={event => { setProvider(event.target.value as BridgeProvider); requestId.current = null; }}>
         <option value="auto">{t('widgetBridge.lists.allProviders')}</option>
-        {bridgeProviders.map(value => <option key={value} value={value}>{value === 'custom' ? t('widgetBridge.custom') : value === 'webyar' ? 'WebYar / RESPOK' : value === 'goftino' ? 'Goftino' : value === 'crisp' ? 'Crisp' : 'Raychat'}</option>)}
+        {bridgeProviders.map(value => <option key={value} value={value}>{bridgeProviderLabel(value, t)}</option>)}
       </select>
     </div>
     <div className="space-y-2"><Label htmlFor="bridge-batch-sites">{t('widgetBridge.batch.sites')}</Label>

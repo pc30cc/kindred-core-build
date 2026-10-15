@@ -1,4 +1,5 @@
 import { bridgeProviders } from '../../../shared/widgetBridge';
+import { bridgeProviderLabel } from './providerLabel';
 import { AiReplyPanel } from './AiReplyPanel';
 import { SiteListsPanel } from './SiteListsPanel';
 import type { BridgeBatchDraft } from '../../../shared/widgetBridge';
@@ -100,7 +101,7 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
         <div className="flex flex-wrap gap-4">{bridgeProviders.map(value => <label key={value} className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.allowedProviders.includes(value)} onChange={event => {
             setDirty(true); setForm({ ...form, allowedProviders: event.target.checked ? [...form.allowedProviders,value] : form.allowedProviders.filter(p => p!==value) });
-          }} />{value==='custom' ? t('widgetBridge.custom') : value==='webyar' ? 'WebYar / RESPOK' : value==='goftino' ? 'Goftino' : value==='crisp' ? 'Crisp' : 'Raychat'}
+          }} />{bridgeProviderLabel(value, t)}
         </label>)}</div>
       </fieldset>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -131,7 +132,7 @@ export function WidgetBridgeSettingsPanel({ workspaceId, slug }: { workspaceId: 
       <div className="space-y-2"><Label htmlFor="bridge-provider">{t('widgetBridge.provider')}</Label>
         <select id="bridge-provider" className="h-10 w-full rounded-md border bg-background px-3" value={provider}
           onChange={event => { const value = event.target.value as BridgeProvider; setProvider(value); setAdvanced(value === 'custom'); }}>
-          <option value="auto">{t('widgetBridge.auto')}</option><option value="webyar">WebYar / RESPOK</option>
+          <option value="auto">{t('widgetBridge.auto')}</option><option value="platform">{bridgeProviderLabel('platform', t)}</option>
           <option value="crisp">Crisp</option><option value="raychat">Raychat</option><option value="goftino">Goftino</option><option value="custom">{t('widgetBridge.custom')}</option>
         </select>
         <p className="text-xs text-muted-foreground">{t('widgetBridge.supported')}</p>

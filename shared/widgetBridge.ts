@@ -1,5 +1,11 @@
-/** Browser-neutral API types; never expose encrypted browser sessions. */
-export type BridgeProvider = 'auto' | 'webyar' | 'crisp' | 'raychat' | 'goftino' | 'custom';
+/**
+ * Browser-neutral API types; never expose encrypted browser sessions.
+ *
+ * `platform` is this platform's own chat widget. The server stores it under
+ * its original id and maps it at the API boundary, accepting both in requests
+ * (server/services/widgetBridge/providerIds.ts); responses always say `platform`.
+ */
+export type BridgeProvider = 'auto' | BridgeAllowedProvider;
 export type BridgeListKey = 'shared' | BridgeAllowedProvider;
 export interface BridgeSiteList { urls: string[]; includeShared: boolean }
 export type BridgeSiteLists = Partial<Record<BridgeListKey, BridgeSiteList>>;
@@ -33,7 +39,7 @@ export interface BridgeSelectors {
   messageIdAttribute?: string;
 }
 export interface BridgeIdentity { name: string; email: string; phone: string }
-export const bridgeProviders = ['webyar', 'crisp', 'raychat', 'goftino', 'custom'] as const;
+export const bridgeProviders = ['platform', 'crisp', 'raychat', 'goftino', 'custom'] as const;
 export type BridgeAllowedProvider = typeof bridgeProviders[number];
 export interface BridgeSettings { enabled: boolean; identity: BridgeIdentity; allowedProviders: BridgeAllowedProvider[]; roundSize: number; intervalSeconds: number }
 export interface BridgeBatch {

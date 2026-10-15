@@ -1,7 +1,13 @@
 import { explicitAiResponder } from './aiReply.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Page, Locator } from '@playwright/test';
-import { bridgeProviders, type BridgeAllowedProvider, type BridgeIdentity, type BridgeProvider, type BridgeSelectors } from '../../shared/widgetBridge.js';
+import type { BridgeIdentity, BridgeSelectors } from '../../shared/widgetBridge.js';
+// The worker reads and writes the stored provider ids, never the API's (providerIds.ts).
+import {
+  storedBridgeProviders as bridgeProviders,
+  type StoredBridgeAllowedProvider as BridgeAllowedProvider,
+  type StoredBridgeProvider as BridgeProvider,
+} from '../../server/services/widgetBridge/providerIds.js';
 
 export interface RemoteMessage { key: string; body: string; aiLabel?: string }
 export interface BridgeAdapter {

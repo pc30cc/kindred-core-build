@@ -1,15 +1,22 @@
 import { explicitAiResponder } from './aiReply.js';
 import type { Queryable } from '../../server/db/postgrest/types.js';
-import type { BridgeContact, BridgeIdentity, BridgeMessage, BridgeAllowedProvider } from '../../shared/widgetBridge.js';
+import type { BridgeContact, BridgeIdentity, BridgeMessage } from '../../shared/widgetBridge.js';
+import type { StoredBridgeAllowedProvider, StoredBridgeProvider } from '../../server/services/widgetBridge/providerIds.js';
 import type { SecretEnvelope } from '../../server/lib/pluginCrypto.js';
 import type { RemoteMessage } from './adapters.js';
 
-export interface LeasedContact extends BridgeContact {
+/** Rows as stored: provider ids are the stored ones (providerIds.ts), not the API's. */
+export interface StoredBridgeMessage extends Omit<BridgeMessage, 'required_provider'> {
+  required_provider?: StoredBridgeAllowedProvider | null;
+}
+
+export interface LeasedContact extends Omit<BridgeContact, 'provider'> {
+  provider: StoredBridgeProvider;
   app_id: string;
   generation: number;
   session_envelope: SecretEnvelope | null;
   identity: BridgeIdentity;
-  allowed_providers: BridgeAllowedProvider[];
+  allowed_providers: StoredBridgeAllowedProvider[];
 }
 
 
@@ -67,8 +74,8 @@ export class BridgeStore {
       WHERE status='running' AND id IN (SELECT batch_id FROM recovered WHERE delivery='uncertain')`,
       [contact.id, this.appId, this.workerId, contact.generation]);
   }
-  async next(contact: LeasedContact): Promise<BridgeMessage | null> {
-    const { rows } = await this.db.query<BridgeMessage>(`WITH pending AS (
+  async next(contact: LeasedContact): Promise<StoredBridgeMessage | null> {
+    const { rows } = await this.db.query<StoredBridgeMessage>(`WITH pending AS (
       SELECT m.id FROM widget_bridge_messages m JOIN widget_bridge_contacts c ON c.id=m.contact_id
       JOIN widget_bridge_settings s USING(app_id,owner_id,workspace_id)
       WHERE m.contact_id=$1 AND m.delivery='queued' AND c.app_id=$2 AND c.lease_owner=$3
@@ -79,7 +86,7 @@ export class BridgeStore {
     [contact.id, this.appId, this.workerId, contact.generation]);
     return rows[0] || null;
   }
-  async dispatch(contact: LeasedContact, message: BridgeMessage): Promise<boolean> {
+  async dispatch(contact: LeasedContact, message: StoredBridgeMessage): Promise<boolean> {
     const { rows } = await this.db.query(`UPDATE widget_bridge_messages m SET delivery='dispatching'
       FROM widget_bridge_contacts c,widget_bridge_settings s WHERE m.id=$1 AND m.delivery='preparing'
       AND c.id=m.contact_id AND c.id=$2 AND c.app_id=$3 AND c.lease_owner=$4 AND c.generation=$5
@@ -88,7 +95,7 @@ export class BridgeStore {
       [message.id, contact.id, this.appId, this.workerId, contact.generation]);
     return rows.length > 0;
   }
-  async finish(contact: LeasedContact, message: BridgeMessage, delivery: 'sent' | 'failed' | 'uncertain', error: string | null = null) {
+  async finish(contact: LeasedContact, message: StoredBridgeMessage, delivery: 'sent' | 'failed' | 'uncertain', error: string | null = null) {
     await this.db.query(`WITH finished AS (UPDATE widget_bridge_messages m SET delivery=$1,error=$2 FROM widget_bridge_contacts c
       WHERE m.id=$3 AND c.id=m.contact_id AND c.id=$4 AND c.app_id=$5 AND c.lease_owner=$6 AND c.generation=$7
       AND m.delivery IN ('preparing','dispatching') RETURNING m.batch_id

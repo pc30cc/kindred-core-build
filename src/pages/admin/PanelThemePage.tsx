@@ -6,7 +6,7 @@
  * No theme is removed: Classic is the panel's own design and stays one click
  * away. A theme may have options, chosen here for everyone too
  * (workspace_panel_theme_options): Art's layout (top menu or side menu) and
- * colour scheme. "Preview in my panel" wears a theme, with the options picked
+ * colour scheme, Vivid's colour scheme. "Preview in my panel" wears a theme, with the options picked
  * on its card, in this tab only (src/themes/usePanelTheme.ts) before
  * activating it for everyone. Themes come from src/themes/registry.ts; a new
  * one appears here by itself.
@@ -25,13 +25,22 @@ import { PLATFORM_PUBLIC_CONFIG_QUERY_KEY } from '@/lib/platformPublicConfig';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { panelThemeLabel, panelThemes, previewSwatches, type ArtPreviewOptions, type PanelThemeInfo } from '@/themes/registry';
+import {
+  panelThemeLabel,
+  panelThemes,
+  previewSwatches,
+  type ArtPreviewOptions,
+  type PanelThemeInfo,
+  type VividPreviewOptions,
+} from '@/themes/registry';
 import { ArtLayoutSketch, ThemePreview } from '@/themes/ThemePreview';
 import { ART_PALETTE_SWATCHES } from '@/themes/art/palettes';
+import { VIVID_PALETTE_SWATCHES } from '@/themes/vivid/palettes';
 import { endPanelThemePreview, startPanelThemePreview, wearablePanelTheme } from '@/themes/usePanelTheme';
 import { useInternationalMode } from '@/lib/internationalMode';
 import {
   ART_LAYOUTS,
+  VIVID_PALETTES,
   artPalettesFor,
   resolvePanelTheme,
   resolvePanelThemeOptions,
@@ -39,6 +48,7 @@ import {
   type ArtLayout,
   type ArtPalette,
   type PanelThemeId,
+  type VividPalette,
 } from '../../../shared/panelThemes';
 
 const BRANDING_QUERY_KEY = ['platform_branding'] as const;
@@ -129,6 +139,12 @@ export default function PanelThemePage() {
     palette: next.palette === artShown.palette ? art.palette : next.palette,
   });
 
+  // Vivid's colour scheme as stored, and the Super Admin's unsaved choice.
+  const storedVivid: VividPreviewOptions = resolvePanelThemeOptions('vivid', storedOptions);
+  const [vividDraft, setVividDraft] = useState<VividPreviewOptions | null>(null);
+  const vivid = vividDraft ?? storedVivid;
+  const vividDirty = vivid.palette !== storedVivid.palette;
+
   const refresh = () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: BRANDING_QUERY_KEY }),
@@ -153,7 +169,8 @@ export default function PanelThemePage() {
       );
       // The draft is now what is stored. (A theme-only switch keeps it: it
       // could not be saved, migration 254 missing.)
-      if (variables.options) setArtDraft(null);
+      if (variables.options && theme === 'art') setArtDraft(null);
+      if (variables.options && theme === 'vivid') setVividDraft(null);
       endPanelThemePreview();
       const name = panelThemeLabel(
         t,
@@ -183,11 +200,14 @@ export default function PanelThemePage() {
   // Options are sent only when they change what is stored, and only where
   // they can be kept, so switching themes keeps working on a database from
   // before migration 254 (the draft can still be previewed there).
-  const activation = (theme: PanelThemeId): Activation =>
-    theme === 'art' && artDirty && optionsSaveable ? { theme, options: { ...art } } : { theme };
+  const activation = (theme: PanelThemeId): Activation => {
+    if (theme === 'art' && artDirty && optionsSaveable) return { theme, options: { ...art } };
+    if (theme === 'vivid' && vividDirty && optionsSaveable) return { theme, options: { ...vivid } };
+    return { theme };
+  };
 
   const preview = (theme: PanelThemeId) => {
-    startPanelThemePreview(theme, theme === 'art' ? { ...art } : undefined);
+    startPanelThemePreview(theme, theme === 'art' ? { ...art } : theme === 'vivid' ? { ...vivid } : undefined);
     navigate('/app');
   };
 
@@ -247,6 +267,8 @@ export default function PanelThemePage() {
         {panelThemes.map((theme) => {
           const isActive = active === theme.id;
           const isArt = theme.id === 'art';
+          const isVivid = theme.id === 'vivid';
+          const dirty = (isArt && artDirty) || (isVivid && vividDirty);
           const pending = activate.isPending && activate.variables?.theme === theme.id;
           return (
             <ThemeCard
@@ -254,11 +276,12 @@ export default function PanelThemePage() {
               theme={theme}
               mode={mode}
               art={isArt ? artShown : undefined}
+              vivid={isVivid ? vivid : undefined}
               loading={isLoading}
               active={isActive}
-              // Art's options can be saved while Art is the active theme.
-              changed={isArt && isActive && artDirty && optionsSaveable}
-              dirty={isArt && artDirty}
+              // A theme's options can be saved while it is the active theme.
+              changed={isActive && dirty && optionsSaveable}
+              dirty={dirty}
               switching={pending}
               busy={activate.isPending}
               onActivate={() => activate.mutate(activation(theme.id))}
@@ -278,6 +301,17 @@ export default function PanelThemePage() {
                     setArtDraft(sameArt(next, storedArt) ? null : next);
                   }}
                   onReset={() => setArtDraft(null)}
+                />
+              )}
+              {isVivid && (
+                <VividOptions
+                  value={vivid}
+                  mode={mode}
+                  saveable={optionsSaveable}
+                  dirty={vividDirty}
+                  busy={activate.isPending}
+                  onChange={(next) => setVividDraft(next.palette === storedVivid.palette ? null : next)}
+                  onReset={() => setVividDraft(null)}
                 />
               )}
             </ThemeCard>
@@ -309,6 +343,7 @@ function ThemeCard({
   theme,
   mode,
   art,
+  vivid,
   loading,
   active,
   changed,
@@ -323,6 +358,8 @@ function ThemeCard({
   mode: Mode;
   /** Art's options as picked on the card (drawn by the preview). */
   art?: ArtPreviewOptions;
+  /** Vivid's options as picked on the card (drawn by the preview). */
+  vivid?: VividPreviewOptions;
   loading: boolean;
   active: boolean;
   /** The active theme's options were changed here and can be saved. */
@@ -338,7 +375,7 @@ function ThemeCard({
   const { t } = useTranslation();
   const tk = (key: string) => t(key as TranslationKey);
   const base = `admin.panelThemes.themes.${theme.id}`;
-  const swatches = previewSwatches(theme, mode, art?.palette);
+  const swatches = previewSwatches(theme, mode, art?.palette ?? vivid?.palette);
 
   return (
     <Card
@@ -346,7 +383,7 @@ function ThemeCard({
       className={cn('flex flex-col overflow-hidden transition-shadow', active && 'border-primary/50 ring-1 ring-primary/30')}
     >
       <div className="bg-muted/30 p-3 sm:p-4">
-        <ThemePreview theme={theme} mode={mode} art={art} />
+        <ThemePreview theme={theme} mode={mode} art={art} vivid={vivid} />
       </div>
 
       <div className="flex flex-1 flex-col gap-4 p-5">
@@ -538,7 +575,14 @@ function ArtOptions({
             className={cn('grid grid-cols-4 gap-1.5', palettes.length > 7 ? 'sm:grid-cols-8' : 'sm:grid-cols-7')}
           >
             {palettes.map((palette) => (
-              <PaletteChip key={palette} palette={palette} mode={mode} selected={value.palette === palette} label={tk(`admin.panelThemes.palettes.${palette}`)} />
+              <PaletteChip
+                key={palette}
+                value={palette}
+                swatch={ART_PALETTE_SWATCHES[palette]?.[mode] ?? null}
+                attributes={{ 'data-art-palette': palette }}
+                selected={value.palette === palette}
+                label={tk(`admin.panelThemes.palettes.${palette}`)}
+              />
             ))}
           </RadioGroupPrimitive.Root>
         </div>
@@ -555,17 +599,131 @@ function ArtOptions({
 }
 
 /**
- * One colour scheme: its main colour on its paper, ringed by its chart
- * series, and its name under it. A scheme whose swatches are missing shows a
- * neutral outline.
+ * Vivid's options on its card: the colour scheme, as named swatches (a radio
+ * group, like Art's).
  */
-function PaletteChip({ palette, mode, selected, label }: { palette: ArtPalette; mode: Mode; selected: boolean; label: string }) {
-  const swatch = ART_PALETTE_SWATCHES[palette]?.[mode] ?? null;
+function VividOptions({
+  value,
+  mode,
+  saveable,
+  dirty,
+  busy,
+  onChange,
+  onReset,
+}: {
+  value: VividPreviewOptions;
+  mode: Mode;
+  saveable: boolean;
+  /** Differs from what is stored. */
+  dirty: boolean;
+  busy: boolean;
+  onChange: (next: VividPreviewOptions) => void;
+  /** Back to what is stored. */
+  onReset: () => void;
+}) {
+  const { t } = useTranslation();
+  const tk = (key: string) => t(key as TranslationKey);
+
+  return (
+    <section
+      aria-labelledby="vivid-options-title"
+      data-vivid-options
+      className="rounded-xl border border-border bg-muted/25 p-4"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <h3 id="vivid-options-title" className="text-sm font-semibold">
+          {tk('admin.panelThemes.vividOptions.title')}
+        </h3>
+        {dirty && (
+          <div className="flex items-center gap-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
+              {tk('admin.panelThemes.options.unsaved')}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onReset}
+              disabled={busy}
+              className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {tk('admin.panelThemes.options.reset')}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 space-y-2">
+        <div id="vivid-palette-label" className="text-xs font-medium text-muted-foreground">
+          {tk('admin.panelThemes.vividOptions.palette')}
+        </div>
+        <RadioGroupPrimitive.Root
+          aria-labelledby="vivid-palette-label"
+          value={value.palette}
+          onValueChange={(palette) => onChange({ palette: palette as VividPalette })}
+          className="grid grid-cols-5 gap-1.5"
+        >
+          {VIVID_PALETTES.map((palette) => {
+            const swatch = VIVID_PALETTE_SWATCHES[palette][mode];
+            return (
+              <PaletteChip
+                key={palette}
+                value={palette}
+                // The ring shows the strip's two stops and two chart series.
+                swatch={{ ...swatch, series: [swatch.strip[0], swatch.strip[1], swatch.series[2], swatch.series[3]] }}
+                attributes={{ 'data-vivid-palette': palette }}
+                selected={value.palette === palette}
+                label={tk(`admin.panelThemes.vividPalettes.${palette}`)}
+              />
+            );
+          })}
+        </RadioGroupPrimitive.Root>
+      </div>
+
+      {!saveable && (
+        <p className="mt-3 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+          <span>{tk('admin.panelThemes.options.needsMigration')}</span>
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** What a colour scheme's chip paints. */
+interface ChipSwatch {
+  primary: string;
+  primaryInk: string;
+  canvas: string;
+  series: [string, string, string, string];
+}
+
+/**
+ * One colour scheme: its main colour on its paper, ringed by four of its
+ * colours, and its name under it. A scheme whose swatches are missing shows
+ * a neutral outline.
+ */
+function PaletteChip({
+  value,
+  swatch,
+  attributes,
+  selected,
+  label,
+}: {
+  value: string;
+  swatch: ChipSwatch | null;
+  /** Data attributes naming the scheme (`data-art-palette`, ...). */
+  attributes: Record<`data-${string}`, string>;
+  selected: boolean;
+  label: string;
+}) {
   const [s1, s2, s3, s4] = swatch?.series ?? [];
   return (
     <RadioGroupPrimitive.Item
-      value={palette}
-      data-art-palette={palette}
+      value={value}
+      {...attributes}
       className={cn(
         'group flex min-w-0 flex-col items-center justify-start gap-1.5 rounded-xl border bg-background px-0.5 pb-2 pt-2.5 transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',

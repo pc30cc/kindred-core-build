@@ -42,7 +42,8 @@ const channels = (hex: string) => hexToRgb(hex).map((x) => Math.round(x * 255)).
 describe('theme ids', () => {
   it('Classic is the default and anything unknown falls back to it', () => {
     expect(DEFAULT_PANEL_THEME).toBe('classic');
-    expect(PANEL_THEME_IDS).toEqual(expect.arrayContaining(['classic', 'art']));
+    expect(PANEL_THEME_IDS).toEqual(expect.arrayContaining(['classic', 'art', 'vivid']));
+    expect(resolvePanelTheme('vivid')).toBe('vivid');
     expect(resolvePanelTheme('art')).toBe('art');
     for (const value of [undefined, null, '', 'ART', 'neon', 42, {}]) {
       expect(isPanelThemeId(value)).toBe(false);
@@ -161,6 +162,53 @@ describe('the Art stylesheets', () => {
   it('is loaded by the app', () => {
     const main = read('src/main.tsx');
     for (const path of FILES) expect(main).toContain(`import "./${path.replace('src/', '')}";`);
+  });
+});
+
+describe('the Vivid stylesheets', () => {
+  const FILES = ['src/themes/vivid/theme.css', 'src/themes/vivid/palettes.css'];
+  const strip = (path: string) => read(path).replace(/\/\*[\s\S]*?\*\//g, '');
+  const css = strip('src/themes/vivid/theme.css');
+
+  it.each(FILES)('%s applies only under <html data-panel-theme="vivid">', (path) => {
+    const selectors: string[] = [];
+    const source = strip(path).replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
+    const rule = /([^{}@;]+)\{[^{}]*\}/g;
+    for (let m = rule.exec(source); m; m = rule.exec(source)) selectors.push(...splitSelectors(m[1]));
+    expect(selectors.length).toBeGreaterThan(5);
+    for (const selector of selectors) {
+      expect(selector.startsWith(':root[data-panel-theme="vivid"]'), selector).toBe(true);
+    }
+  });
+
+  it('defines the panel tokens for light and dark', () => {
+    for (const token of ['--background', '--primary', '--sidebar-background', '--card', '--border', '--ring', '--vivid-from', '--vivid-to', '--vivid-tint']) {
+      expect(css.match(new RegExp(`\\s${token}:`, 'g'))?.length ?? 0, token).toBeGreaterThanOrEqual(2);
+    }
+    expect(css).toContain(':root[data-panel-theme="vivid"].dark {');
+  });
+
+  it('places the sidebar’s current-item bar with logical insets (right to left in Persian)', () => {
+    expect(css).toMatch(/\.nav-glow::after \{[^}]*inset-inline-start: 0;/);
+    expect(css).not.toMatch(/(?:^|[\s;{])(?:left|right):/);
+    expect(css).not.toMatch(/(?:margin|padding|border)-(?:left|right)/);
+  });
+
+  it('is brand-neutral: no product name or brand colour literal in the theme', () => {
+    for (const path of [...FILES, 'src/themes/vivid/palettes.ts']) {
+      expect(read(path)).not.toMatch(/webyar|respok|وب‌?یار|رسپاک/i);
+    }
+  });
+
+  it('is loaded by the app', () => {
+    const main = read('src/main.tsx');
+    for (const path of FILES) expect(main).toContain(`import "./${path.replace('src/', '')}";`);
+  });
+
+  it('names the sidebar’s groups only for Vivid, so the classic sidebar is unchanged', () => {
+    const layout = read('src/components/layout/AppLayout.tsx');
+    expect(layout.match(/sectionLabels=\{panelTheme\.theme === 'vivid'\}/g)).toHaveLength(2);
+    expect(read('src/components/layout/AppSidebar.tsx')).toMatch(/sectionLabels = false,/);
   });
 });
 

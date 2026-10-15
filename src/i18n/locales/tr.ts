@@ -4471,6 +4471,17 @@ const tr: TranslationKeys = {
         graphite: 'Grafit',
         respok: 'Respok',
       },
+      vividOptions: {
+        title: 'Canlı’yı özelleştir',
+        palette: 'Renk şeması',
+      },
+      vividPalettes: {
+        coral: 'Mercan',
+        ocean: 'Okyanus',
+        violet: 'Menekşe',
+        emerald: 'Zümrüt',
+        amber: 'Kehribar',
+      },
       themes: {
         classic: {
           name: 'Klasik',
@@ -4485,6 +4496,13 @@ const tr: TranslationKeys = {
           trait1: 'Hap biçimli üst menü ya da simge şeridine daralan iç yan menü',
           trait2: 'Hap düğmeler, dolgulu alanlar, alt çizgili sekmeler ve kart satırlı tablolar',
           trait3: 'Yedi renk şeması ve özenli grafikler; açık ve koyu',
+        },
+        vivid: {
+          name: 'Canlı',
+          description: 'Ödeme makbuzundan ilham: üstünde ince renkli bir şerit olan beyaz kartlar, yumuşak renkli zeminde marka renginde rakamlar ve renkli bölüm etiketleri. Renkli ama derli toplu.',
+          trait1: 'Her kartın üstünde iki renkli ince bir şerit',
+          trait2: 'Yumuşak renkli zeminde rakamlar ve sayfa başlıkları',
+          trait3: 'Beş renk şeması; açık ve koyu',
         },
       },
     },

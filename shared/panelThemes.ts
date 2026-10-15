@@ -11,7 +11,7 @@
  * Adding a value or an option needs no migration.
  */
 
-export const PANEL_THEME_IDS = ['classic', 'art'] as const;
+export const PANEL_THEME_IDS = ['classic', 'art', 'vivid'] as const;
 
 export type PanelThemeId = (typeof PANEL_THEME_IDS)[number];
 
@@ -54,10 +54,18 @@ export function artPaletteFor(palette: ArtPalette, international: boolean): ArtP
   return !international && INTERNATIONAL_ART_PALETTES.includes(palette) ? ART_PALETTES[0] : palette;
 }
 
+/**
+ * Vivid's colour schemes (src/themes/vivid/palettes.css); `coral`, the
+ * colours of the billing receipt, is the default.
+ */
+export const VIVID_PALETTES = ['coral', 'ocean', 'violet', 'emerald', 'amber'] as const;
+export type VividPalette = (typeof VIVID_PALETTES)[number];
+
 /** Every theme's options and the values each accepts (first = default). */
 export const PANEL_THEME_OPTIONS = {
   classic: {},
   art: { layout: ART_LAYOUTS, palette: ART_PALETTES },
+  vivid: { palette: VIVID_PALETTES },
 } as const satisfies Record<PanelThemeId, Record<string, readonly string[]>>;
 
 export type PanelThemeOptions<T extends PanelThemeId = PanelThemeId> = {

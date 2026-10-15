@@ -37,6 +37,7 @@ import {
   type RegionCurrency,
   type RegionMode,
 } from '../../shared/edition';
+import { SHIPS_IRAN_KIT } from '../../shared/buildBrand';
 
 export interface EditionInfo {
   edition: Edition;
@@ -82,6 +83,8 @@ export function useKnownEdition(): Edition | null {
     if (regionMode) rememberRegionMode(regionMode);
     if (defaultLocale) rememberPlatformDefaultLocale(defaultLocale);
   }, [fromConfig, regionMode, defaultLocale]);
+  // A build without the Iranian kit (RESPOK's) is only ever International.
+  if (!SHIPS_IRAN_KIT) return 'international';
   return fromConfig ?? cachedEdition();
 }
 

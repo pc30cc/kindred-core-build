@@ -13,6 +13,10 @@
  * only) they show WebYar's own brand kit: its bubble symbol for the square
  * mark (an operator `src` still wins) and its Persian logotype for the
  * lockup. An edition not known yet keeps the bundled WEBYAR bitmap.
+ *
+ * A build without the Iranian kit (shared/buildBrand.ts SHIPS_IRAN_KIT: the
+ * RESPOK build) is always in international mode: the kit, the bitmap and the
+ * WEBYAR words are left out of it.
  */
 import type { CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
@@ -20,6 +24,11 @@ import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
 import { WEBYAR_BRAND, useWebyarKit } from '@/lib/webyarBrand';
 import webyarLogo from '@/assets/webyar-logo.png';
 import { brandName, useBrandVersion } from '@/lib/brand';
+import { SHIPS_IRAN_KIT } from '../../../shared/buildBrand';
+
+/** The bundled app mark shown before the edition is known: the Iranian build's only. */
+const LEGACY_MARK = SHIPS_IRAN_KIT ? webyarLogo : INTL_BRAND.appIcon;
+const LEGACY_MARK_ALT = SHIPS_IRAN_KIT ? 'WEBYAR' : '';
 
 export function BrandLogo({
   src,
@@ -32,7 +41,8 @@ export function BrandLogo({
   className?: string;
   style?: CSSProperties;
 }) {
-  const international = useInternationalMode();
+  const intlMode = useInternationalMode();
+  const international = !SHIPS_IRAN_KIT || intlMode;
   const kit = useWebyarKit() && !international;
   useBrandVersion();
   // The kit's symbol is a bubble on a transparent ground, not a tile: it is
@@ -40,11 +50,11 @@ export function BrandLogo({
   const kitSymbol = kit && !src;
   return (
     <img
-      src={international ? INTL_BRAND.appIcon : src || (kit ? WEBYAR_BRAND.symbol : webyarLogo)}
+      src={international ? INTL_BRAND.appIcon : src || (kit ? WEBYAR_BRAND.symbol : LEGACY_MARK)}
       // Default text: the WebYar mark's own in Iran, the platform's name abroad.
-      alt={alt ?? (international ? brandName('en') : kit ? WEBYAR_BRAND.name : 'WEBYAR')}
+      alt={alt ?? (international ? brandName('en') : kit ? WEBYAR_BRAND.name : LEGACY_MARK_ALT)}
       className={cn('rounded-xl', kitSymbol ? 'object-contain' : 'object-cover', className)}
-      data-webyar-brand={kitSymbol ? 'symbol' : undefined}
+      data-brand-kit={kitSymbol ? 'symbol' : undefined}
       style={style}
       draggable={false}
     />
@@ -81,8 +91,8 @@ export function IntlBrandImage({
 export function WebyarBrandImage({ alt = '', className }: { alt?: string; className?: string }) {
   return (
     <>
-      <img src={WEBYAR_BRAND.logo.light} alt={alt} className={cn('w-auto dark:hidden', className)} draggable={false} data-webyar-brand="logo" />
-      <img src={WEBYAR_BRAND.logo.dark} alt={alt} className={cn('hidden w-auto dark:block', className)} draggable={false} data-webyar-brand="logo" />
+      <img src={WEBYAR_BRAND.logo.light} alt={alt} className={cn('w-auto dark:hidden', className)} draggable={false} data-brand-kit="logo" />
+      <img src={WEBYAR_BRAND.logo.dark} alt={alt} className={cn('hidden w-auto dark:block', className)} draggable={false} data-brand-kit="logo" />
     </>
   );
 }
@@ -94,7 +104,8 @@ export function WebyarBrandImage({ alt = '', className }: { alt?: string; classN
  * (sign-up shows its mark either way), as before.
  */
 export function BrandLockup({ name, keepMark = false }: { name?: string | null; keepMark?: boolean }) {
-  const international = useInternationalMode();
+  const intlMode = useInternationalMode();
+  const international = !SHIPS_IRAN_KIT || intlMode;
   const kit = useWebyarKit() && !international;
   if (international) {
     return (
@@ -104,7 +115,7 @@ export function BrandLockup({ name, keepMark = false }: { name?: string | null; 
     );
   }
   // The Iranian edition: the kit's logotype is mark and name in one.
-  if (kit) {
+  if (SHIPS_IRAN_KIT && kit) {
     return (
       <div className="flex items-center">
         <WebyarBrandImage alt={name || WEBYAR_BRAND.name} className="h-9" />
@@ -119,5 +130,3 @@ export function BrandLockup({ name, keepMark = false }: { name?: string | null; 
     </div>
   );
 }
-
-export { webyarLogo };

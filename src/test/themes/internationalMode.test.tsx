@@ -239,7 +239,7 @@ describe('the brand marks', () => {
     const sources = [...container.querySelectorAll('img')].map((img) => img.getAttribute('src'));
     expect(sources).toEqual(expect.arrayContaining(['/brand/webyar/webyar-logo-fa-color.svg', '/brand/webyar/webyar-logo-fa-on-dark.svg']));
     expect(sources.filter((src) => src?.includes('latin'))).toEqual([]);
-    expect(container.querySelector('img[data-webyar-brand="logo"]')?.getAttribute('alt')).toBe('Platform');
+    expect(container.querySelector('img[data-brand-kit="logo"]')?.getAttribute('alt')).toBe('Platform');
     expect(container.querySelector('svg.wy-kit-loader')).not.toBeNull();
     expect(container.querySelector('.wy-kit-footer')).not.toBeNull();
     expect(container.textContent).not.toContain('WEBYAR');

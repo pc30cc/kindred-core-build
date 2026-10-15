@@ -23,10 +23,11 @@ import type { NotificationPrefs } from '@/lib/notifications-api';
 import { knownEdition } from '@/lib/edition';
 import { INTL_BRAND } from '@/lib/internationalMode';
 import { WEBYAR_BRAND } from '@/lib/webyarBrand';
+import { SHIPS_IRAN_KIT } from '../../../shared/buildBrand';
 
 /** The edition's own app icon (there was a shared /favicon-192.png, which never existed). */
 export function notificationIcon(): string {
-  return knownEdition() === 'international' ? INTL_BRAND.pwa192 : WEBYAR_BRAND.pwa192;
+  return SHIPS_IRAN_KIT && knownEdition() !== 'international' ? WEBYAR_BRAND.pwa192 : INTL_BRAND.pwa192;
 }
 
 /** At most one banner per conversation per this long. */
@@ -216,7 +217,7 @@ export function useOperatorBrowserNotifications(options: {
           body,
           // One banner per conversation: a customer sending three lines
           // replaces its own notification rather than stacking three.
-          tag: `webyar-conversation-${key}`,
+          tag: `conversation-${key}`,
           renotify: false,
           icon: notificationIcon(),
           badge: notificationIcon(),

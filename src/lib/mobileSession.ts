@@ -21,8 +21,17 @@
  * changes.
  */
 import { isNativePlatform } from './native';
+import { SHIPS_IRAN_KIT } from '../../shared/buildBrand';
 
-const KEYCHAIN_KEY = 'webyar.session.token';
+const KEYCHAIN_KEY = 'app.session.token';
+
+/**
+ * Where the token was kept before the key was renamed. Only the Iranian build
+ * (SHIPS_IRAN_KIT) reads it, once, to move the token to KEYCHAIN_KEY: the
+ * native shell that holds such a token is the Iranian edition's. A build
+ * without that kit (RESPOK's) neither names nor reads it.
+ */
+const LEGACY_KEYCHAIN_KEY = SHIPS_IRAN_KIT ? 'webyar.session.token' : null;
 
 interface SecureStoragePlugin {
   get(options: { key: string }): Promise<{ value: string | null }>;
@@ -57,6 +66,7 @@ export function hydrateMobileSession(): Promise<string | null> {
     try {
       const { value } = await plugin.get({ key: KEYCHAIN_KEY });
       cachedToken = value && typeof value === 'string' ? value : null;
+      if (!cachedToken && LEGACY_KEYCHAIN_KEY) cachedToken = await moveLegacyToken(plugin, LEGACY_KEYCHAIN_KEY);
     } catch {
       // A Keychain read failure is NOT a logout signal — it is a device-level
       // error. Leave whatever is cached in memory untouched.
@@ -64,6 +74,19 @@ export function hydrateMobileSession(): Promise<string | null> {
     return cachedToken;
   })();
   return hydration;
+}
+
+/** A token still under the old key: moved to KEYCHAIN_KEY (best effort) and returned. */
+async function moveLegacyToken(plugin: SecureStoragePlugin, legacyKey: string): Promise<string | null> {
+  const { value } = await plugin.get({ key: legacyKey });
+  if (!value || typeof value !== 'string') return null;
+  try {
+    await plugin.set({ key: KEYCHAIN_KEY, value });
+    await plugin.remove({ key: legacyKey });
+  } catch {
+    /* kept under the old key: read from there again next launch */
+  }
+  return value;
 }
 
 /** Synchronous read of the already-hydrated token (null on web). */
@@ -105,6 +128,7 @@ export async function clearMobileSessionToken(): Promise<void> {
   if (!plugin) return;
   try {
     await plugin.remove({ key: KEYCHAIN_KEY });
+    if (LEGACY_KEYCHAIN_KEY) await plugin.remove({ key: LEGACY_KEYCHAIN_KEY });
   } catch {
     /* best effort */
   }

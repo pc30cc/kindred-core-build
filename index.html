@@ -206,6 +206,7 @@
       html.light .wy-launch:has(> .wy-intl) { --wy-bg: #F5F5F8; }
       html.light .wy-intl-footer .wy-intl-light { display: block; }
       html.light .wy-intl-footer .wy-intl-dark { display: none; }
+      /* @iran-kit */
       /* The Iranian edition (WebYar, platform_settings.region_mode = 'iran';
          shared/webyarBrand.ts), once it is known: the brand kit's loader —
          the bubble whose three dots arrive one by one, right to left, and
@@ -236,17 +237,29 @@
       html.light .wy-launch:has(> .wy-kit-loader) { --wy-bg: #F4F6F8; }
       html.light .wy-kit-footer .wy-kit-light { display: block; }
       html.light .wy-kit-footer .wy-kit-dark { display: none; }
+      /* @end-iran-kit */
     </style>
   </head>
 
   <body>
+    <!-- @iran-kit -->
     <div id="boot-splash" class="wy-launch" role="status" aria-label="WEBYAR AI">
       <div class="wy-loader" aria-hidden="true">
+    <!-- @end-iran-kit -->
+    <!-- @respok-build
+    <div id="boot-splash" class="wy-launch" role="status">
+      <div class="wy-loader wy-intl" aria-hidden="true">
+    @end-respok-build -->
         <span class="wy-track"></span>
         <span class="wy-comet"></span>
         <span class="wy-inner"><svg viewBox="0 0 26 26"><circle cx="13" cy="13" r="12" fill="none" stroke="#2ed6ff" stroke-opacity="0.55" stroke-width="2" stroke-linecap="round" stroke-dasharray="16.59 100" transform="rotate(-90 13 13)" /></svg></span>
       </div>
+    <!-- @iran-kit -->
       <div class="wy-footer" aria-hidden="true"><span class="wy-name">WEBYAR</span><span class="wy-ai">AI</span></div>
+    <!-- @end-iran-kit -->
+    <!-- @respok-build
+      <div class="wy-footer wy-intl-footer" aria-hidden="true"><img class="wy-intl-light" src="/brand/intl/respok-thread-horizontal-color.svg" alt="" /><img class="wy-intl-dark" src="/brand/intl/respok-thread-horizontal-reversed.svg" alt="" /></div>
+    @end-respok-build -->
     </div>
     <script>
       // International mode (src/lib/internationalMode.ts): the edition last
@@ -261,6 +274,7 @@
       // means International (as cachedEdition() reads them).
       // Called again by the head script when a first visit's boot data
       // arrives after this point.
+      // @iran-kit
       // The Iranian edition (shared/webyarBrand.ts WEBYAR_BRAND; keep the
       // paths in step): the WebYar brand kit's loader, Persian logotype,
       // favicon, home-screen icon, Safari mask icon, theme colour and share
@@ -306,9 +320,11 @@
           head.appendChild(og);
         }
       }
+      // @end-iran-kit
       window.__wyApplySplash = function () {
         try {
           var ls = window.localStorage;
+          // @iran-kit
           var edition = ls.getItem('wy-edition');
           if (edition !== 'iran' && edition !== 'international') {
             if (ls.getItem('platform-region-mode') === 'iran') edition = 'iran';
@@ -318,6 +334,11 @@
           if (edition !== 'international') return;
           var splash = document.getElementById('boot-splash');
           if (!splash || splash.querySelector('.wy-loader.wy-intl')) return;
+          // @end-iran-kit
+          /* @respok-build
+          var splash = document.getElementById('boot-splash');
+          if (!splash) return;
+          @end-respok-build */
           // The platform's own name (src/lib/brand.ts cache), not WebYar's mark.
           var brand = null;
           try { brand = JSON.parse(ls.getItem('wy-brand') || 'null'); } catch (e2) {}
@@ -325,11 +346,13 @@
           var name = names.en || Object.keys(names).map(function (k) { return names[k]; })[0] || '';
           if (name) splash.setAttribute('aria-label', name);
           else splash.removeAttribute('aria-label');
+          // @iran-kit
           splash.querySelector('.wy-loader').className += ' wy-intl';
           var foot = splash.querySelector('.wy-footer');
           foot.className = 'wy-footer wy-intl-footer';
           foot.innerHTML = '<img class="wy-intl-light" src="/brand/intl/respok-thread-horizontal-color.svg" alt="" />' +
             '<img class="wy-intl-dark" src="/brand/intl/respok-thread-horizontal-reversed.svg" alt="" />';
+          // @end-iran-kit
           var icon = document.querySelector('link[rel="icon"]');
           if (icon) { icon.type = 'image/svg+xml'; icon.href = '/brand/intl/favicon.svg'; }
           var touch = document.querySelector('link[rel="apple-touch-icon"]');

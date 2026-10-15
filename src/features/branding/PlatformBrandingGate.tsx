@@ -14,6 +14,9 @@
  * favicon / PWA icon / colour from Super Admin → Branding still wins, in the
  * same order as before. Any other region mode, and an edition not known yet,
  * is unchanged.
+ *
+ * A build without the Iranian kit (shared/buildBrand.ts SHIPS_IRAN_KIT: the
+ * RESPOK build) has none of the kit's handling: nothing there wears it.
  */
 import React, { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -25,6 +28,7 @@ import { INTL_BRAND, useInternationalMode } from '@/lib/internationalMode';
 import { WEBYAR_BRAND, isUncustomisedColor, useWebyarKit } from '@/lib/webyarBrand';
 import { setPlatformBrand } from '@/lib/brand';
 import { resolveEdition } from '../../../shared/edition';
+import { SHIPS_IRAN_KIT } from '../../../shared/buildBrand';
 
 /** index.html's own favicon, put back when international mode ends. */
 const DEFAULT_FAVICON = '/favicon.png';
@@ -113,7 +117,7 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     // page that wore the kit's (boot script, or a language switch) gets
     // index.html's own back when there is no operator favicon.
     const existingIcon = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
-    if (webyarKit) {
+    if (SHIPS_IRAN_KIT && webyarKit) {
       // The Iranian edition: the operator's favicon, else the kit's.
       let link = existingIcon;
       if (!link) {
@@ -132,7 +136,7 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     const iconHref = international ? INTL_BRAND.appIcon : branding?.favicon_url;
     const woreIntlIcon = existingIcon?.getAttribute('type') === 'image/svg+xml' && existingIcon.href.includes(INTL_BRAND.appIcon);
     // A page that wore WebYar's kit (the edition changed) gets index.html's own back too.
-    const woreKitIcon = !!existingIcon?.href.includes(WEBYAR_BRAND.favicon);
+    const woreKitIcon = SHIPS_IRAN_KIT && !!existingIcon?.href.includes(WEBYAR_BRAND.favicon);
     if (!webyarKit && (iconHref || woreIntlIcon || woreKitIcon)) {
       let link = existingIcon;
       if (!link) {
@@ -198,7 +202,7 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
 
     // The Iranian edition's theme colour is the kit's deep turquoise unless the
     // operator chose one (the seeded #3B82F6 was never a choice).
-    const themeColor = webyarKit
+    const themeColor = SHIPS_IRAN_KIT && webyarKit
       ? (isUncustomisedColor(branding?.primary_color) ? WEBYAR_BRAND.themeColor : (branding?.primary_color as string))
       : (branding?.primary_color || '#3B82F6');
     setMeta('theme-color', pwaOn ? themeColor : null);
@@ -210,17 +214,17 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
       pwaOn
         ? (international
           ? INTL_BRAND.appleTouchIcon
-          : branding?.pwa_icon_url || branding?.favicon_url || (webyarKit ? WEBYAR_BRAND.appleTouchIcon : null))
+          : branding?.pwa_icon_url || branding?.favicon_url || (SHIPS_IRAN_KIT && webyarKit ? WEBYAR_BRAND.appleTouchIcon : null))
         : null,
     );
     // Safari's pinned-tab icon and the link-preview image: the Iranian
     // edition's only. Elsewhere they are removed only if they are the kit's
     // (left by index.html's boot script before the edition changed).
-    if (webyarKit) {
+    if (SHIPS_IRAN_KIT && webyarKit) {
       setLink('mask-icon', WEBYAR_BRAND.maskIcon);
       document.querySelector('link[rel="mask-icon"]')?.setAttribute('color', WEBYAR_BRAND.themeColor);
       setMeta('og:image', WEBYAR_BRAND.ogImage, 'property');
-    } else {
+    } else if (SHIPS_IRAN_KIT) {
       const mask = document.querySelector('link[rel="mask-icon"]') as HTMLLinkElement | null;
       if (mask?.href.includes(WEBYAR_BRAND.maskIcon)) mask.remove();
       const og = document.querySelector('meta[property="og:image"]');

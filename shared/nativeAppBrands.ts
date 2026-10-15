@@ -15,6 +15,7 @@
  * edition that has saved nothing yet starts from these defaults.
  */
 import type { Edition } from './edition.js';
+import { SHIPS_IRAN_KIT } from './buildBrand.js';
 
 export interface NativeAppBrand {
   /** The product's name in the apps. */
@@ -36,6 +37,13 @@ export interface NativeAppBrand {
   iosBundleId: string;
   /** The Xcode scheme that builds the iOS app (ios/Webyar). */
   iosScheme: string;
+  /**
+   * Where the Xcode project is generated (the one folder under ios/) and the
+   * project XcodeGen writes there. RESPOK's commands find both by shell glob,
+   * so its Super Admin never names the other brand's folder.
+   */
+  iosProjectDir: string;
+  iosXcodeProject: string;
   /** Super Admin → Mobile app → Android: the app's package (application id). */
   androidPackage: string;
   /**
@@ -48,40 +56,55 @@ export interface NativeAppBrand {
   androidReleaseFile: string;
 }
 
-export const NATIVE_APP_BRANDS: Readonly<Record<Edition, Readonly<NativeAppBrand>>> = {
-  iran: {
-    name: 'Webyar',
-    windowsFeedUrl: 'https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download',
-    macAppcastUrl: 'https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml',
-    windowsSetupFile: 'Webyar-Setup.exe',
-    windowsDownloadFile: 'Webyar-Windows.zip',
-    macDownloadFile: 'Webyar-Mac.zip',
-    iosBundleId: 'com.webyar.ai',
-    iosScheme: 'Webyar',
-    androidPackage: 'com.webyar.ai',
-    androidFlavor: 'webyar',
-    androidApkFile: 'Webyar-Android.apk',
-    androidReleaseFile: 'Webyar-Android.json',
-  },
-  international: {
-    name: 'RESPOK',
-    windowsFeedUrl: 'https://github.com/pc30cc/respok-releases/releases/latest/download',
-    macAppcastUrl: 'https://raw.githubusercontent.com/pc30cc/respok-releases/main/mac/appcast.xml',
-    windowsSetupFile: 'RESPOK-Setup.exe',
-    windowsDownloadFile: 'RESPOK-Windows.zip',
-    macDownloadFile: 'RESPOK-Mac.zip',
-    iosBundleId: 'com.respok.app',
-    iosScheme: 'Respok',
-    androidPackage: 'com.respok.app',
-    androidFlavor: 'respok',
-    androidApkFile: 'RESPOK-Android.apk',
-    androidReleaseFile: 'RESPOK-Android.json',
-  },
+/** The Iranian edition's apps: exactly the defaults it always had. */
+const IRAN_NATIVE_APP: Readonly<NativeAppBrand> = {
+  name: 'Webyar',
+  windowsFeedUrl: 'https://github.com/pc30cc/webyar-desktop-releases/releases/latest/download',
+  macAppcastUrl: 'https://raw.githubusercontent.com/pc30cc/mac-os/main/appcast.xml',
+  windowsSetupFile: 'Webyar-Setup.exe',
+  windowsDownloadFile: 'Webyar-Windows.zip',
+  macDownloadFile: 'Webyar-Mac.zip',
+  iosBundleId: 'com.webyar.ai',
+  iosScheme: 'Webyar',
+  iosProjectDir: 'ios/Webyar',
+  iosXcodeProject: 'Webyar.xcodeproj',
+  androidPackage: 'com.webyar.ai',
+  androidFlavor: 'webyar',
+  androidApkFile: 'Webyar-Android.apk',
+  androidReleaseFile: 'Webyar-Android.json',
 };
 
-/** The brand of an edition; an unknown edition (null) is Iran, as everywhere else. */
+const INTERNATIONAL_NATIVE_APP: Readonly<NativeAppBrand> = {
+  name: 'RESPOK',
+  windowsFeedUrl: 'https://github.com/pc30cc/respok-releases/releases/latest/download',
+  macAppcastUrl: 'https://raw.githubusercontent.com/pc30cc/respok-releases/main/mac/appcast.xml',
+  windowsSetupFile: 'RESPOK-Setup.exe',
+  windowsDownloadFile: 'RESPOK-Windows.zip',
+  macDownloadFile: 'RESPOK-Mac.zip',
+  iosBundleId: 'com.respok.app',
+  iosScheme: 'Respok',
+  iosProjectDir: 'ios/*',
+  iosXcodeProject: '*.xcodeproj',
+  androidPackage: 'com.respok.app',
+  androidFlavor: 'respok',
+  androidApkFile: 'RESPOK-Android.apk',
+  androidReleaseFile: 'RESPOK-Android.json',
+};
+
+/** Both editions' apps (the server's defaults). The browser reads them through nativeAppBrand(). */
+export const NATIVE_APP_BRANDS: Readonly<Record<Edition, Readonly<NativeAppBrand>>> = {
+  iran: IRAN_NATIVE_APP,
+  international: INTERNATIONAL_NATIVE_APP,
+};
+
+/**
+ * The brand of an edition; an unknown edition (null) is Iran, as everywhere
+ * else. A build without the Iranian kit (shared/buildBrand.ts: RESPOK's) only
+ * ever has the International apps, so the Iranian values leave its bundle.
+ */
 export function nativeAppBrand(edition: Edition | null | undefined): Readonly<NativeAppBrand> {
-  return NATIVE_APP_BRANDS[edition === 'international' ? 'international' : 'iran'];
+  if (SHIPS_IRAN_KIT && edition !== 'international') return IRAN_NATIVE_APP;
+  return INTERNATIONAL_NATIVE_APP;
 }
 
 /**

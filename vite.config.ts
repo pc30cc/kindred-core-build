@@ -7,7 +7,8 @@ import { createHash } from "crypto";
 import { componentTagger } from "lovable-tagger";
 import { vendorChunk } from "./scripts/build/vendorChunks.mjs";
 import { precompressFiles } from "./scripts/build/precompress.mjs";
-import { resolveBuildBrand } from "./scripts/build/brand.mjs";
+import { IRAN_BRAND_PATTERNS, resolveBuildBrand } from "./scripts/build/brand.mjs";
+import { brandIndexHtml } from "./scripts/build/brandIndexHtml.mjs";
 
 /**
  * Generates dist/sw.js (the PWA service worker) from
@@ -172,6 +173,9 @@ function precompress(): Plugin {
  * folder, its Android download and its edition of the commerce plugins
  * (scripts/build/pluginEdition.mjs). Everything else Iran-only is left out of
  * the bundle by the build-brand constants (shared/buildBrand.ts).
+ *
+ * The site-wide icons at the root (/favicon.png, /apple-touch-icon.png: the
+ * Iranian kit's) are RESPOK's own in its build (public/brand/intl/).
  */
 const IRAN_CODE = ["web", "yar"].join("");
 const IRAN_ONLY_PUBLIC = [
@@ -194,6 +198,10 @@ const INTL_ONLY_PUBLIC = [
   ["downloads", "opencart", "respok-manifest.json"],
   ["downloads", "opencart", "respok-manifest.json.sig"],
 ];
+const RESPOK_ROOT_ICONS: Array<[string, string]> = [
+  ["favicon.png", "public/brand/intl/android-chrome-192x192.png"],
+  ["apple-touch-icon.png", "public/brand/intl/apple-touch-icon.png"],
+];
 
 function brandPublicFiles(brand: string): Plugin {
   return {
@@ -205,6 +213,50 @@ function brandPublicFiles(brand: string): Plugin {
       for (const parts of leaveOut) {
         fs.rmSync(path.join(outDir, ...parts), { recursive: true, force: true });
       }
+      if (brand !== "respok") return;
+      for (const [target, source] of RESPOK_ROOT_ICONS) {
+        fs.copyFileSync(path.resolve(__dirname, source), path.join(outDir, target));
+      }
+    },
+  };
+}
+
+/**
+ * The Iranian kit's own images in src/assets (named for its brand, as
+ * scripts/build/brandAudit.mjs finds them) are not built into the RESPOK
+ * bundle: an import of one resolves to an empty URL there. Its code only
+ * reads them behind SHIPS_IRAN_KIT, but Vite emits an imported image even
+ * when the code that uses it is left out.
+ */
+const IRAN_ONLY_ASSET = "\0iran-only-asset";
+
+function iranOnlyAssets(brand: string): Plugin {
+  const assetsDir = path.resolve(__dirname, "src/assets") + path.sep;
+  return {
+    name: "iran-only-assets",
+    enforce: "pre",
+    apply: "build",
+    resolveId(source, importer) {
+      if (brand !== "respok") return null;
+      const file = source.startsWith("@/")
+        ? path.resolve(__dirname, "src", source.slice(2))
+        : path.isAbsolute(source) ? source : importer ? path.resolve(path.dirname(importer), source) : source;
+      const rel = file.startsWith(assetsDir) ? file.slice(assetsDir.length) : null;
+      return rel && IRAN_BRAND_PATTERNS.some((re: RegExp) => re.test(rel)) ? IRAN_ONLY_ASSET : null;
+    },
+    load(id) {
+      return id === IRAN_ONLY_ASSET ? 'export default "";' : null;
+    },
+  };
+}
+
+/** index.html per build brand: scripts/build/brandIndexHtml.mjs. */
+function brandIndexHtmlPlugin(brand: string): Plugin {
+  return {
+    name: "brand-index-html",
+    transformIndexHtml: {
+      order: "pre",
+      handler: (html) => brandIndexHtml(html, brand),
     },
   };
 }
@@ -287,6 +339,8 @@ export default defineConfig(({ mode }) => {
       react(),
       pwaBuild(),
       brandPublicFiles(brand),
+      brandIndexHtmlPlugin(brand),
+      iranOnlyAssets(brand),
       bootHints(),
       precompress(),
       mode === "development" && componentTagger(),

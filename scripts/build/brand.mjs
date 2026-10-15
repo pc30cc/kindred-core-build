@@ -16,6 +16,17 @@
 
 /** @typedef {'respok' | 'iran' | 'both'} BuildBrand */
 
+/**
+ * The Iran region's brand in text (scripts/build/brandAudit.mjs): the Latin
+ * name, any case and spacing; the Persian name with ZWNJ, space or none (raw
+ * and escaped).
+ */
+export const IRAN_BRAND_PATTERNS = [
+  /w\s*e\s*b[\s._-]*y\s*a\s*r/i,
+  /وب[‌​\s]?یار/,
+  /\\u0648\\u0628(?:\\u200c|\\u200C|\\u200b| )?\\u06cc\\u0627\\u0631/i,
+];
+
 const VALID = new Set(['respok', 'iran', 'both']);
 
 /**

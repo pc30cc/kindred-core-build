@@ -7,6 +7,7 @@ import { createHash } from "crypto";
 import { componentTagger } from "lovable-tagger";
 import { vendorChunk } from "./scripts/build/vendorChunks.mjs";
 import { precompressFiles } from "./scripts/build/precompress.mjs";
+import { resolveBuildBrand } from "./scripts/build/brand.mjs";
 
 /**
  * Generates dist/sw.js (the PWA service worker) from
@@ -166,9 +167,33 @@ function precompress(): Plugin {
   };
 }
 
+/**
+ * The RESPOK build leaves out the Iran region's static files: its brand
+ * folder and its Android download. Everything else Iran-only is left out of
+ * the bundle by the build-brand constants (shared/buildBrand.ts).
+ */
+const IRAN_ONLY_PUBLIC = [["brand", ["web", "yar"].join("")], ["downloads", `${["Web", "yar"].join("")}-Android.apk`], ["downloads", `${["Web", "yar"].join("")}-Android.json`]];
+
+function brandPublicFiles(brand: string): Plugin {
+  return {
+    name: "brand-public-files",
+    apply: "build",
+    async writeBundle(options) {
+      if (brand !== "respok") return;
+      const outDir = options.dir ?? path.resolve(__dirname, "dist");
+      for (const parts of IRAN_ONLY_PUBLIC) {
+        fs.rmSync(path.join(outDir, ...parts), { recursive: true, force: true });
+      }
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  // respok | iran | both (scripts/build/brand.mjs): from VITE_BRAND, else the
+  // deployment's API origin; `both` for dev and anything unknown.
+  const brand = resolveBuildBrand({ ...env, ...process.env });
   // Preview/dev only: when VITE_API_BASE_URL is empty (same-origin build),
   // there is no local Express to answer /api, so login 404s inside the
   // Lovable preview while the deployed site works through nginx. Fall back
@@ -231,9 +256,16 @@ export default defineConfig(({ mode }) => {
         : {}),
 
     },
+    // shared/buildBrand.ts: literals, so Iran-only branches leave the RESPOK bundle.
+    define: {
+      "globalThis.__BUILD_BRAND__": JSON.stringify(brand),
+      "globalThis.__SHIPS_IRAN_KIT__": JSON.stringify(brand !== "respok"),
+      "globalThis.__SHIPS_INTL_KIT__": JSON.stringify(brand !== "iran"),
+    },
     plugins: [
       react(),
       pwaBuild(),
+      brandPublicFiles(brand),
       bootHints(),
       precompress(),
       mode === "development" && componentTagger(),

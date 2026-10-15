@@ -13,11 +13,8 @@
  * everything is shipped (`both`), as before.
  */
 declare global {
-  // eslint-disable-next-line no-var
   var __BUILD_BRAND__: 'respok' | 'iran' | 'both' | undefined;
-  // eslint-disable-next-line no-var
   var __SHIPS_IRAN_KIT__: boolean | undefined;
-  // eslint-disable-next-line no-var
   var __SHIPS_INTL_KIT__: boolean | undefined;
 }
 

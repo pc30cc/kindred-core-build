@@ -25,7 +25,7 @@ import { Loader2, RefreshCw, Download, CheckCircle2, XCircle } from 'lucide-reac
 import { COMMERCE_PLUGIN_DOWNLOADS } from './pluginDownloads';
 
 /** This build's edition of the extension (./pluginDownloads.ts). */
-export const OPENCART_MANIFEST_PATH = COMMERCE_PLUGIN_DOWNLOADS.openCartManifest;
+const OPENCART_MANIFEST_PATH = COMMERCE_PLUGIN_DOWNLOADS.openCartManifest;
 
 /** Fallback when the manifest cannot be read; kept in step with the build script. */
 const DEFAULT_PACKAGES: OpenCartPackage[] = COMMERCE_PLUGIN_DOWNLOADS.openCartPackages;

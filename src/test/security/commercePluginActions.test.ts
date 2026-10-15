@@ -20,7 +20,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
 const db: Record<string, Row[]> = {};
 
 function fakeClient() {
@@ -30,12 +30,13 @@ function fakeClient() {
       const filters: Array<(r: Row) => boolean> = [];
       let projection: string[] | null = null;
       const project = (r: Row) => (projection ? Object.fromEntries(projection.map((c) => [c, r[c]])) : r);
-      const builder: any = {
+      // A chainable stand-in for the Supabase query builder: every method returns it.
+      const builder: Record<string, unknown> = {
         select(cols?: string) {
           if (cols && cols !== '*') projection = cols.split(',').map((c) => c.trim());
           return builder;
         },
-        eq(col: string, val: any) { filters.push((r: Row) => r[col] === val); return builder; },
+        eq(col: string, val: unknown) { filters.push((r: Row) => r[col] === val); return builder; },
         in: () => builder,
         update: () => builder,
         delete: () => builder,
@@ -50,7 +51,7 @@ function fakeClient() {
           const m = rows.filter((r) => filters.every((f) => f(r)));
           return { data: m[0] ? project(m[0]) : null, error: null };
         },
-        then(resolve: any) {
+        then<T>(resolve: (value: { data: Row[]; error: null; count: number }) => T) {
           const m = rows.filter((r) => filters.every((f) => f(r))).map(project);
           return resolve({ data: m, error: null, count: m.length });
         },
@@ -85,7 +86,7 @@ vi.mock('../../../server/services/commerce/lifecycle.js', () => ({
 // The real verifier writes nonces through the service client; the fake above
 // returns "no row", which is exactly "nonce unseen".
 vi.mock('../../../server/services/commerce/signing.js', async (orig) => {
-  const real = await (orig() as Promise<any>);
+  const real = await (orig() as Promise<Record<string, unknown>>);
   return { ...real };
 });
 
@@ -93,12 +94,12 @@ const { commercePluginActionsRouter } = await import('../../../server/routes/com
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
+  (req as express.Request & { serverConfig?: unknown }).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
   next();
 });
 app.use('/api/commerce/connection', commercePluginActionsRouter);
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as import('node:net').AddressInfo).port;
 
 function sign(secret: string, canonicalPath: string, body = '') {
   const ts = String(Math.floor(Date.now() / 1000));

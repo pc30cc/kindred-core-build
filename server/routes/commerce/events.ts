@@ -13,6 +13,7 @@ import { verifyIncomingSignature, MAX_BODY_BYTES } from '../../services/commerce
 import { readInstallationSecret } from '../../services/commerce/credentials.js';
 import { ingestCommerceEvent } from '../../services/commerce/events.js';
 import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
+import { installationHeader, readSignedRequestHeaders } from '../../services/commerce/pluginDialect.js';
 
 export const commerceEventsRouter = Router();
 
@@ -29,7 +30,7 @@ const eventIngestLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const installation = req.header('X-WebYar-Installation');
+    const installation = installationHeader((name) => req.header(name));
     if (installation) return `installation:${installation}`;
     return `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
   },
@@ -52,15 +53,14 @@ const eventSchema = z.object({
 
 commerceEventsRouter.post('/', raw({ type: 'application/json', limit: '256kb' }), eventIngestLimiter, async (req, res) => {
   const config = serverConfigOf(req);
-  const installationId = req.header('X-WebYar-Installation');
-  const timestamp = req.header('X-WebYar-Timestamp');
-  const nonce = req.header('X-WebYar-Nonce');
-  const signature = req.header('X-WebYar-Signature');
-  const protocolVersion = req.header('X-WebYar-Protocol');
+  // Either plugin dialect (pluginDialect.ts): the Iran packages' X-WebYar-*
+  // or the International packages' X-Platform-* headers, never mixed.
+  const { dialect, installationId, timestamp, nonce, signature, protocolVersion } = readSignedRequestHeaders((name) => req.header(name));
 
   if (!installationId || !timestamp || !nonce || !signature || !protocolVersion) {
     return res.status(400).json({ error: 'missing_signature_headers' });
   }
+  if (protocolVersion !== dialect.protocol) return res.status(400).json({ error: 'protocol_mismatch' });
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: 'empty_body' });
   if (req.body.length > MAX_BODY_BYTES) return res.status(413).json({ error: 'body_too_large' });
 
@@ -93,7 +93,8 @@ commerceEventsRouter.post('/', raw({ type: 'application/json', limit: '256kb' })
   }
   const parsed = eventSchema.safeParse(parsedBody);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_event_shape' });
-  if (parsed.data.protocol_version !== COMMERCE_PROTOCOL_VERSION) {
+  // The body names the same protocol the signed header did.
+  if (parsed.data.protocol_version !== protocolVersion) {
     return res.status(400).json({ error: 'protocol_mismatch' });
   }
 

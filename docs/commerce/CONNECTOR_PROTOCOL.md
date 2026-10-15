@@ -222,3 +222,28 @@ on every gated tool call and a health-screen warning; a protocol mismatch
 the `webyar-commerce/1` window, additive-only response fields are the
 compatibility rule — no field is ever removed or repurposed without a
 protocol version bump.
+
+## Two dialects: Iran and International packages
+
+The plugins are packaged twice from the same sources
+(`scripts/build/pluginEdition.mjs`): the Iran region's packages, exactly as
+installed shops run them, and the International (RESPOK) packages, renamed
+by a deterministic rewrite. The protocol is the same; only names differ
+(`server/services/commerce/pluginDialect.ts`):
+
+| | Iran (legacy) | International (neutral) |
+|---|---|---|
+| Headers | `X-WebYar-Installation/Timestamp/Nonce/Signature/Protocol/Correlation` | `X-Platform-…` (same suffixes) |
+| Protocol (first line of the string-to-sign) | `webyar-commerce/1` | `platform-commerce/1` |
+| Identity assertion audience | `webyar-widget` | `platform-widget` |
+| WHMCS signed path | `/webyar/whmcs/v1` | `/platform/whmcs/v1` |
+| Module code | `webyar`: `/wp-json/webyar/v1`, `modules/addons/webyar/api.php`, OpenCart `extension/webyar/module/webyar.api` | `respok`: `/wp-json/respok/v1`, `modules/addons/respok/api.php`, `extension/respok/module/respok.api` |
+| Packages | `webyar-woocommerce.zip`, `webyar-whmcs.zip`, `opencart/4.1/webyar.ocmod.zip`, `opencart/3.0/webyar-oc3.ocmod.zip`, `opencart/manifest.json` | `respok-woocommerce.zip`, `respok-whmcs.zip`, `opencart/4.1/respok.ocmod.zip`, `opencart/3.0/respok-oc3.ocmod.zip`, `opencart/respok-manifest.json` |
+
+Every deployment accepts both. Inbound, the headers are read in the
+dialect whose `*-Protocol`/`*-Installation` header is present (never mixed)
+and the protocol must be that dialect's. Outbound, a store is called in the
+dialect its connection recorded (`commerce_connections.protocol_version`):
+set at pairing from the module code in the plugin's callback URL, then from
+the protocol the store reports in its handshake. An unknown value is the
+legacy dialect. Each build of the web app offers only its brand's packages.

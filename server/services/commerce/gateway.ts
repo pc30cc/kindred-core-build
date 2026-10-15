@@ -214,6 +214,7 @@ export async function withCommerceConnector<T>(
       secret,
       externalStoreId: connection.external_store_id ?? null,
       platformVersion: connection.platform_version ?? null,
+      protocolVersion: connection.protocol_version ?? null,
     });
 
     const ctx: CommerceConnectorContext = {

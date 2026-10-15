@@ -36,6 +36,11 @@ export interface ConnectionTransport {
   externalStoreId?: string | null;
   /** OpenCart: the platform version, which picks the route shape (3.0 vs 4.1). */
   platformVersion?: string | null;
+  /**
+   * The connection's protocol version (`commerce_connections.protocol_version`):
+   * which plugin dialect the store speaks (../pluginDialect.ts). Legacy when absent.
+   */
+  protocolVersion?: string | null;
 }
 
 export interface HandshakeResult {
@@ -165,11 +170,12 @@ function openCartConnector(transport: ConnectionTransport): OpenCartConnector {
     installationId: transport.installationId,
     secret: transport.secret,
     platformVersion: transport.platformVersion ?? null,
+    protocolVersion: transport.protocolVersion ?? null,
   });
 }
 
 function toWooTransport(transport: ConnectionTransport | WooCommerceTransport): WooCommerceTransport {
-  return { origin: transport.origin, installationId: transport.installationId, secret: transport.secret };
+  return { origin: transport.origin, installationId: transport.installationId, secret: transport.secret, protocolVersion: transport.protocolVersion ?? null };
 }
 
 /**

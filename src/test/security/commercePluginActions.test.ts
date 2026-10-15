@@ -114,6 +114,21 @@ function sign(secret: string, canonicalPath: string, body = '') {
   };
 }
 
+/** The International (RESPOK) packages' dialect: X-Platform-* and platform-commerce/1. */
+function signNeutral(secret: string, canonicalPath: string, protocol = 'platform-commerce/1', installation = 'inst-a') {
+  const ts = String(Math.floor(Date.now() / 1000));
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const sts = [protocol, 'POST', canonicalPath, installation, ts, nonce, crypto.createHash('sha256').update('').digest('hex')].join('\n');
+  return {
+    'X-Platform-Installation': installation,
+    'X-Platform-Timestamp': ts,
+    'X-Platform-Nonce': nonce,
+    'X-Platform-Signature': crypto.createHmac('sha256', secret).update(sts).digest('hex'),
+    'X-Platform-Protocol': protocol,
+    'Content-Type': 'application/json',
+  };
+}
+
 async function post(path: string, headers: Record<string, string>) {
   const res = await fetch(`http://127.0.0.1:${port()}${path}`, { method: 'POST', headers });
   return { status: res.status, body: await res.json().catch(() => null) };
@@ -194,4 +209,32 @@ describe('plugin-triggered connection actions', () => {
     await post('/api/commerce/connection/sync', sign(SECRET_A, '/api/commerce/connection/sync'));
     expect(syncs.every((s) => s.connectionId === 'conn-a' && s.workspaceId === 'ws-a')).toBe(true);
   });
+});
+
+describe('plugin-triggered connection actions — both plugin dialects', () => {
+  it('accepts the International packages’ X-Platform-* headers and platform-commerce/1', async () => {
+    const r = await post('/api/commerce/connection/sync', signNeutral(SECRET_A, '/api/commerce/connection/sync'));
+    expect(r.status).toBe(200);
+    expect(syncs).toEqual([{ workspaceId: 'ws-a', connectionId: 'conn-a' }]);
+  });
+
+  it('refuses neutral headers that carry the other dialect’s protocol', async () => {
+    const r = await post('/api/commerce/connection/sync', signNeutral(SECRET_A, '/api/commerce/connection/sync', COMMERCE_PROTOCOL_VERSION, 'inst-x'));
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('protocol_mismatch');
+    expect(syncs).toHaveLength(0);
+  });
+
+  it('never mixes the two header sets', async () => {
+    const legacy = sign(SECRET_A, '/api/commerce/connection/sync');
+    const neutral = signNeutral(SECRET_A, '/api/commerce/connection/sync', 'platform-commerce/1', 'inst-y');
+    // Legacy protocol header with the neutral signature: read as legacy, so
+    // the legacy signature headers are missing.
+    const mixed = { 'X-WebYar-Protocol': legacy['X-WebYar-Protocol'], ...Object.fromEntries(Object.entries(neutral).filter(([k]) => k !== 'X-Platform-Protocol')) };
+    const r = await post('/api/commerce/connection/sync', mixed);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('missing_signature_headers');
+    expect(syncs).toHaveLength(0);
+  });
+
 });

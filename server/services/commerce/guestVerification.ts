@@ -53,7 +53,7 @@ export async function startGuestOrderVerification(config: ServerConfig, input: S
   if (getProviderDescriptor(connection.provider_type)?.family !== 'store') {
     throw new CommerceError('commerce_permission_denied', 'guest order verification is not available for this connection');
   }
-  const connector = resolveConnector(connection.provider_type, { origin: connection.approved_origin, installationId: connection.installation_id, secret });
+  const connector = resolveConnector(connection.provider_type, { origin: connection.approved_origin, installationId: connection.installation_id, secret, protocolVersion: connection.protocol_version ?? null });
   const ctx: CommerceConnectorContext = {
     workspaceId: input.workspaceId, connectionId: connection.id, installationId: connection.installation_id,
     capabilities: connection.capabilities as CommerceConnectorContext['capabilities'], correlationId: `guest-verify-${input.externalOrderId}`, deadlineAt: Date.now() + 8000,

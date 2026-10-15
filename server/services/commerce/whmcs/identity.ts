@@ -30,6 +30,7 @@ import { WHMCS_ASSERTION_PREFIX, WHMCS_PROVIDER, type WhmcsGrantRef } from '../.
 import { readInstallationSecret } from '../credentials.js';
 import { syncWhmcsContact } from './contact.js';
 import { publishOperatorEvent } from '../../realtime/publish.js';
+import { LEGACY_DIALECT, NEUTRAL_DIALECT } from '../pluginDialect.js';
 
 /** Longest an assertion may claim to live (exp - iat). */
 export const ASSERTION_MAX_TTL_S = 600;
@@ -54,7 +55,8 @@ const payloadSchema = z.object({
   typ: z.literal('whmcs.identity'),
   iss: z.string().uuid(),
   wid: z.string().uuid(),
-  aud: z.literal('webyar-widget'),
+  // Either plugin dialect's audience (../pluginDialect.ts).
+  aud: z.enum([LEGACY_DIALECT.identityAudience, NEUTRAL_DIALECT.identityAudience] as [string, string]),
   iat: z.number().int().positive(),
   exp: z.number().int().positive(),
   jti: z.string().min(16).max(64).regex(HEX),

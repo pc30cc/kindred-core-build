@@ -30,8 +30,8 @@ const CONFIG = {} as ServerConfig;
 const verifier = 'v'.repeat(64);
 const challenge = createHash('sha256').update(verifier).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-async function pair(state: string, storeId: string, storeUrl: string, permissions: Record<string, boolean>) {
-  await registerPairingRequest(CONFIG, { state, codeChallenge: challenge, redirectUri: `${storeUrl}index.php?route=x`, storeOrigin: 'https://shop.example', provider: 'opencart', externalStoreId: storeId, storeBaseUrl: storeUrl, platformVersion: '4.1.0.4' });
+async function pair(state: string, storeId: string, storeUrl: string, permissions: Record<string, boolean>, route = 'x') {
+  await registerPairingRequest(CONFIG, { state, codeChallenge: challenge, redirectUri: `${storeUrl}index.php?route=${route}`, storeOrigin: 'https://shop.example', provider: 'opencart', externalStoreId: storeId, storeBaseUrl: storeUrl, platformVersion: '4.1.0.4' });
   const { redirectUrl } = await approvePairingRequest(CONFIG, { state, workspaceId: 'ws', userId: 'u', permissions });
   const code = new URL(redirectUrl).searchParams.get('code') as string;
   return exchangePairingCode(CONFIG, { state, code, codeVerifier: verifier });
@@ -69,6 +69,25 @@ describe('exchange', () => {
     expect(installs.map((i) => i.instanceKey)).toHaveLength(2);
     expect(new Set(installs.map((i) => i.instanceKey)).size).toBe(2);
     expect(fake.db.commerce_connections).toHaveLength(2);
+  });
+});
+
+describe('which build of the extension is pairing', () => {
+  it('the International (RESPOK) extension gets the neutral protocol, recorded and answered', async () => {
+    const r = await pair('d'.repeat(20), '0', 'https://shop.example/', { products: true }, 'extension/respok/module/respok.callback');
+    expect(r.protocolVersion).toBe('platform-commerce/1');
+    expect(fake.db.commerce_connections[0].protocol_version).toBe('platform-commerce/1');
+  });
+
+  it('the Iran extension (every store paired so far) keeps its protocol', async () => {
+    const r = await pair('e'.repeat(20), '0', 'https://shop.example/', { products: true }, 'extension/webyar/module/webyar.callback');
+    expect(r.protocolVersion).toBe('webyar-commerce/1');
+    expect(fake.db.commerce_connections[0].protocol_version).toBe('webyar-commerce/1');
+  });
+
+  it('a callback naming the Iran module stays legacy whatever else it carries', async () => {
+    const r = await pair('f'.repeat(20), '0', 'https://shop.example/', { products: true }, 'extension/webyar/module/webyar.callback&from=respok');
+    expect(r.protocolVersion).toBe('webyar-commerce/1');
   });
 });
 

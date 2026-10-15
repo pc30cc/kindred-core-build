@@ -24,7 +24,7 @@ import { enqueueSyncJob } from '../../services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../services/commerce/pairing.js';
 import { disconnectConnection } from '../../services/commerce/lifecycle.js';
 import { providerProfile } from '../../services/commerce/providers.js';
-import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
+import { installationHeader, readSignedRequestHeaders } from '../../services/commerce/pluginDialect.js';
 
 export const commercePluginActionsRouter = Router();
 
@@ -43,7 +43,7 @@ const actionLimiter = rateLimit({
   // ipKeyGenerator so an IPv6 caller is bucketed by prefix — keying on the
   // raw address would let one client rotate freely inside its own /64 and
   // never hit the limit.
-  keyGenerator: (req) => req.header('X-WebYar-Installation') || ipKeyGenerator(req.ip ?? ''),
+  keyGenerator: (req) => installationHeader((name) => req.header(name)) || ipKeyGenerator(req.ip ?? ''),
 });
 
 type Resolved = { installationId: string; connectionId: string; workspaceId: string; providerType: string };
@@ -54,17 +54,16 @@ type Resolved = { installationId: string; connectionId: string; workspaceId: str
  */
 async function authenticate(req: Request, res: Response, canonicalPath: string): Promise<Resolved | null> {
   const config = serverConfigOf(req);
-  const installationId = req.header('X-WebYar-Installation');
-  const timestamp = req.header('X-WebYar-Timestamp');
-  const nonce = req.header('X-WebYar-Nonce');
-  const signature = req.header('X-WebYar-Signature');
-  const protocolVersion = req.header('X-WebYar-Protocol');
+  // Either plugin dialect (pluginDialect.ts), never mixed.
+  const { dialect, installationId, timestamp, nonce, signature, protocolVersion } = readSignedRequestHeaders((name) => req.header(name));
 
   if (!installationId || !timestamp || !nonce || !signature || !protocolVersion) {
     res.status(400).json({ error: 'missing_signature_headers' });
     return null;
   }
-  if (protocolVersion !== COMMERCE_PROTOCOL_VERSION) {
+  // The protocol of the dialect whose headers carried it: X-Platform-* names
+  // platform-commerce/1, X-WebYar-* names the Iran packages' protocol.
+  if (protocolVersion !== dialect.protocol) {
     res.status(400).json({ error: 'protocol_mismatch' });
     return null;
   }

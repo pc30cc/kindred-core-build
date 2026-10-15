@@ -53,6 +53,7 @@ import {
 } from '../../../../shared/commerce/types.js';
 import { commerceHttpRequest } from '../httpClient.js';
 import { buildSignedHeaders } from '../signing.js';
+import { dialectForProtocol, headerName, LEGACY_DIALECT, type PluginDialect } from '../pluginDialect.js';
 import { sanitizeCommerceText, boundedArray } from '../sanitize.js';
 
 export interface OpenCartTransport {
@@ -66,6 +67,8 @@ export interface OpenCartTransport {
   secret: string;
   /** OpenCart version from the handshake; selects the 3.0 vs 4.1 route. */
   platformVersion: string | null;
+  /** The connection's protocol version: picks the extension dialect (../pluginDialect.ts). Legacy when absent. */
+  protocolVersion?: string | null;
 }
 
 export const OPENCART_MAX_PAGE_SIZE = 10;
@@ -105,8 +108,14 @@ export function claimUpdateNudge(installationId: string, now = Date.now()): bool
   return true;
 }
 
-export function openCartApiRoute(platformVersion: string | null): string {
-  return /^3\./.test(String(platformVersion ?? '')) ? 'extension/module/webyar/api' : 'extension/webyar/module/webyar.api';
+/**
+ * The extension's signed route. The extension code (`webyar`, or `respok` for
+ * the International build; ../pluginDialect.ts) is the folder and, on 4.1,
+ * the namespace OpenCart derived from the package's file name.
+ */
+export function openCartApiRoute(platformVersion: string | null, dialect: Readonly<PluginDialect> = LEGACY_DIALECT): string {
+  const code = dialect.moduleCode;
+  return /^3\./.test(String(platformVersion ?? '')) ? `extension/module/${code}/api` : `extension/${code}/module/${code}.api`;
 }
 
 /** Store error code → the platform's safe taxonomy. */
@@ -172,15 +181,16 @@ export class OpenCartConnector implements DirectCommerceConnector {
     });
     const signedPath = `/opencart/v1/${op}`;
     const base = this.transport.storeUrl.endsWith('/') ? this.transport.storeUrl : `${this.transport.storeUrl}/`;
-    const url = `${base}index.php?route=${openCartApiRoute(this.transport.platformVersion)}&op=${encodeURIComponent(op)}&store_id=${encodeURIComponent(this.transport.externalStoreId)}`;
+    const dialect = dialectForProtocol(this.transport.protocolVersion);
+    const url = `${base}index.php?route=${openCartApiRoute(this.transport.platformVersion, dialect)}&op=${encodeURIComponent(op)}&store_id=${encodeURIComponent(this.transport.externalStoreId)}`;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const remaining = ctx.deadlineAt - Date.now();
       if (remaining <= 0) throw new CommerceError('commerce_timeout', 'commerce deadline exceeded');
 
       // A fresh nonce every attempt: the store keeps each accepted one.
-      const headers = buildSignedHeaders(this.transport.secret, this.transport.installationId, 'POST', signedPath, payload);
-      headers['X-WebYar-Correlation'] = ctx.correlationId;
+      const headers = buildSignedHeaders(this.transport.secret, this.transport.installationId, 'POST', signedPath, payload, dialect);
+      headers[headerName(dialect, 'Correlation')] = ctx.correlationId;
 
       let res;
       try {

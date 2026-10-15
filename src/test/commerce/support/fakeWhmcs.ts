@@ -11,7 +11,9 @@
 import { computeSignature, sha256Hex } from '../../../../server/services/commerce/signing.js';
 import type { CommerceHttpRequest, CommerceHttpResponse } from '../../../../server/services/commerce/httpClient.js';
 import { CommerceError } from '../../../../shared/commerce/types.js';
-import { WHMCS_API_CANONICAL_PATH } from '../../../../shared/commerce/whmcs.js';
+import { LEGACY_DIALECT } from '../../../../server/services/commerce/pluginDialect.js';
+
+const WHMCS_API_CANONICAL_PATH = LEGACY_DIALECT.whmcsCanonicalPath;
 
 export const BASE = 'https://billing.example.com/whmcs';
 export const ORIGIN = 'https://billing.example.com';

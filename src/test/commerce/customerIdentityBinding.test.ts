@@ -205,6 +205,11 @@ describe('what still has to be true about the assertion', () => {
       .rejects.toMatchObject({ code: 'identity_expired' });
   });
 
+  it('accepts the International plugin’s neutral audience (platform-widget)', async () => {
+    const result = await bind(null, assertion({ audience: 'platform-widget' }));
+    expect(result.externalCustomerId).toBe('2');
+  });
+
   it('rejects one minted for another audience', async () => {
     await expect(bind(null, assertion({ audience: 'something-else' })))
       .rejects.toMatchObject({ code: 'identity_expired' });

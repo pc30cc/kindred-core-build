@@ -302,6 +302,7 @@ async function liveCall(
       baseUrl: linkScopeOf(ctx.connection).baseUrl,
       installationId: ctx.connection.installation_id,
       secret: ctx.secret,
+      protocolVersion: ctx.connection.protocol_version ?? null,
     };
     const connector = ctx.connectorFactory ? ctx.connectorFactory(transport) : new WhmcsConnector(transport);
     ctx.metrics.httpCalls += 1;

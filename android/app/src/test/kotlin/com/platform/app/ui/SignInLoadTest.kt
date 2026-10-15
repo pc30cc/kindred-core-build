@@ -1,6 +1,7 @@
 package com.platform.app.ui
 
 import android.content.Context
+import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import com.platform.app.core.model.Entitlements
 import com.platform.app.core.model.EntitlementsState
@@ -59,13 +60,32 @@ class SignInLoadTest {
 
     private val dispatcher = StandardTestDispatcher()
 
+    private val apps = mutableListOf<AppState>()
+
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
-    @After fun tearDown() = Dispatchers.resetMain()
+
+    /**
+     * Each app's own work (the launch's restore, its saves) reads and writes
+     * DataStore on threads this scheduler does not see, then comes back to
+     * Main. Left running, it comes back while `resetMain` (or the next test's
+     * `setMain`) swaps Main: "Dispatchers.Main is used concurrently with
+     * setting it". So it is cancelled, and let finish, first.
+     */
+    @After fun tearDown() {
+        val jobs = apps.mapNotNull { it.viewModelScope.coroutineContext[Job] }
+        jobs.forEach { it.cancel() }
+        val deadline = System.currentTimeMillis() + 10_000
+        while (jobs.any { !it.isCompleted } && System.currentTimeMillis() < deadline) {
+            dispatcher.scheduler.advanceUntilIdle()
+            Thread.sleep(5)
+        }
+        Dispatchers.resetMain()
+    }
 
     private fun state(api: ServerApi): AppState {
         val context: Context = ApplicationProvider.getApplicationContext()
         val store = SecureStore(context)
-        return AppState(api, SessionCache(store), Preferences(store))
+        return AppState(api, SessionCache(store), Preferences(store)).also { apps += it }
     }
 
     /**

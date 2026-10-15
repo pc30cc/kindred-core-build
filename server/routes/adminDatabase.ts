@@ -15,6 +15,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import {
   describeTargetError,
@@ -335,6 +336,7 @@ adminDatabaseRouter.put('/backups/settings', async (req, res) => {
     const next = applyBackupSettingsUpdate(await getBackupSettings(config), parsed.data, {
       masterKey: config.pluginSecretsMasterKey,
       actorId,
+      edition: await getPlatformEditionOrNull(config),
     });
     await saveBackupSettings(config, next);
     res.json({ ok: true, settings: backupSettingsView(next) });

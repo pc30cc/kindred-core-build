@@ -11,6 +11,7 @@
 import net from 'node:net';
 import { z } from 'zod';
 import { encryptPluginSecret, resolveMasterKey, type SecretEnvelope } from '../../lib/pluginCrypto.js';
+import type { Edition } from '../../../shared/edition.js';
 
 export const BACKUP_SETTINGS_KEY = 'database_backup_settings';
 
@@ -51,9 +52,17 @@ export type DatabaseBackupSettingsView = Omit<DatabaseBackupSettings, 'ftp'> & {
   ftp: Omit<FtpSettings, 'password'> & { hasPassword: boolean };
 };
 
+/** The Iranian edition's default FTP folder, as it always was. */
 export const DEFAULT_FTP_PATH = '/webyar-backups';
+/** The International edition's: its Super Admin never sees the Iran brand. */
+export const INTERNATIONAL_FTP_PATH = '/backups';
 
-export function defaultBackupSettings(): DatabaseBackupSettings {
+/** The default FTP folder of an edition; an unknown edition (null) is Iran's, as before. */
+export function defaultFtpPath(edition?: Edition | null): string {
+  return edition === 'international' ? INTERNATIONAL_FTP_PATH : DEFAULT_FTP_PATH;
+}
+
+export function defaultBackupSettings(edition?: Edition | null): DatabaseBackupSettings {
   return {
     enabled: false,
     schedule: 'daily',
@@ -61,7 +70,7 @@ export function defaultBackupSettings(): DatabaseBackupSettings {
     destination: 'local',
     storageProvider: null,
     retentionDays: 30,
-    ftp: { host: '', port: 21, username: '', path: DEFAULT_FTP_PATH, secure: true, verifyTls: true, password: null },
+    ftp: { host: '', port: 21, username: '', path: defaultFtpPath(edition), secure: true, verifyTls: true, password: null },
     scheduleAnchor: null,
     updatedAt: null,
     updatedBy: null,
@@ -87,8 +96,8 @@ function str(value: unknown, fallback = ''): string {
  * Reads whatever is stored (the row is editable in the raw runtime-config
  * screen too) into a complete, in-range settings object.
  */
-export function normalizeBackupSettings(value: unknown): DatabaseBackupSettings {
-  const d = defaultBackupSettings();
+export function normalizeBackupSettings(value: unknown, edition?: Edition | null): DatabaseBackupSettings {
+  const d = defaultBackupSettings(edition);
   const v = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
   const f = (v.ftp && typeof v.ftp === 'object' ? v.ftp : {}) as Record<string, unknown>;
   const schedule = ['daily', 'weekly', 'monthly'].includes(v.schedule as string) ? (v.schedule as BackupSchedule) : d.schedule;
@@ -106,7 +115,7 @@ export function normalizeBackupSettings(value: unknown): DatabaseBackupSettings 
       host: str(f.host),
       port: intIn(f.port, 1, 65535, 21),
       username: str(f.username),
-      path: str(f.path, DEFAULT_FTP_PATH) || DEFAULT_FTP_PATH,
+      path: str(f.path, d.ftp.path) || d.ftp.path,
       secure: f.secure !== false,
       verifyTls: f.verifyTls !== false,
       password: isEnvelope(f.password) ? f.password : null,
@@ -138,7 +147,8 @@ export const backupSettingsUpdateSchema = z.object({
       /** New password; blank or absent keeps the stored one. */
       password: z.string().max(1024).optional(),
       clearPassword: z.boolean().optional(),
-      path: z.string().trim().max(1024).default(DEFAULT_FTP_PATH),
+      /** Absent: the edition's default folder (applyBackupSettingsUpdate). */
+      path: z.string().trim().max(1024).optional(),
       secure: z.boolean().default(true),
       verifyTls: z.boolean().default(true),
     })
@@ -170,14 +180,14 @@ export function normalizeFtpHost(raw: string): string {
 }
 
 /** Collapses repeated slashes and rejects line breaks and `..` segments. */
-export function normalizeFtpPath(raw: string): string {
+export function normalizeFtpPath(raw: string, edition?: Edition | null): string {
   const trimmed = raw.trim();
   if (/[\r\n\0]/.test(trimmed)) throw new BackupSettingsError('invalid_ftp_path');
   const absolute = trimmed.startsWith('/');
   const parts = trimmed.split('/').filter(Boolean);
   if (parts.some((p) => p === '..' || p === '.')) throw new BackupSettingsError('invalid_ftp_path');
   const joined = parts.join('/');
-  if (!joined) return absolute ? '/' : DEFAULT_FTP_PATH;
+  if (!joined) return absolute ? '/' : defaultFtpPath(edition);
   return absolute ? `/${joined}` : joined;
 }
 
@@ -192,7 +202,7 @@ export function isFtpConfigured(ftp: FtpSettings): boolean {
 export function applyBackupSettingsUpdate(
   current: DatabaseBackupSettings,
   input: BackupSettingsUpdate,
-  opts: { masterKey: string | undefined | null; actorId: string; now?: Date },
+  opts: { masterKey: string | undefined | null; actorId: string; now?: Date; edition?: Edition | null },
 ): DatabaseBackupSettings {
   const now = (opts.now ?? new Date()).toISOString();
   const ftpIn = input.ftp;
@@ -202,7 +212,7 @@ export function applyBackupSettingsUpdate(
     ftp.port = ftpIn.port ?? 21;
     ftp.username = (ftpIn.username ?? '').trim();
     if (/[\r\n\0]/.test(ftp.username)) throw new BackupSettingsError('invalid_ftp_username');
-    ftp.path = normalizeFtpPath(ftpIn.path ?? DEFAULT_FTP_PATH);
+    ftp.path = normalizeFtpPath(ftpIn.path ?? defaultFtpPath(opts.edition), opts.edition);
     ftp.secure = ftpIn.secure ?? true;
     ftp.verifyTls = ftpIn.verifyTls ?? true;
     if (ftpIn.password) {

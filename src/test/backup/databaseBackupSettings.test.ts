@@ -113,6 +113,20 @@ describe('FTP host and path', () => {
     expect(() => normalizeFtpPath('/a/../b')).toThrow('invalid_ftp_path');
     expect(() => normalizeFtpPath('/a\r\nDELE x')).toThrow('invalid_ftp_path');
   });
+
+  it('defaults the folder per edition: Iran (and unknown) as before, a neutral one abroad', () => {
+    expect(normalizeFtpPath('', 'iran')).toBe('/webyar-backups');
+    expect(normalizeFtpPath('', null)).toBe('/webyar-backups');
+    expect(normalizeFtpPath('', 'international')).toBe('/backups');
+    expect(defaultBackupSettings('international').ftp.path).toBe('/backups');
+    expect(normalizeBackupSettings({}, 'international').ftp.path).toBe('/backups');
+    expect(normalizeBackupSettings({ ftp: { path: '/mine' } }, 'international').ftp.path).toBe('/mine');
+    const opts = { masterKey: KEY, actorId: 'admin-1', now: new Date('2026-10-07T10:00:00Z') };
+    const ftp = { host: 'ftp.example.com', port: 21, username: 'u', secure: true, verifyTls: true };
+    expect(applyBackupSettingsUpdate(defaultBackupSettings(), update({ ftp }), opts).ftp.path).toBe('/webyar-backups');
+    expect(applyBackupSettingsUpdate(defaultBackupSettings('international'), update({ ftp }), { ...opts, edition: 'international' }).ftp.path)
+      .toBe('/backups');
+  });
 });
 
 describe('computeNextBackupRun', () => {

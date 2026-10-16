@@ -10,6 +10,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { primePlatformOrigins, isAllowedOrigin } from './services/platformOrigins.js';
 import { loadConfig, type ServerConfig } from './config.js';
+import { jsonBodyParser } from './middleware/bodyParsers.js';
+import { startCacheBusListener, stopCacheBusListener } from './lib/cacheBus.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
@@ -362,13 +364,17 @@ app.use('/api/commerce/events', commerceEventsRouter);
 app.use('/api/commerce/connection', commercePluginActionsRouter);
 
 // JSON / cookies for everything else. Skip the webhook path explicitly so
-// a future re-order can't accidentally consume the raw body.
+// a future re-order can't accidentally consume the raw body. The widget
+// bootstrap also accepts its JSON as text/plain (a CORS-simple request, no
+// preflight) — see middleware/bodyParsers.ts; parsed here, before
+// widgetCorsMiddleware reads body.workspace_id.
+const parseJsonBody = jsonBodyParser();
 app.use((req, res, next) => {
   if (req.path === '/api/calls/livekit/webhook') return next();
   if (req.path.startsWith('/api/billing/webhook')) return next();
   if (req.path.startsWith('/api/commerce/events')) return next();
   if (req.path.startsWith('/api/commerce/connection')) return next();
-  return express.json({ limit: '50mb' })(req, res, next);
+  return parseJsonBody(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
 
@@ -704,6 +710,10 @@ await ensureInvitationSecrets(config)
 const httpServer = app.listen(config.port, () => {
   console.log(`Growth Suite server running on port ${config.port}`);
 
+  // Cross-node cache invalidation (PostgreSQL LISTEN, one connection). Only
+  // this API process listens; best-effort, a no-op in supabase-rest mode.
+  startCacheBusListener();
+
   // Phase 3 — start best-effort orphan-attachment sweeper.
   startAttachmentJanitor(config);
   // The notification log's retention (Super Admin → Notifications).
@@ -1036,5 +1046,10 @@ const httpServer = app.listen(config.port, () => {
 // classic source of stray 502s. headersTimeout must stay above it.
 httpServer.keepAliveTimeout = 65_000;
 httpServer.headersTimeout = 66_000;
+
+// Graceful shutdown closes the HTTP server; its LISTEN connection goes too.
+httpServer.on('close', () => {
+  void stopCacheBusListener();
+});
 
 export default app;

@@ -39,6 +39,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
@@ -280,6 +281,7 @@ workspaceMembersRouter.patch('/:memberId', async (req, res) => {
     .eq('id', req.params.memberId)
     .eq('workspace_id', workspaceId);
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({ ok: true });
 });
 
@@ -339,6 +341,7 @@ workspaceMembersRouter.patch('/:memberId/suspension', async (req, res) => {
   // A suspended member holds no seat (D3): suspending one can unpause the
   // next, reinstating one can pause the most recently joined.
   afterSeatChange(config, workspaceId);
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({ ok: true, suspended: parsedBody.data.suspended });
 });
 
@@ -433,6 +436,8 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     await purgeAcceptedInvitation().catch(() => undefined);
     afterSeatChange(config, workspaceId);
+    // The widget's team stack and availability follow the member set.
+    publishCacheInvalidation([`widget:${workspaceId}`]);
     return res.json({ ok: true, replayed: false, offboarding: data });
   }
 
@@ -451,6 +456,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
   }
   await purgeAcceptedInvitation().catch(() => undefined);
   if (!outcome.replayed) afterSeatChange(config, workspaceId);
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return res.json({
     ok: true,
     replayed: outcome.replayed,

@@ -7,6 +7,8 @@ import { describe, it, expect } from 'vitest';
 import {
   computeCustomerAvailability,
   manualAvailabilityOf,
+  partsInTz,
+  type AvailabilityPrefsRow,
 } from '../../../server/services/widget/customerAvailability';
 
 const tz = 'Europe/Istanbul';
@@ -67,9 +69,11 @@ describe('customer-facing availability', () => {
   });
 
   it('maps manual status from the existing columns', () => {
-    expect(manualAvailabilityOf({ force_offline: true } as any)).toBe('offline');
-    expect(manualAvailabilityOf({ available_when_using_app: false } as any)).toBe('invisible');
-    expect(manualAvailabilityOf({} as any)).toBe('online');
+    // Rows as the database may return them: only some columns set.
+    const partial = (row: Partial<AvailabilityPrefsRow>) => row as AvailabilityPrefsRow;
+    expect(manualAvailabilityOf(partial({ force_offline: true }))).toBe('offline');
+    expect(manualAvailabilityOf(partial({ available_when_using_app: false }))).toBe('invisible');
+    expect(manualAvailabilityOf(partial({}))).toBe('online');
   });
 
   it('never accepts a connection signal: identical prefs give identical results', () => {
@@ -79,5 +83,32 @@ describe('customer-facing availability', () => {
     const b = computeCustomerAvailability(prefs, at('12:00'));
     expect(a).toEqual(b);
     expect(a.availability).toBe('available');
+  });
+});
+
+describe('partsInTz — one formatter per zone, same answers', () => {
+  /** What partsInTz answered before it cached its formatters. */
+  function reference(date: Date, zone: string) {
+    const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short' };
+    let parts: Intl.DateTimeFormatPart[];
+    try {
+      parts = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: zone }).formatToParts(date);
+    } catch {
+      parts = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: 'UTC' }).formatToParts(date);
+    }
+    const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
+    const dows: Record<string, string> = { Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat' };
+    return { h: Number(get('hour') === '24' ? '0' : get('hour')), m: Number(get('minute')), dow: dows[get('weekday')] ?? 'mon' };
+  }
+
+  it('matches the uncached computation across zones, midnight and invalid zones (→ UTC)', () => {
+    const zones = ['UTC', 'Asia/Tehran', 'Europe/Istanbul', 'America/Los_Angeles', 'Asia/Kolkata', 'Not/AZone', ''];
+    const dates = ['2026-01-07T00:00:00Z', '2026-03-21T20:30:00Z', '2026-06-30T23:59:00Z', '2026-10-14T10:00:00Z'].map((d) => new Date(d));
+    for (const zone of zones) {
+      for (const date of dates) {
+        expect(partsInTz(date, zone), `${zone} @ ${date.toISOString()}`).toEqual(reference(date, zone));
+        expect(partsInTz(date, zone)).toEqual(reference(date, zone));
+      }
+    }
   });
 });

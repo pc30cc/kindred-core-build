@@ -26,6 +26,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { uploadFile, deleteFile, uploadForOwner, deleteForOwner } from '../services/storage/index.js';
 import { createStorageUrlResolver, hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { userAvatarKey, workspaceBrandingKey } from '../services/storage/keys.js';
@@ -206,6 +207,8 @@ accountRouter.patch('/me', async (req, res) => {
         return res.status(400).json({ error: phoneErr.message });
       }
     }
+    // The name shows in the widget's team stack.
+    publishCacheInvalidation([`user:${user.id}`]);
 
     const { data: profile } = await sb
       .from('profiles')
@@ -380,6 +383,7 @@ accountRouter.post('/avatar', async (req, res) => {
       console.error('[account] avatar persistence missing row:', { userId: user.id, fileKey });
       return res.status(500).json({ error: 'Avatar uploaded but profile row was not updated' });
     }
+    publishCacheInvalidation([`user:${user.id}`]);
 
     return res.json({
       success: true,
@@ -412,6 +416,7 @@ accountRouter.delete('/avatar', async (req, res) => {
       .from('profiles')
       .update({ avatar_url: null, avatar_storage_key: null, updated_at: new Date().toISOString() })
       .eq('id', user.id);
+    publishCacheInvalidation([`user:${user.id}`]);
 
     return res.json({ success: true });
   } catch (err: unknown) {
@@ -942,6 +947,7 @@ accountRouter.post('/workspace-icon', async (req, res) => {
       console.error('[account] workspace icon persistence error:', saveError.message);
       return res.status(500).json({ error: 'Icon uploaded but workspace update failed' });
     }
+    publishCacheInvalidation([`widget:${workspaceId}`]);
 
     return res.json({
       success: true,
@@ -989,6 +995,7 @@ accountRouter.delete('/workspace-icon', async (req, res) => {
       .from('workspace_branding')
       .update({ logo_url: null, logo_storage_key: null, updated_at: new Date().toISOString() })
       .eq('workspace_id', workspaceId);
+    publishCacheInvalidation([`widget:${workspaceId}`]);
 
     return res.json({ success: true });
   } catch (err: unknown) {

@@ -9,8 +9,9 @@
  */
 import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
-import { getServiceClient } from '../supabase.js';
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { getServiceClient, type ServiceClient } from '../supabase.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import {
   validateSmartRuleForPublish,
   SMART_SNAPSHOT_CONFIG_KEYS,
@@ -20,11 +21,20 @@ import { evaluateAiProactiveEligibility, type AiJourneyContext, type SmartEvalCo
 
 export const workspaceSmartRulesRouter = Router();
 
+/** A thrown error's message (PostgREST errors are plain objects), as the JSON body names it. */
+function errorText(err: unknown): string {
+  const message = (err as { message?: unknown } | null)?.message;
+  return typeof message === 'string' && message ? message : 'internal_error';
+}
+
 const SELECT = 'id, workspace_id, name, description, status, priority, schema_version, published_version, '
   + 'trigger_config, audience_config, content_config, presentation_config, schedule_config, '
   + 'frequency_config, behavior_config, created_at, updated_at, published_at';
 
-async function loadRule(sb: any, workspaceId: string, ruleId: string) {
+/** A rule row (the SELECT columns), loosely typed. */
+type RuleRow = Record<string, unknown> & { published_version?: unknown; priority?: unknown; schema_version?: unknown };
+
+async function loadRule(sb: ServiceClient, workspaceId: string, ruleId: string): Promise<RuleRow | null> {
   const { data, error } = await sb
     .from('widget_smart_rules')
     .select(SELECT)
@@ -32,7 +42,7 @@ async function loadRule(sb: any, workspaceId: string, ruleId: string) {
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   if (error) throw error;
-  return data;
+  return (data as unknown as RuleRow | null) ?? null;
 }
 
 // POST /api/workspaces/:workspaceId/smart-rules/:ruleId/publish
@@ -41,7 +51,7 @@ workspaceSmartRulesRouter.post('/:workspaceId/smart-rules/:ruleId/publish', asyn
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     const rule = await loadRule(sb, workspaceId, ruleId);
     if (!rule) return res.status(404).json({ error: 'not_found' });
@@ -57,7 +67,7 @@ workspaceSmartRulesRouter.post('/:workspaceId/smart-rules/:ruleId/publish', asyn
       published_schema_version: rule.schema_version,
     };
     for (const key of SMART_SNAPSHOT_CONFIG_KEYS) {
-      patch[`published_${key}`] = (rule as any)[key];
+      patch[`published_${key}`] = rule[key];
     }
 
     const { data, error } = await sb
@@ -68,9 +78,11 @@ workspaceSmartRulesRouter.post('/:workspaceId/smart-rules/:ruleId/publish', asyn
       .select(SELECT)
       .single();
     if (error) return res.status(500).json({ error: error.message });
+    // The widget config serves the published, active rules.
+    publishCacheInvalidation([`widget:${workspaceId}`]);
     res.json({ rule: data });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -80,7 +92,7 @@ workspaceSmartRulesRouter.post('/:workspaceId/smart-rules/:ruleId/unpublish', as
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     const rule = await loadRule(sb, workspaceId, ruleId);
     if (!rule) return res.status(404).json({ error: 'not_found' });
@@ -94,9 +106,11 @@ workspaceSmartRulesRouter.post('/:workspaceId/smart-rules/:ruleId/unpublish', as
       .select(SELECT)
       .single();
     if (error) return res.status(500).json({ error: error.message });
+    // The widget config serves the published, active rules.
+    publishCacheInvalidation([`widget:${workspaceId}`]);
     res.json({ rule: data });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -114,7 +128,7 @@ workspaceSmartRulesRouter.get('/:workspaceId/smart-rules', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   try {
-    const sb = getServiceClient((req as any).serverConfig as ServerConfig);
+    const sb = getServiceClient(serverConfigOf(req));
     const { data, error } = await sb
       .from('widget_smart_rules')
       .select(SELECT)
@@ -123,8 +137,8 @@ workspaceSmartRulesRouter.get('/:workspaceId/smart-rules', async (req, res) => {
       .order('updated_at', { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
     res.json({ rules: data || [] });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -134,7 +148,7 @@ workspaceSmartRulesRouter.get('/:workspaceId/smart-rules/stats', async (req, res
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   try {
-    const sb = getServiceClient((req as any).serverConfig as ServerConfig);
+    const sb = getServiceClient(serverConfigOf(req));
     const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
     const { data, error } = await sb
       .from('widget_smart_events')
@@ -144,7 +158,7 @@ workspaceSmartRulesRouter.get('/:workspaceId/smart-rules/stats', async (req, res
       .limit(5000);
     if (error) return res.status(500).json({ error: error.message });
     const map: Record<string, { shown: number; opened: number; dismissed: number; cta: number; conversations: number }> = {};
-    for (const row of (data || []) as any[]) {
+    for (const row of (data || []) as Array<{ rule_id: string; event_type: string }>) {
       const entry = (map[row.rule_id] ||= { shown: 0, opened: 0, dismissed: 0, cta: 0, conversations: 0 });
       if (row.event_type === 'shown') entry.shown++;
       else if (row.event_type === 'opened' || row.event_type === 'widget_opened') entry.opened++;
@@ -153,8 +167,8 @@ workspaceSmartRulesRouter.get('/:workspaceId/smart-rules/stats', async (req, res
       else if (row.event_type === 'conversation_started') entry.conversations++;
     }
     res.json({ stats: map });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -164,10 +178,10 @@ const WRITABLE_KEYS = [
   'schedule_config', 'frequency_config', 'behavior_config',
 ] as const;
 
-function pickWritable(body: any): Record<string, unknown> {
+function pickWritable(body: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of WRITABLE_KEYS) {
-    if (body && Object.prototype.hasOwnProperty.call(body, key)) out[key] = body[key];
+    if (body && Object.prototype.hasOwnProperty.call(body, key)) out[key] = (body as Record<string, unknown>)[key];
   }
   // `active` is only reachable through the publish endpoint.
   if (out.status === 'active') delete out.status;
@@ -180,7 +194,7 @@ workspaceSmartRulesRouter.post('/:workspaceId/smart-rules', async (req, res) => 
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
   try {
-    const sb = getServiceClient((req as any).serverConfig as ServerConfig);
+    const sb = getServiceClient(serverConfigOf(req));
     const payload = pickWritable(req.body);
     const { data, error } = await sb
       .from('widget_smart_rules')
@@ -188,9 +202,11 @@ workspaceSmartRulesRouter.post('/:workspaceId/smart-rules', async (req, res) => 
       .select(SELECT)
       .single();
     if (error) return res.status(500).json({ error: error.message });
+    // The widget config serves the published, active rules.
+    publishCacheInvalidation([`widget:${workspaceId}`]);
     res.json({ rule: data });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -200,7 +216,7 @@ workspaceSmartRulesRouter.patch('/:workspaceId/smart-rules/:ruleId', async (req,
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
   try {
-    const sb = getServiceClient((req as any).serverConfig as ServerConfig);
+    const sb = getServiceClient(serverConfigOf(req));
     const { data, error } = await sb
       .from('widget_smart_rules')
       .update(pickWritable(req.body))
@@ -209,9 +225,11 @@ workspaceSmartRulesRouter.patch('/:workspaceId/smart-rules/:ruleId', async (req,
       .select(SELECT)
       .single();
     if (error) return res.status(500).json({ error: error.message });
+    // The widget config serves the published, active rules.
+    publishCacheInvalidation([`widget:${workspaceId}`]);
     res.json({ rule: data });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -221,16 +239,17 @@ workspaceSmartRulesRouter.delete('/:workspaceId/smart-rules/:ruleId', async (req
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
   try {
-    const sb = getServiceClient((req as any).serverConfig as ServerConfig);
+    const sb = getServiceClient(serverConfigOf(req));
     const { error } = await sb
       .from('widget_smart_rules')
       .delete()
       .eq('id', ruleId)
       .eq('workspace_id', workspaceId);
     if (error) return res.status(500).json({ error: error.message });
+    publishCacheInvalidation([`widget:${workspaceId}`]);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -246,13 +265,13 @@ const AI_NUDGE_WRITABLE_KEYS = [
   'mobile_enabled',
 ] as const;
 
-function pickAiNudgeWritable(body: any): Record<string, unknown> {
+function pickAiNudgeWritable(body: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of AI_NUDGE_WRITABLE_KEYS) {
-    if (body && Object.prototype.hasOwnProperty.call(body, key)) out[key] = body[key];
+    if (body && Object.prototype.hasOwnProperty.call(body, key)) out[key] = (body as Record<string, unknown>)[key];
   }
-  if (Array.isArray(out.include_paths)) out.include_paths = out.include_paths.slice(0, 50).map((v: any) => String(v).slice(0, 300));
-  if (Array.isArray(out.exclude_paths)) out.exclude_paths = out.exclude_paths.slice(0, 50).map((v: any) => String(v).slice(0, 300));
+  if (Array.isArray(out.include_paths)) out.include_paths = out.include_paths.slice(0, 50).map((v: unknown) => String(v).slice(0, 300));
+  if (Array.isArray(out.exclude_paths)) out.exclude_paths = out.exclude_paths.slice(0, 50).map((v: unknown) => String(v).slice(0, 300));
   if (typeof out.guidance === 'string') out.guidance = out.guidance.slice(0, 500);
   return out;
 }
@@ -263,14 +282,14 @@ workspaceSmartRulesRouter.get('/:workspaceId/ai-nudge-settings', async (req, res
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   try {
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = serverConfigOf(req);
     const [settings, effective] = await Promise.all([
       getWidgetAiNudgeSettings(config, workspaceId),
       resolveEffectiveAiNudgePolicy(config, workspaceId),
     ]);
     res.json({ settings, effective });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -280,19 +299,21 @@ workspaceSmartRulesRouter.patch('/:workspaceId/ai-nudge-settings', async (req, r
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
   try {
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = serverConfigOf(req);
     const sb = getServiceClient(config);
     const patch = pickAiNudgeWritable(req.body);
     const { data, error } = await sb
-      .from('widget_ai_nudge_settings' as any)
+      .from('widget_ai_nudge_settings')
       .upsert({ workspace_id: workspaceId, ...patch }, { onConflict: 'workspace_id' })
       .select('*')
       .single();
     if (error) return res.status(500).json({ error: error.message });
+    // The widget config carries the nudge's {enabled, mode}.
+    publishCacheInvalidation([`widget:${workspaceId}`]);
     const effective = await resolveEffectiveAiNudgePolicy(config, workspaceId);
     res.json({ settings: data, effective });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -302,27 +323,27 @@ workspaceSmartRulesRouter.get('/:workspaceId/ai-nudge-settings/stats', async (re
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
   try {
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = serverConfigOf(req);
     const sb = getServiceClient(config);
     const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
     const [{ data: events }, { data: nudges }, { data: runs }] = await Promise.all([
       sb.from('widget_smart_events').select('event_type, ai_nudge_id').eq('workspace_id', workspaceId).eq('source', 'ai_proactive').gte('created_at', since).limit(5000),
-      sb.from('widget_ai_nudges' as any).select('id, topic, page_path, status').eq('workspace_id', workspaceId).gte('created_at', since).limit(2000),
-      sb.from('ai_runs' as any).select('customer_charge_irr, provider_cost_usd').eq('workspace_id', workspaceId).eq('entry_point', 'proactive_nudge').gte('created_at', since).limit(5000),
+      sb.from('widget_ai_nudges').select('id, topic, page_path, status').eq('workspace_id', workspaceId).gte('created_at', since).limit(2000),
+      sb.from('ai_runs').select('customer_charge_irr, provider_cost_usd').eq('workspace_id', workspaceId).eq('entry_point', 'proactive_nudge').gte('created_at', since).limit(5000),
     ]);
     const counters = { shown: 0, dismissed: 0, cta_clicked: 0, widget_opened: 0, conversation_started: 0 };
-    for (const row of (events || []) as any[]) {
-      if (row.event_type in counters) (counters as any)[row.event_type]++;
+    for (const row of (events || []) as Array<{ event_type: string }>) {
+      if (row.event_type in counters) (counters as Record<string, number>)[row.event_type]++;
     }
     const topicCounts: Record<string, number> = {};
     const pageCounts: Record<string, number> = {};
-    for (const n of (nudges || []) as any[]) {
+    for (const n of (nudges || []) as Array<{ topic?: string | null; page_path?: string | null }>) {
       if (n.topic) topicCounts[n.topic] = (topicCounts[n.topic] || 0) + 1;
       if (n.page_path) pageCounts[n.page_path] = (pageCounts[n.page_path] || 0) + 1;
     }
     let costUsd = 0;
     let chargeIrr = 0;
-    for (const r of (runs || []) as any[]) {
+    for (const r of (runs || []) as Array<{ provider_cost_usd?: unknown; customer_charge_irr?: unknown }>) {
       costUsd += Number(r.provider_cost_usd) || 0;
       chargeIrr += Number(r.customer_charge_irr) || 0;
     }
@@ -333,8 +354,8 @@ workspaceSmartRulesRouter.get('/:workspaceId/ai-nudge-settings/stats', async (re
       topPages: Object.entries(pageCounts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([page, count]) => ({ page, count })),
       aiUsage: { costUsd, chargeIrr, runs: (runs || []).length },
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });
 
@@ -349,7 +370,7 @@ workspaceSmartRulesRouter.post('/:workspaceId/ai-nudge-settings/preview', async 
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
   try {
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = serverConfigOf(req);
     const effective = await resolveEffectiveAiNudgePolicy(config, workspaceId);
     if (!effective.available) {
       return res.json({ eligible: false, reasons: [effective.unavailableReason || 'unavailable'], effective });
@@ -397,7 +418,7 @@ workspaceSmartRulesRouter.post('/:workspaceId/ai-nudge-settings/preview', async 
       new Date(),
     );
     res.json({ ...result, effective });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'internal_error' });
+  } catch (err) {
+    res.status(500).json({ error: errorText(err) });
   }
 });

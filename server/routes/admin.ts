@@ -7,6 +7,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { z } from 'zod';
 import { issueRecoveryEmail } from '../services/auth-email.js';
 import { redactEmailLogRows } from '../services/email/redactLogMetadata.js';
@@ -442,6 +443,7 @@ adminRouter.delete('/users/:userId/avatar', async (req, res) => {
       .update({ avatar_url: null, avatar_storage_key: null, updated_at: new Date().toISOString() })
       .eq('id', userId);
     if (updateError) return res.status(500).json({ error: updateError.message });
+    publishCacheInvalidation([`user:${userId}`]);
 
     res.json({ success: true });
   } catch (err: unknown) {
@@ -476,6 +478,7 @@ adminRouter.patch('/users/:userId/profile', async (req, res) => {
       patch.updated_at = new Date().toISOString();
       const { error } = await sb.from('profiles').update(patch).eq('id', userId);
       if (error) return res.status(500).json({ error: error.message });
+      publishCacheInvalidation([`user:${userId}`]);
     }
 
     // The canonical login email is an identity-boundary change, not an

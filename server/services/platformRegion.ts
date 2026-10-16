@@ -12,6 +12,7 @@
  * to gate the admin UI, so runtime text generation can clamp to it too.
  */
 import { getServiceClient } from '../supabase.js';
+import { onInvalidate } from '../lib/cacheBus.js';
 import type { ServerConfig } from '../config.js';
 import { parseRegionMode, resolveEdition, type Edition, type RegionMode as SharedRegionMode } from '../../shared/edition.js';
 
@@ -146,6 +147,9 @@ export async function getPlatformEditionOrNull(
 export function invalidatePlatformRegionCache(): void {
   settings = null;
 }
+
+// A Super Admin change on another backend process (lib/cacheBus.ts 'platform').
+onInvalidate('platform', () => invalidatePlatformRegionCache());
 
 /**
  * Clamps a visitor-reported locale to one the platform actually offers.

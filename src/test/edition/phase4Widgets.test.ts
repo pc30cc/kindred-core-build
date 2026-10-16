@@ -114,8 +114,10 @@ describe('chat widget assets on the server', () => {
   });
 
   it('the bootstrap carries the edition, brand and date hints, and the skin URL (additive)', () => {
-    const route = read('server/routes/widget.ts');
-    expect(route).toContain('const edition = await getPlatformEditionOrNull(config);');
+    // The bootstrap route reads the edition; GET /config's body (and the
+    // bootstrap's inline copy) is built in the widget config snapshot module.
+    const route = read('server/routes/widget.ts') + read('server/services/widget/configSnapshot.ts');
+    expect(read('server/routes/widget.ts')).toContain('getPlatformEditionOrNull(config),');
     expect(route).toContain('resolveEditionWidgetTemplateId(');
     expect(route).toMatch(/\n\s+edition,\n\s+platformBrandName,\n\s+calendar: dateHints\.calendar,\n\s+timeZone: dateHints\.timeZone,/);
     expect(route).toContain('presentationSkinUrl:');
@@ -426,7 +428,7 @@ describe('"powered by" with the platform logo (International template)', () => {
     const runtime = read('public/widget/runtime.js');
     expect(runtime).toContain("if (!img || !img.hasAttribute || !img.hasAttribute('data-wy-brand-logo')) return;");
     expect(read('public/widget/presentation-intl.css')).toMatch(/\.wy-powered \.wy-powered-logo \{[^}]*height: 14px;[^}]*vertical-align: middle;/);
-    expect(read('server/routes/widget.ts')).toContain('.logo = `${assetBase}${INTL_BRAND.horizontal.light}`');
+    expect(read('server/services/widget/configSnapshot.ts')).toContain('.logo = `${assetBase}${INTL_BRAND.horizontal.light}`');
   });
 
   const cwSource = (name: string) => read(`public/call-widget/${name}`);

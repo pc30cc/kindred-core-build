@@ -178,7 +178,8 @@ describe('chat widget "powered by"', () => {
     expect(read('public/widget/presentation-default.css')).toMatch(/\.wy-powered \.wy-powered-logo \{[^}]*height: 16px;[^}]*vertical-align: middle;/);
     // The International skin still sizes its own (14px), after the base rule.
     expect(read('public/widget/presentation-intl.css')).toMatch(/\.wy-powered \.wy-powered-logo \{[^}]*height: 14px;/);
-    const route = read('server/routes/widget.ts');
+    // GET /config's body is built in the widget config snapshot module.
+    const route = read('server/services/widget/configSnapshot.ts');
     expect(route).toContain('if (poweredBy && isWebyarKitEdition(edition) && assetBase) {');
     expect(route).toContain('.logo = `${assetBase}${WEBYAR_BRAND.logo.light}`');
     expect(route).toContain('.logo = `${assetBase}${INTL_BRAND.horizontal.light}`');

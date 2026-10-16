@@ -18,6 +18,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'node:crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import {
   createSession,
@@ -757,6 +758,11 @@ const tokenBody = z.object({
 });
 
 /** The workspace a preview projection belongs to, when there is one. */
+/** A new member joined: the widget's team stack and availability follow. */
+function publishMemberSetChange(workspaceId: string | null): void {
+  if (workspaceId) publishCacheInvalidation([`widget:${workspaceId}`]);
+}
+
 function workspaceIdOf(preview: unknown): string | null {
   const id = field(preview, 'workspace_id');
   return typeof id === 'string' ? id : null;
@@ -1084,6 +1090,7 @@ workspaceInvitationsRouter.post('/accept-new', requireOrigin, rejectTokenInUrl, 
   }
 
   res.clearCookie(PROOF_COOKIE_NAME, { path: '/api/workspace-invitations/accept-new' });
+  publishMemberSetChange(workspaceIdOf(localeProbe));
 
   // Replay of a committed acceptance: the membership/consent already exist, so
   // recover the logical result and mint a FRESH session for the same user
@@ -1172,6 +1179,7 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
   }
 
   res.clearCookie(CONTEXT_COOKIE_NAME, { path: '/' });
+  publishMemberSetChange(workspaceIdOf(ctxProbe));
   const payload = outcome.replayed ? outcome.safeResult : (outcome.result as RpcRecord | null);
   return res.json({ ...payload, replayed: outcome.replayed, session: 'existing' });
 });

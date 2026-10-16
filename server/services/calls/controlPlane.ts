@@ -9,6 +9,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { onInvalidate, publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 const RUNTIME_KEY = 'call_control_plane';
 const CACHE_TTL_MS = 30_000;
@@ -86,6 +87,9 @@ export function invalidateCallControlPlaneCache(): void {
   cache = null;
 }
 
+// Another backend process saved it (lib/cacheBus.ts 'platform' / 'all').
+onInvalidate('platform', () => invalidateCallControlPlaneCache());
+
 export async function loadCallControlPlane(
   config: ServerConfig,
   forceRefresh = false,
@@ -123,6 +127,9 @@ export async function saveCallControlPlane(
     );
   if (error) throw new Error(error.message);
   invalidateCallControlPlaneCache();
+  // Every widget config snapshot holds its workspace's effective call
+  // channels (platform AND workspace), so all of them follow — everywhere.
+  publishCacheInvalidation(['platform', 'widget']);
   return merged;
 }
 
@@ -207,6 +214,7 @@ export async function saveWorkspaceCallOverrides(
       { onConflict: 'workspace_id,provider_type' },
     );
   if (error) throw new Error(error.message);
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return merged;
 }
 

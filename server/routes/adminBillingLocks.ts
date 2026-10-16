@@ -20,6 +20,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { getPlatformEdition, EditionUnavailableError } from '../services/platformRegion.js';
 import { checkChannelAccess } from '../middleware/featureGating.js';
 import { clearLockStateCache, parseCutoffRow } from '../services/billing/locks/state.js';
@@ -81,9 +82,11 @@ adminBillingLocksRouter.put('/', async (req, res) => {
       { onConflict: 'edition' },
     );
     if (error) throw new Error(error.message || 'billing settings write failed');
-    // Every workspace's lock state follows the switch at once.
+    // Every workspace's lock state follows the switch at once — on every
+    // backend process (the widget's quota_full included).
     clearLockStateCache();
     clearPlanStopCache();
+    publishCacheInvalidation(['all']);
     console.info('[admin-billing-locks] billing locks', parsed.data.enabled ? 'on' : 'off', 'for', edition);
     if (was && !parsed.data.enabled) {
       // While on, the AI index retired the chunks of locked articles; off,

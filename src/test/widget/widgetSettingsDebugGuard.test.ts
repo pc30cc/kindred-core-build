@@ -18,7 +18,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
-import express from 'express';
+import type { AddressInfo } from 'node:net';
+import express, { type Response } from 'express';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -27,7 +28,7 @@ const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const WS_ID = '55555555-5555-4555-8555-555555555555';
 const PLATFORM_ID = '66666666-6666-4666-8666-666666666666';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
 let settingsRow: Row;
 let prechatRow: Row | null;
 let platformRow: Row;
@@ -66,10 +67,10 @@ function resetFakeDb() {
 
 function makeFakeSupabase() {
   function widgetSettingsBuilder() {
-    const b: any = {
+    const b: Record<string, unknown> = {
       select: () => b,
       eq: () => b,
-      update: (patch: Record<string, any>) => {
+      update: (patch: Record<string, unknown>) => {
         widgetSettingsUpdateCalls += 1;
         Object.assign(settingsRow, patch);
         return b;
@@ -79,10 +80,10 @@ function makeFakeSupabase() {
     return b;
   }
   function prechatBuilder() {
-    const b: any = {
+    const b: Record<string, unknown> = {
       select: () => b,
       eq: () => b,
-      upsert: (patch: Record<string, any>) => {
+      upsert: (patch: Record<string, unknown>) => {
         prechatRow = { ...(prechatRow || {}), ...patch };
         return b;
       },
@@ -92,11 +93,11 @@ function makeFakeSupabase() {
     return b;
   }
   function platformBuilder() {
-    const b: any = {
+    const b: Record<string, unknown> = {
       select: () => b,
       eq: () => b,
       limit: () => b,
-      update: (patch: Record<string, any>) => {
+      update: (patch: Record<string, unknown>) => {
         Object.assign(platformRow, patch);
         return b;
       },
@@ -106,8 +107,8 @@ function makeFakeSupabase() {
     return b;
   }
   function auditLogsBuilder() {
-    const b: any = {
-      insert: async (row: Record<string, any>) => {
+    const b: Record<string, unknown> = {
+      insert: async (row: Record<string, unknown>) => {
         auditLogsInsertCalls += 1;
         if (auditInsertError) {
           // The real Supabase/PostgREST failure shape: resolves
@@ -138,8 +139,8 @@ vi.mock('../../../server/supabase.js', () => ({
 }));
 
 vi.mock('../../../server/lib/workspaceAuth.js', () => ({
-  authorizeWorkspaceAccess: async (_req: any, _res: any, _workspaceId: string, _opts: any) => ({ userId: 'owner-1' }),
-  requirePlatformAdmin: async (_req: any, res: any) => {
+  authorizeWorkspaceAccess: async (_req: unknown, _res: unknown, _workspaceId: string, _opts: unknown) => ({ userId: 'owner-1' }),
+  requirePlatformAdmin: async (_req: unknown, res: Response) => {
     if (!isPlatformAdmin) {
       res.status(403).json({ error: 'platform_admin_required' });
       return null;
@@ -159,7 +160,7 @@ vi.mock('../../../server/services/widget/public.js', () => ({
 }));
 vi.mock('../../../server/services/widget/entitlements.js', () => ({
   resolveWidgetEntitlements: async () => entitlementsOverride ?? { features: {}, maxDomains: 10 },
-  guardWidgetSettingsPatch: (patch: Record<string, any>, ent: { features: Record<string, boolean> }) => {
+  guardWidgetSettingsPatch: (patch: Record<string, unknown>, ent: { features: Record<string, boolean> }) => {
     // Mirror the real WIDGET_SETTING_CAPABILITY behavior closely enough for
     // these tests: a boolean feature flipped to true while the plan denies
     // its capability is blocked.
@@ -180,16 +181,24 @@ const { widgetSettingsRouter } = await import('../../../server/routes/widgetSett
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = { supabaseUrl: 'x', supabaseAnonKey: 'y', supabaseServiceRoleKey: 'z' };
+  Object.assign(req, { serverConfig: { supabaseUrl: 'x', supabaseAnonKey: 'y', supabaseServiceRoleKey: 'z' } });
   next();
 });
 app.use(express.json());
 app.use('/api/widget-settings', widgetSettingsRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as AddressInfo).port;
 
-function request(method: string, path: string, body?: any): Promise<{ status: number; body: any }> {
+/** The JSON answers these tests read. */
+type ResponseBody = {
+  issues?: Array<{ message: string }>;
+  denied?: string[];
+  settings?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+function request(method: string, path: string, body?: unknown): Promise<{ status: number; body: ResponseBody }> {
   return new Promise((resolveReq, reject) => {
     const payload = body !== undefined ? JSON.stringify(body) : undefined;
     const headers: Record<string, string> = {};
@@ -213,8 +222,8 @@ function request(method: string, path: string, body?: any): Promise<{ status: nu
     req.end();
   });
 }
-const patch = (path: string, body: any) => request('PATCH', path, body);
-const put = (path: string, body: any) => request('PUT', path, body);
+const patch = (path: string, body: unknown) => request('PATCH', path, body);
+const put = (path: string, body: unknown) => request('PUT', path, body);
 
 beforeEach(() => {
   resetFakeDb();
@@ -261,7 +270,7 @@ describe('PATCH /api/widget-settings/:workspaceId — fail-closed allowlist (.st
     // Zod's .strict() reports unknown keys via an "unrecognized_keys" issue
     // whose offending key names live in its message, not `path` (path is
     // empty for this issue kind — there's no nested field to point at).
-    expect(res.body.issues?.some((i: any) => i.message.includes('some_brand_new_column_from_next_quarter'))).toBe(true);
+    expect(res.body.issues?.some((i) => i.message.includes('some_brand_new_column_from_next_quarter'))).toBe(true);
   });
 
   it('a request with no debug_mode at all is completely unaffected (no regression to ordinary saves)', async () => {
@@ -483,7 +492,7 @@ describe('PATCH /api/widget-settings/platform/config — dedicated strict schema
     isPlatformAdmin = true;
     const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, default_debug_mode: true });
     expect(res.status).toBe(400);
-    expect(res.body.issues?.some((i: any) => i.message.includes('default_debug_mode'))).toBe(true);
+    expect(res.body.issues?.some((i) => i.message.includes('default_debug_mode'))).toBe(true);
     expect(platformRow.default_debug_mode).toBeUndefined();
   });
 
@@ -512,8 +521,12 @@ describe('server config safety — no workspace-creation path or platform defaul
   });
 
   it('the visitor-facing bootstrap config only ever reads ws.debug_mode — never widget_platform_settings.default_debug_mode (no platform-wide inheritance path exists)', () => {
+    // GET /config's body (and bootstrap's inline copy) is built in the
+    // widget config snapshot module; the route itself must not read it either.
     const widgetRoute = read('server/routes/widget.ts');
-    expect(widgetRoute).toContain('debugMode: ws.debug_mode ?? false');
+    const configBuilder = read('server/services/widget/configSnapshot.ts');
+    expect(configBuilder).toContain('debugMode: ws.debug_mode ?? false');
+    expect(configBuilder).not.toContain('default_debug_mode');
     expect(widgetRoute).not.toContain('default_debug_mode');
   });
 

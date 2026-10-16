@@ -24,6 +24,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { invalidateGlobalAdminCache } from '../lib/globalAdminCache.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
@@ -729,6 +730,7 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   // region_mode decides the allowed locales and the edition (Iran vs
   // International: currency, gateways) — the next money request must see it.
   invalidatePlatformRegionCache();
+  publishCacheInvalidation(['platform']);
   return res.json({ success: true, settings: savedSettings });
 });
 
@@ -829,6 +831,7 @@ adminManagementRouter.put('/platform-branding', async (req, res) => {
     : await sb.from('platform_branding').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   invalidatePlatformPublicConfig();
+  publishCacheInvalidation(['platform']);
   return res.json({ branding: data });
 });
 
@@ -870,7 +873,9 @@ adminManagementRouter.put('/platform-branding-localized', async (req, res) => {
         .maybeSingle()
     : await sb.from('platform_branding_localized').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
+  // platform_name is the widget's powered-by brand and platform_display_name.
   invalidatePlatformPublicConfig();
+  publishCacheInvalidation(['platform']);
   return res.json({ branding: data });
 });
 
@@ -945,6 +950,7 @@ adminManagementRouter.put('/panel-theme', async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
   invalidatePlatformPublicConfig();
+  publishCacheInvalidation(['platform']);
   await insertAuditLogRows(config, sb, {
     workspace_id: null,
     user_id: actorId,
@@ -1114,6 +1120,12 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
   invalidateWorkspaceOriginCache(existingDomain.workspace_id);
   if (existingDomain.domain) invalidateOriginHostCache(existingDomain.domain);
   if (nextDomain) invalidateOriginHostCache(nextDomain);
+  publishCacheInvalidation([
+    `widget:${existingDomain.workspace_id}`,
+    `origin:${existingDomain.workspace_id}`,
+    ...(existingDomain.domain ? [`host:${existingDomain.domain}`] : []),
+    ...(nextDomain ? [`host:${nextDomain}`] : []),
+  ]);
   return res.json({ domain: data });
 });
 
@@ -1141,6 +1153,17 @@ adminManagementRouter.get('/login-attempts', async (req, res) => {
 
 // ── Runtime config writes (admin-only keys) ────────────────────────────
 const RUNTIME_CONFIG_KEY_RE = /^[a-z0-9_]{3,80}$/;
+/**
+ * Keys the cached widget config is derived from (storage URLs, the AI
+ * provider check, the legacy pre-chat policy, call channels): a write
+ * flushes every cache on every node.
+ */
+const WIDGET_INPUT_RUNTIME_KEYS = new Set([
+  'default_storage_provider',
+  'default_ai_provider',
+  'widget_prechat_fields',
+  'call_control_plane',
+]);
 
 adminManagementRouter.get('/runtime-config/:key', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
@@ -1175,6 +1198,7 @@ adminManagementRouter.put('/runtime-config/:key', async (req, res) => {
       { onConflict: 'key' },
     );
   if (error) return res.status(500).json({ error: error.message });
+  if (WIDGET_INPUT_RUNTIME_KEYS.has(req.params.key)) publishCacheInvalidation(['all']);
   return res.json({ success: true });
 });
 
@@ -1184,5 +1208,6 @@ adminManagementRouter.delete('/runtime-config/:key', async (req, res) => {
   const sb = getServiceClient(serverConfigOf(req));
   const { error } = await sb.from('app_runtime_config').delete().eq('key', req.params.key);
   if (error) return res.status(500).json({ error: error.message });
+  if (WIDGET_INPUT_RUNTIME_KEYS.has(req.params.key)) publishCacheInvalidation(['all']);
   return res.json({ success: true });
 });

@@ -186,8 +186,7 @@ async function readStorageBytes(config: ServerConfig, workspaceId: string): Prom
 }
 
 /**
- * `storage_mb` limit is in megabytes (migration 271; it was `storage_gb`
- * before) while the underlying counter is bytes. Return value in MB
+ * `storage_mb` limit is in megabytes while the underlying counter is bytes. Return value in MB
  * (rounded to 4 decimals) so it can be compared directly against
  * `limits.storage_mb`: at or over the limit, an upload is refused.
  */

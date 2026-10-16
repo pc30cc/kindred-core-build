@@ -452,7 +452,6 @@ const tr: TranslationKeys = {
       max_agents: '{{value}} operatör',
       max_conversations: 'Aylık {{value}} görüşme',
       max_visitors: 'Aylık {{value}} ziyaretçi',
-      storage_gb: '{{value}} GB depolama',
       max_call_minutes_per_month: 'Aylık {{value}} çağrı dakikası',
       max_kb_articles: '{{value}} bilgi bankası makalesi',
       max_departments: '{{value}} departman',
@@ -8702,7 +8701,6 @@ const tr: TranslationKeys = {
       max_visitors: 'izlenen ziyaretçi',
       ai_credits_per_month: 'yapay zekâ kredisi',
       max_call_minutes_per_month: 'çağrı dakikası',
-      storage_gb: 'depolama',
       storage_mb: 'depolama',
     },
     kind: {

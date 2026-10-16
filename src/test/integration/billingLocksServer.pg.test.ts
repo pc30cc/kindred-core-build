@@ -330,7 +330,7 @@ suite('billing locks: server lock core, report and quote against the real chain'
   it('271: the monthly AI credit is what the grant gives, as money in the account currency; storage in MB', async () => {
     // Startup's shape: a legacy count of 0 next to the credit actually granted.
     await q(`UPDATE public.billing_plans SET ai_allowance = '{"IRR": 300000}',
-               limits = limits || '{"ai_credits_per_month": 0, "storage_gb": 0}' WHERE id = $1`, [small]);
+               limits = limits || '{"ai_credits_per_month": 0, "storage_mb": 0}' WHERE id = $1`, [small]);
     await q(`UPDATE public.billing_plans SET ai_allowance = '{"IRR": 600000}',
                limits = limits || '{"storage_mb": 51200}' WHERE id = $1`, [big]);
     await q(`UPDATE public.workspace_subscriptions SET plan_id = $2 WHERE workspace_id = $1`, [ws, big]);
@@ -340,7 +340,7 @@ suite('billing locks: server lock core, report and quote against the real chain'
     // No rate: the wallet's own unit, never a guessed conversion.
     const noRate = await report.buildLockReport(config, ws, small);
     expect(noRate.ai_credits).toMatchObject({ current: 600000, target: 300000, unit: 'IRR', current_minor: null, target_minor: null });
-    // storage_gb 0 on a plan not saved since 271 reads as 0 MB: nothing stored yet, uploads blocked.
+    // storage_mb 0: no file storage, uploads blocked.
     expect(noRate.storage).toMatchObject({ limit_mb: 0, uploads_blocked: true });
 
     // With the rate the billing page converts with (60,000 Rial per dollar).
@@ -367,7 +367,7 @@ suite('billing locks: server lock core, report and quote against the real chain'
       await q(`DELETE FROM public.workspace_limit_overrides WHERE workspace_id = $1 AND limit_key = 'included_ai_allowance_irr'`, [ws]);
     }
 
-    // Uploads: the gate reads storage_mb, and storage_gb × 1024 where a plan still has only that.
+    // Uploads: the gate reads storage_mb only; a stray storage_gb (removed by 272) is not read.
     const { checkEntitlementFromDB, clearEntitlementCache } = await import('../../../server/middleware/featureGating.js');
     clearEntitlementCache();
     const cfg = config as unknown as { supabaseUrl: string; supabaseServiceRoleKey: string };
@@ -376,8 +376,9 @@ suite('billing locks: server lock core, report and quote against the real chain'
     await q(`UPDATE public.billing_plans SET limits = (limits - 'storage_mb') || '{"storage_gb": 3}' WHERE id = $1`, [big]);
     clearEntitlementCache();
     try {
+      // Not in the plan: the registry default (1,024 MB), never 3 GB.
       expect(await checkEntitlementFromDB(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, ws, 'storage_mb', { numeric: true }))
-        .toMatchObject({ allowed: true, limit: 3072 });
+        .toMatchObject({ allowed: true, limit: 1024 });
     } finally {
       await q(`UPDATE public.billing_plans SET limits = (limits - 'storage_gb') || '{"storage_mb": 51200}' WHERE id = $1`, [big]);
       clearEntitlementCache();

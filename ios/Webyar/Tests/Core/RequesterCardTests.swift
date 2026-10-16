@@ -22,10 +22,10 @@ final class RequesterCardTests: XCTestCase {
                "cancel_at_period_end":true,"billing_interval":"monthly","started_at":"2026-06-01T08:00:00.000Z"},
        "operators":{"used":2,"limit":3},"contacts":{"used":1,"limit":500},
        "usage":{"period":"2026-10","conversations":{"used":42,"limit":1000},"visitors":{"used":900,"limit":-1},
-                "messages":310,"ai_credits":{"used":0,"limit":0},"call_minutes":0,"storage_bytes":1024,"storage_limit_gb":1}},
+                "messages":310,"ai_credits":{"used":0,"limit":0},"call_minutes":0,"storage_bytes":1024,"storage_limit_mb":1024,"storage_limit_gb":1}},
       {"id":"w2","name":"Other","role":"agent","plan":null,"operators":{"used":"5","limit":null},"contacts":{"used":0,"limit":null},
        "usage":{"conversations":{"used":0,"limit":null},"visitors":{"used":0,"limit":null},"messages":0,
-                "ai_credits":{"used":0,"limit":null},"storage_bytes":0,"storage_limit_gb":null}}],
+                "ai_credits":{"used":0,"limit":null},"storage_bytes":0,"storage_limit_mb":null,"storage_limit_gb":null}}],
      "captured_at":"2026-10-02T10:00:00.000Z"}
     """#
 

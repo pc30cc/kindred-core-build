@@ -296,8 +296,8 @@ private struct WorkspacePanel: View {
 
     private var storage: String {
         let used = Format.fileSize(Int(workspace.storageBytes), language: language)
-        guard let limit = workspace.storageLimitGB else { return used }
-        return limit < 0 ? "\(used) / ∞" : "\(used) / \(number(limit)) GB"
+        guard let limit = workspace.storageLimitMB else { return used }
+        return limit < 0 ? "\(used) / ∞" : "\(used) / \(number(limit)) MB"
     }
 }
 

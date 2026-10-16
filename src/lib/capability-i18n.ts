@@ -121,7 +121,6 @@ const EN_LABELS: Record<string, string> = {
   ai_kb_file_size_mb: 'AI Agent — Max file size',
   ai_kb_file_count: 'AI Agent — Max files',
   storage_mb: 'Storage',
-  storage_gb: 'Storage (GB, legacy)',
   data_retention_days: 'Data Retention',
   max_contacts: 'Max Contacts',
   max_concurrent_calls: 'Max Concurrent Calls',
@@ -436,10 +435,6 @@ const FA: Record<string, CapabilityText> = {
   storage_mb: {
     label: 'فضای ذخیره‌سازی',
     description: `فضای ذخیره‌سازی فایل هر فضای کاری به مگابایت (بارگذاری‌ها، پیوست‌ها و فایل‌های هوش مصنوعی). با رسیدن به آن چیزی حذف نمی‌شود و فقط بارگذاری جدید رد می‌شود. مقدار ${U} یعنی نامحدود و ۰ یعنی بدون فضای ذخیره‌سازی.`,
-  },
-  storage_gb: {
-    label: 'فضای ذخیره‌سازی (گیگابایت، قدیمی)',
-    description: 'منسوخ — جای آن را فضای ذخیره‌سازی به مگابایت گرفته است. فقط وقتی مقدار مگابایت نیست، این مقدار ضربدر ۱۰۲۴ خوانده می‌شود.',
   },
   data_retention_days: { label: 'مدت نگهداری داده' },
   max_contacts: {
@@ -881,10 +876,6 @@ const TR: Record<string, CapabilityText> = {
   storage_mb: {
     label: 'Depolama',
     description: 'Çalışma alanı başına megabayt cinsinden dosya depolama alanı (yüklemeler, ekler, yapay zekâ dosyaları). Dolduğunda hiçbir şey silinmez; yalnızca yeni yüklemeler reddedilir. -1 sınırsız, 0 dosya depolama yok demektir.',
-  },
-  storage_gb: {
-    label: 'Depolama (GB, eski)',
-    description: 'Kullanımdan kaldırıldı — yerini megabayt cinsinden depolama aldı. Yalnızca MB değeri yoksa bu değer × 1024 olarak okunur.',
   },
   data_retention_days: { label: 'Veri Saklama' },
   max_contacts: {

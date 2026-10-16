@@ -10,16 +10,19 @@ historical backfill.
 ## Locked semantics
 
 `storage_mb` is the per-workspace cumulative size of stored bytes
-attributed to the workspace. The plan value is **MB** (migration 271
-converted the old `storage_gb` × 1024; `-1` is unlimited, `0` is no file
-storage); the underlying counter (`workspace_usage_counters.storage_bytes`)
+attributed to the workspace. The plan value is **MB** (`-1` is unlimited,
+`0` is no file storage; migration 271 converted the old gigabyte key and
+migration 272 removed it from plans, workspace overrides and the downgrade
+report); the underlying counter (`workspace_usage_counters.storage_bytes`)
 is **bytes**. The resolver `resolveStorageMb`
 (`server/services/billing/usageResolvers.ts`) converts bytes → MB and is
 the single source of truth for the `requireLimit` middleware via
-`usageFnForLimit('storage_mb')`. A plan or workspace override that still
-names only `storage_gb` reads as `storage_gb × 1024`
-(`shared/planLimits.ts`, `checkEntitlementFromDB`,
-`billing_storage_limit_mb`); the plan editor saves `storage_mb` only.
+`usageFnForLimit('storage_mb')`. Nothing reads a GB key any more. Two
+values in GB are still *computed* from `storage_mb` for readers outside
+this app, never stored: `limits.storage_gb` in the public `GET /api/plans`
+(the landing pages' pricing tables) and `usage.storage_limit_gb` on the
+support requester card (Android/iOS builds installed before the apps read
+`storage_limit_mb`).
 
 Counter shape:
 

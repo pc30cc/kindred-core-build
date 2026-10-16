@@ -452,7 +452,6 @@ const fa: TranslationKeys = {
       max_agents: '{{value}} اپراتور',
       max_conversations: '{{value}} گفتگو در ماه',
       max_visitors: '{{value}} بازدیدکننده در ماه',
-      storage_gb: '{{value}} گیگابایت فضای ذخیره‌سازی',
       max_call_minutes_per_month: '{{value}} دقیقه تماس در ماه',
       max_kb_articles: '{{value}} مقاله پایگاه دانش',
       max_departments: '{{value}} دپارتمان',
@@ -8700,7 +8699,6 @@ const fa: TranslationKeys = {
       max_visitors: 'بازدیدکنندگان ردیابی‌شده',
       ai_credits_per_month: 'اعتبار هوش مصنوعی',
       max_call_minutes_per_month: 'دقایق تماس',
-      storage_gb: 'فضای ذخیره‌سازی',
       storage_mb: 'فضای ذخیره‌سازی',
     },
     kind: {

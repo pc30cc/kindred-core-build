@@ -257,8 +257,8 @@ describe('the downgrade report: storage in MB and the AI credit as money', () =>
     expect(screen.getByTestId('lock-report-storage')).toHaveTextContent(/^billing\.locks\.report\.storageNone$/);
   });
 
-  it('reads a report from a server before migration 271 (GB) in MB', () => {
-    render(<LockReport report={report({ storage: { limit_gb: 1, used_gb: 3.5, uploads_blocked: true } })} />);
+  it('shows storage over its limit in MB', () => {
+    render(<LockReport report={report({ storage: { limit_mb: 1024, used_mb: 3584, uploads_blocked: true } })} />);
     expect(screen.getByTestId('lock-report-storage')).toHaveTextContent('{"used":"3,584 MB","limit":"1,024 MB"}');
   });
 

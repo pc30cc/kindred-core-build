@@ -238,7 +238,7 @@ export default function OverviewPage() {
   // the snapshot is loading nothing is claimed to be capped.
   const limitNum = (key: string) => planLimits.limit(key) ?? -1;
   const isUnlimited = (v: number) => v < 0;
-  // Storage in MB (migration 271); the snapshot resolves storage_gb × 1024 for an older plan.
+  // Storage in MB.
   const storageLimitMb = limitNum('storage_mb');
   const storagePct = storageLimitMb > 0
     ? Math.min(100, Math.round((storageBytes / (storageLimitMb * BYTES_PER_MB)) * 100))

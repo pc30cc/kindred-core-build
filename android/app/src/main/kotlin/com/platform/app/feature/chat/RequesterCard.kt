@@ -80,7 +80,8 @@ data class RequesterCard(
         val aiCredits: Metered,
         val messages: Long,
         val storageBytes: Long,
-        val storageLimitGb: Long?,
+        /** The plan's storage limit in MB (-1 unlimited), null when not set. */
+        val storageLimitMb: Long?,
     ) {
         val hasPlan: Boolean get() = planName != null
     }
@@ -114,7 +115,7 @@ data class RequesterCard(
                     aiCredits = metered(usage["ai_credits"]),
                     messages = long(usage["messages"]) ?: 0,
                     storageBytes = long(usage["storage_bytes"]) ?: 0,
-                    storageLimitGb = long(usage["storage_limit_gb"]),
+                    storageLimitMb = long(usage["storage_limit_mb"]),
                 )
             }
             return RequesterCard(
@@ -296,7 +297,7 @@ private fun WorkspaceBlock(ws: RequesterCard.Workspace, language: Language) {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val storage = Format.fileSize(ws.storageBytes, language) +
-                (ws.storageLimitGb?.let { if (it < 0) " / ∞" else " / ${Format.number(it, language)} GB" } ?: "")
+                (ws.storageLimitMb?.let { if (it < 0) " / ∞" else " / ${Format.number(it, language)} MB" } ?: "")
             listOf(
                 StrAndroid.requesterOperators(language) to metered(ws.operators, language),
                 StrAndroid.requesterConversations(language) to metered(ws.conversations, language),

@@ -19,7 +19,7 @@ import { accountBillingApi, type LockReport as LockReportData, type LockedExport
 import { API_BASE } from '@/lib/apiBase';
 import { billingDate, money } from '../shared';
 import { formatMb } from '@/lib/storageUnits';
-import { AI_WALLET_UNIT, MB_PER_GB, gbToMb } from '../../../../../shared/planLimits';
+import { AI_WALLET_UNIT } from '../../../../../shared/planLimits';
 
 /** Locked items listed by name before "and N more". */
 const ITEMS_SHOWN = 5;
@@ -121,11 +121,9 @@ export default function LockReport({
       }),
     });
   }
-  // Storage in MB (a server from before migration 271 answers GB).
-  const storageLimitMb = typeof report.storage.limit_mb === 'number'
-    ? report.storage.limit_mb
-    : typeof report.storage.limit_gb === 'number' ? gbToMb(report.storage.limit_gb) : null;
-  const storageUsedMb = typeof report.storage.used_mb === 'number' ? report.storage.used_mb : (report.storage.used_gb ?? 0) * MB_PER_GB;
+  // Storage in MB.
+  const storageLimitMb = typeof report.storage.limit_mb === 'number' ? report.storage.limit_mb : null;
+  const storageUsedMb = typeof report.storage.used_mb === 'number' ? report.storage.used_mb : 0;
   if (report.storage.uploads_blocked && storageLimitMb !== null && storageLimitMb >= 0) {
     lines.push({
       key: 'storage',

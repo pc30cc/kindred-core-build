@@ -83,11 +83,12 @@ struct RequesterCard: Equatable, Sendable {
         let aiCredits: Metered
         let messages: Double
         let storageBytes: Double
-        let storageLimitGB: Double?
+        /// The plan's storage limit in MB (-1 unlimited), nil when not set.
+        let storageLimitMB: Double?
 
         /// Storage as a metered amount, in bytes.
         var storage: Metered {
-            Metered(used: storageBytes, limit: storageLimitGB.map { $0 < 0 ? -1 : $0 * 1_073_741_824 })
+            Metered(used: storageBytes, limit: storageLimitMB.map { $0 < 0 ? -1 : $0 * 1_048_576 })
         }
     }
 
@@ -142,7 +143,7 @@ struct RequesterCard: Equatable, Sendable {
             aiCredits: metered(usage?["ai_credits"]),
             messages: usage?["messages"]?.doubleValue ?? 0,
             storageBytes: usage?["storage_bytes"]?.doubleValue ?? 0,
-            storageLimitGB: usage?["storage_limit_gb"]?.doubleValue
+            storageLimitMB: usage?["storage_limit_mb"]?.doubleValue
         )
     }
 

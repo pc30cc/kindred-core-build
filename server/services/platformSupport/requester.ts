@@ -11,7 +11,7 @@
  * the fallback for a client that does not know the kind.
  */
 import type { getServiceClient } from '../../supabase.js';
-import { MB_PER_GB, planAiAllowance, storageLimitMb } from '../../../shared/planLimits.js';
+import { mbToGb, planAiAllowance, storageLimitMb } from '../../../shared/planLimits.js';
 
 type ServiceClient = ReturnType<typeof getServiceClient>;
 
@@ -67,7 +67,12 @@ export interface RequesterWorkspace {
     storage_bytes: number;
     /** The plan's storage limit in MB (-1 unlimited, null not set). */
     storage_limit_mb: number | null;
-    /** The same in GB, for the iOS and Android cards built before migration 271. */
+    /**
+     * Compatibility only: storage_limit_mb / 1024 (-1 unlimited), computed
+     * here and stored nowhere else, for the Android and iOS builds already
+     * installed (WebYar Android 1.6 and earlier) that read GB. Current app
+     * sources read storage_limit_mb. Drop it once those builds are retired.
+     */
     storage_limit_gb: number | null;
   };
 }
@@ -245,7 +250,7 @@ export async function requesterSnapshot(
           call_minutes: num(counter.call_minutes_used),
           storage_bytes: num(counter.storage_bytes),
           storage_limit_mb: storageMb,
-          storage_limit_gb: storageMb === null ? null : storageMb < 0 ? -1 : storageMb / MB_PER_GB,
+          storage_limit_gb: storageMb === null ? null : mbToGb(storageMb), // compatibility value, see the type
         },
       };
     });

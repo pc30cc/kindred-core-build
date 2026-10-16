@@ -13,7 +13,7 @@ import { CLIENT_PLATFORM_NAMES, resolveClientPlatform } from './clientPlatform';
 import type { Metered, RequesterCardMeta } from './requesterMeta';
 import { formatBytesAsMb, formatMb } from '@/lib/storageUnits';
 import { formatAmountForEdition } from '@/lib/money';
-import { AI_WALLET_UNIT, gbToMb } from '../../../shared/planLimits';
+import { AI_WALLET_UNIT, MB_PER_GB } from '../../../shared/planLimits';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 
@@ -95,10 +95,12 @@ export function SupportRequesterCard({ meta }: { meta: RequesterCardMeta }) {
                     : say(t, 'inbox.requester.renews', `Renews ${date(plan?.period_end)}`, { date: date(plan?.period_end)! })
                   : null;
               const usage = ws.usage ?? {};
-              // MB since migration 271; a card written before it kept GB.
+              // MB; a card stored before migration 271 holds only the GB value.
               const storageLimit = typeof usage.storage_limit_mb === 'number'
                 ? usage.storage_limit_mb
-                : typeof usage.storage_limit_gb === 'number' ? gbToMb(usage.storage_limit_gb) : null;
+                : typeof usage.storage_limit_gb === 'number'
+                  ? (usage.storage_limit_gb < 0 ? -1 : Math.round(usage.storage_limit_gb * MB_PER_GB))
+                  : null;
               const metrics: Array<[string, string]> = [
                 [say(t, 'inbox.requester.operators', 'Operators'), metered(ws.operators)],
                 [say(t, 'inbox.requester.conversations', 'Conversations this month'), metered(usage.conversations)],

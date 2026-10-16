@@ -85,6 +85,7 @@ const FINANCIAL = [
   'billing_account_ledger',
   'billing_account_payments',
   'billing_account_cards',
+  'billing_card_transfers',
   'billing_revenue_archive',
   'billing_ledger_archive',
 ] as const;

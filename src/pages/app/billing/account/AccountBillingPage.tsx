@@ -28,6 +28,7 @@ import PlanPickerDialog, { type PlanPreselect } from './PlanPickerDialog';
 import PayOnlineDialog, { type PayOnlineRequest } from './PayOnlineDialog';
 import BillingProfileCard from './BillingProfileCard';
 import AiCreditCard from './AiCreditCard';
+import CardTransfersCard from './CardTransfersCard';
 import { accountErrorText, planLabel, takeCardReturn, type CardBefore } from './accountUi';
 import { refreshEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { packLabel } from '../../../../../shared/aiPacks';
@@ -69,6 +70,8 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
   const [cardRet, setCardRet] = useState<CardReturn | null>(null);
   // Bumped whenever something may have moved the AI wallet: the AI card reads it again.
   const [aiVersion, setAiVersion] = useState(0);
+  // Bumped when a card-to-card receipt is submitted: the list reloads.
+  const [transferVersion, setTransferVersion] = useState(0);
   const handledReturn = useRef(false);
   const handledCardReturn = useRef(false);
   const mounted = useRef(true);
@@ -308,6 +311,10 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
         />
       </div>
 
+      {view.can_manage && view.edition === 'iran' && (
+        <CardTransfersCard workspaceId={workspaceId} version={transferVersion} />
+      )}
+
       <AiCreditCard
         workspaceId={workspaceId}
         view={view}
@@ -393,6 +400,8 @@ export default function AccountBillingPage({ workspaceId, slug }: { workspaceId:
           edition={view.edition}
           vatPercent={view.vat_percent}
           gateways={view.gateways}
+          cardTransfer={view.card_transfer ?? null}
+          onCardTransferSubmitted={() => setTransferVersion((v) => v + 1)}
           onCurrencyChanged={() => void load()}
         />
       )}

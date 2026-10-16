@@ -5,7 +5,7 @@
  * what will be charged.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Building2, CreditCard, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -14,11 +14,13 @@ import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useTranslation } from '@/i18n';
 import { parsePlanPriceInput, planPriceDecimals } from '@/lib/planPrice';
 import { toast } from '@/lib/toast';
-import { accountBillingApi, type AccountGateway } from '@/lib/accountBillingApi';
+import { accountBillingApi, type AccountGateway, type CardTransferAccount } from '@/lib/accountBillingApi';
+import { cn } from '@/lib/utils';
 import { money } from '../shared';
 import { ADMIN_TEST_TOPUP, TOPUP_LIMITS, chargeFor, topupAmountProblem } from '../../../../../shared/simpleBilling';
 import { isPaddleProvider } from '../../../../../shared/testGateways';
 import GatewayPicker from './GatewayPicker';
+import CardTransferStep from './CardTransferStep';
 import {
   QUICK_TOPUPS,
   accountErrorText,
@@ -41,6 +43,10 @@ export interface TopupDialogProps {
   edition?: string | null;
   /** Opens with this amount filled in (what a change is missing), never below the minimum. */
   initialAmountMinor?: number | null;
+  /** Iranian edition: the bank account for a card-to-card top-up, when on. */
+  cardTransfer?: CardTransferAccount | null;
+  /** A card-to-card receipt was submitted (the page refreshes its list). */
+  onCardTransferSubmitted?: () => void;
 }
 
 export default function TopupDialog({
@@ -54,9 +60,19 @@ export default function TopupDialog({
   onCurrencyChanged,
   initialAmountMinor = null,
   edition = null,
+  cardTransfer = null,
+  onCardTransferSubmitted,
 }: TopupDialogProps) {
   const { t, locale, dir } = useTranslation();
   const [raw, setRaw] = useState('');
+  // Online through a gateway, or card to card (Iranian edition, when on).
+  const [method, setMethod] = useState<'online' | 'card'>(gateways.length || !cardTransfer ? 'online' : 'card');
+  const [step, setStep] = useState<'amount' | 'transfer'>('amount');
+  useEffect(() => {
+    if (!open) return;
+    setStep('amount');
+    setMethod(gateways.length || !cardTransfer ? 'online' : 'card');
+  }, [open, gateways.length, cardTransfer]);
 
   useEffect(() => {
     if (!open || !initialAmountMinor || initialAmountMinor <= 0) return;
@@ -109,7 +125,10 @@ export default function TopupDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent dir={dir} className="sm:max-w-md">
+      <DialogContent
+        dir={dir}
+        className={cn('max-h-[92vh] overflow-y-auto', step === 'transfer' ? 'sm:max-w-lg' : 'sm:max-w-md')}
+      >
         <DialogHeader>
           <DialogTitle>{t('billing.account.topup.title')}</DialogTitle>
           {limits && (
@@ -122,6 +141,24 @@ export default function TopupDialog({
           )}
         </DialogHeader>
 
+        {step === 'transfer' && cardTransfer && charge && minor ? (
+          <CardTransferStep
+            workspaceId={workspaceId}
+            account={cardTransfer}
+            netMinor={minor}
+            totalMinor={charge.total}
+            currency={currency}
+            busy={busy}
+            setBusy={setBusy}
+            onBack={() => setStep('amount')}
+            onSubmitted={() => {
+              onOpenChange(false);
+              setRaw('');
+              onCardTransferSubmitted?.();
+            }}
+          />
+        ) : (
+        <>
         <div className="space-y-5">
           <div className="space-y-2">
             <Label htmlFor="topup-amount">{t('billing.account.topup.amount')}</Label>
@@ -167,7 +204,41 @@ export default function TopupDialog({
             )}
           </div>
 
-          <GatewayPicker gateways={gateways} value={chosen?.provider_name} onChange={setProvider} disabled={busy} />
+          {cardTransfer && (
+            <div className="space-y-2">
+              <Label>{t('billing.account.cardTransfer.method')}</Label>
+              <div role="radiogroup" className="grid gap-2 sm:grid-cols-2">
+                {([
+                  ['online', CreditCard, 'billing.account.cardTransfer.online', 'billing.account.cardTransfer.onlineHint'],
+                  ['card', Building2, 'billing.account.cardTransfer.card', 'billing.account.cardTransfer.cardHint'],
+                ] as const).filter(([value]) => value === 'card' || gateways.length > 0).map(([value, Icon, label, hint]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={method === value}
+                    disabled={busy}
+                    onClick={() => setMethod(value)}
+                    data-testid={`topup-method-${value}`}
+                    className={cn(
+                      'flex items-start gap-3 rounded-xl border p-3 text-start transition-colors',
+                      method === value ? 'border-primary bg-primary/5 ring-1 ring-primary/40' : 'border-border hover:bg-muted/50',
+                    )}
+                  >
+                    <Icon className={cn('mt-0.5 h-5 w-5 shrink-0', method === value ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
+                    <span className="space-y-0.5">
+                      <span className="block text-sm font-medium">{t(label)}</span>
+                      <span className="block text-xs text-muted-foreground">{t(hint)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {method === 'online' && (
+            <GatewayPicker gateways={gateways} value={chosen?.provider_name} onChange={setProvider} disabled={busy} />
+          )}
 
           {charge && (
             <dl className="space-y-1.5 rounded-md bg-muted/50 p-3 text-sm">
@@ -188,7 +259,7 @@ export default function TopupDialog({
             </dl>
           )}
 
-          {charge && isPaddleProvider(chosen?.provider_name ?? '') && (
+          {charge && method === 'online' && isPaddleProvider(chosen?.provider_name ?? '') && (
             <p className="text-xs text-muted-foreground" data-paddle-tax-note="">{t('billing.account.topup.taxAtCheckout')}</p>
           )}
 
@@ -196,11 +267,19 @@ export default function TopupDialog({
         </div>
 
         <DialogFooter>
-          <Button onClick={pay} disabled={busy || !charge || !chosen} className="w-full sm:w-auto">
-            {busy && <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden />}
-            {busy ? t('billing.account.topup.paying') : t('billing.account.topup.pay')}
-          </Button>
+          {method === 'card' && cardTransfer ? (
+            <Button onClick={() => setStep('transfer')} disabled={busy || !charge} className="w-full sm:w-auto" data-testid="topup-card-next">
+              {t('billing.account.cardTransfer.next')}
+            </Button>
+          ) : (
+            <Button onClick={pay} disabled={busy || !charge || !chosen} className="w-full sm:w-auto">
+              {busy && <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden />}
+              {busy ? t('billing.account.topup.paying') : t('billing.account.topup.pay')}
+            </Button>
+          )}
         </DialogFooter>
+        </>
+        )}
       </DialogContent>
     </Dialog>
   );

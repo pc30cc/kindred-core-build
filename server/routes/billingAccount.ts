@@ -90,6 +90,13 @@ import {
   type CardView,
 } from '../services/billing/account/card.js';
 import { aiPackNeed } from '../services/billing/account/aiPacks.js';
+import {
+  cancelCardTransfer,
+  cardTransferForAccount,
+  createCardTransfer,
+  listCardTransfers,
+  readCardTransferReceipt,
+} from '../services/billing/account/cardTransfer.js';
 import { planNamesFor } from '../services/billing/account/notify.js';
 import { buildLockReport, reportForViewer, reportNeedsAcknowledgement } from '../services/billing/locks/report.js';
 import { getBillingRegion } from '../services/billing/edition.js';
@@ -208,6 +215,14 @@ billingAccountRouter.get('/account/:workspaceId', async (req, res) => {
     const card = canManage(auth) && view.edition === 'international'
       ? await cardSection(cfg, req.params.workspaceId, view.currency, viewerOf(auth))
       : NO_CARD;
+    // Iranian edition: the bank account for a card-to-card top-up, when on.
+    // A failed read only hides the method: never in the way of the page.
+    const cardTransfer = canManage(auth) && view.edition === 'iran'
+      ? await cardTransferForAccount(cfg, req.params.workspaceId).catch((e) => {
+        console.warn('[billing-account] card transfer read failed:', e instanceof Error ? e.message : e);
+        return null;
+      })
+      : null;
     res.json({
       ...view,
       ...planState,
@@ -218,7 +233,92 @@ billingAccountRouter.get('/account/:workspaceId', async (req, res) => {
         is_test: g.is_test,
       })),
       ...card,
+      card_transfer: cardTransfer
+        ? {
+          holder_name: cardTransfer.holder_name,
+          card_number: cardTransfer.card_number,
+          iban: cardTransfer.iban,
+          bank: cardTransfer.bank,
+        }
+        : null,
     });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// ─── Card to card (Iranian edition, migration 274) ─────────────────────────
+
+const cardTransferSchema = z.object({
+  amountMinor: z.number().int().positive(),
+  reference: z.string().max(40).optional().nullable(),
+  paidAt: z.string().max(40).optional().nullable(),
+  payerCardLast4: z.string().max(8).optional().nullable(),
+  note: z.string().max(500).optional().nullable(),
+  receipt: z.object({
+    fileName: z.string().max(200),
+    mimeType: z.string().max(100),
+    // 5 MB as base64, plus a data-URL prefix.
+    dataBase64: z.string().min(1).max(7_100_000),
+  }).strict(),
+}).strict();
+
+billingAccountRouter.get('/account/:workspaceId/card-transfers', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  try {
+    res.json({ items: await listCardTransfers(serverConfigOf(req), req.params.workspaceId) });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+billingAccountRouter.post('/account/:workspaceId/card-transfers', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = cardTransferSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    const item = await createCardTransfer(serverConfigOf(req), {
+      workspaceId: req.params.workspaceId,
+      userId: auth.userId,
+      netMinor: parsed.data.amountMinor,
+      reference: parsed.data.reference ?? null,
+      paidAt: parsed.data.paidAt ?? null,
+      payerCardLast4: parsed.data.payerCardLast4 ?? null,
+      note: parsed.data.note ?? null,
+      receipt: {
+        fileName: parsed.data.receipt.fileName ?? '',
+        mimeType: parsed.data.receipt.mimeType ?? '',
+        dataBase64: parsed.data.receipt.dataBase64 ?? '',
+      },
+    });
+    res.status(201).json({ item });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+billingAccountRouter.post('/account/:workspaceId/card-transfers/:id/cancel', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  try {
+    res.json({ item: await cancelCardTransfer(serverConfigOf(req), req.params.workspaceId, req.params.id) });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+billingAccountRouter.get('/account/:workspaceId/card-transfers/:id/receipt', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  try {
+    const file = await readCardTransferReceipt(serverConfigOf(req), req.params.id, req.params.workspaceId);
+    res.setHeader('Content-Type', file.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Disposition', `inline; filename="${file.fileName}"`);
+    res.send(file.data);
   } catch (e) {
     fail(res, e);
   }

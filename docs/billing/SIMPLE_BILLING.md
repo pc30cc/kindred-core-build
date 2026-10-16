@@ -1290,3 +1290,43 @@ against WebYar):
    `pg_dump` must succeed with the new schema; on RESPOK confirm which role
    it uses, see `DATABASE_BACKUPS.md`), `\dt billing_v2_archive.*` with row
    counts compared with the dump, and 7A's smoke test again.
+
+### Card to card (Iranian edition, migration 274)
+
+A temporary way to top up the wallet while no online gateway is live. Only
+the wallet is topped up this way; plans, renewals and AI packs are then paid
+from the balance as usual.
+
+- **Bank account.** Super Admin → Finance → Card to card: holder name, card
+  number (16 digits, Luhn checked), IBAN (شبا; IR + 24 digits, mod-97
+  checked), bank name, and the switch that offers the method. Stored in
+  `billing_settings.card_transfer` of the `iran` row
+  (`shared/cardTransfer.ts` cleans and validates it). The account view
+  (`GET /api/billing/account/:ws`) returns `card_transfer` to managers only
+  in the Iranian edition, only when the switch is on and every field is set,
+  only for an IRR account.
+- **The payer.** The top-up dialog offers "Online payment" and "Card to card"
+  (only the latter when no gateway is live). Card to card shows the amount to
+  transfer (credit + VAT), the account drawn as the bank card with copy
+  buttons, then the transfer form: tracking number (required, digits),
+  transfer time (within 30 days), the last four digits of the payer's card
+  (optional), a note, and the bank receipt (JPG/PNG/WebP/PDF, at most 5 MB;
+  the declared type must match the file's first bytes). The billing page
+  lists the workspace's requests with their state; one awaiting review can be
+  withdrawn.
+- **Requests.** `billing_card_transfers` (service_role only). The receipt
+  file is platform-owned (`platform/billing/card-transfers/<ws>/<id>-receipt.<ext>`),
+  never counted toward the workspace's storage, and streamed by the backend
+  only to the workspace's managers and to Super Admins. Limits: three
+  requests awaiting review and ten a day per workspace; a tracking number
+  backs one pending or approved request at a time.
+- **Review.** Finance → Card to card lists the receipts (awaiting review
+  first). Approve credits the amount asked for, or another amount the admin
+  enters (VAT recomputed on it), through `billing_card_transfer_approve`: in
+  one transaction it creates a `manual` payment, records it verified
+  (reference `card_transfer:<request id>`) and settles it with
+  `billing_account_settle_payment` — the same numbered receipt, ledger row,
+  balance, `billing_payment_receipt` mail and revenue (provider `manual`) as
+  a gateway payment. Approving again replays. Reject needs a reason, shown to
+  the workspace. Both write an audit row (`billing.card_transfer_approved` /
+  `billing.card_transfer_rejected`).

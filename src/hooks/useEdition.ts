@@ -59,7 +59,11 @@ export interface EditionInfo {
     wallet: boolean;
     aiCreditTopup: boolean;
     iranianProviders: boolean;
-    /** SMS one-time codes (phone verification and its gates): Iranian SMS vendors only, so Iran only. */
+    /**
+     * SMS one-time codes (phone verification and its gates): always in Iran
+     * (Kavenegar, SMS.ir); in International only while the server reports
+     * Telnyx configured and enabled (public config `sms_verification`).
+     */
     smsVerification: boolean;
     /** The Bale messenger channel. */
     bale: boolean;
@@ -96,6 +100,8 @@ function useKnownRegionMode(): RegionMode {
 
 export function useEdition(): EditionInfo {
   const known = useKnownEdition();
+  const { data: publicConfig } = usePlatformPublicConfig();
+  const internationalSms = publicConfig?.sms_verification === true;
   const { locale } = useTranslation();
   const edition: Edition = known ?? 'iran';
   const profile = EDITION_PROFILE[edition];
@@ -130,13 +136,13 @@ export function useEdition(): EditionInfo {
         wallet: profile.wallet,
         aiCreditTopup: profile.aiCreditTopup,
         iranianProviders: profile.allowsIranianProviders,
-        smsVerification: smsVerificationAvailable(edition),
+        smsVerification: smsVerificationAvailable(edition) || (edition === 'international' && internationalSms),
         bale: isChannelAllowedInEdition('bale', edition),
       },
       formatAmount,
       allowsProvider,
       allowsCurrency,
     }),
-    [edition, known, profile, regionMode, currency, formatAmount, allowsProvider, allowsCurrency],
+    [edition, known, profile, regionMode, currency, formatAmount, allowsProvider, allowsCurrency, internationalSms],
   );
 }

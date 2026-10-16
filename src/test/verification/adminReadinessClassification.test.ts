@@ -68,6 +68,8 @@ function smsInfo(overrides: Partial<SmsProviderInfo>): SmsProviderInfo {
     lineNumber: null,
     verifyTemplateId: null,
     verifyParameterName: null,
+    verifyProfileId: null,
+    channel: null,
     updatedAt: null,
     ...overrides,
   };
@@ -110,5 +112,17 @@ describe('Generic Verification Core admin readiness — SMS provider classificat
 
   it('smsir with lineNumber, verifyTemplateId and verifyParameterName is configured', () => {
     expect(classifySmsProviderInfo(smsInfo({ providerName: 'smsir', hasApiKey: true, lineNumber: '3000', verifyTemplateId: 5, verifyParameterName: 'CODE' }))).toBe('configured');
+  });
+
+  // Telnyx (International edition): the message text is the Verify
+  // Profile's own template on Telnyx, so only the profile id is required —
+  // never a template of ours.
+  it('telnyx with a key but no Verify Profile id is invalid; with one, configured (no template needed)', () => {
+    expect(classifySmsProviderInfo(smsInfo({ providerName: 'telnyx', hasApiKey: false, verifyProfileId: '490001a1-442d-809f-5753-c2332bd10640' }))).toBe('invalid');
+    expect(classifySmsProviderInfo(smsInfo({ providerName: 'telnyx', hasApiKey: true, verifyProfileId: null }))).toBe('invalid');
+    expect(classifySmsProviderInfo(smsInfo({
+      providerName: 'telnyx', hasApiKey: true, verifyProfileId: '490001a1-442d-809f-5753-c2332bd10640', channel: 'sms',
+      verifyTemplate: null, verifyTemplateId: null, verifyParameterName: null,
+    }))).toBe('configured');
   });
 });

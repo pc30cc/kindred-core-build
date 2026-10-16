@@ -20,6 +20,8 @@ import {
   SmsConfigValidationError,
   VERIFY_TEMPLATE_PATTERN,
 } from '../services/sms/index.js';
+import { TELNYX_PROFILE_ID_PATTERN } from '../services/sms/providers/telnyx.js';
+import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
 
 export const adminSmsProvidersRouter = Router();
 
@@ -94,7 +96,19 @@ const smsIrSaveSchema = z
   })
   .strict();
 
-const saveSchema = z.discriminatedUnion('providerName', [kavenegarSaveSchema, smsIrSaveSchema]);
+// Telnyx Verify (International edition). The message text is the Verify
+// Profile's own template, so there is no template field here.
+const telnyxSaveSchema = z
+  .object({
+    providerName: z.literal('telnyx'),
+    enabled: z.boolean(),
+    apiKey: z.string().max(512).optional(),
+    verifyProfileId: z.string().trim().regex(TELNYX_PROFILE_ID_PATTERN),
+    channel: z.enum(['sms', 'call']).optional(),
+  })
+  .strict();
+
+const saveSchema = z.discriminatedUnion('providerName', [kavenegarSaveSchema, smsIrSaveSchema, telnyxSaveSchema]);
 
 adminSmsProvidersRouter.put('/', async (req: Request, res: Response) => {
   const parsed = saveSchema.safeParse(req.body);
@@ -119,14 +133,22 @@ adminSmsProvidersRouter.put('/', async (req: Request, res: Response) => {
             verifyTemplate: body.verifyTemplate,
             ...(body.sender !== undefined ? { sender: body.sender } : {}),
           }
-        : {
-            ...common,
-            lineNumber: body.lineNumber,
-            verifyTemplateId: body.verifyTemplateId,
-            verifyParameterName: body.verifyParameterName,
-          },
+        : body.providerName === 'telnyx'
+          ? {
+              ...common,
+              verifyProfileId: body.verifyProfileId,
+              ...(body.channel !== undefined ? { channel: body.channel } : {}),
+            }
+          : {
+              ...common,
+              lineNumber: body.lineNumber,
+              verifyTemplateId: body.verifyTemplateId,
+              verifyParameterName: body.verifyParameterName,
+            },
       userId,
     );
+    // The public config tells the browser whether phone verification is on.
+    invalidatePlatformPublicConfig();
     res.json(info);
   } catch (err) {
     if (err instanceof SmsConfigValidationError) {
@@ -143,6 +165,7 @@ adminSmsProvidersRouter.delete('/', async (req: Request, res: Response) => {
   if (!userId) return res.status(401).json({ error: 'Missing authorization' });
   try {
     const info = await deleteSmsProviderConfig(ctx(req).serverConfig, userId);
+    invalidatePlatformPublicConfig();
     res.json(info);
   } catch {
     res.status(500).json({ error: 'sms_config_delete_failed' });
@@ -150,6 +173,7 @@ adminSmsProvidersRouter.delete('/', async (req: Request, res: Response) => {
 });
 
 // ─── POST /test — account info only, never sends an SMS ──────────
+// (Telnyx: reads the configured Verify Profile — proves the key and the id.)
 adminSmsProvidersRouter.post('/test', async (req: Request, res: Response) => {
   const userId = adminId(req);
   if (!userId) return res.status(401).json({ error: 'Missing authorization' });
@@ -165,6 +189,7 @@ adminSmsProvidersRouter.post('/test', async (req: Request, res: Response) => {
       balance: result.balance ?? null,
       currency: result.currency ?? 'IRR',
       accountType: result.accountType ?? null,
+      ...(result.profileName !== undefined ? { profileName: result.profileName } : {}),
     });
   }
   res.json({

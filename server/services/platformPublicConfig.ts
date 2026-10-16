@@ -30,6 +30,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveEdition } from '../../shared/edition.js';
 import { brandContactFromDomains } from '../../shared/brand.js';
+import { isInternationalSmsVerificationActive } from './sms/index.js';
 
 // Whitelists, applied after a `select('*')`: production and a database built
 // from database/migrations do not have exactly the same optional columns
@@ -95,6 +96,12 @@ export interface PlatformPublicConfig {
     site_url: string | null;
     support_email: string | null;
   };
+  /**
+   * Whether SMS phone verification is on: always in the Iranian edition; in
+   * the International edition only while Telnyx is configured and enabled
+   * (Super Admin → Providers → SMS). A boolean only, nothing about the vendor.
+   */
+  sms_verification: boolean;
 }
 
 function pick(row: Record<string, unknown> | null | undefined, keys: readonly string[]): Record<string, unknown> | null {
@@ -136,16 +143,19 @@ async function load(config: ServerConfig): Promise<PlatformPublicConfig | null> 
     }
   }
   const rawRealtime = (widgetPlatform.error ? null : (widgetPlatform.data as Record<string, unknown> | null)) ?? null;
+  // No settings row reads as the column default, `multi`: International.
+  const edition = resolveEdition((settings.data as { region_mode?: unknown } | null)?.region_mode ?? 'multi');
+  const smsVerification = edition === 'iran' ? true : await isInternationalSmsVerificationActive(config);
   return {
     branding: pick(branding.data as Record<string, unknown> | null, BRANDING_COLUMNS),
     localized: ((localized.data ?? []) as Record<string, unknown>[]).map((r) => pick(r, LOCALIZED_COLUMNS)),
     region: (settings.data as Record<string, unknown> | null) ?? null,
     realtime: rawRealtime ? pick(rawRealtime, REALTIME_KEYS) : null,
     brand: {
-      // No settings row reads as the column default, `multi`: International.
-      edition: resolveEdition((settings.data as { region_mode?: unknown } | null)?.region_mode ?? 'multi'),
+      edition,
       ...brandContactFromDomains(domains?.error ? null : (domains?.data as Record<string, unknown> | null)),
     },
+    sms_verification: smsVerification,
   };
 }
 

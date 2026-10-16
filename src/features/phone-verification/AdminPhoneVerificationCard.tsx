@@ -64,8 +64,8 @@ export function AdminPhoneVerificationCard({
   ownerLink = false,
 }: AdminPhoneVerificationCardProps) {
   const { t, locale: uiLocale } = useTranslation();
-  // International: no Iranian default country and no SMS (re)send — its only
-  // SMS vendors are Iranian. Manual verification stays available.
+  // International: no Iranian default country, and an SMS (re)send only while
+  // Telnyx is on (features.smsVerification). Manual verification stays available.
   const { edition, features } = useEdition();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');

@@ -36,8 +36,9 @@ export function AccountPhoneField({ fallback }: Props) {
   const [open, setOpen] = useState(false);
 
   const ctx = { purpose: 'widget_access' as const, ...(workspace?.slug ? { workspaceSlug: workspace.slug } : {}) };
-  // SMS verification exists in the Iranian edition only: elsewhere (or when
-  // the server says it is not required) the plain profile-phone field shows.
+  // SMS verification is always on in the Iranian edition, and in International
+  // only while Telnyx is on: otherwise (or when the server says it is not
+  // required) the plain profile-phone field shows.
   const { features } = useEdition();
   const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(
     ctx,

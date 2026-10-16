@@ -175,11 +175,15 @@ describe('useEdition()', () => {
 });
 
 describe('provider catalogue', () => {
-  it('Iran: every vendor, the very same schema objects — except billing, which loses the International-only Paddle sandbox', () => {
+  it('Iran: every vendor, the very same schema objects — except billing, which loses the International-only Paddle sandbox, and SMS, which loses Telnyx', () => {
     for (const type of Object.keys(PROVIDER_SCHEMAS)) {
-      if (type === 'billing') continue;
+      if (type === 'billing' || type === 'sms') continue;
       expect(getSchemaForEdition(type, 'iran')).toBe(PROVIDER_SCHEMAS[type]);
     }
+    const allSms = PROVIDER_SCHEMAS.sms.vendors.map((v) => v.name);
+    expect(allSms).toContain('telnyx');
+    expect(getVendorsForEdition('sms', 'iran').map((v) => v.name)).toEqual(allSms.filter((name) => name !== 'telnyx'));
+    expect(getVendorsForEdition('sms', 'international').map((v) => v.name)).toContain('telnyx');
     const all = PROVIDER_SCHEMAS.billing.vendors.map((v) => v.name);
     const iran = getVendorsForEdition('billing', 'iran').map((v) => v.name);
     expect(all).toContain('paddle_sandbox');

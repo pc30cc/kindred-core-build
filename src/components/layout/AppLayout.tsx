@@ -217,7 +217,7 @@ function PhoneVerificationBar() {
   const { workspace } = useActiveWorkspace();
   const [open, setOpen] = useState(false);
   const ctx = { purpose: 'widget_access' as const, ...(workspace?.slug ? { workspaceSlug: workspace.slug } : {}) };
-  // No SMS verification outside the Iranian edition: no notice either.
+  // No SMS verification (International without Telnyx on): no notice either.
   const { features } = useEdition();
   const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(
     ctx,

@@ -14,7 +14,11 @@ import type { ServerConfig } from '../../config.js';
 import { randomUUID } from 'node:crypto';
 import { getServiceClient } from '../../supabase.js';
 import { insertAuditLogRows } from '../auditLog.js';
-import { sendSmsVerification, type SmsRuntimeOptions } from '../sms/index.js';
+import {
+  isInternationalSmsVerificationActive,
+  sendSmsVerification,
+  type SmsRuntimeOptions,
+} from '../sms/index.js';
 import { getPlatformEditionOrNull } from '../platformRegion.js';
 import { smsVerificationAvailable } from '../../../shared/edition.js';
 import {
@@ -24,7 +28,13 @@ import {
   hashIpForRateLimit,
   PhoneVerificationPepperMissing,
 } from './crypto.js';
-import { maskE164, normalizePhoneToE164, toProviderFormat } from './phone.js';
+import {
+  ANY_E164_COUNTRY,
+  maskE164,
+  normalizeInternationalPhone,
+  normalizePhoneToE164,
+  toProviderFormat,
+} from './phone.js';
 import { PHONE_VERIFICATION_PURPOSES, type PhoneVerificationPurpose } from './policies.js';
 import {
   CHALLENGE_TTL_SECONDS,
@@ -57,15 +67,17 @@ function str(value: unknown): string | null {
 }
 
 /**
- * SMS phone verification exists in the Iranian edition only: its only SMS
- * vendors (Kavenegar, SMS.ir) are Iranian (shared/edition.ts
- * smsVerificationAvailable). In the International edition nothing is ever
- * required, so no gate blocks anyone, and no code is ever sent. An unknown
- * edition behaves as before (required).
+ * SMS phone verification is always on in the Iranian edition (Kavenegar,
+ * SMS.ir; shared/edition.ts smsVerificationAvailable), and an unknown edition
+ * behaves as before (on). In the International edition it is on only while
+ * the Super Admin has Telnyx configured and enabled
+ * (sms/index.ts isInternationalSmsVerificationActive); otherwise nothing is
+ * required there, no gate blocks anyone, and no code is ever sent.
  */
 export async function phoneVerificationEnabled(config: ServerConfig): Promise<boolean> {
   const edition = await getPlatformEditionOrNull(config);
-  return edition === null || smsVerificationAvailable(edition);
+  if (edition === null || smsVerificationAvailable(edition)) return true;
+  return isInternationalSmsVerificationActive(config);
 }
 
 /** Reads `phone_verification_state` and shapes it into the internal state. */
@@ -192,7 +204,8 @@ export async function getStatusForActor(
     canVerify: true,
     phoneSet: state.phone !== null,
     phoneMasked: state.phoneMasked,
-    allowedCountries: ['IR'],
+    // International: any E.164 number (pseudo-country ZZ, delivered by Telnyx).
+    allowedCountries: (await getPlatformEditionOrNull(config)) === 'international' ? [ANY_E164_COUNTRY] : ['IR'],
     resendAfterSeconds: resendAfterSeconds(state.lastCreatedAt),
     // Resume: the OTP survives a page reload because the active challenge is
     // rehydrated from the database, never from client storage.
@@ -378,7 +391,7 @@ export async function issueChallenge(
 
   const sent = await sendSmsVerification(
     config,
-    { to: toProviderFormat(input.phoneE164), code },
+    { to: toProviderFormat(input.phoneE164), code, ttlSeconds: CHALLENGE_TTL_SECONDS },
     input.smsOptions ?? {},
   );
 
@@ -513,7 +526,12 @@ export async function startVerification(
   const state = await getPhoneVerificationState(config, ctx.subjectUserId);
   if (state.verified) throw new PhoneVerificationError('phone_already_verified', 409);
 
-  const normalized = normalizePhoneToE164(input.phone, input.country);
+  // The International edition's field takes the whole international number
+  // (pseudo-country `ZZ`); everywhere else `ZZ` stays an unsupported country.
+  const normalized =
+    input.country === ANY_E164_COUNTRY && (await getPlatformEditionOrNull(config)) === 'international'
+      ? normalizeInternationalPhone(input.phone)
+      : normalizePhoneToE164(input.phone, input.country);
   if (normalized.ok !== true) throw new PhoneVerificationError(normalized.reason, 400);
 
   return issueChallenge(config, {

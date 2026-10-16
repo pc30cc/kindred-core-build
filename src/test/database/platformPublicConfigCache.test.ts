@@ -113,6 +113,8 @@ describe('platform public config cache', () => {
       region: { region_mode: 'iran', active_locales: ['fa', 'en'], default_locale: 'fa' },
       realtime: { realtime_reconnect_jitter_pct: 20, realtime_pending_max: 50 },
       brand: { edition: 'iran', site_url: 'https://webyar.ai', support_email: 'support@webyar.ai' },
+      // Iranian edition: SMS verification is always on (no SMS row is read).
+      sms_verification: true,
     });
     expect(JSON.stringify(v)).not.toContain('not-for-the-public');
     expect(JSON.stringify(v)).not.toContain('admin-1');

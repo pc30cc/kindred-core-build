@@ -166,6 +166,34 @@ describe('phone verification', () => {
     }
   });
 
+  it('International with Telnyx configured and enabled: required, and any E.164 number is accepted', async () => {
+    state.edition = 'international';
+    state.smsRow = {
+      provider_name: 'telnyx', is_active: true, updated_at: null,
+      config: { apiKey: 'k', verifyProfileId: '490001a1-442d-809f-5753-c2332bd10640', channel: 'sms' },
+    };
+    expect(await phone.phoneVerificationEnabled(CONFIG)).toBe(true);
+    expect(await phone.getStatusForActor(CONFIG, input)).toMatchObject({
+      required: true, satisfied: false, canVerify: true, allowedCountries: ['ZZ'],
+    });
+    expect(await phone.isPhoneVerificationSatisfied(CONFIG, input)).toBe(false);
+    // The pseudo-country ZZ takes the whole international number.
+    await expect(phone.startVerification(CONFIG, { ...input, phone: '12345', country: 'ZZ' }))
+      .rejects.toMatchObject({ code: 'phone_invalid' });
+    // A well-formed number gets past normalization (it fails later, here, only
+    // because this test has no pepper / challenge RPC).
+    const err = await phone.startVerification(CONFIG, { ...input, phone: '+1 202 555 0143', country: 'ZZ' }).catch((e: unknown) => e);
+    expect((err as { code?: string }).code).not.toMatch(/^phone_(invalid|country_not_supported)$/);
+    // Disabled again: nothing required.
+    state.smsRow = { ...state.smsRow, is_active: false };
+    expect(await phone.phoneVerificationEnabled(CONFIG)).toBe(false);
+  });
+
+  it('Iran: the pseudo-country ZZ stays unsupported, as before', async () => {
+    await expect(phone.startVerification(CONFIG, { ...input, phone: '+12025550143', country: 'ZZ' }))
+      .rejects.toMatchObject({ code: 'phone_country_not_supported' });
+  });
+
   it('International: a non-member is still refused', async () => {
     state.edition = 'international';
     state.workspace = null;

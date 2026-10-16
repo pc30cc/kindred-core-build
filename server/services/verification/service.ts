@@ -184,6 +184,7 @@ async function sendOtpDirect(
       const result = await sendSmsVerification(config, {
         to: toProviderFormat(input.destinationNormalized),
         code: input.code,
+        ttlSeconds: input.ttlSeconds,
       });
       if (result.success) return { outcome: 'provider_accepted', providerName: result.provider, providerMessageId: result.messageId };
       const outcome: DeliveryOutcome = result.errorCode && SMS_CONFIG_FAULT_CODES.has(result.errorCode)

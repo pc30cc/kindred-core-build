@@ -9,6 +9,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
   findWorkspaceByPublicKey,
+  findWorkspaceSettings,
   getOrCreateWorkspaceSettings,
   getPlatformCallCenterSettings,
   computeEffectiveCallCenterCaps,
@@ -17,6 +18,8 @@ import {
   type WorkspaceCallCenterSettings,
 } from '../services/callCenter/settings.js';
 import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/widgetSession.js';
+import { memoCallWidgetBootstrap } from '../services/callCenter/bootstrapCache.js';
+import { issuePresenceTicket, readPresenceTicket } from '../services/callCenter/presenceTicket.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import type { CallProviderId } from '../services/calls/providers/types.js';
@@ -69,7 +72,7 @@ import {
   resolveCallWidgetTemplateId,
 } from '../services/callCenter/presentation.js';
 import crypto from 'crypto';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
@@ -78,14 +81,12 @@ import { notifyCallbackRequest } from '../services/push/index.js';
 
 export const callWidgetRouter = Router();
 
-// Compute a deterministic version token for /call-widget/runtime.{js,css}
-// so the loader can append `?v=<token>` and bypass any stale browser /
-// CDN cache. Computed at startup from the file contents (md5 hash), with
-// a graceful fallback to the server start timestamp when the files are
-// not reachable from this process (e.g. when nginx is the only thing
-// serving them in production split deployments). Re-computing on every
-// request is unnecessary — the loader itself is no-store so a process
-// restart on deploy is enough to roll the token.
+// The version of the call widget files at their FIXED names, for loaders
+// that carry no build names: the raw l.js this API image serves to old
+// snippets pointing at the API origin, and loaders from before content
+// hashing. A built l.js (frontend image) names content-hashed files and uses
+// this only for its fallback. A hash of the files this image serves (sha256),
+// or the start time when they are not here.
 const CALL_WIDGET_ASSETS_VERSION: string = (() => {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
@@ -95,13 +96,16 @@ const CALL_WIDGET_ASSETS_VERSION: string = (() => {
       path.resolve(process.cwd(), 'public', 'call-widget'),
     ];
     for (const dir of candidates) {
+      // Not every candidate exists (the server image has /app/routes, so the
+      // first one is /public/call-widget): a missing one must not end the search.
+      if (!existsSync(dir)) continue;
       const js = path.join(dir, 'runtime.js');
       const css = path.join(dir, 'runtime.css');
-      const presentationFiles = [
-        path.join(dir, 'presentation-registry.js'),
-        path.join(dir, 'presentation-default.js'),
-        path.join(dir, 'presentation-default.css'),
-      ];
+      // Every presentation file (presentation-intl.css too: it was missing).
+      const presentationFiles = ['presentation-registry.js', 'presentation-default.js', 'presentation-default.css']
+        .concat(readdirSync(dir).filter((n) => /^presentation-[a-z0-9-]+\.(?:js|css)$/.test(n)).sort())
+        .filter((n, i, all) => all.indexOf(n) === i)
+        .map((n) => path.join(dir, n));
       if (existsSync(js) && existsSync(css) && presentationFiles.every(existsSync)) {
         const h = crypto.createHash('sha256');
         for (const asset of [js, css, ...presentationFiles]) h.update(readFileSync(asset));
@@ -121,6 +125,10 @@ callWidgetRouter.use(async (req, res, next) => {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type, x-cc-session, x-cc-active-call');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    // Let the browser keep the preflight (Chrome caps it at 2 h): without
+    // it every status poll of a call in progress (custom headers, every
+    // 5 s) paid a second request.
+    res.setHeader('Access-Control-Max-Age', '7200');
   }
   if (req.method === 'OPTIONS') return res.status(204).end();
   next();
@@ -355,19 +363,6 @@ function requireWidgetSession(req, config: ServerConfig) {
   return { ok: true as const, session };
 }
 
-async function resolveWorkspace(
-  config: ServerConfig,
-  query: { workspaceId?: string; publicKey?: string },
-): Promise<WorkspaceCallCenterSettings | null> {
-  if (query.publicKey) {
-    return findWorkspaceByPublicKey(config, query.publicKey);
-  }
-  if (query.workspaceId) {
-    return getOrCreateWorkspaceSettings(config, query.workspaceId);
-  }
-  return null;
-}
-
 function disabledResponse(reason: string, message?: Record<string, unknown>) {
   return { status: 'disabled', reason, message: message || null };
 }
@@ -460,6 +455,8 @@ async function buildActiveCallPayload(
   ws: WorkspaceCallCenterSettings,
   origin: string | null,
   visitorId: string | null,
+  /** Look the visitor's calls up by visitor id when no header/cookie names one (default on). */
+  opts: { scanByVisitor?: boolean } = {},
 ): Promise<{ call_id: string; state: string; call_type: string; created_at: string | null; queue_position: number | null; session: string } | null> {
   const sbActive = getServiceClient(config);
   let mine = null;
@@ -484,7 +481,7 @@ async function buildActiveCallPayload(
       clearActiveCallCookie(res, req);
     }
   }
-  if (!mine && visitorId) {
+  if (!mine && visitorId && opts.scanByVisitor !== false) {
     const { data: rows } = await sbActive
       .from('call_sessions')
       .select('id,state,call_type,created_at,metadata')
@@ -540,29 +537,54 @@ async function buildActiveCallPayload(
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────
-callWidgetRouter.get('/bootstrap', async (req, res) => {
-  const config = serverConfigOf(req);
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.setHeader('Surrogate-Control', 'no-store');
-  res.setHeader('CDN-Cache-Control', 'no-store');
-  res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
-  const ws = await resolveWorkspace(config, {
-    workspaceId: req.query.workspaceId ? String(req.query.workspaceId) : undefined,
-    publicKey: req.query.publicKey ? String(req.query.publicKey) : undefined,
-  });
-  if (!ws) return res.status(404).json({ error: 'workspace_not_found' });
+const BOOTSTRAP_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BOOTSTRAP_PUBLIC_KEY_RE = /^[A-Za-z0-9_-]{4,128}$/;
+
+/**
+ * The bootstrap's workspace-level part: the same for every visitor and every
+ * loader (bootstrapCache.ts). What depends on the request — the loader's
+ * asset origin (`loader_origin` / `asset_base` query) in the font and logo
+ * URLs — is not in it, so its key names the workspace only.
+ */
+type PublicBootstrap = {
+  ws: WorkspaceCallCenterSettings | null;
+  /** A `disabled` answer, or null when the widget is on. */
+  disabled: ReturnType<typeof disabledResponse> | null;
+  /** The response fields that are the same for every request (no URL of the request's). */
+  body: Record<string, unknown> & { assets?: Record<string, string> };
+  /** The shared font stylesheet's file name (`font_style_url` is built per request). */
+  fontName: string | null;
+  /** The International edition's credit, as read (its logo URL is built per request). */
+  brand: CallWidgetBrandRows | null;
+};
+
+function loadPublicBootstrap(
+  config: ServerConfig,
+  query: { workspaceId?: string; publicKey?: string },
+): Promise<PublicBootstrap | null> {
+  // A UUID is the same in any case: one key per workspace.
+  const key = query.publicKey ? `pk:${query.publicKey}` : `ws:${String(query.workspaceId).toLowerCase()}`;
+  return memoCallWidgetBootstrap(key, () => computePublicBootstrap(config, query), (v) => v?.ws?.workspace_id ?? null);
+}
+
+async function computePublicBootstrap(
+  config: ServerConfig,
+  query: { workspaceId?: string; publicKey?: string },
+): Promise<PublicBootstrap | null> {
+  // Read-only: a page view never creates the settings row (the row's
+  // `enabled` defaults to false, so a workspace without one is answered
+  // `workspace_disabled` exactly as before — without the INSERT, or the
+  // failed INSERT a made-up id caused).
+  const ws = query.publicKey
+    ? await findWorkspaceByPublicKey(config, query.publicKey)
+    : await findWorkspaceSettings(config, String(query.workspaceId).toLowerCase());
+  if (!ws && query.publicKey) return null;
   const platform = await getPlatformCallCenterSettings(config);
   if (!platform.call_center_enabled) {
-    return res.json(disabledResponse('call_center_disabled', platform.disabled_message));
+    return { ws, disabled: disabledResponse('call_center_disabled', platform.disabled_message), body: {}, fontName: null, brand: null };
   }
-  if (!ws.enabled) {
-    return res.json(disabledResponse('workspace_disabled'));
-  }
-  const origin = getOrigin(req);
-  if (!(await callOriginAllowed(config, ws, origin))) {
-    return res.status(403).json({ status: 'error', reason: 'origin_denied' });
+  if (!ws || !ws.enabled) {
+    return { ws, disabled: disabledResponse('workspace_disabled'), body: {}, fontName: null, brand: null };
   }
   const effective = computeEffectiveCallCenterCaps(platform, ws);
   // Provider readiness check (don't block bootstrap; reflect in payload)
@@ -601,64 +623,6 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       callback: (deptRows || []).filter((r) => r.cc_callback_enabled).map(safeDept),
     };
   }
-  const session = signWidgetSession(config, {
-    workspace_id: ws.workspace_id,
-    public_key: ws.public_key,
-    origin,
-  });
-  // Resolve / create dvsid visitor cookie so the same identity is shared
-  // with the chat widget and the visitors panel. Look up any contact
-  // previously linked to this visitor so the widget can pre-fill the
-  // pre-call form and (when complete) skip it entirely on return visits.
-  let visitorBlock: { id: string; contact: { id: string; name: string | null; email: string | null; phone: string | null } | null } | null = null;
-  let resolvedVisitorId: string | null = null;
-  try {
-    const { visitorId } = resolveVisitorIdentity(req, res, ws.workspace_id);
-    resolvedVisitorId = visitorId;
-    // Make the call-widget visitor show up in the Online Visitors list as
-    // soon as the widget loads — with their real contact name if known.
-    await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin, req as unknown as ExpressRequest);
-    const contact =
-      await findLinkedContactForVisitor(config, ws.workspace_id, visitorId) ||
-      await restoreContactFromContinuityCookie(req, config, ws.workspace_id, visitorId);
-    if (contact) {
-      // Re-pin contact_id on every refresh (cheap, idempotent) so a returning
-      // identified visitor is never shown as Anonymous.
-      const sbPin = getServiceClient(config);
-      await sbPin
-        .from('visitor_sessions')
-        .update({ contact_id: contact.id })
-        .eq('workspace_id', ws.workspace_id)
-        .eq('visitor_id', visitorId)
-        .is('contact_id', null);
-      await issueContinuityCookieForContact(req, res, config, ws.workspace_id, contact.id);
-    }
-    visitorBlock = {
-      id: visitorId,
-      contact: contact
-        ? { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone }
-        : null,
-    };
-  } catch (e) {
-    console.warn('[call-widget/bootstrap] visitor resolve failed:', e?.message || e);
-  }
-  // Resume in-flight call across page refresh / navigation.
-  // Look up any non-terminal call_session for this visitor and, if found,
-  // hand the widget a session token bound to that call_id so it can keep
-  // polling status without creating a new queue entry.
-  let activeCall: {
-    call_id: string;
-    state: string;
-    call_type: string;
-    created_at: string | null;
-    queue_position: number | null;
-    session: string;
-  } | null = null;
-  try {
-    activeCall = await buildActiveCallPayload(config, req, res, ws, origin, resolvedVisitorId);
-  } catch (e) {
-    console.warn('[call-widget/bootstrap] active_call lookup failed:', e?.message || e);
-  }
   // Ringback audio is platform-owned. Only the storage keys are persisted;
   // every link below is derived through the one resolver, for whichever
   // provider is primary at this moment. The former fallback to the stored
@@ -679,25 +643,10 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       queue_urls,
     };
   })();
-  // Shared, hashed font asset. The call widget does NOT hard-code a font
-  // path: it consumes the same immutable descriptor asset the chat widget
-  // resolves, so the bytes exist exactly once and are cached once.
-  const fontAssetUrl = (() => {
+  // Shared, hashed font asset (its URL: callWidgetFontStyleUrl, per request).
+  const fontName = (() => {
     try {
-      const key = widgetTemplateAssetKeys(resolveWidgetTemplateId(null)).fonts;
-      const name = getOptionalWidgetAssetName(key);
-      if (!name) return null;
-
-      const base = resolveWidgetAssetBase({
-        widgetBaseUrl: null,
-        widgetLoaderBaseUrl: null,
-        widgetPublicBaseUrl: null,
-        assetBaseUrl: null,
-        loaderAssetBase: getLoaderAssetBase(req as ExpressRequest),
-      });
-      // Relative when no explicit asset base is configured — the runtime
-      // resolves it against its own origin, exactly like its other assets.
-      return base ? `${base}/widget/${name}` : `/widget/${name}`;
+      return getOptionalWidgetAssetName(widgetTemplateAssetKeys(resolveWidgetTemplateId(null)).fonts);
     } catch { return null; }
   })();
   // The platform's edition picks the template (shared/widgetTemplates.ts):
@@ -710,111 +659,237 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   // words ("Powered by Web Yar"), so nothing is sent for it. The
   // International edition credits its own platform, by the same rules as the
   // chat widget (platform switch, brand text, link, plan gate).
-  const intlBrand = edition === 'international'
-    ? await buildCallWidgetBrand(config, ws.workspace_id, getLoaderAssetBase(req as ExpressRequest))
-    : null;
-  const poweredBy = intlBrand ? intlBrand.poweredBy : undefined;
+  const brand = edition === 'international' ? await readCallWidgetBrand(config, ws.workspace_id) : null;
   // Persian dates: Jalali in Tehran time in Iran (and unknown), Gregorian in
   // the visitor's zone abroad (shared/widgetTemplates.ts).
   const dateHints = widgetDateHints(edition);
+  // Derived from `call_center_settings.avatar_storage_path` for the
+  // provider that is primary right now; the row persists no URL of ours.
+  const avatarUrl = (await createStorageUrlResolver(config).workspace(ws.workspace_id, ws.avatar_storage_path))
+    ?? ws.avatar_url ?? null;
+  return {
+    ws,
+    disabled: null,
+    fontName,
+    brand,
+    body: {
+      assets_version: CALL_WIDGET_ASSETS_VERSION,
+      // Additive: the platform's edition (null when it cannot be read; the
+      // widget then behaves as the Iranian edition).
+      edition,
+      calendar: dateHints.calendar,
+      time_zone: dateHints.timeZone,
+      // Additive, the Iranian edition only (region_mode = 'iran'; never an
+      // edition that cannot be read): WebYar's Persian logotype for the
+      // runtime's own fixed credit, in the brand's place. A path on the widget's
+      // asset origin (the runtime resolves it against the origin it was loaded
+      // from); the runtime keeps the words if the image cannot load.
+      ...(isWebyarKitEdition(edition) ? { powered_by_logo: WEBYAR_BRAND.logo.light } : {}),
+      assets: {
+        presentation_registry_url: `/call-widget/${callTemplateAssets.registry}`,
+        presentation_script_url: `/call-widget/${callTemplateAssets.script}`,
+        presentation_style_url: `/call-widget/${callTemplateAssets.style}`,
+      },
+      workspace_id: ws.workspace_id,
+      config: {
+        display_name: ws.display_name,
+        avatar_url: avatarUrl,
+        widget_position: ws.widget_position,
+        widget_template_id: callTemplateId,
+        widget_theme: normalizeCallWidgetTheme(ws.widget_theme),
+        pre_call_form_enabled: ws.pre_call_form_enabled,
+        pre_call_form_schema: normalizeCallWidgetFormSchema(ws.pre_call_form_schema),
+        offline_behavior: normalizeCallWidgetOfflineBehavior(ws.offline_behavior),
+        recording_consent_required: ws.recording_consent_required,
+        custom_texts: ws.widget_custom_texts || {},
+      },
+      capabilities: {
+        voice: effective.voice_enabled,
+        video: effective.video_enabled,
+        callback: effective.callback_enabled,
+        recording: effective.recording_enabled,
+        operator_video_visible: ws.operator_video_visible_to_visitor !== false,
+      },
+      callback_policy: {
+        enabled: effective.callback_enabled,
+        show_when_online: platform.callback_show_when_online,
+        cooldown_seconds: platform.callback_min_seconds_between_requests,
+        require_contact: platform.callback_require_contact,
+        min_message_length: platform.callback_min_message_length,
+        honeypot_enabled: platform.callback_honeypot_enabled,
+        min_form_seconds: platform.callback_min_form_seconds,
+      },
+      queue_experience: {
+        ringback_enabled: platform.ringback_enabled,
+        ringback_mode: platform.ringback_mode,
+        ringback_music_url: ringbackAudio.music_url,
+        ringback_announcement_audio_url: ringbackAudio.announcement_url,
+        ringback_queue_audio_urls: ringbackAudio.queue_urls,
+        show_position: platform.queue_show_position,
+        show_eta: platform.queue_show_eta,
+        eta_seconds_per_position: platform.queue_eta_seconds_per_position,
+        offer_callback_after_seconds: platform.queue_offer_callback_after_seconds,
+      },
+      i18n: (() => {
+        const eff = computeEffectiveCallCenterLocales(platform, ws);
+        return { default_locale: eff.default_locale, available_locales: eff.available };
+      })(),
+      recording,
+      provider_ready,
+      departments,
+    },
+  };
+}
+
+/**
+ * The shared font stylesheet's URL. The call widget does NOT hard-code a font
+ * path: it consumes the same immutable descriptor asset the chat widget
+ * resolves, so the bytes exist exactly once and are cached once. (A built
+ * l.js names its own image's copy and uses this only as a fallback.)
+ */
+function callWidgetFontStyleUrl(fontName: string | null, loaderAssetBase: string | null): string | null {
+  if (!fontName) return null;
+  const base = resolveWidgetAssetBase({
+    widgetBaseUrl: null,
+    widgetLoaderBaseUrl: null,
+    widgetPublicBaseUrl: null,
+    assetBaseUrl: null,
+    loaderAssetBase,
+  });
+  // Relative when no explicit asset base is configured — the runtime
+  // resolves it against its own origin, exactly like its other assets.
+  return base ? `${base}/widget/${fontName}` : `/widget/${fontName}`;
+}
+
+callWidgetRouter.get('/bootstrap', async (req, res) => {
+  const config = serverConfigOf(req);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
+  const query = {
+    workspaceId: req.query.workspaceId ? String(req.query.workspaceId) : undefined,
+    publicKey: req.query.publicKey ? String(req.query.publicKey) : undefined,
+  };
+  if (query.publicKey ? !BOOTSTRAP_PUBLIC_KEY_RE.test(query.publicKey) : !BOOTSTRAP_UUID_RE.test(query.workspaceId || '')) {
+    return res.status(404).json({ error: 'workspace_not_found' });
+  }
+  const pub = await loadPublicBootstrap(config, query);
+  if (!pub) return res.status(404).json({ error: 'workspace_not_found' });
+  if (pub.disabled || !pub.ws) return res.json(pub.disabled);
+  const ws = pub.ws;
+  const origin = getOrigin(req);
+  if (!(await callOriginAllowed(config, ws, origin))) {
+    return res.status(403).json({ status: 'error', reason: 'origin_denied' });
+  }
+  const session = signWidgetSession(config, {
+    workspace_id: ws.workspace_id,
+    public_key: ws.public_key,
+    origin,
+  });
+  // The visitor: dvsid cookie shared with the chat widget, the Online
+  // Visitors row, and the contact to pre-fill the pre-call form with. A
+  // valid presence ticket (presenceTicket.ts) means all of it was settled
+  // under a minute ago on this network: no visitor query then.
+  let visitorBlock: { id: string; contact: { id: string; name: string | null; email: string | null; phone: string | null } | null } | null = null;
+  let resolvedVisitorId: string | null = null;
+  let scanForCall = false;
+  try {
+    const { visitorId, isNew } = resolveVisitorIdentity(req, res, ws.workspace_id);
+    resolvedVisitorId = visitorId;
+    const ipHash = hashIp(getClientIp(req as unknown as ExpressRequest));
+    const ticket = isNew ? null : readPresenceTicket(req as unknown as ExpressRequest, config, { workspaceId: ws.workspace_id, visitorId, ipHash });
+    // A contact identified meanwhile on the chat widget arrives with a new
+    // continuity cookie: an anonymous ticket does not cover it.
+    const ticketHolds = !!ticket && !(ticket.c === null && readContinuityCookie(req));
+    let contact: { id: string; name: string | null; email: string | null; phone: string | null } | null = null;
+    if (ticketHolds) {
+      contact = ticket!.c ? await findContactById(config, ticket!.c) : null;
+    } else {
+      // A visitor id minted just now has no session, contact or call yet.
+      scanForCall = !isNew;
+      const sessionRowId = await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin, req as unknown as ExpressRequest);
+      contact =
+        (isNew ? null : await findLinkedContactForVisitor(config, ws.workspace_id, visitorId)) ||
+        await restoreContactFromContinuityCookie(req, config, ws.workspace_id, visitorId);
+      // Re-pin contact_id (cheap, idempotent) so a returning identified
+      // visitor is never shown as Anonymous.
+      if (contact) {
+        const sbPin = getServiceClient(config);
+        await sbPin
+          .from('visitor_sessions')
+          .update({ contact_id: contact.id })
+          .eq('workspace_id', ws.workspace_id)
+          .eq('visitor_id', visitorId)
+          .is('contact_id', null);
+        await issueContinuityCookieForContact(req, res, config, ws.workspace_id, contact.id);
+      }
+      if (sessionRowId) {
+        issuePresenceTicket(res, req as unknown as ExpressRequest, config, {
+          w: ws.workspace_id, v: visitorId, s: sessionRowId, h: ipHash, c: contact?.id ?? null,
+        });
+      }
+    }
+    visitorBlock = {
+      id: visitorId,
+      contact: contact
+        ? { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone }
+        : null,
+    };
+  } catch (e) {
+    console.warn('[call-widget/bootstrap] visitor resolve failed:', e?.message || e);
+  }
+  // Resume in-flight call across page refresh / navigation: a non-terminal
+  // call_session named by the x-cc-active-call header or the dvccall cookie,
+  // or (on a full pass) found by visitor id, gets a session token bound to
+  // that call_id so the widget keeps polling status without a new queue entry.
+  let activeCall: Awaited<ReturnType<typeof buildActiveCallPayload>> = null;
+  try {
+    activeCall = await buildActiveCallPayload(config, req, res, ws, origin, resolvedVisitorId, { scanByVisitor: scanForCall });
+  } catch (e) {
+    console.warn('[call-widget/bootstrap] active_call lookup failed:', e?.message || e);
+  }
+  // The URLs that carry the loader's asset origin (a query parameter):
+  // built per request, outside the memo.
+  const loaderAssetBase = getLoaderAssetBase(req as ExpressRequest);
+  const intlBrand = pub.brand
+    ? buildCallWidgetBrand(pub.brand, loaderAssetBase)
+    : null;
+  const poweredBy = intlBrand ? intlBrand.poweredBy : undefined;
   res.json({
     status: 'ok',
     session,
-    assets_version: CALL_WIDGET_ASSETS_VERSION,
-    // Additive: the platform's edition (null when it cannot be read; the
-    // widget then behaves as the Iranian edition).
-    edition,
-    calendar: dateHints.calendar,
-    time_zone: dateHints.timeZone,
+    ...pub.body,
     ...(intlBrand ? { platform_brand: { names: intlBrand.names } } : {}),
     ...(poweredBy !== undefined ? { powered_by: poweredBy } : {}),
-    // Additive, the Iranian edition only (region_mode = 'iran'; never an
-    // edition that cannot be read): WebYar's Persian logotype for the
-    // runtime's own fixed credit, in the brand's place. A path on the widget's
-    // asset origin (the runtime resolves it against the origin it was loaded
-    // from); the runtime keeps the words if the image cannot load.
-    ...(isWebyarKitEdition(edition) ? { powered_by_logo: WEBYAR_BRAND.logo.light } : {}),
-    assets: {
-      font_style_url: fontAssetUrl,
-      presentation_registry_url: `/call-widget/${callTemplateAssets.registry}`,
-      presentation_script_url: `/call-widget/${callTemplateAssets.script}`,
-      presentation_style_url: `/call-widget/${callTemplateAssets.style}`,
-    },
-    workspace_id: ws.workspace_id,
+    assets: { font_style_url: callWidgetFontStyleUrl(pub.fontName, loaderAssetBase), ...pub.body.assets },
     visitor: visitorBlock,
-    config: {
-      display_name: ws.display_name,
-      // Derived from `call_center_settings.avatar_storage_path` for the
-      // provider that is primary right now; the row persists no URL of ours.
-      avatar_url: (await createStorageUrlResolver(config).workspace(ws.workspace_id, ws.avatar_storage_path))
-        ?? ws.avatar_url ?? null,
-      widget_position: ws.widget_position,
-      widget_template_id: callTemplateId,
-      widget_theme: normalizeCallWidgetTheme(ws.widget_theme),
-      pre_call_form_enabled: ws.pre_call_form_enabled,
-      pre_call_form_schema: normalizeCallWidgetFormSchema(ws.pre_call_form_schema),
-      offline_behavior: normalizeCallWidgetOfflineBehavior(ws.offline_behavior),
-      recording_consent_required: ws.recording_consent_required,
-      custom_texts: ws.widget_custom_texts || {},
-    },
-    capabilities: {
-      voice: effective.voice_enabled,
-      video: effective.video_enabled,
-      callback: effective.callback_enabled,
-      recording: effective.recording_enabled,
-      operator_video_visible: ws.operator_video_visible_to_visitor !== false,
-    },
-    callback_policy: {
-      enabled: effective.callback_enabled,
-      show_when_online: platform.callback_show_when_online,
-      cooldown_seconds: platform.callback_min_seconds_between_requests,
-      require_contact: platform.callback_require_contact,
-      min_message_length: platform.callback_min_message_length,
-      honeypot_enabled: platform.callback_honeypot_enabled,
-      min_form_seconds: platform.callback_min_form_seconds,
-    },
-    queue_experience: {
-      ringback_enabled: platform.ringback_enabled,
-      ringback_mode: platform.ringback_mode,
-      ringback_music_url: ringbackAudio.music_url,
-      ringback_announcement_audio_url: ringbackAudio.announcement_url,
-      ringback_queue_audio_urls: ringbackAudio.queue_urls,
-      show_position: platform.queue_show_position,
-      show_eta: platform.queue_show_eta,
-      eta_seconds_per_position: platform.queue_eta_seconds_per_position,
-      offer_callback_after_seconds: platform.queue_offer_callback_after_seconds,
-    },
-    i18n: (() => {
-      const eff = computeEffectiveCallCenterLocales(platform, ws);
-      return {
-        default_locale: eff.default_locale,
-        available_locales: eff.available,
-      };
-    })(),
-    recording,
-    provider_ready,
-    departments,
     active_call: activeCall,
   });
 });
 
+/** What readCallWidgetBrand read: the International edition's credit, before its logo URL. */
+type CallWidgetBrandRows = {
+  names: Record<string, string>;
+  footer: { brand: string; url: string | null } | null;
+  /** widget_platform_settings.powered_by_brand_text is set: one name for every language. */
+  override: boolean;
+  /** The platform's widget asset origins (widget_platform_settings). */
+  bases: { widgetBaseUrl?: string | null; widgetLoaderBaseUrl?: string | null; widgetPublicBaseUrl?: string | null };
+};
+
 /**
- * The International edition's brand for the call widget: the platform's name
- * per language, and the "powered by" payload:
- * null (no line) when the platform switch or the workspace's plan hides it;
- * otherwise the platform's name per widget language (platform_branding_
- * localized, or widget_platform_settings.powered_by_brand_text for every
- * language) and the optional link. Read errors keep the line, with whatever
- * name could be read, like the chat widget's footer.
+ * The International edition's brand for the call widget, as stored: the
+ * platform's name per language, and whether and how the "powered by" line
+ * shows. Read errors keep the line, with whatever name could be read, like
+ * the chat widget's footer.
  */
-async function buildCallWidgetBrand(
+async function readCallWidgetBrand(
   config: ServerConfig,
   workspaceId: string,
-  loaderAssetBase: string | null,
-): Promise<{
-  names: Record<string, string>;
-  poweredBy: { brand: string; brands: Record<string, string>; url: string | null; logo: string } | null;
-}> {
+): Promise<CallWidgetBrandRows> {
   const sb = getServiceClient(config);
   const [platformWidget, localized, planAllows] = await Promise.all([
     sb.from('widget_platform_settings')
@@ -831,22 +906,45 @@ async function buildCallWidgetBrand(
     if (typeof row.locale === 'string' && name) brands[row.locale] = name;
   }
   const footer = buildPoweredByConfig(platformWidget, brands.en || Object.values(brands)[0] || '', planAllows);
-  if (!footer) return { names: brands, poweredBy: null };
-  // A platform-wide brand text names the platform in every language.
-  const override = String(platformWidget?.powered_by_brand_text || '').trim();
+  return {
+    names: brands,
+    footer: footer ? { brand: footer.brand, url: footer.url } : null,
+    // A platform-wide brand text names the platform in every language.
+    override: !!String(platformWidget?.powered_by_brand_text || '').trim(),
+    bases: {
+      widgetBaseUrl: platformWidget?.widget_asset_base_url as string | null | undefined,
+      widgetLoaderBaseUrl: platformWidget?.widget_loader_base_url as string | null | undefined,
+      widgetPublicBaseUrl: platformWidget?.widget_public_base_url as string | null | undefined,
+    },
+  };
+}
+
+/**
+ * The International edition's brand for the call widget: the platform's name
+ * per language, and the "powered by" payload:
+ * null (no line) when the platform switch or the workspace's plan hides it;
+ * otherwise the platform's name per widget language (platform_branding_
+ * localized, or widget_platform_settings.powered_by_brand_text for every
+ * language), the optional link and the logo.
+ */
+function buildCallWidgetBrand(
+  rows: CallWidgetBrandRows,
+  loaderAssetBase: string | null,
+): {
+  names: Record<string, string>;
+  poweredBy: { brand: string; brands: Record<string, string>; url: string | null; logo: string } | null;
+} {
+  if (!rows.footer) return { names: rows.names, poweredBy: null };
   // The platform's logo (the RESPOK kit's horizontal mark, "color" variant
   // for the widget's light surface), from the frontend that serves /brand.
   // Absolute when the widget asset origin is known; otherwise a path the
   // runtime resolves against the origin it was loaded from.
-  const assetBase = resolveWidgetAssetBase({
-    widgetBaseUrl: platformWidget?.widget_asset_base_url as string | null | undefined,
-    widgetLoaderBaseUrl: platformWidget?.widget_loader_base_url as string | null | undefined,
-    widgetPublicBaseUrl: platformWidget?.widget_public_base_url as string | null | undefined,
-    assetBaseUrl: null,
-    loaderAssetBase,
-  });
+  const assetBase = resolveWidgetAssetBase({ ...rows.bases, assetBaseUrl: null, loaderAssetBase });
   const logo = `${assetBase ?? ''}${INTL_BRAND.horizontal.light}`;
-  return { names: brands, poweredBy: { brand: footer.brand, brands: override ? {} : brands, url: footer.url, logo } };
+  return {
+    names: rows.names,
+    poweredBy: { brand: rows.footer.brand, brands: rows.override ? {} : rows.names, url: rows.footer.url, logo },
+  };
 }
 
 // Helper: extract widget session

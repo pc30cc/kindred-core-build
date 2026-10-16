@@ -292,7 +292,11 @@ describe('call widget templates on the server', () => {
   it('the bootstrap sends the edition, and a credit only in the International edition', () => {
     const route = read('server/routes/callWidget.ts');
     expect(route).toContain('resolveCallWidgetTemplateId(ws.widget_template_id, edition)');
-    expect(route).toMatch(/const intlBrand = edition === 'international'\n\s+\? await buildCallWidgetBrand\(config, ws\.workspace_id, getLoaderAssetBase\(req as ExpressRequest\)\)\n\s+: null;/);
+    // Read with the workspace's memoized part; the logo URL (it carries the
+    // loader's asset origin) is built per request.
+    expect(route).toContain("const brand = edition === 'international' ? await readCallWidgetBrand(config, ws.workspace_id) : null;");
+    expect(route).toMatch(/const intlBrand = pub\.brand\n\s+\? buildCallWidgetBrand\(pub\.brand, loaderAssetBase\)\n\s+: null;/);
+    expect(route).toContain('const loaderAssetBase = getLoaderAssetBase(req as ExpressRequest);');
     expect(route).toContain('calendar: dateHints.calendar,');
     expect(route).toContain('time_zone: dateHints.timeZone,');
     expect(route).toContain("...(poweredBy !== undefined ? { powered_by: poweredBy } : {}),");

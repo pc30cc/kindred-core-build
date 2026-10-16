@@ -288,7 +288,7 @@ describe('storage in MB and one monthly AI credit on save', () => {
 });
 
 describe('the public plan list', () => {
-  it('names storage in MB, a storage_gb computed from it for the landing pages, and one monthly AI credit', async () => {
+  it('names storage in MB only (no storage_gb) and one monthly AI credit', async () => {
     h.list = [
       { id: 'p1', slug: 'startup', limits: { storage_mb: 0, ai_credits_per_month: 0 }, ai_allowance: { IRR: 300_000 } },
       { id: 'p2', slug: 'enterprise', limits: { storage_mb: 51200 }, ai_allowance: { IRR: 600_000 } },
@@ -300,10 +300,10 @@ describe('the public plan list', () => {
     const res = await call('GET', '/api/plans');
     expect(res.status).toBe(200);
     const [startup, enterprise, trial, big, none] = res.json.plans;
-    expect(startup.limits).toEqual({ storage_mb: 0, storage_gb: 0, ai_credits_per_month: 300_000 });
-    expect(enterprise.limits).toEqual({ storage_mb: 51200, storage_gb: 50, ai_credits_per_month: 600_000 });
-    expect(trial.limits).toEqual({ storage_mb: 512, storage_gb: 0.5, ai_credits_per_month: 0 });
-    expect(big.limits).toEqual({ storage_mb: -1, storage_gb: -1, ai_credits_per_month: 0 });
+    expect(startup.limits).toEqual({ storage_mb: 0, ai_credits_per_month: 300_000 });
+    expect(enterprise.limits).toEqual({ storage_mb: 51200, ai_credits_per_month: 600_000 });
+    expect(trial.limits).toEqual({ storage_mb: 512, ai_credits_per_month: 0 });
+    expect(big.limits).toEqual({ storage_mb: -1, ai_credits_per_month: 0 });
     expect(none.limits).toEqual({ ai_credits_per_month: 0 });
   });
 });

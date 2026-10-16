@@ -686,7 +686,9 @@ export function WidgetLivePreview({
       var mod = null;
       function prepareAndRender() {
         if (!styleReady || !skinReady || !scriptReady || !mod || !mod.create) return;
-        var preparation = typeof mod.prepare === 'function' ? mod.prepare() : null;
+        var preparation = typeof mod.prepare === 'function'
+          ? mod.prepare({ locale: GS_PREVIEW.locale, templateId: GS_PREVIEW.templateId })
+          : null;
         Promise.resolve(preparation).catch(function () {}).then(function () { gsRenderPreview(mod); });
       }
       var link = document.createElement('link');

@@ -1778,14 +1778,28 @@
     };
   }
 
-  function prepare() {
+  // The faces this locale's first paint draws with, so the panel opens in its
+  // own typeface (waiting 500 ms at most). Only these are requested; every
+  // other face stays on demand through its unicode-range
+  // (presentation-default-fonts.css):
+  //   - Persian: IRANSans 400, 500 and 600 (= the 700 file);
+  //   - any other locale: Inter, the one Latin file. The `intl` template sets
+  //     Inter first in every direction, so a Persian panel there needs it too.
+  // `context` is { locale, templateId } from the loader and the live preview.
+  // An older loader passes none: the Persian set, as it always was.
+  function prepare(context) {
     if (!document.fonts || typeof document.fonts.load !== 'function') return Promise.resolve();
-    var sample = 'سلام دنیا';
-    var loads = [400, 500, 600].map(function (weight) {
-      return document.fonts.load(String(weight) + ' 16px IRANSans', sample).catch(function () { return []; });
-    });
+    var c = context || {};
+    var persian = String(c.locale || 'fa').toLowerCase().split('-')[0] === 'fa';
+    var loads = [];
+    if (persian) {
+      [400, 500, 600].forEach(function (weight) {
+        loads.push(document.fonts.load(weight + ' 16px IRANSans', 'سلام دنیا'));
+      });
+    }
+    if (!persian || c.templateId === 'intl') loads.push(document.fonts.load('500 16px InterWY', 'Aa'));
     return Promise.race([
-      Promise.all(loads).then(function () {}),
+      Promise.all(loads.map(function (p) { return p.catch(function () { return []; }); })).then(function () {}),
       new Promise(function (resolve) { setTimeout(resolve, 500); }),
     ]);
   }

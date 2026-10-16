@@ -20,7 +20,8 @@ function locationBlock(match: string): string {
   const start = NGINX.indexOf(`location ${match} {`);
   expect(start, `no "location ${match}" block in nginx.conf.template`).toBeGreaterThan(-1);
   let depth = 0;
-  for (let i = NGINX.indexOf('{', start); i < NGINX.length; i++) {
+  // The block's own brace, after the match (a regex match may hold braces).
+  for (let i = start + `location ${match} `.length; i < NGINX.length; i++) {
     if (NGINX[i] === '{') depth++;
     else if (NGINX[i] === '}' && --depth === 0) return NGINX.slice(start, i + 1).replace(/^\s*#.*$/gm, '');
   }
@@ -261,6 +262,31 @@ describe('vendor files', () => {
     expect(vendorChunk(`${NM}/lodash/_baseGet.js`, meta)).toBe('vendor-charts');
     expect(vendorChunk(`${NM}/tiny-lib/index.js`, meta)).toBe('vendor-misc');
     expect(vendorChunk(`${NM}/page-only/index.js`, meta)).toBeUndefined();
+  });
+});
+
+describe('nginx: hashed widget files (scripts, stylesheets, fonts)', () => {
+  const hashed = () => locationBlock('~* "^/widget/.*\\.[a-f0-9]{8}\\.(?:js|css|woff2)$"');
+
+  it('serves hashed fonts like hashed scripts: a year, immutable, with CORS', () => {
+    const block = hashed();
+    expect(block).toMatch(/font\/woff2\s+woff2;/);
+    expect(block).toMatch(/add_header\s+Cache-Control\s+"public, max-age=31536000, immutable";/);
+    expect(block).toMatch(/add_header\s+Access-Control-Allow-Origin\s+"\*"\s+always;/);
+    expect(block).toMatch(/add_header\s+Cross-Origin-Resource-Policy\s+"cross-origin"\s+always;/);
+    // One Cache-Control only: `expires` would add a second one.
+    expect(block).not.toMatch(/\bexpires\b/);
+  });
+
+  it('never keeps a missing hashed file: no year-long header on the 404, which nothing stores', () => {
+    const block = hashed();
+    expect(block).not.toMatch(/immutable"\s+always/);
+    expect(block).toMatch(/try_files\s+\$uri\s+@missing_widget_asset;/);
+    const missing = locationBlock('@missing_widget_asset');
+    expect(missing).toMatch(/add_header\s+Cache-Control\s+"no-store"\s+always;/);
+    expect(missing).toMatch(/add_header\s+Cloudflare-CDN-Cache-Control\s+"no-store"\s+always;/);
+    expect(missing).toMatch(/return\s+404;/);
+    expect(missing).not.toContain('immutable');
   });
 });
 

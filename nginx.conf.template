@@ -182,13 +182,18 @@ server {
     #      Enterprise plans, so origin `no-store` did not evict them.
     #   2. `/widget/fonts/` is not content-addressed, so the stale edge copy
     #      never rotated on deploy — unlike hashed assets.
-    # Fix (architectural, not a workaround): font bytes now ship inside a
-    # CONTENT-HASHED presentation asset (presentation-<id>-fonts.css) with
-    # the faces inlined as data: URLs. No font subresource request is made
-    # at all, and any future byte change produces a new URL, so a stale edge
-    # copy is impossible. The raw .woff2 files stay on disk only as build
-    # inputs. If they are ever served directly again, purge the CDN cache
-    # for /widget/fonts/* after any header change.
+    # Fix (architectural, not a workaround): every face is a CONTENT-HASHED
+    # file, /widget/fonts/<name>.<hash>.woff2 (scripts/widget-hash.js), named
+    # by the content-hashed presentation-<id>-fonts.css and served by the
+    # hashed branch below, with `Access-Control-Allow-Origin: *` from its very
+    # first response. Any byte change is a new URL, so no edge can hold a copy
+    # that predates a header (cause 2), and none has ever seen these URLs
+    # without it (cause 1). (Between the incident and this, the faces were
+    # inlined as data: URLs in that stylesheet: ~231 KB gzip on every first
+    # open, for faces most visitors never draw.) The unhashed
+    # /widget/fonts/*.woff2 are dev sources only; nothing in production names
+    # them. If one is ever served again, purge the CDN cache for it after any
+    # header change.
     # ─────────────────────────────────────────────────────────────────
     location ^~ /widget/ {
         root /usr/share/nginx/html;
@@ -216,21 +221,25 @@ server {
         # style appears." We now refuse to long-cache unhashed runtime
         # files — only the content-addressed ones get immutable.
         # ─────────────────────────────────────────────────────────────
-        location ~* "^/widget/.*\.[a-f0-9]{8}\.(?:js|css)$" {
+        location ~* "^/widget/.*\.[a-f0-9]{8}\.(?:js|css|woff2)$" {
             root /usr/share/nginx/html;
             # Force MIME so Firefox ORB / Chrome CORB cannot mis-classify
             # the response and refuse to execute it as a script.
             types {
                 application/javascript js;
                 text/css              css;
+                font/woff2            woff2;
             }
-            expires 365d;
-            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            # One Cache-Control, and no `always` on it: a year-long header must
+            # never ride on an error (see /assets/ below). A hashed file this
+            # container does not have (the other container's build during a
+            # rolling deploy) is a 404 that nothing stores.
+            add_header Cache-Control "public, max-age=31536000, immutable";
             add_header X-Widget-Asset "runtime-hashed" always;
             add_header Access-Control-Allow-Origin "*" always;
             add_header Cross-Origin-Resource-Policy "cross-origin" always;
             add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
-            try_files $uri =404;
+            try_files $uri @missing_widget_asset;
         }
 
         # Unhashed runtime/css/js fallbacks — never cache. If any client
@@ -253,6 +262,18 @@ server {
         add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
         # Hard 404 — DO NOT fall back to index.html for /widget/* paths.
         try_files $uri =404;
+    }
+
+    # A hashed widget file this image does not have (see the hashed branch
+    # above): a 404 no browser or edge keeps, readable cross-origin.
+    location @missing_widget_asset {
+        add_header Cache-Control "no-store" always;
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        return 404;
     }
 
     # ─────────────────────────────────────────────────────────────────────

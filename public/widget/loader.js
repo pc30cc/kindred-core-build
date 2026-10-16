@@ -1689,26 +1689,42 @@
     var jsLoaded = false;
     var templateCssLoaded = false;
     var templateSkinLoaded = !presentationSkinCss;
+    var registryLoaded = false;
     var templateJsLoaded = false;
     var presentationPreparing = false;
+    var preparation = null;
     var failed = false;
 
-    function done() {
-      if (failed || !cssLoaded || !jsLoaded || !templateCssLoaded || !templateSkinLoaded || !templateJsLoaded) return;
-      if (presentationPreparing) return;
-      presentationPreparing = true;
+    // The template's own readiness (its typeface), started as soon as the
+    // registry and the renderer are in, while runtime.js is still on its way,
+    // so whatever it fetches loads alongside; done() awaits the same promise.
+    // The context is opaque here: the template decides what its first paint
+    // needs from the locale (the loader knows no font, family or file).
+    function startPreparation() {
+      if (preparation || !registryLoaded || !templateJsLoaded) return preparation;
       var registry = window.__gs_presentation_registry;
       var descriptor = registry && typeof registry.resolve === "function"
         ? registry.resolve(configData.templateId)
         : null;
       var presentationModule = descriptor ? window[descriptor.globalKey] : null;
-      var preparation = presentationModule && typeof presentationModule.prepare === "function"
-        ? presentationModule.prepare()
-        : null;
-      Promise.resolve(preparation).catch(function () {
+      var ready = null;
+      try {
+        ready = presentationModule && typeof presentationModule.prepare === "function"
+          ? presentationModule.prepare({ locale: configData.locale, templateId: configData.templateId })
+          : null;
+      } catch (_) { ready = null; }
+      preparation = Promise.resolve(ready).catch(function () {
         // Readiness is best-effort. A template must never make the widget
         // permanently unavailable because a font or other visual asset failed.
-      }).then(initRuntime);
+      });
+      return preparation;
+    }
+
+    function done() {
+      if (failed || !cssLoaded || !jsLoaded || !templateCssLoaded || !templateSkinLoaded || !registryLoaded || !templateJsLoaded) return;
+      if (presentationPreparing) return;
+      presentationPreparing = true;
+      startPreparation().then(initRuntime);
     }
 
     function initRuntime() {
@@ -1876,25 +1892,27 @@
       shadowRoot.appendChild(skinLink);
     }
 
-    // Registry first (tiny), then the active template's renderer. The
-    // renderer must be registered on window BEFORE runtime.init() runs.
+    // The registry and the active template's renderer, in parallel: the
+    // renderer only registers itself on window, and both must be in before
+    // runtime.init() runs (done()). Loading them one after the other cost a
+    // round trip on every first open.
     var regScript = document.createElement("script");
     regScript.src = presentationRegistryJs;
     regScript.charset = "utf-8";
     regScript.async = true;
     regScript.setAttribute("data-gs-template", "registry");
-    regScript.onload = function () {
-      var tplScript = document.createElement("script");
-      tplScript.src = presentationJs;
-      tplScript.charset = "utf-8";
-      tplScript.async = true;
-      tplScript.setAttribute("data-gs-template", "renderer");
-      tplScript.onload = function () { templateJsLoaded = true; done(); };
-      withHashFallback(tplScript, presentationJs, "src", document.head, function () { fail("template-js"); });
-      document.head.appendChild(tplScript);
-    };
+    regScript.onload = function () { registryLoaded = true; startPreparation(); done(); };
     withHashFallback(regScript, presentationRegistryJs, "src", document.head, function () { fail("template-registry"); });
     document.head.appendChild(regScript);
+
+    var tplScript = document.createElement("script");
+    tplScript.src = presentationJs;
+    tplScript.charset = "utf-8";
+    tplScript.async = true;
+    tplScript.setAttribute("data-gs-template", "renderer");
+    tplScript.onload = function () { templateJsLoaded = true; startPreparation(); done(); };
+    withHashFallback(tplScript, presentationJs, "src", document.head, function () { fail("template-js"); });
+    document.head.appendChild(tplScript);
 
     var script = document.createElement("script");
     script.src = runtimeJs;

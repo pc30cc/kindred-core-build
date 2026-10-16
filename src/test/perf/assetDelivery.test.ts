@@ -274,8 +274,13 @@ describe('nginx: hashed widget files (scripts, stylesheets, fonts)', () => {
     expect(block).toMatch(/add_header\s+Cache-Control\s+"public, max-age=31536000, immutable";/);
     expect(block).toMatch(/add_header\s+Access-Control-Allow-Origin\s+"\*"\s+always;/);
     expect(block).toMatch(/add_header\s+Cross-Origin-Resource-Policy\s+"cross-origin"\s+always;/);
-    // One Cache-Control only: `expires` would add a second one.
-    expect(block).not.toMatch(/\bexpires\b/);
+    // One Cache-Control only. The parent `^~ /widget/` block sets
+    // `expires -1`, which a nested location inherits: without `expires off`
+    // nginx adds `Expires` and a second `Cache-Control: no-cache` to every
+    // hashed file (seen with a real nginx), so browsers revalidate it on
+    // every use. Any other `expires` would add a second header too.
+    expect(block).toMatch(/^\s*expires\s+off;/m);
+    expect(block.match(/\bexpires\b/g)).toHaveLength(1);
   });
 
   it('never keeps a missing hashed file: no year-long header on the 404, which nothing stores', () => {

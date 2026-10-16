@@ -234,6 +234,11 @@ server {
             # never ride on an error (see /assets/ below). A hashed file this
             # container does not have (the other container's build during a
             # rolling deploy) is a 404 that nothing stores.
+            # `expires off`: this block would otherwise inherit the parent's
+            # `expires -1`, which adds `Expires` and a second
+            # `Cache-Control: no-cache` next to this one, and browsers then
+            # revalidate a file whose name is its content on every use.
+            expires off;
             add_header Cache-Control "public, max-age=31536000, immutable";
             add_header X-Widget-Asset "runtime-hashed" always;
             add_header Access-Control-Allow-Origin "*" always;

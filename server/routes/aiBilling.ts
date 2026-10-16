@@ -24,6 +24,7 @@ import { getBillingDegradation } from '../services/ai-billing/degrade.js';
 import { getAiBillingRecoveryStatus } from '../services/ai-billing/recoveryTicker.js';
 import { editionErrorResponse, getPlatformEdition } from '../services/billing/edition.js';
 import { isCurrencyAllowedInEdition } from '../../shared/edition.js';
+import { planAiAllowance } from '../../shared/planLimits.js';
 
 export const aiBillingRouter = Router();
 
@@ -220,6 +221,7 @@ interface PlanAllowanceRow {
   id: string;
   name: string;
   limits: Record<string, unknown> | null;
+  ai_allowance: Record<string, unknown> | null;
 }
 
 /**
@@ -250,7 +252,7 @@ aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
     // requestedModel) — ai_usage_events has no `model` column
     sb.from('ai_usage_events').select('provider, requested_model, actual_model').limit(5000),
     sb.from('ai_usage_logs').select('provider_name, model').limit(5000),
-    sb.from('billing_plans').select('id, name, limits'),
+    sb.from('billing_plans').select('id, name, limits, ai_allowance'),
   ]);
 
   const cardRows = (cards.data || []) as RateCardRow[];
@@ -295,7 +297,8 @@ aiBillingRouter.get('/admin/pricing/coverage', async (req, res) => {
     planAllowances: (plans.data || []).map((p: PlanAllowanceRow) => ({
       planId: p.id,
       name: p.name,
-      aiAllowance: p.limits?.ai_credits ?? p.limits?.aiCredits ?? p.limits?.ai_allowance ?? null,
+      // The monthly grant's own source (billing_plan_ai_allowance), in the wallet's unit (IRR).
+      aiAllowance: planAiAllowance(p),
     })),
     runtimePaths: paths,
     missingRates,

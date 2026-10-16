@@ -500,7 +500,7 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
   // otherwise silently fall back to local + fail with publicUrl errors.
   const storageConfig = await resolveStorageConfig(ctx.config, wid);
   if (!storageConfig) return res.status(500).json({ error: 'storage_not_configured' });
-  // The avatar counts toward storage_gb: over the plan's limit no new file
+  // The avatar counts toward storage_mb: over the plan's limit no new file
   // is stored (simple billing phase 4; only while billing locks are on).
   if (!(await storageUploadAllowed(ctx.config, wid, res))) return;
   // Read previous avatar path (so we can best-effort delete the old file

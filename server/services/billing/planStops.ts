@@ -10,7 +10,7 @@
 //   - Channels fail open: a plan answer that cannot be read stops nothing
 //     (the message is received). Only a definite "not in the plan" stops.
 //   - Storage keeps the quota's own rule once the switch is on: requireLimit
-//     ('storage_gb'), 403 at the limit, 503 when unreadable — the same gate
+//     ('storage_mb'), 403 at the limit, 503 when unreadable — the same gate
 //     the chat, widget and generic uploads already pass.
 //   - A self-host install with unlimited billing never stops anything.
 // ============================================================================
@@ -127,14 +127,14 @@ export interface StorageGateResult {
 const STORAGE_ALLOWED: StorageGateResult = Object.freeze({ allowed: true, status: 200, body: {} }) as StorageGateResult;
 
 /**
- * The storage_gb gate for an upload path that has none of its own (design
+ * The storage_mb gate for an upload path that has none of its own (design
  * §6: AI files, branding, avatars, inbound email attachments), while the
  * switch is on. Drives the shared requireLimit middleware in-process, as
  * mediaIngest.ts does, so the rule and the 403/503 bodies stay the quota's.
  */
 export async function checkStorageUpload(config: ServerConfig, workspaceId: string): Promise<StorageGateResult> {
   if (!(await planStopsActive(config))) return STORAGE_ALLOWED;
-  const gate = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
+  const gate = requireLimit('storage_mb', usageFnForLimit('storage_mb'));
   const req = { body: {}, query: {}, params: {}, serverConfig: config } as unknown as Request;
   setTrustedGateWorkspaceId(req, workspaceId);
   let status = 0;

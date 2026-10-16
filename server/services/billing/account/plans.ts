@@ -18,6 +18,9 @@ import { cancelCardNow, cardLabel, pullCardRenewal, readLiveCard, setCardAutoRen
 import { buildLockReport, reportNeedsAcknowledgement, type LockReport } from '../locks/report.js';
 import { locksEnabled } from '../locks/state.js';
 import { enqueueKnowledgeBaseCatchup } from '../../ai-agent/knowledgeIndex/kbEvents.js';
+import { aiWalletRate } from './aiPacks.js';
+import { walletToMinor } from '../../../../shared/aiPacks.js';
+import { planAiAllowance, withStorageMb } from '../../../../shared/planLimits.js';
 
 export type BillingInterval = 'monthly' | 'yearly';
 
@@ -34,6 +37,13 @@ export interface PlanOption {
   /** Price per period in minor units of the account currency; null = not sold that way. */
   price_monthly_minor: number | null;
   price_yearly_minor: number | null;
+  /**
+   * The monthly AI credit this plan grants the workspace, in the AI wallet's
+   * unit (IRR): billing_plan_ai_allowance, the grant's own function.
+   */
+  ai_credit_monthly: number;
+  /** The same in minor units of the account currency (the billing page's rate); null without a rate. */
+  ai_credit_monthly_minor: number | null;
 }
 
 const RESERVED_SLUGS = new Set(['trial']);
@@ -44,17 +54,46 @@ function priceOf(prices: unknown, currency: string, interval: BillingInterval): 
   return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : null;
 }
 
+/**
+ * The monthly AI credit of each plan for the workspace, as the grant computes
+ * it (billing_plan_ai_allowance: Super Admin's override of the workspace,
+ * then the plan's ai_allowance.IRR …). A plan whose answer cannot be read
+ * falls back to the same rule over the plan row (shared/planLimits.ts).
+ */
+async function planAiCredits(
+  config: ServerConfig,
+  workspaceId: string | null,
+  rows: Array<Record<string, unknown>>,
+): Promise<Map<string, number>> {
+  const sb = getServiceClient(config);
+  const out = new Map<string, number>();
+  await Promise.all(rows.map(async (row) => {
+    const id = String(row.id);
+    const fallback = planAiAllowance(row as { ai_allowance?: Record<string, unknown> | null; limits?: Record<string, unknown> | null });
+    try {
+      const { data, error } = await sb.rpc('billing_plan_ai_allowance', { p_plan_id: id, p_workspace_id: workspaceId });
+      const n = Number(data);
+      out.set(id, !error && data !== null && data !== undefined && Number.isFinite(n) ? Math.max(n, 0) : fallback);
+    } catch {
+      out.set(id, fallback);
+    }
+  }));
+  return out;
+}
+
 /** The plans a workspace can choose: active, shown, and sold in its currency (Free always). */
-export async function listPlanOptions(config: ServerConfig, currency: string): Promise<PlanOption[]> {
+export async function listPlanOptions(config: ServerConfig, currency: string, workspaceId: string | null = null): Promise<PlanOption[]> {
   const { data, error } = await getServiceClient(config)
     .from('billing_plans')
-    .select('id, slug, name, description, localized, is_free, is_hidden, is_active, sort_order, limits, entitlements, prices')
+    .select('id, slug, name, description, localized, is_free, is_hidden, is_active, sort_order, limits, entitlements, prices, ai_allowance')
     .eq('is_active', true)
     .eq('is_hidden', false)
     .order('sort_order', { ascending: true });
   if (error) throw new Error(error.message || 'plans read failed');
+  const rows = ((data ?? []) as Array<Record<string, unknown>>).filter((row) => !RESERVED_SLUGS.has(String(row.slug ?? '')));
+  const [aiCredits, rate] = await Promise.all([planAiCredits(config, workspaceId, rows), aiWalletRate(config, currency)]);
   const out: PlanOption[] = [];
-  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+  for (const row of rows) {
     const slug = String(row.slug ?? '');
     if (RESERVED_SLUGS.has(slug)) continue;
     const isFree = row.is_free === true;
@@ -69,10 +108,13 @@ export async function listPlanOptions(config: ServerConfig, currency: string): P
       localized: (row.localized as Record<string, unknown>) ?? {},
       is_free: isFree,
       sort_order: Number(row.sort_order ?? 0),
-      limits: (row.limits as Record<string, unknown>) ?? {},
+      // Storage in MB (271): storage_gb × 1024 for a plan not saved since.
+      limits: withStorageMb((row.limits as Record<string, unknown>) ?? {}),
       entitlements: (row.entitlements as Record<string, unknown>) ?? {},
       price_monthly_minor: monthly,
       price_yearly_minor: yearly,
+      ai_credit_monthly: aiCredits.get(String(row.id)) ?? 0,
+      ai_credit_monthly_minor: walletToMinor(aiCredits.get(String(row.id)) ?? 0, rate, currency),
     });
   }
   return out;

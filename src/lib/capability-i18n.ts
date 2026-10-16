@@ -111,7 +111,7 @@ const EN_LABELS: Record<string, string> = {
   max_workspaces: 'Max Workspaces',
   max_conversations: 'Conversations / month',
   max_visitors: 'Tracked Visitors / month',
-  ai_credits_per_month: 'AI Credits / month',
+  ai_credits_per_month: 'AI Credits / month (legacy)',
   ai_kb_max_pages: 'AI KB Builder — Max pages per crawl',
   ai_kb_max_depth: 'AI KB Builder — Crawl depth',
   ai_kb_jobs_per_month: 'AI KB Builder — Jobs / month',
@@ -120,7 +120,8 @@ const EN_LABELS: Record<string, string> = {
   ai_agent_web_source_jobs_per_month: 'AI Agent — Web Pages: Sync jobs / month',
   ai_kb_file_size_mb: 'AI Agent — Max file size',
   ai_kb_file_count: 'AI Agent — Max files',
-  storage_gb: 'Storage',
+  storage_mb: 'Storage',
+  storage_gb: 'Storage (GB, legacy)',
   data_retention_days: 'Data Retention',
   max_contacts: 'Max Contacts',
   max_concurrent_calls: 'Max Concurrent Calls',
@@ -402,7 +403,10 @@ const FA: Record<string, CapabilityText> = {
   max_workspaces: { label: 'حداکثر فضای کاری' },
   max_conversations: { label: 'گفتگو در ماه' },
   max_visitors: { label: 'بازدیدکننده‌ی ردیابی‌شده در ماه' },
-  ai_credits_per_month: { label: 'اعتبار هوش مصنوعی در ماه' },
+  ai_credits_per_month: {
+    label: 'اعتبار هوش مصنوعی در ماه (قدیمی)',
+    description: 'منسوخ — اعتبار ماهانه‌ی هوش مصنوعی همان سهمیه‌ی ماهانه‌ی پلن (به واحد کیف پول هوش مصنوعی) است. فقط وقتی پلن سهمیه‌ای ندارد، به‌عنوان آخرین جایگزین خوانده می‌شود.',
+  },
   ai_kb_max_pages: {
     label: 'سازنده‌ی پایگاه دانش — حداکثر صفحه در هر پیمایش',
     description: 'سقف صفحه‌ها در پیمایش وب‌سایت برای سازنده‌ی پایگاه دانش. کلید قدیمی: اگر «دستیار — صفحات وب: حداکثر صفحه در هر منبع» تنظیم نشده باشد، برای آن هم به کار می‌رود.',
@@ -429,7 +433,14 @@ const FA: Record<string, CapabilityText> = {
   },
   ai_kb_file_size_mb: { label: 'دستیار — حداکثر حجم فایل' },
   ai_kb_file_count: { label: 'دستیار — حداکثر تعداد فایل' },
-  storage_gb: { label: 'فضای ذخیره‌سازی' },
+  storage_mb: {
+    label: 'فضای ذخیره‌سازی',
+    description: `فضای ذخیره‌سازی فایل هر فضای کاری به مگابایت (بارگذاری‌ها، پیوست‌ها و فایل‌های هوش مصنوعی). با رسیدن به آن چیزی حذف نمی‌شود و فقط بارگذاری جدید رد می‌شود. مقدار ${U} یعنی نامحدود و ۰ یعنی بدون فضای ذخیره‌سازی.`,
+  },
+  storage_gb: {
+    label: 'فضای ذخیره‌سازی (گیگابایت، قدیمی)',
+    description: 'منسوخ — جای آن را فضای ذخیره‌سازی به مگابایت گرفته است. فقط وقتی مقدار مگابایت نیست، این مقدار ضربدر ۱۰۲۴ خوانده می‌شود.',
+  },
   data_retention_days: { label: 'مدت نگهداری داده' },
   max_contacts: {
     label: 'حداکثر مخاطبین',
@@ -837,7 +848,10 @@ const TR: Record<string, CapabilityText> = {
   max_workspaces: { label: 'Maks. Çalışma Alanı' },
   max_conversations: { label: 'Aylık Sohbet' },
   max_visitors: { label: 'Aylık Takip Edilen Ziyaretçi' },
-  ai_credits_per_month: { label: 'Aylık Yapay Zekâ Kredisi' },
+  ai_credits_per_month: {
+    label: 'Aylık Yapay Zekâ Kredisi (eski)',
+    description: 'Kullanımdan kaldırıldı — aylık yapay zekâ kredisi, planın aylık AI payıdır (AI cüzdanı birimiyle). Yalnızca planda pay yoksa son yedek olarak okunur.',
+  },
   ai_kb_max_pages: {
     label: 'YZ Bilgi Bankası Oluşturucu — Tarama Başına Maks. Sayfa',
     description: 'Bilgi bankası oluşturucunun web sitesi taramasındaki sayfa sınırı. Eski anahtar: "YZ Asistanı — Web Sayfaları: Kaynak Başına Maks. Sayfa" ayarlanmamışsa onun için de kullanılır.',
@@ -864,7 +878,14 @@ const TR: Record<string, CapabilityText> = {
   },
   ai_kb_file_size_mb: { label: 'YZ Asistanı — Maks. Dosya Boyutu' },
   ai_kb_file_count: { label: 'YZ Asistanı — Maks. Dosya' },
-  storage_gb: { label: 'Depolama' },
+  storage_mb: {
+    label: 'Depolama',
+    description: 'Çalışma alanı başına megabayt cinsinden dosya depolama alanı (yüklemeler, ekler, yapay zekâ dosyaları). Dolduğunda hiçbir şey silinmez; yalnızca yeni yüklemeler reddedilir. -1 sınırsız, 0 dosya depolama yok demektir.',
+  },
+  storage_gb: {
+    label: 'Depolama (GB, eski)',
+    description: 'Kullanımdan kaldırıldı — yerini megabayt cinsinden depolama aldı. Yalnızca MB değeri yoksa bu değer × 1024 olarak okunur.',
+  },
   data_retention_days: { label: 'Veri Saklama' },
   max_contacts: {
     label: 'Maks. Kişi',

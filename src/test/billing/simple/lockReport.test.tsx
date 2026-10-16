@@ -128,13 +128,14 @@ function report(over: Partial<Report> = {}): Report {
     member: { limit: 2, total: 4, locked: 2, items: [{ user_id: 'u3', name: 'Sara', email: 's@x.io' }, { user_id: 'u4', name: null, email: 'n@x.io' }] },
     conversation: { retention_days: 30, total: 900, locked: 840, cutoff: inDays(-30), oldest_kept: inDays(-29) },
     conversation_quota: { limit: 50, used_this_month: 71, full: true },
-    storage: { limit_gb: 1, used_gb: 3.42, uploads_blocked: true },
+    storage: { limit_mb: 1024, used_mb: 3502.08, uploads_blocked: true },
     locked_data_retention_days: 90,
     first_deletion_not_before: inDays(90),
     modules_lost: [{ key: 'seo', in_use: false }],
     channels_lost: [{ key: 'telegram', in_use: true }],
     channels_stop_messages: true,
-    ai_credits: { current: 1000, target: 0 },
+    // Enterprise → Free: 600,000 Rial a month, $10.00 at the page's rate.
+    ai_credits: { current: 600_000, target: 0, unit: 'IRR', currency: 'USD', current_minor: 1000, target_minor: 0 },
     has_locks: true,
     ...over,
   };
@@ -201,12 +202,13 @@ describe('the downgrade report', () => {
     expect(within(box).getByText('n@x.io')).toBeInTheDocument();
     expect(within(box).getByTestId('lock-report-conversation')).toHaveTextContent('"count":"840","days":"30"');
     expect(within(box).getByTestId('lock-report-quota')).toHaveTextContent('"used":"71","limit":"50"');
-    expect(within(box).getByTestId('lock-report-storage')).toHaveTextContent('"used":"3.4","limit":"1"');
+    expect(within(box).getByTestId('lock-report-storage')).toHaveTextContent('billing.locks.report.storage {"used":"3,502 MB","limit":"1,024 MB"}');
     // Modules and channels by name; a channel in use says so, and its messages stop.
     expect(within(box).getByTestId('lock-report-modules')).toHaveTextContent('SEO');
     expect(within(box).getByTestId('lock-report-channels')).toHaveTextContent('billing.locks.report.inUse');
     expect(within(box).getByText('billing.locks.report.channelsWarning')).toBeInTheDocument();
-    expect(within(box).getByTestId('lock-report-ai')).toHaveTextContent('"current":"1,000","target":"0"');
+    // The monthly AI credit as money in the account currency, as the billing page shows the wallet.
+    expect(within(box).getByTestId('lock-report-ai')).toHaveTextContent(/"current":"\$10\.00","target":"\$0\.00"/);
     expect(within(box).getByTestId('lock-report-retention')).toHaveTextContent('billing.locks.report.retention {"days":"90"');
     expect(within(box).getByText(/billing\.locks\.report\.asOf/)).toBeInTheDocument();
     expect(within(box).queryByTestId('lock-report-preview')).toBeNull();
@@ -236,7 +238,7 @@ describe('the downgrade report', () => {
       member: { limit: null, total: 1, locked: 0, items: [] },
       conversation: { retention_days: null, total: 4, locked: 0, cutoff: null, oldest_kept: null },
       conversation_quota: { limit: null, used_this_month: 1, full: false },
-      storage: { limit_gb: null, used_gb: 0, uploads_blocked: false },
+      storage: { limit_mb: null, used_mb: 0, uploads_blocked: false },
       modules_lost: [],
       channels_lost: [],
       channels_stop_messages: false,
@@ -246,6 +248,34 @@ describe('the downgrade report', () => {
     render(<LockReport report={none} />);
     expect(screen.getByTestId('lock-report-nothing')).toBeInTheDocument();
     expect(screen.queryByTestId('lock-report-retention')).toBeNull();
+  });
+});
+
+describe('the downgrade report: storage in MB and the AI credit as money', () => {
+  it('a plan with no file storage says so instead of "0 MB of 0 MB"', () => {
+    render(<LockReport report={report({ storage: { limit_mb: 0, used_mb: 0, uploads_blocked: true } })} />);
+    expect(screen.getByTestId('lock-report-storage')).toHaveTextContent(/^billing\.locks\.report\.storageNone$/);
+  });
+
+  it('reads a report from a server before migration 271 (GB) in MB', () => {
+    render(<LockReport report={report({ storage: { limit_gb: 1, used_gb: 3.5, uploads_blocked: true } })} />);
+    expect(screen.getByTestId('lock-report-storage')).toHaveTextContent('{"used":"3,584 MB","limit":"1,024 MB"}');
+  });
+
+  it('without an exchange rate the credit is shown in the wallet unit, named — never a bare number', () => {
+    render(<LockReport report={report({ ai_credits: { current: 600_000, target: 0, unit: 'IRR', currency: 'USD', current_minor: null, target_minor: null } })} />);
+    expect(screen.getByTestId('lock-report-ai')).toHaveTextContent('{"current":"600,000 IRR","target":"0 IRR"}');
+  });
+
+  it('the strings exist in every language, in MB, with the no-storage wording', () => {
+    type Bundle = { billing: { locks: { report: Record<string, string> } } };
+    for (const bundle of [en, fa, tr] as unknown as Bundle[]) {
+      const r = bundle.billing.locks.report;
+      expect(r.storage).toContain('{{used}}');
+      expect(r.storage).not.toMatch(/GB|گیگابایت/);
+      expect(r.storageNone).toBeTruthy();
+    }
+    expect((en as unknown as Bundle).billing.locks.report.storageNone).toBe('This plan includes no file storage: nothing is deleted, only new uploads are blocked.');
   });
 });
 

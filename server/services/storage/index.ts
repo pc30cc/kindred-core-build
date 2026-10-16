@@ -1139,7 +1139,7 @@ function mapDBConfigToStorage(provider: string, c: Record<string, unknown>): Sto
 
 /**
  * The single writer path to `storage_usage_logs` — every route through
- * this module that should meter a byte against a workspace's storage_gb
+ * this module that should meter a byte against a workspace's storage_mb
  * quota (server/services/storage/categoryPolicy.ts decides which
  * categories those are) goes through this one function. Never insert into
  * storage_usage_logs anywhere else; the trigger

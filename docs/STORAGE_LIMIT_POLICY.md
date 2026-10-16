@@ -1,4 +1,4 @@
-# Storage Limit Policy (`storage_gb`)
+# Storage Limit Policy (`storage_mb`)
 
 _Status: **rolled out** on every byte-creating upload route. Reads,
 deletes, and config probes are never gated._
@@ -9,23 +9,28 @@ historical backfill.
 
 ## Locked semantics
 
-`storage_gb` is the per-workspace cumulative size of stored bytes
-attributed to the workspace. The plan value is **GB**; the underlying
-counter (`workspace_usage_counters.storage_bytes`) is **bytes**. The
-resolver `resolveStorageGb` (`server/services/billing/usageResolvers.ts`)
-converts bytes → GB and is the single source of truth for the
-`requireLimit` middleware via `usageFnForLimit('storage_gb')`.
+`storage_mb` is the per-workspace cumulative size of stored bytes
+attributed to the workspace. The plan value is **MB** (migration 271
+converted the old `storage_gb` × 1024; `-1` is unlimited, `0` is no file
+storage); the underlying counter (`workspace_usage_counters.storage_bytes`)
+is **bytes**. The resolver `resolveStorageMb`
+(`server/services/billing/usageResolvers.ts`) converts bytes → MB and is
+the single source of truth for the `requireLimit` middleware via
+`usageFnForLimit('storage_mb')`. A plan or workspace override that still
+names only `storage_gb` reads as `storage_gb × 1024`
+(`shared/planLimits.ts`, `checkEntitlementFromDB`,
+`billing_storage_limit_mb`); the plan editor saves `storage_mb` only.
 
 Counter shape:
 
 - One row per `(workspace_id, period)` in `workspace_usage_counters`.
-- For `storage_gb` the cap is **cumulative**, not period-scoped — a
+- For `storage_mb` the cap is **cumulative**, not period-scoped — a
   stored byte continues to consume the cap until the file is deleted.
 - The producer increments on upload **and** decrements on delete.
   Period rollover does NOT reset `storage_bytes`; the prior period's
   value is carried forward by the trigger.
 
-## What counts toward `storage_gb`
+## What counts toward `storage_mb`
 
 Any byte the platform persists on behalf of a workspace through the
 server-resolved storage provider. Concretely, anything that ultimately
@@ -67,9 +72,9 @@ documented in the counter architecture doc.
 | `POST /api/widget/attachments/:id/upload`          | Visitor/widget  | reserved row → `status='failed'`                |
 
 All three gates use the shared
-`requireLimit('storage_gb', usageFnForLimit('storage_gb'))` invoked
+`requireLimit('storage_mb', usageFnForLimit('storage_mb'))` invoked
 inline, after auth/path/size validation, immediately before
-`uploadFile()`. Plans with `storage_gb = -1` (unlimited) skip the usage
+`uploadFile()`. Plans with `storage_mb = -1` (unlimited) skip the usage
 comparison.
 
 For widget uploads, `workspace_id` is the server-resolved one from the
@@ -93,7 +98,7 @@ helper sees the trusted value.
 - The trigger is the **only** writer of `storage_bytes`. No route may
   inline-increment the counter.
 - The resolver may not be widened to read alternative columns.
-- `requireLimit('storage_gb', usageFnForLimit('storage_gb'))` is the
+- `requireLimit('storage_mb', usageFnForLimit('storage_mb'))` is the
   only gate; no ad-hoc storage math in route handlers.
 - Cap-reached widget UX is the standard `requireLimit` 403 — no
   bespoke error mapping. A friendlier visitor-facing UX (retry

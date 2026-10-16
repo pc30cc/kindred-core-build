@@ -299,7 +299,11 @@ price, balance or period moved meanwhile the server answers 409
   monthly allowance once (`billing_account_grant_month`, cycle id
   `cycle:account:<month start>`, expiring at that month's end). The amount
   is the workspace's override, else `billing_plans.ai_allowance.IRR`, else
-  the limit `included_ai_allowance_irr`, else `ai_credits_per_month`. A
+  the limit `included_ai_allowance_irr`, else `ai_credits_per_month`
+  (migration 271 wrote every plan's granted amount into `ai_allowance.IRR`
+  and removed the legacy `ai_credits_per_month`, so each plan has one
+  monthly AI credit; every screen shows that number, as money in the
+  account currency where a rate exists). A
   month another path already funded is not funded again: billing v2's own
   cycle, or the old calendar grant (`YYYY-MM`) made in that month of the
   same period. Granting a month retires what is left of older calendar lots

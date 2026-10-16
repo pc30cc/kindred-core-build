@@ -521,7 +521,7 @@ billingAccountRouter.get('/account/:workspaceId/plans', async (req, res) => {
   try {
     const cfg = serverConfigOf(req);
     const currency = await accountCurrency(cfg, req.params.workspaceId);
-    res.json({ currency, plans: await listPlanOptions(cfg, currency) });
+    res.json({ currency, plans: await listPlanOptions(cfg, currency, req.params.workspaceId) });
   } catch (e) {
     fail(res, e);
   }

@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- Express and Supabase test doubles are intentionally untyped. */
 /**
  * Runtime route handler tests for the visitor-facing widget attachment
- * upload endpoint. Verifies the storage_gb gate denial branch marks the
+ * upload endpoint. Verifies the storage_mb gate denial branch marks the
  * reserved row status='failed' and prevents the upload from running, and
  * that the allow branch produces a normal 'uploaded' transition.
  */
@@ -112,7 +113,7 @@ describe("widgetAttachments POST /:id/upload — entitlement cleanup", () => {
     uploadFileMock.mockImplementation(async () => ({ success: true }));
   });
 
-  it("when storage_gb gate rejects, marks reserved row 'failed' and skips upload", async () => {
+  it("when storage_mb gate rejects, marks reserved row 'failed' and skips upload", async () => {
     state.gateAllow = false;
     const handler = getHandler("post", "/:id/upload");
     const tinyB64 = Buffer.from("hello world!").toString("base64");
@@ -123,11 +124,11 @@ describe("widgetAttachments POST /:id/upload — entitlement cleanup", () => {
       (u) => u.table === "conversation_attachments" && u.patch.status === "failed",
     );
     expect(failed).toBeTruthy();
-    expect(failed!.patch.error_message).toMatch(/storage_gb/);
+    expect(failed!.patch.error_message).toMatch(/storage_mb/);
     expect(get().statusCode).toBe(403);
   });
 
-  it("when storage_gb gate allows, upload proceeds and row transitions to 'uploaded'", async () => {
+  it("when storage_mb gate allows, upload proceeds and row transitions to 'uploaded'", async () => {
     state.gateAllow = true;
     const handler = getHandler("post", "/:id/upload");
     const tinyB64 = Buffer.from("hello world!").toString("base64");

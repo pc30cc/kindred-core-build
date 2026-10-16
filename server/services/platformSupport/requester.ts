@@ -11,6 +11,7 @@
  * the fallback for a client that does not know the kind.
  */
 import type { getServiceClient } from '../../supabase.js';
+import { MB_PER_GB, planAiAllowance, storageLimitMb } from '../../../shared/planLimits.js';
 
 type ServiceClient = ReturnType<typeof getServiceClient>;
 
@@ -60,9 +61,13 @@ export interface RequesterWorkspace {
     conversations: Metered;
     visitors: Metered;
     messages: number;
-    ai_credits: Metered;
+    /** The plan's monthly AI credit in the AI wallet's unit (IRR), as billing_plan_ai_allowance reads the plan. */
+    ai_monthly_credit_irr: number;
     call_minutes: number;
     storage_bytes: number;
+    /** The plan's storage limit in MB (-1 unlimited, null not set). */
+    storage_limit_mb: number | null;
+    /** The same in GB, for the iOS and Android cards built before migration 271. */
     storage_limit_gb: number | null;
   };
 }
@@ -171,7 +176,7 @@ export async function requesterSnapshot(
         sb
           .from('workspace_usage_counters')
           .select(
-            'workspace_id, conversations_count, messages_count, visitors_count, ai_credits_used, storage_bytes, call_minutes_used',
+            'workspace_id, conversations_count, messages_count, visitors_count, storage_bytes, call_minutes_used',
           )
           .in('workspace_id', ids)
           .eq('period', period),
@@ -185,7 +190,7 @@ export async function requesterSnapshot(
     ]);
     const planIds = [...new Set(subscriptionRows.map((s) => s.plan_id).filter(Boolean).map(String))];
     const planRows = planIds.length
-      ? await rows(sb.from('billing_plans').select('id, name, slug, localized, is_free, limits').in('id', planIds))
+      ? await rows(sb.from('billing_plans').select('id, name, slug, localized, is_free, limits, ai_allowance').in('id', planIds))
       : [];
 
     const byId = <T extends Row>(list: T[], key: string) => new Map(list.map((r) => [String(r[key]), r]));
@@ -207,6 +212,7 @@ export async function requesterSnapshot(
       const plan = subscription ? planById.get(String(subscription.plan_id)) ?? null : null;
       const limits = (plan?.limits as Row | null) ?? null;
       const counter = counterByWorkspace.get(id) ?? {};
+      const storageMb = storageLimitMb(limits);
       return {
         id,
         name: text(workspace.name) ?? id,
@@ -235,10 +241,11 @@ export async function requesterSnapshot(
           conversations: { used: num(counter.conversations_count), limit: limitOf(limits, 'max_conversations') },
           visitors: { used: num(counter.visitors_count), limit: limitOf(limits, 'max_visitors') },
           messages: num(counter.messages_count),
-          ai_credits: { used: num(counter.ai_credits_used), limit: limitOf(limits, 'ai_credits_per_month') },
+          ai_monthly_credit_irr: planAiAllowance(plan as { ai_allowance?: Row | null; limits?: Row | null } | null),
           call_minutes: num(counter.call_minutes_used),
           storage_bytes: num(counter.storage_bytes),
-          storage_limit_gb: limitOf(limits, 'storage_gb'),
+          storage_limit_mb: storageMb,
+          storage_limit_gb: storageMb === null ? null : storageMb < 0 ? -1 : storageMb / MB_PER_GB,
         },
       };
     });
@@ -287,7 +294,7 @@ export function requesterBody(snapshot: RequesterSnapshot): string {
     lines.push(
       `• ${w.name} (${w.role}) — ${plan} · operators ${metered(w.operators)} · ` +
         `conversations ${metered(w.usage.conversations)} · visitors ${metered(w.usage.visitors)} · ` +
-        `contacts ${metered(w.contacts)} · AI credits ${metered(w.usage.ai_credits)} this month`,
+        `contacts ${metered(w.contacts)} · monthly AI credit ${w.usage.ai_monthly_credit_irr} IRR`,
     );
   }
   return lines.join('\n');

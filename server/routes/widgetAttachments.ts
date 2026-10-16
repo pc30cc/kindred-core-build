@@ -271,7 +271,7 @@ widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (re
     return res.status(413).json({ error: 'Uploaded size exceeds declared size' });
   }
 
-  // ── storage_gb cap enforcement (visitor-facing) ──
+  // ── storage_mb cap enforcement (visitor-facing) ──
   // Mirrors the operator upload routes; see docs/STORAGE_LIMIT_POLICY.md.
   // workspace_id is the server-resolved one from the validated widget token
   // (X-Widget-Token + cookie). It is pinned on the request so the shared
@@ -279,7 +279,7 @@ widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (re
   // put in the body (the schema is {data: base64} and never carries one).
   // Forward-correct only; no route-local storage math.
   setTrustedGateWorkspaceId(req, workspaceId);
-  const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
+  const limitMw = requireLimit('storage_mb', usageFnForLimit('storage_mb'));
   let proceeded = false;
   await limitMw(req, res, () => { proceeded = true; });
   if (!proceeded) {
@@ -287,7 +287,7 @@ widgetAttachmentsRouter.post('/:id/upload', widgetRateLimit('upload'), async (re
     // failed so the visitor's widget doesn't see a stranded 'uploading'
     // attachment row, and so /init's reserved slot is released.
     await sb.from('conversation_attachments')
-      .update({ status: 'failed', error_message: 'storage_gb limit reached' })
+      .update({ status: 'failed', error_message: 'storage_mb limit reached' })
       .eq('id', row.id);
     return;
   }

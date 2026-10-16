@@ -327,6 +327,63 @@ suite('billing locks: server lock core, report and quote against the real chain'
     expect(now).toMatchObject({ plan_id: big, has_locks: false, modules_lost: [], channels_lost: [] });
   });
 
+  it('271: the monthly AI credit is what the grant gives, as money in the account currency; storage in MB', async () => {
+    // Startup's shape: a legacy count of 0 next to the credit actually granted.
+    await q(`UPDATE public.billing_plans SET ai_allowance = '{"IRR": 300000}',
+               limits = limits || '{"ai_credits_per_month": 0, "storage_gb": 0}' WHERE id = $1`, [small]);
+    await q(`UPDATE public.billing_plans SET ai_allowance = '{"IRR": 600000}',
+               limits = limits || '{"storage_mb": 51200}' WHERE id = $1`, [big]);
+    await q(`UPDATE public.workspace_subscriptions SET plan_id = $2 WHERE workspace_id = $1`, [ws, big]);
+    state.clearLockStateCache(ws);
+    await q(`UPDATE public.ai_exchange_rates SET effective_to = now() WHERE from_currency = 'USD' AND effective_to IS NULL`);
+
+    // No rate: the wallet's own unit, never a guessed conversion.
+    const noRate = await report.buildLockReport(config, ws, small);
+    expect(noRate.ai_credits).toMatchObject({ current: 600000, target: 300000, unit: 'IRR', current_minor: null, target_minor: null });
+    // storage_gb 0 on a plan not saved since 271 reads as 0 MB: nothing stored yet, uploads blocked.
+    expect(noRate.storage).toMatchObject({ limit_mb: 0, uploads_blocked: true });
+
+    // With the rate the billing page converts with (60,000 Rial per dollar).
+    await q(`INSERT INTO public.ai_exchange_rates (from_currency, to_currency, rate, effective_from) VALUES ('USD', 'IRR', 60000, now())`);
+    const r = await report.buildLockReport(config, ws, small);
+    expect(r.ai_credits.currency).toBe('USD');
+    expect(r.ai_credits).toMatchObject({ current: 600000, target: 300000, current_minor: 1000, target_minor: 500 });
+
+    // The plan cards show the same numbers, from the same function.
+    const options = await plans.listPlanOptions(config, 'USD', ws);
+    const smallCard = options.find((o) => o.id === small)!;
+    const bigCard = options.find((o) => o.id === big)!;
+    expect(smallCard).toMatchObject({ ai_credit_monthly: 300000, ai_credit_monthly_minor: 500 });
+    expect(bigCard).toMatchObject({ ai_credit_monthly: 600000, ai_credit_monthly_minor: 1000 });
+    expect(smallCard.limits.storage_mb).toBe(0);
+    expect(bigCard.limits.storage_mb).toBe(51200);
+
+    // Super Admin's override of the workspace's monthly credit is what is granted, whatever the plan.
+    await q(`INSERT INTO public.workspace_limit_overrides (workspace_id, limit_key, limit_value) VALUES ($1, 'included_ai_allowance_irr', 120000)`, [ws]);
+    try {
+      expect((await report.buildLockReport(config, ws, small)).ai_credits).toMatchObject({ current: 120000, target: 120000 });
+      expect((await plans.listPlanOptions(config, 'USD', ws)).find((o) => o.id === small)).toMatchObject({ ai_credit_monthly: 120000 });
+    } finally {
+      await q(`DELETE FROM public.workspace_limit_overrides WHERE workspace_id = $1 AND limit_key = 'included_ai_allowance_irr'`, [ws]);
+    }
+
+    // Uploads: the gate reads storage_mb, and storage_gb × 1024 where a plan still has only that.
+    const { checkEntitlementFromDB, clearEntitlementCache } = await import('../../../server/middleware/featureGating.js');
+    clearEntitlementCache();
+    const cfg = config as unknown as { supabaseUrl: string; supabaseServiceRoleKey: string };
+    expect(await checkEntitlementFromDB(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, ws, 'storage_mb', { numeric: true }))
+      .toMatchObject({ allowed: true, limit: 51200 });
+    await q(`UPDATE public.billing_plans SET limits = (limits - 'storage_mb') || '{"storage_gb": 3}' WHERE id = $1`, [big]);
+    clearEntitlementCache();
+    try {
+      expect(await checkEntitlementFromDB(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, ws, 'storage_mb', { numeric: true }))
+        .toMatchObject({ allowed: true, limit: 3072 });
+    } finally {
+      await q(`UPDATE public.billing_plans SET limits = (limits - 'storage_gb') || '{"storage_mb": 51200}' WHERE id = $1`, [big]);
+      clearEntitlementCache();
+    }
+  });
+
   it('the quote of a downgrade carries the report; scheduling it needs the acknowledgement while locks are on', async () => {
     const quote = await plans.quotePlanChange(config, ws, small, 'monthly', { withLockReport: true });
     expect(quote.kind).toBe('schedule');

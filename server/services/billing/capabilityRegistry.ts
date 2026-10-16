@@ -209,7 +209,12 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'max_workspaces',        type: 'limit', label: 'Max Workspaces',             group: 'team',  defaultValue: 1,    planConfigurable: true, workspaceOverridable: false, userVisible: true, unit: 'count', sortOrder: 20 },
   { key: 'max_conversations',     type: 'limit', label: 'Conversations / month',      group: 'usage', defaultValue: 100,  planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 10 },
   { key: 'max_visitors',          type: 'limit', label: 'Tracked Visitors / month',   group: 'usage', defaultValue: 1000, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 20 },
-  { key: 'ai_credits_per_month',  type: 'limit', label: 'AI Credits / month',         group: 'ai',    defaultValue: 0,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 100 },
+  // DEPRECATED (migration 271): the monthly AI credit is the plan's
+  // `ai_allowance.IRR` (billing_plan_ai_allowance), edited as "Monthly AI
+  // credit". This count was a second number for the same thing that the
+  // grant reads only as its last fallback; it is kept known so an old plan
+  // row is not reported as drift, but no longer edited or shown.
+  { key: 'ai_credits_per_month',  type: 'limit', label: 'AI Credits / month (legacy)', description: 'Deprecated — the monthly AI credit is the plan\'s ai_allowance (AI wallet unit). Read only as the last fallback of billing_plan_ai_allowance for a plan that has none.', group: 'ai',    defaultValue: 0,    planConfigurable: false, workspaceOverridable: false, userVisible: false, internalOnly: true, deprecated: true, unit: 'per_month', sortOrder: 100 },
   // AI KB Builder — historical/canonical owner of these three keys. Also
   // read (as a legacy fallback only) by AI Agent's own Web Pages ingestion
   // when the ai_agent_web_source_* keys below are absent from a plan — see
@@ -225,7 +230,13 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'ai_agent_web_source_jobs_per_month', type: 'limit', label: 'AI Agent — Web Pages: Sync jobs / month',    group: 'ai', description: 'Overrides ai_kb_jobs_per_month for AI Agent Web Pages (Data Hub) source ingestion only. Leave unset to keep using the shared/legacy ai_kb_jobs_per_month value.', defaultValue: 5,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 131 },
   { key: 'ai_kb_file_size_mb',    type: 'limit', label: 'AI Agent — Max file size',   group: 'ai',    defaultValue: 10,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'mb', sortOrder: 140 },
   { key: 'ai_kb_file_count',      type: 'limit', label: 'AI Agent — Max files',       group: 'ai',    defaultValue: 20,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 150 },
-  { key: 'storage_gb',            type: 'limit', label: 'Storage',                    group: 'usage', defaultValue: 1,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'gb', sortOrder: 30 },
+  // Storage is counted in megabytes (migration 271 converted storage_gb ×
+  // 1024). Enforced by requireLimit('storage_mb') on every upload path.
+  { key: 'storage_mb',            type: 'limit', label: 'Storage',                    group: 'usage', description: 'File storage per workspace in megabytes (uploads, attachments, AI files). Over it nothing is deleted; new uploads are refused. -1 = unlimited, 0 = no file storage.', defaultValue: 1024, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'mb', sortOrder: 30 },
+  // DEPRECATED (migration 271): the same limit in gigabytes. Read only as
+  // storage_gb × 1024 where a plan or override has no storage_mb yet
+  // (shared/planLimits.ts); the plan editor no longer writes it.
+  { key: 'storage_gb',            type: 'limit', label: 'Storage (GB, legacy)',       description: 'Deprecated — superseded by storage_mb. Read only as storage_gb × 1024 where storage_mb is absent.', group: 'usage', defaultValue: 1,    planConfigurable: false, workspaceOverridable: false, userVisible: false, internalOnly: true, deprecated: true, unit: 'gb', sortOrder: 31 },
   { key: 'data_retention_days',   type: 'limit', label: 'Data Retention',             group: 'usage', defaultValue: 30,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'days', sortOrder: 40 },
   { key: 'max_contacts',          type: 'limit', label: 'Max Contacts',               group: 'contacts', description: 'Maximum number of contact records (rows in public.contacts) per workspace at any one time. Occupancy semantics: deletes free capacity; edits/tags/notes do not consume. Enforced by POST /api/contacts and POST /api/contacts/bulk via requireLimit + live count(*).', defaultValue: 100, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 60 },
   { key: 'max_concurrent_calls',  type: 'limit', label: 'Max Concurrent Calls',       group: 'calls',    description: 'Workspace-wide ceiling on simultaneously-active call_sessions (canonical active set: pending, ringing, connecting, active, all entry_source values). Enforced at create-time on POST /api/calls/create (operator) and POST /api/widget/calls/request (visitor) via canonical derived count. Composes additively with the widget-scoped platform-admin knob platform_call_center_settings.max_concurrent_calls_per_workspace — both ceilings may deny new work; first denial wins. -1 = unlimited.', defaultValue: -1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 70 },
@@ -360,9 +371,8 @@ export function listCapabilities(filter?: { type?: CapabilityType; group?: strin
 export const USAGE_BACKED_LIMIT_KEYS: readonly string[] = [
   'max_conversations',
   'max_visitors',
-  'storage_gb',
+  'storage_mb',
   'ai_kb_jobs_per_month',
-  'ai_credits_per_month',
   'max_contacts',
   'max_agents',
   'max_kb_articles',
@@ -437,7 +447,6 @@ export const LEGACY_PLAN_KEYS = new Set<string>([
   'ai_requests_monthly',
   'conversations_monthly',
   'kb_articles',
-  'storage_mb',
   'team_members',
   'contacts',
   'agents',

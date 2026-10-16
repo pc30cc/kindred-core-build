@@ -17,6 +17,10 @@ export interface AiCreditSnapshot {
   purchasedRemainingIrr: number;
   /** What the customer can still spend right now (IRR). */
   totalRemainingIrr: number;
+  /** The account currency the billing page shows the wallet in. */
+  currency: string | null;
+  /** What can be spent now in minor units of `currency`, as the billing page shows it; null without a rate. */
+  availableMinor: number | null;
 }
 
 export function useAiWalletSummary(workspaceId: string | undefined, enabled = true) {
@@ -33,6 +37,8 @@ export function useAiWalletSummary(workspaceId: string | undefined, enabled = tr
           cycleRemainingIrr,
           purchasedRemainingIrr,
           totalRemainingIrr: cycleRemainingIrr + purchasedRemainingIrr,
+          currency: section.currency || null,
+          availableMinor: typeof section.display?.available_minor === 'number' ? section.display.available_minor : null,
         };
       } catch {
         return null;

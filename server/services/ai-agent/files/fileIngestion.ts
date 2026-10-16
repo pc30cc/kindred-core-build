@@ -321,7 +321,7 @@ export async function queueAiFileIngest(
   if (!isSupportedMime(mimeType)) throw new IngestError('unsupported_file_type', 415);
   const parser = parserFor(mimeType)!;
 
-  // The workspace's storage_gb counts these files too: over the plan's limit
+  // The workspace's storage_mb counts these files too: over the plan's limit
   // a new one is not stored (simple billing phase 4 — only new uploads are
   // blocked; existing files stay). Only while billing locks are on.
   if (!opts.bypassPlanLimits) {

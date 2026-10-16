@@ -2267,6 +2267,21 @@ const tr: TranslationKeys = {
     resendIn: '{{seconds}} sn sonra yeniden gönder',
     changeNumber: 'Numarayı değiştir',
     codeSent: 'Doğrulama kodu gönderildi',
+    sentBySms: '6 haneli kodu SMS ile şu numaraya gönderdik:',
+    sentByCall: 'Sizi şimdi arıyoruz. Aramayı yanıtlayın ve okunan 6 haneli kodu not alın.',
+    smsDelivered: 'Telefonunuza iletildi',
+    smsFailedTitle: 'SMS iletilemedi',
+    smsFailedBody: 'Mobil operatörünüz mesajımızı kabul etmedi. Kodu bunun yerine sesli arama ile alın.',
+    smsFailedBodyNoCall: 'Mobil operatörünüz mesajımızı kabul etmedi. Numarayı kontrol edin veya birazdan yeni bir kod isteyin.',
+    notReceived: 'Kod gelmedi mi?',
+    newCodeIn: '{{time}} sonra yeni kod isteyebilirsiniz',
+    resendSms: 'SMS\'i tekrar gönder',
+    sendSmsInstead: 'Bunun yerine SMS gönder',
+    callMe: 'Bunun yerine beni arayın',
+    callMeIn: '{{time}} sonra arayın',
+    callAgain: 'Beni tekrar arayın',
+    callStarted: 'Sizi şimdi arıyoruz',
+    sendCodeByCall: 'Kodu sesli arama ile al',
     // Super-admin only: why an "unavailable" actually happened.
     adminFailure: {
       pepper_missing: 'Sunucuda PHONE_VERIFICATION_PEPPER tanımlı değil (en az 16 karakter). Tanımlanana kadar hiç SMS denenmez.',
@@ -2299,6 +2314,7 @@ const tr: TranslationKeys = {
       phone_challenge_not_found: 'Etkin kod yok. Lütfen yeni bir kod isteyin.',
       phone_already_verified: 'Bu numara zaten doğrulanmış.',
       phone_verification_unavailable: 'Doğrulama geçici olarak kullanılamıyor. Daha sonra deneyin.',
+      phone_call_unavailable: 'Sesli arama şu anda kullanılamıyor. Lütfen SMS kullanın.',
     },
   },
 
@@ -8807,6 +8823,12 @@ const tr: TranslationKeys = {
     },
   },
   adminProviders: {
+    smsVoice: {
+      label: 'Sesli arama yedeği',
+      hint: 'SMS gelmezse kullanıcılar kodu, kodu okuyan bir sesli aramayla alabilir.',
+      on: 'Açık',
+      off: 'Kapalı',
+    },
     smsTelnyx: {
       vendorLabel: 'Telnyx (uluslararası)',
       dialogDescription: 'Telnyx Verify, bu platformun doğrulama kodlarını SMS veya sesli arama ile iletir. API anahtarı sunucuda saklanır ve tarayıcıya asla geri gönderilmez.',

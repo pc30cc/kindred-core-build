@@ -98,6 +98,7 @@ export function AdminSmsProviderCard() {
   const [verifyParameterName, setVerifyParameterName] = useState('CODE');
   const [verifyProfileId, setVerifyProfileId] = useState('');
   const [channel, setChannel] = useState<'sms' | 'call'>('sms');
+  const [voiceFallback, setVoiceFallback] = useState(true);
 
   // Only this edition's vendors: no Iranian vendor is ever named in International.
   const vendors = getSchemaForEdition('sms', edition)?.vendors ?? [];
@@ -134,6 +135,7 @@ export function AdminSmsProviderCard() {
     setVendor(current);
     setVerifyProfileId(info?.verifyProfileId ?? '');
     setChannel(info?.channel === 'call' ? 'call' : 'sms');
+    setVoiceFallback(info?.voiceFallback !== false);
     setVerifyTemplate(info?.verifyTemplate ?? '');
     setSender(info?.sender ?? '');
     setLineNumber(info?.lineNumber ?? '');
@@ -208,6 +210,7 @@ export function AdminSmsProviderCard() {
               ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
               verifyProfileId: verifyProfileId.trim(),
               channel,
+              voiceFallback,
             }
           : vendor === 'kavenegar'
           ? {
@@ -216,6 +219,7 @@ export function AdminSmsProviderCard() {
               ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
               ...(sender.trim() ? { sender: sender.trim() } : {}),
               verifyTemplate,
+              voiceFallback,
             }
           : {
               providerName: 'smsir',
@@ -328,6 +332,14 @@ export function AdminSmsProviderCard() {
                       {info.channel === 'call' ? t('adminProviders.smsTelnyx.channelCall') : t('adminProviders.smsTelnyx.channelSms')}
                     </span>
                   </div>
+                  {info.channel !== 'call' && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">{t('adminProviders.smsVoice.label')}</span>
+                      <span className="text-foreground" data-testid="sms-voice-fallback">
+                        {info.voiceFallback === false ? t('adminProviders.smsVoice.off') : t('adminProviders.smsVoice.on')}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">{t('adminProviders.smsTelnyx.messageText')}</span>
                     <span className="text-foreground text-end">{t('adminProviders.smsTelnyx.messageTextValue')}</span>
@@ -358,6 +370,14 @@ export function AdminSmsProviderCard() {
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Default sender</span>
                       <span className="text-foreground">{info.sender}</span>
+                    </div>
+                  )}
+                  {info?.providerName === 'kavenegar' && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">{t('adminProviders.smsVoice.label')}</span>
+                      <span className="text-foreground" data-testid="sms-voice-fallback">
+                        {info.voiceFallback === false ? t('adminProviders.smsVoice.off') : t('adminProviders.smsVoice.on')}
+                      </span>
                     </div>
                   )}
                 </>
@@ -598,6 +618,21 @@ export function AdminSmsProviderCard() {
               </p>
             </div>
             </>
+            )}
+
+            {(vendor === 'kavenegar' || (vendor === 'telnyx' && channel === 'sms')) && (
+              <div className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2">
+                <div className="space-y-0.5">
+                  <Label htmlFor="sms-voice-fallback" className="text-xs">{t('adminProviders.smsVoice.label')}</Label>
+                  <p className="text-[11px] text-muted-foreground">{t('adminProviders.smsVoice.hint')}</p>
+                </div>
+                <Switch
+                  id="sms-voice-fallback"
+                  checked={voiceFallback}
+                  onCheckedChange={setVoiceFallback}
+                  data-testid="sms-voice-fallback-switch"
+                />
+              </div>
             )}
 
             <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">

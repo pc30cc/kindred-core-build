@@ -5,6 +5,7 @@
  * platform consumes are made:
  *
  *   POST /verifications/sms | /verifications/call   deliver one code
+ *   GET  /verifications/{id}                         that code's delivery status
  *   GET  /verify_profiles/{id}                       the admin connection test
  *
  * The code is OURS (`custom_code`): the verification service generates,
@@ -26,6 +27,7 @@
 import {
   SmsError,
   type SmsAccountInfo,
+  type SmsDeliveryState,
   type SmsErrorCode,
   type TelnyxChannel,
   type TelnyxSmsConfig,
@@ -63,6 +65,23 @@ export function isTelnyxChannel(value: unknown): value is TelnyxChannel {
 
 /** E.164: `+`, a country code that does not start with 0, 7–15 digits in all. */
 export const E164_PATTERN = /^\+[1-9]\d{6,14}$/;
+
+/** A Telnyx verification id, as returned when a code is sent. */
+const VERIFICATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A verification's `delivery_status` (e.g. `delivery_failed`, `delivered`,
+ * `sent`, `queued`) reduced to our four states. Telnyx lists no closed set
+ * of values, so anything that names a failure counts as failed, an exact
+ * `delivered` as delivered, and the rest as still on its way.
+ */
+export function mapTelnyxDeliveryStatus(value: unknown): SmsDeliveryState {
+  const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!status) return 'unknown';
+  if (/fail|undeliver|reject|expired|blocked|error/.test(status)) return 'failed';
+  if (status === 'delivered') return 'delivered';
+  return 'pending';
+}
 
 /** Our code: digits only (Telnyx's `custom_code` is "a self-generated numeric code"). */
 const CUSTOM_CODE_PATTERN = /^[0-9]{4,10}$/;
@@ -154,7 +173,11 @@ export interface TelnyxAdapter {
     phoneNumber: string;
     code: string;
     timeoutSecs?: number;
-  }): Promise<{ messageId?: string }>;
+    /** Overrides the configured channel for this one code. */
+    channel?: TelnyxChannel;
+  }): Promise<{ messageId?: string; channel: TelnyxChannel }>;
+  /** What Telnyx reports about one sent code. Never throws: failures read 'unknown'. */
+  getDeliveryState(messageId: string): Promise<SmsDeliveryState>;
   /** The configured Verify Profile (proves the key and the profile id). Never sends anything. */
   getAccountInfo(): Promise<SmsAccountInfo>;
 }
@@ -221,13 +244,15 @@ export function createTelnyxAdapter(
   }
 
   return {
-    async sendVerificationCode({ phoneNumber, code, timeoutSecs }) {
+    async sendVerificationCode({ phoneNumber, code, timeoutSecs, channel: requested }) {
       const to = typeof phoneNumber === 'string' ? phoneNumber.trim() : '';
       if (!E164_PATTERN.test(to)) throw new SmsError('sms_invalid_receptor');
       if (typeof code !== 'string' || !CUSTOM_CODE_PATTERN.test(code)) throw new SmsError('sms_template_invalid');
+      const via: TelnyxChannel = requested === undefined ? channel : requested;
+      if (!isTelnyxChannel(via)) throw new SmsError('sms_provider_feature_unavailable');
       const data = asRecord(
         asRecord(
-          await call('POST', `/verifications/${channel}`, {
+          await call('POST', `/verifications/${via}`, {
             phone_number: to,
             verify_profile_id: profileId,
             custom_code: code,
@@ -237,7 +262,18 @@ export function createTelnyxAdapter(
       );
       if (!data) throw new SmsError('sms_provider_error');
       const id = text(data.id).trim();
-      return id ? { messageId: id } : {};
+      return id ? { messageId: id, channel: via } : { channel: via };
+    },
+
+    async getDeliveryState(messageId) {
+      const id = typeof messageId === 'string' ? messageId.trim() : '';
+      if (!VERIFICATION_ID_PATTERN.test(id)) return 'unknown';
+      try {
+        const data = asRecord(asRecord(await call('GET', `/verifications/${encodeURIComponent(id)}`))?.data);
+        return data ? mapTelnyxDeliveryStatus(data.delivery_status) : 'unknown';
+      } catch {
+        return 'unknown';
+      }
     },
 
     async getAccountInfo() {

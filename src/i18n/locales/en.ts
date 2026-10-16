@@ -2275,6 +2275,21 @@ const en = {
     resendIn: 'Resend in {{seconds}}s',
     changeNumber: 'Change number',
     codeSent: 'Verification code sent',
+    sentBySms: 'We sent a 6-digit code by SMS to',
+    sentByCall: 'We\'re calling you now. Answer the call and note the 6-digit code it reads out.',
+    smsDelivered: 'Delivered to your phone',
+    smsFailedTitle: 'We couldn\'t deliver the SMS',
+    smsFailedBody: 'Your mobile carrier didn\'t accept our text message. Get the code by a voice call instead.',
+    smsFailedBodyNoCall: 'Your mobile carrier didn\'t accept our text message. Check the number, or request a new code in a moment.',
+    notReceived: 'Didn\'t get the code?',
+    newCodeIn: 'You can request a new code in {{time}}',
+    resendSms: 'Resend SMS',
+    sendSmsInstead: 'Send SMS instead',
+    callMe: 'Call me instead',
+    callMeIn: 'Call me in {{time}}',
+    callAgain: 'Call me again',
+    callStarted: 'Calling you now',
+    sendCodeByCall: 'Call me with a code',
     // Super-admin only: why an "unavailable" actually happened.
     adminFailure: {
       pepper_missing: 'PHONE_VERIFICATION_PEPPER is not set on the server (minimum 16 characters). No SMS is attempted until it is.',
@@ -2307,6 +2322,7 @@ const en = {
       phone_challenge_not_found: 'No active code. Please request a new one.',
       phone_already_verified: 'This number is already verified.',
       phone_verification_unavailable: 'Verification is temporarily unavailable. Please try again later.',
+      phone_call_unavailable: 'Voice call isn\'t available right now. Please use SMS.',
     },
   },
 
@@ -8822,6 +8838,12 @@ const en = {
     },
   },
   adminProviders: {
+    smsVoice: {
+      label: 'Voice call fallback',
+      hint: 'When an SMS doesn\'t arrive, users can get the same kind of code by a voice call that reads it out.',
+      on: 'On',
+      off: 'Off',
+    },
     smsTelnyx: {
       vendorLabel: 'Telnyx (international)',
       dialogDescription: 'Telnyx Verify delivers this platform\'s verification codes by SMS or voice call. The API key is stored server-side and is never sent back to the browser.',

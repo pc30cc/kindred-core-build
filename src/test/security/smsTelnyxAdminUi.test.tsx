@@ -92,7 +92,7 @@ describe('AdminSmsProviderCard — International (Telnyx)', () => {
     await click(screen.getByTestId('sms-telnyx-channel-call'));
     await click(screen.getByText('Save'));
     await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
-    expect(api.save.mock.calls[0][0]).toEqual({ providerName: 'telnyx', enabled: true, verifyProfileId: PROFILE, channel: 'call' });
+    expect(api.save.mock.calls[0][0]).toEqual({ providerName: 'telnyx', enabled: true, verifyProfileId: PROFILE, channel: 'call', voiceFallback: true });
   });
 
   it('first configuration: needs a key and a UUID profile id', async () => {
@@ -113,7 +113,7 @@ describe('AdminSmsProviderCard — International (Telnyx)', () => {
     await click(screen.getByText('Save'));
     await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
     expect(api.save.mock.calls[0][0]).toEqual({
-      providerName: 'telnyx', enabled: false, apiKey: 'KEY_placeholder', verifyProfileId: PROFILE, channel: 'sms',
+      providerName: 'telnyx', enabled: false, apiKey: 'KEY_placeholder', verifyProfileId: PROFILE, channel: 'sms', voiceFallback: true,
     });
   });
 

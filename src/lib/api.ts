@@ -426,6 +426,8 @@ export interface AdminSmsProviderInfo {
   verifyProfileId?: string | null;
   /** Telnyx only: 'sms' or 'call'. */
   channel?: 'sms' | 'call' | null;
+  /** Kavenegar and Telnyx: offer a voice call when the SMS does not arrive. Null where the vendor cannot call. */
+  voiceFallback?: boolean | null;
   updatedAt: string | null;
 }
 
@@ -454,6 +456,7 @@ export type AdminSmsProviderSavePayload =
       apiKey?: string;
       sender?: string;
       verifyTemplate: string;
+      voiceFallback?: boolean;
     }
   | {
       providerName: 'smsir';
@@ -469,6 +472,7 @@ export type AdminSmsProviderSavePayload =
       apiKey?: string;
       verifyProfileId: string;
       channel?: 'sms' | 'call';
+      voiceFallback?: boolean;
     };
 
 export async function adminSaveSmsProvider(payload: AdminSmsProviderSavePayload) {
@@ -907,7 +911,12 @@ export interface PhoneVerificationStatus {
   activeChallengeId?: string | null;
   challengeExpiresInSeconds?: number | null;
   remainingAttempts?: number | null;
+  /** Whether "Call me instead" can be offered, and how the first code goes out. */
+  delivery?: { voiceCall: boolean; defaultChannel: PhoneDeliveryChannel };
 }
+
+/** How a code is delivered: a text message or a voice call that reads it out. */
+export type PhoneDeliveryChannel = 'sms' | 'call';
 
 export interface PhoneChallenge {
   success: true;
@@ -915,7 +924,12 @@ export interface PhoneChallenge {
   phoneMasked: string;
   expiresInSeconds: number;
   resendAfterSeconds: number;
+  /** Missing from an older backend: treat as 'sms'. */
+  channel?: PhoneDeliveryChannel;
 }
+
+/** What the provider knows about the last code: reached the phone, failed, on its way, or not known. */
+export type PhoneDeliveryState = 'delivered' | 'failed' | 'pending' | 'unknown';
 
 export interface PhoneCheckResult {
   success: true;
@@ -947,11 +961,19 @@ export async function startPhoneVerification(
   });
 }
 
-export async function resendPhoneVerification(ctx: PhoneVerificationContext) {
+/** A new code; `channel` 'call' reads it out in a voice call ("Call me instead"). */
+export async function resendPhoneVerification(ctx: PhoneVerificationContext, channel?: PhoneDeliveryChannel) {
   return request<PhoneChallenge>('/api/phone-verification/resend', {
     method: 'POST',
-    body: JSON.stringify(ctx),
+    body: JSON.stringify(channel ? { ...ctx, channel } : ctx),
   });
+}
+
+export async function getPhoneVerificationDelivery(ctx: PhoneVerificationContext & { challengeId: string }) {
+  const params = new URLSearchParams({ purpose: ctx.purpose, challengeId: ctx.challengeId });
+  if (ctx.workspaceId) params.set('workspaceId', ctx.workspaceId);
+  if (ctx.workspaceSlug) params.set('workspaceSlug', ctx.workspaceSlug);
+  return request<{ state: PhoneDeliveryState }>(`/api/phone-verification/delivery?${params}`, {});
 }
 
 export async function checkPhoneVerification(

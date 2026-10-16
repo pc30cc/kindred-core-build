@@ -12,6 +12,7 @@ import {
   type VisitorNetworkProfile,
 } from '@/hooks/useVisitorNetwork';
 import { localizedCountryName } from '@/lib/geo/countryLocalization';
+import { dialCountry, flagUrl } from '@/lib/dialCountries';
 import { localizedLocationLabel } from '@/lib/geo/localizedGeo';
 
 interface Props {
@@ -85,19 +86,30 @@ export function VisitorNetworkCard({
 
   return (
     <div className={cn('rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20', className)} dir={dir}>
-      <Row icon={<Network className="w-4 h-4" />} label={t('visitors.ip') || 'IP'}>
+      <Row icon={<Network className="w-4 h-4" />} label={t('visitors.ipAddress') || 'IP'}>
         {ip.locked ? (
           <span className="inline-flex items-center gap-1 text-muted-foreground">
             <Lock className="w-3 h-3" />
-            {t('plans.upgradeRequired') || 'Upgrade required'}
+            {t('visitors.ipPlanLocked') || 'Not available on your plan'}
           </span>
         ) : (
           <bdi dir="ltr" className="tabular-nums">{ip.display || '—'}</bdi>
         )}
       </Row>
       <Row icon={<Globe className="w-4 h-4" />} label={t('visitors.country') || 'Country'}>
-        <span>
-          {geo.country_code ? `${flagEmoji(geo.country_code)} ` : ''}
+        <span className="inline-flex items-center gap-1.5">
+          {/* An image, not an emoji flag: Windows shows emoji flags as two letters. */}
+          {geo.country_code && dialCountry(geo.country_code) ? (
+            <img
+              src={flagUrl(geo.country_code)}
+              alt=""
+              aria-hidden
+              loading="lazy"
+              width={18}
+              height={12}
+              className="h-3 w-[18px] rounded-[2px] object-cover ring-1 ring-black/10"
+            />
+          ) : geo.country_code ? `${flagEmoji(geo.country_code)} ` : null}
           {localizedCountry || '—'}
         </span>
       </Row>

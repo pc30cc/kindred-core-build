@@ -116,14 +116,14 @@ storageRouter.post('/upload', async (req, res) => {
       return res.status(413).json({ error: `File too large (max ${MAX_UPLOAD_SIZE / 1024 / 1024}MB)` });
     }
 
-    // ── storage_gb cap enforcement ──
+    // ── storage_mb cap enforcement ──
     // Forward-correct only: counter reflects traffic since the canonical
     // producer trigger went live; existing workspaces may start undercounted
     // (accepted tradeoff — see docs/STORAGE_LIMIT_POLICY.md). Delegates
     // entirely to the shared resolver — no route-local storage math.
     // Evaluate the cap on the workspace authorized above, not raw body fields.
     setTrustedGateWorkspaceId(req, workspaceId);
-    const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
+    const limitMw = requireLimit('storage_mb', usageFnForLimit('storage_mb'));
     let proceeded = false;
     await limitMw(req, res, () => { proceeded = true; });
     if (!proceeded) return; // middleware already wrote 403/400

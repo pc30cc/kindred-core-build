@@ -28,6 +28,8 @@ const h = vi.hoisted(() => ({
   updates: [] as Array<{ id: unknown; patch: Row }>,
   db: [] as string[],
   edition: 'international' as 'iran' | 'international',
+  /** What a list read (await on the query) answers. */
+  list: [] as Row[],
   admin: true,
   planChanged: vi.fn(async () => ({ ok: true, backgrounded: false, skipped: true })),
 }));
@@ -70,7 +72,7 @@ function planClient() {
           }
           return { data: null, error: null };
         },
-        then: (resolve: (v: unknown) => void) => resolve({ data: [], error: null }),
+        then: (resolve: (v: unknown) => void) => resolve({ data: h.list, error: null }),
       };
       return b;
     },
@@ -163,6 +165,7 @@ beforeEach(() => {
   h.admin = true;
   h.inserts.length = 0;
   h.updates.length = 0;
+  h.list = [];
   h.db.length = 0;
   h.planChanged.mockClear();
   h.plans = [{ id: PLAN_ID, is_active: true, entitlements: {}, limits: { max_agents: 3, included_ai_allowance_irr: 1 } }];
@@ -264,6 +267,44 @@ describe('PUT /api/plans/admin/:planId', () => {
     };
     expect((await call('PUT', `/api/plans/admin/${PLAN_ID}`, form)).status).toBe(200);
     expect(h.planChanged).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('271: storage in MB and one monthly AI credit on save', () => {
+  it('a body with storage_mb saves only storage_mb; storage_gb alone (an older page) is converted', async () => {
+    await call('PUT', `/api/plans/admin/${PLAN_ID}`, { limits: { max_agents: 3, storage_mb: 512, storage_gb: 50 } });
+    expect(h.updates[0].patch.limits).toEqual({ max_agents: 3, storage_mb: 512 });
+    await call('PUT', `/api/plans/admin/${PLAN_ID}`, { limits: { max_agents: 3, storage_gb: 2 } });
+    expect(h.updates[1].patch.limits).toEqual({ max_agents: 3, storage_mb: 2048 });
+    await call('PUT', `/api/plans/admin/${PLAN_ID}`, { limits: { storage_gb: -1 } });
+    expect(h.updates[2].patch.limits).toEqual({ storage_mb: -1 });
+    const created = await call('POST', '/api/plans/admin', { name: 'New', slug: 'new', limits: { storage_gb: 0 } });
+    expect(created.status).toBe(200);
+    expect(h.inserts[0].limits).toMatchObject({ storage_mb: 0 });
+    expect(h.inserts[0].limits).not.toHaveProperty('storage_gb');
+  });
+
+  it('the monthly AI credit is ai_allowance.IRR: the legacy count is never saved beside it', async () => {
+    await call('PUT', `/api/plans/admin/${PLAN_ID}`, {
+      ai_allowance: { IRR: 300_000 }, limits: { max_agents: 3, ai_credits_per_month: 0, included_ai_allowance_irr: 0 },
+    });
+    expect(h.updates[0].patch.limits).toEqual({ max_agents: 3, included_ai_allowance_irr: 300_000 });
+  });
+});
+
+describe('271: the public plan list', () => {
+  it('names storage in MB (GB kept, derived, for readers outside the app) and one monthly AI credit', async () => {
+    h.list = [
+      // Saved before 271: storage in GB, the legacy count next to the credit (production's Startup).
+      { id: 'p1', slug: 'startup', limits: { storage_gb: 2, ai_credits_per_month: 0 }, ai_allowance: { IRR: 300_000 } },
+      // Saved by the new editor: MB only.
+      { id: 'p2', slug: 'enterprise', limits: { storage_mb: 51200 }, ai_allowance: { IRR: 600_000 } },
+    ];
+    const res = await call('GET', '/api/plans');
+    expect(res.status).toBe(200);
+    const [startup, enterprise] = res.json.plans;
+    expect(startup.limits).toEqual({ storage_gb: 2, storage_mb: 2048, ai_credits_per_month: 300_000 });
+    expect(enterprise.limits).toEqual({ storage_mb: 51200, storage_gb: 50, ai_credits_per_month: 600_000 });
   });
 });
 

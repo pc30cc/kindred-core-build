@@ -99,6 +99,7 @@ suite('billing locks: seats, channels and storage against the real chain', () =>
       [
         JSON.stringify({ USD: { monthly: 900, yearly: 9000 } }),
         // Two seats: the owner's and one more.
+        // storage_gb only (a plan not saved since 271): the gate reads it as 1,024 MB.
         JSON.stringify({ max_agents: 2, storage_gb: 1 }),
         JSON.stringify({ telegram: false, yahoomail: false, chat_widget: true }),
       ])).id);
@@ -398,7 +399,7 @@ suite('billing locks: seats, channels and storage against the real chain', () =>
     const blocked = await stops.checkStorageUpload(config as never, ws);
     expect(blocked.allowed).toBe(false);
     expect(blocked.status).toBe(403);
-    expect(blocked.body).toMatchObject({ error: 'Limit reached: storage_gb', upgrade_required: true });
+    expect(blocked.body).toMatchObject({ error: 'Limit reached: storage_mb', upgrade_required: true });
 
     // An AI knowledge file is refused before anything is written.
     const { queueAiFileIngest, IngestError } = await import('../../../server/services/ai-agent/files/fileIngestion.js');

@@ -1,5 +1,5 @@
 /**
- * storage_gb usage is cumulative occupancy, so it comes from the newest
+ * storage_mb usage (megabytes since migration 271) is cumulative occupancy, so it comes from the newest
  * counter row — not only the current month's. With no row yet this month
  * (no counter has written since the 1st), usage used to read 0 and a
  * workspace could upload past its limit until something created the row.
@@ -50,28 +50,28 @@ beforeEach(() => {
   failFallback = false;
 });
 
-describe('storage_gb usage', () => {
+describe('storage_mb usage', () => {
   it('reads the current month when its row exists', async () => {
     rows = [{ period: '2000-01', storage_bytes: 5 * GB }, { period: thisMonth, storage_bytes: 2 * GB }];
-    const r = await resolveUsage(config, 'ws-1', 'storage_gb');
-    expect(r.value).toBe(2);
+    const r = await resolveUsage(config, 'ws-1', 'storage_mb');
+    expect(r.value).toBe(2 * 1024);
   });
 
   it('carries the newest earlier month when this month has no row yet', async () => {
     rows = [{ period: '2000-01', storage_bytes: 1 * GB }, { period: '2000-02', storage_bytes: 3 * GB }];
-    const r = await resolveUsage(config, 'ws-1', 'storage_gb');
-    expect(r.value).toBe(3);
+    const r = await resolveUsage(config, 'ws-1', 'storage_mb');
+    expect(r.value).toBe(3 * 1024);
   });
 
   it('is 0 for a workspace that never stored anything', async () => {
-    const r = await resolveUsage(config, 'ws-1', 'storage_gb');
+    const r = await resolveUsage(config, 'ws-1', 'storage_mb');
     expect(r.value).toBe(0);
   });
 
   it('falls back to the old 0 if the earlier-month read fails', async () => {
     rows = [{ period: '2000-02', storage_bytes: 3 * GB }];
     failFallback = true;
-    const r = await resolveUsage(config, 'ws-1', 'storage_gb');
+    const r = await resolveUsage(config, 'ws-1', 'storage_mb');
     expect(r.value).toBe(0);
     expect(r.supported).toBe(true);
   });

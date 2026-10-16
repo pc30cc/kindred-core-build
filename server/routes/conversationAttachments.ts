@@ -256,20 +256,20 @@ conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
       return res.status(413).json({ error: 'Uploaded size exceeds declared size' });
     }
 
-    // ── storage_gb cap enforcement ──
+    // ── storage_mb cap enforcement ──
     // Mirrors POST /api/storage/upload. Forward-correct only; see
     // docs/STORAGE_LIMIT_POLICY.md. No route-local storage math — the shared
     // resolver reads canonical workspace_usage_counters.storage_bytes. On a
     // 403, flip the reserved row to 'failed' so it doesn't strand 'uploading'.
     // Evaluate the cap on the validated workspace, not raw body fields.
     setTrustedGateWorkspaceId(req, parsed.data.workspace_id);
-    const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
+    const limitMw = requireLimit('storage_mb', usageFnForLimit('storage_mb'));
     let proceeded = false;
     await limitMw(req, res, () => { proceeded = true; });
     if (!proceeded) {
       // Mark the reserved row failed so it doesn't linger in 'uploading'.
       await sb.from('conversation_attachments')
-        .update({ status: 'failed', error_message: 'storage_gb limit reached' })
+        .update({ status: 'failed', error_message: 'storage_mb limit reached' })
         .eq('id', row.id);
       return; // middleware already wrote 403/400
     }

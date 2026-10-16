@@ -33,7 +33,9 @@ const PLAN = vi.hoisted(() => ({
   prices: { USD: { monthly: 0, yearly: 0 } },
   entitlements: {},
   // Names max_contacts only: max_agents, max_kb_articles and data_retention_days lock nothing.
-  limits: { max_contacts: -1 } as Record<string, number>,
+  // Saved before migration 271: storage in GB, and the legacy AI count next to the credit.
+  limits: { max_contacts: -1, storage_gb: 2, ai_credits_per_month: 0 } as Record<string, number>,
+  ai_allowance: { IRR: 300_000 } as Record<string, number>,
   localized: {},
 }));
 
@@ -42,7 +44,10 @@ const CAPABILITIES = vi.hoisted(() => [
   { key: 'max_contacts', type: 'limit', label: 'Max contacts', group: 'contacts', defaultValue: 100, planConfigurable: true, workspaceOverridable: true, userVisible: true },
   { key: 'max_kb_articles', type: 'limit', label: 'Max KB articles', group: 'kb', defaultValue: -1, planConfigurable: true, workspaceOverridable: true, userVisible: true },
   { key: 'data_retention_days', type: 'limit', label: 'Data retention', group: 'data', defaultValue: 30, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'days' },
-  { key: 'storage_gb', type: 'limit', label: 'Storage', group: 'data', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true },
+  { key: 'storage_mb', type: 'limit', label: 'Storage', group: 'data', defaultValue: 1024, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'mb' },
+  { key: 'storage_gb', type: 'limit', label: 'Storage (GB, legacy)', group: 'data', defaultValue: 1, planConfigurable: false, workspaceOverridable: false, userVisible: false, deprecated: true, unit: 'gb' },
+  { key: 'ai_credits_per_month', type: 'limit', label: 'AI credits (legacy)', group: 'ai', defaultValue: 0, planConfigurable: false, workspaceOverridable: false, userVisible: false, deprecated: true },
+  { key: 'included_ai_allowance_irr', type: 'limit', label: 'AI Allowance / Month', group: 'ai', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true },
 ]);
 
 const updatePlan = vi.hoisted(() => vi.fn());
@@ -241,8 +246,27 @@ describe('Super Admin plan editor: locked data retention', () => {
     expect(payload.limits).not.toHaveProperty('max_agents');
     expect(payload.limits).not.toHaveProperty('max_kb_articles');
     expect(payload.limits).not.toHaveProperty('data_retention_days');
-    // Other limits keep the editor's behaviour (registry default written).
-    expect(payload.limits.storage_gb).toBe(1);
+    // Storage is edited and saved in MB: the plan's 2 GB is 2,048 MB, and storage_gb goes.
+    expect(payload.limits.storage_mb).toBe(2048);
+    expect(payload.limits).not.toHaveProperty('storage_gb');
+    // One monthly AI credit: the plan's granted credit is kept, the legacy count is not saved beside it.
+    expect(payload.ai_allowance.IRR).toBe(300_000);
+    expect(payload.limits.included_ai_allowance_irr).toBe(300_000);
+    expect(payload.limits).not.toHaveProperty('ai_credits_per_month');
+  });
+
+  it('International: the monthly AI credit field shows what the plan grants, so saving never wipes it', async () => {
+    // There the credit is edited as the included_ai_allowance_irr limit; this
+    // plan never had that limit written (its credit is ai_allowance.IRR only).
+    localStorage.setItem('wy-edition', 'international');
+    __resetEditionForTests();
+    const dialog = await openEditor();
+    save(dialog);
+    await waitFor(() => expect(updatePlan).toHaveBeenCalledTimes(1));
+    const payload = updatePlan.mock.calls[0][0];
+    expect(payload.ai_allowance.IRR).toBe(300_000);
+    expect(payload.limits.included_ai_allowance_irr).toBe(300_000);
+    expect(payload.limits).not.toHaveProperty('ai_credits_per_month');
   });
 
   it('saves whole days (Persian digits too), and a lock limit the admin set', async () => {

@@ -37,7 +37,8 @@ const LEGACY_LIMIT_KEYS = [
   "ai_kb_max_articles",
   "ai_kb_max_chars",
   "kb_articles",
-  "storage_mb",
+  // storage_mb is no longer legacy: migration 271 made it the canonical
+  // storage limit (megabytes).
   "file_storage_mb",
 ] as const;
 

@@ -112,7 +112,7 @@ describe("conversation/visitor limit helpers — wiring invariants", () => {
     expect(src).not.toMatch(/\.upsert\(|\.update\(|\.insert\(/);
   });
 
-  it("storage upload routes attach the storage_gb limit gate", () => {
+  it("storage upload routes attach the storage_mb limit gate", () => {
     const files = [
       "server/routes/storage.ts",
       "server/routes/conversationAttachments.ts",
@@ -120,8 +120,8 @@ describe("conversation/visitor limit helpers — wiring invariants", () => {
     ];
     for (const f of files) {
       const src = readFileSync(resolve(ROOT, f), "utf8");
-      expect(src, `${f} missing storage_gb limit gate`).toMatch(
-        /requireLimit\(\s*['"]storage_gb['"]/,
+      expect(src, `${f} missing storage_mb limit gate`).toMatch(
+        /requireLimit\(\s*['"]storage_mb['"]/,
       );
     }
   });

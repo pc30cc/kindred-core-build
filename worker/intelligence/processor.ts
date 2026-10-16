@@ -7,9 +7,11 @@
  *      outside the allowed domain, non-text/html, oversized bodies.
  *   2. Extract: strip HTML to plain text; respect maxChars.
  *   3. Generate: for each page (or merged chunk), call the existing
- *      backend AI provider through the workspace's resolved AI config,
- *      consuming 1 AI credit per generated draft. Stops gracefully on
- *      credit exhaustion and marks the job 'partial'.
+ *      backend AI provider through the workspace's resolved AI config.
+ *      Each call is charged to the workspace's AI wallet by the AI billing
+ *      boundary (executeAICompletion's standalone Run), like every other AI
+ *      path. Stops gracefully when the wallet is exhausted
+ *      (ai_allowance_exhausted, ENFORCED mode) and marks the job 'partial'.
  *
  * NOTE: This v1 implementation focuses on safe scaffolding. The crawler
  * uses the shared SSRF-hardened transport (safeCrawlFetch: per-hop redirect
@@ -23,7 +25,7 @@ import { createHash } from 'node:crypto';
 import type { WorkerEnv } from './index.js';
 import { executeAICompletion, resolveAIConfig } from '../../server/services/ai/index.js';
 import { logGateBypass } from '../../server/middleware/adminBypass.js';
-import { consumeAiCredits } from '../../server/services/ai-kb/credits.js';
+import { isAllowanceExhausted } from '../../server/services/ai-billing/errors.js';
 import { DbJobQueueProvider } from '../../server/services/ai-kb/queue.js';
 import type { AiKbJobRow } from '../../server/services/ai-kb/types.js';
 import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
@@ -148,6 +150,8 @@ type GenerateDraftResult =
   | {
       ok: false;
       reason: 'ai_call_failed' | 'empty_response' | 'parse_failed' | 'invalid_schema';
+      /** The AI wallet is exhausted (ENFORCED): no further page can be generated. */
+      allowanceExhausted?: boolean;
       errorMessage?: string;
       errorName?: string;
       stackPreview?: string;
@@ -307,6 +311,7 @@ If the source is thin, still produce a useful article from what is there — nev
     return {
       ok: false,
       reason: 'ai_call_failed',
+      allowanceExhausted: isAllowanceExhausted(caught),
       errorMessage: err?.message || String(err),
       errorName: err?.name,
       stackPreview: safePreview(err?.stack || '', 500),
@@ -589,6 +594,15 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: Proces
       lastGenerationReason = result.reason;
       lastGenerationError = result.errorMessage || result.reason;
 
+      if (result.allowanceExhausted) {
+        // The AI wallet ran out: every further page would be refused too.
+        creditExhausted = true;
+        lastGenerationReason = 'credits_exhausted';
+        await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
+          'AI credit exhausted; generation stopped', { url: page.url });
+        workerLog('credits exhausted', { jobId: job.id });
+        break;
+      }
       if (result.reason === 'ai_call_failed') {
         workerLog('draft generation failed', {
           jobId: job.id, pageUrl: page.url,
@@ -635,27 +649,12 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: Proces
 
     const draft = result.draft;
 
-    // Deduct 1 credit only on a valid draft. Failed AI/parse cost 0.
-    // Global Admin override (job.admin_override) bypasses credit gating
-    // for diagnostic / platform-owner runs. Bypass is implicit via the
-    // job flag set at creation time and was already audit-logged then.
-    const ded = adminOverride
-      ? { success: true, reason: 'admin_override' as const }
-      : await consumeAiCredits(serverConfig, job.workspace_id, 1);
-    if (!ded.success) {
-      creditExhausted = true;
-      lastGenerationReason = 'credits_exhausted';
-      lastGenerationError = ded.reason || 'AI credits exhausted';
-      await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
-        'AI credits exhausted; dropping generated draft', {
-          reason: ded.reason,
-          admin_override: adminOverride,
-          job_admin_override: job.admin_override,
-          snapshot_admin_override: job.plan_snapshot?.admin_override,
-        });
-      workerLog('credits exhausted', { jobId: job.id, reason: ded.reason });
-      break;
-    }
+    // No second charge here. The draft was already paid for by the AI
+    // wallet when it was generated (and refused before the call when the
+    // wallet is exhausted). The legacy deduct_ai_credits counter this used to
+    // call reads an entitlement key ('ai_credits') no plan has had since
+    // migration 047, so it refused every draft after the wallet had paid
+    // for it, and the customer got nothing.
 
     const { data: ins } = await sb.from('ai_kb_generated_articles').insert({
       workspace_id: job.workspace_id,

@@ -41,6 +41,7 @@ import {
 } from '@/lib/accountBillingApi';
 import { billingDate, money } from '../shared';
 import { PADDLE_MIN_CHARGE_MINOR, chargeFor } from '../../../../../shared/simpleBilling';
+import { AI_WALLET_UNIT } from '../../../../../shared/planLimits';
 import PlanFeatures from './PlanFeatures';
 import LockReport, { LockedExportButton } from './LockReport';
 import type { PayOnlineRequest } from './PayOnlineDialog';
@@ -395,7 +396,16 @@ export default function PlanPickerDialog({
                       </span>
                     )}
                   </div>
-                  <PlanFeatures limits={p.limits} entitlements={p.entitlements} />
+                  <PlanFeatures
+                    limits={p.limits}
+                    entitlements={p.entitlements}
+                    // What the plan grants each month, as the AI credit card shows the wallet.
+                    aiCredit={(p.ai_credit_monthly ?? 0) > 0
+                      ? typeof p.ai_credit_monthly_minor === 'number'
+                        ? amount(p.ai_credit_monthly_minor)
+                        : money(p.ai_credit_monthly ?? 0, locale, AI_WALLET_UNIT)
+                      : null}
+                  />
                   <Button
                     type="button"
                     size="sm"

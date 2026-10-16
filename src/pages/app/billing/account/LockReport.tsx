@@ -7,7 +7,8 @@
  * Nothing here decides what is locked. While the edition's billing locks are
  * off (`locks_enabled: false`) the data counts are a preview: the report says
  * so and leaves them out, and lists only what follows the plan either way
- * (modules and channels stopped, the monthly chat quota, storage, AI credit).
+ * (modules and channels stopped, the monthly chat quota, storage in MB, the
+ * monthly AI credit as money in the account currency).
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Download, Loader2, Lock } from 'lucide-react';
@@ -16,7 +17,9 @@ import { useTranslation } from '@/i18n';
 import { capabilityLabel } from '@/lib/capability-i18n';
 import { accountBillingApi, type LockReport as LockReportData, type LockedExportJob } from '@/lib/accountBillingApi';
 import { API_BASE } from '@/lib/apiBase';
-import { billingDate } from '../shared';
+import { billingDate, money } from '../shared';
+import { formatMb } from '@/lib/storageUnits';
+import { AI_WALLET_UNIT, MB_PER_GB, gbToMb } from '../../../../../shared/planLimits';
 
 /** Locked items listed by name before "and N more". */
 const ITEMS_SHOWN = 5;
@@ -118,13 +121,17 @@ export default function LockReport({
       }),
     });
   }
-  if (report.storage.uploads_blocked && report.storage.limit_gb !== null) {
+  // Storage in MB (a server from before migration 271 answers GB).
+  const storageLimitMb = typeof report.storage.limit_mb === 'number'
+    ? report.storage.limit_mb
+    : typeof report.storage.limit_gb === 'number' ? gbToMb(report.storage.limit_gb) : null;
+  const storageUsedMb = typeof report.storage.used_mb === 'number' ? report.storage.used_mb : (report.storage.used_gb ?? 0) * MB_PER_GB;
+  if (report.storage.uploads_blocked && storageLimitMb !== null && storageLimitMb >= 0) {
     lines.push({
       key: 'storage',
-      node: t('billing.locks.report.storage', {
-        used: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(report.storage.used_gb),
-        limit: n(report.storage.limit_gb),
-      }),
+      node: storageLimitMb === 0
+        ? t('billing.locks.report.storageNone')
+        : t('billing.locks.report.storage', { used: formatMb(storageUsedMb, locale), limit: formatMb(storageLimitMb, locale) }),
     });
   }
   if (report.modules_lost.length > 0) {
@@ -146,6 +153,12 @@ export default function LockReport({
   }
   const credits = report.ai_credits;
   const creditsChange = credits.current !== null && credits.target !== null && credits.current !== credits.target;
+  // The monthly AI credit as the billing page shows the wallet: money in the
+  // account currency; without a rate, in the wallet's own unit, named.
+  const aiAmount = (wallet: number, minor: number | null | undefined) =>
+    credits.currency && typeof minor === 'number'
+      ? money(minor, locale, credits.currency)
+      : money(wallet, locale, credits.unit || AI_WALLET_UNIT);
 
   const dataLocked = data && (report.kb_article.locked + report.contact.locked + report.member.locked + report.conversation.locked) > 0;
   // What is deleted, and from when: only data that locks (articles, contacts, chats).
@@ -166,7 +179,10 @@ export default function LockReport({
           {lines.map((line) => <li key={line.key} data-testid={`lock-report-${line.key}`}>{line.node}</li>)}
           {creditsChange && (
             <li data-testid="lock-report-ai">
-              {t('billing.locks.report.aiCredits', { current: limit(credits.current), target: limit(credits.target) })}
+              {t('billing.locks.report.aiCredits', {
+                current: aiAmount(credits.current ?? 0, credits.current_minor),
+                target: aiAmount(credits.target ?? 0, credits.target_minor),
+              })}
             </li>
           )}
         </ul>

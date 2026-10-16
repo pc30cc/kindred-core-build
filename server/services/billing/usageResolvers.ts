@@ -32,6 +32,7 @@ import { locksEnabled } from './locks/state.js';
 import type { Request } from 'express';
 import type { ServerConfig } from '../../config.js';
 import { countJobsThisMonthDetailed } from '../ai-kb/limits.js';
+import { BYTES_PER_MB } from '../../../shared/planLimits.js';
 
 /** Period source for a usage value. */
 export type UsagePeriodKind = 'calendar_month' | 'lifetime' | 'unknown';
@@ -185,18 +186,19 @@ async function readStorageBytes(config: ServerConfig, workspaceId: string): Prom
 }
 
 /**
- * `storage_gb` limit is in GB but the underlying counter is bytes.
- * Return value in GB (rounded down to 4 decimals) so it can be compared
- * directly against `limits.storage_gb`.
+ * `storage_mb` limit is in megabytes (migration 271; it was `storage_gb`
+ * before) while the underlying counter is bytes. Return value in MB
+ * (rounded to 4 decimals) so it can be compared directly against
+ * `limits.storage_mb`: at or over the limit, an upload is refused.
  */
-async function resolveStorageGb(
+async function resolveStorageMb(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<UsageResolution> {
   const bytes = await readStorageBytes(config, workspaceId);
-  const gb = bytes / (1024 * 1024 * 1024);
+  const mb = bytes / BYTES_PER_MB;
   return {
-    value: Math.round(gb * 10_000) / 10_000,
+    value: Math.round(mb * 10_000) / 10_000,
     period: 'lifetime',
     periodKind: 'lifetime',
     source: 'workspace_usage_counters',
@@ -236,21 +238,6 @@ async function resolveAiKbJobsPerMonth(
     isExact: true,
     supported: true,
     note: 'count(*) on ai_kb_jobs since UTC start of month',
-  };
-}
-
-async function resolveAiCreditsPerMonth(
-  config: ServerConfig,
-  workspaceId: string,
-): Promise<UsageResolution> {
-  const value = await readCounterColumn(config, workspaceId, 'ai_credits_used');
-  return {
-    value,
-    period: currentMonthPeriod(),
-    periodKind: 'calendar_month',
-    source: 'workspace_usage_counters',
-    isExact: true,
-    supported: true,
   };
 }
 
@@ -587,9 +574,8 @@ type Resolver = (config: ServerConfig, workspaceId: string) => Promise<UsageReso
 const RESOLVERS: Record<string, Resolver> = {
   max_conversations: resolveMaxConversations,
   max_visitors: resolveMaxVisitors,
-  storage_gb: resolveStorageGb,
+  storage_mb: resolveStorageMb,
   ai_kb_jobs_per_month: resolveAiKbJobsPerMonth,
-  ai_credits_per_month: resolveAiCreditsPerMonth,
   max_contacts: resolveMaxContacts,
   max_agents: resolveMaxAgents,
   max_concurrent_calls: resolveMaxConcurrentCalls,

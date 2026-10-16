@@ -7,7 +7,7 @@
  *  1. `requestTelegramMediaFetch` only ENQUEUES — it must never open a socket
  *     and must never place a credential in the job/operation payload;
  *  2. `persistInboundAttachment` keeps every guarantee the old in-Core
- *     download had: size cap, mime allow-list, the shared storage_gb
+ *     download had: size cap, mime allow-list, the shared storage_mb
  *     entitlement gate, canonical row lifecycle, and redacted failures.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -89,7 +89,7 @@ vi.mock('../../../server/services/storage/index.js', () => ({
 vi.mock('../../../server/middleware/featureGating.js', () => ({
   requireLimit: () => async (_req: unknown, res: { status: (c: number) => { json: (b: unknown) => void } }, next: () => void) => {
     if (state.gateAllow) return next();
-    res.status(403).json({ error: 'storage_gb limit reached' });
+    res.status(403).json({ error: 'storage_mb limit reached' });
   },
 }));
 vi.mock('../../../server/services/billing/usageResolvers.js', () => ({
@@ -218,7 +218,7 @@ describe('persistInboundAttachment (Core owns validation + storage)', () => {
     expect(uploadFileMock).not.toHaveBeenCalled();
   });
 
-  it('honours the SHARED storage_gb entitlement gate', async () => {
+  it('honours the SHARED storage_mb entitlement gate', async () => {
     state.gateAllow = false;
     const outcome = await persistInboundAttachment(CONFIG, {
       workspaceId: '11111111-1111-1111-1111-111111111111',
@@ -231,7 +231,7 @@ describe('persistInboundAttachment (Core owns validation + storage)', () => {
     });
 
     expect(outcome.status).toBe('failed');
-    expect(outcome.error).toContain('storage_gb');
+    expect(outcome.error).toContain('storage_mb');
     expect(uploadFileMock).not.toHaveBeenCalled();
   });
 

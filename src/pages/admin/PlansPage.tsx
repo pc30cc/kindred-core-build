@@ -68,6 +68,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAdminAccount, useSimpleBillingSettings } from '@/lib/adminSimpleBillingApi';
 import { AI_PACK_CURRENCIES } from '../../../shared/aiPacks';
 import { PLAN_RETENTION_DAYS } from '../../../shared/simpleBillingAdmin';
+import { storageLimitsForSave, withStorageMb } from '../../../shared/planLimits';
 import type { Edition } from '../../../shared/edition';
 import BillingSettingsPanel from '@/components/admin/BillingSettingsPanel';
 import AiPacksPanel from '@/components/admin/AiPacksPanel';
@@ -294,24 +295,29 @@ function buildFormFromRegistry(
   const legacyEntitlements: Record<string, unknown> = {};
   const legacyLimits: Record<string, unknown> = {};
 
-  // Seed from registry defaults (booleans -> entitlements; numerics -> limits)
+  // Seed from registry defaults (booleans -> entitlements; numerics -> limits).
+  // A deprecated limit (storage_gb, ai_credits_per_month) is never seeded: it
+  // is not edited, and a plan that still has it keeps it as a legacy key.
   for (const cap of capabilities) {
     if (cap.type === 'limit') {
+      if (cap.deprecated) continue;
       limits[cap.key] = typeof cap.defaultValue === 'number' ? cap.defaultValue : 0;
     } else {
       entitlements[cap.key] = typeof cap.defaultValue === 'boolean' ? cap.defaultValue : false;
     }
   }
 
-  // Merge plan values, preserving legacy keys verbatim
+  // Merge plan values, preserving legacy keys verbatim. Storage is edited in
+  // MB: a plan not saved since migration 271 shows storage_gb × 1024.
+  const deprecatedLimits = new Set(capabilities.filter((c) => c.type === 'limit' && c.deprecated).map((c) => c.key));
   const planEnt = (plan?.entitlements || {}) as Record<string, unknown>;
-  const planLim = (plan?.limits || {}) as Record<string, unknown>;
+  const planLim = withStorageMb((plan?.limits || {}) as Record<string, unknown>);
   for (const [k, v] of Object.entries(planEnt)) {
     if (knownKeys.has(k)) entitlements[k] = Boolean(v);
     else legacyEntitlements[k] = v;
   }
   for (const [k, v] of Object.entries(planLim)) {
-    if (knownKeys.has(k)) limits[k] = typeof v === 'number' ? v : Number(v) || 0;
+    if (knownKeys.has(k) && !deprecatedLimits.has(k)) limits[k] = typeof v === 'number' ? v : Number(v) || 0;
     else legacyLimits[k] = v;
   }
 
@@ -323,6 +329,10 @@ function buildFormFromRegistry(
   // A plan saved before `ai_allowance` existed has its IRR credit only in the limit.
   const legacyIrr = Number(planLim[AI_ALLOWANCE_LIMIT_KEY]);
   if (storedAiAllowance.IRR === undefined && Number.isFinite(legacyIrr) && legacyIrr > 0) storedAiAllowance.IRR = legacyIrr;
+  // The limit field (where the edition edits the credit there) shows what is
+  // granted: ai_allowance.IRR. Without this a plan whose limit was never
+  // written showed the default 0, and saving it wiped the plan's credit.
+  if (typeof storedAiAllowance.IRR === 'number' && knownKeys.has(AI_ALLOWANCE_LIMIT_KEY)) limits[AI_ALLOWANCE_LIMIT_KEY] = storedAiAllowance.IRR;
   const retention = plan?.locked_data_retention_days;
   return {
     name: plan?.name || '',
@@ -373,7 +383,11 @@ function formToPayload(form: PlanFormData) {
   if (!('IRR' in form.ai_allowance) && typeof limitValue === 'number' && Number.isFinite(limitValue)) {
     aiAllowance.IRR = limitValue;
   }
-  if (typeof aiAllowance.IRR === 'number') limits[AI_ALLOWANCE_LIMIT_KEY] = aiAllowance.IRR;
+  if (typeof aiAllowance.IRR === 'number') {
+    limits[AI_ALLOWANCE_LIMIT_KEY] = aiAllowance.IRR;
+    // One monthly AI credit: the legacy count is never saved beside it.
+    delete limits.ai_credits_per_month;
+  }
   // A lock limit the plan did not name stays unnamed unless the admin edited
   // it (typing the default itself makes it explicit, so it locks).
   for (const [key, shown] of Object.entries(form.absentLockLimits)) {
@@ -392,7 +406,8 @@ function formToPayload(form: PlanFormData) {
     default_currency: form.default_currency,
     prices: form.prices,
     entitlements: { ...form.legacyEntitlements, ...form.entitlements },
-    limits,
+    // Storage is saved as storage_mb only (migration 271).
+    limits: storageLimitsForSave(limits),
     provider_price_ids: form.provider_price_ids,
     localized: form.localized,
     locked_data_retention_days: retention !== null && Number.isNaN(retention) ? null : retention,
@@ -1030,7 +1045,7 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
   const moduleCaps = capabilities.filter((c) => c.type === 'module');
   const channelCaps = capabilities.filter((c) => c.type === 'channel');
   const featureCaps = capabilities.filter((c) => c.type === 'feature');
-  const limitCaps = capabilities.filter((c) => c.type === 'limit');
+  const limitCaps = capabilities.filter((c) => c.type === 'limit' && !c.deprecated);
 
   async function toggleOverride(kind: 'module' | 'channel', key: string, current: boolean) {
     if (!workspaceId) return;
@@ -1625,7 +1640,7 @@ export default function AdminPlansPage() {
   const moduleKeys = useMemo(() => new Set(caps.filter((c) => c.type === 'module').map((c) => c.key)), [caps]);
   const channelKeys = useMemo(() => new Set(caps.filter((c) => c.type === 'channel').map((c) => c.key)), [caps]);
   const featureKeys = useMemo(() => new Set(caps.filter((c) => c.type === 'feature').map((c) => c.key)), [caps]);
-  const limitDefs = useMemo(() => caps.filter((c) => c.type === 'limit'), [caps]);
+  const limitDefs = useMemo(() => caps.filter((c) => c.type === 'limit' && !c.deprecated), [caps]);
   const aiCardCurrencies = aiAllowanceCurrencies(edition.edition, undefined);
   const capByKey = useMemo(() => new Map(caps.map((c) => [c.key, c])), [caps]);
 
@@ -1756,7 +1771,8 @@ export default function AdminPlansPage() {
               {(plans as AdminPlan[]).map((plan) => {
                 const localized = (plan.localized || {}) as Record<string, LocalizedPlan>;
                 const entitlements = (plan.entitlements || {}) as Record<string, boolean>;
-                const limits = (plan.limits || {}) as Record<string, number>;
+                // Storage in MB: storage_gb × 1024 for a plan not saved since 271.
+                const limits = withStorageMb((plan.limits || {}) as Record<string, number>);
 
                 const enabledModules = [...moduleKeys].filter((k) => entitlements[k]);
                 const enabledChannels = [...channelKeys].filter((k) => entitlements[k]);

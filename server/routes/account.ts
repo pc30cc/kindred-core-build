@@ -875,7 +875,7 @@ accountRouter.post('/workspace-icon', async (req, res) => {
     }
     // Simple billing phase 4: a seat the plan paused has no say in the
     // workspace, and storage over the limit takes no new file (the icon
-    // counts toward storage_gb). Both only while billing locks are on.
+    // counts toward storage_mb). Both only while billing locks are on.
     if (await isSeatLocked(config, workspaceId, user.id)) {
       return res.status(403).json({ error: 'seat_locked', upgrade_required: true });
     }

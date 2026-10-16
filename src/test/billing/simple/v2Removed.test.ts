@@ -310,7 +310,20 @@ describe('the dashboard AI credit reads the account AI section', () => {
     const { result } = renderHook(() => useAiWalletSummary(WS), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(h.ai).toHaveBeenCalledWith(WS);
-    expect(result.current.data).toEqual({ cycleRemainingIrr: 300_000, purchasedRemainingIrr: 50_000, totalRemainingIrr: 350_000 });
+    expect(result.current.data).toEqual({
+      cycleRemainingIrr: 300_000, purchasedRemainingIrr: 50_000, totalRemainingIrr: 350_000, currency: null, availableMinor: null,
+    });
+  });
+
+  it('carries the amount the billing page shows: the account currency and its minor units', async () => {
+    h.ai.mockResolvedValue({
+      currency: 'USD',
+      wallet: { plan_remaining: 300_000, purchased_remaining: 50_000 },
+      display: { available_minor: 583, plan_remaining_minor: 500, purchased_remaining_minor: 83 },
+    });
+    const { result } = renderHook(() => useAiWalletSummary(WS), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toMatchObject({ currency: 'USD', availableMinor: 583, totalRemainingIrr: 350_000 });
   });
 
   it('is null when billing cannot be read (403 or any other error)', async () => {

@@ -5,7 +5,7 @@
  * download itself is a `media_fetch` provider operation executed by the
  * Channels Worker. The worker streams the raw bytes back over the internal
  * boundary (`POST /internal/channels/media-ingest`) and this module does what
- * it always did with them: validate size/mime, enforce the SAME storage_gb
+ * it always did with them: validate size/mime, enforce the SAME storage_mb
  * entitlement as the widget and operator upload routes, and persist through
  * the SAME in-process storage service.
  *
@@ -85,7 +85,7 @@ function buildStoragePath(workspaceId: string, fileName: string, mime: string): 
 }
 
 /**
- * Enforces the same storage_gb entitlement as the HTTP upload routes by
+ * Enforces the same storage_mb entitlement as the HTTP upload routes by
  * calling the shared `requireLimit` middleware in-process with a minimal
  * fake req/res. No route-local storage math — see docs/STORAGE_LIMIT_POLICY.md.
  */
@@ -93,7 +93,7 @@ async function checkStorageQuota(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<{ allowed: boolean; reason?: string }> {
-  const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
+  const limitMw = requireLimit('storage_mb', usageFnForLimit('storage_mb'));
   // The middleware is written for Express; this drives it with the smallest
   // request/response shape it actually touches.
   const req = { body: { workspace_id: workspaceId }, query: {}, params: {}, serverConfig: config };
@@ -109,7 +109,7 @@ async function checkStorageQuota(
     res as unknown as Parameters<typeof limitMw>[1],
     () => { allowed = true; },
   );
-  return allowed ? { allowed: true } : { allowed: false, reason: reason || 'storage_gb limit reached' };
+  return allowed ? { allowed: true } : { allowed: false, reason: reason || 'storage_mb limit reached' };
 }
 
 export type TelegramMediaIngestInput = {
@@ -214,9 +214,9 @@ export async function persistInboundAttachment(
     const mimeType = resolveInboundMimeType(input.mimeType, input.kind, input.filePath || input.fileName || '');
     if (!ALLOWED_MIMES.has(mimeType)) throw new Error(`mime_type_not_allowed:${mimeType}`);
 
-    // Same storage_gb entitlement gate as the HTTP upload routes.
+    // Same storage_mb entitlement gate as the HTTP upload routes.
     const quota = await checkStorageQuota(config, input.workspaceId);
-    if (!quota.allowed) throw new Error(quota.reason || 'storage_gb_limit_reached');
+    if (!quota.allowed) throw new Error(quota.reason || 'storage_mb_limit_reached');
 
     const fileName = safeFileName(
       input.fileName || (input.filePath || '').split('/').pop() || `telegram-${input.kind}`,

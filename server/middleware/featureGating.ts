@@ -14,6 +14,7 @@ import {
   isRelationMissing,
 } from '../services/billing/entitlementParse.js';
 import { getCapability } from '../services/billing/capabilityRegistry.js';
+import { LEGACY_STORAGE_LIMIT_KEY, STORAGE_LIMIT_KEY, gbToMb, withStorageMb } from '../../shared/planLimits.js';
 import { assignedPlanApplies, type SubscriptionPlanState } from '../services/billing/planSelection.js';
 import { getTrustedGateWorkspaceId } from './gateWorkspace.js';
 
@@ -207,8 +208,14 @@ export async function checkEntitlementFromDB(
       return { allowed: false, plan: 'error', reason: parsed.reason };
     }
 
+    const notInPlan = parsed.allowed === false && parsed.reason === 'feature_not_in_plan';
+    // A plan (or override) written before migration 271 names storage in GB.
+    const legacyStorage = notInPlan && feature === STORAGE_LIMIT_KEY
+      ? await legacyStorageLimit(supabaseUrl, serviceRoleKey, workspaceId)
+      : null;
+    if (legacyStorage && isUnreadableEntitlementReason(legacyStorage.reason)) return legacyStorage;
     const result: EntitlementResult =
-      (parsed.allowed === false && parsed.reason === 'feature_not_in_plan' && registryDefault(feature, parsed.plan)) || {
+      legacyStorage || (notInPlan && registryDefault(feature, parsed.plan)) || {
         allowed: parsed.allowed === true,
         limit: parsed.limit,
         limitValid: parsed.limitValid === true,
@@ -223,6 +230,23 @@ export async function checkEntitlementFromDB(
     console.error('[FeatureGating] Exception:', errorMessage(err));
     return { allowed: false, plan: 'error', reason: 'exception' };
   }
+}
+
+/**
+ * `storage_mb` for a plan or override that still names `storage_gb` only
+ * (written before migration 271): the GB value × 1024 (-1 stays unlimited).
+ * Null when neither names it (the registry default then applies); an
+ * unreadable answer is passed on so the caller fails closed.
+ */
+async function legacyStorageLimit(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string,
+): Promise<EntitlementResult | null> {
+  const gb = await checkEntitlementFromDB(supabaseUrl, serviceRoleKey, workspaceId, LEGACY_STORAGE_LIMIT_KEY, { numeric: true });
+  if (isUnreadableEntitlementReason(gb.reason)) return { allowed: false, plan: gb.plan, reason: gb.reason };
+  if (gb.allowed !== true || gb.limitValid !== true || typeof gb.limit !== 'number' || !Number.isFinite(gb.limit)) return null;
+  return { allowed: true, limit: gbToMb(gb.limit), limitValid: true, plan: gb.plan, reason: gb.reason };
 }
 
 /**
@@ -669,12 +693,19 @@ export async function getWorkspacePlanInfo(
     throw new Error('resolved_plan_has_no_valid_slug');
   }
 
-  const planLimits = (plan.limits as Record<string, number> | null | undefined) || {};
+  // Storage in MB (migration 271): a plan or override still naming storage_gb
+  // only reads as storage_gb × 1024 under storage_mb, as enforcement does.
+  const planLimits = withStorageMb((plan.limits as Record<string, number> | null | undefined) || {});
+  plan = { ...plan, limits: planLimits };
   const limitOverrides: WorkspacePlanInfo['limitOverrides'] = {};
   for (const row of (overrideRows || []) as Array<{ limit_key: string; limit_value: number; admin_notes?: string | null }>) {
     if (typeof row.limit_key === 'string' && typeof row.limit_value === 'number' && Number.isFinite(row.limit_value)) {
       limitOverrides[row.limit_key] = { value: row.limit_value, note: row.admin_notes ?? null };
     }
+  }
+  const legacyStorageOverride = limitOverrides[LEGACY_STORAGE_LIMIT_KEY];
+  if (legacyStorageOverride && !limitOverrides[STORAGE_LIMIT_KEY]) {
+    limitOverrides[STORAGE_LIMIT_KEY] = { value: gbToMb(legacyStorageOverride.value), note: legacyStorageOverride.note };
   }
   const limits: Record<string, number> = { ...planLimits };
   for (const [limitKey, override] of Object.entries(limitOverrides)) limits[limitKey] = override.value;

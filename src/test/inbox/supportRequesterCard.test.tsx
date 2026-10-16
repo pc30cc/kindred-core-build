@@ -74,11 +74,25 @@ describe('SupportRequesterCard', () => {
     expect(text).toContain('2 / 3');
     expect(text).toContain('42 / 1,000');
     expect(text).toContain('900 / ∞');
-    expect(text).toContain('1.5 KB / 1 GB');
+    // Storage in MB: a card written before migration 271 kept the limit in GB.
+    expect(text).toContain('< 0.1 MB / 1,024 MB');
     // A workspace the person only works in, without a plan of its own.
     expect(text).toContain('No plan');
     // Two of three shown: the card says there is more.
     expect(text).toContain('and 1 more');
+  });
+
+  it('shows storage and the monthly AI credit as cards written since migration 271 carry them', () => {
+    const ws = meta.workspaces![0];
+    const current = {
+      ...meta,
+      workspaces: [{ ...ws, usage: { ...ws.usage, ai_credits: undefined, storage_limit_gb: undefined, storage_limit_mb: 512, storage_bytes: 3 * 1024 * 1024, ai_monthly_credit_irr: 300_000 } }],
+    } as typeof meta;
+    render(<SupportRequesterCard meta={current} />);
+    const text = screen.getByTestId('support-requester-card').textContent ?? '';
+    expect(text).toContain('3 MB / 512 MB');
+    expect(text).toContain('Monthly AI credit');
+    expect(text).toMatch(/300,000 IRR|Toman/);
   });
 
   it('draws nothing it was not given', () => {

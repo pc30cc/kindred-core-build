@@ -18,6 +18,7 @@ import { getWorkspacePlanInfo } from '../middleware/featureGating.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { getPhoneVerificationState } from '../services/phoneVerification/index.js';
 import { renewalDueNotice } from '../services/billing/account/renewalNotice.js';
+import { BYTES_PER_MB, LEGACY_STORAGE_LIMIT_KEY, STORAGE_LIMIT_KEY, gbToMb } from '../../shared/planLimits.js';
 
 export const workspaceAlertsRouter = Router();
 
@@ -46,9 +47,11 @@ const USAGE_MAP: Array<{
 }> = [
   { limitKey: 'max_conversations', column: 'conversations_count' },
   { limitKey: 'max_visitors', column: 'visitors_count' },
-  { limitKey: 'ai_credits_per_month', column: 'ai_credits_used' },
+  // No AI row: the monthly AI credit is money in the AI wallet (the billing
+  // page's AI card), not the legacy `ai_credits_used` counter, which no
+  // metered AI path writes any more.
   { limitKey: 'max_call_minutes_per_month', column: 'call_minutes_used' },
-  { limitKey: 'storage_gb', column: 'storage_bytes', scale: (b) => b / 1024 ** 3 },
+  { limitKey: STORAGE_LIMIT_KEY, column: 'storage_bytes', scale: (b) => b / BYTES_PER_MB },
 ];
 
 const DAY_MS = 86_400_000;
@@ -169,6 +172,10 @@ async function deriveAlerts(req: object, workspaceId: string, userId: string) {
   const overrideMap = new Map<string, number>(
     ((overridesRes.data || []) as Array<{ limit_key: string; limit_value: unknown }>).map((o) => [o.limit_key, Number(o.limit_value)]),
   );
+  // An override written before migration 271 names storage in GB.
+  if (!overrideMap.has(STORAGE_LIMIT_KEY) && overrideMap.has(LEGACY_STORAGE_LIMIT_KEY)) {
+    overrideMap.set(STORAGE_LIMIT_KEY, gbToMb(overrideMap.get(LEGACY_STORAGE_LIMIT_KEY)!));
+  }
   const planLimits: Record<string, number> = planInfo?.limits || {};
   const usage = (usageRes.data || {}) as Record<string, unknown>;
 

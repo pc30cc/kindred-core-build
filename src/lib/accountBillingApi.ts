@@ -147,6 +147,10 @@ export interface PlanOption {
   entitlements: Record<string, unknown>;
   price_monthly_minor: number | null;
   price_yearly_minor: number | null;
+  /** The monthly AI credit the plan grants this workspace, in the AI wallet's unit (IRR). */
+  ai_credit_monthly?: number;
+  /** The same in minor units of the account currency; null without a rate. */
+  ai_credit_monthly_minor?: number | null;
 }
 
 export type QuoteKind = 'purchase' | 'upgrade' | 'schedule' | 'cancel_change' | 'current' | 'unavailable';
@@ -212,15 +216,31 @@ export interface LockReport {
   /** Chats whose last activity is before `cutoff` are locked. */
   conversation: { retention_days: number | null; total: number; locked: number; cutoff: string | null; oldest_kept: string | null };
   conversation_quota: { limit: number | null; used_this_month: number; full: boolean };
-  storage: { limit_gb: number | null; used_gb: number; uploads_blocked: boolean };
+  /**
+   * File storage in MB (migration 271): the target plan's limit (null =
+   * unlimited) and what is stored now. A server from before 271 answers
+   * limit_gb/used_gb instead.
+   */
+  storage: { limit_mb?: number | null; used_mb?: number; limit_gb?: number | null; used_gb?: number; uploads_blocked: boolean };
   /** Days locked data is kept before deletion; null = never deleted. */
   locked_data_retention_days: number | null;
   first_deletion_not_before: string | null;
   modules_lost: Array<{ key: string; in_use: boolean }>;
   channels_lost: Array<{ key: string; in_use: boolean }>;
   channels_stop_messages: boolean;
-  /** The plan's monthly AI credit now and on the target plan (purchased credit stays). */
-  ai_credits: { current: number | null; target: number | null };
+  /**
+   * The plan's monthly AI credit now and on the target plan (purchased credit
+   * stays), in the AI wallet's unit (`unit`, IRR), and in minor units of the
+   * account `currency` (null without a rate).
+   */
+  ai_credits: {
+    current: number | null;
+    target: number | null;
+    unit?: string;
+    currency?: string | null;
+    current_minor?: number | null;
+    target_minor?: number | null;
+  };
   has_locks: boolean;
 }
 

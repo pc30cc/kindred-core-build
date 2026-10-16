@@ -1,7 +1,7 @@
 /**
  * Storage Category Policy — the single registry answering, for every kind
  * of object this platform persists: does it count toward a workspace's
- * storage_gb quota, how long does it live, is it publicly reachable, and
+ * storage_mb quota, how long does it live, is it publicly reachable, and
  * who owns it.
  *
  * This is documentation made checkable, not a new enforcement mechanism.
@@ -120,11 +120,11 @@ export interface StorageCategoryPolicyEntry {
 export const STORAGE_CATEGORY_POLICY: Record<StorageCategory, StorageCategoryPolicyEntry> = {
   conversation_attachment: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
-    notes: 'server/routes/conversationAttachments.ts -> uploadFile(), via the central chatAttachmentKey() builder (workspace-first storage finalization audit — was a local ad-hoc buildStoragePath() before this fix, byte-identical logic triplicated across this file, widgetAttachments.ts and mediaIngest.ts). Gated by requireLimit(storage_gb) per docs/STORAGE_LIMIT_POLICY.md.',
+    notes: 'server/routes/conversationAttachments.ts -> uploadFile(), via the central chatAttachmentKey() builder (workspace-first storage finalization audit — was a local ad-hoc buildStoragePath() before this fix, byte-identical logic triplicated across this file, widgetAttachments.ts and mediaIngest.ts). Gated by requireLimit(storage_mb) per docs/STORAGE_LIMIT_POLICY.md.',
   },
   widget_attachment: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
-    notes: 'server/routes/widgetAttachments.ts -> uploadFile(), via the central chatAttachmentKey() builder (see conversation_attachment note). Gated by requireLimit(storage_gb).',
+    notes: 'server/routes/widgetAttachments.ts -> uploadFile(), via the central chatAttachmentKey() builder (see conversation_attachment note). Gated by requireLimit(storage_mb).',
   },
   channel_attachment: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
@@ -144,7 +144,7 @@ export const STORAGE_CATEGORY_POLICY: Record<StorageCategory, StorageCategoryPol
   },
   operator_upload: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
-    notes: 'server/routes/storage.ts generic POST /api/storage/upload -> uploadFile(). Gated by requireLimit(storage_gb). fileKey is caller-supplied but strictly validated (workspaceKeyError()) to require the workspace/<authorizedWorkspaceId>/ prefix before any write — a deliberate generic passthrough, not a dedicated key-builder category.',
+    notes: 'server/routes/storage.ts generic POST /api/storage/upload -> uploadFile(). Gated by requireLimit(storage_mb). fileKey is caller-supplied but strictly validated (workspaceKeyError()) to require the workspace/<authorizedWorkspaceId>/ prefix before any write — a deliberate generic passthrough, not a dedicated key-builder category.',
   },
   call_center_avatar: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'public', ownerKind: 'workspace', wired: true,

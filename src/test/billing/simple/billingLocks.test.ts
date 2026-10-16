@@ -344,13 +344,21 @@ describe('the downgrade report', () => {
     locked_data_retention_days: 90,
     first_deletion_not_before: '2027-01-09T00:00:00+00:00',
   };
-  const extras = { modules_lost: [], channels_lost: [], channels_stop_messages: false, ai_credits: { current: null, target: null } };
+  const extras = {
+    modules_lost: [], channels_lost: [], channels_stop_messages: false,
+    ai_credits: { current: null, target: null, unit: 'IRR', currency: null, current_minor: null, target_minor: null },
+  };
 
   it('parses the SQL leniently', () => {
     const r = parseSqlLockReport(sql, 'p');
     expect(r.kb_article).toEqual({ limit: 2, total: 5, locked: 3, items: [{ id: 'a', title: 'A' }] });
     expect(r.member.items).toEqual([{ user_id: 'u', name: 'N', email: 'e@x' }]);
     expect(r.conversation.cutoff).toBe('2026-09-11T00:00:00+00:00');
+    // 265's GB answer reads in MB; 271's MB answer as it is.
+    expect(r.storage).toEqual({ limit_mb: 1024, used_mb: 3.4 * 1024, uploads_blocked: true });
+    expect(parseSqlLockReport({ ...sql, storage: { limit_mb: 0, used_mb: 0.5, uploads_blocked: true, limit_gb: 0, used_gb: 0 } }, 'p').storage)
+      .toEqual({ limit_mb: 0, used_mb: 0.5, uploads_blocked: true });
+    expect(parseSqlLockReport({ ...sql, storage: { limit_mb: null, used_mb: 1 } }, 'p').storage.limit_mb).toBeNull();
     const empty = parseSqlLockReport(null, 'p');
     expect(empty).toMatchObject({ locks_enabled: false, kb_article: { locked: 0, items: [] }, conversation_quota: { full: false } });
     expect(reportHasLocks({ ...empty, ...extras })).toBe(false);
@@ -359,7 +367,7 @@ describe('the downgrade report', () => {
   it('anything listed needs the acknowledgement, only while the switch is on', () => {
     const base = { ...parseSqlLockReport(null, 'p'), ...extras };
     expect(reportHasLocks({ ...base, channels_lost: [{ key: 'telegram', in_use: true }] })).toBe(true);
-    expect(reportHasLocks({ ...base, storage: { limit_gb: 1, used_gb: 2, uploads_blocked: true } })).toBe(true);
+    expect(reportHasLocks({ ...base, storage: { limit_mb: 1024, used_mb: 2048, uploads_blocked: true } })).toBe(true);
     const full = { ...parseSqlLockReport(sql, 'p'), ...extras, has_locks: true } as LockReport;
     expect(reportNeedsAcknowledgement(full)).toBe(true);
     expect(reportNeedsAcknowledgement({ ...full, locks_enabled: false })).toBe(false);

@@ -30,6 +30,7 @@ import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspace
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { isChannelAllowedInEdition, isCurrencyAllowedInEdition, type Edition } from '../../shared/edition.js';
 import { PLAN_RETENTION_DAYS } from '../../shared/simpleBillingAdmin.js';
+import { LEGACY_STORAGE_LIMIT_KEY, STORAGE_LIMIT_KEY, planAiAllowance, storageLimitsForSave, withLegacyStorageGb, withStorageMb } from '../../shared/planLimits.js';
 import {
   handleWorkspaceEntitlementChanged,
   handlePlanDefinitionChanged,
@@ -96,7 +97,7 @@ plansRouter.use('/admin', async (req, res, next) => {
 
 /** Public plan fields — never expose provider price ids or internal metadata. */
 const PUBLIC_PLAN_COLUMNS =
-  'id, name, slug, description, prices, entitlements, limits, is_free, is_active, sort_order, trial_days, default_currency, localized';
+  'id, name, slug, description, prices, entitlements, limits, is_free, is_active, sort_order, trial_days, default_currency, localized, ai_allowance';
 
 // ═══════════════════════════════════════════════════════════
 // PUBLIC ROUTES
@@ -113,7 +114,18 @@ plansRouter.get('/', async (req, res) => {
     .eq('is_hidden', false)
     .order('sort_order');
   if (error) return res.status(500).json({ error: 'Failed to load plans' });
-  res.json({ plans: data || [] });
+  // Storage in MB for a plan not saved since migration 271 (storage_gb × 1024),
+  // and storage_gb derived from it for readers outside this repo (the landing
+  // pages' pricing tables) that still read GB.
+  // The monthly AI credit is the plan's ai_allowance (what the grant gives);
+  // ai_credits_per_month, which 271 removed from plans, is derived from it
+  // for those readers too, so no page shows a second, different number.
+  res.json({
+    plans: ((data || []) as Array<{ limits?: Record<string, unknown> | null; ai_allowance?: Record<string, unknown> | null }>).map((p) => ({
+      ...p,
+      limits: { ...withLegacyStorageGb(withStorageMb(p.limits)), ai_credits_per_month: planAiAllowance(p) },
+    })),
+  });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -469,10 +481,24 @@ export function withAllowanceMirror(
   stored: Record<string, unknown> | null,
 ): Partial<PlanAdminBody> {
   const irr = body.ai_allowance?.IRR;
-  if (typeof irr !== 'number') return body;
+  if (typeof irr !== 'number') return withPlanLimitsForSave(body);
   const limits = { ...(body.limits ?? stored ?? {}) };
   limits.included_ai_allowance_irr = irr;
-  return { ...body, limits };
+  // One monthly AI credit (migration 271): `ai_allowance.IRR` is what the
+  // grant reads; the legacy count `ai_credits_per_month` is never a second,
+  // different number next to it.
+  delete limits.ai_credits_per_month;
+  return withPlanLimitsForSave({ ...body, limits });
+}
+
+/**
+ * Storage in megabytes (migration 271): a body's `storage_gb` alone becomes
+ * `storage_mb` (× 1024), and the old key is dropped once `storage_mb` is
+ * there, so a plan names its storage in one place.
+ */
+export function withPlanLimitsForSave(body: Partial<PlanAdminBody>): Partial<PlanAdminBody> {
+  if (!body.limits) return body;
+  return { ...body, limits: storageLimitsForSave(body.limits) };
 }
 
 /**
@@ -957,6 +983,11 @@ plansRouter.post('/admin/overrides/limit', async (req, res) => {
     .single();
 
   if (error) return res.status(500).json({ error: 'Request failed' });
+  // The storage override is in MB (migration 271): an older GB row of the
+  // workspace must not stand in for it again later.
+  if (limitKey === STORAGE_LIMIT_KEY) {
+    await supabase.from('workspace_limit_overrides').delete().eq('workspace_id', workspaceId).eq('limit_key', LEGACY_STORAGE_LIMIT_KEY);
+  }
   await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
     workspaceId,
     source: 'workspace_limit_override',
@@ -977,6 +1008,10 @@ plansRouter.delete('/admin/overrides/limit/:id', async (req, res) => {
   if (error) return res.status(500).json({ error: 'Request failed' });
   if (existing) {
     const row = existing as { workspace_id: string; limit_key: string };
+    // Removing the storage override removes its pre-271 GB copy too.
+    if (row.limit_key === STORAGE_LIMIT_KEY) {
+      await supabase.from('workspace_limit_overrides').delete().eq('workspace_id', row.workspace_id).eq('limit_key', LEGACY_STORAGE_LIMIT_KEY);
+    }
     await handleWorkspaceEntitlementChanged(serverConfigOf(req), {
       workspaceId: row.workspace_id,
       source: 'workspace_limit_override',

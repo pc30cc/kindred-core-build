@@ -19,6 +19,11 @@ import { PLUGIN_REGISTRY } from '../../../plugins/registry.js';
 import { getPlatformEditionOrNull } from '../../platformRegion.js';
 import { isChannelAllowedInEdition } from '../../../../shared/edition.js';
 import { readEffectivePlanId } from './state.js';
+import { getBillingRegion } from '../edition.js';
+import { readAccount } from '../account/index.js';
+import { aiWalletRate } from '../account/aiPacks.js';
+import { walletToMinor } from '../../../../shared/aiPacks.js';
+import { AI_WALLET_UNIT, MB_PER_GB, gbToMb } from '../../../../shared/planLimits.js';
 
 export interface LockReportCount {
   limit: number | null;
@@ -37,7 +42,8 @@ export interface LockReport {
   /** cutoff: chats whose last activity is before it are locked. */
   conversation: { retention_days: number | null; total: number; locked: number; cutoff: string | null; oldest_kept: string | null };
   conversation_quota: { limit: number | null; used_this_month: number; full: boolean };
-  storage: { limit_gb: number | null; used_gb: number; uploads_blocked: boolean };
+  /** File storage in MB (migration 271): the target plan's limit (null = unlimited) and what is stored now. */
+  storage: { limit_mb: number | null; used_mb: number; uploads_blocked: boolean };
   /** Days locked data is kept before deletion (null = never deleted). */
   locked_data_retention_days: number | null;
   first_deletion_not_before: string | null;
@@ -47,10 +53,30 @@ export interface LockReport {
   channels_lost: Array<{ key: string; in_use: boolean }>;
   channels_stop_messages: boolean;
   /** The plan's monthly AI credit, now and on the target plan (purchased credit is kept). */
-  ai_credits: { current: number | null; target: number | null };
+  ai_credits: AiCreditChange;
   /** Anything listed above is locked, stopped or blocked. */
   has_locks: boolean;
 }
+
+/**
+ * The monthly AI credit the plan in force grants and the target plan would
+ * grant this workspace: billing_plan_ai_allowance (migration 261, the grant's
+ * own function, Super Admin's override included), in the AI wallet's unit
+ * (`unit`, IRR), and the same in minor units of the account currency
+ * (`currency`) converted with the rate the billing page uses
+ * (billing_ai_wallet_rate, walletToMinor); the minor amounts are null without
+ * a rate. current/target are null when they cannot be read.
+ */
+export interface AiCreditChange {
+  current: number | null;
+  target: number | null;
+  unit: string;
+  currency: string | null;
+  current_minor: number | null;
+  target_minor: number | null;
+}
+
+const NO_AI_CHANGE: AiCreditChange = { current: null, target: null, unit: AI_WALLET_UNIT, currency: null, current_minor: null, target_minor: null };
 
 // ─── The SQL part ─────────────────────────────────────────────────────────
 
@@ -116,8 +142,11 @@ export function parseSqlLockReport(raw: unknown, planId: string): Omit<LockRepor
       full: quota.full === true,
     },
     storage: {
-      limit_gb: numOrNull(storage.limit_gb),
-      used_gb: num(storage.used_gb),
+      // MB since migration 271; a database still on 265's report answers GB.
+      limit_mb: 'limit_mb' in storage
+        ? numOrNull(storage.limit_mb)
+        : (() => { const gb = numOrNull(storage.limit_gb); return gb === null ? null : gbToMb(gb); })(),
+      used_mb: 'used_mb' in storage ? num(storage.used_mb) : num(storage.used_gb) * MB_PER_GB,
       uploads_blocked: storage.uploads_blocked === true,
     },
     locked_data_retention_days: numOrNull(r.locked_data_retention_days),
@@ -139,9 +168,36 @@ function pluginKeys(pluginId: string): { module: string | null; channel: string 
   return { module: def?.planModuleKey ?? null, channel: def?.planChannelKey ?? null };
 }
 
-type Extras = Pick<LockReport, 'modules_lost' | 'channels_lost' | 'channels_stop_messages' | 'ai_credits'>;
+type Extras = Pick<LockReport, 'modules_lost' | 'channels_lost' | 'channels_stop_messages'>;
 
-const NO_EXTRAS: Extras = { modules_lost: [], channels_lost: [], channels_stop_messages: false, ai_credits: { current: null, target: null } };
+const NO_EXTRAS: Extras = { modules_lost: [], channels_lost: [], channels_stop_messages: false };
+
+/** billing_plan_ai_allowance(plan, workspace); null when unreadable. */
+async function planAllowance(config: ServerConfig, planId: string, workspaceId: string): Promise<number | null> {
+  const { data, error } = await getServiceClient(config).rpc('billing_plan_ai_allowance', { p_plan_id: planId, p_workspace_id: workspaceId });
+  if (error) throw new Error(error.message || 'billing_plan_ai_allowance failed');
+  return numOrNull(data);
+}
+
+/** The monthly AI credit now and on `targetPlanId`; nothing when it cannot be read (S4). */
+export async function aiCreditChange(config: ServerConfig, workspaceId: string, targetPlanId: string): Promise<AiCreditChange> {
+  try {
+    const currentPlanId = (await readEffectivePlanId(config, workspaceId)) ?? targetPlanId;
+    const [current, target, account] = await Promise.all([
+      planAllowance(config, currentPlanId, workspaceId),
+      currentPlanId === targetPlanId ? null : planAllowance(config, targetPlanId, workspaceId),
+      readAccount(config, workspaceId).catch(() => null),
+    ]);
+    const after = currentPlanId === targetPlanId ? current : target;
+    const currency = account?.currency ?? (await getBillingRegion(config)).currency;
+    const rate = await aiWalletRate(config, currency);
+    const minor = (v: number | null) => (v === null ? null : walletToMinor(v, rate, currency));
+    return { current, target: after, unit: AI_WALLET_UNIT, currency, current_minor: minor(current), target_minor: minor(after) };
+  } catch (e) {
+    console.warn('[billing-locks] report: AI credit unreadable:', e instanceof Error ? e.message : e);
+    return NO_AI_CHANGE;
+  }
+}
 
 async function capabilityChanges(config: ServerConfig, workspaceId: string, target: TargetPlanRow): Promise<Extras> {
   if (config.selfHostBillingUnlimited === true) return NO_EXTRAS;
@@ -187,10 +243,6 @@ async function capabilityChanges(config: ServerConfig, workspaceId: string, targ
     modules_lost: lost(current.modules, next.modules, inUse.module),
     channels_lost,
     channels_stop_messages: channels_lost.length > 0,
-    ai_credits: {
-      current: current.limits.ai_credits_per_month?.value ?? null,
-      target: next.limits.ai_credits_per_month?.value ?? null,
-    },
   };
 }
 
@@ -231,6 +283,7 @@ export async function buildLockReport(config: ServerConfig, workspaceId: string,
   if (error) throw new Error(`billing_lock_report: ${error.message || 'failed'}`);
   const base = parseSqlLockReport(data, target);
   let extras = NO_EXTRAS;
+  const aiRead = config.selfHostBillingUnlimited === true ? Promise.resolve(NO_AI_CHANGE) : aiCreditChange(config, workspaceId, target);
   try {
     if (planRead.error) throw new Error(planRead.error.message || 'plan read failed');
     if (planRead.data) extras = await capabilityChanges(config, workspaceId, planRead.data as TargetPlanRow);
@@ -239,7 +292,12 @@ export async function buildLockReport(config: ServerConfig, workspaceId: string,
   }
   // A channel the plan loses stops receiving only while billing locks are on
   // (planStops.ts); off, its messages still arrive.
-  const report = { ...base, ...extras, channels_stop_messages: extras.channels_stop_messages && base.locks_enabled === true };
+  const report = {
+    ...base,
+    ...extras,
+    channels_stop_messages: extras.channels_stop_messages && base.locks_enabled === true,
+    ai_credits: await aiRead,
+  };
   return { ...report, has_locks: reportHasLocks(report) };
 }
 

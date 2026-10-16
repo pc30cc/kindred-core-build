@@ -20,7 +20,9 @@ import { useWorkspaceSections } from '@/hooks/useWorkspaceSections';
 import { planAccessOf } from '@/lib/planAccess';
 import type { DisplayableContact, DisplayGeoInfo } from '@/lib/contact-display';
 import { useAiWalletSummary } from '@/hooks/useAiWalletSummary';
-import { formatToman } from '@/lib/money';
+import { formatAmountForEdition, formatToman } from '@/lib/money';
+import { formatBytesAsMb, formatMb } from '@/lib/storageUnits';
+import { AI_WALLET_UNIT, BYTES_PER_MB } from '../../../shared/planLimits';
 import { useEdition } from '@/hooks/useEdition';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { formatLongDate } from '@/lib/date';
@@ -76,18 +78,6 @@ interface TeamRow {
 const PLACEHOLDER_SUBJECTS = new Set([
   'new conversation', 'new chat', 'untitled conversation', 'untitled', '[attachment]',
 ]);
-
-/** Human-readable byte size using the active number locale. */
-function formatBytes(bytes: number, numberLocale: string): string {
-  const nf = (n: number, d = 0) =>
-    new Intl.NumberFormat(numberLocale, { maximumFractionDigits: d }).format(n);
-  if (!Number.isFinite(bytes) || bytes <= 0) return `${nf(0)} MB`;
-  const gb = bytes / 1024 ** 3;
-  if (gb >= 1) return `${nf(gb, 2)} GB`;
-  const mb = bytes / 1024 ** 2;
-  if (mb >= 1) return `${nf(mb, 1)} MB`;
-  return `${nf(bytes / 1024, 1)} KB`;
-}
 
 export default function OverviewPage() {
   const { t, locale, dir } = useTranslation();
@@ -248,9 +238,10 @@ export default function OverviewPage() {
   // the snapshot is loading nothing is claimed to be capped.
   const limitNum = (key: string) => planLimits.limit(key) ?? -1;
   const isUnlimited = (v: number) => v < 0;
-  const storageLimitGb = limitNum('storage_gb');
-  const storagePct = storageLimitGb > 0
-    ? Math.min(100, Math.round((storageBytes / (storageLimitGb * 1024 ** 3)) * 100))
+  // Storage in MB (migration 271); the snapshot resolves storage_gb × 1024 for an older plan.
+  const storageLimitMb = limitNum('storage_mb');
+  const storagePct = storageLimitMb > 0
+    ? Math.min(100, Math.round((storageBytes / (storageLimitMb * BYTES_PER_MB)) * 100))
     : 0;
 
   const seatLimit = limitNum('max_agents');
@@ -477,7 +468,7 @@ export default function OverviewPage() {
             <p className="text-lg font-bold text-foreground">{planName}</p>
           </div>
 
-          {/* Storage consumption (bytes vs. plan storage_gb) */}
+          {/* Storage consumption (bytes vs. plan storage_mb), in MB */}
           <div data-plan-usage className="relative mt-4 rounded-2xl border border-border/60 bg-muted/30 p-3.5">
             <div className="mb-1.5 flex items-center justify-between text-xs">
               <span className="inline-flex items-center gap-1.5 text-muted-foreground">
@@ -485,14 +476,14 @@ export default function OverviewPage() {
                 {tr('dashboard.storageUsed')}
               </span>
               <span className="font-medium tabular-nums text-foreground">
-                {formatBytes(storageBytes, numberLocale)}
-                {isUnlimited(storageLimitGb) ? ' / ∞' : ` / ${fmt(storageLimitGb)} GB`}
+                {formatBytesAsMb(storageBytes, locale)}
+                {isUnlimited(storageLimitMb) ? ' / ∞' : ` / ${formatMb(storageLimitMb, locale)}`}
               </span>
             </div>
-            <div data-unlimited={isUnlimited(storageLimitGb) || undefined} className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div data-unlimited={isUnlimited(storageLimitMb) || undefined} className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
-                style={{ width: `${isUnlimited(storageLimitGb) ? 6 : Math.max(storagePct, storageLimitGb === 0 ? 0 : 3)}%` }}
+                style={{ width: `${isUnlimited(storageLimitMb) ? 6 : Math.max(storagePct, storageLimitMb === 0 ? 0 : 3)}%` }}
               />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2">
@@ -501,12 +492,15 @@ export default function OverviewPage() {
                 { label: tr('dashboard.usageMessages'), value: fmt(usageNum('messages_count')) },
                 {
                   label: tr('dashboard.usageAiCredits'),
-                  // Toman in the Iranian edition (as before); elsewhere the
-                  // ledger's own number of credits, never a Toman conversion.
+                  // As the billing page's AI card shows it: money in the
+                  // account currency (Toman in Iran); without a rate, the
+                  // wallet's own unit, named — never a bare number.
                   value: aiWallet
                     ? edition.isIran
-                      ? formatToman(aiWallet.totalRemainingIrr, numberLocale, { withLabel: false })
-                      : fmt(Math.round(Number(aiWallet.totalRemainingIrr) || 0))
+                      ? formatToman(aiWallet.availableMinor ?? aiWallet.totalRemainingIrr, numberLocale, { withLabel: false })
+                      : aiWallet.availableMinor !== null && aiWallet.currency
+                        ? formatAmountForEdition(aiWallet.availableMinor, aiWallet.currency, numberLocale)
+                        : formatAmountForEdition(aiWallet.totalRemainingIrr, AI_WALLET_UNIT, numberLocale)
                     : '—',
                 },
 

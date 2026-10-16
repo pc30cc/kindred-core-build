@@ -27,9 +27,15 @@ export interface RequesterWorkspace {
   usage?: {
     conversations?: Metered;
     visitors?: Metered;
+    /** Cards written before migration 271: the legacy counter (no longer shown). */
     ai_credits?: Metered;
+    /** The plan's monthly AI credit, in the AI wallet's unit (IRR). */
+    ai_monthly_credit_irr?: number | null;
     messages?: number | null;
     storage_bytes?: number | null;
+    /** The plan's storage limit in MB (-1 unlimited). */
+    storage_limit_mb?: number | null;
+    /** Cards written before migration 271: the limit in GB. */
     storage_limit_gb?: number | null;
   };
 }

@@ -1,7 +1,7 @@
 /**
  * Runtime route handler tests for the operator conversation-attachment
  * upload endpoint. Closes the last meaningful entitlement-cleanup behavior
- * gap: when the storage_gb limit middleware rejects the upload, the
+ * gap: when the storage_mb limit middleware rejects the upload, the
  * reserved `conversation_attachments` row must be marked status='failed'
  * and the file MUST NOT be uploaded.
  *
@@ -154,7 +154,7 @@ describe("conversationAttachments POST /:id/upload — entitlement cleanup", () 
     });
   });
 
-  it("when storage_gb gate rejects, marks reserved row 'failed' and does NOT upload", async () => {
+  it("when storage_mb gate rejects, marks reserved row 'failed' and does NOT upload", async () => {
     state.gateAllow = false;
     const handler = getHandler("post", "/:id/upload");
     const tinyB64 = Buffer.from("hello world!").toString("base64");
@@ -169,11 +169,11 @@ describe("conversationAttachments POST /:id/upload — entitlement cleanup", () 
       (u) => u.table === "conversation_attachments" && u.patch.status === "failed",
     );
     expect(failed).toBeTruthy();
-    expect(failed!.patch.error_message).toMatch(/storage_gb/);
+    expect(failed!.patch.error_message).toMatch(/storage_mb/);
     expect(get().statusCode).toBe(403);
   });
 
-  it("when storage_gb gate allows, upload proceeds and row is marked uploaded", async () => {
+  it("when storage_mb gate allows, upload proceeds and row is marked uploaded", async () => {
     state.gateAllow = true;
     const handler = getHandler("post", "/:id/upload");
     const tinyB64 = Buffer.from("hello world!").toString("base64");

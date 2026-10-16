@@ -11,6 +11,9 @@ import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { CLIENT_PLATFORM_NAMES, resolveClientPlatform } from './clientPlatform';
 import type { Metered, RequesterCardMeta } from './requesterMeta';
+import { formatBytesAsMb, formatMb } from '@/lib/storageUnits';
+import { formatAmountForEdition } from '@/lib/money';
+import { AI_WALLET_UNIT, gbToMb } from '../../../shared/planLimits';
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 
@@ -18,17 +21,6 @@ type T = (key: string, params?: Record<string, string | number>) => string;
 function say(t: T, key: string, fallback: string, params?: Record<string, string | number>): string {
   const value = t(key, params);
   return value && value !== key ? value : fallback;
-}
-
-function formatBytes(bytes: number, locale: string): string {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: unit ? 1 : 0 }).format(value)} ${units[unit]}`;
 }
 
 export function SupportRequesterCard({ meta }: { meta: RequesterCardMeta }) {
@@ -103,20 +95,25 @@ export function SupportRequesterCard({ meta }: { meta: RequesterCardMeta }) {
                     : say(t, 'inbox.requester.renews', `Renews ${date(plan?.period_end)}`, { date: date(plan?.period_end)! })
                   : null;
               const usage = ws.usage ?? {};
-              const storageLimit = usage.storage_limit_gb;
+              // MB since migration 271; a card written before it kept GB.
+              const storageLimit = typeof usage.storage_limit_mb === 'number'
+                ? usage.storage_limit_mb
+                : typeof usage.storage_limit_gb === 'number' ? gbToMb(usage.storage_limit_gb) : null;
               const metrics: Array<[string, string]> = [
                 [say(t, 'inbox.requester.operators', 'Operators'), metered(ws.operators)],
                 [say(t, 'inbox.requester.conversations', 'Conversations this month'), metered(usage.conversations)],
                 [say(t, 'inbox.requester.visitors', 'Visitors this month'), metered(usage.visitors)],
                 [say(t, 'inbox.requester.contacts', 'Contacts'), metered(ws.contacts)],
-                [say(t, 'inbox.requester.aiCredits', 'AI credits this month'), metered(usage.ai_credits)],
+                ...(typeof usage.ai_monthly_credit_irr === 'number'
+                  ? [[say(t, 'inbox.requester.aiMonthlyCredit', 'Monthly AI credit'), formatAmountForEdition(usage.ai_monthly_credit_irr, AI_WALLET_UNIT, locale)] as [string, string]]
+                  : []),
                 [say(t, 'inbox.requester.messages', 'Messages this month'), number(Number(usage.messages ?? 0))],
                 [
                   say(t, 'inbox.requester.storage', 'Storage'),
-                  `${formatBytes(Number(usage.storage_bytes ?? 0), locale)}${
+                  `${formatBytesAsMb(Number(usage.storage_bytes ?? 0), locale)}${
                     storageLimit === null || storageLimit === undefined
                       ? ''
-                      : ` / ${storageLimit < 0 ? '∞' : `${number(storageLimit)} GB`}`
+                      : ` / ${storageLimit < 0 ? '∞' : formatMb(storageLimit, locale)}`
                   }`,
                 ],
               ];

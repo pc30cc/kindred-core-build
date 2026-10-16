@@ -83,26 +83,6 @@ export function heartbeatVisitor(data: {
 
 // ─── AI ──────────────────────────────────────────────────────────
 
-export async function aiComplete(data: {
-  workspaceId: string;
-  prompt: string;
-  systemPrompt?: string;
-  model?: string;
-  maxTokens?: number;
-  temperature?: number;
-}) {
-  return request<{
-    text: string;
-    model: string;
-    provider: string;
-    usage: { promptTokens: number; completionTokens: number; totalTokens: number };
-    latencyMs: number;
-  }>('/api/ai/complete', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
 export async function aiTestConnection(data: {
   provider: string;
   apiKey: string;

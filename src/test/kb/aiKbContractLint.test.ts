@@ -118,7 +118,6 @@ describe('AI-KB response contract lint', () => {
     for (const code of [
       'entitlement_status_unavailable',
       'module_status_unavailable',
-      'ai_credit_status_unavailable',
     ]) {
       expect(gating).toContain(code);
     }

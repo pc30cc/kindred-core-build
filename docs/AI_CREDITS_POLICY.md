@@ -2,22 +2,13 @@
 
 ## Canonical mechanism
 
-AI credit consumption is governed by **one** path:
-
-- Producer + gate: `deduct_ai_credits(_workspace_id, _credits)` Postgres
-  RPC, wrapped server-side by `deductAICredits()` in
-  `server/middleware/featureGating.ts`.
-- Express middleware: `requireAICredits(credits)` in the same file.
-- Worker entry point: `consumeAiCredits()` in
-  `server/services/ai-kb/credits.ts` (thin wrapper over the same RPC).
-
-The RPC is **atomic**: it both increments
-`workspace_usage_counters.ai_credits_used` and fail-closes when the
-plan-resolved limit is reached. There is no separate credit ledger.
-`requireLimit('ai_credits_per_month', usageFnForLimit(...))` is **not**
-the canonical AI-credit gate — it would read+compare without atomic
-deduction and would race with `deduct_ai_credits`. Do not introduce a
-second AI-credit accounting path.
+AI work is paid from the workspace's AI billing wallet (reserve/settle in
+`server/services/ai-billing/`). The direct `POST /api/ai/complete` route,
+the `requireAICredits` middleware, `deductAICredits()` and the AI-KB
+`consumeAiCredits()` wrapper have been removed: nothing in the server
+calls the `deduct_ai_credits` Postgres RPC any more. The SQL function is
+left in place (it is part of the migration chain); dropping it is a
+separate decision.
 
 `usageFnForLimit('ai_credits_per_month')` exists only for the
 capability registry / read-only usage display (e.g. AI Builder UI via
@@ -28,15 +19,13 @@ routes that already deduct via the RPC.
 
 - Any server- or worker-side path that performs billable LLM work
   against a workspace's resolved AI provider config.
-- Per-call cost is currently fixed at `1` credit per unit-of-work
-  (one `/complete` call, one AI-KB page processed).
+- Each billable step is charged to the AI wallet by its measured usage.
 
 ## Current enforcement surfaces
 
 | Surface                                              | Mechanism                  | Status               |
 |------------------------------------------------------|----------------------------|----------------------|
-| `POST /api/ai/complete`                              | `requireAICredits(1)`      | Enforced             |
-| AI-KB worker per-page processing                     | `consumeAiCredits()` (RPC) | Enforced             |
+| AI-KB worker per-page processing                     | AI billing wallet          | Enforced             |
 | `POST /api/ai-agent/playground/test`                 | own rate limit only        | Deferred (see below) |
 | `POST /api/ai-agent/operator/suggest-reply`          | AI billing wallet (reserve/settle) | Enforced      |
 | `POST /api/ai-agent/generate-business-description`   | none                       | Deferred (see below) |
@@ -45,8 +34,7 @@ routes that already deduct via the RPC.
 
 ## Why other AI surfaces aren't gated
 
-The canonical AI-credit gate is attached to the single generic billable
-LLM surface (`/api/ai/complete`) and the worker per-page consumer. Every
+The AI wallet is charged on the surfaces marked enforced above. Every
 other candidate is variable, bespoke, or behavior-changing in a way
 that needs an explicit policy decision before enforcement:
 
@@ -67,8 +55,8 @@ that needs an explicit policy decision before enforcement:
 
 ## Counter / producer alignment
 
-- Producer of `workspace_usage_counters.ai_credits_used`:
-  `deduct_ai_credits` RPC, exclusively.
+- `workspace_usage_counters.ai_credits_used` was produced only by the
+  `deduct_ai_credits` RPC, which nothing calls any more.
 - Reader for display: `readAiCreditState` in
   `server/services/ai-kb/credits.ts` and `resolveAiCreditsPerMonth` in
   `server/services/billing/usageResolvers.ts`.
@@ -86,9 +74,6 @@ that needs an explicit policy decision before enforcement:
 
 ## Intentionally deferred
 
-- Wiring `requireAICredits(1)` (or an inline conditional deduction)
-  into `/operator/suggest-reply` once a policy decision is made about
-  the `callLLM=false` branch and operator-assist credit semantics.
 - Deciding whether `/playground/test` should consume workspace AI
   credits at all.
 - Per-call variable-cost credits (token-weighted) — out of scope of

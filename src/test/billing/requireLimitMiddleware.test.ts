@@ -32,7 +32,6 @@ import {
   requireLimit,
   requireFeature,
   requireModule,
-  requireAICredits,
   requireChannel,
   clearEntitlementCache,
 } from "../../../server/middleware/featureGating";
@@ -251,7 +250,7 @@ describe("requireLimit — unreadable entitlement classification", () => {
   });
 });
 
-describe("requireFeature / requireModule / requireAICredits — failure classification", () => {
+describe("requireFeature / requireModule — failure classification", () => {
   beforeEach(() => {
     rpcMock.mockReset();
     counterRowMock.mockReset();
@@ -294,36 +293,6 @@ describe("requireFeature / requireModule / requireAICredits — failure classifi
     await requireModule("ai_assistant")(req, res, vi.fn());
     expect(getResult().statusCode).toBe(403);
     expect(getResult().jsonBody?.upgrade_required).toBe(true);
-  });
-
-  it("requireAICredits: credit RPC error → 503, not credit exhaustion", async () => {
-    rpcMock.mockResolvedValue({ data: null, error: { message: "down" } });
-    const { req, res, getResult } = makeReqRes({ workspace_id: "c-1" });
-    const next = vi.fn();
-    await requireAICredits(1)(req, res, next);
-    expect(next).not.toHaveBeenCalled();
-    expect(getResult().statusCode).toBe(503);
-    expect(getResult().jsonBody?.error).toBe("ai_credit_status_unavailable");
-    expect(getResult().jsonBody?.upgrade_required).toBeUndefined();
-  });
-
-  it("requireAICredits: genuine exhaustion → 403 upgrade_required", async () => {
-    rpcMock.mockResolvedValue({
-      data: { success: false, reason: "credits_exhausted", credits_used: 10, credits_limit: 10 },
-      error: null,
-    });
-    const { req, res, getResult } = makeReqRes({ workspace_id: "c-2" });
-    await requireAICredits(1)(req, res, vi.fn());
-    expect(getResult().statusCode).toBe(403);
-    expect(getResult().jsonBody?.upgrade_required).toBe(true);
-  });
-
-  it("requireAICredits: success → next()", async () => {
-    rpcMock.mockResolvedValue({ data: { success: true, credits_remaining: 9 }, error: null });
-    const { req, res } = makeReqRes({ workspace_id: "c-3" });
-    const next = vi.fn();
-    await requireAICredits(1)(req, res, next);
-    expect(next).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -369,9 +338,8 @@ describe("gate workspace resolution — spoofed workspace ids", () => {
     expect(getResult().jsonBody?.error).toBe("workspace_id_mismatch");
   });
 
-  it("requireAICredits / requireChannel / requireLimit reject mismatched ids too", async () => {
+  it("requireChannel / requireLimit reject mismatched ids too", async () => {
     for (const mw of [
-      requireAICredits(1),
       requireChannel("email"),
       requireLimit("max_conversations", usageFnForLimit("max_conversations")),
     ]) {

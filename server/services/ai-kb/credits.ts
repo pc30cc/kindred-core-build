@@ -1,38 +1,13 @@
 /**
- * AI KB Builder — credit helper.
- *
- * Thin wrapper over the existing deductAICredits RPC so the worker and the
- * route handlers share one entry point. We do NOT introduce a separate
- * credit ledger — AI KB consumes the same workspace AI credits used by
- * /api/ai/complete.
+ * AI KB Builder — credit state for the AI Builder UI, and its usage log.
+ * The worker pays from the AI wallet (aiKbWorkerWalletOnly.test.ts); there
+ * is no separate credit ledger here.
  */
 
 import type { ServerConfig } from '../../config.js';
-import { deductAICredits } from '../../middleware/featureGating.js';
 import { getServiceClient } from '../../supabase.js';
 import { readOk, readFailed, type ReadResult } from './readResult.js';
 import { parseEntitlementResponse } from '../billing/entitlementParse.js';
-
-export interface CreditDeductionResult {
-  success: boolean;
-  credits_used?: number;
-  credits_limit?: number;
-  credits_remaining?: number;
-  reason?: string;
-}
-
-export async function consumeAiCredits(
-  config: ServerConfig,
-  workspaceId: string,
-  credits: number = 1,
-): Promise<CreditDeductionResult> {
-  return deductAICredits(
-    config.supabaseUrl,
-    config.supabaseServiceRoleKey,
-    workspaceId,
-    credits,
-  );
-}
 
 /**
  * Read remaining AI credits for display in the AI Builder UI. Reads the
@@ -76,7 +51,7 @@ export async function readAiCreditStateDetailed(
       return readFailed('credit_status_unavailable');
     }
 
-    const rawUsed = (counter as any)?.ai_credits_used;
+    const rawUsed = (counter as { ai_credits_used?: unknown } | null)?.ai_credits_used;
     const used = typeof rawUsed === 'number' && Number.isFinite(rawUsed) ? rawUsed : 0;
 
     // Plan's ai_credits limit via the entitlement RPC.
@@ -93,8 +68,8 @@ export async function readAiCreditStateDetailed(
     const limit = parsed.outcome === 'allowed' ? (parsed.limit ?? 0) : 0;
     const remaining = limit === -1 ? -1 : Math.max(0, limit - used);
     return readOk({ used, limit, remaining, period });
-  } catch (err: any) {
-    console.error('[AiKb] credit state exception:', err?.message);
+  } catch (err: unknown) {
+    console.error('[AiKb] credit state exception:', (err as { message?: string } | null)?.message);
     return readFailed('credit_status_unavailable');
   }
 }
@@ -106,7 +81,7 @@ export async function logAiKbUsage(
   config: ServerConfig,
   workspaceId: string,
   eventType: string,
-  opts: { jobId?: string; generatedArticleId?: string; credits?: number; metadata?: Record<string, any> } = {},
+  opts: { jobId?: string; generatedArticleId?: string; credits?: number; metadata?: Record<string, unknown> } = {},
 ): Promise<void> {
   try {
     const sb = getServiceClient(config);
@@ -118,7 +93,7 @@ export async function logAiKbUsage(
       credits: opts.credits ?? 0,
       metadata: opts.metadata ?? {},
     });
-  } catch (err: any) {
-    console.warn('[ai-kb usage] insert failed:', err?.message || err);
+  } catch (err: unknown) {
+    console.warn('[ai-kb usage] insert failed:', (err as { message?: string } | null)?.message || err);
   }
 }

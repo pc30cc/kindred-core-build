@@ -171,7 +171,7 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
  *
  * Billing: when the caller already opened a Run at its business-operation
  * boundary it passes the context in; otherwise a standalone Run is opened here
- * (direct /api/ai/complete, playground, KB worker) so no billable provider
+ * (playground, KB worker) so no billable provider
  * execution ever happens outside a Run.
  */
 export async function executeAICompletion(
@@ -207,23 +207,6 @@ async function recordAiUsageLog(
   if (serverConfig.productAnalyticsLoggingEnabled === false) return false;
   const { error } = await sb.from('ai_usage_logs').insert(row);
   return !error;
-}
-
-/** Responses whose success row reached ai_usage_logs — see wasRequestCounted(). */
-const requestCountedByUsageLog = new WeakSet<AIResponse>();
-
-/**
- * True when this completion's usage row was written to ai_usage_logs. On a
- * database with the hosted migration chain, that insert's trigger
- * (tg_ai_usage_logs_count_request) already counts the request in
- * `ai_requests_count`, so a caller that meters requests itself must count
- * only when this is false. It is false when PRODUCT_ANALYTICS_LOGGING=off
- * skipped the row, and on self-host databases, which have neither the table
- * nor the trigger. Counting unconditionally counted /api/ai/complete twice
- * wherever the trigger exists.
- */
-export function wasRequestCounted(response: AIResponse): boolean {
-  return requestCountedByUsageLog.has(response);
 }
 
 /**
@@ -322,7 +305,7 @@ async function runOneCompletion(
     raw: { finishReason: response.finishReason },
   });
 
-  const usageLogged = await recordAiUsageLog(serverConfig, sb, {
+  await recordAiUsageLog(serverConfig, sb, {
     workspace_id: request.workspaceId,
     provider_name: usage.provider,
     model: usage.actualModel,
@@ -333,9 +316,6 @@ async function runOneCompletion(
     success: true,
     endpoint: 'complete',
   });
-  // Replays of the same requestId get this same object, so they read the
-  // same answer (withAiIdempotency).
-  if (usageLogged) requestCountedByUsageLog.add(response);
 
   if (ctx) {
     try {

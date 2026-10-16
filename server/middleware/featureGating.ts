@@ -61,7 +61,6 @@ export function clearEntitlementCache(workspaceId?: string): void {
 type GatedRequest = Request & {
   serverConfig?: ServerConfig;
   entitlement?: EntitlementResult;
-  aiCredits?: Awaited<ReturnType<typeof deductAICredits>>;
 };
 
 type GateWorkspaceResolution =
@@ -328,49 +327,6 @@ export async function checkChannelAccess(
   }
 }
 
-// ─── AI credit deduction (atomic) ───
-export async function deductAICredits(
-  supabaseUrl: string,
-  serviceRoleKey: string,
-  workspaceId: string,
-  credits: number = 1
-): Promise<{ success: boolean; credits_used?: number; credits_limit?: number; credits_remaining?: number; reason?: string }> {
-  try {
-    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
-    const { data, error } = await supabase.rpc('deduct_ai_credits', {
-      _workspace_id: workspaceId,
-      _credits: credits,
-    });
-    if (error) {
-      console.error('[AICredits] RPC error:', error.message);
-      return { success: false, reason: 'rpc_error' };
-    }
-    return data || { success: false, reason: 'no_response' };
-  } catch {
-    return { success: false, reason: 'exception' };
-  }
-}
-
-// ─── Increment usage counter ───
-export async function incrementUsage(
-  supabaseUrl: string,
-  serviceRoleKey: string,
-  workspaceId: string,
-  counter: string,
-  amount: number = 1
-): Promise<void> {
-  try {
-    const supabase = serviceClientFor(supabaseUrl, serviceRoleKey);
-    await supabase.rpc('increment_usage_counter', {
-      _workspace_id: workspaceId,
-      _counter_name: counter,
-      _amount: amount,
-    });
-  } catch (err) {
-    console.error('[UsageTracking] Error:', errorMessage(err));
-  }
-}
-
 // ═══════════════════════════════════════════════════════════
 // Express Middleware Factories
 // ═══════════════════════════════════════════════════════════
@@ -478,43 +434,6 @@ export function requireChannel(channelKey: string) {
       });
     }
 
-    next();
-  };
-}
-
-/**
- * Require AI credits before allowing AI request. Deducts atomically.
- */
-export function requireAICredits(credits: number = 1) {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    const sb = getSupabaseClient(req);
-    if (!sb) return next();
-
-    const workspaceId = gateWorkspaceIdOrRespond(req, res, 'Missing workspaceId for AI credit check');
-    if (!workspaceId) return;
-
-    const result = await deductAICredits(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, credits);
-
-    // R7.4 §7 — the credit RPC could not be evaluated. That is NOT credit
-    // exhaustion, so it must never render as "upgrade required".
-    if (!result.success && (result.reason === 'rpc_error' || result.reason === 'exception' || result.reason === 'no_response')) {
-      return res.status(503).json({
-        error: 'ai_credit_status_unavailable',
-        retryable: true,
-      });
-    }
-
-    if (!result.success) {
-      return res.status(403).json({
-        error: 'AI credits exhausted or AI not available on your plan',
-        reason: result.reason,
-        credits_used: result.credits_used,
-        credits_limit: result.credits_limit,
-        upgrade_required: true,
-      });
-    }
-
-    (req as GatedRequest).aiCredits = result;
     next();
   };
 }

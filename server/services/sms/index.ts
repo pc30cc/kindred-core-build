@@ -28,8 +28,11 @@ import {
   SUPPORTED_SMS_PROVIDERS,
   type KavenegarSmsConfig,
   type SmsIrSmsConfig,
+  type SmsDeliveryState,
   type SmsProviderInfo,
+  type SmsVerificationDelivery,
   type TelnyxChannel,
+  type VerificationDeliveryChannel,
   type TelnyxSmsConfig,
   type SmsProviderName,
   type SmsSendRequest,
@@ -166,6 +169,7 @@ export async function getSmsProviderInfo(serverConfig: ServerConfig): Promise<Sm
       verifyParameterName: null,
       verifyProfileId: null,
       channel: null,
+      voiceFallback: null,
       updatedAt: null,
     };
   }
@@ -185,8 +189,19 @@ export async function getSmsProviderInfo(serverConfig: ServerConfig): Promise<Sm
     verifyParameterName: readString(row.config, 'verifyParameterName'),
     verifyProfileId: providerName === 'telnyx' ? readString(row.config, 'verifyProfileId') : null,
     channel: providerName === 'telnyx' ? readTelnyxChannel(row.config) : null,
+    voiceFallback: providerCanCall(providerName) ? readVoiceFallback(row.config) : null,
     updatedAt: row.updated_at,
   };
+}
+
+/** Vendors that can read a code out in a voice call. SMS.ir cannot. */
+export function providerCanCall(providerName: unknown): providerName is 'kavenegar' | 'telnyx' {
+  return providerName === 'kavenegar' || providerName === 'telnyx';
+}
+
+/** Offer the voice call fallback unless the Super Admin turned it off. */
+function readVoiceFallback(source: Record<string, unknown> | null): boolean {
+  return source?.voiceFallback !== false;
 }
 
 function readTelnyxChannel(source: Record<string, unknown> | null): TelnyxChannel {
@@ -226,6 +241,8 @@ export interface SaveSmsProviderInput {
   /** Telnyx */
   verifyProfileId?: string;
   channel?: string;
+  /** Kavenegar and Telnyx: offer a voice call when the SMS does not arrive (default on). */
+  voiceFallback?: boolean;
 }
 
 export type SaveSmsProviderError =
@@ -272,7 +289,8 @@ export async function saveSmsProviderConfig(
 
   // Only whitelisted keys for the SELECTED vendor are written, so switching
   // vendors wipes every field that belonged to the previous one.
-  const nextConfig: Record<string, string | number> = { apiKey };
+  const nextConfig: Record<string, string | number | boolean> = { apiKey };
+  if (providerCanCall(input.providerName)) nextConfig.voiceFallback = input.voiceFallback !== false;
 
   if (input.providerName === 'kavenegar') {
     if (!isValidVerifyTemplate(input.verifyTemplate)) {
@@ -347,10 +365,14 @@ export async function deleteSmsProviderConfig(
   return getSmsProviderInfo(serverConfig);
 }
 
-type ResolvedProvider =
+type ResolvedProvider = (
   | { providerName: 'kavenegar'; config: KavenegarSmsConfig; adapter: KavenegarAdapter }
   | { providerName: 'smsir'; config: SmsIrSmsConfig; adapter: SmsIrAdapter }
-  | { providerName: 'telnyx'; config: TelnyxSmsConfig; adapter: TelnyxAdapter };
+  | { providerName: 'telnyx'; config: TelnyxSmsConfig; adapter: TelnyxAdapter }
+) & {
+  /** A voice call may carry a code (the vendor can call and the fallback is on). */
+  voiceCall: boolean;
+};
 
 export interface SmsRuntimeOptions {
   /** Test seam forwarded to the vendor adapter. */
@@ -398,6 +420,7 @@ async function resolveProvider(
       providerName: 'kavenegar',
       config,
       adapter: createKavenegarAdapter(config, options.adapterOptions),
+      voiceCall: readVoiceFallback(row.config),
     };
   }
 
@@ -414,6 +437,8 @@ async function resolveProvider(
       providerName: 'telnyx',
       config,
       adapter: createTelnyxAdapter(config, options.telnyxAdapterOptions),
+      // A profile set to call by default always calls.
+      voiceCall: config.channel === 'call' || readVoiceFallback(row.config),
     };
   }
 
@@ -434,6 +459,7 @@ async function resolveProvider(
     providerName: 'smsir',
     config,
     adapter: createSmsIrAdapter(config, options.smsIrAdapterOptions),
+    voiceCall: false,
   };
 }
 
@@ -449,10 +475,12 @@ function logSmsAttempt(entry: {
   success: boolean;
   messageId?: string;
   errorCode?: string;
+  channel?: string | null;
 }): void {
   console.info('[sms]', {
     provider: entry.provider,
     purpose: entry.purpose,
+    ...(entry.purpose === 'verification' ? { channel: entry.channel ?? 'sms' } : {}),
     recipient_masked: maskPhone(entry.recipient),
     success: entry.success,
     provider_message_id: entry.messageId ?? null,
@@ -508,21 +536,33 @@ export async function sendSmsVerification(
     const resolved = await resolveProvider(serverConfig, options);
     provider = resolved.providerName;
     let messageId: string | undefined;
+    let channel: VerificationDeliveryChannel = 'sms';
+    if (request.channel !== undefined && request.channel !== 'sms' && request.channel !== 'call') {
+      throw new SmsError('sms_provider_feature_unavailable');
+    }
+    // A voice call only where the vendor can call and the Super Admin has
+    // not turned the fallback off.
+    if (request.channel === 'call' && !resolved.voiceCall) {
+      throw new SmsError('sms_provider_feature_unavailable');
+    }
     if (resolved.providerName === 'kavenegar') {
       const template = request.template ?? resolved.config.verifyTemplate;
       if (!isValidVerifyTemplate(template)) throw new SmsError('sms_template_invalid');
+      channel = request.channel === 'call' ? 'call' : 'sms';
       ({ messageId } = await resolved.adapter.sendVerificationCode({
         receptor: request.to,
         token: request.code,
         template,
+        type: channel,
       }));
     } else if (resolved.providerName === 'telnyx') {
       // The wording is the Verify Profile's template (Telnyx-side); our code
       // goes in as `custom_code`, valid as long as our own challenge.
-      ({ messageId } = await resolved.adapter.sendVerificationCode({
+      ({ messageId, channel } = await resolved.adapter.sendVerificationCode({
         phoneNumber: toTelnyxRecipient(request.to),
         code: request.code,
         ...(request.ttlSeconds !== undefined ? { timeoutSecs: request.ttlSeconds } : {}),
+        ...(request.channel !== undefined ? { channel: request.channel } : {}),
       }));
     } else {
       const templateId =
@@ -537,12 +577,60 @@ export async function sendSmsVerification(
         parameterName: resolved.config.verifyParameterName,
       }));
     }
-    logSmsAttempt({ provider, purpose: 'verification', recipient: request.to, success: true, messageId });
-    return { success: true, provider, ...(messageId ? { messageId } : {}) };
+    logSmsAttempt({ provider, purpose: 'verification', recipient: request.to, success: true, messageId, channel });
+    return { success: true, provider, channel, ...(messageId ? { messageId } : {}) };
   } catch (err) {
     const errorCode = toErrorCode(err);
-    logSmsAttempt({ provider, purpose: 'verification', recipient: request.to, success: false, errorCode });
+    logSmsAttempt({
+      provider,
+      purpose: 'verification',
+      recipient: request.to,
+      success: false,
+      errorCode,
+      channel: request.channel ?? null,
+    });
     return { success: false, provider, errorCode };
+  }
+}
+
+/**
+ * What the verification screens may offer (no vendor named): a voice call
+ * where the active vendor can call and the fallback is on, and the channel
+ * the first code goes out on. Any read failure answers "SMS only".
+ */
+export async function getSmsVerificationDelivery(
+  serverConfig: ServerConfig,
+  options: SmsRuntimeOptions = {},
+): Promise<SmsVerificationDelivery> {
+  try {
+    const resolved = await resolveProvider(serverConfig, options);
+    return {
+      voiceCall: resolved.voiceCall,
+      defaultChannel: resolved.providerName === 'telnyx' ? resolved.config.channel : 'sms',
+    };
+  } catch {
+    return { voiceCall: false, defaultChannel: 'sms' };
+  }
+}
+
+/**
+ * What the vendor reports about one sent code. Asked only of the vendor that
+ * sent it (`providerName`) while it is still the active one; anything else,
+ * and every failure, reads 'unknown'.
+ */
+export async function getSmsVerificationDeliveryState(
+  serverConfig: ServerConfig,
+  input: { providerName: string | null; messageId: string | null },
+  options: SmsRuntimeOptions = {},
+): Promise<SmsDeliveryState> {
+  if (!input.providerName || !input.messageId) return 'unknown';
+  try {
+    const resolved = await resolveProvider(serverConfig, options);
+    if (resolved.providerName !== input.providerName) return 'unknown';
+    if (resolved.providerName === 'smsir') return 'unknown';
+    return await resolved.adapter.getDeliveryState(input.messageId);
+  } catch {
+    return 'unknown';
   }
 }
 

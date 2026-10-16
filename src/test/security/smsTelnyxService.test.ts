@@ -104,7 +104,7 @@ describe('International edition — saving Telnyx', () => {
       is_active: true,
       config: { apiKey: KEY, verifyProfileId: PROFILE, channel: 'call' },
     });
-    expect(Object.keys(state.upserts[0].config ?? {}).sort()).toEqual(['apiKey', 'channel', 'verifyProfileId']);
+    expect(Object.keys(state.upserts[0].config ?? {}).sort()).toEqual(['apiKey', 'channel', 'verifyProfileId', 'voiceFallback']);
     expect(info).toMatchObject({
       providerName: 'telnyx', configured: true, enabled: true, hasApiKey: true,
       verifyProfileId: PROFILE, channel: 'call',
@@ -116,7 +116,7 @@ describe('International edition — saving Telnyx', () => {
   it('defaults the channel to sms and keeps the stored key on a re-save without one', async () => {
     state.row = telnyxRow();
     await svc.saveSmsProviderConfig(CONFIG, { providerName: 'telnyx', enabled: false, verifyProfileId: PROFILE }, ADMIN);
-    expect(state.upserts[0].config).toEqual({ apiKey: KEY, verifyProfileId: PROFILE, channel: 'sms' });
+    expect(state.upserts[0].config).toEqual({ apiKey: KEY, verifyProfileId: PROFILE, channel: 'sms', voiceFallback: true });
     expect(state.upserts[0].is_active).toBe(false);
   });
 
@@ -162,7 +162,7 @@ describe('International edition — sending through Telnyx', () => {
       { to: '+447700900123', code: '482913', ttlSeconds: 300 },
       telnyxOptions(200, { data: { id: 'ver-1' } }, calls),
     );
-    expect(result).toEqual({ success: true, provider: 'telnyx', messageId: 'ver-1' });
+    expect(result).toEqual({ success: true, provider: 'telnyx', messageId: 'ver-1', channel: 'sms' });
     expect(calls[0].url).toBe('https://api.telnyx.com/v2/verifications/sms');
     expect(JSON.parse(String(calls[0].init.body))).toEqual({
       phone_number: '+447700900123', verify_profile_id: PROFILE, custom_code: '482913', timeout_secs: 300,
@@ -297,7 +297,7 @@ describe('Iranian edition — unchanged, Telnyx hidden', () => {
     const info = await svc.saveSmsProviderConfig(
       CONFIG, { providerName: 'kavenegar', enabled: true, apiKey: 'k-placeholder', verifyTemplate: 'verifyLogin' }, ADMIN,
     );
-    expect(state.upserts[0].config).toEqual({ apiKey: 'k-placeholder', verifyTemplate: 'verifyLogin' });
+    expect(state.upserts[0].config).toEqual({ apiKey: 'k-placeholder', verifyTemplate: 'verifyLogin', voiceFallback: true });
     expect(info).toMatchObject({ providerName: 'kavenegar', configured: true, verifyProfileId: null, channel: null });
   });
 });

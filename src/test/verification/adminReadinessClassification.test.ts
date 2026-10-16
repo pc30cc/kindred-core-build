@@ -70,6 +70,7 @@ function smsInfo(overrides: Partial<SmsProviderInfo>): SmsProviderInfo {
     verifyParameterName: null,
     verifyProfileId: null,
     channel: null,
+    voiceFallback: null,
     updatedAt: null,
     ...overrides,
   };

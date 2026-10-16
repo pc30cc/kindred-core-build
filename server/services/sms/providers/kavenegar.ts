@@ -19,6 +19,7 @@ import {
   type SmsErrorCode,
   type KavenegarSmsConfig,
   type SmsAccountInfo,
+  type SmsDeliveryState,
 } from '../types.js';
 
 /** Hard ceiling for any single provider call. */
@@ -38,6 +39,8 @@ export interface KavenegarApiClient {
   Send(params: Record<string, string>, callback: KavenegarCallback): void;
   VerifyLookup(params: Record<string, string>, callback: KavenegarCallback): void;
   AccountInfo(params: Record<string, string>, callback: KavenegarCallback): void;
+  /** `sms/status`: the delivery status of sent messages, by message id. */
+  Status?(params: Record<string, string>, callback: KavenegarCallback): void;
 }
 
 export interface KavenegarModule {
@@ -153,8 +156,31 @@ function readMessageId(entries: unknown): string | undefined {
 
 export interface KavenegarAdapter {
   sendSms(input: { receptor: string; message: string; sender?: string }): Promise<{ messageId?: string }>;
-  sendVerificationCode(input: { receptor: string; token: string; template: string }): Promise<{ messageId?: string }>;
+  /** `type: 'call'` reads the token out in a voice call (VerifyLookup, numeric tokens only). */
+  sendVerificationCode(input: {
+    receptor: string;
+    token: string;
+    template: string;
+    type?: 'sms' | 'call';
+  }): Promise<{ messageId?: string }>;
   getAccountInfo(): Promise<SmsAccountInfo>;
+  /** What Kavenegar reports about one sent message. Never throws: failures read 'unknown'. */
+  getDeliveryState(messageId: string): Promise<SmsDeliveryState>;
+}
+
+/**
+ * Kavenegar's `sms/status` codes reduced to our four states: 10 delivered;
+ * 6 failed, 11 not delivered to the handset, 13 cancelled, 14 blocked by
+ * the recipient; 100 an id Kavenegar does not know; everything else (1
+ * queued, 2 scheduled, 4/5 handed to the operator) still on its way.
+ */
+export function mapKavenegarDeliveryStatus(value: unknown): SmsDeliveryState {
+  const status = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value) : NaN;
+  if (!Number.isFinite(status)) return 'unknown';
+  if (status === 10) return 'delivered';
+  if (status === 6 || status === 11 || status === 13 || status === 14) return 'failed';
+  if (status === 100) return 'unknown';
+  return 'pending';
 }
 
 export interface KavenegarAdapterOptions {
@@ -187,14 +213,14 @@ export function createKavenegarAdapter(
       return { messageId: readMessageId(entries) };
     },
 
-    async sendVerificationCode({ receptor, token, template }) {
+    async sendVerificationCode({ receptor, token, template, type }) {
       // Sender is intentionally NOT sent: Kavenegar selects the approved line
       // for VerifyLookup itself.
       const params: Record<string, string> = {
         receptor,
         token,
         template,
-        type: 'sms',
+        type: type === 'call' ? 'call' : 'sms',
       };
       const entries = await kavenegarCall((cb) => getClient().VerifyLookup(params, cb), timeoutMs);
       return { messageId: readMessageId(entries) };
@@ -220,6 +246,19 @@ export function createKavenegarAdapter(
         currency: 'IRR',
         accountType: typeof type === 'string' ? type : null,
       };
+    },
+
+    async getDeliveryState(messageId) {
+      const id = typeof messageId === 'string' ? messageId.trim() : '';
+      if (!/^\d{1,20}$/.test(id)) return 'unknown';
+      try {
+        const api = getClient();
+        if (typeof api.Status !== 'function') return 'unknown';
+        const entries = await kavenegarCall((cb) => api.Status!({ messageid: id }, cb), timeoutMs);
+        return mapKavenegarDeliveryStatus(firstEntry(entries)?.status);
+      } catch {
+        return 'unknown';
+      }
     },
   };
 }

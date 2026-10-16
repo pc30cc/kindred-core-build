@@ -80,7 +80,7 @@ describe('getSmsProviderInfo', () => {
       providerName: 'disabled', configured: false, enabled: false,
       hasApiKey: false, sender: null, verifyTemplate: null,
       lineNumber: null, verifyTemplateId: null, verifyParameterName: null,
-      verifyProfileId: null, channel: null,
+      verifyProfileId: null, channel: null, voiceFallback: null,
       updatedAt: null,
     });
   });
@@ -120,7 +120,7 @@ describe('saveSmsProviderConfig', () => {
   it('keeps the stored credential when the key field is omitted', async () => {
     row = configured();
     await svc.saveSmsProviderConfig(CONFIG, { providerName: 'kavenegar', enabled: true, verifyTemplate: 'newTemplate' }, ADMIN);
-    expect(upserts[0].config).toEqual({ apiKey: 'stored-placeholder', verifyTemplate: 'newTemplate' });
+    expect(upserts[0].config).toEqual({ apiKey: 'stored-placeholder', verifyTemplate: 'newTemplate', voiceFallback: true });
   });
 
   it('keeps the stored credential when the key field is blank', async () => {
@@ -135,7 +135,7 @@ describe('saveSmsProviderConfig', () => {
       { providerName: 'kavenegar', enabled: true, apiKey: 'new-placeholder', sender: '10008663', verifyTemplate: 'verifyLogin', evil: 'x' } as never,
       ADMIN,
     );
-    expect(Object.keys(upserts[0].config ?? {}).sort()).toEqual(['apiKey', 'sender', 'verifyTemplate']);
+    expect(Object.keys(upserts[0].config ?? {}).sort()).toEqual(['apiKey', 'sender', 'verifyTemplate', 'voiceFallback']);
   });
 
   it('surfaces a persistence failure', async () => {
@@ -194,7 +194,7 @@ describe('send paths', () => {
   it('sends a verification code through the active provider', async () => {
     row = configured();
     await expect(svc.sendSmsVerification(CONFIG, { to: '09120000000', code: '123456' }, fakeAdapter()))
-      .resolves.toEqual({ success: true, provider: 'kavenegar', messageId: '2' });
+      .resolves.toEqual({ success: true, provider: 'kavenegar', messageId: '2', channel: 'sms' });
   });
 
   it('normalizes a provider auth failure instead of throwing', async () => {
@@ -373,7 +373,7 @@ describe('SMS.ir runtime', () => {
     row = smsIrRow();
     const fake = fakeSmsIr();
     await expect(svc.sendSmsVerification(CONFIG, { to: '09120000000', code: '123456' }, fake.options))
-      .resolves.toEqual({ success: true, provider: 'smsir', messageId: '77' });
+      .resolves.toEqual({ success: true, provider: 'smsir', messageId: '77', channel: 'sms' });
     expect(fake.calls.verify[0]).toMatchObject({
       mobile: '09120000000', templateId: 100000, params: [{ name: 'CODE', value: '123456' }],
     });

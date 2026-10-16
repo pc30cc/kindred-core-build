@@ -62,7 +62,7 @@ describe('Telnyx adapter — request shape', () => {
     const calls: Captured[] = [];
     const a = adapter(fakeFetch(200, { data: { id: 'ver-123', status: 'pending', type: 'sms' } }, calls));
     const result = await a.sendVerificationCode({ phoneNumber: '+447700900123', code: '482913', timeoutSecs: 300 });
-    expect(result).toEqual({ messageId: 'ver-123' });
+    expect(result).toEqual({ messageId: 'ver-123', channel: 'sms' });
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(`${TELNYX_API_BASE}/verifications/sms`);
     expect(TELNYX_API_BASE).toBe('https://api.telnyx.com/v2');

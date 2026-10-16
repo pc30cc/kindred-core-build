@@ -83,6 +83,25 @@ export const TELNYX_CHANNELS = ['sms', 'call'] as const;
 export type TelnyxChannel = (typeof TELNYX_CHANNELS)[number];
 
 /**
+ * How one verification code is delivered: a text message, or a voice call
+ * that reads the code out. Kavenegar (VerifyLookup `type=call`) and Telnyx
+ * Verify (`/verifications/call`) can call; SMS.ir cannot.
+ */
+export type VerificationDeliveryChannel = TelnyxChannel;
+
+export function isVerificationDeliveryChannel(value: unknown): value is VerificationDeliveryChannel {
+  return value === 'sms' || value === 'call';
+}
+
+/**
+ * What the vendor reports about one sent code, reduced to four states:
+ * delivered to the handset, failed (rejected or undeliverable), still on
+ * its way, or not known (the vendor has no status for it, or could not be
+ * asked).
+ */
+export type SmsDeliveryState = 'delivered' | 'failed' | 'pending' | 'unknown';
+
+/**
  * Telnyx Verify (International edition). The code is ours (`custom_code`):
  * Telnyx only delivers it, worded by the Verify Profile's own template.
  */
@@ -112,6 +131,11 @@ export interface SmsVerificationRequest {
    * lifetime (`timeout_secs`); the Iranian vendors ignore it.
    */
   ttlSeconds?: number;
+  /**
+   * 'call' reads the code out in a voice call. Omitted: the provider's
+   * default (Telnyx: the channel set in Super Admin; the others: SMS).
+   */
+  channel?: VerificationDeliveryChannel;
 }
 
 export interface SmsSendResult {
@@ -119,6 +143,17 @@ export interface SmsSendResult {
   provider: string;
   messageId?: string;
   errorCode?: SmsErrorCode;
+  /** Verification codes only: how this one was delivered. */
+  channel?: VerificationDeliveryChannel;
+}
+
+/**
+ * What the verification screens may offer, without naming the vendor:
+ * whether a voice call can carry the code, and how the first code goes out.
+ */
+export interface SmsVerificationDelivery {
+  voiceCall: boolean;
+  defaultChannel: VerificationDeliveryChannel;
 }
 
 /** Redacted view of the stored config. NEVER carries the credential. */
@@ -136,6 +171,11 @@ export interface SmsProviderInfo {
   verifyProfileId: string | null;
   /** Telnyx only: 'sms' or 'call'. */
   channel: TelnyxChannel | null;
+  /**
+   * Kavenegar and Telnyx: whether users are offered a voice call when the
+   * SMS does not arrive (default on). Null for a vendor that cannot call.
+   */
+  voiceFallback: boolean | null;
   updatedAt: string | null;
 }
 

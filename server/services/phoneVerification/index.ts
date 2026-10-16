@@ -15,10 +15,13 @@ import { randomUUID } from 'node:crypto';
 import { getServiceClient } from '../../supabase.js';
 import { insertAuditLogRows } from '../auditLog.js';
 import {
+  getSmsVerificationDelivery,
+  getSmsVerificationDeliveryState,
   isInternationalSmsVerificationActive,
   sendSmsVerification,
   type SmsRuntimeOptions,
 } from '../sms/index.js';
+import type { VerificationDeliveryChannel } from '../sms/types.js';
 import { getPlatformEditionOrNull } from '../platformRegion.js';
 import { smsVerificationAvailable } from '../../../shared/edition.js';
 import {
@@ -43,6 +46,7 @@ import {
   RESEND_COOLDOWN_SECONDS,
   isPhoneVerificationErrorCode,
   type PhoneChallengeResponse,
+  type PhoneDeliveryStateResponse,
   type PhoneVerificationState,
   type PhoneVerificationStatusResponse,
 } from './types.js';
@@ -213,6 +217,7 @@ export async function getStatusForActor(
     activeChallengeId: state.hasActiveChallenge ? state.activeChallengeId : null,
     challengeExpiresInSeconds: state.hasActiveChallenge ? state.challengeExpiresInSeconds : null,
     remainingAttempts: state.hasActiveChallenge ? state.remainingAttempts : null,
+    delivery: await getSmsVerificationDelivery(config),
   };
 }
 
@@ -265,6 +270,8 @@ export interface IssueChallengeInput {
   clientIp?: string | null;
   workspaceId?: string | null;
   smsOptions?: SmsRuntimeOptions;
+  /** 'call' reads the code out in a voice call. Omitted: the provider's default. */
+  channel?: VerificationDeliveryChannel;
 }
 
 /**
@@ -284,6 +291,11 @@ export async function issueChallenge(
   if (!(await phoneVerificationEnabled(config))) {
     // International edition: no SMS vendor, so no code is ever sent.
     throw new PhoneVerificationError('phone_verification_unavailable', 503);
+  }
+  // Refused before a challenge is minted, so asking for a call the provider
+  // cannot make never spends a resend.
+  if (input.channel === 'call' && !(await getSmsVerificationDelivery(config, input.smsOptions ?? {})).voiceCall) {
+    throw new PhoneVerificationError('phone_call_unavailable', 400);
   }
 
   const client = sb(config);
@@ -385,15 +397,22 @@ export async function issueChallenge(
         purpose: input.purpose,
         created_by: input.createdBy,
         phone_masked: maskE164(input.phoneE164),
+        channel: input.channel ?? 'default',
       },
     });
   }
 
   const sent = await sendSmsVerification(
     config,
-    { to: toProviderFormat(input.phoneE164), code, ttlSeconds: CHALLENGE_TTL_SECONDS },
+    {
+      to: toProviderFormat(input.phoneE164),
+      code,
+      ttlSeconds: CHALLENGE_TTL_SECONDS,
+      ...(input.channel ? { channel: input.channel } : {}),
+    },
     input.smsOptions ?? {},
   );
+  const channel: VerificationDeliveryChannel = sent.channel ?? input.channel ?? 'sms';
 
   if (isAdminResend) {
     // Finalize transaction: delivery state and the canonical admin audit are
@@ -445,6 +464,7 @@ export async function issueChallenge(
       phoneMasked: maskE164(input.phoneE164) ?? '',
       expiresInSeconds: CHALLENGE_TTL_SECONDS,
       resendAfterSeconds: RESEND_COOLDOWN_SECONDS,
+      channel,
     };
   }
 
@@ -468,6 +488,7 @@ export async function issueChallenge(
       // Internal-only fields; never surfaced in any user or admin response.
       provider: sent.provider,
       error_code: sent.errorCode ?? null,
+      channel,
     },
   });
 
@@ -503,6 +524,7 @@ export async function issueChallenge(
     phoneMasked: maskE164(input.phoneE164) ?? '',
     expiresInSeconds: CHALLENGE_TTL_SECONDS,
     resendAfterSeconds: RESEND_COOLDOWN_SECONDS,
+    channel,
   };
 }
 
@@ -556,6 +578,8 @@ export async function resendVerification(
     workspaceSlug?: string;
     clientIp?: string | null;
     smsOptions?: SmsRuntimeOptions;
+    /** "Call me instead" / "Send SMS instead". Omitted: the provider's default. */
+    channel?: VerificationDeliveryChannel;
   },
 ): Promise<PhoneChallengeResponse> {
   const ctx = await resolvePurposeContext(config, input);
@@ -574,7 +598,48 @@ export async function resendVerification(
     clientIp: input.clientIp ?? null,
     workspaceId: ctx.workspaceId,
     ...(input.smsOptions ? { smsOptions: input.smsOptions } : {}),
+    ...(input.channel ? { channel: input.channel } : {}),
   });
+}
+
+/**
+ * What the provider reports about the code of the subject's challenge, so
+ * the screen can say "the SMS could not be delivered — get a call" instead
+ * of leaving the user waiting. Only the subject may ask, only about their
+ * own challenge; no vendor, message id or number is returned.
+ */
+export async function getDeliveryState(
+  config: ServerConfig,
+  input: {
+    purpose: PhoneVerificationPurpose;
+    actorUserId: string;
+    workspaceId?: string;
+    workspaceSlug?: string;
+    challengeId: string;
+    smsOptions?: SmsRuntimeOptions;
+  },
+): Promise<PhoneDeliveryStateResponse> {
+  const ctx = await resolvePurposeContext(config, input);
+  if (!ctx.actorIsSubject) throw new PhoneVerificationError('phone_verification_not_allowed', 403);
+
+  const { data, error } = await sb(config)
+    .from('phone_verification_challenges')
+    .select('provider_name, provider_message_id, delivery_status, is_active')
+    .eq('id', input.challengeId)
+    .eq('user_id', ctx.subjectUserId)
+    .maybeSingle();
+  if (error) throw new PhoneVerificationError('phone_verification_unavailable', 500);
+  if (!data) throw new PhoneVerificationError('phone_challenge_not_found', 404);
+  const row = asRecord(data);
+  if (row.delivery_status === 'failed') return { state: 'failed' };
+  if (row.is_active !== true) return { state: 'unknown' };
+  return {
+    state: await getSmsVerificationDeliveryState(
+      config,
+      { providerName: str(row.provider_name), messageId: str(row.provider_message_id) },
+      input.smsOptions ?? {},
+    ),
+  };
 }
 
 export interface CheckResult {

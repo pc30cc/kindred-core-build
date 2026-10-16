@@ -14,6 +14,7 @@ import { getClientIp } from '../utils/clientIp.js';
 import {
   checkVerification,
   cancelVerification,
+  getDeliveryState,
   getStatusForActor,
   PhoneVerificationError,
   resendVerification,
@@ -88,10 +89,16 @@ phoneVerificationRouter.post('/start', async (req, res) => {
   }
 });
 
+const resendSchema = z.object({
+  ...contextSchema,
+  /** "Call me instead" / "Send SMS instead". Omitted: the platform's default. */
+  channel: z.enum(['sms', 'call']).optional(),
+});
+
 phoneVerificationRouter.post('/resend', async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
-  const parsed = z.object(contextSchema).safeParse(req.body);
+  const parsed = resendSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'phone_verification_not_allowed' });
   try {
     const result = await resendVerification(serverConfigOf(req), {
@@ -100,6 +107,37 @@ phoneVerificationRouter.post('/resend', async (req, res) => {
       ...(parsed.data.workspaceId ? { workspaceId: parsed.data.workspaceId } : {}),
       ...(parsed.data.workspaceSlug ? { workspaceSlug: parsed.data.workspaceSlug } : {}),
       clientIp: getClientIp(req),
+      ...(parsed.data.channel ? { channel: parsed.data.channel } : {}),
+    });
+    res.json(result);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * Whether the last code reached the phone, as far as the provider knows
+ * ('delivered' | 'failed' | 'pending' | 'unknown'). The screen polls it for
+ * about a minute after a send so an undeliverable SMS turns into an offer
+ * of a voice call at once. Nothing provider-specific is returned.
+ */
+phoneVerificationRouter.get('/delivery', async (req, res) => {
+  const userId = await requireUser(req, res);
+  if (!userId) return;
+  const parsed = z.object({ ...contextSchema, challengeId: z.string().uuid() }).safeParse({
+    purpose: req.query.purpose,
+    workspaceId: typeof req.query.workspaceId === 'string' ? req.query.workspaceId : undefined,
+    workspaceSlug: typeof req.query.workspaceSlug === 'string' ? req.query.workspaceSlug : undefined,
+    challengeId: req.query.challengeId,
+  });
+  if (!parsed.success) return res.status(400).json({ error: 'phone_challenge_not_found' });
+  try {
+    const result = await getDeliveryState(serverConfigOf(req), {
+      purpose: parsed.data.purpose as 'widget_access',
+      actorUserId: userId,
+      ...(parsed.data.workspaceId ? { workspaceId: parsed.data.workspaceId } : {}),
+      ...(parsed.data.workspaceSlug ? { workspaceSlug: parsed.data.workspaceSlug } : {}),
+      challengeId: parsed.data.challengeId,
     });
     res.json(result);
   } catch (err) {

@@ -2263,6 +2263,21 @@ const fa: TranslationKeys = {
     resendIn: 'ارسال دوباره تا {{seconds}} ثانیه',
     changeNumber: 'تغییر شماره',
     codeSent: 'کد تأیید ارسال شد',
+    sentBySms: 'کد ۶ رقمی با پیامک ارسال شد به',
+    sentByCall: 'در حال تماس با شما هستیم. تماس را جواب دهید و کد ۶ رقمی‌ای را که خوانده می‌شود یادداشت کنید.',
+    smsDelivered: 'به گوشی شما تحویل شد',
+    smsFailedTitle: 'پیامک تحویل داده نشد',
+    smsFailedBody: 'اپراتور تلفن همراه شما پیامک ما را نپذیرفت. کد را با تماس صوتی دریافت کنید.',
+    smsFailedBodyNoCall: 'اپراتور تلفن همراه شما پیامک ما را نپذیرفت. شماره را بررسی کنید یا کمی بعد کد جدید بگیرید.',
+    notReceived: 'کد را دریافت نکردید؟',
+    newCodeIn: 'تا {{time}} دیگر می‌توانید کد جدید بگیرید',
+    resendSms: 'ارسال دوباره پیامک',
+    sendSmsInstead: 'ارسال با پیامک',
+    callMe: 'با من تماس بگیرید',
+    callMeIn: 'تماس تا {{time}} دیگر',
+    callAgain: 'دوباره تماس بگیرید',
+    callStarted: 'در حال تماس با شما',
+    sendCodeByCall: 'دریافت کد با تماس صوتی',
     // Super-admin only: why an "unavailable" actually happened.
     adminFailure: {
       pepper_missing: 'متغیر PHONE_VERIFICATION_PEPPER روی سرور تنظیم نشده (حداقل ۱۶ کاراکتر). تا تنظیم نشود هیچ پیامکی ارسال نمی‌شود.',
@@ -2295,6 +2310,7 @@ const fa: TranslationKeys = {
       phone_challenge_not_found: 'کد فعالی وجود ندارد. کد جدید درخواست کنید.',
       phone_already_verified: 'این شماره قبلاً تأیید شده است.',
       phone_verification_unavailable: 'تأیید موقتاً در دسترس نیست. بعداً تلاش کنید.',
+      phone_call_unavailable: 'تماس صوتی در حال حاضر در دسترس نیست. لطفاً از پیامک استفاده کنید.',
     },
   },
 
@@ -8805,6 +8821,12 @@ const fa: TranslationKeys = {
     },
   },
   adminProviders: {
+    smsVoice: {
+      label: 'تماس صوتی جایگزین',
+      hint: 'اگر پیامک نرسد، کاربر می‌تواند کد را با تماس صوتی دریافت کند که کد را می‌خواند.',
+      on: 'روشن',
+      off: 'خاموش',
+    },
     smsTelnyx: {
       vendorLabel: 'Telnyx (بین‌المللی)',
       dialogDescription: 'Telnyx Verify کدهای تأیید این پلتفرم را با پیامک یا تماس صوتی می‌فرستد. کلید API فقط روی سرور نگه داشته می‌شود و هرگز به مرورگر برنمی‌گردد.',

@@ -19,6 +19,8 @@ export const PHONE_VERIFICATION_ERRORS = [
   'phone_challenge_not_found',
   'phone_already_verified',
   'phone_verification_unavailable',
+  /** A voice call was asked for, but the platform's provider cannot call (or the fallback is off). */
+  'phone_call_unavailable',
 ] as const;
 
 export type PhoneVerificationErrorCode = (typeof PHONE_VERIFICATION_ERRORS)[number];
@@ -128,6 +130,16 @@ export interface PhoneVerificationStatusResponse {
   activeChallengeId?: string | null;
   challengeExpiresInSeconds?: number | null;
   remainingAttempts?: number | null;
+  /**
+   * Only to the verification subject: whether "Call me instead" can be
+   * offered, and how the first code goes out. No vendor is named.
+   */
+  delivery?: { voiceCall: boolean; defaultChannel: 'sms' | 'call' };
+}
+
+/** How a code reached (or failed to reach) the phone, as far as the provider knows. */
+export interface PhoneDeliveryStateResponse {
+  state: 'delivered' | 'failed' | 'pending' | 'unknown';
 }
 
 export interface PhoneChallengeResponse {
@@ -136,4 +148,6 @@ export interface PhoneChallengeResponse {
   phoneMasked: string;
   expiresInSeconds: number;
   resendAfterSeconds: number;
+  /** How this code went out: a text message or a voice call. */
+  channel: 'sms' | 'call';
 }

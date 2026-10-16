@@ -77,6 +77,7 @@ const kavenegarSaveSchema = z
     apiKey: z.string().max(512).optional(),
     sender: z.string().max(64).optional(),
     verifyTemplate: z.string().regex(VERIFY_TEMPLATE_PATTERN),
+    voiceFallback: z.boolean().optional(),
   })
   .strict();
 
@@ -105,6 +106,7 @@ const telnyxSaveSchema = z
     apiKey: z.string().max(512).optional(),
     verifyProfileId: z.string().trim().regex(TELNYX_PROFILE_ID_PATTERN),
     channel: z.enum(['sms', 'call']).optional(),
+    voiceFallback: z.boolean().optional(),
   })
   .strict();
 
@@ -132,12 +134,14 @@ adminSmsProvidersRouter.put('/', async (req: Request, res: Response) => {
             ...common,
             verifyTemplate: body.verifyTemplate,
             ...(body.sender !== undefined ? { sender: body.sender } : {}),
+            ...(body.voiceFallback !== undefined ? { voiceFallback: body.voiceFallback } : {}),
           }
         : body.providerName === 'telnyx'
           ? {
               ...common,
               verifyProfileId: body.verifyProfileId,
               ...(body.channel !== undefined ? { channel: body.channel } : {}),
+              ...(body.voiceFallback !== undefined ? { voiceFallback: body.voiceFallback } : {}),
             }
           : {
               ...common,

@@ -674,37 +674,69 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // Lazy module loader (chat / kb)
+  // Lazy module loader (chat / kb / realtime resolver + drivers)
   // ════════════════════════════════════════════════════════════════════
   var ModuleLoader = (function () {
     var modules = {};
     var loading = {};
     return {
       modules: modules,
-      load: function (name, url, cb) {
+      /**
+       * `fallbackUrl` (optional) is tried once when `url` fails: a page that
+       * outlived a deploy asks for a content hash the new build no longer
+       * has (404), and the canonical name still answers.
+       */
+      load: function (name, url, cb, fallbackUrl) {
         if (modules[name]) return cb(modules[name]);
         if (loading[name]) { loading[name].push(cb); return; }
         loading[name] = [cb];
-        var script = document.createElement('script');
-        script.src = url;
-        script.async = true;
-        script.onload = function () {
-          var mod = window['__gs_mod_' + name];
+        function settle(mod) {
           if (mod) modules[name] = mod;
           var cbs = loading[name] || [];
           delete loading[name];
           cbs.forEach(function (fn) { fn(mod || null); });
-        };
-        script.onerror = function () {
+        }
+        function inject(src, onError) {
+          var script = document.createElement('script');
+          script.src = src;
+          script.async = true;
+          script.onload = function () { settle(window['__gs_mod_' + name]); };
+          script.onerror = onError;
+          document.head.appendChild(script);
+        }
+        inject(url, function () {
+          if (fallbackUrl && fallbackUrl !== url) {
+            Util.warn('Module failed: ' + name + ' — retrying by its canonical name');
+            inject(fallbackUrl, function () { Util.warn('Module failed: ' + name); settle(null); });
+            return;
+          }
           Util.warn('Module failed: ' + name);
-          var cbs = loading[name] || [];
-          delete loading[name];
-          cbs.forEach(function (fn) { fn(null); });
-        };
-        document.head.appendChild(script);
+          settle(null);
+        });
+      },
+      /** Loads module `name` (source file `file`) for one widget instance. */
+      loadFor: function (ctx, name, file, cb) {
+        var src = moduleSources(ctx, name, file);
+        this.load(name, src.url, cb, src.fallback);
       },
     };
   })();
+
+  /**
+   * Where a lazy module loads from. /config names each one by its
+   * content-hashed URL (`config.modules[name]`; nginx and the CDN keep it a
+   * year), so a browser downloads a module once per content, not once per
+   * page view. The canonical name — what this runtime always loaded, served
+   * no-store — is the fallback, and the only URL when the backend sends none
+   * (a backend older than this runtime).
+   */
+  function moduleSources(ctx, name, file) {
+    var config = (ctx && ctx.config) || {};
+    var canonical = ((ctx && ctx.assetBase) || '') + '/widget/' + file + '?v=' +
+      (config._loaderVersion || config.loaderVersion || 'dev');
+    var hashed = config.modules && typeof config.modules[name] === 'string' ? config.modules[name] : '';
+    return hashed ? { url: hashed, fallback: canonical } : { url: canonical, fallback: null };
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // ConvEpoch — the ONE canonical conversation epoch (P0-1)
@@ -1685,19 +1717,12 @@
 
     function ensureChatModule(cb) {
       if (ModuleLoader.modules.chat) return cb(ModuleLoader.modules.chat);
-      var url = (ctx.assetBase || '') + '/widget/runtime-chat.js?v=' +
-        (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
-      ModuleLoader.load('chat', url, function (mod) { cb(mod); });
-    }
-
-    function assetVersion() {
-      return ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev';
+      ModuleLoader.loadFor(ctx, 'chat', 'runtime-chat.js', function (mod) { cb(mod); });
     }
 
     function ensureResolverModule(cb) {
       if (window.__gs_mod_rt_resolver) return cb(window.__gs_mod_rt_resolver);
-      var url = (ctx.assetBase || '') + '/widget/runtime-rt-resolver.js?v=' + assetVersion();
-      ModuleLoader.load('rt_resolver', url, function () { cb(window.__gs_mod_rt_resolver); });
+      ModuleLoader.loadFor(ctx, 'rt_resolver', 'runtime-rt-resolver.js', function () { cb(window.__gs_mod_rt_resolver); });
     }
 
     /**
@@ -1710,8 +1735,7 @@
         var desc = resolver.resolveDriverDescriptor(vendor);
         if (!desc) return cb(null);
         if (window[desc.globalKey]) return cb(window[desc.globalKey]);
-        var url = (ctx.assetBase || '') + '/widget/' + desc.asset + '?v=' + assetVersion();
-        ModuleLoader.load('rt_' + vendor, url, function () { cb(window[desc.globalKey] || null); });
+        ModuleLoader.loadFor(ctx, 'rt_' + vendor, desc.asset, function () { cb(window[desc.globalKey] || null); });
       });
     }
 
@@ -1988,6 +2012,9 @@
     // ('polling_builtin', 'disabled') are handled inline.
     function resolveRealtimeAndStart(intent) {
       var generation = connectionGeneration;
+      // Every vendor's path below starts with the resolver script: fetch it
+      // alongside the request instead of after it.
+      ensureResolverModule(function () {});
       var url = ctx.apiBase + '/api/realtime/connect';
       // Use the token-aware wrapper — realtime resolve is one of the most
       // expensive widget bootstraps and a stale token here would otherwise
@@ -4477,11 +4504,6 @@
     // resolves.
     var kbEnsurePending = null; // array of callbacks, or null when idle
 
-    function moduleUrl() {
-      var base = ctx.assetBase || '';
-      return base + '/widget/runtime-kb.js?v=' + (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
-    }
-
     function isRtl() { return (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa'; }
 
     function publicArticleUrl(slug) {
@@ -4507,7 +4529,7 @@
         kbEnsurePending = null;
         queued.forEach(function (fn) { fn && fn(); });
       }
-      ModuleLoader.load('kb', moduleUrl(), function () {
+      ModuleLoader.loadFor(ctx, 'kb', 'runtime-kb.js', function () {
         var mod = ModuleLoader.modules.kb;
         if (mod && mod.loadCategories) {
           mod.loadCategories({
@@ -4763,7 +4785,7 @@
       if (!q) { view = 'list'; paint(); return; }
       view = 'searching'; paint();
       try { searchAbort = new AbortController(); } catch (_) { searchAbort = null; }
-      ModuleLoader.load('kb', moduleUrl(), function () {
+      ModuleLoader.loadFor(ctx, 'kb', 'runtime-kb.js', function () {
         var mod = ModuleLoader.modules.kb;
         if (!mod || !mod.searchArticles) {
           kbStore.set({ searchResults: [] });
@@ -4801,7 +4823,7 @@
       // immediately so the surface never sits on the previous list.
       articleLoading = true;
       paint();
-      ModuleLoader.load('kb', moduleUrl(), function () {
+      ModuleLoader.loadFor(ctx, 'kb', 'runtime-kb.js', function () {
         var mod = ModuleLoader.modules.kb;
         if (!mod || !mod.loadArticle) return;
         mod.loadArticle({

@@ -1816,7 +1816,12 @@
     function unhashedAssetUrl(url) {
       if (!url) return null;
       var alt = String(url).replace(/\.[0-9a-f]{6,16}\.(js|css)(\?|#|$)/, ".$1$2");
-      return alt !== String(url) ? alt : null;
+      if (alt === String(url)) return null;
+      // A hashed URL carries no query (its name is its version); the
+      // canonical name keeps a cache-buster, as it always had.
+      return alt.indexOf("?") === -1
+        ? alt + "?v=" + encodeURIComponent(configData.loaderVersion || LOADER_VERSION)
+        : alt;
     }
     /**
      * Wires `el.onerror` so a hashed 404 is retried once with the unhashed

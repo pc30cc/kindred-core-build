@@ -30,7 +30,7 @@ import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspace
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { isChannelAllowedInEdition, isCurrencyAllowedInEdition, type Edition } from '../../shared/edition.js';
 import { PLAN_RETENTION_DAYS } from '../../shared/simpleBillingAdmin.js';
-import { mbToGb, planAiAllowance, storageLimitMb } from '../../shared/planLimits.js';
+import { planAiAllowance } from '../../shared/planLimits.js';
 import {
   handleWorkspaceEntitlementChanged,
   handlePlanDefinitionChanged,
@@ -114,25 +114,17 @@ plansRouter.get('/', async (req, res) => {
     .eq('is_hidden', false)
     .order('sort_order');
   if (error) return res.status(500).json({ error: 'Failed to load plans' });
-  // Storage is `storage_mb`. `storage_gb` here is a compatibility value
-  // computed from it (never stored; migration 272 removed the key from
-  // plans) for the landing pages' pricing tables, which still read GB.
-  // The monthly AI credit is the plan's ai_allowance (what the grant gives);
+  // Storage is `storage_mb` only (the landing pages' pricing tables read it
+  // since webyarlanding#83). The monthly AI credit is the plan's ai_allowance (what the grant gives);
   // ai_credits_per_month, which 271 removed from plans, is derived from it
   // for those readers too, so no page shows a second, different number.
   res.json({
     plans: ((data || []) as Array<{ limits?: Record<string, unknown> | null; ai_allowance?: Record<string, unknown> | null }>).map((p) => ({
       ...p,
-      limits: { ...p.limits, ...legacyStorageGb(p.limits), ai_credits_per_month: planAiAllowance(p) },
+      limits: { ...p.limits, ai_credits_per_month: planAiAllowance(p) },
     })),
   });
 });
-
-/** `{ storage_gb }` computed from `storage_mb` for GET /api/plans' outside readers; {} without one. */
-function legacyStorageGb(limits: Record<string, unknown> | null | undefined): { storage_gb?: number } {
-  const mb = storageLimitMb(limits);
-  return mb === null ? {} : { storage_gb: mbToGb(mb) };
-}
 
 // ─────────────────────────────────────────────────────────────
 // CAPABILITY CATALOG (registry-driven)

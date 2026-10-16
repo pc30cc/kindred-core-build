@@ -185,10 +185,85 @@ describe('the loader: registry and renderer side by side, prepare() with the loc
     expect(prepare).not.toHaveBeenCalled();
     w.__gs_presentation_registry = { resolve: () => ({ globalKey: '__gs_presentation_default' }) };
     (held.find((n) => n.getAttribute('data-gs-template') === 'registry') as unknown as { onload: () => void }).onload();
+    await Promise.resolve(); await Promise.resolve(); // past the (empty) font-stylesheet gate
     expect(prepare).toHaveBeenCalledTimes(1);
     expect(prepare).toHaveBeenCalledWith({ locale: 'en', templateId: 'default' });
     for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
     expect(init).toHaveBeenCalledTimes(1);
     expect(prepare).toHaveBeenCalledTimes(1);
+  });
+
+  /** Boots the loader with a font stylesheet in config and opens the panel; the
+   *  registry, the renderer and the font stylesheet are held for the test to fire. */
+  async function openWithFonts() {
+    document.getElementById('gs-presentation-fonts')?.remove(); // a page that has none yet
+    const w = window as unknown as Record<string, unknown>;
+    w.__gs_id = 'ws-test';
+    w.__gs_api_base = 'https://api.test';
+    const auto = (node: HTMLElement) => {
+      const tag = node.getAttribute && node.getAttribute('data-gs-template');
+      if (tag === 'registry' || tag === 'renderer' || node.id === 'gs-presentation-fonts') { held.push(node); return; }
+      if (node.tagName === 'SCRIPT' || node.tagName === 'LINK') {
+        if (node.getAttribute('data-gs-runtime-call') === 'true') return;
+        setTimeout(() => { const n = node as unknown as { onload?: () => void }; if (typeof n.onload === 'function') n.onload(); }, 0);
+      }
+    };
+    const patch = (target: Node) => {
+      const real = target.appendChild.bind(target);
+      vi.spyOn(target, 'appendChild').mockImplementation(((node: HTMLElement) => { auto(node); return real(node); }) as never);
+    };
+    patch(document.head);
+    const json = (body: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body), text: () => Promise.resolve(JSON.stringify(body)), headers: { get: () => null } });
+    w.fetch = vi.fn((url: string) => String(url).includes('/api/widget/bootstrap')
+      ? json({ session_token: 't', workspace_id: 'ws-test', availability: { state: 'online' } })
+      : String(url).includes('/api/widget/config')
+        ? json({
+          enabled: true, features: { chat: true }, primaryColor: '#3B82F6', templateId: 'default', locale: 'fa',
+          styleUrl: 'https://cdn.test/runtime.css', runtimeUrl: 'https://cdn.test/runtime.js',
+          presentationRegistryUrl: 'https://cdn.test/presentation-registry.js',
+          presentationUrl: 'https://cdn.test/presentation-default.js', presentationStyleUrl: 'https://cdn.test/presentation.css',
+          presentationFontsUrl: 'https://cdn.test/presentation-default-fonts.css',
+        })
+        : json({}));
+    new Function(read('public/widget/loader.js')).call(window);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+    patch(document.querySelector('gs-widget')!.shadowRoot!);
+    const prepare = vi.fn(() => Promise.resolve());
+    w.__gs_runtime = { init: vi.fn(() => ({ open() {}, close() {}, toggle() {}, isOpen: () => true })) };
+    (document.querySelector('gs-widget')!.shadowRoot!.querySelector('.launcher') as HTMLButtonElement).click();
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+    w.__gs_presentation_default = { prepare, create: () => ({}) };
+    w.__gs_presentation_registry = { resolve: () => ({ globalKey: '__gs_presentation_default' }) };
+    for (const tag of ['renderer', 'registry']) {
+      (held.find((n) => n.getAttribute('data-gs-template') === tag) as unknown as { onload: () => void }).onload();
+    }
+    for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+    const fontsLink = held.find((n) => n.id === 'gs-presentation-fonts')!;
+    expect(fontsLink, 'the font stylesheet is injected at document level').toBeTruthy();
+    return { prepare, fontsLink };
+  }
+
+  it('runs prepare() only once the font stylesheet has loaded, so its faces are declared', async () => {
+    const { prepare, fontsLink } = await openWithFonts();
+    expect(prepare).not.toHaveBeenCalled();
+    fontsLink.dispatchEvent(new Event('load'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledWith({ locale: 'fa', templateId: 'default' });
+  });
+
+  it('a font stylesheet that fails or never arrives costs only the typeface: prepare() still runs (error, or 800 ms)', async () => {
+    const failed = await openWithFonts();
+    failed.fontsLink.dispatchEvent(new Event('error'));
+    await Promise.resolve(); await Promise.resolve();
+    expect(failed.prepare).toHaveBeenCalledTimes(1);
+
+    vi.restoreAllMocks(); held.length = 0;
+    document.head.innerHTML = ''; document.body.innerHTML = '';
+    for (const key of Object.keys(window)) if (key.indexOf('__gs') === 0) delete (window as unknown as Record<string, unknown>)[key];
+    const hung = await openWithFonts();
+    expect(hung.prepare).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 850));
+    expect(hung.prepare).toHaveBeenCalledTimes(1);
   });
 });

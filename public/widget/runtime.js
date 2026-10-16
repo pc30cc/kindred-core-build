@@ -732,8 +732,11 @@
    */
   function moduleSources(ctx, name, file) {
     var config = (ctx && ctx.config) || {};
+    // The build's version (the shipped loader's hash, from /config) first: it
+    // changes with every deploy. `_loaderVersion` is the loader's own fixed
+    // constant, kept only as the fallback for a backend that sends none.
     var canonical = ((ctx && ctx.assetBase) || '') + '/widget/' + file + '?v=' +
-      (config._loaderVersion || config.loaderVersion || 'dev');
+      encodeURIComponent(config.loaderVersion || config._loaderVersion || 'dev');
     var hashed = config.modules && typeof config.modules[name] === 'string' ? config.modules[name] : '';
     return hashed ? { url: hashed, fallback: canonical } : { url: canonical, fallback: null };
   }

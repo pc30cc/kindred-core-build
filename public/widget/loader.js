@@ -1596,14 +1596,33 @@
   // must already paint in the template's own typeface. The stylesheet is
   // also expected to publish a generic `--gs-presentation-font` custom
   // property, which the shell consumes through a var() fallback.
+  // Settles once the template's font stylesheet has loaded or failed (null
+  // while none was injected): the template's prepare() asks the browser for
+  // faces, and a face the stylesheet has not declared yet is found missing at
+  // once, so the panel would open in the fallback font and swap. The loader
+  // still knows nothing of what the stylesheet holds.
+  var presentationFontsReady = null;
+  function stylesheetSettled(link) {
+    return new Promise(function (resolve) {
+      try { if (link.sheet) { resolve(); return; } } catch (_) { /* noop */ }
+      link.addEventListener("load", function () { resolve(); });
+      link.addEventListener("error", function () { resolve(); });
+    });
+  }
+
   function injectPresentationFonts(url) {
     if (!url) return;
     try {
-      if (document.getElementById("gs-presentation-fonts")) return;
+      var existing = document.getElementById("gs-presentation-fonts");
+      if (existing) {
+        if (!presentationFontsReady) presentationFontsReady = stylesheetSettled(existing);
+        return;
+      }
       var fontsLink = document.createElement("link");
       fontsLink.id = "gs-presentation-fonts";
       fontsLink.rel = "stylesheet";
       fontsLink.href = url;
+      presentationFontsReady = stylesheetSettled(fontsLink);
       (document.head || document.documentElement).appendChild(fontsLink);
       // Mirror the presentation font custom property onto the shadow host.
       // Custom properties normally inherit into the shadow tree, but the
@@ -1707,13 +1726,20 @@
         ? registry.resolve(configData.templateId)
         : null;
       var presentationModule = descriptor ? window[descriptor.globalKey] : null;
-      var ready = null;
-      try {
-        ready = presentationModule && typeof presentationModule.prepare === "function"
-          ? presentationModule.prepare({ locale: configData.locale, templateId: configData.templateId })
-          : null;
-      } catch (_) { ready = null; }
-      preparation = Promise.resolve(ready).catch(function () {
+      // prepare() runs once the font stylesheet is in (at most 800 ms later:
+      // a slow or failed stylesheet only costs the typeface, never the panel).
+      var fontsGate = presentationFontsReady
+        ? Promise.race([presentationFontsReady, new Promise(function (resolve) { setTimeout(resolve, 800); })])
+        : Promise.resolve();
+      preparation = fontsGate.then(function () {
+        var ready = null;
+        try {
+          ready = presentationModule && typeof presentationModule.prepare === "function"
+            ? presentationModule.prepare({ locale: configData.locale, templateId: configData.templateId })
+            : null;
+        } catch (_) { ready = null; }
+        return ready;
+      }).catch(function () {
         // Readiness is best-effort. A template must never make the widget
         // permanently unavailable because a font or other visual asset failed.
       });

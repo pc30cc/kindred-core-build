@@ -297,6 +297,82 @@ describe('nginx: hashed widget files (scripts, stylesheets, fonts)', () => {
   });
 });
 
+/**
+ * The call widget (/call-widget/): l.js keeps its fixed URL (customer
+ * snippets) and is revalidated on every use; every file it names is
+ * content-addressed by scripts/call-widget-hash.js and kept a year.
+ */
+describe('nginx: the call widget', () => {
+  const HASHED_MATCH = '~* "^/call-widget/[a-z0-9.-]+\\.[a-f0-9]{12}\\.(?:js|css)$"';
+  const VENDOR_MATCH = '~* "^/call-widget/vendor/"';
+  const outer = () => locationBlock('^~ /call-widget/');
+  /** The outer block's own directives (l.js and the fixed names), nested locations removed. */
+  const fallback = () => {
+    let body = outer();
+    for (const match of [HASHED_MATCH, VENDOR_MATCH]) {
+      const start = body.indexOf(`location ${match} {`);
+      expect(start, match).toBeGreaterThan(-1);
+      let depth = 0;
+      // Braces are counted after the match (a regex match may hold some).
+      for (let i = start + `location ${match} `.length; i < body.length; i++) {
+        if (body[i] === '{') depth++;
+        else if (body[i] === '}' && --depth === 0) { body = body.slice(0, start) + body.slice(i + 1); break; }
+      }
+    }
+    return body;
+  };
+
+  it('has a hashed rule matching every name the build writes, and nothing else', () => {
+    expect(outer()).toContain(`location ${HASHED_MATCH}`);
+    const re = new RegExp('^/call-widget/[a-z0-9.-]+\\.[a-f0-9]{12}\\.(?:js|css)$', 'i');
+    for (const name of ['runtime.3ad32e375fff.js', 'runtime.049256308da5.css', 'presentation-intl.1c6dd47ff3df.css', 'presentation-registry.2f8fda6ef5d1.js']) {
+      expect(re.test(`/call-widget/${name}`), name).toBe(true);
+    }
+    for (const name of ['l.js', 'runtime.js', 'presentation-default.css', 'vendor/livekit-client.umd.min.js', 'call-widget-manifest.json', 'runtime.3ad32e375fff.js.gz']) {
+      expect(re.test(`/call-widget/${name}`), name).toBe(false);
+    }
+  });
+
+  it('serves hashed files a year, immutable, from the .gz copies, with CORS; a missing one is a 404 nothing stores', () => {
+    const block = locationBlock(HASHED_MATCH);
+    expect(block).toMatch(/gzip_static\s+on;/);
+    expect(block).toMatch(/add_header\s+Cache-Control\s+"public, max-age=31536000, immutable";/);
+    expect(block).not.toMatch(/immutable"\s+always/);
+    // One Cache-Control only (nested locations inherit `expires`).
+    expect(block).toMatch(/^\s*expires\s+off;/m);
+    expect(block.match(/\bexpires\b/g)).toHaveLength(1);
+    expect(block).toMatch(/add_header\s+Access-Control-Allow-Origin\s+"\*"\s+always;/);
+    expect(block).toMatch(/add_header\s+Cross-Origin-Resource-Policy\s+"cross-origin"\s+always;/);
+    expect(block).toMatch(/try_files\s+\$uri\s+@missing_widget_asset;/);
+  });
+
+  it('revalidates l.js and the fixed names on every use (ETag, 304) and keeps them off every CDN', () => {
+    const own = fallback();
+    expect(own).toMatch(/add_header\s+Cache-Control\s+"no-cache, must-revalidate"\s+always;/);
+    expect(own).toMatch(/add_header\s+CDN-Cache-Control\s+"no-store"\s+always;/);
+    expect(own).toMatch(/add_header\s+Cloudflare-CDN-Cache-Control\s+"no-store"\s+always;/);
+    expect(own).toMatch(/add_header\s+Access-Control-Allow-Origin\s+"\*"\s+always;/);
+    expect(own).toMatch(/add_header\s+Cross-Origin-Resource-Policy\s+"cross-origin"\s+always;/);
+    // Not no-store for browsers (that re-downloaded the whole UI on every
+    // page view), and no `expires` a nested location would inherit.
+    expect(own).not.toMatch(/add_header\s+Cache-Control\s+"[^"]*no-store/);
+    expect(own).not.toMatch(/\bexpires\b/);
+    expect(own).not.toMatch(/Pragma|Surrogate-Control|Expires/);
+    // Never the SPA's index.html for a widget path.
+    expect(own).toMatch(/try_files\s+\$uri\s+=404;/);
+  });
+
+  it('keeps the fixed-name LiveKit file a year, with one Cache-Control, never on an error, and no kept 404', () => {
+    const vendor = locationBlock(VENDOR_MATCH);
+    expect(vendor).toMatch(/add_header\s+Cache-Control\s+"public, max-age=31536000, immutable";/);
+    expect(vendor).not.toMatch(/immutable"\s+always/);
+    expect(vendor).toMatch(/^\s*expires\s+off;/m);
+    expect(vendor.match(/\bexpires\b/g)).toHaveLength(1);
+    expect(vendor).toMatch(/add_header\s+Access-Control-Allow-Origin\s+"\*"\s+always;/);
+    expect(vendor).toMatch(/try_files\s+\$uri\s+@missing_widget_asset;/);
+  });
+});
+
 describe('precompress', () => {
   const dir = mkdtempSync(join(tmpdir(), 'precompress-'));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));

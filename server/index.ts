@@ -209,13 +209,14 @@ function widgetAssetHeaderMap(filePath: string): Record<string, string> {
   if (/livekit-client\.umd\.min\.js$/i.test(filePath)) {
     headers['Cache-Control'] = 'public, max-age=31536000, immutable';
   } else {
-    // Loader + runtime are NOT content-hashed. If we let CDNs cache them
-    // even briefly, customers see stale widget UI after every deploy and
-    // a Cloudflare purge isn't always enough (heuristic / edge TTL).
-    // Force no-store everywhere so each page load fetches fresh bytes.
-    headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0';
-    headers['Pragma'] = 'no-cache';
-    headers['Expires'] = '0';
+    // l.js and the files at their fixed names (this image has no hashed
+    // copies): the browser keeps them but revalidates on every use
+    // (ETag / Last-Modified -> a bodiless 304), a CDN never stores them, so
+    // a deploy is seen at the next page view without re-sending unchanged
+    // bytes. The raw loader versions them with the bootstrap's
+    // assets_version (a hash of these files). They used to be no-store,
+    // re-downloaded in full on every page view.
+    headers['Cache-Control'] = 'no-cache, must-revalidate';
     headers['Surrogate-Control'] = 'no-store';
     headers['CDN-Cache-Control'] = 'no-store';
     headers['Cloudflare-CDN-Cache-Control'] = 'no-store';

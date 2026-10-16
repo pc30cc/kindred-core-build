@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 /**
  * Widget design contract lock.
@@ -133,9 +133,13 @@ describe('typography ownership', () => {
     expect(readFileSync('server/routes/callWidget.ts', 'utf8')).toContain('font_style_url:');
     const callCss = readFileSync('public/call-widget/runtime.css', 'utf8');
     expect(callCss).not.toMatch(/@font-face/);
-    // Nor its presentation stylesheets: they load inside the shadow root,
-    // where faces are not used; the document-level font_style_url has them.
-    for (const f of ['presentation-default.css', 'presentation-intl.css']) {
+    // Nor any of its presentation stylesheets: they load inside the shadow
+    // root, where faces are not used; the document-level fonts stylesheet
+    // (the loader's build names it, else the bootstrap's font_style_url)
+    // has them.
+    const callSheets = readdirSync('public/call-widget').filter((f) => /^presentation-[a-z0-9-]+\.css$/.test(f));
+    expect(callSheets).toEqual(expect.arrayContaining(['presentation-default.css', 'presentation-intl.css']));
+    for (const f of callSheets) {
       expect(readFileSync(`public/call-widget/${f}`, 'utf8'), f).not.toMatch(/@font-face|\.woff2/);
     }
   });

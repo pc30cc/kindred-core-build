@@ -67,8 +67,8 @@ describe('Call Widget presentation contract', () => {
   it('loads the media SDK only when a call needs it and ignores cancelled calls', () => {
     const loader = read('public/call-widget/l.js');
     const runtime = read('public/call-widget/runtime.js');
-    expect(loader).toContain('loadPresentation();');
-    expect(loader).not.toContain('ensureLiveKitSdk(loadPresentation)');
+    expect(loader).toContain('loadScripts(scriptPaths());');
+    expect(loader).not.toMatch(/ensureLiveKitSdk\((?!cb)/);
     expect(loader).toContain('loadLiveKitSdk: ensureLiveKitSdk');
     expect(runtime).toContain('this.loadLiveKitSdk(function (ready)');
     expect(runtime).toContain('(self._mediaLoadGeneration || 0) !== pendingGeneration');

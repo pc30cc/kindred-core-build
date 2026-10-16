@@ -64,6 +64,9 @@ respectively. Workers, Centrifugo, and LiveKit are run separately.
 2. `node scripts/widget-hash.js` — copies `public/widget/*` into
    `dist/widget/` with content-hashed filenames and writes
    `dist/widget/widget-manifest.json`.
+3. `node scripts/call-widget-hash.js` — the call widget's own step
+   (§6): content-hashed copies of `public/call-widget/*`, their names
+   written into `dist/call-widget/l.js`.
 
 Hashed files (8-char MD5 prefix):
 
@@ -81,7 +84,8 @@ Stable / never hashed:
 
 - `loader.js` — the visitor's `<script>` tag points at this and must
   remain at a stable URL.
-- All files under `public/call-widget/` (separate widget; see §6).
+- `call-widget/l.js` — the call widget's loader, also at a stable URL
+  (its own build step and cache policy: §6).
 
 The hash script enforces several **fail-loud** invariants. The build
 exits non-zero if:
@@ -188,22 +192,93 @@ Operators running split deployments must additionally:
 
 ## 6. Call-widget asset serving
 
-The call widget under `public/call-widget/` is **not** part of the
-widget-hash manifest. Its files (`l.js`, `runtime.js`, `runtime.css`,
-`vendor/livekit-client.umd.min.js`) are copied as-is to the static
-output and served by nginx.
+The call widget (`public/call-widget/`) has its own build step,
+`scripts/call-widget-hash.js`, run by `npm run build` after
+`widget-hash.js`:
 
-Cache invalidation for the call widget relies on a query string
-cache-bust appended at fetch time inside `public/call-widget/l.js`.
-This is **less robust** than the chat widget's content-hash strategy:
-a CDN configured to ignore query strings would defeat it.
+- `runtime.js`, `runtime.css` and every `presentation-*.js|css` are
+  minified and written twice: as `<name>.<sha256/12>.<ext>` and under
+  their fixed name (the same bytes). Level-9 `.gz` copies of the hashed
+  files serve nginx's `gzip_static`.
+  `dist/call-widget/call-widget-manifest.json` lists them.
+- Those names, and two files the chat widget's build already hashes
+  (`dist/widget/widget-manifest.json`: the fonts stylesheet and
+  `vendor/livekit-client.umd.min.<hash>.js`, the same SDK bytes, so both
+  widgets share one cache entry), are written INTO `l.js` (an esbuild
+  `define`). `l.js` and the files it names ship in the same
+  frontend image, so a loader never names another deploy's file, and
+  nothing about them comes from the backend.
 
-Operational implication: when editing call-widget runtime files,
-operators should additionally purge the CDN path
-`/call-widget/runtime.js` and `/call-widget/runtime.css`.
+nginx (`location ^~ /call-widget/` in `nginx.conf.template`):
 
-The call widget's bootstrap endpoint is `/api/call-widget/bootstrap`;
-log prefix is `[call-widget]`.
+| Path | Cache |
+|---|---|
+| `<name>.<12 hex>.js` / `.css` | `public, max-age=31536000, immutable`; a name this image does not have is a `no-store` 404 (`@missing_widget_asset`) |
+| `l.js` and the fixed names | `no-cache, must-revalidate` (the browser revalidates on every use: ETag, 304) + `CDN-Cache-Control` / `Cloudflare-CDN-Cache-Control: no-store` |
+| `vendor/livekit-client.umd.min.js` (fixed name) | a year, as before (older loaders, and the fallback below); a miss is a `no-store` 404 |
+
+**No CDN purge is needed after a call-widget change**: `l.js` is never
+reused without revalidation and every file it names is
+content-addressed. (It used to be the opposite: every file `no-store`
+plus a per-load `&t=` token, and a purge after each edit.)
+
+How a page loads it:
+
+- A built `l.js` starts the registry, the presentation and the runtime
+  at once (ordered `async = false` scripts), in parallel with the
+  bootstrap, and mounts when both are in. A returning visitor has them
+  cached: a page view costs the `l.js` revalidation and the bootstrap.
+- Stylesheets go only into the widget's shadow root; the host stays
+  hidden until both have loaded (10 s at most). Font faces come from the
+  build's fonts stylesheet (else the bootstrap's `font_style_url`),
+  linked once per page as `#gs-presentation-fonts`.
+- A hashed script that is not there (a stale `l.js`, or the other
+  container during a rolling deploy) makes `l.js` load all three again by
+  their fixed names with `?v=<assets_version>&t=<now>`; a missing hashed
+  stylesheet, or the hashed LiveKit SDK, is retried once by its fixed
+  name.
+- A bootstrap answered with a rate limit (429), a server error (5xx) or
+  not at all is asked again once, after its `Retry-After` (at most 10 s;
+  2 s when it names none) plus up to half a second; then the loader gives
+  up quietly, as before.
+- When the bootstrap says the widget is off (disabled, unknown
+  workspace, site not allowed; not a 5xx or 429), `l.js` remembers it in
+  the site's `localStorage` (`ccw_off:<workspace>:<api base>`) and next
+  time downloads nothing until the bootstrap says it is on again.
+
+The fixed names stay for older loaders still on customers' pages or in
+their caches, the operator preview (Call Center settings) and the
+fallback above.
+
+The backend image also serves the raw `public/call-widget/`
+(`Dockerfile.server`) for old snippets that point at the API origin. That
+`l.js` has no build names: it waits for the bootstrap and loads the fixed
+names with `?v=<assets_version>`, a hash of those files in the same image
+(`CALL_WIDGET_ASSETS_VERSION`), served `no-cache` by `server/index.ts`.
+
+The bootstrap, `/api/call-widget/bootstrap` (log prefix
+`[call-widget]`), runs on every page view, so:
+
+- Its workspace-level part (settings, platform switches, provider,
+  recording, departments, ringback, avatar, edition, template, credit) is
+  kept per process for 30 s (`server/services/callCenter/bootstrapCache.ts`),
+  keyed by the workspace only (never by anything else the request
+  carries; the URLs built from the loader's asset origin are made per
+  request): concurrent misses share one load, at most 5000 workspaces,
+  failures not kept. A key that names no workspace is kept 10 s in its own
+  1000-entry map, so made-up ids cannot push real workspaces out. A call-center settings save, a
+  platform call-center settings change and the admin cache invalidation
+  drop it in that process at once; other processes see a change within
+  30 s.
+- After a full visitor pass it sets `dvccp`, a signed, HttpOnly,
+  Partitioned, 60-second cookie scoped to the bootstrap path
+  (`server/services/callCenter/presenceTicket.ts`). While it holds for
+  the same visitor cookie and network, the next bootstraps skip the
+  visitor queries (an identified visitor's contact is read by key). The
+  Online Visitors row is still refreshed by the next full pass, at most a
+  minute later, as before.
+- A page view never creates a `call_center_settings` row.
+- Preflights carry `Access-Control-Max-Age: 7200`.
 
 ---
 
@@ -269,8 +344,10 @@ These do not change code. They are operator-level checklists.
       `loaderVersion` is a real hash.
 - [ ] CDN paths `/widget/loader.js` and `/api/widget/config` are
       either uncached or were purged.
-- [ ] When call-widget files were edited, CDN paths
-      `/call-widget/*.js` and `/call-widget/*.css` were purged.
+- [ ] `curl -sI https://<app>/call-widget/l.js` shows
+      `Cache-Control: no-cache, must-revalidate`, and the hashed names in
+      it (`dist/call-widget/call-widget-manifest.json`) answer 200 with
+      `immutable`. No CDN purge is needed for the call widget (§6).
 - [ ] If a widget template slug was added, the new hashed
       `runtime.js` is reachable at the URL returned by
       `/api/widget/config`.

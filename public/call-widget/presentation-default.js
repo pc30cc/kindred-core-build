@@ -9,7 +9,12 @@
 (function (global) {
   'use strict';
   var registry = global.CallWidgetPresentations;
-  if (!registry) throw new Error('call_widget_presentation_registry_missing');
+  // No registry: its file did not load (l.js starts the three files side by
+  // side, and a stale loader's hashed registry may be gone while this file is
+  // not). Nothing to register with; l.js then loads all three again by their
+  // fixed names, registry first. Silent: never an uncaught error on the
+  // customer's page.
+  if (!registry) return;
 
   // Presentation-owned state vocabulary. The runtime only publishes these
   // values; deciding what markup each state produces belongs here.
@@ -746,20 +751,44 @@
       var host = document.createElement('div');
       host.id = 'call-center-widget-host';
       host.style.all = 'initial';
+      // Hidden until both stylesheets have loaded (or failed): the launcher
+      // never shows unstyled. From the HTTP cache this is the same frame.
+      host.style.display = 'none';
       document.body.appendChild(host);
       var shadow = host.attachShadow({ mode: 'open' });
-      var runtimeStyle = document.createElement('link');
-      runtimeStyle.rel = 'stylesheet';
-      runtimeStyle.href = context.origin + '/call-widget/runtime.css' + context.runtimeAssetSuffix;
-      shadow.appendChild(runtimeStyle);
       var assets = (context.bootstrap && context.bootstrap.assets) || {};
       var presentationPath = /^\/call-widget\/[a-z0-9.-]+$/i.test(assets.presentation_style_url || '')
         ? assets.presentation_style_url : '/call-widget/presentation-default.css';
-      var presentationStyle = document.createElement('link');
-      presentationStyle.rel = 'stylesheet';
-      presentationStyle.href = context.origin + presentationPath + context.runtimeAssetSuffix;
-      shadow.appendChild(presentationStyle);
-      var fontHref = assets.font_style_url;
+      // The loader names this build's hashed copies; an older loader (or the
+      // operator preview) passes only the version suffix of the fixed names.
+      var fixedUrl = function (path) { return context.origin + path + (context.runtimeAssetSuffix || ''); };
+      var url = typeof context.assetUrl === 'function' ? context.assetUrl : fixedUrl;
+      var waiting = 2;
+      function shown() {
+        if (waiting <= 0) return;
+        if (--waiting === 0) host.style.display = 'inline';
+      }
+      setTimeout(function () { if (waiting > 0) { waiting = 1; shown(); } }, 10000);
+      ['/call-widget/runtime.css', presentationPath].forEach(function (path) {
+        var link = document.createElement('link');
+        var first = url(path);
+        var retried = false;
+        link.rel = 'stylesheet';
+        link.onload = shown;
+        link.onerror = function () {
+          // A hashed copy the server that answered does not have (the other
+          // container during a rolling deploy): the fixed name is on every
+          // build. Once, then show whatever there is.
+          var fixed = fixedUrl(path);
+          if (!retried && fixed !== first) { retried = true; link.href = fixed; return; }
+          shown();
+        };
+        link.href = first;
+        shadow.appendChild(link);
+      });
+      // Font faces register only at document level (Chrome ignores
+      // @font-face inside a shadow root), once per page for both widgets.
+      var fontHref = context.fontsUrl || assets.font_style_url;
       if (fontHref && !document.getElementById('gs-presentation-fonts')) {
         var fontStyle = document.createElement('link');
         fontStyle.id = 'gs-presentation-fonts';

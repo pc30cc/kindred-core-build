@@ -7,9 +7,10 @@
  * Palette: the RESPOK brand kit (shared/panelThemes.ts `respok`) — Ink on
  * Paper, Mist hairlines, Slate secondary text, Signal as the accent. */
 
-/* Typefaces: the shared, document-level font stylesheet the bootstrap names
- * (`assets.font_style_url`, injected by createHost): Inter for Latin text, the
- * Persian face for right-to-left Persian text. */
+/* Typefaces: the shared, document-level font stylesheet (the one the
+ * loader's build names, else the bootstrap's `assets.font_style_url`; linked
+ * by createHost): Inter for Latin text, the Persian face for right-to-left
+ * Persian text. */
 
 .ccw-root.ccw-presentation-intl {
   --ccw-ink: 245 37% 12%;

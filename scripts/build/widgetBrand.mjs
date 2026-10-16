@@ -77,9 +77,10 @@ export function stripLocalKit(source, name = 'source') {
  * @param {string} name file name (its extension picks the loader)
  * @param {string | Buffer} input
  * @param {'respok' | 'iran' | 'both'} brand
+ * @param {{ define?: Record<string, string> }} [options] extra esbuild `define`s (JS only)
  * @returns {string | Buffer}
  */
-export function transformWidgetAsset(name, input, brand) {
+export function transformWidgetAsset(name, input, brand, options = {}) {
   const isJs = name.endsWith('.js');
   const isCss = name.endsWith('.css');
   if (!isJs && !isCss) return input;
@@ -87,7 +88,7 @@ export function transformWidgetAsset(name, input, brand) {
   let declared = [];
   if (brand === 'respok') ({ source, declared } = stripLocalKit(source, name));
   const result = transformSync(source, isJs
-    ? { loader: 'js', minify: true, legalComments: 'none', target: JS_TARGET, charset: 'utf8', ...(brand === 'respok' ? { define: { LOCAL_KIT: 'false' } } : {}) }
+    ? { loader: 'js', minify: true, legalComments: 'none', target: JS_TARGET, charset: 'utf8', define: { ...(options.define || {}), ...(brand === 'respok' ? { LOCAL_KIT: 'false' } : {}) } }
     : { loader: 'css', minify: true, legalComments: 'none', target: CSS_TARGET, charset: 'utf8' });
   const code = result.code;
   if (isJs && brand === 'respok') {

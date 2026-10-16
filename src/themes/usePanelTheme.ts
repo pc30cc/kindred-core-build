@@ -3,7 +3,8 @@
  *
  * The Super Admin picks one for the whole platform (Super Admin → Panel theme),
  * with the theme's options (Art: its layout, top menu or side menu, and its
- * colour scheme; Vivid: its colour scheme); every member reads them from the public config
+ * colour scheme; Vivid, built on Art: the same layouts and its own colour
+ * scheme); every member reads them from the public config
  * (`branding.workspace_panel_theme` / `workspace_panel_theme_options`). The
  * last values seen are kept in localStorage so the panel's first paint (and
  * its loading skeleton) already wears them.
@@ -15,8 +16,9 @@
  * whoever signs in next on the tab never sees it.
  *
  * AppLayout applies the result as `<html data-panel-theme="...">` (plus
- * `data-panel-layout` / `data-panel-palette` for Art, `data-panel-palette`
- * for Vivid) while the panel is open
+ * `data-panel-layout` / `data-panel-palette` for Art and Vivid, and
+ * `data-panel-family="art"` for both, which Art's stylesheets are keyed to)
+ * while the panel is open
  * and removes them on leaving, so the Super Admin panel, sign-in and help
  * center keep their own look. Portalled dialogs, menus and toasts sit under
  * <html> too, so they follow the theme.
@@ -34,6 +36,7 @@ import {
   PANEL_THEME_OPTION_KEYS,
   artPaletteFor,
   isPanelThemeId,
+  panelThemeFamily,
   resolvePanelTheme,
   resolvePanelThemeOptions,
   resolvePanelThemeSelection,
@@ -216,12 +219,18 @@ export function useApplyPanelTheme(theme: PanelThemeId, options?: object) {
     const root = document.documentElement;
     const values = JSON.parse(key) as Record<string, string>;
     root.dataset.panelTheme = theme;
+    // Art and the themes built on it (Vivid) share Art's stylesheets, keyed
+    // to data-panel-family="art".
+    const family = panelThemeFamily(theme);
+    if (family) root.dataset.panelFamily = family;
+    else delete root.dataset.panelFamily;
     for (const option of PANEL_THEME_OPTION_KEYS) {
       if (option in values) root.dataset[datasetName(option)] = values[option];
       else delete root.dataset[datasetName(option)];
     }
     return () => {
       delete root.dataset.panelTheme;
+      delete root.dataset.panelFamily;
       for (const option of PANEL_THEME_OPTION_KEYS) delete root.dataset[datasetName(option)];
     };
   }, [theme, key]);

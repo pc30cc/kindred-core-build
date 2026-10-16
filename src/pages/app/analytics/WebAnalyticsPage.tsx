@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { usePanelTheme } from '@/themes/usePanelTheme';
+import { isArtFamilyTheme } from '../../../../shared/panelThemes';
 import { SkeletonStats } from '@/components/common/Skeletons';
 import { WebAnalyticsSection } from '@/pages/app/seo/WebAnalyticsSection';
 import { WebAnalyticsSectionNav } from './WebAnalyticsSectionNav';
@@ -17,7 +18,7 @@ export default function WebAnalyticsPage() {
   const { t } = useTranslation();
   // Art gives every page a title of its own; Classic names the report in
   // its side list only.
-  const isArt = usePanelTheme().theme === 'art';
+  const isArt = isArtFamilyTheme(usePanelTheme().theme);
 
   // Canonicalize the URL: bare /analytics redirects to the first report so
   // the nav's active state is always well-defined.

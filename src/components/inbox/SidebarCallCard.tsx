@@ -24,6 +24,7 @@ import { useTranslation } from '@/i18n';
 import { Link } from 'react-router-dom';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { usePanelTheme } from '@/themes/usePanelTheme';
+import { isArtFamilyTheme } from '../../../shared/panelThemes';
 import {
   type CallInvitation,
   type InvitationChannel,
@@ -74,7 +75,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   };
   const t = (key: string, vars?: Record<string, string>): string => safeT(key, '', vars);
   // Art: the plan note ends with the way out (a quiet clay link).
-  const isArt = usePanelTheme().theme === 'art';
+  const isArt = isArtFamilyTheme(usePanelTheme().theme);
   const wsPath = useWorkspacePath();
 
   const {

@@ -16,6 +16,7 @@ import RichTextEditor from '@/components/app/knowledge/RichTextEditor';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { usePanelTheme } from '@/themes/usePanelTheme';
+import { isArtFamilyTheme } from '../../../../shared/panelThemes';
 import { personTone } from '@/components/inbox/personTone';
 import readerFont400 from '@/assets/fonts/iransans-400.woff2?url';
 import readerFont500 from '@/assets/fonts/iransans-500.woff2?url';
@@ -247,7 +248,7 @@ function ThreadList({
   }, [threads, onRows]);
   // Art: one header row like the inbox list's (the search, "Unread" as a
   // pill beside it, refresh), and the refresh circle's spin says it syncs.
-  const isArt = usePanelTheme().theme === 'art';
+  const isArt = isArtFamilyTheme(usePanelTheme().theme);
 
   const unreadToggle = (
     <Badge
@@ -362,7 +363,7 @@ function ReplyComposer({
   const sendEmailMutation = useSendEmail(workspaceId, scope);
   // Art: the reply waits as one line under the message and opens on a click
   // (the message keeps the room); classic keeps the editor open.
-  const isArt = usePanelTheme().theme === 'art';
+  const isArt = isArtFamilyTheme(usePanelTheme().theme);
   const [open, setOpen] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -761,7 +762,7 @@ function useArtReaderCss(enabled: boolean): string {
 
 function ThreadReader({ messages }: { messages: EmailMessageView[] }) {
   const { t, locale, dir } = useTranslation();
-  const artCss = useArtReaderCss(usePanelTheme().theme === 'art');
+  const artCss = useArtReaderCss(isArtFamilyTheme(usePanelTheme().theme));
   const doc = useMemo(
     () => readerDocument(messages, dir || 'ltr', locale, (k) => t(k as TranslationKey), '', artCss ? { css: artCss } : undefined),
     [messages, dir, locale, t, artCss],
@@ -792,7 +793,7 @@ function ThreadView({
   row: { isRead: boolean; isStarred: boolean; version: string | null } | null;
 }) {
   const { t, dir } = useTranslation();
-  const isArt = usePanelTheme().theme === 'art';
+  const isArt = isArtFamilyTheme(usePanelTheme().theme);
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
   const { data, isLoading } = useEmailThread(workspaceId, scope, threadId, row);

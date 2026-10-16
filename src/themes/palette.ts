@@ -40,6 +40,8 @@ export type PaletteTransform = (family: PaletteFamily, shade: PaletteShade, colo
 
 const THEME_PALETTES: Partial<Record<PanelThemeId, PaletteTransform>> = {
   art: artPalette,
+  // Vivid is drawn by Art: the same calm pigments under its accent.
+  vivid: artPalette,
 };
 
 // ── sRGB ⇄ OKLCH (Björn Ottosson's OKLab) ──────────────────────────────

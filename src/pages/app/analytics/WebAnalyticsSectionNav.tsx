@@ -5,6 +5,7 @@ import { useTranslation, type TranslationKey } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { cn } from '@/lib/utils';
 import { usePanelTheme } from '@/themes/usePanelTheme';
+import { isArtFamilyTheme } from '../../../../shared/panelThemes';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { WEB_ANALYTICS_NAV, type WebAnalyticsNavGroup, type WebAnalyticsNavLeaf } from './webAnalyticsNavTree';
@@ -35,7 +36,7 @@ function SubNavGroup({ group, activeSubsectionKey }: { group: WebAnalyticsNavGro
   // full report tree is visible without extra clicks. Art's list is a
   // floating panel (a row of pills on a phone) that must fit the screen:
   // only the open report's group is expanded, the others open on a click.
-  const isArt = usePanelTheme().theme === 'art';
+  const isArt = isArtFamilyTheme(usePanelTheme().theme);
   const [open, setOpen] = useState(isArt ? hasActiveChild : true);
 
   useEffect(() => {

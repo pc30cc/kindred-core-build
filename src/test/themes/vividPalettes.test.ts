@@ -1,16 +1,18 @@
 /**
  * Vivid's colour schemes (src/themes/vivid/theme.css, palettes.css,
- * palettes.ts).
+ * palettes.ts): one accent each, over Art's own paper and ink.
  *
  * The promises this checks, for every scheme in light and in dark, on the
- * colours the panel really wears (theme.css's tokens, then the scheme's own
- * block):
- *   - Contrast (WCAG 2.x): text on the scheme's colour, the colour as text on
- *     the cards, the canvas, its own 10% tint and the hero tint, muted text on
- *     every surface it sits on, and the status colours at least 4.5:1; the
- *     focus ring and every chart series at least 3:1 against the cards.
- *   - A scheme sets exactly the scheme tokens, in light and dark, as plain
- *     HSL triplets; series 1 is its main colour.
+ * colours the panel really wears (Art's shared stylesheets, which Vivid
+ * wears as Art's family, then Vivid's layer, then the scheme's own block):
+ *   - Contrast (WCAG 2.x): text on the accent, the accent as text on Art's
+ *     cards, paper and side menu, on its own 10% tint and on the key figure's
+ *     panel, and muted text on that panel at least 4.5:1; the focus ring and
+ *     every chart series at least 3:1 against the cards.
+ *   - The six chart series stay apart, also for colour-blind eyes; series 1
+ *     is the accent's hue.
+ *   - A scheme sets exactly the scheme tokens, as plain HSL triplets, and
+ *     never Art's paper or ink.
  *   - The Super Admin's swatches show exactly the colours the panel wears.
  */
 import { readFileSync } from 'node:fs';
@@ -25,23 +27,32 @@ type Tokens = Record<string, string>;
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 const ROOT = ':root[data-panel-theme="vivid"]';
+const FAMILY = ':root[data-panel-family="art"]';
+// Art's shared stylesheets in the order src/main.tsx loads them (Art's own
+// schemes, palettes.css, are Art's alone), then Vivid's layer.
+const ART_FILES = ['theme', 'components', 'pages', 'inbox', 'sidebar', 'charts'].map((name) => `src/themes/art/${name}.css`);
 const MODES: Mode[] = ['light', 'dark'];
 const TRIPLET = /^(-?\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/;
-const SERIES = [1, 2, 3, 4].map((n) => `--vivid-chart-${n}`);
+const SERIES = [1, 2, 3, 4, 5, 6].map((n) => `--art-chart-${n}`);
 /** What a scheme sets (palettes.css's header); everything else is shared or derived. */
 const SCHEME_TOKENS = [
   '--primary',
   '--primary-foreground',
+  '--gold',
+  '--gold-foreground',
   '--ring',
   '--accent',
   '--accent-foreground',
-  '--background',
-  '--sidebar-background',
+  '--sidebar-primary',
+  '--sidebar-primary-foreground',
+  '--sidebar-ring',
   '--vivid-from',
   '--vivid-to',
   '--vivid-tint',
   ...SERIES,
 ];
+/** Art's paper and ink: a scheme never sets them. */
+const PAPER_TOKENS = ['--background', '--foreground', '--card', '--muted', '--muted-foreground', '--secondary', '--border', '--sidebar-background'];
 
 /** Every top-level rule of a stylesheet (rules inside @media and other at-rules are left out). */
 function topLevelRules(css: string): { selector: string; body: string }[] {
@@ -65,11 +76,12 @@ function topLevelRules(css: string): { selector: string; body: string }[] {
   return rules;
 }
 
-/** The custom properties set by the rules whose selector is exactly `selector`, later ones winning. */
-function tokensOf(css: string, selector: string): Tokens {
+/** The custom properties set by the rules whose selector list holds `selector` (or one of them), later ones winning. */
+function tokensOf(css: string, selector: string | string[]): Tokens {
+  const wanted = Array.isArray(selector) ? selector : [selector];
   const out: Tokens = {};
   for (const rule of topLevelRules(css)) {
-    if (rule.selector !== selector) continue;
+    if (!rule.selector.split(',').some((one) => wanted.includes(one.trim()))) continue;
     for (const declaration of rule.body.split(';')) {
       const colon = declaration.indexOf(':');
       const name = declaration.slice(0, colon).trim();
@@ -81,8 +93,11 @@ function tokensOf(css: string, selector: string): Tokens {
 
 const themeCss = read('src/themes/vivid/theme.css');
 const palettesCss = read('src/themes/vivid/palettes.css');
-const LIGHT_BASE = tokensOf(themeCss, ROOT);
-const DARK_BASE = { ...LIGHT_BASE, ...tokensOf(themeCss, `${ROOT}.dark`) };
+const artSheets = ART_FILES.map(read);
+const ART_LIGHT = Object.assign({}, ...artSheets.map((css) => tokensOf(css, FAMILY))) as Tokens;
+const ART_DARK = { ...ART_LIGHT, ...Object.assign({}, ...artSheets.map((css) => tokensOf(css, `${FAMILY}.dark`))) } as Tokens;
+const LIGHT_BASE = { ...ART_LIGHT, ...tokensOf(themeCss, ROOT) };
+const DARK_BASE = { ...ART_DARK, ...tokensOf(themeCss, [ROOT, `${ROOT}.dark`]) };
 const schemeSelector = (id: VividPalette, mode: Mode) =>
   `${ROOT}[data-panel-palette="${id}"]${mode === 'light' ? ':not(.dark)' : '.dark'}`;
 
@@ -134,6 +149,41 @@ function contrast(a: Rgb, b: Rgb): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+const fromLinear = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+const clamp = (c: number) => Math.min(1, Math.max(0, c));
+
+/** Colour-vision deficiency, full severity (Machado, Oliveira and Fernandes 2009), on linear RGB. */
+const CVD: Record<string, number[][]> = {
+  protanopia: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+  deuteranopia: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.01182, 0.04294, 0.968881]],
+  tritanopia: [[1.255528, -0.076749, -0.178779], [-0.078411, 0.930809, 0.147602], [0.004733, 0.691367, 0.3039]],
+};
+
+function simulate(rgb: Rgb, matrix: number[][] | null): Rgb {
+  if (!matrix) return rgb;
+  const lin = rgb.map(toLinear);
+  return matrix.map((row) => clamp(fromLinear(clamp(row[0] * lin[0] + row[1] * lin[1] + row[2] * lin[2])))) as Rgb;
+}
+
+/** Distance in OKLab, x100 (about 2 is a just-noticeable difference). */
+function deltaE(a: Rgb, b: Rgb): number {
+  const lab = (rgb: Rgb) => {
+    const [r, g, bl] = rgb.map(toLinear);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * bl);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * bl);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * bl);
+    return [
+      0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+      1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+      0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+    ];
+  };
+  const [p, q] = [lab(a), lab(b)];
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) * 100;
+}
+
+const hueOf = (value: string) => Number(TRIPLET.exec(value)![1]);
+
 const CASES = VIVID_PALETTES.flatMap((id) => MODES.map((mode) => [id, mode] as [VividPalette, Mode]));
 
 describe('the schemes in palettes.css', () => {
@@ -162,15 +212,24 @@ describe('the schemes in palettes.css', () => {
 
   it('defines coral, the default, in theme.css for light and dark', () => {
     for (const name of SCHEME_TOKENS) {
-      expect(TRIPLET.test(LIGHT_BASE[name] ?? ''), `light ${name}`).toBe(true);
+      expect(TRIPLET.test(tokensOf(themeCss, ROOT)[name] ?? ''), `light ${name}`).toBe(true);
       expect(TRIPLET.test(tokensOf(themeCss, `${ROOT}.dark`)[name] ?? ''), `dark ${name}`).toBe(true);
     }
   });
 
-  it('draws the shared gradients from tokens a scheme repaints', () => {
-    for (const name of ['--vivid-strip', '--vivid-panel', '--gradient-primary', '--gradient-brand', '--gradient-soft']) {
+  it('never sets Art’s paper or ink: only the accent changes', () => {
+    const sets = (css: string, name: string) => new RegExp(`[\\s{;]${name}:`).test(css.replace(/\/\*[\s\S]*?\*\//g, ''));
+    for (const name of PAPER_TOKENS) {
+      expect(sets(themeCss, name), `theme.css ${name}`).toBe(false);
+      expect(sets(palettesCss, name), `palettes.css ${name}`).toBe(false);
+    }
+  });
+
+  it('draws Art’s gradients and the strip from the one accent', () => {
+    for (const name of ['--brand-teal', '--brand-sky', '--brand-violet', '--brand-coral', '--art-grad-from', '--art-grad-to', '--art-brand-from', '--art-brand-via', '--vivid-strip', '--vivid-panel']) {
       expect(LIGHT_BASE[name], name).toBeDefined();
-      expect(LIGHT_BASE[name], name).not.toMatch(/hsl\(\s*\d/);
+      expect(LIGHT_BASE[name], name).toMatch(/var\(--vivid-/);
+      expect(DARK_BASE[name], name).toBe(LIGHT_BASE[name]);
     }
   });
 });
@@ -181,42 +240,25 @@ describe.each(CASES)('%s in %s mode', (id, mode) => {
   const card = rgb('--card');
   const tint = rgb('--vivid-tint');
 
-  it('makes series 1 the scheme’s main colour', () => {
-    expect(triplet(all, '--vivid-chart-1')).toBe(triplet(all, '--primary'));
+  it('makes series 1 the accent’s own hue', () => {
+    expect(Math.abs(hueOf(triplet(all, '--art-chart-1')) - hueOf(triplet(all, '--primary')))).toBeLessThanOrEqual(2);
   });
 
-  it('keeps text on the scheme’s colour and the colour as text at 4.5:1', () => {
+  it('keeps text on the accent and the accent as text at 4.5:1', () => {
     expect(contrast(rgb('--primary-foreground'), rgb('--primary'))).toBeGreaterThanOrEqual(4.5);
     expect(contrast(rgb('--primary'), card)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(rgb('--primary'), rgb('--background'))).toBeGreaterThanOrEqual(4.5);
     // Active pills, selected rows and links on `bg-primary/10` over a card.
     expect(contrast(rgb('--primary'), over(rgb('--primary'), card, 0.1))).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it('keeps the figure on its tinted panel at 4.5:1, like the receipt’s total', () => {
-    expect(contrast(rgb('--primary'), tint)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(rgb('--accent-foreground'), rgb('--accent'))).toBeGreaterThanOrEqual(4.5);
-    // The sidebar's current item: its text on the tint.
-    expect(contrast(rgb('--sidebar-accent-foreground'), rgb('--sidebar-accent'))).toBeGreaterThanOrEqual(4.5);
+    // The side menu's group names, on the side menu (Art: --secondary in light, --card in dark).
+    expect(contrast(rgb('--primary'), rgb(mode === 'light' ? '--secondary' : '--card'))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('keeps body and muted text readable on every surface', () => {
-    expect(contrast(rgb('--foreground'), rgb('--background'))).toBeGreaterThanOrEqual(7);
+  it('keeps the key figure and its caption readable on their tinted panel, like the receipt’s total', () => {
+    expect(contrast(rgb('--primary'), tint)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(rgb('--muted-foreground'), tint)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(rgb('--foreground'), tint)).toBeGreaterThanOrEqual(7);
-    for (const surface of ['--background', '--card', '--muted', '--secondary', '--vivid-tint']) {
-      expect(contrast(rgb('--muted-foreground'), rgb(surface)), surface).toBeGreaterThanOrEqual(4.5);
-    }
-    expect(contrast(rgb('--sidebar-muted-foreground'), rgb('--sidebar-background'))).toBeGreaterThanOrEqual(4.5);
-    expect(contrast(rgb('--sidebar-foreground'), rgb('--sidebar-background'))).toBeGreaterThanOrEqual(7);
-    // The group labels: the scheme's colour on the sidebar.
-    expect(contrast(rgb('--primary'), rgb('--sidebar-background'))).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it('keeps the status colours readable', () => {
-    for (const status of ['success', 'warning', 'info', 'destructive']) {
-      expect(contrast(rgb(`--${status}-foreground`), rgb(`--${status}`)), status).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(rgb(`--${status}`), card), status).toBeGreaterThanOrEqual(4.5);
-    }
   });
 
   it('shows the focus ring at 3:1', () => {
@@ -228,16 +270,30 @@ describe.each(CASES)('%s in %s mode', (id, mode) => {
     for (const name of SERIES) expect(contrast(rgb(name), card), name).toBeGreaterThanOrEqual(3);
   });
 
+  it('keeps the six series apart, also for colour-blind eyes', () => {
+    const series = SERIES.map(rgb);
+    const vision: [string, number[][] | null, number][] = [
+      ['normal vision', null, 7],
+      ...Object.entries(CVD).map(([name, matrix]) => [name, matrix, 5] as [string, number[][], number]),
+    ];
+    for (const [name, matrix, min] of vision) {
+      const seen = series.map((c) => simulate(c, matrix));
+      for (let a = 0; a < seen.length; a += 1) {
+        for (let b = a + 1; b < seen.length; b += 1) {
+          expect(deltaE(seen[a], seen[b]), `${name}: series ${a + 1} and ${b + 1}`).toBeGreaterThanOrEqual(min);
+        }
+      }
+    }
+  });
+
   it('is what the Super Admin’s swatch shows', () => {
     const hsl = (name: string) => `hsl(${triplet(all, name)})`;
     expect(VIVID_PALETTE_SWATCHES[id][mode]).toEqual({
       primary: hsl('--primary'),
       primaryInk: hsl('--primary-foreground'),
-      canvas: hsl('--background'),
-      sidebar: hsl('--sidebar-background'),
       tint: hsl('--vivid-tint'),
       strip: [hsl('--vivid-from'), hsl('--vivid-to')],
-      series: SERIES.map(hsl),
+      series: SERIES.slice(0, 4).map(hsl),
     });
   });
 });

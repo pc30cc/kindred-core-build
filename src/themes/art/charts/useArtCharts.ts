@@ -7,6 +7,7 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { usePanelTheme } from '@/themes/usePanelTheme';
+import { isArtFamilyTheme } from '../../../../shared/panelThemes';
 import { createArtChartKit, type ArtChartKit } from './kit';
 
 const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
@@ -37,7 +38,8 @@ export function useArtCharts(): ArtChartKit | null {
   const { locale, dir } = useTranslation();
   const uid = useId();
   const reduced = useReducedMotion();
-  const isArt = theme === 'art';
+  // Art and Vivid (drawn in Art's frame) chart the Art way.
+  const isArt = isArtFamilyTheme(theme);
   return useMemo(
     () => (isArt ? createArtChartKit({ locale, dir, uid, animate: !reduced }) : null),
     [isArt, locale, dir, uid, reduced],

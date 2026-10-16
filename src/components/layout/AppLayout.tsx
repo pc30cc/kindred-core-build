@@ -34,6 +34,7 @@ import { useEdition } from '@/hooks/useEdition';
 import { usePhoneVerificationStatus } from '@/features/phone-verification/hooks';
 import { resolvePhoneStatus } from '@/features/phone-verification/status';
 import { useApplyPanelTheme, usePanelTheme } from '@/themes/usePanelTheme';
+import { isArtFamilySelection } from '../../../shared/panelThemes';
 import { PanelThemePreviewBar } from '@/themes/PanelThemePreviewBar';
 import { ArtShell } from '@/themes/art/shell/ArtShell';
 import { ArtShellSkeleton } from '@/themes/art/shell/ArtShellSkeleton';
@@ -345,7 +346,7 @@ export function AppLayout() {
   const artSub = artSubPath(pathname, routeSlug ? `/${routeSlug}` : '');
 
   if (!shellReady) {
-    return panelTheme.theme === 'art' ? (
+    return isArtFamilySelection(panelTheme) ? (
       <ArtShellSkeleton layout={panelTheme.options.layout} subPath={artSub} wide={isArtEdgeToEdge(artSub)} />
     ) : (
       <AppShellSkeleton />
@@ -354,8 +355,8 @@ export function AppLayout() {
 
   // Art has a frame of its own (a top menu, or the side menu, as the Super
   // Admin chose) around the same page, providers and notices:
-  // src/themes/art/shell/ArtShell.tsx.
-  if (panelTheme.theme === 'art') {
+  // src/themes/art/shell/ArtShell.tsx. Vivid, built on Art, wears it too.
+  if (isArtFamilySelection(panelTheme)) {
     return (
       <div dir={dir} data-shell="app" className="app-scope flex h-screen h-dvh flex-col overflow-hidden bg-background text-foreground">
         <OperatorCallProvider>
@@ -397,12 +398,11 @@ export function AppLayout() {
           <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
             <SheetContent side={dir === 'rtl' ? 'right' : 'left'} className="w-[280px] p-0">
               <SheetTitle className="sr-only">{t('nav.menu')}</SheetTitle>
-              <AppSidebar variant="drawer" onNavigate={() => setMobileNavOpen(false)} sectionLabels={panelTheme.theme === 'vivid'} />
+              <AppSidebar variant="drawer" onNavigate={() => setMobileNavOpen(false)} />
             </SheetContent>
           </Sheet>
         ) : (
-          // Vivid names the menu's groups; Classic keeps its plain list.
-          <AppSidebar sectionLabels={panelTheme.theme === 'vivid'} />
+          <AppSidebar />
         )}
         <div data-shell="frame" className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />

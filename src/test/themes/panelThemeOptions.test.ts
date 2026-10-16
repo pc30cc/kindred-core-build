@@ -1,7 +1,8 @@
 /**
  * A panel theme's options (shared/panelThemes.ts, migration 254): Art's
- * layout (top menu or side menu) and colour scheme, and Vivid's colour
- * scheme, chosen by the Super Admin for everyone.
+ * layout (top menu or side menu) and colour scheme, and Vivid's (Art's two
+ * layouts and its own accent colours), chosen by the Super Admin for
+ * everyone.
  *
  * The promises this checks:
  *   - What is stored is only ever read through resolvePanelThemeOptions, so a
@@ -28,6 +29,9 @@ import {
   INTERNATIONAL_ART_PALETTES,
   PANEL_THEME_OPTIONS,
   VIVID_PALETTES,
+  ART_FAMILY_THEMES,
+  isArtFamilyTheme,
+  panelThemeFamily,
   artPaletteFor,
   artPalettesFor,
   PANEL_THEME_OPTION_KEYS,
@@ -47,18 +51,30 @@ describe('the options', () => {
     expect([...PANEL_THEME_OPTION_KEYS].sort()).toEqual(['layout', 'palette']);
   });
 
-  it('Vivid has a colour scheme only, coral (the receipt’s colours) first', () => {
+  it('Vivid has Art’s layouts and its own colour schemes, coral (the receipt’s) first', () => {
     expect(VIVID_PALETTES).toEqual(['coral', 'ocean', 'violet', 'emerald', 'amber']);
-    expect(PANEL_THEME_OPTIONS.vivid).toEqual({ palette: VIVID_PALETTES });
-    expect(resolvePanelThemeOptions('vivid', {})).toEqual({ palette: 'coral' });
-    expect(resolvePanelThemeOptions('vivid', { vivid: { palette: 'emerald' } })).toEqual({ palette: 'emerald' });
-    // Art's schemes are not Vivid's, and Vivid reads its own entry only.
-    expect(resolvePanelThemeOptions('vivid', { vivid: { palette: 'clay' } })).toEqual({ palette: 'coral' });
-    expect(resolvePanelThemeOptions('vivid', { art: { palette: 'ocean' } })).toEqual({ palette: 'coral' });
-    expect(resolvePanelThemeOptions('art', { vivid: { palette: 'ocean' } })).toEqual({ layout: 'topnav', palette: 'clay' });
+    expect(PANEL_THEME_OPTIONS.vivid).toEqual({ layout: ART_LAYOUTS, palette: VIVID_PALETTES });
+    expect(resolvePanelThemeOptions('vivid', {})).toEqual({ layout: 'topnav', palette: 'coral' });
+    // A scheme saved before Vivid had a layout keeps working: Art's default layout.
+    expect(resolvePanelThemeOptions('vivid', { vivid: { palette: 'emerald' } })).toEqual({ layout: 'topnav', palette: 'emerald' });
+    expect(resolvePanelThemeOptions('vivid', { vivid: { layout: 'sidebar', palette: 'amber' } })).toEqual({ layout: 'sidebar', palette: 'amber' });
+    // Art's schemes are not Vivid's, and each theme reads its own entry only.
+    expect(resolvePanelThemeOptions('vivid', { vivid: { palette: 'clay' } })).toEqual({ layout: 'topnav', palette: 'coral' });
+    expect(resolvePanelThemeOptions('vivid', { art: { layout: 'sidebar', palette: 'ocean' } })).toEqual({ layout: 'topnav', palette: 'coral' });
+    expect(resolvePanelThemeOptions('art', { vivid: { layout: 'sidebar', palette: 'ocean' } })).toEqual({ layout: 'topnav', palette: 'clay' });
     for (const palette of VIVID_PALETTES) expect(isValidPanelThemeOptions('vivid', { palette })).toBe(true);
+    for (const layout of ART_LAYOUTS) expect(isValidPanelThemeOptions('vivid', { layout })).toBe(true);
     expect(isValidPanelThemeOptions('vivid', { palette: 'clay' })).toBe(false);
-    expect(isValidPanelThemeOptions('vivid', { layout: 'sidebar' })).toBe(false);
+    expect(isValidPanelThemeOptions('vivid', { layout: 'floating' })).toBe(false);
+  });
+
+  it('Art and Vivid are drawn by Art (one family); Classic by itself', () => {
+    expect(ART_FAMILY_THEMES).toEqual(['art', 'vivid']);
+    expect(isArtFamilyTheme('art')).toBe(true);
+    expect(isArtFamilyTheme('vivid')).toBe(true);
+    expect(isArtFamilyTheme('classic')).toBe(false);
+    expect(panelThemeFamily('vivid')).toBe('art');
+    expect(panelThemeFamily('classic')).toBeNull();
   });
 
   it('resolves what is stored, every missing or unknown value to its default', () => {
@@ -214,7 +230,7 @@ describe('Super Admin → Panel theme', () => {
     };
     expect(panelThemeLabel(t, { theme: 'art', options: { layout: 'sidebar', palette: 'sage' } })).toBe('Art · Side menu · Sage');
     expect(panelThemeLabel(t, { theme: 'classic', options: {} })).toBe('Classic');
-    expect(panelThemeLabel(t, { theme: 'vivid', options: { palette: 'ocean' } })).toBe('Vivid · Ocean');
+    expect(panelThemeLabel(t, { theme: 'vivid', options: { layout: 'sidebar', palette: 'ocean' } })).toBe('Vivid · Side menu · Ocean');
   });
 
   it('draws every colour scheme in both modes without failing on a missing swatch', () => {
@@ -230,7 +246,7 @@ describe('Super Admin → Panel theme', () => {
     // Classic has no colour schemes.
     const classic = panelThemes.find((theme) => theme.id === 'classic')!;
     expect(previewSwatches(classic, 'light', 'ocean')).toEqual(classic.light);
-    // Vivid: coral is its base; every scheme draws the strip and the tint.
+    // Vivid: coral is its base; every scheme is one accent with the strip.
     const vivid = panelThemes.find((theme) => theme.id === 'vivid')!;
     for (const mode of ['light', 'dark'] as const) {
       expect(previewSwatches(vivid, mode)).toEqual(vivid[mode]);
@@ -239,7 +255,7 @@ describe('Super Admin → Panel theme', () => {
       for (const palette of VIVID_PALETTES) {
         const swatches = previewSwatches(vivid, mode, palette);
         expect(swatches.strip).toMatch(/^linear-gradient\(/);
-        expect(swatches.tint).toMatch(/^hsl\(/);
+        expect(swatches.card).toBe(previewSwatches(panelThemes.find((theme) => theme.id === 'art')!, mode, 'clay').card);
         expect(swatches.accents).toHaveLength(4);
       }
       expect(previewSwatches(vivid, mode, 'violet').primary).not.toBe(vivid[mode].primary);

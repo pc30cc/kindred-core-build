@@ -47,6 +47,12 @@ export function getTimelineMeta(type: string): TimelineMeta {
     case 'call_invitation_expired':   return { Icon: Timer,        tone: 'neutral' };
     case 'call_invitation_cancelled': return { Icon: Ban,          tone: 'neutral' };
     case 'call_invitation_declined':  return { Icon: PhoneOff,     tone: 'danger' };
+    case 'call_ended':          return { Icon: PhoneOff,       tone: 'neutral' };
+    case 'conversation_started': return { Icon: Send,          tone: 'info' };
+    case 'captured_offline':    return { Icon: Timer,          tone: 'warning' };
+    case 'escalation_requested': return { Icon: AlertTriangle, tone: 'warning' };
+    case 'department_assigned': return { Icon: UserPlus,       tone: 'info' };
+    case 'rated':               return { Icon: Star,           tone: 'success' };
     case 'sla_breached':        return { Icon: AlertTriangle,  tone: 'danger' };
     case 'queue_long_wait':     return { Icon: Timer,          tone: 'warning' };
     default:                 return { Icon: AlertCircle,   tone: 'neutral' };
@@ -66,6 +72,54 @@ export function toneClasses(tone: Tone) {
   return TONE_CLASSES[tone];
 }
 
+type Translate = (k: string) => string;
+
+/**
+ * The translation, or `fallback` when the key is missing: the translator
+ * returns the key itself for a missing entry, so a plain `t(k) || fallback`
+ * would print the key (e.g. "inbox.timeline.callQueued").
+ */
+function tx(t: Translate, key: string, fallback: string): string {
+  const value = t(key);
+  return value && value !== key ? value : fallback;
+}
+
+/** "operator_cancelled" → "Operator cancelled": last resort for a value no translation names. */
+function humanize(code: string): string {
+  const text = String(code).replace(/[_-]+/g, ' ').trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+}
+
+/** A coded payload value (reason, channel, method, source…) in the interface language. */
+function codeLabel(t: Translate, group: string, code: unknown): string | undefined {
+  if (code === null || code === undefined || code === '') return undefined;
+  const value = String(code);
+  return tx(t, `inbox.timeline.${group}.${value}`, humanize(value));
+}
+
+function statusLabel(t: Translate, status: unknown): string {
+  const value = String(status ?? '');
+  return tx(t, `inbox.${value}`, humanize(value));
+}
+
+function secondsLabel(t: Translate, key: string, fallback: string, seconds: number): string {
+  return tx(t, key, fallback).replace('{{seconds}}', String(Math.round(seconds)));
+}
+
+/** 125 → "2:05". */
+function clock(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+function joinParts(...parts: (string | undefined)[]): string | undefined {
+  const kept = parts.filter((p): p is string => Boolean(p));
+  return kept.length ? kept.join(' · ') : undefined;
+}
+
 export function actorLabel(ev: TimelineEvent, t: (k: string) => string): string {
   if (ev.actor) return ev.actor.full_name || ev.actor.email || t('inbox.timeline.agent') || 'Agent';
   if (ev.actor_type === 'visitor') return t('inbox.timeline.visitor') || 'Visitor';
@@ -75,122 +129,153 @@ export function actorLabel(ev: TimelineEvent, t: (k: string) => string): string 
 
 function priorityLabel(p: string | undefined, t: (k: string) => string): string {
   if (!p) return '—';
-  return t(`inbox.priority_${p}`) || p;
+  return tx(t, `inbox.priority_${p}`, humanize(p));
+}
+
+/** The payload fields the timeline reads; everything else is ignored. */
+interface TimelinePayload {
+  source?: string;
+  method?: string;
+  reason?: string;
+  channel?: string;
+  call_type?: string;
+  end_reason?: string;
+  duration_seconds?: number;
+  wait_seconds?: number;
+  availability_reason?: string;
+  department_name?: string;
+  score?: number | string;
+  from?: string;
+  to?: string;
+  tag?: string;
+  file_name?: string;
+  preview?: string;
+  _refs?: { to?: { full_name?: string | null; email?: string | null } | null } | null;
 }
 
 /** Returns { primary, secondary? } so the timeline row can render a stronger main line + a subtle aside. */
 export function describeEvent(
   ev: TimelineEvent,
-  t: (k: string) => string,
+  t: Translate,
 ): { primary: string; secondary?: string } {
-  const p: any = ev.payload ?? {};
+  const p = (ev.payload ?? {}) as TimelinePayload;
+  const L = (key: string, fallback: string) => tx(t, `inbox.timeline.${key}`, fallback);
+  const channel = codeLabel(t, 'channel', p?.channel);
+  const reason = codeLabel(t, 'reason', p?.reason);
   switch (ev.event_type) {
     case 'created':
-      return { primary: t('inbox.timeline.created') || 'Conversation created' };
-    case 'identified': {
-      const method = p?.method ? `(${p.method})` : '';
-      return { primary: t('inbox.timeline.identified') || 'Visitor identified', secondary: method || undefined };
-    }
+      return { primary: L('created', 'Conversation created'), secondary: codeLabel(t, 'source', p?.source) };
+    case 'conversation_started':
+      return { primary: L('conversationStarted', 'Operator started the conversation') };
+    case 'identified':
+      return { primary: L('identified', 'Visitor identified'), secondary: codeLabel(t, 'method', p?.method) };
     case 'assigned': {
-      const to = p?._refs?.to?.full_name || p?._refs?.to?.email || t('inbox.timeline.someone') || 'someone';
-      return { primary: `${t('inbox.timeline.assignedTo') || 'Assigned to'} ${to}` };
+      const to = p?._refs?.to?.full_name || p?._refs?.to?.email || L('someone', 'someone');
+      return {
+        primary: `${L('assignedTo', 'Assigned to')} ${to}`,
+        secondary: codeLabel(t, 'method', p?.method),
+      };
     }
     case 'unassigned':
-      return { primary: t('inbox.timeline.unassigned') || 'Unassigned' };
+      return { primary: L('unassigned', 'Unassigned') };
     case 'resolved':
-      return { primary: t('inbox.timeline.resolved') || 'Marked as resolved' };
+      return { primary: L('resolved', 'Marked as resolved'), secondary: reason };
     case 'reopened':
-      return { primary: t('inbox.timeline.reopened') || 'Reopened' };
+      return { primary: L('reopened', 'Reopened'), secondary: reason };
     case 'status_changed':
       return {
-        primary: t('inbox.timeline.statusChanged') || 'Status changed',
-        secondary: p.from && p.to ? `${p.from} → ${p.to}` : undefined,
+        primary: L('statusChanged', 'Status changed'),
+        secondary: joinParts(
+          p.to ? (p.from ? `${statusLabel(t, p.from)} → ${statusLabel(t, p.to)}` : `→ ${statusLabel(t, p.to)}`) : undefined,
+          reason,
+        ),
       };
     case 'priority_changed':
       return {
-        primary: t('inbox.timeline.priorityChanged') || 'Priority changed',
+        primary: L('priorityChanged', 'Priority changed'),
         secondary: `${priorityLabel(p.from, t)} → ${priorityLabel(p.to, t)}`,
       };
     case 'tag_added':
-      return { primary: t('inbox.timeline.tagAdded') || 'Tag added', secondary: p.tag };
+      return { primary: L('tagAdded', 'Tag added'), secondary: p.tag };
     case 'tag_removed':
-      return { primary: t('inbox.timeline.tagRemoved') || 'Tag removed', secondary: p.tag };
+      return { primary: L('tagRemoved', 'Tag removed'), secondary: p.tag };
     case 'attachment_added':
-      return {
-        primary: t('inbox.timeline.attachmentAdded') || 'Attachment added',
-        secondary: p.file_name || undefined,
-      };
+      return { primary: L('attachmentAdded', 'Attachment added'), secondary: p.file_name || undefined };
     case 'ai_reply':
-      return { primary: t('inbox.timeline.aiReply') || 'AI replied' };
+      return { primary: L('aiReply', 'AI replied') };
     case 'note_added':
-      return {
-        primary: t('inbox.timeline.noteAdded') || 'Note added',
-        secondary: p.preview || undefined,
-      };
+      return { primary: L('noteAdded', 'Note added'), secondary: p.preview || undefined };
     case 'note_deleted':
-      return { primary: t('inbox.timeline.noteDeleted') || 'Note deleted' };
-    case 'call_queued': {
-      const ch = p?.channel ? String(p.channel) : '';
-      return { primary: t('inbox.timeline.callQueued') || 'Call queued', secondary: ch || undefined };
+      return { primary: L('noteDeleted', 'Note deleted') };
+    case 'department_assigned':
+      return { primary: L('departmentAssigned', 'Department assigned'), secondary: p?.department_name || undefined };
+    case 'escalation_requested':
+      return { primary: L('escalationRequested', 'Visitor asked for a human operator') };
+    case 'captured_offline':
+      return {
+        primary: L('capturedOffline', 'Message received while offline'),
+        secondary: codeLabel(t, 'availability', p?.availability_reason),
+      };
+    case 'rated': {
+      const score = Number(p?.score);
+      return {
+        primary: L('rated', 'Visitor rated the conversation'),
+        secondary: Number.isFinite(score) && score > 0 ? `${'★'.repeat(Math.min(5, Math.round(score)))} ${score}/5` : undefined,
+      };
     }
-    case 'call_offered': {
-      const ch = p?.channel ? String(p.channel) : '';
-      return { primary: t('inbox.timeline.callOffered') || 'Call offered to operator', secondary: ch || undefined };
-    }
+    case 'call_queued':
+      return { primary: L('callQueued', 'Call queued'), secondary: channel };
+    case 'call_offered':
+      return { primary: L('callOffered', 'Call offered to operator'), secondary: channel };
     case 'call_accepted':
-      return { primary: t('inbox.timeline.callAccepted') || 'Call accepted' };
+      return { primary: L('callAccepted', 'Call accepted'), secondary: channel };
     case 'call_missed':
-      return { primary: t('inbox.timeline.callMissed') || 'Call missed', secondary: p?.reason || undefined };
+      return { primary: L('callMissed', 'Call missed'), secondary: joinParts(channel, reason) };
     case 'call_expired':
-      return { primary: t('inbox.timeline.callExpired') || 'Call request expired' };
+      return { primary: L('callExpired', 'Call request expired'), secondary: channel };
     case 'call_cancelled':
-      return { primary: t('inbox.timeline.callCancelled') || 'Call cancelled', secondary: p?.reason || undefined };
-    case 'callback_requested': {
-      const ch = p?.channel ? String(p.channel) : '';
-      return { primary: t('inbox.timeline.callbackRequested') || 'Callback requested', secondary: ch || undefined };
+      return { primary: L('callCancelled', 'Call cancelled'), secondary: joinParts(channel, reason) };
+    case 'call_ended': {
+      const duration = typeof p?.duration_seconds === 'number' && p.duration_seconds > 0 ? clock(p.duration_seconds) : undefined;
+      return {
+        primary: L('callEnded', 'Call ended'),
+        secondary: joinParts(codeLabel(t, 'channel', p?.call_type), codeLabel(t, 'reason', p?.end_reason), duration),
+      };
     }
+    case 'callback_requested':
+      return { primary: L('callbackRequested', 'Callback requested'), secondary: channel };
     case 'callback_completed':
-      return { primary: t('inbox.timeline.callbackCompleted') || 'Callback completed' };
-    case 'callback_offered': {
-      const ch = p?.channel ? String(p.channel) : '';
+      return { primary: L('callbackCompleted', 'Callback completed') };
+    case 'callback_offered':
+      return { primary: L('callbackOffered', 'No operator available — callback offered'), secondary: channel };
+    case 'sla_breached':
       return {
-        primary: t('inbox.timeline.callbackOffered') || 'No operator available — callback offered',
-        secondary: ch || undefined,
+        primary: L('slaBreached', 'SLA exceeded'),
+        secondary: typeof p?.wait_seconds === 'number'
+          ? secondsLabel(t, 'inbox.timeline.waited', 'Waited {{seconds}}s', p.wait_seconds)
+          : undefined,
       };
-    }
-    case 'sla_breached': {
-      const wait = typeof p?.wait_seconds === 'number' ? `${p.wait_seconds}s` : undefined;
+    case 'queue_long_wait':
       return {
-        primary: t('inbox.timeline.slaBreached') || 'SLA exceeded',
-        secondary: wait ? `waited ${wait}` : undefined,
+        primary: L('queueLongWait', 'Visitor waiting longer than usual'),
+        secondary: typeof p?.wait_seconds === 'number'
+          ? secondsLabel(t, 'inbox.timeline.waitingSoFar', '{{seconds}}s so far', p.wait_seconds)
+          : undefined,
       };
-    }
-    case 'queue_long_wait': {
-      const wait = typeof p?.wait_seconds === 'number' ? `${p.wait_seconds}s` : undefined;
+    case 'call_invited':
       return {
-        primary: t('inbox.timeline.queueLongWait') || 'Visitor waiting longer than usual',
-        secondary: wait ? `${wait} so far` : undefined,
+        primary: L('callInvited', 'Operator invited visitor to a call'),
+        secondary: codeLabel(t, 'channel', p?.channel === 'video' ? 'video' : 'audio'),
       };
-    }
-    case 'call_invited': {
-      const ch = p?.channel === 'video' ? 'video' : 'audio';
-      return {
-        primary: t('inbox.timeline.callInvited') || `Operator invited visitor to ${ch} call`,
-        secondary: ch,
-      };
-    }
     case 'call_invitation_joined':
-      return { primary: t('inbox.timeline.callInvitationJoined') || 'Visitor joined the call' };
+      return { primary: L('callInvitationJoined', 'Visitor joined the call') };
     case 'call_invitation_expired':
-      return { primary: t('inbox.timeline.callInvitationExpired') || 'Call invitation expired' };
+      return { primary: L('callInvitationExpired', 'Call invitation expired') };
     case 'call_invitation_cancelled':
-      return {
-        primary: t('inbox.timeline.callInvitationCancelled') || 'Call invitation cancelled',
-        secondary: p?.reason || undefined,
-      };
+      return { primary: L('callInvitationCancelled', 'Call invitation cancelled'), secondary: reason };
     case 'call_invitation_declined':
-      return { primary: t('inbox.timeline.callInvitationDeclined') || 'Visitor declined the call invitation' };
+      return { primary: L('callInvitationDeclined', 'Visitor declined the call invitation') };
     default:
-      return { primary: ev.event_type };
+      return { primary: tx(t, `inbox.timeline.event.${ev.event_type}`, humanize(ev.event_type)) };
   }
 }

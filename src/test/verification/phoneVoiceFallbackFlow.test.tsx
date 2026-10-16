@@ -128,7 +128,7 @@ describe('an SMS the provider could not deliver', () => {
     });
     render(<PhoneVerificationFlow context={CTX} />, { wrapper });
     await waitFor(() => expect(api.status).toHaveBeenCalled());
-    fireEvent.change(screen.getByPlaceholderText('+447700900123'), { target: { value: '+905301234583' } });
+    fireEvent.change(screen.getByTestId('phone-national-input'), { target: { value: '+905301234583' } });
     await click(screen.getByText('phoneVerification.sendCode'));
 
     await waitFor(() => expect(screen.getByTestId('phone-sms-failed')).toBeInTheDocument());
@@ -146,7 +146,7 @@ describe('an SMS the provider could not deliver', () => {
     });
     render(<PhoneVerificationFlow context={CTX} />, { wrapper });
     await waitFor(() => expect(api.status).toHaveBeenCalled());
-    fireEvent.change(screen.getByPlaceholderText('+447700900123'), { target: { value: '+905301234583' } });
+    fireEvent.change(screen.getByTestId('phone-national-input'), { target: { value: '+905301234583' } });
     await click(screen.getByText('phoneVerification.sendCode'));
     await waitFor(() => expect(screen.getByTestId('phone-sms-delivered')).toBeInTheDocument());
     expect(screen.queryByTestId('phone-sms-failed')).toBeNull();

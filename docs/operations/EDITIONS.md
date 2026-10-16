@@ -258,6 +258,11 @@ file is never fatal.
 
 ### Adding a template for an edition
 
+Every template follows `docs/operations/WIDGET_TEMPLATE_RULES.md` (fonts,
+caching, pure renderers, size budgets), enforced for every descriptor by
+`src/test/widget/templateRules.test.ts`; the step-by-step procedure is the
+`widget-template` skill (`.claude/skills/widget-template/SKILL.md`).
+
 1. Ship the assets in `public/widget/` (chat) or `public/call-widget/` (call),
    named `presentation-<id>.js` / `presentation-<id>.css` (the build hashes
    every `presentation-*.js|css` it finds; a script needs a stylesheet of the

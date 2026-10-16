@@ -48,7 +48,7 @@ The panel mirrors the columns `usageResolvers.ts` reads from
 | `max_conversations`    | `conversations_count` |
 | `max_visitors`         | `visitors_count`      |
 | `ai_credits_per_month` | `ai_credits_used`     |
-| `storage_gb`           | `storage_bytes` (÷ 1024³) |
+| `storage_mb`           | `storage_bytes` (÷ 1024²) |
 
 Limits without a canonical counter on the customer payload (notably
 `max_contacts`, which is a live `count(*)` on the server) render the

@@ -47,6 +47,7 @@ class RequesterCardTest {
                 "ai_credits": { "used": 0, "limit": null },
                 "call_minutes": 0,
                 "storage_bytes": 1536,
+                "storage_limit_mb": 1024,
                 "storage_limit_gb": 1
               }
             },
@@ -80,7 +81,8 @@ class RequesterCardTest {
         // A limit the plan does not set is no limit to show.
         assertEquals(RequesterCard.Metered(0, null), shop.aiCredits)
         assertEquals(1536L, shop.storageBytes)
-        assertEquals(1L, shop.storageLimitGb)
+        // The limit in MB; storage_limit_gb is only for builds before this one.
+        assertEquals(1024L, shop.storageLimitMb)
 
         val other = card.workspaces[1]
         assertFalse(other.hasPlan)

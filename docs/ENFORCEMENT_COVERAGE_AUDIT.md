@@ -32,7 +32,6 @@ policy docs linked from §6.
 
 | Route | Middleware | Notes |
 |---|---|---|
-| `POST /api/ai/complete` (`server/routes/ai.ts`) | `requireModule('ai_assistant')` + `requireAICredits(1)` | Canonical reference. |
 | `POST /api/ai-agent/playground/test` (`server/routes/aiAgent.ts`) | `requireModule('ai_assistant')` | **Added in Phase 1.** Playground is by definition an `ai_assistant` surface; existing per-user rate limit and member auth are preserved. |
 | `POST /api/ai-agent/generate-business-description` (`aiAgent.ts`) | `requireModule('ai_assistant')` | **Added (AI Agent route audit + selective gating).** Brand-new optional generate action — calls a real AI completion. Owner/admin auth still enforced in-handler. No in-progress state, so denial blocks only NEW work. |
 | `POST /api/ai-agent/learning-candidates/generate` (`aiAgent.ts`) | `requireModule('ai_assistant')` | **Added (same phase).** Discrete generator that drafts new pending candidates. Review / approve / reject / convert routes remain ungated so existing candidates can always be finalized. |
@@ -116,7 +115,7 @@ quick index — it must agree with those docs and with the code.
 | `max_visitors`           | rolled out | `POST /api/visitors/track` (true-new-this-month insert), `POST /api/widget` `/track` (true-new-this-month insert)                       | `VISITOR_LIMIT_POLICY.md`                   |
 | `storage_gb`             | rolled out | `POST /api/storage/upload`, `POST /api/conversation-attachments/:id/upload`, `POST /api/widget/attachments/:id/upload`                  | `STORAGE_LIMIT_POLICY.md` + counter arch    |
 | `ai_kb_jobs_per_month`   | rolled out | `POST /api/ai-kb/jobs` (route-local Super Admin bypass kept explicit)                                                                   | `PLAN_LIMIT_ALIGNMENT.md`                   |
-| `ai_credits_per_month`   | enforced via atomic RPC | `POST /api/ai/complete` + AI-KB worker per-page consumer (`deduct_ai_credits` RPC). `requireLimit` is intentionally NOT layered on top. | `AI_CREDITS_POLICY.md`                      |
+| `ai_credits_per_month`   | superseded | The AI billing wallet charges AI work; `POST /api/ai/complete` and the `deduct_ai_credits` callers were removed. `requireLimit` is intentionally NOT layered on top. | `AI_CREDITS_POLICY.md`                      |
 
 Counters are written by a single canonical producer per metric (DB
 trigger or atomic RPC). The application MUST NOT write

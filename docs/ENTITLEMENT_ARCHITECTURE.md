@@ -68,7 +68,7 @@ Migration is gentle. Existing pages keep working; new or rewritten screens shoul
    - `requireFeature('<key>')` for booleans.
    - `requireModule('<key>')` / `requireChannel('<key>')` (also honours overrides).
    - `requireLimit('<key>', usageFn)` for numeric caps.
-   - `requireAICredits(n)` for AI-credited operations.
+   - AI work is charged to the AI billing wallet (`server/services/ai-billing/`).
 5. UI surfaces read the new key via the catalog and effective state endpoints without code changes per capability.
 
 ### How to add a new limit

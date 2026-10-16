@@ -194,7 +194,7 @@ suite('postgres-only acceptance: the main paths with nothing of Supabase', () =>
     // Rial wallet and AI-credit top-ups exist only there.
     await chain.db.query(`UPDATE public.platform_settings SET region_mode = 'iran'`);
     await chain.db.query(
-      `UPDATE public.billing_plans SET limits = coalesce(limits, '{}'::jsonb) || '{"max_workspaces": 1, "max_agents": 2, "storage_gb": 1}'::jsonb
+      `UPDATE public.billing_plans SET limits = coalesce(limits, '{}'::jsonb) || '{"max_workspaces": 1, "max_agents": 2, "storage_mb": 1024}'::jsonb
         WHERE slug = 'trial'`,
     );
     await chain.db.query(

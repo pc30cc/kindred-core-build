@@ -450,7 +450,6 @@ const en = {
       max_agents: '{{value}} operators',
       max_conversations: '{{value}} conversations / month',
       max_visitors: '{{value}} visitors / month',
-      storage_gb: '{{value}} GB storage',
       max_call_minutes_per_month: '{{value}} call minutes / month',
       max_kb_articles: '{{value}} knowledge base articles',
       max_departments: '{{value}} departments',
@@ -8717,7 +8716,6 @@ const en = {
       max_visitors: 'tracked visitors',
       ai_credits_per_month: 'AI credits',
       max_call_minutes_per_month: 'call minutes',
-      storage_gb: 'storage',
       storage_mb: 'storage',
     },
     kind: {

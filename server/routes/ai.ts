@@ -1,15 +1,14 @@
 /**
- * AI API Routes — server-side only, all secrets stay on backend.
- * Now with AI credit deduction, module gating, and usage tracking.
+ * AI API Routes — server-side only, all secrets stay on backend: the
+ * provider connection test (platform admin) and a workspace's resolved AI
+ * provider info.
  */
 
 import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { executeAICompletion, resolveAIConfig, wasRequestCounted } from '../services/ai/index.js';
+import { resolveAIConfig } from '../services/ai/index.js';
 import { runtimeTestConnection, AiRuntimeError } from '../services/ai/runtimeClient.js';
-import { logSecurityEvent } from '../middleware/security.js';
-import { checkModuleAccess, deductAICredits, incrementUsage } from '../middleware/featureGating.js';
 import {
   authorizeWorkspaceAccess,
   requirePlatformAdmin,
@@ -22,144 +21,12 @@ export const aiRouter = Router();
 /** Fields the server attaches to every request before route handlers run. */
 interface AiRouteRequestExtras {
   serverConfig: ServerConfig;
-  aiCredits?: unknown;
 }
 
 /** Reads `.message` exactly like the untyped handlers did (no normalisation). */
 function messageOf(err: unknown): string | undefined {
   return (err as { message?: string }).message;
 }
-
-// Rate limit tracking per workspace
-const wsUsageCounters = new Map<string, { count: number; windowStart: number }>();
-const AI_RATE_LIMIT = 60;
-const AI_WINDOW = 60_000;
-
-function checkAIRateLimit(workspaceId: string): boolean {
-  const now = Date.now();
-  const counter = wsUsageCounters.get(workspaceId);
-  if (!counter || now - counter.windowStart > AI_WINDOW) {
-    wsUsageCounters.set(workspaceId, { count: 1, windowStart: now });
-    return true;
-  }
-  counter.count++;
-  return counter.count <= AI_RATE_LIMIT;
-}
-
-const completionSchema = z.object({
-  workspaceId: z.string().uuid(),
-  prompt: z.string().min(1).max(100_000),
-  systemPrompt: z.string().max(50_000).optional(),
-  model: z.string().max(100).optional(),
-  maxTokens: z.number().min(1).max(128_000).optional(),
-  temperature: z.number().min(0).max(2).optional(),
-});
-
-/**
- * POST /api/ai/complete
- * Strict order (no workspace-scoped service-role work before authorization):
- * 1. parse + validate body
- * 2. real user JWT + workspace membership
- * 3. module entitlement ('ai_assistant')
- * 4. rate limit (rejected requests must never consume credit)
- * 5. AI credit reservation (atomic deduct — unchanged semantics)
- * 6. provider execution + usage increment
- */
-aiRouter.post('/complete', async (req, res) => {
-  try {
-    const config: ServerConfig = (req as typeof req & AiRouteRequestExtras).serverConfig;
-
-    const parsed = completionSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
-    }
-
-    // Identity comes from a real user JWT; the publishable key is not identity.
-    if (!(await authorizeWorkspaceAccess(req, res, parsed.data.workspaceId))) return;
-
-    // Module gate (plan + admin override) — after authorization.
-    const moduleAccess = await checkModuleAccess(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      parsed.data.workspaceId,
-      'ai_assistant',
-    );
-    if (!moduleAccess.allowed) {
-      return res.status(403).json({
-        error: "Module 'ai_assistant' is not enabled",
-        module: 'ai_assistant',
-        plan: moduleAccess.plan,
-        upgrade_required: true,
-      });
-    }
-
-    // Rate limit BEFORE any credit reservation: a 429 must not consume credit.
-    if (!checkAIRateLimit(parsed.data.workspaceId)) {
-      await logSecurityEvent(req, 'rate_limited', 'warn', {
-        endpoint: '/api/ai/complete',
-        workspaceId: parsed.data.workspaceId,
-      });
-      return res.status(429).json({ error: 'AI rate limit exceeded. Max 60 requests/minute per workspace.' });
-    }
-
-    // Credit reservation keeps its existing semantics (deduct before provider call).
-    const credits = await deductAICredits(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      parsed.data.workspaceId,
-      1,
-    );
-    if (!credits.success) {
-      return res.status(403).json({
-        error: 'AI credits exhausted or AI not available on your plan',
-        reason: credits.reason,
-        credits_used: credits.credits_used,
-        credits_limit: credits.credits_limit,
-        upgrade_required: true,
-      });
-    }
-    (req as typeof req & AiRouteRequestExtras).aiCredits = credits;
-
-    // Build the request explicitly: zod's inferred output marks every property
-    // optional under `strictNullChecks: false`, while AIRequest requires
-    // workspaceId/prompt. The schema already guarantees both are present.
-    const result = await executeAICompletion(config, {
-      workspaceId: parsed.data.workspaceId,
-      prompt: parsed.data.prompt,
-      systemPrompt: parsed.data.systemPrompt,
-      model: parsed.data.model,
-      maxTokens: parsed.data.maxTokens,
-      temperature: parsed.data.temperature,
-      billing: { entryPoint: 'api_ai_complete' },
-    });
-
-    // Count the request exactly once. Where the database has the hosted
-    // chain's ai_usage_logs trigger, the usage row written by the completion
-    // already counted it; self-host databases have neither table nor trigger,
-    // and PRODUCT_ANALYTICS_LOGGING=off skips the row, so this route counts
-    // only when that did not happen. deductAICredits() above moves credits
-    // only (supabase/migrations/20260926100500).
-    if (!wasRequestCounted(result)) {
-      incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, parsed.data.workspaceId, 'ai_requests_count');
-    }
-
-    return res.json({
-      text: result.text,
-      model: result.model,
-      provider: result.provider,
-      usage: {
-        promptTokens: result.promptTokens,
-        completionTokens: result.completionTokens,
-        totalTokens: result.totalTokens,
-      },
-      latencyMs: result.latencyMs,
-      credits,
-    });
-  } catch (err: unknown) {
-    console.error('[ai] Completion error:', messageOf(err));
-    return res.status(500).json({ error: messageOf(err) || 'AI completion failed' });
-  }
-});
 
 const testSchema = z.object({
   provider: z.string(),

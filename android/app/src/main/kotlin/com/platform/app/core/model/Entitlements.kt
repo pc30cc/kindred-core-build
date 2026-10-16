@@ -12,7 +12,7 @@ data class EffectiveBool(val value: Boolean? = null, val source: String? = null,
 
 /**
  * A numeric limit. Read as a [Double] although most are whole numbers: the
- * snapshot also carries `storage_gb` (which a plan may set to 0.5) and byte
+ * snapshot can carry fractional values and byte
  * counts past [Int.MAX_VALUE], and one value an `Int` cannot hold fails the
  * WHOLE snapshot — every feature then reads as not in the plan.
  */

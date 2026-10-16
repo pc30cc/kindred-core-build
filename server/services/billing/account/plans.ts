@@ -20,7 +20,7 @@ import { locksEnabled } from '../locks/state.js';
 import { enqueueKnowledgeBaseCatchup } from '../../ai-agent/knowledgeIndex/kbEvents.js';
 import { aiWalletRate } from './aiPacks.js';
 import { walletToMinor } from '../../../../shared/aiPacks.js';
-import { planAiAllowance, withStorageMb } from '../../../../shared/planLimits.js';
+import { planAiAllowance } from '../../../../shared/planLimits.js';
 
 export type BillingInterval = 'monthly' | 'yearly';
 
@@ -108,8 +108,7 @@ export async function listPlanOptions(config: ServerConfig, currency: string, wo
       localized: (row.localized as Record<string, unknown>) ?? {},
       is_free: isFree,
       sort_order: Number(row.sort_order ?? 0),
-      // Storage in MB (271): storage_gb × 1024 for a plan not saved since.
-      limits: withStorageMb((row.limits as Record<string, unknown>) ?? {}),
+      limits: (row.limits as Record<string, unknown>) ?? {},
       entitlements: (row.entitlements as Record<string, unknown>) ?? {},
       price_monthly_minor: monthly,
       price_yearly_minor: yearly,

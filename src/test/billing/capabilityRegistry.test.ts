@@ -23,7 +23,7 @@ describe("capability registry — integrity", () => {
     const required = [
       "max_conversations",
       "max_visitors",
-      "storage_gb",
+      "storage_mb",
       "ai_kb_jobs_per_month",
       "ai_credits_per_month",
       "advanced_ai_agent",
@@ -75,9 +75,9 @@ describe("normalizePlanLimitsForCreate", () => {
   });
 
   it("never overwrites caller-supplied values", () => {
-    const out = normalizePlanLimitsForCreate({ max_conversations: 9999, storage_gb: -1 });
+    const out = normalizePlanLimitsForCreate({ max_conversations: 9999, storage_mb: -1 });
     expect(out.max_conversations).toBe(9999);
-    expect(out.storage_gb).toBe(-1);
+    expect(out.storage_mb).toBe(-1);
   });
 
   it("preserves unknown / legacy keys untouched", () => {
@@ -94,15 +94,15 @@ describe("normalizePlanLimitsForCreate", () => {
 
 describe("validatePlanPayload", () => {
   it("flags non-boolean entitlement as error", () => {
-    const r = validatePlanPayload({ entitlements: { advanced_ai_agent: 1 as any } });
+    const r = validatePlanPayload({ entitlements: { advanced_ai_agent: 1 } });
     expect(r.valid).toBe(false);
     expect(r.issues.some((i) => i.level === "error" && i.key === "advanced_ai_agent")).toBe(true);
   });
 
   it("flags non-numeric limit as error", () => {
-    const r = validatePlanPayload({ limits: { storage_gb: "1gb" as any } });
+    const r = validatePlanPayload({ limits: { storage_mb: "1gb" } });
     expect(r.valid).toBe(false);
-    expect(r.issues.some((i) => i.level === "error" && i.key === "storage_gb")).toBe(true);
+    expect(r.issues.some((i) => i.level === "error" && i.key === "storage_mb")).toBe(true);
   });
 
   it("warns on unknown keys but stays valid (backward compat)", () => {
@@ -112,7 +112,7 @@ describe("validatePlanPayload", () => {
   });
 
   it("accepts -1 as unlimited", () => {
-    const r = validatePlanPayload({ limits: { storage_gb: -1, max_conversations: -1 } });
+    const r = validatePlanPayload({ limits: { storage_mb: -1, max_conversations: -1 } });
     expect(r.valid).toBe(true);
   });
 });
@@ -123,8 +123,8 @@ describe("diagnoseAgainstPlans", () => {
       {
         id: "p1",
         slug: "free",
-        entitlements: { advanced_ai_agent: false, mystery_flag: true } as any,
-        limits: { max_conversations: 100, storage_gb: "huge" as any, legacy_quota: 7 },
+        entitlements: { advanced_ai_agent: false, mystery_flag: true },
+        limits: { max_conversations: 100, storage_mb: "huge", legacy_quota: 7 },
       },
     ]);
     expect(d.unknownKeysInDb).toEqual(
@@ -134,7 +134,7 @@ describe("diagnoseAgainstPlans", () => {
       ]),
     );
     expect(d.invalidLimitValues).toEqual([
-      { planSlug: "free", key: "storage_gb", value: "huge" },
+      { planSlug: "free", key: "storage_mb", value: "huge" },
     ]);
     // Capability that no plan defines should be reported as missing.
     expect(d.registryKeysMissingEverywhere.length).toBeGreaterThan(0);

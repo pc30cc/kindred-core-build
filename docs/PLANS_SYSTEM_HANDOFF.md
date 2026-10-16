@@ -23,7 +23,7 @@ deferred or optional polish — not unfinished work.
 | Module / channel boolean overrides | `workspace_module_overrides`, `workspace_channel_overrides` |
 | Numeric limit overrides | `workspace_limit_overrides` |
 | Effective entitlement resolver (RPC) | `public.check_workspace_entitlement` |
-| TypeScript enforcement entry points | `server/middleware/featureGating.ts` (`requireFeature` / `requireModule` / `requireChannel` / `requireLimit` / `requireAICredits`) |
+| TypeScript enforcement entry points | `server/middleware/featureGating.ts` (`requireFeature` / `requireModule` / `requireChannel` / `requireLimit`) |
 | Usage resolvers per limit key | `server/services/billing/usageResolvers.ts` |
 | Admin + diagnostics API | `server/routes/plans.ts` (`/api/plans/...`) |
 | Super Admin UI | `src/pages/admin/PlansPage.tsx` |

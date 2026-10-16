@@ -10,9 +10,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../../../server/services/ai-kb/credits.js', () => ({
-  consumeAiCredits: async () => ({ success: true }),
-}));
+vi.mock('../../../server/services/ai-kb/credits.js', () => ({}));
 vi.mock('../../../server/middleware/adminBypass.js', () => ({
   logGateBypass: async () => {},
   isGlobalAdmin: async () => false,

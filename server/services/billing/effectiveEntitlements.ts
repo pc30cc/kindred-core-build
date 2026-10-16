@@ -13,7 +13,7 @@
  */
 import { CAPABILITY_REGISTRY, getCapability, type CapabilityDefinition } from './capabilityRegistry.js';
 import type { BillingPlanRow, WorkspacePlanInfo, WorkspaceSubscriptionRow } from '../../middleware/featureGating.js';
-import { LEGACY_STORAGE_LIMIT_KEY, STORAGE_LIMIT_KEY, gbToMb, storageLimitMb } from '../../../shared/planLimits.js';
+import { STORAGE_LIMIT_KEY, storageLimitMb } from '../../../shared/planLimits.js';
 
 export type EffectiveSource = 'override' | 'plan' | 'default';
 
@@ -92,9 +92,6 @@ function resolveLimit(
   const override = limitOverrides?.[cap.key];
   if (override) return { value: override.value, source: 'override', unit: cap.unit, note: override.note };
   if (cap.key === STORAGE_LIMIT_KEY) {
-    // Written before migration 271: the GB value × 1024 (shared/planLimits.ts).
-    const legacy = limitOverrides?.[LEGACY_STORAGE_LIMIT_KEY];
-    if (legacy) return { value: gbToMb(legacy.value), source: 'override', unit: cap.unit, note: legacy.note };
     const mb = storageLimitMb(planLimits);
     if (mb !== null) return { value: mb, source: 'plan', unit: cap.unit };
   }

@@ -340,7 +340,7 @@ describe('the downgrade report', () => {
     member: { limit: 2, total: 4, locked: 2, items: [{ user_id: 'u', name: 'N', email: 'e@x' }] },
     conversation: { retention_days: 30, total: 9, locked: 4, cutoff: '2026-09-11T00:00:00+00:00', oldest_kept: null },
     conversation_quota: { limit: 50, used_this_month: 71, full: true },
-    storage: { limit_gb: 1, used_gb: 3.4, uploads_blocked: true },
+    storage: { limit_mb: 1024, used_mb: 3481.6, uploads_blocked: true },
     locked_data_retention_days: 90,
     first_deletion_not_before: '2027-01-09T00:00:00+00:00',
   };
@@ -354,10 +354,10 @@ describe('the downgrade report', () => {
     expect(r.kb_article).toEqual({ limit: 2, total: 5, locked: 3, items: [{ id: 'a', title: 'A' }] });
     expect(r.member.items).toEqual([{ user_id: 'u', name: 'N', email: 'e@x' }]);
     expect(r.conversation.cutoff).toBe('2026-09-11T00:00:00+00:00');
-    // 265's GB answer reads in MB; 271's MB answer as it is.
-    expect(r.storage).toEqual({ limit_mb: 1024, used_mb: 3.4 * 1024, uploads_blocked: true });
-    expect(parseSqlLockReport({ ...sql, storage: { limit_mb: 0, used_mb: 0.5, uploads_blocked: true, limit_gb: 0, used_gb: 0 } }, 'p').storage)
-      .toEqual({ limit_mb: 0, used_mb: 0.5, uploads_blocked: true });
+    // Storage in MB only (272): a GB field is not read.
+    expect(r.storage).toEqual({ limit_mb: 1024, used_mb: 3481.6, uploads_blocked: true });
+    expect(parseSqlLockReport({ ...sql, storage: { limit_gb: 1, used_gb: 3, uploads_blocked: true } }, 'p').storage)
+      .toEqual({ limit_mb: null, used_mb: 0, uploads_blocked: true });
     expect(parseSqlLockReport({ ...sql, storage: { limit_mb: null, used_mb: 1 } }, 'p').storage.limit_mb).toBeNull();
     const empty = parseSqlLockReport(null, 'p');
     expect(empty).toMatchObject({ locks_enabled: false, kb_article: { locked: 0, items: [] }, conversation_quota: { full: false } });

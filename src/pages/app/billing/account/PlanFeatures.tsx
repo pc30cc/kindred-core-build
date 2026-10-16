@@ -80,7 +80,7 @@ export default function PlanFeatures({
   // list is cut after SHOWN items.
   const items: string[] = aiCredit ? [t('billing.plans.aiCreditMonthly', { value: aiCredit })] : [];
   for (const key of CAP_KEYS) {
-    // Storage: storage_mb, or storage_gb × 1024 on a plan not saved since 271.
+    // Storage in MB (storage_mb).
     const raw = key === 'storage_mb' ? storageLimitMb(limits) ?? NaN : Number(limits[key]);
     if (!Number.isFinite(raw) || raw === 0) continue;
     const value = raw < 0

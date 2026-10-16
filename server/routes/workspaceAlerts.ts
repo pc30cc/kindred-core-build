@@ -18,7 +18,7 @@ import { getWorkspacePlanInfo } from '../middleware/featureGating.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { getPhoneVerificationState } from '../services/phoneVerification/index.js';
 import { renewalDueNotice } from '../services/billing/account/renewalNotice.js';
-import { BYTES_PER_MB, LEGACY_STORAGE_LIMIT_KEY, STORAGE_LIMIT_KEY, gbToMb } from '../../shared/planLimits.js';
+import { BYTES_PER_MB, STORAGE_LIMIT_KEY } from '../../shared/planLimits.js';
 
 export const workspaceAlertsRouter = Router();
 
@@ -172,10 +172,6 @@ async function deriveAlerts(req: object, workspaceId: string, userId: string) {
   const overrideMap = new Map<string, number>(
     ((overridesRes.data || []) as Array<{ limit_key: string; limit_value: unknown }>).map((o) => [o.limit_key, Number(o.limit_value)]),
   );
-  // An override written before migration 271 names storage in GB.
-  if (!overrideMap.has(STORAGE_LIMIT_KEY) && overrideMap.has(LEGACY_STORAGE_LIMIT_KEY)) {
-    overrideMap.set(STORAGE_LIMIT_KEY, gbToMb(overrideMap.get(LEGACY_STORAGE_LIMIT_KEY)!));
-  }
   const planLimits: Record<string, number> = planInfo?.limits || {};
   const usage = (usageRes.data || {}) as Record<string, unknown>;
 

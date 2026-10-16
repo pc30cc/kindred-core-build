@@ -35,7 +35,10 @@ export interface RequesterWorkspace {
     storage_bytes?: number | null;
     /** The plan's storage limit in MB (-1 unlimited). */
     storage_limit_mb?: number | null;
-    /** Cards written before migration 271: the limit in GB. */
+    /**
+     * Read only for cards stored before migration 271, which named the limit
+     * in GB alone (the server still sends it for installed native apps).
+     */
     storage_limit_gb?: number | null;
   };
 }

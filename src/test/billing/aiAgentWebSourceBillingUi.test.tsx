@@ -151,12 +151,12 @@ describe('the plan card only promises what the plan grants', () => {
 
   it('a limit the plan never mentions is not advertised', async () => {
     await renderCard(plan({ limits: { max_agents: 5 } }));
-    expect(screen.queryByText(/cap\.storage_gb/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/cap\.storage_mb/)).not.toBeInTheDocument();
   });
 
   it('a non-numeric limit is not advertised as NaN', async () => {
-    await renderCard(plan({ limits: { max_agents: 5, storage_gb: 'lots' } }));
-    expect(screen.queryByText(/cap\.storage_gb/)).not.toBeInTheDocument();
+    await renderCard(plan({ limits: { max_agents: 5, storage_mb: 'lots' } }));
+    expect(screen.queryByText(/cap\.storage_mb/)).not.toBeInTheDocument();
     expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
   });
 

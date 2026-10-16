@@ -22,9 +22,7 @@ import type * as SafeCrawlModule from '../../../server/services/ai-agent/crawler
 const WORKSPACE_ID = 'ws-1';
 const CRAWL_HOST = 'docs.example.com';
 
-vi.mock('../../../server/services/ai-kb/credits.js', () => ({
-  consumeAiCredits: async () => ({ success: true, credits_used: 1, credits_limit: 100 }),
-}));
+vi.mock('../../../server/services/ai-kb/credits.js', () => ({}));
 
 vi.mock('../../../server/middleware/adminBypass.js', () => ({
   logGateBypass: async () => {},

@@ -40,8 +40,8 @@ export interface AIRequest {
   temperature?: number;
   /**
    * AI billing — business identity of a STANDALONE call (no caller Run).
-   * Lets a direct flow (assistant description, playground, test harness,
-   * /api/ai/complete) open a meaningful, idempotent Run of its own instead of
+   * Lets a direct flow (assistant description, playground, test harness)
+   * open a meaningful, idempotent Run of its own instead of
    * an anonymous one.
    */
   billing?: {

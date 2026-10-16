@@ -216,12 +216,8 @@ export interface LockReport {
   /** Chats whose last activity is before `cutoff` are locked. */
   conversation: { retention_days: number | null; total: number; locked: number; cutoff: string | null; oldest_kept: string | null };
   conversation_quota: { limit: number | null; used_this_month: number; full: boolean };
-  /**
-   * File storage in MB (migration 271): the target plan's limit (null =
-   * unlimited) and what is stored now. A server from before 271 answers
-   * limit_gb/used_gb instead.
-   */
-  storage: { limit_mb?: number | null; used_mb?: number; limit_gb?: number | null; used_gb?: number; uploads_blocked: boolean };
+  /** File storage in MB: the target plan's limit (null = unlimited) and what is stored now. */
+  storage: { limit_mb: number | null; used_mb: number; uploads_blocked: boolean };
   /** Days locked data is kept before deletion; null = never deleted. */
   locked_data_retention_days: number | null;
   first_deletion_not_before: string | null;

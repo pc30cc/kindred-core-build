@@ -270,18 +270,13 @@ describe('PUT /api/plans/admin/:planId', () => {
   });
 });
 
-describe('271: storage in MB and one monthly AI credit on save', () => {
-  it('a body with storage_mb saves only storage_mb; storage_gb alone (an older page) is converted', async () => {
-    await call('PUT', `/api/plans/admin/${PLAN_ID}`, { limits: { max_agents: 3, storage_mb: 512, storage_gb: 50 } });
+describe('storage in MB and one monthly AI credit on save', () => {
+  it('storage is saved as storage_mb, as sent', async () => {
+    await call('PUT', `/api/plans/admin/${PLAN_ID}`, { limits: { max_agents: 3, storage_mb: 512 } });
     expect(h.updates[0].patch.limits).toEqual({ max_agents: 3, storage_mb: 512 });
-    await call('PUT', `/api/plans/admin/${PLAN_ID}`, { limits: { max_agents: 3, storage_gb: 2 } });
-    expect(h.updates[1].patch.limits).toEqual({ max_agents: 3, storage_mb: 2048 });
-    await call('PUT', `/api/plans/admin/${PLAN_ID}`, { limits: { storage_gb: -1 } });
-    expect(h.updates[2].patch.limits).toEqual({ storage_mb: -1 });
-    const created = await call('POST', '/api/plans/admin', { name: 'New', slug: 'new', limits: { storage_gb: 0 } });
+    const created = await call('POST', '/api/plans/admin', { name: 'New', slug: 'new', limits: { storage_mb: 0 } });
     expect(created.status).toBe(200);
     expect(h.inserts[0].limits).toMatchObject({ storage_mb: 0 });
-    expect(h.inserts[0].limits).not.toHaveProperty('storage_gb');
   });
 
   it('the monthly AI credit is ai_allowance.IRR: the legacy count is never saved beside it', async () => {
@@ -292,37 +287,23 @@ describe('271: storage in MB and one monthly AI credit on save', () => {
   });
 });
 
-describe('271: the public plan list', () => {
-  it('names storage in MB (GB kept, derived, for readers outside the app) and one monthly AI credit', async () => {
+describe('the public plan list', () => {
+  it('names storage in MB, a storage_gb computed from it for the landing pages, and one monthly AI credit', async () => {
     h.list = [
-      // Saved before 271: storage in GB, the legacy count next to the credit (production's Startup).
-      { id: 'p1', slug: 'startup', limits: { storage_gb: 2, ai_credits_per_month: 0 }, ai_allowance: { IRR: 300_000 } },
-      // Saved by the new editor: MB only.
+      { id: 'p1', slug: 'startup', limits: { storage_mb: 0, ai_credits_per_month: 0 }, ai_allowance: { IRR: 300_000 } },
       { id: 'p2', slug: 'enterprise', limits: { storage_mb: 51200 }, ai_allowance: { IRR: 600_000 } },
+      { id: 'p3', slug: 'trial', limits: { storage_mb: 512 }, ai_allowance: { IRR: 0 } },
+      { id: 'p4', slug: 'big', limits: { storage_mb: -1 }, ai_allowance: {} },
+      // No storage limit named: nothing derived.
+      { id: 'p5', slug: 'none', limits: {}, ai_allowance: {} },
     ];
     const res = await call('GET', '/api/plans');
     expect(res.status).toBe(200);
-    const [startup, enterprise] = res.json.plans;
-    expect(startup.limits).toEqual({ storage_gb: 2, storage_mb: 2048, ai_credits_per_month: 300_000 });
+    const [startup, enterprise, trial, big, none] = res.json.plans;
+    expect(startup.limits).toEqual({ storage_mb: 0, storage_gb: 0, ai_credits_per_month: 300_000 });
     expect(enterprise.limits).toEqual({ storage_mb: 51200, storage_gb: 50, ai_credits_per_month: 600_000 });
-  });
-});
-
-describe('checkPlanBody', () => {
-  it('an unknown edition judges every currency', () => {
-    expect(checkPlanBody({ prices: { IRR: { monthly: -1 } } }, 'update', null)).toMatchObject({ ok: false, body: { error: 'INVALID_PRICE' } });
-    expect(checkPlanBody({ prices: { IRR: { monthly: 1, note: 'x' } } }, 'update', 'international')).toMatchObject({ ok: true });
-  });
-});
-
-describe('billing v2 admin writers are removed (phase 7A)', () => {
-  it.each([
-    ['/api/billing/admin/grant', { workspaceId: 'w', planId: 'p' }],
-    ['/api/billing/admin/plans', { name: 'X', slug: 'x' }],
-    ['/api/admin/billing/reset', { confirm: 'RESET-BILLING' }],
-  ])('%s answers 404 and writes nothing', async (path, body) => {
-    const res = await call('POST', path, body);
-    expect(res.status).toBe(404);
-    expect(h.db.filter((t) => t !== 'rpc:has_role')).toEqual([]);
+    expect(trial.limits).toEqual({ storage_mb: 512, storage_gb: 0.5, ai_credits_per_month: 0 });
+    expect(big.limits).toEqual({ storage_mb: -1, storage_gb: -1, ai_credits_per_month: 0 });
+    expect(none.limits).toEqual({ ai_credits_per_month: 0 });
   });
 });

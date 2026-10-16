@@ -23,7 +23,7 @@ import { getBillingRegion } from '../edition.js';
 import { readAccount } from '../account/index.js';
 import { aiWalletRate } from '../account/aiPacks.js';
 import { walletToMinor } from '../../../../shared/aiPacks.js';
-import { AI_WALLET_UNIT, MB_PER_GB, gbToMb } from '../../../../shared/planLimits.js';
+import { AI_WALLET_UNIT } from '../../../../shared/planLimits.js';
 
 export interface LockReportCount {
   limit: number | null;
@@ -142,11 +142,9 @@ export function parseSqlLockReport(raw: unknown, planId: string): Omit<LockRepor
       full: quota.full === true,
     },
     storage: {
-      // MB since migration 271; a database still on 265's report answers GB.
-      limit_mb: 'limit_mb' in storage
-        ? numOrNull(storage.limit_mb)
-        : (() => { const gb = numOrNull(storage.limit_gb); return gb === null ? null : gbToMb(gb); })(),
-      used_mb: 'used_mb' in storage ? num(storage.used_mb) : num(storage.used_gb) * MB_PER_GB,
+      // In MB (migrations 271 and 272).
+      limit_mb: numOrNull(storage.limit_mb),
+      used_mb: num(storage.used_mb),
       uploads_blocked: storage.uploads_blocked === true,
     },
     locked_data_retention_days: numOrNull(r.locked_data_retention_days),

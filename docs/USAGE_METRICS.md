@@ -39,7 +39,7 @@ import {
 |---|---|---|---|---|
 | `max_conversations` | `workspace_usage_counters.conversations_count` | calendar month | yes | Pre-aggregated counter; missing row → 0. |
 | `max_visitors` | `workspace_usage_counters.visitors_count` | calendar month | yes | Pre-aggregated counter; missing row → 0. |
-| `storage_gb` | `workspace_usage_counters.storage_bytes` ÷ 1 GiB | lifetime | yes | Counter is bytes; resolver converts to GB so it can be compared directly to `limits.storage_gb`. |
+| `storage_mb` | `workspace_usage_counters.storage_bytes` ÷ 1 MiB | lifetime | yes | Counter is bytes; resolver converts to MB so it can be compared directly to `limits.storage_mb` (the GB key was removed by migration 272). |
 | `ai_kb_jobs_per_month` | `count(*)` on `ai_kb_jobs` since UTC start of month (delegates to `services/ai-kb/limits.ts`) | calendar month | yes | Reuses the existing `countJobsThisMonth` helper that already gates `POST /api/ai-kb/jobs`. |
 | `ai_credits_per_month` | `workspace_usage_counters.ai_credits_used` | calendar month | yes | Pre-aggregated. AI credit deduction goes through `deduct_ai_credits` RPC. |
 

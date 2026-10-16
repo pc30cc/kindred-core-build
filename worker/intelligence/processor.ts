@@ -17,7 +17,7 @@
  * uses the shared SSRF-hardened transport (safeCrawlFetch: per-hop redirect
  * validation, fail-closed DNS checks, connect-time pinned lookup) plus
  * size/timeout caps. AI generation is delegated to the same provider
- * resolution code used by /api/ai/complete (no duplicate AI client).
+ * resolution code as the server (server/services/ai; no duplicate AI client).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';

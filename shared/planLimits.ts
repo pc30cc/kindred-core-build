@@ -2,11 +2,9 @@
  * Plan values every surface reads the same way (server, browser, reports).
  * Pure: no I/O.
  *
- * Storage is counted in megabytes: the plan limit is `limits.storage_mb`
- * (-1 = unlimited). Plans written before migration 271 carry `storage_gb`
- * instead; until a plan is saved again (the plan editor then writes only
- * `storage_mb`), `storage_gb × 1024` stands in for a missing `storage_mb`.
- * Workspace overrides follow the same rule.
+ * Storage is counted in megabytes: the plan limit (and its workspace
+ * override) is `limits.storage_mb` (-1 = unlimited, 0 = no file storage).
+ * Migration 272 removed the gigabyte key that came before it.
  *
  * The monthly AI credit of a plan is `ai_allowance.IRR`, in the AI wallet's
  * unit (Rial), as `billing_plan_ai_allowance` (migration 261) reads it: a
@@ -16,11 +14,9 @@
  * every plan, so the fallbacks only matter for a plan saved by older code.
  */
 
-/** The canonical storage limit key (megabytes). */
+/** The storage limit key (megabytes). */
 export const STORAGE_LIMIT_KEY = 'storage_mb';
-/** The storage limit key before migration 271 (gigabytes). */
-export const LEGACY_STORAGE_LIMIT_KEY = 'storage_gb';
-/** Megabytes in one gigabyte of the old key. */
+/** Megabytes in one gigabyte (for compatibility values computed from MB). */
 export const MB_PER_GB = 1024;
 /** Bytes in one megabyte (the usage counter counts bytes). */
 export const BYTES_PER_MB = 1024 * 1024;
@@ -30,57 +26,15 @@ function finite(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** A gigabyte limit in megabytes (negative stays -1: unlimited). */
-export function gbToMb(gb: number): number {
-  return gb < 0 ? -1 : Math.round(gb * MB_PER_GB);
-}
-
-/**
- * The storage limit in MB a limits object names: `storage_mb`, else
- * `storage_gb × 1024`; null when it names neither.
- */
+/** The storage limit in MB a limits object names (-1 = unlimited); null when it names none. */
 export function storageLimitMb(limits: Record<string, unknown> | null | undefined): number | null {
   const mb = finite(limits?.[STORAGE_LIMIT_KEY]);
-  if (mb !== null) return mb < 0 ? -1 : mb;
-  const gb = finite(limits?.[LEGACY_STORAGE_LIMIT_KEY]);
-  return gb === null ? null : gbToMb(gb);
+  return mb === null ? null : mb < 0 ? -1 : mb;
 }
 
-/**
- * The same limits with `storage_mb` filled in from `storage_gb` when only the
- * old key is there. Never changes a `storage_mb` that is set; returns the
- * input itself when there is nothing to add.
- */
-export function withStorageMb<T extends Record<string, unknown>>(limits: T | null | undefined): T {
-  const base = (limits ?? {}) as T;
-  if (finite(base[STORAGE_LIMIT_KEY]) !== null) return base;
-  const mb = storageLimitMb(base);
-  return mb === null ? base : ({ ...base, [STORAGE_LIMIT_KEY]: mb } as T);
-}
-
-/**
- * The same limits with `storage_gb` (storage_mb / 1024; -1 stays unlimited)
- * added where only `storage_mb` is there: for public readers outside this
- * repository that still read GB. Never stored.
- */
-export function withLegacyStorageGb<T extends Record<string, unknown>>(limits: T | null | undefined): T {
-  const base = (limits ?? {}) as T;
-  if (finite(base[LEGACY_STORAGE_LIMIT_KEY]) !== null) return base;
-  const mb = finite(base[STORAGE_LIMIT_KEY]);
-  if (mb === null) return base;
-  return { ...base, [LEGACY_STORAGE_LIMIT_KEY]: mb < 0 ? -1 : mb / MB_PER_GB } as T;
-}
-
-/**
- * A plan's limits as the plan editor saves them: `storage_mb` only. A body
- * that still sends `storage_gb` alone (a page built before 271) has it
- * converted; once `storage_mb` is there the old key is dropped.
- */
-export function storageLimitsForSave(limits: Record<string, unknown>): Record<string, unknown> {
-  const out = withStorageMb(limits);
-  if (finite(out[STORAGE_LIMIT_KEY]) === null) return out;
-  const { [LEGACY_STORAGE_LIMIT_KEY]: _dropped, ...rest } = out;
-  return rest;
+/** A limit in MB as gigabytes (-1 stays unlimited), for readers outside this repository that read GB. */
+export function mbToGb(mb: number): number {
+  return mb < 0 ? -1 : mb / MB_PER_GB;
 }
 
 /** Bytes in megabytes (fractional; 0 for nothing or an unreadable value). */

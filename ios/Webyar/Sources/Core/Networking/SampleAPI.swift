@@ -1238,11 +1238,11 @@ actor SampleAPI: WebyarAPI {
            "operators":{"used":4,"limit":5},"contacts":{"used":1820,"limit":5000},
            "usage":{"period":"2026-10","conversations":{"used":930,"limit":1000},"visitors":{"used":12400,"limit":-1},
                     "messages":5210,"ai_credits":{"used":310,"limit":1000},"call_minutes":42,
-                    "storage_bytes":3221225472,"storage_limit_gb":10}},
+                    "storage_bytes":3221225472,"storage_limit_mb":10240}},
           {"id":"w-b","name":"Second Store","role":"agent","status":"active","created_at":"\(at(-90))",
            "plan":null,"operators":{"used":2,"limit":null},"contacts":{"used":40,"limit":null},
            "usage":{"period":"2026-10","conversations":{"used":12,"limit":null},"visitors":{"used":300,"limit":null},
-                    "messages":80,"ai_credits":{"used":0,"limit":null},"call_minutes":0,"storage_bytes":1048576,"storage_limit_gb":null}}],
+                    "messages":80,"ai_credits":{"used":0,"limit":null},"call_minutes":0,"storage_bytes":1048576,"storage_limit_mb":null}}],
          "captured_at":"\(at(-0.22))"}
         """
         return (try? JSONDecoder().decode([String: JSONValue].self, from: Data(json.utf8))) ?? [:]

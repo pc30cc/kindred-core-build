@@ -36,7 +36,7 @@ const REPORT = {
   member: { limit: 2, total: 3, locked: 1, items: [{ user_id: 'u9', name: 'Nine', email: 'nine@acme.test' }] },
   conversation: { retention_days: 30, total: 0, locked: 0, cutoff: null, oldest_kept: null },
   conversation_quota: { limit: null, used_this_month: 0, full: false },
-  storage: { limit_gb: null, used_gb: 0, uploads_blocked: false },
+  storage: { limit_mb: null, used_mb: 0, uploads_blocked: false },
   locked_data_retention_days: null, first_deletion_not_before: null,
   modules_lost: [], channels_lost: [], channels_stop_messages: false, ai_credits: { current: null, target: null },
 };

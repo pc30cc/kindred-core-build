@@ -1,16 +1,12 @@
 /**
- * Every AI request counts ai_requests_count exactly once.
+ * Every AI request counts ai_requests_count exactly once: the
+ * ai_usage_logs insert trigger (hosted chain) counts it, and nothing else
+ * does. The direct POST /api/ai/complete route, which also counted it
+ * itself, is gone.
  *
- * The route bumped the counter itself, and on a database with the hosted
- * chain the ai_usage_logs insert trigger bumped it again, so every request
- * counted twice. The route now counts only when the completion's usage row
- * did NOT reach ai_usage_logs — PRODUCT_ANALYTICS_LOGGING=off, or a self-host
- * database with neither the table nor the trigger — which is what
- * wasRequestCounted() reports.
- *
- * deduct_ai_credits() counted the request a third time on /api/ai/complete
- * (and a second time for the AI-KB builder, its other caller). The hosted
- * chain's latest definition moves credits only.
+ * deduct_ai_credits() counted the request a third time on that route (and
+ * a second time for the AI-KB builder). The hosted chain's latest
+ * definition moves credits only, and no server code calls it any more.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -20,7 +16,7 @@ let fakeSb: ReturnType<typeof makeFakeSupabase>;
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeSb }));
 
-const { executeAICompletion, wasRequestCounted } = await import('../../../server/services/ai/index.js');
+const { executeAICompletion } = await import('../../../server/services/ai/index.js');
 
 type Config = Parameters<typeof executeAICompletion>[0];
 type Request = Parameters<typeof executeAICompletion>[1];
@@ -84,29 +80,28 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('wasRequestCounted', () => {
-  it('is true once the usage row — whose trigger counts the request — is written', async () => {
-    const result = await executeAICompletion(CONFIG, REQUEST);
+describe('the usage row that counts the request', () => {
+  it('is written once per completion', async () => {
+    await executeAICompletion(CONFIG, REQUEST);
     expect(fakeSb.__store['ai_usage_logs']).toHaveLength(1);
-    expect(wasRequestCounted(result)).toBe(true);
   });
 
-  it('is false when analytics logging is off and no row is written', async () => {
-    const result = await executeAICompletion({ ...CONFIG, productAnalyticsLoggingEnabled: false } as Config, REQUEST);
+  it('is not written when analytics logging is off', async () => {
+    await executeAICompletion({ ...CONFIG, productAnalyticsLoggingEnabled: false } as Config, REQUEST);
     expect(fakeSb.__store['ai_usage_logs'] ?? []).toHaveLength(0);
-    expect(wasRequestCounted(result)).toBe(false);
   });
 
-  it('is false on a self-host database without the table (and its trigger)', async () => {
+  it('a self-host database without the table does not fail the completion', async () => {
     fakeSb = withoutUsageLogTable(seededSupabase());
     const result = await executeAICompletion(CONFIG, REQUEST);
-    expect(wasRequestCounted(result)).toBe(false);
+    expect(result.text).toBeTypeOf('string');
   });
 
-  it('the route counts only when the usage row did not', () => {
-    // Source-level: the unconditional bump is what double counted.
+  it('no server route counts requests itself or calls deduct_ai_credits', () => {
     const route = readFileSync('server/routes/ai.ts', 'utf8');
-    expect(route).toMatch(/if \(!wasRequestCounted\(result\)\) \{\s*incrementUsage\([^)]*'ai_requests_count'\)/);
+    expect(route).not.toMatch(/'\/complete'/);
+    expect(route).not.toMatch(/incrementUsage|deductAICredits/);
+    expect(readFileSync('server/middleware/featureGating.ts', 'utf8')).not.toMatch(/deduct_ai_credits/);
   });
 });
 

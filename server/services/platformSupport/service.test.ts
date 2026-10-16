@@ -333,7 +333,7 @@ describe('writing', () => {
       slug: 'pro',
       is_free: false,
       localized: { fa: { name: 'شروع' } },
-      limits: { max_agents: 3, max_conversations: 1000, max_visitors: -1, max_contacts: 500, ai_credits_per_month: 0, storage_gb: 1 },
+      limits: { max_agents: 3, max_conversations: 1000, max_visitors: -1, max_contacts: 500, ai_credits_per_month: 0, storage_mb: 512 },
     });
     db.table('workspace_subscriptions').push({
       workspace_id: workspaceId,
@@ -392,8 +392,9 @@ describe('writing', () => {
     expect(ws.contacts).toEqual({ used: 1, limit: 500 });
     expect(ws.usage.conversations).toEqual({ used: 42, limit: 1000 });
     expect(ws.usage.visitors).toEqual({ used: 900, limit: -1 });
-    // Storage in MB (271), GB kept for the native cards; the monthly AI credit is what the plan grants.
-    expect(ws.usage).toMatchObject({ storage_limit_mb: 1024, storage_limit_gb: 1, ai_monthly_credit_irr: 0 });
+    // Storage in MB; storage_limit_gb is only a value computed from it for
+    // installed native apps. The monthly AI credit is what the plan grants.
+    expect(ws.usage).toMatchObject({ storage_limit_mb: 512, storage_limit_gb: 0.5, ai_monthly_credit_irr: 0 });
     expect(String(rows[0].body)).toContain('Startup (active) 2026-09-15 → 2026-10-15');
 
     // The operator never sees it, and the same conversation gets no second card.

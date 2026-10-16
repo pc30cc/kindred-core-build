@@ -1,52 +1,28 @@
 /**
- * shared/planLimits.ts — the plan values every surface reads the same way
- * (migration 271): storage in MB with storage_gb × 1024 as the fallback, and
- * the monthly AI credit as billing_plan_ai_allowance reads a plan.
+ * shared/planLimits.ts — the plan values every surface reads the same way:
+ * storage in MB (storage_mb only, migration 272), and the monthly AI credit
+ * as billing_plan_ai_allowance reads a plan.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  gbToMb,
-  planAiAllowance,
-  storageLimitMb,
-  storageLimitsForSave,
-  withLegacyStorageGb,
-  withStorageMb,
-} from '../../../shared/planLimits';
+import { mbToGb, planAiAllowance, storageLimitMb } from '../../../shared/planLimits';
 import { formatBytesAsMb, formatMb } from '@/lib/storageUnits';
 
 describe('storage in MB', () => {
-  it('reads storage_mb, else storage_gb × 1024; -1 stays unlimited', () => {
+  it('reads storage_mb only; -1 stays unlimited', () => {
     expect(storageLimitMb({ storage_mb: 512 })).toBe(512);
-    expect(storageLimitMb({ storage_mb: 512, storage_gb: 50 })).toBe(512);
-    expect(storageLimitMb({ storage_gb: 50 })).toBe(51200);
-    expect(storageLimitMb({ storage_gb: 2.5 })).toBe(2560);
-    expect(storageLimitMb({ storage_gb: 0 })).toBe(0);
-    expect(storageLimitMb({ storage_gb: -1 })).toBe(-1);
+    expect(storageLimitMb({ storage_mb: '3' })).toBe(3);
+    expect(storageLimitMb({ storage_mb: 0 })).toBe(0);
     expect(storageLimitMb({ storage_mb: -5 })).toBe(-1);
-    expect(storageLimitMb({ storage_gb: '3' })).toBe(3072);
+    // The GB key is gone (272): it is not read.
+    expect(storageLimitMb({ storage_gb: 50 })).toBeNull();
     expect(storageLimitMb({})).toBeNull();
     expect(storageLimitMb(null)).toBeNull();
-    expect(gbToMb(-3)).toBe(-1);
   });
 
-  it('fills storage_mb in without touching anything else', () => {
-    const plain = { max_agents: 2 };
-    expect(withStorageMb(plain)).toBe(plain);
-    expect(withStorageMb({ storage_gb: 1, max_agents: 2 })).toEqual({ storage_gb: 1, storage_mb: 1024, max_agents: 2 });
-    expect(withStorageMb({ storage_gb: 1, storage_mb: 10 })).toEqual({ storage_gb: 1, storage_mb: 10 });
-  });
-
-  it('derives storage_gb for public readers that still read GB, never overriding a stored one', () => {
-    expect(withLegacyStorageGb({ storage_mb: 512 })).toEqual({ storage_mb: 512, storage_gb: 0.5 });
-    expect(withLegacyStorageGb({ storage_mb: -1 })).toEqual({ storage_mb: -1, storage_gb: -1 });
-    expect(withLegacyStorageGb({ storage_mb: 2048, storage_gb: 9 })).toEqual({ storage_mb: 2048, storage_gb: 9 });
-    expect(withLegacyStorageGb({ max_agents: 1 })).toEqual({ max_agents: 1 });
-  });
-
-  it('saves storage_mb only', () => {
-    expect(storageLimitsForSave({ storage_gb: 2, max_agents: 1 })).toEqual({ storage_mb: 2048, max_agents: 1 });
-    expect(storageLimitsForSave({ storage_gb: 2, storage_mb: 100 })).toEqual({ storage_mb: 100 });
-    expect(storageLimitsForSave({ max_agents: 1 })).toEqual({ max_agents: 1 });
+  it('computes GB from MB for outside readers only; -1 stays unlimited', () => {
+    expect(mbToGb(512)).toBe(0.5);
+    expect(mbToGb(51200)).toBe(50);
+    expect(mbToGb(-1)).toBe(-1);
   });
 
   it('formats megabytes for people: "512 MB", "1,024 MB", Persian مگابایت', () => {

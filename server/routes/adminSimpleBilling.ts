@@ -43,6 +43,14 @@ import {
   parseAccountFilter,
 } from '../../shared/simpleBillingAdmin.js';
 import { adjustAllowed } from '../services/billing/account/adjustRateLimit.js';
+import {
+  approveCardTransfer,
+  getCardTransferSettings,
+  listAdminCardTransfers,
+  readCardTransferReceipt,
+  rejectCardTransfer,
+  saveCardTransferSettings,
+} from '../services/billing/account/cardTransfer.js';
 import { aiWalletRate } from '../services/billing/account/aiPacks.js';
 import { getBillingMode } from '../services/ai-billing/mode.js';
 import { SELLER_KEYS, cleanProfile, vatPercentFor } from '../../shared/simpleBilling.js';
@@ -426,6 +434,93 @@ adminSimpleBillingRouter.get('/revenue', async (req, res) => {
 adminSimpleBillingRouter.get('/gateways', async (req, res) => {
   try {
     res.json(await gatewayReadiness(serverConfigOf(req)));
+  } catch (e) {
+    editionFail(res, e);
+  }
+});
+
+// ─── Card to card (Iranian edition, migration 274) ─────────────────────────
+// The bank account shown to payers, and the review queue of their transfers.
+
+adminSimpleBillingRouter.get('/card-transfer/settings', async (req, res) => {
+  try {
+    res.json({ settings: await getCardTransferSettings(serverConfigOf(req)) });
+  } catch (e) {
+    editionFail(res, e);
+  }
+});
+
+adminSimpleBillingRouter.put('/card-transfer/settings', async (req, res) => {
+  const adminId = adminIdOf(req);
+  if (!adminId) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+  try {
+    res.json({ settings: await saveCardTransferSettings(serverConfigOf(req), req.body, adminId) });
+  } catch (e) {
+    editionFail(res, e);
+  }
+});
+
+const CARD_TRANSFER_STATUSES = ['pending', 'approved', 'rejected', 'canceled', 'all'] as const;
+
+adminSimpleBillingRouter.get('/card-transfers', async (req, res) => {
+  const status = (CARD_TRANSFER_STATUSES as readonly string[]).includes(String(req.query.status))
+    ? (String(req.query.status) as (typeof CARD_TRANSFER_STATUSES)[number])
+    : 'pending';
+  try {
+    res.json(await listAdminCardTransfers(serverConfigOf(req), { status }));
+  } catch (e) {
+    editionFail(res, e);
+  }
+});
+
+adminSimpleBillingRouter.get('/card-transfers/:id/receipt', async (req, res) => {
+  try {
+    const file = await readCardTransferReceipt(serverConfigOf(req), req.params.id);
+    res.setHeader('Content-Type', file.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Disposition', `inline; filename="${file.fileName}"`);
+    res.send(file.data);
+  } catch (e) {
+    editionFail(res, e);
+  }
+});
+
+const approveSchema = z.object({ netMinor: z.number().int().positive().optional() }).strict();
+
+adminSimpleBillingRouter.post('/card-transfers/:id/approve', async (req, res) => {
+  const adminId = adminIdOf(req);
+  if (!adminId) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+  const parsed = approveSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  try {
+    res.json(await approveCardTransfer(serverConfigOf(req), {
+      requestId: req.params.id,
+      adminId,
+      ...(parsed.data.netMinor !== undefined ? { netMinor: parsed.data.netMinor } : {}),
+      ipAddress: clientIp(req),
+    }));
+  } catch (e) {
+    editionFail(res, e);
+  }
+});
+
+const rejectSchema = z.object({ reason: z.string().min(3).max(500) }).strict();
+
+adminSimpleBillingRouter.post('/card-transfers/:id/reject', async (req, res) => {
+  const adminId = adminIdOf(req);
+  if (!adminId) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+  const parsed = rejectSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'CARD_TRANSFER_REASON_INVALID' });
+  try {
+    res.json({
+      item: await rejectCardTransfer(serverConfigOf(req), {
+        requestId: req.params.id,
+        adminId,
+        reason: parsed.data.reason,
+        ipAddress: clientIp(req),
+      }),
+    });
   } catch (e) {
     editionFail(res, e);
   }

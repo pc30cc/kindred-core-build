@@ -80,6 +80,7 @@ describe('getSmsProviderInfo', () => {
       providerName: 'disabled', configured: false, enabled: false,
       hasApiKey: false, sender: null, verifyTemplate: null,
       lineNumber: null, verifyTemplateId: null, verifyParameterName: null,
+      verifyProfileId: null, channel: null,
       updatedAt: null,
     });
   });

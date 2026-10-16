@@ -36,9 +36,10 @@ export function PhoneVerificationGate({
     ...(workspaceId ? { workspaceId } : {}),
     ...(workspaceSlug ? { workspaceSlug } : {}),
   };
-  // SMS verification exists in the Iranian edition only (its only SMS
-  // vendors are Iranian): in International nothing is gated, and the server
-  // never requires it either (server/services/phoneVerification).
+  // SMS verification is always on in the Iranian edition; in International
+  // only while Telnyx is configured and enabled (public config
+  // `sms_verification`). Off, nothing is gated, and the server never requires
+  // it either (server/services/phoneVerification).
   const { features } = useEdition();
   const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(ctx, features.smsVerification);
 

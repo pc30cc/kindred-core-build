@@ -7,7 +7,8 @@
  *     and the Art chart kit).
  *   - Phone: no Iranian default country, international E.164 input, SMS
  *     verification (Iranian vendors only) hidden — its gate never blocks.
- *   - SMS providers: a neutral "not available" panel instead of Iranian vendors.
+ *   - SMS providers: Telnyx (International) instead of Iranian vendors; SMS
+ *     verification is on there only while the server says Telnyx is on.
  *
  * Iranian-edition output (and an unknown edition, which behaves as before) is
  * pinned unchanged.
@@ -146,6 +147,17 @@ describe('SMS phone verification gate', () => {
     expect(state.statusCalls).toContain(true);
   });
 
+  it('International with Telnyx on (public config sms_verification): the gate asks the server', () => {
+    state.data = { ...config('multi'), sms_verification: true };
+    render(
+      <PhoneVerificationGate purpose="widget_access" workspaceId="ws-1">
+        <p>widget page</p>
+      </PhoneVerificationGate>,
+    );
+    expect(screen.queryByText('widget page')).toBeNull();
+    expect(state.statusCalls).toContain(true);
+  });
+
   it.each(['multi', 'global', 'turkey'])('International (%s): never blocks and never asks', (mode) => {
     state.data = config(mode);
     render(
@@ -159,10 +171,11 @@ describe('SMS phone verification gate', () => {
 });
 
 describe('Super Admin → Providers → SMS', () => {
-  it('International: a neutral "not available" panel, no Iranian vendor', () => {
+  it('International: the Telnyx card, no Iranian vendor (even over a stored Kavenegar row)', async () => {
     state.data = config('multi');
     const { container } = render(<AdminSmsProviderPanel />);
-    expect(screen.getByText('adminProviders.smsUnavailable.title')).toBeTruthy();
+    expect(container.querySelector('[data-sms-unavailable]')).toBeNull();
+    expect(await screen.findByTestId('admin-sms-provider-card')).toBeTruthy();
     expect(container.textContent).not.toMatch(/Kavenegar|SMS\.ir|کاوه/);
   });
 

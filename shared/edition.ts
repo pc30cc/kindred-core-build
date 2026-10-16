@@ -131,7 +131,20 @@ export function isIranianVendor(vendor: unknown): boolean {
  * Iranian edition never lists, resolves or charges them.
  */
 export const INTERNATIONAL_ONLY_PAYMENT_PROVIDERS = ['paddle_sandbox'] as const;
-const INTERNATIONAL_ONLY_SET = new Set<string>(INTERNATIONAL_ONLY_PAYMENT_PROVIDERS);
+
+/**
+ * SMS vendors of the International edition only: Telnyx (Telnyx Verify),
+ * which delivers the phone-verification codes there. The Iranian edition
+ * keeps Kavenegar and SMS.ir and never lists, saves or sends through these,
+ * just as the International edition never uses the Iranian vendors.
+ */
+export const INTERNATIONAL_SMS_PROVIDERS = ['telnyx'] as const;
+
+const INTERNATIONAL_ONLY_SET = new Set<string>([...INTERNATIONAL_ONLY_PAYMENT_PROVIDERS, ...INTERNATIONAL_SMS_PROVIDERS]);
+
+export function isInternationalSmsProvider(vendor: unknown): boolean {
+  return (INTERNATIONAL_SMS_PROVIDERS as readonly string[]).includes(vendorKey(vendor));
+}
 
 export function isInternationalOnlyProvider(provider: unknown): boolean {
   return INTERNATIONAL_ONLY_SET.has(vendorKey(provider));
@@ -234,9 +247,16 @@ export function editionDefaultTimeZone(edition: Edition): 'Asia/Tehran' | 'UTC' 
 }
 
 /**
- * SMS one-time codes (phone verification and the gates that require it).
- * The only live SMS runtimes are Iranian (Kavenegar, SMS.ir), so outside the
- * Iranian edition SMS verification is unavailable: hidden, never required.
+ * SMS one-time codes (phone verification and the gates that require it)
+ * without any further condition: the Iranian edition, through Kavenegar or
+ * SMS.ir, exactly as before.
+ *
+ * The International edition has no Iranian vendor; there SMS verification
+ * exists only while the Super Admin has Telnyx configured and enabled
+ * (INTERNATIONAL_SMS_PROVIDERS). That is a per-request server decision
+ * (server/services/phoneVerification phoneVerificationEnabled), which the
+ * public config passes to the browser as `sms_verification`; this function
+ * answers false for it.
  */
 export function smsVerificationAvailable(edition: Edition): boolean {
   return EDITION_PROFILE[edition].allowsIranianProviders;

@@ -119,7 +119,11 @@ export function classifySmsProviderInfo(info: SmsProviderInfo): ProviderReadines
   //               readiness.
   //   smsir     — `lineNumber` + `verifyTemplateId` + `verifyParameterName`;
   //               a template id with no parameter name cannot carry the code.
+  //   telnyx    — `verifyProfileId` only. The wording is the Verify
+  //               Profile's own template on Telnyx's side, so no template
+  //               of ours is needed (none is ever used for this vendor).
   if (info.providerName === 'kavenegar' && !info.verifyTemplate) return 'invalid';
+  if (info.providerName === 'telnyx' && !info.verifyProfileId) return 'invalid';
   if (
     info.providerName === 'smsir' &&
     (!info.lineNumber || info.verifyTemplateId == null || !info.verifyParameterName)

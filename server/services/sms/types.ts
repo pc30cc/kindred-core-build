@@ -55,11 +55,11 @@ export function isSmsError(value: unknown): value is SmsError {
 }
 
 /** Vendors that have a real runtime adapter in this phase. */
-export const SUPPORTED_SMS_PROVIDERS = ['kavenegar', 'smsir'] as const;
+export const SUPPORTED_SMS_PROVIDERS = ['kavenegar', 'smsir', 'telnyx'] as const;
 export type SupportedSmsProvider = (typeof SUPPORTED_SMS_PROVIDERS)[number];
 
 /** Values accepted by the `provider_name` column. */
-export const SMS_PROVIDER_NAMES = ['kavenegar', 'smsir', 'disabled'] as const;
+export const SMS_PROVIDER_NAMES = ['kavenegar', 'smsir', 'telnyx', 'disabled'] as const;
 export type SmsProviderName = (typeof SMS_PROVIDER_NAMES)[number];
 
 export interface KavenegarSmsConfig {
@@ -78,8 +78,24 @@ export interface SmsIrSmsConfig {
   verifyParameterName: string;
 }
 
+/** How Telnyx Verify delivers the code: a text message or a voice call. */
+export const TELNYX_CHANNELS = ['sms', 'call'] as const;
+export type TelnyxChannel = (typeof TELNYX_CHANNELS)[number];
+
+/**
+ * Telnyx Verify (International edition). The code is ours (`custom_code`):
+ * Telnyx only delivers it, worded by the Verify Profile's own template.
+ */
+export interface TelnyxSmsConfig {
+  provider: 'telnyx';
+  apiKey: string;
+  /** The Verify Profile (a UUID) whose template and sender carry the code. */
+  verifyProfileId: string;
+  channel: TelnyxChannel;
+}
+
 /** Discriminated union of every runtime SMS configuration. */
-export type SmsProviderConfig = KavenegarSmsConfig | SmsIrSmsConfig;
+export type SmsProviderConfig = KavenegarSmsConfig | SmsIrSmsConfig | TelnyxSmsConfig;
 
 export interface SmsSendRequest {
   to: string;
@@ -91,6 +107,11 @@ export interface SmsVerificationRequest {
   to: string;
   code: string;
   template?: string;
+  /**
+   * How long the code stays valid, in seconds. Telnyx is told the same
+   * lifetime (`timeout_secs`); the Iranian vendors ignore it.
+   */
+  ttlSeconds?: number;
 }
 
 export interface SmsSendResult {
@@ -111,6 +132,10 @@ export interface SmsProviderInfo {
   lineNumber: string | null;
   verifyTemplateId: number | null;
   verifyParameterName: string | null;
+  /** Telnyx only. */
+  verifyProfileId: string | null;
+  /** Telnyx only: 'sms' or 'call'. */
+  channel: TelnyxChannel | null;
   updatedAt: string | null;
 }
 
@@ -118,6 +143,8 @@ export interface SmsAccountInfo {
   balance: number | null;
   currency: string;
   accountType: string | null;
+  /** Telnyx: the name of the configured Verify Profile. */
+  profileName?: string | null;
 }
 
 export interface SmsTestResult {
@@ -127,6 +154,7 @@ export interface SmsTestResult {
   balance?: number | null;
   currency?: string;
   accountType?: string | null;
+  profileName?: string | null;
   error?: string;
   errorCode?: SmsErrorCode;
 }

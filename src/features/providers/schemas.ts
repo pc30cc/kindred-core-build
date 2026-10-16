@@ -1391,6 +1391,18 @@ const widgetVendors: ProviderVendor[] = [
 const smsVendors: ProviderVendor[] = [
   // ── International (EN) ──────────────────────────
   {
+    // International edition only (shared/edition.ts INTERNATIONAL_SMS_PROVIDERS).
+    // Configured in its own card (AdminSmsProviderCard), never from the browser.
+    name: 'telnyx', label: 'Telnyx',
+    description: 'Telnyx Verify — phone verification codes by SMS or voice call',
+    docsUrl: 'https://developers.telnyx.com/docs/identity/verify',
+    locales: ['en'], currency: 'USD',
+    fields: [
+      { key: 'api_key', label: 'API Key', type: 'password', required: true },
+      { key: 'verify_profile_id', label: 'Verify Profile ID', type: 'text', required: true, placeholder: '00000000-0000-0000-0000-000000000000' },
+    ],
+  },
+  {
     name: 'twilio', label: 'Twilio',
     description: 'Global SMS, voice, and messaging platform',
     docsUrl: 'https://www.twilio.com/docs/sms',
@@ -1570,11 +1582,12 @@ const smsVendors: ProviderVendor[] = [
   },
 ];
 
-// Only Kavenegar has a real server-side runtime adapter today. Every other SMS
+// Kavenegar, SMS.ir (Iranian edition) and Telnyx (International edition) have
+// real server-side runtime adapters. Every other SMS
 // vendor stays in the catalogue for discoverability but is flagged so the admin
 // UI renders it as "Coming soon" and refuses to activate it.
 for (const vendor of smsVendors) {
-  if (vendor.name !== 'kavenegar' && vendor.name !== 'smsir') vendor.comingSoon = true;
+  if (vendor.name !== 'kavenegar' && vendor.name !== 'smsir' && vendor.name !== 'telnyx') vendor.comingSoon = true;
 }
 
 // =============================================

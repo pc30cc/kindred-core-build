@@ -11,12 +11,16 @@
  * Workspace overrides are intentionally NOT consulted: phone verification is a
  * platform-level security capability, not a per-workspace messaging feature.
  * The adapter registry below is the extension point for future vendors.
+ *
+ * Vendors per edition (shared/edition.ts): the Iranian edition uses
+ * Kavenegar or SMS.ir; the International edition uses Telnyx (Telnyx Verify).
+ * Each edition reads the other's vendor as "not configured".
  */
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { getPlatformEditionOrNull } from '../platformRegion.js';
-import { isIranianVendor } from '../../../shared/edition.js';
+import { isInternationalSmsProvider, isIranianVendor } from '../../../shared/edition.js';
 import {
   SmsError,
   maskPhone,
@@ -25,6 +29,8 @@ import {
   type KavenegarSmsConfig,
   type SmsIrSmsConfig,
   type SmsProviderInfo,
+  type TelnyxChannel,
+  type TelnyxSmsConfig,
   type SmsProviderName,
   type SmsSendRequest,
   type SmsSendResult,
@@ -45,18 +51,45 @@ import {
   type SmsIrAdapter,
   type SmsIrAdapterOptions,
 } from './providers/smsir.js';
+import {
+  createTelnyxAdapter,
+  E164_PATTERN,
+  isTelnyxChannel,
+  isValidTelnyxProfileId,
+  type TelnyxAdapter,
+  type TelnyxAdapterOptions,
+} from './providers/telnyx.js';
 
 const TABLE = 'platform_sms_provider_config';
 
 /**
- * The live SMS vendors (Kavenegar, SMS.ir) are Iranian: the International
- * edition (shared/edition.ts) neither lists, saves nor sends through them, so
- * there a stored Iranian config reads as "not configured" and every SMS
- * feature reports itself unavailable. An unknown edition behaves as before.
+ * Kavenegar and SMS.ir are Iranian: the International edition
+ * (shared/edition.ts) neither lists, saves nor sends through them, so there a
+ * stored Iranian config reads as "not configured". Telnyx is the
+ * International edition's vendor, and the Iranian edition treats it the same
+ * way. An unknown edition behaves as before (nothing is blocked).
  */
-async function iranianSmsBlocked(serverConfig: ServerConfig, providerName: unknown): Promise<boolean> {
-  if (!isIranianVendor(providerName)) return false;
-  return (await getPlatformEditionOrNull(serverConfig)) === 'international';
+async function smsProviderBlocked(serverConfig: ServerConfig, providerName: unknown): Promise<boolean> {
+  if (isIranianVendor(providerName)) {
+    return (await getPlatformEditionOrNull(serverConfig)) === 'international';
+  }
+  if (isInternationalSmsProvider(providerName)) {
+    return (await getPlatformEditionOrNull(serverConfig)) === 'iran';
+  }
+  return false;
+}
+
+/**
+ * The recipient as Telnyx takes it: E.164. Callers hand the SMS service the
+ * vendors' local form (phoneVerification/phone.ts `toProviderFormat`), which
+ * turns an Iranian `+98…` number into `09…` for the Iranian vendors; that one
+ * conversion is undone here. Anything else that is not E.164 is refused.
+ */
+export function toTelnyxRecipient(raw: string): string {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (E164_PATTERN.test(value)) return value;
+  if (/^09\d{9}$/.test(value)) return `+98${value.slice(1)}`;
+  throw new SmsError('sms_invalid_receptor');
 }
 
 /** Kavenegar template names: letters and digits only, no space/underscore. */
@@ -66,7 +99,7 @@ export function isValidVerifyTemplate(value: unknown): value is string {
   return typeof value === 'string' && VERIFY_TEMPLATE_PATTERN.test(value);
 }
 
-export function isSupportedSmsProvider(value: unknown): value is 'kavenegar' | 'smsir' {
+export function isSupportedSmsProvider(value: unknown): value is 'kavenegar' | 'smsir' | 'telnyx' {
   return typeof value === 'string' && (SUPPORTED_SMS_PROVIDERS as readonly string[]).includes(value);
 }
 
@@ -119,7 +152,7 @@ async function loadRow(serverConfig: ServerConfig): Promise<StoredRow | null> {
 /** Redacted status for the admin UI. Never includes the credential. */
 export async function getSmsProviderInfo(serverConfig: ServerConfig): Promise<SmsProviderInfo> {
   const stored = await loadRow(serverConfig);
-  const row = stored && (await iranianSmsBlocked(serverConfig, stored.provider_name)) ? null : stored;
+  const row = stored && (await smsProviderBlocked(serverConfig, stored.provider_name)) ? null : stored;
   if (!row) {
     return {
       providerName: 'disabled',
@@ -131,6 +164,8 @@ export async function getSmsProviderInfo(serverConfig: ServerConfig): Promise<Sm
       lineNumber: null,
       verifyTemplateId: null,
       verifyParameterName: null,
+      verifyProfileId: null,
+      channel: null,
       updatedAt: null,
     };
   }
@@ -148,8 +183,32 @@ export async function getSmsProviderInfo(serverConfig: ServerConfig): Promise<Sm
     lineNumber: readString(row.config, 'lineNumber'),
     verifyTemplateId: readInt(row.config, 'verifyTemplateId'),
     verifyParameterName: readString(row.config, 'verifyParameterName'),
+    verifyProfileId: providerName === 'telnyx' ? readString(row.config, 'verifyProfileId') : null,
+    channel: providerName === 'telnyx' ? readTelnyxChannel(row.config) : null,
     updatedAt: row.updated_at,
   };
+}
+
+function readTelnyxChannel(source: Record<string, unknown> | null): TelnyxChannel {
+  const value = readString(source, 'channel');
+  return isTelnyxChannel(value) ? value : 'sms';
+}
+
+/**
+ * Whether SMS phone verification can run in the International edition: Telnyx
+ * is the stored provider, enabled, with a key and a valid Verify Profile id.
+ * (The Iranian edition does not ask: there it is always on, as before.)
+ * Any read failure answers false — fail closed, nothing is required.
+ */
+export async function isInternationalSmsVerificationActive(serverConfig: ServerConfig): Promise<boolean> {
+  try {
+    const row = await loadRow(serverConfig);
+    if (!row || row.provider_name !== 'telnyx' || !row.is_active) return false;
+    if (await smsProviderBlocked(serverConfig, row.provider_name)) return false;
+    return readString(row.config, 'apiKey') !== null && isValidTelnyxProfileId(readString(row.config, 'verifyProfileId'));
+  } catch {
+    return false;
+  }
 }
 
 export interface SaveSmsProviderInput {
@@ -164,6 +223,9 @@ export interface SaveSmsProviderInput {
   lineNumber?: string;
   verifyTemplateId?: number;
   verifyParameterName?: string;
+  /** Telnyx */
+  verifyProfileId?: string;
+  channel?: string;
 }
 
 export type SaveSmsProviderError =
@@ -173,6 +235,8 @@ export type SaveSmsProviderError =
   | 'invalid_line_number'
   | 'invalid_verify_template_id'
   | 'invalid_verify_parameter_name'
+  | 'invalid_verify_profile_id'
+  | 'invalid_channel'
   | 'save_failed';
 
 export class SmsConfigValidationError extends Error {
@@ -193,7 +257,7 @@ export async function saveSmsProviderConfig(
   input: SaveSmsProviderInput,
   adminUserId: string,
 ): Promise<SmsProviderInfo> {
-  if (!isSupportedSmsProvider(input.providerName) || (await iranianSmsBlocked(serverConfig, input.providerName))) {
+  if (!isSupportedSmsProvider(input.providerName) || (await smsProviderBlocked(serverConfig, input.providerName))) {
     throw new SmsConfigValidationError('unsupported_provider');
   }
 
@@ -217,6 +281,15 @@ export async function saveSmsProviderConfig(
     nextConfig.verifyTemplate = input.verifyTemplate;
     const sender = typeof input.sender === 'string' ? input.sender.trim() : '';
     if (sender) nextConfig.sender = sender;
+  } else if (input.providerName === 'telnyx') {
+    const profileId = typeof input.verifyProfileId === 'string' ? input.verifyProfileId.trim().toLowerCase() : '';
+    if (!isValidTelnyxProfileId(profileId)) {
+      throw new SmsConfigValidationError('invalid_verify_profile_id');
+    }
+    const channel = input.channel === undefined || input.channel === '' ? 'sms' : input.channel;
+    if (!isTelnyxChannel(channel)) throw new SmsConfigValidationError('invalid_channel');
+    nextConfig.verifyProfileId = profileId;
+    nextConfig.channel = channel;
   } else {
     const lineNumber = typeof input.lineNumber === 'string' ? input.lineNumber.trim() : '';
     if (!isValidSmsIrLineNumber(lineNumber)) {
@@ -276,13 +349,16 @@ export async function deleteSmsProviderConfig(
 
 type ResolvedProvider =
   | { providerName: 'kavenegar'; config: KavenegarSmsConfig; adapter: KavenegarAdapter }
-  | { providerName: 'smsir'; config: SmsIrSmsConfig; adapter: SmsIrAdapter };
+  | { providerName: 'smsir'; config: SmsIrSmsConfig; adapter: SmsIrAdapter }
+  | { providerName: 'telnyx'; config: TelnyxSmsConfig; adapter: TelnyxAdapter };
 
 export interface SmsRuntimeOptions {
   /** Test seam forwarded to the vendor adapter. */
   adapterOptions?: KavenegarAdapterOptions;
   /** Test seam forwarded to the SMS.ir adapter. */
   smsIrAdapterOptions?: SmsIrAdapterOptions;
+  /** Test seam forwarded to the Telnyx adapter (a fake `fetch`). */
+  telnyxAdapterOptions?: TelnyxAdapterOptions;
 }
 
 /**
@@ -300,7 +376,7 @@ async function resolveProvider(
   if (!isSupportedSmsProvider(row.provider_name)) {
     throw new SmsError('sms_provider_not_configured');
   }
-  if (await iranianSmsBlocked(serverConfig, row.provider_name)) {
+  if (await smsProviderBlocked(serverConfig, row.provider_name)) {
     throw new SmsError('sms_provider_not_configured');
   }
   if (!row.is_active) throw new SmsError('sms_provider_disabled');
@@ -322,6 +398,22 @@ async function resolveProvider(
       providerName: 'kavenegar',
       config,
       adapter: createKavenegarAdapter(config, options.adapterOptions),
+    };
+  }
+
+  if (row.provider_name === 'telnyx') {
+    const verifyProfileId = readString(row.config, 'verifyProfileId');
+    if (!isValidTelnyxProfileId(verifyProfileId)) throw new SmsError('sms_provider_not_configured');
+    const config: TelnyxSmsConfig = {
+      provider: 'telnyx',
+      apiKey,
+      verifyProfileId,
+      channel: readTelnyxChannel(row.config),
+    };
+    return {
+      providerName: 'telnyx',
+      config,
+      adapter: createTelnyxAdapter(config, options.telnyxAdapterOptions),
     };
   }
 
@@ -379,6 +471,8 @@ export async function sendSms(
   try {
     const resolved = await resolveProvider(serverConfig, options);
     provider = resolved.providerName;
+    // Telnyx Verify delivers verification codes only, never free text.
+    if (resolved.providerName === 'telnyx') throw new SmsError('sms_provider_feature_unavailable');
     const { messageId } =
       resolved.providerName === 'kavenegar'
         ? await resolved.adapter.sendSms({
@@ -422,6 +516,14 @@ export async function sendSmsVerification(
         token: request.code,
         template,
       }));
+    } else if (resolved.providerName === 'telnyx') {
+      // The wording is the Verify Profile's template (Telnyx-side); our code
+      // goes in as `custom_code`, valid as long as our own challenge.
+      ({ messageId } = await resolved.adapter.sendVerificationCode({
+        phoneNumber: toTelnyxRecipient(request.to),
+        code: request.code,
+        ...(request.ttlSeconds !== undefined ? { timeoutSecs: request.ttlSeconds } : {}),
+      }));
     } else {
       const templateId =
         request.template !== undefined && /^[0-9]{1,15}$/.test(request.template)
@@ -446,6 +548,8 @@ export async function sendSmsVerification(
 
 /**
  * Admin connection test. Reads account info only — never sends an SMS.
+ * Telnyx: reads the configured Verify Profile, which proves both the key and
+ * the profile id.
  * Returns sanitized data: no SDK payload, no credential.
  */
 export async function testSmsProvider(
@@ -465,6 +569,7 @@ export async function testSmsProvider(
       balance: info.balance,
       currency: info.currency,
       accountType: info.accountType,
+      ...(info.profileName !== undefined ? { profileName: info.profileName } : {}),
     };
   } catch (err) {
     const errorCode = toErrorCode(err);

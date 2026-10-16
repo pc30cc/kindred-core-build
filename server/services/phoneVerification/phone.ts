@@ -77,6 +77,38 @@ export function normalizePhoneToE164(input: unknown, country: unknown): Normaliz
   return { ok: true, e164: `+${entry.dial}${national}`, country };
 }
 
+/**
+ * Pseudo-country of the International edition's phone field: the number is
+ * typed whole, in international form (`+` or `00`, then the country code).
+ * ISO 3166 reserves `ZZ` for "unknown or unspecified".
+ */
+export const ANY_E164_COUNTRY = 'ZZ';
+
+export type InternationalNormalizeResult =
+  | { ok: true; e164: string; country: SupportedCountry | typeof ANY_E164_COUNTRY }
+  | { ok: false; reason: 'phone_invalid' | 'phone_country_not_supported' };
+
+/**
+ * Any E.164 mobile number (International edition, delivered by Telnyx):
+ * `+447700900123`, `00447700900123`, separators and Persian/Arabic digits
+ * allowed. A number in a country of COUNTRY_TABLE keeps that country's own,
+ * mobile-only rule; any other country only has to be well-formed E.164
+ * (`+`, 7–15 digits, no leading zero) — Telnyx's Verify Profile decides which
+ * destinations it serves.
+ */
+export function normalizeInternationalPhone(input: unknown): InternationalNormalizeResult {
+  if (typeof input !== 'string') return { ok: false, reason: 'phone_invalid' };
+  let raw = toAsciiDigits(input).trim().replace(/[\s\-().]/g, '');
+  if (raw.startsWith('00')) raw = `+${raw.slice(2)}`;
+  if (!/^\+[1-9]\d{6,14}$/.test(raw)) return { ok: false, reason: 'phone_invalid' };
+  const digits = raw.slice(1);
+  const known = [...SUPPORTED_COUNTRIES]
+    .sort((a, b) => COUNTRY_TABLE[b].dial.length - COUNTRY_TABLE[a].dial.length)
+    .find((c) => digits.startsWith(COUNTRY_TABLE[c].dial));
+  if (known) return normalizePhoneToE164(raw, known);
+  return { ok: true, e164: raw, country: ANY_E164_COUNTRY };
+}
+
 /** `+989121234567` → `+98912*****67`. Used everywhere a phone is displayed. */
 export function maskE164(phone: string | null | undefined): string | null {
   if (!phone) return null;

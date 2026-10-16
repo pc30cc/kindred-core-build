@@ -22,7 +22,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useEdition } from '@/hooks/useEdition';
 import { useTranslation } from '@/i18n';
-import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
+import { getSchemaForEdition } from '@/features/providers/schemas';
 import {
   adminGetSmsProvider, adminSaveSmsProvider, adminDeleteSmsProvider, adminTestSmsProvider,
   type AdminSmsProviderInfo, type AdminSmsTestResult,
@@ -42,17 +42,22 @@ function normalizeParameterName(raw: string): string {
   return raw.trim().replace(/^#+/, '').replace(/#+$/, '').trim();
 }
 
-type RuntimeVendor = 'kavenegar' | 'smsir';
+/** Telnyx Verify Profile ids are UUIDs (mirrors TELNYX_PROFILE_ID_PATTERN on the server). */
+const TELNYX_PROFILE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type RuntimeVendor = 'kavenegar' | 'smsir' | 'telnyx';
+const RUNTIME_VENDORS: readonly RuntimeVendor[] = ['kavenegar', 'smsir', 'telnyx'];
 
 /**
- * The SMS panel of Super Admin → Providers. The only SMS runtimes (Kavenegar,
- * SMS.ir) are Iranian, so outside the Iranian edition (shared/edition.ts) no
- * vendor is offered and the panel says plainly that SMS is not available.
+ * The SMS panel of Super Admin → Providers. Each edition offers its own
+ * runtimes (shared/edition.ts): Kavenegar and SMS.ir in the Iranian edition,
+ * Telnyx (Telnyx Verify) in the International edition. Should an edition have
+ * none, the panel says plainly that SMS is not available.
  */
 export function AdminSmsProviderPanel() {
-  const { features } = useEdition();
+  const { allowsProvider } = useEdition();
   const { t } = useTranslation();
-  if (features.smsVerification) return <AdminSmsProviderCard />;
+  if (RUNTIME_VENDORS.some((v) => allowsProvider(v))) return <AdminSmsProviderCard />;
   return (
     <Card data-sms-unavailable>
       <CardHeader>
@@ -70,6 +75,10 @@ export function AdminSmsProviderPanel() {
 
 export function AdminSmsProviderCard() {
   const { toast } = useToast();
+  const { t } = useTranslation();
+  const { edition, allowsProvider } = useEdition();
+  // The vendors with a live runtime in this edition, in display order.
+  const offered = RUNTIME_VENDORS.filter((v) => allowsProvider(v));
   const [info, setInfo] = useState<AdminSmsProviderInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -87,17 +96,18 @@ export function AdminSmsProviderCard() {
   const [lineNumber, setLineNumber] = useState('');
   const [verifyTemplateId, setVerifyTemplateId] = useState('');
   const [verifyParameterName, setVerifyParameterName] = useState('CODE');
+  const [verifyProfileId, setVerifyProfileId] = useState('');
+  const [channel, setChannel] = useState<'sms' | 'call'>('sms');
 
-  const vendors = PROVIDER_SCHEMAS.sms?.vendors ?? [];
-  const kavenegar = vendors.find((v) => v.name === 'kavenegar');
-  const smsir = vendors.find((v) => v.name === 'smsir');
-  const activeVendorSchema = vendor === 'kavenegar' ? kavenegar : smsir;
+  // Only this edition's vendors: no Iranian vendor is ever named in International.
+  const vendors = getSchemaForEdition('sms', edition)?.vendors ?? [];
+  const activeVendorSchema = vendors.find((v) => v.name === vendor);
   const comingSoon = vendors.filter((v) => v.comingSoon);
 
   const vendorLabel = (name: AdminSmsProviderInfo['providerName']) => {
-    if (name === 'kavenegar') return kavenegar?.label ?? 'Kavenegar';
-    if (name === 'smsir') return smsir?.label ?? 'SMS.ir';
-    return '—';
+    if (name === 'disabled' || !allowsProvider(name)) return '—';
+    if (name === 'telnyx') return t('adminProviders.smsTelnyx.vendorLabel');
+    return vendors.find((v) => v.name === name)?.label ?? name;
   };
 
   /** Switching vendors always requires a fresh API key — the server enforces this too. */
@@ -118,11 +128,12 @@ export function AdminSmsProviderCard() {
 
   const openDialog = () => {
     setApiKey('');
+    const stored = info?.providerName;
     const current: RuntimeVendor =
-      info?.providerName === 'smsir' || info?.providerName === 'kavenegar'
-        ? info.providerName
-        : 'kavenegar';
+      stored && stored !== 'disabled' && offered.includes(stored) ? stored : offered[0] ?? 'kavenegar';
     setVendor(current);
+    setVerifyProfileId(info?.verifyProfileId ?? '');
+    setChannel(info?.channel === 'call' ? 'call' : 'sms');
     setVerifyTemplate(info?.verifyTemplate ?? '');
     setSender(info?.sender ?? '');
     setLineNumber(info?.lineNumber ?? '');
@@ -133,7 +144,15 @@ export function AdminSmsProviderCard() {
   };
 
   const handleSave = async () => {
-    if (vendor === 'kavenegar') {
+    if (vendor === 'telnyx') {
+      if (!TELNYX_PROFILE_ID_PATTERN.test(verifyProfileId.trim())) {
+        toast({
+          title: t('adminProviders.smsTelnyx.profileIdInvalid'),
+          variant: 'destructive',
+        });
+        return;
+      }
+    } else if (vendor === 'kavenegar') {
       if (!VERIFY_TEMPLATE_PATTERN.test(verifyTemplate)) {
         toast({
           title: 'Invalid verification template',
@@ -182,7 +201,15 @@ export function AdminSmsProviderCard() {
     setSaving(true);
     try {
       const next = await adminSaveSmsProvider(
-        vendor === 'kavenegar'
+        vendor === 'telnyx'
+          ? {
+              providerName: 'telnyx',
+              enabled,
+              ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+              verifyProfileId: verifyProfileId.trim(),
+              channel,
+            }
+          : vendor === 'kavenegar'
           ? {
               providerName: 'kavenegar',
               enabled,
@@ -287,7 +314,26 @@ export function AdminSmsProviderCard() {
                   <span className="text-muted-foreground">Not set</span>
                 )}
               </div>
-              {info?.providerName === 'smsir' ? (
+              {info?.providerName === 'telnyx' ? (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">{t('adminProviders.smsTelnyx.profileId')}</span>
+                    <span className="text-foreground font-mono text-[11px] break-all" dir="ltr" data-testid="sms-telnyx-profile-id">
+                      {info.verifyProfileId ?? '—'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{t('adminProviders.smsTelnyx.channel')}</span>
+                    <span className="text-foreground">
+                      {info.channel === 'call' ? t('adminProviders.smsTelnyx.channelCall') : t('adminProviders.smsTelnyx.channelSms')}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">{t('adminProviders.smsTelnyx.messageText')}</span>
+                    <span className="text-foreground text-end">{t('adminProviders.smsTelnyx.messageTextValue')}</span>
+                  </div>
+                </>
+              ) : info?.providerName === 'smsir' ? (
                 <>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Line number</span>
@@ -330,11 +376,18 @@ export function AdminSmsProviderCard() {
                     <span className="flex items-center gap-1">
                       <CheckCircle2 className="h-3 w-3" /> Connection OK ({testResult.latencyMs ?? 0} ms)
                     </span>
+                    {testResult.provider === 'telnyx' ? (
+                      <span className="flex items-center gap-1 text-foreground" data-testid="sms-test-profile">
+                        <ShieldCheck className="h-3 w-3" />
+                        {t('adminProviders.smsTelnyx.testProfile', { name: testResult.profileName ?? '—' })}
+                      </span>
+                    ) : (
                     <span className="flex items-center gap-1 text-foreground">
                       <Wallet className="h-3 w-3" /> Balance:{' '}
                       {testResult.balance ?? '—'} {testResult.currency ?? 'IRR'}
                       {testResult.accountType ? ` · ${testResult.accountType}` : ''}
                     </span>
+                    )}
                   </div>
                 ) : (
                   <span className="flex items-center gap-1">
@@ -380,16 +433,17 @@ export function AdminSmsProviderCard() {
               <Smartphone className="h-4 w-4 text-primary" /> Configure SMS Provider
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Kavenegar and SMS.ir have live runtimes today. Credentials are stored
-              server-side and are never sent back to the browser.
+              {offered.includes('telnyx') && !offered.includes('kavenegar')
+                ? t('adminProviders.smsTelnyx.dialogDescription')
+                : 'Kavenegar and SMS.ir have live runtimes today. Credentials are stored server-side and are never sent back to the browser.'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label className="text-xs">Vendor</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['kavenegar', 'smsir'] as const).map((name) => (
+              <div className={`grid gap-2 ${offered.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                {offered.map((name) => (
                   <Button
                     key={name}
                     type="button"
@@ -432,7 +486,47 @@ export function AdminSmsProviderCard() {
               ) : null}
             </div>
 
-            {vendor === 'kavenegar' ? (
+            {vendor === 'telnyx' ? (
+            <>
+            <p className="text-[11px] text-muted-foreground -mt-1.5">{t('adminProviders.smsTelnyx.apiKeyHint')}</p>
+            <div className="space-y-1.5">
+              <Label htmlFor="sms-telnyx-profile" className="text-xs">{t('adminProviders.smsTelnyx.profileId')}</Label>
+              <Input
+                id="sms-telnyx-profile"
+                value={verifyProfileId}
+                onChange={(e) => setVerifyProfileId(e.target.value)}
+                placeholder="00000000-0000-0000-0000-000000000000"
+                dir="ltr"
+                autoComplete="off"
+                className="font-mono text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">{t('adminProviders.smsTelnyx.profileIdHint')}</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t('adminProviders.smsTelnyx.channel')}</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['sms', 'call'] as const).map((c) => (
+                  <Button
+                    key={c}
+                    type="button"
+                    size="sm"
+                    variant={channel === c ? 'default' : 'outline'}
+                    className="text-xs"
+                    data-testid={`sms-telnyx-channel-${c}`}
+                    onClick={() => setChannel(c)}
+                  >
+                    {c === 'call' ? t('adminProviders.smsTelnyx.channelCall') : t('adminProviders.smsTelnyx.channelSms')}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <p className="rounded-md border border-border bg-muted/40 p-2 text-[11px] text-muted-foreground" data-testid="sms-telnyx-template-note">
+              {t('adminProviders.smsTelnyx.templateNote')}
+            </p>
+            </>
+            ) : vendor === 'kavenegar' ? (
             <>
             <div className="space-y-1.5">
               <Label htmlFor="sms-template" className="text-xs">OTP / Verification Template</Label>

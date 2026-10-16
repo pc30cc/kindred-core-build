@@ -77,6 +77,12 @@ export interface PlatformPublicConfig {
     site_url?: string | null;
     support_email?: string | null;
   } | null;
+  /**
+   * SMS phone verification is on: always in the Iranian edition; in the
+   * International edition only while Telnyx is configured and enabled.
+   * Missing from an older backend (then off in International, as before).
+   */
+  sms_verification?: boolean;
 }
 
 export const PLATFORM_PUBLIC_CONFIG_QUERY_KEY = ['platform_public_config'] as const;

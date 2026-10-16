@@ -413,7 +413,7 @@ export { API_BASE };
 // signal the browser receives about it.
 
 export interface AdminSmsProviderInfo {
-  providerName: 'kavenegar' | 'smsir' | 'disabled';
+  providerName: 'kavenegar' | 'smsir' | 'telnyx' | 'disabled';
   configured: boolean;
   enabled: boolean;
   hasApiKey: boolean;
@@ -422,6 +422,10 @@ export interface AdminSmsProviderInfo {
   lineNumber: string | null;
   verifyTemplateId: number | null;
   verifyParameterName: string | null;
+  /** Telnyx only (missing from an older backend). */
+  verifyProfileId?: string | null;
+  /** Telnyx only: 'sms' or 'call'. */
+  channel?: 'sms' | 'call' | null;
   updatedAt: string | null;
 }
 
@@ -432,6 +436,8 @@ export interface AdminSmsTestResult {
   balance?: number | null;
   currency?: string;
   accountType?: string | null;
+  /** Telnyx: the name of the configured Verify Profile. */
+  profileName?: string | null;
   error?: string;
   errorCode?: string;
 }
@@ -456,6 +462,13 @@ export type AdminSmsProviderSavePayload =
       lineNumber: string;
       verifyTemplateId: number;
       verifyParameterName: string;
+    }
+  | {
+      providerName: 'telnyx';
+      enabled: boolean;
+      apiKey?: string;
+      verifyProfileId: string;
+      channel?: 'sms' | 'call';
     };
 
 export async function adminSaveSmsProvider(payload: AdminSmsProviderSavePayload) {

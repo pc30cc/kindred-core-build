@@ -11,6 +11,8 @@ import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, ShieldCheck, Smartphone } from 'lucide-react';
 import type { PhoneVerificationContext } from '@/lib/api';
+import { useEdition } from '@/hooks/useEdition';
+import { isValidIntlPhone, normalizeIntlPhone, sanitizeIntlPhoneInput } from '@/lib/phone-countries';
 import {
   useCheckPhoneVerification,
   useCancelPhoneVerification,
@@ -71,6 +73,10 @@ export function PhoneVerificationFlow({
   onVerified,
 }: Props) {
   const { t } = useTranslation();
+  // Iranian edition: an Iranian mobile number, as before. International: the
+  // whole number in international form (+ and the country code), sent as the
+  // pseudo-country `ZZ` (server/services/phoneVerification/phone.ts).
+  const { isInternational } = useEdition();
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [challengeId, setChallengeId] = useState<string | null>(initialChallengeId);
@@ -114,6 +120,8 @@ export function PhoneVerificationFlow({
     () => toAsciiDigits(phone).replace(/\D/g, ''),
     [phone],
   );
+  const intlPhone = useMemo(() => normalizeIntlPhone(phone), [phone]);
+  const phoneReady = isInternational ? intlPhone !== '' && isValidIntlPhone(intlPhone) : digitsOnly.length >= 10;
   const codeDigits = useMemo(() => toAsciiDigits(code).replace(/\D/g, '').slice(0, 6), [code]);
 
   const applyChallenge = (res: { challengeId: string; phoneMasked: string; expiresInSeconds: number; resendAfterSeconds: number }) => {
@@ -127,9 +135,9 @@ export function PhoneVerificationFlow({
   };
 
   const handleSend = () => {
-    if (busy || digitsOnly.length < 10) return;
+    if (busy || !phoneReady) return;
     start.mutate(
-      { phone: digitsOnly, country: 'IR' },
+      isInternational ? { phone: intlPhone, country: 'ZZ' } : { phone: digitsOnly, country: 'IR' },
       {
         onSuccess: (res) => {
           applyChallenge(res);
@@ -213,21 +221,23 @@ export function PhoneVerificationFlow({
           >
             <span data-phone-prefix className="inline-flex items-center gap-1.5 border-r border-border bg-muted/60 px-3 text-sm font-mono text-muted-foreground select-none">
               <Smartphone className="h-3.5 w-3.5" />
-              +98
+              {isInternational ? null : '+98'}
             </span>
             <Input
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(isInternational ? sanitizeIntlPhoneInput(e.target.value) : e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
-              placeholder="09121234567"
-              inputMode="numeric"
+              placeholder={isInternational ? '+447700900123' : '09121234567'}
+              inputMode={isInternational ? 'tel' : 'numeric'}
               dir="ltr"
               className="h-11 flex-1 border-0 bg-transparent font-mono tracking-wider shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               disabled={busy}
             />
           </div>
-          <p className="text-xs text-muted-foreground">{t('phoneVerification.phoneHint')}</p>
-          <Button onClick={handleSend} disabled={busy || digitsOnly.length < 10} className="w-full h-11 shadow-sm">
+          <p className="text-xs text-muted-foreground">
+            {t(isInternational ? 'phoneVerification.phoneHintInternational' : 'phoneVerification.phoneHint')}
+          </p>
+          <Button onClick={handleSend} disabled={busy || !phoneReady} className="w-full h-11 shadow-sm">
             {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}
             <span className="ms-2">{t('phoneVerification.sendCode')}</span>
           </Button>

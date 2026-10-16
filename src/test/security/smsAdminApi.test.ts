@@ -305,3 +305,47 @@ describe('PUT — SMS.ir payloads', () => {
     expect(res.status).toBe(500);
   });
 });
+
+describe('PUT / POST /test — Telnyx payloads (International edition)', () => {
+  const PROFILE = '490001a1-442d-809f-5753-c2332bd10640';
+  const VALID = { providerName: 'telnyx', enabled: true, apiKey: 'new-placeholder', verifyProfileId: PROFILE, channel: 'sms' };
+
+  it('accepts a valid Telnyx payload and passes only its fields on', async () => {
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: VALID });
+    expect(res.status).toBe(200);
+    expect(saved).toEqual([{ providerName: 'telnyx', enabled: true, apiKey: 'new-placeholder', verifyProfileId: PROFILE, channel: 'sms' }]);
+    expect(res.json).not.toHaveProperty('apiKey');
+  });
+
+  it('accepts the call channel and an omitted channel / key', async () => {
+    expect((await call('PUT', BASE, { token: ADMIN_TOKEN, body: { ...VALID, channel: 'call' } })).status).toBe(200);
+    const { channel: _c, apiKey: _k, ...bare } = VALID;
+    expect((await call('PUT', BASE, { token: ADMIN_TOKEN, body: bare })).status).toBe(200);
+    expect(saved[1]).toEqual({ providerName: 'telnyx', enabled: true, verifyProfileId: PROFILE });
+  });
+
+  it('rejects a Verify Profile id that is not a UUID, a bad channel, or a foreign field', async () => {
+    for (const body of [
+      { ...VALID, verifyProfileId: 'RESPOK' },
+      { ...VALID, verifyProfileId: undefined },
+      { ...VALID, channel: 'whatsapp' },
+      { ...VALID, verifyTemplate: 'verifyLogin' },
+    ]) {
+      expect((await call('PUT', BASE, { token: ADMIN_TOKEN, body })).status).toBe(400);
+    }
+    expect(saved).toHaveLength(0);
+  });
+
+  it('a non-admin cannot save Telnyx', async () => {
+    expect((await call('PUT', BASE, { token: USER_TOKEN, body: VALID })).status).toBe(403);
+    expect(saved).toHaveLength(0);
+  });
+
+  it('the connection test reports the Verify Profile name, never a credential', async () => {
+    state.test = { success: true, provider: 'telnyx', latencyMs: 40, balance: null, currency: 'USD', accountType: null, profileName: 'RESPOK' };
+    const res = await call('POST', BASE + '/test', { token: ADMIN_TOKEN, body: {} });
+    expect(res.json).toMatchObject({ success: true, provider: 'telnyx', profileName: 'RESPOK', currency: 'USD', balance: null });
+    expect(JSON.stringify(res.json)).not.toContain('placeholder');
+    state.test = { success: true, provider: 'kavenegar', latencyMs: 12, balance: 5000, currency: 'IRR', accountType: 'master' };
+  });
+});

@@ -239,6 +239,9 @@ server {
             # `Cache-Control: no-cache` next to this one, and browsers then
             # revalidate a file whose name is its content on every use.
             expires off;
+            # scripts/widget-hash.js writes a level-9 `<file>.gz` beside each
+            # hashed script and stylesheet: sent as is, never gzipped again.
+            gzip_static on;
             add_header Cache-Control "public, max-age=31536000, immutable";
             add_header X-Widget-Asset "runtime-hashed" always;
             add_header Access-Control-Allow-Origin "*" always;

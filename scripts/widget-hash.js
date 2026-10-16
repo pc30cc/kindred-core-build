@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import { resolveBuildBrand } from './build/brand.mjs';
 import { isWidgetSource, transformWidgetAsset } from './build/widgetBrand.mjs';
 import { rewriteWidgetFontUrls } from './build/widgetFonts.mjs';
+import { precompressFiles } from './build/precompress.mjs';
 
 // NOTE: Do NOT use `import.meta.dirname` — it was only added in Node 20.11.
 // Some `node:20-alpine` images shipped with older 20.x patch versions
@@ -143,7 +144,7 @@ function contentHash(buf) {
 function cleanOldHashed() {
   if (!existsSync(OUT_DIR)) return;
   for (const f of readdirSync(OUT_DIR)) {
-    if (/^(runtime|presentation)[a-z0-9-]*\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
+    if (/^(runtime|presentation)[a-z0-9-]*\.[a-f0-9]{8}\.(js|css)(\.gz)?$/.test(f)) {
       unlinkSync(join(OUT_DIR, f));
     }
   }
@@ -157,7 +158,7 @@ function cleanOldHashed() {
   const vendorDir = join(OUT_DIR, 'vendor');
   if (existsSync(vendorDir)) {
     for (const f of readdirSync(vendorDir)) {
-      if (/\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
+      if (/\.[a-f0-9]{8}\.(js|css)(\.gz)?$/.test(f)) {
         unlinkSync(join(vendorDir, f));
       }
     }
@@ -169,6 +170,8 @@ mkdirSync(join(OUT_DIR, 'vendor'), { recursive: true });
 cleanOldHashed();
 
 const manifest = {};
+// Every content-hashed file written below, for the gzip copies at the end.
+const hashedOutputs = [];
 
 // Hash runtime files
 for (const file of HASHED_FILES) {
@@ -184,6 +187,7 @@ for (const file of HASHED_FILES) {
   const hashedName = `${base}.${hash}.${ext}`;
 
   writeFileSync(join(OUT_DIR, hashedName), buf);
+  hashedOutputs.push(join(OUT_DIR, hashedName));
   manifest[file] = hashedName;
   console.log(`[widget-hash] ${file} → ${hashedName}`);
 }
@@ -207,6 +211,7 @@ for (const logical of VENDOR_FILES) {
   const stem = baseName.replace(`.${ext}`, '');
   const hashedRel = `vendor/${stem}.${hash}.${ext}`;
   writeFileSync(join(OUT_DIR, hashedRel), buf);
+  hashedOutputs.push(join(OUT_DIR, hashedRel));
   manifest[logical] = hashedRel;
   console.log(`[widget-hash] ${logical} → ${hashedRel} (${(buf.length / 1024).toFixed(1)} KB)`);
 }
@@ -233,6 +238,15 @@ if (existsSync(loaderSrc)) {
 for (const file of readdirSync(SRC_DIR)) {
   if (!isWidgetSource(file) || !existsSync(join(OUT_DIR, file))) continue;
   writeFileSync(join(OUT_DIR, file), shippedBytes(file));
+}
+
+// Level-9 gzip copies of the hashed scripts and stylesheets for nginx's
+// `gzip_static` (the hashed /widget/ location): made once here instead of
+// gzipped again by nginx on every request that misses the CDN. woff2 is
+// compressed already and is skipped (scripts/build/precompress.mjs).
+{
+  const { written, rawBytes, gzipBytes } = await precompressFiles(hashedOutputs);
+  console.log(`[widget-hash] gzip_static: ${written} files, ${(rawBytes / 1024).toFixed(0)} KB → ${(gzipBytes / 1024).toFixed(0)} KB`);
 }
 
 const manifestPath = join(OUT_DIR, 'widget-manifest.json');

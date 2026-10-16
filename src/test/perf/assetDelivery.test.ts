@@ -281,6 +281,8 @@ describe('nginx: hashed widget files (scripts, stylesheets, fonts)', () => {
     // every use. Any other `expires` would add a second header too.
     expect(block).toMatch(/^\s*expires\s+off;/m);
     expect(block.match(/\bexpires\b/g)).toHaveLength(1);
+    // The build's level-9 .gz copies are sent as they are (scripts/widget-hash.js).
+    expect(block).toMatch(/^\s*gzip_static\s+on;/m);
   });
 
   it('never keeps a missing hashed file: no year-long header on the 404, which nothing stores', () => {

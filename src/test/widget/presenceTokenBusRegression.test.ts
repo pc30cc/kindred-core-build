@@ -40,6 +40,18 @@ function jsonResponse(payload: unknown, ok = true, status = 200) {
   };
 }
 
+/** The canonical session bus loader.js installs as window.__gs_token. */
+interface SessionBus {
+  __canonicalSession?: boolean;
+  refresh: () => Promise<unknown>;
+  recover: () => Promise<unknown>;
+  bootstrap: () => Promise<unknown>;
+  configure: (opts: { apiBase: string; workspaceId: string; token: string }) => void;
+  get: () => unknown;
+}
+type LoaderWindow = Record<string, unknown> & { fetch: unknown; __gs_token?: SessionBus };
+const loaderWindow = () => window as unknown as LoaderWindow;
+
 const flush = async () => {
   for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
 };
@@ -47,8 +59,9 @@ const flush = async () => {
 beforeEach(() => {
   vi.useRealTimers();
   document.body.innerHTML = '';
-  for (const key of Object.keys(window as any)) {
-    if (key.indexOf('__gs') === 0) delete (window as any)[key];
+  const win = loaderWindow();
+  for (const key of Object.keys(win)) {
+    if (key.indexOf('__gs') === 0) delete win[key];
   }
 });
 
@@ -59,11 +72,11 @@ afterEach(() => {
 /** Boots loader.js far enough that window.__gs_token (the canonical bus)
  *  exists, without needing bootstrap/config to actually resolve (the bus
  *  is installed at the very top of the IIFE, synchronously). */
-function bootBus(fetchImpl: (url: string, init?: any) => Promise<any>) {
-  (window as any).fetch = vi.fn(fetchImpl);
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+function bootBus(fetchImpl: (url: string, init?: RequestInit) => Promise<unknown>): SessionBus {
+  const win = loaderWindow();
+  win.fetch = vi.fn(fetchImpl);
   new Function(LOADER_SRC).call(window);
-  return (window as any).__gs_token;
+  return win.__gs_token as SessionBus;
 }
 
 describe('canonical session bus — single-flight authority (no dual refresh engines)', () => {
@@ -124,7 +137,9 @@ describe('canonical session bus — single-flight authority (no dual refresh eng
       }
       if (u.includes('/api/widget/bootstrap')) {
         bootstrapCalls++;
-        return new Promise((res) => setTimeout(() => res(jsonResponse({ session_token: 'tok-rebootstrapped' })), 10));
+        // A current backend (`protocol: 2`): an answer without it is dropped
+        // and re-sent as JSON once (old-backend fallback, loaderInlineConfig.test.ts).
+        return new Promise((res) => setTimeout(() => res(jsonResponse({ session_token: 'tok-rebootstrapped', protocol: 2 })), 10));
       }
       return Promise.resolve(jsonResponse({}));
     });

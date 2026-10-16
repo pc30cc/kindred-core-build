@@ -242,15 +242,28 @@
       if (!force && now - lastBootstrapAt < BOOTSTRAP_COOLDOWN_MS) return Promise.resolve(null);
       lastBootstrapAt = now;
       bootstrapsInWindow += 1;
-      return fetch(cfg.apiBase + '/api/widget/bootstrap', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        // Always the CURRENT browser origin: a token is never migrated from
-        // one origin to another, a brand-new origin-bound one is minted.
-        body: JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin }),
-      })
-        .then(function (r) { return r.ok ? r.json() : null; })
+      // Always the CURRENT browser origin: a token is never migrated from
+      // one origin to another, a brand-new origin-bound one is minted.
+      var body = JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin });
+      // First CORS-simple (text/plain, no preflight); a backend older than
+      // this loader ignores that body, so a non-current answer is dropped
+      // and the same body goes once more as application/json (see
+      // requestBootstrap below). One fetch site for both shapes.
+      function post(json) {
+        var init = { method: 'POST', credentials: 'include', body: body };
+        if (json) init.headers = { 'Content-Type': 'application/json' };
+        return fetch(cfg.apiBase + '/api/widget/bootstrap', init);
+      }
+      function okJson(r) { return r && r.ok ? r.json() : null; }
+      function asJson() { return post(true).then(okJson); }
+      return post(false)
+        .then(function (r) {
+          if (r.status === 400) return asJson();
+          if (!r.ok) return null;
+          return r.json().then(function (data) {
+            return isCurrentBootstrap(data, cfg.workspaceId) ? data : asJson();
+          });
+        }, asJson)
         .then(adopt)
         .catch(function () { return null; });
     };
@@ -1177,7 +1190,9 @@
   }
 
   // ─── HTTP helper with capped retries & jitter ───
-  function fetchWithRetry(url, opts, attempts) {
+  // `failFastOnError`: a thrown fetch (network / CORS failure) is not
+  // retried here — the caller has its own fallback for it. 5xx still are.
+  function fetchWithRetry(url, opts, attempts, failFastOnError) {
     attempts = attempts || 3;
     var attempt = 0;
     return new Promise(function (resolve, reject) {
@@ -1187,7 +1202,7 @@
           if (r.status >= 500 && attempt < attempts) return delay();
           resolve(r);
         }).catch(function (err) {
-          if (attempt < attempts) return delay(err);
+          if (attempt < attempts && !failFastOnError) return delay(err);
           reject(err);
         });
       }
@@ -1198,6 +1213,51 @@
       }
       go();
     });
+  }
+
+  // ─── POST /api/widget/bootstrap ───
+  // A bootstrap answer from a backend that read our text/plain body: it says
+  // `protocol` >= 2 and names the workspace we asked for (a disabled answer
+  // names none). Anything else came from an older backend, which ignored
+  // that body and can only have answered for the page origin's mapping.
+  function isCurrentBootstrap(data, workspaceId) {
+    return !!data && typeof data === "object" && Number(data.protocol) >= 2 &&
+      (!data.workspace_id || data.workspace_id === workspaceId);
+  }
+
+  // Sent first as a CORS-simple request: no Content-Type header, so the
+  // browser labels the JSON text/plain and sends no OPTIONS preflight (one
+  // round trip less on a first visit; `include_config` saves another).
+  // Frontend and backend deploy independently, so the backend may be older
+  // than this loader: it then answers without `protocol` (or 400, or with no
+  // CORS headers at all — a network error). That answer is DROPPED and the
+  // same body is sent once more as application/json; its answer is used.
+  // 401/403/404 and a disabled widget are final, as they always were. 5xx are
+  // retried by fetchWithRetry as before.
+  function requestBootstrap(url, payload) {
+    var body = JSON.stringify(payload);
+    function parse(r) {
+      if (r.status === 401 || r.status === 403) {
+        throw new Error("unauthorized");
+      }
+      if (!r.ok) throw new Error("bootstrap_failed_" + r.status);
+      return r.json();
+    }
+    function asJson() {
+      return fetchWithRetry(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+      }, 3).then(parse);
+    }
+    return fetchWithRetry(url, { method: "POST", credentials: "include", body: body }, 3, true)
+      .then(function (r) {
+        if (r.status === 400) return asJson();
+        return parse(r).then(function (data) {
+          return isCurrentBootstrap(data, payload.workspace_id) ? data : asJson();
+        });
+      }, asJson);
   }
 
   // ─── Bootstrap flow ───
@@ -1229,6 +1289,8 @@
     var bootstrapPayload = {
       workspace_id: WORKSPACE_ID,
       origin: window.location.origin,
+      // The GET /config body comes back inline (an older backend ignores this).
+      include_config: true,
     };
     if (commerceSubjectChanged(WORKSPACE_ID)) {
       bootstrapPayload.fresh_visitor = true;
@@ -1238,21 +1300,7 @@
         document.cookie = "gs_active=; path=/; max-age=0; SameSite=Lax";
       } catch (_) {}
     }
-    var bootstrapBody = JSON.stringify(bootstrapPayload);
-
-    fetchWithRetry(bootstrapUrl, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: bootstrapBody,
-    }, 3)
-      .then(function (r) {
-        if (r.status === 401 || r.status === 403) {
-          throw new Error("unauthorized");
-        }
-        if (!r.ok) throw new Error("bootstrap_failed_" + r.status);
-        return r.json();
-      })
+    requestBootstrap(bootstrapUrl, bootstrapPayload)
       .then(function (data) {
         if (data.disabled) {
           log("Widget disabled by server");
@@ -1320,7 +1368,11 @@
           }
         } catch (_) {}
 
-        var configRequest = fetchWithRetry(
+        // The current backend sends the GET /config body inline; an older
+        // one (or a widget that is not configured) does not, and then it is
+        // asked for exactly as before.
+        var inlineConfig = data.config && typeof data.config === "object" ? data.config : null;
+        var configRequest = inlineConfig ? Promise.resolve(null) : fetchWithRetry(
           apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),
           {
             credentials: "include",
@@ -1328,12 +1380,12 @@
           },
           3
         );
-        return Promise.all([configRequest, identityReady]).then(function (ready) { return ready[0]; });
-      })
-      .then(function (r) {
-        if (!r) return null;
-        if (!r.ok) throw new Error("config_failed_" + r.status);
-        return r.json();
+        return Promise.all([configRequest, identityReady]).then(function (ready) {
+          if (inlineConfig) return inlineConfig;
+          var r = ready[0];
+          if (!r.ok) throw new Error("config_failed_" + r.status);
+          return r.json();
+        });
       })
       .then(function (config) {
         if (!config || !config.enabled) return;

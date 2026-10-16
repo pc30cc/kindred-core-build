@@ -11,6 +11,9 @@ import {
   type AiKbJobEventDto,
 } from '@/lib/ai-kb-api';
 import { useTranslation } from '@/i18n';
+import { useAiWalletSummary } from '@/hooks/useAiWalletSummary';
+import { formatAmountForEdition } from '@/lib/money';
+import { AI_WALLET_UNIT } from '../../../../shared/planLimits';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast';
@@ -39,6 +42,12 @@ export default function AiKbBuilderTab() {
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
   const { t, locale, dir } = useTranslation();
+  const { data: aiWallet } = useAiWalletSummary(workspace?.id);
+  const aiCreditText = aiWallet
+    ? aiWallet.availableMinor !== null && aiWallet.currency
+      ? formatAmountForEdition(aiWallet.availableMinor, aiWallet.currency, locale)
+      : formatAmountForEdition(aiWallet.totalRemainingIrr, AI_WALLET_UNIT, locale)
+    : '—';
   /** Every user-visible string in this surface resolves through i18n. */
   const tr = (k: string, fb: string, vars?: Record<string, string>) => {
     const key = `aiAgent.kbBuilder.${k}`;
@@ -379,7 +388,8 @@ export default function AiKbBuilderTab() {
               <div><div className="text-muted-foreground">{tr('plan.jobsThisMonth', 'Jobs this month')}</div><div className="font-semibold">{source.plan.jobs_used_this_month} / {source.plan.limits.jobsPerMonth}</div></div>
             </div>
             <div className="text-xs text-muted-foreground">
-              {tr('plan.creditsLabel', 'AI credits remaining')}: <span className="font-semibold text-foreground">{source.credits.limit === -1 ? tr('plan.unlimited', 'Unlimited') : source.credits.remaining}</span> · {tr('plan.creditsHint', '1 credit per generated draft')}
+              {/* The AI wallet, as the billing page shows it (the legacy per-draft counter no longer applies). */}
+              {tr('plan.creditsLabel', 'AI credit')}: <span className="font-semibold text-foreground">{aiCreditText}</span> · {tr('plan.creditsHint', 'each draft is charged to the workspace\'s AI credit by what it uses')}
             </div>
           </>
         )}

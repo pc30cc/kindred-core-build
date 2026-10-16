@@ -92,7 +92,7 @@ import { aiKbRouter } from './routes/aiKb.js';
 import { knowledgeBaseRouter } from './routes/knowledgeBase.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
 import { callCenterRouter } from './routes/callCenter.js';
-import { callWidgetRouter } from './routes/callWidget.js';
+import { callWidgetCors, callWidgetRouter } from './routes/callWidget.js';
 import { contactsRouter } from './routes/contacts.js';
 import { teamChatRouter } from './routes/teamChat.js';
 import { platformSupportRouter } from './routes/platformSupport.js';
@@ -665,9 +665,12 @@ app.use('/api/ai-agent', aiAgentRouter);
 app.use('/api/call-center', callCenterRouter);
 
 // Call Widget — public visitor-facing standalone widget endpoints.
-// Dynamic per-workspace CORS handled inside the router.
+// CORS first, ahead of the limiters, so a 429 is readable by l.js (it then
+// waits the Retry-After it names); which origins may use a workspace is
+// still decided inside the router (callOriginAllowed).
 // Pre-auth call-widget bootstrap: `publicKey` is a PUBLIC identifier visible in
 // the embed, never a secret — it cannot select a workspace bucket.
+app.use('/api/call-widget', callWidgetCors);
 app.use('/api/call-widget/bootstrap', callWidgetBootstrapGlobalCeiling, callWidgetBootstrapRateLimiter);
 // Post-bootstrap call-widget traffic: per-IP + workspace bucket (unreachable
 // today, see resolveRateLimitWorkspaceKey's doc comment) + a per-session

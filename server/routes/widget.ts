@@ -190,10 +190,14 @@ widgetRouter.use('/call-invitations', widgetCallInvitationsRouter);
 // as text/plain (a CORS-simple request: no preflight); server/index.ts parses
 // it as JSON on this path only.
 //
-// `protocol: 2` on every body this handler answers (not on errors) tells the
-// loader it reached this server and not an older one, which would have
-// ignored a text/plain body (see public/widget/loader.js requestBootstrap).
-const BOOTSTRAP_PROTOCOL = 2;
+// `protocol` on every body this handler answers (not on errors) tells the
+// loader it reached this server and not an older one:
+//   >= 2  this server read the text/plain bootstrap body (an older one
+//         ignores it; see public/widget/loader.js requestBootstrap);
+//   >= 3  POST /track and POST /api/realtime/visitor-presence also take the
+//         session token as `widget_token` in a text/plain body, so the
+//         loader sends them CORS-simple (no preflight; loader.js tokenPost).
+const BOOTSTRAP_PROTOCOL = 3;
 
 widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware('widget.bootstrap'), async (req: Request, res: Response) => {
   try {
@@ -479,7 +483,7 @@ widgetRouter.use((req: Request, res: Response, next: NextFunction) => {
 // ═══════════════════════════════════════════════
 // GET /config — Full widget configuration
 // ═══════════════════════════════════════════════
-widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+widgetRouter.get('/config', widgetRateLimit('config'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
@@ -2049,26 +2053,32 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
       // public IP could be resolved, which silently aborted the whole
       // tracking branch (the catch below swallows it and returns ok:true).
       const ipHash = hashIp(clientIp);
+      // The independent reads below run together, and so do the writes: a
+      // navigation costs 2 database round trips instead of 5. The operations
+      // and what each branch writes are unchanged.
+      //
       // Privacy gate: only persist raw IP when the workspace explicitly
       // opts in — same setting + same rule as /api/visitors/track. This
       // endpoint (the chat widget's own background tracker, loader.js) was
       // never actually reading it, so a raw IP was never stored for ANY
       // chat-widget visitor regardless of the toggle — contacts.ts's /ip
       // lookup and identityMerge's location enrichment had nothing to read.
-      let storeRawIp = false;
-      try {
-        const { data: ws } = await supabase
-          .from('widget_settings')
-          .select('store_raw_ip')
-          .eq('workspace_id', workspaceId)
-          .maybeSingle();
-        storeRawIp = ws?.store_raw_ip === true;
-      } catch { /* default to not storing on lookup failure */ }
-      const ipRawForStorage = storeRawIp ? clientIp : null;
+      // Read from the database on every request (not the config snapshot),
+      // so the toggle holds from the very next request, on every node.
+      const storeRawIpRead = (async () => {
+        try {
+          const { data: ws } = await supabase
+            .from('widget_settings')
+            .select('store_raw_ip')
+            .eq('workspace_id', workspaceId)
+            .maybeSingle();
+          return ws?.store_raw_ip === true;
+        } catch { return false; /* default to not storing on lookup failure */ }
+      })();
 
       // Check for existing recent session
       const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-      const { data: existing } = await supabase
+      const sessionRead = supabase
         // ip_hash is fetched so a mid-session network change (VPN / mobile
         // handover) forces a geo re-resolve instead of keeping the old country.
         // current_page detects a URL change BEFORE it is overwritten, and the
@@ -2079,6 +2089,8 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
         .eq('workspace_id', workspaceId).eq('visitor_id', visitor_id || '')
         .gte('last_seen_at', thirtyMinAgo)
         .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
+      const [storeRawIp, { data: existing }] = await Promise.all([storeRawIpRead, sessionRead]);
+      const ipRawForStorage = storeRawIp ? clientIp : null;
 
       let previousIpHash: string | null = null;
       if (existing) {
@@ -2101,33 +2113,40 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
           (!ipHash || ipHash === existing.ip_hash) &&
           Number.isFinite(lastSeenMs) &&
           nowMs - lastSeenMs < TRACK_REWRITE_MS;
-        if (sessionUnchanged) {
-          // ip_raw must match too, or the privacy toggle would not take effect
-          // on this request. Anything but a clean read of an equal value
-          // (including a chain without the column) means the write runs.
-          const { data: rawRow, error: rawErr } = await supabase.from('visitor_sessions')
-            .select('ip_raw').eq('id', existing.id).maybeSingle();
-          sessionUnchanged =
-            !rawErr && !!rawRow && (ipRawForStorage ?? null) === ((rawRow.ip_raw as string | null) ?? null);
-        }
-
         let presenceFresh = false;
         if (sessionUnchanged) {
-          // The presence row is normally written together with the session,
-          // but it is checked on its own: another path may have marked it
-          // offline since. More than one row (a creation race) reads as
-          // "not fresh", so it gets the unconditional update, as before.
-          const { data: presence } = await supabase.from('visitor_presence')
-            .select('status, current_page, updated_at').eq('visitor_session_id', existing.id).maybeSingle();
+          // The two checks of an unchanged repeat, read together:
+          //  - ip_raw must match too, or the privacy toggle would not take
+          //    effect on this request. Anything but a clean read of an equal
+          //    value (including a chain without the column) means the write
+          //    runs.
+          //  - The presence row is normally written together with the
+          //    session, but it is checked on its own: another path may have
+          //    marked it offline since. More than one row (a creation race)
+          //    reads as "not fresh", so it gets the unconditional update, as
+          //    before. It counts only when the session is still unchanged.
+          const [{ data: rawRow, error: rawErr }, { data: presence }] = await Promise.all([
+            supabase.from('visitor_sessions')
+              .select('ip_raw').eq('id', existing.id).maybeSingle(),
+            supabase.from('visitor_presence')
+              .select('status, current_page, updated_at').eq('visitor_session_id', existing.id).maybeSingle(),
+          ]);
+          sessionUnchanged =
+            !rawErr && !!rawRow && (ipRawForStorage ?? null) === ((rawRow.ip_raw as string | null) ?? null);
           const presenceMs = presence?.updated_at ? Date.parse(presence.updated_at as string) : NaN;
           presenceFresh =
+            sessionUnchanged &&
             !!presence &&
             presence.status === 'online' &&
             ((presence.current_page as string | null) ?? null) === (normalizedPageUrl ?? null) &&
             Number.isFinite(presenceMs) &&
             nowMs - presenceMs < TRACK_REWRITE_MS;
-        } else {
-          await supabase.from('visitor_sessions')
+        }
+
+        // Independent rows: written together.
+        const writes: Array<PromiseLike<unknown>> = [];
+        if (!sessionUnchanged) {
+          writes.push(supabase.from('visitor_sessions')
             .update({
               current_page: normalizedPageUrl,
               browser: browser || undefined,
@@ -2143,27 +2162,28 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
               ...(ipHash ? { ip_hash: ipHash } : {}),
               ip_raw: ipRawForStorage,
             })
-            .eq('id', existing.id);
+            .eq('id', existing.id));
         }
 
         if (!presenceFresh) {
-          await supabase.from('visitor_presence')
+          writes.push(supabase.from('visitor_presence')
             .update({ status: 'online', current_page: normalizedPageUrl, updated_at: new Date().toISOString() })
-            .eq('visitor_session_id', existing.id);
+            .eq('visitor_session_id', existing.id));
         }
 
         // Append a page-view row when the URL is new for this session.
         // First page_view of an existing session also counts (prevPage may
         // be null on rehydrated sessions).
         if (normalizedPageUrl && normalizedPageUrl !== prevPage) {
-          await recordVisitorPageView(config, supabase, {
+          writes.push(recordVisitorPageView(config, supabase, {
             workspaceId,
             sessionId: existing.id,
             url: normalizedPageUrl,
             title: page_title,
             context: 'widget-track',
-          });
+          }));
         }
+        await Promise.all(writes);
       } else if (visitor_id) {
         // Phase 10 — gate true-new-this-month visitors on the public widget
         // /track endpoint. Reuses the Phase 9 helper so the trigger remains
@@ -2202,22 +2222,26 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
 
         if (newSession) {
           activeSessionId = newSession.id;
-          await supabase.from('visitor_presence').insert({
-            workspace_id: workspaceId,
-            visitor_session_id: newSession.id,
-            status: 'online',
-            current_page: normalizedPageUrl,
-          });
-          // Always log the very first page view of a brand-new session.
-          if (normalizedPageUrl) {
-            await recordVisitorPageView(config, supabase, {
-              workspaceId,
-              sessionId: newSession.id,
-              url: normalizedPageUrl,
-              title: page_title,
-              context: 'widget-track',
-            });
-          }
+          // The presence row and the first page view need only the session
+          // id: written together.
+          await Promise.all([
+            supabase.from('visitor_presence').insert({
+              workspace_id: workspaceId,
+              visitor_session_id: newSession.id,
+              status: 'online',
+              current_page: normalizedPageUrl,
+            }),
+            // Always log the very first page view of a brand-new session.
+            normalizedPageUrl
+              ? recordVisitorPageView(config, supabase, {
+                workspaceId,
+                sessionId: newSession.id,
+                url: normalizedPageUrl,
+                title: page_title,
+                context: 'widget-track',
+              })
+              : null,
+          ]);
           // Fire-and-forget geo enrichment — never block the widget response.
           // Uses MaxMind local DB when configured (city-level), with cache.
           // Marked as attempted so the existing-session check below does not
@@ -2847,7 +2871,7 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
   }
 });
 
-widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+widgetRouter.get('/manifest', widgetRateLimit('config'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
@@ -3536,7 +3560,7 @@ function isQueueGateDenial(gate: QueueGateResult): gate is QueueDenial {
  * workspace. Reuses the visitor session for identity and the existing
  * effective policy snapshot. No new identity flow, no new pre-chat form.
  */
-widgetRouter.get('/call-channels', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+widgetRouter.get('/call-channels', widgetRateLimit('config'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined
     || (req.query.workspace_id as string | undefined);

@@ -37,7 +37,7 @@ import {
   supabaseRealtimeAvailable,
   type RealtimeProviderConfig,
 } from '../services/realtime/index.js';
-import { verifySessionToken, verifyConversationOwnership } from '../services/widget/security.js';
+import { verifySessionToken, verifyConversationOwnership, readWidgetToken } from '../services/widget/security.js';
 import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
 import {
@@ -483,7 +483,10 @@ realtimeRouter.post('/visitor-presence', async (req, res) => {
     if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
     const { workspace_id: workspaceId, session_id: sessionId } = parsed.data;
 
-    const widgetToken = req.headers['x-widget-token'] as string | undefined;
+    // The header, or — from a loader that knows this server reads it — the
+    // `widget_token` field of a CORS-simple text/plain body (readWidgetToken):
+    // the same token, checked below exactly like the header.
+    const widgetToken = readWidgetToken(req);
     if (!widgetToken) return res.status(401).json({ error: 'Missing widget token' });
     const tokRes = verifySessionToken(widgetToken);
     if (!tokRes.valid || tokRes.workspaceId !== workspaceId) {

@@ -190,8 +190,9 @@ describe('chat widget bootstrap — real route, credential trust boundary', () =
   });
 
   // TEST 4 — token farming via IP rotation against one victim workspace:
-  // bounded by the existing pre-auth per-IP limiter (60/min/IP) and global
-  // ceiling (1200/min) mounted in server/index.ts — NOT by any per-workspace
+  // bounded by the existing pre-auth per-IP limiter (WIDGET_BOOTSTRAP_PER_IP_PER_MIN,
+  // 600/min/IP) and per-process ceiling (WIDGET_BOOTSTRAP_GLOBAL_PER_MIN,
+  // 12000/min) mounted in server/index.ts — NOT by any per-workspace
   // bootstrap ceiling (which would itself be an attacker-targetable DoS
   // vector keyed on a public workspace UUID). This test exercises the
   // route directly (no server/index.ts pre-auth limiter attached here, by

@@ -6,12 +6,13 @@
  * cookies, widgetCorsMiddleware, the pre-auth and per-IP limiters, and the
  * real widgetRouter — over an in-memory database that counts every read.
  *
- *   - text/plain JSON is parsed on /api/widget/bootstrap only (16 KB);
+ *   - text/plain JSON is parsed on /api/widget/bootstrap (16 KB) and not on
+ *     other widget paths (/track and /visitor-presence: widgetBodyToken.test.ts);
  *   - `config` is exactly the GET /config body (same JSON text), for both
  *     editions, AI on/off and smart rules on/off, under a fixed clock;
  *   - no `config` without the flag, or when GET /config would not be a 200;
  *   - disabled / not found / ORIGIN_DENIED / ORIGIN_REQUIRED / MISSING_WORKSPACE
- *     answer exactly as before, `protocol: 2` only on what the handler answers;
+ *     answer exactly as before, `protocol` (3) only on what the handler answers;
  *   - a second page view (bootstrap + GET /config) reads nothing.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -119,7 +120,7 @@ afterEach(() => {
 });
 
 describe('body parsing', () => {
-  it('parses a text/plain JSON body on /api/widget/bootstrap, and on no other path', async () => {
+  it('parses a text/plain JSON body on /api/widget/bootstrap, and not on an arbitrary widget path', async () => {
     await scenario({ edition: 'international', ai: true, smart: true });
     const boot = await bootstrapTextPlain({ workspace_id: WS });
     expect(boot.status).toBe(200);
@@ -153,7 +154,7 @@ describe('include_config: the GET /config body inline', () => {
     await scenario(opts);
     const boot = await bootstrapTextPlain({ workspace_id: WS, include_config: true });
     expect(boot.status).toBe(200);
-    expect(boot.body.protocol).toBe(2);
+    expect(boot.body.protocol).toBe(3);
     expect(boot.body.config).toBeTypeOf('object');
     const cfg = await getConfig(boot.body.session_token);
     expect(cfg.status).toBe(200);
@@ -209,7 +210,7 @@ describe('unchanged answers', () => {
     await scenario({ edition: 'iran', ai: true, smart: true }, (t) => { t.widget_settings[0].enabled = false; });
     const boot = await bootstrapTextPlain({ workspace_id: WS, include_config: true });
     expect(boot.status).toBe(200);
-    expect(boot.body).toEqual({ disabled: true, fallback: true, protocol: 2 });
+    expect(boot.body).toEqual({ disabled: true, fallback: true, protocol: 3 });
   });
 
   it('unknown workspace: 404 {disabled, error} as before', async () => {

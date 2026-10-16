@@ -14,7 +14,9 @@
  *  - DEBUG is OFF unless explicitly enabled by config.debugMode or
  *    window.__gs_debug === true.
  *  - Multiple injections must NOT create duplicate shells.
- *  - Identity/security model is untouched: cookies + X-Widget-Token only.
+ *  - Identity/security model is untouched: cookies + the widget session
+ *    token (X-Widget-Token; on a backend that says protocol >= 3, the same
+ *    token in the body of /track and /visitor-presence — see tokenPost).
  */
 (function () {
   "use strict";
@@ -184,10 +186,21 @@
     var bootstrapsInWindow = 0;
 
 
+    // What the backend said it speaks (the bootstrap's `protocol`). >= 3:
+    // /track and /visitor-presence take the token in a CORS-simple body (see
+    // tokenPost). Taken from EVERY bootstrap answer, so a backend rolled back
+    // mid-page is followed; 0 (unknown) keeps the header form.
+    bus.serverProtocol = 0;
+    function noteProtocol(data) {
+      if (data && data.session_token) bus.serverProtocol = Number(data.protocol) || 0;
+      return data;
+    }
+
     bus.configure = function (next) {
       if (!next) return;
       if (next.apiBase) cfg.apiBase = next.apiBase;
       if (next.workspaceId) cfg.workspaceId = next.workspaceId;
+      if (next.protocol !== undefined) bus.serverProtocol = Number(next.protocol) || 0;
       if (next.token) bus.set(next.token);
     };
     bus.config = function () { return { apiBase: cfg.apiBase, workspaceId: cfg.workspaceId }; };
@@ -264,6 +277,7 @@
             return isCurrentBootstrap(data, cfg.workspaceId) ? data : asJson();
           });
         }, asJson)
+        .then(noteProtocol)
         .then(adopt)
         .catch(function () { return null; });
     };
@@ -1192,13 +1206,23 @@
   // ─── HTTP helper with capped retries & jitter ───
   // `failFastOnError`: a thrown fetch (network / CORS failure) is not
   // retried here — the caller has its own fallback for it. 5xx still are.
+  // A 429 (rate limited) is asked again ONCE, after the wait it names
+  // (see retryDelay429); a second 429 is the answer.
   function fetchWithRetry(url, opts, attempts, failFastOnError) {
     attempts = attempts || 3;
     var attempt = 0;
+    var retried429 = false;
     return new Promise(function (resolve, reject) {
       function go() {
         attempt++;
         fetch(url, opts).then(function (r) {
+          if (r.status === 429 && !retried429) {
+            retried429 = true;
+            return retryDelay429(r).then(function (ms) {
+              log("rate limited — retry in", ms, "ms");
+              setTimeout(go, ms);
+            });
+          }
           if (r.status >= 500 && attempt < attempts) return delay();
           resolve(r);
         }).catch(function (err) {
@@ -1213,6 +1237,50 @@
       }
       go();
     });
+  }
+
+  // How long to wait before asking a 429 again: the `retry_after` seconds of
+  // its JSON body, else its Retry-After header (the server exposes it to
+  // this origin), at most 10 s — 2 s when it names neither — plus up to half
+  // a second at random, so visitors refused together do not return together.
+  function retryDelay429(r) {
+    var header = null;
+    try { header = r.headers && r.headers.get ? r.headers.get("Retry-After") : null; } catch (_) {}
+    var body;
+    try { body = r.json(); } catch (_) { body = null; }
+    return Promise.resolve(body).then(null, function () { return null; }).then(function (j) {
+      var s = Number(j && j.retry_after);
+      if (!(s > 0)) s = Number(header);
+      return Math.min(s > 0 ? s * 1000 : 2000, 10000) + Math.floor(Math.random() * 500);
+    });
+  }
+
+  // ─── Token-bearing POSTs that can go CORS-simple ───
+  // POST /api/widget/track and /api/realtime/visitor-presence carry the
+  // widget session token. A backend whose bootstrap said `protocol` >= 3
+  // reads it from the JSON body (`widget_token`), so they are sent with no
+  // request header at all: the browser labels the body text/plain and sends
+  // no OPTIONS preflight (one round trip less on every page view whose
+  // preflight is not cached). Any other backend — older, or not known yet —
+  // gets exactly the request it always got: JSON with X-Widget-Token.
+  // Never in the URL.
+  function serverReadsBodyToken() {
+    try { return Number(window.__gs_token && window.__gs_token.serverProtocol) >= 3; } catch (_) { return false; }
+  }
+  function tokenPost(url, payload, token) {
+    var init = { method: "POST", credentials: "include" };
+    if (serverReadsBodyToken()) {
+      var body = {};
+      for (var k in payload) {
+        if (Object.prototype.hasOwnProperty.call(payload, k)) body[k] = payload[k];
+      }
+      body.widget_token = token;
+      init.body = JSON.stringify(body);
+    } else {
+      init.headers = { "Content-Type": "application/json", "X-Widget-Token": token };
+      init.body = JSON.stringify(payload);
+    }
+    return fetch(url, init);
   }
 
   // ─── POST /api/widget/bootstrap ───
@@ -1345,7 +1413,7 @@
         // refresh / bounded re-bootstrap on behalf of every layer.
         try {
           if (window.__gs_token.configure) {
-            window.__gs_token.configure({ apiBase: apiBase, workspaceId: WORKSPACE_ID, token: sessionToken });
+            window.__gs_token.configure({ apiBase: apiBase, workspaceId: WORKSPACE_ID, token: sessionToken, protocol: Number(data.protocol) || 0 });
           } else {
             window.__gs_token.set(sessionToken);
           }
@@ -3260,12 +3328,11 @@
 
     /** Fetch a fresh presence config (tokens + lease). Resolves null on failure. */
     function fetchConfig(isRetry) {
-      return fetch(apiBase + '/api/realtime/visitor-presence', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': tokenNow() },
-        body: JSON.stringify({ workspace_id: workspaceId, session_id: sessionId }),
-      })
+      // CORS-simple when the backend takes the token in the body (tokenPost).
+      return tokenPost(apiBase + '/api/realtime/visitor-presence', {
+        workspace_id: workspaceId,
+        session_id: sessionId,
+      }, tokenNow())
         .then(function (r) {
           if (r.ok) return r.json();
           // The widget session died while the page sat open (tab left open
@@ -3485,29 +3552,25 @@
     } catch (_) {}
 
     var trackQuery = currentQuery();
-    fetch(apiBase + "/api/widget/track", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", "X-Widget-Token": tokenNow() },
-      body: JSON.stringify({
-        workspace_id: workspaceId,
-        event: "page_view",
-        current_page: currentPage(),
-        page_title: currentTitle(),
-        referrer: document.referrer || null,
-        browser: detectBrowser(),
-        device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
-        os: detectOS(),
-        // First-touch attribution for Web Analytics (server only persists
-        // these on brand-new sessions — see server/routes/widget.ts).
-        utm_source: trackQuery.utm_source || null,
-        utm_medium: trackQuery.utm_medium || null,
-        utm_campaign: trackQuery.utm_campaign || null,
-        utm_term: trackQuery.utm_term || null,
-        utm_content: trackQuery.utm_content || null,
-        language: (configData.locale || document.documentElement.lang || navigator.language || null),
-      }),
-    })
+    // CORS-simple when the backend takes the token in the body (tokenPost).
+    tokenPost(apiBase + "/api/widget/track", {
+      workspace_id: workspaceId,
+      event: "page_view",
+      current_page: currentPage(),
+      page_title: currentTitle(),
+      referrer: document.referrer || null,
+      browser: detectBrowser(),
+      device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
+      os: detectOS(),
+      // First-touch attribution for Web Analytics (server only persists
+      // these on brand-new sessions — see server/routes/widget.ts).
+      utm_source: trackQuery.utm_source || null,
+      utm_medium: trackQuery.utm_medium || null,
+      utm_campaign: trackQuery.utm_campaign || null,
+      utm_term: trackQuery.utm_term || null,
+      utm_content: trackQuery.utm_content || null,
+      language: (configData.locale || document.documentElement.lang || navigator.language || null),
+    }, tokenNow())
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var sessionId = data && data.session_id ? data.session_id : null;

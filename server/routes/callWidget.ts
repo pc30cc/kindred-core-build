@@ -3,8 +3,9 @@
  * Mounted at /api/call-widget/*. CORS is dynamic per workspace allowed_domains.
  * No service tokens leak to visitors. Visitors get short-lived HMAC sessions.
  */
-import { Router } from 'express';
+import { Router, type NextFunction, type Response } from 'express';
 import { z } from 'zod';
+import { WIDGET_CORS_EXPOSE_HEADERS, WIDGET_CORS_MAX_AGE_SECONDS } from '../middleware/widgetCors.js';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
@@ -116,8 +117,19 @@ const CALL_WIDGET_ASSETS_VERSION: string = (() => {
   return String(Date.now()).slice(-12);
 })();
 
-// Dynamic CORS per workspace allowed_domains
-callWidgetRouter.use(async (req, res, next) => {
+/**
+ * The call widget's CORS answer. The response is readable by the calling
+ * origin; whether that origin may USE the workspace is decided per route
+ * (callOriginAllowed: the workspace's domains, fail closed), never here.
+ *
+ * server/index.ts mounts this in front of the call widget's rate limiters
+ * too, so a 429 carries the same headers as any other answer: the loader
+ * (public/call-widget/l.js) can then read it and wait the Retry-After it
+ * names (exposed below), instead of seeing a network error. The router keeps
+ * its own copy for when it is mounted alone; setting the headers twice is
+ * harmless.
+ */
+export function callWidgetCors(req: ExpressRequest, res: Response, next: NextFunction): void {
   const origin = req.headers.origin as string | undefined;
   if (origin) {
     res.setHeader('Vary', 'Origin');
@@ -125,14 +137,21 @@ callWidgetRouter.use(async (req, res, next) => {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type, x-cc-session, x-cc-active-call');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Expose-Headers', WIDGET_CORS_EXPOSE_HEADERS);
     // Let the browser keep the preflight (Chrome caps it at 2 h): without
     // it every status poll of a call in progress (custom headers, every
-    // 5 s) paid a second request.
-    res.setHeader('Access-Control-Max-Age', '7200');
+    // 5 s) paid a second request. One constant with the chat widget.
+    res.setHeader('Access-Control-Max-Age', String(WIDGET_CORS_MAX_AGE_SECONDS));
   }
-  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
   next();
-});
+}
+
+// Dynamic CORS per workspace allowed_domains
+callWidgetRouter.use(callWidgetCors);
 
 function getOrigin(req): string | null {
   return (req.headers.origin as string) || null;

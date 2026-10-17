@@ -1,17 +1,18 @@
 /**
  * The shipped loader.js against current and older backends.
  *
- * Current backend: POST /api/widget/bootstrap is CORS-simple (no request
- * headers at all → text/plain, no preflight), asks for `include_config`, and
+ * Current backend: the first POST goes to /api/widget/boot, CORS-simple (no
+ * request headers at all → text/plain, no preflight), asks for
+ * `include_config`, and
  * the answer (`protocol: 2`) carries the GET /config body — so the loader
  * makes no /api/widget/config request.
  *
  * Older backend (frontend and backend deploy independently, in any order):
- * it ignores a text/plain body. Whatever it answers — a network/CORS error,
- * 400, a 2xx without `protocol`, or a token for another workspace (origin
- * mapping) — is DROPPED and the same body is sent once more as
- * application/json; the loader then continues exactly as before (GET
- * /config with X-Widget-Token).
+ * it has no /boot route, so it answers before any bootstrap work. Whatever
+ * comes back — a network/CORS error, 401/404, 400, a 2xx without `protocol`,
+ * or a token for another workspace — is DROPPED and the same body is sent
+ * once more as application/json to /api/widget/bootstrap; the loader then
+ * continues exactly as before (GET /config with X-Widget-Token).
  *
  * 401/403/404 and `{disabled}` from a current backend are final (no second
  * request), 5xx are retried as before.
@@ -82,7 +83,7 @@ async function boot(bootstrapAnswers: Answer[], attrs: Record<string, string> = 
   let n = 0;
   fetchMock = vi.fn((url: string) => {
     const u = String(url);
-    if (u.includes('/api/widget/bootstrap')) {
+    if (u.includes('/api/widget/boot')) {
       const answer = bootstrapAnswers[Math.min(n++, bootstrapAnswers.length - 1)];
       return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
     }
@@ -96,7 +97,8 @@ async function boot(bootstrapAnswers: Answer[], attrs: Record<string, string> = 
 
 type Init = { method?: string; credentials?: string; headers?: Record<string, string>; body?: string };
 const calls = (part: string) => fetchMock.mock.calls.filter((c) => String(c[0]).includes(part));
-const bootstrapInits = () => calls('/api/widget/bootstrap').map((c) => (c[1] || {}) as Init);
+const bootstrapInits = () => calls('/api/widget/boot').map((c) => (c[1] || {}) as Init);
+const bootstrapUrls = () => calls('/api/widget/boot').map((c) => String(c[0]));
 const configCalls = () => calls('/api/widget/config');
 
 const current = (extra: Record<string, unknown> = {}) => response({
@@ -115,6 +117,8 @@ const legacy = (extra: Record<string, unknown> = {}) => response({
 
 function expectJsonResend(inits: Init[]) {
   expect(inits).toHaveLength(2);
+  // CORS-simple to /boot (an older backend has no such route), JSON to /bootstrap.
+  expect(bootstrapUrls()).toEqual(['https://api.test/api/widget/boot', 'https://api.test/api/widget/bootstrap']);
   expect(inits[0].headers).toBeUndefined();
   expect(inits[1].headers).toEqual({ 'Content-Type': 'application/json' });
   expect(inits[1].body).toBe(inits[0].body);
@@ -163,13 +167,26 @@ describe('current backend', () => {
   });
 
   it.each([
-    ['401', response({ error: 'x' }, 401)],
-    ['403 ORIGIN_DENIED', response({ error: 'Origin not authorized', code: 'ORIGIN_DENIED' }, 403)],
-    ['404 workspace not found', response({ disabled: true, error: 'Workspace not found' }, 404)],
-  ])('%s is final: one request, no GET /config, launcher in error mode', async (_label, answer) => {
+    ['400 MISSING_WORKSPACE', response({ error: 'x', code: 'MISSING_WORKSPACE', protocol: 3 }, 400)],
+    ['403 ORIGIN_DENIED', response({ error: 'Origin not authorized', code: 'ORIGIN_DENIED', protocol: 3 }, 403)],
+    ['404 workspace not found', response({ disabled: true, error: 'Workspace not found', protocol: 3 }, 404)],
+    ['500', response({ error: 'Bootstrap failed', protocol: 3 }, 500)],
+  ])('%s from the current handler (it carries `protocol`) is final: one request to /boot, no GET /config, launcher in error mode', async (_label, answer) => {
     await boot([answer]);
-    expect(bootstrapInits()).toHaveLength(1);
+    // A 500 is retried by fetchWithRetry first, as always: wait for all of
+    // its attempts (so none spills into the next test).
+    await new Promise((r) => setTimeout(r, 1200));
+    await flush();
+    expect(bootstrapUrls().every((u) => u.endsWith('/api/widget/boot'))).toBe(true);
     expect(configCalls()).toHaveLength(0);
+    expect(readyFired).toBe(0);
+  });
+
+  it('a 429 on /boot is final once fetchWithRetry has waited the server\'s time: no JSON request to /bootstrap (same budget)', async () => {
+    await boot([response({ code: 'RATE_LIMITED', retry_after: 1 }, 429)]);
+    await new Promise((r) => setTimeout(r, 1700));
+    await flush();
+    expect(bootstrapUrls()).toEqual(['https://api.test/api/widget/boot', 'https://api.test/api/widget/boot']);
     expect(readyFired).toBe(0);
   });
 
@@ -192,6 +209,15 @@ describe('current backend', () => {
 });
 
 describe('older backend: the first answer is dropped, the same body is re-sent as JSON once', () => {
+  it.each([
+    ['401 MISSING_TOKEN (its token gate: no /boot route)', response({ error: 'Missing token', code: 'MISSING_TOKEN' }, 401)],
+    ['404', response({ error: 'Not found' }, 404)],
+  ])('an error without `protocol` from /boot: %s', async (_label, first) => {
+    await boot([first, legacy()]);
+    expectJsonResend(bootstrapInits());
+    expect(readyFired).toBe(1);
+  });
+
   it('a network / CORS error', async () => {
     await boot([new TypeError('Failed to fetch'), legacy()]);
     expectJsonResend(bootstrapInits());
@@ -249,7 +275,7 @@ describe('session manager re-bootstrap (bus.bootstrap)', () => {
     await boot([current({ config: CONFIG })]);
     let n = 0;
     fetchMock.mockImplementation((url: string) => {
-      if (String(url).includes('/api/widget/bootstrap')) {
+      if (String(url).includes('/api/widget/boot')) {
         const a = answers[Math.min(n++, answers.length - 1)];
         return a instanceof Error ? Promise.reject(a) : Promise.resolve(a);
       }
@@ -279,9 +305,15 @@ describe('session manager re-bootstrap (bus.bootstrap)', () => {
     expectJsonResend(bootstrapInits());
   });
 
-  it('a 401 is final (no second request)', async () => {
-    const token = await rebootstrap([response({}, 401)]);
+  it('an error from the current handler (it carries `protocol`) is final (no second request)', async () => {
+    const token = await rebootstrap([response({ code: 'ORIGIN_DENIED', protocol: 3 }, 403)]);
     expect(token).toBeNull();
     expect(bootstrapInits()).toHaveLength(1);
+  });
+
+  it('an error without `protocol` (an older backend has no /boot) is re-sent once as JSON', async () => {
+    const token = await rebootstrap([response({ code: 'MISSING_TOKEN' }, 401), legacy({ session_token: 'tok-json' })]);
+    expect(token).toBe('tok-json');
+    expectJsonResend(bootstrapInits());
   });
 });

@@ -25,10 +25,10 @@ describe('cache bus — local dispatch', () => {
     b.onInvalidate('widget', widget);
     b.onInvalidate('origin', origin);
     b.invalidateLocal(['widget:AbC', 'origin:x']);
-    expect(widget).toHaveBeenCalledWith('AbC');
-    expect(origin).toHaveBeenCalledWith('x');
+    expect(widget).toHaveBeenCalledWith('AbC', { resync: false });
+    expect(origin).toHaveBeenCalledWith('x', { resync: false });
     b.invalidateLocal(['widget']);
-    expect(widget).toHaveBeenLastCalledWith(null);
+    expect(widget).toHaveBeenLastCalledWith(null, { resync: false });
   });
 
   it("'all' runs every handler once, with key null", async () => {
@@ -58,6 +58,22 @@ describe('cache bus — local dispatch', () => {
     expect(calls).toEqual(['entitlements:null', 'widget:null']);
   });
 
+  it("a resync is 'all' with resync: true; an ordinary 'all' says resync: false", async () => {
+    const b = await bus();
+    const widget = vi.fn();
+    const platform = vi.fn();
+    b.onInvalidate('widget', widget);
+    b.onInvalidate('platform', platform);
+    b.invalidateLocal(['all'], { resync: true });
+    expect(widget).toHaveBeenCalledWith(null, { resync: true });
+    expect(platform).toHaveBeenCalledWith(null, { resync: true });
+    b.invalidateLocal(['all']);
+    expect(widget).toHaveBeenLastCalledWith(null, { resync: false });
+    // resync names no key: a keyed scope in the same call is a real change.
+    b.invalidateLocal(['widget:k'], { resync: true });
+    expect(widget).toHaveBeenLastCalledWith('k', { resync: false });
+  });
+
   it('a throwing handler does not stop the others', async () => {
     const b = await bus();
     const after = vi.fn();
@@ -65,7 +81,7 @@ describe('cache bus — local dispatch', () => {
     b.onInvalidate('widget', after);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     b.invalidateLocal(['widget:x']);
-    expect(after).toHaveBeenCalledWith('x');
+    expect(after).toHaveBeenCalledWith('x', { resync: false });
     warn.mockRestore();
   });
 
@@ -88,7 +104,7 @@ describe('cache bus — local dispatch', () => {
     const h = vi.fn();
     b.onInvalidate('widget', h);
     b.publishCacheInvalidation(['widget:w1']);
-    expect(h).toHaveBeenCalledWith('w1');
+    expect(h).toHaveBeenCalledWith('w1', { resync: false });
     b.startCacheBusListener();
     expect(b.isCrossNodeInvalidationActive()).toBe(false);
     expect(b.__cacheBusListenerClientForTests()).toBeNull();

@@ -47,14 +47,23 @@ templates: `docs/operations/EDITIONS.md`.
   `nginx.conf.template` takes app.webyar.ai down at container start, and any
   `${` in it other than `${BACKEND_URL}`, even in a comment, stops the
   container (docker-entrypoint.sh).
-- Chat widget: template files load only when the visitor opens the panel (or
-  a nudge shows), never on page load. Only the selected template's files are
-  requested.
+- Chat widget: template files load only when the visitor opens the panel, a
+  nudge shows, or the visitor shows an open intent (pointer over the
+  launcher, a touch on it, keyboard focus: `onOpenIntent` in loader.js), never
+  on a page view alone. Only the selected template's files are requested. An
+  intent also preconnects (crossorigin) to the API and the fonts' host, the
+  two uncredentialed connections a first open needs; runtime.init() still
+  waits for a real open.
 - Call widget: its presentation mounts at page load (the launcher lives in
-  it), so every byte of a call template is paid on a first page view.
+  it), so every byte of a call template is paid on a first page view. l.js
+  never requests its scripts inside the host page's load (a script requested
+  before the load event delays it by its download): at once on a loaded
+  page, else at the load event or the bootstrap answer, whichever is first.
 - Every hashed file has a one-time canonical-name fallback in the code that
-  loads it (loader, runtime modules, call widget l.js): keep it when you
-  touch loading code.
+  loads it (loader, runtime modules, the call module, call widget l.js): keep
+  it when you touch loading code. A retried `<script>` is a NEW element
+  (createElement): a cloneNode() copy keeps the "already started" flag and is
+  never fetched (`src/test/widget/loaderOpenIntent.test.ts`).
 
 ## 3. Fonts (the 231 KB lesson)
 
@@ -82,6 +91,11 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   the Docker build has no Python.
 - No external font hosts (Google Fonts, CDNs): customer sites' CSP and
   privacy, and one more connection.
+- Customer sites with a Content-Security-Policy must allow the widget's
+  asset host in `font-src` (`https://app.webyar.ai`, `https://app.respok.app`).
+  Until 2026-10 the faces were `data:` URIs, so `font-src 'self' data:` was
+  enough; such a page now shows both widgets in the system font (they still
+  work) and logs one CSP error per face. Say so to a customer who reports it.
 - Prefer the shared faces (IRANSans for Persian, InterWY for Latin): a new
   family is downloaded by every visitor of that template.
 - `prepare(context)` (`context = { locale, templateId }`) warms only the faces

@@ -3,9 +3,11 @@
  * (scripts/call-widget-hash.js), the raw l.js the API image serves, and the
  * presentation's createHost.
  *
- *  - A built l.js starts the registry, the presentation and the runtime at
- *    once, by this build's hashed names, as ordered (`async = false`) head
- *    scripts, in parallel with the bootstrap; it mounts when both are done.
+ *  - A built l.js starts the registry, the presentation and the runtime by
+ *    this build's hashed names, as ordered (`async = false`) head scripts, in
+ *    parallel with the bootstrap; it mounts when both are done. Never inside
+ *    the host page's load: on a page still loading they start at its load
+ *    event or when the bootstrap answers, whichever is first.
  *  - No stylesheet goes into the page's head: the two stylesheets are linked
  *    in the shadow root only (hashed names), the host hidden until they load.
  *  - A hashed file that is not there (a stale l.js, a rolling deploy) sends
@@ -39,9 +41,17 @@ type Win = Window & typeof globalThis & {
 };
 type ScriptEl = HTMLScriptElement & { onload: (() => void) | null; onerror: (() => void) | null };
 
-function page() {
+/** A host page; `loading` = its load event has not fired yet (fireLoad() fires it). */
+function page(opts: { loading?: boolean } = {}) {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://shop.example/page', runScripts: 'outside-only' });
   const win = dom.window as unknown as Win;
+  let readyState = opts.loading ? 'loading' : 'complete';
+  Object.defineProperty(win.document, 'readyState', { get: () => readyState, configurable: true });
+  const loadListeners: Array<() => void> = [];
+  const addEventListener = win.addEventListener.bind(win);
+  (win as unknown as { addEventListener: unknown }).addEventListener = (type: string, fn: () => void, o?: unknown) =>
+    (type === 'load' ? loadListeners.push(fn) : addEventListener(type, fn as never, o as never));
+  const fireLoad = () => { readyState = 'complete'; for (const fn of loadListeners.splice(0)) fn(); };
   let answer: ((r: unknown) => void) | null = null;
   let fail: ((e: unknown) => void) | null = null;
   const fetches: Array<{ url: string; init: RequestInit }> = [];
@@ -81,7 +91,7 @@ function page() {
     win.CallCenterWidget = { mount };
     return mount;
   };
-  return { dom, win, fetches, respond, networkError, timers, run, scripts, stylesheets, runtime };
+  return { dom, win, fetches, respond, networkError, timers, run, scripts, stylesheets, runtime, fireLoad };
 }
 
 const bootstrap = (extra: Record<string, unknown> = {}) => ({
@@ -117,6 +127,44 @@ describe('the built l.js', () => {
     for (const el of s) expect(el.async).toBe(false);
     expect(p.stylesheets()).toEqual([]);
     expect(s.every((el) => !/[?&]t=/.test(el.src))).toBe(true);
+  });
+
+  it('on a page still loading: no script before its load event (it would delay that event), then the same three', async () => {
+    const p = page({ loading: true });
+    p.run(build.loader);
+    expect(p.fetches).toHaveLength(1); // the bootstrap, a fetch(): never delays the load event
+    expect(p.scripts()).toHaveLength(0);
+    p.fireLoad();
+    expect(p.scripts().map((el) => el.src)).toEqual([
+      hashed('presentation-registry.js'),
+      hashed('presentation-default.js'),
+      hashed('runtime.js'),
+    ]);
+    const mount = p.runtime();
+    for (const el of p.scripts()) el.onload!();
+    await p.respond(200, bootstrap());
+    expect(mount).toHaveBeenCalledTimes(1);
+    expect(p.scripts()).toHaveLength(3);
+  });
+
+  it('on a page still loading: a bootstrap that answers first starts them, and the load event adds nothing', async () => {
+    const p = page({ loading: true });
+    p.run(build.loader);
+    const mount = p.runtime();
+    await p.respond(200, bootstrap());
+    expect(p.scripts()).toHaveLength(3);
+    for (const el of p.scripts()) el.onload!();
+    expect(mount).toHaveBeenCalledTimes(1);
+    p.fireLoad();
+    expect(p.scripts()).toHaveLength(3);
+  });
+
+  it('on a page still loading, a widget remembered as off loads nothing at the load event', async () => {
+    const p = page({ loading: true });
+    p.win.localStorage.setItem(`ccw_off:${WS}:${API}`, '1');
+    p.run(build.loader);
+    p.fireLoad();
+    expect(p.scripts()).toHaveLength(0);
   });
 
   it('mounts once both the scripts and the bootstrap are in, with the build\'s asset and font URLs', async () => {

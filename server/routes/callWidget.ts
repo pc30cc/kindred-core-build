@@ -22,6 +22,7 @@ import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/w
 import { memoCallWidgetBootstrap } from '../services/callCenter/bootstrapCache.js';
 import { issuePresenceTicket, readPresenceTicket } from '../services/callCenter/presenceTicket.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
+import { takeAnonymousCallBootstrap } from '../services/widget/security.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import type { CallProviderId } from '../services/calls/providers/types.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
@@ -803,6 +804,10 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   if (!(await callOriginAllowed(config, ws, origin))) {
     return res.status(403).json({ status: 'error', reason: 'origin_denied' });
   }
+  // Without a visitor cookie this request mints a visitor (and a
+  // visitor_sessions row counted against the monthly quota): per (IP,
+  // workspace) cap, before any of it happens.
+  if (!takeAnonymousCallBootstrap(req as unknown as ExpressRequest, res, ws.workspace_id)) return;
   const session = signWidgetSession(config, {
     workspace_id: ws.workspace_id,
     public_key: ws.public_key,

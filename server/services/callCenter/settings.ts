@@ -7,6 +7,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import type { CallWidgetFormField, CallWidgetOfflineBehavior, CallWidgetTheme } from './presentation.js';
 import { invalidateCallWidgetBootstrapCache } from './bootstrapCache.js';
+import { onInvalidate, publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 export interface PlatformCallCenterSettings {
   call_center_enabled: boolean;
@@ -96,6 +97,11 @@ export function invalidatePlatformCallCenterCache() {
   invalidateCallWidgetBootstrapCache();
 }
 
+// Another process changed a platform-wide setting.
+onInvalidate('platform', () => {
+  _platformCache = null;
+});
+
 export async function getPlatformCallCenterSettings(
   config: ServerConfig,
 ): Promise<PlatformCallCenterSettings> {
@@ -137,6 +143,7 @@ export async function updatePlatformCallCenterSettings(
     .maybeSingle();
   if (error) throw error;
   invalidatePlatformCallCenterCache();
+  publishCacheInvalidation(['platform']);
   return data as PlatformCallCenterSettings;
 }
 
@@ -161,7 +168,8 @@ export async function getOrCreateWorkspaceSettings(
     .select('*')
     .maybeSingle();
   if (error) throw error;
-  invalidateCallWidgetBootstrapCache(workspaceId);
+  // The call widget bootstrap and the chat widget's call channels, on every process.
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return created as WorkspaceCallCenterSettings;
 }
 
@@ -207,7 +215,7 @@ export async function updateWorkspaceSettings(
     .select('*')
     .maybeSingle();
   if (error) throw error;
-  invalidateCallWidgetBootstrapCache(workspaceId);
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return data as WorkspaceCallCenterSettings;
 }
 

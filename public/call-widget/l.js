@@ -182,8 +182,14 @@
     });
   }
 
-  // A built loader starts the UI files right away, in parallel with the
-  // bootstrap; they are immutable, so a returning visitor has them already.
+  // A built loader starts the UI files without waiting for the bootstrap
+  // (they are immutable, so a returning visitor has them already), but never
+  // inside the host page's load: a script requested before the page's load
+  // event delays that event by its whole download. So: at once when the page
+  // has already loaded, else at the page's load event or when the bootstrap
+  // answers, whichever comes first (a returning visitor's cached files cost
+  // that event nothing). The bootstrap itself is a fetch(), which never
+  // delays it.
   // Not where this browser last heard "disabled": a switched-off widget
   // costs the host page nothing but the bootstrap.
   var offKey = 'ccw_off:' + (workspaceId || publicKey) + ':' + apiBase;
@@ -194,7 +200,14 @@
     } catch (_) {}
     return false;
   }
-  if (BUILD && !knownOff()) loadScripts(scriptPaths());
+  var pageLoaded = document.readyState === 'complete';
+  if (!pageLoaded) {
+    window.addEventListener('load', function () {
+      pageLoaded = true;
+      if (BUILD && !knownOff()) loadScripts(scriptPaths());
+    });
+  }
+  if (BUILD && !knownOff() && pageLoaded) loadScripts(scriptPaths());
 
   var bootstrapHeaders = { 'Accept': 'application/json' };
   if (activeSession) bootstrapHeaders['x-cc-active-call'] = activeSession;

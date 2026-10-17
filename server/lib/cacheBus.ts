@@ -20,8 +20,9 @@
  * RESPOK has its own database, so its channel is naturally separate.
  *
  * Scopes are `kind` or `kind:key`:
- *   widget:<workspace>        the workspace's widget snapshot + quota cache
- *   widget                    every workspace's widget snapshot
+ *   widget:<workspace>        the workspace's chat widget snapshot + quota
+ *                             cache, and its call widget bootstrap
+ *   widget                    every workspace's widget snapshots
  *   origin:<workspace>        the workspace's origin rules (+ its host answers)
  *   host:<domain>             the cached host → workspace answer of a domain
  *   entitlements:<workspace>  entitlement + lock-state caches of a workspace
@@ -37,10 +38,15 @@
  *   - Only the API process listens (server/index.ts), on ONE dedicated
  *     connection (not a pool slot). It must reach the PRIMARY directly: a
  *     standby or a transaction-mode pooler delivers no notifications.
- *   - Every (re)connect flushes everything ('all'): notifications sent while
- *     this process was not listening are lost, and a cache entry built before
- *     the LISTEN may have missed one. The same flush runs when the heartbeat
- *     comes back after a gap.
+ *   - Every (re)connect RESYNCS everything ('all' with `resync: true`):
+ *     notifications sent while this process was not listening are lost, and
+ *     a cache entry built before the LISTEN may have missed one. The same
+ *     resync runs when the heartbeat comes back after a gap. Nothing in
+ *     particular changed, so a cache that can serve stale marks its entries
+ *     expired (the next request is answered from the old copy and reloads
+ *     it) instead of dropping them: a dropped LISTEN connection must not make
+ *     every active workspace rebuild in the foreground at once. Caches
+ *     without a stale path drop their entries, as for any 'all'.
  *   - The bus only makes changes visible SOONER. No cache relies on it for
  *     correctness: each keeps its own TTL whether or not the bus works.
  *     isCrossNodeInvalidationActive() — true only while this process's own
@@ -56,8 +62,20 @@ import { dataDriver, directPool } from '../db/index.js';
 import { databaseSettings } from '../db/pool.js';
 
 export type CacheScope = string;
+export interface CacheInvalidationInfo {
+  /**
+   * True for the bus's own resync after a (re)connect or a heartbeat gap
+   * (always with key null): notifications may have been missed, nothing
+   * known changed. A cache that can serve stale may expire instead of drop.
+   */
+  resync: boolean;
+}
+
 /** `key` is the part after the first ':' — null for a bare kind and for 'all'. */
-export type CacheInvalidationHandler = (key: string | null) => void;
+export type CacheInvalidationHandler = (key: string | null, info: CacheInvalidationInfo) => void;
+
+const CHANGED: CacheInvalidationInfo = Object.freeze({ resync: false });
+const RESYNC: CacheInvalidationInfo = Object.freeze({ resync: true });
 
 export const CACHE_BUS_CHANNEL = 'webyar_cache';
 
@@ -98,9 +116,9 @@ export function onInvalidate(kind: string, handler: CacheInvalidationHandler): (
   };
 }
 
-function runHandler(handler: CacheInvalidationHandler, key: string | null, scope: string): void {
+function runHandler(handler: CacheInvalidationHandler, key: string | null, scope: string, info: CacheInvalidationInfo): void {
   try {
-    handler(key);
+    handler(key, info);
   } catch (err) {
     console.warn(`[cache-bus] handler for "${scope}" failed:`, err instanceof Error ? err.message : err);
   }
@@ -111,14 +129,18 @@ let draining: string[] | null = null;
 /**
  * Run this process's handlers for `scopes`, synchronously. Never publishes.
  * Re-entrant calls (a handler clearing another cache that invalidates in
- * turn) are appended to the running pass instead of recursing.
+ * turn) are appended to the running pass instead of recursing (as plain
+ * invalidations: a resync inside a pass becomes a full 'all').
+ * `opts.resync` is the bus's own resync (see the header); it applies to
+ * 'all' only.
  */
-export function invalidateLocal(scopes: readonly CacheScope[]): void {
+export function invalidateLocal(scopes: readonly CacheScope[], opts: { resync?: boolean } = {}): void {
   const valid = scopes.filter(isValidCacheScope);
   if (draining) {
     draining.push(...valid);
     return;
   }
+  const allInfo = opts.resync ? RESYNC : CHANGED;
   const queue = [...valid];
   draining = queue;
   const done = new Set<string>();
@@ -129,14 +151,14 @@ export function invalidateLocal(scopes: readonly CacheScope[]): void {
       done.add(scope);
       if (scope === 'all') {
         for (const [kind, set] of handlers) {
-          for (const handler of [...set]) runHandler(handler, null, `all→${kind}`);
+          for (const handler of [...set]) runHandler(handler, null, `all→${kind}`, allInfo);
         }
         continue;
       }
       const { kind, key } = parseScope(scope);
       const set = handlers.get(kind);
       if (!set) continue;
-      for (const handler of [...set]) runHandler(handler, key, scope);
+      for (const handler of [...set]) runHandler(handler, key, scope, CHANGED);
     }
   } finally {
     draining = null;
@@ -258,7 +280,7 @@ function noteHeartbeat(state: ListenerState): void {
     console.log('[cache-bus] cross-node invalidation active');
     state.wasActive = true;
     // Notifications sent while they did not arrive are lost.
-    if (hadOne) invalidateLocal(['all']);
+    if (hadOne) invalidateLocal(['all'], { resync: true });
   }
 }
 
@@ -370,7 +392,7 @@ async function connect(state: ListenerState): Promise<void> {
   state.client = client;
   state.attempt = 0;
   // Anything cached before this LISTEN may have missed a notification.
-  invalidateLocal(['all']);
+  invalidateLocal(['all'], { resync: true });
   sendHeartbeat(state);
   state.heartbeatTimer = setInterval(() => {
     if (state.client !== client) return;

@@ -13,7 +13,14 @@
  *     up to `maxStaleMs` more while ONE background load runs. A background
  *     load that fails — or that `keepPrevious` rejects (a degraded answer
  *     over a good one) — keeps the old entry and is retried after
- *     `retryAfterMs`.
+ *     `retryAfterMs`. Only entries `serveStale` accepts are served stale (a
+ *     degraded or "not found" answer is not: past its short lifetime it is
+ *     reloaded in the foreground, so a blip cannot outlive that lifetime).
+ *   - expireAll(): every entry is past its lifetime at once but still
+ *     servable stale, for "something may have changed" signals that name
+ *     nothing in particular (the cache bus reconnecting): the next request
+ *     is answered from the old copy and reloads it, instead of every key
+ *     rebuilding in the foreground together.
  *   - Bounds: LRU of `max()` entries. "Negative" answers (the thing does not
  *     exist) live in their own, smaller LRU so a flood of made-up keys can
  *     never push real entries out.
@@ -40,6 +47,8 @@ export interface MemoCacheOptions<V> {
   negativeMax?: () => number;
   /** A new value that must not replace a still-servable previous one. */
   keepPrevious?: (previous: V, next: V) => boolean;
+  /** May this value be served past its lifetime while it reloads? Default: yes. */
+  serveStale?: (value: V) => boolean;
   /** False = bypass the cache (kill switch); single flight still applies. */
   enabled?: () => boolean;
   /** How long past its lifetime an entry may still be served. Default 10 min. */
@@ -52,6 +61,8 @@ interface Entry<V> {
   value: V;
   at: number;
   retryAt: number;
+  /** Set by expireAll(): past its lifetime whatever its age. */
+  expired: boolean;
 }
 
 interface Flight<V> {
@@ -83,11 +94,11 @@ export class MemoCache<V> {
     const hit = map.get(key);
     if (hit) {
       const age = now - hit.at;
-      if (age < this.opts.ttlMs(hit.value)) {
+      if (!hit.expired && age < this.opts.ttlMs(hit.value)) {
         touch(map, key, hit);
         return Promise.resolve(hit.value);
       }
-      if (age <= this.maxStaleMs) {
+      if (age <= this.maxStaleMs && (this.opts.serveStale?.(hit.value) ?? true)) {
         if (now >= hit.retryAt && !this.flights.has(key)) this.refresh(key, load);
         touch(map, key, hit);
         return Promise.resolve(hit.value);
@@ -125,6 +136,22 @@ export class MemoCache<V> {
   clear(): void {
     this.entries.clear();
     this.negatives.clear();
+    this.abandonFlights();
+  }
+
+  /**
+   * Every entry past its lifetime, still servable stale; running loads are
+   * disowned (they may have read the values the signal is about).
+   */
+  expireAll(): void {
+    for (const entry of this.entries.values()) {
+      entry.expired = true;
+      entry.retryAt = 0;
+    }
+    for (const entry of this.negatives.values()) {
+      entry.expired = true;
+      entry.retryAt = 0;
+    }
     this.abandonFlights();
   }
 
@@ -178,7 +205,7 @@ export class MemoCache<V> {
     if ((this.opts.enabled && !this.opts.enabled()) || this.opts.ttlMs(value) <= 0) return;
     const negative = !!this.opts.isNegative?.(value);
     const map = negative ? this.negatives : this.entries;
-    map.set(key, { value, at: now, retryAt: 0 });
+    map.set(key, { value, at: now, retryAt: 0, expired: false });
     const max = negative ? (this.opts.negativeMax?.() ?? this.opts.max()) : this.opts.max();
     while (map.size > Math.max(1, max)) map.delete(map.keys().next().value as string);
   }

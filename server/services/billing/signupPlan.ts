@@ -14,6 +14,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { handleWorkspaceEntitlementChanged } from './entitlementChange.js';
 
 export type SignupPlanMode = 'free' | 'trial';
 
@@ -105,8 +106,16 @@ export async function applySignupPlanToWorkspace(
     current_period_end: end.toISOString(),
     trial_end: end.toISOString(),
     metadata: { source: 'signup_default_plan', trial_days: days },
-  } as any);
+  });
   if (error && !/duplicate key/i.test(error.message)) {
     console.error('[signup-plan] Failed to start trial subscription:', error.message);
+    return;
+  }
+  // Anything that read the workspace's entitlements before the subscription
+  // existed (onboarding, the widget preview) cached it as plan-less.
+  if (!error) {
+    await handleWorkspaceEntitlementChanged(config, { workspaceId, source: 'subscription_created' }).catch((err: unknown) => {
+      console.warn('[signup-plan] entitlement refresh failed:', err instanceof Error ? err.message : err);
+    });
   }
 }

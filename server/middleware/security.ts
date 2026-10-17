@@ -114,8 +114,11 @@ async function readIpBlocklist(config: ServerConfig): Promise<IpBlocklistSnapsho
   const nowIso = new Date().toISOString();
   const entries = new Map<string, number | null>();
   // Paged: DATABASE_MAX_ROWS (1000 by default) would otherwise cut a long
-  // list short, silently unblocking whatever did not fit.
-  for (let from = 0; ; from += IPBLOCK_PAGE) {
+  // list short, silently unblocking whatever did not fit. The database may
+  // return FEWER rows than asked for (a lower DATABASE_MAX_ROWS, PostgREST's
+  // max-rows), so the next page starts after the rows actually read, and a
+  // short page is not the end: only an empty page, or reaching the count.
+  for (let from = 0; ; ) {
     const { data, error, count } = await sb
       .from('ip_blocklist')
       .select('ip_address, blocked_until', { count: 'exact' })
@@ -133,8 +136,9 @@ async function readIpBlocklist(config: ServerConfig): Promise<IpBlocklistSnapsho
       const prev = entries.get(row.ip_address);
       entries.set(row.ip_address, prev === null || end === null ? null : Math.max(prev ?? end, end));
     }
-    const total = typeof count === 'number' ? count : null;
-    if (rows.length === 0 || (total !== null ? from + rows.length >= total : rows.length < IPBLOCK_PAGE)) break;
+    if (rows.length === 0) break;
+    from += rows.length;
+    if (typeof count === 'number' && from >= count) break;
   }
   return { entries, loadedAt: Date.now() };
 }
@@ -169,7 +173,14 @@ function loadIpBlocklist(config: ServerConfig): Promise<IpBlocklistSnapshot> {
   return flight;
 }
 
-onInvalidate('ipblock', () => {
+onInvalidate('ipblock', (_key, { resync }) => {
+  if (resync) {
+    // The bus reconnected (nothing known changed): reload soon, but keep
+    // answering from the current list meanwhile instead of making every
+    // request wait for the reload.
+    if (ipBlocklist) ipBlocklist = { ...ipBlocklist, loadedAt: Math.min(ipBlocklist.loadedAt, Date.now() - IPBLOCK_REFRESH_MS) };
+    return;
+  }
   ipBlocklistGen++;
   ipBlocklistStale = true;
   ipBlocklistFlight = null;

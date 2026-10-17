@@ -101,12 +101,16 @@ describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (
     // independent time.
     const refreshFetchSites = loader.split("fetch(cfg.apiBase + '/api/widget/session/refresh'").length - 1;
     expect(refreshFetchSites).toBe(1);
-    const bootstrapFetchSites = loader.split("fetch(cfg.apiBase + '/api/widget/bootstrap'").length - 1;
+    // The bootstrap is posted to /boot (CORS-simple) and, from an older
+    // backend, to /bootstrap (JSON): still ONE fetch site for both paths.
+    const bootstrapFetchSites = loader.split("fetch(cfg.apiBase + bootstrapPath(").length - 1;
     expect(bootstrapFetchSites).toBe(1);
+    expect(loader).toContain("function bootstrapPath(json) { return json ? '/api/widget/bootstrap' : '/api/widget/boot'; }");
     // reportAiEvent itself never calls fetch against these two endpoints.
     const reportAiEventBody = extractFunctionBody(loader, 'function reportAiEvent(nudgeId, type) {');
     expect(reportAiEventBody).not.toContain('/api/widget/session/refresh');
-    expect(reportAiEventBody).not.toContain('/api/widget/bootstrap');
+    expect(reportAiEventBody).not.toContain('/api/widget/boot');
+    expect(reportAiEventBody).not.toContain('bootstrapPath(');
   });
 
   it('dismissed and cta_clicked nudge events are reported through the SAME session-recovery-aware reportAiEvent', () => {

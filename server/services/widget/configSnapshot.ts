@@ -53,6 +53,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient, type ServiceClient } from '../../supabase.js';
 import { onInvalidate } from '../../lib/cacheBus.js';
 import { MemoBusyError, MemoCache, RateGate, envNonNegativeInt, type MemoLoadContext } from '../../lib/memoCache.js';
+import { canonicalWorkspaceId } from '../../lib/workspaceId.js';
 import {
   getLoaderAssetBase,
   getRequestBaseUrl,
@@ -333,6 +334,12 @@ export interface WorkspaceWidgetSnapshot {
   workspace: { id: string; name: string | null } | null;
   /** The raw widget_settings row (null when missing or unreadable). */
   widgetRow: WidgetSettingsRow | null;
+  /**
+   * The widget_settings read failed (widgetRow is null for that reason, not
+   * because there is no row): its origin allow-list is unknown, so the
+   * bootstrap must not skip the origin check.
+   */
+  widgetRowUnreadable: boolean;
   /** DEFAULT_WIDGET_SETTINGS + the row, plan entitlements applied. */
   settings: WidgetSettingsRow | null;
   entitlements: WidgetEntitlements | null;
@@ -404,8 +411,12 @@ function rebuildsPerSecond(): number {
   return envNonNegativeInt('WIDGET_CONFIG_REBUILDS_PER_SEC') ?? DEFAULT_REBUILDS_PER_SEC;
 }
 
-function cacheKey(workspaceId: string): string {
-  return String(workspaceId || '').trim().toLowerCase();
+/**
+ * One key per workspace whatever the spelling (lib/workspaceId.ts); null for
+ * a value that is no uuid at all, which is answered without a cache or query.
+ */
+function cacheKey(workspaceId: string): string | null {
+  return canonicalWorkspaceId(workspaceId);
 }
 
 /** Rebuilds (waves 2-3, ~30 queries) per second, per process. */
@@ -434,6 +445,11 @@ const snapshots = new MemoCache<WorkspaceWidgetSnapshot>({
   isNegative: (snap) => !snap.workspace,
   negativeMax: () => Math.max(100, Math.floor(maxEntries() / 4)),
   keepPrevious: (previous, next) => next.degraded && !previous.degraded,
+  // Only a good snapshot is served past its lifetime. A degraded or
+  // not-found one (5 s / 15 s) is rebuilt in the foreground once it is old,
+  // so a database blip, or a row created after the miss, cannot be served
+  // for the 10 min stale window while background rebuilds are refused.
+  serveStale: (snap) => !snap.degraded && !!snap.workspace && !!snap.widgetRow,
 });
 
 function emptySnapshot(builtAt: number, degraded: boolean): WorkspaceWidgetSnapshot {
@@ -442,6 +458,7 @@ function emptySnapshot(builtAt: number, degraded: boolean): WorkspaceWidgetSnaps
     degraded,
     workspace: null,
     widgetRow: null,
+    widgetRowUnreadable: false,
     settings: null,
     entitlements: null,
     branding: null,
@@ -693,6 +710,7 @@ async function buildSnapshot(config: ServerConfig, workspaceId: string, ctx: Mem
     degraded,
     workspace: { id: String(workspace.id), name: workspace.name ?? null },
     widgetRow,
+    widgetRowUnreadable: !!widgetResult.error,
     settings,
     entitlements,
     branding,
@@ -735,6 +753,8 @@ async function loadTeam(
  */
 export function getWorkspaceWidgetSnapshot(config: ServerConfig, workspaceId: string): Promise<WorkspaceWidgetSnapshot> {
   const key = cacheKey(workspaceId);
+  // Not a uuid in any spelling: no such workspace, and nothing to cache.
+  if (!key) return Promise.resolve(emptySnapshot(Date.now(), false));
   return snapshots.get(key, (ctx) => buildSnapshot(config, key, ctx));
 }
 
@@ -750,6 +770,7 @@ const platformCache = new MemoCache<WidgetPlatformSnapshot>({
   ttlMs: (snap) => capped(snap.degraded ? DEGRADED_TTL_MS : PLATFORM_TTL_MS),
   max: () => 1,
   keepPrevious: (previous, next) => next.degraded && !previous.degraded,
+  serveStale: (snap) => !snap.degraded,
 });
 
 async function loadPlatformSnapshot(config: ServerConfig): Promise<WidgetPlatformSnapshot> {
@@ -796,6 +817,7 @@ const quotaCache = new MemoCache<boolean | null>({
 /** resolveConversationQuotaFull, cached 60 s per workspace (usage has no write hook). */
 export function getQuotaFull(config: ServerConfig, workspaceId: string): Promise<boolean | null> {
   const key = cacheKey(workspaceId);
+  if (!key) return Promise.resolve(null);
   return quotaCache.get(key, () => resolveConversationQuotaFull(config, key));
 }
 
@@ -1235,22 +1257,33 @@ export async function bootstrapAvailability(
 // Invalidation (lib/cacheBus.ts). Handlers are local and never publish.
 // ═══════════════════════════════════════════════════════════════════════
 
-onInvalidate('widget', (workspaceId) => {
+// A resync (the bus reconnected; nothing known changed) expires instead of
+// dropping: each workspace's next page view is answered from its old copy
+// while ONE gated background rebuild runs, instead of every active workspace
+// rebuilding in the foreground at once.
+onInvalidate('widget', (workspaceId, { resync }) => {
   if (!workspaceId) {
-    snapshots.clear();
-    quotaCache.clear();
+    if (resync) {
+      snapshots.expireAll();
+      quotaCache.expireAll();
+    } else {
+      snapshots.clear();
+      quotaCache.clear();
+    }
     return;
   }
   const key = cacheKey(workspaceId);
+  if (!key) return;
   snapshots.invalidate(key);
   quotaCache.invalidate(key);
 });
 
 // A profile (name, avatar) or availability change: every snapshot whose
 // team holds that user. Builds already running may have read the old row.
-onInvalidate('user', (userId) => {
+onInvalidate('user', (userId, { resync }) => {
   if (!userId) {
-    snapshots.clear();
+    if (resync) snapshots.expireAll();
+    else snapshots.clear();
     return;
   }
   const id = userId.toLowerCase();
@@ -1260,8 +1293,9 @@ onInvalidate('user', (userId) => {
 // Platform-wide inputs: the platform snapshot, and the platform AI settings
 // a snapshot build reads (a rebuild right after an invalidation must not
 // see the 15 s cached old row).
-onInvalidate('platform', () => {
-  platformCache.clear();
+onInvalidate('platform', (_key, { resync }) => {
+  if (resync) platformCache.expireAll();
+  else platformCache.clear();
   __resetPlatformAiAgentSettingsCache();
 });
 
@@ -1275,5 +1309,6 @@ export function __resetWidgetConfigCachesForTests(): void {
 
 /** Test-only — the cached snapshot of a workspace, without building one. */
 export function __peekWidgetSnapshotForTests(workspaceId: string): WorkspaceWidgetSnapshot | undefined {
-  return snapshots.peek(cacheKey(workspaceId));
+  const key = cacheKey(workspaceId);
+  return key ? snapshots.peek(key) : undefined;
 }

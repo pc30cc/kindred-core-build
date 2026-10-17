@@ -27,6 +27,7 @@ import { resolvePrivacyStoragePolicy } from '../../privacy/storageResolver.js';
 import { ownerForJob } from '../../privacy/worker.js';
 import { resolveRecordingStorageConfig } from '../../calls/recordingStorageResolver.js';
 import type { LegacyMigrationCandidate, LegacyMigrationProvider } from './engine.js';
+import { publishCacheInvalidation } from '../../../lib/cacheBus.js';
 
 function extFromFileName(name: string): string {
   const m = /\.([a-zA-Z0-9]+)$/.exec(name);
@@ -117,6 +118,8 @@ export function accountAvatarsMigrationProvider(config: ServerConfig): LegacyMig
     async commitNewKey(candidateId, newKey) {
       const { error } = await sb.from('profiles').update({ avatar_storage_key: newKey }).eq('id', candidateId);
       if (error) throw new Error(error.message);
+      // The widget team stack shows this avatar (services/widget/configSnapshot.ts).
+      publishCacheInvalidation([`user:${candidateId}`]);
     },
     async readBackKey(candidateId) {
       const { data } = await sb.from('profiles').select('avatar_storage_key').eq('id', candidateId).maybeSingle();
@@ -289,6 +292,7 @@ export function workspaceBrandingMigrationProvider(config: ServerConfig): Legacy
         .update({ logo_storage_key: newKey, logo_url: null })
         .eq('workspace_id', candidateId);
       if (error) throw new Error(error.message);
+      publishCacheInvalidation([`widget:${candidateId}`]);
     },
     async readBackKey(candidateId) {
       const { data } = await sb.from('workspace_branding').select('logo_storage_key').eq('workspace_id', candidateId).maybeSingle();

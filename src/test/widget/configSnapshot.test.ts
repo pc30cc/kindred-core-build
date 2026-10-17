@@ -296,3 +296,34 @@ describe('platform snapshot and quota', () => {
     expect(await snapshotMod.getQuotaFull(config, WS)).toBeNull();
   });
 });
+
+describe('degraded and not-found snapshots are never served stale', () => {
+  it('a degraded "not found" is rebuilt once its 5 s passed: the request after recovery gets the workspace', async () => {
+    freshDb(undefined, new Set(['workspaces']));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const s1 = await getWorkspaceWidgetSnapshot(config, WS);
+    expect(s1.workspace).toBeNull();
+    expect(s1.degraded).toBe(true);
+    holder.db.options.failingTables = new Set();
+    at(6_000);
+    const s2 = await getWorkspaceWidgetSnapshot(config, WS);
+    expect(s2.workspace?.id).toBe(WS);
+    expect(s2.degraded).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('a bus resync keeps good snapshots servable (one background rebuild), unlike an explicit flush', async () => {
+    await getWorkspaceWidgetSnapshot(config, WS);
+    holder.db.resetCalls();
+    invalidateLocal(['all'], { resync: true });
+    const s = await getWorkspaceWidgetSnapshot(config, WS);
+    expect(s.workspace?.id).toBe(WS);
+    // Answered from the old copy: the request itself read nothing new
+    // before it got its answer, and ONE rebuild followed in the background.
+    await vi.waitFor(() => expect(workspaceReads()).toBe(1));
+    await getWorkspaceWidgetSnapshot(config, WS);
+    expect(workspaceReads()).toBe(1);
+    invalidateLocal(['all']);
+    expect(__peekWidgetSnapshotForTests(WS)).toBeUndefined();
+  });
+});

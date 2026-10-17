@@ -7,7 +7,7 @@
  * and the cross-origin request stays CORS-simple — no OPTIONS preflight, one
  * round trip less on a visitor's page view:
  *
- *   POST /api/widget/bootstrap              (16 KB; a body is ~150 bytes)
+ *   POST /api/widget/boot, /bootstrap       (16 KB; a body is ~150 bytes)
  *   POST /api/widget/track                  (64 KB; page URL, title, referrer)
  *   POST /api/realtime/visitor-presence     (64 KB)
  *
@@ -22,7 +22,7 @@
 import express, { type RequestHandler } from 'express';
 
 /** Express routes case-insensitively; so does this. */
-const BOOTSTRAP_PATH = /^\/api\/widget\/bootstrap\/?$/i;
+const BOOTSTRAP_PATH = /^\/api\/widget\/boot(?:strap)?\/?$/i;
 const TOKEN_BODY_PATH = /^\/api\/(?:widget\/track|realtime\/visitor-presence)\/?$/i;
 
 export const WIDGET_BOOTSTRAP_BODY_LIMIT = '16kb';

@@ -16,6 +16,7 @@ import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
 import { readVisitorCookie } from './visitorIdentity.js';
 import { platformSigningSecret } from '../../lib/platformSecret.js';
+import { canonicalWorkspaceId } from '../../lib/workspaceId.js';
 
 /** What requireWidgetSession() leaves on the request for later middleware. */
 interface WidgetSessionRequest extends Request {
@@ -223,11 +224,11 @@ export function verifyTokenForRefresh(token: string): TokenResult {
  *              visits, browsers that block third-party cookies (Safari), and
  *              anything that is not a browser. It also bounds how many new
  *              cookies one address can mint per workspace (bootstrap).
- *   shared     one (IP, workspace) for every cookie-identified request
- *              together: room for a whole carrier-grade NAT of real
- *              visitors, and a ceiling on what cookies minted earlier from
- *              that address can buy. `message` and `upload` (AI and storage
- *              cost, OTP mail) get 4x their anonymous cap, the rest 10x.
+ *   shared     one (IP, workspace) for EVERY request, with a cookie or
+ *              without: room for a whole carrier-grade NAT of real visitors,
+ *              and the true ceiling of one address, whatever cookies it
+ *              minted earlier. `message` and `upload` (AI and storage cost,
+ *              OTP mail) get 4x their anonymous cap, the rest 10x.
  *
  * `config` (GET /config, /manifest, /call-channels) is separate from
  * `bootstrap` (POST /bootstrap only): an older loader asked both on every
@@ -235,14 +236,34 @@ export function verifyTokenForRefresh(token: string): TokenResult {
  */
 interface RateLimitCaps { window: number; visitor: number; anonymous: number; shared: number }
 const RATE_LIMITS: Record<string, RateLimitCaps> = {
-  bootstrap: { window: 60, visitor: 30, anonymous: 300, shared: 3000 },
-  config:    { window: 60, visitor: 20, anonymous: 600, shared: 6000 },
-  poll:      { window: 60, visitor: 60, anonymous: 600, shared: 6000 },
-  message:   { window: 60, visitor: 15, anonymous: 60,  shared: 240 },
-  upload:    { window: 60, visitor: 10, anonymous: 40,  shared: 160 },
-  refresh:   { window: 60, visitor: 20, anonymous: 200, shared: 2000 },
-  default:   { window: 60, visitor: 30, anonymous: 300, shared: 3000 },
+  // Every cookieless bootstrap mints a visitor (and, with /track, one more
+  // visitor counted against the workspace's monthly quota): 120 a minute per
+  // address, 8x the 15 page views an address used to get.
+  bootstrap:      { window: 60, visitor: 30, anonymous: 120, shared: 1200 },
+  // GET /api/call-widget/bootstrap without a visitor cookie: it mints one AND
+  // inserts a visitor_sessions row counted against max_visitors, so 60 a
+  // minute per (IP, workspace), as the old per-address cap was.
+  call_bootstrap: { window: 60, visitor: 30, anonymous: 60, shared: 1200 },
+  config:         { window: 60, visitor: 20, anonymous: 600, shared: 6000 },
+  poll:           { window: 60, visitor: 60, anonymous: 600, shared: 6000 },
+  // Cost-bearing (AI replies, offline-capture emails, OTP mail, storage):
+  // these never grow with identities anyone can mint. Per address they stay
+  // at the old per-(IP, workspace) cap without a cookie, and all cookies
+  // from one address together get only 4x it.
+  message:        { window: 60, visitor: 15, anonymous: 15, shared: 60 },
+  upload:         { window: 60, visitor: 10, anonymous: 10, shared: 40 },
+  refresh:        { window: 60, visitor: 20, anonymous: 200, shared: 2000 },
+  default:        { window: 60, visitor: 30, anonymous: 300, shared: 3000 },
 };
+
+/**
+ * New visitor_sessions rows (POST /track's insert branch), per (IP,
+ * workspace) a minute: each true-new visitor of the month counts against the
+ * workspace's max_visitors quota, and /track's visitor_id is the client's, so
+ * this — not the request caps above — bounds how fast one address can spend
+ * a victim's quota.
+ */
+const NEW_VISITOR_SESSIONS_PER_MIN = 60;
 
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 /** Bound of the store: past it, expired buckets go first, then the oldest. */
@@ -390,7 +411,9 @@ export function enforceWidgetToken(req: Request, res: Response, next: NextFuncti
   }
 
   const ctx = req as WidgetSessionRequest;
-  ctx._widgetWorkspaceId = result.workspaceId;
+  // Canonical (lib/workspaceId.ts), also for a token minted before the
+  // bootstrap canonicalised the id it signs.
+  ctx._widgetWorkspaceId = canonicalWorkspaceId(result.workspaceId) ?? result.workspaceId;
   ctx._widgetSessionOrigin = result.origin;
   ctx._widgetToken = token;
   ctx._widgetNonce = result.nonce;
@@ -434,12 +457,13 @@ export function enforceOrigin(req: Request, res: Response, next: NextFunction) {
 
 /**
  * The workspace a rate-limit bucket is scoped to: the token's (server-signed)
- * when the token gate already ran, else the one the body names. A bounded
- * string, so an oversized or non-string body value cannot blow up the key.
+ * when the token gate already ran, else the one the body names, in its
+ * canonical spelling (lib/workspaceId.ts), so respelling one id never opens
+ * a fresh bucket. Anything that is no uuid shares the 'unknown' bucket.
  */
 function rateLimitWorkspaceKey(req: Request): string {
   const ws = (req as WidgetSessionRequest)._widgetWorkspaceId || (req.body as { workspace_id?: unknown } | undefined)?.workspace_id;
-  return typeof ws === 'string' && ws && ws.length <= 64 ? ws : 'unknown';
+  return canonicalWorkspaceId(ws) ?? 'unknown';
 }
 
 /**
@@ -454,6 +478,48 @@ function rateLimitVisitorId(req: Request, workspaceId: string): string | null {
   } catch {
     return null;
   }
+}
+
+function sendRateLimited(res: Response, retryAfter: number) {
+  res.setHeader('Retry-After', String(retryAfter));
+  return res.status(429).json({
+    error: 'Too many requests — please slow down',
+    code: 'RATE_LIMITED',
+    retry_after: retryAfter,
+  });
+}
+
+/**
+ * The call widget's bootstrap (GET, workspace from the query): a request
+ * without a valid visitor cookie for `workspaceId` mints a visitor, so it is
+ * counted per (IP, workspace) at the `call_bootstrap` anonymous cap. Returns
+ * true when the request may go on; otherwise it has answered 429.
+ * A request with a valid cookie is bounded by the per-IP limiter only.
+ */
+export function takeAnonymousCallBootstrap(req: Request, res: Response, workspaceId: string): boolean {
+  if (rateLimitVisitorId(req, workspaceId)) return true;
+  const caps = RATE_LIMITS.call_bootstrap;
+  const retryAfter = takeRateLimit(
+    [{ key: `call_bootstrap:${rateLimitIpKey(req)}:${workspaceId}`, max: caps.anonymous }],
+    caps.window,
+  );
+  if (retryAfter > 0) { sendRateLimited(res, retryAfter); return false; }
+  return true;
+}
+
+/**
+ * POST /track is about to insert a visitor_sessions row (a visitor new to
+ * this session window, possibly new this month): at most
+ * NEW_VISITOR_SESSIONS_PER_MIN per (IP, workspace). True = go on; otherwise
+ * it has answered 429. Page views of known sessions never get here.
+ */
+export function takeNewVisitorSession(req: Request, res: Response, workspaceId: string): boolean {
+  const retryAfter = takeRateLimit(
+    [{ key: `visitor_new:${rateLimitIpKey(req)}:${workspaceId}`, max: NEW_VISITOR_SESSIONS_PER_MIN }],
+    60,
+  );
+  if (retryAfter > 0) { sendRateLimited(res, retryAfter); return false; }
+  return true;
 }
 
 // ─── Middleware: Rate limiting ───
@@ -478,23 +544,19 @@ export function widgetRateLimit(category: string = 'default') {
   return (req: Request, res: Response, next: NextFunction) => {
     const ip = rateLimitIpKey(req);
     const workspaceId = rateLimitWorkspaceKey(req);
-    const visitorId = rateLimitVisitorId(req, workspaceId);
+    // A bootstrap with `fresh_visitor` mints a new visitor even when it
+    // carries a cookie: it is counted like one without, so cookies can only
+    // ever be minted within the anonymous cap.
+    const mintsVisitor = category === 'bootstrap'
+      && (req.body as { fresh_visitor?: unknown } | undefined)?.fresh_visitor === true;
+    const visitorId = mintsVisitor ? null : rateLimitVisitorId(req, workspaceId);
+    const shared: RateLimitBucket = { key: `${category}:shared:${ip}:${workspaceId}`, max: caps.shared };
     const buckets: RateLimitBucket[] = visitorId
-      ? [
-          { key: `${category}:v:${workspaceId}:${visitorId}`, max: caps.visitor },
-          { key: `${category}:shared:${ip}:${workspaceId}`, max: caps.shared },
-        ]
-      : [{ key: `${category}:${ip}:${workspaceId}`, max: caps.anonymous }];
+      ? [{ key: `${category}:v:${workspaceId}:${visitorId}`, max: caps.visitor }, shared]
+      : [{ key: `${category}:${ip}:${workspaceId}`, max: caps.anonymous }, shared];
 
     const retryAfter = takeRateLimit(buckets, caps.window);
-    if (retryAfter > 0) {
-      res.setHeader('Retry-After', String(retryAfter));
-      return res.status(429).json({
-        error: 'Too many requests — please slow down',
-        code: 'RATE_LIMITED',
-        retry_after: retryAfter,
-      });
-    }
+    if (retryAfter > 0) return sendRateLimited(res, retryAfter);
 
     // Per-session protection lives in ONE canonical place —
     // widgetSessionRateLimiter in server/middleware/security.ts, mounted
@@ -517,8 +579,11 @@ export function widgetRateLimit(category: string = 'default') {
 // ─── Workspace resolution ───
 export function resolveWorkspaceId(req: Request, res: Response, candidateWorkspaceId?: string): string | null {
   const tokenWorkspaceId = (req as WidgetSessionRequest)._widgetWorkspaceId || null;
-  const requestedWorkspaceId = typeof candidateWorkspaceId === 'string' && candidateWorkspaceId.trim().length > 0
+  const raw = typeof candidateWorkspaceId === 'string' && candidateWorkspaceId.trim().length > 0
     ? candidateWorkspaceId.trim() : null;
+  // Compared and returned in the canonical spelling the token carries; a
+  // value that is no uuid is compared as given (and matches no token).
+  const requestedWorkspaceId = raw ? canonicalWorkspaceId(raw) ?? raw : null;
 
   if (requestedWorkspaceId && tokenWorkspaceId && requestedWorkspaceId !== tokenWorkspaceId) {
     res.status(403).json({ error: 'Workspace does not match session', code: 'WORKSPACE_MISMATCH' });

@@ -64,7 +64,7 @@ function buildApp() {
   // server/index.ts: the body parser, then cookies, then the widget mounts.
   app.use(jsonBodyParser());
   app.use(cookieParser());
-  app.use('/api/widget/bootstrap', widgetCorsMiddleware(), sec.widgetBootstrapGlobalCeiling, sec.widgetBootstrapRateLimiter);
+  app.use(['/api/widget/bootstrap', '/api/widget/boot'], widgetCorsMiddleware(), sec.widgetBootstrapGlobalCeiling, sec.widgetBootstrapRateLimiter);
   app.post('/api/widget/track-probe', (req, res) => res.json({ body: req.body ?? null }));
   app.use('/api/widget', widgetCorsMiddleware(), sec.widgetRateLimiter, sec.widgetWorkspaceRateLimiter, sec.widgetSessionRateLimiter, widgetRouter);
   // server/index.ts's error handler: body-parser's 4xx keep their status.
@@ -101,8 +101,8 @@ async function scenario(opts: Parameters<typeof widgetScenarioTables>[0], edit?:
 }
 
 /** The loader's bootstrap: a CORS-simple POST, the JSON body labelled text/plain. */
-function bootstrapTextPlain(body: Record<string, unknown>, origin: string | null = SHOP_ORIGIN) {
-  const r = request(app).post('/api/widget/bootstrap').set('Host', 'api.test').set('Content-Type', 'text/plain;charset=UTF-8');
+function bootstrapTextPlain(body: Record<string, unknown>, origin: string | null = SHOP_ORIGIN, path = '/api/widget/bootstrap') {
+  const r = request(app).post(path).set('Host', 'api.test').set('Content-Type', 'text/plain;charset=UTF-8');
   if (origin) r.set('Origin', origin);
   return r.send(JSON.stringify(body));
 }
@@ -217,14 +217,16 @@ describe('unchanged answers', () => {
     await scenario({ edition: 'iran', ai: true, smart: true });
     const boot = await bootstrapTextPlain({ workspace_id: '99999999-9999-4999-8999-999999999999', include_config: true });
     expect(boot.status).toBe(404);
-    expect(boot.body).toEqual({ disabled: true, error: 'Workspace not found' });
+    // `protocol` on an error too: the loader tells it from an older backend's
+    // answer to /boot, a route that backend does not have.
+    expect(boot.body).toEqual({ disabled: true, error: 'Workspace not found', protocol: 3 });
   });
 
   it('an origin outside the allow-list: 403 ORIGIN_DENIED, no credential, no CORS grant', async () => {
     await scenario({ edition: 'iran', ai: true, smart: true });
     const boot = await bootstrapTextPlain({ workspace_id: WS, include_config: true }, 'https://evil.example');
     expect(boot.status).toBe(403);
-    expect(boot.body).toEqual({ error: 'Origin not authorized', code: 'ORIGIN_DENIED' });
+    expect(boot.body).toEqual({ error: 'Origin not authorized', code: 'ORIGIN_DENIED', protocol: 3 });
     expect(boot.headers['access-control-allow-origin']).toBeUndefined();
   });
 
@@ -250,5 +252,87 @@ describe('unchanged answers', () => {
     expect(boot.headers['access-control-allow-credentials']).toBe('true');
     expect(String(boot.headers['set-cookie'] || '')).toContain('dvsid=');
     expect(boot.headers['cache-control']).toBe('no-store, no-cache, must-revalidate');
+  });
+});
+
+describe('POST /boot: the same bootstrap, the path the current loader tries first', () => {
+  const strip = (b: Record<string, unknown>) => {
+    const { session_token: _t, expires_at: _e, visitor_id: _v, is_new_visitor: _n, ...rest } = b;
+    return rest;
+  };
+
+  it('answers exactly what /bootstrap answers (text/plain body, inline config, protocol, CORS)', async () => {
+    await scenario({ edition: 'iran', ai: true, smart: true });
+    const viaBootstrap = await bootstrapTextPlain({ workspace_id: WS, include_config: true });
+    const viaBoot = await bootstrapTextPlain({ workspace_id: WS, include_config: true }, SHOP_ORIGIN, '/api/widget/boot');
+    expect(viaBoot.status).toBe(200);
+    expect(viaBoot.body.protocol).toBe(3);
+    expect(typeof viaBoot.body.session_token).toBe('string');
+    expect(strip(viaBoot.body)).toEqual(strip(viaBootstrap.body));
+    expect(viaBoot.headers['access-control-allow-origin']).toBe(SHOP_ORIGIN);
+    expect(viaBoot.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  it('keeps every refusal of /bootstrap: unknown workspace, refused origin, no origin', async () => {
+    await scenario({ edition: 'iran', ai: true, smart: true });
+    const unknown = await bootstrapTextPlain({ workspace_id: '99999999-9999-4999-8999-999999999999' }, SHOP_ORIGIN, '/api/widget/boot');
+    expect(unknown.status).toBe(404);
+    expect(unknown.body).toEqual({ disabled: true, error: 'Workspace not found', protocol: 3 });
+    const evil = await bootstrapTextPlain({ workspace_id: WS }, 'https://evil.example', '/api/widget/boot');
+    expect(evil.status).toBe(403);
+    expect(evil.body.code).toBe('ORIGIN_DENIED');
+    expect(evil.headers['access-control-allow-origin']).toBeUndefined();
+    const none = await bootstrapTextPlain({ workspace_id: WS }, null, '/api/widget/boot');
+    expect(none.status).toBe(403);
+    expect(none.body.code).toBe('ORIGIN_REQUIRED');
+    expect(none.body.session_token).toBeUndefined();
+  });
+});
+
+describe('one workspace, one cache key (every uuid spelling PostgreSQL accepts)', () => {
+  it('upper case, braces and missing hyphens reach the same snapshot: no second build, the canonical id answered', async () => {
+    await scenario({ edition: 'iran', ai: true, smart: true });
+    const first = await bootstrapTextPlain({ workspace_id: WS, include_config: true });
+    expect(first.status).toBe(200);
+    holder.db.resetCalls();
+    for (const spelling of [WS.toUpperCase(), `{${WS}}`, WS.replace(/-/g, '')]) {
+      const boot = await bootstrapTextPlain({ workspace_id: spelling, include_config: true });
+      expect(boot.status).toBe(200);
+      expect(boot.body.workspace_id).toBe(WS);
+      expect(boot.body.config).toBeTruthy();
+    }
+    expect(holder.db.calls.from).toBe(0);
+    expect(holder.db.calls.rpc).toBe(0);
+  });
+
+  it('a value that is no uuid: 404 as an unknown workspace, no workspace read', async () => {
+    await scenario({ edition: 'iran', ai: true, smart: true });
+    holder.db.resetCalls();
+    for (const path of ['/api/widget/bootstrap', '/api/widget/boot']) {
+      const boot = await bootstrapTextPlain({ workspace_id: 'not-a-uuid', include_config: true }, SHOP_ORIGIN, path);
+      expect(boot.status).toBe(404);
+      expect(boot.body).toEqual({ disabled: true, error: 'Workspace not found', protocol: 3 });
+    }
+    // Only CORS's page-origin lookup, once (then cached per host).
+    expect(holder.db.calls.log.filter((l) => l !== 'from:workspace_domains')).toEqual([]);
+    expect(holder.db.calls.from).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('an unreadable widget_settings row', () => {
+  it('does not switch the origin allow-list off: no token for any origin while the row cannot be read', async () => {
+    clock += 61_000;
+    vi.setSystemTime(clock);
+    holder.db = createFakeDb(widgetScenarioTables({ edition: 'iran', ai: true, smart: true }), {
+      rpc: allowAllRpc,
+      failingTables: new Set(['widget_settings']),
+    });
+    await resetCaches();
+    const evil = await bootstrapTextPlain({ workspace_id: WS, include_config: true }, 'https://evil.example');
+    expect(evil.body.session_token).toBeUndefined();
+    expect(evil.headers['access-control-allow-origin']).toBeUndefined();
+    // The (cached, degraded) snapshot does not open it on the next request either.
+    const again = await bootstrapTextPlain({ workspace_id: WS }, 'https://evil.example', '/api/widget/boot');
+    expect(again.body.session_token).toBeUndefined();
   });
 });

@@ -42,7 +42,7 @@ const { callWidgetCors } = await import('../../../server/routes/callWidget.js');
 const { jsonBodyParser } = await import('../../../server/middleware/bodyParsers.js');
 const { widgetCorsMiddleware, applyWidgetCorsHeaders, WIDGET_CORS_MAX_AGE_SECONDS } = await import('../../../server/middleware/widgetCors.js');
 const sec = await import('../../../server/middleware/security.js');
-const { widgetRateLimit, __resetWidgetRateLimitsForTests } = await import('../../../server/services/widget/security.js');
+const { widgetRateLimit, takeAnonymousCallBootstrap, __resetWidgetRateLimitsForTests } = await import('../../../server/services/widget/security.js');
 const { setVisitorCookie } = await import('../../../server/services/widget/visitorIdentity.js');
 const snapshotMod = await import('../../../server/services/widget/configSnapshot.js');
 
@@ -87,14 +87,14 @@ let ipSeq = 10;
 /** A fresh public client address per test: the limiter stores are per process. */
 const freshIp = () => `45.33.${ipSeq++}.7`;
 
-function bootstrap(ip: string, opts: { cookie?: string; origin?: string; workspaceId?: string } = {}) {
+function bootstrap(ip: string, opts: { cookie?: string; origin?: string; workspaceId?: string; body?: Record<string, unknown> } = {}) {
   const r = request(app).post('/api/widget/bootstrap')
     .set('Host', 'api.test')
     .set('X-Forwarded-For', ip)
     .set('Content-Type', 'text/plain;charset=UTF-8')
     .set('Origin', opts.origin ?? SHOP_ORIGIN);
   if (opts.cookie) r.set('Cookie', `dvsid=${opts.cookie}`);
-  return r.send(JSON.stringify({ workspace_id: opts.workspaceId ?? WS }));
+  return r.send(JSON.stringify({ workspace_id: opts.workspaceId ?? WS, ...(opts.body || {}) }));
 }
 
 async function resetCaches() {
@@ -118,7 +118,7 @@ afterEach(() => {
 });
 
 describe('identity: per visitor with a verified cookie, per (IP, workspace) without', () => {
-  it('400 page views from ONE address, each its own visitor, all succeed (past the 300 anonymous cap)', async () => {
+  it('400 page views from ONE address, each its own visitor, all succeed (past the 120 anonymous cap)', async () => {
     const ip = freshIp();
     for (let i = 0; i < 400; i++) {
       const res = await bootstrap(ip, { cookie: cookieValue(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`) });
@@ -126,9 +126,9 @@ describe('identity: per visitor with a verified cookie, per (IP, workspace) with
     }
   }, 60_000);
 
-  it('without a cookie the address gets 300 per workspace; a forged or other-workspace cookie counts as none; a valid one still passes', async () => {
+  it('without a cookie the address gets 120 per workspace; a forged or other-workspace cookie counts as none; a valid one still passes', async () => {
     const ip = freshIp();
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 120; i++) {
       expect((await bootstrap(ip)).status, `anonymous ${i + 1}`).toBe(200);
     }
     const over = await bootstrap(ip);
@@ -141,6 +141,15 @@ describe('identity: per visitor with a verified cookie, per (IP, workspace) with
     const otherWs = cookieValue('11111111-1111-4111-8111-111111111111', '99999999-9999-4999-8999-999999999999');
     expect((await bootstrap(ip, { cookie: otherWs })).status).toBe(429);
     expect((await bootstrap(ip, { cookie: good })).status).toBe(200);
+  }, 60_000);
+
+  it('a bootstrap with fresh_visitor mints a visitor even with a cookie, so it counts in the anonymous bucket', async () => {
+    const ip = freshIp();
+    for (let i = 0; i < 120; i++) expect((await bootstrap(ip)).status, `anonymous ${i + 1}`).toBe(200);
+    const cookie = cookieValue('12121212-1212-4121-8121-121212121212');
+    expect((await bootstrap(ip, { cookie, body: { fresh_visitor: true } })).status).toBe(429);
+    // The same cookie without fresh_visitor is a known visitor: its own bucket.
+    expect((await bootstrap(ip, { cookie })).status).toBe(200);
   }, 60_000);
 
   it("one visitor's 31st bootstrap in a minute is a 429 that says how long to wait (and its CORS lets the loader read it)", async () => {
@@ -212,17 +221,32 @@ describe('widgetRateLimit bucket arithmetic', () => {
     return next.mock.calls.length ? 200 : status;
   };
 
-  it('message: 15 per visitor, 240 for all identified visitors of one address and workspace, 60 without a cookie', () => {
+  it('message (AI, offline emails): 15 per visitor, 15 without a cookie, 60 for EVERYTHING one address sends one workspace: minted cookies buy almost nothing', () => {
     const ip = '45.1.1.1';
+    let anonymous = 0;
+    for (let i = 0; i < 70; i++) if (run('message', { ip }) === 200) anonymous++;
+    expect(anonymous).toBe(15);
     let passed = 0;
     for (let v = 0; v < 20; v++) {
       const cookie = cookieValue(`66666666-0000-4000-8000-${String(v).padStart(12, '0')}`);
       for (let i = 0; i < 16; i++) if (run('message', { ip, cookie }) === 200) passed++;
     }
-    expect(passed).toBe(240);
+    expect(passed).toBe(45); // 60 - the 15 cookieless ones
+    // The shared ceiling also holds a request without a cookie now.
+    expect(run('message', { ip: '45.1.1.1' })).toBe(429);
+  });
+
+  it('upload: 10 per visitor, 10 without a cookie, 40 for everything one address sends one workspace', () => {
+    const ip = '45.1.1.9';
     let anonymous = 0;
-    for (let i = 0; i < 70; i++) if (run('message', { ip }) === 200) anonymous++;
-    expect(anonymous).toBe(60);
+    for (let i = 0; i < 20; i++) if (run('upload', { ip }) === 200) anonymous++;
+    expect(anonymous).toBe(10);
+    let passed = 0;
+    for (let v = 0; v < 10; v++) {
+      const cookie = cookieValue(`99999999-0000-4000-8000-${String(v).padStart(12, '0')}`);
+      for (let i = 0; i < 11; i++) if (run('upload', { ip, cookie }) === 200) passed++;
+    }
+    expect(passed).toBe(30);
   });
 
   it('a refused request is not counted in the other bucket', () => {
@@ -236,7 +260,7 @@ describe('widgetRateLimit bucket arithmetic', () => {
       const c = cookieValue(`88888888-0000-4000-8000-${String(v).padStart(12, '0')}`);
       for (let i = 0; i < 15; i++) if (run('message', { ip, cookie: c }) === 200) others++;
     }
-    expect(others).toBe(225); // 240 - 15
+    expect(others).toBe(45); // 60 - 15
   });
 
   it('an oversized or non-string workspace_id is bucketed as "unknown", never as a key of its own', () => {
@@ -330,4 +354,60 @@ describe('preflight lifetime: one constant for both widgets', () => {
     expect(headers['Access-Control-Expose-Headers']).toBe('Retry-After');
     expect(headers['Access-Control-Allow-Origin']).not.toBe('*');
   });
+});
+
+describe('call widget bootstrap: a request without a visitor cookie mints one, so (IP, workspace) is capped', () => {
+  const callApp = express();
+  callApp.set('trust proxy', 'loopback, linklocal, uniquelocal');
+  callApp.use(cookieParser());
+  callApp.get('/bootstrap', (req, res) => {
+    if (!takeAnonymousCallBootstrap(req, res, WS)) return;
+    res.json({ status: 'ok' });
+  });
+  const hit = (ip: string, cookie?: string) => {
+    const r = request(callApp).get('/bootstrap').set('X-Forwarded-For', ip);
+    if (cookie) r.set('Cookie', `dvsid=${cookie}`);
+    return r;
+  };
+
+  it('60 cookieless bootstraps a minute per address and workspace, then a 429 with Retry-After; a known visitor is not counted', async () => {
+    const ip = freshIp();
+    for (let i = 0; i < 60; i++) expect((await hit(ip)).status, `anonymous ${i + 1}`).toBe(200);
+    const over = await hit(ip);
+    expect(over.status).toBe(429);
+    expect(over.body).toMatchObject({ code: 'RATE_LIMITED' });
+    expect(Number(over.headers['retry-after'])).toBeGreaterThan(0);
+    // A visitor with a valid cookie for this workspace mints nothing.
+    expect((await hit(ip, cookieValue('13131313-1313-4131-8131-131313131313'))).status).toBe(200);
+    // Another address has its own allowance.
+    expect((await hit(freshIp())).status).toBe(200);
+  }, 60_000);
+});
+
+describe('POST /track: new visitor rows are budgeted per address', () => {
+  it('60 new visitor_sessions a minute per (IP, workspace) whatever visitor_id the body names, then 429', async () => {
+    const ip = freshIp();
+    const boot = await bootstrap(ip);
+    expect(boot.status).toBe(200);
+    const token = boot.body.session_token as string;
+    const track = (visitorId: string) => request(app).post('/api/widget/track')
+      .set('Host', 'api.test').set('X-Forwarded-For', ip).set('Origin', SHOP_ORIGIN)
+      .set('Content-Type', 'application/json').set('X-Widget-Token', token)
+      .send(JSON.stringify({ workspace_id: WS, event_type: 'page_view', visitor_id: visitorId, page_url: 'https://shop.example/' }));
+    for (let i = 0; i < 60; i++) {
+      const r = await track(`attacker-visitor-${i}`);
+      expect(r.status, `new visitor ${i + 1}`).not.toBe(429);
+    }
+    const over = await track('attacker-visitor-60');
+    expect(over.status).toBe(429);
+    expect(over.body).toMatchObject({ code: 'RATE_LIMITED' });
+    // Another address has its own budget.
+    const other = freshIp();
+    const otherBoot = await bootstrap(other);
+    const r = await request(app).post('/api/widget/track')
+      .set('Host', 'api.test').set('X-Forwarded-For', other).set('Origin', SHOP_ORIGIN)
+      .set('Content-Type', 'application/json').set('X-Widget-Token', otherBoot.body.session_token as string)
+      .send(JSON.stringify({ workspace_id: WS, event_type: 'page_view', visitor_id: 'someone-else', page_url: 'https://shop.example/' }));
+    expect(r.status).not.toBe(429);
+  }, 60_000);
 });

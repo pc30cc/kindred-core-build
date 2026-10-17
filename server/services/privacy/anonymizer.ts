@@ -18,6 +18,7 @@ import { getServiceClient } from '../../supabase.js';
 import { deleteFile, deleteForOwner } from '../storage/index.js';
 import { scrubPii } from './scrub.js';
 import type { PrivacyJobRow, ResolvedSubject } from './types.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 // public.sender_type enum = { agent, contact, system, bot, ai }. 'visitor' is
 // NOT a member; including it made both message queries below fail with 22P02,
@@ -107,6 +108,8 @@ export async function runAnonymize(
         email: `${anonHash}@anonymized.local`,
       })
       .eq('id', userId);
+    // The erased name and avatar leave every widget team stack now.
+    publishCacheInvalidation([`user:${userId}`]);
     return summary;
   }
 

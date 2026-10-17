@@ -1,3 +1,5 @@
+import { onInvalidate } from '../../lib/cacheBus.js';
+
 /**
  * The workspace-level part of the call widget bootstrap, kept per process for
  * a short time.
@@ -17,11 +19,12 @@
  * center row) is kept in its own small map for a shorter time: made-up ids
  * cannot push real workspaces out.
  *
- * Freshness: a settings save on this process drops the entry at once
- * (updateWorkspaceSettings, the platform settings writers); other processes
- * see it within TTL_MS — the same order as the caches this data already
- * comes through (platform settings 30 s, control plane 30 s, entitlements
- * 60 s, edition 60 s, origin rules 60 s).
+ * Freshness: a settings or department save publishes `widget:<workspace>`,
+ * a platform change `platform` (lib/cacheBus.ts), which drops the entry on
+ * every process at once; without the bus, other processes see it within
+ * TTL_MS — the same order as the caches this data already comes through
+ * (platform settings 30 s, control plane 30 s, entitlements 60 s, edition
+ * 60 s, origin rules 60 s).
  */
 const TTL_MS = 30_000;
 /** A key that names no workspace: short, so a new row shows up soon. */
@@ -51,6 +54,12 @@ export function invalidateCallWidgetBootstrapCache(workspaceId?: string | null):
     }
   }
 }
+
+// The bus (lib/cacheBus.ts): a workspace's widget inputs, or anything
+// platform-wide (the call center switches, providers, edition). No stale
+// path here, so a resync drops entries like any 'all'.
+onInvalidate('widget', (workspaceId) => invalidateCallWidgetBootstrapCache(workspaceId));
+onInvalidate('platform', () => invalidateCallWidgetBootstrapCache());
 
 function keep(map: Map<string, Entry<unknown>>, max: number, key: string, entry: Entry<unknown>) {
   map.set(key, entry);

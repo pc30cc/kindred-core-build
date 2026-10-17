@@ -189,3 +189,34 @@ describe('per-workspace widget rate limiting', () => {
     expect(typeof widgetWorkspaceRateLimiter).toBe('function');
   });
 });
+
+describe('ipBlockMiddleware: a database that returns fewer rows per page than asked for', () => {
+  beforeEach(() => {
+    listAnswer.mockReset();
+    listQueries.length = 0;
+    __resetIpBlocklistForTests();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  // 1200 active entries; the database caps every page at 500 rows (a lower
+  // DATABASE_MAX_ROWS, PostgREST max-rows), whatever range was asked for.
+  const all = Array.from({ length: 1200 }, (_, i) => ({ ip_address: `10.0.${Math.floor(i / 250)}.${i % 250}`, blocked_until: null }));
+  const capped = (withCount: boolean) => (q: { range: [number, number] }) => {
+    const [a, z] = q.range;
+    const page = all.slice(a, Math.min(z + 1, a + 500));
+    return { data: page, error: null, count: withCount ? all.length : null };
+  };
+
+  for (const withCount of [true, false]) {
+    it(`reads every entry (${withCount ? 'with' : 'without'} an exact count): none is silently unblocked`, async () => {
+      listAnswer.mockImplementation(capped(withCount));
+      for (const i of [0, 499, 500, 700, 999, 1000, 1199]) {
+        expect(await run(all[i].ip_address), `entry #${i}`).toEqual({ code: 403, passed: false });
+      }
+      expect(await run('192.0.2.1')).toEqual({ code: 0, passed: true });
+      // Pages follow the rows actually read: 0, 500, 1000 (and one empty page without a count).
+      expect(listQueries.map((q) => q.range[0])).toEqual(withCount ? [0, 500, 1000] : [0, 500, 1000, 1200]);
+    });
+  }
+});

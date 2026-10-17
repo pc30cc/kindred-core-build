@@ -19,13 +19,14 @@ import {
   loadFallbackPolicy,
   saveFallbackPolicy,
 } from '../services/calls/departments.js';
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 
 export const workspaceDepartmentsRouter = Router();
 
 async function requireWorkspaceAdmin(
-  req: any,
-  res: any,
+  req: Parameters<typeof authorizeWorkspaceAccess>[0],
+  res: Parameters<typeof authorizeWorkspaceAccess>[1],
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
@@ -42,7 +43,7 @@ workspaceDepartmentsRouter.get('/:workspaceId', async (req, res) => {
   const { workspaceId } = req.params;
   const auth = await requireWorkspaceAdmin(req, res, workspaceId);
   if (!auth) return;
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
   // Admin view shows ALL departments (including disabled), so we bypass the
   // enabled-only resolver.
@@ -79,7 +80,7 @@ workspaceDepartmentsRouter.post('/:workspaceId', async (req, res) => {
   if (!auth) return;
   try {
     const body = createSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     const { data, error } = await sb
       .from('workspace_departments')
@@ -102,9 +103,11 @@ workspaceDepartmentsRouter.post('/:workspaceId', async (req, res) => {
       .single();
     if (error) return res.status(500).json({ error: error.message });
     invalidateDepartmentCache(workspaceId);
+    // The call widget bootstrap lists the departments (every process).
+    publishCacheInvalidation([`widget:${workspaceId}`]);
     res.status(201).json({ department: data });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'invalid_request' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err instanceof Error && err.message) || 'invalid_request' });
   }
 });
 
@@ -117,7 +120,7 @@ workspaceDepartmentsRouter.patch('/:workspaceId/:id', async (req, res) => {
   if (!auth) return;
   try {
     const body = updateSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     const patch: Record<string, unknown> = {};
     if (body.name !== undefined) patch.name = body.name.trim();
@@ -141,9 +144,10 @@ workspaceDepartmentsRouter.patch('/:workspaceId/:id', async (req, res) => {
       .single();
     if (error) return res.status(500).json({ error: error.message });
     invalidateDepartmentCache(workspaceId);
+    publishCacheInvalidation([`widget:${workspaceId}`]);
     res.json({ department: data });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'invalid_request' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err instanceof Error && err.message) || 'invalid_request' });
   }
 });
 
@@ -152,7 +156,7 @@ workspaceDepartmentsRouter.delete('/:workspaceId/:id', async (req, res) => {
   const { workspaceId, id } = req.params;
   const auth = await requireWorkspaceAdmin(req, res, workspaceId);
   if (!auth) return;
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { error } = await sb
     .from('workspace_departments')
@@ -161,6 +165,7 @@ workspaceDepartmentsRouter.delete('/:workspaceId/:id', async (req, res) => {
     .eq('workspace_id', workspaceId);
   if (error) return res.status(500).json({ error: error.message });
   invalidateDepartmentCache(workspaceId);
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   res.json({ ok: true });
 });
 
@@ -173,7 +178,7 @@ workspaceDepartmentsRouter.get('/:workspaceId/:id/members', async (req, res) => 
   const { workspaceId, id } = req.params;
   const auth = await requireWorkspaceAdmin(req, res, workspaceId);
   if (!auth) return;
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const userIds = await resolveDepartmentMembers(config, id);
   res.json({ user_ids: userIds });
 });
@@ -190,7 +195,7 @@ workspaceDepartmentsRouter.put('/:workspaceId/:id/members', async (req, res) => 
   if (!auth) return;
   try {
     const body = setMembersSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     // Validate all user_ids are workspace members.
     if (body.user_ids.length > 0) {
@@ -199,7 +204,7 @@ workspaceDepartmentsRouter.put('/:workspaceId/:id/members', async (req, res) => 
         .select('user_id')
         .eq('workspace_id', workspaceId)
         .in('user_id', body.user_ids);
-      const validSet = new Set((valid ?? []).map((r: any) => r.user_id));
+      const validSet = new Set((valid ?? []).map((r: { user_id: string }) => r.user_id));
       const invalid = body.user_ids.filter((u) => !validSet.has(u));
       if (invalid.length > 0) {
         return res.status(400).json({ error: 'not_workspace_members', invalid });
@@ -225,8 +230,8 @@ workspaceDepartmentsRouter.put('/:workspaceId/:id/members', async (req, res) => 
     }
     invalidateDepartmentCache(workspaceId);
     res.json({ ok: true, count: body.user_ids.length });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'invalid_request' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err instanceof Error && err.message) || 'invalid_request' });
   }
 });
 
@@ -247,7 +252,7 @@ workspaceDepartmentsRouter.get('/:workspaceId/fallback', async (req, res) => {
   const { workspaceId } = req.params;
   const auth = await requireWorkspaceAdmin(req, res, workspaceId);
   if (!auth) return;
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const policy = await loadFallbackPolicy(config, workspaceId);
   res.json({ policy });
 });
@@ -259,11 +264,11 @@ workspaceDepartmentsRouter.put('/:workspaceId/fallback', async (req, res) => {
   if (!auth) return;
   try {
     const body = fallbackSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const policy = await saveFallbackPolicy(config, workspaceId, body);
     res.json({ policy });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'invalid_request' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err instanceof Error && err.message) || 'invalid_request' });
   }
 });
 
@@ -280,7 +285,7 @@ workspaceDepartmentsRouter.get('/:workspaceId/diagnostics', async (req, res) => 
   const channel = (['chat', 'audio', 'video'].includes(channelRaw)
     ? channelRaw
     : 'chat') as 'chat' | 'audio' | 'video';
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const diag = await buildDepartmentDiagnostics(config, workspaceId, channel);
   res.json({ diagnostics: diag });
 });
@@ -299,7 +304,7 @@ workspaceDepartmentsRouter.get('/:workspaceId/visible', async (req, res) => {
   const channel = (['chat', 'audio', 'video'].includes(channelRaw)
     ? channelRaw
     : 'chat') as 'chat' | 'audio' | 'video';
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const visible = await resolveWidgetVisibleDepartments(config, workspaceId, channel);
   res.json({ channel, visible });
 });

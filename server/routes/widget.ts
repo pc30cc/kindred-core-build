@@ -23,6 +23,7 @@ import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 import { routeParam } from '../lib/routeParams.js';
+import { canonicalWorkspaceId } from '../lib/workspaceId.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
   publishConversationEvent,
@@ -76,6 +77,7 @@ import {
   verifyConversationOwnership,
   getClientIp,
   getRequestOrigin,
+  takeNewVisitorSession,
 } from '../services/widget/security.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { enrichMessagesWithSender } from '../services/widget/senderIdentity.js';
@@ -190,16 +192,19 @@ widgetRouter.use('/call-invitations', widgetCallInvitationsRouter);
 // as text/plain (a CORS-simple request: no preflight); server/index.ts parses
 // it as JSON on this path only.
 //
-// `protocol` on every body this handler answers (not on errors) tells the
-// loader it reached this server and not an older one:
+// `protocol` on every body this handler answers tells the loader it reached
+// this server and not an older one:
 //   >= 2  this server read the text/plain bootstrap body (an older one
-//         ignores it; see public/widget/loader.js requestBootstrap);
+//         ignores it; see public/widget/loader.js requestBootstrap). Every
+//         answer the handler writes carries it, errors included, so the
+//         loader can tell a final error from this server from an older
+//         backend's answer to POST /boot, a route it does not have;
 //   >= 3  POST /track and POST /api/realtime/visitor-presence also take the
 //         session token as `widget_token` in a text/plain body, so the
 //         loader sends them CORS-simple (no preflight; loader.js tokenPost).
 const BOOTSTRAP_PROTOCOL = 3;
 
-widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware('widget.bootstrap'), async (req: Request, res: Response) => {
+async function handleBootstrap(req: Request, res: Response) {
   try {
     const config = serverConfigOf(req);
     const { workspace_id } = req.body || {};
@@ -208,11 +213,19 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
       try { return new URL(req.headers['referer'] as string || '').origin; } catch { return null; }
     })();
 
+    // An explicit id is used in its canonical spelling only (lib/workspaceId.ts):
+    // every cache, token and bucket below sees one key per workspace. A value
+    // that is no uuid at all names no workspace.
+    const explicitWorkspaceId = workspace_id ? canonicalWorkspaceId(workspace_id) : null;
+    if (workspace_id && !explicitWorkspaceId) {
+      return res.status(404).json({ disabled: true, error: 'Workspace not found', protocol: BOOTSTRAP_PROTOCOL });
+    }
+
     // Resolve workspace: explicit ID or by origin
-    const resolvedWorkspaceId = workspace_id || (requestOrigin ? await resolveWorkspaceIdFromOrigin(config, requestOrigin) : null);
+    const resolvedWorkspaceId = explicitWorkspaceId || (requestOrigin ? await resolveWorkspaceIdFromOrigin(config, requestOrigin) : null);
 
     if (!resolvedWorkspaceId) {
-      return res.status(400).json({ error: 'workspace_id required or origin must be mapped', code: 'MISSING_WORKSPACE' });
+      return res.status(400).json({ error: 'workspace_id required or origin must be mapped', code: 'MISSING_WORKSPACE', protocol: BOOTSTRAP_PROTOCOL });
     }
 
     // Verify workspace exists
@@ -220,7 +233,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     const workspace = snap.workspace;
 
     if (!workspace) {
-      return res.status(404).json({ disabled: true, error: 'Workspace not found' });
+      return res.status(404).json({ disabled: true, error: 'Workspace not found', protocol: BOOTSTRAP_PROTOCOL });
     }
 
     // Check widget enabled
@@ -242,11 +255,14 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     // and no real browser traffic needs the bypass anyway.
     if (!requestOrigin) {
       console.warn(`[widget-bootstrap] Rejected — no Origin/Referer for workspace ${resolvedWorkspaceId}`);
-      return res.status(403).json({ error: 'Origin or Referer required', code: 'ORIGIN_REQUIRED' });
+      return res.status(403).json({ error: 'Origin or Referer required', code: 'ORIGIN_REQUIRED', protocol: BOOTSTRAP_PROTOCOL });
     }
 
-    // Origin validation
-    if (requestOrigin && widgetSettings) {
+    // Origin validation. An unreadable widget_settings row is checked too
+    // (getWorkspaceOriginRules reads it itself and throws on error): the
+    // snapshot that failed to read it is cached for seconds, and the
+    // allow-list must not be off for that long.
+    if (requestOrigin && (widgetSettings || snap.widgetRowUnreadable)) {
       const originRules = await getWorkspaceOriginRules(config, resolvedWorkspaceId);
       if (originRules.domains.length > 0) {
         const allowed = await isWorkspaceOriginAllowed(config, resolvedWorkspaceId, requestOrigin);
@@ -255,7 +271,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
           const isLocalDev = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(requestOrigin);
           if (!isLocalDev) {
             console.warn(`[widget-bootstrap] Origin rejected: ${requestOrigin} for workspace ${resolvedWorkspaceId}`);
-            return res.status(403).json({ error: 'Origin not authorized', code: 'ORIGIN_DENIED' });
+            return res.status(403).json({ error: 'Origin not authorized', code: 'ORIGIN_DENIED', protocol: BOOTSTRAP_PROTOCOL });
           }
         }
       }
@@ -356,12 +372,27 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     if (err instanceof WidgetConfigBusyError) {
       // Too many cold snapshots at once on this process: retry shortly.
       res.set('Retry-After', '1');
-      return res.status(503).json({ error: 'Bootstrap failed', code: err.code });
+      return res.status(503).json({ error: 'Bootstrap failed', code: err.code, protocol: BOOTSTRAP_PROTOCOL });
     }
     console.error('[widget-bootstrap] Error:', err.message);
-    return res.status(500).json({ error: 'Bootstrap failed' });
+    return res.status(500).json({ error: 'Bootstrap failed', protocol: BOOTSTRAP_PROTOCOL });
   }
-});
+}
+
+// The same bootstrap under two paths:
+//   POST /bootstrap  what every loader posts as application/json (and what
+//                    an older loader only knows);
+//   POST /boot       what the current loader posts FIRST, CORS-simple
+//                    (text/plain, no preflight). A backend older than that
+//                    loader has no such route: it answers before any
+//                    bootstrap work, minting no token and setting no visitor
+//                    cookie, and the loader falls back to /bootstrap as JSON.
+//                    Sending the CORS-simple body to /bootstrap itself would
+//                    let an older backend, which cannot read it, resolve the
+//                    workspace from the page origin instead, and set a
+//                    visitor cookie for THAT workspace.
+widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware('widget.bootstrap'), handleBootstrap);
+widgetRouter.post('/boot', widgetRateLimit('bootstrap'), perfHttpMiddleware('widget.bootstrap'), handleBootstrap);
 
 // ═══════════════════════════════════════════════
 // POST /session/refresh — Secure token renewal
@@ -2185,6 +2216,9 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
         }
         await Promise.all(writes);
       } else if (visitor_id) {
+        // A new row may count against the workspace's monthly visitor quota,
+        // and visitor_id is the client's: new rows are budgeted per address.
+        if (!takeNewVisitorSession(req, res, workspaceId)) return;
         // Phase 10 — gate true-new-this-month visitors on the public widget
         // /track endpoint. Reuses the Phase 9 helper so the trigger remains
         // the sole writer of `workspace_usage_counters.visitors_count` and

@@ -88,6 +88,7 @@ import { hasActiveOwnerWriteLeases } from '../storage/writerLease.js';
 import type { WorkspaceDeletionJobRow } from './types.js';
 import { IdleBackoff } from '../jobs/idleBackoff.js';
 import { resolveOwnerCdn, purgeOwnerFromCdn, logOwnerCdnPurge } from '../cdn/ownerPurge.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 const POLL_INTERVAL_MS = 5_000;
 /** Ceiling for the idle backoff — see the start function below. */
@@ -470,6 +471,15 @@ export async function runDbCleanup(config: ServerConfig, job: WorkspaceDeletionJ
       return;
     }
   }
+
+  // The workspace is gone: every process stops answering its widget
+  // bootstrap (config snapshot, origin rules, entitlements) now, not when
+  // its caches expire.
+  publishCacheInvalidation([
+    `widget:${job.workspace_id}`,
+    `origin:${job.workspace_id}`,
+    `entitlements:${job.workspace_id}`,
+  ]);
 
   // The objects are gone from storage, but the CDN would keep serving its
   // cached copies of them for as long as its max-age allows.

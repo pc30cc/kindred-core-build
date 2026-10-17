@@ -5,10 +5,13 @@ about 24 sequential round trips (POST `/api/widget/bootstrap`, then GET
 `/api/widget/config`), plus two CORS preflights and two API round trips for the
 browser. Now:
 
-- **One API round trip, no preflight.** The loader posts the bootstrap as a
-  CORS-simple request (JSON body, no `Content-Type` header, so the browser
-  labels it `text/plain`) with `include_config: true`, and the answer carries
-  the GET /config body as `config`.
+- **One API round trip, no preflight.** The loader posts the bootstrap to
+  POST `/api/widget/boot` as a CORS-simple request (JSON body, no
+  `Content-Type` header, so the browser labels it `text/plain`) with
+  `include_config: true`, and the answer carries the GET /config body as
+  `config`. `/boot` is the same handler as POST `/api/widget/bootstrap`; it is
+  a separate path only so that an older backend, which cannot read that body,
+  has no route for it (see Rollout).
 - **Zero queries on a warm cache.** Both endpoints read a per-process
   *snapshot* of the workspace's inputs; the response is computed per request
   from it, with no I/O.
@@ -45,21 +48,35 @@ the visitor: token, cookies, origin checks.
 
 Rules common to the three caches:
 
-- **Stale-while-revalidate.** Past its lifetime an entry is still served while
-  one background rebuild runs. A rebuild that fails, or comes back degraded,
-  keeps the old entry (retried every 5 s) for at most **10 minutes**; after
-  that the request waits for a rebuild and a failure surfaces (500 as before).
-  A database blip therefore no longer greys every launcher.
+- **Stale-while-revalidate.** Past its lifetime a GOOD entry is still served
+  while one background rebuild runs. A rebuild that fails, or comes back
+  degraded, keeps the old entry (retried every 5 s) for at most **10 minutes**;
+  after that the request waits for a rebuild and a failure surfaces (500 as
+  before). A database blip therefore no longer greys every launcher.
+- **Degraded and not-found answers are never served stale.** A degraded
+  snapshot (a read failed: 5 s), a "not found" (15 s) or a snapshot without a
+  `widget_settings` row (15 s) is rebuilt in the foreground once that short
+  lifetime is over, so a blip can never outlive it, even while background
+  rebuilds are refused by the budget. A `widget_settings` read that failed
+  does not switch the origin allow-list off: the bootstrap then reads the
+  rules itself and fails closed.
 - **Single flight** per key; a build that was running when its key was
   invalidated answers the requests already waiting on it but is never stored.
-- **Rebuild budget.** Full snapshot rebuilds (~30 queries in 3 parallel waves)
+- **Rebuild budget.** Full snapshot rebuilds (~30 queries in 3 parallel waves
+  with the entitlement cache warm, ~63 with it cold)
   are limited per process to `WIDGET_CONFIG_REBUILDS_PER_SEC` (default 25,
   burst 2×). A request over the budget waits up to 5 s for its turn, then gets
   `503` with `Retry-After: 1` (the loader retries 5xx); a background refresh over
   the budget is skipped. The existence check in front (one query) is not
   counted, so a flood of made-up workspace ids cannot starve real ones. Hits
   are always free.
-- Keys are lower-cased workspace ids.
+- **One key per workspace.** PostgreSQL reads upper case, braces and missing
+  hyphens as the same uuid, so every widget entry point (the bootstrap, the
+  CORS middleware, the rate-limit key, the token gate, `resolveWorkspaceId`,
+  the snapshot and origin-rule caches) uses the canonical spelling
+  (`server/lib/workspaceId.ts`: lower case, 8-4-4-4-12). Another spelling of
+  a real id reaches the same cache entry and bucket; a value that is no uuid
+  answers 404 without a query or a cache entry.
 
 ## Environment
 
@@ -102,22 +119,41 @@ Layers a widget request passes, outermost first (all per process, in memory):
 | `widgetRateLimit(category)` on each chat route | see below | see below |
 
 `widgetRateLimit(category)` counts a request with a **valid, HMAC-signed,
-workspace-bound `dvsid` visitor cookie** per visitor, plus a shared ceiling for
-all such requests of one (IP, workspace); a request without one (first visit,
-Safari and other browsers that block third-party cookies, non-browsers, a
-forged or other-workspace cookie) per (IP, workspace) at the anonymous cap.
-New cookies are minted only by bootstraps without one, which that anonymous
-cap bounds. Per minute:
+workspace-bound `dvsid` visitor cookie** per visitor; a request without one
+(first visit, Safari and other browsers that block third-party cookies,
+non-browsers, a forged or other-workspace cookie) per (IP, workspace) at the
+anonymous cap; and EVERY request, with a cookie or without, in the shared
+bucket of its (IP, workspace), the true ceiling of one address whatever
+cookies it minted. Workspace ids are canonicalised first, so respelling one
+never opens a new bucket.
+New cookies are minted only by bootstraps without one, or with
+`fresh_visitor` (counted like one without), which that anonymous cap bounds.
+The call widget's bootstrap (GET /api/call-widget/bootstrap) has the same
+anonymous bucket for a request without a valid visitor cookie
+(`takeAnonymousCallBootstrap`, `call_bootstrap`: 60 per minute per (IP,
+workspace)): each such request mints a visitor and a `visitor_sessions` row
+counted against the workspace's monthly visitor quota. On the chat side that
+row comes from POST /track, whose `visitor_id` is the client's: its insert
+branch has its own budget of 60 new rows per minute per (IP, workspace)
+(`takeNewVisitorSession`), so one address cannot spend a workspace's monthly
+`max_visitors` in minutes; page views of known sessions are not counted
+there. Per minute:
 
-| Category | Routes | Per visitor | Anonymous (IP, workspace) | Shared, all visitors of one (IP, workspace) |
+| Category | Routes | Per visitor | Anonymous (IP, workspace) | Shared, every request of one (IP, workspace) |
 |---|---|---|---|---|
-| `bootstrap` | POST /bootstrap | 30 | 300 | 3000 |
+| `bootstrap` | POST /bootstrap | 30 | 120 | 1200 |
 | `config` | GET /config, /manifest, /call-channels | 20 | 600 | 6000 |
 | `default` | /track, /event, /action, … | 30 | 300 | 3000 |
 | `poll` | /poll, /history, … | 60 | 600 | 6000 |
 | `refresh` | /session/refresh | 20 | 200 | 2000 |
-| `message` | /message, OTP, pre-chat, … | 15 | 60 | 240 |
-| `upload` | attachments | 10 | 40 | 160 |
+| `message` | /message, OTP, pre-chat, offline capture, … | 15 | 15 | 60 |
+| `upload` | attachments | 10 | 10 | 40 |
+
+`message` and `upload` cost money (AI replies, offline-capture and OTP email,
+storage), so they never grow with identities anyone can mint: without a cookie
+an address keeps the old per-(IP, workspace) cap, and everything one address
+sends one workspace, cookies or not, gets 4x it. A visitor quota can still be used up from many
+addresses (or slowly from one): the limits bound it, they do not prevent it.
 
 `config` is its own category now: an older loader asks GET /config on every
 page view, which used to drain the bootstrap bucket twice. Identities are only
@@ -217,7 +253,15 @@ and scripts only publish.
 
 Scopes: `widget:<ws>`, `widget` (all), `origin:<ws>`, `host:<domain>`,
 `entitlements:<ws>`, `user:<id>` (every snapshot whose team has that user),
-`platform`, `ipblock`, `all`.
+`platform`, `ipblock`, `all`. `widget:<ws>` also drops the call widget's
+bootstrap memo (`server/services/callCenter/bootstrapCache.ts`), and
+`platform` its platform settings: call center settings and department edits
+publish `widget:<ws>`, platform call center settings `platform`.
+
+Writers that publish besides the settings pages: workspace deletion
+(`widget:`, `origin:`, `entitlements:`), user deletion and the GDPR
+anonymiser (`user:`), the legacy storage migration (`user:` / `widget:`), and
+the signup trial plan (`handleWorkspaceEntitlementChanged`).
 
 - **It only makes changes visible sooner.** No cache relies on it: the TTLs
   above hold whether or not the bus works. With the bus, an owner's change
@@ -229,8 +273,15 @@ Scopes: `widget:<ws>`, `widget` (all), `origin:<ws>`, `host:<domain>`,
   `cross-node invalidation active` / `INACTIVE`. If `DATABASE_URL` ever points
   at a replica, a separate listen URL to the primary will be needed.
 - **+1 connection per API process** (the pool keeps its `DATABASE_POOL_MAX`).
-- Every (re)connect, and a heartbeat returning after a gap, flushes this
-  process's caches (`all`): notifications sent meanwhile are lost.
+- Every (re)connect, and a heartbeat returning after a gap, RESYNCS this
+  process's caches (`all` with `resync: true`): notifications sent meanwhile
+  are lost, but nothing known changed. The snapshot, platform and quota caches
+  mark their entries expired instead of dropping them (the next request is
+  answered from the old copy and ONE gated background rebuild follows), and
+  the IP blocklist reloads in the background while it keeps answering. So a
+  dropped LISTEN connection never makes every active workspace rebuild in
+  the foreground at once. Caches without a stale path (entitlements, lock
+  state, origin rules, the call widget bootstrap) drop their entries.
 - supabase-rest mode (no `DATABASE_URL`): local only, nothing listens.
 - RESPOK has its own database, so its channel is naturally separate.
 - `pg_notify` lives in `pg_catalog`; no migration, no grant.
@@ -252,23 +303,34 @@ auto-deploy independently, in any order. Both orders are safe:
   the old shape plus `protocol` (3), and GET /config is served from the same
   snapshot. It keeps sending /track and /visitor-presence with the header,
   which the backend still reads. Nothing changes for it.
-- **New loader, old backend:** an old backend ignores a text/plain body
-  (`req.body` is `{}`), so it answers 400 / no CORS headers (a network error) /
-  something resolved from the page origin alone — never with `protocol: 2`.
-  The loader drops any bootstrap answer that lacks `protocol >= 2` or names a
-  different workspace, and sends the same body once more as
-  `application/json`; that answer is used and GET /config is asked as before.
-  The session manager's re-bootstrap does the same. Cost during the window: one
-  extra request per page view, no functional change (fresh_visitor and the
-  commerce subject reset ride in the JSON re-send).
+- **New loader, old backend:** the CORS-simple bootstrap goes to POST
+  `/api/widget/boot`, a route an old backend does not have: it answers before
+  any bootstrap work (its token gate: 401, or 404, usually with no CORS
+  headers, so a network error), mints no token and sets no visitor cookie.
+  (Posting that body to `/bootstrap` instead would let an old backend, which
+  reads only JSON, resolve the workspace from the page origin, and on a site
+  whose domain is verified for ANOTHER workspace set that workspace's visitor
+  cookie on every page view.) The loader drops any answer that lacks
+  `protocol >= 2` or names a different workspace, and sends the same body once
+  more as `application/json` to `/bootstrap`; that answer is used and GET
+  /config is asked as before. The session manager's re-bootstrap does the
+  same. Cost during the window: one extra request per page view, and a
+  console network error on cross-origin pages; fresh_visitor and the commerce
+  subject reset ride in the JSON re-send.
+- Every answer the current handler writes carries `protocol`, errors
+  included: a 400 / 403 / 404 / 5xx with it is final (no second request), as a
+  bootstrap error always was; an error without it came from a backend that has
+  no `/boot`. A 429 on `/boot` is final after its one wait (both paths share
+  the bootstrap budget). `{disabled, protocol}` is final.
 - /track and /visitor-presence go CORS-simple only after a bootstrap answer
   with `protocol >= 3`, taken from every bootstrap (the session manager's
   re-bootstraps too), so a backend rolled back mid-page is followed. A
   `protocol: 2` backend (the first half of this work alone) gets the header
-  form.
-- 401 / 403 / 404 and a `{disabled, protocol}` answer are final, as they
-  always were (no second request); 5xx are retried as before, a 429 once.
-- Rolling back either app is the same mix and equally safe.
+  form. When a body-token request still reaches an older process (a rolling
+  deploy keeps old and new backend containers side by side for a while) and
+  fails (a network error) or is refused as unauthenticated, it is sent once
+  more with the header, and on success the page keeps the header form.
+- Rolling back either app is one of these mixes.
 
 Kill switch: `WIDGET_CONFIG_CACHE_TTL_MS=0` on the backend restores the
 uncached reads without a deploy of the loader.

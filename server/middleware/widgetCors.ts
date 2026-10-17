@@ -40,6 +40,7 @@ import {
 import { readWidgetToken, verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
 import { isOriginAllowed, toStrictOrigin } from '../utils/domain.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
+import { canonicalWorkspaceId } from '../lib/workspaceId.js';
 
 const ALLOWED_HEADERS = 'Content-Type, Authorization, X-Widget-Token, x-widget-token';
 const ALLOWED_METHODS = 'GET, POST, PUT, OPTIONS';
@@ -75,12 +76,13 @@ export function applyWidgetCorsHeaders(res: Response, origin: string) {
   res.setHeader('Vary', 'Origin');
 }
 
+/** The client-declared workspace, canonical (lib/workspaceId.ts); null when it is no uuid. */
 function getWorkspaceId(req: Request): string | null {
-  return (
+  return canonicalWorkspaceId(
     (req.query.workspace_id as string) ||
     (req.body?.workspace_id as string) ||
     (req.body?.workspaceId as string) ||
-    null
+    null,
   );
 }
 
@@ -103,7 +105,7 @@ function getTokenContext(req: Request): { workspaceId: string; tokenOrigin: stri
   if (!token) return null;
   const result = isSessionRefreshPath(req) ? verifyTokenForRefresh(token) : verifySessionToken(token);
   if (!result.valid || !result.workspaceId) return null;
-  return { workspaceId: result.workspaceId, tokenOrigin: (result.origin || '').toLowerCase().replace(/\/+$/, '') };
+  return { workspaceId: canonicalWorkspaceId(result.workspaceId) ?? result.workspaceId, tokenOrigin: (result.origin || '').toLowerCase().replace(/\/+$/, '') };
 }
 
 /**
@@ -155,7 +157,7 @@ export function widgetCorsMiddleware() {
 
     // 3) For bootstrap and config endpoints we may not have an explicit
     //    workspace yet — resolve it from the origin / referrer header.
-    if (!workspaceId && (req.path === '/bootstrap' || req.path === '/config')) {
+    if (!workspaceId && (req.path === '/bootstrap' || req.path === '/boot' || req.path === '/config')) {
       try {
         workspaceId = await resolveWorkspaceIdFromOrigin(config, getBootstrapOrigin(req));
       } catch {

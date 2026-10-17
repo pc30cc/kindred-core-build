@@ -258,24 +258,27 @@
       // Always the CURRENT browser origin: a token is never migrated from
       // one origin to another, a brand-new origin-bound one is minted.
       var body = JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin });
-      // First CORS-simple (text/plain, no preflight); a backend older than
-      // this loader ignores that body, so a non-current answer is dropped
-      // and the same body goes once more as application/json (see
+      // First CORS-simple (text/plain, no preflight) to /boot; a backend
+      // older than this loader has no such route and answers before any
+      // bootstrap work, so anything but a current answer is dropped and the
+      // same body goes once more as application/json to /bootstrap (see
       // requestBootstrap below). One fetch site for both shapes.
       function post(json) {
         var init = { method: 'POST', credentials: 'include', body: body };
         if (json) init.headers = { 'Content-Type': 'application/json' };
-        return fetch(cfg.apiBase + '/api/widget/bootstrap', init);
+        return fetch(cfg.apiBase + bootstrapPath(json), init);
       }
       function okJson(r) { return r && r.ok ? r.json() : null; }
       function asJson() { return post(true).then(okJson); }
       return post(false)
         .then(function (r) {
-          if (r.status === 400) return asJson();
-          if (!r.ok) return null;
+          if (r.status === 429) return null;
+          if (!r.ok) {
+            return r.json().then(function (j) { return isFinalBootstrapError(j) ? null : asJson(); }, asJson);
+          }
           return r.json().then(function (data) {
             return isCurrentBootstrap(data, cfg.workspaceId) ? data : asJson();
-          });
+          }, asJson);
         }, asJson)
         .then(noteProtocol)
         .then(adopt)
@@ -1267,42 +1270,85 @@
   function serverReadsBodyToken() {
     try { return Number(window.__gs_token && window.__gs_token.serverProtocol) >= 3; } catch (_) { return false; }
   }
+  // A body-token request that fails (no CORS headers: a network error) or is
+  // refused as unauthenticated may have reached a backend process older than
+  // the one that answered the bootstrap (a rolling deploy, a rollback): it is
+  // sent once more in the header form, and when that goes through, this page
+  // keeps the header form from then on.
   function tokenPost(url, payload, token) {
-    var init = { method: "POST", credentials: "include" };
-    if (serverReadsBodyToken()) {
-      var body = {};
-      for (var k in payload) {
-        if (Object.prototype.hasOwnProperty.call(payload, k)) body[k] = payload[k];
-      }
-      body.widget_token = token;
-      init.body = JSON.stringify(body);
-    } else {
-      init.headers = { "Content-Type": "application/json", "X-Widget-Token": token };
-      init.body = JSON.stringify(payload);
+    function headerForm() {
+      return fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+        body: JSON.stringify(payload),
+      });
     }
-    return fetch(url, init);
+    function useHeaderForm() {
+      try { if (window.__gs_token) window.__gs_token.serverProtocol = 0; } catch (_) {}
+    }
+    if (!serverReadsBodyToken()) return headerForm();
+    var body = {};
+    for (var k in payload) {
+      if (Object.prototype.hasOwnProperty.call(payload, k)) body[k] = payload[k];
+    }
+    body.widget_token = token;
+    return fetch(url, { method: "POST", credentials: "include", body: JSON.stringify(body) })
+      .then(function (r) {
+        if (r.status !== 401) return r;
+        return headerForm().then(function (again) {
+          if (again.ok) useHeaderForm();
+          return again;
+        });
+      }, function () {
+        useHeaderForm();
+        return headerForm();
+      });
   }
 
-  // ─── POST /api/widget/bootstrap ───
+  // ─── POST /api/widget/boot, then /api/widget/bootstrap ───
+  // The CORS-simple first try goes to /boot, a route only a backend that
+  // reads its text/plain body has. An older backend answers it before any
+  // bootstrap work (no route: 401/404, or no CORS headers at all), so it never
+  // mints a token or sets a visitor cookie for whatever workspace the page
+  // origin maps to; the JSON retry goes to /bootstrap, which every backend has.
+  function bootstrapPath(json) { return json ? '/api/widget/bootstrap' : '/api/widget/boot'; }
+
   // A bootstrap answer from a backend that read our text/plain body: it says
   // `protocol` >= 2 and names the workspace we asked for (a disabled answer
   // names none). Anything else came from an older backend, which ignored
   // that body and can only have answered for the page origin's mapping.
   function isCurrentBootstrap(data, workspaceId) {
     return !!data && typeof data === "object" && Number(data.protocol) >= 2 &&
-      (!data.workspace_id || data.workspace_id === workspaceId);
+      (!data.workspace_id || sameWorkspaceId(data.workspace_id, workspaceId));
+  }
+  // The server answers with the id in its canonical spelling (lower case,
+  // hyphenated); the page may have embedded another one of the same uuid.
+  function sameWorkspaceId(a, b) {
+    function c(v) { return String(v || "").replace(/[{}\-\s]/g, "").toLowerCase(); }
+    return c(a) === c(b);
+  }
+  // An error the current bootstrap handler wrote (it carries `protocol`):
+  // final, as a bootstrap error always was. Without it, the error came from a
+  // backend that has no /boot route, and the JSON request to /bootstrap is
+  // the real answer.
+  function isFinalBootstrapError(body) {
+    return !!body && typeof body === "object" && Number(body.protocol) >= 2;
   }
 
-  // Sent first as a CORS-simple request: no Content-Type header, so the
-  // browser labels the JSON text/plain and sends no OPTIONS preflight (one
-  // round trip less on a first visit; `include_config` saves another).
+  // Sent first as a CORS-simple request to /boot: no Content-Type header, so
+  // the browser labels the JSON text/plain and sends no OPTIONS preflight
+  // (one round trip less on a first visit; `include_config` saves another).
   // Frontend and backend deploy independently, so the backend may be older
-  // than this loader: it then answers without `protocol` (or 400, or with no
-  // CORS headers at all — a network error). That answer is DROPPED and the
-  // same body is sent once more as application/json; its answer is used.
-  // 401/403/404 and a disabled widget are final, as they always were. 5xx are
-  // retried by fetchWithRetry as before.
-  function requestBootstrap(url, payload) {
+  // than this loader: it then has no /boot (an error, or no CORS headers at
+  // all — a network error), or answers without `protocol`. Such an answer is
+  // DROPPED and the same body is sent once more as application/json to
+  // /bootstrap; that answer is used, and 401/403/404 and a disabled widget
+  // are final there, as they always were. An error from the current handler
+  // (it carries `protocol`) is final at once, and so is a 429 on /boot (both
+  // paths share the bootstrap budget; fetchWithRetry already waited once).
+  // 5xx are retried by fetchWithRetry as before.
+  function requestBootstrap(apiBase, payload) {
     var body = JSON.stringify(payload);
     function parse(r) {
       if (r.status === 401 || r.status === 403) {
@@ -1312,19 +1358,24 @@
       return r.json();
     }
     function asJson() {
-      return fetchWithRetry(url, {
+      return fetchWithRetry(apiBase + bootstrapPath(true), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: body,
       }, 3).then(parse);
     }
-    return fetchWithRetry(url, { method: "POST", credentials: "include", body: body }, 3, true)
+    return fetchWithRetry(apiBase + bootstrapPath(false), { method: "POST", credentials: "include", body: body }, 3, true)
       .then(function (r) {
-        if (r.status === 400) return asJson();
-        return parse(r).then(function (data) {
+        if (r.status === 429) return parse(r);
+        if (!r.ok) {
+          return r.json().then(function (j) {
+            return isFinalBootstrapError(j) ? parse(r) : asJson();
+          }, asJson);
+        }
+        return r.json().then(function (data) {
           return isCurrentBootstrap(data, payload.workspace_id) ? data : asJson();
-        });
+        }, asJson);
       }, asJson);
   }
 
@@ -1353,7 +1404,6 @@
       return;
     }
 
-    var bootstrapUrl = apiBase + "/api/widget/bootstrap";
     var bootstrapPayload = {
       workspace_id: WORKSPACE_ID,
       origin: window.location.origin,
@@ -1368,7 +1418,7 @@
         document.cookie = "gs_active=; path=/; max-age=0; SameSite=Lax";
       } catch (_) {}
     }
-    requestBootstrap(bootstrapUrl, bootstrapPayload)
+    requestBootstrap(apiBase, bootstrapPayload)
       .then(function (data) {
         if (data.disabled) {
           log("Widget disabled by server");
@@ -1541,6 +1591,61 @@
       if (opts.launcherOnly) { showShellError(lt("notConfigured")); return; }
       onLauncherClick();
     });
+    if (!opts.errorMessage && !opts.launcherOnly) {
+      var intentEvents = ["pointerenter", "pointerdown", "touchstart", "focus"];
+      for (var ie = 0; ie < intentEvents.length; ie++) {
+        launcherEl.addEventListener(intentEvents[ie], onOpenIntent, { passive: true });
+      }
+    }
+  }
+
+  // ─── Open intent: warm what a first open waits on ────────────────────
+  // A first open needs two connections the page view no longer opens:
+  // Chrome's uncredentialed one to the API (the open's preflights; the page
+  // view sends none now) and to the fonts' host (the template's CORS font
+  // files). Each costs a TCP + TLS setup at tap time. A pointer over the
+  // launcher, a touch on it or keyboard focus says an open is likely: both
+  // are opened then (rel=preconnect crossorigin, never on a page view
+  // nobody opens, so no handshake is spent on those), and the panel's files
+  // load and run, with the template's prepare() warming its faces. Only
+  // their definitions run: runtime.init() (the realtime connection, every
+  // API read) waits for a real open, or for a Smart Engagement preload.
+  var openIntentSeen = false;
+  var holdRuntimeInit = false;
+  var heldRuntimeInit = null;
+  var preconnected = {};
+  function preconnectAnonymous(base) {
+    try {
+      if (!base) return;
+      var o = new URL(base, window.location.href).origin;
+      if (!o || o === "null" || o === window.location.origin || preconnected[o]) return;
+      preconnected[o] = true;
+      var link = document.createElement("link");
+      link.rel = "preconnect";
+      link.href = o;
+      link.crossOrigin = "anonymous";
+      (document.head || document.documentElement).appendChild(link);
+    } catch (_) { /* noop */ }
+  }
+  function onOpenIntent() {
+    if (openIntentSeen || !configData) return;
+    openIntentSeen = true;
+    preconnectAnonymous(configData._apiBase);
+    // The faces come from the fonts stylesheet's host (the template's other
+    // files load no-cors, over the credentialed connection the page view
+    // already opened).
+    preconnectAnonymous(configData.presentationFontsUrl);
+    if (runtimeLoaded || runtimeLoading || runtimeLoadFailed) return;
+    holdRuntimeInit = true;
+    loadRuntimeAssets();
+  }
+  // Something wants the runtime itself now (an open, a Smart Engagement
+  // preload): run the init a warm-up held back, or let the load go on to it.
+  function releaseRuntimeInit() {
+    holdRuntimeInit = false;
+    var run = heldRuntimeInit;
+    heldRuntimeInit = null;
+    if (run) run();
   }
 
   // ─── Single source of truth for open state ───────────────────────────
@@ -1694,11 +1799,13 @@
       syncOpenStateFromRuntime();
       return;
     }
-    // A Smart Engagement silent preload (see preloadRuntimeForSmart) may
-    // already have a load in flight. Upgrade it to "open when ready"
-    // instead of starting a second, redundant load.
+    // A Smart Engagement silent preload (see preloadRuntimeForSmart) or an
+    // open-intent warm-up (onOpenIntent) may already have a load in flight.
+    // Upgrade it to "open when ready" instead of starting a second,
+    // redundant load.
     wantRuntimeOpen = true;
-    if (runtimeLoading) return;
+    if (runtimeLoading) { releaseRuntimeInit(); return; }
+    holdRuntimeInit = false;
     loadRuntimeAssets();
   }
 
@@ -1870,7 +1977,11 @@
       if (failed || !cssLoaded || !jsLoaded || !templateCssLoaded || !templateSkinLoaded || !registryLoaded || !templateJsLoaded) return;
       if (presentationPreparing) return;
       presentationPreparing = true;
-      startPreparation().then(initRuntime);
+      startPreparation().then(function () {
+        // An open-intent warm-up stops here until something wants the runtime.
+        if (holdRuntimeInit) { heldRuntimeInit = initRuntime; return; }
+        initRuntime();
+      });
     }
 
     function initRuntime() {
@@ -1934,6 +2045,8 @@
       failed = true;
       runtimeLoading = false;
       runtimeLoadFailed = true;
+      holdRuntimeInit = false;
+      heldRuntimeInit = null;
       warn("Runtime asset failed:", what);
       // Clean up any half-loaded sibling so a successful CSS load does
       // not later flip `cssLoaded=true` and re-enter `done()` with a
@@ -1973,13 +2086,21 @@
      * Wires `el.onerror` so a hashed 404 is retried once with the unhashed
      * name (a fresh node, because re-setting src/href on a failed element is
      * not reliably re-fetched), then calls onFail() if that also fails.
+     * Fresh means createElement, never cloneNode(): a cloned <script> keeps
+     * its "already started" flag (HTML spec), so it is never fetched and
+     * fires neither load nor error, and the panel would wait forever.
      */
     function withHashFallback(el, url, urlProp, parent, onFail) {
       el.onerror = function () {
         var alt = unhashedAssetUrl(url);
         if (!alt) { onFail(); return; }
         warn("asset failed, retrying unhashed:", alt);
-        var retry = el.cloneNode(false);
+        var retry = document.createElement(el.tagName.toLowerCase());
+        for (var ai = 0; ai < el.attributes.length; ai++) {
+          var attr = el.attributes[ai];
+          if (attr.name !== urlProp) retry.setAttribute(attr.name, attr.value);
+        }
+        if (urlProp === "src") retry.async = el.async;
         retry[urlProp] = alt;
         retry.onload = el.onload;
         retry.onerror = function () { onFail(); };
@@ -2106,6 +2227,10 @@
             window.__gs_call_resolveReady = resolve;
             window.__gs_call_rejectReady = reject;
           });
+          // Whoever awaits it (a Join) handles a failure; with nobody waiting,
+          // a failed load must not surface on the customer's page as an
+          // unhandled rejection.
+          window.__gs_call_ready.then(null, function () {});
           var cs = document.createElement("script");
           cs.src = callJs;
           cs.charset = "utf-8";
@@ -2120,10 +2245,11 @@
               try { window.__gs_call_rejectReady && window.__gs_call_rejectReady(new Error('call_module_loaded_but_api_missing')); } catch (_) {}
             }
           };
-          cs.onerror = function () {
+          // Its own one-time canonical-name retry, like every hashed file.
+          withHashFallback(cs, callJs, "src", document.head, function () {
             warn("call module failed to load");
             try { window.__gs_call_rejectReady && window.__gs_call_rejectReady(new Error('call_module_load_failed')); } catch (_) {}
-          };
+          });
           document.head.appendChild(cs);
         }
       } catch (_) { /* never block chat boot on the call module */ }
@@ -2148,6 +2274,8 @@
   // normal triggerOpen() -> instance.open() path.
   function preloadRuntimeForSmart() {
     if (!configData || runtimeLoadFailed) return;
+    if (runtimeLoading) { releaseRuntimeInit(); return; }
+    holdRuntimeInit = false;
     loadRuntimeAssets();
   }
 

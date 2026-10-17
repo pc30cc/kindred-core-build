@@ -165,3 +165,59 @@ describe('RateGate', () => {
     await gate.acquire();
   });
 });
+
+describe('MemoCache — serveStale and expireAll', () => {
+  it('an entry serveStale refuses is reloaded in the foreground once past its lifetime', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: 0 });
+    const c = cache({ serveStale: (v) => !v.bad });
+    let next: V = { id: 'degraded', bad: true };
+    const load = vi.fn(async (_ctx: MemoLoadContext) => next);
+    expect((await c.get('k', load)).id).toBe('degraded');
+    next = { id: 'good' };
+    vi.setSystemTime(10_001);
+    // Not the stale degraded copy: the request waits for the reload.
+    expect((await c.get('k', load)).id).toBe('good');
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load.mock.calls[1][0]).toEqual({ background: false });
+  });
+
+  it('a negative entry serveStale refuses is not served stale either', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: 0 });
+    const c = cache({ serveStale: (v) => !v.missing });
+    let next: V = { id: 'gone', missing: true };
+    const load = vi.fn(async () => next);
+    await c.get('k', load);
+    next = { id: 'created' };
+    vi.setSystemTime(1_001);
+    expect((await c.get('k', load)).id).toBe('created');
+  });
+
+  it('expireAll keeps the copies servable: the next request gets the old one and ONE reload runs', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: 0 });
+    const c = cache();
+    let n = 0;
+    const load = vi.fn(async (_ctx: MemoLoadContext) => ({ id: `v${++n}` }));
+    await c.get('k', load);
+    c.expireAll();
+    expect(c.sizes()).toEqual([1, 0]);
+    const [a, b] = await Promise.all([c.get('k', load), c.get('k', load)]);
+    expect(a.id).toBe('v1');
+    expect(b.id).toBe('v1');
+    await vi.waitFor(() => expect(c.peek('k')?.id).toBe('v2'));
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load.mock.calls[1][0]).toEqual({ background: true });
+    // The reloaded entry is fresh again.
+    await c.get('k', load);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('expireAll disowns a running load (it may predate the signal)', async () => {
+    const c = cache();
+    let release: (v: V) => void = () => undefined;
+    const pending = c.get('k', () => new Promise<V>((r) => { release = r; }));
+    c.expireAll();
+    release({ id: 'old' });
+    expect((await pending).id).toBe('old');
+    expect(c.peek('k')).toBeUndefined();
+  });
+});

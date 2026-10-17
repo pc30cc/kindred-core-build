@@ -3,6 +3,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { extractHostname, isOriginAllowed, normalizeDomain } from '../../utils/domain.js';
 import { onInvalidate } from '../../lib/cacheBus.js';
+import { canonicalWorkspaceId } from '../../lib/workspaceId.js';
 
 const CACHE_TTL = 60_000;
 /** Negative (host → no workspace) answers expire faster: a customer that just
@@ -65,6 +66,7 @@ function isHostEntryFresh(entry: HostEntry): boolean {
 
 /** Drop the cached origin rules of one workspace (domain/settings mutation). */
 export function invalidateWorkspaceOriginCache(workspaceId: string): void {
+  workspaceId = canonicalWorkspaceId(workspaceId) ?? workspaceId;
   originRulesCache.delete(workspaceId);
   domainGeneration += 1;
   for (const [host, entry] of workspaceByHostCache) {
@@ -324,6 +326,8 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
 
 
 export async function getWorkspaceOriginRules(config: ServerConfig, workspaceId: string) {
+  // One entry per workspace whatever the spelling (lib/workspaceId.ts).
+  workspaceId = canonicalWorkspaceId(workspaceId) ?? workspaceId;
   const cached = originRulesCache.get(workspaceId);
   if (cached && isFresh(cached.ts)) {
     return { domains: cached.domains, allowSubdomains: cached.allowSubdomains };

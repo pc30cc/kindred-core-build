@@ -47,7 +47,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let readyFired = 0;
 
 /** Boots the loader; bootstrap answers are used in order (the last repeats). */
-async function boot(bootstrapAnswers: Answer[]) {
+async function boot(bootstrapAnswers: Answer[], opts: { track?: (init: Init) => Promise<Answer> } = {}) {
   document.head.innerHTML = '';
   document.body.innerHTML = '';
   for (const k of ['__gs', '__gs_id', '__gs_api_base', '__gs_loaded', '__gs_loader_injected', '__gs_token', '__gs_runtime', '__gs_policy', '__gs_session_id', '__gs_visitor_presence']) {
@@ -62,11 +62,13 @@ async function boot(bootstrapAnswers: Answer[]) {
   win().__gs = [['onReady', () => { readyFired += 1; }]];
   patchAppendChild(document.head);
   let n = 0;
-  fetchMock = vi.fn((url: string) => {
+  fetchMock = vi.fn((url: string, init?: unknown) => {
     const u = String(url);
-    if (u.includes('/api/widget/bootstrap')) return Promise.resolve(bootstrapAnswers[Math.min(n++, bootstrapAnswers.length - 1)]);
+    if (u.includes('/api/widget/boot')) return Promise.resolve(bootstrapAnswers[Math.min(n++, bootstrapAnswers.length - 1)]);
     if (u.includes('/api/widget/config')) return Promise.resolve(response(CONFIG));
-    if (u.includes('/api/widget/track')) return Promise.resolve(response({ ok: true, session_id: 'sess-1' }));
+    if (u.includes('/api/widget/track')) {
+      return opts.track ? opts.track((init || {}) as Init) : Promise.resolve(response({ ok: true, session_id: 'sess-1' }));
+    }
     if (u.includes('/api/realtime/visitor-presence')) return Promise.resolve(response({ vendor: 'database', presence: false }));
     return Promise.resolve(response({}));
   });
@@ -77,7 +79,8 @@ async function boot(bootstrapAnswers: Answer[]) {
 
 type Init = { method?: string; credentials?: string; headers?: Record<string, string>; body?: string };
 const calls = (part: string) => fetchMock.mock.calls.filter((c) => String(c[0]).includes(part));
-const bootstrapCount = () => calls('/api/widget/bootstrap').length;
+/** Both bootstrap paths: /boot (CORS-simple) and /bootstrap (JSON). */
+const bootstrapCount = () => calls('/api/widget/boot').length;
 const current = (protocol: number, extra: Record<string, unknown> = {}) => response({
   session_token: 'tok-new', workspace_id: 'ws-test', availability: { state: 'online' }, protocol, config: CONFIG, ...extra,
 });
@@ -172,5 +175,46 @@ describe('track and visitor-presence: CORS-simple only for a backend that says p
       expect(init.headers).toEqual({ 'Content-Type': 'application/json', 'X-Widget-Token': 'tok-new' });
       expect(JSON.parse(String(init.body))).not.toHaveProperty('widget_token');
     }
+  });
+});
+
+describe('a body-token request that reaches an older backend process (rolling deploy, rollback)', () => {
+  const ok = () => Promise.resolve(response({ ok: true, session_id: 'sess-1' }));
+
+  it('a network error (no CORS headers: the old process read no token) → sent once more with X-Widget-Token; the page keeps the header form', async () => {
+    let n = 0;
+    await boot([current(3)], {
+      track: (init) => {
+        n++;
+        if (n === 1) {
+          expect(init.headers).toBeUndefined();
+          return Promise.reject(new TypeError('Failed to fetch'));
+        }
+        return ok();
+      },
+    });
+    await vi.advanceTimersByTimeAsync(2500);
+    const track = calls('/api/widget/track').map((c) => c[1] as Init);
+    expect(track).toHaveLength(2);
+    expect(track[1].headers).toEqual({ 'Content-Type': 'application/json', 'X-Widget-Token': 'tok-new' });
+    expect(JSON.parse(String(track[1].body))).not.toHaveProperty('widget_token');
+    // The session came back, so presence started — in the header form now.
+    const presence = calls('/api/realtime/visitor-presence').map((c) => c[1] as Init);
+    expect(presence).toHaveLength(1);
+    expect(presence[0].headers).toEqual({ 'Content-Type': 'application/json', 'X-Widget-Token': 'tok-new' });
+    expect((win().__gs_token as { serverProtocol: number }).serverProtocol).toBe(0);
+  });
+
+  it('a 401 to the body form → sent once more with X-Widget-Token; its answer is used', async () => {
+    let n = 0;
+    await boot([current(3)], {
+      track: () => (++n === 1 ? Promise.resolve(response({ error: 'Missing token', code: 'MISSING_TOKEN' }, 401)) : ok()),
+    });
+    await vi.advanceTimersByTimeAsync(2500);
+    const track = calls('/api/widget/track').map((c) => c[1] as Init);
+    expect(track).toHaveLength(2);
+    expect(track[0].headers).toBeUndefined();
+    expect(track[1].headers).toEqual({ 'Content-Type': 'application/json', 'X-Widget-Token': 'tok-new' });
+    expect(calls('/api/realtime/visitor-presence')).toHaveLength(1);
   });
 });

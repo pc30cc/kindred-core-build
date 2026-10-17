@@ -631,6 +631,38 @@ describe('prechatOperator and prechatSummary', () => {
     expect(h.q('[data-summary]')).toBeNull();
     expect(h.q<HTMLInputElement>('[data-prechat="email"]')!.value).toBe('ali@example.com');
   });
+
+  // A card is not repainted for typing (its fields are in use), so a typing
+  // row drawn under it by any other repaint would stay after the typing.
+  it('typing is never drawn under the handoff card, and does not repaint the details being edited', async () => {
+    const h = boot({ renderer: featureRenderer(), realtime: true, identity: PRECHAT, conversations: [{ id: 'c1' }], history: { c1: [OPERATOR_MSG] } });
+    await flush(20);
+    h.runtime.__test.openConversation('c1');
+    await flush(20);
+    expect(h.q('.hc-card')).not.toBeNull();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    h.emitTyping();
+    h.runtime.setTab('chat'); // any repaint inside the 3.5 s window
+    expect(h.q('.typing-row')).toBeNull();
+    await vi.advanceTimersByTimeAsync(3600);
+    vi.useRealTimers();
+    expect(h.q('.typing-row')).toBeNull();
+
+    typeInto(h.q<HTMLInputElement>('[data-prechat="email"]')!, 'ali@example.com');
+    click(h.q('[data-prechat-submit]'));
+    await flush(20);
+    click(h.q('[data-prechat-edit]'));
+    await flush();
+    const field = h.q<HTMLInputElement>('[data-prechat="email"]')!;
+    field.focus();
+    h.emitTyping();
+    await flush();
+    expect(h.q('[data-prechat="email"]')).toBe(field);
+    expect(h.shadow.activeElement).toBe(field);
+    expect(h.q('.typing-row')).toBeNull();
+    // The header still says so.
+    expect(JSON.parse(h.q('[data-head]')!.textContent || '{}').typing).toBe(true);
+  });
 });
 
 describe('conversationOperator', () => {

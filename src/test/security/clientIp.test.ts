@@ -33,7 +33,7 @@ function mkReq(opts: {
 }
 
 const PROXY = '10.0.0.5';       // private peer → trusted (Traefik/Coolify/nginx)
-const NGINX = '10.0.0.9';       // the frontend's nginx (/api/ on app.*)
+const NGINX = '10.0.0.9';       // an nginx that reaches the backend over the private network
 const PUBLIC_CLIENT = '185.23.45.67';
 const CF_EDGE = '172.70.1.1';   // 172.64.0.0/13, a Cloudflare edge
 const CF_EDGE_V6 = '2606:4700:10::6816:1';
@@ -140,12 +140,17 @@ describe('behind a trusted reverse proxy (Coolify / Traefik / nginx)', () => {
     expect(getClientIp(req)).toBe(PUBLIC_CLIENT);
   });
 
-  it('never reads X-Real-IP: without XFF a private peer names nobody, and a Cloudflare X-Real-IP does not make its cf-connecting-ip believed', () => {
-    expect(getClientIp(mkReq({ peer: PROXY, headers: { 'x-real-ip': PUBLIC_CLIENT } }))).toBeNull();
+  it('X-Real-IP, only from our own proxy and only without XFF, is a plain client: a Cloudflare X-Real-IP does not make its cf-connecting-ip believed', () => {
+    // A self-host nginx with only `proxy_set_header X-Real-IP $remote_addr`.
+    expect(getClientIp(mkReq({ peer: PROXY, headers: { 'x-real-ip': PUBLIC_CLIENT } }))).toBe(PUBLIC_CLIENT);
     const forged = mkReq({ peer: PROXY, headers: { 'x-real-ip': CF_EDGE, 'cf-connecting-ip': '9.9.9.9', 'cf-ipcountry': 'US' } });
     expect(getEdgeIp(forged)).toBeNull();
-    expect(getClientIp(forged)).toBeNull();
+    expect(getClientIp(forged)).toBe(CF_EDGE);
     expect(getClientCountry(forged)).toBeNull();
+    // A direct client's own X-Real-IP, a private one, or two of them: nothing.
+    expect(getClientIp(mkReq({ peer: PUBLIC_CLIENT, headers: { 'x-real-ip': '9.9.9.9' } }))).toBe(PUBLIC_CLIENT);
+    expect(getClientIp(mkReq({ peer: PROXY, headers: { 'x-real-ip': '10.0.0.9' } }))).toBeNull();
+    expect(getClientIp(mkReq({ peer: PROXY, headers: { 'x-real-ip': `9.9.9.9, ${PUBLIC_CLIENT}` } }))).toBeNull();
   });
 
   it('does not read req.ip (it is getClientIp itself once installed): no headers = unknown', () => {
@@ -184,7 +189,7 @@ describe('Cloudflare', () => {
     expect(getClientIp(req)).toBe(PUBLIC_CLIENT);
   });
 
-  it('Cloudflare -> Traefik -> frontend nginx -> backend', () => {
+  it('Cloudflare -> Traefik -> an nginx on the private network -> backend', () => {
     const req = mkReq({
       peer: NGINX,
       headers: { 'x-forwarded-for': `${CF_EDGE}, ${PROXY}`, 'x-real-ip': PROXY, 'cf-connecting-ip': PUBLIC_CLIENT },
@@ -365,12 +370,45 @@ describe('the header shapes production really forwards (observed on vps-50cc1602
     expect(getClientCountry(req)).toBe('CA');
   });
 
-  it("through Cloudflare and the frontend's nginx (/api/ on app.*): the same visitor", () => {
+  it("through the frontend's nginx (/api/ on app.*): BACKEND_URL is https://api.*, so it goes out through Cloudflare again and the client is the server itself", () => {
+    // Traefik drops the X-Forwarded-For nginx built; Cloudflare names the
+    // address that connected to it: 192.99.68.134. The visitor is lost on this
+    // path (the SPAs call https://api.* directly, so nothing uses it today).
+    const req = mkReq({
+      peer: TRAEFIK,
+      headers: { 'x-forwarded-for': '172.70.85.12', 'x-real-ip': '172.70.85.12', 'cf-connecting-ip': '192.99.68.134' },
+    });
+    expect(getClientIp(req)).toBe('192.99.68.134');
+  });
+
+  it('an nginx that talks to the backend over the private network (a self-host topology) keeps the visitor', () => {
     const req = mkReq({
       peer: '10.0.1.24',
       headers: { 'x-forwarded-for': `162.158.127.231, ${TRAEFIK}`, 'x-real-ip': TRAEFIK, 'cf-connecting-ip': PUBLIC_CLIENT },
     });
     expect(getClientIp(req)).toBe(PUBLIC_CLIENT);
+  });
+});
+
+describe('one spelling per address', () => {
+  it('unwraps IPv4-mapped IPv6 in every spelling, so a mapped loopback is private and hashes like its IPv4', () => {
+    for (const x of ['::ffff:1.2.3.4', '::ffff:102:304', '0:0:0:0:0:ffff:1.2.3.4', '::FFFF:0102:0304']) expect(normalizeIp(x)).toBe('1.2.3.4');
+    expect(isPrivateOrReservedIp('::ffff:7f00:1')).toBe(true);
+    expect(hashIp('::ffff:102:304')).toBe(hashIp('1.2.3.4'));
+    // A Cloudflare hop naming a mapped private address is not believed.
+    expect(getClientIp(mkReq({ peer: PROXY, headers: { 'x-forwarded-for': CF_EDGE, 'cf-connecting-ip': '::ffff:a00:1' } }))).toBeNull();
+  });
+
+  it('writes IPv6 in its RFC 5952 form, and matches only the real reserved ranges', () => {
+    expect(normalizeIp('2A01:04F8:0000:0000:0000:0000:0000:0001')).toBe('2a01:4f8::1');
+    expect(hashIp('2a01:4f8:0:0::1')).toBe(hashIp('2a01:4f8::1'));
+    expect(isPrivateOrReservedIp('2001:db8::1')).toBe(true);
+    expect(isPrivateOrReservedIp('2001:db80::1')).toBe(false);
+    expect(isPrivateOrReservedIp('fe80::1')).toBe(true);
+    expect(isPrivateOrReservedIp('febf::1')).toBe(true);
+    expect(isPrivateOrReservedIp('fec0::1')).toBe(false);
+    expect(isPrivateOrReservedIp('64:ff9b::1.2.3.4')).toBe(true);
+    expect(isPrivateOrReservedIp('64:ff9b:1::1')).toBe(false);
   });
 });
 

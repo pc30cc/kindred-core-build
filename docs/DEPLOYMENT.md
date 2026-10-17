@@ -148,6 +148,7 @@ SESSION_SECRET=
 APP_BASE_URL=https://app.example.com          # links inside auth emails
 CORS_ORIGINS=https://app.example.com          # never leave "*" in production
 TRUSTED_PROXY_IPS=
+CLOUDFLARE_IPS=                               # unset = Cloudflare's ranges; `off` without Cloudflare
 PLUGIN_SECRETS_MASTER_KEY= / CHANNELS_WEBHOOK_SIGNING_KEY= / CORE_INTERNAL_SECRET=
 PUBLIC_CHANNELS_BASE_URL=https://channels.example.com   # what Telegram calls
 CHANNELS_INTERNAL_BASE_URL=https://channels.example.com

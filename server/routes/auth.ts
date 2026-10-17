@@ -15,6 +15,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient, type ServiceClient } from '../supabase.js';
 import {
   authRateLimiter,
+  sessionActionRateLimiter,
   checkBruteForce,
   recordLoginAttempt,
   verifyCaptcha,
@@ -513,7 +514,7 @@ authSecurityRouter.get('/session', async (req, res) => {
  * POST /api/auth/logout
  * Revokes only the calling browser's session and clears its cookie.
  */
-authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
+authSecurityRouter.post('/logout', sessionActionRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
     const { token, transport } = readSessionToken(req);
@@ -559,7 +560,7 @@ authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
  * Revokes every session for the caller's account (all devices), including
  * this one, and clears this browser's cookie.
  */
-authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
+authSecurityRouter.post('/logout-all', sessionActionRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
     const { token, transport } = readSessionToken(req);
@@ -621,7 +622,7 @@ async function resolveImpersonator(
  */
 const impersonateRedeemSchema = z.object({ token: z.string().min(1).max(512) });
 
-authSecurityRouter.post('/impersonate', authRateLimiter, async (req, res) => {
+authSecurityRouter.post('/impersonate', sessionActionRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
     const { token: currentToken, transport } = readSessionToken(req);
@@ -713,7 +714,7 @@ authSecurityRouter.post('/impersonate', authRateLimiter, async (req, res) => {
  * no longer usable (expired, revoked, no longer an admin), both cookies are
  * cleared and the browser is sent to the login page.
  */
-authSecurityRouter.post('/impersonate/stop', authRateLimiter, async (req, res) => {
+authSecurityRouter.post('/impersonate/stop', sessionActionRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = serverConfigOf(req);
     const { token, transport } = readSessionToken(req);

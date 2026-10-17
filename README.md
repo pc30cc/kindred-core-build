@@ -124,9 +124,10 @@ off, renewals, the move to Free at the due moment, monthly AI credit and
 billing reminders stop on that process. Leave it on in production; see
 `server/.env.example`.
 
-`trust proxy` is set to `loopback, linklocal, uniquelocal` so that
-`x-forwarded-for` / `cf-connecting-ip` are only honored from private
-upstream hops.
+The client address (`req.ip`) is `server/utils/clientIp.ts` `getClientIp`:
+the hop our own proxies saw in `x-forwarded-for`, and `cf-connecting-ip` only
+when that hop is a Cloudflare address (`CLOUDFLARE_IPS`). See "Client IP" in
+`docs/operations/WIDGET_CONFIG_CACHE.md`.
 
 ---
 

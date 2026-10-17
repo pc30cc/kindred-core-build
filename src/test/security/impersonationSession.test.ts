@@ -88,6 +88,7 @@ vi.mock('../../../server/middleware/adminBypass.js', () => ({
 
 vi.mock('../../../server/middleware/security.js', () => ({
   authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  sessionActionRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   checkBruteForce: async () => ({ blocked: false, failCount: 0 }),
   recordLoginAttempt: vi.fn(),
   verifyCaptcha: async () => ({ success: true }),

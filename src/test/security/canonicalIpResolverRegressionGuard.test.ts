@@ -61,7 +61,7 @@ describe('no bespoke X-Forwarded-For/CF-Connecting-IP parsing outside the canoni
 });
 
 describe('canonical resolver used at runtime: untrusted direct client cannot rotate rate-limit identity via spoofed headers', () => {
-  function req(overrides: Partial<Request> & { socket?: any } = {}): Request {
+  function req(overrides: { headers?: Record<string, string>; socket?: { remoteAddress: string } } = {}): Request {
     return {
       headers: {},
       socket: { remoteAddress: '185.23.45.67' }, // public "attacker" peer — untrusted
@@ -71,8 +71,8 @@ describe('canonical resolver used at runtime: untrusted direct client cannot rot
   }
 
   it('a direct (non-proxied) client cannot rotate its resolved IP via X-Forwarded-For', () => {
-    const a = getClientIp(req({ headers: { 'x-forwarded-for': '1.1.1.1' } } as any));
-    const b = getClientIp(req({ headers: { 'x-forwarded-for': '2.2.2.2' } } as any));
+    const a = getClientIp(req({ headers: { 'x-forwarded-for': '1.1.1.1' } }));
+    const b = getClientIp(req({ headers: { 'x-forwarded-for': '2.2.2.2' } }));
     // Untrusted peer → headers ignored entirely → both resolve to the real
     // socket peer, not the attacker-supplied header value.
     expect(a).toBe('185.23.45.67');
@@ -81,7 +81,7 @@ describe('canonical resolver used at runtime: untrusted direct client cannot rot
   });
 
   it('a direct client cannot rotate its resolved IP via CF-Connecting-IP either', () => {
-    const a = getClientIp(req({ headers: { 'cf-connecting-ip': '3.3.3.3' } } as any));
+    const a = getClientIp(req({ headers: { 'cf-connecting-ip': '3.3.3.3' } }));
     expect(a).toBe('185.23.45.67');
   });
 
@@ -89,7 +89,7 @@ describe('canonical resolver used at runtime: untrusted direct client cannot rot
     const trustedPeerReq = req({
       socket: { remoteAddress: '10.0.0.5' }, // private bridge network → trusted proxy
       headers: { 'x-forwarded-for': '45.33.32.156' }, // genuinely public, non-reserved
-    } as any);
+    });
     expect(getClientIp(trustedPeerReq)).toBe('45.33.32.156');
   });
 });

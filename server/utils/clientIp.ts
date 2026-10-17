@@ -7,15 +7,23 @@
  * APPEND the peer they saw to X-Forwarded-For. Walking that chain from the
  * right, past our own hops, gives the EDGE: the address that connected to our
  * outermost proxy. A client cannot forge it: whatever it writes into
- * X-Forwarded-For ends up to the LEFT of the entry our proxy appends.
+ * X-Forwarded-For ends up to the LEFT of the entry our proxy appends (and
+ * Traefik, with no forwardedHeaders settings, drops it altogether).
  *
  *   - The edge is a Cloudflare address (`CLOUDFLARE_IPS`, default Cloudflare's
- *     published ranges below): Cloudflare set `cf-connecting-ip` and
- *     `cf-ipcountry` itself, so the client is `cf-connecting-ip`.
+ *     published ranges below): the request left Cloudflare's network, whose
+ *     HTTP proxy overwrites `cf-connecting-ip` and `cf-ipcountry`, so the
+ *     client is `cf-connecting-ip`.
  *   - Any other edge IS the client, and the cf-* headers are ignored. So a
  *     client that reaches the origin's address directly (bypassing Cloudflare)
  *     can no longer choose its IP or country by sending them; before, they
  *     were believed from ANY private peer, i.e. from Traefik for everyone.
+ *     Residual: a range check cannot tell OUR Cloudflare zone from another
+ *     account's TCP passthrough (Spectrum, a paid add-on), which forwards the
+ *     sender's cf-* headers as they are (Workers TCP sockets egress from
+ *     outside the published ranges, so they cannot). Binding to our zone needs
+ *     Authenticated Origin Pulls with our own certificate, or a secret header
+ *     added by a Cloudflare Transform Rule (owner's call).
  *
  * `installClientIpGetter` (server/index.ts) makes Express's `req.ip` this
  * same answer, so the express-rate-limit layers, the IP blocklist, the
@@ -28,6 +36,27 @@
 import type { Request } from 'express';
 import { createHash } from 'crypto';
 import { BlockList, isIP } from 'node:net';
+
+/**
+ * The eight 16-bit groups of an IPv6 address (any spelling, an embedded
+ * dotted IPv4 tail included), or null when it is not IPv6.
+ */
+function ipv6Groups(ip: string): number[] | null {
+  if (isIP(ip) !== 6) return null;
+  let text = ip;
+  const dotted = text.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const o = dotted[2].split('.').map(Number);
+    text = `${dotted[1]}${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
+  }
+  const [head, tail] = text.split('::');
+  const part = (x: string | undefined) => (x ? x.split(':').filter(Boolean).map((h) => parseInt(h, 16)) : []);
+  const a = part(head);
+  const b = tail === undefined ? [] : part(tail);
+  const fill = 8 - a.length - b.length;
+  if (fill < 0 || (tail === undefined && fill !== 0)) return null;
+  return [...a, ...new Array(fill).fill(0), ...b];
+}
 
 /** Strip zone id / IPv4-mapped IPv6 prefix and lower-case. `null` if not an IP. */
 export function normalizeIp(raw: string | null | undefined): string | null {
@@ -43,12 +72,33 @@ export function normalizeIp(raw: string | null | undefined): string | null {
   }
   const zone = ip.indexOf('%');
   if (zone > 0) ip = ip.slice(0, zone);
-  // IPv4-mapped IPv6 → plain IPv4 (::ffff:185.1.2.3 → 185.1.2.3)
-  if (ip.startsWith('::ffff:')) {
-    const tail = ip.slice(7);
-    if (isIP(tail) === 4) return tail;
+  // IPv4-mapped IPv6 → plain IPv4, in every spelling (::ffff:185.1.2.3,
+  // ::ffff:b901:203, 0:0:0:0:0:ffff:185.1.2.3): one address, one form, as
+  // Node's BlockList (isCloudflareIp) already treats them.
+  const g = ipv6Groups(ip);
+  if (g && g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) {
+    return `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`;
   }
+  // Any other IPv6 in its RFC 5952 form (what Go, i.e. Traefik, and
+  // Cloudflare write), so one address always hashes and compares the same.
+  if (g) return canonicalIpv6(g);
   return isIP(ip) ? ip : null;
+}
+
+/** RFC 5952 text of eight groups: lower-case hex, no leading zeros, the longest run of 2+ zero groups as `::`. */
+function canonicalIpv6(g: number[]): string {
+  let best = -1;
+  let bestLen = 1;
+  for (let i = 0; i < 8; ) {
+    if (g[i] !== 0) { i++; continue; }
+    let j = i;
+    while (j < 8 && g[j] === 0) j++;
+    if (j - i > bestLen) { best = i; bestLen = j - i; }
+    i = j;
+  }
+  const hex = g.map((x) => x.toString(16));
+  if (best < 0) return hex.join(':');
+  return `${hex.slice(0, best).join(':')}::${hex.slice(best + bestLen).join(':')}`;
 }
 
 /** True if the (already normalized) IP is private / loopback / link-local / reserved. */
@@ -72,13 +122,15 @@ export function isPrivateOrReservedIp(raw: string): boolean {
     if (o[0] >= 224) return true;                                  // multicast + reserved
     return false;
   }
-  // IPv6
-  if (ip === '::' || ip === '::1') return true;
-  if (ip.startsWith('fe8') || ip.startsWith('fe9') || ip.startsWith('fea') || ip.startsWith('feb')) return true; // link-local
-  if (/^f[cd]/.test(ip)) return true;                              // unique-local fc00::/7
-  if (ip.startsWith('ff')) return true;                            // multicast
-  if (ip.startsWith('2001:db8')) return true;                      // documentation
-  if (ip.startsWith('64:ff9b')) return true;                       // NAT64
+  // IPv6, by its groups (so every spelling and only the real ranges match)
+  const g = ipv6Groups(ip);
+  if (!g) return true;
+  if (g.slice(0, 7).every((x) => x === 0) && g[7] <= 1) return true; // :: and ::1
+  if ((g[0] & 0xffc0) === 0xfe80) return true;                       // link-local fe80::/10
+  if ((g[0] & 0xfe00) === 0xfc00) return true;                       // unique-local fc00::/7
+  if ((g[0] & 0xff00) === 0xff00) return true;                       // multicast ff00::/8
+  if (g[0] === 0x2001 && g[1] === 0x0db8) return true;               // documentation 2001:db8::/32
+  if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0)) return true; // NAT64 64:ff9b::/96
   return false;
 }
 
@@ -210,11 +262,11 @@ function headerValues(v: string | string[] | undefined): string[] {
  * peer it saw, so entries are skipped only while they are our own hops; the
  * first other entry is the edge. A Cloudflare address ends the walk even when
  * TRUSTED_PROXY_IPS lists it. An unreadable entry ends it too (nothing past
- * it can be vouched for). X-Real-IP is never read: the frontend's nginx
+ * it can be vouched for). X-Real-IP is never an edge: the frontend's nginx
  * overwrites it with Traefik's private address, Traefik keeps a client's own
  * X-Real-IP when it trusts that client's forwarded headers, and a private
  * peer without X-Forwarded-For could otherwise name a Cloudflare address in
- * it and have its cf-connecting-ip believed.
+ * it and have its cf-connecting-ip believed (see realIpOnly).
  */
 export function getEdgeIp(req: Request): string | null {
   const peer = normalizeIp(req.socket?.remoteAddress);
@@ -243,7 +295,7 @@ export function getEdgeIp(req: Request): string | null {
  */
 export function getClientIp(req: Request): string | null {
   const edge = getEdgeIp(req);
-  if (!edge) return null;
+  if (!edge) return realIpOnly(req);
   if (isCloudflareIp(edge)) {
     const cf = normalizeIp(headerValues(req.headers['cf-connecting-ip'])[0]);
     return cf && !isPrivateOrReservedIp(cf) ? cf : null;
@@ -251,14 +303,30 @@ export function getClientIp(req: Request): string | null {
   return isPrivateOrReservedIp(edge) ? null : edge;
 }
 
+/**
+ * A proxy of ours that names the client only in X-Real-IP and sends no
+ * X-Forwarded-For at all (nginx with just `proxy_set_header X-Real-IP
+ * $remote_addr`, SELF_HOST_GUIDE.md's sample before 2026-10-17): that one
+ * address, as a plain client. Never a Cloudflare edge, so it never makes
+ * cf-connecting-ip or cf-ipcountry believed.
+ */
+function realIpOnly(req: Request): string | null {
+  const peer = normalizeIp(req.socket?.remoteAddress);
+  if (!peer || !isOwnHop(peer) || headerValues(req.headers['x-forwarded-for']).length > 0) return null;
+  const named = headerValues(req.headers['x-real-ip']);
+  const ip = named.length === 1 ? normalizeIp(named[0]) : null;
+  return ip && !isPrivateOrReservedIp(ip) ? ip : null;
+}
+
 const REQ_IP = Symbol('clientIp.reqIp');
 
 /**
  * Make Express's `req.ip` the getClientIp answer for this app (every route
  * and express-rate-limit read `req.ip`). When no public client address can be
- * determined it is Express's own value (`trust proxy`), so local dev still
- * sees 127.0.0.1 / ::1 and every limiter always has a key. Computed once per
- * request.
+ * determined it is Express's own value (`trust proxy`) if that is an IP, else
+ * the socket peer, so local dev still sees 127.0.0.1 / ::1, every limiter
+ * always has a key, and it is never an arbitrary header string. Computed once
+ * per request.
  */
 export function installClientIpGetter(app: { request: object }): void {
   const expressIp = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(app.request), 'ip')?.get;
@@ -267,7 +335,10 @@ export function installClientIpGetter(app: { request: object }): void {
     enumerable: true,
     get(this: Request & { [REQ_IP]?: string | undefined }): string | undefined {
       if (!(REQ_IP in this)) {
-        this[REQ_IP] = getClientIp(this) ?? (expressIp ? expressIp.call(this) : undefined) ?? this.socket?.remoteAddress;
+        this[REQ_IP] = getClientIp(this)
+          ?? normalizeIp(expressIp ? expressIp.call(this) : undefined)
+          ?? normalizeIp(this.socket?.remoteAddress)
+          ?? undefined;
       }
       return this[REQ_IP];
     },

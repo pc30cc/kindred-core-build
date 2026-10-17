@@ -259,7 +259,9 @@ export function ipBlockMiddleware() {
 
 // ─── Rate Limiters by Endpoint Type ──────────────────────────────
 
-// Auth: 5 attempts per minute per IP
+// Auth: 5 attempts per minute per client address (login, signup, captcha,
+// brute-force check). Since req.ip is the visitor (utils/clientIp.ts) and no
+// longer the Cloudflare edge, this is one person's (or one NAT's) budget.
 export const authRateLimiter = rateLimit({
   windowMs: 60_000,
   max: 5,
@@ -660,15 +662,43 @@ export const callWidgetBootstrapGlobalCeiling = globalCeiling(
 export const publicKbGlobalCeiling = globalCeiling('public-kb', () => 2400);
 export const visitorPreAuthGlobalCeiling = globalCeiling('visitor-preauth', () => 4000);
 
-// Admin: 30 per minute per IP
-export const adminRateLimiter = rateLimit({
+/**
+ * Logout, logout-all and Super Admin impersonation (start / stop): signed-in
+ * actions, not guesses. Their own bucket, so a Super Admin working through
+ * several accounts, or a user signing out and back in, never spends the
+ * 5-a-minute login budget.
+ */
+export const sessionActionRateLimiter = rateLimit({
   windowMs: 60_000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => ipBucket(req),
+  keyGenerator: (req) => `session-action:${ipBucket(req)}`,
   handler: async (req, res) => {
-    logRateLimited(req, 'warn', { endpoint: '/admin', limit: '30/min' });
+    logRateLimited(req, 'warn', { endpoint: req.originalUrl, limit: '30/min' });
+    res.status(429).json({ error: 'Too many attempts. Please try again later.', retryAfter: 60 });
+  },
+});
+
+/**
+ * Admin surfaces (/api/admin, /api/admin-status, /api/plugins/admin,
+ * /api/admin/map-geo, /api/admin/billing/locks), one bucket per client
+ * address. Every route behind it needs a Super Admin session (and
+ * /api/admin-status/is-admin, which every dashboard user calls on mount and
+ * focus, only reads one), so this guards against floods, not guesses. Sized
+ * for ONE person: the admin dashboard opens with ~13 queries, refetches them
+ * on window focus, polls, and retries failures; 30 a minute was only enough
+ * while req.ip was the Cloudflare edge, which spread one admin over many
+ * buckets.
+ */
+export const adminRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `admin:${ipBucket(req)}`,
+  handler: async (req, res) => {
+    logRateLimited(req, 'warn', { endpoint: '/admin', limit: '600/min' });
     res.status(429).json({ error: 'Admin rate limit exceeded.' });
   },
 });
@@ -703,9 +733,17 @@ const BRUTE_FORCE_WINDOW = 15 * 60_000; // 15 min
 const MAX_FAILURES = 5;
 const LOCK_DURATION_BASE = 5 * 60_000; // 5 min base, doubles each lock
 
+/**
+ * The brute-force tracker key: the client address as its rate-limit bucket
+ * (an IPv6 one as its /56, so a host cannot rotate through its own /64 to
+ * dodge the lock), and the email.
+ */
+function bruteForceKey(req: Request, email: string): string {
+  return `${ipBucket(req)}:${email}`;
+}
+
 export async function checkBruteForce(req: Request, email: string): Promise<{ blocked: boolean; retryAfter?: number; failCount?: number }> {
-  const ip = req.ip || 'unknown';
-  const key = `${ip}:${email}`;
+  const key = bruteForceKey(req, email);
   const now = Date.now();
 
   const tracker = loginAttemptTracker.get(key);
@@ -733,8 +771,7 @@ export async function checkBruteForce(req: Request, email: string): Promise<{ bl
 }
 
 export function recordLoginAttempt(req: Request, email: string, success: boolean) {
-  const ip = req.ip || 'unknown';
-  const key = `${ip}:${email}`;
+  const key = bruteForceKey(req, email);
   const now = Date.now();
 
   if (success) {
@@ -824,7 +861,7 @@ const ABUSE_THRESHOLD_CREDENTIALED = 5000;
  */
 export function checkAbusePattern(req: Request): { suspicious: boolean; report: boolean; reason?: string } {
   const credentialed = !!readSessionToken(req).token;
-  const ip = req.ip || 'unknown';
+  const ip = ipBucket(req);
   const key = credentialed ? `${ip}|session` : ip;
   const threshold = credentialed ? ABUSE_THRESHOLD_CREDENTIALED : ABUSE_THRESHOLD;
   const now = Date.now();

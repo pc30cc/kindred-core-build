@@ -22,9 +22,10 @@ import http from 'node:http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 
 // ── In-memory fake Supabase service client ─────────────────────────────
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
 const db: Record<string, Row[]> = {};
 
 function resetDb() {
@@ -96,7 +97,7 @@ function fakeClient() {
         return { data: toDelete, error: null };
       }
 
-      const builder: any = {
+      const builder: Record<string, (...args: never[]) => unknown> = {
         select() { return builder; },
         insert(payload: Row | Row[]) { pendingInsert = Array.isArray(payload) ? payload : [payload]; return builder; },
         update(payload: Row) { pendingUpdate = payload; return builder; },
@@ -105,9 +106,9 @@ function fakeClient() {
           return builder;
         },
         delete() { pendingDelete = true; return builder; },
-        eq(col: string, val: any) { filters.push((r) => r[col] === val); return builder; },
-        neq(col: string, val: any) { filters.push((r) => r[col] !== val); return builder; },
-        is(col: string, val: any) { filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return builder; },
+        eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return builder; },
+        neq(col: string, val: unknown) { filters.push((r) => r[col] !== val); return builder; },
+        is(col: string, val: unknown) { filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return builder; },
         order() { return builder; },
         limit() { return builder; },
         async maybeSingle() {
@@ -122,7 +123,7 @@ function fakeClient() {
           const matched = rows.filter((r) => matchesFilters(r, filters));
           return { data: matched[0] ?? null, error: matched[0] ? null : { message: 'not found' } };
         },
-        then(resolve: any, reject: any) {
+        then(resolve: (value: unknown) => unknown, reject?: (error: unknown) => unknown) {
           try {
             if (pendingInsert) return resolve(applyInsert());
             if (pendingUpdate) return resolve(applyUpdate());
@@ -142,10 +143,10 @@ function fakeClient() {
     // closely enough to exercise this suite's single-use/replay
     // assertions realistically: an in-memory equivalent of the atomic
     // conditional UPDATE ... WHERE used_at IS NULL ... RETURNING.
-    async rpc(name: string, args: any) {
+    async rpc(name: string, args: Row) {
       if (name === 'redeem_password_reset_token') {
         const token = (db.auth_reset_tokens || []).find(
-          (t: Row) => t.token_hash === args._token_hash && !t.used_at && !t.revoked_at && new Date(t.expires_at) > new Date(),
+          (t: Row) => t.token_hash === args._token_hash && !t.used_at && !t.revoked_at && new Date(String(t.expires_at)) > new Date(),
         );
         if (!token) return { data: [], error: null };
         token.used_at = new Date().toISOString();
@@ -184,7 +185,7 @@ function fakeClient() {
       }
       if (name === 'redeem_email_verify_token') {
         const token = (db.auth_verify_tokens || []).find(
-          (t: Row) => t.token_hash === args._token_hash && !t.used_at && !t.revoked_at && new Date(t.expires_at) > new Date(),
+          (t: Row) => t.token_hash === args._token_hash && !t.used_at && !t.revoked_at && new Date(String(t.expires_at)) > new Date(),
         );
         if (!token) return { data: [], error: null };
         token.used_at = new Date().toISOString();
@@ -223,16 +224,17 @@ vi.mock('../../../server/supabase.js', () => ({
 
 const logSecurityEventMock = vi.fn(async () => {});
 vi.mock('../../../server/middleware/security.js', () => ({
-  authRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  sessionActionRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   checkBruteForce: async () => ({ blocked: false, failCount: 0 }),
   recordLoginAttempt: vi.fn(),
   verifyCaptcha: async () => ({ success: true }),
-  logSecurityEvent: (...a: any[]) => (logSecurityEventMock as any)(...a),
+  logSecurityEvent: (...a: unknown[]) => (logSecurityEventMock as (...args: unknown[]) => Promise<void>)(...a),
 }));
 
 const issueVerificationEmailMock = vi.fn(async () => ({ success: true }));
 vi.mock('../../../server/services/auth-email.js', () => ({
-  issueVerificationEmail: (...a: any[]) => (issueVerificationEmailMock as any)(...a),
+  issueVerificationEmail: (...a: unknown[]) => (issueVerificationEmailMock as (...args: unknown[]) => Promise<unknown>)(...a),
   issueRecoveryEmail: vi.fn(async () => ({ success: true })),
 }));
 
@@ -249,7 +251,7 @@ const { authEmailRouter } = await import('../../../server/routes/auth-email.js')
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = {
+  (req as unknown as { serverConfig: unknown }).serverConfig = {
     supabaseUrl: 'http://x',
     supabaseServiceRoleKey: 'k',
     corsOrigins: ['http://localhost:5173'],
@@ -262,13 +264,13 @@ app.use('/api/auth', authSecurityRouter);
 app.use('/api/auth-email', authEmailRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as AddressInfo).port;
 
 function call(
   method: string,
   path: string,
   opts: { body?: unknown; cookie?: string } = {},
-): Promise<{ status: number; json: any; setCookie: string | undefined }> {
+): Promise<{ status: number; json: Row; setCookie: string | undefined }> {
   const payload = opts.body === undefined ? undefined : JSON.stringify(opts.body);
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -286,7 +288,7 @@ function call(
         let d = '';
         res.on('data', (c) => (d += c));
         res.on('end', () => {
-          let json: any = {};
+          let json: Row = {};
           try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
           resolve({ status: res.statusCode || 0, json, setCookie: res.headers['set-cookie']?.[0] });
         });

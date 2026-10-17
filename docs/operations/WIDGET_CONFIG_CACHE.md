@@ -197,20 +197,43 @@ the express-rate-limit layers, the IP blocklist, brute-force counters, captcha
   socket peer when it is not ours, else X-Forwarded-For walked from the right
   past our own hops (private addresses and `TRUSTED_PROXY_IPS`). Traefik
   writes the TCP peer it saw there and drops whatever a client wrote, so a
-  client cannot forge it. X-Real-IP is never read.
+  client cannot forge it. X-Real-IP is read only from our own proxy that sent
+  no X-Forwarded-For at all (an nginx with just `X-Real-IP $remote_addr`), as
+  a plain client, never as a Cloudflare hop. A proxy in front of the backend
+  should append X-Forwarded-For (SELF_HOST_GUIDE.md's nginx sample does).
 - When the edge is a **Cloudflare address** (`CLOUDFLARE_IPS`, default the
   ranges Cloudflare publishes, built into clientIp.ts), the client is
-  `cf-connecting-ip` and the country `cf-ipcountry`. Any other edge IS the
-  client, and cf-* headers are ignored: a client that reaches the origin
-  (192.99.68.134) without Cloudflare can no longer choose its address or
-  country. (Before 2026-10-17 `cf-connecting-ip` was believed from any private
-  peer, i.e. from Traefik for everyone, and `req.ip` was the Cloudflare edge,
-  so all visitors behind one edge shared the express-rate-limit buckets.)
+  `cf-connecting-ip` and the country `cf-ipcountry` (Cloudflare's HTTP proxy
+  overwrites both). Any other edge IS the client, and cf-* headers are
+  ignored: a client that reaches the origin (192.99.68.134) without
+  Cloudflare can no longer choose its address or country. (Before 2026-10-17
+  `cf-connecting-ip` was believed from any private peer, i.e. from Traefik for
+  everyone, and `req.ip` was the Cloudflare edge, so all visitors behind one
+  edge shared the express-rate-limit buckets.)
+- A source range does not prove the request came through OUR zone: another
+  Cloudflare account's TCP passthrough (Spectrum, a paid add-on) comes from
+  Cloudflare and forwards the sender's own cf-* headers. Only Authenticated
+  Origin Pulls with our own certificate, or a secret header added by a
+  Transform Rule in the WebYar and RESPOK zones and checked by `getEdgeIp`,
+  closes that.
+- Limits that used to be shared by everyone behind one Cloudflare edge are
+  now one person's, so they are sized for one: `authRateLimiter` 5 a minute
+  (login, signup, captcha, brute-force check); `sessionActionRateLimiter` 30
+  a minute (logout, logout-all, impersonate and its stop, so they never spend
+  the login budget); `adminRateLimiter` 600 a minute (the admin dashboard
+  opens with about 13 queries and refetches them on focus). The brute-force
+  and abuse counters key on the same bucket as the limiters (an IPv6 address
+  as its /56).
 - Observed on vps-50cc1602 (2026-10-17): api.webyar.ai and api.respok.app are
   behind Cloudflare and also reachable directly; Traefik (coolify-proxy) has no
   `forwardedHeaders` settings, so it overwrites X-Forwarded-For / X-Real-Ip
   with the peer and passes cf-* through. The pinned header shapes are in
   `src/test/security/clientIp.test.ts`.
+- Requests through app.*/api/ (the frontend nginx's BACKEND_URL is
+  https://api.*, back through Cloudflare) and server-to-server calls through
+  the public hostnames arrive as the server's own address, 192.99.68.134
+  (RESPOK's: the same server). The SPAs call api.* directly, so browsers do
+  not use that path. Never block that address.
 - **Never** give Traefik `forwardedHeaders.insecure`, or private ranges in
   `forwardedHeaders.trustedIPs`: a client's X-Forwarded-For would then
   survive, and with a private TCP peer (docker-proxy hairpin) a forged
@@ -225,8 +248,9 @@ the express-rate-limit layers, the IP blocklist, brute-force counters, captcha
 - Still open, infrastructure: the origin itself accepts direct connections. A
   Traefik rule answering 403 to the Cloudflare-proxied hostnames when the
   connection is not from Cloudflare (the grey-cloud livekit.* / turn.* hosts
-  and ACME on :80 must stay open), or Authenticated Origin Pulls, would close
-  that for the apps outside this repo too. Owner's decision.
+  and ACME on :80 must stay open) would close that for the apps outside this
+  repo too; it leaves the Spectrum path above open, which Authenticated
+  Origin Pulls closes as well. Owner's decision.
 
 ## IP blocklist
 

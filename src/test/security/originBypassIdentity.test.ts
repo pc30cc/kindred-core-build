@@ -50,6 +50,15 @@ function buildApp() {
     res.json({ ip: req.ip, clientIp: getClientIp(req), country: getClientCountry(req) });
   });
   app.post('/login', sec.authRateLimiter, (_req, res) => res.json({ ok: true }));
+  app.post('/logout', sec.sessionActionRateLimiter, (_req, res) => res.json({ ok: true }));
+  app.get('/api/admin/stats', sec.adminRateLimiter, (_req, res) => res.json({ ok: true }));
+  // A failed password check, as the login route records it.
+  app.post('/login-fails', async (req, res) => {
+    const state = await sec.checkBruteForce(req, 'owner@example.com');
+    if (state.blocked) return res.status(429).json({ retryAfter: state.retryAfter });
+    sec.recordLoginAttempt(req, 'owner@example.com', false);
+    return res.status(401).json({ ok: false });
+  });
   return app;
 }
 
@@ -121,5 +130,42 @@ describe('the IP blocklist matches the visitor, not a Cloudflare edge', () => {
     const r = await request(buildApp()).get('/whoami').set('X-Forwarded-For', CLIENT).set('CF-Connecting-IP', '9.9.9.9');
     expect(r.status).toBe(200);
     expect(r.body.ip).toBe(CLIENT);
+  });
+});
+
+describe('limits sized for one person, now that one person is one bucket', () => {
+  it('the admin dashboard (13 queries on load, again on focus, polls and retries) fits adminRateLimiter', async () => {
+    const app = buildApp();
+    const admin = '5.120.33.44';
+    const edges = ['172.70.1.1', '162.158.127.231', '104.23.1.9', '172.71.4.2'];
+    for (let i = 0; i < 60; i++) {
+      const r = await request(app).get('/api/admin/stats')
+        .set('X-Forwarded-For', edges[i % edges.length]).set('CF-Connecting-IP', admin);
+      expect(r.status, `request ${i + 1}`).toBe(200);
+    }
+  });
+
+  it('signing out and Super Admin impersonation do not spend the 5-a-minute login budget', async () => {
+    const app = buildApp();
+    const admin = '5.120.33.45';
+    for (let i = 0; i < 8; i++) {
+      const r = await request(app).post('/logout').set('X-Forwarded-For', CF_EDGE).set('CF-Connecting-IP', admin);
+      expect(r.status).toBe(200);
+    }
+    for (let i = 0; i < 5; i++) {
+      const r = await request(app).post('/login').set('X-Forwarded-For', CF_EDGE).set('CF-Connecting-IP', admin);
+      expect(r.status).toBe(200);
+    }
+  });
+
+  it('the brute-force lock holds for an IPv6 client that rotates its address inside its /56', async () => {
+    const app = buildApp();
+    const codes: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const r = await request(app).post('/login-fails')
+        .set('X-Forwarded-For', CF_EDGE).set('CF-Connecting-IP', `2a01:5ec0:1000:${i.toString(16)}::${i + 1}`);
+      codes.push(r.status);
+    }
+    expect(codes).toEqual([401, 401, 401, 401, 401, 429, 429, 429]);
   });
 });

@@ -81,9 +81,16 @@ templates: `docs/operations/EDITIONS.md`.
   never put feature code there (`src/test/widget/runtimeExt.test.ts` checks
   both files agree, that `default` never requests the module and that the
   descriptors match the renderers; `loaderOpenIntent.test.ts` the loader's
-  request). Sizes on 2026-10-17 (gzip 5, as shipped): runtime.js 54.5 KB,
-  of which the hook points are 0.7 KB (53.8 KB before the first features);
+  request). Sizes on 2026-10-17 (gzip 5, as shipped): runtime.js 54.6 KB,
+  of which the hook points are 0.8 KB (53.8 KB before the first features);
   runtime-ext.js 6.2 KB; the loader's request 0.05 KB.
+- A feature's server data is sent on request only, so the API serves
+  `default` as before: the thread list's and a history's assigned operator
+  (`operator=1`, which runtime.js `operatorQ()` adds only for a renderer
+  declaring `conversationOperator`, `chatHeader` or `operatorTyping`; checked
+  by `widgetOperatorFields.test.ts` and `operatorFieldsOptIn.test.ts`).
+  Without it, `/conversations` and `/history` make no profile read and no
+  workspace snapshot lookup of their own.
 - Every hashed file has a one-time canonical-name fallback in the code that
   loads it (loader, runtime modules, the call module, call widget l.js): keep
   it when you touch loading code. A retried `<script>` is a NEW element

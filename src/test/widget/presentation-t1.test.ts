@@ -403,6 +403,26 @@ describe('t1: strings are escaped, addresses are allow-listed', () => {
     expect(call.querySelector('.ci-title')!.textContent).toBe(name + ' تماس می‌گیرد');
   });
 
+  it('a category icon or call status named after an Object.prototype key draws the fallback, never prototype text', () => {
+    const r = make();
+    const tile = (icon: string) => parse(r.kbHtml({ state: 'list', articles: [], categories: [{ id: 'c', name: 'N', icon, count: 1 }] }))
+      .querySelector('[data-kb-category] svg')!.outerHTML;
+    const book = tile('no-such-icon');
+    for (const icon of ['constructor', '__proto__', 'Constructor']) {
+      expect(tile(icon), icon).toBe(book);
+    }
+    expect(tile('box')).not.toBe(book);
+    for (const status of ['constructor', 'toString', '__proto__', 'valueOf']) {
+      const card = parse(r.callInvitationCardHtml(msg({ senderType: 'system', metadata: { kind: 'call_invitation', status, channel: 'audio', invitation_id: 'x' } })));
+      expect(card.querySelector('.ci-status')!.textContent, status).toBe('');
+    }
+    // The same for a locale: its own copy falls back to English, nothing throws.
+    const english = make({ locale: 'en' }).homeHtml({ rtl: false });
+    for (const locale of ['constructor', '__proto__']) {
+      expect(make({ locale }).homeHtml({ rtl: false }), locale).toBe(english);
+    }
+  });
+
   it('links the platform credit only to an http(s) address, and opens it safely', () => {
     const link = (url: string) => parse(make({ config: { poweredBy: { text: 'قدرت گرفته از', brand: 'P', url } } }).homeHtml({ rtl: true }))
       .querySelector('a.wy-powered');

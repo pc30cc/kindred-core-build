@@ -32,7 +32,8 @@ export interface TemplateChoiceCardProps {
   draftOptions: unknown;
   /** The plan allows customising the appearance (widget_appearance). */
   planAllows: boolean;
-  onChoose: (id: string) => void;
+  /** A pick; null = follow the catalog's default (the entry badged "Default"). */
+  onChoose: (id: string | null) => void;
   onOptionsChange: (next: ChatTemplateOptions) => void;
 }
 
@@ -48,6 +49,9 @@ export function TemplateChoiceCard({
   const effective = view.templates.find((tpl) => tpl.id === effectiveId);
   // The stored choice is unavailable, and the owner has not picked another.
   const unavailable = view.selectedUnavailable && (draftId ?? null) === view.selectedId;
+  // The default's entry stores null (follow the default, as before any pick),
+  // so a later move of the catalog's default reaches this workspace too.
+  const choose = (id: string) => onChoose(id === view.defaultId ? null : id);
   const ownOptions = readTemplateOptions(draftOptions);
   // Keep a row the owner is still typing (the cleaner drops empty rows).
   if (draftOptions && typeof draftOptions === 'object') {
@@ -76,7 +80,7 @@ export function TemplateChoiceCard({
             aria-label={t('widgetCatalog.workspace.title')}
             value={effectiveId}
             disabled={locked}
-            onValueChange={onChoose}
+            onValueChange={choose}
             className={cn('grid grid-cols-2 gap-3 sm:grid-cols-3', locked && 'opacity-60')}
           >
             {view.templates.map((tpl) => {
@@ -87,6 +91,10 @@ export function TemplateChoiceCard({
                   key={tpl.id}
                   value={tpl.id}
                   data-tpl-choice={tpl.id}
+                  // An unavailable stored choice shows the default checked,
+                  // and Radix reports no change for a checked entry: a click
+                  // there is the owner taking the default (clears the choice).
+                  onClick={unavailable && selected ? () => choose(tpl.id) : undefined}
                   className={cn(
                     'group relative flex flex-col gap-2 rounded-xl border bg-background p-2.5 text-start transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',

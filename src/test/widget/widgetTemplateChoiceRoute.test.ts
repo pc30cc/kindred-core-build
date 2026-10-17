@@ -239,6 +239,11 @@ describe('PATCH /:workspaceId — widget_template_id / widget_template_options',
     expect(bad.status).toBe(400);
     expect(bad.json).toMatchObject({ error: 'invalid_template_options', issues: [{ path: 'widget_template_options.topics' }] });
     expect((await patch({ widget_template_options: ['x'] })).status).toBe(400);
+    // Padding far beyond the limit is refused before the cleaning walks it
+    // (the test app's body limit is 100kb; production's is 50mb).
+    const padded = await patch({ widget_template_options: { askExamples: ['a' + ' '.repeat(50_000) + 'b'] } });
+    expect(padded.status).toBe(400);
+    expect(padded.json).toMatchObject({ error: 'invalid_template_options', issues: [{ path: 'widget_template_options.askExamples' }] });
     expect(state.updates).toHaveLength(1);
   });
 

@@ -149,6 +149,37 @@ describe('TemplateChoiceCard', () => {
     expect(screen.getByText(/not available right now/).textContent).toContain('“Familiar”');
   });
 
+  it('picking the catalog\'s default entry follows the default (null), not its id', async () => {
+    const { onChoose } = await card({ effectiveId: 't1', draftId: 't1' });
+    fireEvent.click(screen.getAllByRole('radio')[0]);
+    expect(onChoose).toHaveBeenCalledWith(null);
+    cleanup();
+    // The Super Admin's default may be another template: the same rule.
+    const moved: WorkspaceWidgetCatalog = {
+      ...VIEW,
+      defaultId: 't1',
+      templates: [{ ...VIEW.templates[0], isDefault: false }, { ...VIEW.templates[1], isDefault: true }],
+    };
+    const second = await card({ view: moved, effectiveId: 'default', draftId: 'default' });
+    fireEvent.click(screen.getAllByRole('radio')[1]);
+    expect(second.onChoose).toHaveBeenCalledWith(null);
+  });
+
+  it('a stored choice that is unavailable: a click on the (checked) default entry clears it', async () => {
+    const { onChoose } = await card({ view: { ...VIEW, selectedId: 't2', selectedUnavailable: true }, draftId: 't2' });
+    const radios = screen.getAllByRole('radio');
+    expect(radios[0].getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(radios[0]);
+    expect(onChoose).toHaveBeenCalledTimes(1);
+    expect(onChoose).toHaveBeenCalledWith(null);
+  });
+
+  it('a click on the checked entry otherwise changes nothing', async () => {
+    const { onChoose } = await card({ effectiveId: 't1', draftId: 't1' });
+    fireEvent.click(screen.getAllByRole('radio')[1]);
+    expect(onChoose).not.toHaveBeenCalled();
+  });
+
   it('a single template: no picker, but its own options', async () => {
     const onOptionsChange = vi.fn();
     render(

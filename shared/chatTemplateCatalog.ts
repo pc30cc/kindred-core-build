@@ -155,6 +155,16 @@ function oneOf<T extends string>(list: readonly T[], value: unknown): value is T
 }
 
 /**
+ * A typed string far beyond `max` characters before cleaning (4x, in UTF-16
+ * units: room for surrogate pairs and white space the cleaning collapses).
+ * Refused before it is cleaned: walking a request's megabytes of text one
+ * code point at a time would hold the shared backend's event loop for seconds.
+ */
+function rawTooLong(value: unknown, max: number): boolean {
+  return typeof value === 'string' && value.length > max * 4;
+}
+
+/**
  * One option value, cleaned: `{ ok: true, value }` or `{ ok: false }`.
  * A topic or an example question left empty is dropped (the editor sends the
  * row the owner is still typing); one too long, a list too long or an icon
@@ -170,7 +180,7 @@ function checkOption(key: ChatTemplateOptionKey, value: unknown): { ok: true; va
       if (!Array.isArray(value) || value.length > CHAT_TEMPLATE_LIMITS.topics) return { ok: false };
       const topics: ChatTemplateTopic[] = [];
       for (const item of value) {
-        if (!isPlainObject(item)) return { ok: false };
+        if (!isPlainObject(item) || rawTooLong(item.label, CHAT_TEMPLATE_LIMITS.topicLabel)) return { ok: false };
         const label = cleanTemplateText(item.label);
         if (!label) continue;
         if (textLength(label) > CHAT_TEMPLATE_LIMITS.topicLabel || !oneOf(CHAT_TEMPLATE_TOPIC_ICONS, item.icon)) {
@@ -184,7 +194,7 @@ function checkOption(key: ChatTemplateOptionKey, value: unknown): { ok: true; va
       if (!Array.isArray(value) || value.length > CHAT_TEMPLATE_LIMITS.askExamples) return { ok: false };
       const examples: string[] = [];
       for (const item of value) {
-        if (typeof item !== 'string') return { ok: false };
+        if (typeof item !== 'string' || rawTooLong(item, CHAT_TEMPLATE_LIMITS.askExample)) return { ok: false };
         const text = cleanTemplateText(item);
         if (!text) continue;
         if (textLength(text) > CHAT_TEMPLATE_LIMITS.askExample) return { ok: false };

@@ -85,6 +85,14 @@ describe('widget template catalog copy', () => {
     }
   });
 
+  it('a description says what the template looks like, never what a site shows now (it shows under any card, in any state)', () => {
+    for (const locale of [en, fa, tr]) {
+      for (const text of Object.values(locale.widgetCatalog.descriptions as Record<string, string>)) {
+        expect(text).not.toMatch(/today|امروز|bugün/i);
+      }
+    }
+  });
+
   it('the Messages preview view is named in every locale', () => {
     for (const locale of [en, fa, tr]) expect(locale.widgetPage.preview.view.list).toBeTruthy();
   });

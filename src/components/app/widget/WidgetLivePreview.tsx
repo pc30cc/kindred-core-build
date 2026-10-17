@@ -813,8 +813,12 @@ export function WidgetLivePreview({
     // runtime-ext.js), and the view-model fields Core adds for them: the unread total
     // of a bottom menu (tabs), the search field (kbSearch) and the visitor's
     // first name (visitorName; the preview has no contact, so empty, as Core
-    // without one). The default template declares none, so its preview is
-    // exactly as before.
+    // without one). The default template declares none, so it gets the same
+    // view-models and the same pixels as before. What changed for every
+    // template, `default` included, is the navigation: the Messages view
+    // (list) and the frame following the renderer's own [data-view],
+    // [data-view-back] and [data-conversation-open] hooks (gsBindTabs), as
+    // the live widget does.
     function feat(name) { return !!(R.features && R.features[name]); }
     var unreadTotal = 0;
     (GS_PREVIEW.listVm.conversations || []).forEach(function (c) { unreadTotal += Number(c.unreadCount) || 0; });

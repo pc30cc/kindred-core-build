@@ -10,7 +10,8 @@
  *     plan without the Appearance editor, wears the catalog's default;
  *   - display names never reach the widget;
  *   - before migration 275 (no table) the snapshot is not degraded; a failed
- *     read is, and a rebuild that fails keeps the previous catalog;
+ *     read is, and a rebuild that fails keeps the previous catalog, also
+ *     right after a `platform` clear (the process's last good read);
  *   - the warm path reads nothing; `platform` makes the next read see a save.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -224,6 +225,32 @@ describe('the catalog in the platform snapshot', () => {
     expect(await snapshotMod.getWidgetPlatformSnapshot(config)).toBe(good);
     await vi.waitFor(() => expect(holder.db.calls.log.filter((l) => l === 'from:widget_edition_settings').length).toBeGreaterThan(1));
     expect((await snapshotMod.getWidgetPlatformSnapshot(config)).chatTemplates.iran).toEqual(CATALOG);
+    warn.mockRestore();
+  });
+
+  it('a catalog read that fails right after a `platform` clear keeps the last good catalog: t1 stays t1', async () => {
+    await fresh((t) => {
+      withCatalog()(t);
+      choose('t1')(t);
+    });
+    expect((await body()).templateId).toBe('t1');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // Any `platform` publish (a Super Admin save) drops the snapshot; the next catalog read fails.
+    holder.db.options.failingTables = new Set(['widget_edition_settings']);
+    invalidateLocal(['platform']);
+    const during = await body();
+    expect(during.templateId).toBe('t1');
+    const p = await snapshotMod.getWidgetPlatformSnapshot(config);
+    expect(p.degraded).toBe(true);
+    expect(p.chatTemplates.iran).toEqual(CATALOG);
+    const { catalog, ready } = await snapshotMod.getChatTemplateCatalog(config);
+    expect(ready).toBe(true);
+    expect(catalog.entries.filter((e) => e.enabled).map((e) => e.id)).toEqual(['default', 't1', 't2']);
+    // A process that never read the catalog has nothing to keep: the edition default, degraded (5 s).
+    snapshotMod.__resetWidgetConfigCachesForTests();
+    const cold = await snapshotMod.getWidgetPlatformSnapshot(config);
+    expect(cold.degraded).toBe(true);
+    expect(cold.chatTemplates).toEqual({});
     warn.mockRestore();
   });
 });

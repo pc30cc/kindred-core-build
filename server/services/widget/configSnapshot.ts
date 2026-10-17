@@ -784,6 +784,15 @@ const platformCache = new MemoCache<WidgetPlatformSnapshot>({
   serveStale: (snap) => !snap.degraded,
 });
 
+/**
+ * The last catalog read that succeeded in this process. It outlives
+ * `platformCache.clear()` (every `platform` publish, a Super Admin save
+ * included), so a failed read right after one keeps the workspaces' templates
+ * instead of switching every visitor to the edition default for the degraded
+ * lifetime. A process that has never read it has nothing to keep.
+ */
+let lastGoodChatTemplates: { builtAt: number; byEdition: Partial<Record<Edition, unknown>>; ready: boolean } | null = null;
+
 async function loadPlatformSnapshot(config: ServerConfig): Promise<WidgetPlatformSnapshot> {
   const builtAt = Date.now();
   const sb = getServiceClient(config);
@@ -800,9 +809,14 @@ async function loadPlatformSnapshot(config: ServerConfig): Promise<WidgetPlatfor
     // The chat widget template catalog: its own read, tolerant of a database
     // from before migration 275 (no table = no catalog = the edition's
     // default template, as before). A failed read marks the snapshot
-    // degraded, so the previous good catalog is kept meanwhile.
+    // degraded (5 s) and serves the last good catalog meanwhile.
     readChatTemplateRows(sb),
   ]);
+  // An older build finishing late never replaces a newer good read.
+  if (!templateRows.error && (!lastGoodChatTemplates || lastGoodChatTemplates.builtAt <= builtAt)) {
+    lastGoodChatTemplates = { builtAt, byEdition: templateRows.byEdition, ready: templateRows.ready };
+  }
+  const catalogRows = templateRows.error && lastGoodChatTemplates ? lastGoodChatTemplates : templateRows;
   if (namesResult.error) {
     console.warn('[widget] platform brand name lookup failed:', namesResult.error.message);
   }
@@ -816,8 +830,8 @@ async function loadPlatformSnapshot(config: ServerConfig): Promise<WidgetPlatfor
     widget: (widgetResult.data as Record<string, unknown> | null) ?? null,
     preChatPolicy: preChat.value,
     names,
-    chatTemplates: templateRows.byEdition,
-    chatTemplatesReady: templateRows.ready,
+    chatTemplates: catalogRows.byEdition,
+    chatTemplatesReady: catalogRows.ready,
   };
 }
 
@@ -1352,6 +1366,7 @@ onInvalidate('platform', (_key, { resync }) => {
 export function __resetWidgetConfigCachesForTests(): void {
   snapshots.clear();
   platformCache.clear();
+  lastGoodChatTemplates = null;
   quotaCache.clear();
   rebuildGate.reset();
 }

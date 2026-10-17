@@ -193,6 +193,23 @@ describe('template options', () => {
     });
   });
 
+  it('text far beyond its limit is refused before it is cleaned (a 50mb PATCH cannot hold the event loop)', () => {
+    // 4x the limit in UTF-16 units passes to the cleaning; one more does not,
+    // even when the cleaning would have collapsed it to a short label.
+    const padded = (n: number) => 'a' + ' '.repeat(n - 2) + 'b';
+    expect(cleanTemplateOptionsInput({ topics: [{ label: padded(96), icon: 'box' }] }))
+      .toEqual({ ok: true, value: { topics: [{ label: 'a b', icon: 'box' }] } });
+    expect(cleanTemplateOptionsInput({ topics: [{ label: padded(97), icon: 'box' }] })).toMatchObject({ ok: false, key: 'topics' });
+    expect(cleanTemplateOptionsInput({ askExamples: [padded(240)] })).toEqual({ ok: true, value: { askExamples: ['a b'] } });
+    expect(cleanTemplateOptionsInput({ askExamples: [padded(241)] })).toMatchObject({ ok: false, key: 'askExamples' });
+    expect(readTemplateOptions({ topics: [{ label: padded(97), icon: 'box' }], askExamples: [padded(241)] })).toEqual({});
+    const huge = 'x'.repeat(20_000_000);
+    const started = performance.now();
+    expect(cleanTemplateOptionsInput({ topics: [{ label: huge, icon: 'box' }] })).toMatchObject({ ok: false, key: 'topics' });
+    expect(cleanTemplateOptionsInput({ askExamples: [huge] })).toMatchObject({ ok: false, key: 'askExamples' });
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
   it('lenient read keeps only valid keys', () => {
     expect(readTemplateOptions({ navStyle: 'vd', navMode: 'nope', topics: 'x', askExamples: ['ok'] }))
       .toEqual({ navStyle: 'vd', askExamples: ['ok'] });

@@ -47,6 +47,14 @@
     if (Ext) return Ext[name] && Ext[name](a, b);
     if (extCalls) extCalls.push([name, a, b]);
   }
+  // Who answers a thread (name, photo, presence) is added by the server to
+  // the thread list and to a history only when asked (`operator=1`), and
+  // only a renderer that draws it asks: `default` and `intl` cost the server
+  // no extra read. 1, else undefined (no parameter at all).
+  function operatorQ() {
+    var f = (Presentation && Presentation.features) || {};
+    return f.conversationOperator || f.chatHeader || f.operatorTyping ? 1 : undefined;
+  }
 
   function resolvePresentation(ctx, t) {
     var registry = window.__gs_presentation_registry;
@@ -1834,6 +1842,7 @@
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           conversationId: cid,
+          operator: operatorQ(),
           sessionToken: ctx.sessionToken,
           fetchWith: ctx.fetchWith,
           onResult: function (result) {
@@ -8449,7 +8458,7 @@
       // No visitor_id on the wire: the server resolves identity solely from
       // the signed HttpOnly `dvsid` cookie and ignores any client-sent id.
       var url = ctx.apiBase + '/api/widget/conversations?workspace_id=' +
-        encodeURIComponent(ctx.workspaceId || '');
+        encodeURIComponent(ctx.workspaceId || '') + (operatorQ() ? '&operator=1' : '');
       ctx.fetchWith(url, { method: 'GET' })
         .then(function (r) {
           if (!r.ok) {

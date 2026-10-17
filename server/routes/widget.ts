@@ -899,9 +899,14 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
 
   const supabase = getServiceClient(config);
   // The operator the thread is assigned to, for a chat header that shows who
-  // answers ({ name, avatar, online }; null while nobody is assigned).
-  const assignedTo = ownership.conversation?.assigned_to || null;
-  const assignedOperatorP = assignedOperatorOf(config, supabase, workspaceId, assignedTo);
+  // answers ({ name, avatar, online }; null while nobody is assigned). Only
+  // on request (`operator=1`, sent by a renderer that draws it, see
+  // runtime.js operatorQ): the default template asks nothing, so its
+  // history costs what it always did.
+  const withOperator = req.query.operator === '1';
+  const assignedOperatorP = withOperator
+    ? assignedOperatorOf(config, supabase, workspaceId, ownership.conversation?.assigned_to || null)
+    : null;
   const { data: msgs } = await supabase
     .from('conversation_messages')
     .select('id, body, sender_type, sender_id, created_at, metadata, seen_at, reply_to_message_id')
@@ -926,7 +931,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   const withReplies = await enrichMessagesWithReplyTo(config, conversationId, enriched);
   const messages = await enrichMessagesWithSender(config, supabase, withReplies, workspaceId);
 
-  return res.json({ messages, assigned_operator: await assignedOperatorP });
+  return res.json(withOperator ? { messages, assigned_operator: await assignedOperatorP } : { messages });
 });
 
 /** `{ name, avatar, online }` of an assigned operator, or null (cosmetic: never fails). */
@@ -1003,9 +1008,13 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     if (sessionIds.length > 0) orParts.push(`visitor_session_id.in.(${sessionIds.join(',')})`);
     if (contact?.id) orParts.push(`contact_id.eq.${contact.id}`);
 
+    // Who answers each thread only on request (`operator=1`, sent by a
+    // renderer that draws it, see runtime.js operatorQ): the default
+    // template asks nothing, so its list costs what it always did.
+    const withOperator = req.query.operator === '1';
     const { data: convos, error } = await supabase
       .from('conversations')
-      .select('id, status, updated_at, assigned_to')
+      .select(withOperator ? 'id, status, updated_at, assigned_to' : 'id, status, updated_at')
       .eq('workspace_id', workspaceId)
       .or(orParts.join(','))
       .order('updated_at', { ascending: false })
@@ -1096,7 +1105,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
 
     // Who answers each thread: one profile read for all of them and the
     // presence from the cached workspace snapshot (no query per row).
-    const assignedIds = list.map((c) => c.assigned_to || null);
+    const assignedIds = withOperator ? list.map((c) => c.assigned_to || null) : [];
     const [operators, onlineIds] = assignedIds.some(Boolean)
       ? await Promise.all([
         resolveOperatorIdentities(config, supabase, assignedIds),
@@ -1112,7 +1121,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     const conversations = list.map((c) => {
       const last = lastByConv[c.id] || null;
       const assignedTo = c.assigned_to || null;
-      return {
+      const row = {
         id: c.id,
         status: c.status || 'unknown',
         updatedAt: c.updated_at,
@@ -1125,12 +1134,15 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         outbound: last ? last.sender_type === 'contact' : false,
         unreadCount: unreadByConv[c.id] || 0,
         lastMessageAt: last ? last.created_at : c.updated_at,
-        // The assigned operator (null while nobody is): a template draws
-        // their name, photo and presence on the row.
+      };
+      // The assigned operator (null while nobody is): a template draws
+      // their name, photo and presence on the row.
+      return withOperator ? {
+        ...row,
         operatorName: (assignedTo && operators.get(assignedTo)?.name) || null,
         operatorAvatar: (assignedTo && operators.get(assignedTo)?.avatar) || null,
         operatorOnline: !!assignedTo && onlineIds.has(assignedTo),
-      };
+      } : row;
     });
 
     return res.json({ conversations });

@@ -12,6 +12,7 @@
  */
 import { Box, CreditCard, Gift, HelpCircle, MessageCircle, Plus, Ruler, Tag, Clock, Trash2, Truck, Undo2, type LucideIcon } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '@/i18n';
+import { toPersianDigits } from '@/lib/persian-digits';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -58,8 +59,11 @@ export interface TemplateOptionsFieldsProps {
 export function TemplateOptionsFields({
   templateId, value, inherited = {}, onChange, disabled, allowReset, idPrefix,
 }: TemplateOptionsFieldsProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const tk = (key: string, params?: Record<string, string | number>) => t(key as TranslationKey, params);
+  // A row number in a placeholder or a label: attributes are not converted
+  // by the Persian digits layer, so it is written in the dashboard's digits here.
+  const num = (n: number) => (locale === 'fa' ? toPersianDigits(String(n)) : n);
   const keys = chatTemplateOptionKeys(templateId);
   if (!keys.length) return null;
 
@@ -127,7 +131,7 @@ export function TemplateOptionsFields({
           </div>
           <p className="text-[11px] text-muted-foreground">{t('widgetCatalog.options.topicsHint', { max: CHAT_TEMPLATE_LIMITS.topics })}</p>
           {topics.map((topic, index) => {
-            const n = index + 1;
+            const n = num(index + 1);
             return (
               <div key={index} className="flex items-center gap-2" data-topic-row={index}>
                 <Select value={topic.icon} disabled={disabled} onValueChange={(icon) => setTopic(index, { icon: icon as ChatTemplateTopicIcon })}>
@@ -194,8 +198,8 @@ export function TemplateOptionsFields({
               maxLength={CHAT_TEMPLATE_LIMITS.askExample}
               dir="auto"
               disabled={disabled}
-              aria-label={t('widgetCatalog.options.askExample', { n: index + 1 })}
-              placeholder={t('widgetCatalog.options.askExample', { n: index + 1 })}
+              aria-label={t('widgetCatalog.options.askExample', { n: num(index + 1) })}
+              placeholder={t('widgetCatalog.options.askExample', { n: num(index + 1) })}
               onChange={(e) => {
                 const next = Array.from({ length: CHAT_TEMPLATE_LIMITS.askExamples }, (_, i) => (i === index ? e.target.value : examples[i] ?? ''));
                 while (next.length && !next[next.length - 1]) next.pop();

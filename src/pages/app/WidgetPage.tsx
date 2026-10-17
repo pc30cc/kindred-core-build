@@ -236,7 +236,7 @@ function WidgetPageContent() {
    * landing meanwhile would swallow a refusal and leave the draft on a
    * template the workspace does not wear.
    */
-  const chooseTemplate = (id: string) => {
+  const chooseTemplate = (id: string | null) => {
     clearTimeout(timers.current.widget_template_id);
     setDraft((prev) => ({ ...prev, widget_template_id: id }));
     updateWidget.mutateAsync({ widget_template_id: id }).then(

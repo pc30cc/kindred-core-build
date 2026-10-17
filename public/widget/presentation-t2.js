@@ -718,7 +718,8 @@
         var name = String(meta.agent_name || meta.to_name || '');
         var raw = t('routingAgentJoined');
         text = name
-          ? (raw && raw !== 'routingAgentJoined' ? String(raw).replace('{name}', name) : name + ' ' + t('routingAgentJoinedSuffix'))
+          // split/join, not replace(): a name holding `$&` or `$'` stays as typed.
+          ? (raw && raw !== 'routingAgentJoined' ? String(raw).split('{name}').join(name) : name + ' ' + t('routingAgentJoinedSuffix'))
           : t('routingAgentJoinedGeneric');
       } else {
         text = t(kind === 'routing_no_agent_available' ? 'routingNoAgentAvailable' : 'routingInQueue');
@@ -733,7 +734,7 @@
       var status = meta.status || 'pending';
       var inviteId = esc(meta.invitation_id || '');
       var op = meta.operator_name ? String(meta.operator_name) : '';
-      var headline = String(t('ciHeadline' + (video ? 'Video' : 'Audio') + (op ? 'From' : ''))).replace('{op}', op);
+      var headline = String(t('ciHeadline' + (video ? 'Video' : 'Audio') + (op ? 'From' : ''))).split('{op}').join(op);
       var statusBlock;
       var actionBlock = '';
       var bodyBlock = '';

@@ -184,10 +184,17 @@ export function WidgetCatalogSection() {
         });
       }
     }
-    if (draft.defaultId !== saved.defaultId && (data.followingDefault ?? 0) > 0) {
+    // Who moves with the default: the workspaces that never chose, and those
+    // whose choice was and stays disabled (a choice disabled by this save is
+    // asked about above). Workspaces whose plan does not let them choose wear
+    // the default too; they are not counted, the text names them.
+    const following = (data.followingDefault ?? 0) + draft.templates
+      .filter((tpl) => !tpl.enabled && !saved.templates.find((s) => s.id === tpl.id)?.enabled)
+      .reduce((sum, tpl) => sum + (usage(tpl.id) ?? 0), 0);
+    if (draft.defaultId !== saved.defaultId && following > 0) {
       out.push({
         title: t('widgetCatalog.admin.confirmDefaultTitle'),
-        body: t('widgetCatalog.admin.confirmDefault', { count: data.followingDefault ?? 0, name: defaultName }),
+        body: t('widgetCatalog.admin.confirmDefault', { count: following, name: defaultName }),
       });
     }
     return out;
@@ -275,11 +282,13 @@ export function WidgetCatalogSection() {
               <div className="min-w-0 space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                    {/* A div: Badge renders a <div>, which a <p> may not hold. */}
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
                       {nameOf(tpl)}
-                      <span className="font-mono text-[11px] font-normal text-muted-foreground" dir="ltr">{tpl.id}</span>
+                      {/* The id is technical: Latin digits in every locale. */}
+                      <span className="font-mono text-[11px] font-normal text-muted-foreground" dir="ltr" data-latin-digits>{tpl.id}</span>
                       {isDefault && <Badge variant="secondary" className="text-[10px]">{t('widgetCatalog.admin.default')}</Badge>}
-                    </p>
+                    </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">{templateDescription(t, tpl.id)}</p>
                     {count !== null && (
                       <p className="mt-1 text-[11px] text-muted-foreground">{t('widgetCatalog.admin.chosenBy', { count })}</p>

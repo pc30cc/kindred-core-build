@@ -34,8 +34,14 @@
 -- widget_edition_settings is server-only: service_role alone may read or write
 -- it. No row is seeded. Re-runnable: every step is guarded or a no-op the
 -- second time, so a statement stopped by lock_timeout is simply run again.
+-- The file sets lock_timeout 5s itself (not one transaction, so for the
+-- session, reset at the end): a runner without PGOPTIONS, such as RESPOK's
+-- migrator, must not leave every widget_settings read queued behind an ALTER
+-- that waits for an open transaction.
 -- Dry run: the file inside BEGIN … ROLLBACK. Drops no data; touches no
 -- archive schema or table.
+
+SET lock_timeout = '5s';
 
 -- ─── 1. The Super Admin's catalog, per edition ─────────────────────────────
 CREATE TABLE IF NOT EXISTS public.widget_edition_settings (
@@ -127,3 +133,5 @@ BEGIN
       ADD CONSTRAINT kb_article_feedback_rating_chk CHECK (rating IN ('up', 'neutral', 'down'));
   END IF;
 END $$;
+
+RESET lock_timeout;

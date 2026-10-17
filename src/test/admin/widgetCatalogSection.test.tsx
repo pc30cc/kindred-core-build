@@ -132,6 +132,46 @@ describe('WidgetCatalogSection', () => {
     expect((puts[0].templates as Row[])[1]).toMatchObject({ id: 't1', enabled: false });
   });
 
+  it('the technical id keeps Latin digits in Persian, and the title row nests no block inside a paragraph', async () => {
+    const t1 = await mount();
+    const id = within(t1()).getByText('t1');
+    expect(id.closest('[data-latin-digits]')).not.toBeNull();
+    // Badge renders a <div>: never inside a <p> (validateDOMNesting).
+    expect(document.querySelector('[data-widget-catalog] p div')).toBeNull();
+  });
+
+  it('in Persian the numbered placeholders use Persian digits, like the text around them', async () => {
+    const fa = (await import('@/i18n/locales/fa')).default;
+    const { TemplateOptionsFields } = await import('@/components/app/widget/TemplateOptionsFields');
+    render(
+      <I18nProvider initialLocale="fa" initialTranslations={fa}>
+        <TemplateOptionsFields
+          templateId="t2"
+          value={{ topics: [{ label: '', icon: 'truck' }], askExamples: [] }}
+          onChange={() => undefined}
+          idPrefix="fa-digits"
+        />
+      </I18nProvider>,
+    );
+    expect(await screen.findByPlaceholderText('موضوع ۱')).toBeTruthy();
+    expect(screen.getByPlaceholderText('نمونه ۲')).toBeTruthy();
+    expect(screen.getByLabelText('حذف موضوع ۱')).toBeTruthy();
+  });
+
+  it('moving the default counts every workspace that follows it: never chose, or chose a template that stays disabled', async () => {
+    await mount();
+    const t2 = document.querySelector('[data-catalog-template="t2"]') as HTMLElement;
+    fireEvent.click(switchOf(t2));
+    fireEvent.click(within(t2).getByRole('radio'));
+    fireEvent.click(saveButton());
+    const dialog = await screen.findByRole('alertdialog');
+    // 12 never chose; t1's 3 choosers wear the default while t1 is disabled.
+    expect(dialog.textContent).toContain('15 workspaces');
+    expect(dialog.textContent).toContain('“Breeze”');
+    expect(dialog.textContent).toContain('plan');
+    expect(puts).toEqual([]);
+  });
+
   it('the default stays enabled; reordering moves the card', async () => {
     await mount();
     const def = document.querySelector('[data-catalog-template="default"]') as HTMLElement;

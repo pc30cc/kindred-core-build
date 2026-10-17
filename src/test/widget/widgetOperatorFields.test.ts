@@ -7,6 +7,10 @@
  *    the whole list and the cached workspace snapshot's availability (no
  *    query per row);
  *  - GET /history: `assigned_operator` ({ name, avatar, online } or null);
+ *  - both only on request (`operator=1`, which runtime.js sends for a
+ *    renderer that draws who answers): without it (the default template)
+ *    the routes read and answer exactly what they did before, with no
+ *    profile read and no workspace snapshot lookup of their own;
  *  - POST /kb/articles/:slug/feedback accepts 'neutral'; until migration 275
  *    widens the CHECK, the database refuses it and the API answers 400
  *    invalid_rating, as for any rating it refuses.
@@ -83,7 +87,11 @@ vi.mock('../../../server/services/widget/security.js', async (importOriginal) =>
 vi.mock('../../../server/services/widget/configSnapshot.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../server/services/widget/configSnapshot.js')>()),
   // Only OP_ONLINE is a member with no availability prefs (= reachable).
-  getWorkspaceWidgetSnapshot: async () => ({ availabilityPrefs: { memberIds: [OP_ONLINE], prefsByUser: new Map() } }),
+  // Counted as a read: on a cold entry it is a rebuild of the whole snapshot.
+  getWorkspaceWidgetSnapshot: async () => {
+    db.reads.push({ table: '(workspace snapshot)', select: '' });
+    return { availabilityPrefs: { memberIds: [OP_ONLINE], prefsByUser: new Map() } };
+  },
 }));
 vi.mock('../../../server/services/storage/urlResolver.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../server/services/storage/urlResolver.js')>()),
@@ -160,7 +168,7 @@ beforeEach(() => {
 
 describe('GET /api/widget/conversations — the assigned operator on every row', () => {
   it('carries name, avatar and presence, and null when nobody is assigned', async () => {
-    const res = await call('GET', `/api/widget/conversations?workspace_id=${WS}`);
+    const res = await call('GET', `/api/widget/conversations?workspace_id=${WS}&operator=1`);
     expect(res.status).toBe(200);
     const byId = Object.fromEntries((res.body.conversations || []).map((c) => [c.id, c]));
     expect(byId['c-online']).toMatchObject({ operatorName: 'سارا', operatorAvatar: 'https://cdn.test/sara.png', operatorOnline: true });
@@ -169,23 +177,49 @@ describe('GET /api/widget/conversations — the assigned operator on every row',
   });
 
   it('reads the profiles ONCE for the whole list (no query per row)', async () => {
-    await call('GET', `/api/widget/conversations?workspace_id=${WS}`);
+    await call('GET', `/api/widget/conversations?workspace_id=${WS}&operator=1`);
     expect(db.reads.filter((r) => r.table === 'profiles')).toHaveLength(1);
     expect(db.reads.find((r) => r.table === 'conversations')!.select).toContain('assigned_to');
+  });
+
+  it('without operator=1 (the default template) reads and answers exactly what it did before', async () => {
+    const res = await call('GET', `/api/widget/conversations?workspace_id=${WS}`);
+    expect(res.status).toBe(200);
+    expect(db.reads.map((r) => r.table)).toEqual([
+      'visitor_sessions', 'contacts', 'conversations', 'widget_conversation_reads', 'conversation_messages',
+    ]);
+    expect(db.reads.find((r) => r.table === 'conversations')!.select).toBe('id, status, updated_at');
+    for (const row of res.body.conversations || []) {
+      expect(Object.keys(row)).toEqual([
+        'id', 'status', 'updatedAt', 'preview', 'attachmentKind', 'outbound', 'unreadCount', 'lastMessageAt',
+      ]);
+    }
   });
 });
 
 describe('GET /api/widget/history — assigned_operator', () => {
   it('is { name, avatar, online } for an assigned thread', async () => {
-    const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=c-online`);
+    const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=c-online&operator=1`);
     expect(res.status).toBe(200);
     expect(res.body.assigned_operator).toEqual({ name: 'سارا', avatar: 'https://cdn.test/sara.png', online: true });
   });
 
   it('is null while nobody is assigned', async () => {
-    const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=c-none`);
+    const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=c-none&operator=1`);
     expect(res.body.assigned_operator).toBeNull();
     expect(db.reads.filter((r) => r.table === 'profiles')).toHaveLength(0);
+  });
+
+  it('without operator=1 (the default template) reads and answers exactly what it did before', async () => {
+    db.tables.conversation_messages = [
+      { id: 'm1', conversation_id: 'c-online', body: 'سلام', sender_type: 'agent', sender_id: OP_ONLINE, created_at: '2026-10-17T09:01:00Z', metadata: {} },
+    ];
+    const res = await call('GET', `/api/widget/history?workspace_id=${WS}&conversation_id=c-online`);
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body)).toEqual(['messages']);
+    // The thread's own sender lookup only: one profile read, no snapshot.
+    expect(db.reads.map((r) => r.table)).toEqual(['conversation_messages', 'profiles']);
+    expect((res.body.messages as Array<Record<string, unknown>>)[0]).toMatchObject({ sender_name: 'سارا' });
   });
 });
 

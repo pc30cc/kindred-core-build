@@ -180,7 +180,8 @@
     var lang = String(ctx.locale || 'en').toLowerCase().split('-')[0];
     var fa = lang === 'fa';
     var DIR = fa ? 'rtl' : 'ltr';
-    var COPY = (DICT[lang] || DICT.en).split('|');
+    // A string or English: a locale 'constructor' must not reach Object.prototype (and throw).
+    var COPY = (typeof DICT[lang] == 'string' ? DICT[lang] : DICT.en).split('|');
     var COPY_EN = DICT.en.split('|');
     var ACC = accentTokens(env.primaryColor);
     var TOK = ACC.css;
@@ -594,8 +595,9 @@
           '<div class="ci-meta ci-countdown" aria-live="polite"><span class="ci-pulse" aria-hidden="true"></span>' +
             esc(fmtInvitationRemaining(meta.expires_at)) + '</div>';
       } else {
+        // A string or nothing: a status such as 'toString' must not print Object.prototype.
         var st = { joined: 'ciStateJoined', expired: 'ciStateExpired', cancelled: 'ciStateCancelled', declined: 'ciStateDeclined' }[status];
-        body = '<div class="ci-meta ci-status ci-status-' + esc(status) + '">' + esc(st ? t(st) : '') + '</div>';
+        body = '<div class="ci-meta ci-status ci-status-' + esc(status) + '">' + esc(typeof st == 'string' ? t(st) : '') + '</div>';
       }
       return '<div class="msg-row system">' +
         '<div class="ci-card ci-channel-' + channel + ' ci-status-' + esc(status) + '" data-ci-card="' + inviteId +
@@ -1225,8 +1227,9 @@
     }
     function catIcon(icon) {
       var key = String(icon || '').toLowerCase();
-      if (CAT[key]) return svg(CAT[key], 18);
-      return svg(D.book, 18);
+      // Only a drawn glyph (a string): an icon named 'constructor' or
+      // '__proto__' reaches Object.prototype and gets the book too.
+      return svg(typeof CAT[key] == 'string' ? CAT[key] : D.book, 18);
     }
     function kbSearchBarHtml(vm) {
       vm = vm || {};

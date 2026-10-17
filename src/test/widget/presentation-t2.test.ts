@@ -249,6 +249,18 @@ describe('t2: strings are escaped, addresses are allow-listed', () => {
     expect(tt.querySelectorAll('mark').length).toBe(2);
     expect(tt.querySelector('mark')!.textContent).toBe('ارسال');
   });
+
+  it('puts a name into Core\'s sentences literally (no $& / $\' replacement patterns)', () => {
+    const own: Record<string, string> = { routingAgentJoined: '{name} پیوست', ciHeadlineAudioFrom: '{op} تماس می‌گیرد' };
+    const r = make({ t: (k: string) => own[k] ?? FA[k] ?? k });
+    const name = "A$'B$&C$`";
+    for (const meta of [{ agent_name: name }, { to_name: name }]) {
+      const row = parse(r.routingOutcomeRowHtml(msg({ senderType: 'system', metadata: { kind: 'routing_agent_joined', ...meta } })));
+      expect(row.querySelector('.msg-system-pill')!.textContent).toBe(name + ' پیوست');
+    }
+    const call = parse(r.callInvitationCardHtml(msg({ senderType: 'system', metadata: { kind: 'call_invitation', status: 'joined', channel: 'audio', operator_name: name } })));
+    expect(call.querySelector('.ci-title')!.textContent).toBe(name + ' تماس می‌گیرد');
+  });
 });
 
 describe('t2: the Core behaviours it declares are the ones it draws', () => {

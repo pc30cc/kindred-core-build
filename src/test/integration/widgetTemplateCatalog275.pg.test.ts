@@ -15,7 +15,9 @@
  *       Super Admin's upsert creates then updates the edition's row, the
  *       platform snapshot read sees it, usage counts are right;
  *   T7  a database from before 275 (no table, no columns): the real data
- *       layer's errors read as "no catalog" and as migration_required.
+ *       layer's errors read as "no catalog" and as migration_required;
+ *   T8  275 sets its own lock_timeout (a runner with no PGOPTIONS gives up
+ *       after 5 s instead of queueing widget reads) and resets it at the end.
  *
  * Driven by TEST_DATABASE_URL; skipped without it.
  */
@@ -23,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import pg from 'pg';
 import { createFullChainDatabase, type FullChainDatabase } from './fullChainDatabase';
 import { applyMigrationSql } from './pgMigrationChain';
 
@@ -204,4 +207,32 @@ suite('275 — chat widget template catalog (real PostgreSQL)', () => {
     }
     expect((await one(`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'widget_settings' AND column_name LIKE 'widget_template%'`)).n).toBe(2);
   });
+
+  it('T8 275 sets its own lock_timeout: with no PGOPTIONS it gives up instead of queueing every widget_settings read', async () => {
+    // RESPOK's migrator runs scripts/migrate-database.sh with no PGOPTIONS. Without
+    // a lock_timeout of its own, 275's ALTER of widget_settings waits behind any
+    // open transaction there, and every widget read queues behind that wait.
+    const locker = new pg.Client({ connectionString: chain.url });
+    const runner = new pg.Client({ connectionString: chain.url });
+    await Promise.all([locker.connect(), runner.connect()]);
+    try {
+      expect((await runner.query('SHOW lock_timeout')).rows[0].lock_timeout).toBe('0');
+      await locker.query('BEGIN');
+      await locker.query('LOCK TABLE public.widget_settings IN ROW SHARE MODE');
+      const started = Date.now();
+      const outcome = await Promise.race([
+        applyMigrationSql(runner, readFileSync(FILE, 'utf8')).then(() => 'applied', (e: Error) => e.message),
+        new Promise<string>((done) => setTimeout(() => done('still waiting'), 12_000)),
+      ]);
+      expect(outcome).toContain('lock timeout');
+      expect(Date.now() - started).toBeLessThan(12_000);
+      await locker.query('COMMIT');
+      // Simply run again: it completes, and leaves the session's setting as it found it.
+      await applyMigrationSql(runner, readFileSync(FILE, 'utf8'));
+      expect((await runner.query('SHOW lock_timeout')).rows[0].lock_timeout).toBe('0');
+    } finally {
+      await locker.query('ROLLBACK').catch(() => undefined);
+      await Promise.all([locker.end(), runner.end()]);
+    }
+  }, 30_000);
 });

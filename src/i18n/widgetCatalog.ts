@@ -12,8 +12,8 @@
 export const widgetCatalogEn = {
   names: { default: 'Familiar', intl: 'Familiar', t1: 'Turquoise', t2: 'Breeze' },
   descriptions: {
-    default: 'The look your site shows today',
-    intl: 'The look your site shows today',
+    default: 'A greeting with recent conversations, help articles and a button to start a chat',
+    intl: 'A greeting with recent conversations, help articles and a button to start a chat',
     t1: 'A coloured home with cards and a bottom menu: Home, Messages, Help',
     t2: 'No bottom menu; visitors type their question right on the home screen',
   },
@@ -47,7 +47,7 @@ export const widgetCatalogEn = {
     confirmDisableTitle: 'Disable this template?',
     confirmDisable: '{{count}} workspaces chose “{{name}}”. While it is disabled their visitors see the default, “{{default}}”. Their choice is kept and comes back when you enable it again.',
     confirmDefaultTitle: 'Change the default template?',
-    confirmDefault: 'The widget of {{count}} workspaces that never chose a template will change to “{{name}}”.',
+    confirmDefault: 'The widget of {{count}} workspaces that follow the default (they never chose a template, or chose one that is disabled) will change to “{{name}}”, and so will the widget of workspaces whose plan does not include choosing a template.',
     confirm: 'Continue',
     cancel: 'Cancel',
     errors: {
@@ -95,8 +95,8 @@ export const widgetCatalogEn = {
 export const widgetCatalogFa: typeof widgetCatalogEn = {
   names: { default: 'آشنا', intl: 'آشنا', t1: 'فیروزه', t2: 'نسیم' },
   descriptions: {
-    default: 'همان ظاهری که امروز روی سایت‌ها نمایش داده می‌شود',
-    intl: 'همان ظاهری که امروز روی سایت‌ها نمایش داده می‌شود',
+    default: 'خوشامد با گفتگوهای اخیر، مقاله‌های راهنما و دکمهٔ شروع گفتگو',
+    intl: 'خوشامد با گفتگوهای اخیر، مقاله‌های راهنما و دکمهٔ شروع گفتگو',
     t1: 'خانه با سربرگ رنگی و کارت‌ها، با منوی پایین: خانه، پیام‌ها، راهنما',
     t2: 'بدون منوی پایین؛ بازدیدکننده سؤالش را همان‌جا روی صفحه خانه می‌نویسد',
   },
@@ -130,7 +130,7 @@ export const widgetCatalogFa: typeof widgetCatalogEn = {
     confirmDisableTitle: 'این قالب غیرفعال شود؟',
     confirmDisable: '{{count}} فضای کاری «{{name}}» را انتخاب کرده‌اند. تا وقتی غیرفعال است، بازدیدکنندگان سایتشان قالب پیش‌فرض «{{default}}» را می‌بینند. انتخابشان نگه داشته می‌شود و با فعال‌سازی دوباره برمی‌گردد.',
     confirmDefaultTitle: 'قالب پیش‌فرض عوض شود؟',
-    confirmDefault: 'ظاهر ویجت {{count}} فضای کاری که قالبی انتخاب نکرده‌اند به «{{name}}» تغییر می‌کند.',
+    confirmDefault: 'ظاهر ویجت {{count}} فضای کاری که قالب پیش‌فرض را دارند (قالبی انتخاب نکرده‌اند یا قالب انتخابی‌شان غیرفعال است) به «{{name}}» تغییر می‌کند؛ ویجت فضاهای کاری‌ای که پلنشان انتخاب قالب را ندارد هم همین‌طور.',
     confirm: 'ادامه',
     cancel: 'انصراف',
     errors: {
@@ -178,8 +178,8 @@ export const widgetCatalogFa: typeof widgetCatalogEn = {
 export const widgetCatalogTr: typeof widgetCatalogEn = {
   names: { default: 'Tanıdık', intl: 'Tanıdık', t1: 'Turkuaz', t2: 'Esinti' },
   descriptions: {
-    default: 'Sitenizde bugün görünen tasarım',
-    intl: 'Sitenizde bugün görünen tasarım',
+    default: 'Karşılama, son konuşmalar, yardım makaleleri ve sohbet başlatma düğmesi',
+    intl: 'Karşılama, son konuşmalar, yardım makaleleri ve sohbet başlatma düğmesi',
     t1: 'Renkli ana sayfa, kartlar ve alt menü: Ana sayfa, Mesajlar, Yardım',
     t2: 'Alt menü yok; ziyaretçi sorusunu doğrudan ana sayfaya yazar',
   },
@@ -213,7 +213,7 @@ export const widgetCatalogTr: typeof widgetCatalogEn = {
     confirmDisableTitle: 'Bu şablon devre dışı bırakılsın mı?',
     confirmDisable: '{{count}} çalışma alanı “{{name}}” şablonunu seçti. Devre dışıyken ziyaretçileri varsayılan “{{default}}” şablonunu görür. Seçimleri saklanır ve yeniden etkinleştirince geri gelir.',
     confirmDefaultTitle: 'Varsayılan şablon değişsin mi?',
-    confirmDefault: 'Şablon seçmemiş {{count}} çalışma alanının widget’ı “{{name}}” olacak.',
+    confirmDefault: 'Varsayılanı kullanan {{count}} çalışma alanının (şablon seçmemiş ya da devre dışı bir şablon seçmiş) widget’ı “{{name}}” olacak; planı şablon seçimini içermeyen çalışma alanlarınınki de.',
     confirm: 'Devam',
     cancel: 'İptal',
     errors: {

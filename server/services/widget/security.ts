@@ -10,6 +10,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { ipKeyGenerator } from 'express-rate-limit';
 import { getClientIp as resolveClientIp } from '../../utils/clientIp.js';
 import crypto from 'crypto';
 import { getServiceClient } from '../../supabase.js';
@@ -257,11 +258,12 @@ const RATE_LIMITS: Record<string, RateLimitCaps> = {
 };
 
 /**
- * New visitor_sessions rows (POST /track's insert branch), per (IP,
- * workspace) a minute: each true-new visitor of the month counts against the
- * workspace's max_visitors quota, and /track's visitor_id is the client's, so
- * this — not the request caps above — bounds how fast one address can spend
- * a victim's quota.
+ * New visitor_sessions rows (the insert branches of POST /api/widget/track and
+ * POST /api/visitors/track, one shared budget), per (IP, workspace) a minute:
+ * each true-new visitor of the month counts against the workspace's
+ * max_visitors quota, and visitor_id is the client's there, so this — not the
+ * request caps above — slows how fast one address can spend a victim's
+ * quota. It slows it; many addresses can still spend it.
  */
 const NEW_VISITOR_SESSIONS_PER_MIN = 60;
 
@@ -343,9 +345,16 @@ export interface OwnedConversation {
   metadata: ({ visitor_id?: string } & Record<string, unknown>) | null;
 }
 
-/** Rate-limit bucket key: the real IP, or a shared 'unknown' bucket. */
+/**
+ * Rate-limit bucket key: the client address, an IPv6 one as its /56 (like the
+ * express-rate-limit layers, so a host cannot rotate through the addresses of
+ * its own /64), or a shared 'unknown' bucket. It is only as trustworthy as
+ * getClientIp: see "Client IP behind a CDN" in WIDGET_CONFIG_CACHE.md.
+ */
 function rateLimitIpKey(req: Request): string {
-  return resolveClientIp(req) ?? 'unknown';
+  const ip = resolveClientIp(req);
+  if (!ip) return 'unknown';
+  try { return ipKeyGenerator(ip, 56); } catch { return ip; }
 }
 
 function getRequestOrigin(req: Request): string | null {
@@ -508,7 +517,7 @@ export function takeAnonymousCallBootstrap(req: Request, res: Response, workspac
 }
 
 /**
- * POST /track is about to insert a visitor_sessions row (a visitor new to
+ * A /track route is about to insert a visitor_sessions row (a visitor new to
  * this session window, possibly new this month): at most
  * NEW_VISITOR_SESSIONS_PER_MIN per (IP, workspace). True = go on; otherwise
  * it has answered 429. Page views of known sessions never get here.

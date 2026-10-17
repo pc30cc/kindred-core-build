@@ -84,6 +84,33 @@ describe('bootstrap memo', () => {
     await second;
     expect(loads).toBe(2);
   });
+  it("one workspace's change does not disown another workspace's running load", async () => {
+    let loads = 0;
+    let release: () => void = () => {};
+    const slow = async (): Promise<Loaded> => { loads++; await new Promise<void>((r) => { release = r; }); return { ws: { workspace_id: 'b' } }; };
+    const first = memoCallWidgetBootstrap('ws:b', slow, wsOf);
+    invalidateCallWidgetBootstrapCache('a');
+    release();
+    await first;
+    await memoCallWidgetBootstrap('ws:b', slow, wsOf);
+    expect(loads).toBe(1);
+  });
+
+  it('follows the cache bus: widget:<ws> and platform drop entries, a resync keeps them (30 s bounds it)', async () => {
+    const { invalidateLocal } = await import('../../../server/lib/cacheBus.js');
+    const load = vi.fn(async (): Promise<Loaded> => ({ ws: { workspace_id: 'c' } }));
+    await memoCallWidgetBootstrap('ws:c', load, wsOf);
+    invalidateLocal(['all'], { resync: true });
+    await memoCallWidgetBootstrap('ws:c', load, wsOf);
+    expect(load).toHaveBeenCalledTimes(1);
+    invalidateLocal(['widget:C']); // any spelling of the id
+    await memoCallWidgetBootstrap('ws:c', load, wsOf);
+    expect(load).toHaveBeenCalledTimes(2);
+    invalidateLocal(['platform']);
+    await memoCallWidgetBootstrap('ws:c', load, wsOf);
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
   it('holds at most 5000 workspaces, dropping the oldest first', async () => {
     let loads = 0;
     const load = (id: string) => async (): Promise<Loaded> => { loads++; return { ws: { workspace_id: id } }; };

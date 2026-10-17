@@ -112,9 +112,15 @@ export async function applySignupPlanToWorkspace(
     return;
   }
   // Anything that read the workspace's entitlements before the subscription
-  // existed (onboarding, the widget preview) cached it as plan-less.
+  // existed (onboarding, the widget preview) cached it as plan-less. A new
+  // workspace has no knowledge base yet, so no KB catch-up is queued.
   if (!error) {
-    await handleWorkspaceEntitlementChanged(config, { workspaceId, source: 'subscription_created' }).catch((err: unknown) => {
+    await handleWorkspaceEntitlementChanged(config, {
+      workspaceId,
+      source: 'subscription_created',
+      previousEffectiveAccess: false,
+      nextEffectiveAccess: false,
+    }).catch((err: unknown) => {
       console.warn('[signup-plan] entitlement refresh failed:', err instanceof Error ? err.message : err);
     });
   }

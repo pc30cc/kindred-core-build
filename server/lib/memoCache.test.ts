@@ -221,3 +221,33 @@ describe('MemoCache — serveStale and expireAll', () => {
     expect(c.peek('k')).toBeUndefined();
   });
 });
+
+describe('MemoCache — keepPrevious never keeps what serveStale refuses', () => {
+  it('a degraded rebuild replaces a refused previous entry (stored for its own lifetime), so requests stop rebuilding', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: 0 });
+    // Previous: a "not found" (served stale: no). Next: degraded. keepPrevious would keep the old one.
+    const c = cache({ serveStale: (v) => !v.missing && !v.bad, ttlMs: (v) => (v.bad ? 5_000 : v.missing ? 1_000 : 10_000) });
+    let next: V = { id: 'gone', missing: true };
+    const load = vi.fn(async (_ctx: MemoLoadContext) => next);
+    await c.get('k', load);
+    next = { id: 'degraded', bad: true };
+    vi.setSystemTime(1_001);
+    expect((await c.get('k', load)).id).toBe('degraded');
+    // Stored: the next requests within its 5 s are answered from memory.
+    for (let i = 0; i < 5; i++) await c.get('k', load);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('a degraded rebuild still keeps a GOOD previous entry and serves it stale', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: 0 });
+    const c = cache({ serveStale: (v) => !v.missing && !v.bad });
+    let next: V = { id: 'good' };
+    const load = vi.fn(async (_ctx: MemoLoadContext) => next);
+    await c.get('k', load);
+    next = { id: 'degraded', bad: true };
+    vi.setSystemTime(10_001);
+    expect((await c.get('k', load)).id).toBe('good');
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(c.peek('k')?.id).toBe('good');
+  });
+});

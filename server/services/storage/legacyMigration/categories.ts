@@ -29,6 +29,24 @@ import { resolveRecordingStorageConfig } from '../../calls/recordingStorageResol
 import type { LegacyMigrationCandidate, LegacyMigrationProvider } from './engine.js';
 import { publishCacheInvalidation } from '../../../lib/cacheBus.js';
 
+/**
+ * Cache invalidations of migrated rows, sent once a second at most: the
+ * migration commits one row at a time, and a NOTIFY per row would make every
+ * API process drop its running widget snapshot builds on each one.
+ */
+const pendingScopes = new Set<string>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+function publishSoon(scope: string): void {
+  pendingScopes.add(scope);
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    const scopes = [...pendingScopes];
+    pendingScopes.clear();
+    publishCacheInvalidation(scopes);
+  }, 1_000);
+}
+
 function extFromFileName(name: string): string {
   const m = /\.([a-zA-Z0-9]+)$/.exec(name);
   return m ? m[1] : 'bin';
@@ -119,7 +137,7 @@ export function accountAvatarsMigrationProvider(config: ServerConfig): LegacyMig
       const { error } = await sb.from('profiles').update({ avatar_storage_key: newKey }).eq('id', candidateId);
       if (error) throw new Error(error.message);
       // The widget team stack shows this avatar (services/widget/configSnapshot.ts).
-      publishCacheInvalidation([`user:${candidateId}`]);
+      publishSoon(`user:${candidateId}`);
     },
     async readBackKey(candidateId) {
       const { data } = await sb.from('profiles').select('avatar_storage_key').eq('id', candidateId).maybeSingle();
@@ -292,7 +310,7 @@ export function workspaceBrandingMigrationProvider(config: ServerConfig): Legacy
         .update({ logo_storage_key: newKey, logo_url: null })
         .eq('workspace_id', candidateId);
       if (error) throw new Error(error.message);
-      publishCacheInvalidation([`widget:${candidateId}`]);
+      publishSoon(`widget:${candidateId}`);
     },
     async readBackKey(candidateId) {
       const { data } = await sb.from('workspace_branding').select('logo_storage_key').eq('workspace_id', candidateId).maybeSingle();

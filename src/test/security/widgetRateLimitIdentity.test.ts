@@ -249,6 +249,14 @@ describe('widgetRateLimit bucket arithmetic', () => {
     expect(passed).toBe(30);
   });
 
+  it('IPv6: every address of one /56 is one address (a host cannot rotate through its /64)', () => {
+    let passed = 0;
+    for (let i = 0; i < 40; i++) if (run('message', { ip: `2a01:4f8:a0:${i.toString(16)}::${i + 1}` }) === 200) passed++;
+    expect(passed).toBe(15);
+    // Another /56 is another address.
+    expect(run('message', { ip: '2a01:4f8:a1::1' })).toBe(200);
+  });
+
   it('a refused request is not counted in the other bucket', () => {
     const ip = '45.1.1.2';
     const cookie = cookieValue('77777777-7777-4777-8777-777777777777');

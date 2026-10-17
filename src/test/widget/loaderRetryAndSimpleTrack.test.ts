@@ -47,7 +47,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let readyFired = 0;
 
 /** Boots the loader; bootstrap answers are used in order (the last repeats). */
-async function boot(bootstrapAnswers: Answer[], opts: { track?: (init: Init) => Promise<Answer> } = {}) {
+async function boot(bootstrapAnswers: Answer[], opts: { track?: (init: Init) => Promise<Answer>; presence?: (init: Init) => Promise<Answer> } = {}) {
   document.head.innerHTML = '';
   document.body.innerHTML = '';
   for (const k of ['__gs', '__gs_id', '__gs_api_base', '__gs_loaded', '__gs_loader_injected', '__gs_token', '__gs_runtime', '__gs_policy', '__gs_session_id', '__gs_visitor_presence']) {
@@ -69,7 +69,9 @@ async function boot(bootstrapAnswers: Answer[], opts: { track?: (init: Init) => 
     if (u.includes('/api/widget/track')) {
       return opts.track ? opts.track((init || {}) as Init) : Promise.resolve(response({ ok: true, session_id: 'sess-1' }));
     }
-    if (u.includes('/api/realtime/visitor-presence')) return Promise.resolve(response({ vendor: 'database', presence: false }));
+    if (u.includes('/api/realtime/visitor-presence')) {
+      return opts.presence ? opts.presence((init || {}) as Init) : Promise.resolve(response({ vendor: 'database', presence: false }));
+    }
     return Promise.resolve(response({}));
   });
   win().fetch = fetchMock;
@@ -216,5 +218,20 @@ describe('a body-token request that reaches an older backend process (rolling de
     expect(track[0].headers).toBeUndefined();
     expect(track[1].headers).toEqual({ 'Content-Type': 'application/json', 'X-Widget-Token': 'tok-new' });
     expect(calls('/api/realtime/visitor-presence')).toHaveLength(1);
+  });
+
+  it('a 400 to the body form (an older process could not read it; readable on a same-origin page) → sent once more with X-Widget-Token', async () => {
+    let n = 0;
+    await boot([current(3)], {
+      presence: () => (++n === 1
+        ? Promise.resolve(response({ error: 'Invalid request' }, 400))
+        : Promise.resolve(response({ vendor: 'database', presence: false }))),
+    });
+    await vi.advanceTimersByTimeAsync(2500);
+    const presence = calls('/api/realtime/visitor-presence').map((c) => c[1] as Init);
+    expect(presence).toHaveLength(2);
+    expect(presence[0].headers).toBeUndefined();
+    expect(presence[1].headers).toEqual({ 'Content-Type': 'application/json', 'X-Widget-Token': 'tok-new' });
+    expect((win().__gs_token as { serverProtocol: number }).serverProtocol).toBe(0);
   });
 });

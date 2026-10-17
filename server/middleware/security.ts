@@ -177,8 +177,13 @@ onInvalidate('ipblock', (_key, { resync }) => {
   if (resync) {
     // The bus reconnected (nothing known changed): reload soon, but keep
     // answering from the current list meanwhile instead of making every
-    // request wait for the reload.
+    // request wait for the reload. A reload already running may have read
+    // the rows before a block whose notification was lost: it is not kept.
     if (ipBlocklist) ipBlocklist = { ...ipBlocklist, loadedAt: Math.min(ipBlocklist.loadedAt, Date.now() - IPBLOCK_REFRESH_MS) };
+    if (ipBlocklistFlight) {
+      ipBlocklistGen++;
+      ipBlocklistFlight = null;
+    }
     return;
   }
   ipBlocklistGen++;

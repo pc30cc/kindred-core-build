@@ -196,7 +196,14 @@ export class MemoCache<V> {
   private store(key: string, value: V): void {
     const now = Date.now();
     const previous = this.entries.get(key) ?? this.negatives.get(key);
-    if (previous && now - previous.at <= this.maxStaleMs && this.opts.keepPrevious?.(previous.value, value)) {
+    // Kept only when it can still be served: keeping one serveStale refuses
+    // would leave nothing servable, and every request would load again.
+    if (
+      previous &&
+      now - previous.at <= this.maxStaleMs &&
+      (this.opts.serveStale?.(previous.value) ?? true) &&
+      this.opts.keepPrevious?.(previous.value, value)
+    ) {
       previous.retryAt = now + this.retryAfterMs;
       return;
     }

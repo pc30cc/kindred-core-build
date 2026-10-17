@@ -1,11 +1,13 @@
 /**
  * public/widget/loader.js before and around the first open:
  *
- *  - An open intent (pointer over the launcher, a touch, keyboard focus)
- *    opens the two uncredentialed connections a first open needs
+ *  - An open intent (a mouse MOVING over the launcher, a press, keyboard
+ *    focus) opens the two uncredentialed connections a first open needs
  *    (rel=preconnect crossorigin, the API and the fonts' host) and loads the
  *    panel's files, but runtime.init() — the realtime connection and every
- *    API read — waits for a real open. A page view without one adds nothing.
+ *    API read — waits for a real open. A mouse loads the files only once it
+ *    stays 100 ms; a launcher appearing under a resting cursor warms nothing.
+ *    A page view without an intent adds nothing.
  *  - A click while that load is still running opens the panel when it ends.
  *  - A hashed script that is missing is retried once by its canonical name in
  *    a FRESH element: a cloned <script> keeps its "already started" flag and
@@ -98,10 +100,19 @@ describe('the chat loader: open intent and the first open', () => {
     expect(requested(/runtime\.0123abcd\.js|presentation-default\.0123abcd\.js/)).toEqual([]);
   });
 
-  it('an intent preconnects (crossorigin) to the API and the fonts\' host and loads the panel, without init()', async () => {
+  const pointer = (el: Element, type: string, x: number, y: number) =>
+    el.dispatchEvent(new MouseEvent(type, { clientX: x, clientY: y, bubbles: type !== 'pointerenter' && type !== 'pointerleave' }));
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('a mouse that moves over the launcher and stays: preconnects (crossorigin) to the API and the fonts\' host, then loads the panel, without init()', async () => {
     const launcher = await boot();
-    launcher.dispatchEvent(new Event('pointerenter'));
-    launcher.dispatchEvent(new Event('pointerenter')); // once only
+    pointer(launcher, 'pointerenter', 10, 10);
+    pointer(launcher, 'pointermove', 14, 12);
+    pointer(launcher, 'pointermove', 18, 14); // once only
+    await tick();
+    expect(preconnects()).toHaveLength(2);
+    expect(requested(/runtime\.0123abcd\.js$/)).toHaveLength(0); // not before it stayed 100 ms
+    await wait(120);
     await tick(12);
     expect(preconnects().map((l) => [l.href.replace(/\/$/, ''), l.crossOrigin])).toEqual([
       ['https://api.test', 'anonymous'],
@@ -117,6 +128,43 @@ describe('the chat loader: open intent and the first open', () => {
     expect(open).toHaveBeenCalledTimes(1);
     // Nothing was requested twice.
     expect(requested(/runtime\.0123abcd\.js$/)).toHaveLength(1);
+  });
+
+  it('a launcher that appears under a resting cursor (enter, no movement) warms nothing', async () => {
+    const launcher = await boot();
+    pointer(launcher, 'pointerenter', 30, 30);
+    pointer(launcher, 'pointermove', 30, 30); // a synthetic move at the same spot
+    await wait(150);
+    await tick();
+    expect(preconnects()).toEqual([]);
+    expect(requested(/runtime\.0123abcd\.js|presentation-default\.0123abcd\.js/)).toEqual([]);
+  });
+
+  it('a mouse that only passes over the launcher opens the connections but downloads no panel file', async () => {
+    const launcher = await boot();
+    pointer(launcher, 'pointerenter', 0, 20);
+    pointer(launcher, 'pointermove', 20, 20);
+    pointer(launcher, 'pointerleave', 40, 20);
+    await wait(150);
+    await tick();
+    expect(preconnects()).toHaveLength(2);
+    expect(requested(/runtime\.0123abcd\.js|presentation-default\.0123abcd\.js/)).toEqual([]);
+    expect(init).not.toHaveBeenCalled();
+  });
+
+  it('a press is an intent at once: pointerdown / touchstart / focus load the panel without a dwell', async () => {
+    for (const type of ['pointerdown', 'touchstart', 'focus']) {
+      document.head.innerHTML = '';
+      document.body.innerHTML = '';
+      for (const key of Object.keys(window)) if (key.indexOf('__gs') === 0) delete w[key];
+      appended.length = 0;
+      vi.restoreAllMocks();
+      const launcher = await boot();
+      launcher.dispatchEvent(new Event(type));
+      await tick(12);
+      expect(requested(/runtime\.0123abcd\.js$/), type).toHaveLength(1);
+      expect(init, type).not.toHaveBeenCalled();
+    }
   });
 
   it('a click while the warm-up load is still running opens the panel when it ends', async () => {

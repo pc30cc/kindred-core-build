@@ -134,10 +134,12 @@ anonymous bucket for a request without a valid visitor cookie
 workspace)): each such request mints a visitor and a `visitor_sessions` row
 counted against the workspace's monthly visitor quota. On the chat side that
 row comes from POST /track, whose `visitor_id` is the client's: its insert
-branch has its own budget of 60 new rows per minute per (IP, workspace)
-(`takeNewVisitorSession`), so one address cannot spend a workspace's monthly
-`max_visitors` in minutes; page views of known sessions are not counted
-there. Per minute:
+branch, and that of POST /api/visitors/track, share one budget of 60 new
+rows per minute per (IP, workspace) (`takeNewVisitorSession`). That slows
+how fast one address can spend a workspace's monthly `max_visitors`; many
+addresses still can. Page views of known sessions are not counted there.
+IPv6 addresses count per /56 (as in the express-rate-limit layers), so a host
+cannot rotate through its own /64. Per minute:
 
 | Category | Routes | Per visitor | Anonymous (IP, workspace) | Shared, every request of one (IP, workspace) |
 |---|---|---|---|---|
@@ -184,6 +186,17 @@ ceilings for one process; route by client IP at the balancer if exactness per
 address is ever needed.
 
 ### Client IP behind a CDN (open question)
+
+Known since 2026-10-17: `api.webyar.ai` answers through Cloudflare
+(`server: cloudflare`, a `cf-ray` header), so `cf-connecting-ip` is the
+visitor for requests that come through it. Every per-address budget in
+`widgetRateLimit` and `takeNewVisitorSession` keys on `getClientIp`, so it
+holds only for clients that cannot reach the origin (192.99.68.134) without
+Cloudflare: one that can sends its own `cf-connecting-ip` and picks a fresh
+bucket per request (as before this change). Locking the origin to Cloudflare
+(a firewall rule on 443 allowing only Cloudflare's ranges, or Authenticated
+Origin Pulls) closes that for every layer at once; it is an infrastructure
+change for the owner.
 
 The express-rate-limit layers and the IP blocklist key on Express's `req.ip`,
 which follows `trust proxy` (`TRUST_PROXY`, default `loopback, linklocal,
@@ -278,10 +291,14 @@ the signup trial plan (`handleWorkspaceEntitlementChanged`).
   are lost, but nothing known changed. The snapshot, platform and quota caches
   mark their entries expired instead of dropping them (the next request is
   answered from the old copy and ONE gated background rebuild follows), and
-  the IP blocklist reloads in the background while it keeps answering. So a
-  dropped LISTEN connection never makes every active workspace rebuild in
-  the foreground at once. Caches without a stale path (entitlements, lock
-  state, origin rules, the call widget bootstrap) drop their entries.
+  the IP blocklist reloads in the background while it keeps answering (a
+  reload already running is not kept). So a dropped LISTEN connection no
+  longer makes every active workspace rebuild its snapshot in the
+  foreground at once. The call widget bootstrap memo keeps its entries (they
+  live 30 s). Origin rules, entitlements and lock state have no stale path
+  and still drop theirs: each active workspace's next bootstrap reloads them
+  (~36 queries, outside the rebuild budget), one TTL's worth of their normal
+  reloads arriving together.
 - supabase-rest mode (no `DATABASE_URL`): local only, nothing listens.
 - RESPOK has its own database, so its channel is naturally separate.
 - `pg_notify` lives in `pg_catalog`; no migration, no grant.
@@ -328,8 +345,9 @@ auto-deploy independently, in any order. Both orders are safe:
   `protocol: 2` backend (the first half of this work alone) gets the header
   form. When a body-token request still reaches an older process (a rolling
   deploy keeps old and new backend containers side by side for a while) and
-  fails (a network error) or is refused as unauthenticated, it is sent once
-  more with the header, and on success the page keeps the header form.
+  fails (a network error) or is refused (401, or 400 from a process that
+  cannot read the body), it is sent once more with the header, and on
+  success the page keeps the header form.
 - Rolling back either app is one of these mixes.
 
 Kill switch: `WIDGET_CONFIG_CACHE_TTL_MS=0` on the backend restores the

@@ -28,6 +28,8 @@ import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
 import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
+import { takeNewVisitorSession } from '../services/widget/security.js';
+import { canonicalWorkspaceId } from '../lib/workspaceId.js';
 import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
 import { isConversationId } from '../services/conversationIds.js';
 
@@ -159,6 +161,9 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
       // `requireLimit('max_visitors', usageFnForLimit('max_visitors'))`
       // middleware decides. Reconnect/revisit/update/page-view
       // branches stay ungated.
+      // The same new-row budget per (IP, workspace) as POST
+      // /api/widget/track: visitor_id is the client's here too.
+      if (!takeNewVisitorSession(req, res, canonicalWorkspaceId(data.workspace_id) ?? data.workspace_id)) return;
       const ok = await enforceMaxVisitorsLimitIfNewThisMonth(
         req,
         res,

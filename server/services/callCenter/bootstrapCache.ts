@@ -1,4 +1,5 @@
 import { onInvalidate } from '../../lib/cacheBus.js';
+import { canonicalWorkspaceId } from '../../lib/workspaceId.js';
 
 /**
  * The workspace-level part of the call widget bootstrap, kept per process for
@@ -42,24 +43,39 @@ const inflight = new Map<string, Entry<unknown>>();
 
 /**
  * Drop one workspace's entries (any key it was looked up by), or all. Loads
- * in progress are never stored afterwards: they may have read the old row.
+ * in progress that may be that workspace's (its `ws:` key, and every `pk:`
+ * load, whose workspace is known only once it ends) are never stored
+ * afterwards: they may have read the old row. Other workspaces' loads are.
  */
 export function invalidateCallWidgetBootstrapCache(workspaceId?: string | null): void {
-  inflight.clear();
-  if (!workspaceId) { entries.clear(); negatives.clear(); return; }
-  const byId = `ws:${workspaceId.toLowerCase()}`;
+  if (!workspaceId) { inflight.clear(); entries.clear(); negatives.clear(); return; }
+  const id = sameId(workspaceId);
+  const byId = `ws:${id}`;
+  for (const key of [...inflight.keys()]) {
+    if (key === byId || key.startsWith('pk:')) inflight.delete(key);
+  }
   for (const map of [entries, negatives]) {
     for (const [key, entry] of map) {
-      if (entry.workspaceId === workspaceId || key === byId) map.delete(key);
+      if ((entry.workspaceId && sameId(entry.workspaceId) === id) || key === byId) map.delete(key);
     }
   }
 }
 
+/** One spelling per workspace id (lib/workspaceId.ts), lower case for anything else. */
+function sameId(workspaceId: string): string {
+  return canonicalWorkspaceId(workspaceId) ?? workspaceId.toLowerCase();
+}
+
 // The bus (lib/cacheBus.ts): a workspace's widget inputs, or anything
-// platform-wide (the call center switches, providers, edition). No stale
-// path here, so a resync drops entries like any 'all'.
-onInvalidate('widget', (workspaceId) => invalidateCallWidgetBootstrapCache(workspaceId));
-onInvalidate('platform', () => invalidateCallWidgetBootstrapCache());
+// platform-wide (the call center switches, providers, edition). A resync
+// (the bus reconnected; nothing known changed) is skipped: these entries
+// live 30 s, which already bounds what a missed notification can leave.
+onInvalidate('widget', (workspaceId, { resync }) => {
+  if (!resync) invalidateCallWidgetBootstrapCache(workspaceId);
+});
+onInvalidate('platform', (_key, { resync }) => {
+  if (!resync) invalidateCallWidgetBootstrapCache();
+});
 
 function keep(map: Map<string, Entry<unknown>>, max: number, key: string, entry: Entry<unknown>) {
   map.set(key, entry);

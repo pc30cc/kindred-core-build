@@ -151,6 +151,28 @@ describe('ipBlockMiddleware: one list snapshot, no query per visitor, fail close
     expect(listQueries).toHaveLength(3);
   });
 
+  it('a cache-bus resync reloads in the background, and a reload already running when it came is not kept', async () => {
+    listAnswer.mockImplementation(() => rows([]));
+    expect((await run('6.6.6.6')).passed).toBe(true);
+    // A background refresh is running (it read the rows BEFORE the block).
+    __ageIpBlocklistForTests(31_000);
+    let releaseOld: (v: unknown) => void = () => {};
+    listAnswer.mockImplementation(() => new Promise((r) => { releaseOld = r; }));
+    expect((await run('6.6.6.6')).passed).toBe(true);
+    expect(listQueries).toHaveLength(2);
+    // The admin blocks 6.6.6.6, but its notification is lost; the bus then
+    // reconnects and resyncs.
+    invalidateLocal(['all'], { resync: true });
+    releaseOld(rows([]));
+    await new Promise((r) => setTimeout(r, 0));
+    listAnswer.mockImplementation(() => rows([{ ip_address: '6.6.6.6', blocked_until: null }]));
+    // The pre-gap reload was not kept: the next request still reloads (in
+    // the background, answering from the current list), and the block holds.
+    expect((await run('6.6.6.6')).passed).toBe(true);
+    expect(listQueries).toHaveLength(3);
+    await vi.waitFor(async () => expect(await run('6.6.6.6')).toEqual({ code: 403, passed: false }));
+  });
+
   it('an invalidation whose reload fails keeps answering from the current list', async () => {
     listAnswer.mockImplementation(() => rows([{ ip_address: '9.9.9.9', blocked_until: null }]));
     await run('1.1.1.1');

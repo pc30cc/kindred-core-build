@@ -56,9 +56,11 @@ templates: `docs/operations/EDITIONS.md`.
   waits for a real open.
 - Call widget: its presentation mounts at page load (the launcher lives in
   it), so every byte of a call template is paid on a first page view. l.js
-  never requests its scripts inside the host page's load (a script requested
-  before the load event delays it by its download): at once on a loaded
-  page, else at the load event or the bootstrap answer, whichever is first.
+  does not request its scripts early inside the host page's load (a script
+  requested before the load event delays it by its download): at once on a
+  loaded page, else at the load event or when the bootstrap answers,
+  whichever is first (a bootstrap answering first still starts them inside
+  the load, as it always did).
 - Every hashed file has a one-time canonical-name fallback in the code that
   loads it (loader, runtime modules, the call module, call widget l.js): keep
   it when you touch loading code. A retried `<script>` is a NEW element

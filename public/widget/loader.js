@@ -1270,8 +1270,10 @@
   function serverReadsBodyToken() {
     try { return Number(window.__gs_token && window.__gs_token.serverProtocol) >= 3; } catch (_) { return false; }
   }
-  // A body-token request that fails (no CORS headers: a network error) or is
-  // refused as unauthenticated may have reached a backend process older than
+  // A body-token request that fails (no CORS headers: a network error), is
+  // refused as unauthenticated (401), or is refused as malformed (400: an
+  // older process cannot read a text/plain body, and on a same-origin page
+  // that answer is readable) may have reached a backend process older than
   // the one that answered the bootstrap (a rolling deploy, a rollback): it is
   // sent once more in the header form, and when that goes through, this page
   // keeps the header form from then on.
@@ -1295,7 +1297,7 @@
     body.widget_token = token;
     return fetch(url, { method: "POST", credentials: "include", body: JSON.stringify(body) })
       .then(function (r) {
-        if (r.status !== 401) return r;
+        if (r.status !== 401 && r.status !== 400) return r;
         return headerForm().then(function (again) {
           if (again.ok) useHeaderForm();
           return again;
@@ -1592,10 +1594,19 @@
       onLauncherClick();
     });
     if (!opts.errorMessage && !opts.launcherOnly) {
-      var intentEvents = ["pointerenter", "pointerdown", "touchstart", "focus"];
+      // A press or keyboard focus is an intent at once.
+      var intentEvents = ["pointerdown", "touchstart", "focus"];
       for (var ie = 0; ie < intentEvents.length; ie++) {
         launcherEl.addEventListener(intentEvents[ie], onOpenIntent, { passive: true });
       }
+      // A mouse only by MOVING over the launcher: one that appears under a
+      // resting cursor gets a pointerenter (and maybe a synthetic move at the
+      // same spot) though nobody moved. Movement opens the connections; the
+      // files load once the pointer stays 100 ms, so a pointer that only
+      // passes over the corner costs no download.
+      launcherEl.addEventListener("pointerenter", onPointerEnter, { passive: true });
+      launcherEl.addEventListener("pointermove", onPointerMove, { passive: true });
+      launcherEl.addEventListener("pointerleave", onPointerLeave, { passive: true });
     }
   }
 
@@ -1603,14 +1614,18 @@
   // A first open needs two connections the page view no longer opens:
   // Chrome's uncredentialed one to the API (the open's preflights; the page
   // view sends none now) and to the fonts' host (the template's CORS font
-  // files). Each costs a TCP + TLS setup at tap time. A pointer over the
-  // launcher, a touch on it or keyboard focus says an open is likely: both
-  // are opened then (rel=preconnect crossorigin, never on a page view
+  // files). Each costs a TCP + TLS setup at tap time. A pointer moving over
+  // the launcher, a touch on it or keyboard focus says an open is likely:
+  // both are opened then (rel=preconnect crossorigin, never on a page view
   // nobody opens, so no handshake is spent on those), and the panel's files
-  // load and run, with the template's prepare() warming its faces. Only
+  // load and run (for a mouse once it stays 100 ms), with the template's
+  // prepare() warming its faces. Only
   // their definitions run: runtime.init() (the realtime connection, every
   // API read) waits for a real open, or for a Smart Engagement preload.
   var openIntentSeen = false;
+  var connectionsWarmed = false;
+  var pointerAnchor = null;
+  var dwellTimer = null;
   var holdRuntimeInit = false;
   var heldRuntimeInit = null;
   var preconnected = {};
@@ -1627,17 +1642,41 @@
       (document.head || document.documentElement).appendChild(link);
     } catch (_) { /* noop */ }
   }
-  function onOpenIntent() {
-    if (openIntentSeen || !configData) return;
-    openIntentSeen = true;
+  function warmConnections() {
+    if (connectionsWarmed || !configData) return;
+    connectionsWarmed = true;
     preconnectAnonymous(configData._apiBase);
     // The faces come from the fonts stylesheet's host (the template's other
     // files load no-cors, over the credentialed connection the page view
     // already opened).
     preconnectAnonymous(configData.presentationFontsUrl);
+  }
+  function onOpenIntent() {
+    if (openIntentSeen || !configData) return;
+    openIntentSeen = true;
+    if (dwellTimer) { clearTimeout(dwellTimer); dwellTimer = null; }
+    warmConnections();
     if (runtimeLoaded || runtimeLoading || runtimeLoadFailed) return;
     holdRuntimeInit = true;
     loadRuntimeAssets();
+  }
+  function isMousePointer(ev) {
+    return !ev || !ev.pointerType || ev.pointerType === "mouse" || ev.pointerType === "pen";
+  }
+  function onPointerEnter(ev) {
+    if (!isMousePointer(ev)) return;
+    pointerAnchor = { x: ev.clientX, y: ev.clientY };
+  }
+  function onPointerMove(ev) {
+    if (openIntentSeen || !isMousePointer(ev)) return;
+    if (!pointerAnchor) { pointerAnchor = { x: ev.clientX, y: ev.clientY }; return; }
+    if (Math.abs(ev.clientX - pointerAnchor.x) + Math.abs(ev.clientY - pointerAnchor.y) < 3) return;
+    warmConnections();
+    if (!dwellTimer) dwellTimer = setTimeout(function () { dwellTimer = null; onOpenIntent(); }, 100);
+  }
+  function onPointerLeave() {
+    pointerAnchor = null;
+    if (dwellTimer) { clearTimeout(dwellTimer); dwellTimer = null; }
   }
   // Something wants the runtime itself now (an open, a Smart Engagement
   // preload): run the init a warm-up held back, or let the load go on to it.

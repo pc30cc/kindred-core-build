@@ -80,7 +80,11 @@ import {
   takeNewVisitorSession,
 } from '../services/widget/security.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
-import { enrichMessagesWithSender } from '../services/widget/senderIdentity.js';
+import {
+  availableOperatorIds,
+  enrichMessagesWithSender,
+  resolveOperatorIdentities,
+} from '../services/widget/senderIdentity.js';
 
 /**
  * What the widget security middleware attaches to a request after it has
@@ -894,6 +898,15 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   }
 
   const supabase = getServiceClient(config);
+  // The operator the thread is assigned to, for a chat header that shows who
+  // answers ({ name, avatar, online }; null while nobody is assigned). Only
+  // on request (`operator=1`, sent by a renderer that draws it, see
+  // runtime.js operatorQ): the default template asks nothing, so its
+  // history costs what it always did.
+  const withOperator = req.query.operator === '1';
+  const assignedOperatorP = withOperator
+    ? assignedOperatorOf(config, supabase, workspaceId, ownership.conversation?.assigned_to || null)
+    : null;
   const { data: msgs } = await supabase
     .from('conversation_messages')
     .select('id, body, sender_type, sender_id, created_at, metadata, seen_at, reply_to_message_id')
@@ -918,8 +931,28 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   const withReplies = await enrichMessagesWithReplyTo(config, conversationId, enriched);
   const messages = await enrichMessagesWithSender(config, supabase, withReplies, workspaceId);
 
-  return res.json({ messages });
+  return res.json(withOperator ? { messages, assigned_operator: await assignedOperatorP } : { messages });
 });
+
+/** `{ name, avatar, online }` of an assigned operator, or null (cosmetic: never fails). */
+async function assignedOperatorOf(
+  config: ServerConfig,
+  supabase: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+  userId: string | null,
+): Promise<{ name: string | null; avatar: string | null; online: boolean } | null> {
+  if (!userId) return null;
+  try {
+    const [identities, online] = await Promise.all([
+      resolveOperatorIdentities(config, supabase, [userId]),
+      availableOperatorIds(config, workspaceId),
+    ]);
+    const who = identities.get(userId);
+    return who ? { name: who.name, avatar: who.avatar, online: online.has(userId) } : null;
+  } catch {
+    return null;
+  }
+}
 
 // ═══════════════════════════════════════════════
 // GET /conversations — Visitor's own conversation list
@@ -975,9 +1008,17 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     if (sessionIds.length > 0) orParts.push(`visitor_session_id.in.(${sessionIds.join(',')})`);
     if (contact?.id) orParts.push(`contact_id.eq.${contact.id}`);
 
+    // Who answers each thread only on request (`operator=1`, sent by a
+    // renderer that draws it, see runtime.js operatorQ): the default
+    // template asks nothing, so its list costs what it always did.
+    const withOperator = req.query.operator === '1';
+    // Typed as the wider list: without operator=1 the rows simply have no
+    // `assigned_to` (read as null below).
+    const columns = (withOperator ? 'id, status, updated_at, assigned_to' : 'id, status, updated_at') as
+      'id, status, updated_at, assigned_to';
     const { data: convos, error } = await supabase
       .from('conversations')
-      .select('id, status, updated_at')
+      .select(columns)
       .eq('workspace_id', workspaceId)
       .or(orParts.join(','))
       .order('updated_at', { ascending: false })
@@ -1066,6 +1107,16 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
       }
     }
 
+    // Who answers each thread: one profile read for all of them and the
+    // presence from the cached workspace snapshot (no query per row).
+    const assignedIds = withOperator ? list.map((c) => c.assigned_to || null) : [];
+    const [operators, onlineIds] = assignedIds.some(Boolean)
+      ? await Promise.all([
+        resolveOperatorIdentities(config, supabase, assignedIds),
+        availableOperatorIds(config, workspaceId),
+      ])
+      : [new Map(), new Set<string>()];
+
     const truncate = (text: string, max = 120) => {
       const flat = String(text || '').replace(/\s+/g, ' ').trim();
       return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
@@ -1073,7 +1124,8 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
 
     const conversations = list.map((c) => {
       const last = lastByConv[c.id] || null;
-      return {
+      const assignedTo = c.assigned_to || null;
+      const row = {
         id: c.id,
         status: c.status || 'unknown',
         updatedAt: c.updated_at,
@@ -1087,6 +1139,14 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         unreadCount: unreadByConv[c.id] || 0,
         lastMessageAt: last ? last.created_at : c.updated_at,
       };
+      // The assigned operator (null while nobody is): a template draws
+      // their name, photo and presence on the row.
+      return withOperator ? {
+        ...row,
+        operatorName: (assignedTo && operators.get(assignedTo)?.name) || null,
+        operatorAvatar: (assignedTo && operators.get(assignedTo)?.avatar) || null,
+        operatorOnline: !!assignedTo && onlineIds.has(assignedTo),
+      } : row;
     });
 
     return res.json({ conversations });
@@ -3090,8 +3150,12 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
 // upserts a single overwritable vote per visitor session (one row per
 // (article_id, visitor_session_id), see migration 060).
 // ═══════════════════════════════════════════════
+// 'neutral' is the middle face ("partly") of a template that draws three.
+// The database accepts it from migration 275 on (it widens
+// kb_article_feedback_rating_chk); before that the CHECK refuses the row and
+// the vote is answered as invalid input, below.
 const kbFeedbackSchema = z.object({
-  rating: z.enum(['up', 'down']),
+  rating: z.enum(['up', 'neutral', 'down']),
 });
 
 widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), async (req: Request, res: Response) => {
@@ -3206,6 +3270,9 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
 
     return res.json({ ok: true, rating: parsed.data.rating });
   } catch (err) {
+    // A rating the database's CHECK does not allow yet ('neutral' before
+    // migration 275): the same answer as any rating the API refuses.
+    if (err && err.code === '23514') return res.status(400).json({ error: 'invalid_rating' });
     console.error('[widget-kb-feedback] Error:', err.message);
     res.status(500).json({ error: 'Internal error' });
   }

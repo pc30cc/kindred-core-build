@@ -187,6 +187,31 @@ async function isLockedArticle(
 // ─── Articles ───
 
 
+export interface ArticleFeedbackCounts {
+  helpful: number;
+  neutral: number;
+  notHelpful: number;
+}
+
+/**
+ * Votes per article (public.kb_article_feedback): 'up' helpful, 'down' not
+ * helpful, and 'neutral' (the middle face a template may draw; the CHECK
+ * accepts it from migration 275) counted on its own, so a vote moved from up
+ * to neutral shows somewhere. Any other value counts nowhere.
+ */
+export function countArticleFeedback(
+  rows: ReadonlyArray<{ article_id: string; rating: string | null }>,
+): Record<string, ArticleFeedbackCounts> {
+  const counts: Record<string, ArticleFeedbackCounts> = {};
+  for (const row of rows) {
+    const c = (counts[row.article_id] ||= { helpful: 0, neutral: 0, notHelpful: 0 });
+    if (row.rating === 'up') c.helpful++;
+    else if (row.rating === 'neutral') c.neutral++;
+    else if (row.rating === 'down') c.notHelpful++;
+  }
+  return counts;
+}
+
 knowledgeBaseRouter.get('/articles', async (req: Request, res: Response) => {
   const g = await guard(req, res, workspaceIdOf(req));
   if (!g) return;
@@ -210,7 +235,7 @@ knowledgeBaseRouter.get('/articles', async (req: Request, res: Response) => {
     id: string;
     created_at: string | null;
     locked?: boolean;
-    feedback?: { helpful: number; notHelpful: number };
+    feedback?: ArticleFeedbackCounts;
   };
   const articles = (data ?? []) as ListedArticle[];
 
@@ -221,23 +246,19 @@ knowledgeBaseRouter.get('/articles', async (req: Request, res: Response) => {
     a.locked = isKbArticleLocked(kbLock, a);
   }
 
-  // Attach helpful/not-helpful aggregate counts from the widget feedback
-  // extension (public.kb_article_feedback, migration 060) so the operator
-  // panel can surface them later without a second round-trip.
+  // Attach helpful / neutral / not-helpful aggregate counts from the widget
+  // feedback extension (public.kb_article_feedback, migration 060; neutral
+  // from 275) so the operator panel can surface them later without a second
+  // round-trip.
   const articleIds = articles.map((a) => a.id).filter(Boolean);
   if (articleIds.length > 0) {
     const { data: feedbackRows } = await getServiceClient(g.config)
       .from('kb_article_feedback')
       .select('article_id, rating')
       .in('article_id', articleIds);
-    const counts: Record<string, { helpful: number; notHelpful: number }> = {};
-    for (const row of (feedbackRows || []) as Array<{ article_id: string; rating: string | null }>) {
-      const c = (counts[row.article_id] ||= { helpful: 0, notHelpful: 0 });
-      if (row.rating === 'up') c.helpful++;
-      else if (row.rating === 'down') c.notHelpful++;
-    }
+    const counts = countArticleFeedback((feedbackRows || []) as Array<{ article_id: string; rating: string | null }>);
     for (const a of articles) {
-      a.feedback = counts[a.id] || { helpful: 0, notHelpful: 0 };
+      a.feedback = counts[a.id] || { helpful: 0, neutral: 0, notHelpful: 0 };
     }
   }
 

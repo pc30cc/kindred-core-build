@@ -53,7 +53,7 @@ function loadPresentation() {
 }
 
 describe('widget presentation — template registry', () => {
-  it('ships default (Iran) and intl (International) and resolves unknown ids to default', () => {
+  it('ships default, t1 and t2 (Iran) and intl (International) and resolves unknown ids to default', () => {
     // eslint-disable-next-line no-new-func
     new Function(REGISTRY_SRC).call(window);
     const registry = win().__gs_presentation_registry;
@@ -70,7 +70,19 @@ describe('widget presentation — template registry', () => {
       style: 'presentation-default.css',
       skin: 'presentation-intl.css',
     });
-    expect(registry.list().map((d) => d.id)).toEqual(['default', 'intl']);
+    // The Iranian edition's other templates: each its own renderer and
+    // stylesheet, over the shared fonts stylesheet.
+    for (const id of ['t1', 't2']) {
+      expect(registry.resolve(id)).toMatchObject({
+        id,
+        globalKey: `__gs_presentation_${id}`,
+        script: `presentation-${id}.js`,
+        style: `presentation-${id}.css`,
+        fonts: 'presentation-default-fonts.css',
+      });
+      expect(registry.resolve(id).skin).toBeUndefined();
+    }
+    expect(registry.list().map((d) => d.id)).toEqual(['default', 'intl', 't1', 't2']);
   });
 
   it('has no trace of the removed classic template', () => {

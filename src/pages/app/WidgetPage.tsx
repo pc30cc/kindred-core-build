@@ -27,6 +27,8 @@ import { cn } from '@/lib/utils';
 import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerificationGate';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, FAB_ICONS, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
+import { TemplateChoiceCard } from '@/components/app/widget/TemplateChoiceCard';
+import { effectiveWorkspaceTemplate, templateCardVisible, useWorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
 import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
@@ -79,10 +81,13 @@ function isValidDomain(d: string): boolean {
 }
 
 function WidgetPageContent() {
-  const { t, dir } = useTranslation();
-  const { isInternational } = useEdition();
+  const { t, dir, locale } = useTranslation();
+  const { isInternational, edition } = useEdition();
   const workspace = useCurrentWorkspace();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
+  // The chat widget templates the Super Admin keeps enabled, and this
+  // workspace's choice. A backend without the catalog answers 404: no picker.
+  const { data: templateView, refetch: refetchTemplates } = useWorkspaceWidgetCatalog(workspace?.id, locale);
   // Chat bubbles in the preview show a real operator profile picture.
   const { data: workspaceMembers } = useWorkspaceMembers(workspace?.id);
   const { data: teamPresence } = useTeamPresence(workspace?.id);
@@ -203,6 +208,57 @@ function WidgetPageContent() {
     fab_scale: { capability: 'widget_launcher_size', reset: 100 },
     fab_icon: { capability: 'widget_launcher_icon', reset: 'chat' },
     placeholder_text: { capability: 'widget_composer_placeholder', reset: null },
+    widget_template_id: { capability: 'widget_appearance', reset: null },
+  };
+
+  /**
+   * The template visitors would wear with the current draft (the Super
+   * Admin's catalog decides; shared/chatTemplateCatalog.ts) and its merged
+   * options: what every preview on this page renders, never a stored id the
+   * catalog does not offer.
+   */
+  const appearanceAllowed = capAllowed('widget_appearance');
+  const previewTemplate = useMemo(
+    () => effectiveWorkspaceTemplate(
+      templateView,
+      edition,
+      live?.widget_template_id,
+      live?.widget_template_options,
+      appearanceAllowed,
+    ),
+    [templateView, edition, live?.widget_template_id, live?.widget_template_options, appearanceAllowed],
+  );
+
+  /**
+   * A template pick: saved at once; the preview follows the draft. Through
+   * mutateAsync, whose promise settles for this very call: mutate's per-call
+   * callbacks fire only for the latest call, so a debounced field save
+   * landing meanwhile would swallow a refusal and leave the draft on a
+   * template the workspace does not wear.
+   */
+  const chooseTemplate = (id: string | null) => {
+    clearTimeout(timers.current.widget_template_id);
+    setDraft((prev) => ({ ...prev, widget_template_id: id }));
+    updateWidget.mutateAsync({ widget_template_id: id }).then(
+      () => {
+        toast({ title: t('widgetCatalog.workspace.changed') });
+        void refetchTemplates();
+      },
+      (err: unknown) => {
+        toast({
+          title: err instanceof Error && err.message === 'template_not_available'
+            ? t('widgetCatalog.workspace.notAvailable')
+            : t('widgetCatalog.workspace.saveFailed'),
+          variant: 'destructive',
+        });
+        setDraft((prev) => {
+          const next = { ...prev };
+          delete next.widget_template_id;
+          return next;
+        });
+        void refetchTemplates();
+      },
+    );
   };
 
   const previewSettings = useMemo(
@@ -221,10 +277,14 @@ function WidgetPageContent() {
       }
       if (!capAllowed('widget_team_avatars')) base.show_team_avatars = false;
       if (!capAllowed('widget_workspace_logo')) base.show_logo = false;
+      // Every preview (this page's and the smart studio's) renders the
+      // template visitors would wear.
+      base.widget_template_id = previewTemplate.id;
+      base.widget_template_options = previewTemplate.options;
       return base;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [live, branding, effectiveLocale, effectiveEnts],
+    [live, branding, effectiveLocale, effectiveEnts, previewTemplate],
   );
 
   /**
@@ -492,6 +552,19 @@ function WidgetPageContent() {
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
               <div className="space-y-4">
+              {/* 0 — Widget template: the picker with two or more templates
+                  enabled; with one, only that template's own options */}
+              {templateCardVisible(templateView, previewTemplate.id) && (
+                <TemplateChoiceCard
+                  view={templateView}
+                  effectiveId={previewTemplate.id}
+                  draftId={live?.widget_template_id}
+                  draftOptions={live?.widget_template_options}
+                  planAllows={appearanceAllowed}
+                  onChoose={chooseTemplate}
+                  onOptionsChange={(next) => setField('widget_template_options', next, 600)}
+                />
+              )}
               <Card className="card-elevated">
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base">
@@ -1124,7 +1197,7 @@ function WidgetPageContent() {
             </div>
 
             <div className="flex items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1">
-              {(['home', 'chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
+              {(['home', 'list', 'chat', 'prechat', 'kb', 'offline'] as PreviewView[]).map((v) => (
                 <Button
                   key={v}
                   size="sm"
@@ -1151,6 +1224,8 @@ function WidgetPageContent() {
                 onViewChange={setManualView}
                 operatorAvatar={previewOperator?.avatar_url}
                 operatorName={previewOperator?.full_name}
+                templateId={previewTemplate.id}
+                templateOptions={previewTemplate.options as Record<string, unknown>}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('widgetPage.preview.liveHint')}</p>

@@ -61,6 +61,43 @@ templates: `docs/operations/EDITIONS.md`.
   loaded page, else at the load event or when the bootstrap answers,
   whichever is first (a bootstrap answering first still starts them inside
   the load, as it always did).
+- Renderer features (chat): a behaviour a template needs beyond what Core
+  does for `default` (search as you type, tab badges, a visible typing row,
+  the home ask field, …) is declared by the renderer (`features` returned
+  by `create()`) and lives in `public/widget/runtime-ext.js`, a lazy Core
+  module (ModuleLoader name `ext`, content-hashed like the other modules).
+  The template's descriptor says so (`coreFeatures: true` in
+  `shared/widgetTemplates.ts`, checked against the renderer): /config then
+  names the module (`config.modules.ext`, for such a template only, so the
+  `default` and `intl` payloads are unchanged) and the loader requests it
+  in the same pass as the template's files (after runtime.js), so it is in
+  the browser's cache by init. runtime.js requests it again when such a
+  renderer is mounted (a cache hit; the request the loader did not make,
+  with the canonical-name retry) and holds that template's first paint on
+  the skeleton until it is in, at most 1.5 s (a failed request releases at
+  once, a late module repaints with what Core saw meanwhile). Painted
+  without the module, the panel carries the class `ext-off` (removed when a
+  late module mounts): the template's stylesheet sets aside the controls
+  only the module answers (t1's home search; t2's ask field, which then
+  opens a chat, and its topics), never a dead control. runtime.js,
+  which every visitor of every template downloads on a first open, keeps
+  only the hook points (`ext('<hook>', …)`, a no-op without the module):
+  never put feature code there (`src/test/widget/runtimeExt.test.ts` checks
+  both files agree, that `default` never requests the module and that the
+  descriptors match the renderers; `loaderOpenIntent.test.ts` the loader's
+  request). Sizes on 2026-10-17 (gzip 5, as shipped): runtime.js 54.6 KB,
+  of which the hook points are 0.8 KB (53.8 KB before the first features);
+  runtime-ext.js 6.2 KB; the loader's request 0.05 KB.
+- A feature's server data is sent on request only, so the API serves
+  `default` as before: the thread list's and a history's assigned operator
+  (`operator=1`, which runtime.js `operatorQ()` adds only for a renderer
+  declaring `conversationOperator`, `chatHeader` or `operatorTyping`; checked
+  by `widgetOperatorFields.test.ts` and `operatorFieldsOptIn.test.ts`).
+  Without it, `/conversations` and `/history` make no profile read and no
+  workspace snapshot lookup of their own. Likewise the word search
+  (`match=words` on `/api/widget/kb/search`, sent by runtime-ext.js for
+  `kbSearch`; `kbWidgetSearch.test.ts`): without it the route keeps its
+  one-phrase search, which every help center uses.
 - Every hashed file has a one-time canonical-name fallback in the code that
   loads it (loader, runtime modules, the call module, call widget l.js): keep
   it when you touch loading code. A retried `<script>` is a NEW element
@@ -116,6 +153,8 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   (links, logos) come from the view-model.
 - Interaction is expressed with `data-*` behaviour hooks the core binds;
   visual classes carry no behaviour. Never rename an existing `data-*` hook.
+  A hook only a new template needs is a renderer feature (§2): Core's code
+  for it goes in `runtime-ext.js`, not in `runtime.js`.
 - Call widget: the presentation never calls the network or storage; the
   runtime never touches the DOM (`src/test/callWidgetPresentationContract.test.ts`).
 - Shipped JS targets ES2017 (the build lowers it); no new npm dependencies
@@ -160,6 +199,15 @@ config instead of new code.
   query on a cache hit: `docs/operations/WIDGET_CONFIG_CACHE.md`. A template
   that needs new settings adds them to that snapshot, never a per-request
   query.
+- Which template a workspace wears is the Super Admin's catalog
+  (`widget_edition_settings.chat_templates`, in the platform snapshot) and
+  the workspace's `widget_settings.widget_template_id` (migration 275,
+  `shared/chatTemplateCatalog.ts`). A template in the edition's `offered` is
+  disabled until the Super Admin enables it, so shipping one changes nothing
+  for visitors. Its options (`CHAT_TEMPLATE_OPTIONS`) reach the renderer as
+  `config.templateOptions`; its display names stay in the dashboard and never
+  reach the widget. See `docs/operations/EDITIONS.md`, "The chat widget
+  template catalog".
 
 ## 7. Before a template ships
 

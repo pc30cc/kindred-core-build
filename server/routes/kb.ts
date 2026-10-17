@@ -37,6 +37,12 @@ import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
 import { applyKbUnlockedFilter, resolveKbLock, type KbLock } from '../services/knowledge-base/locks.js';
+import {
+  kbSearchOrFilter,
+  kbSearchWindow,
+  kbSearchWords,
+  rankKbSearchRows,
+} from '../services/knowledge-base/widgetSearch.js';
 
 const SUPPORTED_LOCALES = ['en', 'fa', 'tr'] as const;
 type Locale = (typeof SUPPORTED_LOCALES)[number];
@@ -282,19 +288,30 @@ widgetKbRouter.get('/search', async (req: Request, res: Response) => {
   const { workspace_id, q, limit } = parsed.data;
   const locale = normalizeLocale(parsed.data.locale);
 
+  // `match=words` (the widget's search as you type, runtime-ext.js
+  // `kbSearch`, a t1/t2 feature): each word on its own, with the filter
+  // grammar's and LIKE's own characters taken out
+  // (services/knowledge-base/widgetSearch.ts). Without it (the help
+  // center's search page of every workspace, and every older caller) the
+  // query is one phrase, exactly as before.
+  const byWord = req.query.match === 'words';
+  const words = byWord ? kbSearchWords(q) : [];
+  if (byWord && !words.length) return res.json({ locale, q, results: [] });
+
   const kbLock = await resolveKbLock(config, workspace_id);
   // Search spans every language of the workspace.
   const like = `%${q.replace(/[%_]/g, ' ')}%`;
-  const { data: rows, error } = await publicArticles(config, workspace_id, 'id, title, slug, excerpt, locale', kbLock)
-    .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
-    .limit(limit);
+  const articles = publicArticles(config, workspace_id, 'id, title, slug, excerpt, locale', kbLock);
+  const { data: rows, error } = byWord
+    ? await articles.or(kbSearchOrFilter(words)).order('updated_at', { ascending: false }).limit(kbSearchWindow(limit))
+    : await articles.or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`).limit(limit);
 
   if (error) {
     console.error('[kb-search] failed:', error.message);
     return res.json({ results: [] });
   }
 
-  return res.json({ locale, q, results: rows || [] });
+  return res.json({ locale, q, results: byWord ? rankKbSearchRows(rows || [], words, limit) : rows || [] });
 
 });
 
@@ -716,6 +733,8 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
 
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 200) : '';
   let results: KbArticleRow[] = [];
+  // One phrase, as the help center always searched (the word search is the
+  // t1/t2 widget's, `match=words` on /api/widget/kb/search).
   if (q.length >= 2) {
     const like = `%${q.replace(/[%_]/g, ' ')}%`;
     const kbLock = await resolveKbLock(config, workspaceId);

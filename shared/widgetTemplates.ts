@@ -21,10 +21,13 @@
  * default, `default`), add the same entry to the browser registry and ship its
  * asset files (docs/operations/EDITIONS.md).
  *
- * A stored template id (a settings row; one day an admin's choice) is honoured
- * only when the edition offers it; anything else — no id, an unknown id, the
- * other edition's id — is the edition's default. An unknown edition (null) is
- * the Iranian one, so nothing changes before the edition is known.
+ * `offered` is what the edition's build ships. Which of those a workspace
+ * wears is the Super Admin's catalog (shared/chatTemplateCatalog.ts,
+ * migration 275): a template never enabled there is not worn, so adding one
+ * to `offered` changes nothing for visitors. Anything not offered — no id, an
+ * unknown id, the other edition's id — is the edition's default. An unknown
+ * edition (null) is the Iranian one, so nothing changes before the edition is
+ * known.
  *
  * Pure: no I/O.
  */
@@ -43,6 +46,14 @@ export interface ChatWidgetTemplate {
   skin: `presentation-${string}.css` | null;
   /** The template's font stylesheet, or null. */
   fonts: `presentation-${string}.css` | null;
+  /**
+   * Its renderer declares Core features (`features` from create()), whose
+   * code is Core's lazy module runtime-ext.js: the bootstrap names that
+   * module (`config.modules.ext`) for this template only, and the loader
+   * fetches it with the template's files. Must match the renderer
+   * (src/test/widget/runtimeExt.test.ts).
+   */
+  coreFeatures: boolean;
 }
 
 export const CHAT_WIDGET_TEMPLATES = {
@@ -52,6 +63,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     style: 'presentation-default.css',
     skin: null,
     fonts: 'presentation-default-fonts.css',
+    coreFeatures: false,
   },
   intl: {
     id: 'intl',
@@ -59,6 +71,23 @@ export const CHAT_WIDGET_TEMPLATES = {
     style: 'presentation-default.css',
     skin: 'presentation-intl.css',
     fonts: 'presentation-default-fonts.css',
+    coreFeatures: false,
+  },
+  t1: {
+    id: 't1',
+    script: 'presentation-t1.js',
+    style: 'presentation-t1.css',
+    skin: null,
+    fonts: 'presentation-default-fonts.css',
+    coreFeatures: true,
+  },
+  t2: {
+    id: 't2',
+    script: 'presentation-t2.js',
+    style: 'presentation-t2.css',
+    skin: null,
+    fonts: 'presentation-default-fonts.css',
+    coreFeatures: true,
   },
 } as const satisfies Record<string, ChatWidgetTemplate>;
 
@@ -72,7 +101,7 @@ export interface EditionTemplates<Id extends string> {
 }
 
 export const EDITION_CHAT_WIDGET_TEMPLATES: Readonly<Record<Edition, EditionTemplates<ChatWidgetTemplateId>>> = {
-  iran: { default: 'default', offered: ['default'] },
+  iran: { default: 'default', offered: ['default', 't1', 't2'] },
   international: { default: 'intl', offered: ['intl'] },
 };
 
@@ -89,9 +118,10 @@ function normalizeId(value: unknown): string {
 }
 
 /**
- * The chat widget template to wear: the requested id when the edition offers
- * it (a legacy id is first mapped to its current name), else the edition's
- * default. `edition` null (unknown) is Iran.
+ * The requested chat widget template when the edition offers it (a legacy id
+ * is first mapped to its current name), else the edition's default. `edition`
+ * null (unknown) is Iran. It does not know the Super Admin's catalog: what a
+ * workspace wears is resolveWorkspaceChatTemplate (shared/chatTemplateCatalog.ts).
  */
 export function resolveChatWidgetTemplate(edition: Edition | null | undefined, requested?: unknown): ChatWidgetTemplateId {
   const spec = EDITION_CHAT_WIDGET_TEMPLATES[edition ?? 'iran'];

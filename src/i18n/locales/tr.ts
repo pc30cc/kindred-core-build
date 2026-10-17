@@ -1,8 +1,10 @@
 import type { TranslationKeys } from './en';
 import { widgetBridgeTr } from '../widgetBridge';
+import { widgetCatalogTr } from '../widgetCatalog';
 
 const tr: TranslationKeys = {
   widgetBridge: widgetBridgeTr,
+  widgetCatalog: widgetCatalogTr,
     billing: {
     locks: {
       report: {
@@ -9660,7 +9662,7 @@ const tr: TranslationKeys = {
     preview: {
       title: 'Canlı önizleme',
       liveHint: 'Her metin ve görsel değişiklik burada anında görünür ve otomatik kaydedilir.',
-      view: { home: 'Ana sayfa', chat: 'Sohbet', prechat: 'Ön form', kb: 'Yardım', offline: 'Çevrimdışı' },
+      view: { home: 'Ana sayfa', list: 'Mesajlar', chat: 'Sohbet', prechat: 'Ön form', kb: 'Yardım', offline: 'Çevrimdışı' },
       brandFallback: 'Destek',
       welcomeFallback: 'Nasıl yardımcı olabiliriz?',
       sampleMessage: 'Merhaba! Nasıl yardımcı olabiliriz?',

@@ -327,6 +327,9 @@
       fetchWith(buildUrl(apiBase, '/api/widget/history', {
         workspace_id: workspaceId,
         conversation_id: conversationId,
+        // 1 asks for `assigned_operator` (a renderer that draws it); none
+        // leaves the parameter out, and the answer as it always was.
+        operator: opts.operator,
       }), {})
         .then(function (r) {
           if (!r.ok) throw new Error('history_http_' + r.status);
@@ -338,6 +341,9 @@
               // Authoritative: the requested thread, never a server-resolved one.
               conversationId: conversationId,
               messages: data.messages || [],
+              // { name, avatar, online } of the operator the thread is
+              // assigned to, or null (an older backend sends none).
+              assignedOperator: data.assigned_operator || null,
             });
           }
         })

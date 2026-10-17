@@ -34,6 +34,28 @@
   // carry no behavioural meaning and Core must not depend on them.
   var Presentation = null;
 
+  // Optional Core behaviours a renderer opts into (`create()` returns
+  // `features: { <name>: true }`) live in the lazy module runtime-ext.js,
+  // which only a renderer returning `features` loads: `default` and `intl`
+  // declare none and never download it. `Ext` is that module once mounted;
+  // ext(name, …) runs one of its hooks and is a no-op (undefined) without it.
+  // Calls made while it is on its way are kept for it (`extCalls`): data
+  // that arrived first (a thread list, a history, typing) is not lost.
+  var Ext = null;
+  var extCalls = null;
+  function ext(name, a, b) {
+    if (Ext) return Ext[name] && Ext[name](a, b);
+    if (extCalls) extCalls.push([name, a, b]);
+  }
+  // Who answers a thread (name, photo, presence) is added by the server to
+  // the thread list and to a history only when asked (`operator=1`), and
+  // only a renderer that draws it asks: `default` and `intl` cost the server
+  // no extra read. 1, else undefined (no parameter at all).
+  function operatorQ() {
+    var f = (Presentation && Presentation.features) || {};
+    return f.conversationOperator || f.chatHeader || f.operatorTyping ? 1 : undefined;
+  }
+
   function resolvePresentation(ctx, t) {
     var registry = window.__gs_presentation_registry;
     var desc = registry && typeof registry.resolve === 'function'
@@ -52,6 +74,10 @@
       config: ctx.config,
       locale: ctx.locale,
       primaryColor: ctx.primaryColor,
+      // What this Core can serve, so a renderer never draws a control nobody
+      // answers. `kbNeutral`: the article vote accepts 'neutral' (until the
+      // database allows it, such a vote is refused like any failed vote).
+      capabilities: { kbNeutral: true, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false },
     });
   }
 
@@ -1816,6 +1842,7 @@
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           conversationId: cid,
+          operator: operatorQ(),
           sessionToken: ctx.sessionToken,
           fetchWith: ctx.fetchWith,
           onResult: function (result) {
@@ -3190,7 +3217,7 @@
       for (var i = 0; i < chips.length; i++) {
         chips[i].addEventListener('click', function () {
           var question = this.getAttribute('data-qna-question');
-          if (!question) return;
+          if (!question || ext('chip', question)) return;
           if (transportStore.get().connectionState !== 'online') return;
           sendMessage(question, renderBody);
           // Chips only ever render while the AI still owns the thread (no
@@ -3380,6 +3407,7 @@
       lastRenderedRowCount = 0;
       lastRenderedChatHtml = null;
       body.scrollTop = body.scrollHeight;
+      ext('empty', body);
     }
 
 
@@ -3884,6 +3912,7 @@
       bindChatScrollTracking(body);
       observeChatContent(body);
       chatScrollToBottom(body);
+      ext('wired', body);
     }
 
     /**
@@ -3912,7 +3941,7 @@
             if (!isFinite(sec) || sec < 0) sec = 0;
             var m = Math.floor(sec / 60);
             var s = Math.floor(sec % 60);
-            return m + ':' + (s < 10 ? '0' : '') + s;
+            return ext('clock', Math.floor(sec)) || m + ':' + (s < 10 ? '0' : '') + s;
           }
           function paint() {
             var d = isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
@@ -4001,7 +4030,9 @@
       var prevScroll = 0;
       try { prevScroll = body.scrollTop; } catch (_) {}
       body.innerHTML = html;
-      var rows = body.querySelectorAll ? body.querySelectorAll('.msg-row') : [];
+      // A visible typing row (runtime-ext.js) is not a message: the reply
+      // that arrives must not take its index (and lose its entrance).
+      var rows = body.querySelectorAll ? body.querySelectorAll('.msg-row:not(.typing-row)') : [];
       for (var i = 0; i < rows.length && i < prevCount; i++) {
         try { rows[i].classList.add('no-enter'); } catch (_) {}
       }
@@ -4430,6 +4461,7 @@
             var active = ConvEpoch.activeId();
             if (active && String(active) !== String(cid)) return;
             // Explicit selection wins over any pending "new conversation".
+            ext('history', cid, result);
             chatStore.set({ freshIntent: false, conversationId: cid });
             transport.subscribeConversation(cid);
             if (mergeIncoming(result.messages || [])) onChange();
@@ -4473,6 +4505,10 @@
 
 
       getLastMergedAiMessage: function () { return lastMergedNewAiMessage; },
+      // What runtime-ext.js builds on (renderer features), in the order its
+      // create() reads them (src/test/widget/runtimeExt.test.ts).
+      x: [qnaState, QNA_COLLAPSED_COUNT, loadQnaSuggestions, wireQnaChips, prechatValues,
+        resolveHandoffPrechatSubtitle, wirePrechatForm],
     };
 
   }
@@ -4562,23 +4598,28 @@
 
     function paint() {
       if (!rootEl) return;
-      var s = kbStore.get();
-      var rtl = isRtl();
       if (articleLoading) {
         var skel = '';
         try {
           skel = (Presentation && Presentation.skeletonHtml)
-            ? (Presentation.skeletonHtml('article', { rtl: rtl }) || '') : '';
+            ? (Presentation.skeletonHtml('article', { rtl: isRtl() }) || '') : '';
         } catch (_) { skel = ''; }
         if (skel) { rootEl.innerHTML = skel; return; }
       }
+      rootEl.innerHTML = Presentation && Presentation.kbHtml ? Presentation.kbHtml(buildVm()) : '';
+      bindEvents();
+      ext('kbPaint');
+    }
+
+    function buildVm() {
+      var s = kbStore.get();
       var origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
       var locSeg = encodeURIComponent(ctx.locale || 'en');
 
       // Core owns state + data (and sanitization); the active template owns
       // every byte of markup below this line.
       var vm = {
-        rtl: rtl,
+        rtl: isRtl(),
         state: (view === 'article' && currentArticle) ? 'article' : view,
         query: currentQuery,
         article: currentArticle
@@ -4610,10 +4651,8 @@
           };
         }),
       };
-
-
-      rootEl.innerHTML = Presentation && Presentation.kbHtml ? Presentation.kbHtml(vm) : '';
-      bindEvents();
+      ext('kbVm', vm);
+      return vm;
     }
 
 
@@ -4690,9 +4729,11 @@
       }
     }
 
-    function bindEvents() {
+    // `scope`: a part of the view repainted on its own (runtime-ext.js).
+    function bindEvents(scope) {
       if (!rootEl) return;
-      var input = rootEl.querySelector('.kb-search');
+      scope = scope || rootEl;
+      var input = !ext('kbBind', scope) && scope === rootEl && rootEl.querySelector('.kb-search');
       if (input) {
         input.addEventListener('input', function (e) {
           currentQuery = e.target.value || '';
@@ -4716,7 +4757,7 @@
         });
       }
 
-      var actionEls = rootEl.querySelectorAll('[data-kb-action]');
+      var actionEls = scope.querySelectorAll('[data-kb-action]');
       for (var i = 0; i < actionEls.length; i++) {
         (function (el) {
           el.addEventListener('click', function (ev) {
@@ -4726,6 +4767,7 @@
               openArticle(el.getAttribute('data-kb-slug'));
             } else if (action === 'back') {
               ev.preventDefault();
+              if (ext('kbBack')) return;
               currentArticle = null;
               view = currentQuery.trim() ? 'results' : 'list';
               paint();
@@ -4740,7 +4782,7 @@
       // Article helpfulness vote — persisted through the Knowledge Base
       // extension endpoint. The UI only reflects a rating once the server
       // accepted it; a failed vote leaves the buttons untouched.
-      var rateEls = rootEl.querySelectorAll('[data-kb-rate]');
+      var rateEls = scope.querySelectorAll('[data-kb-rate]');
       for (var ri = 0; ri < rateEls.length; ri++) {
         (function (el) {
           el.addEventListener('click', function (ev) {
@@ -4821,6 +4863,7 @@
 
     function openArticle(slug) {
       if (!slug) return;
+      ext('kbOpen');
       pendingSlug = slug;
       // Article bodies are fetched on demand — show the article skeleton
       // immediately so the surface never sits on the previous list.
@@ -4852,6 +4895,7 @@
       rootEl = body;
       // Re-paint with current view (preserves search query when toggling tabs).
       paint();
+      ext('kbRender');
     }
 
     return {
@@ -4866,6 +4910,7 @@
        * KB navigation without the presentation layer knowing KB internals.
        */
       goBack: function () {
+        if (ext('kbBack')) return true;
         if (currentArticle) {
           currentArticle = null;
           view = currentQuery.trim() ? 'results' : 'list';
@@ -4875,6 +4920,14 @@
         return false;
       },
       resetToList: function () { view = 'list'; currentArticle = null; articleLoading = false; pendingSlug = null; },
+      // What runtime-ext.js builds on (renderer features).
+      x: {
+        get view() { return view; }, set view(v) { view = v; },
+        get query() { return currentQuery; }, set query(v) { currentQuery = v; },
+        get article() { return currentArticle; }, set article(v) { currentArticle = v; },
+        get loading() { return articleLoading; },
+        paint: paint, vm: buildVm, bind: bindEvents,
+      },
     };
 
   }
@@ -4964,6 +5017,12 @@
       Util.warn('FATAL: no presentation template registered');
       return { isOpen: function(){ return false; }, open: function(){ return false; }, close: function(){ return false; }, toggle: function(){ return false; }, setUnread: function(){} };
     }
+    // A renderer with features waits for runtime-ext.js (mounted below); a
+    // module of an earlier instance is never this one's.
+    var extWait = !!Presentation.features;
+    var extHeld;
+    Ext = null;
+    extCalls = extWait ? [] : null;
 
     // ─── Token manager (Task 2): proactive refresh + reactive 401/403 retry.
     // Wraps every authenticated widget request. ctx.sessionToken stays as a
@@ -7143,7 +7202,8 @@
       '💬', '📎', '📷', '📞', '⏰', '☕', '👌', '🙌', '😅', '🤒',
     ];
     if (emojiBtn && emojiPickerEl) {
-      emojiPickerEl.innerHTML = EMOJI_LIST.map(function (e) {
+      // A renderer that draws its own emoji grid keeps it.
+      if (!emojiPickerEl.querySelector('[data-emoji]')) emojiPickerEl.innerHTML = EMOJI_LIST.map(function (e) {
         return '<button type="button" class="emoji-item" data-emoji="' + e + '" aria-label="' + e + '">' + e + '</button>';
       }).join('');
       emojiPickerEl.addEventListener('click', function (e) {
@@ -7205,9 +7265,11 @@
 
     function fmtRecordTime(ms) {
       var s = Math.max(0, Math.floor(ms / 1000));
+      // A renderer's own digits first (runtime-ext.js, e.g. Persian ones).
+      var clock = ext('clock', s);
       var m = Math.floor(s / 60);
       s = s % 60;
-      return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+      return clock || (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
     }
     function stopMicStream() {
       if (recordStream) {
@@ -7361,7 +7423,8 @@
     function renderVoicePreview() {
       if (!vnBarEl) return;
       var st = attachmentStore.get();
-      var visible = !!st.isVoice && st.status !== 'idle' && st.status !== 'error';
+      var visible = !!st.isVoice && st.status !== 'idle' && st.status !== 'error'
+        && !ext('vn', !vnObjectUrl);
       if (!visible) {
         if (vnWasVisible) {
           stopVoicePreviewPlayback();
@@ -7506,6 +7569,7 @@
       var availOk = pState.liveChatEnabled !== false
         && !((pState.status === 'offline' || pState.status === 'unavailable')
           && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
+      if (ext('locked')) availOk = false;
       attachBtn.disabled = !(conn === 'online' && availOk);
       if (micBtn && !recordingActive) micBtn.disabled = !(conn === 'online' && availOk);
     }
@@ -7520,7 +7584,7 @@
     var presenceLabel = panel.querySelector('[data-presence-label]');
     var presenceWrap = panel.querySelector('[data-presence]');
     function renderPresence(s) {
-      if (!presenceDot || !presenceLabel || !presenceWrap) return;
+      if (ext('presence', s) || !presenceDot || !presenceLabel || !presenceWrap) return;
       var status = s.status || 'offline';
       // sr-only kept so the row stays accessible-only — visual presence
       // is now communicated by the green dot on operator avatars.
@@ -7571,9 +7635,12 @@
         && !((pState.status === 'offline' || pState.status === 'unavailable')
           && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
       var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
+      // A locked composer is styled by its renderer (`.input-bar.is-locked`).
+      var locked = ext('locked');
+      if (locked) canSend = false;
       msgInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
-      if (canSend) {
+      if (canSend || locked) {
         msgInput.removeAttribute('title');
         sendBtn.style.opacity = '';
         msgInput.style.opacity = '';
@@ -8013,6 +8080,7 @@
         Util.log('[Widget AI Agent] intro suppressed (AI not visitor-facing)', source || 'auto');
         return;
       }
+      if (ext('noIntro')) return;
       var key = aiIntroKey();
       if (__aiIntroKeys[key]) {
 
@@ -8304,13 +8372,15 @@
       if (!preview && c.attachmentKind) {
         preview = attachmentPreviewText(c.attachmentKind, !!c.outbound);
       }
-      return {
+      var vm = {
         id: c.id,
         status: c.status,
         preview: preview,
         unreadCount: Number(c.unreadCount) || 0,
         timeLabel: relativeTimeLabel(c.lastMessageAt || c.updatedAt),
       };
+      ext('conv', vm, c);
+      return vm;
     }
 
     /**
@@ -8388,7 +8458,7 @@
       // No visitor_id on the wire: the server resolves identity solely from
       // the signed HttpOnly `dvsid` cookie and ignores any client-sent id.
       var url = ctx.apiBase + '/api/widget/conversations?workspace_id=' +
-        encodeURIComponent(ctx.workspaceId || '');
+        encodeURIComponent(ctx.workspaceId || '') + (operatorQ() ? '&operator=1' : '');
       ctx.fetchWith(url, { method: 'GET' })
         .then(function (r) {
           if (!r.ok) {
@@ -8607,8 +8677,10 @@
     // (which is always mounted inside the panel when it is visible).
     bindPanelNavigation(panel);
 
-    // Kept for call-site compatibility: navigation is delegated now.
-    function bindViewHooks() {}
+    // Navigation is delegated (above). Runs right after home or the list is
+    // painted, before Core binds that view's own controls: the renderer
+    // features' bindings (runtime-ext.js).
+    function bindViewHooks(el) { ext('view', el); }
 
 
     // Purely a function of conversationsStore's current state — it does NOT
@@ -8632,10 +8704,11 @@
           })
         : '';
       bindViewHooks(body);
-      var newBtn = body.querySelector('[data-home-action="chat"]');
-      if (newBtn) {
+      // Every "start a chat" control of the view (one in the shipped
+      // `default`; a template may draw more).
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-action="chat"]'), function (newBtn) {
         newBtn.addEventListener('click', function () { startNewConversation(); });
-      }
+      });
       var retryBtn = body.querySelector('[data-home-action="conversations-retry"]');
       if (retryBtn) {
         retryBtn.addEventListener('click', function () { retryConversationsLoad(); });
@@ -8645,7 +8718,8 @@
     // Same contract as renderConversationList() above: pure render of
     // current store state, never itself a loadConversations() call site.
     function renderHome() {
-      if (!body) return;
+      // A renderer feature may hold a repaint back (a field mid-composition).
+      if (!body || ext('hold')) return;
       var pState = presenceStore.get();
       var kbState = kbStore.get() || {};
       var convState = conversationsStore.get() || {};
@@ -8666,17 +8740,18 @@
         smartSurface: smartSurface,
       });
       bindViewHooks(body);
-      var ctaBtn = body.querySelector('[data-home-action="chat"]');
-      if (ctaBtn) ctaBtn.addEventListener('click', function () {
-        // When an unresolved thread exists the template labels this CTA
-        // "Start new", so it must genuinely force a new conversation.
-        // Otherwise it is just "Start chat" → resume normal resolution.
-        var hasUnresolved = ((conversationsStore.get() || {}).items || []).some(function (c) {
-          return c.status !== 'resolved' && c.status !== 'closed';
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-action="chat"]'), function (ctaBtn) {
+        ctaBtn.addEventListener('click', function () {
+          // When an unresolved thread exists the template labels this CTA
+          // "Start new", so it must genuinely force a new conversation.
+          // Otherwise it is just "Start chat" → resume normal resolution.
+          var hasUnresolved = ((conversationsStore.get() || {}).items || []).some(function (c) {
+            return c.status !== 'resolved' && c.status !== 'closed';
+          });
+          if (hasUnresolved) { startNewConversation(); return; }
+          chatStore.set({ conversationId: chatStore.get().conversationId });
+          switchTab('chat');
         });
-        if (hasUnresolved) { startNewConversation(); return; }
-        chatStore.set({ conversationId: chatStore.get().conversationId });
-        switchTab('chat');
       });
       var retryBtn = body.querySelector('[data-home-action="conversations-retry"]');
       if (retryBtn) {
@@ -8767,7 +8842,7 @@
         return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
 
-      if (identity.shouldRequirePrechat(flow)) {
+      if (identity.shouldRequirePrechat(flow) && !ext('skip')) {
         // Presentation choice — a full-page form may only take over the tab
         // when there is genuinely nothing to hide behind it. The moment the
         // thread already has messages (the classic case: the AI just handed
@@ -8822,6 +8897,7 @@
     function renderBody() {
       __paintedSkeleton = false;
       renderBodyInner();
+      ext('body');
       // Every repaint can change the scroll geometry (a new bubble, a lazy
       // image finishing, a view swap), so the pill is re-evaluated after
       // layout rather than only on scroll.
@@ -8857,6 +8933,9 @@
       } catch (_) {}
       var tab = shellStore.get().activeTab;
       syncViewChrome(tab);
+      // A renderer with features paints its skeleton until runtime-ext.js is
+      // in (or its short wait is over): one paint with them, not a flip.
+      if (extWait) { extHeld = true; renderLoading(); return; }
       if (tab === 'home') {
         if (inputBar) inputBar.style.display = 'none';
         // Cold boot: the home surface changes shape once the visitor's own
@@ -8887,6 +8966,8 @@
           }
           return;
         }
+        // A renderer feature may wait for more (the visitor's name).
+        if (ext('wait')) { renderLoading('home'); return; }
         renderHome();
 
         if (kbEnabled && !kbStore.get().loaded) {
@@ -8941,14 +9022,17 @@
         //     (resolveHandoffAckMessage server-side). The name is still
         //     derived and used below to decide the AI-intro request.
         var state = deriveChatTabState();
+        // A renderer feature may keep a locked composer under the pre-chat card.
+        var lockComposer = ext('lock', state.name);
 
         if (state.name === ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN || state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT) {
           // Composer must be invisible while pre-chat is showing — visitor
           // cannot send a message until they've identified themselves.
-          if (inputBar) inputBar.style.display = 'none';
+          if (inputBar) inputBar.style.display = lockComposer ? 'flex' : 'none';
           var onPrechatSubmitted = function () {
             // Pre-chat just submitted → reveal composer for the now-identified visitor.
             if (inputBar) inputBar.style.display = 'flex';
+            ext('prechat', identity);
             renderBody();
             if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
             // Phase 3 — AI Agent pre-chat intro. Fire-and-forget; never
@@ -9243,6 +9327,7 @@
       launcherTyping(true);
       if (launcherTypingTimer) clearTimeout(launcherTypingTimer);
       launcherTypingTimer = setTimeout(function () { launcherTyping(false); }, 3500);
+      ext('typing', 1);
       if (!typingRow || !typingLabel) return;
       typingRow.classList.remove('ai-thinking');
       typingLabel.textContent = t('typingOperator') || 'Support is typing…';
@@ -9252,7 +9337,11 @@
         if (typingRow) typingRow.hidden = true;
       }, 3500);
     }
-    if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
+    // A driver's capabilities are only known once the realtime negotiation
+    // answers, after this line runs: a renderer with features (here still
+    // waiting for them: it may draw typing) listens regardless; only a
+    // driver that supports typing emits.
+    if ((transport.hasCapability && transport.hasCapability('supportsTyping')) || extWait) {
       transport.on('typing', function (e) {
         var actor = e && e.payload && e.payload.actor;
         if (actor === 'visitor') return; // ignore self-echo
@@ -9287,6 +9376,7 @@
       if (typingRow) typingRow.hidden = true;
       if (launcherTypingTimer) { clearTimeout(launcherTypingTimer); launcherTypingTimer = null; }
       launcherTyping(false);
+      ext('typing');
       if (chatStore.get().aiThinking) {
         chatStore.set({ aiThinking: false });
         if (shellStore.get().activeTab === 'chat') renderBody();
@@ -9474,6 +9564,44 @@
     shellStore.subscribe(function (s) {
       if (s.isOpen && s.activeTab === 'chat') { clearUnreadForActive(); flushPendingRead(); }
     });
+
+    // ─── Renderer features (runtime-ext.js) ───
+    // Requested now, alongside the visitor's identity and threads, which a
+    // first paint waits for anyway: usually from the browser's cache, as the
+    // loader fetched it with the template's files (/config names it as
+    // `modules.ext` for such a template only). Until it is in,
+    // renderBodyInner() paints the skeleton. At most 1.5 s: a stalled
+    // request costs the features, not the panel (a failed one releases at
+    // once), and a late module repaints with the data Core saw meanwhile.
+    if (extWait) {
+      var extSettle = function (mod) {
+        try {
+          // The instance's parts the module builds on, in the order of its
+          // create() parameters (src/test/widget/runtimeExt.test.ts).
+          if (mod) Ext = mod.create(
+            Presentation, ctx, panel, chatQ, identity, chatUI, kbUI, ModuleLoader, ConvEpoch,
+            shellStore, chatStore, presenceStore, conversationsStore, notifyStore, identityStore, kbStore,
+            attachmentStore, transportStore,
+            renderBody, renderHome, switchTab, deriveChatTabState, setDraftFor, currentDraftKey, trySend,
+            restoreDraftToInput, applyComposerState, syncAttachButton, showAiThinking, finishRecording,
+            renderVoicePreview, extCalls
+          );
+        } catch (e) { Util.warn('Module failed: ext', e); }
+        // Painted without it (failed, or not in yet), the template's controls
+        // for these features would be dead: `.ext-off` lets its stylesheet
+        // set them aside until a late module repaints.
+        panel.classList.toggle('ext-off', !Ext);
+        // Calls are kept for the module until its request settles (the
+        // 1.5 s wait passes no module: it releases the paint only).
+        if (mod !== undefined) extCalls = null;
+        // Repaint what waited, or what was painted without a late module.
+        var repaint = extWait ? extHeld : mod && Ext;
+        extWait = false;
+        if (repaint) renderBody();
+      };
+      setTimeout(extSettle, 1500);
+      ModuleLoader.loadFor(ctx, 'ext', 'runtime-ext.js', extSettle);
+    }
 
     // ─── Public API back to loader ───
     // open/close/toggle ALWAYS return the real, final open state so the

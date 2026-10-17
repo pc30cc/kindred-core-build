@@ -30,7 +30,8 @@ import {
   RESPOK_LAUNCHER_CSS,
 } from '../../../../shared/respokLauncher';
 
-export type PreviewView = 'home' | 'chat' | 'prechat' | 'offline' | 'kb';
+/** `list` is the conversation list (a bottom menu's Messages). */
+export type PreviewView = 'home' | 'list' | 'chat' | 'prechat' | 'offline' | 'kb';
 
 /** Lifecycle a smart action walks through inside the scenario studio. */
 export type SmartPreviewPhase =
@@ -85,6 +86,9 @@ type Dict = {
   kbAllArticles: string; kbCategories: string; kbEmpty: string; kbBack: string;
   attachTitle: string; micTitle: string; emojiTitle: string; talkToHuman: string;
   msgSeen: string;
+  messagesTab: string; conversations: string; noConversations: string; newConversation: string;
+  statusOpen: string; statusResolved: string; unread: string; back: string;
+  listTimeRecent: string; listTimeEarlier: string;
 };
 
 const DICTS: Record<string, Dict> = {
@@ -108,6 +112,9 @@ const DICTS: Record<string, Dict> = {
     kbBack: 'Back to articles',
     attachTitle: 'Attach file', micTitle: 'Record voice message', emojiTitle: 'Emoji',
     talkToHuman: 'Talk to a human', msgSeen: 'Seen',
+    messagesTab: 'Messages', conversations: 'Conversations', noConversations: 'No conversations yet',
+    newConversation: 'New conversation', statusOpen: 'Open', statusResolved: 'Resolved', unread: 'Unread messages',
+    back: 'Back', listTimeRecent: '2 min', listTimeEarlier: 'Yesterday',
   },
   fa: {
     online: 'ما آنلاین هستیم', offline: 'در حال حاضر آفلاین هستیم', typing: 'در حال نوشتن…',
@@ -129,6 +136,9 @@ const DICTS: Record<string, Dict> = {
     kbBack: 'بازگشت به مقاله‌ها',
     attachTitle: 'پیوست فایل', micTitle: 'ضبط پیام صوتی', emojiTitle: 'شکلک',
     talkToHuman: 'صحبت با اپراتور', msgSeen: 'دیده شد',
+    messagesTab: 'پیام‌ها', conversations: 'گفتگوها', noConversations: 'هنوز گفتگویی ندارید',
+    newConversation: 'گفتگوی جدید', statusOpen: 'باز', statusResolved: 'حل شده', unread: 'پیام‌های خوانده‌نشده',
+    back: 'بازگشت', listTimeRecent: '۲ دقیقه', listTimeEarlier: 'دیروز',
   },
   tr: {
     online: 'Çevrimiçiyiz', offline: 'Şu anda çevrimdışıyız', typing: 'yazıyor…',
@@ -150,6 +160,9 @@ const DICTS: Record<string, Dict> = {
     kbBack: 'Makalelere dön',
     attachTitle: 'Dosya ekle', micTitle: 'Sesli mesaj kaydet', emojiTitle: 'Emoji',
     talkToHuman: 'Bir temsilciyle konuşun', msgSeen: 'Görüldü',
+    messagesTab: 'Mesajlar', conversations: 'Sohbetler', noConversations: 'Henüz sohbet yok',
+    newConversation: 'Yeni sohbet', statusOpen: 'Açık', statusResolved: 'Çözüldü', unread: 'Okunmamış mesajlar',
+    back: 'Geri', listTimeRecent: '2 dk', listTimeEarlier: 'Dün',
   },
 };
 
@@ -251,6 +264,17 @@ export interface WidgetLivePreviewProps {
   /** Operator display name — used for the initial fallback avatar. */
   operatorName?: string | null;
   /**
+   * The template to render: the one the workspace's visitors wear (resolved
+   * with the Super Admin's catalog, shared/chatTemplateCatalog.ts), or the
+   * one a Super Admin previews. Without it the frame renders
+   * `settings.widget_template_id`, which the caller must then have resolved
+   * (WidgetPage's previewSettings carries the effective id) — the frame
+   * renders any registered id, enabled or not.
+   */
+  templateId?: string | null;
+  /** That template's merged options (`config.templateOptions` in production). */
+  templateOptions?: Record<string, unknown> | null;
+  /**
    * `generic` is the ordinary settings preview. `smart` turns the frame into a
    * scenario simulator: the panel's open state, the active view and the surface
    * placement are all derived from the rule + phase instead of the tab.
@@ -264,7 +288,7 @@ export interface WidgetLivePreviewProps {
 
 export function WidgetLivePreview({
   settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, onViewChange,
-  operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent,
+  operatorAvatar, operatorName, previewMode = 'generic', smartScenario, onSmartEvent, templateId, templateOptions,
 }: WidgetLivePreviewProps) {
   // The mock page around the widget: the panel theme's own colours under
   // Art (useArtPreviewStage), the cool slate otherwise.
@@ -293,7 +317,7 @@ export function WidgetLivePreview({
     const onMessage = (e: MessageEvent) => {
       const data = e.data as { source?: string; nav?: string } | null;
       if (!data || data.source !== 'gs-widget-preview' || !data.nav) return;
-      onViewChange(data.nav === 'home' ? 'home' : data.nav === 'help' ? 'kb' : 'chat');
+      onViewChange(data.nav === 'home' ? 'home' : data.nav === 'help' ? 'kb' : data.nav === 'list' ? 'list' : 'chat');
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
@@ -435,6 +459,15 @@ export function WidgetLivePreview({
     /* ── View-models handed to the production renderer. Nothing below builds
        widget markup: the active template is the single source of it. ── */
 
+    /* The template: the caller's (effective or previewed) id, else the
+       settings' one, resolved per edition as the bootstrap does. */
+    const previewTemplateId: string | null = templateId !== undefined
+      ? templateId || null
+      : isInternational
+        ? resolveChatWidgetTemplate('international', s.widget_template_id)
+        : (s.widget_template_id as string | undefined) || null;
+    const previewTemplateOptions = (templateOptions !== undefined ? templateOptions : s.widget_template_options) || {};
+
     const previewConfig = {
       brandName: brandName || title,
       workspaceName: title,
@@ -470,8 +503,13 @@ export function WidgetLivePreview({
       // Persian dates: Gregorian in the visitor's zone, as the International
       // bootstrap says; the Iranian preview sends no hint (Jalali, Tehran).
       ...(isInternational ? widgetDateHints('international') : {}),
+      // As the bootstrap: the template and its options (never its name).
+      templateId: previewTemplateId,
+      templateOptions: previewTemplateOptions,
     };
 
+    // The panel's view key, as Core names it (panel[data-view], the tabs).
+    const previewTab = view === 'home' ? 'home' : view === 'kb' ? 'help' : view === 'list' ? 'list' : 'chat';
     const nowIso = new Date().toISOString();
     const earlierIso = new Date(Date.now() - 90 * 1000).toISOString();
 
@@ -481,9 +519,7 @@ export function WidgetLivePreview({
       primary,
       view,
       /** Template id — resolved through the registry inside the frame. */
-      templateId: isInternational
-        ? resolveChatWidgetTemplate('international', s.widget_template_id)
-        : (s.widget_template_id as string | undefined) || null,
+      templateId: previewTemplateId,
       smart: { enabled: smartDoc, mode: smartSurface?.mode || smartScenario?.rule.presentation_config?.mode || 'launcher_nudge' },
       smartSurface,
       config: previewConfig,
@@ -509,6 +545,11 @@ export function WidgetLivePreview({
         searchKb: d.kbSearch, kbAllArticles: d.kbAllArticles, kbCategories: d.kbCategories,
         noArticles: d.kbEmpty, kbZeroResults: d.kbEmpty, kbBack: d.kbBack,
         kbSearching: d.kbSearch, kbSwitchToChat: d.chatTab, kbOpenInBrowser: d.homeSeeAll,
+        // The conversation list (a bottom menu's Messages view).
+        messages: d.messagesTab, back: d.back,
+        wyConversations: d.conversations, wyNoConversations: d.noConversations,
+        wyNewConversation: d.newConversation, wyStatusOpen: d.statusOpen,
+        wyStatusResolved: d.statusResolved, wyUnread: d.unread,
       },
 
       shellVm: {
@@ -519,7 +560,7 @@ export function WidgetLivePreview({
         chatEnabled,
         kbEnabled,
         locale,
-        activeTab: view === 'home' ? 'home' : view === 'kb' ? 'help' : 'chat',
+        activeTab: previewTab,
         primaryColor: primary,
       },
       homeVm: {
@@ -536,6 +577,26 @@ export function WidgetLivePreview({
         articles: realArticles.map((a, i) => ({ title: a.title, slug: String(i) })),
         categories: [],
       },
+      /* The conversation list: two sample threads, one waiting for the
+         visitor (unread) and one closed. */
+      listVm: {
+        rtl,
+        loading: false,
+        error: false,
+        chatEnabled,
+        conversations: [
+          {
+            id: 'preview-1', status: 'open', preview: d.sample, unreadCount: 1, timeLabel: d.listTimeRecent,
+            lastFromVisitor: false, operatorName: operatorName || title, operatorAvatar: operatorAvatar || '', operatorOnline: true,
+          },
+          {
+            id: 'preview-2', status: 'resolved', preview: d.visitorSample, unreadCount: 0, timeLabel: d.listTimeEarlier,
+            lastFromVisitor: true, operatorName: operatorName || title, operatorAvatar: operatorAvatar || '', operatorOnline: false,
+          },
+        ],
+      },
+      // The capabilities Core passes to a renderer (production: runtime.js).
+      capabilities: { kbNeutral: true, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false },
       messages: view === 'offline'
         ? [{ sender: 'operator', senderType: 'system', body: offlineMsg, time: nowIso }]
         : [
@@ -654,7 +715,7 @@ export function WidgetLivePreview({
     if (!img || !img.hasAttribute || !img.hasAttribute('data-wy-brand-logo')) return;
     if (img.parentNode) img.parentNode.replaceChild(document.createTextNode(' ' + (img.getAttribute('alt') || '')), img);
   }, true);
-  var GS_PREVIEW = ${JSON.stringify(payload)};
+  var GS_PREVIEW = ${JSON.stringify(payload).replace(/</g, '\\u003c')};
   var GS_SMART = GS_PREVIEW.smart;
 
   (function () {
@@ -745,15 +806,45 @@ export function WidgetLivePreview({
       config: GS_PREVIEW.config,
       locale: GS_PREVIEW.locale,
       primaryColor: GS_PREVIEW.primary,
+      capabilities: GS_PREVIEW.capabilities,
     });
+
+    // The renderer's declared features, read as Core reads them (feat() in
+    // runtime-ext.js), and the view-model fields Core adds for them: the unread total
+    // of a bottom menu (tabs), the search field (kbSearch) and the visitor's
+    // first name (visitorName; the preview has no contact, so empty, as Core
+    // without one). The default template declares none, so it gets the same
+    // view-models and the same pixels as before. What changed for every
+    // template, 'default' included, is the navigation: the Messages view
+    // (list) and the frame following the renderer's own [data-view],
+    // [data-view-back] and [data-conversation-open] hooks (gsBindTabs), as
+    // the live widget does.
+    function feat(name) { return !!(R.features && R.features[name]); }
+    var unreadTotal = 0;
+    (GS_PREVIEW.listVm.conversations || []).forEach(function (c) { unreadTotal += Number(c.unreadCount) || 0; });
+    var kbVms = [GS_PREVIEW.kbVm].concat(GS_PREVIEW.kbArticleVms || []);
+    if (feat('tabs')) {
+      GS_PREVIEW.homeVm.unreadTotal = unreadTotal;
+      GS_PREVIEW.listVm.unreadTotal = unreadTotal;
+      kbVms.forEach(function (vm) { if (vm) vm.unreadTotal = unreadTotal; });
+    }
+    if (feat('kbSearch')) {
+      GS_PREVIEW.homeVm.hasSearch = true;
+      kbVms.forEach(function (vm) { if (vm) vm.hasSearch = true; });
+    }
+    if (feat('visitorName')) GS_PREVIEW.homeVm.visitorName = '';
 
     var panel = document.querySelector('.panel');
     panel.innerHTML = R.shellHtml(GS_PREVIEW.shellVm);
+    // The view the panel shows, as Core marks it (a template may style by it).
+    panel.setAttribute('data-view', GS_PREVIEW.shellVm.activeTab);
 
     var body = panel.querySelector('[data-body]');
     var view = GS_PREVIEW.view;
     if (view === 'home') {
       body.innerHTML = R.homeHtml(GS_PREVIEW.homeVm);
+    } else if (view === 'list') {
+      body.innerHTML = R.conversationListHtml ? R.conversationListHtml(GS_PREVIEW.listVm) : '';
     } else if (view === 'prechat') {
       var pc = GS_PREVIEW.prechat;
       var identity = {
@@ -770,6 +861,19 @@ export function WidgetLivePreview({
       var msgHost = body.querySelector('[data-chat-messages]');
       if (msgHost) msgHost.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
       /* Typing state is sr-only in the design — no visible typing row. */
+    }
+
+    // A bottom menu's current tab and its unread badges, as Core marks them
+    // after every paint (runtime-ext.js markActiveTab, paintTabBadges).
+    if (feat('tabs')) {
+      Array.prototype.forEach.call(panel.querySelectorAll('[data-view][aria-current]'), function (el) {
+        el.setAttribute('aria-current', el.getAttribute('data-view') === GS_PREVIEW.shellVm.activeTab ? 'page' : 'false');
+      });
+      var badge = R.format && R.format.badge;
+      Array.prototype.forEach.call(panel.querySelectorAll('[data-tab-badge]'), function (el) {
+        el.textContent = unreadTotal ? (typeof badge === 'function' ? badge(unreadTotal) : String(unreadTotal)) : '';
+        el.hidden = unreadTotal === 0;
+      });
     }
 
 
@@ -945,14 +1049,36 @@ export function WidgetLivePreview({
     applyPhase(GS_PREVIEW.phase);
   }
 
-  // Preview-only: the renderer's real tab hooks drive the parent's view state.
+  // Preview-only: the renderer's real navigation hooks drive the parent's
+  // view state — the tabs ([data-tab]), a bottom menu or any view link
+  // ([data-view]: home / list / help / chat), a named back ([data-view-back])
+  // and a conversation row ([data-conversation-open]), in Core's order
+  // (runtime.js bindPanelNavigation): a back or a row inside an element
+  // that names a view is the back or the row, never that view.
   function gsBindTabs() {
     if (GS_SMART.enabled) return;
+    function nav(key) {
+      parent.postMessage({ source: 'gs-widget-preview', nav: key }, '*');
+    }
     document.addEventListener('click', function (e) {
-      var el = e.target && e.target.closest ? e.target.closest('[data-tab]') : null;
-      if (!el) return;
-      e.preventDefault();
-      parent.postMessage({ source: 'gs-widget-preview', nav: el.getAttribute('data-tab') }, '*');
+      var target = e.target && e.target.closest ? e.target : null;
+      if (!target) return;
+      var tab = target.closest('[data-tab]');
+      if (tab) { e.preventDefault(); nav(tab.getAttribute('data-tab')); return; }
+      var back = target.closest('[data-view-back]');
+      if (back) {
+        // "back" (a step back inside the view) is the article's; see gsBindArticles.
+        if (back.getAttribute('data-view-back') === 'back') return;
+        e.preventDefault();
+        nav(back.getAttribute('data-view-back') || 'home');
+        return;
+      }
+      if (target.closest('[data-conversation-open]')) { e.preventDefault(); nav('chat'); return; }
+      var viewEl = target.closest('[data-view]');
+      if (viewEl && viewEl !== document.querySelector('.panel')) {
+        e.preventDefault();
+        nav(viewEl.getAttribute('data-view'));
+      }
     });
   }
 
@@ -962,11 +1088,13 @@ export function WidgetLivePreview({
     var body = document.querySelector('.panel [data-body]');
     if (!body) return;
     var initialMarkup = body.innerHTML;
+    var articleOpen = false;
     function openArticle(index) {
       var vm = (GS_PREVIEW.kbArticleVms || [])[Number(index)];
       if (!vm) return;
       body.innerHTML = R.kbHtml(vm);
       body.scrollTop = 0;
+      articleOpen = true;
     }
     document.addEventListener('click', function (e) {
       var target = e.target && e.target.closest ? e.target : null;
@@ -983,10 +1111,17 @@ export function WidgetLivePreview({
         openArticle(homeArticle.getAttribute('data-home-article'));
         return;
       }
-      if (target.closest('[data-kb-action="back"]')) {
+      var stepBack = target.closest('[data-view-back="back"]');
+      if (target.closest('[data-kb-action="back"]') || (stepBack && articleOpen)) {
         e.preventDefault();
         body.innerHTML = initialMarkup;
         body.scrollTop = 0;
+        articleOpen = false;
+        return;
+      }
+      if (stepBack && !GS_SMART.enabled) {
+        e.preventDefault();
+        parent.postMessage({ source: 'gs-widget-preview', nav: stepBack.getAttribute('data-view-back-fallback') || 'home' }, '*');
         return;
       }
 
@@ -1007,6 +1142,7 @@ export function WidgetLivePreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     settings, prechat, workspaceName, platformName, poweredBy, brandName, teamMembers, view, kbArticles, kbCategories, operatorAvatar, operatorName,
+    templateId, templateOptions,
     previewMode, smartScenario?.rule, smartScenario?.content, smartScenario?.locale,
     smartScenario?.rtl, stageBackground, stageBar, isInternational, localKit, respokKit,
   ]);

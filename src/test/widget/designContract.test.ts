@@ -109,7 +109,12 @@ describe('typography ownership', () => {
     expect(REGISTRY_SRC).toContain("fonts: 'presentation-default-fonts.css'");
     const loader = readFileSync('public/widget/loader.js', 'utf8');
     // The loader must stay template-agnostic: no font family, no fixed path.
-    expect(loader).not.toContain('IRANSans');
+    // The one exception is the Iranian edition's own launcher kit (stripped
+    // from the RESPOK build): its unread badge names the edition's Persian
+    // face first (owner decision 2026-10-17; no Vazirmatn in the widget).
+    const outsideKit = loader.replace(/\/\* @iran-kit:begin \*\/[\s\S]*?\/\* @iran-kit:end \*\//g, '');
+    expect(outsideKit).not.toContain('IRANSans');
+    expect(loader).not.toMatch(/Vazirmatn/i);
     expect(loader).not.toContain('/widget/fonts.css');
     expect(loader).toContain('presentationFontsUrl');
     // The font stylesheet loads only for an opened panel or a visible nudge:

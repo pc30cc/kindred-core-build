@@ -86,7 +86,9 @@ describe('production panel positioning contract', () => {
 describe('generic presentation readiness', () => {
   it('lets the active presentation prepare itself without font/template knowledge in Core', () => {
     expect(loader).toContain('typeof presentationModule.prepare === "function"');
-    expect(loader).not.toContain('IRANSans');
+    // Outside the Iranian edition's launcher kit, whose badge names the
+    // edition's Persian face (designContract.test.ts, typography ownership).
+    expect(loader.replace(/\/\* @iran-kit:begin \*\/[\s\S]*?\/\* @iran-kit:end \*\//g, '')).not.toContain('IRANSans');
     // The loader must name no template asset: it asks the registry.
     // (The bare id is too common a word to assert on.)
     expect(loader).not.toContain('presentation-default');

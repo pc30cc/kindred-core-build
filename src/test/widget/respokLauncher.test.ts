@@ -1,8 +1,8 @@
 /**
  * RESPOK's floating button (the brand kit's Thread chat button, ported into
- * the loader's launcher): worn by the chat widget's `intl` template ONLY when
- * the bootstrap says the platform is the International edition
- * (`edition: 'international'`, `templateId: 'intl'`). The Iranian edition
+ * the loader's launcher): worn by every chat widget template ONLY when the
+ * bootstrap says the platform is the International edition
+ * (`edition: 'international'`). The Iranian edition
  * keeps its local kit's button (localKitLauncher.test.ts); an unknown edition and an
  * older backend keep the old launcher.
  *
@@ -111,13 +111,20 @@ describe('the launcher per edition', () => {
 
   it.each([
     ['Iran', { edition: 'iran', templateId: 'default' }],
-    ['International with the Iranian template id', { templateId: 'default' }],
+    ['Iran with a template of its own', { edition: 'iran', templateId: 't1' }],
     ['unknown (null)', { edition: null, templateId: 'default' }],
     ['an older backend (no edition)', { edition: undefined, templateId: 'default' }],
   ])('%s: never RESPOK\'s kit', async (_name, extra) => {
     const { root, launcher } = await boot(extra);
     expect(launcher.classList.contains('rpk-kit')).toBe(false);
     expect(root.querySelector('style[data-rpk-kit]')).toBeNull();
+  });
+
+  // The kit belongs to the edition, not to a template.
+  it.each(['default', 't1-intl', ''])('International with the template id %j wears it', async (templateId) => {
+    const { root, launcher } = await boot({ templateId });
+    expect(launcher.classList.contains('rpk-kit')).toBe(true);
+    expect(root.querySelector('style[data-rpk-kit]')!.textContent).toBe(RESPOK_LAUNCHER_CSS);
   });
 
   it('honours the workspace\'s colour, icon, size and position', async () => {

@@ -47,6 +47,11 @@ export const WIDGET_CUSTOMIZATION_CAPABILITY: Record<string, { capability: strin
   fab_scale: { capability: 'widget_launcher_size', reset: 100 },
   fab_icon: { capability: 'widget_launcher_icon', reset: 'chat' },
   placeholder_text: { capability: 'widget_composer_placeholder', reset: null },
+  // The chat widget template choice and its options (migration 275): a plan
+  // without the Appearance editor wears the catalog's default template with
+  // the Super Admin's option defaults.
+  widget_template_id: { capability: 'widget_appearance', reset: null },
+  widget_template_options: { capability: 'widget_appearance', reset: {} },
 };
 
 const MODULE_KEYS = new Set(['chat', 'knowledge_base', 'visitor_tracking']);
@@ -221,6 +226,11 @@ export function applyWidgetEntitlementsToSettings<T extends Record<string, unkno
 }
 
 
+/** `{}`: an options object that sets nothing (the default of a jsonb options column). */
+function isEmptyObject(value: unknown): boolean {
+  return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0;
+}
+
 export interface PatchGuardResult {
   ok: boolean;
   /** Capability keys the patch tried to use without entitlement. */
@@ -246,7 +256,7 @@ export function guardWidgetSettingsPatch(
     if (!(column in patch)) continue;
     if (ent.features[def.capability] !== false) continue;
     const value = patch[column];
-    const isDefault = value === def.reset || value === null || value === '' || value === undefined;
+    const isDefault = value === def.reset || value === null || value === '' || value === undefined || isEmptyObject(value);
     if (!isDefault) denied.push(def.capability);
   }
 

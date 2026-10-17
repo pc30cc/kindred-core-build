@@ -87,7 +87,9 @@ if (!existsSync(SRC_DIR)) {
 }
 
 // Files that get content-hashed filenames
-const CORE_HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
+// `runtime-ext.js`: the renderer features, loaded only by a template that
+// declares some (docs/operations/WIDGET_TEMPLATE_RULES.md §2).
+const CORE_HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-ext.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
 
 // Presentation layer (template system) — DISCOVERED, never hard-coded.
 // Any `presentation-<id>.js` / `presentation-<id>.css` dropped into

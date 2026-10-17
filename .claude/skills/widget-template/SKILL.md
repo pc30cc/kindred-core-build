@@ -51,17 +51,25 @@ on a hashed URL, a fixed file name in code, or `${` in nginx.conf.template.
 1. `shared/widgetTemplates.ts`: the descriptor in `CHAT_WIDGET_TEMPLATES` /
    `CALL_WIDGET_TEMPLATES`, and the id in the edition's `offered` list
    (`EDITION_*_TEMPLATES`). Do not touch the Iranian edition's `default`
-   unless the owner asked to change WebYar's look.
+   unless the owner asked to change WebYar's look. A chat renderer that
+   returns `features` from `create()` sets `coreFeatures: true` (then /config
+   names Core's runtime-ext.js and the loader fetches it with the template;
+   `src/test/widget/runtimeExt.test.ts` checks the two agree).
 2. The same id and files in `public/widget/presentation-registry.js` (chat).
 3. Call widget: add the id to the zod enum in
    `server/services/callCenter/presentation.ts` (`callWidgetTemplateIdSchema`).
-4. A per-workspace choice of the CHAT template needs a
-   `widget_settings.widget_template_id` column (a migration: WebYar's
-   database is migrated by hand, see CLAUDE.md), its field in the widget
-   settings PATCH schema, and a picker on `src/pages/app/WidgetPage.tsx`
-   (the live preview already renders any registered template). The call
-   widget already has its column and picker. Ask the owner before adding the
-   migration.
+4. The per-workspace choice of the CHAT template exists (migration 275:
+   `widget_settings.widget_template_id` / `widget_template_options`, the
+   Super Admin's catalog `widget_edition_settings.chat_templates`;
+   `shared/chatTemplateCatalog.ts`). A new id in `offered` is disabled until
+   the Super Admin enables it in Widget settings → Widget templates, so no
+   migration is needed. If the template reads options, list them in
+   `CHAT_TEMPLATE_OPTIONS` (they reach the renderer as
+   `config.templateOptions`); give it a default name and description in
+   `src/i18n/widgetCatalog.ts` (brand-neutral) and a shape in
+   `src/components/app/widget/TemplateSketch.tsx`. See
+   `docs/operations/EDITIONS.md`, "The chat widget template catalog". The
+   call widget has its own column and picker.
 
 ## 4. Verify (all of it, before committing)
 

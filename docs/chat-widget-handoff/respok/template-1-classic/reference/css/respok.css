@@ -1,0 +1,67 @@
+/* Respok skin: the same WebYar widget design, branded Respok.
+   Load right after widget.css. Scope: .cv.rp  ·  logo direction on the root: .lg-open (default) | .lg-thread
+   Brand values from the Respok kit (Shared/Code/tokens/tokens.css). */
+
+.cv.rp{
+  --ink:#16142B;--ink-2:#3D3B55;--ink-3:#5E5C75;--ink-4:#A9A7BC;
+  --sig:#FF5A3C;--sig-d:#D3361A;--away:#A9A7BC;
+  --ok:#FF5A3C;--bad:#D3361A;--rec:#FF5A3C;
+  --bg:#F5F5F8;--bg-2:#EDECF2;--line:#E4E3EC;--line-2:#D3D1DE;--op:#F0EFF5;
+  font-family:Figtree,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  background:#E8E7EE;
+}
+.cv.rp[dir=rtl]{font-family:"Vazirmatn",Tahoma,sans-serif}
+
+/* one logo direction at a time */
+.rp.lg-open .g-t,.rp.lg-thread .g-o{display:none!important}
+
+/* Latin type: Figtree wants tighter leading than Vazirmatn */
+.rp[dir=ltr] .cv-t{line-height:1.3;letter-spacing:-.01em}
+.rp[dir=ltr] .cv-d{line-height:1.6}
+.rp[dir=ltr] .w{line-height:1.5}
+.rp[dir=ltr] .hx-hi{margin-top:30px;font-size:16.5px;line-height:1.4}
+.rp[dir=ltr] .hx-q{margin-top:4px;font-size:25px;line-height:1.2;letter-spacing:-.015em}
+.rp[dir=ltr] .w.mob .hx-q{font-size:28px}
+.rp[dir=ltr] .t1{line-height:1.35}
+.rp[dir=ltr] .t2,.rp[dir=ltr] .l1,.rp[dir=ltr] .l2,.rp[dir=ltr] .li{line-height:1.4}
+.rp[dir=ltr] .bb{font-size:14.5px;line-height:1.5}
+.rp[dir=ltr] .nm,.rp[dir=ltr] .mt{line-height:1.4}
+.rp[dir=ltr] .note,.rp[dir=ltr] .intro{line-height:1.5}
+.rp[dir=ltr] .art h1{line-height:1.3;letter-spacing:-.01em}
+.rp[dir=ltr] .art p,.rp[dir=ltr] .steps li{line-height:1.65}
+.rp[dir=ltr] .tip{line-height:1.55}
+.rp[dir=ltr] .spec > p,.rp[dir=ltr] .wel p{line-height:1.55}
+.rp .tab{font-size:12.5px}
+.rp .code{font-family:"DM Mono",ui-monospace,"SF Mono",Menlo,monospace}
+
+/* hero: the Respok bubble as a quiet watermark (never rotated) */
+.rp .hx-mk{top:-46px;inset-inline-end:16px;width:150px;opacity:.1;transform:none}
+.rp .hx-mk.g-t{top:-34px;width:156px}
+
+/* live = the Signal dot; away = an empty ring */
+.rp .live{background:var(--sig);box-shadow:0 0 0 3px color-mix(in oklab,var(--sig) 22%,transparent)}
+.rp .live.off{background:#fff;box-shadow:inset 0 0 0 2px var(--away)}
+.rp .av .pr{background:var(--sig)}
+.rp .av.sa.off{background:var(--away)}
+.rp .av .pr.off{background:#fff;box-shadow:inset 0 0 0 2.5px var(--away),0 0 0 2.5px #fff}
+
+/* unread badges: Signal Deep */
+.rp .nb,.rp .tic .nb{background:var(--sig-d);color:#fff}
+.rp .tic .nb{font-weight:700}
+
+/* status tags */
+.rp .tg.open{background:#FFEAE4;color:#A62A12}
+.rp .sum .sh2{background:#FFF1ED;color:#A62A12}
+
+/* typing: three round dots */
+.rp .typ i{width:7px;height:7px;border-radius:50%;transform:none;animation-name:rp-typ}
+@keyframes rp-typ{0%,60%,100%{opacity:.45;transform:none}25%{opacity:1;transform:translateY(-3px)}}
+
+/* recording */
+.rp .ra.stop{color:var(--sig-d)}
+
+/* powered by + Respok lockup */
+.rp .pw{gap:5px}
+.rp .pw .lk{width:49px;height:12px;color:#16142B}
+.rp .pw .lk.g-t{width:53px}
+.rp .pw:hover .lk{color:#000}

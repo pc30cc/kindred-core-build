@@ -36,7 +36,7 @@ budget), `server/lib/cacheBus.ts` (cross-node invalidation),
 |---|---|---|---|
 | Workspace snapshot | widget_settings row, entitlements, branding, workspace name, powered-by plan gate, pre-chat flags, published smart rules, AI nudge and AI agent snapshot (incl. agent logo URL), members + availability prefs, first 4 profiles with avatar URLs, logo and launcher-image URLs, effective call channels | `WIDGET_CONFIG_CACHE_TTL_MS`, default **60 s** | degraded build 5 s; no `widget_settings` row 15 s |
 | Not-found answers | "this workspace does not exist" | 15 s | own LRU (¼ of the max, ≥100): random ids cannot evict real snapshots |
-| Platform snapshot | widget_platform_settings (URL bases, welcome default, powered-by wording), the pre-chat policy, every `platform_branding_localized.platform_name` | 30 s | |
+| Platform snapshot | widget_platform_settings (URL bases, welcome default, powered-by wording), the pre-chat policy, every `platform_branding_localized.platform_name`, the chat widget template catalog per edition (`widget_edition_settings.chat_templates`, migration 275) | 30 s | the catalog is its own read: a database without 275 reads as no catalog (not degraded); a failed read is degraded (5 s) and serves the process's last good catalog, also right after a `platform` clear; a process that has not read it yet serves the edition default meanwhile |
 | `quota_full` | the monthly conversation quota answer | 60 s | usage has no write hook |
 
 Computed **per request**, never cached: availability at the current time
@@ -304,6 +304,17 @@ Scopes: `widget:<ws>`, `widget` (all), `origin:<ws>`, `host:<domain>`,
 bootstrap memo (`server/services/callCenter/bootstrapCache.ts`), and
 `platform` its platform settings: call center settings and department edits
 publish `widget:<ws>`, platform call center settings `platform`.
+
+The chat widget template is resolved per request with no I/O, from the
+workspace snapshot (`widget_template_id`, `widget_template_options`, plan
+applied) and the catalog in the platform snapshot
+(`shared/chatTemplateCatalog.ts`), into `templateId` and `templateOptions`;
+its display names never reach the widget. So a Super Admin save
+(`PUT /api/admin/widget-catalog`) publishes only `platform`, and a
+workspace's pick goes through the settings `PATCH`, which publishes
+`widget:<ws>` and `origin:<ws>` as for any other field. The bootstrap is not
+cached in the browser: a change shows on the next page view (an open tab keeps
+its template until it reloads).
 
 Writers that publish besides the settings pages: workspace deletion
 (`widget:`, `origin:`, `entitlements:`), user deletion and the GDPR

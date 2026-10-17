@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Rocket, Activity, Zap, Video, ArrowRight, Sparkles } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Rocket, Activity, Zap, Video, ArrowRight, Sparkles, LayoutTemplate } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
 import {
@@ -19,7 +19,8 @@ import {
   FloodProtectionSection,
 } from '@/components/admin/widget/HardeningSection';
 import { AdvancedRoutingSection } from '@/components/admin/widget/AdvancedRoutingSection';
-import { useTranslation } from '@/i18n';
+import { WidgetCatalogSection } from '@/components/admin/widget/WidgetCatalogSection';
+import { useTranslation, type TranslationKey } from '@/i18n';
 
 const PRECHAT_OPTIONS: PreChatPolicy[] = ['force_on', 'default_on', 'default_off', 'force_off'];
 
@@ -28,9 +29,9 @@ const LOCK_OPTIONS: FeatureLockMode[] = ['allow', 'force_on', 'force_off'];
 function PolicyBadge({ policy }: { policy: PreChatPolicy | FeatureLockMode }) {
   const { t } = useTranslation();
   if (policy === 'force_on' || policy === 'force_off') {
-    return <Badge variant="destructive" className="gap-1 text-xs"><Lock className="h-3 w-3" />{t('admin.widgetSettingsPage.locked' as any)}</Badge>;
+    return <Badge variant="destructive" className="gap-1 text-xs"><Lock className="h-3 w-3" />{t('admin.widgetSettingsPage.locked')}</Badge>;
   }
-  return <Badge variant="secondary" className="text-xs">{t('admin.widgetSettingsPage.overrideAllowed' as any)}</Badge>;
+  return <Badge variant="secondary" className="text-xs">{t('admin.widgetSettingsPage.overrideAllowed')}</Badge>;
 }
 
 import { PoweredBySection } from './widget-settings/PoweredBySection';
@@ -44,7 +45,7 @@ export default function AdminWidgetSettingsPage() {
   // duplicated admin surfaces. See /admin/voice-video.
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">{t('admin.widgetSettingsPage.loading' as any)}</div>;
+    return <div className="text-sm text-muted-foreground">{t('admin.widgetSettingsPage.loading')}</div>;
   }
 
   if (error || !settings) {
@@ -52,20 +53,20 @@ export default function AdminWidgetSettingsPage() {
       <Card>
         <CardContent className="p-6 space-y-3">
           <p className="text-sm font-medium text-destructive">
-            {t('admin.widgetSettingsPage.loadFailed' as any)}
+            {t('admin.widgetSettingsPage.loadFailed')}
           </p>
           <p className="text-xs text-muted-foreground break-all whitespace-pre-wrap">
             {error instanceof Error
               ? error.message
-              : t('admin.widgetSettingsPage.noSettingsRow' as any)}
+              : t('admin.widgetSettingsPage.noSettingsRow')}
           </p>
           <p className="text-xs text-muted-foreground">
-            {t('admin.widgetSettingsPage.selfHostBefore' as any)} <code className="mx-1">/api/</code>
-            {t('admin.widgetSettingsPage.selfHostAfter' as any)}
+            {t('admin.widgetSettingsPage.selfHostBefore')} <code className="mx-1">/api/</code>
+            {t('admin.widgetSettingsPage.selfHostAfter')}
           </p>
 
           <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
-            {isFetching ? t('admin.widgetSettingsPage.retrying' as any) : t('admin.widgetSettingsPage.retry' as any)}
+            {isFetching ? t('admin.widgetSettingsPage.retrying') : t('admin.widgetSettingsPage.retry')}
           </Button>
         </CardContent>
       </Card>
@@ -77,8 +78,8 @@ export default function AdminWidgetSettingsPage() {
     updateMut.mutate(
       { id: settings.id, updates: patch },
       {
-        onSuccess: () => toast({ title: t('admin.widgetSettingsPage.saved' as any), description: t('admin.widgetSettingsPage.savedDescription' as any) }),
-        onError: (e: any) => toast({ title: t('admin.widgetSettingsPage.error' as any), description: e.message, variant: 'destructive' }),
+        onSuccess: () => toast({ title: t('admin.widgetSettingsPage.saved'), description: t('admin.widgetSettingsPage.savedDescription') }),
+        onError: (e: Error) => toast({ title: t('admin.widgetSettingsPage.error'), description: e.message, variant: 'destructive' }),
       },
     );
   };
@@ -86,22 +87,23 @@ export default function AdminWidgetSettingsPage() {
   return (
     <div className="space-y-6 max-w-5xl">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">{t('admin.widgetSettingsPage.title' as any)}</h1>
-        <p className="text-sm text-muted-foreground mt-1">{t('admin.widgetSettingsPage.subtitle' as any)}</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t('admin.widgetSettingsPage.title')}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t('admin.widgetSettingsPage.subtitle')}</p>
       </div>
 
       <Tabs defaultValue="urls" className="space-y-4">
         <TabsList className="bg-secondary/50 border border-border flex-wrap h-auto">
-          <TabsTrigger value="urls" className="gap-1.5 text-xs"><Rocket className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.urls' as any)}</TabsTrigger>
-          <TabsTrigger value="prechat" className="gap-1.5 text-xs"><MessageSquare className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.prechat' as any)}</TabsTrigger>
-          <TabsTrigger value="features" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.features' as any)}</TabsTrigger>
-          <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Globe className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.deployment' as any)}</TabsTrigger>
-          <TabsTrigger value="poweredby" className="gap-1.5 text-xs"><Sparkles className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.poweredBy' as any)}</TabsTrigger>
-          <TabsTrigger value="limits" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.limits' as any)}</TabsTrigger>
-          <TabsTrigger value="realtime" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.realtime' as any)}</TabsTrigger>
-          <TabsTrigger value="security" className="gap-1.5 text-xs"><Lock className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.security' as any)}</TabsTrigger>
-          <TabsTrigger value="flood" className="gap-1.5 text-xs"><Zap className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.flood' as any)}</TabsTrigger>
-          <TabsTrigger value="routing" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.routing' as any)}</TabsTrigger>
+          <TabsTrigger value="urls" className="gap-1.5 text-xs"><Rocket className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.urls')}</TabsTrigger>
+          <TabsTrigger value="templates" className="gap-1.5 text-xs"><LayoutTemplate className="h-3.5 w-3.5" />{t('widgetCatalog.admin.tab')}</TabsTrigger>
+          <TabsTrigger value="prechat" className="gap-1.5 text-xs"><MessageSquare className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.prechat')}</TabsTrigger>
+          <TabsTrigger value="features" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.features')}</TabsTrigger>
+          <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Globe className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.deployment')}</TabsTrigger>
+          <TabsTrigger value="poweredby" className="gap-1.5 text-xs"><Sparkles className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.poweredBy')}</TabsTrigger>
+          <TabsTrigger value="limits" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.limits')}</TabsTrigger>
+          <TabsTrigger value="realtime" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.realtime')}</TabsTrigger>
+          <TabsTrigger value="security" className="gap-1.5 text-xs"><Lock className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.security')}</TabsTrigger>
+          <TabsTrigger value="flood" className="gap-1.5 text-xs"><Zap className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.flood')}</TabsTrigger>
+          <TabsTrigger value="routing" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.routing')}</TabsTrigger>
         </TabsList>
 
         {/* Deployment URLs (single source of truth) */}
@@ -113,6 +115,11 @@ export default function AdminWidgetSettingsPage() {
           />
         </TabsContent>
 
+        {/* Chat widget templates: the catalog workspaces pick from (loads its own data) */}
+        <TabsContent value="templates">
+          <WidgetCatalogSection />
+        </TabsContent>
+
         {/* Platform-owned powered-by footer */}
         <TabsContent value="poweredby">
           <PoweredBySection settings={settings} onSave={update} saving={updateMut.isPending} />
@@ -122,23 +129,23 @@ export default function AdminWidgetSettingsPage() {
         <TabsContent value="prechat">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">{t('admin.widgetSettingsPage.prechat.title' as any)}</CardTitle>
-              <CardDescription>{t('admin.widgetSettingsPage.prechat.description' as any)}</CardDescription>
+              <CardTitle className="text-base">{t('admin.widgetSettingsPage.prechat.title')}</CardTitle>
+              <CardDescription>{t('admin.widgetSettingsPage.prechat.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="rounded-lg border border-border p-4 space-y-2 bg-muted/20">
                 <div className="flex items-center gap-2">
                   <MessageSquare className="h-4 w-4 text-primary" />
-                  <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.prechat.welcome' as any)}</Label>
+                  <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.prechat.welcome')}</Label>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {t('admin.widgetSettingsPage.prechat.welcomeHint' as any)}
+                  {t('admin.widgetSettingsPage.prechat.welcomeHint')}
                 </p>
                 <Textarea
                   rows={2}
                   value={settings.default_welcome_message || ''}
                   onChange={(e) => update({ default_welcome_message: e.target.value })}
-                  placeholder={t('admin.widgetSettingsPage.prechat.welcomePlaceholder' as any)}
+                  placeholder={t('admin.widgetSettingsPage.prechat.welcomePlaceholder')}
                   className="resize-none"
                 />
               </div>
@@ -154,18 +161,18 @@ export default function AdminWidgetSettingsPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <field.icon className="h-4 w-4 text-primary" />
-                        <Label className="text-sm font-medium">{t(`admin.widgetSettingsPage.prechat.fields.${field.labelKey}` as any)}</Label>
+                        <Label className="text-sm font-medium">{t(`admin.widgetSettingsPage.prechat.fields.${field.labelKey}` as TranslationKey)}</Label>
                       </div>
                       <PolicyBadge policy={value} />
                     </div>
-                    <Select value={value} onValueChange={(v) => update({ [field.key]: v } as any)}>
+                    <Select value={value} onValueChange={(v) => update({ [field.key]: v } as Partial<WidgetPlatformSettings>)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {PRECHAT_OPTIONS.map((opt) => (
                           <SelectItem key={opt} value={opt}>
                             <div className="flex flex-col">
-                              <span className="text-sm">{t(`admin.widgetSettingsPage.prechat.options.${opt}.label` as any)}</span>
-                              <span className="text-xs text-muted-foreground">{t(`admin.widgetSettingsPage.prechat.options.${opt}.description` as any)}</span>
+                              <span className="text-sm">{t(`admin.widgetSettingsPage.prechat.options.${opt}.label` as TranslationKey)}</span>
+                              <span className="text-xs text-muted-foreground">{t(`admin.widgetSettingsPage.prechat.options.${opt}.description` as TranslationKey)}</span>
                             </div>
                           </SelectItem>
                         ))}
@@ -182,8 +189,8 @@ export default function AdminWidgetSettingsPage() {
         <TabsContent value="features">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">{t('admin.widgetSettingsPage.features.title' as any)}</CardTitle>
-              <CardDescription>{t('admin.widgetSettingsPage.features.description' as any)}</CardDescription>
+              <CardTitle className="text-base">{t('admin.widgetSettingsPage.features.title')}</CardTitle>
+              <CardDescription>{t('admin.widgetSettingsPage.features.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               {[
@@ -197,18 +204,18 @@ export default function AdminWidgetSettingsPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <f.icon className="h-4 w-4 text-primary" />
-                        <Label className="text-sm font-medium">{t(`admin.widgetSettingsPage.features.fields.${f.labelKey}` as any)}</Label>
+                        <Label className="text-sm font-medium">{t(`admin.widgetSettingsPage.features.fields.${f.labelKey}` as TranslationKey)}</Label>
                       </div>
                       <PolicyBadge policy={value} />
                     </div>
-                    <Select value={value} onValueChange={(v) => update({ [f.key]: v } as any)}>
+                    <Select value={value} onValueChange={(v) => update({ [f.key]: v } as Partial<WidgetPlatformSettings>)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {LOCK_OPTIONS.map((opt) => (
                           <SelectItem key={opt} value={opt}>
                             <div className="flex flex-col">
-                              <span className="text-sm">{t(`admin.widgetSettingsPage.features.options.${opt}.label` as any)}</span>
-                              <span className="text-xs text-muted-foreground">{t(`admin.widgetSettingsPage.features.options.${opt}.description` as any)}</span>
+                              <span className="text-sm">{t(`admin.widgetSettingsPage.features.options.${opt}.label` as TranslationKey)}</span>
+                              <span className="text-xs text-muted-foreground">{t(`admin.widgetSettingsPage.features.options.${opt}.description` as TranslationKey)}</span>
                             </div>
                           </SelectItem>
                         ))}
@@ -222,12 +229,12 @@ export default function AdminWidgetSettingsPage() {
           <div className="rounded-lg border border-border bg-muted/30 p-4 flex items-start gap-3">
             <Video className="h-4 w-4 text-primary mt-0.5 shrink-0" />
             <div className="flex-1 text-xs">
-              <div className="text-sm font-medium text-foreground">{t('admin.widgetSettingsPage.features.voiceVideo' as any)}</div>
+              <div className="text-sm font-medium text-foreground">{t('admin.widgetSettingsPage.features.voiceVideo')}</div>
               <p className="text-muted-foreground mt-1">
-                {t('admin.widgetSettingsPage.features.voiceVideoHint' as any)}
+                {t('admin.widgetSettingsPage.features.voiceVideoHint')}
               </p>
               <Link to="/admin/voice-video" className="inline-flex items-center gap-1 mt-2 text-primary hover:underline">
-                {t('admin.widgetSettingsPage.features.openVoiceVideo' as any)} <ArrowRight className="h-3 w-3 rtl:rotate-180" />
+                {t('admin.widgetSettingsPage.features.openVoiceVideo')} <ArrowRight className="h-3 w-3 rtl:rotate-180" />
               </Link>
             </div>
           </div>
@@ -239,15 +246,15 @@ export default function AdminWidgetSettingsPage() {
         <TabsContent value="deployment">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">{t('admin.widgetSettingsPage.deployment.title' as any)}</CardTitle>
-              <CardDescription>{t('admin.widgetSettingsPage.deployment.description' as any)}</CardDescription>
+              <CardTitle className="text-base">{t('admin.widgetSettingsPage.deployment.title')}</CardTitle>
+              <CardDescription>{t('admin.widgetSettingsPage.deployment.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="flex items-center justify-between rounded-lg border border-border p-4">
                 <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.allowSubdomains' as any)}</Label>
+                  <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.allowSubdomains')}</Label>
                   <p className="text-xs text-muted-foreground">
-                    {t('admin.widgetSettingsPage.deployment.allowSubdomainsHint' as any)}
+                    {t('admin.widgetSettingsPage.deployment.allowSubdomainsHint')}
                   </p>
                 </div>
                 <Switch
@@ -258,9 +265,9 @@ export default function AdminWidgetSettingsPage() {
 
               <div className="flex items-center justify-between rounded-lg border border-border p-4">
                 <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.validateDomains' as any)}</Label>
+                  <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.validateDomains')}</Label>
                   <p className="text-xs text-muted-foreground">
-                    {t('admin.widgetSettingsPage.deployment.validateDomainsHint' as any)}
+                    {t('admin.widgetSettingsPage.deployment.validateDomainsHint')}
                   </p>
                 </div>
                 <Switch
@@ -284,7 +291,7 @@ export default function AdminWidgetSettingsPage() {
                   platform-wide default. */}
 
               <div className="space-y-2 rounded-lg border border-border p-4">
-                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.maxDomains' as any)}</Label>
+                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.maxDomains')}</Label>
                 <Input
                   type="number"
                   min={1}
@@ -293,7 +300,7 @@ export default function AdminWidgetSettingsPage() {
                   onChange={(e) => update({ max_allowed_domains_per_workspace: parseInt(e.target.value || '10', 10) })}
                   className="max-w-32"
                 />
-                <p className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.deployment.maxDomainsHint' as any)}</p>
+                <p className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.deployment.maxDomainsHint')}</p>
               </div>
             </CardContent>
           </Card>
@@ -303,12 +310,12 @@ export default function AdminWidgetSettingsPage() {
         <TabsContent value="limits">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">{t('admin.widgetSettingsPage.limits.title' as any)}</CardTitle>
-              <CardDescription>{t('admin.widgetSettingsPage.limits.description' as any)}</CardDescription>
+              <CardTitle className="text-base">{t('admin.widgetSettingsPage.limits.title')}</CardTitle>
+              <CardDescription>{t('admin.widgetSettingsPage.limits.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2 rounded-lg border border-border p-4">
-                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.limits.maxMessage' as any)}</Label>
+                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.limits.maxMessage')}</Label>
                 <Input
                   type="number"
                   min={100}
@@ -320,7 +327,7 @@ export default function AdminWidgetSettingsPage() {
               </div>
 
               <div className="space-y-2 rounded-lg border border-border p-4">
-                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.limits.rateLimit' as any)}</Label>
+                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.limits.rateLimit')}</Label>
                 <Input
                   type="number"
                   min={1}
@@ -332,19 +339,19 @@ export default function AdminWidgetSettingsPage() {
               </div>
 
               <div className="space-y-2 rounded-lg border border-border p-4">
-                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.limits.adminNotes' as any)}</Label>
+                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.limits.adminNotes')}</Label>
                 <Textarea
                   rows={4}
                   value={settings.admin_notes || ''}
                   onChange={(e) => update({ admin_notes: e.target.value })}
-                  placeholder={t('admin.widgetSettingsPage.limits.adminNotesPlaceholder' as any)}
+                  placeholder={t('admin.widgetSettingsPage.limits.adminNotesPlaceholder')}
                 />
               </div>
 
               <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-3 text-xs text-muted-foreground">
                 <Info className="h-4 w-4 mt-0.5 shrink-0" />
                 <p>
-                  {t('admin.widgetSettingsPage.limits.lastUpdated' as any)} {new Date(settings.updated_at).toLocaleString(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US')}
+                  {t('admin.widgetSettingsPage.limits.lastUpdated')} {new Date(settings.updated_at).toLocaleString(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US')}
                 </p>
               </div>
             </CardContent>

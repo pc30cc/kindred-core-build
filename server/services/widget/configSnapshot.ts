@@ -45,8 +45,9 @@
  *     PostgreSQL; spelling one id two ways must not double the work).
  *
  * Separate caches: the platform snapshot (widget_platform_settings, the
- * legacy pre-chat fallback and every platform_branding_localized name; 30 s)
- * and quota_full (60 s, it moves with usage, which has no write hook).
+ * legacy pre-chat fallback, every platform_branding_localized name and the
+ * Super Admin's chat widget template catalog per edition; 30 s) and
+ * quota_full (60 s, it moves with usage, which has no write hook).
  */
 import type { Request } from 'express';
 import type { ServerConfig } from '../../config.js';
@@ -62,7 +63,9 @@ import {
 } from './public.js';
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, widgetAssetUrl } from './manifest.js';
 import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from './presentationAssets.js';
-import { widgetDateHints } from '../../../shared/widgetTemplates.js';
+import { readChatTemplateRows } from './templateCatalog.js';
+import { chatWidgetTemplate, widgetDateHints } from '../../../shared/widgetTemplates.js';
+import { resolveChatTemplateCatalog, resolveChatTemplateOptions, type ChatTemplateCatalog } from '../../../shared/chatTemplateCatalog.js';
 import { INTL_BRAND } from '../../../shared/internationalMode.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
 import type { Edition } from '../../../shared/edition.js';
@@ -370,6 +373,14 @@ export interface WidgetPlatformSnapshot {
   preChatPolicy: unknown;
   /** platform_branding_localized: locale → platform_name. */
   names: Map<string, string | null>;
+  /**
+   * The Super Admin's chat widget template catalog per edition
+   * (widget_edition_settings.chat_templates, raw; shared/chatTemplateCatalog.ts
+   * reads it). Empty when no edition has a row, or before migration 275.
+   */
+  chatTemplates: Partial<Record<Edition, unknown>>;
+  /** False while widget_edition_settings does not exist (before 275). */
+  chatTemplatesReady: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -773,10 +784,19 @@ const platformCache = new MemoCache<WidgetPlatformSnapshot>({
   serveStale: (snap) => !snap.degraded,
 });
 
+/**
+ * The last catalog read that succeeded in this process. It outlives
+ * `platformCache.clear()` (every `platform` publish, a Super Admin save
+ * included), so a failed read right after one keeps the workspaces' templates
+ * instead of switching every visitor to the edition default for the degraded
+ * lifetime. A process that has never read it has nothing to keep.
+ */
+let lastGoodChatTemplates: { builtAt: number; byEdition: Partial<Record<Edition, unknown>>; ready: boolean } | null = null;
+
 async function loadPlatformSnapshot(config: ServerConfig): Promise<WidgetPlatformSnapshot> {
   const builtAt = Date.now();
   const sb = getServiceClient(config);
-  const [widgetResult, preChat, namesResult] = await Promise.all([
+  const [widgetResult, preChat, namesResult, templateRows] = await Promise.all([
     // Single source of truth for widget URLs — never read platform_domains/branding for these.
     sb.from('widget_platform_settings')
       .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, default_welcome_message, powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url')
@@ -786,7 +806,17 @@ async function loadPlatformSnapshot(config: ServerConfig): Promise<WidgetPlatfor
     // NEVER the workspace row. platform_name lives on
     // platform_branding_localized ('en' is the terminal fallback).
     sb.from('platform_branding_localized').select('locale, platform_name'),
+    // The chat widget template catalog: its own read, tolerant of a database
+    // from before migration 275 (no table = no catalog = the edition's
+    // default template, as before). A failed read marks the snapshot
+    // degraded (5 s) and serves the last good catalog meanwhile.
+    readChatTemplateRows(sb),
   ]);
+  // An older build finishing late never replaces a newer good read.
+  if (!templateRows.error && (!lastGoodChatTemplates || lastGoodChatTemplates.builtAt <= builtAt)) {
+    lastGoodChatTemplates = { builtAt, byEdition: templateRows.byEdition, ready: templateRows.ready };
+  }
+  const catalogRows = templateRows.error && lastGoodChatTemplates ? lastGoodChatTemplates : templateRows;
   if (namesResult.error) {
     console.warn('[widget] platform brand name lookup failed:', namesResult.error.message);
   }
@@ -796,15 +826,34 @@ async function loadPlatformSnapshot(config: ServerConfig): Promise<WidgetPlatfor
   }
   return {
     builtAt,
-    degraded: !!widgetResult.error || preChat.error || !!namesResult.error,
+    degraded: !!widgetResult.error || preChat.error || !!namesResult.error || templateRows.error,
     widget: (widgetResult.data as Record<string, unknown> | null) ?? null,
     preChatPolicy: preChat.value,
     names,
+    chatTemplates: catalogRows.byEdition,
+    chatTemplatesReady: catalogRows.ready,
   };
 }
 
 export function getWidgetPlatformSnapshot(config: ServerConfig): Promise<WidgetPlatformSnapshot> {
   return platformCache.get('platform', () => loadPlatformSnapshot(config));
+}
+
+/** The edition's chat widget template catalog, from a platform snapshot (no I/O). */
+export function chatTemplateCatalogOf(platform: WidgetPlatformSnapshot, edition: Edition | null): ChatTemplateCatalog {
+  return resolveChatTemplateCatalog(edition, platform.chatTemplates?.[edition ?? 'iran']);
+}
+
+/**
+ * The running platform's chat widget template catalog, as visitors get it
+ * (the platform snapshot, 30 s; a Super Admin save clears it everywhere).
+ * `ready` is false before migration 275. For the dashboard routes.
+ */
+export async function getChatTemplateCatalog(
+  config: ServerConfig,
+): Promise<{ catalog: ChatTemplateCatalog; edition: Edition | null; ready: boolean }> {
+  const [platform, edition] = await Promise.all([getWidgetPlatformSnapshot(config), getPlatformEditionOrNull(config)]);
+  return { catalog: chatTemplateCatalogOf(platform, edition), edition, ready: platform.chatTemplatesReady !== false };
 }
 
 const quotaCache = new MemoCache<boolean | null>({
@@ -914,16 +963,22 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
   // Presentation layer — registry + active template assets. Widget Core
   // ships no markup, so these are part of the required boot payload.
-  // The platform's edition picks the template (shared/widgetTemplates.ts):
-  // the Iranian edition — and an edition that cannot be read — wears
-  // `default`, exactly as before; the International edition wears `intl`.
-  // A requested id is honoured only when the edition offers it; the
-  // browser registry resolves the same ids.
+  // The platform's edition and the Super Admin's catalog pick the template
+  // (shared/chatTemplateCatalog.ts): the workspace's choice while it is
+  // enabled (`ws` has the plan applied: without widget_appearance the choice
+  // reads as none), else the catalog's default. With no catalog — no row, a
+  // database from before migration 275 — the Iranian edition, and an
+  // edition that cannot be read, wear `default` exactly as before; the
+  // International edition wears `intl`. The browser registry resolves the
+  // same ids. Its options ride along; the template's display name never does.
+  const templateCatalog = chatTemplateCatalogOf(platform, edition);
+  const wsTemplate = ws as { widget_template_id?: string | null; widget_template_options?: unknown };
   const templateId = resolveWidgetTemplateId(resolveEditionWidgetTemplateId(
     edition,
-    (ws as { widget_template_id?: string | null }).widget_template_id
-      ?? (platformWidget as { widget_template_id?: string | null } | null | undefined)?.widget_template_id,
+    wsTemplate.widget_template_id,
+    templateCatalog,
   ));
+  const templateOptions = resolveChatTemplateOptions(templateCatalog, templateId, wsTemplate.widget_template_options);
 
   const templateAssets = widgetTemplateAssetKeys(templateId);
   const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
@@ -1148,6 +1203,9 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     styleUrl: assetUrl(runtimeCssName),
     callRuntimeUrl: assetUrl(callRuntimeJsName),
     templateId,
+    // Additive: the template's options (shared/chatTemplateCatalog.ts), `{}`
+    // for a template without any (the Iranian `default`).
+    templateOptions,
     presentationRegistryUrl: assetUrl(presentationRegistryJsName),
     presentationUrl: assetUrl(presentationJsName),
     presentationStyleUrl: assetUrl(presentationCssName),
@@ -1168,6 +1226,11 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     modules: {
       chat: assetUrl(chatModuleName),
       kb: assetUrl(kbModuleName),
+      // Core's renderer features (runtime-ext.js), named only for a template
+      // whose renderer declares some (shared/widgetTemplates.ts
+      // `coreFeatures`): the loader fetches it with that template's files.
+      // `default` and `intl` never get it, so their payload is as before.
+      ...(chatWidgetTemplate(templateId)?.coreFeatures ? { ext: assetUrl(getWidgetAssetName('runtime-ext.js')) } : {}),
       rt_resolver: assetUrl(getWidgetAssetName('runtime-rt-resolver.js')),
       rt_centrifugo: assetUrl(getWidgetAssetName('runtime-rt-centrifugo.js')),
       rt_supabase: assetUrl(getWidgetAssetName('runtime-rt-supabase.js')),
@@ -1303,6 +1366,7 @@ onInvalidate('platform', (_key, { resync }) => {
 export function __resetWidgetConfigCachesForTests(): void {
   snapshots.clear();
   platformCache.clear();
+  lastGoodChatTemplates = null;
   quotaCache.clear();
   rebuildGate.reset();
 }

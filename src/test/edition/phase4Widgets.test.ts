@@ -40,7 +40,7 @@ describe('widget templates per edition (shared/widgetTemplates.ts)', () => {
       expect(resolveCallWidgetTemplateForEdition(edition, 'default')).toBe('default');
       expect(resolveCallWidgetTemplateForEdition(edition, 'intl')).toBe('default');
     }
-    expect(EDITION_CHAT_WIDGET_TEMPLATES.iran).toEqual({ default: 'default', offered: ['default'] });
+    expect(EDITION_CHAT_WIDGET_TEMPLATES.iran).toEqual({ default: 'default', offered: ['default', 't1', 't2'] });
     expect(EDITION_CALL_WIDGET_TEMPLATES.iran).toEqual({ default: 'default', offered: ['default'] });
   });
 

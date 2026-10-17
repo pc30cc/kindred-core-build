@@ -77,6 +77,8 @@
         locale: opts.locale || 'en',
         q: opts.query,
         limit: opts.limit || 8,
+        // 'words' (runtime-ext.js): word by word, ranked; none: one phrase.
+        match: opts.match,
       });
       doFetch(url, opts, opts.signal)
         .then(function (data) { opts.onResult({ ok: true, results: data.results || [] }); })

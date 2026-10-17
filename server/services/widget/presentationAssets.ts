@@ -4,15 +4,21 @@
  * Which templates exist, and which one each edition wears, is decided in
  * shared/widgetTemplates.ts (the browser registry,
  * `public/widget/presentation-registry.js`, lists the same ids). The server
- * resolves the template for the platform's edition and names its assets in
- * the bootstrap payload: the Iranian edition always gets `default`, exactly
- * as before; the International edition gets `intl`.
+ * resolves the template for the platform's edition and the Super Admin's
+ * catalog (shared/chatTemplateCatalog.ts) and names its assets in the
+ * bootstrap payload: without a catalog the Iranian edition gets `default`,
+ * exactly as before, and the International edition `intl`.
  *
  * The id becomes part of asset FILE NAMES, so an id that is not a known
  * template is still strictly shape-validated before a name is built from it.
  */
 import type { Edition } from '../../../shared/edition.js';
-import { chatWidgetTemplate, resolveChatWidgetTemplate } from '../../../shared/widgetTemplates.js';
+import { chatWidgetTemplate } from '../../../shared/widgetTemplates.js';
+import {
+  resolveChatTemplateCatalog,
+  resolveWorkspaceChatTemplate,
+  type ChatTemplateCatalog,
+} from '../../../shared/chatTemplateCatalog.js';
 
 export const DEFAULT_WIDGET_TEMPLATE_ID = 'default';
 
@@ -38,12 +44,19 @@ export function resolveWidgetTemplateId(input?: string | null): string {
 }
 
 /**
- * The template the widget wears in this edition (shared/widgetTemplates.ts):
- * a requested id the edition offers, else the edition's default. An unknown
- * edition (null) is the Iranian one: `default`.
+ * The template the widget wears in this edition: the requested id (a
+ * workspace's choice) while the edition's catalog has it enabled, else the
+ * catalog's default (shared/chatTemplateCatalog.ts). Without a catalog — the
+ * code's defaults, the state of an edition with no row — that is always the
+ * edition's default: `default` for Iran and an unknown edition (null),
+ * `intl` for the International edition.
  */
-export function resolveEditionWidgetTemplateId(edition: Edition | null, requested?: string | null): string {
-  return resolveChatWidgetTemplate(edition, requested);
+export function resolveEditionWidgetTemplateId(
+  edition: Edition | null,
+  requested?: string | null,
+  catalog?: ChatTemplateCatalog,
+): string {
+  return resolveWorkspaceChatTemplate(catalog ?? resolveChatTemplateCatalog(edition, null), requested);
 }
 
 /**

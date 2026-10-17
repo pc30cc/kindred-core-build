@@ -1,7 +1,7 @@
 /**
  * The Iran region's floating button (its local kit's floating-button/, ported into the
- * loader's launcher): worn by the chat widget's `default` template ONLY when
- * the bootstrap says the platform is the Iranian edition (`edition: 'iran'`).
+ * loader's launcher): worn by every chat widget template ONLY when the
+ * bootstrap says the platform is the Iranian edition (`edition: 'iran'`).
  * An unknown edition and an older backend that sends none keep the launcher
  * exactly as it was; the International edition wears RESPOK's own button
  * (respokLauncher.test.ts).
@@ -77,6 +77,12 @@ describe('the loader carries the kit byte-for-byte', () => {
     expect(read('src/components/app/widget/WidgetLivePreview.tsx')).toContain('LOCAL_KIT_LAUNCHER_CSS');
   });
 
+  it('draws the badge\'s digits in the widget\'s Persian face, never Vazirmatn', () => {
+    expect(LOCAL_KIT_LAUNCHER_CSS).toContain("font:800 13px/24px IRANSans,Tahoma,'Segoe UI',sans-serif");
+    expect(LOCAL_KIT_LAUNCHER_CSS).not.toMatch(/Vazirmatn/i);
+    expect(LOADER_SRC).not.toMatch(/Vazirmatn/i);
+  });
+
   it('honours reduced motion and adds no global script or inline handler', () => {
     expect(LOCAL_KIT_LAUNCHER_CSS).toContain('@media(prefers-reduced-motion:reduce)');
     expect(LOCAL_KIT_LAUNCHER_CSS).toContain('linear-gradient(140deg,#22D3B4,#0B7D6C)');
@@ -118,9 +124,13 @@ describe('the launcher per edition', () => {
     expect(root.querySelector('.shell')!.getAttribute('style')).toContain('--gs-fab-size: 60px');
   });
 
-  it('Iran with the International template id (never offered there) still keeps the old launcher', async () => {
-    const { launcher } = await boot({ edition: 'iran', templateId: 'intl' });
-    expect(launcher.classList.contains('lk-kit')).toBe(false);
+  // The kit belongs to the edition, not to a template: every template the
+  // Iranian edition offers (and an id it never offers) wears it.
+  it.each(['t1', 't2', 'intl', ''])('Iran with the template id %j wears the kit', async (templateId) => {
+    const { root, launcher } = await boot({ edition: 'iran', templateId });
+    expect(launcher.classList.contains('lk-kit')).toBe(true);
+    expect(launcher.querySelector('svg.chat-icon.lk-kit-glyph')).not.toBeNull();
+    expect(root.querySelector('style[data-lk-kit]')!.textContent).toBe(LOCAL_KIT_LAUNCHER_CSS);
   });
 
   it('Iran honours the workspace\'s colour, icon, size and position', async () => {

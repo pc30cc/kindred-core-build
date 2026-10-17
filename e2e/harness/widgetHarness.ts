@@ -10,10 +10,26 @@
 import type { Page, Route } from '@playwright/test';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { chatWidgetTemplate } from '../../shared/widgetTemplates';
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(path.join(root, p), 'utf8');
-const CSS = read('public/widget/runtime.css') + read('public/widget/presentation-default.css');
+
+/**
+ * The files of a chat template, from its descriptor in
+ * shared/widgetTemplates.ts (never a fixed name): `default` unless a spec
+ * asks for another one (`t1`, `t2`, `intl`, …).
+ */
+export function templateAssets(templateId = 'default') {
+  const t = chatWidgetTemplate(templateId);
+  if (!t) throw new Error(`unknown chat template: ${templateId}`);
+  return { id: t.id, script: t.script, styles: [t.style, ...(t.skin ? [t.skin] : [])], fonts: t.fonts };
+}
+
+/** runtime.css + the template's stylesheet (+ skin), as the loader injects them. */
+export function templateCss(templateId = 'default'): string {
+  return read('public/widget/runtime.css') + templateAssets(templateId).styles.map((f) => read(`public/widget/${f}`)).join('\n');
+}
 
 export const ORIGIN = 'http://widget.test';
 /** getUserMedia only exists in a secure context, so mic specs boot from https. */
@@ -82,10 +98,10 @@ export function thread(prefix: string, opts: { image?: boolean; avatar?: string 
   return out;
 }
 
-const hostPage = () => `<!doctype html><html dir="rtl"><head><meta charset="utf-8"><style>
+const hostPage = (templateId = 'default') => `<!doctype html><html dir="rtl"><head><meta charset="utf-8"><style>
 html,body{margin:0;height:100%;background:#eee}
 .shell{position:relative;width:420px;height:680px}
-${CSS.replace(/:host/g, '.shell')}
+${templateCss(templateId).replace(/:host/g, '.shell')}
 .panel{position:absolute!important;inset:0!important;transform:none!important;opacity:1!important;
 pointer-events:auto!important;width:420px!important;height:680px!important;max-height:680px!important;}
 </style></head><body><div class="shell" dir="rtl" id="shell"></div></body></html>`;
@@ -99,10 +115,12 @@ export interface RouteOpts {
   imageDelayMs?: number;
   /** Per-thread overrides for the row GET /conversations returns. */
   conversationRows?: Record<string, Record<string, unknown>>;
+  /** The chat template whose stylesheet the host page carries (default `default`). */
+  templateId?: string;
 }
 
 export async function routeAll(page: Page, opts: RouteOpts) {
-  const { threads, statuses = {}, imageDelayMs = 700, conversationRows = {} } = opts;
+  const { threads, statuses = {}, imageDelayMs = 700, conversationRows = {}, templateId = 'default' } = opts;
   await page.route('**/*', async (route: Route) => {
     const url = new URL(route.request().url());
     const p = url.pathname;
@@ -155,7 +173,7 @@ export async function routeAll(page: Page, opts: RouteOpts) {
     if (p.includes('/api/realtime/connect')) return json({ vendor: 'polling_builtin' });
     if (p.includes('/api/widget/identity/me')) return json({ identified: false, visitor: null });
     if (p.includes('/api/')) return json({});
-    return route.fulfill({ status: 200, contentType: 'text/html', body: hostPage() });
+    return route.fulfill({ status: 200, contentType: 'text/html', body: hostPage(templateId) });
   });
 }
 
@@ -168,6 +186,10 @@ export interface BootOpts {
   config?: Record<string, unknown>;
   /** Leave the panel closed (default: open it). */
   keepClosed?: boolean;
+  /** The chat template to mount (default `default`; pass the same id to routeAll). */
+  templateId?: string;
+  /** `config.templateOptions` (a template's own options: topics, menu style, …). */
+  templateOptions?: Record<string, unknown>;
 }
 
 export async function boot(page: Page, opts: BootOpts = {}) {
@@ -182,9 +204,12 @@ export async function boot(page: Page, opts: BootOpts = {}) {
     }, opts.resumeCid);
     await page.reload();
   }
-  for (const f of ['presentation-registry.js', 'presentation-default.js', 'runtime-chat.js', 'runtime.js']) {
+  const tpl = templateAssets(opts.templateId);
+  for (const f of ['presentation-registry.js', tpl.script, 'runtime-chat.js', 'runtime.js']) {
     await page.addScriptTag({ url: `${origin}/widget/${f}` });
   }
+  const templateConfig: Record<string, unknown> = opts.templateId ? { templateId: tpl.id } : {};
+  if (opts.templateOptions) templateConfig.templateOptions = opts.templateOptions;
   await page.evaluate(({ config, keepClosed }) => {
     const w = window as unknown as Record<string, unknown>;
     const shell = document.getElementById('shell') as HTMLElement;
@@ -205,7 +230,7 @@ export async function boot(page: Page, opts: BootOpts = {}) {
       { shadowRoot: shell, shellEl: shell, launcher, setUnread() {} });
     w.__inst = inst;
     if (!keepClosed) (inst.open as () => void)();
-  }, { config: opts.config ?? {}, keepClosed: !!opts.keepClosed });
+  }, { config: { ...templateConfig, ...(opts.config ?? {}) }, keepClosed: !!opts.keepClosed });
 }
 
 /** How far the newest message's bottom edge sits past the visible area. */

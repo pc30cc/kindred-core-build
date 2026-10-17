@@ -13,7 +13,9 @@
  * workspace_members, profiles (name / avatar), user_availability_prefs,
  * ai_agent_settings, widget_smart_rules, widget_ai_nudge_settings,
  * workspace_provider_settings, plans / overrides / subscriptions, the
- * platform settings or the storage provider? Publish, and list it here.
+ * platform settings, the chat widget template catalog
+ * (widget_edition_settings) or the storage provider? Publish, and list it
+ * here.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -104,6 +106,8 @@ const WRITERS: Record<string, string[]> = {
   ],
   'server/routes/plans.ts': ["plansRouter.post('/admin/overrides/module'"],
   'server/routes/adminBillingLocks.ts': ["adminBillingLocksRouter.put('/'"],
+  // The chat widget template catalog rides in the platform snapshot.
+  'server/routes/adminWidgetCatalog.ts': ["adminWidgetCatalogRouter.put('/'"],
   'server/routes/adminAlerts.ts': ["adminAlertsRouter.put('/webhook'"],
   'server/routes/adminSmsProviders.ts': [
     "adminSmsProvidersRouter.put('/'",

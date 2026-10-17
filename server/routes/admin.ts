@@ -45,6 +45,7 @@ import { adminDesktopAppRouter } from './adminDesktopApp.js';
 import { adminMacosAppRouter } from './adminMacosApp.js';
 import { adminNotificationsRouter } from './adminNotifications.js';
 import { adminNotificationEmailRouter } from './adminNotificationEmail.js';
+import { adminWidgetCatalogRouter } from './adminWidgetCatalog.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -144,7 +145,9 @@ adminRouter.use('/macos-app', adminMacosAppRouter);
 adminRouter.use('/notifications', adminNotificationsRouter);
 adminRouter.use('/notification-email', adminNotificationEmailRouter);
 
-// Widget templates registry (super admin only)
+// Chat widget template catalog of the running edition: enabled templates,
+// display names, order, option defaults, the default (super admin only)
+adminRouter.use('/widget-catalog', adminWidgetCatalogRouter);
 
 // Phase 3 — observability (super admin only)
 adminRouter.use('/metrics', adminMetricsRouter);

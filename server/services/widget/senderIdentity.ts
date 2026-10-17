@@ -25,6 +25,64 @@ import type { ServerConfig } from '../../config.js';
 import { hydrateUserAvatars } from '../storage/urlResolver.js';
 import { resolveAgentLogoUrl } from '../ai-agent/settings.js';
 import { filterVisitorVisibleMessages } from '../../routes/widgetAttachments.js';
+import { getWorkspaceWidgetSnapshot } from './configSnapshot.js';
+import { listCustomerAvailableOperators } from './customerAvailability.js';
+
+export interface OperatorIdentity {
+  name: string | null;
+  avatar: string | null;
+}
+
+/**
+ * Name and avatar of each operator id, in ONE profile read for the whole
+ * list (a thread, or the visitor's list of conversations). Ids without a
+ * profile are absent from the map; a failed read is an empty map (the
+ * widget then shows the workspace instead of a person).
+ */
+export async function resolveOperatorIdentities(
+  config: ServerConfig,
+  supabase,
+  ids: Array<string | null | undefined>,
+): Promise<Map<string, OperatorIdentity>> {
+  const unique = Array.from(new Set(ids.filter((id): id is string => !!id)));
+  const out = new Map<string, OperatorIdentity>();
+  if (!unique.length) return out;
+  try {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name, avatar_storage_key')
+      .in('id', unique);
+    // Derived from the stored key for the provider that is primary now —
+    // one resolution for the whole list.
+    await hydrateUserAvatars(config, (profiles || []));
+    (profiles || []).forEach((p) => {
+      out.set(p.id, { name: p.full_name || null, avatar: p.avatar_url || null });
+    });
+  } catch (e) {
+    console.warn('[widget-sender-enrich] profile lookup failed:', e?.message || e);
+  }
+  return out;
+}
+
+/**
+ * The operators a visitor may consider reachable right now (the same
+ * customer availability the widget's team dots follow), from the cached
+ * workspace snapshot: no query on a cache hit. Cosmetic, so any failure is
+ * "nobody shown online".
+ */
+export async function availableOperatorIds(
+  config: ServerConfig,
+  workspaceId: string,
+  now: Date = new Date(),
+): Promise<Set<string>> {
+  try {
+    const snap = await getWorkspaceWidgetSnapshot(config, workspaceId);
+    const { available } = await listCustomerAvailableOperators(config, workspaceId, now, snap.availabilityPrefs);
+    return new Set(available.map((a) => a.user_id));
+  } catch {
+    return new Set();
+  }
+}
 
 /**
  * Resolve operator profile (full_name + avatar_url) for any agent/ai message.
@@ -45,28 +103,12 @@ export async function enrichMessagesWithSender(
   messages = filterVisitorVisibleMessages(messages);
   if (!messages.length) return messages;
 
-  const ids = Array.from(new Set(
+  const ids = Array.from(new Set<string>(
     messages
       .filter((m) => m._sender_id && (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai'))
       .map((m) => m._sender_id as string)
   ));
-  const profileMap = new Map<string, { name: string | null; avatar: string | null }>();
-  if (ids.length) {
-    try {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, full_name, avatar_storage_key')
-        .in('id', ids);
-      // Derived from the stored key for the provider that is primary now —
-      // one resolution for the whole thread.
-      await hydrateUserAvatars(config, (profiles || []));
-      (profiles || []).forEach((p) => {
-        profileMap.set(p.id, { name: p.full_name || null, avatar: p.avatar_url || null });
-      });
-    } catch (e) {
-      console.warn('[widget-sender-enrich] profile lookup failed:', e?.message || e);
-    }
-  }
+  const profileMap = await resolveOperatorIdentities(config, supabase, ids);
   // AI messages have no operator profile — their identity comes from the
   // agent settings (name + logo). Older rows may predate the metadata
   // snapshot, so fall back to the workspace's current agent settings.

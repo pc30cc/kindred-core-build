@@ -34,6 +34,26 @@
   // carry no behavioural meaning and Core must not depend on them.
   var Presentation = null;
 
+  // Optional Core behaviours a renderer opts into: `create()` returns
+  // `features: { <name>: true }` and Core runs the matching code path only
+  // then. A renderer that declares none (`default`, `intl`) gets exactly the
+  // behaviour it always had.
+  function feat(name) {
+    return !!(Presentation && Presentation.features && Presentation.features[name]);
+  }
+  // What this Core can serve, so a renderer never draws a control nobody
+  // answers. `kbNeutral`: the article vote accepts 'neutral' (until the
+  // database allows it, such a vote is refused and the faces stay as they
+  // were, like any failed vote).
+  var CAPABILITIES = {
+    kbNeutral: true,
+    csat: false,
+    reactions: false,
+    orderCard: false,
+    prechatSteps: false,
+    instantAnswers: false,
+  };
+
   function resolvePresentation(ctx, t) {
     var registry = window.__gs_presentation_registry;
     var desc = registry && typeof registry.resolve === 'function'
@@ -52,6 +72,7 @@
       config: ctx.config,
       locale: ctx.locale,
       primaryColor: ctx.primaryColor,
+      capabilities: Object.assign({}, CAPABILITIES),
     });
   }
 
@@ -3183,7 +3204,25 @@
       });
     }
 
+    // A chip's text sent as the visitor's message. With `emptyQna` chips
+    // also show in a human-only thread, where a "thinking" row would wait
+    // 25 s for an AI that never answers: it shows only while the AI owns
+    // the thread.
+    function sendChip(text) {
+      if (!text || transportStore.get().connectionState !== 'online') return;
+      sendMessage(text, renderBody);
+      try {
+        if (callBridge.aiOwnsThread && !callBridge.aiOwnsThread()) return;
+        if (callBridge.showAiThinking) callBridge.showAiThinking();
+      } catch (_) {}
+    }
+
     function wireQnaChips(body) {
+      if (feat('topics')) {
+        Array.prototype.forEach.call(body.querySelectorAll('[data-topic]'), function (el) {
+          el.addEventListener('click', function () { sendChip(el.getAttribute('data-topic')); });
+        });
+      }
       var block = body.querySelector('[data-qna]');
       if (!block) return;
       var chips = block.querySelectorAll('[data-qna-question]');
@@ -3191,6 +3230,7 @@
         chips[i].addEventListener('click', function () {
           var question = this.getAttribute('data-qna-question');
           if (!question) return;
+          if (feat('emptyQna')) { sendChip(question); return; }
           if (transportStore.get().connectionState !== 'online') return;
           sendMessage(question, renderBody);
           // Chips only ever render while the AI still owns the thread (no
@@ -3376,10 +3416,31 @@
 
     function renderEmpty(body) {
       // Presentation owns the markup — Core only decides WHAT to show.
-      body.innerHTML = Presentation.emptyHtml();
+      var emptyVm;
+      if (feat('emptyQna') || feat('prechatSummary')) {
+        // A new conversation can offer the workspace's Q&A and topics, and
+        // show the operator typing, before anybody wrote a word.
+        if (feat('emptyQna')) loadQnaSuggestions();
+        var opts = (ctx.config && ctx.config.templateOptions) || {};
+        emptyVm = {
+          qna: {
+            questions: qnaState.questions,
+            expanded: qnaState.expanded,
+            collapsedCount: QNA_COLLAPSED_COUNT,
+          },
+          topics: Array.isArray(opts.topics) ? opts.topics : [],
+          operatorTyping: operatorTypingVm,
+          prechatSummaryHtml: prechatSummaryRowHtml(chatStore.get()),
+        };
+      }
+      body.innerHTML = Presentation.emptyHtml(emptyVm);
       lastRenderedRowCount = 0;
       lastRenderedChatHtml = null;
       body.scrollTop = body.scrollHeight;
+      if (emptyVm) {
+        wireQnaChips(body);
+        wirePrechatSummary(body);
+      }
     }
 
 
@@ -3797,14 +3858,71 @@
     function buildMessagesHtml(s, extraRowHtml) {
       var visitorHasReplied = s.messages.some(function (m) { return m.sender === 'visitor'; });
       if (!visitorHasReplied) loadQnaSuggestions();
-      return Presentation.messagesHtml(s, extraRowHtml, {
+      var view = {
         typewriter: typewriter,
         qna: {
           questions: qnaState.questions,
           expanded: qnaState.expanded,
           collapsedCount: QNA_COLLAPSED_COUNT,
         },
+      };
+      // A visible "{name} is typing" row, for a renderer that draws one.
+      if (feat('operatorTyping')) view.operatorTyping = operatorTypingVm;
+      return Presentation.messagesHtml(s, extraRowHtml, view);
+    }
+
+    // ─── Operator typing (renderer feature `operatorTyping`) ───
+    // `{ name, avatar }` of whoever is typing while the signal is live, else
+    // null. Set by the shell (it owns the realtime typing event).
+    var operatorTypingVm = null;
+    var typingRowShown = false;
+
+    // ─── Saved pre-chat details (renderer feature `prechatSummary`) ───
+    // After a successful pre-chat submit the thread shows the renderer's
+    // summary card once, as a local row (never a message), until the
+    // visitor sends something; `[data-prechat-edit]` turns it back into the
+    // pre-chat card with the saved values.
+    var prechatSummary = null; // { contact, visitorCount, editing, identity }
+    function visitorMessageCount(s) {
+      return (s.messages || []).filter(function (m) { return m.sender === 'visitor'; }).length;
+    }
+    function prechatSummaryRowHtml(s) {
+      if (!prechatSummary || !feat('prechatSummary')) return '';
+      if (visitorMessageCount(s) !== prechatSummary.visitorCount) { prechatSummary = null; return ''; }
+      if (prechatSummary.editing) {
+        return Presentation.handoffPrechatCardHtml(
+          prechatSummary.identity, prechatValues(), ctx.locale, resolveHandoffPrechatSubtitle(ctx.locale), false);
+      }
+      return typeof Presentation.prechatSummaryHtml === 'function'
+        ? (Presentation.prechatSummaryHtml(prechatSummary.contact) || '') : '';
+    }
+    function wirePrechatSummary(body) {
+      if (!prechatSummary) return;
+      if (prechatSummary.editing) {
+        var firstPaint = !prechatSummary.focused;
+        prechatSummary.focused = true;
+        wirePrechatForm(body, prechatSummary.identity, function () {
+          showPrechatSummary(prechatSummary && prechatSummary.identity);
+          renderBody();
+        }, { autofocus: firstPaint });
+        return;
+      }
+      Array.prototype.forEach.call(body.querySelectorAll('[data-prechat-edit]'), function (el) {
+        el.addEventListener('click', function () {
+          if (!prechatSummary) return;
+          prechatSummary.editing = true;
+          renderBody();
+        });
       });
+    }
+    function showPrechatSummary(identity) {
+      if (!feat('prechatSummary')) return;
+      prechatSummary = {
+        contact: Object.assign({}, identityStore.get().contact || {}),
+        visitorCount: visitorMessageCount(chatStore.get()),
+        editing: false,
+        identity: identity,
+      };
     }
 
     // Event wiring for a rendered messages list — shared by the normal chat
@@ -3910,6 +4028,8 @@
 
           function fmt(sec) {
             if (!isFinite(sec) || sec < 0) sec = 0;
+            var clock = feat('clock') && Presentation.format && Presentation.format.clock;
+            if (typeof clock === 'function') return clock(Math.floor(sec));
             var m = Math.floor(sec / 60);
             var s = Math.floor(sec % 60);
             return m + ':' + (s < 10 ? '0' : '') + s;
@@ -4001,9 +4121,19 @@
       var prevScroll = 0;
       try { prevScroll = body.scrollTop; } catch (_) {}
       body.innerHTML = html;
-      var rows = body.querySelectorAll ? body.querySelectorAll('.msg-row') : [];
+      // A visible typing row is not a message: it must not take the index
+      // the arriving reply will have (that reply would lose its entrance),
+      // and once on screen it does not replay its own entrance either.
+      var typingAware = feat('operatorTyping');
+      var rows = body.querySelectorAll
+        ? body.querySelectorAll(typingAware ? '.msg-row:not(.typing-row)' : '.msg-row') : [];
       for (var i = 0; i < rows.length && i < prevCount; i++) {
         try { rows[i].classList.add('no-enter'); } catch (_) {}
+      }
+      if (typingAware) {
+        var typingRowEl = body.querySelector('.typing-row');
+        if (typingRowEl && typingRowShown && body === lastRenderedBody) typingRowEl.classList.add('no-enter');
+        typingRowShown = !!typingRowEl;
       }
       lastRenderedRowCount = rows.length;
       if (!chatStickToBottom && prevScroll > 0) {
@@ -4014,7 +4144,8 @@
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
-      var html = buildMessagesHtml(s);
+      var summaryRow = prechatSummaryRowHtml(s);
+      var html = buildMessagesHtml(s, summaryRow || undefined);
       // Idempotent paint: a poll/refresh that produces byte-identical markup
       // must NOT rewrite the DOM — rewriting kills the visitor's text
       // selection and replays the row entrance animation (visible "shake").
@@ -4023,6 +4154,7 @@
       lastRenderedBody = body;
       lastRenderedChatHtml = html;
       wireChatEvents(body);
+      if (summaryRow) wirePrechatSummary(body);
     }
 
 
@@ -4413,6 +4545,8 @@
     return {
       renderChat: renderChat,
       renderPreChat: renderPreChat,
+      showPrechatSummary: showPrechatSummary,
+      setOperatorTyping: function (vm) { operatorTypingVm = vm || null; },
       renderHandoffPrechatInline: renderHandoffPrechatInline,
       renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
@@ -4430,7 +4564,11 @@
             var active = ConvEpoch.activeId();
             if (active && String(active) !== String(cid)) return;
             // Explicit selection wins over any pending "new conversation".
-            chatStore.set({ freshIntent: false, conversationId: cid });
+            var adopt = { freshIntent: false, conversationId: cid };
+            // `assignedOperator` ({ name, avatar, online } or null, from the
+            // server's history) feeds a renderer's chat header.
+            if (feat('chatHeader')) adopt.assignedOperator = result.assignedOperator || null;
+            chatStore.set(adopt);
             transport.subscribeConversation(cid);
             if (mergeIncoming(result.messages || [])) onChange();
             else onChange();
@@ -4466,8 +4604,10 @@
           messages: [],
           seenIds: {},
           aiThinking: false,
+          assignedOperator: null,
         });
         lastMergedNewAiMessage = null;
+        prechatSummary = null;
       },
       isForcingNewConversation: forcingNew,
 
@@ -4491,7 +4631,7 @@
     var searchAbort = null;     // AbortController for in-flight search
     var searchDebounce = null;  // setTimeout handle
     var currentQuery = '';
-    var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
+    var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty' | 'category'
     var currentArticle = null;
     var pendingSlug = null;
     var articleLoading = false;
@@ -4560,25 +4700,25 @@
       if (searchDebounce) { clearTimeout(searchDebounce); searchDebounce = null; }
     }
 
-    function paint() {
-      if (!rootEl) return;
+    function buildVm() {
       var s = kbStore.get();
-      var rtl = isRtl();
-      if (articleLoading) {
-        var skel = '';
-        try {
-          skel = (Presentation && Presentation.skeletonHtml)
-            ? (Presentation.skeletonHtml('article', { rtl: rtl }) || '') : '';
-        } catch (_) { skel = ''; }
-        if (skel) { rootEl.innerHTML = skel; return; }
-      }
       var origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
       var locSeg = encodeURIComponent(ctx.locale || 'en');
+      var withCategories = feat('kbCategories');
+      var allArticles = s.articles || [];
+      // Articles per category, counted from the list the widget already has.
+      var countByCat = {};
+      if (withCategories) {
+        allArticles.forEach(function (a) {
+          if (a && a.category_id) countByCat[a.category_id] = (countByCat[a.category_id] || 0) + 1;
+        });
+      }
+      var inCategory = withCategories && view === 'category' && currentCategory;
 
       // Core owns state + data (and sanitization); the active template owns
       // every byte of markup below this line.
       var vm = {
-        rtl: rtl,
+        rtl: isRtl(),
         state: (view === 'article' && currentArticle) ? 'article' : view,
         query: currentQuery,
         article: currentArticle
@@ -4599,23 +4739,66 @@
         results: (s.searchResults || []).map(function (a) {
           return { slug: a.slug, title: a.title, excerpt: a.excerpt };
         }),
-        articles: (s.articles || []).map(function (a) {
+        articles: allArticles.filter(function (a) {
+          return !inCategory || a.category_id === currentCategory.id;
+        }).map(function (a) {
           return { slug: a.slug, title: a.title, excerpt: a.excerpt };
         }),
         categories: (s.categories || []).map(function (c) {
-          return {
+          var row = {
             name: c.name,
             description: c.description,
             url: origin + '/help/' + locSeg + '/c/' + encodeURIComponent(c.slug),
           };
+          if (withCategories) {
+            row.id = c.id;
+            row.icon = c.icon || null;
+            row.count = countByCat[c.id] || 0;
+          }
+          return row;
         }),
       };
-
-
-      rootEl.innerHTML = Presentation && Presentation.kbHtml ? Presentation.kbHtml(vm) : '';
-      bindEvents();
+      if (inCategory) vm.category = Object.assign({ count: countByCat[currentCategory.id] || 0 }, currentCategory);
+      if (feat('kbSearch')) vm.hasSearch = true;
+      if (feat('tabs')) vm.unreadTotal = unreadTotal();
+      if (feat('kbArticleMeta') && vm.article) {
+        var cat = (s.categories || []).filter(function (c) { return c.id === currentArticle.category_id; })[0];
+        var words = String(currentArticle.content || '').replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
+        vm.article.updatedAt = currentArticle.updated_at || null;
+        vm.article.categoryTitle = cat ? cat.name : null;
+        vm.article.readingMinutes = Math.max(1, Math.round(words / 200));
+      }
+      return vm;
     }
 
+    function paint() {
+      if (!rootEl) return;
+      var rtl = isRtl();
+      if (articleLoading) {
+        var skel = '';
+        try {
+          skel = (Presentation && Presentation.skeletonHtml)
+            ? (Presentation.skeletonHtml('article', { rtl: rtl }) || '') : '';
+        } catch (_) { skel = ''; }
+        if (skel) { rootEl.innerHTML = skel; return; }
+      }
+      // A repaint replaces the search field: a field the visitor is in gets
+      // its focus and caret back (renderer feature `kbSearch`).
+      var keep = feat('kbSearch') ? focusedSearch() : null;
+      rootEl.innerHTML = Presentation && Presentation.kbHtml ? Presentation.kbHtml(buildVm()) : '';
+      bindEvents();
+      if (feat('kbSearch')) {
+        var field = searchField();
+        if (field && (keep || focusSearchOnPaint)) {
+          var end = String(field.value || '').length;
+          try { field.focus({ preventScroll: true }); } catch (_) {}
+          restoreCaret(field, keep ? Math.min(keep.start, end) : end);
+        }
+        focusSearchOnPaint = false;
+      }
+      if (feat('kbProgress')) bindProgress();
+      if (deps.afterPaint) deps.afterPaint();
+    }
 
     // Defence-in-depth sanitizer for KB content displayed inside the widget
     // (the content was authored by an operator / an ingestion pipeline, so
@@ -4690,33 +4873,39 @@
       }
     }
 
-    function bindEvents() {
+    function bindEvents(scope) {
       if (!rootEl) return;
-      var input = rootEl.querySelector('.kb-search');
-      if (input) {
-        input.addEventListener('input', function (e) {
-          currentQuery = e.target.value || '';
-          if (searchDebounce) clearTimeout(searchDebounce);
-          if (!currentQuery.trim()) {
-            cancelSearch();
-            view = 'list';
-            paint();
-            try { input.focus(); restoreCaret(rootEl.querySelector('.kb-search'), currentQuery.length); } catch (_) {}
-            return;
-          }
-          searchDebounce = setTimeout(runSearch, 220);
-        });
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Escape') {
-            currentQuery = '';
-            cancelSearch();
-            view = 'list';
-            paint();
-          }
-        });
+      // A partial repaint re-binds only what it replaced.
+      var partial = !!scope;
+      scope = scope || rootEl;
+      if (!partial && feat('kbSearch')) bindSearch();
+      else if (!partial) {
+        var input = rootEl.querySelector('.kb-search');
+        if (input) {
+          input.addEventListener('input', function (e) {
+            currentQuery = e.target.value || '';
+            if (searchDebounce) clearTimeout(searchDebounce);
+            if (!currentQuery.trim()) {
+              cancelSearch();
+              view = 'list';
+              paint();
+              try { input.focus(); restoreCaret(rootEl.querySelector('.kb-search'), currentQuery.length); } catch (_) {}
+              return;
+            }
+            searchDebounce = setTimeout(runSearch, 220);
+          });
+          input.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+              currentQuery = '';
+              cancelSearch();
+              view = 'list';
+              paint();
+            }
+          });
+        }
       }
 
-      var actionEls = rootEl.querySelectorAll('[data-kb-action]');
+      var actionEls = scope.querySelectorAll('[data-kb-action]');
       for (var i = 0; i < actionEls.length; i++) {
         (function (el) {
           el.addEventListener('click', function (ev) {
@@ -4726,9 +4915,11 @@
               openArticle(el.getAttribute('data-kb-slug'));
             } else if (action === 'back') {
               ev.preventDefault();
-              currentArticle = null;
-              view = currentQuery.trim() ? 'results' : 'list';
-              paint();
+              if (!stepBack()) {
+                currentArticle = null;
+                view = currentQuery.trim() ? 'results' : 'list';
+                paint();
+              }
             } else if (action === 'switch-chat') {
               ev.preventDefault();
               try { onSwitchToChat(); } catch (_) {}
@@ -4740,7 +4931,7 @@
       // Article helpfulness vote — persisted through the Knowledge Base
       // extension endpoint. The UI only reflects a rating once the server
       // accepted it; a failed vote leaves the buttons untouched.
-      var rateEls = rootEl.querySelectorAll('[data-kb-rate]');
+      var rateEls = scope.querySelectorAll('[data-kb-rate]');
       for (var ri = 0; ri < rateEls.length; ri++) {
         (function (el) {
           el.addEventListener('click', function (ev) {
@@ -4751,6 +4942,22 @@
             submitArticleFeedback(slug, rating);
           });
         })(rateEls[ri]);
+      }
+      if (feat('kbSearch')) {
+        Array.prototype.forEach.call(scope.querySelectorAll('[data-kb-search-clear]'), function (el) {
+          el.addEventListener('click', function (ev) {
+            try { ev.preventDefault(); } catch (_) {}
+            clearSearch();
+          });
+        });
+      }
+      if (feat('kbCategories')) {
+        Array.prototype.forEach.call(scope.querySelectorAll('[data-kb-category]'), function (el) {
+          el.addEventListener('click', function (ev) {
+            try { ev.preventDefault(); } catch (_) {}
+            openCategory(el.getAttribute('data-kb-category'));
+          });
+        });
       }
     }
 
@@ -4819,6 +5026,183 @@
       });
     }
 
+    // ─── Search as you type (renderer feature `kbSearch`) ───
+    // The field is `[data-kb-search]`. Typing waits 300 ms and two
+    // characters, never searches in the middle of an IME composition (its
+    // Enter commits a word), keeps ONE request in flight (the latest query
+    // runs when it lands; the help endpoints share a per-process ceiling)
+    // and remembers answers for the session. With a `[data-kb-results]`
+    // region only that region is repainted, so the field keeps its text,
+    // focus and caret; without one the whole view is, and the focus and
+    // caret are put back.
+    var KB_SEARCH_MIN = 2;
+    var searchCache = {};
+    var searchInFlight = false;
+    var searchComposing = false;
+    var focusSearchOnPaint = false;
+    var searchOnRender = false;
+    var currentCategory = null; // { id, name, description, icon } (feature `kbCategories`)
+    var unreadTotal = deps.unreadTotal || function () { return 0; };
+    var isActive = deps.isActive || function () { return true; };
+
+    function searchField() {
+      return rootEl ? rootEl.querySelector('[data-kb-search], .kb-search') : null;
+    }
+    function focusedSearch() {
+      var field = searchField();
+      var root = field && field.getRootNode ? field.getRootNode() : null;
+      if (!field || !root || root.activeElement !== field) return null;
+      return { start: field.selectionStart || 0 };
+    }
+    function bindSearch() {
+      var field = searchField();
+      if (!field) return;
+      field.addEventListener('compositionstart', function () { searchComposing = true; });
+      field.addEventListener('compositionend', function () {
+        searchComposing = false;
+        onSearchInput(field.value);
+      });
+      field.addEventListener('input', function (e) {
+        if (searchComposing || (e && e.isComposing)) { currentQuery = field.value || ''; return; }
+        onSearchInput(field.value);
+      });
+      field.addEventListener('keydown', function (e) {
+        // Escape empties a filled field first; only an empty one lets the
+        // panel's own Escape close the widget.
+        if (e.key !== 'Escape' || !currentQuery) return;
+        e.preventDefault();
+        e.stopPropagation();
+        clearSearch();
+      });
+    }
+    function clearSearch() {
+      currentQuery = '';
+      cancelSearch();
+      view = 'list';
+      var field = searchField();
+      if (field) field.value = '';
+      paintSearchState();
+      field = searchField();
+      if (field) { try { field.focus(); } catch (_) {} }
+    }
+    function onSearchInput(value) {
+      currentQuery = String(value || '');
+      if (searchDebounce) { clearTimeout(searchDebounce); searchDebounce = null; }
+      if (currentQuery.trim().length < KB_SEARCH_MIN) {
+        if (view !== 'list') { view = 'list'; paintSearchState(); }
+        return;
+      }
+      searchDebounce = setTimeout(searchNow, 300);
+    }
+    function showResults(results) {
+      kbStore.set({ searchResults: results });
+      // An article opened meanwhile stays open; back shows these results.
+      if (currentArticle || articleLoading) return;
+      view = 'results';
+      paintSearchState();
+    }
+    function searchNow() {
+      searchDebounce = null;
+      var q = currentQuery.trim();
+      if (q.length < KB_SEARCH_MIN) return;
+      if (Object.prototype.hasOwnProperty.call(searchCache, q)) { showResults(searchCache[q]); return; }
+      if (searchInFlight) return;
+      searchInFlight = true;
+      if (view !== 'searching' && !currentArticle) { view = 'searching'; paintSearchState(); }
+      ModuleLoader.loadFor(ctx, 'kb', 'runtime-kb.js', function () {
+        var mod = ModuleLoader.modules.kb;
+        function done(results, ok) {
+          searchInFlight = false;
+          if (ok) searchCache[q] = results;
+          var latest = currentQuery.trim();
+          if (latest === q) { showResults(results); return; }
+          // The visitor kept typing: run the query they have now.
+          if (latest.length >= KB_SEARCH_MIN && !searchDebounce) searchNow();
+        }
+        if (!mod || !mod.searchArticles) { done([], false); return; }
+        mod.searchArticles({
+          apiBase: ctx.apiBase,
+          workspaceId: ctx.workspaceId,
+          sessionToken: ctx.sessionToken,
+          locale: ctx.locale,
+          query: q,
+          limit: 8,
+          onResult: function (r) { done((r && r.results) || [], !!(r && r.ok)); },
+        });
+      });
+    }
+    function paintSearchState() {
+      if (!rootEl || !isActive()) return;
+      var live = rootEl.querySelector('[data-kb-results]');
+      if (live && searchField()) {
+        // Parsed inert (a <template> loads no image and runs nothing).
+        var scratch = document.createElement('template');
+        scratch.innerHTML = Presentation.kbHtml(buildVm());
+        var fresh = scratch.content.querySelector('[data-kb-results]');
+        if (fresh) {
+          // The region's own attributes may carry the state for styling.
+          Array.prototype.slice.call(live.attributes).forEach(function (a) {
+            if (!fresh.hasAttribute(a.name)) live.removeAttribute(a.name);
+          });
+          Array.prototype.forEach.call(fresh.attributes, function (a) { live.setAttribute(a.name, a.value); });
+          live.innerHTML = fresh.innerHTML;
+          bindEvents(live);
+          return;
+        }
+      }
+      paint();
+    }
+
+    // ─── Categories (renderer feature `kbCategories`) ───
+    function openCategory(id) {
+      var cat = (kbStore.get().categories || []).filter(function (c) { return String(c.id) === String(id); })[0];
+      if (!cat) return;
+      currentCategory = { id: cat.id, name: cat.name, description: cat.description || '', icon: cat.icon || null };
+      currentArticle = null;
+      view = 'category';
+      paint();
+    }
+    // One step back inside the help view: an article returns to the list it
+    // was opened from (a category, search results or the list), a category
+    // to the list. False when there is nothing to step back from.
+    function stepBack() {
+      var inCategories = feat('kbCategories');
+      if (currentArticle) {
+        currentArticle = null;
+        view = (inCategories && currentCategory) ? 'category' : (currentQuery.trim() ? 'results' : 'list');
+        paint();
+        return true;
+      }
+      if (inCategories && view === 'category') {
+        currentCategory = null;
+        view = currentQuery.trim() ? 'results' : 'list';
+        paint();
+        return true;
+      }
+      return false;
+    }
+
+    // ─── Reading progress (renderer feature `kbProgress`) ───
+    // Scroll does not bubble, but a capturing listener on the view host
+    // sees the article's scroller; `--p` (0..1) is written once a frame.
+    function bindProgress() {
+      if (!rootEl || rootEl.__gsKbProgress) return;
+      rootEl.__gsKbProgress = true;
+      var frame = 0;
+      rootEl.addEventListener('scroll', function (ev) {
+        var scroller = ev && ev.target;
+        if (frame || view !== 'article' || !scroller || scroller.nodeType !== 1) return;
+        frame = requestAnimationFrame(function () {
+          frame = 0;
+          var bar = rootEl && rootEl.querySelector('[data-kb-progress]');
+          if (!bar) return;
+          var max = scroller.scrollHeight - scroller.clientHeight;
+          var p = max > 0 ? Math.min(1, Math.max(0, scroller.scrollTop / max)) : 0;
+          bar.style.setProperty('--p', String(Math.round(p * 1000) / 1000));
+        });
+      }, { capture: true, passive: true });
+    }
+
     function openArticle(slug) {
       if (!slug) return;
       pendingSlug = slug;
@@ -4852,6 +5236,7 @@
       rootEl = body;
       // Re-paint with current view (preserves search query when toggling tabs).
       paint();
+      if (searchOnRender) { searchOnRender = false; searchNow(); }
     }
 
     return {
@@ -4865,16 +5250,25 @@
        * Exposed so the shell's generic [data-view-back] delegation can drive
        * KB navigation without the presentation layer knowing KB internals.
        */
-      goBack: function () {
-        if (currentArticle) {
-          currentArticle = null;
-          view = currentQuery.trim() ? 'results' : 'list';
-          paint();
-          return true;
-        }
-        return false;
+      goBack: function () { return stepBack(); },
+      resetToList: function () {
+        view = 'list'; currentArticle = null; articleLoading = false; pendingSlug = null; currentCategory = null;
       },
-      resetToList: function () { view = 'list'; currentArticle = null; articleLoading = false; pendingSlug = null; },
+      /**
+       * Show the help view searching for `q` (a home search field's Enter;
+       * renderer feature `kbSearch`): the field arrives filled and focused,
+       * and the search runs once the view is painted.
+       */
+      search: function (q) {
+        currentArticle = null; articleLoading = false; pendingSlug = null; currentCategory = null;
+        cancelSearch();
+        currentQuery = String(q || '');
+        var ready = currentQuery.trim().length >= KB_SEARCH_MIN;
+        view = ready ? 'searching' : 'list';
+        searchOnRender = ready;
+        focusSearchOnPaint = true;
+      },
+
     };
 
   }
@@ -6172,6 +6566,9 @@
       // surface holds its skeleton instead of flashing an empty thread while
       // the resume decision is still pending.
       historyLoading: !!__resumeConversationId,
+      // The thread's assigned operator ({ name, avatar, online }) when the
+      // server said so; only a renderer's chat header reads it.
+      assignedOperator: null,
     });
 
     // Keep the continuity hint in step with whichever surface and thread
@@ -6338,12 +6735,18 @@
         showAiThinking: function () {
           try { if (typeof showAiThinking === 'function') showAiThinking(); } catch (_) {}
         },
+        aiOwnsThread: function () {
+          try { return !!deriveChatTabState().aiOwnsThread; } catch (_) { return false; }
+        },
       },
     });
     var kbUI = createKbUI({
       ctx: ctx,
       t: t,
       kbStore: kbStore,
+      unreadTotal: function () { return unreadTotal(); },
+      isActive: function () { return shellStore.get().activeTab === 'help'; },
+      afterPaint: function () { markActiveTab(); },
       onSwitchToChat: function () {
         if (!chatEnabled) return;
         shellStore.set({ activeTab: 'chat' });
@@ -7143,9 +7546,35 @@
       '💬', '📎', '📷', '📞', '⏰', '☕', '👌', '🙌', '😅', '🤒',
     ];
     if (emojiBtn && emojiPickerEl) {
-      emojiPickerEl.innerHTML = EMOJI_LIST.map(function (e) {
-        return '<button type="button" class="emoji-item" data-emoji="' + e + '" aria-label="' + e + '">' + e + '</button>';
-      }).join('');
+      // A renderer with grouped emoji (feature `emojiTabs`) draws its own
+      // grid; Core only fills an empty picker.
+      if (!(feat('emojiTabs') && emojiPickerEl.querySelector('[data-emoji]'))) {
+        emojiPickerEl.innerHTML = EMOJI_LIST.map(function (e) {
+          return '<button type="button" class="emoji-item" data-emoji="' + e + '" aria-label="' + e + '">' + e + '</button>';
+        }).join('');
+      }
+      if (feat('emojiTabs')) {
+        // A group tab scrolls its group into view inside the picker (never
+        // the host page) and becomes the selected tab.
+        emojiPickerEl.addEventListener('click', function (e) {
+          var tab = e.target && e.target.closest ? e.target.closest('[data-emoji-tab]') : null;
+          if (!tab) return;
+          var g = tab.getAttribute('data-emoji-tab');
+          Array.prototype.forEach.call(emojiPickerEl.querySelectorAll('[data-emoji-tab]'), function (el) {
+            el.setAttribute('aria-selected', el === tab ? 'true' : 'false');
+          });
+          var group = Array.prototype.filter.call(emojiPickerEl.querySelectorAll('[data-emoji-group]'), function (el) {
+            return el.getAttribute('data-emoji-group') === g;
+          })[0];
+          for (var sc = group && group.parentElement; group && sc; sc = sc.parentElement) {
+            if (sc.scrollHeight > sc.clientHeight) {
+              sc.scrollTop += group.getBoundingClientRect().top - sc.getBoundingClientRect().top;
+              break;
+            }
+            if (sc === emojiPickerEl) break;
+          }
+        });
+      }
       emojiPickerEl.addEventListener('click', function (e) {
         var target = e.target;
         var btn = (target && target.closest) ? target.closest('[data-emoji]') : null;
@@ -7204,6 +7633,9 @@
     var recordCommitted = false;
 
     function fmtRecordTime(ms) {
+      // A renderer may write its own digits (feature `clock`, e.g. Persian).
+      var clock = feat('clock') && Presentation.format && Presentation.format.clock;
+      if (typeof clock === 'function') return clock(Math.max(0, Math.floor(ms / 1000)));
       var s = Math.max(0, Math.floor(ms / 1000));
       var m = Math.floor(s / 60);
       s = s % 60;
@@ -7225,6 +7657,26 @@
     var recCancelBtn = chatQ('[data-rec-cancel]');
     if (recStopBtn) recStopBtn.addEventListener('click', function () { finishRecording(true); });
     if (recCancelBtn) recCancelBtn.addEventListener('click', function () { finishRecording(false); });
+    // Stop and send in one tap, no preview (renderer feature `recSend`):
+    // the note goes through the one send path once its upload is ready; a
+    // failed upload falls back to the preview with its error.
+    var recSendBtn = chatQ('[data-rec-send]');
+    var recSendWhenReady = false;
+    if (recSendBtn && feat('recSend')) {
+      recSendBtn.addEventListener('click', function () {
+        if (!recordingActive) return;
+        recSendWhenReady = true;
+        finishRecording(true);
+      });
+      attachmentStore.subscribe(function (st) {
+        if (!recSendWhenReady) return;
+        if (st.status === 'error' || st.status === 'idle') { recSendWhenReady = false; renderVoicePreview(); return; }
+        if (st.status !== 'ready' || !st.isVoice || !st.attachmentId) return;
+        recSendWhenReady = false;
+        trySend();
+        renderVoicePreview();
+      });
+    }
 
     function setRecordingMode(on) {
       if (inputBar) inputBar.classList.toggle('is-recording', !!on);
@@ -7236,6 +7688,7 @@
     }
     function startRecording() {
       if (recordingActive || !micBtn) return;
+      recSendWhenReady = false;
       if (attachmentStore.get().status !== 'idle') return; // one pending attachment at a time
       if (emojiPickerEl) emojiPickerEl.hidden = true;
       navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
@@ -7320,6 +7773,19 @@
     var vnSeekEl = chatQ('[data-vn-seek]');
     var vnProgressEl = chatQ('[data-vn-progress]');
     var vnTimeEl = chatQ('[data-vn-time]');
+    // Playback speed of the preview, 1 → 1.5 → 2 (renderer feature `vnRate`).
+    var vnRateBtn = feat('vnRate') ? chatQ('[data-vn-rate]') : null;
+    function setVnRate(r) {
+      try { if (vnAudioEl) vnAudioEl.playbackRate = r; } catch (_) {}
+      var fmt = Presentation.format && Presentation.format.rate;
+      if (vnRateBtn) vnRateBtn.textContent = typeof fmt === 'function' ? fmt(r) : r + '×';
+    }
+    if (vnRateBtn && vnAudioEl) {
+      vnRateBtn.addEventListener('click', function () {
+        var r = vnAudioEl.playbackRate;
+        setVnRate(r === 1 ? 1.5 : r === 1.5 ? 2 : 1);
+      });
+    }
     /** Object URL for the pending blob. Exactly one is alive at a time. */
     var vnObjectUrl = '';
     var vnWasVisible = false;
@@ -7362,6 +7828,7 @@
       if (!vnBarEl) return;
       var st = attachmentStore.get();
       var visible = !!st.isVoice && st.status !== 'idle' && st.status !== 'error';
+      if (recSendWhenReady) visible = false;
       if (!visible) {
         if (vnWasVisible) {
           stopVoicePreviewPlayback();
@@ -7380,6 +7847,7 @@
           vnObjectUrl = URL.createObjectURL(st.file);
           vnAudioEl.src = vnObjectUrl;
         } catch (_) { vnObjectUrl = ''; }
+        if (vnRateBtn) setVnRate(1);
       }
       vnWasVisible = true;
       vnBarEl.hidden = false;
@@ -7506,6 +7974,7 @@
       var availOk = pState.liveChatEnabled !== false
         && !((pState.status === 'offline' || pState.status === 'unavailable')
           && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
+      if (composerLocked) availOk = false;
       attachBtn.disabled = !(conn === 'online' && availOk);
       if (micBtn && !recordingActive) micBtn.disabled = !(conn === 'online' && availOk);
     }
@@ -7520,12 +7989,27 @@
     var presenceLabel = panel.querySelector('[data-presence-label]');
     var presenceWrap = panel.querySelector('[data-presence]');
     function renderPresence(s) {
+      if (feat('chatHeader')) { renderHeaderPresence(s); return; }
       if (!presenceDot || !presenceLabel || !presenceWrap) return;
       var status = s.status || 'offline';
       // sr-only kept so the row stays accessible-only — visual presence
       // is now communicated by the green dot on operator avatars.
       presenceWrap.className = 'presence sr-only status-' + status;
       presenceLabel.textContent = s.label || '';
+    }
+    // A renderer that repaints its chat header (feature `chatHeader`) may
+    // show the presence line: it is looked up in the chat frame (built
+    // detached, so a panel query never finds it) after every header paint,
+    // and only its `status-*` class changes, never the renderer's classes.
+    function renderHeaderPresence(s) {
+      var wrap = chatQ('[data-presence]');
+      if (!wrap) return;
+      Array.prototype.slice.call(wrap.classList).forEach(function (c) {
+        if (c.indexOf('status-') === 0) wrap.classList.remove(c);
+      });
+      wrap.classList.add('status-' + (s.status || 'offline'));
+      var label = chatQ('[data-presence-label]');
+      if (label) label.textContent = s.label || '';
     }
     presenceStore.subscribe(renderPresence);
     renderPresence(presenceStore.get());
@@ -7571,9 +8055,11 @@
         && !((pState.status === 'offline' || pState.status === 'unavailable')
           && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
       var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
+      if (composerLocked) canSend = false;
       msgInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
-      if (canSend) {
+      // A locked composer is styled by its renderer (`.input-bar.is-locked`).
+      if (canSend || composerLocked) {
         msgInput.removeAttribute('title');
         sendBtn.style.opacity = '';
         msgInput.style.opacity = '';
@@ -7588,6 +8074,18 @@
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
     presenceStore.subscribe(applyComposerState);
+
+    // While the pre-chat card waits in the thread, a renderer that draws it
+    // on the operator's side (feature `prechatOperator`) keeps the composer
+    // on screen, locked, instead of hiding it.
+    var composerLocked = false;
+    function setComposerLock(on) {
+      if (composerLocked === !!on) return;
+      composerLocked = !!on;
+      if (inputBar) inputBar.classList.toggle('is-locked', composerLocked);
+      applyComposerState();
+      syncAttachButton();
+    }
 
     // ─── Draft preservation (in-memory only, per-conversation) ───
     // Drafts live in chatStore.drafts keyed by conversationId. Before a
@@ -8013,6 +8511,8 @@
         Util.log('[Widget AI Agent] intro suppressed (AI not visitor-facing)', source || 'auto');
         return;
       }
+      // The visitor opened this thread with their own question.
+      if (introSuppressedEpoch === ConvEpoch.get()) return;
       var key = aiIntroKey();
       if (__aiIntroKeys[key]) {
 
@@ -8304,13 +8804,23 @@
       if (!preview && c.attachmentKind) {
         preview = attachmentPreviewText(c.attachmentKind, !!c.outbound);
       }
-      return {
+      var vm = {
         id: c.id,
         status: c.status,
         preview: preview,
         unreadCount: Number(c.unreadCount) || 0,
         timeLabel: relativeTimeLabel(c.lastMessageAt || c.updatedAt),
       };
+      // Who answers the thread and whether the visitor wrote last, for a
+      // renderer that shows them (features `conversationOperator`,
+      // `chatHeader`).
+      if (feat('conversationOperator') || feat('chatHeader')) {
+        vm.lastFromVisitor = !!c.outbound;
+        vm.operatorName = c.operatorName || null;
+        vm.operatorAvatar = c.operatorAvatar || null;
+        vm.operatorOnline = c.operatorOnline === true;
+      }
+      return vm;
     }
 
     /**
@@ -8517,6 +9027,7 @@
           seenIds: {},
           aiThinking: false,
           historyLoading: true,
+          assignedOperator: null,
         });
         try { if (transport && transport.subscribeConversation) transport.subscribeConversation(conversationId); } catch (_) {}
 
@@ -8599,7 +9110,14 @@
         var view = trigger(target, '[data-view]');
         if (view) {
           try { ev.preventDefault(); } catch (_) {}
-          switchTab(view.getAttribute('data-view'));
+          var viewKey = view.getAttribute('data-view');
+          switchTab(viewKey);
+          // A bottom-menu tab is repainted with its view: focus moves to the
+          // new view's own tab instead of falling to nowhere.
+          if (feat('tabs') && view.hasAttribute('aria-current')) {
+            var tab = tabsFor(viewKey)[0];
+            if (tab) { try { tab.focus({ preventScroll: true }); } catch (_) {} }
+          }
         }
       });
     }
@@ -8622,34 +9140,41 @@
     function renderConversationList() {
       if (!body) return;
       var cs = conversationsStore.get();
-      body.innerHTML = Presentation.conversationListHtml
-        ? Presentation.conversationListHtml({
-            rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
-            loading: cs.loading && !cs.loaded,
-            conversations: cs.items,
-            error: !!cs.error,
-            chatEnabled: chatEnabled,
-          })
-        : '';
+      var listVm = {
+        rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
+        loading: cs.loading && !cs.loaded,
+        conversations: cs.items,
+        error: !!cs.error,
+        chatEnabled: chatEnabled,
+      };
+      if (feat('tabs')) listVm.unreadTotal = unreadTotal();
+      body.innerHTML = Presentation.conversationListHtml ? Presentation.conversationListHtml(listVm) : '';
       bindViewHooks(body);
-      var newBtn = body.querySelector('[data-home-action="chat"]');
-      if (newBtn) {
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-action="chat"]'), function (newBtn) {
         newBtn.addEventListener('click', function () { startNewConversation(); });
-      }
+      });
       var retryBtn = body.querySelector('[data-home-action="conversations-retry"]');
       if (retryBtn) {
         retryBtn.addEventListener('click', function () { retryConversationsLoad(); });
       }
+      markActiveTab();
     }
 
     // Same contract as renderConversationList() above: pure render of
     // current store state, never itself a loadConversations() call site.
     function renderHome() {
       if (!body) return;
+      // The home ask and search fields (renderer features `homeAsk`,
+      // `kbSearch`) keep their text, focus and caret across the repaints a
+      // presence flip or a late list causes, and nothing repaints under an
+      // IME composition.
+      var keepFields = feat('homeAsk') || feat('kbSearch');
+      if (keepFields && homeComposing) { homeRepaintPending = true; return; }
+      var keepFocus = keepFields ? homeFieldFocus() : null;
       var pState = presenceStore.get();
       var kbState = kbStore.get() || {};
       var convState = conversationsStore.get() || {};
-      body.innerHTML = Presentation.homeHtml({
+      var homeVm = {
         rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
         isOnline: pState.status === 'online' && pState.liveChatEnabled !== false,
         teamMembers: teamMembers,
@@ -8664,20 +9189,38 @@
         welcomeMessage: welcomeMessage,
         showTeamAvatars: config.showTeamAvatars !== false,
         smartSurface: smartSurface,
-      });
+      };
+      if (feat('visitorName')) {
+        var contactName = String(((identityStore.get() || {}).contact || {}).name || '').trim();
+        homeVm.visitorName = contactName ? contactName.split(/\s+/)[0] : '';
+      }
+      if (feat('tabs')) homeVm.unreadTotal = unreadTotal();
+      if (feat('kbSearch')) homeVm.hasSearch = true;
+      body.innerHTML = Presentation.homeHtml(homeVm);
       bindViewHooks(body);
-      var ctaBtn = body.querySelector('[data-home-action="chat"]');
-      if (ctaBtn) ctaBtn.addEventListener('click', function () {
-        // When an unresolved thread exists the template labels this CTA
-        // "Start new", so it must genuinely force a new conversation.
-        // Otherwise it is just "Start chat" → resume normal resolution.
-        var hasUnresolved = ((conversationsStore.get() || {}).items || []).some(function (c) {
-          return c.status !== 'resolved' && c.status !== 'closed';
+      // Every "start a chat" control of the view (one in the shipped
+      // templates; a template may draw more).
+      Array.prototype.forEach.call(body.querySelectorAll('[data-home-action="chat"]'), function (ctaBtn) {
+        ctaBtn.addEventListener('click', function () {
+          // A written question starts its own conversation (feature `homeAsk`).
+          if (feat('homeAsk') && homeAskDraft.trim()) { submitHomeAsk(); return; }
+          // When an unresolved thread exists the template labels this CTA
+          // "Start new", so it must genuinely force a new conversation.
+          // Otherwise it is just "Start chat" → resume normal resolution.
+          var hasUnresolved = ((conversationsStore.get() || {}).items || []).some(function (c) {
+            return c.status !== 'resolved' && c.status !== 'closed';
+          });
+          if (hasUnresolved) { startNewConversation(); return; }
+          chatStore.set({ conversationId: chatStore.get().conversationId });
+          switchTab('chat');
         });
-        if (hasUnresolved) { startNewConversation(); return; }
-        chatStore.set({ conversationId: chatStore.get().conversationId });
-        switchTab('chat');
       });
+      if (keepFields) bindHomeFields(keepFocus);
+      if (feat('topics')) {
+        Array.prototype.forEach.call(body.querySelectorAll('[data-topic]'), function (el) {
+          el.addEventListener('click', function () { startConversationWith(el.getAttribute('data-topic')); });
+        });
+      }
       var retryBtn = body.querySelector('[data-home-action="conversations-retry"]');
       if (retryBtn) {
         retryBtn.addEventListener('click', function () { retryConversationsLoad(); });
@@ -8696,6 +9239,130 @@
         el.addEventListener('click', function () { switchTab('help'); });
       });
       bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
+      markActiveTab();
+    }
+
+    // ─── Home fields (renderer features `homeAsk`, `kbSearch`) ───
+    // `textarea[data-home-ask]` (a question that starts a conversation) and
+    // `input[data-kb-search]` (opens Help searching it). Core holds their
+    // drafts, so a repaint gives back text, focus and caret.
+    var homeAskDraft = '';
+    var homeSearchDraft = '';
+    var homeComposing = false;
+    var homeRepaintPending = false;
+    function homeFieldFocus() {
+      var el = shadowRoot.activeElement;
+      if (!el || !body.contains(el)) return null;
+      var which = el.hasAttribute('data-home-ask') ? 'ask' : (el.hasAttribute('data-kb-search') ? 'search' : null);
+      return which ? { which: which, start: el.selectionStart, end: el.selectionEnd } : null;
+    }
+    function bindHomeFields(keepFocus) {
+      [
+        ['ask', feat('homeAsk') ? body.querySelector('textarea[data-home-ask]') : null],
+        ['search', feat('kbSearch') ? body.querySelector('input[data-kb-search]') : null],
+      ].forEach(function (pair) {
+        var which = pair[0];
+        var el = pair[1];
+        if (!el) return;
+        var keep = function () { if (which === 'ask') homeAskDraft = el.value || ''; else homeSearchDraft = el.value || ''; };
+        el.value = which === 'ask' ? homeAskDraft : homeSearchDraft;
+        el.addEventListener('input', keep);
+        el.addEventListener('compositionstart', function () { homeComposing = true; });
+        var settle = function () {
+          homeComposing = false;
+          keep();
+          if (!homeRepaintPending) return;
+          homeRepaintPending = false;
+          setTimeout(function () { if (shellStore.get().activeTab === 'home') renderHome(); }, 0);
+        };
+        el.addEventListener('compositionend', settle);
+        el.addEventListener('blur', function () { if (homeComposing) settle(); });
+        el.addEventListener('keydown', function (e) {
+          // Enter sends, Shift+Enter is a new line, and an IME's Enter only
+          // commits its word.
+          if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229 || homeComposing) return;
+          e.preventDefault();
+          keep();
+          if (which === 'ask') { submitHomeAsk(); return; }
+          var q = homeSearchDraft.trim();
+          if (!q) return;
+          homeSearchDraft = '';
+          kbUI.search(q);
+          switchTab('help');
+        });
+        if (keepFocus && keepFocus.which === which) {
+          try { el.focus({ preventScroll: true }); } catch (_) {}
+          try { el.setSelectionRange(keepFocus.start, keepFocus.end); } catch (_) {}
+        }
+      });
+    }
+    function submitHomeAsk() {
+      var text = homeAskDraft.trim();
+      if (!text) return;
+      homeAskDraft = '';
+      startConversationWith(text);
+    }
+
+    // A conversation the visitor opens with their own words (the home ask
+    // field, a topic chip): a new thread, the text sent through the one send
+    // path (identity, connection and pre-chat gates included; a gate keeps
+    // it as the composer draft), and no AI greeting for that thread, which
+    // would otherwise land ahead of the question it is answering. Away (the
+    // leave-a-message form owns the tab), the text pre-fills that form.
+    var introSuppressedEpoch = 0;
+    function startConversationWith(text) {
+      text = String(text || '').trim();
+      if (!text || !chatEnabled) return;
+      try { if (chatUI.startNewConversation) chatUI.startNewConversation(); } catch (_) {}
+      try { ctx.__handoffRequested = false; } catch (_) {}
+      introSuppressedEpoch = ConvEpoch.get();
+      var away = deriveChatTabState().name === ENTRY_FLOW_STATE.OFFLINE_CONTACT;
+      if (away) ctx.__quotaDraft = text;
+      else {
+        setDraftFor(currentDraftKey(), text);
+        if (msgInput) msgInput.value = text;
+      }
+      switchTab('chat');
+      if (!away) trySend();
+    }
+
+    // ─── Tab badges and the current tab (renderer feature `tabs`) ───
+    // The unread total is the larger of the server's durable count and
+    // this session's live count, per conversation.
+    function unreadTotal() {
+      var per = (notifyStore.get() || {}).perConversation || {};
+      var listed = {};
+      var total = 0;
+      ((conversationsStore.get() || {}).items || []).forEach(function (c) {
+        listed[c.id] = true;
+        total += Math.max(Number(c.unreadCount) || 0, per[c.id] || 0);
+      });
+      for (var k in per) {
+        if (Object.prototype.hasOwnProperty.call(per, k) && !listed[k]) total += per[k] || 0;
+      }
+      return total;
+    }
+    function paintTabBadges() {
+      if (!feat('tabs')) return;
+      var n = unreadTotal();
+      var fmt = Presentation.format && Presentation.format.badge;
+      Array.prototype.forEach.call(panel.querySelectorAll('[data-tab-badge]'), function (el) {
+        el.textContent = n ? (typeof fmt === 'function' ? fmt(n) : String(n)) : '';
+        el.hidden = n === 0;
+      });
+    }
+    function tabsFor(key) {
+      return Array.prototype.filter.call(panel.querySelectorAll('[data-view][aria-current]'), function (el) {
+        return key == null || el.getAttribute('data-view') === key;
+      });
+    }
+    function markActiveTab() {
+      if (!feat('tabs')) return;
+      var key = shellStore.get().activeTab;
+      tabsFor(null).forEach(function (el) {
+        el.setAttribute('aria-current', el.getAttribute('data-view') === key ? 'page' : 'false');
+      });
+      paintTabBadges();
     }
 
 
@@ -8767,7 +9434,7 @@
         return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
 
-      if (identity.shouldRequirePrechat(flow)) {
+      if (identity.shouldRequirePrechat(flow) && !prechatSkipApplies()) {
         // Presentation choice — a full-page form may only take over the tab
         // when there is genuinely nothing to hide behind it. The moment the
         // thread already has messages (the classic case: the AI just handed
@@ -8801,6 +9468,29 @@
       return { name: ENTRY_FLOW_STATE.ACTIVE_THREAD, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
     }
 
+    // "No thanks" on a pre-chat card that asks for nothing required
+    // (`[data-prechat-skip]`, renderer feature `prechatOperator`): the card
+    // stays away for the rest of this page session.
+    var prechatSkipped = false;
+    function prechatSkipApplies() {
+      return prechatSkipped && feat('prechatOperator')
+        && !identity.isRequired('name') && !identity.isRequired('email') && !identity.isRequired('phone');
+    }
+    function bindPrechatSkip(root) {
+      if (!root || !feat('prechatOperator')) return;
+      Array.prototype.forEach.call(root.querySelectorAll('[data-prechat-skip]'), function (el) {
+        el.addEventListener('click', function (ev) {
+          try { ev.preventDefault(); } catch (_) {}
+          prechatSkipped = true;
+          renderBody();
+          if (prechatSkipApplies()) {
+            restoreDraftToInput();
+            if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+          }
+        });
+      });
+    }
+
     // Contextual replacement for raw identity.needsPrechat() at every call
     // site that GATES something (blocks history load, blocks focus/draft
     // restore) rather than just rendering the form. Using the raw,
@@ -8822,6 +9512,7 @@
     function renderBody() {
       __paintedSkeleton = false;
       renderBodyInner();
+      markActiveTab();
       // Every repaint can change the scroll geometry (a new bubble, a lazy
       // image finishing, a view swap), so the pill is re-evaluated after
       // layout rather than only on scroll.
@@ -8887,6 +9578,9 @@
           }
           return;
         }
+        // A greeting with the visitor's name (renderer feature
+        // `visitorName`) waits for their identity: one paint, not a flip.
+        if (feat('visitorName') && !identityStore.get().loaded) { renderLoading('home'); return; }
         renderHome();
 
         if (kbEnabled && !kbStore.get().loaded) {
@@ -8942,13 +9636,20 @@
         //     derived and used below to decide the AI-intro request.
         var state = deriveChatTabState();
 
+        // The pre-chat card on the operator's side keeps a locked composer
+        // under it (renderer feature `prechatOperator`).
+        var lockComposer = feat('prechatOperator') && state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT;
+        if (feat('prechatOperator')) setComposerLock(lockComposer);
+
         if (state.name === ENTRY_FLOW_STATE.PRECHAT_FOR_HUMAN || state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT) {
           // Composer must be invisible while pre-chat is showing — visitor
           // cannot send a message until they've identified themselves.
-          if (inputBar) inputBar.style.display = 'none';
+          if (inputBar) inputBar.style.display = lockComposer ? 'flex' : 'none';
           var onPrechatSubmitted = function () {
             // Pre-chat just submitted → reveal composer for the now-identified visitor.
             if (inputBar) inputBar.style.display = 'flex';
+            // The renderer's "your details" card takes the form's place.
+            if (feat('prechatSummary')) chatUI.showPrechatSummary(identity);
             renderBody();
             if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
             // Phase 3 — AI Agent pre-chat intro. Fire-and-forget; never
@@ -8964,9 +9665,12 @@
           // prior conversation stays visible — the full-page form is only
           // for PRECHAT_FOR_HUMAN, the very first thing a visitor sees.
           if (state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT) {
-            chatUI.renderHandoffPrechatInline(mountChatFrame() || body, identity, ctx.locale, onPrechatSubmitted);
+            var prechatHost = mountChatFrame() || body;
+            chatUI.renderHandoffPrechatInline(prechatHost, identity, ctx.locale, onPrechatSubmitted);
+            bindPrechatSkip(prechatHost);
           } else {
             chatUI.renderPreChat(body, identity, ctx.locale, onPrechatSubmitted);
+            bindPrechatSkip(body);
           }
           return;
         }
@@ -9238,11 +9942,98 @@
       }
     }
     var launcherTypingTimer = null;
+
+    // ─── Who is answering (renderer features `chatHeader`,
+    // `operatorTyping`) ───
+    // The thread's assigned operator (from its history, else from the
+    // visitor's conversation list), else the last operator who wrote in it.
+    function isHumanOperatorMessage(m) {
+      return !!m && m.sender !== 'visitor'
+        && (m.senderType === 'agent' || m.senderType === 'operator' || m.senderType === 'human');
+    }
+    function teamMemberOnline(name) {
+      return teamMembers.some(function (m) { return m && m.online && m.name === name; });
+    }
+    function currentOperator() {
+      var cs = chatStore.get();
+      if (cs.assignedOperator && cs.assignedOperator.name) return cs.assignedOperator;
+      var cid = cs.conversationId;
+      var item = cid ? ((conversationsStore.get() || {}).items || []).filter(function (c) {
+        return String(c.id) === String(cid);
+      })[0] : null;
+      if (item && item.operatorName) {
+        return { name: item.operatorName, avatar: item.operatorAvatar || null, online: !!item.operatorOnline };
+      }
+      var msgs = cs.messages || [];
+      for (var i = msgs.length - 1; i >= 0; i--) {
+        if (isHumanOperatorMessage(msgs[i]) && msgs[i].senderName) {
+          return { name: msgs[i].senderName, avatar: msgs[i].senderAvatar || null, online: teamMemberOnline(msgs[i].senderName) };
+        }
+      }
+      return null;
+    }
+    // Typing events carry no name: the person drawn is the current operator,
+    // else the first team member who is online.
+    function typingPerson() {
+      var op = currentOperator() || teamMembers.filter(function (m) { return m && m.online; })[0] || {};
+      return { name: op.name || '', avatar: op.avatar || null };
+    }
+    var operatorTyping = null;
+    var operatorTypingTimer = null;
+    function setOperatorTypingVm(vm) {
+      if (!feat('operatorTyping') && !feat('chatHeader')) return;
+      if (operatorTypingTimer) { clearTimeout(operatorTypingTimer); operatorTypingTimer = null; }
+      if (vm) operatorTypingTimer = setTimeout(function () { setOperatorTypingVm(null); }, 3500);
+      var changed = JSON.stringify(vm || null) !== JSON.stringify(operatorTyping);
+      operatorTyping = vm || null;
+      chatUI.setOperatorTyping(feat('operatorTyping') ? operatorTyping : null);
+      if (!changed) return;
+      paintChatHeader();
+      if (!feat('operatorTyping') || shellStore.get().activeTab !== 'chat') return;
+      // Only a plain thread repaints; a pre-chat card or form keeps its fields.
+      var st = deriveChatTabState().name;
+      if (st === ENTRY_FLOW_STATE.AI_CHAT || st === ENTRY_FLOW_STATE.HUMAN_WELCOME
+          || st === ENTRY_FLOW_STATE.ACTIVE_THREAD) renderBody();
+    }
+
+    // The renderer's chat header, repainted whenever what it shows changes.
+    var chatHeaderSignature = null;
+    function paintChatHeader() {
+      if (!feat('chatHeader') || typeof Presentation.chatHeaderHtml !== 'function') return;
+      var header = chatQ('[data-chat-header]');
+      if (!header) return;
+      var p = presenceStore.get();
+      var cs = chatStore.get();
+      var vm = {
+        online: p.status === 'online' && p.liveChatEnabled !== false,
+        typing: !!operatorTyping,
+        operator: currentOperator(),
+        isNew: !(cs.messages || []).length,
+        nextOpenAt: (ctx.config.availability && ctx.config.availability.next_open_at) || null,
+      };
+      var sig = JSON.stringify(vm);
+      if (sig === chatHeaderSignature) return;
+      chatHeaderSignature = sig;
+      header.innerHTML = Presentation.chatHeaderHtml(vm);
+      renderPresence(presenceStore.get());
+    }
+    if (feat('chatHeader')) {
+      presenceStore.subscribe(paintChatHeader);
+      chatStore.subscribe(paintChatHeader);
+      conversationsStore.subscribe(paintChatHeader);
+      paintChatHeader();
+    }
+    if (feat('tabs')) {
+      notifyStore.subscribe(paintTabBadges);
+      conversationsStore.subscribe(paintTabBadges);
+    }
+
     function showOperatorTyping() {
       // The launcher shows it even while the panel (and its bar) is closed.
       launcherTyping(true);
       if (launcherTypingTimer) clearTimeout(launcherTypingTimer);
       launcherTypingTimer = setTimeout(function () { launcherTyping(false); }, 3500);
+      setOperatorTypingVm(typingPerson());
       if (!typingRow || !typingLabel) return;
       typingRow.classList.remove('ai-thinking');
       typingLabel.textContent = t('typingOperator') || 'Support is typing…';
@@ -9252,7 +10043,12 @@
         if (typingRow) typingRow.hidden = true;
       }, 3500);
     }
-    if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
+    // The driver's capabilities are only known once the realtime negotiation
+    // answers, after this line runs; a renderer that draws typing (features
+    // `operatorTyping`, `chatHeader`) listens regardless: only a driver that
+    // supports typing ever emits the event.
+    if ((transport.hasCapability && transport.hasCapability('supportsTyping'))
+        || feat('operatorTyping') || feat('chatHeader')) {
       transport.on('typing', function (e) {
         var actor = e && e.payload && e.payload.actor;
         if (actor === 'visitor') return; // ignore self-echo
@@ -9287,6 +10083,7 @@
       if (typingRow) typingRow.hidden = true;
       if (launcherTypingTimer) { clearTimeout(launcherTypingTimer); launcherTypingTimer = null; }
       launcherTyping(false);
+      setOperatorTypingVm(null);
       if (chatStore.get().aiThinking) {
         chatStore.set({ aiThinking: false });
         if (shellStore.get().activeTab === 'chat') renderBody();

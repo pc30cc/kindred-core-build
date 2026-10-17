@@ -338,6 +338,9 @@
               // Authoritative: the requested thread, never a server-resolved one.
               conversationId: conversationId,
               messages: data.messages || [],
+              // { name, avatar, online } of the operator the thread is
+              // assigned to, or null (an older backend sends none).
+              assignedOperator: data.assigned_operator || null,
             });
           }
         })

@@ -160,6 +160,15 @@ config instead of new code.
   query on a cache hit: `docs/operations/WIDGET_CONFIG_CACHE.md`. A template
   that needs new settings adds them to that snapshot, never a per-request
   query.
+- Which template a workspace wears is the Super Admin's catalog
+  (`widget_edition_settings.chat_templates`, in the platform snapshot) and
+  the workspace's `widget_settings.widget_template_id` (migration 275,
+  `shared/chatTemplateCatalog.ts`). A template in the edition's `offered` is
+  disabled until the Super Admin enables it, so shipping one changes nothing
+  for visitors. Its options (`CHAT_TEMPLATE_OPTIONS`) reach the renderer as
+  `config.templateOptions`; its display names stay in the dashboard and never
+  reach the widget. See `docs/operations/EDITIONS.md`, "The chat widget
+  template catalog".
 
 ## 7. Before a template ships
 

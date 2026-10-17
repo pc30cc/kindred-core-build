@@ -37,6 +37,12 @@ import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 import { getServiceClient } from '../supabase.js';
 import { resolveWorkspaceIdFromOrigin } from '../services/widget/public.js';
 import { applyKbUnlockedFilter, resolveKbLock, type KbLock } from '../services/knowledge-base/locks.js';
+import {
+  kbSearchOrFilter,
+  kbSearchWindow,
+  kbSearchWords,
+  rankKbSearchRows,
+} from '../services/knowledge-base/widgetSearch.js';
 
 const SUPPORTED_LOCALES = ['en', 'fa', 'tr'] as const;
 type Locale = (typeof SUPPORTED_LOCALES)[number];
@@ -282,19 +288,24 @@ widgetKbRouter.get('/search', async (req: Request, res: Response) => {
   const { workspace_id, q, limit } = parsed.data;
   const locale = normalizeLocale(parsed.data.locale);
 
+  // Each word on its own, with the filter grammar's and LIKE's own
+  // characters taken out (services/knowledge-base/widgetSearch.ts).
+  const words = kbSearchWords(q);
+  if (!words.length) return res.json({ locale, q, results: [] });
+
   const kbLock = await resolveKbLock(config, workspace_id);
   // Search spans every language of the workspace.
-  const like = `%${q.replace(/[%_]/g, ' ')}%`;
   const { data: rows, error } = await publicArticles(config, workspace_id, 'id, title, slug, excerpt, locale', kbLock)
-    .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
-    .limit(limit);
+    .or(kbSearchOrFilter(words))
+    .order('updated_at', { ascending: false })
+    .limit(kbSearchWindow(limit));
 
   if (error) {
     console.error('[kb-search] failed:', error.message);
     return res.json({ results: [] });
   }
 
-  return res.json({ locale, q, results: rows || [] });
+  return res.json({ locale, q, results: rankKbSearchRows(rows || [], words, limit) });
 
 });
 
@@ -716,13 +727,15 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
 
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 200) : '';
   let results: KbArticleRow[] = [];
-  if (q.length >= 2) {
-    const like = `%${q.replace(/[%_]/g, ' ')}%`;
+  // The widget's word search (a comma or parenthesis no longer empties it).
+  const words = q.length >= 2 ? kbSearchWords(q) : [];
+  if (words.length) {
     const kbLock = await resolveKbLock(config, workspaceId);
     const { data } = await publicArticles(config, workspaceId, 'id, title, slug, excerpt, locale', kbLock)
-      .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
-      .limit(20);
-    results = (data as KbArticleRow[] | null) || [];
+      .or(kbSearchOrFilter(words))
+      .order('updated_at', { ascending: false })
+      .limit(kbSearchWindow(20));
+    results = rankKbSearchRows((data as KbArticleRow[] | null) || [], words, 20);
   }
 
 

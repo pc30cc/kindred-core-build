@@ -231,12 +231,65 @@ and WHMCS until brand-parameterised builds exist.
   requested id is worn only when the edition offers it; anything else is the
   edition's default. `null` (unknown) is Iran.
 
+For the chat widget, `offered` is what the edition's build ships; which of
+those a workspace may wear is the Super Admin's catalog (below).
+
 Today:
 
 | Id | Edition | Chat widget | Call widget |
 | --- | --- | --- | --- |
 | `default` | Iran | `presentation-default.js` + `.css` + `-fonts.css` | `presentation-default.js` + `presentation-default.css` |
+| `t1`, `t2` | Iran (offered; disabled until the Super Admin enables them) | `presentation-t1.js` + `.css`, `presentation-t2.js` + `.css`, over the shared `presentation-default-fonts.css` | — |
 | `intl` | International | the same renderer and stylesheet, then the skin `presentation-intl.css` | the same script (registered as `intl` too, root class `ccw-presentation-intl`) + its own complete `presentation-intl.css` |
+
+### The chat widget template catalog and the workspace's choice
+
+Migration `275_widget_template_catalog.sql`; the rules are
+`shared/chatTemplateCatalog.ts` (server and dashboard alike).
+
+- **Super Admin → Widget settings → Widget templates**
+  (`GET` / `PUT /api/admin/widget-catalog`, `server/routes/adminWidgetCatalog.ts`):
+  per edition (`widget_edition_settings.chat_templates`, one row per edition,
+  service_role only), for each template the edition offers: enabled or not,
+  display names in fa / en / tr, the order, the option defaults, and which one
+  is the default. Only the running edition's row (`getPlatformEdition`; 503
+  while unknown) and only its offered ids. A save is audited
+  (`admin.widget_catalog.changed`) and publishes `platform`; the page shows
+  how many workspaces chose each template and how many follow the default,
+  and asks before disabling a template in use or moving the default.
+- **No row, a template never saved: disabled**, except the edition's default
+  (`default` / `intl`). A deploy, and a new template in `offered`, therefore
+  change nothing for any visitor until the Super Admin enables it. At least
+  one template stays enabled, and the catalog's default is an enabled one.
+- **Display names are dashboard labels only**: they live in the catalog,
+  never in an id, a file name, a class or the widget config, and the Super
+  Admin renames at any time. Unnamed, the dashboard shows its i18n default
+  (`widgetCatalog.names`: «آشنا» / «فیروزه» / «نسیم», Familiar / Turquoise /
+  Breeze, Tanıdık / Turkuaz / Esinti), brand-neutral like every locale text.
+- **Workspace → Widget → Appearance → Widget template**
+  (`GET /api/widget-settings/:workspaceId/templates`; the choice through the
+  ordinary settings `PATCH`): shown only with two or more templates enabled.
+  `widget_settings.widget_template_id` (NULL = follow the default) is worn
+  while enabled and while the plan allows `widget_appearance`; otherwise the
+  catalog's default. A disabled choice is kept and comes back when the
+  template is enabled again. The `PATCH` refuses an id that is not enabled
+  (400 `template_not_available`) and answers 409 `migration_required` before
+  275; a plan without the Appearance editor gets 403 `plan_upgrade_required`
+  (the card is shown disabled with the upgrade hint).
+- **Template options** (`widget_settings.widget_template_options`, one flat
+  object; unknown keys dropped, invalid values refused): Template 1 reads
+  `navStyle` (`vb` default, `va`, `vc`, `vd`), `navMode` (`active` default,
+  `both`, `icon`, `text`, `none`) and `topics` (up to 4 × `{label ≤ 24, icon}`);
+  Template 2 `topics` and `askExamples` (up to 2 × ≤ 60 characters). Topic
+  icons: `truck`, `return`, `ruler`, `card`, `box`, `chat`, `help`, `gift`,
+  `clock`, `tag`. Merged code defaults → the Super Admin's option defaults →
+  the workspace's, they reach the widget as `config.templateOptions` (`{}` for
+  `default`) next to `templateId`. The dashboard's live preview renders the
+  same effective template and options.
+- **Order of deploys:** every read tolerates a database without 275 (no
+  table: no catalog, i.e. today's look; no column: the choice reads as none),
+  so RESPOK's backend may start before its migrator. WebYar's database is
+  migrated by hand before the merge.
 
 The bootstrap names the assets, so the browser never guesses:
 
@@ -282,17 +335,22 @@ caching, pure renderers, size budgets), enforced for every descriptor by
    the edition's `default` if it should be worn without a choice. The call
    widget settings page lists `offered`; `PUT /api/call-center/settings`
    accepts an id only when the edition offers it
-   (`callWidgetTemplateIdSchema` lists every known id).
-4. Never add a template to the Iranian edition's `offered` or change its
-   `default` unless WebYar's look is meant to change.
+   (`callWidgetTemplateIdSchema` lists every known id). A chat widget template
+   in `offered` is still disabled until the Super Admin enables it in the
+   catalog; if it has options, list them in `CHAT_TEMPLATE_OPTIONS`
+   (`shared/chatTemplateCatalog.ts`) and name it in `widgetCatalog.names` /
+   `descriptions` (`src/i18n/widgetCatalog.ts`). No migration is needed.
+4. Never change the Iranian edition's `default` unless WebYar's look is meant
+   to change for everyone who never chose. Adding to its `offered` changes
+   nothing for visitors until the Super Admin enables the template and a
+   workspace picks it (or the Super Admin makes it the default).
 5. Tests: `src/test/edition/phase4Widgets.test.ts` checks that every
-   descriptor's files exist and match the browser registry.
+   descriptor's files exist and match the browser registry;
+   `src/test/widget/chatTemplateCatalog.test.ts` the catalog rules.
 
-An admin choice per workspace can be added later without changing the Iranian
-output: store the id (`call_center_settings.widget_template_id` already
-exists for the call widget; the chat widget reads `widget_template_id` from
-the workspace or platform row when such a column is added) and the resolvers
-honour it whenever the edition offers it.
+The call widget keeps its per-workspace id
+(`call_center_settings.widget_template_id`), honoured whenever the edition
+offers it; it has no Super Admin catalog.
 
 ## start.sh is obsolete — checklist
 

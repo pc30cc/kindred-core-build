@@ -190,6 +190,15 @@ export interface WidgetSettings {
   placeholder_text: string | null;
   position: 'bottom-right' | 'bottom-left';
 
+  /**
+   * The chat widget template the workspace chose (migration 275); null = the
+   * Super Admin's default. Worn only while enabled in the catalog
+   * (GET /api/widget-settings/:workspaceId/templates says what visitors get).
+   */
+  widget_template_id?: string | null;
+  /** The template options (shared/chatTemplateCatalog.ts); {} = the defaults. */
+  widget_template_options?: Record<string, unknown>;
+
   // Launcher (FAB). `fab_image_url` is READ-ONLY on the client: it is derived
   // server-side from `widget_settings.fab_image_storage_key` for whichever
   // storage provider is primary, and is not writable through the settings

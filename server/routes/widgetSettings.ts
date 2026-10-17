@@ -27,6 +27,18 @@ import { widgetAssetKey } from '../services/storage/keys.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
 import { publishCacheInvalidation } from '../lib/cacheBus.js';
+import { getChatTemplateCatalog } from '../services/widget/configSnapshot.js';
+import { isTemplateColumnMissing, TEMPLATE_CATALOG_MIGRATION_REQUIRED } from '../services/widget/templateCatalog.js';
+import {
+  CHAT_TEMPLATE_LOCALES,
+  canonicalChatTemplateId,
+  cleanTemplateOptionsInput,
+  enabledChatTemplateIds,
+  readTemplateOptions,
+  resolveChatTemplateOptions,
+  resolveWorkspaceChatTemplate,
+  type ChatTemplateLocale,
+} from '../../shared/chatTemplateCatalog.js';
 
 
 export const widgetSettingsRouter = Router();
@@ -74,6 +86,61 @@ widgetSettingsRouter.get('/:workspaceId', async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ settings: await withDerivedFabImageUrl(config, req.params.workspaceId, data) });
+});
+
+// ── chat widget templates (per workspace) ─────────────────────────
+//
+// What Widget → Appearance → Widget template shows: the templates the Super
+// Admin keeps enabled for the running edition (shared/chatTemplateCatalog.ts),
+// in their order, each with its display name in `?locale=` (fa, en, tr; null
+// = the dashboard's own default name) and its option defaults; the
+// workspace's stored choice and options; and what its visitors wear now. The
+// catalog is the one the widget reads (the platform snapshot), so the page
+// and the widget never disagree. `canChoose` needs two or more templates
+// enabled, migration 275, and a plan with widget_appearance. A frontend shows
+// the picker only once this answers, so it works with an older backend too.
+widgetSettingsRouter.get('/:workspaceId/templates', async (req, res) => {
+  const config = serverConfigOf(req);
+  const workspaceId = req.params.workspaceId;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const [{ catalog, edition, ready }, rowResult, entitlements] = await Promise.all([
+    getChatTemplateCatalog(config),
+    sb.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
+    resolveWidgetEntitlements(config, workspaceId),
+  ]);
+  if (rowResult.error) return res.status(500).json({ error: rowResult.error.message });
+  const row = (rowResult.data ?? {}) as Record<string, unknown>;
+  const columnReady = 'widget_template_id' in row || !rowResult.data;
+  const asked = String(req.query.locale || '').toLowerCase();
+  const locale: ChatTemplateLocale = (CHAT_TEMPLATE_LOCALES as readonly string[]).includes(asked)
+    ? (asked as ChatTemplateLocale)
+    : (edition ?? 'iran') === 'iran' ? 'fa' : 'en';
+  const planAllowsChoice = entitlements.features.widget_appearance !== false;
+  const enabled = enabledChatTemplateIds(catalog);
+  const selectedId = typeof row.widget_template_id === 'string' ? row.widget_template_id : null;
+  const selectedOptions = readTemplateOptions(row.widget_template_options);
+  const effectiveId = resolveWorkspaceChatTemplate(catalog, selectedId, planAllowsChoice);
+  const selected = canonicalChatTemplateId(catalog.edition, selectedId);
+  return res.json({
+    edition: catalog.edition,
+    ready: ready && columnReady,
+    defaultId: catalog.defaultId,
+    templates: catalog.entries.filter((e) => e.enabled).map((e) => ({
+      id: e.id,
+      name: e.name[locale] ?? null,
+      isDefault: e.id === catalog.defaultId,
+      options: e.options,
+    })),
+    selectedId,
+    selectedOptions,
+    selectedUnavailable: selectedId !== null && !(selected && enabled.includes(selected)),
+    effectiveId,
+    effectiveOptions: resolveChatTemplateOptions(catalog, effectiveId, planAllowsChoice ? selectedOptions : {}),
+    planAllowsChoice,
+    canChoose: ready && columnReady && enabled.length >= 2 && planAllowsChoice,
+  });
 });
 
 /**
@@ -141,6 +208,12 @@ const widgetSettingsPatchSchema = z.object({
   show_logo: z.boolean().optional(),
   show_team_avatars: z.boolean().optional(),
   show_powered_by: z.boolean().optional(),
+  // Chat widget template (migration 275): the id must be one the Super Admin
+  // keeps enabled (checked below); null follows the catalog's default. The
+  // options are validated per key (shared/chatTemplateCatalog.ts); unknown
+  // keys are dropped.
+  widget_template_id: z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9-]{0,31}$/).nullable().optional(),
+  widget_template_options: z.record(z.string(), z.unknown()).optional(),
   // Launcher (FAB)
   fab_label: z.string().max(100).nullable().optional(),
   fab_scale: z.number().min(50).max(300).optional(),
@@ -209,6 +282,31 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
     patch.show_powered_by = true;
   }
 
+  // A template may be chosen only while the Super Admin keeps it enabled for
+  // the running edition (the catalog the widget reads); it is stored under
+  // its current id.
+  if (typeof patch.widget_template_id === 'string') {
+    const { catalog } = await getChatTemplateCatalog(config);
+    const id = canonicalChatTemplateId(catalog.edition, patch.widget_template_id);
+    if (!id || !enabledChatTemplateIds(catalog).includes(id)) {
+      return res.status(400).json({
+        error: 'template_not_available',
+        issues: [{ path: 'widget_template_id', message: 'template_not_available' }],
+      });
+    }
+    patch.widget_template_id = id;
+  }
+  if ('widget_template_options' in patch) {
+    const options = cleanTemplateOptionsInput(patch.widget_template_options);
+    if (options.ok === false) {
+      return res.status(400).json({
+        error: options.problem,
+        issues: [{ path: options.key ? `widget_template_options.${options.key}` : 'widget_template_options', message: options.problem }],
+      });
+    }
+    patch.widget_template_options = options.value;
+  }
+
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('widget_settings')
@@ -216,7 +314,11 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
     .eq('workspace_id', workspaceId)
     .select()
     .single();
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    // A database from before migration 275 has no template columns yet.
+    if (isTemplateColumnMissing(error)) return res.status(409).json(TEMPLATE_CATALOG_MIGRATION_REQUIRED);
+    return res.status(500).json({ error: error.message });
+  }
   // Embed allow-list / subdomain policy is read on every widget request from
   // a short-lived cache — drop it now so the change is live immediately
   // instead of after the TTL. The widget config snapshot too, on every node.

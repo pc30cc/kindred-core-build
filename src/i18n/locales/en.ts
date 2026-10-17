@@ -1,6 +1,8 @@
 import { widgetBridgeEn } from '../widgetBridge';
+import { widgetCatalogEn } from '../widgetCatalog';
 const en = {
   widgetBridge: widgetBridgeEn,
+  widgetCatalog: widgetCatalogEn,
     billing: {
     locks: {
       report: {
@@ -9675,7 +9677,7 @@ const en = {
     preview: {
       title: 'Live preview',
       liveHint: 'Every text and style change appears here instantly and is saved automatically.',
-      view: { home: 'Home', chat: 'Chat', prechat: 'Pre-chat', kb: 'Help', offline: 'Offline' },
+      view: { home: 'Home', list: 'Messages', chat: 'Chat', prechat: 'Pre-chat', kb: 'Help', offline: 'Offline' },
       brandFallback: 'Support',
       welcomeFallback: 'How can we help?',
       sampleMessage: 'Hi! How can we help?',

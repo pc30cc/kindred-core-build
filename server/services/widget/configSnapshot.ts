@@ -1212,6 +1212,9 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     modules: {
       chat: assetUrl(chatModuleName),
       kb: assetUrl(kbModuleName),
+      // The renderer features: requested only by a template that declares
+      // some (`features` from its create()), never by `default` or `intl`.
+      ext: assetUrl(getWidgetAssetName('runtime-ext.js')),
       rt_resolver: assetUrl(getWidgetAssetName('runtime-rt-resolver.js')),
       rt_centrifugo: assetUrl(getWidgetAssetName('runtime-rt-centrifugo.js')),
       rt_supabase: assetUrl(getWidgetAssetName('runtime-rt-supabase.js')),

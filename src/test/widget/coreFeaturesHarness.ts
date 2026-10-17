@@ -11,8 +11,10 @@
  *    (features, extra markup, new surfaces), as a t1/t2 renderer would be.
  *
  * Network: an in-memory fake of the widget API (`fetch`), the chat module
- * replaced by a fake, the KB module the real runtime-kb.js (it fetches), and
- * an optional realtime driver whose typing events the test fires.
+ * replaced by a fake, the KB module the real runtime-kb.js (it fetches), the
+ * renderer features the real runtime-ext.js (a script the runtime requests
+ * only for a renderer that declares features; `ext` decides when it answers),
+ * and an optional realtime driver whose typing events the test fires.
  */
 import { vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -83,6 +85,13 @@ export interface BootOptions {
   open?: boolean;
   /** Seed the per-tab view hint (a reload inside a thread). */
   hint?: { tab: string; conversationId: string | null };
+  /**
+   * How the runtime-ext.js request answers: 'load' (at once, default: the
+   * module is in before any data, so a test sees the features from the
+   * start), 'tick' (after a tick, as a network answers: data may come
+   * first), 'hold' (until releaseExt()) or 'fail' (onerror, like a 404).
+   */
+  ext?: 'load' | 'tick' | 'hold' | 'fail';
 }
 
 export interface Harness {
@@ -97,6 +106,10 @@ export interface Harness {
   posts: Array<{ url: string; body: Dict }>;
   emitTyping: () => void;
   releaseKbSearch: () => void;
+  /** Every <script> src the runtime asked for, in order. */
+  scripts: string[];
+  /** Answers a held runtime-ext.js request (`ext: 'hold'`). */
+  releaseExt: () => void;
   q: <T extends Element = HTMLElement>(sel: string) => T | null;
 }
 
@@ -197,11 +210,25 @@ export function boot(opts: BootOptions = {}): Harness {
     url.revokeObjectURL = () => {};
   }
 
+  const scripts: string[] = [];
+  const heldExt: Array<() => void> = [];
   const realAppend = document.head.appendChild.bind(document.head);
   vi.spyOn(document.head, 'appendChild').mockImplementation(<T extends Node>(node: T): T => {
     const script = node as unknown as HTMLScriptElement;
     if (script && script.tagName === 'SCRIPT') {
-      setTimeout(() => { if (typeof script.onload === 'function') script.onload(new Event('load')); }, 0);
+      scripts.push(script.src);
+      const load = () => { if (typeof script.onload === 'function') script.onload(new Event('load')); };
+      if (/runtime-ext\b/.test(script.src)) {
+        // The module itself is already on window (loadAsset below), as the
+        // script would leave it; only the moment the request answers varies.
+        if (opts.ext === 'fail') {
+          setTimeout(() => { if (typeof script.onerror === 'function') script.onerror(new Event('error')); }, 0);
+          return node;
+        }
+        if (opts.ext === 'hold') { heldExt.push(load); return node; }
+        if (opts.ext !== 'tick') { load(); return node; }
+      }
+      setTimeout(load, 0);
       return node;
     }
     return realAppend(node);
@@ -264,6 +291,7 @@ export function boot(opts: BootOptions = {}): Harness {
   loadAsset('public/widget/presentation-registry.js');
   loadAsset('public/widget/presentation-default.js');
   loadAsset('public/widget/runtime-kb.js');
+  loadAsset('public/widget/runtime-ext.js');
   loadAsset('public/widget/runtime-rt-resolver.js');
   loadAsset('public/widget/runtime.js');
 
@@ -332,6 +360,8 @@ export function boot(opts: BootOptions = {}): Harness {
     posts,
     emitTyping: () => { if (typingHook) typingHook({ payload: { actor: 'agent' } }); },
     releaseKbSearch: () => { while (heldSearches.length) heldSearches.shift()!(); },
+    scripts,
+    releaseExt: () => { while (heldExt.length) heldExt.shift()!(); },
     q: <T extends Element = HTMLElement>(sel: string) => shadow.querySelector(sel) as T | null,
   };
 }

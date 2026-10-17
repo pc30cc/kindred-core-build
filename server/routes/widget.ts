@@ -1012,9 +1012,13 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     // renderer that draws it, see runtime.js operatorQ): the default
     // template asks nothing, so its list costs what it always did.
     const withOperator = req.query.operator === '1';
+    // Typed as the wider list: without operator=1 the rows simply have no
+    // `assigned_to` (read as null below).
+    const columns = (withOperator ? 'id, status, updated_at, assigned_to' : 'id, status, updated_at') as
+      'id, status, updated_at, assigned_to';
     const { data: convos, error } = await supabase
       .from('conversations')
-      .select(withOperator ? 'id, status, updated_at, assigned_to' : 'id, status, updated_at')
+      .select(columns)
       .eq('workspace_id', workspaceId)
       .or(orParts.join(','))
       .order('updated_at', { ascending: false })

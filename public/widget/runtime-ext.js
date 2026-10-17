@@ -570,6 +570,8 @@
           locale: ctx.locale,
           query: q,
           limit: 8,
+          // Word by word, ranked (the help center keeps its phrase search).
+          match: 'words',
           signal: abort ? abort.signal : null,
           onResult: function (r) { done((r && r.results) || [], !!(r && r.ok)); },
         });

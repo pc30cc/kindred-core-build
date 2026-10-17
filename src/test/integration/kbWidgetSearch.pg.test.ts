@@ -1,14 +1,17 @@
 // @vitest-environment node
 /**
- * The widget's help search and the help center's search page, word by word
- * (server/services/knowledge-base/widgetSearch.ts), against a database built
+ * The widget's search as you type, word by word (`match=words`, sent by
+ * runtime-ext.js for a renderer declaring `kbSearch`;
+ * server/services/knowledge-base/widgetSearch.ts), against a database built
  * by the whole chain and the real data layer (postgres-only: the in-repo
  * PostgREST engine parses the `or=(...)` filter):
  *
  *   - a comma or a parenthesis in the query no longer makes the filter
- *     unparsable (the route used to answer no results at all);
+ *     unparsable (as one phrase the route answers no results at all);
  *   - words that are not next to each other in a title still find it, and
  *     the article with more of the words comes first;
+ *   - the help center (its search page, and the route without
+ *     `match=words`) keeps its one-phrase search, as before;
  *   - the article vote's middle face: with migration 275 the database takes
  *     'neutral'; without it the CHECK refuses the row with SQLSTATE 23514,
  *     which the feedback route (server/routes/widget.ts) answers as 400
@@ -88,7 +91,8 @@ suite('help search: word by word, whatever the visitor typed', () => {
     await chain?.drop();
   });
 
-  const search = (text: string) => request(app).get('/api/widget/kb/search').query({ workspace_id: ws, q: text });
+  // `match=words`: what runtime-ext.js sends for a renderer declaring `kbSearch`.
+  const search = (text: string) => request(app).get('/api/widget/kb/search').query({ workspace_id: ws, q: text, match: 'words' });
 
   it('a comma no longer empties the answer', async () => {
     const res = await search('سلام, سفارش');
@@ -107,11 +111,14 @@ suite('help search: word by word, whatever the visitor typed', () => {
     expect(slugs(res.body.results)).toEqual(['track', 'shipping', 'returns']);
   });
 
-  it('the help center\'s search page searches the same way', async () => {
-    const res = await request(app).get('/help/fa/search').query({ q: 'ارسال, سفارش' });
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('/help/fa/a/track');
-    expect(res.text).toContain('/help/fa/a/shipping');
+  it('the help center keeps its phrase search: its page, and the route without match=words', async () => {
+    const page = await request(app).get('/help/fa/search').query({ q: 'زمان ارسال' });
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('/help/fa/a/track');
+    expect(page.text).not.toContain('/help/fa/a/shipping');
+    const api = await request(app).get('/api/widget/kb/search').query({ workspace_id: ws, q: 'ارسال سفارش' });
+    expect(api.status).toBe(200);
+    expect(slugs(api.body.results)).toEqual([]);
   });
 
   it('the vote\'s neutral face: stored with migration 275, refused with SQLSTATE 23514 without it', async () => {

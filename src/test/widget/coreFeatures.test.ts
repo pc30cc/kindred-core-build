@@ -171,6 +171,8 @@ describe('kbSearch', () => {
     const searches = h.fetches.filter((u) => u.includes('/kb/search'));
     expect(searches).toHaveLength(1);
     expect(new URL(searches[0]).searchParams.get('q')).toBe('ارسال');
+    // Word by word: the help center, which never sends it, keeps its phrase search.
+    expect(new URL(searches[0]).searchParams.get('match')).toBe('words');
     // The same element, still focused, with its text.
     expect(h.q('[data-kb-search]')).toBe(field);
     expect(h.shadow.activeElement).toBe(field);

@@ -815,7 +815,7 @@ export function WidgetLivePreview({
     // first name (visitorName; the preview has no contact, so empty, as Core
     // without one). The default template declares none, so it gets the same
     // view-models and the same pixels as before. What changed for every
-    // template, `default` included, is the navigation: the Messages view
+    // template, 'default' included, is the navigation: the Messages view
     // (list) and the frame following the renderer's own [data-view],
     // [data-view-back] and [data-conversation-open] hooks (gsBindTabs), as
     // the live widget does.

@@ -1,13 +1,16 @@
 /**
- * The widget's help search (GET /api/widget/kb/search, and the help center's
- * own search page): the query is searched word by word, with every character
- * the PostgREST filter grammar or LIKE gives a meaning taken out, and the
- * articles that contain more of the words come first
+ * The widget's search as you type (GET /api/widget/kb/search with
+ * `match=words`, sent by runtime-ext.js for a renderer declaring `kbSearch`):
+ * the query is searched word by word, with every character the PostgREST
+ * filter grammar or LIKE gives a meaning taken out, and the articles that
+ * contain more of the words come first
  * (server/services/knowledge-base/widgetSearch.ts).
  *
- * Before, the whole query went into ONE `or=(...)` value: «سلام, سفارشم» made
- * the filter unparsable (the route then answered no results) and
- * "ارسال سفارش" never found «زمان ارسال و پیگیری سفارش».
+ * As one phrase, «سلام, سفارشم» makes the filter unparsable (the route then
+ * answers no results) and "ارسال سفارش" never finds «زمان ارسال و پیگیری
+ * سفارش». Without `match=words` (the help center's search page of every
+ * workspace calls this route too) the query stays the one phrase it always
+ * was: this change does not alter any help center.
  */
 import { describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
@@ -109,14 +112,18 @@ vi.mock('../../../server/services/knowledge-base/locks.js', () => ({
 }));
 
 describe('GET /api/widget/kb/search', () => {
-  async function search(q: string, limit?: number) {
+  async function search(q: string, limit?: number, match: string | null = 'words') {
     const { widgetKbRouter } = await import('../../../server/routes/kb.js');
     const app = express();
     app.use((req, _res, next) => { (req as unknown as Record<string, unknown>).serverConfig = {}; next(); });
     app.use('/api/widget/kb', widgetKbRouter);
     const server = http.createServer(app).listen(0);
     const port = (server.address() as AddressInfo).port;
-    const qs = new URLSearchParams({ workspace_id: '11111111-1111-4111-8111-111111111111', q, ...(limit ? { limit: String(limit) } : {}) });
+    const qs = new URLSearchParams({
+      workspace_id: '11111111-1111-4111-8111-111111111111', q,
+      ...(limit ? { limit: String(limit) } : {}),
+      ...(match ? { match } : {}),
+    });
     const body = await new Promise<{ results: Array<{ slug: string }> }>((resolve, reject) => {
       http.get({ host: '127.0.0.1', port, path: `/api/widget/kb/search?${qs}` }, (res) => {
         let d = '';
@@ -146,5 +153,17 @@ describe('GET /api/widget/kb/search', () => {
     const body = await search(',()');
     expect(body.results).toEqual([]);
     expect(seen.or).toEqual([]);
+  });
+
+  it('without match=words (the help center, any older caller): one phrase, the database order, as before', async () => {
+    seen.or.length = 0; seen.limit.length = 0;
+    seen.rows = [
+      { slug: 'a', title: 'مرجوعی', excerpt: 'شرایط ارسال' },
+      { slug: 'b', title: 'ارسال و پیگیری سفارش', excerpt: '' },
+    ];
+    const body = await search('ارسال سفارش', 2, null);
+    expect(seen.or).toEqual(['title.ilike.%ارسال سفارش%,excerpt.ilike.%ارسال سفارش%,content.ilike.%ارسال سفارش%']);
+    expect(seen.limit).toEqual([2]);
+    expect(body.results.map((r) => r.slug)).toEqual(['a', 'b']);
   });
 });

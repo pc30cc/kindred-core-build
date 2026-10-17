@@ -74,6 +74,8 @@ Hashed files (8-char MD5 prefix):
 - `runtime.css`
 - `runtime-chat.js`
 - `runtime-kb.js`
+- `runtime-ext.js` (renderer features; loaded only by a template whose
+  renderer declares some)
 - `runtime-call.js`
 - `runtime-rt-centrifugo.js`
 - `runtime-rt-supabase.js`

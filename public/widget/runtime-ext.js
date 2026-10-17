@@ -11,10 +11,12 @@
  * module) and hands create() what the features build on. This module adds
  * the view-model fields by wrapping the renderer's own surfaces (homeHtml,
  * conversationListHtml, emptyHtml, messagesHtml) and binds its controls
- * after Core painted a view. Core requests it as soon as such a renderer is
- * mounted and paints the skeleton until it is in (at most 1.5 s), so a first
- * paint already has the features; data that arrived first reaches create()
- * as `earlyCalls`.
+ * after Core painted a view. The loader fetches it with such a template's
+ * files (/config names it for that template only: `coreFeatures` in
+ * shared/widgetTemplates.ts); Core requests it (from the cache) as soon as
+ * the renderer is mounted and paints the skeleton until it is in (at most
+ * 1.5 s), so a first paint already has the features; data that arrived
+ * first reaches create() as `earlyCalls`.
  *
  *   tabs                 badges `[data-tab-badge]`, `aria-current` on `[data-view]` tabs, unreadTotal
  *   kbSearch             search as you type in `[data-kb-search]`, `[data-kb-results]` repainted alone
@@ -171,6 +173,7 @@
     }
     var operatorTyping = null;
     var operatorTypingTimer = null;
+    var replaying = false;
     /** The typing person a thread draws (feature `operatorTyping`), else null. */
     function rowTyping() { return feat('operatorTyping') ? operatorTyping : null; }
     function setOperatorTypingVm(vm) {
@@ -183,8 +186,10 @@
       paintChatHeader();
       if (!feat('operatorTyping') || shellStore.get().activeTab !== 'chat') return;
       // Only a plain thread repaints; a pre-chat card or form keeps its fields.
+      // Not while create() replays what came first: Core repaints once this
+      // module is in, and a paint now would reach none of its hooks.
       var st = deriveChatTabState().name;
-      if (st === 'AI_CHAT' || st === 'HUMAN_WELCOME' || st === 'ACTIVE_THREAD') {
+      if (!replaying && (st === 'AI_CHAT' || st === 'HUMAN_WELCOME' || st === 'ACTIVE_THREAD')) {
         // The saved details being edited keep their fields, too.
         if (!editingPrechat()) renderBody();
       }
@@ -802,11 +807,13 @@
     // thread list it mapped, a history it adopted, typing. A row Core copied
     // since (one marked read) gets the fields of the server row it came from.
     var earlyRows = {};
+    replaying = true;
     (earlyCalls || []).forEach(function (call) {
       if (call[0] === 'conv') { mapConversation(call[1], call[2]); earlyRows[call[1].id] = call[2]; }
       else if (call[0] === 'history') adoptHistory(call[1], call[2]);
       else if (call[0] === 'typing') setOperatorTypingVm(call[1] ? typingPerson() : null);
     });
+    replaying = false;
     ((conversationsStore.get() || {}).items || []).forEach(function (vm) {
       if (earlyRows[vm.id]) mapConversation(vm, earlyRows[vm.id]);
     });

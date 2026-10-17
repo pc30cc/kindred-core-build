@@ -441,7 +441,7 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(badge.hasAttribute('hidden')).toBe(false);
       expect(parse(r().homeHtml({ rtl: true })).querySelector('[data-tab-badge]')!.hasAttribute('hidden')).toBe(true);
       // Each tab is named by its label (hidden in some modes) and, for
-      // Messages, the badge Core patches in place (runtime.js paintTabBadges):
+      // Messages, the badge Core patches in place (runtime-ext.js paintTabBadges):
       // the name follows the patch, it is not frozen at render time.
       expect(['home', 'list', 'help'].map((v) => tabName(home, v))).toEqual(['خانه', 'پیام‌ها ۳', 'راهنما']);
       badge.textContent = '';

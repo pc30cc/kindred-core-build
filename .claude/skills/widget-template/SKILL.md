@@ -51,7 +51,10 @@ on a hashed URL, a fixed file name in code, or `${` in nginx.conf.template.
 1. `shared/widgetTemplates.ts`: the descriptor in `CHAT_WIDGET_TEMPLATES` /
    `CALL_WIDGET_TEMPLATES`, and the id in the edition's `offered` list
    (`EDITION_*_TEMPLATES`). Do not touch the Iranian edition's `default`
-   unless the owner asked to change WebYar's look.
+   unless the owner asked to change WebYar's look. A chat renderer that
+   returns `features` from `create()` sets `coreFeatures: true` (then /config
+   names Core's runtime-ext.js and the loader fetches it with the template;
+   `src/test/widget/runtimeExt.test.ts` checks the two agree).
 2. The same id and files in `public/widget/presentation-registry.js` (chat).
 3. Call widget: add the id to the zod enum in
    `server/services/callCenter/presentation.ts` (`callWidgetTemplateIdSchema`).

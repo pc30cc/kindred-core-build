@@ -325,7 +325,7 @@ and runtime bundle. They do not share runtime code at the bundle level.
   <script async src="https://YOUR_DOMAIN/widget/loader.js" workspace-id="..."></script>
   ```
 - Runtime files (`runtime.js`, `runtime.css`, `runtime-chat.js`,
-  `runtime-kb.js`, `runtime-call.js`, `runtime-rt-*.js`, plus
+  `runtime-kb.js`, `runtime-ext.js`, `runtime-call.js`, `runtime-rt-*.js`, plus
   `vendor/livekit-client.umd.min.js`) are **content-hashed** by
   `scripts/widget-hash.js` into `dist/widget/runtime.<hash>.js` etc.
 - Hashed URLs are resolved by the backend at request time (see

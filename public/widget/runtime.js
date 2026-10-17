@@ -5008,9 +5008,11 @@
       Util.warn('FATAL: no presentation template registered');
       return { isOpen: function(){ return false; }, open: function(){ return false; }, close: function(){ return false; }, toggle: function(){ return false; }, setUnread: function(){} };
     }
-    // A renderer with features waits for runtime-ext.js (loaded below).
+    // A renderer with features waits for runtime-ext.js (mounted below); a
+    // module of an earlier instance is never this one's.
     var extWait = !!Presentation.features;
     var extHeld;
+    Ext = null;
     extCalls = extWait ? [] : null;
 
     // ─── Token manager (Task 2): proactive refresh + reactive 401/403 retry.
@@ -9556,9 +9558,12 @@
 
     // ─── Renderer features (runtime-ext.js) ───
     // Requested now, alongside the visitor's identity and threads, which a
-    // first paint waits for anyway; until it is in, renderBodyInner() paints
-    // the skeleton. At most 1.5 s: a stalled request costs the features, not
-    // the panel (a failed one releases at once), and a late module repaints.
+    // first paint waits for anyway: usually from the browser's cache, as the
+    // loader fetched it with the template's files (/config names it as
+    // `modules.ext` for such a template only). Until it is in,
+    // renderBodyInner() paints the skeleton. At most 1.5 s: a stalled
+    // request costs the features, not the panel (a failed one releases at
+    // once), and a late module repaints with the data Core saw meanwhile.
     if (extWait) {
       var extSettle = function (mod) {
         try {
@@ -9573,8 +9578,9 @@
             renderVoicePreview, extCalls
           );
         } catch (e) { Util.warn('Module failed: ext', e); }
-        // Calls are kept for the module only while the panel waits for it.
-        extCalls = null;
+        // Calls are kept for the module until its request settles (the
+        // 1.5 s wait passes no module: it releases the paint only).
+        if (mod !== undefined) extCalls = null;
         // Repaint what waited, or what was painted without a late module.
         var repaint = extWait ? extHeld : mod && Ext;
         extWait = false;

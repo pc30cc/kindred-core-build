@@ -46,6 +46,14 @@ export interface ChatWidgetTemplate {
   skin: `presentation-${string}.css` | null;
   /** The template's font stylesheet, or null. */
   fonts: `presentation-${string}.css` | null;
+  /**
+   * Its renderer declares Core features (`features` from create()), whose
+   * code is Core's lazy module runtime-ext.js: the bootstrap names that
+   * module (`config.modules.ext`) for this template only, and the loader
+   * fetches it with the template's files. Must match the renderer
+   * (src/test/widget/runtimeExt.test.ts).
+   */
+  coreFeatures: boolean;
 }
 
 export const CHAT_WIDGET_TEMPLATES = {
@@ -55,6 +63,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     style: 'presentation-default.css',
     skin: null,
     fonts: 'presentation-default-fonts.css',
+    coreFeatures: false,
   },
   intl: {
     id: 'intl',
@@ -62,6 +71,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     style: 'presentation-default.css',
     skin: 'presentation-intl.css',
     fonts: 'presentation-default-fonts.css',
+    coreFeatures: false,
   },
   t1: {
     id: 't1',
@@ -69,6 +79,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     style: 'presentation-t1.css',
     skin: null,
     fonts: 'presentation-default-fonts.css',
+    coreFeatures: true,
   },
   t2: {
     id: 't2',
@@ -76,6 +87,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     style: 'presentation-t2.css',
     skin: null,
     fonts: 'presentation-default-fonts.css',
+    coreFeatures: true,
   },
 } as const satisfies Record<string, ChatWidgetTemplate>;
 

@@ -124,6 +124,22 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     expect(String(b.presentationFontsUrl ?? '')).not.toContain('t1');
   });
 
+  it('names Core\'s renderer-feature module (modules.ext) for a template whose renderer declares features, once, and never for default', async () => {
+    await fresh();
+    const plain = await body();
+    expect(plain.templateId).toBe('default');
+    expect(Object.keys(plain.modules as Record<string, unknown>)).not.toContain('ext');
+    await fresh((t) => { withCatalog()(t); choose('t2')(t); });
+    const b = await body();
+    expect(b.templateId).toBe('t2');
+    const modules = b.modules as Record<string, unknown>;
+    expect(Object.keys(modules).filter((k) => k === 'ext')).toHaveLength(1);
+    // A hashed name carries no ?v= (the build's manifest); without one, as
+    // here, the canonical name is versioned like every other module.
+    expect(String(modules.ext)).toMatch(/\/widget\/runtime-ext(\.[0-9a-f]{8}\.js|\.js\?v=[^&]+)$/);
+    expect(JSON.stringify(b).match(/runtime-ext/g)).toHaveLength(1);
+  });
+
   it('display names never reach the widget', async () => {
     await fresh((t) => { withCatalog()(t); choose('t1')(t); });
     const text = JSON.stringify(await body());

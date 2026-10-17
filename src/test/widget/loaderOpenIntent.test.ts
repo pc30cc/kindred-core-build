@@ -12,6 +12,9 @@
  *  - A hashed script that is missing is retried once by its canonical name in
  *    a FRESH element: a cloned <script> keeps its "already started" flag and
  *    is never fetched, which left the panel closed for good.
+ *  - Core's renderer-feature module (runtime-ext.js), which /config names
+ *    only for a template that builds on it (`modules.ext`), is fetched with
+ *    that template's files and never awaited: runtime.js finds it cached.
  *
  * @vitest-environment jsdom
  */
@@ -60,12 +63,12 @@ describe('the chat loader: open intent and the first open', () => {
     }) as never);
   }
 
-  async function boot() {
+  async function boot(config: Record<string, unknown> = CONFIG) {
     w.__gs_id = WS;
     w.__gs_api_base = 'https://api.test';
     const json = (body: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body), headers: { get: () => null } });
     w.fetch = vi.fn((url: string) => (String(url).includes('/api/widget/boot')
-      ? json({ session_token: 't', workspace_id: WS, protocol: 3, availability: { state: 'online' }, config: CONFIG })
+      ? json({ session_token: 't', workspace_id: WS, protocol: 3, availability: { state: 'online' }, config })
       : json({})));
     watch(document.head);
     new Function(LOADER).call(window);
@@ -179,6 +182,48 @@ describe('the chat loader: open intent and the first open', () => {
     await tick();
     expect(init).toHaveBeenCalledTimes(1);
     expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  const EXT = 'https://cdn.test/widget/runtime-ext.0123abcd.js';
+  const T1 = {
+    ...CONFIG,
+    templateId: 't1',
+    presentationUrl: 'https://cdn.test/widget/presentation-t1.0123abcd.js',
+    presentationStyleUrl: 'https://cdn.test/widget/presentation-t1.0123abcd.css',
+    modules: { kb: 'https://cdn.test/widget/runtime-kb.0123abcd.js', ext: EXT },
+  };
+
+  it('a template that builds on Core\'s feature module: an intent fetches it with the template\'s files, and the panel never waits for it', async () => {
+    const launcher = await boot(T1);
+    holding.add(EXT); // a module that never answers
+    launcher.dispatchEvent(new Event('touchstart'));
+    await tick(12);
+    const ext = requested(/runtime-ext\.0123abcd\.js$/) as unknown as HTMLScriptElement[];
+    expect(ext).toHaveLength(1);
+    expect(ext[0].tagName).toBe('SCRIPT');
+    expect(ext[0].async).toBe(true);
+    expect(ext[0].parentNode).toBe(document.head);
+    // In the same pass as the renderer, right after runtime.js (which init()
+    // needs first: on HTTP/1.1 the 7th request waits for a connection).
+    const at = (re: RegExp) => appended.indexOf(requested(re)[0]);
+    expect(at(/runtime-ext\.0123abcd\.js$/)).toBe(at(/runtime\.0123abcd\.js$/) + 1);
+    expect(at(/presentation-t1\.0123abcd\.js$/)).toBeLessThan(at(/runtime\.0123abcd\.js$/));
+    expect(init).not.toHaveBeenCalled();
+    launcher.click();
+    await tick();
+    expect(init).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(requested(/runtime-ext/)).toHaveLength(1);
+  });
+
+  it('a template that names no such module (`default`) loads exactly the files it always did', async () => {
+    const launcher = await boot();
+    launcher.click();
+    await tick(12);
+    expect(init).toHaveBeenCalledTimes(1);
+    expect(requested(/runtime-ext|runtime-kb/)).toEqual([]);
+    const scripts = appended.filter((n) => n.tagName === 'SCRIPT').map((n) => n.src);
+    expect(scripts).toEqual([CONFIG.presentationRegistryUrl, CONFIG.presentationUrl, CONFIG.runtimeUrl, CONFIG.callRuntimeUrl]);
   });
 
   it('a missing hashed script is retried once by its canonical name in a fresh element, and the panel opens', async () => {

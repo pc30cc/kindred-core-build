@@ -809,8 +809,8 @@ export function WidgetLivePreview({
       capabilities: GS_PREVIEW.capabilities,
     });
 
-    // The renderer's declared features, read as Core reads them (runtime.js
-    // feat()), and the view-model fields Core adds for them: the unread total
+    // The renderer's declared features, read as Core reads them (feat() in
+    // runtime-ext.js), and the view-model fields Core adds for them: the unread total
     // of a bottom menu (tabs), the search field (kbSearch) and the visitor's
     // first name (visitorName; the preview has no contact, so empty, as Core
     // without one). The default template declares none, so its preview is
@@ -860,7 +860,7 @@ export function WidgetLivePreview({
     }
 
     // A bottom menu's current tab and its unread badges, as Core marks them
-    // after every paint (runtime.js markActiveTab, paintTabBadges).
+    // after every paint (runtime-ext.js markActiveTab, paintTabBadges).
     if (feat('tabs')) {
       Array.prototype.forEach.call(panel.querySelectorAll('[data-view][aria-current]'), function (el) {
         el.setAttribute('aria-current', el.getAttribute('data-view') === GS_PREVIEW.shellVm.activeTab ? 'page' : 'false');

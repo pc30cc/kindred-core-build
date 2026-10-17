@@ -13,7 +13,11 @@
  *    the canonical name after a 404), holds its first paint on the skeleton
  *    until it is in, at most 1.5 s, and repaints with it when it is late.
  *  - Data Core mapped before the module was in (the thread list) still gets
- *    the module's fields.
+ *    the module's fields, also when the module comes after the 1.5 s wait.
+ *  - A template's descriptor says whether its renderer declares features
+ *    (`coreFeatures`): the bootstrap names the module for those templates
+ *    only, and the loader fetches it with their files
+ *    (src/test/widget/loaderOpenIntent.test.ts, templateCatalogConfig.test.ts).
  *
  * @vitest-environment jsdom
  */
@@ -21,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { boot, flush, resetWindow, type BaseRenderer, type Renderer } from './coreFeaturesHarness';
+import { CHAT_WIDGET_TEMPLATES } from '../../../shared/widgetTemplates';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const RUNTIME = read('public/widget/runtime.js');
@@ -63,6 +68,27 @@ describe('runtime.js and runtime-ext.js agree', () => {
       'paintChatHeader', 'startConversationWith', 'recSendWhenReady', 'data-kb-category', 'data-tab-badge',
       'data-emoji-tab', 'data-prechat-skip', 'data-rec-send', 'data-vn-rate', 'data-home-ask',
     ]) expect(RUNTIME.includes(name), name).toBe(false);
+  });
+});
+
+describe('which templates build on the module', () => {
+  it('a descriptor\'s `coreFeatures` is exactly whether its renderer declares features', () => {
+    const w = window as unknown as Record<string, unknown>;
+    w.MediaRecorder = function () {};
+    new Function(read('public/widget/presentation-registry.js')).call(window);
+    const registry = w.__gs_presentation_registry as { resolve: (id: string) => { globalKey: string } };
+    const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].coreFeatures)).toEqual(['t1', 't2']);
+    for (const id of ids) {
+      new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
+      const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => Record<string, unknown> };
+      const r = mod.create({
+        t: (k: string) => k, escapeHtml: (v: unknown) => String(v), linkifyHtml: (v: unknown) => String(v), linkLabel: '',
+        config: { templateId: id }, locale: 'fa', primaryColor: '#3B82F6',
+        capabilities: { kbNeutral: true, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false },
+      });
+      expect(!!r.features, id).toBe(CHAT_WIDGET_TEMPLATES[id].coreFeatures);
+    }
   });
 });
 
@@ -122,6 +148,22 @@ describe('loading the module', () => {
     h.releaseExt();
     await vi.advanceTimersByTimeAsync(50);
     expect(h.q('[data-greeting]')!.textContent).toBe('علی');
+  });
+
+  it('a module later than the wait still gets what Core saw meanwhile: the thread list carries its fields', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const h = boot({
+      renderer: named({ conversationOperator: true }),
+      ext: 'hold',
+      conversations: [{ id: 'c1', status: 'resolved', outbound: true, operatorName: 'سارا', operatorOnline: true }],
+    });
+    await vi.advanceTimersByTimeAsync(1600);
+    const first = h.lastCall('homeHtml')![0] as { conversations: Array<Record<string, unknown>> };
+    expect(first.conversations[0]).not.toHaveProperty('operatorName');
+    h.releaseExt();
+    await vi.advanceTimersByTimeAsync(50);
+    const row = (h.lastCall('homeHtml')![0] as { conversations: Array<Record<string, unknown>> }).conversations[0];
+    expect(row).toMatchObject({ id: 'c1', lastFromVisitor: true, operatorName: 'سارا', operatorOnline: true });
   });
 
   it('a thread list that arrived before the module still carries its fields', async () => {

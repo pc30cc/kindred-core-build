@@ -331,7 +331,10 @@ caching, pure renderers, size budgets), enforced for every descriptor by
 2. Describe it in `shared/widgetTemplates.ts` (`CHAT_WIDGET_TEMPLATES` /
    `CALL_WIDGET_TEMPLATES`) and add the same entry to the browser registry
    (`public/widget/presentation-registry.js`; the call widget registers in its
-   presentation script).
+   presentation script). A chat renderer that declares Core features
+   (`features` from `create()`) has `coreFeatures: true`: /config then names
+   Core's lazy module runtime-ext.js for it (`modules.ext`) and the loader
+   fetches it with the template's files (WIDGET_TEMPLATE_RULES.md §2).
 3. Offer it to an edition in `EDITION_*_TEMPLATES` (`offered`), and make it
    the edition's `default` if it should be worn without a choice. The call
    widget settings page lists `offered`; `PUT /api/call-center/settings`

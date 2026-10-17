@@ -65,18 +65,25 @@ templates: `docs/operations/EDITIONS.md`.
   does for `default` (search as you type, tab badges, a visible typing row,
   the home ask field, …) is declared by the renderer (`features` returned
   by `create()`) and lives in `public/widget/runtime-ext.js`, a lazy Core
-  module (ModuleLoader name `ext`, content-hashed like the other modules,
-  URL in `config.modules.ext`). Only a renderer that returns `features`
-  requests it, right after it is mounted, in parallel with the visitor's
-  identity and threads; its first paint holds the skeleton until the module
-  is in, at most 1.5 s (a failed request releases at once, a late module
-  repaints). runtime.js, which every visitor of every template downloads on
-  a first open, keeps only the hook points (`ext('<hook>', …)`, a no-op
-  without the module): never put feature code there
-  (`src/test/widget/runtimeExt.test.ts` checks both files agree, and that
-  `default` never requests the module). Sizes on 2026-10-17 (gzip 5, as
-  shipped): runtime.js 54.5 KB, of which the hook points are 0.7 KB (53.8
-  KB before the first features); runtime-ext.js 6.2 KB.
+  module (ModuleLoader name `ext`, content-hashed like the other modules).
+  The template's descriptor says so (`coreFeatures: true` in
+  `shared/widgetTemplates.ts`, checked against the renderer): /config then
+  names the module (`config.modules.ext`, for such a template only, so the
+  `default` and `intl` payloads are unchanged) and the loader requests it
+  in the same pass as the template's files (after runtime.js), so it is in
+  the browser's cache by init. runtime.js requests it again when such a
+  renderer is mounted (a cache hit; the request the loader did not make,
+  with the canonical-name retry) and holds that template's first paint on
+  the skeleton until it is in, at most 1.5 s (a failed request releases at
+  once, a late module repaints with what Core saw meanwhile). runtime.js,
+  which every visitor of every template downloads on a first open, keeps
+  only the hook points (`ext('<hook>', …)`, a no-op without the module):
+  never put feature code there (`src/test/widget/runtimeExt.test.ts` checks
+  both files agree, that `default` never requests the module and that the
+  descriptors match the renderers; `loaderOpenIntent.test.ts` the loader's
+  request). Sizes on 2026-10-17 (gzip 5, as shipped): runtime.js 54.5 KB,
+  of which the hook points are 0.7 KB (53.8 KB before the first features);
+  runtime-ext.js 6.2 KB; the loader's request 0.05 KB.
 - Every hashed file has a one-time canonical-name fallback in the code that
   loads it (loader, runtime modules, the call module, call widget l.js): keep
   it when you touch loading code. A retried `<script>` is a NEW element

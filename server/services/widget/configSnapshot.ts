@@ -64,7 +64,7 @@ import {
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, widgetAssetUrl } from './manifest.js';
 import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from './presentationAssets.js';
 import { readChatTemplateRows } from './templateCatalog.js';
-import { widgetDateHints } from '../../../shared/widgetTemplates.js';
+import { chatWidgetTemplate, widgetDateHints } from '../../../shared/widgetTemplates.js';
 import { resolveChatTemplateCatalog, resolveChatTemplateOptions, type ChatTemplateCatalog } from '../../../shared/chatTemplateCatalog.js';
 import { INTL_BRAND } from '../../../shared/internationalMode.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
@@ -1212,9 +1212,11 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     modules: {
       chat: assetUrl(chatModuleName),
       kb: assetUrl(kbModuleName),
-      // The renderer features: requested only by a template that declares
-      // some (`features` from its create()), never by `default` or `intl`.
-      ext: assetUrl(getWidgetAssetName('runtime-ext.js')),
+      // Core's renderer features (runtime-ext.js), named only for a template
+      // whose renderer declares some (shared/widgetTemplates.ts
+      // `coreFeatures`): the loader fetches it with that template's files.
+      // `default` and `intl` never get it, so their payload is as before.
+      ...(chatWidgetTemplate(templateId)?.coreFeatures ? { ext: assetUrl(getWidgetAssetName('runtime-ext.js')) } : {}),
       rt_resolver: assetUrl(getWidgetAssetName('runtime-rt-resolver.js')),
       rt_centrifugo: assetUrl(getWidgetAssetName('runtime-rt-centrifugo.js')),
       rt_supabase: assetUrl(getWidgetAssetName('runtime-rt-supabase.js')),

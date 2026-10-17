@@ -2294,6 +2294,20 @@
     };
     withHashFallback(script, runtimeJs, "src", document.head, function () { fail("js"); });
     document.head.appendChild(script);
+
+    // Core's optional module for a renderer that builds on it: /config names
+    // it (`modules.ext`) for such a template only. Fetched with the
+    // template's files (after runtime.js, which init() needs first), so
+    // runtime.js finds it in the cache; nothing here waits for it, and
+    // runtime.js requests it itself (canonical-name retry, short wait).
+    var extJs = configData.modules && configData.modules.ext;
+    if (extJs) {
+      var extScript = document.createElement("script");
+      extScript.src = extJs;
+      extScript.charset = "utf-8";
+      extScript.async = true;
+      document.head.appendChild(extScript);
+    }
   }
 
   // Smart Engagement — silent background preload.

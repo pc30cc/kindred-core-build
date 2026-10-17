@@ -409,8 +409,12 @@ button.cd:hover {
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 30px); mask-image: linear-gradient(to bottom, transparent 0, #000 30px);
 }
 .wy-chat-scroll:has(.welcome-only) { -webkit-mask-image: none; mask-image: none; }
-.messages { display: flex; flex-direction: column; margin-top: auto; }
-.messages.welcome-only { margin-top: 0; }
+.messages { display: flex; flex-direction: column; flex: 1 0 auto; }
+/* The away banner stays on top; the thread itself sits at the bottom. */
+.messages > .ban-row { display: none; margin-bottom: 18px; }
+.messages > .ban-row + * { margin-top: auto; }
+.wy-view-chat:has(.away) .ban-row { display: flex; }
+.wy-view-chat:has(.away) .wy-chat-scroll { -webkit-mask-image: none; mask-image: none; }
 .msg-day { display: flex; align-items: center; gap: 10px; margin: 4px 10px 14px; font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
 .msg-day::before, .msg-day::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .msg-row { display: flex; align-items: flex-end; gap: 8px; max-width: 86%; animation: wy-msg-in .24s var(--ease) both; }
@@ -573,7 +577,7 @@ button.cd:hover {
 .is-playing .wy-ap-ico-pause, .is-playing .vn-ico-pause { display: grid; }
 .wy-ap-spinner { display: none; position: absolute; inset: 4px; border-radius: 50%; border: 2px solid var(--a-3); border-top-color: var(--a); animation: wy-spin .8s linear infinite; }
 .msg-att-audio.is-loading .wy-ap-spinner { display: block; }
-.wy-ap-body { flex: 1; min-width: 0; }
+.wy-ap-body { flex: none; width: 100px; }
 .wy-ap-track, .vn-track { position: relative; height: 26px; cursor: pointer; container-type: inline-size; }
 .wy-ap-track::before, .wy-ap-progress::before, .vn-track::before, .vn-progress::before {
   content: ''; position: absolute; inset-block: 0; left: 0; width: 100%; background: var(--bars);
@@ -584,7 +588,7 @@ button.cd:hover {
 .wy-ap-progress, .vn-progress { position: absolute; inset-block: 0; left: 0; width: 0; overflow: hidden; color: var(--a); }
 .msg.visitor .wy-ap-progress { color: #fff; }
 .wy-ap-buffer, .wy-ap-knob, .wy-ap-rate, .wy-ap-dl { display: none; }
-.wy-ap-time { flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: .92; }
+.wy-ap-time { flex: none; margin-inline-start: auto; font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: .92; }
 
 /* ─── Composer: one box, emoji and attach at the start, one round action ─ */
 .cmp { flex: none; padding: 8px 12px 0; background: #fff; }
@@ -668,7 +672,7 @@ button.cd:hover {
 }
 .ep-h { margin: 0 6px 2px; font-size: 11.5px; font-weight: 700; line-height: 1.7; color: var(--ink-3); }
 .ep-row { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; margin-bottom: 2px; }
-.ep-e { display: grid; place-items: center; height: 38px; border-radius: 11px; font-size: 22px; line-height: 1; transition: background-color .12s, transform .16s var(--ease); }
+.ep-e { display: grid; place-items: center; height: 34px; border-radius: 10px; font-size: 19px; line-height: 1; transition: background-color .12s, transform .16s var(--ease); }
 .ep-e:hover { background: var(--bg-2); transform: scale(1.14); }
 .ep-e:active { background: var(--a-2); box-shadow: inset 0 0 0 1px var(--a-3); }
 
@@ -691,8 +695,8 @@ button.cd:hover {
 .pring { flex: none; width: 42px; height: 42px; padding: 2px; border-radius: 50%; background: var(--a-3); }
 .is-playing .pring { background: var(--a); }
 .pring .ra { box-shadow: 0 0 0 2px #fff; }
-.vn-track { flex: 1; height: 30px; margin-inline: 4px; color: var(--line-2); }
-.vn-time { flex: none; min-width: 34px; font-size: 13px; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.vn-track { flex: none; width: 92px; height: 30px; margin-inline: 4px; color: var(--line-2); }
+.vn-time { flex: none; margin-inline-start: auto; min-width: 34px; font-size: 13px; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .spd { flex: none; height: 24px; padding: 0 8px; border-radius: 8px; background: var(--bg-2); color: var(--ink-2); font-size: 14px; font-variant-numeric: tabular-nums; }
 
 /* ─── Forms ─────────────────────────────────────────────────────────── */

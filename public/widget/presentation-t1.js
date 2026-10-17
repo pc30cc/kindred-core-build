@@ -319,12 +319,14 @@
         return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit' });
       } catch (_) { return ''; }
     }
-    /** When the team is back ("9:00", or "Saturday 9:00" beyond today). */
+    /** When the team is back ("from 9:00"). */
     function awayLine(iso) {
-      var o = { hour: 'numeric', minute: '2-digit' };
-      if (iso && dayKeyOf(iso) !== dayKeyOf(new Date())) o.weekday = 'long';
-      var time = iso ? fmtDate(iso, o) : '';
+      var time = iso ? fmtDate(iso, { hour: 'numeric', minute: '2-digit' }) : '';
       return time ? fill(L('backAt'), { time: time }) : tf('homeReplySlow', L('away'));
+    }
+    /** The "team is away" banner with when it is back. */
+    function banHtml(cls, sub) {
+      return '<div class="ban' + cls + '"><span class="lt">' + svg(D.moon, 18) + '</span><span><b>' + esc(L('awayT')) + '</b><small>' + esc(sub) + '</small></span></div>';
     }
     function relTime(iso) {
       var days = Math.round((Date.now() - new Date(iso).getTime()) / 864e5);
@@ -520,14 +522,14 @@
       var total = Math.ceil(ms / 1000);
       var m = Math.floor(total / 60);
       var s = total % 60;
-      return t('ciTimeLeft').replace('{time}', total < 60 ? t('ciSeconds').replace('{s}', total)
-        : (s ? t('ciMinutesSeconds') : t('ciMinutes')).replace('{m}', m).replace('{s}', s));
+      return digits(t('ciTimeLeft').replace('{time}', total < 60 ? t('ciSeconds').replace('{s}', total)
+        : (s ? t('ciMinutesSeconds') : t('ciMinutes')).replace('{m}', m).replace('{s}', s)));
     }
 
     function fmtCallDuration(seconds) {
       var s = Math.max(0, Math.floor(Number(seconds) || 0));
       function pad(n) { return (n < 10 ? '0' : '') + n; }
-      return (s >= 3600 ? pad(Math.floor(s / 3600)) + ':' : '') + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60);
+      return digits((s >= 3600 ? pad(Math.floor(s / 3600)) + ':' : '') + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60));
     }
 
     function systemPillHtml(icon, text) {
@@ -563,7 +565,7 @@
       var status = meta.status || 'pending';
       var inviteId = esc(meta.invitation_id || '');
       var headline = String(t('ciHeadline' + (video ? 'Video' : 'Audio') + (meta.operator_name ? 'From' : '')))
-        .replace('{op}', esc(meta.operator_name || ''));
+        .replace('{op}', meta.operator_name || '');
       var icon = video
         ? svg('<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>', 20, 2)
         : svg(P('M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z'), 20, 2);
@@ -574,7 +576,7 @@
           var delta = new Date(meta.expires_at).getTime() - new Date(msg.createdAt || Date.now()).getTime();
           if (delta > 0) wait = Math.max(1, Math.round(delta / 60000));
         }
-        var waitLine = wait === 1 ? t('ciWaitOneMinute') : wait > 1 ? String(t('ciWaitMinutes')).replace('{m}', wait) : '';
+        var waitLine = wait === 1 ? t('ciWaitOneMinute') : wait > 1 ? String(t('ciWaitMinutes')).replace('{m}', digits(wait)) : '';
         body = '<div class="ci-body"><div>' + esc(t(video ? 'ciBodyVideo' : 'ciBodyAudio')) + '</div>' +
             (waitLine ? '<div class="ci-wait">' + esc(waitLine) + '</div>' : '') + '</div>' +
           '<div class="ci-meta ci-countdown" aria-live="polite"><span class="ci-pulse" aria-hidden="true"></span>' +
@@ -656,7 +658,7 @@
       return { name: ai.agentName || '', avatar: ai.agentLogoUrl || '' };
     }
     function pendingRow(cls, who, inner, meta) {
-      return '<div class="msg-row operator is-last ' + cls + '">' + avatarHtml(who, 's28') +
+      return '<div class="msg-row operator is-last ' + cls + '">' + avatarHtml(who, 's28 msg-avatar') +
         '<div class="msg-col"><div class="msg-line"><div class="msg operator typing-bubble">' +
           '<span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>' + inner + '</div></div>' +
           (meta ? '<div class="msg-footline"><div class="msg-meta">' + esc(meta) + '</div></div>' : '') + '</div></div>';
@@ -688,7 +690,8 @@
       var rrCfg = config.readReceipts;
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
       var msgs = s.messages || [];
-      var html = '<div class="messages">';
+      // Shown by the stylesheet only while the header says the team is away.
+      var html = '<div class="messages">' + banHtml(' ban-row', awayLine((config.availability || {}).next_open_at));
       // A run = consecutive messages of one author on one day; system rows break runs.
       var keys = msgs.map(function (m, i) {
         if (isSystemRow(m)) return 's' + i;
@@ -829,7 +832,7 @@
           '<div class="hc-card fcard" dir="' + dir + '" role="group" aria-label="' + esc(L('details')) + '">' +
             '<h4 class="hc-title"><span class="lt">' + svg(D.person, 15, 1.9) + '</span>' + esc(L('details')) + '</h4>' +
             '<div class="prechat-fields hc-fields">' + fieldsHtml + '</div>' +
-            '<button type="button" class="btn btn-p sm hc-submit" data-prechat-submit>' + esc(tf('homeStartChat', t('continue'))) + '</button>' +
+            '<button type="button" class="btn btn-p sm hc-submit" data-prechat-submit>' + esc(tf('homeStartChat', t('continue'))) + SEND + '</button>' +
             (any ? '' : '<button type="button" class="hc-skip" data-prechat-skip>' + esc(L('skip')) + '</button>') +
             '<p class="priv">' + svg(D.lock, 12, 2) + esc(L('privShort')) + '</p>' +
           '</div>' +
@@ -846,7 +849,7 @@
       }).map(function (r) {
         return '<div class="rw"><span>' + esc(r[1]) + '</span><b' + (r[0] === 'name' ? '' : ' dir="ltr"') + '>' + esc(contact[r[0]]) + '</b></div>';
       }).join('');
-      return '<div class="msg-row system sum-row"><div class="sum" role="group" aria-label="' + esc(L('saved')) + '">' +
+      return rows && '<div class="msg-row system sum-row"><div class="sum" role="group" aria-label="' + esc(L('saved')) + '">' +
         '<div class="sh2">' + svg(D.okc, 16, 2.2) + '<span>' + esc(L('saved')) + '</span>' +
           '<button type="button" class="sum-edit" data-prechat-edit>' + esc(L('edit')) + '</button></div>' + rows +
       '</div></div>';
@@ -893,8 +896,7 @@
       return viewRoot('wy-view-fallback prechat fallback') +
         headHtml('', backButtonHtml('home'), whoHtml(wsAvatar('s40', false), workspaceName, L('awayEmail'))) +
         '<div class="wy-scroll wy-body-pad fm">' +
-          '<div class="ban"><span class="lt">' + svg(D.moon, 18) + '</span><span><b>' + esc(L('awayT')) + '</b>' +
-            '<small>' + esc(nextOpen ? awayLine(nextOpen) : intro) + '</small></span></div>' +
+          banHtml('', nextOpen ? awayLine(nextOpen) : intro) +
           (nextOpen ? '<p class="prechat-intro">' + esc(intro) + '</p>' : '') +
           '<div class="prechat-fields">' + fieldsHtml + '</div>' +
           '<div class="fm-end"><button type="button" class="btn btn-p prechat-submit" data-fb-submit>' + esc(t('fallbackSubmit')) + SEND + '</button>' +
@@ -938,8 +940,8 @@
       vm = vm || {};
       var op = vm.operator && vm.operator.name ? vm.operator : null;
       var online = !!vm.online;
-      var status = vm.typing ? L('typingNow') : online ? L('online') + ' · ' + replyText() : L('awayEmail');
-      return backButtonHtml('home') + (vm.isNew
+      var status = online ? L('online') + ' · ' + replyText() : L('awayEmail');
+      return (online ? '' : '<i class="away" hidden></i>') + backButtonHtml('home') + (vm.isNew
         ? whoHtml('', tf('wyNewConversation', 'New conversation'), workspaceName)
         : whoHtml(op ? avatarHtml(op, 's40', op.online != null ? !!op.online && online : online) : wsAvatar('s40', online),
           op ? op.name + (workspaceName ? ' · ' + workspaceName : '') : workspaceName, status)) +
@@ -1338,7 +1340,8 @@
     }
     /** A real view as its own skeleton: same boxes, nothing focusable or announced. */
     function inert(html) { return html.replace('<div class="wy-view ', '<div inert aria-hidden="true" class="wy-skeleton wy-view '); }
-    // The real menu and footer: identical boxes, and the menu already works.
+    // Most skeletons are the real view made inert (identical boxes, nothing
+    // focusable or announced); the thread is drawn as placeholder bubbles.
     function skeletonHtml(view, vm) {
       vm = vm || {};
       var comp = vm.composer || {};

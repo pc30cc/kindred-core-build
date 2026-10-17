@@ -136,6 +136,8 @@ interface Fixture {
   qna: string[];
   /** POST /api/widget/message answers 500 (a send that fails). */
   messageFails?: boolean;
+  /** A state's own help center (categories, articles, search answers, article body); default the shared one. */
+  kb?: { categories: unknown[]; articles: Array<Record<string, unknown>>; search: Record<string, unknown[]>; body?: string };
 }
 
 function baseFixture(): Fixture {
@@ -191,6 +193,8 @@ interface StateSpec {
   home?: boolean;
   setup?: (f: Fixture) => void;
   drive?: (c: Ctx) => Promise<void>;
+  /** Shoot with the focus the drive left (a design drawn focused); default blurred. */
+  keepFocus?: boolean;
 }
 
 const inst = (page: Page, js: string) => page.evaluate(`(function(i){ ${js} })(window.__inst)`);
@@ -263,7 +267,11 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await newConversation(page);
       await page.locator('[data-mic-btn]').click();
       await pause(page, 1600);
-      await page.locator('[data-rec-stop]').click();
+      // A renderer that sends straight from the recorder (`recSend`) keeps
+      // `data-rec-stop` hidden: there is no preview to show, so it is shot
+      // while recording instead of timing out on a hidden button.
+      const stop = page.locator('[data-rec-stop]');
+      if (await stop.isVisible()) await stop.click();
       await pause(page, 900);
     },
   },
@@ -456,17 +464,18 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
     if (p.includes('/api/widget/ai-agent/qna-suggestions')) {
       return json({ questions: fixture.qna.map((question, i) => ({ id: `q${i}`, question })) });
     }
-    if (p.includes('/api/widget/kb/categories')) return json({ locale, categories: CATEGORIES, articles: ARTICLES });
+    const kb = fixture.kb || { categories: CATEGORIES, articles: ARTICLES, search: SEARCH, body: ARTICLE_BODY };
+    if (p.includes('/api/widget/kb/categories')) return json({ locale, categories: kb.categories, articles: kb.articles });
     if (p.includes('/api/widget/kb/article')) {
       const slug = url.searchParams.get('slug');
-      const a = ARTICLES.find((x) => x.slug === slug);
+      const a = kb.articles.find((x) => x.slug === slug);
       return a
-        ? json({ article: { ...a, content: ARTICLE_BODY, updated_at: at(10, 0, 3) } })
+        ? json({ article: { ...a, content: kb.body || ARTICLE_BODY, updated_at: at(10, 0, 3) } })
         : json({ error: 'not_found' }, 404);
     }
     if (p.includes('/api/widget/kb/search')) {
       const q = (url.searchParams.get('q') || '').trim();
-      return json({ locale, q, results: SEARCH[q] || [] });
+      return json({ locale, q, results: kb.search[q] || [] });
     }
     if (p.includes('/api/')) return json({});
     return route.fulfill({ status: 200, contentType: 'text/html', body: hostPage(fontsFile, locale) });
@@ -610,7 +619,7 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
     }, undefined, { timeout: 10_000 }).catch(() => undefined);
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     // No focus ring from open()'s own focus (the designs show none).
-    await page.evaluate(() => {
+    if (!spec.keepFocus) await page.evaluate(() => {
       const shadow = document.getElementById('gs-host')?.shadowRoot;
       const active = shadow && (shadow.activeElement as HTMLElement | null);
       if (active && typeof active.blur === 'function') active.blur();

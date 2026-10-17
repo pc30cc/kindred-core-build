@@ -9,10 +9,11 @@
  * decision continues to flow through `resolveRealtimeProvider()` until the
  * Phase 6B failover engine is wired in.
  */
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { getClientIp } from '../utils/clientIp.js';
 import {
   loadControlPlane,
   saveControlPlane,
@@ -25,14 +26,17 @@ import { resolveRealtimeProvider, loadRealtimeConfig } from '../services/realtim
 import { loadFailoverState } from '../services/realtime/failoverState.js';
 import { runFailoverTickOnce } from '../services/realtime/failoverTicker.js';
 import { recordRealtimeProviderAudit } from '../services/realtime/providerAudit.js';
-import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import { requirePlatformAdmin, serverConfigOf } from '../lib/workspaceAuth.js';
+import { errorMessage } from '../lib/errorMessage.js';
 
 export const realtimeControlRouter = Router();
 
-async function requireAdmin(req: any, res: any, next: any) {
+type AdminRequest = Request & { adminUser?: { id: string } };
+
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const userId = await requirePlatformAdmin(req, res);
   if (!userId) return;
-  (req as any).adminUser = { id: userId };
+  (req as AdminRequest).adminUser = { id: userId };
   next();
 }
 
@@ -79,7 +83,7 @@ function categorizeAction(diff: Record<string, unknown>): string {
  */
 realtimeControlRouter.get('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const [settings, resolved, provider] = await Promise.all([
       loadControlPlane(config, true),
       resolveRealtimeProvider(config, { skipHealth: true }),
@@ -96,9 +100,9 @@ realtimeControlRouter.get('/', async (req, res) => {
         fallback_policy: resolved.fallback_policy,
       },
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/admin/control GET]', err);
-    res.status(500).json({ error: err.message || 'Internal error' });
+    res.status(500).json({ error: errorMessage(err) || 'Internal error' });
   }
 });
 
@@ -109,8 +113,8 @@ realtimeControlRouter.get('/', async (req, res) => {
  */
 realtimeControlRouter.put('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const adminUser = (req as any).adminUser;
+    const config: ServerConfig = serverConfigOf(req);
+    const adminUser = (req as AdminRequest).adminUser!;
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
       return res
@@ -129,16 +133,13 @@ realtimeControlRouter.put('/', async (req, res) => {
         vendor: (next.realtime_provider_lock ?? null) as RealtimeProviderId | null,
         config_diff: diff,
         result: 'success',
-        ip_address:
-          (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-          req.socket.remoteAddress ||
-          null,
+        ip_address: getClientIp(req),
       });
     }
     res.json({ ok: true, settings: next });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[realtime/admin/control PUT]', err);
-    res.status(500).json({ error: err.message || 'Internal error' });
+    res.status(500).json({ error: errorMessage(err) || 'Internal error' });
   }
 });
 
@@ -149,7 +150,7 @@ realtimeControlRouter.put('/', async (req, res) => {
  */
 realtimeControlRouter.get('/audit', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     const { data, error } = await sb
       .from('realtime_provider_audit')
@@ -169,8 +170,8 @@ realtimeControlRouter.get('/audit', async (req, res) => {
       .limit(50);
     if (error) return res.status(500).json({ error: error.message });
     res.json({ entries: data ?? [] });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(500).json({ error: errorMessage(err) || 'Internal error' });
   }
 });
 
@@ -180,7 +181,7 @@ realtimeControlRouter.get('/audit', async (req, res) => {
  */
 realtimeControlRouter.get('/failover', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const [policy, state] = await Promise.all([
       loadControlPlane(config, true),
       loadFailoverState(config, true),
@@ -209,8 +210,8 @@ realtimeControlRouter.get('/failover', async (req, res) => {
       last_health: state.last_health,
       last_evaluated_at: state.last_evaluated_at,
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Internal error' });
+  } catch (err) {
+    res.status(500).json({ error: errorMessage(err) || 'Internal error' });
   }
 });
 
@@ -221,11 +222,11 @@ realtimeControlRouter.get('/failover', async (req, res) => {
  */
 realtimeControlRouter.post('/failover/evaluate', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     await runFailoverTickOnce(config);
     const state = await loadFailoverState(config, true);
     res.json({ ok: true, effective_provider: state.effective_provider });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Evaluation failed' });
+  } catch (err) {
+    res.status(500).json({ error: errorMessage(err) || 'Evaluation failed' });
   }
 });

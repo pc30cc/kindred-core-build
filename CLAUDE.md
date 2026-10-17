@@ -112,6 +112,14 @@ catch-all), so plugin events and webhooks are retried.
 Never change `PLATFORM_SIGNING_SECRET` or `PLUGIN_SECRETS_MASTER_KEY`;
 `DATABASE_URL` and `DATABASE_MODE` are set and removed together.
 
+Client IP: Cloudflare is in front of the app/api hosts, but the origin is
+also reachable directly. The backends believe `cf-connecting-ip` only when the
+hop Traefik saw is a Cloudflare address (`server/utils/clientIp.ts`, which is
+also `req.ip`). Never give coolify-proxy (Traefik) `forwardedHeaders.insecure`
+or private ranges in `forwardedHeaders.trustedIPs`, and keep
+`TRUSTED_PROXY_IPS` unset. Details: `docs/operations/WIDGET_CONFIG_CACHE.md`,
+"Client IP".
+
 ### Disk
 
 The root disk (72G, Docker included) holds about 50G after a cleanup. A

@@ -348,8 +348,8 @@ export interface OwnedConversation {
 /**
  * Rate-limit bucket key: the client address, an IPv6 one as its /56 (like the
  * express-rate-limit layers, so a host cannot rotate through the addresses of
- * its own /64), or a shared 'unknown' bucket. It is only as trustworthy as
- * getClientIp: see "Client IP behind a CDN" in WIDGET_CONFIG_CACHE.md.
+ * its own /64), or a shared 'unknown' bucket. getClientIp is the same answer
+ * as req.ip: see "Client IP" in WIDGET_CONFIG_CACHE.md.
  */
 function rateLimitIpKey(req: Request): string {
   const ip = resolveClientIp(req);

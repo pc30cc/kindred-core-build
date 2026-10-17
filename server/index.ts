@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { primePlatformOrigins, isAllowedOrigin } from './services/platformOrigins.js';
 import { loadConfig, type ServerConfig } from './config.js';
+import { installClientIpGetter } from './utils/clientIp.js';
 import { jsonBodyParser } from './middleware/bodyParsers.js';
 import { startCacheBusListener, stopCacheBusListener } from './lib/cacheBus.js';
 import { widgetRouter } from './routes/widget.js';
@@ -174,9 +175,16 @@ const app = express();
 // Override with TRUST_PROXY when the origin is reached over a public address
 // by a known edge (e.g. a Cloudflare Tunnel-less setup): set it to that
 // proxy's IP / CIDR list. Never use `true` — it trusts every hop blindly.
-// Additionally, `TRUSTED_PROXY_IPS` (see server/utils/clientIp.ts) controls
-// which peers may set cf-connecting-ip / x-forwarded-for / cf-ipcountry.
+// `trust proxy` still decides req.protocol / req.hostname; the client
+// address is server/utils/clientIp.ts getClientIp (TRUSTED_PROXY_IPS,
+// CLOUDFLARE_IPS), installed as req.ip below.
 app.set('trust proxy', process.env.TRUST_PROXY || 'loopback, linklocal, uniquelocal');
+
+// req.ip = getClientIp: cf-connecting-ip only when the hop Traefik saw is a
+// Cloudflare address, else that hop itself. One identity for every limiter,
+// the IP blocklist, brute-force counters and audit rows, which a client that
+// reaches the origin directly cannot choose.
+installClientIpGetter(app);
 
 // Security headers
 app.use(helmet());

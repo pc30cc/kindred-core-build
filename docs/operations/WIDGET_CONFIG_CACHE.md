@@ -185,38 +185,72 @@ trip and a single point of failure in front of every request. Size the process
 ceilings for one process; route by client IP at the balancer if exactness per
 address is ever needed.
 
-### Client IP behind a CDN (open question)
+### Client IP (Cloudflare in front, origin reachable directly)
 
-Known since 2026-10-17: `api.webyar.ai` answers through Cloudflare
-(`server: cloudflare`, a `cf-ray` header), so `cf-connecting-ip` is the
-visitor for requests that come through it. Every per-address budget in
-`widgetRateLimit` and `takeNewVisitorSession` keys on `getClientIp`, so it
-holds only for clients that cannot reach the origin (192.99.68.134) without
-Cloudflare: one that can sends its own `cf-connecting-ip` and picks a fresh
-bucket per request (as before this change). Locking the origin to Cloudflare
-(a firewall rule on 443 allowing only Cloudflare's ranges, or Authenticated
-Origin Pulls) closes that for every layer at once; it is an infrastructure
-change for the owner.
+Every layer uses ONE client address: `server/utils/clientIp.ts` `getClientIp`,
+installed as Express's `req.ip` (`installClientIpGetter`, server/index.ts). So
+the express-rate-limit layers, the IP blocklist, brute-force counters, captcha
+`remoteip`, audit rows, `widgetRateLimit`, `takeNewVisitorSession`, visitor
+`ip_hash` and geo all agree.
 
-The express-rate-limit layers and the IP blocklist key on Express's `req.ip`,
-which follows `trust proxy` (`TRUST_PROXY`, default `loopback, linklocal,
-uniquelocal`). `widgetRateLimit` keys on `utils/clientIp.ts` `getClientIp`,
-which believes `cf-connecting-ip` from **any private peer** (and
-`TRUSTED_PROXY_IPS`). This repo cannot tell which is right in production:
-
-- **Is Cloudflare in front of `api.webyar.ai` and `api.respok.app`, and what are
-  `TRUST_PROXY` / `TRUSTED_PROXY_IPS` on apps 25 and 32?** If Cloudflare proxies
-  them and `TRUST_PROXY` does not list Cloudflare's ranges, `req.ip` is a
-  Cloudflare edge address: every visitor behind one edge shares one per-IP
-  bucket (the raised caps soften that, they do not fix it) and an IP block of a
-  visitor's address never matches.
-- Switching `req.ip` to `getClientIp` is **not** the fix: a client that reaches
-  the origin (192.99.68.134) through Traefik directly, without Cloudflare, could
-  then choose its own bucket by sending `cf-connecting-ip`.
-- The fix, once the answer is known: either set `TRUST_PROXY` to Cloudflare's
-  published ranges (plus the private ranges) so `req.ip` becomes the visitor,
-  or lock the origin to Cloudflare and only then honour `cf-connecting-ip`, for
-  every layer together.
+- The **edge** is the address that connected to our outermost proxy: the
+  socket peer when it is not ours, else X-Forwarded-For walked from the right
+  past our own hops (private addresses and `TRUSTED_PROXY_IPS`). Traefik
+  writes the TCP peer it saw there and drops whatever a client wrote, so a
+  client cannot forge it. X-Real-IP is read only from our own proxy that sent
+  no X-Forwarded-For at all (an nginx with just `X-Real-IP $remote_addr`), as
+  a plain client, never as a Cloudflare hop. A proxy in front of the backend
+  should append X-Forwarded-For (SELF_HOST_GUIDE.md's nginx sample does).
+- When the edge is a **Cloudflare address** (`CLOUDFLARE_IPS`, default the
+  ranges Cloudflare publishes, built into clientIp.ts), the client is
+  `cf-connecting-ip` and the country `cf-ipcountry` (Cloudflare's HTTP proxy
+  overwrites both). Any other edge IS the client, and cf-* headers are
+  ignored: a client that reaches the origin (192.99.68.134) without
+  Cloudflare can no longer choose its address or country. (Before 2026-10-17
+  `cf-connecting-ip` was believed from any private peer, i.e. from Traefik for
+  everyone, and `req.ip` was the Cloudflare edge, so all visitors behind one
+  edge shared the express-rate-limit buckets.)
+- A source range does not prove the request came through OUR zone: another
+  Cloudflare account's TCP passthrough (Spectrum, a paid add-on) comes from
+  Cloudflare and forwards the sender's own cf-* headers. Only Authenticated
+  Origin Pulls with our own certificate, or a secret header added by a
+  Transform Rule in the WebYar and RESPOK zones and checked by `getEdgeIp`,
+  closes that.
+- Limits that used to be shared by everyone behind one Cloudflare edge are
+  now one person's, so they are sized for one: `authRateLimiter` 5 a minute
+  (login, signup, captcha, brute-force check); `sessionActionRateLimiter` 30
+  a minute (logout, logout-all, impersonate and its stop, so they never spend
+  the login budget); `adminRateLimiter` 600 a minute (the admin dashboard
+  opens with about 13 queries and refetches them on focus). The brute-force
+  and abuse counters key on the same bucket as the limiters (an IPv6 address
+  as its /56).
+- Observed on vps-50cc1602 (2026-10-17): api.webyar.ai and api.respok.app are
+  behind Cloudflare and also reachable directly; Traefik (coolify-proxy) has no
+  `forwardedHeaders` settings, so it overwrites X-Forwarded-For / X-Real-Ip
+  with the peer and passes cf-* through. The pinned header shapes are in
+  `src/test/security/clientIp.test.ts`.
+- Requests through app.*/api/ (the frontend nginx's BACKEND_URL is
+  https://api.*, back through Cloudflare) and server-to-server calls through
+  the public hostnames arrive as the server's own address, 192.99.68.134
+  (RESPOK's: the same server). The SPAs call api.* directly, so browsers do
+  not use that path. Never block that address.
+- **Never** give Traefik `forwardedHeaders.insecure`, or private ranges in
+  `forwardedHeaders.trustedIPs`: a client's X-Forwarded-For would then
+  survive, and with a private TCP peer (docker-proxy hairpin) a forged
+  Cloudflare address in it would be believed. Keep `TRUSTED_PROXY_IPS` unset
+  (it is for our own proxies with a public address; never a CDN).
+- Cloudflare's ranges change rarely and with notice:
+  `.github/workflows/cloudflare-ips.yml` compares the built-in list with
+  api.cloudflare.com/client/v4/ips every Monday and fails when they drift.
+  Until a deploy, `CLOUDFLARE_IPS=default,<new range>` on the backends adds a
+  range. A missing range only makes its edges plain clients (one bucket per
+  edge, no country); nothing becomes spoofable.
+- Still open, infrastructure: the origin itself accepts direct connections. A
+  Traefik rule answering 403 to the Cloudflare-proxied hostnames when the
+  connection is not from Cloudflare (the grey-cloud livekit.* / turn.* hosts
+  and ACME on :80 must stay open) would close that for the apps outside this
+  repo too; it leaves the Spectrum path above open, which Authenticated
+  Origin Pulls closes as well. Owner's decision.
 
 ## IP blocklist
 

@@ -11,7 +11,8 @@
  * parser is how header-spoofing regressions get reintroduced.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import type { Request } from 'express';
 
 const { getClientIp } = await import('../../../server/utils/clientIp.js');
@@ -33,6 +34,25 @@ describe('no bespoke X-Forwarded-For/CF-Connecting-IP parsing outside the canoni
     });
   }
 
+  it('no server module but server/utils/clientIp.ts reads them (audit rows used to take the LEFT-most, client-chosen X-Forwarded-For entry)', () => {
+    const directRead = /headers\s*\[\s*['"](x-forwarded-for|cf-connecting-ip|x-real-ip|cf-ipcountry)['"]\s*\]|\.(get|header)\(\s*['"](x-forwarded-for|cf-connecting-ip|x-real-ip|cf-ipcountry)['"]/i;
+    const offenders = (readdirSync('server', { recursive: true }) as string[])
+      .map((f) => path.join('server', f))
+      .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f) && f !== path.join('server', 'utils', 'clientIp.ts'))
+      .filter((f) => directRead.test(readFileSync(f, 'utf8')));
+    expect(offenders).toEqual([]);
+  });
+
+  it('server/index.ts makes req.ip the canonical resolver, right after trust proxy', () => {
+    const src = readFileSync('server/index.ts', 'utf8');
+    const trust = src.indexOf("app.set('trust proxy'");
+    const install = src.indexOf('installClientIpGetter(app);');
+    expect(trust).toBeGreaterThan(0);
+    expect(install).toBeGreaterThan(trust);
+    // Nothing may read req.ip before it is installed: no app.use in between.
+    expect(src.slice(trust, install)).not.toMatch(/app\.use\(/);
+  });
+
   it('server/utils/clientIp.ts is the only module reading these headers directly', () => {
     const src = readFileSync('server/utils/clientIp.ts', 'utf8');
     expect(src).toContain("req.headers['cf-connecting-ip']");
@@ -41,7 +61,7 @@ describe('no bespoke X-Forwarded-For/CF-Connecting-IP parsing outside the canoni
 });
 
 describe('canonical resolver used at runtime: untrusted direct client cannot rotate rate-limit identity via spoofed headers', () => {
-  function req(overrides: Partial<Request> & { socket?: any } = {}): Request {
+  function req(overrides: { headers?: Record<string, string>; socket?: { remoteAddress: string } } = {}): Request {
     return {
       headers: {},
       socket: { remoteAddress: '185.23.45.67' }, // public "attacker" peer — untrusted
@@ -51,8 +71,8 @@ describe('canonical resolver used at runtime: untrusted direct client cannot rot
   }
 
   it('a direct (non-proxied) client cannot rotate its resolved IP via X-Forwarded-For', () => {
-    const a = getClientIp(req({ headers: { 'x-forwarded-for': '1.1.1.1' } } as any));
-    const b = getClientIp(req({ headers: { 'x-forwarded-for': '2.2.2.2' } } as any));
+    const a = getClientIp(req({ headers: { 'x-forwarded-for': '1.1.1.1' } }));
+    const b = getClientIp(req({ headers: { 'x-forwarded-for': '2.2.2.2' } }));
     // Untrusted peer → headers ignored entirely → both resolve to the real
     // socket peer, not the attacker-supplied header value.
     expect(a).toBe('185.23.45.67');
@@ -61,7 +81,7 @@ describe('canonical resolver used at runtime: untrusted direct client cannot rot
   });
 
   it('a direct client cannot rotate its resolved IP via CF-Connecting-IP either', () => {
-    const a = getClientIp(req({ headers: { 'cf-connecting-ip': '3.3.3.3' } } as any));
+    const a = getClientIp(req({ headers: { 'cf-connecting-ip': '3.3.3.3' } }));
     expect(a).toBe('185.23.45.67');
   });
 
@@ -69,7 +89,7 @@ describe('canonical resolver used at runtime: untrusted direct client cannot rot
     const trustedPeerReq = req({
       socket: { remoteAddress: '10.0.0.5' }, // private bridge network → trusted proxy
       headers: { 'x-forwarded-for': '45.33.32.156' }, // genuinely public, non-reserved
-    } as any);
+    });
     expect(getClientIp(trustedPeerReq)).toBe('45.33.32.156');
   });
 });

@@ -46,6 +46,7 @@ const FA: Record<string, string> = {
   homeStartChat: 'شروع گفتگو', homeLeaveMessage: 'پیام بگذارید', homeReplySlow: 'به‌محض بازگشت پاسخ می‌دهیم',
   wyStatusOpen: 'باز', wyStatusResolved: 'حل شده', prechatOptional: 'اختیاری', intro: 'سلام! چطور کمکتان کنیم؟',
   msgFailed: 'ارسال نشد', msgSeen: 'دیده شد', msgSent: 'ارسال شد', back: 'بازگشت', close: 'بستن',
+  homeReplyFast: 'معمولاً در چند دقیقه پاسخ می‌دهیم', convLoadError: 'گفتگوها بارگذاری نشد', convRetry: 'تلاش دوباره',
 };
 
 const BASE_CONFIG: Vm = {
@@ -90,6 +91,13 @@ const IDENTITY = (asked: string[], required: string[] = []) => ({
 const now = new Date().toISOString();
 const msg = (over: Vm): Vm => ({ __id: 'm' + Math.random(), sender: 'operator', senderType: 'agent', body: 'hi', time: now, ...over });
 const FRAME = (r: Renderer, config: Vm = BASE_CONFIG) => r.chatFrameHtml({ chatEnabled: true, locale: 'fa', config });
+/** A bottom-menu tab's accessible name: the text of what its aria-labelledby names (hidden nodes included). */
+const tabName = (root: Element, view: string) => {
+  const tab = root.querySelector(`.wy-tab[data-view="${view}"]`)!;
+  expect(tab.hasAttribute('aria-label'), 'a frozen aria-label overrides the live badge').toBe(false);
+  return tab.getAttribute('aria-labelledby')!.split(' ')
+    .map((id) => root.querySelector('#' + id)!.textContent).filter(Boolean).join(' ');
+};
 
 beforeAll(load);
 
@@ -182,6 +190,79 @@ describe('t1: every hook the default renderer emits', () => {
   it('in the source, or drawn once rendered', () => {
     const ours = new Set([...hooks(T1_SRC), ...attrs(surfaces(make()))]);
     expect([...hooks(DEFAULT_SRC)].filter((h) => !ours.has(h))).toEqual([]);
+  });
+
+  it('per export and per element: what each default function draws, the same function here draws on the same element', () => {
+    const d = (window as unknown as Record<string, { create: (env: Vm) => Renderer }>).__gs_presentation_default.create({
+      t: (k: string) => k, escapeHtml, config: BASE_CONFIG, locale: 'fa', primaryColor: '#3B82F6',
+    });
+    const r = make();
+    const id = IDENTITY(['name', 'email', 'phone'], ['email']);
+    const conv = { id: 'c', status: 'open', preview: 'p', unreadCount: 2, timeLabel: 't' };
+    const qna = { questions: [{ question: 'a' }, { question: 'b' }, { question: 'c' }, { question: 'd' }], collapsedCount: 3 };
+    const inv = msg({ senderType: 'system', metadata: { kind: 'call_invitation', status: 'pending', channel: 'audio', invitation_id: 'x',
+      expires_at: new Date(Date.now() + 60_000).toISOString() } });
+    const thread = { aiThinking: true, messages: [
+      msg({ attachment: { id: 'i', kind: 'image', file_name: 'a.png' } }), msg({ attachment: { id: 'v', kind: 'audio' } }),
+      msg({ attachment: { id: 'f', kind: 'file', file_name: 'a.pdf' } }), msg({ senderType: 'ai', metadata: { source: 'ai_agent_intro' } }),
+      msg({ sender: 'visitor', senderType: 'contact', status: 'failed', localId: 'l1' }), inv,
+      msg({ senderType: 'system', metadata: { kind: 'call_ended', duration_seconds: 30 } }),
+      msg({ senderType: 'system', metadata: { kind: 'routing_agent_joined', agent_name: 'A' } }),
+      msg({ sender: 'visitor', senderType: 'contact', status: 'sending' }),
+    ] };
+    const calls: Record<string, unknown[][]> = {
+      shellHtml: [[{}]],
+      chatFrameHtml: [[{ chatEnabled: true, locale: 'fa', config: BASE_CONFIG }], [{ chatEnabled: false, locale: 'fa', config: BASE_CONFIG }]],
+      homeHtml: [[{ rtl: true, isOnline: true, kbEnabled: true, chatEnabled: true, articles: [{ slug: 'a', title: 'A' }], conversations: [conv],
+        smartSurface: { mode: 'home_card', title: 't', body: 'b', ctaLabel: 'c' } }],
+      [{ rtl: true, isOnline: false, chatEnabled: true, kbEnabled: true, conversations: [], conversationsError: true }]],
+      emptyHtml: [[{ qna }], [{}]],
+      messagesHtml: [[thread, '', { qna, typewriter: { id: 'tw', tokens: ['a', 'b'], revealedCount: 1 } }]],
+      aiThinkingRowHtml: [[]],
+      qnaChipsHtml: [[qna]],
+      messageAttachmentHtml: [[{ id: 'i', kind: 'image', file_name: 'a.png' }], [{ id: 'v', kind: 'audio' }], [{ id: 'f', kind: 'file', file_name: 'x.zip' }]],
+      callInvitationCardHtml: [[inv], [msg({ senderType: 'system', metadata: { kind: 'call_invitation', status: 'joined', channel: 'video', invitation_id: 'y' } })]],
+      callEndedRowHtml: [[thread.messages[6]]],
+      routingOutcomeRowHtml: [[thread.messages[7]]],
+      prechatFieldRowHtml: [[id, 'email', 'email', 'a@b.c'], [id, 'name', 'text', ''], [id, 'phone', 'tel', '']],
+      prechatFormHtml: [[id, {}, 'fa']],
+      handoffPrechatCardHtml: [[id, {}, 'fa', 'sub', true], [id, {}, 'fa', 'sub', false]],
+      contactFallbackHtml: [[id, {}, 'fa', {}]],
+      smartSurfaceHtml: [[{ title: 't', body: 'b', ctaLabel: 'c' }]],
+      conversationListHtml: [[{ conversations: [conv], chatEnabled: true }], [{ conversations: [], error: true, chatEnabled: true }], [{ loading: true }]],
+      conversationRowHtml: [[conv, true], [conv, false]],
+      kbHtml: [[{ state: 'article', article: { title: 'A', contentHtml: '<p>x</p>' }, feedback: { enabled: true } }],
+        [{ state: 'list', articles: [{ slug: 'a', title: 'A' }], categories: [] }], [{ state: 'results', query: 'x', results: [{ slug: 'r', title: 'R' }] }],
+        [{ state: 'results', query: 'x', results: [] }], [{ state: 'searching' }]],
+      kbSearchBarHtml: [[{ query: 'q' }]],
+      kbHomeHtml: [[{ articles: [{ slug: 'a', title: 'A' }] }], [{ articles: [] }]],
+      kbSearchResultsHtml: [[{ results: [{ slug: 'a', title: 'A' }] }], [{ results: [] }]],
+      kbArticleHtml: [[{ article: { title: 'A', contentHtml: '' } }]],
+      kbEmptyHtml: [[{}]],
+      kbLoadingHtml: [[{}]],
+      kbArticleFeedbackHtml: [[{ enabled: true, rating: null }]],
+      skeletonHtml: ['home', 'chat', 'list', 'help', 'article', 'prechat', 'articles']
+        .map((v) => [v, { chatEnabled: true, composer: { voiceNotes: true, attachments: true, emoji: true } }]),
+      connIndicatorHtml: [[]],
+    };
+    const drawn = (x: Renderer, name: string) => {
+      const out = new Set<string>();
+      for (const args of calls[name] || [[]]) {
+        for (const el of Array.from(parse(x[name](...args)).querySelectorAll('*'))) {
+          for (const a of Array.from(el.attributes)) if (a.name.startsWith('data-')) out.add(`${el.tagName.toLowerCase()}[${a.name}]`);
+        }
+      }
+      return out;
+    };
+    const exported = Object.keys(d).filter((k) => typeof d[k] === 'function');
+    // Every export is exercised here (a new one in default must be added).
+    expect(exported.filter((k) => !calls[k])).toEqual([]);
+    const missing: string[] = [];
+    for (const name of exported) {
+      const ours = drawn(r, name);
+      for (const h of drawn(d, name)) if (!ours.has(h)) missing.push(`${name}: ${h}`);
+    }
+    expect(missing).toEqual([]);
   });
 
   it('in the rendered surfaces, not only in the source', () => {
@@ -312,6 +393,16 @@ describe('t1: strings are escaped, addresses are allow-listed', () => {
     }
   });
 
+  it('puts a name into Core\'s sentences literally (no $& / $\' replacement patterns)', () => {
+    const own: Record<string, string> = { routingAgentJoined: '{name} پیوست', ciHeadlineAudioFrom: '{op} تماس می‌گیرد' };
+    const r = make({ t: (k: string) => own[k] ?? FA[k] ?? k });
+    const name = "A$'B$&C$`";
+    const joined = parse(r.routingOutcomeRowHtml(msg({ senderType: 'system', metadata: { kind: 'routing_agent_joined', agent_name: name } })));
+    expect(joined.querySelector('.msg-system-pill')!.textContent).toBe(name + ' پیوست');
+    const call = parse(r.callInvitationCardHtml(msg({ senderType: 'system', metadata: { kind: 'call_invitation', status: 'joined', channel: 'audio', operator_name: name } })));
+    expect(call.querySelector('.ci-title')!.textContent).toBe(name + ' تماس می‌گیرد');
+  });
+
   it('links the platform credit only to an http(s) address, and opens it safely', () => {
     const link = (url: string) => parse(make({ config: { poweredBy: { text: 'قدرت گرفته از', brand: 'P', url } } }).homeHtml({ rtl: true }))
       .querySelector('a.wy-powered');
@@ -349,6 +440,17 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(badge.textContent).toBe('۳');
       expect(badge.hasAttribute('hidden')).toBe(false);
       expect(parse(r().homeHtml({ rtl: true })).querySelector('[data-tab-badge]')!.hasAttribute('hidden')).toBe(true);
+      // Each tab is named by its label (hidden in some modes) and, for
+      // Messages, the badge Core patches in place (runtime.js paintTabBadges):
+      // the name follows the patch, it is not frozen at render time.
+      expect(['home', 'list', 'help'].map((v) => tabName(home, v))).toEqual(['خانه', 'پیام‌ها ۳', 'راهنما']);
+      badge.textContent = '';
+      badge.setAttribute('hidden', '');
+      expect(tabName(home, 'list')).toBe('پیام‌ها');
+      badge.textContent = '۹۹+';
+      expect(tabName(home, 'list')).toBe('پیام‌ها ۹۹+');
+      const ids = Array.from(home.querySelectorAll('[id]')).map((e) => e.id);
+      expect(new Set(ids).size).toBe(ids.length);
       expect(parse(r().conversationListHtml({})).querySelector('[data-view="list"]')!.getAttribute('aria-current')).toBe('page');
       expect(parse(r().kbHtml({ state: 'list' })).querySelector('[data-view="help"]')!.getAttribute('aria-current')).toBe('page');
       // Style and label mode come from the workspace's template options.
@@ -363,7 +465,7 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
     },
     kbSearch: () => {
       const h = parse(r().kbHtml({ state: 'list', query: '', articles: [] }));
-      expect(h.querySelector('input.kb-search[data-kb-search]')).not.toBeNull();
+      expect(h.querySelector('input.kb-search[data-kb-search]')!.getAttribute('aria-label')).toBe('جستجو در راهنما');
       // Only the results region repaints while typing; the field stays outside it.
       const res = parse(r().kbHtml({ state: 'results', query: 'x', results: [{ slug: 'a', title: 'x' }] }));
       expect(res.querySelector('[data-kb-results][data-state="results"] [data-kb-slug="a"]')).not.toBeNull();
@@ -581,7 +683,7 @@ describe('t1: skeletons wear the real surfaces', () => {
       ['wy-view-kb', 'kb-top', 'ttl', 'kb-search', 'wy-kb-scroll', 'kb-res', 'cd', 'ls', 'li', 'wy-tabs', 'pw']],
     ['article', () => r().skeletonHtml('article', { rtl: true }),
       () => r().kbHtml({ state: 'article', article: { title: 'A', contentHtml: '' }, feedback: { enabled: true } }),
-      ['wy-view-kb', 'kb-art', 'hd', 'wy-head-article', 'art', 'kb-article-body', 'kb-feedback', 'kb-rate', 'pw']],
+      ['wy-view-kb', 'kb-art', 'hd', 'wy-head-article', 'art', 'kb-article-body', 'kb-feedback', 'kb-rate', 'ask', 'pw']],
     ['prechat', () => r().skeletonHtml('prechat', { rtl: true, fields: 2 }), () => r().prechatFormHtml(IDENTITY(['name', 'email']), {}, 'fa'),
       ['wy-view-precontact', 'hd', 'who', 'fm', 'intro', 'prechat-fields', 'prechat-field', 'inp', 'fm-end', 'btn-p', 'priv', 'pw']],
   ];
@@ -614,6 +716,15 @@ describe('t1: skeletons wear the real surfaces', () => {
     expect(classes(r().skeletonHtml('chat', { chatEnabled: false })).has('composer-zone')).toBe(false);
   });
 
+  it('keep the article\'s ask card exactly when the real view draws it (the feedback bar does not jump)', () => {
+    const real = (x: Renderer) => parse(x.kbHtml({ state: 'article', article: { title: 'A', contentHtml: '' }, feedback: { enabled: true } }));
+    expect(parse(r().skeletonHtml('article', {})).querySelector('.cd.ask')).not.toBeNull();
+    expect(real(r()).querySelector('.cd.ask')).not.toBeNull();
+    const off = make({ config: { features: { chat: false, knowledgeBase: true } } });
+    expect(parse(off.skeletonHtml('article', {})).querySelector('.cd.ask')).toBeNull();
+    expect(real(off).querySelector('.cd.ask')).toBeNull();
+  });
+
   it('draw the home\'s article rows as empty bars, and fall back to home for an unknown view', () => {
     const home = parse(r().skeletonHtml('home', {}));
     expect(Array.from(home.querySelectorAll('.hc .li .lx')).every((x) => x.textContent === '')).toBe(true);
@@ -638,7 +749,7 @@ describe('t1: numbers in the visitor\'s digits', () => {
       articles: [{ slug: 'a', title: 'زمان ارسال' }], conversations: [{ id: 'c', status: 'open', unreadCount: 2, preview: 'p', operatorName: 'سارا' }] }));
     expect(home.querySelector('.rc .nb')!.textContent).toBe('۲');
     expect(home.querySelector('[data-tab-badge]')!.textContent).toBe('۱۲');
-    expect(home.querySelector('[data-view="list"]')!.getAttribute('aria-label')).toBe('پیام‌ها، ۱۲ خوانده‌نشده');
+    expect(tabName(home, 'list')).toBe('پیام‌ها ۱۲');
     expect(home.textContent).not.toMatch(/[0-9]/);
     const more = parse(r.qnaChipsHtml({ questions: [{ question: 'a' }, { question: 'b' }, { question: 'c' }, { question: 'd' }, { question: 'e' }] }));
     expect(more.querySelector('.qna-more-count')!.textContent).toBe('+۲');
@@ -767,6 +878,175 @@ describe('t1: direction, people, the workspace', () => {
     expect(status(tehran(9, 30))).toBe('از ساعت ۹:۳۰ صبح پاسخ می‌دهیم');
     // Other languages read the visitor's own clock.
     expect(status(new Date(2026, 9, 18, 9, 0).toISOString(), 'en')).toBe('We reply from 9 in the morning');
+  });
+});
+
+describe('t1: the workspace\'s reply-time note', () => {
+  const lines = (replyTimeText: unknown) => {
+    const r = make({ config: { replyTimeText } });
+    const text = (html: string, sel: string) => parse(html).querySelector(sel)!.textContent;
+    return {
+      header: text(r.chatHeaderHtml({ online: true, operator: null, isNew: false }), '.hs'),
+      team: text(r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true }), '.team .cs'),
+      cta: text(r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true, conversations: [{ id: 'c', preview: 'p' }] }), '.cta .cs'),
+      welcome: text(r.emptyHtml({}), '.wel p.on'),
+    };
+  };
+
+  it('the empty thread carries both status lines; the chat header\'s live presence picks one (Core repaints only the header)', () => {
+    const next = new Date(Date.UTC(2026, 9, 18, 5, 30)).toISOString();
+    const wel = parse(make({ config: { availability: { state: 'online', next_open_at: next } } }).emptyHtml({})).querySelector('.wel')!;
+    expect(wel.querySelector('p.on .live:not(.off)')).not.toBeNull();
+    expect(wel.querySelector('p.off .live.off')).not.toBeNull();
+    expect(wel.querySelector('p.off')!.textContent).toBe('از ساعت ۹ صبح پاسخ می‌دهیم');
+    expect(T1_CSS).toContain('.wel > .off, .wy-view-chat:has(.away) .wel > .on { display: none; }');
+    expect(T1_CSS).toContain('.wy-view-chat:has(.away) .wel > .off { display: flex; }');
+  });
+
+  it('a written note replaces the template\'s own everywhere', () => {
+    const n = 'معمولاً تا ۲ ساعت';
+    expect(lines(n)).toEqual({ header: 'آنلاین · ' + n, team: 'آنلاین · ' + n, cta: n, welcome: n });
+  });
+
+  it('a cleared note (\'\') is left out, never replaced by a default (migration 069: \'\' hides the line)', () => {
+    const online = { header: 'آنلاین', team: 'آنلاین', cta: 'آنلاین', welcome: 'آنلاین' };
+    expect(lines('')).toEqual(online);
+    expect(lines('   ')).toEqual(online);
+  });
+
+  it('the thread\'s away banner adds the note the workspace wrote after when the team is back (07·09), never the template\'s own', () => {
+    const nine = new Date(Date.UTC(2026, 9, 18, 9, 0) - 210 * 60_000).toISOString();
+    const ban = (replyTimeText: unknown, next: string | null = nine) => parse(make({ config: { replyTimeText, availability: { state: 'offline', next_open_at: next } } })
+      .messagesHtml({ messages: [msg({})] }, '', {})).querySelector('.ban-row small')!.textContent;
+    expect(ban('معمولاً تا ۲ ساعت')).toBe('از ساعت ۹ صبح پاسخ می‌دهیم · معمولاً تا ۲ ساعت');
+    expect(ban('')).toBe('از ساعت ۹ صبح پاسخ می‌دهیم');
+    expect(ban(null)).toBe('از ساعت ۹ صبح پاسخ می‌دهیم');
+    expect(ban('معمولاً تا ۲ ساعت', null)).toBe('به‌محض بازگشت پاسخ می‌دهیم · معمولاً تا ۲ ساعت');
+  });
+
+  it('a note never written reads the template\'s copy (Core\'s longer one in the welcome)', () => {
+    expect(lines(null)).toEqual({
+      header: 'آنلاین · پاسخ در چند دقیقه', team: 'آنلاین · پاسخ در چند دقیقه', cta: 'پاسخ در چند دقیقه', welcome: 'معمولاً در چند دقیقه پاسخ می‌دهیم',
+    });
+  });
+});
+
+describe('t1: the leave-a-message form', () => {
+  const ID = IDENTITY(['name', 'email']);
+  const next = new Date(Date.now() + 9 * 3600_000).toISOString();
+
+  it('says the team is away only when it is (Core also opens it when the monthly chat quota is full)', () => {
+    const r = make({ config: { availability: { state: 'offline', next_open_at: next } } });
+    const away = parse(r.contactFallbackHtml(ID, {}, 'fa', { status: 'offline', liveChatEnabled: true }));
+    expect(away.querySelector('.hs')!.textContent).toBe('آفلاین · پاسخ از طریق ایمیل');
+    expect(away.querySelector('.ban b')!.textContent).toBe('تیم ما الان آفلاین است');
+    expect(away.querySelector('.who .pr.off')).not.toBeNull();
+    // Quota full while the team is online: Core's quota wording, no offline claim.
+    const quota = parse(make().contactFallbackHtml(ID, {}, 'fa', { status: 'online', liveChatEnabled: true, introLabel: 'سقف گفتگوهای این ماه پر شده' }));
+    expect(quota.querySelector('.ban')).toBeNull();
+    expect(quota.querySelector('.hs')!.textContent).toBe('پیام بگذارید');
+    expect(quota.querySelector('.who .pr:not(.off)')).not.toBeNull();
+    expect(quota.querySelector('.prechat-intro')!.textContent).toBe('سقف گفتگوهای این ماه پر شده');
+    expect(quota.textContent).not.toContain('آفلاین');
+    // Live chat switched off by the team reads as away; no presence at all (older callers) too.
+    expect(parse(make().contactFallbackHtml(ID, {}, 'fa', { status: 'online', liveChatEnabled: false })).querySelector('.ban')).not.toBeNull();
+    expect(parse(make().contactFallbackHtml(ID, {}, 'fa')).querySelector('.ban')).not.toBeNull();
+  });
+});
+
+describe('t1: chat switched off', () => {
+  const ART = { state: 'article', article: { title: 'A', contentHtml: '' }, feedback: { enabled: true } };
+
+  it('draws no "switch to chat" control in the help views: Core ignores it there (runtime.js onSwitchToChat)', () => {
+    const off = make({ config: { features: { chat: false, knowledgeBase: true } } });
+    for (const html of [off.kbHtml(ART), off.kbEmptyHtml({}), off.kbHtml({ state: 'results', query: 'x', results: [] }), off.kbHtml({ state: 'list' })]) {
+      expect(parse(html).querySelector('[data-kb-action="switch-chat"]')).toBeNull();
+    }
+    // On, or never said (the dashboard preview sends no features): drawn.
+    for (const features of [{ chat: true }, {}, undefined]) {
+      const on = make({ config: { features } });
+      expect(parse(on.kbHtml(ART)).querySelector('.cd.ask[data-kb-action="switch-chat"]'), JSON.stringify(features)).not.toBeNull();
+      expect(parse(on.kbEmptyHtml({})).querySelector('[data-kb-action="switch-chat"]')).not.toBeNull();
+    }
+  });
+
+  it('home, messages and the chat view draw no chat control when Core says chat is off', () => {
+    const r = make({ config: { features: { chat: false } } });
+    const home = parse(r.homeHtml({ rtl: true, isOnline: true, chatEnabled: false, kbEnabled: true, conversations: [{ id: 'c', preview: 'p' }] }));
+    expect(home.querySelector('[data-home-action="chat"]')).toBeNull();
+    expect(home.querySelector('[data-conversation-open="c"]')).not.toBeNull();
+    expect(parse(r.conversationListHtml({ conversations: [], chatEnabled: false })).querySelector('[data-home-action="chat"]')).toBeNull();
+    const frame = parse(r.chatFrameHtml({ chatEnabled: false, locale: 'fa', config: BASE_CONFIG }));
+    expect(frame.querySelector('[data-msg-input], [data-send-btn], [data-chat-jump], [data-composer-zone]')).toBeNull();
+    expect(frame.querySelector('[data-chat-messages]')).not.toBeNull();
+    expect(parse(r.skeletonHtml('chat', { chatEnabled: false })).querySelector('.composer-zone')).toBeNull();
+  });
+});
+
+describe('t1: a sparse or odd configuration never throws', () => {
+  const configs: Array<Vm | undefined> = [
+    undefined, {}, { workspaceName: '', teamMembers: null }, { teamMembers: 'x' }, { teamMembers: [null, 1, 'a', {}, { name: 5 }, { name: '' }] },
+    { templateOptions: 'x' }, { templateOptions: { navStyle: 5, navMode: {}, topics: 'x' } }, { availability: { state: 'offline', next_open_at: 'garbage' } },
+    { aiAgent: { suppressGreeting: true } }, { welcomeMessage: 5, replyTimeText: 5 }, { poweredBy: { brand: 5, text: 5, url: 5, logo: 5 } },
+    { attachments: null, composer: null, readReceipts: null, features: null }, { logoUrl: 5 }, { calendar: 'gregorian', timeZone: 'Bad/Zone' },
+    { showLogo: false, showPoweredBy: false, features: { chat: false, knowledgeBase: false } },
+  ];
+  const ID = IDENTITY(['name', 'email', 'phone']);
+  const surfaces = (r: Renderer) => [
+    r.shellHtml(), r.chatFrameHtml(), r.chatFrameHtml({ chatEnabled: true, config: {} }), r.chatHeaderHtml(), r.chatHeaderHtml({ operator: {} }),
+    r.homeHtml(), r.homeHtml({ conversations: [{}], chatEnabled: true, kbEnabled: true, teamMembers: 'x', smartSurface: { mode: 'home_card' } }),
+    r.homeHtml({ chatEnabled: true, isOnline: false }), r.emptyHtml(), r.emptyHtml({ topics: [null, 'x', { label: 5 }], qna: {}, operatorTyping: {} }),
+    r.messagesHtml({}), r.messagesHtml({ messages: [{}, { sender: 'visitor' }, { senderType: 'system', metadata: { kind: 'call_invitation' } },
+      { senderType: 'system', metadata: { kind: 'call_ended' } }, { attachment: {} }, { attachment: { id: 'x' } }, { body: 5 }, { time: 'bad' }] }, '', {}),
+    r.aiThinkingRowHtml(), r.qnaChipsHtml(), r.messageAttachmentHtml(), r.callInvitationCardHtml({}), r.callEndedRowHtml({}),
+    r.routingOutcomeRowHtml({}), r.prechatFieldRowHtml(ID, 'name', 'text', undefined), r.prechatFormHtml(ID), r.handoffPrechatCardHtml(ID),
+    r.prechatSummaryHtml(), r.contactFallbackHtml(ID), r.smartSurfaceHtml({}), r.conversationListHtml(), r.conversationRowHtml(),
+    r.kbHtml(), ...['article', 'category', 'results', 'searching', 'list', 'zzz'].map((state) => r.kbHtml({ state })),
+    r.kbHtml({ state: 'list', categories: [null, {}, { id: 'a', count: 2 }] }), r.kbHtml({ state: 'article', article: { updatedAt: 'x' } }),
+    r.kbSearchBarHtml(), r.kbHomeHtml(), r.kbSearchResultsHtml(), r.kbArticleHtml(), r.kbEmptyHtml(), r.kbLoadingHtml(), r.kbArticleFeedbackHtml(),
+    ...['home', 'chat', 'list', 'help', 'article', 'prechat', 'x'].map((v) => r.skeletonHtml(v)), r.connIndicatorHtml(),
+  ];
+
+  for (const config of configs) {
+    it(JSON.stringify(config) ?? 'no config', () => {
+      for (const locale of ['fa', 'en', 'tr', undefined, 'FA-ir']) {
+        const w = window as unknown as Record<string, { create: (env?: Vm) => Renderer }>;
+        const r = w.__gs_presentation_t1.create({ config, locale });
+        for (const html of surfaces(r)) {
+          expect(typeof html).toBe('string');
+          expect(parse(html).textContent).not.toMatch(/undefined|NaN|\[object Object\]/);
+        }
+      }
+    });
+  }
+
+  it('without any environment at all', () => {
+    const w = window as unknown as Record<string, { create: (env?: Vm) => Renderer }>;
+    expect(() => surfaces(w.__gs_presentation_t1.create())).not.toThrow();
+  });
+});
+
+describe('t1: stylesheet details', () => {
+  it('mirrors in LTR: no physical side for an inline margin or padding', () => {
+    expect(T1_CSS).not.toMatch(/(margin|padding)-(left|right)\s*:/);
+    expect(T1_CSS).toContain('.msg.att-file { padding: 10px; padding-inline-end: 12px; }');
+  });
+
+  it('keeps a readable, shaped focus ring outside the views (no accent tokens there)', () => {
+    expect(T1_CSS).toContain('.att-lightbox :focus-visible, .gs-call-host :focus-visible { outline-color: #fff; }');
+    expect(T1_CSS).toMatch(/\.att-lightbox-close:focus-visible, \.gs-call-btn:focus-visible, \.gs-call-size:focus-visible \{ border-radius: 50%; \}/);
+    expect(T1_CSS).toContain('.smart-nudge :focus-visible { outline-color: var(--a-tx); }');
+  });
+
+  it('keeps reply and copy (Core\'s quote-reply) reachable on touch screens: shown for the tapped bubble, taps pass through until then', () => {
+    expect(T1_CSS).not.toMatch(/\.msg-actions \{ display: none/);
+    expect(T1_CSS).toMatch(/@media \(hover: none\) \{\s*\.msg-actions \{ pointer-events: none; \}\s*\.msg-line:hover \.msg-actions, \.msg-actions:focus-within \{ pointer-events: auto; \}/);
+    expect(T1_CSS).toContain('.msg-line:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }');
+  });
+
+  it('draws the played part of a voice track without container units too', () => {
+    expect(T1_CSS).toContain('.wy-ap-progress::before { width: 100px; width: 100cqw; }');
+    expect(T1_CSS).toContain('.vn-progress::before { width: 92px; width: 100cqw; }');
   });
 });
 

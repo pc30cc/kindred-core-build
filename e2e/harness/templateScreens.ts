@@ -648,6 +648,27 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: (f) => t1Thread(f, 'c-t1-phone'),
     drive: async ({ page }) => { await openThread(page, 'c-t1-phone'); },
   },
+  // Review checks (no panel): chat switched off (the article draws no ask
+  // card), the monthly chat quota full while the team is online (the form
+  // makes no "offline" claim), a reply-time note the workspace cleared.
+  't1-chat-off-article': {
+    home: true,
+    setup: (f) => {
+      f.config.features = { chat: false, knowledgeBase: true };
+      f.kb = { categories: CATEGORIES, articles: ARTICLES, search: SEARCH, body: T1_ARTICLE_BODY };
+    },
+    drive: async ({ page }) => { await inst(page, "i.setTab('help', 'track-order');"); await pause(page, 600); },
+  },
+  't1-quota-full': {
+    home: true,
+    setup: (f) => { f.config.availability = { state: 'online', liveChatEnabled: true, quota_full: true, next_open_at: null }; },
+    drive: async ({ page }) => {
+      await online(page);
+      await page.locator('[data-home-action="chat"]').first().click();
+      await pause(page, 400);
+    },
+  },
+  't1-reply-cleared': { home: true, setup: (f) => { f.config.replyTimeText = ''; } },
   // Template 2's panels (01–14) with their own demo content.
   't2-home-first-visit': { home: true, setup: t2Home },
   't2-home-returning': {

@@ -32,11 +32,11 @@
 
   // Copy this template adds (Core's own keys are read through `t`): one
   // '|'-separated string per language, in the order of COPY_KEYS.
-  var COPY_KEYS = 'msgs help nav unread all hi hiBack q team online reply away backAt note search searchAway recent newMsg type typing typingNow delivered retry b kb mb now teamOf cats connect introT introX priv privShort details locked saved edit skip phone mob awayEmail awayT helpQ count popular readT updated helpful yes no still talk'.split(' ');
+  var COPY_KEYS = 'msgs help nav all hi hiBack q team online reply away backAt note search searchAway recent newMsg type typing typingNow delivered retry b kb mb now teamOf cats connect introT introX priv privShort details locked saved edit skip phone mob awayEmail awayT helpQ count popular readT updated helpful yes no still talk'.split(' ');
   var DICT = {
-    fa: 'پیام‌ها|راهنما|بخش‌های ویجت|{label}، {n} خوانده‌نشده|همه گفتگوها|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از ساعت {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را به ایمیلتان می‌فرستیم و همین‌جا هم می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|پیام اخیر|ارسال پیام جدید|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|اگر از سایت رفتید، پاسخ را برایتان می‌فرستیم.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|موبایل|آفلاین · پاسخ از طریق ایمیل|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید',
-    en: 'Messages|Help|Widget sections|{label}, {n} unread|All conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; we will email you the reply and you will see it here too.|Search help|Your answer may be in our help|Recent message|Send a new message|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Connect to support|Before we start, introduce yourself|If you leave the site, we will send you the reply.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Mobile|Offline · reply by email|Our team is offline right now|Type your question…|{n} articles|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team',
-    tr: 'Mesajlar|Yardım|Widget bölümleri|{label}, {n} okunmamış|Tüm konuşmalar|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı e-postanıza göndeririz, burada da görürsünüz.|Yardımda ara|Yanıtınız yardımda olabilir|Son mesaj|Yeni mesaj gönder|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Siteden ayrılırsanız yanıtı size göndeririz.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Cep|Çevrimdışı · e-postayla yanıt|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun',
+    fa: 'پیام‌ها|راهنما|بخش‌های ویجت|همه گفتگوها|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از ساعت {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را به ایمیلتان می‌فرستیم و همین‌جا هم می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|پیام اخیر|ارسال پیام جدید|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|اگر از سایت رفتید، پاسخ را برایتان می‌فرستیم.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|موبایل|آفلاین · پاسخ از طریق ایمیل|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید',
+    en: 'Messages|Help|Widget sections|All conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; we will email you the reply and you will see it here too.|Search help|Your answer may be in our help|Recent message|Send a new message|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Connect to support|Before we start, introduce yourself|If you leave the site, we will send you the reply.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Mobile|Offline · reply by email|Our team is offline right now|Type your question…|{n} articles|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team',
+    tr: 'Mesajlar|Yardım|Widget bölümleri|Tüm konuşmalar|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı e-postanıza göndeririz, burada da görürsünüz.|Yardımda ara|Yanıtınız yardımda olabilir|Son mesaj|Yeni mesaj gönder|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Siteden ayrılırsanız yanıtı size göndeririz.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Cep|Çevrimdışı · e-postayla yanıt|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun',
   };
 
 
@@ -188,6 +188,9 @@
     var NAV_STYLE = /^v[a-d]$/.test(String(opts.navStyle)) ? String(opts.navStyle) : 'vb';
     var NAV_MODE = /^(both|active|icon|text|none)$/.test(String(opts.navMode)) ? String(opts.navMode) : 'active';
     var TEAM = Array.isArray(config.teamMembers) ? config.teamMembers : [];
+    // Chat switched off: Core ignores "switch to chat" (runtime.js
+    // onSwitchToChat), so the help views draw no control for it.
+    var CHAT_OFF = (config.features || {}).chat === false;
 
     function esc(v) { return Util.escapeHtml(v); }
     // Core's anchors (scheme allow-listed, escaped); the stylesheet draws
@@ -279,9 +282,16 @@
     function viewRoot(cls, extra) {
       return '<div class="wy-view ' + cls + (extra ? ' ' + extra : '') + '" dir="' + DIR + '" style="' + TOK + '">';
     }
-    function replyText() {
-      return typeof config.replyTimeText === 'string' && config.replyTimeText.trim() ? config.replyTimeText.trim() : L('reply');
+    /**
+     * The workspace's reply-time note. A string is authoritative, '' too:
+     * the workspace cleared it, so the line is left out (migration 069);
+     * only a note never written falls back to this template's copy.
+     */
+    function replyText(fallback) {
+      return typeof config.replyTimeText === 'string' ? config.replyTimeText.trim() : fallback || L('reply');
     }
+    /** «Online · {note}», or «Online» alone when the note is cleared. */
+    function onlineLine() { return [L('online'), replyText()].filter(Boolean).join(' · '); }
     function configOnline() {
       var av = config.availability || {};
       return av.state ? av.state === 'online' : true;
@@ -377,19 +387,21 @@
     function connIndicatorHtml() {
       return '<span class="wy-conn" data-conn-indicator aria-hidden="true"><span class="wy-conn-ring"></span><span class="wy-conn-dot"></span></span>';
     }
-    /** Bottom menu (feature `tabs`): Core keeps `aria-current` and the badge. */
+    /**
+     * Bottom menu (feature `tabs`): Core keeps `aria-current` and patches the
+     * badge in place, so each tab is named by its label and (Messages) the
+     * badge itself, never a count frozen at render time.
+     */
     function navHtml(active, unread) {
       if (NAV_MODE === 'none') return '';
       var n = Number(unread) || 0;
       function tab(view, key) {
         var g = TAB[view];
-        var label = view === 'home' ? t('home') : L(key);
-        var aria = view === 'list' && n ? fill(L('unread'), { label: label, n: fmtBadge(n) }) : label;
         return '<button type="button" class="wy-tab" data-view="' + view + '" aria-current="' + (active === view ? 'page' : 'false') +
-          '" aria-label="' + esc(aria) + '"><span class="tic">' +
+          '" aria-labelledby="wt-' + view + (view === 'list' ? ' wt-n' : '') + '"><span class="tic">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="tb" d="' + g[0] + '"/>' + g[1] + '</svg>' +
-          (view === 'list' ? '<span class="nb" data-tab-badge' + (n ? '' : ' hidden') + '>' + (n ? fmtBadge(n) : '') + '</span>' : '') +
-          '</span><span class="tl">' + esc(label) + '</span></button>';
+          (view === 'list' ? '<span class="nb" id="wt-n" data-tab-badge' + (n ? '' : ' hidden') + '>' + (n ? fmtBadge(n) : '') + '</span>' : '') +
+          '</span><span class="tl" id="wt-' + view + '">' + esc(view === 'home' ? t('home') : L(key)) + '</span></button>';
       }
       return '<nav class="wy-tabs ' + NAV_STYLE + '" aria-label="' + esc(L('nav')) + '">' +
         tab('home', 'home') + tab('list', 'msgs') + tab('help', 'help') + '</nav>';
@@ -443,11 +455,13 @@
             return '<button type="button" class="chip" data-topic="' + esc(x.label) + '">' + esc(x.label) + '</button>';
           }).join('') + '</div>'
         : (vm.qna && vm.qna.questions && vm.qna.questions.length ? qnaChipsHtml(vm.qna) : '');
-      var online = configOnline();
+      // Both status lines: the stylesheet shows the one the chat header's
+      // live presence (its `.away` marker) says, as Core repaints only the header.
       return '<div class="messages welcome-only">' +
         '<div class="wel">' + (people.length ? stackHtml(people, 's48') : wsAvatar('s48')) +
           '<h3>' + esc(fill(L('teamOf'), { name: workspaceName })) + '</h3>' +
-          '<p>' + liveHtml(online) + esc(online ? replyWelcome() : awayLine((config.availability || {}).next_open_at)) + '</p>' +
+          '<p class="on">' + liveHtml(1) + esc(replyText(tf('homeReplyFast', '')) || L('online')) + '</p>' +
+          '<p class="off">' + liveHtml() + esc(awayLine((config.availability || {}).next_open_at)) + '</p>' +
         '</div><div class="sep"></div>' +
         (paras.length
           ? '<div class="msg-row operator is-first is-last welcome-row">' + (who ? avatarHtml(who, 's28') : wsAvatar('s28')) +
@@ -459,9 +473,6 @@
           : '') +
         chips + typingRowHtml(vm.operatorTyping) + (vm.prechatSummaryHtml || '') +
       '</div>';
-    }
-    function replyWelcome() {
-      return typeof config.replyTimeText === 'string' ? config.replyTimeText.trim() : tf('homeReplyFast', L('reply'));
     }
 
     function fileKind(att) {
@@ -555,7 +566,7 @@
       var joined = kind === 'routing_agent_joined' || kind === 'conversation_transferred';
       var name = String(meta.agent_name || meta.to_name || '');
       var text = joined
-        ? (name ? String(t('routingAgentJoined')).replace('{name}', name) : t('routingAgentJoinedGeneric'))
+        ? (name ? fill(t('routingAgentJoined'), { name: name }) : t('routingAgentJoinedGeneric'))
         : t(kind === 'routing_no_agent_available' ? 'routingNoAgentAvailable' : 'routingInQueue');
       return systemPillHtml(liveHtml(joined), text);
     }
@@ -566,8 +577,7 @@
       var channel = video ? 'video' : 'audio';
       var status = meta.status || 'pending';
       var inviteId = esc(meta.invitation_id || '');
-      var headline = String(t('ciHeadline' + (video ? 'Video' : 'Audio') + (meta.operator_name ? 'From' : '')))
-        .replace('{op}', meta.operator_name || '');
+      var headline = fill(t('ciHeadline' + (video ? 'Video' : 'Audio') + (meta.operator_name ? 'From' : '')), { op: meta.operator_name || '' });
       var icon = video
         ? svg('<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>', 20, 2)
         : svg(P('M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z'), 20, 2);
@@ -694,7 +704,9 @@
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
       var msgs = s.messages || [];
       // Shown by the stylesheet only while the header says the team is away.
-      var html = '<div class="messages">' + banHtml(' ban-row', awayLine((config.availability || {}).next_open_at));
+      // «back at …», then the reply-time note the workspace wrote (07·09), never our own.
+      var html = '<div class="messages">' + banHtml(' ban-row', [awayLine((config.availability || {}).next_open_at), replyText(' ')]
+        .filter(function (s) { return s.trim(); }).join(' · '));
       // A run = consecutive messages of one author on one day; system rows break runs.
       var keys = msgs.map(function (m, i) {
         if (isSystemRow(m)) return 's' + i;
@@ -889,7 +901,11 @@
     /** Leave-a-message form (the team is away, or chat cannot reach anyone). */
     function contactFallbackHtml(identity, contact, locale, presence) {
       contact = contact || {};
-      var intro = (presence && presence.introLabel) ? presence.introLabel : t('fallbackIntro');
+      presence = presence || {};
+      var intro = presence.introLabel || t('fallbackIntro');
+      // Core also opens this form while the team is online (the monthly chat
+      // quota is full): no "offline" header or banner then.
+      var away = !(presence.status === 'online' && presence.liveChatEnabled !== false);
       var askPhone = identity.isAsked('phone');
       var fieldsHtml = fieldHtml('fb', 'name', 'text', contact.name, identity.isRequired('name')) +
         fieldHtml('fb', 'email', 'email', contact.email, !askPhone) +
@@ -897,10 +913,10 @@
         fieldHtml('fb', 'message', '', '', true);
       var nextOpen = (config.availability || {}).next_open_at;
       return viewRoot('wy-view-fallback prechat fallback') +
-        headHtml('', backButtonHtml('home'), whoHtml(wsAvatar('s40', false), workspaceName, L('awayEmail'))) +
+        headHtml('', backButtonHtml('home'), whoHtml(wsAvatar('s40', !away), workspaceName, away ? L('awayEmail') : t('homeLeaveMessage'))) +
         '<div class="wy-scroll wy-body-pad fm">' +
-          banHtml('', nextOpen ? awayLine(nextOpen) : intro) +
-          (nextOpen ? '<p class="prechat-intro">' + esc(intro) + '</p>' : '') +
+          (away ? banHtml('', nextOpen ? awayLine(nextOpen) : intro) : '') +
+          (nextOpen || !away ? '<p class="prechat-intro">' + esc(intro) + '</p>' : '') +
           '<div class="prechat-fields">' + fieldsHtml + '</div>' +
           '<div class="fm-end"><button type="button" class="btn btn-p prechat-submit" data-fb-submit>' + esc(t('fallbackSubmit')) + SEND + '</button>' +
             '<div class="fallback-status" data-fb-status role="status" aria-live="polite"></div></div>' +
@@ -943,7 +959,7 @@
       vm = vm || {};
       var op = vm.operator && vm.operator.name ? vm.operator : null;
       var online = !!vm.online;
-      var status = online ? L('online') + ' · ' + replyText() : L('awayEmail');
+      var status = online ? onlineLine() : L('awayEmail');
       return (online ? '' : '<i class="away" hidden></i>') + backButtonHtml('home') + (vm.isNew
         ? whoHtml('', tf('wyNewConversation', 'New conversation'), workspaceName)
         : whoHtml(op ? avatarHtml(op, 's40', op.online != null ? !!op.online && online : online) : wsAvatar('s40', online),
@@ -1094,6 +1110,11 @@
         (unread ? '<span class="nb conv-unread">' + esc(fmtBadge(unread)) + '</span>' : '') +
         '</span>';
     }
+    /** The conversations could not be loaded: Core's copy and its retry hook. */
+    function convErrorHtml(cls) {
+      return '<div class="' + cls + '"><p>' + esc(t('convLoadError')) + '</p>' +
+        '<button type="button" class="more" data-home-action="conversations-retry">' + esc(t('convRetry')) + '</button></div>';
+    }
     /** One conversation (the compact flag of older callers draws the same row). */
     function conversationRowHtml(c) {
       c = c || {};
@@ -1140,21 +1161,18 @@
         if (vm.chatEnabled) {
           cards += '<button type="button" class="cd cta" data-home-action="chat">' + stackHtml(people, 's28', !online) +
             '<span class="lx"><span class="ct">' + esc(online ? L('newMsg') : t('homeLeaveMessage')) + '</span>' +
-              '<span class="cs">' + liveHtml(online) + esc(online ? replyText() : awayLine(nextOpen)) + '</span></span>' +
+              '<span class="cs">' + liveHtml(online) + esc(online ? replyText() || L('online') : awayLine(nextOpen)) + '</span></span>' +
             '<span class="ra" aria-hidden="true">' + SEND + '</span></button>';
         }
       } else if (vm.chatEnabled) {
         cards += '<div class="cd team"><div class="tm">' + stackHtml(people, 's36', !online) +
             '<span class="lx"><span class="ct">' + esc(online ? L('team') : L('away')) + '</span>' +
-            '<span class="cs">' + liveHtml(online) + esc(online ? L('online') + ' · ' + replyText() : awayLine(nextOpen)) + '</span></span></div>' +
+            '<span class="cs">' + liveHtml(online) + esc(online ? onlineLine() : awayLine(nextOpen)) + '</span></span></div>' +
           (online ? '' : '<p class="note">' + svg(D.mail, 18) + '<span>' + esc(L('note')) + '</span></p>') +
           '<button type="button" class="btn btn-p" data-home-action="chat">' + esc(online ? t('homeStartChat') : t('homeLeaveMessage')) + SEND + '</button>' +
         '</div>';
       }
-      if (!convs.length && vm.conversationsError) {
-        cards += '<div class="cd home-conv-error"><p>' + esc(tf('wyConversationsLoadError', t('convLoadError'))) + '</p>' +
-          '<button type="button" class="more" data-home-action="conversations-retry">' + esc(tf('wyConversationsRetry', t('convRetry'))) + '</button></div>';
-      }
+      if (!convs.length && vm.conversationsError) cards += convErrorHtml('cd home-conv-error');
       if (vm.smartSurface && vm.smartSurface.mode === 'home_card') {
         cards += '<section class="smart-home-card cd">' + smartSurfaceHtml(vm.smartSurface) + '</section>';
       }
@@ -1182,9 +1200,7 @@
     function conversationListHtml(vm) {
       vm = vm || {};
       var items = vm.conversations || [];
-      var bodyHtml = (vm.error && !items.length)
-        ? '<div class="wy-empty wy-conv-error"><p>' + esc(tf('wyConversationsLoadError', t('convLoadError'))) + '</p>' +
-            '<button type="button" class="more" data-home-action="conversations-retry">' + esc(tf('wyConversationsRetry', t('convRetry'))) + '</button></div>'
+      var bodyHtml = (vm.error && !items.length) ? convErrorHtml('wy-empty wy-conv-error')
         : vm.loading ? skeletonConvRowsHtml(3)
         : items.length ? '<div class="ls">' + items.map(function (c) { return conversationRowHtml(c); }).join('') + '</div>'
         : '<div class="wy-empty"><p>' + esc(tf('wyNoConversations', 'No conversations yet')) + '</p></div>';
@@ -1216,14 +1232,14 @@
       vm = vm || {};
       return '<div class="kb-search-wrap"><label class="sr">' + svg(D.search, 18, 1.9) +
         '<input class="kb-search" data-kb-search type="search" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="' +
-          esc(L('help')) + '" placeholder="' + esc(L('helpQ')) + '" value="' + esc(vm.query || '') + '"></label></div>';
+          esc(L('search')) + '" placeholder="' + esc(L('helpQ')) + '" value="' + esc(vm.query || '') + '"></label></div>';
     }
     function kbEmptyHtml(vm) {
       vm = vm || {};
       var isSearch = vm.state === 'results';
       return '<div class="kb-empty cd">' +
         '<p class="kb-empty-text">' + esc(vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'))) + '</p>' +
-        (vm.hideChatCta ? '' : '<button type="button" class="btn btn-p sm" data-kb-action="switch-chat">' + esc(t('kbSwitchToChat')) + '</button>') +
+        (vm.hideChatCta || CHAT_OFF ? '' : '<button type="button" class="btn btn-p sm" data-kb-action="switch-chat">' + esc(t('kbSwitchToChat')) + '</button>') +
       '</div>';
     }
     function kbLoadingHtml() { return skRows(4); }
@@ -1264,7 +1280,7 @@
       '</div>';
     }
     function askCardHtml(vm) {
-      if (vm && vm.hideChatCta) return '';
+      if (vm && vm.hideChatCta || CHAT_OFF) return '';
       var online = configOnline();
       return '<button type="button" class="cd cta ask" data-kb-action="switch-chat">' + stackHtml(teamPeople().slice(0, 2), 's28', !online) +
         '<span class="lx"><span class="ct">' + esc(L('still')) + '</span><span class="cs">' + liveHtml(online) + esc(L('talk')) + '</span></span>' +
@@ -1376,8 +1392,8 @@
         case 'articles':
           return inert(kbHtml({ state: 'searching' }));
         case 'article':
-          // The article view, its text drawn as placeholder lines.
-          return inert(kbHtml({ state: 'article', article: {}, feedback: { enabled: true }, hideChatCta: true }));
+          // The article view (its ask card too), its text drawn as placeholder lines.
+          return inert(kbHtml({ state: 'article', article: {}, feedback: { enabled: true } }));
         default:
           // Home as it will be, its article rows still empty bars.
           return inert(homeHtml({

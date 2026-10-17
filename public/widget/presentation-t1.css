@@ -297,7 +297,7 @@ button.cd:hover {
 .va .wy-tab:hover { color: var(--ink-2); }
 .va .wy-tab[aria-current='page'] { color: var(--a-ink); font-weight: 700; }
 .va .wy-tab[aria-current='page']::after {
-  content: ''; position: absolute; bottom: 0; left: 50%; width: 5px; height: 5px; margin-left: -2.5px;
+  content: ''; position: absolute; bottom: 0; left: calc(50% - 2.5px); width: 5px; height: 5px;
   border-radius: 1px; background: var(--a); transform: rotate(45deg);
 }
 .wy-tabs.vb {
@@ -359,6 +359,12 @@ button.cd:hover {
 .msg-att-img-btn:focus-visible { border-radius: 18px; }
 .more:focus-visible, .msg-act:focus-visible, .smart-dismiss:focus-visible { border-radius: 9px; }
 .spd:focus-visible, .att-preview-btn:focus-visible, .reply-preview-cancel:focus-visible { border-radius: 8px; }
+/* Outside the views (no accent tokens there): white on the dark lightbox and
+   call surface, the accent on the greeting bubble. */
+.att-lightbox :focus-visible, .gs-call-host :focus-visible { outline-color: #fff; }
+.smart-nudge :focus-visible { outline-color: var(--a-tx); }
+.att-lightbox-close:focus-visible, .gs-call-btn:focus-visible, .gs-call-size:focus-visible { border-radius: 50%; }
+.gs-call-btn-back:focus-visible { border-radius: 99px; }
 
 /* ─── Footer (platform credit) and connection dot ─────────────────────── */
 .pw { display: flex; align-items: center; justify-content: center; gap: 6px; flex: none; height: 32px; font-size: 11.5px; color: var(--ink-3); }
@@ -491,7 +497,12 @@ button.cd:hover {
 [dir='rtl'] .msg-row.operator .msg-actions { inset-inline-end: auto; inset-inline-start: -64px; }
 [dir='rtl'] .msg-row.visitor .msg-actions { inset-inline-start: auto; inset-inline-end: -64px; }
 .msg-line:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
-@media (hover: none) { .msg-actions { display: none; } }
+/* Touch: reply and copy stay reachable (Core's quote-reply); they show for
+   the bubble tapped (a tap hovers it) and let taps through until then. */
+@media (hover: none) {
+  .msg-actions { pointer-events: none; }
+  .msg-line:hover .msg-actions, .msg-actions:focus-within { pointer-events: auto; }
+}
 .msg-act { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; color: var(--ink-3); }
 .msg-act:hover { background: var(--bg-2); color: var(--ink); }
 .msg-quote {
@@ -533,6 +544,8 @@ button.cd:hover {
 .wel .avs .av + .av { margin-inline-start: -13px; }
 .wel h3 { margin: 12px 0 2px; font-size: 17px; font-weight: 700; line-height: 1.5; }
 .wel p { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; color: var(--ink-3); }
+.wel > .off, .wy-view-chat:has(.away) .wel > .on { display: none; }
+.wy-view-chat:has(.away) .wel > .off { display: flex; }
 .sep { flex: none; height: 1px; margin: 18px 6px; background: var(--line); }
 .messages > .chips, .messages > .qna-suggestions { margin: 3px 0 8px; }
 .qna-suggestions { display: flex; }
@@ -556,7 +569,7 @@ button.cd:hover {
 }
 .capn span:first-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .capn span + span { flex: none; margin-inline-start: auto; opacity: .8; }
-.msg.att-file { padding: 10px 10px 10px 12px; }
+.msg.att-file { padding: 10px; padding-inline-end: 12px; }
 .msg-att-file { display: flex; align-items: center; gap: 10px; min-width: 218px; }
 .ft {
   display: flex; align-items: flex-end; justify-content: center; flex: none; width: 38px; height: 46px; padding-bottom: 6px;
@@ -605,7 +618,9 @@ button.cd:hover {
 .wy-ap-track::before, .wy-ap-progress::before, .vn-track::before, .vn-progress::before {
   content: ''; position: absolute; inset-block: 0; left: 0; width: 100%; background: var(--bars);
 }
-.wy-ap-progress::before, .vn-progress::before { width: 100cqw; }
+/* The played bars keep the track's width (fixed widths without container units). */
+.wy-ap-progress::before { width: 100px; width: 100cqw; }
+.vn-progress::before { width: 92px; width: 100cqw; }
 .wy-ap-track { color: rgba(15, 18, 23, .2); }
 .msg.visitor .wy-ap-track { color: rgba(255, 255, 255, .42); color: color-mix(in srgb, var(--on-a) 42%, transparent); }
 .wy-ap-progress, .vn-progress { position: absolute; inset-block: 0; left: 0; width: 0; overflow: hidden; color: var(--a-tx); }

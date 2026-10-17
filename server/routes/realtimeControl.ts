@@ -13,6 +13,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { getClientIp } from '../utils/clientIp.js';
 import {
   loadControlPlane,
   saveControlPlane,
@@ -129,10 +130,7 @@ realtimeControlRouter.put('/', async (req, res) => {
         vendor: (next.realtime_provider_lock ?? null) as RealtimeProviderId | null,
         config_diff: diff,
         result: 'success',
-        ip_address:
-          (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-          req.socket.remoteAddress ||
-          null,
+        ip_address: getClientIp(req),
       });
     }
     res.json({ ok: true, settings: next });

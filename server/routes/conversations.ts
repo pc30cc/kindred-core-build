@@ -23,6 +23,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { getClientIp } from '../utils/clientIp.js';
 import {
   publishConversationEvent,
   buildMessageEnvelope,
@@ -570,8 +571,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
       actorId: auth.userId,
       messageId: inserted.id,
       deliveryAccepted: dispatch.accepted,
-      ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-        || req.socket?.remoteAddress || null,
+      ipAddress: getClientIp(req),
     });
 
 
@@ -790,9 +790,7 @@ conversationsRouter.patch('/:id', async (req, res) => {
     }
 
     // ─── Record events + audit per changed field ───
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-      || req.socket?.remoteAddress
-      || null;
+    const ip = getClientIp(req);
 
     const eventBase = {
       workspaceId: parsed.data.workspace_id,

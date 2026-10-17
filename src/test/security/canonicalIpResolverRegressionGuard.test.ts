@@ -11,7 +11,8 @@
  * parser is how header-spoofing regressions get reintroduced.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import type { Request } from 'express';
 
 const { getClientIp } = await import('../../../server/utils/clientIp.js');
@@ -32,6 +33,25 @@ describe('no bespoke X-Forwarded-For/CF-Connecting-IP parsing outside the canoni
       expect(directRead.test(src)).toBe(false);
     });
   }
+
+  it('no server module but server/utils/clientIp.ts reads them (audit rows used to take the LEFT-most, client-chosen X-Forwarded-For entry)', () => {
+    const directRead = /headers\s*\[\s*['"](x-forwarded-for|cf-connecting-ip|x-real-ip|cf-ipcountry)['"]\s*\]|\.(get|header)\(\s*['"](x-forwarded-for|cf-connecting-ip|x-real-ip|cf-ipcountry)['"]/i;
+    const offenders = (readdirSync('server', { recursive: true }) as string[])
+      .map((f) => path.join('server', f))
+      .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f) && f !== path.join('server', 'utils', 'clientIp.ts'))
+      .filter((f) => directRead.test(readFileSync(f, 'utf8')));
+    expect(offenders).toEqual([]);
+  });
+
+  it('server/index.ts makes req.ip the canonical resolver, right after trust proxy', () => {
+    const src = readFileSync('server/index.ts', 'utf8');
+    const trust = src.indexOf("app.set('trust proxy'");
+    const install = src.indexOf('installClientIpGetter(app);');
+    expect(trust).toBeGreaterThan(0);
+    expect(install).toBeGreaterThan(trust);
+    // Nothing may read req.ip before it is installed: no app.use in between.
+    expect(src.slice(trust, install)).not.toMatch(/app\.use\(/);
+  });
 
   it('server/utils/clientIp.ts is the only module reading these headers directly', () => {
     const src = readFileSync('server/utils/clientIp.ts', 'utf8');

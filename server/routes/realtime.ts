@@ -45,6 +45,7 @@ import {
   getWorkspaceOriginRules,
 } from '../services/widget/public.js';
 import { isOriginAllowed } from '../utils/domain.js';
+import { getClientIp } from '../utils/clientIp.js';
 import {
   buildChannelName,
   buildInboxChannelName,
@@ -1307,7 +1308,7 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
       prev_vendor: prev.vendor,
       config_diff: diffMask(prev, next),
       result: 'success',
-      ip_address: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress,
+      ip_address: getClientIp(req),
     });
 
     res.json({ ok: true, config: maskedConfig(next) });
@@ -1420,7 +1421,7 @@ async function auditNodeAction(
       config_diff: detail,
       result,
       error_message: errorMessage ?? null,
-      ip_address: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress,
+      ip_address: getClientIp(req),
     });
   } catch (err) {
     console.warn('[realtime/admin/nodes] audit insert failed:', err);

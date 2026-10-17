@@ -40,12 +40,10 @@ function requestPath(req: Request): string {
 /**
  * Normalized per-IP bucket suffix (IPv6-safe via express-rate-limit helper).
  *
- * Deliberately Express's `req.ip` (which follows `trust proxy`, server/index.ts),
- * NOT utils/clientIp.ts getClientIp: that one believes `cf-connecting-ip` from
- * any private peer, so a client reaching the origin through Traefik without
- * Cloudflare could choose its own bucket. Behind Cloudflare without
- * TRUST_PROXY listing Cloudflare's ranges, `req.ip` is the edge address — see
- * docs/operations/WIDGET_CONFIG_CACHE.md "Client IP behind a CDN".
+ * `req.ip` is utils/clientIp.ts getClientIp (installClientIpGetter in
+ * server/index.ts): the visitor behind Cloudflare, the hop Traefik saw
+ * otherwise, never a cf-connecting-ip sent by a client that reached the
+ * origin directly. The same identity as the widget limits and the blocklist.
  */
 function ipBucket(req: Request): string {
   return req.ip ? ipKeyGenerator(req.ip) : 'unknown';

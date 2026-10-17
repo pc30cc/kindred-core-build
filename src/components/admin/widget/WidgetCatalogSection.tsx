@@ -34,7 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   useAdminWidgetCatalog,
   useSaveAdminWidgetCatalog,
@@ -399,6 +399,7 @@ export function WidgetCatalogSection() {
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>{previewed ? t('widgetCatalog.admin.previewTitle', { name: nameOf(previewed) }) : ''}</DialogTitle>
+            <DialogDescription>{previewed ? templateDescription(t, previewed.id) : ''}</DialogDescription>
           </DialogHeader>
           {previewed && (
             <div className="space-y-2">

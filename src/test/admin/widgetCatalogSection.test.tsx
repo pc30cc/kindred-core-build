@@ -245,4 +245,20 @@ describe('WidgetCatalogSection', () => {
     expect(p.templateId).toBe('t1');
     expect(p.config.templateOptions).toEqual({ navStyle: 'vb', navMode: 'active', topics: [{ label: 'Shipping', icon: 'truck' }] });
   });
+
+  it('the preview dialog is described by the template description (no Radix accessibility warning)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const t1 = await mount();
+      fireEvent.click(within(t1()).getByRole('button', { name: 'Preview' }));
+      const dialog = await screen.findByRole('dialog');
+      const describedBy = dialog.getAttribute('aria-describedby');
+      expect(describedBy).toBeTruthy();
+      expect(document.getElementById(describedBy!)?.textContent).toBe('A coloured home with cards and a bottom menu: Home, Messages, Help');
+      await waitFor(() => expect(document.querySelector('iframe')).not.toBeNull());
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('Description'))).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

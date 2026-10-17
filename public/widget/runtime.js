@@ -9587,6 +9587,10 @@
             renderVoicePreview, extCalls
           );
         } catch (e) { Util.warn('Module failed: ext', e); }
+        // Painted without it (failed, or not in yet), the template's controls
+        // for these features would be dead: `.ext-off` lets its stylesheet
+        // set them aside until a late module repaints.
+        panel.classList.toggle('ext-off', !Ext);
         // Calls are kept for the module until its request settles (the
         // 1.5 s wait passes no module: it releases the paint only).
         if (mod !== undefined) extCalls = null;

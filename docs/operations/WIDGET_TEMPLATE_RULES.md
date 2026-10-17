@@ -75,7 +75,11 @@ templates: `docs/operations/EDITIONS.md`.
   renderer is mounted (a cache hit; the request the loader did not make,
   with the canonical-name retry) and holds that template's first paint on
   the skeleton until it is in, at most 1.5 s (a failed request releases at
-  once, a late module repaints with what Core saw meanwhile). runtime.js,
+  once, a late module repaints with what Core saw meanwhile). Painted
+  without the module, the panel carries the class `ext-off` (removed when a
+  late module mounts): the template's stylesheet sets aside the controls
+  only the module answers (t1's home search; t2's ask field, which then
+  opens a chat, and its topics), never a dead control. runtime.js,
   which every visitor of every template downloads on a first open, keeps
   only the hook points (`ext('<hook>', …)`, a no-op without the module):
   never put feature code there (`src/test/widget/runtimeExt.test.ts` checks
@@ -90,7 +94,10 @@ templates: `docs/operations/EDITIONS.md`.
   declaring `conversationOperator`, `chatHeader` or `operatorTyping`; checked
   by `widgetOperatorFields.test.ts` and `operatorFieldsOptIn.test.ts`).
   Without it, `/conversations` and `/history` make no profile read and no
-  workspace snapshot lookup of their own.
+  workspace snapshot lookup of their own. Likewise the word search
+  (`match=words` on `/api/widget/kb/search`, sent by runtime-ext.js for
+  `kbSearch`; `kbWidgetSearch.test.ts`): without it the route keeps its
+  one-phrase search, which every help center uses.
 - Every hashed file has a one-time canonical-name fallback in the code that
   loads it (loader, runtime modules, the call module, call widget l.js): keep
   it when you touch loading code. A retried `<script>` is a NEW element

@@ -786,6 +786,13 @@ describe('t1: numbers in the visitor\'s digits', () => {
     expect(make({ locale: 'tr' }).format.clock(8)).toBe('0:08');
     expect(make({ locale: 'en' }).format.badge(120)).toBe('99+');
   });
+
+  it('counts articles in English without a wrong plural ("1 articles")', () => {
+    const count = (n: number) => parse(make({ locale: 'en' }).kbHtml({ state: 'list', articles: [], categories: [{ id: 'c', name: 'N', count: n }] }))
+      .querySelector('.l3')!.textContent;
+    expect(count(1)).toBe('Articles: 1');
+    expect(count(3)).toBe('Articles: 3');
+  });
 });
 
 describe('t1: accent tokens', () => {
@@ -1050,6 +1057,17 @@ describe('t1: stylesheet details', () => {
   it('mirrors in LTR: no physical side for an inline margin or padding', () => {
     expect(T1_CSS).not.toMatch(/(margin|padding)-(left|right)\s*:/);
     expect(T1_CSS).toContain('.msg.att-file { padding: 10px; padding-inline-end: 12px; }');
+  });
+
+  it('painted without Core\'s module (`.ext-off`), sets the home search aside and keeps the articles', () => {
+    expect(T1_CSS).toContain('.ext-off .cd.hc .sr, .ext-off .cd.hc:not(:has(.ls)) { display: none; }');
+  });
+
+  it('rings a focused text field in the darkened accent (a light accent such as #F5D90A is ~1.4:1 on white)', () => {
+    for (const sel of ['.sr:focus-within', '.cbox:focus-within', '.inp:focus']) {
+      const rule = T1_CSS.split('\n').find((l) => l.startsWith(sel + ' {'))!;
+      expect(rule).toMatch(/1\.5px var\(--a-tx\)/);
+    }
   });
 
   it('keeps a readable, shaped focus ring outside the views (no accent tokens there)', () => {

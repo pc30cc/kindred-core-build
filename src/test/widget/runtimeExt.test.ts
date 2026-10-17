@@ -106,6 +106,7 @@ describe('loading the module', () => {
     await flush(20);
     expect(extScripts(h)).toEqual([]);
     expect(h.lastCall('homeHtml')).toBeDefined();
+    expect(h.panel.classList.contains('ext-off')).toBe(false);
   });
 
   it('a renderer with features requests it once, by the hashed URL /config names', async () => {
@@ -124,6 +125,8 @@ describe('loading the module', () => {
     ]);
     const vm = h.lastCall('homeHtml')![0] as Record<string, unknown>;
     expect(vm).not.toHaveProperty('visitorName');
+    // …and says so (`.ext-off`), so the template sets its feature controls aside.
+    expect(h.panel.classList.contains('ext-off')).toBe(true);
   });
 
   it('the first paint holds the skeleton until the module is in, then paints with it', async () => {
@@ -135,6 +138,7 @@ describe('loading the module', () => {
     h.releaseExt();
     await flush(5);
     expect(h.q('[data-greeting]')!.textContent).toBe('علی');
+    expect(h.panel.classList.contains('ext-off')).toBe(false);
   });
 
   it('waits at most 1.5 s, then paints without it; a module that comes later repaints', async () => {
@@ -145,9 +149,11 @@ describe('loading the module', () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(h.lastCall('homeHtml')).toBeDefined();
     expect(h.q('[data-greeting]')!.textContent).toBe('');
+    expect(h.panel.classList.contains('ext-off')).toBe(true);
     h.releaseExt();
     await vi.advanceTimersByTimeAsync(50);
     expect(h.q('[data-greeting]')!.textContent).toBe('علی');
+    expect(h.panel.classList.contains('ext-off')).toBe(false);
   });
 
   it('a module later than the wait still gets what Core saw meanwhile: the thread list carries its fields', async () => {

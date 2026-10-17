@@ -1,5 +1,10 @@
 # WebYar chat widget · Template 2 "Simple home" — implementation spec
 
+> **In this repository:** only this README, `tokens.json` and `reference/css/` (without `fonts.css`) were committed.
+> The board sources (`source/`), the static reference pages (`reference/*.html`), the font files (`reference/fonts/`,
+> `reference/css/fonts.css`) and the screenshots (`screens/`) were left out of the repository, so links into them do not
+> open here; they are in the design handoff bundle. Read [IMPLEMENTATION_NOTES.md](../../IMPLEMENTATION_NOTES.md) first.
+
 Template 2 of the WebYar (وب‌یار) website chat widget. There is no bottom menu: the visitor types the first message
 straight into an ask field on the home card, or taps a topic chip, and reaches the help center and earlier conversations
 through quiet rows underneath. The widget is Persian (`fa`), right to left, set in Vazirmatn. Per

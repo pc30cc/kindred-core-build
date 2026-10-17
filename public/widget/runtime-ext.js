@@ -412,7 +412,9 @@
       if (away) ctx.__quotaDraft = text;
       else {
         setDraftFor(currentDraftKey(), text);
-        if (msgInput) msgInput.value = text;
+        // Through Core's own draft path, so a gate that keeps the text
+        // shows it as a draft (send button, height), not a bare value.
+        restoreDraftToInput();
       }
       switchTab('chat');
       if (!away) trySend();

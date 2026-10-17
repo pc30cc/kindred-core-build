@@ -232,7 +232,7 @@ button.cd:hover {
   background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); font-size: 14px;
   transition: background-color .15s, box-shadow .15s;
 }
-.sr:focus-within { background: #fff; box-shadow: inset 0 0 0 1.5px var(--a), 0 0 0 4px var(--a-3); }
+.sr:focus-within { background: #fff; box-shadow: inset 0 0 0 1.5px var(--a-tx), 0 0 0 4px var(--a-3); }
 .sr input {
   flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--ink);
   -webkit-appearance: none; appearance: none;
@@ -423,6 +423,9 @@ button.cd:hover {
 .cd.rc { padding: 12px 14px 14px; }
 .cd.hc, .cd.lc { padding: 12px 14px 4px; }
 .hc .ls { margin-top: 4px; }
+/* Painted without Core's module (`.ext-off`: runtime-ext.js failed or is
+   late) the home search would not answer: the card keeps its articles. */
+.ext-off .cd.hc .sr, .ext-off .cd.hc:not(:has(.ls)) { display: none; }
 .rrow { display: flex; align-items: center; gap: 12px; }
 .home-conv-error { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--ink-2); }
 .home-conv-error .more { margin: 0; }
@@ -635,7 +638,7 @@ button.cd:hover {
   flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 11px 6px 5px; border-radius: 20px;
   background: #fff; box-shadow: 0 0 0 1px var(--line-2), 0 6px 16px -12px rgba(15, 18, 23, .25); transition: box-shadow .2s;
 }
-.cbox:focus-within { box-shadow: 0 0 0 1.5px var(--a), 0 0 0 5px var(--a-3); }
+.cbox:focus-within { box-shadow: 0 0 0 1.5px var(--a-tx), 0 0 0 5px var(--a-3); }
 .input-row {
   display: grid; grid-template-columns: auto auto 1fr auto; grid-template-areas: 't t t t' 'e a . s';
   align-items: center; gap: 2px;
@@ -764,7 +767,7 @@ button.cd:hover {
 [dir='rtl'] .inp[dir='ltr'] { text-align: right; }
 .inp::placeholder { color: #7A808C; }
 .inp:hover { box-shadow: inset 0 0 0 1px var(--ink-4); }
-.inp:focus { box-shadow: inset 0 0 0 1.5px var(--a), 0 0 0 4px var(--a-3); }
+.inp:focus { box-shadow: inset 0 0 0 1.5px var(--a-tx), 0 0 0 4px var(--a-3); }
 .inp[aria-invalid='true'] { box-shadow: inset 0 0 0 1.5px var(--bad), 0 0 0 4px #FDE9E7; }
 textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none; line-height: 1.7; }
 .prechat-status { display: none; }

@@ -581,6 +581,13 @@ describe('homeAsk', () => {
     expect(h.q('[data-prechat="email"]')).not.toBeNull();
     // The composer (mounted again after the form) holds it as the draft.
     expect(h.runtime.__test.chatState().drafts.__pending__).toBe('یک سؤال');
+    // …as a real draft once the form is sent: the value and the send button
+    // (has-draft), not a bare value under the mic.
+    typeInto(h.q<HTMLInputElement>('[data-prechat="email"]')!, 'ali@example.com');
+    click(h.q('[data-prechat-submit]'));
+    await flush(20);
+    expect(h.q<HTMLTextAreaElement>('[data-msg-input]')!.value).toBe('یک سؤال');
+    expect(h.q('[data-input-bar]')!.classList.contains('has-draft')).toBe(true);
   });
 
   it('away (the leave-a-message form owns the tab) pre-fills that form', async () => {

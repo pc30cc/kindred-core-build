@@ -395,7 +395,7 @@
   transition: box-shadow .2s ease, background-color .2s ease;
 }
 .field:hover { box-shadow: inset 0 0 0 1px var(--line-2); }
-.field:focus-within { background: #fff; box-shadow: 0 0 0 1.5px var(--a), 0 0 0 6px var(--a-2); }
+.field:focus-within { background: #fff; box-shadow: 0 0 0 1.5px var(--a-tx, var(--a)), 0 0 0 6px var(--a-2); }
 .ask-in {
   position: absolute;
   inset: 0;
@@ -415,6 +415,13 @@
 }
 .field .ask-in:focus-visible { outline: none; }
 .ph { position: relative; flex: 1; min-width: 0; height: 24px; overflow: hidden; font-size: 15px; line-height: 24px; color: var(--ink-3); pointer-events: none; }
+/* Painted without Core's module (`.ext-off`: runtime-ext.js failed or is
+   late) the ask field and the topics would not answer (a typed question
+   would be lost): the field opens a chat (its send button, stretched over
+   it) and the topics are set aside. */
+.ext-off .ask-in, .ext-off :has(> [data-topic]) { display: none; }
+.ext-off .ask .send { position: static; transform: none; }
+.ext-off .ask .send::before { content: ''; position: absolute; inset: 0; }
 .ph span { position: absolute; inset: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; animation: t2-ph 12s var(--ease) infinite; }
 .ph span:nth-child(2) { animation-delay: 4s; }
 .ph span:nth-child(3) { animation-delay: 8s; }
@@ -808,7 +815,7 @@ a.wy-powered:hover { color: var(--ink-2); }
   box-shadow: 0 0 0 1px var(--line-2), 0 8px 20px -14px rgba(15, 18, 23, .3);
   transition: box-shadow .22s ease;
 }
-.input-wrap:focus-within { box-shadow: 0 0 0 1.5px var(--a), 0 0 0 6px var(--a-2), 0 8px 20px -14px rgba(15, 18, 23, .3); }
+.input-wrap:focus-within { box-shadow: 0 0 0 1.5px var(--a-tx, var(--a)), 0 0 0 6px var(--a-2), 0 8px 20px -14px rgba(15, 18, 23, .3); }
 /* The DOM order is Core's (mic, text, send, attach, emoji); the grid only
    paints them: text across the top, emoji and attach at the start of the
    tools row, the round action at its end. */
@@ -868,9 +875,13 @@ a.wy-powered:hover { color: var(--ink-2); }
 .mic-btn.recording { color: var(--rec); }
 /* While the pre-chat card waits the composer is locked: the drawn emoji
    button takes no click, and its picker never opens (Core would insert into
-   the disabled field). */
+   the disabled field). It looks locked too: a flat, faded box (the card
+   above says what to do), never the live one. */
 .input-bar.is-locked .emoji-btn { pointer-events: none; }
 .composer-zone:has(.is-locked) .emoji-picker { display: none; }
+.is-locked .input-wrap { background: var(--paper); box-shadow: 0 0 0 1px var(--line); cursor: not-allowed; }
+.is-locked .input-row { opacity: .45; }
+.is-locked .input-row * { cursor: inherit; }
 
 /* Recording takes the box over: delete, dot, time, wave, send. */
 .is-recording .input-row, .is-voice-preview .input-row { display: flex; }
@@ -972,7 +983,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 .prechat-label { display: block; margin: 0 4px 6px; font-size: 12px; font-weight: 700; color: var(--ink-2); }
 .prechat-req-mark { margin-inline-start: 3px; color: var(--bad); }
 .fi { display: flex; align-items: center; gap: 6px; height: 46px; padding-inline: 12px 5px; border-radius: 14px; background: #fff; box-shadow: 0 0 0 1px var(--line-2); transition: box-shadow .2s ease; }
-.fi:focus-within { box-shadow: 0 0 0 1.5px var(--a), 0 0 0 5px var(--a-2); }
+.fi:focus-within { box-shadow: 0 0 0 1.5px var(--a-tx, var(--a)), 0 0 0 5px var(--a-2); }
 .fi:has([aria-invalid='true']) { box-shadow: 0 0 0 1.5px var(--bad); }
 .fi-ta { height: auto; padding: 0 12px; }
 .prechat-input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; font-size: 14px; color: var(--ink); }
@@ -1072,7 +1083,7 @@ a.wy-powered:hover { color: var(--ink-2); }
   color: var(--ink-3);
   transition: box-shadow .2s ease;
 }
-.sfield:focus-within { box-shadow: 0 0 0 1.5px var(--a), 0 0 0 6px var(--a-2); }
+.sfield:focus-within { box-shadow: 0 0 0 1.5px var(--a-tx, var(--a)), 0 0 0 6px var(--a-2); }
 .sfield svg { flex: none; }
 .kb-search { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; font-size: 15px; color: var(--ink); -webkit-appearance: none; appearance: none; }
 .kb-search::-webkit-search-cancel-button { display: none; -webkit-appearance: none; }
@@ -1200,6 +1211,9 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 .smart-nudge .smart-body { font-size: 13.5px; font-weight: 400; line-height: 1.55; color: var(--ink-2); }
 /* The whole message opens the chat; its × stays above. */
 .smart-nudge .smart-cta { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; margin: 0; padding: 0; border-radius: inherit; opacity: 0; box-shadow: none; }
+/* The transparent action cannot paint its own focus ring: the bubble wears
+   it, inside its white so any page behind it keeps the contrast. */
+.smart-nudge:has(.smart-cta:focus-visible) { outline: 2px solid var(--ink); outline-offset: -4px; }
 .smart-nudge .smart-dismiss {
   top: 0;
   right: auto;

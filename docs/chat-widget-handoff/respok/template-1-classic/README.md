@@ -1,5 +1,10 @@
 # Respok chat widget · Template 1 "Classic" — implementation spec
 
+> **In this repository:** only this README, `tokens.json` and `reference/css/` (without `fonts.css`) were committed.
+> The board sources (`source/`), the static reference pages (`reference/*.html`), the font files (`reference/fonts/`,
+> `reference/css/fonts.css`) and the screenshots (`screens/`) were left out of the repository, so links into them do not
+> open here; they are in the design handoff bundle. Read [IMPLEMENTATION_NOTES.md](../../IMPLEMENTATION_NOTES.md) first.
+
 This folder is the Respok build (International edition, respok.app) of Template 1 "Classic". Home is an Ink hero with
 the Respok mark and white cards floating over it. Home, Messages and Help sit in a floating bottom dock. The
 conversation uses grouped bubbles and a visible typing bubble, and its composer box has one round button that is the

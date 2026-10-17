@@ -86,6 +86,12 @@ export function TemplateOptionsFields({
   const setTopic = (index: number, patch: Partial<ChatTemplateTopic>) =>
     set('topics', topics.map((topic, i) => (i === index ? { ...topic, ...patch } : topic)));
   const examples = (read('askExamples') ?? []) as string[];
+  // Only the floating dock (vb) draws the label modes; the other bars keep
+  // their own labels (the design's brief §7a), so there a mode other than
+  // "No menu" changes nothing and is shown as what the widget draws.
+  const dock = (read('navStyle') ?? CHAT_TEMPLATE_NAV_STYLES[0]) === 'vb';
+  const savedMode = read('navMode') ?? CHAT_TEMPLATE_NAV_MODES[0];
+  const navMode = dock || savedMode === 'none' ? savedMode : CHAT_TEMPLATE_NAV_MODES[0];
 
   return (
     <div className="space-y-4" data-tpl-options={templateId}>
@@ -112,14 +118,17 @@ export function TemplateOptionsFields({
             <Label htmlFor={`${idPrefix}-nav-mode`} className="text-xs font-medium">{t('widgetCatalog.options.navMode')}</Label>
             {resetButton('navMode')}
           </div>
-          <Select value={read('navMode') ?? CHAT_TEMPLATE_NAV_MODES[0]} disabled={disabled} onValueChange={(v) => set('navMode', v as ChatTemplateOptions['navMode'])}>
+          <Select value={navMode} disabled={disabled} onValueChange={(v) => set('navMode', v as ChatTemplateOptions['navMode'])}>
             <SelectTrigger id={`${idPrefix}-nav-mode`}><SelectValue /></SelectTrigger>
             <SelectContent>
-              {CHAT_TEMPLATE_NAV_MODES.map((mode) => (
-                <SelectItem key={mode} value={mode}>{tk(`widgetCatalog.options.navModes.${mode}`)}</SelectItem>
+              {CHAT_TEMPLATE_NAV_MODES.filter((mode) => dock || mode === 'active' || mode === 'none').map((mode) => (
+                <SelectItem key={mode} value={mode}>
+                  {dock || mode !== 'active' ? tk(`widgetCatalog.options.navModes.${mode}`) : t('widgetCatalog.options.navModeOwn')}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {!dock && <p className="text-[11px] text-muted-foreground" data-nav-mode-hint>{t('widgetCatalog.options.navModeDockOnly')}</p>}
         </div>
       )}
 

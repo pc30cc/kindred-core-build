@@ -110,14 +110,14 @@
       eg: 'e.g. ',
       noteAm: "We'll email you the reply in the morning",
       note: "We'll email you the reply",
-      helpSub: '{n} articles about {c}',
+      helpSub: '{n} article{s} about {c}',
       helpAway: 'Most answers are right here, always available',
       and: ' and ',
-      arts: '{n} articles',
+      arts: '{n} article{s}',
       cont: 'Continue with {name}',
       convs: 'Your conversations',
-      convsOne: '{n} conversations, one open',
-      convsN: '{n} conversations',
+      convsOne: '{n} conversation{s}, one open',
+      convsN: '{n} conversation{s}',
       online: 'Online',
       typing: 'Typing',
       away: "Offline; we'll reply by email",
@@ -129,7 +129,7 @@
       kb: 'KB',
       mb: 'MB',
       clear: 'Clear',
-      found: '{n} articles found',
+      found: '{n} article{s} found',
       topicsT: 'Or start from a topic',
       didHelp: 'Did this article help?',
       no: 'No',
@@ -354,7 +354,8 @@
       for (var k in vars || {}) {
         if (Object.prototype.hasOwnProperty.call(vars, k)) s = s.split('{' + k + '}').join(String(vars[k]));
       }
-      return s;
+      // `{s}`: English's plural ending after a count `{n}` (fa and tr do not inflect).
+      return s.split('{s}').join(vars && vars.n == 1 ? '' : 's');
     }
     /** Persian digits in fa, as every number this design prints. */
     function digits(s) {
@@ -1078,7 +1079,9 @@
     /** The details just saved, on the team's side (feature `prechatSummary`). */
     function prechatSummaryHtml(contact) {
       contact = contact || {};
-      var to = String(contact.email || contact.phone || '').trim();
+      // The copy promises an e-mail reply; chat replies never go by SMS,
+      // so a phone-only contact gets no card.
+      var to = String(contact.email || '').trim();
       if (!to) return '';
       var parts = L('replyTo').split('{email}');
       return '<div class="msg-row operator is-last">' + storeAvatarHtml(28, '', 'msg-avatar') +
@@ -1113,7 +1116,7 @@
       if (identity.isAsked('name')) fieldsHtml += renderPrechatFieldRow(identity, 'name', 'text', contact.name);
       if (identity.isAsked('email')) fieldsHtml += renderPrechatFieldRow(identity, 'email', 'email', contact.email);
       if (identity.isAsked('phone')) fieldsHtml += renderPrechatFieldRow(identity, 'phone', 'tel', contact.phone);
-      return formViewHtml('precontact', locale, teamHeaderHtml(true),
+      return formViewHtml('precontact', locale, teamHeaderHtml(teamOnline()),
         '<p class="prechat-subtitle">' + esc(tf('wyPrecontactDesc', t('prechatSubtitle'))) + '</p>' +
         '<div class="prechat-fields">' + fieldsHtml + '</div>' +
         '<div class="prechat-spacer" aria-hidden="true"></div>' +

@@ -1,5 +1,10 @@
 # WebYar chat widget · Template 1 "Classic" — implementation spec
 
+> **In this repository:** only this README, `tokens.json` and `reference/css/` (without `fonts.css`) were committed.
+> The board sources (`source/`), the static reference pages (`reference/*.html`), the font files (`reference/fonts/`,
+> `reference/css/fonts.css`) and the screenshots (`screens/`) were left out of the repository, so links into them do not
+> open here; they are in the design handoff bundle. Read [IMPLEMENTATION_NOTES.md](../../IMPLEMENTATION_NOTES.md) first.
+
 WebYar (وب‌یار) Template 1 is the Persian, right-to-left chat widget of the Iranian edition: a home screen with a brand
 gradient hero and floating cards, a conversation view, a help center and a Messages list, tied together by a bottom
 menu (Home / Messages / Help). Per [brief §3](../../CLAUDE_CODE_BRIEF.md) it becomes production template id `default`,

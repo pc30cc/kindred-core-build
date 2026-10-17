@@ -660,6 +660,29 @@ describe('t2: review fixes', () => {
     expect(away).toMatch(/^از .*۹.* پاسخ می‌دهیم$/);
   });
 
+  it('an away pre-contact form makes no reply-time promise, and a phone-only contact gets no e-mail promise', () => {
+    const promise = 'معمولاً در ۲ دقیقه پاسخ می‌دهیم';
+    const status = (availability?: Vm) => parse(make({ config: { replyTimeText: promise, availability } })
+      .prechatFormHtml(IDENTITY(['name', 'phone']), {}, 'fa')).querySelector('.st')!.textContent;
+    expect(status()).toBe(promise);
+    expect(status({ state: 'offline' })).toBe('آفلاین؛ پاسخ با ایمیل');
+    // Chat replies are never sent by SMS: the card's copy is for an e-mail.
+    expect(make().prechatSummaryHtml({ phone: '09123456789' })).toBe('');
+    expect(make().prechatSummaryHtml({ phone: '09123456789', email: 'ali@example.com' })).toContain('ali@example.com');
+  });
+
+  it('says one article or conversation in English, never "1 articles" (fa and tr do not inflect)', () => {
+    const en = make({ locale: 'en' });
+    const tile = (count: number) => parse(en.kbHtml({ state: 'list', articles: [], categories: [{ id: 'c', name: 'N', count }] })).querySelector('small')!.textContent;
+    expect(tile(1)).toBe('1 article');
+    expect(tile(2)).toBe('2 articles');
+    expect(parse(en.kbHtml({ state: 'results', query: 'x', results: [{ slug: 'a', title: 'x' }] })).querySelector('.cnt')!.textContent).toBe('1 article found');
+    const home = (conversations: Vm[]) => parse(en.homeHtml({ rtl: false, isOnline: true, chatEnabled: true, conversations })).textContent!;
+    expect(home([{ id: 'c1', status: 'open' }])).toContain('1 conversation, one open');
+    expect(home([{ id: 'c1', status: 'resolved' }, { id: 'c2', status: 'resolved' }])).toContain('2 conversations');
+    expect(parse(make().kbHtml({ state: 'list', articles: [], categories: [{ id: 'c', name: 'N', count: 1 }] })).querySelector('small')!.textContent).toBe('۱ مقاله');
+  });
+
   it('rotates one or two ask examples after the prompt', () => {
     const field = (askExamples: string[]) => parse(make({ config: { templateOptions: { askExamples } } })
       .homeHtml({ rtl: true, isOnline: true, chatEnabled: true })).querySelector('.ask .field')!;
@@ -684,6 +707,18 @@ describe('t2: review fixes', () => {
     expect(parse(make().skeletonHtml('article', { rtl: true })).querySelector('.art h1 + .am')).not.toBeNull();
   });
 
+  it('rings a focused text field in the darkened accent (a light accent such as #F5D90A is ~1.4:1 on white)', () => {
+    for (const sel of ['.field:focus-within', '.input-wrap:focus-within', '.fi:focus-within', '.sfield:focus-within']) {
+      const rule = T2_CSS.split('\n').find((l) => l.startsWith(sel + ' {'))!;
+      expect(rule).toMatch(/1\.5px var\(--a-tx, var\(--a\)\)/);
+    }
+  });
+
+  it('shows keyboard focus on the greeting bubble, whose whole-bubble action is transparent', () => {
+    expect(T2_CSS).toMatch(/\.smart-nudge \.smart-cta \{[^}]*opacity: 0;/);
+    expect(T2_CSS).toContain('.smart-nudge:has(.smart-cta:focus-visible) { outline: 2px solid var(--ink); outline-offset: -4px; }');
+  });
+
   it('keeps each control\'s shape when it takes keyboard focus', () => {
     // The round recorder send is also a .rec-btn: a later 12px rule for
     // .rec-btn would win and square it.
@@ -695,6 +730,18 @@ describe('t2: review fixes', () => {
     expect(T2_CSS).toMatch(/\.msg \.msg-att-img-btn:focus-visible \{ outline-offset: -4px; border-radius: 16px; \}/);
     // A scrolling chip row on phones leaves room for the ring.
     expect(T2_CSS).toMatch(/margin-block: 8px -4px;\s*padding-block: 4px;/);
+  });
+
+  it('painted without Core\'s module (`.ext-off`), the ask field opens a chat and the topics are set aside', () => {
+    expect(T2_CSS).toContain('.ext-off .ask-in, .ext-off :has(> [data-topic]) { display: none; }');
+    expect(T2_CSS).toContain('.ext-off .ask .send { position: static; transform: none; }');
+    expect(T2_CSS).toContain(".ext-off .ask .send::before { content: ''; position: absolute; inset: 0; }");
+    expect(T2_CSS).toMatch(/\.field \{\s*position: relative;/);
+  });
+
+  it('a composer locked under the pre-chat card looks locked, not live', () => {
+    expect(T2_CSS).toContain('.is-locked .input-wrap { background: var(--paper); box-shadow: 0 0 0 1px var(--line); cursor: not-allowed; }');
+    expect(T2_CSS).toContain('.is-locked .input-row { opacity: .45; }');
   });
 
   it('never opens the emoji picker under a locked composer, and draws an English greeting in Inter', () => {

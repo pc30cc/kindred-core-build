@@ -206,6 +206,32 @@ describe('kbSearch', () => {
     expect(h.q('[data-kb-results]')!.getAttribute('data-state')).toBe('results');
   });
 
+  it('a request that never answers frees its slot after 8 s, and the query typed meanwhile runs', async () => {
+    const h = boot({ renderer: featureRenderer(), kbSearch: RESULTS, holdKbSearch: true });
+    await flush();
+    h.runtime.setTab('help');
+    await flush(20);
+    const field = h.q<HTMLInputElement>('[data-kb-search]')!;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    typeInto(field, 'ارسال');
+    await vi.advanceTimersByTimeAsync(400);
+    typeInto(field, 'ارسال سفارش');
+    await vi.advanceTimersByTimeAsync(400);
+    expect(h.fetches.filter((u) => u.includes('/kb/search'))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(8000);
+    vi.useRealTimers();
+    await flush(20);
+    const qs = h.fetches.filter((u) => u.includes('/kb/search')).map((u) => new URL(u).searchParams.get('q'));
+    expect(qs).toEqual(['ارسال', 'ارسال سفارش']);
+    // The dropped query was not cached as "no results": it asks again.
+    h.releaseKbSearch();
+    await flush(20);
+    typeInto(field, 'ارسال');
+    await new Promise((r) => setTimeout(r, 320));
+    await flush(20);
+    expect(h.fetches.filter((u) => u.includes('/kb/search'))).toHaveLength(3);
+  });
+
   it('never searches during an IME composition; the composition end does', async () => {
     const h = boot({ renderer: featureRenderer(), kbSearch: RESULTS });
     await flush();
@@ -219,6 +245,26 @@ describe('kbSearch', () => {
     field.dispatchEvent(new CompositionEvent('compositionend'));
     await new Promise((r) => setTimeout(r, 320));
     await flush(20);
+    expect(h.fetches.filter((u) => u.includes('/kb/search'))).toHaveLength(1);
+  });
+
+  it('Enter searches at once; an IME\'s Enter does not', async () => {
+    const h = boot({ renderer: featureRenderer(), kbSearch: RESULTS });
+    await flush();
+    h.runtime.setTab('help');
+    await flush(20);
+    const field = h.q<HTMLInputElement>('[data-kb-search]')!;
+    typeInto(field, 'ارسال');
+    key(field, 'Enter', { keyCode: 229 });
+    await flush();
+    expect(h.fetches.filter((u) => u.includes('/kb/search'))).toHaveLength(0);
+    key(field, 'Enter');
+    await flush(20);
+    expect(h.fetches.filter((u) => u.includes('/kb/search'))).toHaveLength(1);
+    expect(h.q('[data-kb-results]')!.getAttribute('data-state')).toBe('results');
+    // The pause that followed the typing does not search again.
+    await new Promise((r) => setTimeout(r, 320));
+    await flush();
     expect(h.fetches.filter((u) => u.includes('/kb/search'))).toHaveLength(1);
   });
 
@@ -285,6 +331,24 @@ describe('kbCategories, kbArticleMeta, kbProgress', () => {
     await flush();
     expect(h.q('[data-category]')).not.toBeNull();
     expect(h.runtime).toBeTruthy();
+  });
+
+  it('a search started inside a category: back from its article returns to the results', async () => {
+    const h = boot({ renderer: featureRenderer(), kb: KB, kbSearch: { 'سفارش': [{ slug: 'track', title: KB.article.title, excerpt: '' }] } });
+    await flush();
+    h.runtime.setTab('help');
+    await flush(20);
+    click(h.q('[data-kb-category="cat-1"]'));
+    await flush();
+    typeInto(h.q<HTMLInputElement>('[data-kb-search]')!, 'سفارش');
+    await new Promise((r) => setTimeout(r, 320));
+    await flush(20);
+    expect(h.q('[data-kb-results]')!.getAttribute('data-state')).toBe('results');
+    click(h.q('[data-kb-slug="track"]'));
+    await flush(20);
+    click(h.q('[data-view-back="back"]'));
+    await flush();
+    expect(h.q('[data-kb-results]')!.getAttribute('data-state')).toBe('results');
   });
 
   it('writes the reading progress as --p on [data-kb-progress]', async () => {
@@ -359,6 +423,25 @@ describe('operatorTyping and chatHeader', () => {
     expect([...presence.classList].some((c) => c.startsWith('status-'))).toBe(true);
     expect(presence.classList.contains('sr-only')).toBe(false);
   });
+
+  it('a renderer that only draws typing names the assigned operator ahead of the last one who wrote', async () => {
+    const h = boot({
+      renderer: featureRenderer({ operatorTyping: true }),
+      realtime: true,
+      conversations: [{ id: 'c1' }],
+      history: { c1: [OPERATOR_MSG] },
+      assignedOperator: { name: 'مهدی', avatar: null, online: true },
+    });
+    await flush();
+    h.runtime.__test.openConversation('c1');
+    await flush(20);
+    vi.useFakeTimers();
+    h.emitTyping();
+    expect(h.q('.typing-row')!.textContent).toBe('typing:مهدی');
+    vi.advanceTimersByTime(3600);
+    vi.useRealTimers();
+    expect(h.q('.typing-row')).toBeNull();
+  });
 });
 
 describe('emptyQna and topics', () => {
@@ -378,6 +461,23 @@ describe('emptyQna and topics', () => {
     expect(sentText(h)!.text).toBe('مرجوعی کالا');
     // No AI owns this thread: no 25-second "thinking" row.
     expect(h.runtime.__test.chatState().aiThinking).toBe(false);
+  });
+
+  it('a renderer that declares topics alone (not emptyQna) still gets them in the empty thread, sent on a press', async () => {
+    const h = boot({
+      renderer: featureRenderer({ topics: true }),
+      config: { templateOptions: { topics: [{ label: 'مرجوعی کالا', icon: 'return' }] } },
+    });
+    await flush(20);
+    h.runtime.__test.setConnectionState('online');
+    h.runtime.__test.startNew();
+    await flush();
+    expect(vmOf<EmptyVm>(h, 'emptyHtml').topics).toEqual([{ label: 'مرجوعی کالا', icon: 'return' }]);
+    // Q&A is emptyQna's: not fetched for topics alone.
+    expect(h.fetches.some((u) => u.includes('/qna-suggestions'))).toBe(false);
+    click(h.q('[data-chat-messages] [data-topic="مرجوعی کالا"]'));
+    await flush();
+    expect(sentText(h)!.text).toBe('مرجوعی کالا');
   });
 
   it('a topic on home starts a NEW conversation whose first message is the label, with no AI greeting ahead of it', async () => {
@@ -420,6 +520,7 @@ describe('homeAsk', () => {
     const h = boot({ renderer: featureRenderer() });
     await flush(20);
     const ask = h.q<HTMLTextAreaElement>('[data-home-ask]')!;
+    ask.focus();
     ask.dispatchEvent(new CompositionEvent('compositionstart'));
     h.runtime.setTab('home');
     await flush();
@@ -427,6 +528,25 @@ describe('homeAsk', () => {
     ask.dispatchEvent(new CompositionEvent('compositionend'));
     await flush();
     expect(h.q('[data-home-ask]')).not.toBe(ask);
+  });
+
+  it('a composition whose field left the screen without ending never freezes home', async () => {
+    const h = boot({ renderer: featureRenderer() });
+    await flush(20);
+    const ask = h.q<HTMLTextAreaElement>('[data-home-ask]')!;
+    ask.focus();
+    ask.dispatchEvent(new CompositionEvent('compositionstart'));
+    // Taken off screen by a switch nobody typed (no blur, no compositionend).
+    h.runtime.setTab('list');
+    await flush();
+    h.runtime.setTab('home');
+    await flush();
+    const fresh = h.q<HTMLTextAreaElement>('[data-home-ask]');
+    expect(fresh).not.toBeNull();
+    expect(fresh).not.toBe(ask);
+    h.runtime.setTab('home');
+    await flush();
+    expect(h.q('[data-home-ask]')).not.toBe(fresh);
   });
 
   it('Enter (not Shift+Enter) sends the draft as the first message of a new conversation', async () => {

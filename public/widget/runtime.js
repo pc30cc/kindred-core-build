@@ -3417,7 +3417,9 @@
     function renderEmpty(body) {
       // Presentation owns the markup — Core only decides WHAT to show.
       var emptyVm;
-      if (feat('emptyQna') || feat('prechatSummary')) {
+      // Any of these features draws into the empty thread, so each one
+      // alone gets the view-model (and its chips bound).
+      if (feat('emptyQna') || feat('topics') || feat('operatorTyping') || feat('prechatSummary')) {
         // A new conversation can offer the workspace's Q&A and topics, and
         // show the operator typing, before anybody wrote a word.
         if (feat('emptyQna')) loadQnaSuggestions();
@@ -3429,9 +3431,9 @@
             collapsedCount: QNA_COLLAPSED_COUNT,
           },
           topics: Array.isArray(opts.topics) ? opts.topics : [],
-          operatorTyping: operatorTypingVm,
           prechatSummaryHtml: prechatSummaryRowHtml(chatStore.get()),
         };
+        emptyVm.operatorTyping = editingPrechat() ? null : operatorTypingVm;
       }
       body.innerHTML = Presentation.emptyHtml(emptyVm);
       lastRenderedRowCount = 0;
@@ -3855,7 +3857,7 @@
 
     // Core builds the view-model (state → data); Presentation turns it
     // into HTML. No markup lives here anymore.
-    function buildMessagesHtml(s, extraRowHtml) {
+    function buildMessagesHtml(s, extraRowHtml, noTyping) {
       var visitorHasReplied = s.messages.some(function (m) { return m.sender === 'visitor'; });
       if (!visitorHasReplied) loadQnaSuggestions();
       var view = {
@@ -3866,8 +3868,10 @@
           collapsedCount: QNA_COLLAPSED_COUNT,
         },
       };
-      // A visible "{name} is typing" row, for a renderer that draws one.
-      if (feat('operatorTyping')) view.operatorTyping = operatorTypingVm;
+      // A visible "{name} is typing" row, for a renderer that draws one;
+      // never under a pre-chat card (`noTyping`): a card is not repainted
+      // for typing, so a row drawn there would outlive the typing.
+      if (feat('operatorTyping') && !noTyping) view.operatorTyping = operatorTypingVm;
       return Presentation.messagesHtml(s, extraRowHtml, view);
     }
 
@@ -3915,6 +3919,8 @@
         });
       });
     }
+    // The saved details reopened as the pre-chat card (its fields in use).
+    function editingPrechat() { return !!(prechatSummary && prechatSummary.editing); }
     function showPrechatSummary(identity) {
       if (!feat('prechatSummary')) return;
       prechatSummary = {
@@ -4145,7 +4151,7 @@
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
       var summaryRow = prechatSummaryRowHtml(s);
-      var html = buildMessagesHtml(s, summaryRow || undefined);
+      var html = buildMessagesHtml(s, summaryRow || undefined, editingPrechat());
       // Idempotent paint: a poll/refresh that produces byte-identical markup
       // must NOT rewrite the DOM — rewriting kills the visitor's text
       // selection and replays the row entrance animation (visible "shake").
@@ -4169,7 +4175,7 @@
       var subtitle = resolveHandoffPrechatSubtitle(locale);
       var animateSubtitle = !handoffPrechatSubtitleAnimated;
       var cardHtml = renderHandoffPrechatCardHtml(identity, locale, subtitle, animateSubtitle);
-      paintMessages(body, buildMessagesHtml(s, cardHtml));
+      paintMessages(body, buildMessagesHtml(s, cardHtml, true));
       lastRenderedBody = body;
       lastRenderedChatHtml = null;
 
@@ -4547,6 +4553,7 @@
       renderPreChat: renderPreChat,
       showPrechatSummary: showPrechatSummary,
       setOperatorTyping: function (vm) { operatorTypingVm = vm || null; },
+      editingPrechat: editingPrechat,
       renderHandoffPrechatInline: renderHandoffPrechatInline,
       renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
@@ -4566,8 +4573,9 @@
             // Explicit selection wins over any pending "new conversation".
             var adopt = { freshIntent: false, conversationId: cid };
             // `assignedOperator` ({ name, avatar, online } or null, from the
-            // server's history) feeds a renderer's chat header.
-            if (feat('chatHeader')) adopt.assignedOperator = result.assignedOperator || null;
+            // server's history) feeds a renderer's chat header and names
+            // the person drawn typing.
+            if (feat('chatHeader') || feat('operatorTyping')) adopt.assignedOperator = result.assignedOperator || null;
             chatStore.set(adopt);
             transport.subscribeConversation(cid);
             if (mergeIncoming(result.messages || [])) onChange();
@@ -5030,18 +5038,21 @@
     // The field is `[data-kb-search]`. Typing waits 300 ms and two
     // characters, never searches in the middle of an IME composition (its
     // Enter commits a word), keeps ONE request in flight (the latest query
-    // runs when it lands; the help endpoints share a per-process ceiling)
-    // and remembers answers for the session. With a `[data-kb-results]`
+    // runs when it lands or after 8 s without an answer; the help endpoints
+    // share a per-process ceiling) and remembers answers for the session.
+    // With a `[data-kb-results]`
     // region only that region is repainted, so the field keeps its text,
     // focus and caret; without one the whole view is, and the focus and
     // caret are put back.
     var KB_SEARCH_MIN = 2;
+    var KB_SEARCH_TIMEOUT = 8000;
     var searchCache = {};
     var searchInFlight = false;
     var searchComposing = false;
     var focusSearchOnPaint = false;
     var searchOnRender = false;
     var currentCategory = null; // { id, name, description, icon } (feature `kbCategories`)
+    var articleFrom = 'list';   // the view the open article was opened from
     var unreadTotal = deps.unreadTotal || function () { return 0; };
     var isActive = deps.isActive || function () { return true; };
 
@@ -5057,6 +5068,9 @@
     function bindSearch() {
       var field = searchField();
       if (!field) return;
+      // A field just painted has no composition going on (one the old field
+      // had ended with it).
+      searchComposing = false;
       field.addEventListener('compositionstart', function () { searchComposing = true; });
       field.addEventListener('compositionend', function () {
         searchComposing = false;
@@ -5067,6 +5081,16 @@
         onSearchInput(field.value);
       });
       field.addEventListener('keydown', function (e) {
+        // Enter searches now instead of after the pause (an IME's Enter
+        // only commits its word).
+        if (e.key === 'Enter') {
+          if (searchComposing || e.isComposing || e.keyCode === 229) return;
+          e.preventDefault();
+          currentQuery = String(field.value || '');
+          if (searchDebounce) { clearTimeout(searchDebounce); searchDebounce = null; }
+          searchNow();
+          return;
+        }
         // Escape empties a filled field first; only an empty one lets the
         // panel's own Escape close the widget.
         if (e.key !== 'Escape' || !currentQuery) return;
@@ -5109,16 +5133,30 @@
       if (searchInFlight) return;
       searchInFlight = true;
       if (view !== 'searching' && !currentArticle) { view = 'searching'; paintSearchState(); }
+      // A request that never answers must not hold the one slot for the
+      // rest of the session: after KB_SEARCH_TIMEOUT it is dropped (as a
+      // failed search, never cached) and the latest query may run.
+      var settled = false;
+      var abort = null;
+      try { abort = new AbortController(); } catch (_) { abort = null; }
+      var guard = setTimeout(function () {
+        if (abort) { try { abort.abort(); } catch (_) {} }
+        done([], false);
+      }, KB_SEARCH_TIMEOUT);
+      function done(results, ok) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(guard);
+        searchInFlight = false;
+        if (ok) searchCache[q] = results;
+        var latest = currentQuery.trim();
+        if (latest === q) { showResults(results); return; }
+        // The visitor kept typing: run the query they have now.
+        if (latest.length >= KB_SEARCH_MIN && !searchDebounce) searchNow();
+      }
       ModuleLoader.loadFor(ctx, 'kb', 'runtime-kb.js', function () {
+        if (settled) return;
         var mod = ModuleLoader.modules.kb;
-        function done(results, ok) {
-          searchInFlight = false;
-          if (ok) searchCache[q] = results;
-          var latest = currentQuery.trim();
-          if (latest === q) { showResults(results); return; }
-          // The visitor kept typing: run the query they have now.
-          if (latest.length >= KB_SEARCH_MIN && !searchDebounce) searchNow();
-        }
         if (!mod || !mod.searchArticles) { done([], false); return; }
         mod.searchArticles({
           apiBase: ctx.apiBase,
@@ -5127,6 +5165,7 @@
           locale: ctx.locale,
           query: q,
           limit: 8,
+          signal: abort ? abort.signal : null,
           onResult: function (r) { done((r && r.results) || [], !!(r && r.ok)); },
         });
       });
@@ -5169,7 +5208,13 @@
       var inCategories = feat('kbCategories');
       if (currentArticle) {
         currentArticle = null;
-        view = (inCategories && currentCategory) ? 'category' : (currentQuery.trim() ? 'results' : 'list');
+        // A category is returned to only when the article was opened from
+        // it (a search started inside a category left it).
+        if (inCategories && currentCategory && articleFrom === 'category') view = 'category';
+        else {
+          currentCategory = null;
+          view = currentQuery.trim() ? 'results' : 'list';
+        }
         paint();
         return true;
       }
@@ -5191,7 +5236,9 @@
       var frame = 0;
       rootEl.addEventListener('scroll', function (ev) {
         var scroller = ev && ev.target;
-        if (frame || view !== 'article' || !scroller || scroller.nodeType !== 1) return;
+        // The view host is shared with the other tabs: their scrolling
+        // (the chat thread) is not the article's.
+        if (frame || view !== 'article' || !isActive() || !scroller || scroller.nodeType !== 1) return;
         frame = requestAnimationFrame(function () {
           frame = 0;
           var bar = rootEl && rootEl.querySelector('[data-kb-progress]');
@@ -5206,6 +5253,7 @@
     function openArticle(slug) {
       if (!slug) return;
       pendingSlug = slug;
+      if (view !== 'article') articleFrom = view;
       // Article bodies are fetched on demand — show the article skeleton
       // immediately so the surface never sits on the previous list.
       articleLoading = true;
@@ -8813,8 +8861,8 @@
       };
       // Who answers the thread and whether the visitor wrote last, for a
       // renderer that shows them (features `conversationOperator`,
-      // `chatHeader`).
-      if (feat('conversationOperator') || feat('chatHeader')) {
+      // `chatHeader`, `operatorTyping`).
+      if (feat('conversationOperator') || feat('chatHeader') || feat('operatorTyping')) {
         vm.lastFromVisitor = !!c.outbound;
         vm.operatorName = c.operatorName || null;
         vm.operatorAvatar = c.operatorAvatar || null;
@@ -9169,7 +9217,12 @@
       // presence flip or a late list causes, and nothing repaints under an
       // IME composition.
       var keepFields = feat('homeAsk') || feat('kbSearch');
-      if (keepFields && homeComposing) { homeRepaintPending = true; return; }
+      if (keepFields && homeComposing) {
+        // Only while that field is still the one in use (a field taken off
+        // screen mid-composition never says it ended).
+        if (homeFieldFocus()) { homeRepaintPending = true; return; }
+        homeComposing = false;
+      }
       var keepFocus = keepFields ? homeFieldFocus() : null;
       var pState = presenceStore.get();
       var kbState = kbStore.get() || {};
@@ -9993,7 +10046,10 @@
       // Only a plain thread repaints; a pre-chat card or form keeps its fields.
       var st = deriveChatTabState().name;
       if (st === ENTRY_FLOW_STATE.AI_CHAT || st === ENTRY_FLOW_STATE.HUMAN_WELCOME
-          || st === ENTRY_FLOW_STATE.ACTIVE_THREAD) renderBody();
+          || st === ENTRY_FLOW_STATE.ACTIVE_THREAD) {
+        // The saved details being edited keep their fields, too.
+        if (!chatUI.editingPrechat()) renderBody();
+      }
     }
 
     // The renderer's chat header, repainted whenever what it shows changes.

@@ -314,6 +314,17 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: (f) => { f.identity = PRECHAT(false); f.conversations = [RECENT]; },
     drive: async ({ page }) => { await openThread(page, 'c-sara'); },
   },
+  // The same card submitted: the saved details (a template's summary card).
+  'prechat-summary': {
+    setup: (f) => { f.identity = PRECHAT(false); f.conversations = [RECENT]; },
+    drive: async ({ page }) => {
+      await openThread(page, 'c-sara');
+      await page.locator('[data-prechat="name"]').fill('علی رضایی');
+      await page.locator('[data-prechat="email"]').fill('ali@example.com');
+      await page.locator('[data-prechat-submit]').click();
+      await pause(page, 500);
+    },
+  },
   'help-list': {
     home: true,
     drive: async ({ page }) => { await inst(page, "i.setTab('help');"); await pause(page, 500); },
@@ -591,6 +602,12 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
     }, { config: { ...fixture.config }, css, mobile, rtl: locale === 'fa' });
     await page.waitForTimeout(700);
     if (spec.drive) await spec.drive({ page, fixture });
+    // A text still typing itself out (an AI reply, the pre-chat card's
+    // subtitle) is shot once it is whole, so two runs give the same picture.
+    await page.waitForFunction(() => {
+      const shadow = document.getElementById('gs-host')?.shadowRoot;
+      return !shadow || !shadow.querySelector('[data-typing-active]');
+    }, undefined, { timeout: 10_000 }).catch(() => undefined);
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     // No focus ring from open()'s own focus (the designs show none).
     await page.evaluate(() => {

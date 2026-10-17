@@ -84,11 +84,16 @@ BEGIN
 END $$;
 
 -- ─── 2. The workspace's choice and options ────────────────────────────────
-ALTER TABLE public.widget_settings ADD COLUMN IF NOT EXISTS widget_template_id text;
-ALTER TABLE public.widget_settings ADD COLUMN IF NOT EXISTS widget_template_options jsonb NOT NULL DEFAULT '{}'::jsonb;
-
+-- One statement: widget_settings is read on every widget request, so its
+-- ACCESS EXCLUSIVE lock is queued for once (not once per column and check),
+-- and the columns never exist without their checks. Both columns are
+-- metadata-only additions (NULL, a constant default); the checks scan a
+-- table of one row per workspace.
 DO $$
 BEGIN
+  ALTER TABLE public.widget_settings
+    ADD COLUMN IF NOT EXISTS widget_template_id text,
+    ADD COLUMN IF NOT EXISTS widget_template_options jsonb NOT NULL DEFAULT '{}'::jsonb;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'widget_settings_widget_template_id_check') THEN
     ALTER TABLE public.widget_settings
       ADD CONSTRAINT widget_settings_widget_template_id_check

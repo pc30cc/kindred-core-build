@@ -284,17 +284,21 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
 
   // A template may be chosen only while the Super Admin keeps it enabled for
   // the running edition (the catalog the widget reads); it is stored under
-  // its current id.
-  if (typeof patch.widget_template_id === 'string') {
-    const { catalog } = await getChatTemplateCatalog(config);
-    const id = canonicalChatTemplateId(catalog.edition, patch.widget_template_id);
-    if (!id || !enabledChatTemplateIds(catalog).includes(id)) {
-      return res.status(400).json({
-        error: 'template_not_available',
-        issues: [{ path: 'widget_template_id', message: 'template_not_available' }],
-      });
+  // its current id. Before migration 275 there is nowhere to store either
+  // field: 409, not a refusal of the id itself.
+  if ('widget_template_id' in patch || 'widget_template_options' in patch) {
+    const { catalog, ready } = await getChatTemplateCatalog(config);
+    if (!ready) return res.status(409).json(TEMPLATE_CATALOG_MIGRATION_REQUIRED);
+    if (typeof patch.widget_template_id === 'string') {
+      const id = canonicalChatTemplateId(catalog.edition, patch.widget_template_id);
+      if (!id || !enabledChatTemplateIds(catalog).includes(id)) {
+        return res.status(400).json({
+          error: 'template_not_available',
+          issues: [{ path: 'widget_template_id', message: 'template_not_available' }],
+        });
+      }
+      patch.widget_template_id = id;
     }
-    patch.widget_template_id = id;
   }
   if ('widget_template_options' in patch) {
     const options = cleanTemplateOptionsInput(patch.widget_template_options);

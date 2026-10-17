@@ -28,7 +28,7 @@ import { PhoneVerificationGate } from '@/features/phone-verification/PhoneVerifi
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
 import { WidgetLivePreview, FAB_ICONS, type PreviewView } from '@/components/app/widget/WidgetLivePreview';
 import { TemplateChoiceCard } from '@/components/app/widget/TemplateChoiceCard';
-import { effectiveWorkspaceTemplate, templatePickerVisible, useWorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
+import { effectiveWorkspaceTemplate, templateCardVisible, useWorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
 import { useKBArticles, useKBCategories } from '@/hooks/useKnowledgeBase';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
@@ -552,8 +552,9 @@ function WidgetPageContent() {
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
               <div className="space-y-4">
-              {/* 0 — Widget template: only with two or more templates enabled */}
-              {templatePickerVisible(templateView) && (
+              {/* 0 — Widget template: the picker with two or more templates
+                  enabled; with one, only that template's own options */}
+              {templateCardVisible(templateView, previewTemplate.id) && (
                 <TemplateChoiceCard
                   view={templateView}
                   effectiveId={previewTemplate.id}

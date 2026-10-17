@@ -259,6 +259,21 @@ describe('PATCH /:workspaceId — widget_template_id / widget_template_options',
     expect(state.published).toEqual([]);
   });
 
+  it('with no catalog table at all (275 not applied) every template write is 409, never template_not_available', async () => {
+    state.ready = false;
+    state.stored = null;
+    state.columnMissing = true;
+    for (const body of [{ widget_template_id: 't1' }, { widget_template_id: 'default' }, { widget_template_id: null }, { widget_template_options: { navStyle: 'va' } }]) {
+      const res = await patch(body);
+      expect(res.status, JSON.stringify(body)).toBe(409);
+      expect(res.json.code).toBe('migration_required');
+    }
+    expect(state.updates).toEqual([]);
+    expect(state.published).toEqual([]);
+    // Every other field still saves.
+    expect((await patch({ primary_color: '#123456' })).status).toBe(200);
+  });
+
   it('.strict() still rejects an unknown key next to the template fields', async () => {
     const res = await patch({ widget_template_id: 't1', widget_template_name: 'x' });
     expect(res.status).toBe(400);

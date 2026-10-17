@@ -11,18 +11,23 @@
  *     hint; the selected template's options;
  *   - WidgetLivePreview: the effective template and its options reach the
  *     frame (config.templateOptions, as the bootstrap), the Messages view
- *     renders the conversation list, and the frame navigates by [data-view];
+ *     renders the conversation list, the frame navigates by [data-view] in
+ *     Core's order (a named back or a conversation row first), and a
+ *     renderer that declares `tabs` / `kbSearch` / `visitorName` gets Core's
+ *     view-model fields, its current tab and its unread badge (the default
+ *     declares none: unchanged);
  *   - WidgetPage saves a pick through mutateAsync, so its refusal handling
  *     runs even when a debounced field save is sent meanwhile.
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { JSDOM } from 'jsdom';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { I18nProvider } from '@/i18n';
 import { TemplateChoiceCard } from '@/components/app/widget/TemplateChoiceCard';
 import { WidgetLivePreview } from '@/components/app/widget/WidgetLivePreview';
-import { effectiveWorkspaceTemplate, templatePickerVisible, type WorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
+import { effectiveWorkspaceTemplate, templateCardVisible, templatePickerVisible, type WorkspaceWidgetCatalog } from '@/hooks/useWidgetCatalog';
 
 afterEach(cleanup);
 
@@ -69,6 +74,16 @@ describe('effectiveWorkspaceTemplate', () => {
     expect(templatePickerVisible({ ...VIEW, ready: false })).toBe(false);
     // The plan does not hide it (the card is shown disabled).
     expect(templatePickerVisible({ ...VIEW, planAllowsChoice: false, canChoose: false })).toBe(true);
+  });
+
+  it('with a single template enabled the card stays only for that template\'s own options', () => {
+    const onlyT1: WorkspaceWidgetCatalog = { ...VIEW, defaultId: 't1', templates: [{ ...VIEW.templates[1], isDefault: true }], effectiveId: 't1', canChoose: false };
+    const onlyDefault: WorkspaceWidgetCatalog = { ...VIEW, templates: VIEW.templates.slice(0, 1), canChoose: false };
+    expect(templateCardVisible(VIEW, 'default')).toBe(true);
+    expect(templateCardVisible(onlyT1, 't1')).toBe(true);
+    expect(templateCardVisible(onlyDefault, 'default')).toBe(false);
+    expect(templateCardVisible({ ...onlyT1, ready: false }, 't1')).toBe(false);
+    expect(templateCardVisible(undefined, 't1')).toBe(false);
   });
 });
 
@@ -133,6 +148,27 @@ describe('TemplateChoiceCard', () => {
     await card({ view: { ...VIEW, selectedId: 't2', selectedUnavailable: true }, draftId: 't2' });
     expect(screen.getByText(/not available right now/).textContent).toContain('“Familiar”');
   });
+
+  it('a single template: no picker, but its own options', async () => {
+    const onOptionsChange = vi.fn();
+    render(
+      <I18nProvider>
+        <TemplateChoiceCard
+          view={{ ...VIEW, defaultId: 't1', templates: [{ ...VIEW.templates[1], isDefault: true }], effectiveId: 't1', canChoose: false }}
+          effectiveId="t1"
+          draftId={null}
+          draftOptions={{}}
+          planAllows
+          onChoose={vi.fn()}
+          onOptionsChange={onOptionsChange}
+        />
+      </I18nProvider>,
+    );
+    expect(await screen.findByText('Bottom menu style')).toBeTruthy();
+    expect(screen.queryAllByRole('radio')).toHaveLength(0);
+    fireEvent.click(screen.getByText('Add a topic'));
+    expect(onOptionsChange).toHaveBeenCalledWith({ topics: [{ label: '', icon: 'truck' }] });
+  });
 });
 
 function srcdoc(props: Partial<Parameters<typeof WidgetLivePreview>[0]> = {}) {
@@ -194,11 +230,55 @@ describe('WidgetLivePreview — the effective template', () => {
     }
   });
 
-  it('navigates by the renderer\'s [data-view], named backs and conversation rows', () => {
+  it('typed text cannot end the frame\'s script: a topic or a welcome with </script> stays data', () => {
+    const label = '</script><b>x';
+    const doc = srcdoc({
+      settings: { widget_language: 'en', welcome_message: '<!-- </script>' },
+      templateId: 't1',
+      templateOptions: { topics: [{ label, icon: 'chat' }] },
+    });
+    // No "<" at all in the embedded payload (escaped as <), so no
+    // "</script" or "<!--" can end or bend the script; JSON reads it back.
+    const start = doc.indexOf('var GS_PREVIEW = ');
+    expect(doc.slice(start, doc.indexOf(';\n', start))).not.toContain('<');
+    const p = payload(doc);
+    expect(p.config.templateOptions.topics[0].label).toBe(label);
+  });
+
+  it('navigates by the renderer\'s [data-view], named backs and conversation rows, in Core\'s order', () => {
+    // The frame's own navigation script, run in a page of its own.
     const doc = srcdoc();
-    expect(doc).toContain("target.closest('[data-view]')");
-    expect(doc).toContain("target.closest('[data-view-back]')");
-    expect(doc).toContain("target.closest('[data-conversation-open]')");
+    const start = doc.indexOf('function gsBindTabs()');
+    const source = doc.slice(start, doc.indexOf('// Preview-only: open a real article', start));
+    expect(start).toBeGreaterThan(-1);
+    const page = new JSDOM(
+      '<div class="panel" data-view="home"><div data-body>'
+      + '<nav><button id="tab-help" data-view="help">Help</button></nav>'
+      + '<section data-view="list">'
+      + '<button id="row" data-conversation-open="c1"><span id="row-inner">Hi</span></button>'
+      + '<button id="back-home" data-view-back="home">Back</button>'
+      + '<button id="step-back" data-view-back="back" data-view-back-fallback="home">Back</button>'
+      + '<p id="plain">text</p>'
+      + '</section>'
+      + '</div></div>',
+    );
+    const sent: string[] = [];
+    const parentStub = { postMessage: (data: { nav: string }) => sent.push(data.nav) };
+    new Function('document', 'parent', 'GS_SMART', `${source}\ngsBindTabs();`)(page.window.document, parentStub, { enabled: false });
+    const click = (id: string) => {
+      const ev = new page.window.MouseEvent('click', { bubbles: true, cancelable: true });
+      page.window.document.getElementById(id)!.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    expect(click('tab-help')).toBe(true);
+    // A row and a named back inside a section that names a view: the row and the back.
+    expect(click('row-inner')).toBe(true);
+    expect(click('back-home')).toBe(true);
+    // A step back is the article's (gsBindArticles), never the section's view.
+    expect(click('step-back')).toBe(false);
+    // Anything else inside the section: the section's view (the panel itself is no trigger).
+    expect(click('plain')).toBe(true);
+    expect(sent).toEqual(['help', 'chat', 'home', 'list']);
   });
 
   it('the parent maps a frame navigation to its view (list = Messages)', () => {
@@ -208,6 +288,60 @@ describe('WidgetLivePreview — the effective template', () => {
       window.dispatchEvent(new MessageEvent('message', { data: { source: 'gs-widget-preview', nav } }));
       expect(onViewChange).toHaveBeenLastCalledWith(view);
     }
+  });
+});
+
+describe('WidgetLivePreview — a renderer\'s declared features, as Core reads them', () => {
+  type Vm = Record<string, unknown>;
+  /** The frame's own script in a page of its own, painting with a stand-in renderer. */
+  function paint(view: 'home' | 'list' | 'kb', features?: Record<string, boolean>) {
+    const page = new JSDOM(srcdoc({ view, templateId: 't1' }), { runScripts: 'outside-only' });
+    const inline = Array.from((page.window.document as Document).querySelectorAll('script:not([src])')).map((s) => s.textContent).join('\n');
+    page.window.eval(inline);
+    const seen: Record<string, Vm> = {};
+    const R = {
+      features,
+      format: { badge: (n: number) => `(${n})` },
+      shellHtml: () => '<nav>'
+        + '<button data-view="home" aria-current="false">H</button>'
+        + '<button data-view="list" aria-current="false">M<span data-tab-badge hidden></span></button>'
+        + '<button data-view="help" aria-current="false">?</button>'
+        + '</nav><div data-body></div>',
+      homeHtml: (vm: Vm) => { seen.home = vm; return '<p>home</p>'; },
+      conversationListHtml: (vm: Vm) => { seen.list = vm; return '<p>list</p>'; },
+      kbHtml: (vm: Vm) => { seen.kb = vm; return '<p>kb</p>'; },
+    };
+    (page.window as unknown as { gsRenderPreview: (mod: unknown) => void }).gsRenderPreview({ create: () => R });
+    const doc = page.window.document as Document;
+    const current = Array.from(doc.querySelectorAll('nav [data-view]')).map((el) => `${el.getAttribute('data-view')}:${el.getAttribute('aria-current')}`);
+    const badge = doc.querySelector('[data-tab-badge]') as HTMLElement;
+    return { seen, current, badge: { text: badge.textContent, hidden: badge.hidden } };
+  }
+
+  it('the default (no features): view models and tabs exactly as before', () => {
+    for (const view of ['home', 'list', 'kb'] as const) {
+      const { seen, current, badge } = paint(view);
+      const vm = seen[view]!;
+      for (const key of ['unreadTotal', 'hasSearch', 'visitorName']) expect(key in vm, `${view} ${key}`).toBe(false);
+      expect(current).toEqual(['home:false', 'list:false', 'help:false']);
+      expect(badge).toEqual({ text: '', hidden: true });
+    }
+  });
+
+  it('tabs / kbSearch / visitorName: Core\'s view-model fields, the current tab and the unread badge', () => {
+    const features = { tabs: true, kbSearch: true, visitorName: true };
+    const home = paint('home', features);
+    expect(home.seen.home).toMatchObject({ unreadTotal: 1, hasSearch: true, visitorName: '' });
+    expect(home.current).toEqual(['home:page', 'list:false', 'help:false']);
+    expect(home.badge).toEqual({ text: '(1)', hidden: false });
+
+    const list = paint('list', features);
+    expect(list.seen.list).toMatchObject({ unreadTotal: 1 });
+    expect(list.current).toEqual(['home:false', 'list:page', 'help:false']);
+
+    const kb = paint('kb', features);
+    expect(kb.seen.kb).toMatchObject({ unreadTotal: 1, hasSearch: true });
+    expect(kb.current).toEqual(['home:false', 'list:false', 'help:page']);
   });
 });
 

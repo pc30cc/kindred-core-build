@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/api';
 import type { Edition } from '../../shared/edition';
 import {
+  chatTemplateOptionKeys,
   resolveChatTemplateCatalog,
   resolveChatTemplateOptions,
   resolveWorkspaceChatTemplate,
@@ -137,13 +138,25 @@ export function useWorkspaceWidgetCatalog(workspaceId: string | undefined, local
 }
 
 /**
- * Whether Widget → Appearance shows the template card: the catalog answered
+ * Whether Widget → Appearance shows the template picker: the catalog answered
  * (a backend without it answers 404), migration 275 is applied, and two or
  * more templates are enabled. A plan without widget_appearance still sees the
- * card, disabled, with the upgrade hint.
+ * picker, disabled, with the upgrade hint.
  */
 export function templatePickerVisible(view: WorkspaceWidgetCatalog | undefined): view is WorkspaceWidgetCatalog {
   return !!view && view.ready && view.templates.length >= 2;
+}
+
+/**
+ * Whether Widget → Appearance shows the template card at all: for the picker
+ * (templatePickerVisible), or, with a single template enabled, for that
+ * template's own options (its topics, its bottom menu…), which the owner
+ * still sets although there is nothing to choose.
+ */
+export function templateCardVisible(view: WorkspaceWidgetCatalog | undefined, effectiveId: string): view is WorkspaceWidgetCatalog {
+  if (!view || !view.ready) return false;
+  return view.templates.length >= 2
+    || (view.templates.some((tpl) => tpl.id === effectiveId) && chatTemplateOptionKeys(effectiveId).length > 0);
 }
 
 /** The workspace view's enabled templates as a catalog the shared resolvers read. */

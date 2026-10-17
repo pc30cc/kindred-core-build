@@ -2,11 +2,13 @@
  * Widget → Appearance → Widget template: the workspace owner picks one of the
  * templates the Super Admin keeps enabled, and sets that template's options.
  *
- * Rendered only when two or more templates are enabled (WidgetPage decides,
- * from GET /api/widget-settings/:workspaceId/templates). A plan without the
- * Appearance editor sees the choice disabled, with the upgrade hint. The pick
- * and the options go through the page's draft (the live preview follows at
- * once) and the ordinary settings PATCH.
+ * The picker shows only when two or more templates are enabled; with a single
+ * one the card is there only for that template's own options, if it has any
+ * (WidgetPage decides, from GET /api/widget-settings/:workspaceId/templates:
+ * templateCardVisible). A plan without the Appearance editor sees the choice
+ * disabled, with the upgrade hint. The pick and the options go through the
+ * page's draft (the live preview follows at once) and the ordinary settings
+ * PATCH.
  */
 import * as RadioGroupPrimitive from '@radix-ui/react-radio-group';
 import { Check, Info, LayoutTemplate } from 'lucide-react';
@@ -39,6 +41,8 @@ export function TemplateChoiceCard({
 }: TemplateChoiceCardProps) {
   const { t } = useTranslation();
   const locked = !planAllows || !view.planAllowsChoice;
+  // Nothing to choose with a single template: only its options.
+  const picker = view.templates.length >= 2;
   const defaultEntry = view.templates.find((tpl) => tpl.id === view.defaultId);
   const defaultName = templateDisplayName(t, view.defaultId, defaultEntry?.name);
   const effective = view.templates.find((tpl) => tpl.id === effectiveId);
@@ -58,7 +62,7 @@ export function TemplateChoiceCard({
         <CardTitle className="flex items-center gap-2 text-base">
           <LayoutTemplate className="h-4 w-4 text-primary" /> {t('widgetCatalog.workspace.title')}
         </CardTitle>
-        <CardDescription>{t('widgetCatalog.workspace.description')}</CardDescription>
+        {picker && <CardDescription>{t('widgetCatalog.workspace.description')}</CardDescription>}
       </CardHeader>
       <CardContent className="space-y-4 p-6 pt-0">
         {unavailable && (
@@ -67,51 +71,53 @@ export function TemplateChoiceCard({
             <span>{t('widgetCatalog.workspace.unavailable', { name: defaultName })}</span>
           </p>
         )}
-        <RadioGroupPrimitive.Root
-          aria-label={t('widgetCatalog.workspace.title')}
-          value={effectiveId}
-          disabled={locked}
-          onValueChange={onChoose}
-          className={cn('grid grid-cols-2 gap-3 sm:grid-cols-3', locked && 'opacity-60')}
-        >
-          {view.templates.map((tpl) => {
-            const selected = tpl.id === effectiveId;
-            const name = templateDisplayName(t, tpl.id, tpl.name);
-            return (
-              <RadioGroupPrimitive.Item
-                key={tpl.id}
-                value={tpl.id}
-                data-tpl-choice={tpl.id}
-                className={cn(
-                  'group relative flex flex-col gap-2 rounded-xl border bg-background p-2.5 text-start transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                  'disabled:cursor-not-allowed',
-                  selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-foreground/25',
-                )}
-              >
-                <TemplateSketch id={tpl.id} />
-                <span className="flex items-start gap-2 px-0.5">
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors',
-                      selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40',
-                    )}
-                  >
-                    {selected && <Check className="h-3 w-3" strokeWidth={3} />}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="flex flex-wrap items-center gap-1.5 text-sm font-medium leading-5">
-                      {name}
-                      {tpl.isDefault && <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{t('widgetCatalog.workspace.default')}</Badge>}
+        {picker && (
+          <RadioGroupPrimitive.Root
+            aria-label={t('widgetCatalog.workspace.title')}
+            value={effectiveId}
+            disabled={locked}
+            onValueChange={onChoose}
+            className={cn('grid grid-cols-2 gap-3 sm:grid-cols-3', locked && 'opacity-60')}
+          >
+            {view.templates.map((tpl) => {
+              const selected = tpl.id === effectiveId;
+              const name = templateDisplayName(t, tpl.id, tpl.name);
+              return (
+                <RadioGroupPrimitive.Item
+                  key={tpl.id}
+                  value={tpl.id}
+                  data-tpl-choice={tpl.id}
+                  className={cn(
+                    'group relative flex flex-col gap-2 rounded-xl border bg-background p-2.5 text-start transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                    'disabled:cursor-not-allowed',
+                    selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-foreground/25',
+                  )}
+                >
+                  <TemplateSketch id={tpl.id} />
+                  <span className="flex items-start gap-2 px-0.5">
+                    <span
+                      aria-hidden
+                      className={cn(
+                        'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors',
+                        selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40',
+                      )}
+                    >
+                      {selected && <Check className="h-3 w-3" strokeWidth={3} />}
                     </span>
-                    <span className="mt-0.5 hidden text-xs leading-snug text-muted-foreground sm:block">{templateDescription(t, tpl.id)}</span>
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-center gap-1.5 text-sm font-medium leading-5">
+                        {name}
+                        {tpl.isDefault && <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{t('widgetCatalog.workspace.default')}</Badge>}
+                      </span>
+                      <span className="mt-0.5 hidden text-xs leading-snug text-muted-foreground sm:block">{templateDescription(t, tpl.id)}</span>
+                    </span>
                   </span>
-                </span>
-              </RadioGroupPrimitive.Item>
-            );
-          })}
-        </RadioGroupPrimitive.Root>
+                </RadioGroupPrimitive.Item>
+              );
+            })}
+          </RadioGroupPrimitive.Root>
+        )}
         {locked && <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>}
 
         {effective && !locked && chatTemplateOptionKeys(effective.id).length > 0 && (

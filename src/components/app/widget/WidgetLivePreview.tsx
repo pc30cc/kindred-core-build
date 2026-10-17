@@ -715,7 +715,7 @@ export function WidgetLivePreview({
     if (!img || !img.hasAttribute || !img.hasAttribute('data-wy-brand-logo')) return;
     if (img.parentNode) img.parentNode.replaceChild(document.createTextNode(' ' + (img.getAttribute('alt') || '')), img);
   }, true);
-  var GS_PREVIEW = ${JSON.stringify(payload)};
+  var GS_PREVIEW = ${JSON.stringify(payload).replace(/</g, '\\u003c')};
   var GS_SMART = GS_PREVIEW.smart;
 
   (function () {
@@ -809,6 +809,27 @@ export function WidgetLivePreview({
       capabilities: GS_PREVIEW.capabilities,
     });
 
+    // The renderer's declared features, read as Core reads them (runtime.js
+    // feat()), and the view-model fields Core adds for them: the unread total
+    // of a bottom menu (tabs), the search field (kbSearch) and the visitor's
+    // first name (visitorName; the preview has no contact, so empty, as Core
+    // without one). The default template declares none, so its preview is
+    // exactly as before.
+    function feat(name) { return !!(R.features && R.features[name]); }
+    var unreadTotal = 0;
+    (GS_PREVIEW.listVm.conversations || []).forEach(function (c) { unreadTotal += Number(c.unreadCount) || 0; });
+    var kbVms = [GS_PREVIEW.kbVm].concat(GS_PREVIEW.kbArticleVms || []);
+    if (feat('tabs')) {
+      GS_PREVIEW.homeVm.unreadTotal = unreadTotal;
+      GS_PREVIEW.listVm.unreadTotal = unreadTotal;
+      kbVms.forEach(function (vm) { if (vm) vm.unreadTotal = unreadTotal; });
+    }
+    if (feat('kbSearch')) {
+      GS_PREVIEW.homeVm.hasSearch = true;
+      kbVms.forEach(function (vm) { if (vm) vm.hasSearch = true; });
+    }
+    if (feat('visitorName')) GS_PREVIEW.homeVm.visitorName = '';
+
     var panel = document.querySelector('.panel');
     panel.innerHTML = R.shellHtml(GS_PREVIEW.shellVm);
     // The view the panel shows, as Core marks it (a template may style by it).
@@ -836,6 +857,19 @@ export function WidgetLivePreview({
       var msgHost = body.querySelector('[data-chat-messages]');
       if (msgHost) msgHost.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
       /* Typing state is sr-only in the design — no visible typing row. */
+    }
+
+    // A bottom menu's current tab and its unread badges, as Core marks them
+    // after every paint (runtime.js markActiveTab, paintTabBadges).
+    if (feat('tabs')) {
+      Array.prototype.forEach.call(panel.querySelectorAll('[data-view][aria-current]'), function (el) {
+        el.setAttribute('aria-current', el.getAttribute('data-view') === GS_PREVIEW.shellVm.activeTab ? 'page' : 'false');
+      });
+      var badge = R.format && R.format.badge;
+      Array.prototype.forEach.call(panel.querySelectorAll('[data-tab-badge]'), function (el) {
+        el.textContent = unreadTotal ? (typeof badge === 'function' ? badge(unreadTotal) : String(unreadTotal)) : '';
+        el.hidden = unreadTotal === 0;
+      });
     }
 
 
@@ -1014,7 +1048,9 @@ export function WidgetLivePreview({
   // Preview-only: the renderer's real navigation hooks drive the parent's
   // view state — the tabs ([data-tab]), a bottom menu or any view link
   // ([data-view]: home / list / help / chat), a named back ([data-view-back])
-  // and a conversation row ([data-conversation-open]), as Core binds them.
+  // and a conversation row ([data-conversation-open]), in Core's order
+  // (runtime.js bindPanelNavigation): a back or a row inside an element
+  // that names a view is the back or the row, never that view.
   function gsBindTabs() {
     if (GS_SMART.enabled) return;
     function nav(key) {
@@ -1025,20 +1061,20 @@ export function WidgetLivePreview({
       if (!target) return;
       var tab = target.closest('[data-tab]');
       if (tab) { e.preventDefault(); nav(tab.getAttribute('data-tab')); return; }
-      var viewEl = target.closest('[data-view]');
-      if (viewEl && viewEl !== document.querySelector('.panel')) {
-        e.preventDefault();
-        nav(viewEl.getAttribute('data-view'));
-        return;
-      }
       var back = target.closest('[data-view-back]');
-      // "back" (a step back inside the view) is the article's; see gsBindArticles.
-      if (back && back.getAttribute('data-view-back') !== 'back') {
+      if (back) {
+        // "back" (a step back inside the view) is the article's; see gsBindArticles.
+        if (back.getAttribute('data-view-back') === 'back') return;
         e.preventDefault();
         nav(back.getAttribute('data-view-back') || 'home');
         return;
       }
-      if (target.closest('[data-conversation-open]')) { e.preventDefault(); nav('chat'); }
+      if (target.closest('[data-conversation-open]')) { e.preventDefault(); nav('chat'); return; }
+      var viewEl = target.closest('[data-view]');
+      if (viewEl && viewEl !== document.querySelector('.panel')) {
+        e.preventDefault();
+        nav(viewEl.getAttribute('data-view'));
+      }
     });
   }
 

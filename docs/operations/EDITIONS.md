@@ -268,10 +268,11 @@ Migration `275_widget_template_catalog.sql`; the rules are
   Breeze, Tanıdık / Turkuaz / Esinti), brand-neutral like every locale text.
 - **Workspace → Widget → Appearance → Widget template**
   (`GET /api/widget-settings/:workspaceId/templates`; the choice through the
-  ordinary settings `PATCH`): shown only with two or more templates enabled.
-  `widget_settings.widget_template_id` (NULL = follow the default) is worn
-  while enabled and while the plan allows `widget_appearance`; otherwise the
-  catalog's default. A disabled choice is kept and comes back when the
+  ordinary settings `PATCH`): the picker shows only with two or more
+  templates enabled; with a single one, the card shows only that template's
+  own options (if it has any). `widget_settings.widget_template_id` (NULL =
+  follow the default) is worn while enabled and while the plan allows
+  `widget_appearance`; otherwise the catalog's default. A disabled choice is kept and comes back when the
   template is enabled again. The `PATCH` refuses an id that is not enabled
   (400 `template_not_available`) and answers 409 `migration_required` before
   275; a plan without the Appearance editor gets 403 `plan_upgrade_required`

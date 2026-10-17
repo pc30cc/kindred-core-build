@@ -13,7 +13,9 @@
  *   T5  275 runs twice and every check is still there once;
  *   T6  the server's store (server/services/widget/templateCatalog.ts): the
  *       Super Admin's upsert creates then updates the edition's row, the
- *       platform snapshot read sees it, usage counts are right.
+ *       platform snapshot read sees it, usage counts are right;
+ *   T7  a database from before 275 (no table, no columns): the real data
+ *       layer's errors read as "no catalog" and as migration_required.
  *
  * Driven by TEST_DATABASE_URL; skipped without it.
  */
@@ -172,5 +174,34 @@ suite('275 — chat widget template catalog (real PostgreSQL)', () => {
     const usage = await store.countTemplateUsage(config, ['default', 't1', 't2']);
     const unchosen = (await one(`SELECT count(*)::int AS n FROM public.widget_settings WHERE widget_template_id IS NULL`)).n;
     expect(usage).toEqual({ chosenBy: { default: 0, t1: 1, t2: 0 }, followingDefault: unchosen });
+  });
+
+  it('T7 a database from before 275: the real data layer\'s errors read as "no catalog" / migration_required', async () => {
+    const store = await import('../../../server/services/widget/templateCatalog.js');
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    const sb = getServiceClient(config);
+    try {
+      // No table yet: the snapshot read is "not ready", never degraded; the Super Admin reads the defaults.
+      await q(`ALTER TABLE public.widget_edition_settings RENAME TO widget_edition_settings_hidden`);
+      expect(await store.readChatTemplateRows(sb)).toEqual({ byEdition: {}, ready: false, error: false });
+      expect(await store.readEditionChatTemplates(config, 'iran')).toEqual({ ready: false, stored: null, updatedAt: null, updatedBy: null });
+      const save = await store.saveEditionChatTemplates(config, 'iran', { default: 'default' }, randomUUID());
+      expect(store.isCatalogTableMissing(save.error)).toBe(true);
+      await q(`ALTER TABLE public.widget_edition_settings_hidden RENAME TO widget_edition_settings`);
+
+      // No columns yet: a template write is recognised (409 migration_required), counts are left out.
+      await q(`ALTER TABLE public.widget_settings DROP COLUMN widget_template_id, DROP COLUMN widget_template_options`);
+      for (const patch of [{ widget_template_id: 't1' }, { widget_template_options: {} }]) {
+        const { error } = await sb.from('widget_settings').update(patch).eq('workspace_id', workspaces[0]).select().single();
+        expect(store.isTemplateColumnMissing(error), JSON.stringify(error)).toBe(true);
+      }
+      expect(await store.countTemplateUsage(config, ['default', 't1'])).toBeNull();
+    } finally {
+      if ((await q(`SELECT to_regclass('public.widget_edition_settings_hidden') AS t`))[0].t) {
+        await q(`ALTER TABLE public.widget_edition_settings_hidden RENAME TO widget_edition_settings`);
+      }
+      await applyMigrationSql(chain.db, readFileSync(FILE, 'utf8'));
+    }
+    expect((await one(`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'widget_settings' AND column_name LIKE 'widget_template%'`)).n).toBe(2);
   });
 });

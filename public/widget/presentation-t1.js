@@ -79,7 +79,9 @@
    * the close control. An uncustomised widget (no colour, or the product's
    * #3B82F6) wears the brand teal and its hand-tuned hero; `--on-a` is
    * white unless the dark ink (#16142B) reads better on the accent (WCAG
-   * contrast); `--gs-primary` follows the accent so Core's focus ring does.
+   * contrast), and then `--dk` darkens the accent where it is text or an
+   * icon on white (the stylesheet's `--a-ink`, `--a-tx`); `--gs-primary`
+   * follows the accent so Core's focus ring does.
    */
   function accentTokens(primary) {
     var raw = String(primary || '').trim().toLowerCase();
@@ -92,7 +94,7 @@
       accent: a,
       dark: dark,
       css: '--a:' + a + ';--a-rgb:' + p.join(',') + ';--gs-primary:' + a +
-        (dark ? ';--on-a:#16142B;--on-a-2:rgba(22,20,43,.78);--on-a-sf:rgba(22,20,43,.08)' : '') +
+        (dark ? ';--on-a:#16142B;--on-a-2:rgba(22,20,43,.78);--on-a-sf:rgba(22,20,43,.08);--dk:50%' : '') +
         (a === BRAND ? ';--hero:linear-gradient(155deg,#1DB99D 0%,#0F927D 46%,#0B7D6C 100%)' : ''),
     };
   }
@@ -319,9 +321,9 @@
         return date.toLocaleTimeString(ctx.locale || undefined, { hour: '2-digit', minute: '2-digit' });
       } catch (_) { return ''; }
     }
-    /** When the team is back ("from 9:00"). */
+    /** When the team is back ("from 9 in the morning", «از ساعت ۹ صبح»; minutes only when not :00). */
     function awayLine(iso) {
-      var time = iso ? fmtDate(iso, { hour: 'numeric', minute: '2-digit' }) : '';
+      var time = iso ? fmtDate(iso, { hour: 'numeric', minute: '2-digit', hour12: true, dayPeriod: 'short' }).replace(/:(00|۰۰)/, '') : '';
       return time ? fill(L('backAt'), { time: time }) : tf('homeReplySlow', L('away'));
     }
     /** The "team is away" banner with when it is back. */
@@ -1319,7 +1321,7 @@
     function skLine(width, height) { return sk('wy-sk-line', 'width:' + width + ';height:' + (height || 10) + 'px'); }
     function skCircle(size) { return sk('wy-sk-circle', 'width:' + size + 'px;height:' + size + 'px'); }
     function skRoot(cls, inner) {
-      return viewRoot(cls + ' wy-skeleton', 'nv-' + NAV_MODE).replace('<div', '<div aria-hidden="true"') + inner + '</div>';
+      return viewRoot(cls + ' wy-skeleton', 'nv-' + NAV_MODE).replace('<div', '<div inert aria-hidden="true"') + inner + '</div>';
     }
     function skRows(n) {
       var rows = '';

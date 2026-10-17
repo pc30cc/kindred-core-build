@@ -351,7 +351,7 @@
   overflow: hidden;
   border-radius: 15px;
   background: #fff;
-  color: var(--a);
+  color: var(--a-tx, var(--a));
   font-size: 21px;
   font-weight: 700;
   box-shadow: 0 8px 18px -8px rgba(0, 0, 0, .45);
@@ -466,7 +466,7 @@
   transition: background-color .18s ease, box-shadow .18s ease, color .18s ease, transform .25s var(--bounce);
 }
 .chip span { overflow: hidden; text-overflow: ellipsis; }
-.chip svg { flex: none; color: var(--a); }
+.chip svg { flex: none; color: var(--a-tx, var(--a)); }
 .chip:hover { background: var(--a-1); box-shadow: inset 0 0 0 1px var(--a-3); color: var(--a-ink); }
 .chip:active { transform: scale(.95); }
 .note { display: flex; align-items: center; gap: 8px; margin: 12px 4px 2px; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
@@ -673,7 +673,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 .msg-footline { display: flex; }
 .msg-meta { display: flex; align-items: center; gap: 4px; margin: 2px 8px 0; font-size: 11px; line-height: 1.5; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .msg-ticks { display: inline-flex; color: var(--ink-3); }
-.msg-ticks.is-seen { color: var(--a); }
+.msg-ticks.is-seen { color: var(--a-tx, var(--a)); }
 .msg-ticks.is-failed { font-weight: 700; color: var(--bad); }
 .msg-err-ico { flex: none; color: var(--bad); }
 .msg-retry-btn { padding: 0; font-size: 11px; font-weight: 700; color: var(--a-ink); text-decoration: underline; text-underline-offset: 2px; }
@@ -814,7 +814,7 @@ a.wy-powered:hover { color: var(--ink-2); }
   grid-template-columns: auto auto 1fr auto;
   grid-template-areas: 'in in in in' 'emo att . act';
   align-items: center;
-  row-gap: 2px;
+  gap: 2px;
 }
 .composer-actions, .composer-actions-start { display: contents; }
 .input {
@@ -1005,6 +1005,11 @@ a.wy-powered:hover { color: var(--ink-2); }
 .away .it { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 12px; background: #fff; color: var(--ink-2); box-shadow: 0 0 0 1px var(--line); }
 .away > span:last-child { display: flex; flex-direction: column; font-size: 13.5px; font-weight: 700; line-height: 1.5; }
 .away small { font-size: 12px; font-weight: 500; color: var(--ink-3); }
+/* In the thread, while the bar says the team is away: first, top-aligned. */
+.messages > .away { display: none; margin: 0 0 16px; }
+.wy-view-chat:has(.st.off) .messages > .away { display: flex; }
+.wy-view-chat:has(.st.off) .messages { justify-content: flex-start; }
+.wy-view-chat:has(.st.off) .wy-chat-scroll { -webkit-mask-image: none; mask-image: none; }
 .wy-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 16px; font-size: 13px; color: var(--ink-3); text-align: center; }
 
 /* ─── Your conversations ────────────────────────────────────────────── */
@@ -1018,7 +1023,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 .l2 { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 1.55; color: var(--ink-3); }
 .l2 em { flex: 1; min-width: 0; overflow: hidden; font-style: normal; white-space: nowrap; text-overflow: ellipsis; }
 .l2.u em { color: var(--ink); font-weight: 600; }
-.pl { margin-top: 4px; }
+.pl { display: flex; align-items: center; height: 22.4px; margin-top: 4px; }
 .pill { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; background: var(--a-2); font-size: 11px; font-weight: 700; line-height: 1; color: var(--a-ink); white-space: nowrap; }
 .pill.done { background: var(--paper-2); color: var(--ink-3); }
 .fab {
@@ -1070,6 +1075,7 @@ a.wy-powered:hover { color: var(--ink-2); }
 .kb-scroll { flex: 1; min-height: 0; padding-bottom: 14px; }
 .cnt { margin: 14px 22px 6px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .res { display: flex; flex-direction: column; margin: 0 10px; }
+.kb-scroll > .res:first-child { margin-top: 8px; }
 .res .kb-article { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 11px 12px; border-radius: 16px; color: var(--ink); text-align: start; transition: background-color .18s ease; animation: t2-rise .45s var(--ease) .15s backwards; }
 .res .kb-article:nth-child(2) { animation-delay: .21s; }
 .res .kb-article:nth-child(n+3) { animation-delay: .27s; }
@@ -1091,7 +1097,7 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 /* An article, then "did it help", then the way to the team. */
 .art { flex: 1; min-height: 0; padding: 20px 22px 12px; -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent); mask-image: linear-gradient(to bottom, #000 82%, transparent); }
 .art h1 { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.5; letter-spacing: -.01em; text-wrap: balance; }
-.am { display: flex; align-items: center; gap: 14px; margin: 12px 0 16px; font-size: 12px; color: var(--ink-3); }
+.am { display: flex; align-items: center; gap: 14px; min-height: 24px; margin: 12px 0 16px; font-size: 12px; color: var(--ink-3); }
 .am span { display: inline-flex; align-items: center; gap: 6px; }
 .kb-article-body { font-size: 14.5px; line-height: 1.95; color: var(--ink-2); overflow-wrap: anywhere; }
 .kb-article-body p, .kb-article-body ul, .kb-article-body ol, .kb-article-body blockquote, .kb-article-body pre, .kb-article-body table { margin: 0 0 14px; }
@@ -1468,13 +1474,16 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 .prechat-field > .skl { margin: 4px 4px 11px; }
 
 /* ─── Keyboard focus ────────────────────────────────────────────────── */
-.wy-view :is(button, a):focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
+.wy-view :is(button, a):focus-visible { outline: 2px solid var(--a-tx, var(--a)); outline-offset: 2px; }
 /* runtime.css gives a focused control a 6px radius; these keep their shape. */
 .send:focus-visible, .chip:focus-visible, .mic-btn:focus-visible, .send-btn:focus-visible, .fab:focus-visible,
 .msg-att-action:focus-visible, .wy-ap-play:focus-visible, .rec-send:focus-visible, .vn-play:focus-visible,
-.vn-send:focus-visible, .sfield .x:focus-visible, .wy-jump:focus-visible { border-radius: 999px; }
-.ib:focus-visible, .panel-close:focus-visible, .face:focus-visible, .rec-btn:focus-visible,
-.emoji-btn:focus-visible, .attach-btn:focus-visible, .hc-submit:focus-visible { border-radius: 12px; }
+.vn-send:focus-visible, .sfield .x:focus-visible, .wy-jump:focus-visible, .smart-cta:focus-visible, .ci-btn:focus-visible,
+.att-preview-btn:focus-visible, .reply-preview-cancel:focus-visible { border-radius: 999px; }
+.ib:focus-visible, .panel-close:focus-visible, .face:focus-visible, .rec-btn:focus-visible, .wy-btn-outline:focus-visible { border-radius: 12px; }
+.emoji-btn:focus-visible, .attach-btn:focus-visible, .hc-submit:focus-visible { border-radius: 11px; }
+.smart-dismiss:focus-visible, .emoji-picker button:focus-visible { border-radius: 10px; }
+.btn:focus-visible { border-radius: 14px; }
 .r:focus-visible, .cat:focus-visible, .ci:focus-visible { border-radius: 18px; }
 .res .kb-article:focus-visible { border-radius: 16px; }
 .cta:focus-visible { border-radius: 20px; }

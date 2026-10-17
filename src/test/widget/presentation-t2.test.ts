@@ -481,7 +481,22 @@ describe('t2: accent tokens', () => {
     expect(styleOf(make({ primaryColor: '#111827' }))).toContain('--on-a:#FFFFFF');
     expect(styleOf(make({ primaryColor: '#22C4A6' }))).toContain('--on-a:#16142B');
     expect(styleOf(make({ primaryColor: '#FFEB3B' }))).toContain('--on-a:#16142B');
-    expect(styleOf(make({ primaryColor: '#fc0' }))).toBe('--a:#FFCC00;--on-a:#16142B;--gs-primary:#FFCC00');
+    expect(styleOf(make({ primaryColor: '#fc0' })))
+      .toBe('--a:#FFCC00;--on-a:#16142B;--gs-primary:#79630A;--a-tx:#79630A;--a-ink:#79630A');
+  });
+
+  it('a light accent reads as text and as a ring through its darkened tone', () => {
+    const s = styleOf(make({ primaryColor: '#F5D90A' }));
+    const dk = /--a-tx:(#[0-9A-F]{6})/.exec(s)![1];
+    expect(s).toContain(`--a-ink:${dk}`);
+    expect(s).toContain(`--gs-primary:${dk}`);
+    // WCAG contrast of the dark tone on white (the logo initial, links, rings).
+    const ch = [1, 3, 5].map((i) => parseInt(dk.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    const L = 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+    expect(1.05 / (L + 0.05)).toBeGreaterThan(4.5);
+    // A dark accent keeps itself as text: no override.
+    expect(styleOf(make({ primaryColor: '#2563EB' }))).not.toContain('--a-tx');
   });
 
   it('sets the tokens on every view root and on the close button', () => {
@@ -540,6 +555,28 @@ describe('t2: direction, people, the workspace', () => {
     expect(t.querySelectorAll('.msg-avatar-spacer').length).toBe(1);
     expect(t.querySelector('.msg-row.visitor .msg-ticks.is-seen')).not.toBeNull();
     expect(t.innerHTML).not.toMatch(/style="background/);
+  });
+
+  it('a message that failed is its own run: the one before it keeps its time and ticks', () => {
+    const t = parse(make().messagesHtml({ messages: [
+      msg({ sender: 'visitor', senderType: 'contact', body: 'a', status: 'seen' }),
+      msg({ sender: 'visitor', senderType: 'contact', body: 'b', status: 'failed', localId: 'l1' }),
+    ] }, '', {}));
+    const rows = t.querySelectorAll('.msg-row.visitor');
+    expect(rows[0].classList.contains('is-last')).toBe(true);
+    expect(rows[0].querySelector('.msg-time')).not.toBeNull();
+    expect(rows[0].querySelector('.msg-ticks.is-seen')).not.toBeNull();
+    expect(rows[1].classList.contains('is-failed')).toBe(true);
+    expect(rows[1].querySelector('[data-msg-retry="l1"]')).not.toBeNull();
+  });
+
+  it('heads a thread with the away notice, shown by the stylesheet while the bar says away', () => {
+    const r = make();
+    expect(parse(r.messagesHtml({ messages: [msg({})] }, '', {})).querySelector('.messages > .away')).not.toBeNull();
+    expect(r.messagesHtml({ messages: [] }, '', {})).not.toContain('class="away"');
+    expect(r.chatHeaderHtml({ online: false })).toContain('class="st off"');
+    expect(r.chatHeaderHtml({ online: true })).not.toContain('st off');
+    expect(T2_CSS).toMatch(/\.wy-view-chat:has\(\.st\.off\) \.messages > \.away \{ display: flex; \}/);
   });
 });
 

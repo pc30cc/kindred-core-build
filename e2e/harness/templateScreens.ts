@@ -19,7 +19,8 @@
  * config.templateOptions), --native-size (keep the template's own panel box
  * instead of 400×720), --classic-scrollbars (space-taking scrollbars; default
  * overlay ones, as macOS / iOS / Android draw them and the designs show),
- * --motion (keep animations; default reduced motion so every shot is
+ * --safe-area (phone states: `top,bottom` insets in CSS px, e.g. `0,34` for
+ * a home indicator), --motion (keep animations; default reduced motion so every shot is
  * stable), --chromium (path; default PLAYWRIGHT_CHROMIUM_PATH, then
  * /opt/pw-browsers or /opt/ms-playwright).
  *
@@ -214,6 +215,157 @@ async function typing(page: Page) {
   await page.evaluate(() => (window as unknown as { __gsTyping?: () => void }).__gsTyping?.());
 }
 
+// ─── Template 1's panels, with each panel's own demo content ────────────
+// (handoff webyar/template-1-classic/screens/panels). States `t1-*`.
+/** An attachment whose bytes never arrive: the image's loading look (04·05 draws its placeholder). */
+const T1_SLOW_MEDIA = 'att-t1-slow';
+const T1_THREADS: Record<string, Msg[]> = {
+  // 04·05: a photo, the invoice, a voice note (sent, not yet seen).
+  'c-t1-files': [
+    visitor('g1', '', at(20, 4), { attachment: { id: T1_SLOW_MEDIA, kind: 'image', mime_type: 'image/jpeg', file_name: 'IMG_2041.jpg', size_bytes: 860_160 } }),
+    sara('g2', '', at(20, 6), { attachment: MEDIA.pdf }),
+    visitor('g3', '', at(20, 7), { attachment: MEDIA.voice, seen_at: null }),
+  ],
+  // 05·1, 05·2: the operator asks for a voice note.
+  'c-t1-voice': [
+    visitor('h1', 'سلام، کفشی که گرفتم یه ایراد کوچیک داره.', at(23, 55)),
+    sara('h2', 'متأسفم! بررسی می‌کنیم.', at(23, 58)),
+    sara('h3', 'اگه راحت‌ترید، می‌تونید مشکل رو صوتی توضیح بدید.', at(23, 58)),
+  ],
+  // 06·2: the first two messages of 04·04.
+  'c-t1-emoji': THREAD.slice(0, 2),
+  // 08·a–c: the visitor's first message (Core draws the card inline once a
+  // thread has one; an empty thread gets the full-screen form).
+  'c-t1-card': [visitor('p1', 'سلام، درباره سفارشم سؤال دارم.', at(23, 40), { seen_at: null })],
+  // 12·15: the phone's conversation.
+  'c-t1-phone': [
+    visitor('k1', 'سلام، دوشنبه یه کفش سفارش دادم ولی هنوز کد رهگیری برام نیومده.', at(19, 42)),
+    sara('k2', 'سلام علی جان، ممنون که پیام دادید.', at(19, 46)),
+    sara('k3', 'لطفاً شماره سفارش‌تون رو بفرستید.', at(19, 46)),
+    visitor('k4', 'حتماً، شماره سفارش ۴۸۲۱۳ هست', at(19, 50)),
+    sara('k5', 'ممنون! سفارش‌تون امروز صبح ارسال شد.', at(19, 54)),
+    sara('k6', 'کد رهگیری: TR-2290-5531', at(19, 54)),
+    visitor('k7', 'عالیه، خیلی ممنون', at(19, 58)),
+  ],
+};
+/** 09·12's article: a link, a heading, two steps and a tip. */
+const T1_ARTICLE_BODY =
+  '<p>بعد از ارسال سفارش، کد رهگیری برایتان پیامک و ایمیل می‌شود. همیشه می‌توانید آن را در ' +
+  '<a href="https://example.com/account/orders">حساب کاربری › سفارش‌ها</a> هم ببینید.</p>' +
+  '<h2>کد رهگیری کجاست؟</h2>' +
+  '<ol><li>پیامک «سفارش شما ارسال شد» را باز کنید.</li><li>یا در حساب کاربری، روی سفارش بزنید و «پیگیری» را انتخاب کنید.</li></ol>' +
+  '<blockquote>به‌روزرسانی وضعیت مرسوله ممکن است تا ۲۴ ساعت طول بکشد.</blockquote>';
+const t1Thread = (f: Fixture, cid: string) => {
+  f.identity = RETURNING;
+  f.conversations = [{ ...RECENT, id: cid }];
+  f.threads = { ...f.threads, ...T1_THREADS };
+};
+/** 08·a: name and e-mail required (the card marks only the optional phone), its own subtitle. */
+const t1PrechatCard = (f: Fixture) => {
+  f.identity = {
+    identity_state: 'anonymous', contact: null,
+    prechat: { ask_name: true, require_name: true, ask_email: true, require_email: true, ask_phone: true, require_phone: false, timing: 'after_handoff' },
+  };
+  f.conversations = [{ ...RECENT, id: 'c-t1-card', preview: '', unreadCount: 0 }];
+  f.threads = { ...f.threads, ...T1_THREADS };
+  f.config.aiAgent = {
+    ...(f.config.aiAgent as Record<string, unknown>),
+    handoffPrechatMessageLocalized: { fa: 'سلام! خوش اومدید. قبل از شروع خودتون رو معرفی کنید تا اگه از سایت رفتید هم جواب‌تون برسه.' },
+  };
+};
+const T1_TOPICS = [
+  { label: 'پیگیری سفارش', icon: 'truck' }, { label: 'مشاوره خرید', icon: 'chat' },
+  { label: 'مرجوعی و بازگشت وجه', icon: 'return' }, { label: 'پشتیبانی فنی', icon: 'help' },
+];
+async function recordFor(page: Page, ms: number) {
+  await page.locator('[data-mic-btn]').click();
+  await pause(page, ms);
+}
+
+// ─── Template 2's panels, with each panel's own demo content ────────────
+// (handoff webyar/template-2-simple-home/screens/panels). States `t2-*`.
+const T2_REPLY = 'معمولاً در ۲ دقیقه پاسخ می‌دهیم';
+const t2Art = (slug: string, title: string, category: string, excerpt = '') =>
+  ({ id: `t2-${slug}`, slug, title, excerpt, category_id: category, sort_order: 0, locale: 'fa' });
+const t2Many = (n: number, category: string, prefix: string) =>
+  Array.from({ length: n }, (_, i) => t2Art(`${prefix}-${i + 1}`, `${prefix} ${i + 1}`, category));
+/** Home (01–03, 13): ۲۴ مقاله درباره سفارش، ارسال و مرجوعی. */
+const T2_HOME_KB = {
+  categories: [
+    { id: 'h-orders', name: 'سفارش', slug: 'orders', description: '', icon: 'box', sort_order: 1 },
+    { id: 'h-ship', name: 'ارسال', slug: 'shipping', description: '', icon: 'truck', sort_order: 2 },
+    { id: 'h-returns', name: 'مرجوعی', slug: 'returns', description: '', icon: 'return', sort_order: 3 },
+  ],
+  articles: [...t2Many(10, 'h-orders', 'o'), ...t2Many(8, 'h-ship', 's'), ...t2Many(6, 'h-returns', 'r')],
+  search: {},
+};
+/** Help (07, 08): four categories, three results for «ارسال», the article. */
+const T2_HELP_KB = {
+  categories: [
+    { id: 'k-orders', name: 'سفارش و ارسال', slug: 'orders', description: '', icon: 'box', sort_order: 1 },
+    { id: 'k-pay', name: 'پرداخت', slug: 'payments', description: '', icon: 'card', sort_order: 2 },
+    { id: 'k-returns', name: 'مرجوعی', slug: 'returns', description: '', icon: 'return', sort_order: 3 },
+    { id: 'k-account', name: 'حساب کاربری', slug: 'account', description: '', icon: 'person', sort_order: 4 },
+  ],
+  articles: [
+    t2Art('track-order', 'چطور سفارشم را پیگیری کنم؟', 'k-orders'),
+    ...t2Many(4, 'k-orders', 'o'), ...t2Many(4, 'k-pay', 'p'), ...t2Many(3, 'k-returns', 'r'), ...t2Many(6, 'k-account', 'a'),
+  ],
+  search: {
+    ارسال: [
+      t2Art('shipping-cost', 'زمان و هزینه ارسال', 'k-orders', 'هزینه‌ی ارسال برای خریدهای بالای ۲ میلیون تومان رایگان است…'),
+      t2Art('after-shipping', 'پیگیری مرسوله بعد از ارسال', 'k-orders', 'کد رهگیری را پیامک می‌کنیم؛ وضعیت را در حساب کاربری هم می‌بینید…'),
+      t2Art('provinces', 'ارسال به شهرستان‌ها', 'k-orders', 'سفارش‌های شهرستان با پست پیشتاز ۳ تا ۵ روزه می‌رسند…'),
+    ],
+  },
+  body:
+    '<p>بعد از ارسال سفارش، کد رهگیری را برایتان پیامک و ایمیل می‌کنیم. همیشه می‌توانید آن را در ' +
+    '<a href="https://example.com/account/orders">حساب کاربری، بخش سفارش‌ها</a> هم ببینید.</p>' +
+    '<h2>کد رهگیری کجاست؟</h2>' +
+    '<ol><li>پیامک «سفارش شما ارسال شد» را باز کنید.</li><li>یا در حساب کاربری روی سفارش بزنید.</li>' +
+    '<li>دکمه‌ی «پیگیری مرسوله» را بزنید.</li></ol>' +
+    '<blockquote>به‌روزرسانی وضعیت مرسوله ممکن است تا ۲۴ ساعت طول بکشد.</blockquote>',
+};
+const T2_OPEN: Conversation = {
+  id: 'c-live', status: 'open', preview: 'خواهش می‌کنم! کار دیگری هست که کمک کنم؟',
+  unreadCount: 2, lastMessageAt: ago(10), operatorName: 'سارا', operatorOnline: true,
+};
+const T2_CONVERSATIONS: Conversation[] = [
+  T2_OPEN,
+  { id: 'c-mahdi', status: 'resolved', preview: 'مبلغ به حسابتان برگشت داده شد.', unreadCount: 0, lastMessageAt: at(15, 20, 1), operatorName: 'مهدی' },
+  { id: 'c-reza', status: 'resolved', preview: 'ممنون از راهنمایی سریعتان!', unreadCount: 0, outbound: true, lastMessageAt: at(11, 5, 5), operatorName: 'رضا' },
+];
+const T2_THREADS: Record<string, Msg[]> = {
+  'c-live': [
+    visitor('d1', 'سلام، سفارشم را دوشنبه ثبت کردم ولی هنوز کد رهگیری نیامده.', at(19, 42)),
+    sara('d2', 'سلام علی! بررسی کردم؛ سفارشتان امروز صبح ارسال شد.', at(19, 44)),
+    visitor('d3', 'عالیه، ممنون!', at(19, 46)),
+  ],
+  'c-media': [
+    visitor('e1', '', at(20, 4), { attachment: { id: 'att-photo', kind: 'image', mime_type: 'image/jpeg', file_name: 'IMG_2041.jpg', size_bytes: 1_240_000 } }),
+    sara('e2', '', at(20, 6), { attachment: MEDIA.pdf }),
+    sara('e3', 'این هم فاکتور سفارشتان.', at(20, 6)),
+    visitor('e4', '', at(20, 7), { attachment: MEDIA.voice }),
+  ],
+  'c-email': [visitor('f1', 'سلام، برای خرید عمده تخفیف دارید؟', at(19, 42))],
+};
+/** The design's workspace settings: reply time, topics, ask examples. */
+function t2Workspace(f: Fixture, topics?: Array<{ label: string; icon: string }>) {
+  f.config.replyTimeText = T2_REPLY;
+  const opts = (f.config.templateOptions as Record<string, unknown>) || {};
+  f.config.templateOptions = {
+    ...opts,
+    topics: opts.topics || topics || [
+      { label: 'زمان ارسال', icon: 'truck' }, { label: 'مرجوعی کالا', icon: 'return' }, { label: 'راهنمای سایز', icon: 'ruler' },
+    ],
+    askExamples: opts.askExamples || ['سفارشم کی می‌رسد؟', 'سایز ۴۲ موجود است؟'],
+  };
+  f.threads = { ...f.threads, ...T2_THREADS };
+}
+const t2Home = (f: Fixture) => { t2Workspace(f); f.kb = T2_HOME_KB; };
+const t2Help = (f: Fixture) => { t2Workspace(f); f.kb = T2_HELP_KB; };
+const t2Live = (f: Fixture) => { t2Workspace(f); f.identity = RETURNING; f.conversations = [T2_OPEN]; };
+
 export const SCREEN_STATES: Record<string, StateSpec> = {
   'home-first-visit': { home: true },
   'home-recent-chat': {
@@ -361,6 +513,224 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     setup: (f) => { f.identity = RETURNING; f.conversations = [RECENT]; },
     drive: async ({ page }) => { await openThread(page, 'c-sara'); },
   },
+  // Template 1's panels with their own demo content (the bottom menu's
+  // modes are home-recent-chat with --options '{"navMode":"both"}' etc.).
+  't1-attachments': {
+    keepFocus: true,
+    setup: (f) => { t1Thread(f, 'c-t1-files'); f.messageFails = true; },
+    drive: async ({ page }) => {
+      await openThread(page, 'c-t1-files');
+      const input = page.locator('[data-msg-input]');
+      await input.fill('آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲');
+      await input.press('Enter');
+      await pause(page, 600);
+      // A real (tiny) JPEG padded to 1.2 MB: the thumbnail decodes, the size reads like the design's.
+      const jpeg = Buffer.from(await page.evaluate(() => {
+        const c = document.createElement('canvas');
+        c.width = c.height = 32;
+        const g = c.getContext('2d')!;
+        g.fillStyle = '#DCEBE7'; g.fillRect(0, 0, 32, 32);
+        return c.toDataURL('image/jpeg').split(',')[1];
+      }), 'base64');
+      await page.locator('[data-attach-input]').setInputFiles({
+        name: 'رسید-پرداخت.jpg', mimeType: 'image/jpeg', buffer: Buffer.concat([jpeg, Buffer.alloc(1_258_291 - jpeg.length, 0)]),
+      });
+      await pause(page, 500);
+      await input.fill('می‌تونم آدرس تحویل رو تغییر بدم؟');
+      await input.focus();
+    },
+  },
+  't1-new-conversation': {
+    setup: (f) => {
+      f.config.welcomeMessage = 'سلام! چطور می‌تونیم کمکتون کنیم؟\nبرای اینکه سریع‌تر به نفر درست وصل بشید، موضوع رو انتخاب کنید:';
+      const opts = (f.config.templateOptions as Record<string, unknown>) || {};
+      f.config.templateOptions = { ...opts, topics: opts.topics || T1_TOPICS };
+    },
+    drive: async ({ page }) => { await newConversation(page); },
+  },
+  't1-recording': {
+    setup: (f) => t1Thread(f, 'c-t1-voice'),
+    drive: async ({ page }) => { await openThread(page, 'c-t1-voice'); await recordFor(page, 8300); },
+  },
+  't1-voice-preview': {
+    setup: (f) => t1Thread(f, 'c-t1-voice'),
+    drive: async ({ page }) => {
+      await openThread(page, 'c-t1-voice');
+      await recordFor(page, 1600);
+      await page.locator('[data-rec-stop]').click();
+      await pause(page, 900);
+    },
+  },
+  't1-emoji': {
+    keepFocus: true,
+    setup: (f) => t1Thread(f, 'c-t1-emoji'),
+    drive: async ({ page }) => {
+      await openThread(page, 'c-t1-emoji');
+      await page.locator('[data-msg-input]').fill('عالیه، خیلی ممنون 😍');
+      await page.locator('[data-emoji-btn]').click();
+      await pause(page, 300);
+    },
+  },
+  't1-prechat-error': {
+    home: true,
+    keepFocus: true,
+    setup: (f) => { f.identity = PRECHAT(true); },
+    drive: async ({ page }) => {
+      await online(page);
+      await page.locator('[data-home-action="chat"]').first().click();
+      await pause(page, 300);
+      await page.locator('[data-prechat="name"]').fill('علی رضایی');
+      await page.locator('[data-prechat="email"]').fill('ali@example');
+      await page.locator('[data-prechat-submit]').click();
+      await pause(page, 200);
+      await page.locator('[data-prechat="phone"]').focus();
+    },
+  },
+  't1-prechat-card': {
+    keepFocus: true,
+    setup: t1PrechatCard,
+    drive: async ({ page }) => {
+      await openThread(page, 'c-t1-card');
+      await page.locator('[data-prechat="name"]').fill('علی رضایی');
+      await page.locator('[data-prechat="email"]').focus();
+    },
+  },
+  't1-prechat-summary': {
+    setup: t1PrechatCard,
+    drive: async ({ page }) => {
+      await openThread(page, 'c-t1-card');
+      await page.locator('[data-prechat="name"]').fill('علی رضایی');
+      await page.locator('[data-prechat="email"]').fill('ali@example.com');
+      await page.locator('[data-prechat-submit]').click();
+      await pause(page, 500);
+    },
+  },
+  't1-away-message': {
+    home: true,
+    setup: (f) => { AWAY(f); f.config.replyTimeText = 'معمولاً تا ۲ ساعت'; },
+    drive: async ({ page }) => {
+      await page.locator('[data-home-action="chat"]').first().click();
+      await pause(page, 300);
+      await online(page);
+      const input = page.locator('[data-msg-input]');
+      await input.fill('سلام، برای سفارش عمده تخفیف دارید؟');
+      await input.press('Enter');
+      await pause(page, 500);
+    },
+  },
+  't1-help': {
+    home: true,
+    keepFocus: true,
+    drive: async ({ page }) => {
+      await inst(page, "i.setTab('help');");
+      await pause(page, 500);
+      await page.locator('[data-kb-search]').focus();
+    },
+  },
+  't1-article': {
+    home: true,
+    setup: (f) => { f.kb = { categories: CATEGORIES, articles: ARTICLES, search: SEARCH, body: T1_ARTICLE_BODY }; },
+    drive: async ({ page }) => { await inst(page, "i.setTab('help', 'track-order');"); await pause(page, 600); },
+  },
+  't1-mobile-home': { mobile: true, home: true },
+  't1-mobile-thread': {
+    mobile: true,
+    setup: (f) => t1Thread(f, 'c-t1-phone'),
+    drive: async ({ page }) => { await openThread(page, 'c-t1-phone'); },
+  },
+  // Template 2's panels (01–14) with their own demo content.
+  't2-home-first-visit': { home: true, setup: t2Home },
+  't2-home-returning': {
+    home: true,
+    setup: (f) => { t2Home(f); f.identity = RETURNING; f.conversations = T2_CONVERSATIONS; },
+  },
+  't2-home-away': { home: true, setup: (f) => { t2Home(f); AWAY(f); } },
+  't2-live-chat': {
+    setup: t2Live,
+    drive: async ({ page }) => { await openThread(page, 'c-live'); await typing(page); },
+  },
+  't2-files-voice': {
+    setup: (f) => { t2Live(f); f.conversations = [{ ...T2_OPEN, id: 'c-media' }]; f.messageFails = true; },
+    drive: async ({ page }) => {
+      await openThread(page, 'c-media');
+      const input = page.locator('[data-msg-input]');
+      await input.fill('آدرس جدید: تهران، خیابان ولیعصر، پلاک ۱۲');
+      await input.press('Enter');
+      await pause(page, 600);
+      await page.locator('[data-mic-btn]').click();
+      await pause(page, 1300);
+    },
+  },
+  't2-new-conversation': {
+    keepFocus: true,
+    setup: (f) => {
+      t2Workspace(f, [
+        { label: 'پیگیری سفارش', icon: 'box' }, { label: 'مشاوره خرید', icon: 'ruler' },
+        { label: 'مرجوعی و بازگشت وجه', icon: 'return' }, { label: 'موضوع دیگر', icon: 'chat' },
+      ]);
+      f.config.welcomeMessage = 'سلام! سؤالتان را بنویسید یا یکی از موضوع‌ها را انتخاب کنید.';
+    },
+    drive: async ({ page }) => {
+      await newConversation(page);
+      await page.locator('[data-msg-input]').fill('مرجوعی کفش');
+      await pause(page, 300);
+    },
+  },
+  't2-help-search': {
+    home: true,
+    keepFocus: true,
+    setup: t2Help,
+    drive: async ({ page }) => {
+      await inst(page, "i.setTab('help');");
+      await pause(page, 500);
+      await page.locator('[data-kb-search]').fill('ارسال');
+      await pause(page, 900);
+    },
+  },
+  't2-article': {
+    home: true,
+    setup: t2Help,
+    drive: async ({ page }) => { await inst(page, "i.setTab('help', 'track-order');"); await pause(page, 600); },
+  },
+  't2-conversations': {
+    home: true,
+    setup: (f) => { t2Live(f); f.conversations = T2_CONVERSATIONS; },
+    drive: async ({ page }) => { await inst(page, "i.setTab('list');"); await pause(page, 300); },
+  },
+  't2-ask-email': {
+    setup: (f) => {
+      t2Live(f);
+      f.identity = {
+        identity_state: 'anonymous', contact: null,
+        prechat: { ask_name: false, require_name: false, ask_email: true, require_email: false, ask_phone: false, require_phone: false, timing: 'after_handoff' },
+      };
+      f.conversations = [{ ...T2_OPEN, id: 'c-email', preview: 'سلام، برای خرید عمده تخفیف دارید؟', unreadCount: 0 }];
+      f.config.aiAgent = { ...(f.config.aiAgent as Record<string, unknown>), handoffPrechatMessageLocalized: { fa: 'سؤالتان به تیم رسید؛ معمولاً در چند دقیقه پاسخ می‌دهیم.' } };
+    },
+    drive: async ({ page }) => { await openThread(page, 'c-email'); },
+  },
+  't2-away-message': {
+    home: true,
+    setup: (f) => { t2Workspace(f); AWAY(f); },
+    drive: async ({ page }) => {
+      await page.locator('[data-home-action="chat"]').first().click();
+      await pause(page, 300);
+      const text = 'سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟';
+      const form = page.locator('[data-fb="message"]');
+      if (await form.count()) { await form.fill(text); return; }
+      await online(page);
+      const input = page.locator('[data-msg-input]');
+      await input.fill(text);
+      await input.press('Enter');
+      await pause(page, 500);
+    },
+  },
+  't2-mobile-home': { mobile: true, home: true, setup: t2Home },
+  't2-mobile-chat': {
+    mobile: true,
+    setup: t2Live,
+    drive: async ({ page }) => { await openThread(page, 'c-live'); await typing(page); },
+  },
 };
 
 // ─── The fake widget API ────────────────────────────────────────────────
@@ -433,6 +803,8 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
     if (p.includes('/api/widget/attachments/') && p.endsWith('/upload')) return json({ ok: true });
     if (p.includes('/api/widget/attachments/')) {
       const id = p.split('/').pop();
+      // Never answered: the image keeps its loading look (the context's close drops the request).
+      if (id === T1_SLOW_MEDIA) return new Promise<void>(() => undefined);
       if (id === MEDIA.voice.id || id === 'att-new') return route.fulfill({ status: 200, contentType: 'audio/wav', body: wav });
       return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: IMAGE_SVG });
     }
@@ -511,6 +883,8 @@ export interface ScreenOptions {
   nativeSize?: boolean;
   /** Classic (space-taking) scrollbars instead of overlay ones. */
   classicScrollbars?: boolean;
+  /** Phone states: the screen's safe-area insets in CSS px (status bar, home indicator), e.g. { top: 0, bottom: 34 }. */
+  safeArea?: { top: number; bottom: number };
   /** Called after each PNG is written. */
   onShot?: (file: string) => void;
   /** Runs right before each shot (scratch inspection: measure, log, tweak). */
@@ -554,6 +928,10 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
   });
   try {
     const page = await context.newPage();
+    if (mobile && opts.safeArea) {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('Emulation.setSafeAreaInsetsOverride' as never, { insets: { left: 0, right: 0, ...opts.safeArea } } as never);
+    }
     if (process.env.SCREENS_DEBUG) {
       page.on('console', (m) => console.log(`[${name}] console.${m.type()}: ${m.text()}`));
       page.on('pageerror', (e) => console.log(`[${name}] pageerror: ${e.message}`));
@@ -682,7 +1060,7 @@ if (invokedDirectly) {
   } else {
     const outDir = String(args.out || '');
     if (!outDir) {
-      console.error('usage: npx tsx e2e/harness/templateScreens.ts --template <id> --out <folder> [--states a,b] [--locale fa] [--accent #hex] [--options JSON] [--native-size] [--classic-scrollbars] [--motion] [--chromium path] | --list');
+      console.error('usage: npx tsx e2e/harness/templateScreens.ts --template <id> --out <folder> [--states a,b] [--locale fa] [--accent #hex] [--options JSON] [--native-size] [--classic-scrollbars] [--safe-area top,bottom] [--motion] [--chromium path] | --list');
       process.exit(2);
     }
     renderTemplateScreens({
@@ -696,6 +1074,9 @@ if (invokedDirectly) {
       motion: !!args.motion,
       nativeSize: !!args['native-size'],
       classicScrollbars: !!args['classic-scrollbars'],
+      safeArea: typeof args['safe-area'] === 'string'
+        ? (([top, bottom]) => ({ top: Number(top) || 0, bottom: Number(bottom) || 0 }))(String(args['safe-area']).split(','))
+        : undefined,
       onShot: (f) => console.log(f),
     }).catch((e) => { console.error(e); process.exit(1); });
   }

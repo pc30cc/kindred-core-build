@@ -54,6 +54,7 @@
       sep: '، ',
       semi: '؛ ',
       backAt: 'از ساعت {t} پاسخ می‌دهیم',
+      awaySub: 'از {t} پاسخ می‌دهیم',
       am: ' صبح',
       ask: 'سؤالتان را بنویسید…',
       askAway: 'پیامتان را بنویسید…',
@@ -102,6 +103,7 @@
       sep: ', ',
       semi: '; ',
       backAt: 'we reply from {t}',
+      awaySub: 'We reply from {t}',
       am: '',
       ask: 'Write your question…',
       askAway: 'Write your message…',
@@ -148,6 +150,7 @@
       on: 'Çevrimiçiyiz',
       off: 'Çevrimdışıyız',
       backAt: '{t} itibarıyla yanıtlıyoruz',
+      awaySub: '{t} itibarıyla yanıtlıyoruz',
       ask: 'Sorunuzu yazın…',
       askAway: 'Mesajınızı yazın…',
       eg: 'Örn. ',
@@ -239,6 +242,8 @@
   var TOPIC_ICONS = { truck: 1, return: 1, ruler: 1, card: 1, box: 1, chat: 1, help: 1, gift: 1, clock: 1, tag: 1, person: 1 };
   // A voice note's waveform (the design's fixed shape, in px).
   var WAVE = [8, 10, 10, 6, 20, 22, 12, 16, 18, 8, 14, 7, 16, 20, 10, 14, 18, 6, 12, 12, 12, 8, 9, 24];
+  // The recorder's (its live wave, in px).
+  var REC_WAVE = [8, 24, 12, 6, 10, 7, 18, 22, 10, 18, 9, 12, 18, 20, 14, 16, 20, 10, 16, 8, 12, 14, 16, 8];
   var INK = '#16142B';
 
   function ico(name, size, sw, cls) {
@@ -268,16 +273,24 @@
    * `--gs-primary` (its focus ring). An uncustomised colour (empty, the
    * seeded #3B82F6) or the brand's own #0B7D6C wears the brand look, with
    * its hand-tuned hero stops. Derived shades come from the stylesheet.
+   * A light accent (Ink on it) is too pale as text or a ring on white:
+   * there `--a-tx` and `--a-ink` (and the focus ring) are the accent
+   * darkened (45% of it over Ink-black).
    */
+  function hexOf(rgb) {
+    return '#' + rgb.map(function (v) { return (v < 16 ? '0' : '') + v.toString(16); }).join('').toUpperCase();
+  }
   function accentTokens(primary) {
     var raw = String(primary || '').trim().toLowerCase();
     var rgb = rgbOf(raw);
     var brand = !rgb || raw === '#3b82f6' || raw === '#0b7d6c';
     if (brand) rgb = [11, 125, 108];
-    var a = brand ? '#0B7D6C' : '#' + rgb.map(function (v) { return (v < 16 ? '0' : '') + v.toString(16); }).join('').toUpperCase();
+    var a = hexOf(rgb);
     var l = lum(rgb);
-    var onA = 1.05 / (l + 0.05) >= (l + 0.05) / (lum(rgbOf(INK)) + 0.05) ? '#FFFFFF' : INK;
-    return '--a:' + a + ';--on-a:' + onA + ';--gs-primary:' + a +
+    var light = 1.05 / (l + 0.05) < (l + 0.05) / (lum(rgbOf(INK)) + 0.05);
+    var dk = light ? hexOf(rgb.map(function (v, i) { return Math.round(v * .45 + [11, 13, 18][i] * .55); })) : '';
+    return '--a:' + a + ';--on-a:' + (light ? INK : '#FFFFFF') + ';--gs-primary:' + (dk || a) +
+      (dk ? ';--a-tx:' + dk + ';--a-ink:' + dk : '') +
       (brand ? ';--h1:#22C4A6;--h2:#0F927D;--h3:#08594E;--glow:#7CF5DF' : '');
   }
 
@@ -480,6 +493,14 @@
         return new Intl.DateTimeFormat(tag, opts).format(d) + (d.getHours() < 12 ? L('am') : '');
       } catch (_) { return ''; }
     }
+    /** "We're offline right now" + when the team is back (else the reply-time text). */
+    function awayNoticeHtml() {
+      var d = nextOpen();
+      var at = d ? backAtTime(d) : '';
+      var sub = at ? L('awaySub', { t: at }) : replyTimeText(false);
+      return '<div class="away"><span class="it">' + ico('moon', 18, 1.8) + '</span><span>' + esc(L('awayT')) +
+        (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span></div>';
+    }
     /** The away line: when the team is back, else the reply-time text. */
     function awayLine() {
       var d = nextOpen();
@@ -577,8 +598,8 @@
       var s = sec % 60;
       return digits(Math.floor(sec / 60) + ':' + (s < 10 ? '0' : '') + s);
     }
-    function waveHtml() {
-      return WAVE.map(function (h) { return '<i style="height:' + h + 'px"></i>'; }).join('');
+    function waveHtml(w) {
+      return (w || WAVE).map(function (h) { return '<i style="height:' + h + 'px"></i>'; }).join('');
     }
 
     // Real attachments — authenticated media is loaded by Core through the
@@ -879,12 +900,15 @@
       var rrCfg = config.readReceipts;
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
       var msgs = s.messages || [];
-      var html = '<div class="messages">';
+      // The away notice heads the thread; the stylesheet shows it while the
+      // bar (live presence) says the team is away.
+      var html = '<div class="messages">' + (msgs.length ? awayNoticeHtml() : '');
 
       // Runs: consecutive messages of one author on one day share one avatar
       // (beside the last bubble) and one meta line (under it).
-      var groupKeys = msgs.map(function (m) {
-        var author = m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
+      var groupKeys = msgs.map(function (m, i) {
+        var author = m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v')
+          : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
         return author + '@' + dayKeyOf(m.time);
       });
       var visitorHasReplied = msgs.some(function (m) { return m.sender === 'visitor'; });
@@ -1090,15 +1114,11 @@
       var intro = (presence && presence.introLabel) ? presence.introLabel : t('fallbackIntro');
       var askPhone = identity.isAsked('phone');
       var req = { isRequired: function (k) { return k === 'email' ? !askPhone : identity.isRequired(k); } };
-      var d = nextOpen();
-      var at = d ? backAtTime(d) : '';
-      var sub = at ? L('backAt', { t: at }) : replyTimeText(false);
       var fieldsHtml = renderPrechatFieldRow(req, 'name', 'text', contact.name, '', 'fb') +
         renderPrechatFieldRow(req, 'email', 'email', contact.email, '', 'fb') +
         (askPhone ? renderPrechatFieldRow(req, 'phone', 'tel', contact.phone, '', 'fb') : '');
       return formViewHtml('fallback', locale, teamHeaderHtml(false),
-        '<div class="away"><span class="it">' + ico('moon', 18, 1.8) + '</span><span>' + esc(L('awayT')) +
-          (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span></div>' +
+        awayNoticeHtml() +
         '<p class="prechat-intro">' + esc(intro) + '</p>' +
         '<div class="prechat-fields">' + fieldsHtml +
           '<div class="prechat-field" data-field="message">' +
@@ -1163,7 +1183,7 @@
       var name = op ? op.name : stack ? tf('wyNewConversation', 'New conversation') : workspaceName;
       var rt = replyTimeText(true);
       var st = vm.typing ? '<span class="st typ">' + esc(L('typing')) + '<i></i><i></i><i></i></span>'
-        : !online ? '<span class="st">' + esc(L('away')) + '</span>'
+        : !online ? '<span class="st off">' + esc(L('away')) + '</span>'
         : op && op.online ? '<span class="st"><i class="ondot"></i>' + esc(L('online')) + '</span>'
         : rt ? '<span class="st">' + esc(rt) + '</span>' : '';
       return backButtonHtml('home') + whoHtml(avatar, name, st) + '<span class="cs" aria-hidden="true"></span>' +
@@ -1254,7 +1274,7 @@
                         '<button type="button" class="rec-btn rec-cancel" data-rec-cancel aria-label="' + esc(L('delRec')) + '">' + ico('trash', 20, 1.8) + '</button>' +
                         '<span class="rec-dot" aria-hidden="true"></span>' +
                         '<span class="rec-time" data-rec-timer role="timer" aria-live="off">' + clock(0) + '</span>' +
-                        '<span class="rec-wave" aria-hidden="true">' + waveHtml() + '</span>' +
+                        '<span class="rec-wave" aria-hidden="true">' + waveHtml(REC_WAVE) + '</span>' +
                         '<span class="sr-only" data-rec-sr role="status" aria-live="polite">' + esc(t('recording')) + '</span>' +
                         '<button type="button" class="rec-btn rec-confirm" data-rec-stop hidden aria-label="' +
                           esc(t('stopRecording')) + '"></button>' +

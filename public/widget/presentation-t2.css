@@ -1,0 +1,2063 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Widget Presentation — the "default" template stylesheet.
+
+   The ONLY official widget design. Loaded inside the <gs-widget> shadow
+   root next to runtime.css (core reset + focus rings only). Nothing here
+   is shared with, or inherited from, any previous template.
+
+   Tokens follow the design source of truth:
+     surface        #fcfcfd      panel background
+     card           #ffffff
+     border         #e0e1e6      hover border #c1c2c5
+     text           #1c2024      muted #60646c   faint #8b8d98
+     hover fill     #f7f8f9 / #f0f0f3
+     accent         --gs-primary (workspace colour, #1f93ff by default)
+     online         #30c46e
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ─── Self-hosted typography (licensed) ─────────────────────────────────
+   Presentation OWNS typography — Core (runtime.css) declares no font at all.
+   The licensed Bold asset is intentionally mapped to both 600 and 700,
+   exactly like the design source. */
+:host,
+.shell {
+  --wy-surface: #fcfcfd;
+  --wy-card: #ffffff;
+  --wy-border: #e0e1e6;
+  --wy-border-strong: #c1c2c5;
+  --wy-text: #1c2024;
+  --wy-muted: #60646c;
+  --wy-faint: #8b8d98;
+  --wy-hover: #f7f8f9;
+  --wy-hover-2: #f0f0f3;
+  --wy-online: #30c46e;
+  --wy-accent: var(--gs-primary, #1f93ff);
+  --wy-radius-sm: 0.5rem;
+  --wy-radius-md: 0.75rem;
+  --wy-radius-lg: 1rem;
+  --wy-radius-xl: 1.25rem;
+  --wy-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  --wy-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.shell,
+.shell * {
+  font-family: 'IRANSans', 'InterWY', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+/* LTR locales use Inter. `dir` lives on the panel (Core sets it there) and,
+   for previews, on the shell — both are honoured. */
+.shell[dir='ltr'],
+.shell[dir='ltr'] *,
+.panel[dir='ltr'],
+.panel[dir='ltr'] * {
+  font-family: 'InterWY', 'IRANSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ─── Shell + panel ─────────────────────────────────────────────────── */
+/* The shell is a plain (non-positioned) container inside the shadow root.
+   The launcher stays LOADER-owned (position:fixed, edge 24px) and the panel
+   is positioned INDEPENDENTLY by this presentation layer. There is no
+   `.shell.pos-*` contract — the loader never emits those classes. */
+.shell {
+  color: var(--wy-text);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.shell[dir='rtl'] { text-align: right; }
+
+.panel {
+  position: absolute;
+  /* Below the loader's launcher (2147483646) so the FAB is always clickable. */
+  z-index: 2147483000;
+  /* Intentional product override: source canvas is 380×600; components and
+     typography remain unscaled while the product canvas is 420×680. */
+  width: 420px;
+  height: 680px;
+  max-height: calc(100dvh - 118px);
+  max-width: calc(100vw - 24px);
+  display: flex;
+  flex-direction: column;
+  background: var(--wy-surface);
+  border-radius: var(--wy-radius-xl);
+  box-shadow: var(--wy-shadow);
+  overflow: hidden;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  opacity: 0;
+  /* Shared origin with the launcher: both live in the same zero-size anchor
+     and are pinned to the SAME corner, so the panel grows out of the FAB. */
+  transform: translateY(16px) scale(0.97);
+  pointer-events: none;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
+}
+/* Same corner as the launcher — the anchor already owns the 24px edge. */
+.panel.bottom-right {
+  right: 0;
+  left: auto;
+  top: auto;
+  bottom: 0;
+  transform-origin: bottom right;
+}
+.panel.bottom-left {
+  left: 0;
+  right: auto;
+  top: auto;
+  bottom: 0;
+  transform-origin: bottom left;
+}
+.panel.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.shell.no-anim .panel { transition: none; }
+
+/* ─── Phones: the panel IS the screen ────────────────────────────────
+   The loader turns the shell into a full visual-viewport box while the
+   panel is open (`.shell.gs-mobile-open`, height driven by visualViewport),
+   so here the panel simply fills it: no rounded corners, no page peeking
+   through, no reflow when the keyboard opens. */
+@media (max-width: 640px) {
+  .shell.gs-mobile-open .panel,
+  .shell.gs-mobile-open .panel.bottom-right,
+  .shell.gs-mobile-open .panel.bottom-left {
+    inset: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    transform-origin: bottom center;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .shell.gs-mobile-open .panel.visible { transform: none; }
+  /* Fallback while the shell is still the corner anchor (e.g. first frame). */
+  .shell:not(.gs-mobile-open) .panel {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    height: calc(100dvh - 120px);
+  }
+  .panel.bottom-right { right: 0; left: auto; }
+  .panel.bottom-left { left: 0; right: auto; }
+  .shell.gs-mobile-open .panel-close { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+}
+
+
+/* ─── Launcher ────────────────────────────────────────────────────── */
+.launcher {
+  width: var(--gs-fab-size, 56px);
+  height: var(--gs-fab-size, 56px);
+  border-radius: 9999px;
+  background: var(--wy-accent);
+  color: #fff;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px -4px var(--gs-shadow, rgba(31, 147, 255, 0.22));
+  cursor: pointer;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease;
+}
+.launcher:hover {
+  transform: translateY(-2px) scale(1.04);
+  transition: transform 0.18s ease-out, box-shadow 0.18s ease;
+}
+.launcher:active { transform: translateY(0) scale(0.92); }
+
+/* While the panel is open the FAB slides down out of view; closing returns it. */
+.launcher.open,
+.launcher.open:hover { transform: translateY(var(--gs-fab-exit, 112px)); pointer-events: none; }
+/* Icons scale with the launcher so chat and close are always the same box. */
+.launcher svg { width: calc(var(--gs-fab-size, 56px) * 0.46); height: calc(var(--gs-fab-size, 56px) * 0.46); }
+/* Icon swap (chat ⇄ close) is owned by the loader shell contract:
+   state lives on .launcher.open with svg.chat-icon / svg.close-icon. */
+.launcher-badge {
+  position: absolute; top: -2px; inset-inline-end: -2px; min-width: 18px; height: 18px;
+  padding: 0 5px; border-radius: 9999px; background: #e5484d; color: #fff;
+  font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+}
+
+/* ─── Views ─────────────────────────────────────────────────────────── */
+.wy-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  animation: wy-view-in 0.26s var(--wy-ease) both;
+}
+@keyframes wy-view-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.shell.no-anim .wy-view { animation: none; }
+
+.wy-scroll {
+  overflow-y: auto;
+  overflow-x: hidden !important;
+  scrollbar-width: thin;
+  scrollbar-color: #e0e1e6 transparent;
+  /* Reserve the gutter on BOTH edges so the scrollbar never makes the two
+     sides of a surface unequal (the leading edge kept its full padding
+     while the trailing edge lost 6px to the bar). */
+  scrollbar-gutter: stable both-edges;
+  overscroll-behavior: contain;
+}
+.wy-scroll::-webkit-scrollbar { width: 6px; }
+.wy-scroll::-webkit-scrollbar-thumb { background: #e0e1e6; border-radius: 4px; }
+.wy-scroll::-webkit-scrollbar-track { background: transparent; }
+
+
+
+.wy-body-pad { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* Home body — 16px box, 16px gap between the scroll area and the fixed
+   action block (design source). */
+.wy-home-body { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 16px; gap: 16px; box-sizing: border-box; }
+/* Scroll areas nested in a 16px padded body pull back by the reserved
+   gutter on both sides, so painted content still sits exactly 16px from
+   each panel edge — identical left and right. */
+.wy-home-scroll { flex: 1; min-height: 0; padding: 0; margin-inline: -6px; display: flex; flex-direction: column; gap: 16px; }
+.wy-list-body, .wy-kb-body { padding: 16px; gap: 12px; }
+.wy-list-scroll { flex: 1; min-height: 0; padding: 0; margin-inline: -6px; display: flex; flex-direction: column; gap: 8px; }
+.wy-kb-scroll { flex: 1; min-height: 0; padding: 0; margin-inline: -6px; }
+
+.wy-kb-body > .wy-footer, .wy-list-body > .wy-footer { padding: 0; }
+
+
+/* ─── Headers ───────────────────────────────────────────────────────── */
+.wy-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  background: var(--wy-surface);
+  flex: none;
+  box-sizing: border-box;
+}
+/* Home header — symmetric 20px padding, 12px avatar gutter (design source). */
+.wy-head-home { padding: 20px; gap: 12px; justify-content: space-between; }
+.wy-head-home .wy-head-text { gap: 4px; }
+.wy-head-home .wy-head-title { font-size: 17px; font-weight: 700; line-height: 1.1; }
+/* Chat header — design box: 16px padding, panel surface, no bottom rule. */
+.wy-head-chat {
+  padding: 16px;
+  gap: 10px;
+}
+.wy-head-chat .wy-back {
+  width: auto; height: auto; padding: 4px; margin-inline-end: -6px;
+  border-radius: 6px; color: var(--wy-text);
+}
+.wy-head-chat .wy-head-title { font-size: 16px; font-weight: 700; gap: 6px; }
+.wy-head-chat .wy-head-sub { font-size: 13px; color: var(--wy-muted); }
+.wy-head-chat .wy-online-dot { width: 8px; height: 8px; border: 0; }
+.wy-head-list { padding: 20px; gap: 8px; justify-content: space-between; }
+.wy-head-list .wy-back { width: auto; height: auto; padding: 4px; margin-inline-end: -6px; border-radius: 6px; }
+.wy-head-article { padding: 16px 20px; gap: 8px; }
+.wy-head-plain { font-size: 16px; font-weight: 500; flex: 1; min-width: 0; }
+.wy-head-article-title { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wy-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.wy-head-title { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; }
+.wy-head-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wy-head-sub { font-size: 13px; color: var(--wy-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wy-online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wy-online); flex: none; }
+
+
+.wy-back {
+  /* P1 — the source has NO circular chrome on back controls: it is a bare
+     23x23 SVG affordance. The 32px pill + hover fill was our invention. */
+  /* Source spacing contract, shared by Articles / Article Detail / full-screen
+     Pre-chat / Chat: 23x23 SVG (stroke 1.8), 4px padding, -6px inline-end
+     margin so the glyph optically aligns with the view's content edge. */
+  width: auto; height: auto; padding: 4px; margin-inline-end: -6px;
+  border-radius: 0; background: none;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--wy-muted); flex: none;
+  transition: color 0.16s, transform 0.16s var(--wy-ease);
+}
+.wy-back svg { width: 23px; height: 23px; }
+.wy-back:hover { background: none; color: var(--wy-text); }
+.wy-back:active { transform: scale(0.92); }
+[dir='rtl'] .wy-back svg { transform: scaleX(-1); }
+
+
+.wy-avatar {
+  width: 2.75rem; height: 2.75rem; border-radius: 9999px; flex: none;
+  background: var(--wy-accent); color: #fff; font-size: 17px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.wy-avatar-sm { width: 2.25rem; height: 2.25rem; font-size: 14px; }
+.wy-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Online-operator stack — 16px circles overlapping by 6px, sitting BEFORE
+   the workspace name inside the home header title row (design source). */
+.home-stack { display: inline-flex; align-items: center; flex: none; }
+.home-stack-item {
+  width: 1rem; height: 1rem; border-radius: 50%; background: var(--wy-hover-2);
+  border: 1.5px solid var(--wy-surface); box-sizing: border-box;
+  margin-inline-end: -6px; overflow: hidden; display: inline-block;
+}
+.home-stack-item:last-child { margin-inline-end: 0; }
+.home-stack-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+
+.wy-fab {
+  width: 32px; height: 32px; border-radius: 9999px; background: var(--wy-accent); color: #fff;
+  display: flex; align-items: center; justify-content: center; flex: none;
+  transition: transform 0.18s var(--wy-ease), filter 0.18s;
+}
+.wy-fab:hover { filter: brightness(1.06); transform: scale(1.06); }
+.wy-fab:active { transform: scale(0.94); }
+
+/* ─── Buttons ───────────────────────────────────────────────────────── */
+.wy-btn {
+  box-sizing: border-box;
+  padding: 8px 14px;
+  border-radius: var(--wy-radius-sm);
+  font-size: 14.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.16s, color 0.16s, filter 0.16s, transform 0.16s var(--wy-ease), box-shadow 0.16s;
+}
+.wy-btn:active { transform: scale(0.975); }
+.wy-btn-primary { background: var(--wy-accent); color: #fff; border: none; }
+.wy-btn-primary:hover { filter: brightness(1.07); box-shadow: 0 6px 16px rgba(31, 147, 255, 0.25); }
+.wy-btn-outline { background: transparent; border: 1px solid var(--wy-accent); color: var(--wy-accent); }
+.wy-btn-outline:hover { background: rgba(31, 147, 255, 0.07); }
+.wy-btn-block { width: 100%; }
+.wy-btn-grow { flex: 1 1 auto; }
+
+/* Online-operator stack inside the "start chat" CTA. Use an integer 32px
+   raster box instead of 2em (29px at the current 14.5px button font): the
+   fractional sampling made otherwise high-resolution profile photos soft. */
+.wy-btn .home-stack { margin-inline-end: 8px; vertical-align: middle; line-height: 0; }
+.wy-btn .home-stack-item {
+  width: 2rem; height: 2rem; border: none;
+  margin-inline-end: -0.55rem;
+}
+
+.wy-btn-primary .home-stack-item { background: rgba(255, 255, 255, 0.35); }
+.wy-btn .home-stack-item:last-child { margin-inline-end: 0; }
+.wy-btn .home-stack-item img {
+  width: 100%; height: 100%; object-fit: cover; object-position: center;
+  image-rendering: auto;
+}
+
+.wy-actions-block { flex: none; display: flex; flex-direction: column; gap: 8px; }
+.wy-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; }
+.wy-actions .wy-btn { flex: 1 1 auto; min-width: 0; }
+.wy-view-home .wy-actions .wy-btn { padding: 8px; }
+
+/* ─── Footer ────────────────────────────────────────────────────────── */
+.wy-footer {
+  flex: none; padding: 4px 16px 6px;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.wy-view-home .wy-footer { padding: 4px 0 0; }
+.wy-powered {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  line-height: 12px; font-size: 12px;
+  color: var(--wy-muted); text-decoration: none; transition: color 0.16s;
+}
+/* Non-clickable footer (no platform URL configured) keeps the exact same look
+   but must not pretend to be a link. */
+span.wy-powered { cursor: default; }
+a.wy-powered:hover { color: var(--wy-text); }
+/* The platform's logo in the brand's place (config.poweredBy.logo; the
+   Iran region's local logotype): small, on the label's centre line.
+   The International skin sizes its own over this rule. */
+.wy-powered .wy-powered-logo {
+  display: inline-block;
+  height: 16px;
+  width: auto;
+  vertical-align: middle;
+  margin-inline-start: 1px;
+}
+
+/* ─── Connection / loading micro indicator ──────────────────────────────
+   The ONE visual loading affordance after the first usable render. It is a
+   sibling of the powered-by anchor (never inside the clickable area) and it
+   never adds height to the footer: the 9px footprint is smaller than the
+   12px footer line-height.
+
+   State comes from Core as a normalized `data-conn-state` on the panel; the
+   template alone decides what each state looks like. There is no text. */
+.wy-conn {
+  position: relative; flex: none;
+  width: 9px; height: 9px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.wy-conn-dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--wy-online, #22c55e);
+  opacity: 0.75;
+  transition: background 0.2s, opacity 0.2s;
+}
+.wy-conn-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  opacity: 0; transition: opacity 0.2s;
+  /* Orbital "filling" arc — a conic sweep masked to a 1px ring. */
+  background: conic-gradient(from 0deg, transparent 0deg, var(--wy-accent) 300deg, transparent 330deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 2.6px, #000 3.1px);
+  mask: radial-gradient(circle, transparent 0 2.6px, #000 3.1px);
+}
+
+/* connecting / reconnecting / loading → the ring appears and orbits slowly. */
+[data-conn-state="connecting"] .wy-conn-ring,
+[data-conn-state="reconnecting"] .wy-conn-ring,
+[data-conn-state="loading"] .wy-conn-ring {
+  opacity: 1; animation: wy-conn-orbit 1.6s linear infinite;
+}
+[data-conn-state="connecting"] .wy-conn-dot,
+[data-conn-state="reconnecting"] .wy-conn-dot,
+[data-conn-state="loading"] .wy-conn-dot { background: var(--wy-accent); opacity: 1; }
+
+/* degraded / polling fallback — still fully usable, so an even calmer orbit. */
+[data-conn-state="degraded"] .wy-conn-ring { opacity: 0.55; animation: wy-conn-orbit 2.6s linear infinite; }
+[data-conn-state="degraded"] .wy-conn-dot { background: var(--wy-accent); opacity: 0.8; }
+
+/* Genuinely offline — static muted dot, no copy, no alarm. */
+[data-conn-state="offline"] .wy-conn-dot { background: var(--wy-faint); opacity: 0.6; }
+[data-conn-state="offline"] .wy-conn-ring { opacity: 0; animation: none; }
+
+@keyframes wy-conn-orbit { to { transform: rotate(360deg); } }
+
+/* ─── Skeletons ─────────────────────────────────────────────────────────
+   Minimal, token-aligned, very soft shimmer. Never a spinner, never text. */
+.wy-sk {
+  display: block; flex: none;
+  background: #f0f0f3;
+  border-radius: 5px;
+  position: relative; overflow: hidden;
+}
+.wy-sk::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, #fcfcfd, transparent);
+  transform: translateX(-100%);
+  animation: wy-sk-shimmer 1.6s ease-in-out infinite;
+}
+.wy-sk-circle { border-radius: 50%; }
+.wy-sk-line { max-width: 100%; }
+.wy-sk-chip { height: 30px; border-radius: 15px; }
+.wy-sk-btn { height: 40px; border-radius: 12px; width: 100%; }
+.wy-sk-pill { height: 34px; border-radius: 10px; width: 104px; }
+.wy-sk-field { height: 40px; border-radius: 10px; width: 100%; }
+/* The real back control is a 23x23 glyph inside 4px of padding, so its box
+   is 31x31. `content-box` keeps the grey blob glyph-sized while the box it
+   sits in stays the real one — and the `.wy-skeleton` prefix is what lets it
+   beat `.wy-head-chat .wy-back { width: auto }`, which used to collapse this
+   placeholder to 8x8 on the chat surface alone. */
+.wy-skeleton .wy-sk-back {
+  box-sizing: content-box;
+  width: 23px; height: 23px;
+  border-radius: 50%; background: #f0f0f3;
+}
+.wy-sk-group { display: flex; flex-direction: column; gap: 10px; }
+.wy-sk-row { pointer-events: none; }
+.wy-sk-chevron { opacity: 0.35; }
+/* A skeleton header must be exactly as tall as the header that replaces it.
+   The trick is to let each header variant's OWN line-height do the work
+   instead of restating pixel heights that would drift from it: the title
+   stops being a flex container (a flex box has no line box), and the two
+   placeholder bars go inline so both text rows lay out as real lines. Home's
+   17px/1.1 title and chat's 16px/1.65 one then each come out right with no
+   variant-specific numbers anywhere. */
+.wy-skeleton .wy-head-title { display: block; }
+.wy-skeleton .wy-head-title > .wy-sk,
+.wy-skeleton .wy-head-sub > .wy-sk { display: inline-block; vertical-align: middle; }
+.wy-skeleton .conv-row { cursor: default; }
+/* Carries `.wy-chat-scroll` too, so padding and the white card background
+   come from the real rule — only the inner stacking is skeleton-specific. */
+.wy-sk-msgs { display: flex; flex-direction: column; gap: 10px; }
+.wy-sk-msg { display: flex; align-items: flex-end; gap: 8px; }
+.wy-sk-msg.is-me { justify-content: flex-end; }
+.wy-sk-bubble {
+  display: block; height: 34px; border-radius: 14px; background: #f0f0f3;
+  position: relative; overflow: hidden;
+}
+.wy-sk-bubble::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, #fcfcfd, transparent);
+  transform: translateX(-100%);
+  animation: wy-sk-shimmer 1.6s ease-in-out infinite;
+}
+/* Wears the real `.input` class, so the pill is the real 46px tall; this
+   only centres the placeholder bar inside it. */
+.wy-sk-input { display: flex; align-items: center; overflow: hidden; }
+/* Control placeholders keep the real button box and only swap the glyph.
+   `.wy-fab` is the exception that paints itself in the brand colour, so it
+   is neutralised here rather than shipping a solid accent dot in a skeleton. */
+.wy-sk-ico { pointer-events: none; }
+.wy-skeleton .wy-fab { background: #f0f0f3; color: transparent; }
+.wy-skeleton .prechat-field { display: flex; flex-direction: column; gap: 6px; }
+
+@keyframes wy-sk-shimmer { 100% { transform: translateX(100%); } }
+
+/* Skeleton → real content: a short opacity crossfade only. No scaling.
+   Core sets `wy-crossfade` on the view host for exactly the render that
+   replaces a skeleton, so ordinary re-renders never flicker. */
+.wy-crossfade > .wy-view { animation: wy-view-in 150ms ease-out; }
+
+@keyframes wy-view-in { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wy-sk::after, .wy-sk-bubble::after { animation: none; display: none; }
+  .wy-conn-ring { animation: none !important; }
+  .wy-crossfade > .wy-view { animation: none; }
+}
+
+
+
+/* ─── Home ──────────────────────────────────────────────────────────── */
+.home-greeting-block { display: flex; flex-direction: column; flex-shrink: 0; gap: 2px; margin: 0; }
+.home-greeting { font-size: 22px; font-weight: 500; margin: 0; color: var(--wy-text); }
+.home-welcome { font-size: 16px; font-weight: 500; color: var(--wy-text); margin: 0; white-space: pre-line; }
+
+.home-section { display: flex; flex-direction: column; flex-shrink: 0; margin: 0; }
+.home-section-title { font-size: 13px; font-weight: 400; color: var(--wy-text); margin: 0 0 6px; }
+.home-recent { gap: 0; }
+.home-section:not(.home-recent) .home-section-title { font-size: 14px; margin-bottom: 8px; }
+
+.home-link {
+  display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; margin-top: 2px;
+  font-size: 12.5px; font-weight: 500; letter-spacing: 0.025em; color: var(--wy-accent); padding: 0;
+}
+.home-link-chevron { display: inline-flex; transition: transform 0.16s var(--wy-ease); }
+
+.home-conv-error-text { font-size: 12.5px; color: var(--wy-muted); margin: 0 0 4px; }
+[dir='rtl'] .home-link-chevron svg { transform: scaleX(-1); }
+.home-link:hover .home-link-chevron { transform: translateX(2px); }
+[dir='rtl'] .home-link:hover .home-link-chevron { transform: translateX(-2px); }
+
+.home-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.home-chip {
+  display: inline-flex; align-items: center; padding: 4px 10px; font-size: 11px;
+  border: 1px solid var(--wy-border); border-radius: 9999px; background: var(--wy-card);
+  color: var(--wy-text); transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.home-chip:hover { background: var(--wy-hover-2); transform: translateY(-1px); }
+.home-chip-more { border-color: var(--wy-accent); color: var(--wy-accent); background: transparent; font-weight: 500; }
+
+/* ─── Conversation rows (home compact + list) ───────────────────────── */
+.conv-row {
+  display: flex; width: 100%; box-sizing: border-box; gap: 10px; align-items: flex-start;
+  padding: 12px; margin-bottom: 8px; text-align: start;
+  border: 1px solid var(--wy-border); border-radius: var(--wy-radius-md); background: var(--wy-card);
+  color: var(--wy-text);
+  transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.conv-row:hover { background: var(--wy-hover); border-color: var(--wy-border-strong); transform: translateY(-1px); }
+.conv-row-compact { align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--wy-radius-sm); margin-bottom: 6px; }
+.conv-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.conv-line { display: flex; align-items: center; gap: 8px; min-width: 0; justify-content: space-between; }
+.conv-name { font-size: 13.5px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-preview {
+  font-size: 12.5px; color: var(--wy-muted); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.conv-time { font-size: 11px; color: var(--wy-faint); flex: none; }
+.conv-unread {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  font-size: 11px; line-height: 1; font-weight: 700;
+  font-variant-numeric: tabular-nums; letter-spacing: 0;
+  color: #fff; border-radius: 9999px; background: var(--wy-accent);
+  box-shadow: 0 1px 3px rgba(31, 147, 255, 0.35);
+  flex: none;
+}
+.conv-status { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--wy-faint); }
+.conv-status.is-resolved { color: var(--wy-faint); }
+.conv-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--wy-online); flex: none; }
+.conv-status.is-resolved .conv-status-dot { background: currentColor; }
+
+
+.wy-status { padding: 24px 8px; text-align: center; font-size: 13px; color: var(--wy-muted); }
+.wy-empty { padding: 40px 16px; text-align: center; color: var(--wy-muted); font-size: 13px; }
+
+/* ─── Chat header + body ────────────────────────────────────────────── */
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 16px 4px;
+  background: var(--wy-surface);
+}
+/* When a full-screen view (home/list/kb/precontact) owns the body, the
+   body itself must not add chrome padding. */
+.body:has(> .wy-view) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Chat view scroll host — the chat frame owns its own scrolling now that the
+   panel no longer wraps a persistent chat body. Design: 16px box on white. */
+/* 10px box + 6px reserved gutter on both edges = a real, symmetric 16px. */
+.wy-chat-scroll { flex: 1; min-height: 0; padding: 16px 10px; background: var(--wy-card); }
+/* Positioning context for the jump-to-latest pill. The host is a pure
+   layout wrapper: it inherits the scroll area's flex share and adds no
+   padding, background or chrome of its own. */
+.wy-chat-scroll-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--wy-card);
+}
+
+/* ─── Jump to latest ────────────────────────────────────────────────
+   Appears only while the visitor has scrolled away from the bottom, and
+   grows a counter badge when messages arrived while they were up there. */
+.wy-jump {
+  position: absolute;
+  bottom: 12px;
+  inset-inline-end: 14px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 28px);
+  padding: 7px 12px;
+  border-radius: 9999px;
+  background: var(--wy-card);
+  color: var(--wy-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 0 0 1px var(--wy-border), 0 6px 18px -8px rgba(2, 6, 23, 0.45);
+  cursor: pointer;
+  animation: wy-jump-in 0.18s var(--wy-ease) both;
+  transition: background-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
+}
+.wy-jump[hidden] { display: none; }
+.wy-jump:hover { background: var(--wy-hover); }
+.wy-jump:active { transform: scale(0.96); }
+.wy-jump-ico { display: inline-flex; }
+.wy-jump-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wy-jump-label:empty { display: none; }
+/* With unseen messages the pill adopts the brand colour so it reads as a
+   notification rather than a navigation control. */
+.wy-jump.has-new {
+  background: var(--wy-accent);
+  color: #fff;
+  box-shadow: 0 6px 18px -8px var(--wy-accent);
+}
+.wy-jump.has-new:hover { background: var(--wy-accent); filter: brightness(1.05); }
+@keyframes wy-jump-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.shell.no-anim .wy-jump { animation: none; }
+
+
+/* ─── Messages ──────────────────────────────────────────────────────── */
+/* Physical sides are IDENTICAL in LTR and RTL: operator/AI on the left,
+   visitor on the right. Only the text direction flips. */
+.messages { display: flex; flex-direction: column; gap: 10px; }
+/* Consecutive messages from the same sender hug each other; only the
+   last row of a streak keeps the full 10px separation. */
+.msg-row:not(.is-last) { margin-bottom: -8px; }
+.msg-row { display: flex; align-items: flex-end; gap: 0.5rem; justify-content: flex-start; }
+
+.msg-row.operator { flex-direction: row; }
+.msg-row.visitor { flex-direction: row-reverse; }
+[dir='rtl'] .msg-row.operator { flex-direction: row-reverse; }
+[dir='rtl'] .msg-row.visitor { flex-direction: row; }
+.msg-row.system { justify-content: center; padding: 2px 0; }
+.msg-row { animation: wy-msg-in 0.24s var(--wy-ease) both; }
+@keyframes wy-msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.shell.no-anim .msg-row { animation: none; }
+/* A row that was already on screen before a repaint must not replay its
+   entrance animation — that replay is the visible "jump". */
+.msg-row.no-enter { animation: none !important; }
+
+
+.msg-avatar {
+  width: 2rem; height: 2rem; border-radius: 50%; flex: none; overflow: hidden;
+  background: var(--wy-accent); color: #fff; font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+.msg-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* An image avatar must not sit on a second (accent) layer. */
+.msg-avatar.has-img, .wy-avatar.has-img { background: transparent; color: transparent; }
+.msg-avatar-spacer { background: transparent; }
+
+.msg-col { display: flex; flex-direction: column; gap: 3px; max-width: 80%; min-width: 0; }
+.msg-row.operator .msg-col { align-items: flex-start; }
+.msg-row.visitor .msg-col { align-items: flex-end; }
+[dir='rtl'] .msg-row.operator .msg-col { align-items: flex-end; }
+[dir='rtl'] .msg-row.visitor .msg-col { align-items: flex-start; }
+
+.msg {
+  position: relative;
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 1.25rem;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.msg.operator { background: var(--wy-card); border: 1px solid var(--wy-border); color: var(--wy-text); }
+.msg.visitor { background: var(--wy-accent); color: #fff; }
+/* Tail on the LAST bubble of a run, pointing toward the avatar side. */
+.msg.operator.has-tail, .welcome-bubble { border-bottom-left-radius: 0.25rem; }
+.msg.visitor.has-tail { border-bottom-right-radius: 0.25rem; }
+.msg-text { white-space: pre-wrap; }
+
+/* A link in a message is a button, not a wall of text.
+   A product URL arrives percent-encoded and can run past 100 characters as a
+   single unbreakable token; printed inline it stretched its own bubble and
+   was unreadable besides. The chip carries a short label instead, so its
+   width no longer follows the address at all; `overflow-wrap` stays as a
+   floor under a long translation. */
+.msg-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin: 2px 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-decoration: none;
+  color: inherit;
+  /* The label is a URL: no spaces to break at, so breaking anywhere is the
+     only thing that keeps it inside the bubble. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  /* The chip is a target to hit, so it opts out of the text-selection
+     cursor the surrounding message sets. */
+  -webkit-user-select: none; user-select: none; cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+/* ↗ — always to the right of the label, in RTL too: it means "opens away
+   from here", which is not a direction the writing system reverses. */
+.msg-link::after {
+  content: '↗';
+  font-size: 11px;
+  opacity: 0.75;
+  flex: none;
+}
+/* The operator bubble is --wy-card, so the chip sits on the next surface
+   down rather than disappearing into it. */
+.msg.operator .msg-link {
+  border-color: var(--wy-border);
+  background: var(--wy-hover);
+  color: var(--wy-accent);
+}
+.msg.operator .msg-link:hover,
+.msg.operator .msg-link:focus-visible {
+  border-color: var(--wy-accent);
+  background: var(--wy-hover-2);
+}
+.msg.visitor .msg-link {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.msg.visitor .msg-link:hover,
+.msg.visitor .msg-link:focus-visible {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.85);
+}
+.msg-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+/* Message text must stay selectable (double-click a word, drag a range) and
+   the highlight must be clearly visible inside the shadow root. */
+.msg, .msg-text, .msg-quote, .kb-article, .kb-article-body {
+  -webkit-user-select: text; user-select: text; cursor: text;
+}
+.msg-actions, .msg-meta, .msg-avatar { -webkit-user-select: none; user-select: none; }
+.msg ::selection, .msg-text::selection, .msg-quote ::selection,
+.kb-article ::selection { background: rgba(31, 147, 255, 0.28); color: inherit; }
+
+.msg-row.visitor .msg ::selection, .msg-row.visitor .msg-text::selection {
+  background: rgba(255, 255, 255, 0.35); color: inherit;
+}
+
+
+/* Meta line under the last bubble of a run: time + delivery ticks. */
+.msg-meta {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; color: var(--wy-faint); padding: 0 6px; line-height: 1;
+}
+.msg-time { font-size: 10.5px; color: inherit; }
+.msg-ticks { display: inline-flex; align-items: center; color: var(--wy-faint); }
+.msg-ticks svg { display: block; }
+.msg-ticks.is-seen { color: var(--wy-accent); }
+.msg-ticks.is-failed { color: #e5484d; font-weight: 700; }
+.msg-retry-btn {
+  border: none; background: none; padding: 0; margin-inline-start: 2px;
+  font: inherit; font-size: 10.5px; font-weight: 600; line-height: 1;
+  color: #e5484d; text-decoration: underline; text-underline-offset: 2px;
+  cursor: pointer;
+}
+.msg-retry-btn:hover, .msg-retry-btn:focus-visible { color: #c62a30; }
+
+.msg-quote {
+  border-inline-start: 3px solid currentColor; padding-inline-start: 8px; font-size: 12px;
+  opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* AI attribution now lives on the meta line, next to the time. */
+.msg-ai-badge {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; line-height: 1;
+  padding: 2px 5px; border-radius: 9999px; background: rgba(31, 147, 255, 0.12); color: var(--wy-accent);
+}
+.msg-sender { font-size: 10.5px; color: var(--wy-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Bubble line: the bubble plus its hover actions, sitting BESIDE the bubble
+   (never underneath it), on the avatar side of the row. */
+.msg-line { display: flex; align-items: flex-end; gap: 4px; max-width: 100%; flex-direction: row-reverse; }
+.msg-row.visitor .msg-line { flex-direction: row; }
+
+/* Bottom line of every bubble: meta (time / ticks / AI). */
+.msg-day { display: flex; align-items: center; justify-content: center; margin: 10px 0 8px; }
+.msg-day span {
+  font-size: 11px; font-weight: 600; line-height: 1;
+  color: rgba(17, 24, 39, .55);
+  background: rgba(17, 24, 39, .06);
+  border-radius: 999px; padding: 5px 10px;
+}
+.msg-footline { display: flex; align-items: center; gap: 2px; min-height: 16px; }
+
+.msg-row.visitor .msg-footline { flex-direction: row-reverse; }
+[dir='rtl'] .msg-row.visitor .msg-footline { flex-direction: row-reverse; }
+.msg-actions {
+  display: inline-flex; align-items: center; gap: 1px; flex: none;
+  padding-bottom: 2px; opacity: 0; transition: opacity 0.15s;
+}
+.msg-row:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+/* No hover on touch — the quote/copy controls would otherwise be
+   permanently invisible (and effectively unusable) on phones. */
+@media (hover: none) {
+  .msg-actions { opacity: 0.6; }
+}
+
+.msg-act {
+  color: var(--wy-faint); padding: 3px; border-radius: 6px; display: inline-flex;
+  transition: background-color 0.15s, color 0.15s;
+}
+.msg-act:hover { background: var(--wy-hover-2); color: var(--wy-text); }
+.msg-act.is-done { color: var(--wy-accent); }
+
+
+.msg-system-pill {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--wy-muted);
+  background: var(--wy-hover-2); border-radius: 9999px; padding: 5px 14px; text-align: center;
+}
+
+.msg-status-spinner {
+  width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--wy-border);
+  border-top-color: var(--wy-accent); animation: wy-spin 0.8s linear infinite; display: inline-block;
+}
+@keyframes wy-spin { to { transform: rotate(360deg); } }
+
+.welcome-bubble { max-width: 85%; }
+
+
+/* Typing / thinking */
+.typing-dots { display: inline-flex; gap: 3px; align-items: center; }
+.typing-dots span {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--wy-faint);
+  animation: wy-bounce 1.2s infinite ease-in-out;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes wy-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
+.ai-thinking-bubble { flex-direction: row; align-items: center; gap: 8px; }
+.ai-thinking-bubble { padding: 0.5rem 0.7rem; }
+@keyframes wy-load-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(31, 147, 255, 0.5); }
+  50% { transform: scale(1.3); opacity: 0.7; box-shadow: 0 0 0 4px rgba(31, 147, 255, 0); }
+}
+.typing-row { display: flex; align-items: center; gap: 6px; padding: 2px 16px 6px; font-size: 11.5px; color: var(--wy-muted); }
+
+/* Attachments in messages */
+.msg-att-image .msg-att-img-btn {
+  display: block; padding: 0; border-radius: var(--wy-radius-md); overflow: hidden;
+  background: rgba(0, 0, 0, 0.05); line-height: 0; cursor: zoom-in;
+  max-width: 168px;
+}
+/* Thumbnail must never deform: intrinsic ratio is preserved and the image is
+   only bounded by a max box. `height:auto` + `object-fit:contain` keeps
+   portrait screenshots and wide photos both undistorted. */
+.msg-att-image img {
+  display: block; width: auto; height: auto;
+  max-width: 168px; max-height: 190px; object-fit: contain;
+  border-radius: var(--wy-radius-md);
+  transition: transform 0.25s var(--wy-ease);
+}
+.msg-att-image .msg-att-img-btn:hover img { transform: scale(1.02); }
+.msg-att-img-fallback { display: none; font-size: 12px; color: var(--wy-muted); }
+/* In-bubble receive state: spinner + label until the authenticated fetch
+   resolves, so an incoming file never renders as an empty bubble. */
+.msg-att-image .msg-att-img-btn.is-loading { min-width: 140px; min-height: 84px; position: relative; }
+.msg-att-image .msg-att-img-btn.is-loading img {
+  /* Keep lazy images renderable so the browser actually starts the request.
+     display:none creates a loading deadlock and leaves every thumbnail in
+     the receiving state forever. */
+  position: absolute; inset: 0; opacity: 0; pointer-events: none;
+}
+.msg-att-loading {
+  display: none; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; height: 84px; line-height: 1.2;
+  font-size: 12px; color: var(--wy-muted);
+}
+.msg-att-image .msg-att-img-btn.is-loading .msg-att-loading { display: flex; }
+.msg.visitor .msg-att-loading { color: rgba(255, 255, 255, 0.85); }
+.msg-att-spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  opacity: 0.75; animation: wy-att-spin 0.7s linear infinite;
+}
+@keyframes wy-att-spin { to { transform: rotate(360deg); } }
+.msg-att-file {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: var(--wy-radius-sm); background: rgba(0, 0, 0, 0.05);
+}
+.msg.visitor .msg-att-file { background: rgba(255, 255, 255, 0.16); }
+.msg-att-meta { min-width: 0; flex: 1; }
+.msg-att-name { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-att-sub { font-size: 11px; opacity: 0.7; }
+.msg-att-action { color: inherit; display: inline-flex; opacity: 0.8; }
+.msg-att-action:hover { opacity: 1; }
+
+/* ── Voice / audio player ─────────────────────────────────────────
+   Always LTR (see presentation JS): play on the left, timeline running
+   left→right, download on the right — in every locale. */
+.msg-att-audio {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 214px; max-width: 260px;
+  padding: 7px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+.msg.visitor .msg-att-audio { background: rgba(255, 255, 255, 0.18); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22); }
+.wy-ap-play {
+  flex: 0 0 auto; width: 32px; height: 32px; border: 0; padding: 0;
+  border-radius: 50%; cursor: pointer; position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--wy-primary, #1f93ff); color: #fff;
+  transition: transform 0.16s var(--wy-ease), filter 0.16s var(--wy-ease);
+}
+.msg.visitor .wy-ap-play { background: rgba(255, 255, 255, 0.9); color: var(--wy-primary, #1f93ff); }
+.wy-ap-play:hover { filter: brightness(1.05); transform: scale(1.05); }
+.wy-ap-play:active { transform: scale(0.95); }
+.wy-ap-ico { display: none; line-height: 0; }
+.wy-ap-ico-play { display: inline-flex; margin-inline-start: 2px; }
+.msg-att-audio.is-playing .wy-ap-ico-play { display: none; }
+.msg-att-audio.is-playing .wy-ap-ico-pause { display: inline-flex; }
+.wy-ap-spinner { display: none; position: absolute; inset: 4px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: currentColor;
+  animation: wy-ap-spin 0.8s linear infinite; }
+.msg-att-audio.is-loading .wy-ap-spinner { display: block; }
+.msg-att-audio.is-loading .wy-ap-ico { opacity: 0.25; }
+@keyframes wy-ap-spin { to { transform: rotate(360deg); } }
+.wy-ap-body { flex: 1 1 auto; min-width: 0; }
+.wy-ap-track {
+  position: relative; height: 4px; border-radius: 999px; cursor: pointer;
+  background: rgba(0, 0, 0, 0.14);
+}
+.msg.visitor .wy-ap-track { background: rgba(255, 255, 255, 0.32); }
+.wy-ap-track::before { content: ''; position: absolute; inset: -8px 0; }
+.wy-ap-buffer {
+  position: absolute; inset-block: 0; left: 0; width: 0%;
+  border-radius: 999px; background: rgba(0, 0, 0, 0.12);
+  transition: width 0.25s linear;
+}
+.msg.visitor .wy-ap-buffer { background: rgba(255, 255, 255, 0.28); }
+.wy-ap-progress {
+  position: absolute; inset-block: 0; left: 0; width: 0%;
+  border-radius: 999px; background: var(--wy-primary, #1f93ff);
+}
+.msg.visitor .wy-ap-progress { background: #fff; }
+.wy-ap-knob {
+  position: absolute; right: -5px; top: 50%; width: 10px; height: 10px;
+  transform: translateY(-50%); border-radius: 50%;
+  background: inherit; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  opacity: 0; transition: opacity 0.15s var(--wy-ease);
+}
+.msg-att-audio:hover .wy-ap-knob, .msg-att-audio.is-playing .wy-ap-knob { opacity: 1; }
+.wy-ap-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 5px; font-size: 10.5px; opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.wy-ap-rate {
+  border: 0; background: transparent; color: inherit; cursor: pointer;
+  font-size: 10.5px; padding: 0 3px; border-radius: 5px; opacity: 0.85;
+}
+.wy-ap-rate:hover { background: rgba(0, 0, 0, 0.08); opacity: 1; }
+.wy-ap-dl { flex: 0 0 auto; color: inherit; display: inline-flex; opacity: 0.65; transition: opacity 0.15s var(--wy-ease); }
+.wy-ap-dl:hover { opacity: 1; }
+
+
+/* Attachment lightbox */
+.att-lightbox {
+  position: fixed; inset: 0; z-index: 2147483100; background: rgba(0, 0, 0, 0.78);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  animation: wy-fade 0.18s var(--wy-ease) both;
+}
+@keyframes wy-fade { from { opacity: 0; } to { opacity: 1; } }
+.att-lightbox[hidden] { display: none; }
+.att-lightbox img { max-width: 100%; max-height: 100%; border-radius: var(--wy-radius-md); }
+.att-lightbox-close {
+  position: absolute; top: 16px; inset-inline-end: 16px; width: 36px; height: 36px;
+  border-radius: 9999px; background: rgba(255, 255, 255, 0.16); color: #fff; font-size: 20px;
+}
+
+/* Q&A chips */
+.qna-suggestions { display: flex; flex-direction: column; gap: 6px; margin-inline-start: 40px; }
+.qna-title { font-size: 11.5px; color: var(--wy-muted); }
+.qna-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.qna-chip, .qna-more-btn {
+  padding: 5px 12px; font-size: 12px; border-radius: 9999px; background: var(--wy-card);
+  border: 1px solid var(--wy-border); color: var(--wy-text);
+  transition: background-color 0.15s, border-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.qna-chip:hover, .qna-more-btn:hover { background: var(--wy-hover-2); border-color: var(--wy-border-strong); transform: translateY(-1px); }
+.qna-more-count { margin-inline-start: 4px; color: var(--wy-accent); font-weight: 600; }
+
+/* Smart engagement surfaces */
+.smart-home-card, .smart-msg-row .smart-card {
+  position: relative; background: var(--wy-card); border: 1px solid var(--wy-border);
+  border-radius: var(--wy-radius-lg); padding: 14px; margin-bottom: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+  animation: wy-view-in 0.3s var(--wy-ease) both;
+}
+.smart-title { font-size: 13.5px; font-weight: 600; }
+.smart-body { font-size: 13px; color: var(--wy-muted); }
+.smart-cta { align-self: flex-start; padding: 7px 16px; border-radius: 9999px; font-size: 13px; font-weight: 500; color: #fff; }
+.smart-dismiss { position: absolute; top: 8px; inset-inline-end: 8px; color: var(--wy-faint); font-size: 16px; line-height: 1; }
+
+/* ── Launcher nudge (floating bubble outside the panel) ──────────────
+   Mirrors the loader-inline copy in loader.js SHELL_CSS 1:1 so the bubble
+   is identical before and after this stylesheet lands. The tail points at
+   the launcher corner; the close control sits OUTSIDE the bubble top-right. */
+.smart-nudge {
+  position: absolute; z-index: 6; bottom: calc(var(--gs-fab-size, 56px) + 12px);
+  width: max-content; max-width: 288px;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 13px 15px 14px; border-radius: 16px; color: var(--wy-text);
+  background: linear-gradient(158deg, #ffffff 0%, #ffffff 55%, #f4f7fc 100%);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: 0 18px 38px -20px rgba(2, 6, 23, 0.42), 0 2px 6px -3px rgba(2, 6, 23, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  font-size: 13px; line-height: 1.75;
+}
+.smart-nudge::before {
+  content: ''; position: absolute; top: 0; inset-inline: 14px; height: 2px;
+  border-radius: 2px; opacity: 0.85;
+  background: linear-gradient(90deg, transparent, var(--wy-accent), transparent);
+}
+.smart-nudge[hidden] { display: none !important; }
+.smart-nudge::after {
+  content: ''; position: absolute; bottom: -6px; width: 12px; height: 12px;
+  background: #f6f9fd; border-right: 1px solid rgba(15, 23, 42, 0.06);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06); border-bottom-right-radius: 3px;
+  transform: rotate(45deg);
+}
+.smart-nudge { font-family: inherit; }
+.smart-nudge .smart-title { font-weight: 700; font-size: 13.5px; line-height: 1.6; }
+.smart-nudge .smart-body { color: var(--wy-muted); font-weight: 700; white-space: pre-wrap; word-break: break-word; }
+.smart-nudge .smart-cta {
+  align-self: flex-start; border: none; cursor: pointer; padding: 8px 16px;
+  border-radius: 9999px; font: inherit; font-weight: 700; font-size: 12.5px; color: #fff;
+  margin-top: 4px; background: var(--wy-accent);
+  box-shadow: 0 6px 16px -8px var(--wy-accent);
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+.smart-nudge .smart-cta:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.smart-nudge .smart-dismiss {
+  position: absolute; top: -9px; inset-inline: auto; right: -9px; left: auto;
+  width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #fff; color: var(--wy-muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1; padding: 0;
+  box-shadow: 0 4px 12px -5px rgba(2, 6, 23, 0.4);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.smart-nudge .smart-dismiss:hover { background: var(--wy-hover-2); color: var(--wy-text); }
+.smart-nudge.bottom-right { right: 0; left: auto; transform-origin: 100% 100%; }
+.smart-nudge.bottom-left { left: 0; right: auto; transform-origin: 0 100%; }
+.smart-nudge.bottom-right::after { right: 18px; }
+.smart-nudge.bottom-left::after { left: 18px; }
+@keyframes gs-smart-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.82); }
+  60% { opacity: 1; }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gs-smart-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(14px) scale(0.84); }
+}
+/* Gated on `.entering` (stripped by JS after the intro) so this sheet
+   landing after the bubble is already visible cannot restart the intro. */
+.anim-on .smart-nudge.entering { animation: gs-smart-in 0.38s var(--wy-ease) both; }
+.anim-on .smart-nudge.leaving { animation: gs-smart-out 0.24s cubic-bezier(0.4, 0, 1, 1) both; }
+.smart-nudge.leaving { pointer-events: none; }
+@media (max-width: 480px) { .smart-nudge { max-width: calc(100vw - 48px); } }
+
+
+
+/* Call invitation cards + in-call surface */
+.ci-card {
+  background: var(--wy-card); border: 1px solid var(--wy-border); border-radius: var(--wy-radius-lg);
+  padding: 14px; display: flex; flex-direction: column; gap: 10px; max-width: 92%;
+}
+.ci-row { display: flex; gap: 10px; align-items: flex-start; }
+.ci-icon { color: var(--wy-accent); flex: none; }
+.ci-title { font-size: 13.5px; font-weight: 600; }
+.ci-body { font-size: 12.5px; color: var(--wy-muted); }
+.ci-wait { font-size: 11.5px; color: var(--wy-faint); margin-top: 2px; }
+.ci-meta { font-size: 11.5px; color: var(--wy-muted); display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.ci-pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--wy-accent); animation: wy-load-pulse 1.4s infinite; }
+.ci-actions { display: flex; gap: 8px; }
+.ci-btn { padding: 8px 16px; border-radius: 9999px; font-size: 13px; font-weight: 500; transition: filter 0.15s, background-color 0.15s, transform 0.15s var(--wy-ease); }
+.ci-btn:active { transform: scale(0.97); }
+.ci-btn-primary { background: var(--wy-accent); color: #fff; }
+.ci-btn-primary:hover { filter: brightness(1.07); }
+.ci-btn-ghost { background: var(--wy-hover-2); color: var(--wy-muted); }
+.ci-btn-ghost:hover { background: var(--wy-border); }
+.ci-err { font-size: 12px; color: #e5484d; }
+.ci-status-joined .ci-meta, .conv-status.is-resolved { color: var(--wy-faint); }
+
+/* ─── In-panel call surface ──────────────────────────────────────────
+   Core renders the call markup into `.body`; this is the stylesheet half.
+   A call is a distinct MODE, so the stage goes dark the way every calling
+   app does — that is what makes white controls and a picture-in-picture
+   readable over live video. The surrounding widget stays light. */
+
+/* The host is a PANEL-level overlay, not a view inside the body: the chat
+   stays mounted underneath, so minimizing gives it straight back with no
+   re-render and no torn-down <video>. `.wy-scroll` on the body reserves a
+   scrollbar gutter on both edges, which is invisible under a transparent
+   view but showed up as a light strip down both sides of a dark video —
+   another reason the call does not live in there. */
+.gs-call-host {
+  /* Above `.panel-close` (z-index 20): while the call is full-bleed the
+     visitor hangs up or minimizes rather than dismissing the panel out
+     from under a live call. */
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; flex-direction: column;
+}
+.gs-call-host[hidden] { display: none; }
+
+/* Two rows the surface lays out itself: a stage that takes what is left,
+   and a control bar that does not shrink. */
+.gs-call-surface, [data-call-surface] {
+  display: flex; flex-direction: column;
+  flex: 1; min-height: 0;
+  background: #14161a; color: #fff;
+  overflow: hidden;
+}
+.gs-call-pip-off { display: none; }
+
+/* ── Minimized: a floating card the visitor can chat past ──────────────
+   Docked to the top so it never covers the composer, which is the whole
+   reason for shrinking the call in the first place. Nothing is rebuilt to
+   get here — the same markup is re-laid-out, so the call never drops. */
+.gs-call-host.is-mini {
+  /* Below the header and the panel's own close button, over the message
+     list — never over the composer, which is what the visitor minimized
+     the call in order to reach. */
+  inset: auto; top: 64px; inset-inline-end: 10px;
+  width: 168px; height: 108px;
+  border-radius: var(--wy-radius-md); overflow: hidden;
+  box-shadow: 0 10px 28px -8px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.14);
+  animation: wy-call-mini-in 0.2s var(--wy-ease) both;
+}
+@keyframes wy-call-mini-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+.gs-call-host.is-mini .gs-call-surface { border-radius: inherit; }
+/* At card size there is only room for what identifies the call and what
+   ends it. Everything else comes back on expand. */
+.gs-call-host.is-mini .gs-call-pip,
+.gs-call-host.is-mini .gs-call-eq,
+.gs-call-host.is-mini .gs-call-topbar-status,
+.gs-call-host.is-mini .gs-call-btn-toggle,
+.gs-call-host.is-mini .gs-call-voice-status,
+.gs-call-host.is-mini .gs-call-terminal-label,
+.gs-call-host.is-mini .gs-call-corner { display: none; }
+.gs-call-host.is-mini .gs-call-controls {
+  gap: 8px; padding: 6px; background: transparent;
+  position: absolute; inset-inline: 0; bottom: 0; z-index: 2;
+}
+.gs-call-host.is-mini .gs-call-video .gs-call-controls {
+  background: linear-gradient(180deg, rgba(20, 22, 26, 0) 0%, rgba(20, 22, 26, 0.85) 70%);
+}
+.gs-call-host.is-mini .gs-call-btn { width: 34px; height: 34px; }
+.gs-call-host.is-mini .gs-call-btn svg { width: 16px; height: 16px; }
+.gs-call-host.is-mini .gs-call-btn-back { padding: 5px 10px; font-size: 11.5px; }
+.gs-call-host.is-mini .gs-call-btn-back span { display: none; }
+.gs-call-host.is-mini .gs-call-topbar {
+  top: 6px; inset-inline: 6px; padding: 3px 7px; font-size: 11px; gap: 5px;
+}
+.gs-call-host.is-mini .gs-call-voice-stage { padding: 10px; gap: 4px; }
+.gs-call-host.is-mini .gs-call-voice-orb { width: 44px; height: 44px; margin-bottom: 0; }
+.gs-call-host.is-mini .gs-call-voice-orb svg { width: 18px; height: 18px; }
+.gs-call-host.is-mini .gs-call-voice-timer { font-size: 12px; }
+/* The whole card is the way back into the call, not just the button. */
+.gs-call-host.is-mini .gs-call-stage,
+.gs-call-host.is-mini .gs-call-voice-stage { cursor: zoom-in; }
+
+/* ── Minimize / expand ── */
+.gs-call-size {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: transparent; color: rgba(255, 255, 255, 0.85);
+  transition: background-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.gs-call-size:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.gs-call-size:active { transform: scale(0.9); }
+/* One button, two glyphs — the box stays identical across both states. */
+.gs-call-size-ico { display: none; line-height: 0; }
+.gs-call-size-min { display: flex; }
+.is-mini .gs-call-size-min { display: none; }
+.is-mini .gs-call-size-max { display: flex; }
+/* The voice screen has no status bar to hang the control off, so it gets
+   its own corner. */
+.gs-call-corner {
+  position: absolute; top: 10px; inset-inline-end: 10px; z-index: 2;
+  display: flex; align-items: center;
+}
+.gs-call-host.is-mini .gs-call-size { width: 22px; height: 22px; }
+.gs-call-host.is-mini .gs-call-size svg { width: 14px; height: 14px; }
+
+/* Channel-specific depth: the voice screen has no video to fill it, and on
+   a video call the control bar blends into the stage above it. */
+.gs-call-audio { position: relative; background: linear-gradient(180deg, #1b1f26 0%, #14161a 100%) #14161a; }
+.gs-call-video .gs-call-controls {
+  background: linear-gradient(180deg, rgba(20, 22, 26, 0.92) 0%, #14161a 60%);
+}
+
+/* ── Video stage ── */
+.gs-call-stage {
+  position: relative; flex: 1; min-height: 0; overflow: hidden;
+  background: #0d0d0f;
+}
+.gs-call-remote-video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; background: #0d0d0f; display: block;
+}
+.gs-call-stage-placeholder {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: #0d0d0f; text-align: center; padding: 24px;
+}
+.gs-call-stage-placeholder[hidden] { display: none; }
+.gs-call-stage-orb {
+  width: 76px; height: 76px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.1); color: #fff;
+}
+.gs-call-stage-msg { font-size: 14px; color: rgba(255, 255, 255, 0.75); }
+
+/* ── Status bar over the stage ── */
+.gs-call-topbar {
+  position: absolute; top: 12px; inset-inline: 12px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(8px);
+  font-size: 12.5px; line-height: 1;
+}
+.gs-call-topbar-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--wy-online); animation: wy-rec-blink 1.6s ease-in-out infinite;
+}
+[data-phase='connecting'] .gs-call-topbar-dot,
+[data-phase='reconnecting'] .gs-call-topbar-dot { background: #f5a524; }
+[data-phase='failed'] .gs-call-topbar-dot,
+[data-phase='ended'] .gs-call-topbar-dot { background: #e5484d; animation: none; }
+.gs-call-topbar-status {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: rgba(255, 255, 255, 0.92);
+}
+.gs-call-topbar-timer { flex: none; font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.72); }
+
+/* ── Local picture-in-picture ── */
+.gs-call-pip {
+  position: absolute; bottom: 14px; inset-inline-end: 14px;
+  width: 92px; height: 124px; border-radius: var(--wy-radius-md);
+  overflow: hidden; background: #22252b;
+  box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.12);
+  display: flex; align-items: center; justify-content: center;
+}
+.gs-call-local-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gs-call-local-video[hidden] { display: none; }
+.gs-call-pip .gs-call-pip-off { display: flex; color: rgba(255, 255, 255, 0.5); }
+.gs-call-pip .gs-call-pip-off[hidden] { display: none; }
+
+/* ── Voice-only stage ── */
+.gs-call-voice-stage {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 24px; text-align: center;
+}
+.gs-call-voice-orb {
+  position: relative; width: 108px; height: 108px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center; margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.gs-call-voice-pulse {
+  position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.28);
+  animation: wy-call-pulse 2s ease-out infinite;
+}
+@keyframes wy-call-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.28); }
+  70% { box-shadow: 0 0 0 22px rgba(255, 255, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+}
+.gs-call-voice-icon { display: flex; color: #fff; }
+.gs-call-voice-status { font-size: 15px; font-weight: 600; color: #fff; }
+.gs-call-voice-timer {
+  font-size: 13px; color: rgba(255, 255, 255, 0.62); font-variant-numeric: tabular-nums;
+}
+.gs-call-eq { display: flex; align-items: flex-end; gap: 4px; height: 26px; margin-top: 6px; }
+.gs-call-eq-bar {
+  display: block; width: 4px; height: 6px; border-radius: 2px; flex: none;
+  background: rgba(255, 255, 255, 0.55);
+  animation: wy-call-eq 1s ease-in-out infinite;
+}
+@keyframes wy-call-eq { 0%, 100% { height: 6px; } 50% { height: 24px; } }
+
+/* ── Controls ── */
+.gs-call-controls {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  gap: 14px; padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  background: #14161a;
+}
+.gs-call-btn {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14); color: #fff;
+  transition: background-color 0.15s, transform 0.15s var(--wy-ease), opacity 0.15s;
+}
+.gs-call-btn:hover { background: rgba(255, 255, 255, 0.22); }
+.gs-call-btn:active { transform: scale(0.92); }
+.gs-call-btn:disabled { opacity: 0.45; }
+/* "off" = the input is muted / the camera is stopped. */
+.gs-call-btn-toggle.off { background: #fff; color: #14161a; }
+.gs-call-btn-hangup { background: #e5484d; color: #fff; }
+.gs-call-btn-hangup:hover { background: #d13d42; }
+
+/* ── Terminal state (ended / failed) ── */
+.gs-call-terminal-card {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%;
+}
+.gs-call-terminal-label { font-size: 13.5px; color: rgba(255, 255, 255, 0.78); text-align: center; }
+.gs-call-btn-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 20px; border-radius: 9999px;
+  background: #fff; color: #14161a; font-size: 13.5px; font-weight: 600;
+  transition: transform 0.15s var(--wy-ease), filter 0.15s;
+}
+.gs-call-btn-back:hover { filter: brightness(0.94); }
+.gs-call-btn-back:active { transform: scale(0.96); }
+[dir='rtl'] .gs-call-btn-back svg { transform: scaleX(-1); }
+
+/* Debug overlay — only rendered behind an explicit local flag. */
+.gs-call-orientation-debug {
+  position: absolute; inset-inline: 0; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; font-size: 11px; color: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gs-call-topbar-dot, .gs-call-voice-pulse { animation: none; }
+  .gs-call-eq-bar { animation: none; height: 14px; }
+}
+
+/* Phones: the panel is the screen, so the stage can use all of it. */
+@media (max-width: 640px) {
+  .gs-call-pip { width: 80px; height: 108px; bottom: 12px; inset-inline-end: 12px; }
+  .gs-call-controls { gap: 12px; }
+  .gs-call-btn { width: 56px; height: 56px; }
+}
+
+/* ─── Composer (fixed design spec — nothing here is configurable) ─────
+   Design source: one single-row pill (padding 0 8px, radius 7px, white,
+   1px ring) that holds mic → textarea → action group. Nothing sits outside
+   the pill; the zone itself is 8px/16px on the panel surface. */
+.composer-zone {
+  flex: none;
+  background: var(--wy-surface);
+  padding: 8px 16px;
+}
+.input-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+}
+/* The pill is a COLUMN of at most two rows: a pending attachment preview,
+   and the row the visitor writes on. Everything that used to sit directly
+   in the pill now lives in `.input-row`. */
+.input-wrap {
+  position: relative; display: flex; flex-direction: column; align-items: stretch;
+  flex: 1; min-width: 0;
+  border: 0; border-radius: 7px; background: #ffffff;
+  padding: 0 8px;
+  /* Slightly stronger ring + a very soft lift so the composer reads as the
+     primary action surface. */
+  box-shadow: 0 0 0 1px var(--wy-border-strong, #d5d7dd), 0 1px 3px rgba(16, 24, 40, 0.06);
+  transition: box-shadow 0.16s;
+}
+/* No focus state — the composer keeps its resting border when typing. */
+
+.input-row {
+  position: relative; display: flex; flex-direction: row; align-items: center;
+  min-width: 0;
+}
+
+/* Mic lives INSIDE the pill, before the textarea (design source). */
+.mic-btn {
+  min-width: 32px; min-height: 32px; width: 32px; height: 32px; flex: none;
+  margin-inline-end: 6px; border-radius: 9999px;
+  background: transparent; color: var(--wy-text);
+  display: flex; align-items: center; justify-content: center;
+  transition: color 0.15s, background-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.mic-btn:hover { background: var(--wy-hover-2); }
+.mic-btn svg { width: 18px; height: 18px; }
+.input {
+  width: 100%; box-sizing: border-box; min-width: 0; flex: 1;
+  height: 46px; min-height: 46px; max-height: 15rem;
+  border: 0; outline: none; background: transparent; resize: none; overflow-y: auto;
+  padding: 13px 0; line-height: 20px;
+
+  font-size: 14px; color: var(--wy-text);
+}
+/* Override Core's more-specific `textarea:focus-visible` accessibility ring.
+   The pill itself already has a permanent visible boundary, so focus must not
+   add a second stroke or alter its appearance in Chromium, Firefox or Safari. */
+.input-wrap .input:focus,
+.input-wrap .input:focus-visible {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.input::placeholder { color: var(--wy-faint); }
+/* Action group at the end of the pill. */
+.composer-actions {
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 0; padding-inline-start: 8px; flex: none;
+}
+.composer-actions-start { display: flex; align-items: center; gap: 2px; }
+/* Every control keeps its seat whatever the draft state — a button that
+   disappears (or appears) mid-sentence moves everything beside it, which is
+   exactly what the visitor's finger is already aiming at. Send simply reads
+   as inactive until there is something to send; it never leaves the row. */
+.input-bar:not(.has-draft) .send-btn { opacity: 0.4; }
+.send-btn, .attach-btn, .emoji-btn {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 32px; min-height: 32px; width: 32px; height: 32px;
+  border-radius: 9999px; background: transparent; color: var(--wy-text); flex: none;
+  transition: background-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
+}
+.attach-btn svg, .emoji-btn svg { width: 18px; height: 18px; }
+.emoji-btn[aria-expanded='true'] { color: var(--wy-accent); }
+/* Spacing belongs to the group, not to one member: a per-button margin was
+   correct only while send sat alone at the far end. */
+.send-btn { color: var(--wy-accent); }
+.send-btn svg { width: 18px; height: 18px; transform: scaleX(-1); }
+[dir='ltr'] .send-btn svg { transform: none; }
+.send-btn:hover, .attach-btn:hover, .emoji-btn:hover { background: var(--wy-hover-2); }
+.send-btn:active, .attach-btn:active, .emoji-btn:active, .mic-btn:active { transform: scale(0.9); }
+.send-btn:disabled, .attach-btn:disabled { opacity: 0.45; }
+.send-btn[hidden], .attach-btn[hidden], .emoji-btn[hidden], .mic-btn[hidden] { display: none; }
+
+.mic-btn.recording { background: transparent; color: #e5484d; }
+
+/* ─── Voice recording takes over the composer pill ───────────────────
+   While recording, the pill IS the recording surface: the textarea and the
+   action group step aside and this row fills the same box, so the composer
+   never changes height and nothing opens above it. */
+.input-bar.is-recording .input,
+.input-bar.is-recording .composer-actions,
+.input-bar.is-recording .mic-btn,
+.input-bar.is-voice-preview .input,
+.input-bar.is-voice-preview .composer-actions,
+.input-bar.is-voice-preview .mic-btn { display: none; }
+.rec-bar {
+  display: none;
+  flex: 1; min-width: 0;
+  align-items: center;
+  gap: 8px;
+  /* Same 46px as `.input`, so switching modes cannot resize the pill. */
+  height: 46px;
+}
+.input-bar.is-recording .rec-bar { display: flex; }
+.rec-bar[hidden] { display: none; }
+.input-bar.is-recording .rec-bar[hidden] { display: flex; }
+.rec-btn {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  min-width: 32px; min-height: 32px; width: 32px; height: 32px;
+  border-radius: 9999px; background: transparent;
+  transition: background-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.rec-btn:active { transform: scale(0.9); }
+.rec-cancel { color: var(--wy-muted); }
+.rec-cancel:hover { background: rgba(229, 72, 77, 0.1); color: #e5484d; }
+.rec-confirm { color: var(--wy-accent); }
+.rec-confirm:hover { background: var(--wy-hover-2); }
+
+.rec-live { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.rec-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #e5484d; flex: none;
+  animation: wy-rec-blink 1.2s ease-in-out infinite;
+}
+@keyframes wy-rec-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.rec-time {
+  font-size: 13px; font-weight: 600; color: var(--wy-text);
+  font-variant-numeric: tabular-nums; line-height: 1;
+  /* Fixed width so the row does not twitch as the seconds tick over. */
+  min-width: 40px;
+}
+
+/* A live-looking level meter. Deliberately CSS-only: reading real amplitude
+   would mean building an AudioContext analyser and a per-frame loop for a
+   purely decorative strip. */
+.rec-wave { display: flex; align-items: center; gap: 3px; flex: 1; min-width: 0; overflow: hidden; height: 20px; }
+.rec-wave i {
+  display: block; width: 3px; border-radius: 2px; flex: none;
+  background: var(--wy-accent); opacity: 0.55;
+  animation: wy-rec-wave 0.9s ease-in-out infinite;
+}
+.rec-wave i:nth-child(1) { animation-delay: 0s; }
+.rec-wave i:nth-child(2) { animation-delay: 0.12s; }
+.rec-wave i:nth-child(3) { animation-delay: 0.24s; }
+.rec-wave i:nth-child(4) { animation-delay: 0.36s; }
+.rec-wave i:nth-child(5) { animation-delay: 0.48s; }
+.rec-wave i:nth-child(6) { animation-delay: 0.6s; }
+.rec-wave i:nth-child(7) { animation-delay: 0.18s; }
+.rec-wave i:nth-child(8) { animation-delay: 0.42s; }
+.rec-wave i:nth-child(9) { animation-delay: 0.06s; }
+.rec-wave i:nth-child(10) { animation-delay: 0.54s; }
+@keyframes wy-rec-wave { 0%, 100% { height: 5px; } 50% { height: 18px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot { animation: none; }
+  .rec-wave i { animation: none; height: 10px; }
+}
+
+/* ─── A finished voice note, still inside the composer pill ──────────
+   The recording is done but not sent: the same box now offers the only
+   three things there are to do with it — play it back, throw it away,
+   send it. It used to become a file chip ABOVE the composer, which moved
+   the whole composer down and read like an upload rather than a message
+   waiting to go. Same 46px as the recorder row and the textarea, so none
+   of the three modes resizes the pill. */
+.vn-bar {
+  display: none;
+  flex: 1; min-width: 0;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+}
+.input-bar.is-voice-preview .vn-bar { display: flex; }
+.vn-bar[hidden] { display: none; }
+.input-bar.is-voice-preview .vn-bar[hidden] { display: flex; }
+.vn-bar audio { display: none; }
+.vn-delete { color: var(--wy-muted); }
+.vn-delete:hover { background: rgba(229, 72, 77, 0.1); color: #e5484d; }
+
+.vn-play {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--wy-accent); color: #fff;
+  transition: filter 0.15s, transform 0.15s var(--wy-ease);
+}
+.vn-play:hover { filter: brightness(1.06); }
+.vn-play:active { transform: scale(0.92); }
+/* One button, two glyphs: swapping which one is displayed keeps the
+   button's box identical between play and pause. */
+.vn-ico { display: none; line-height: 0; }
+.vn-ico-play { display: flex; }
+.vn-bar.is-playing .vn-ico-play { display: none; }
+.vn-bar.is-playing .vn-ico-pause { display: flex; }
+
+.vn-track {
+  position: relative; flex: 1; min-width: 0; height: 4px;
+  border-radius: 9999px; background: var(--wy-hover-2); cursor: pointer;
+}
+.vn-progress {
+  position: absolute; inset-block: 0; left: 0; width: 0;
+  border-radius: 9999px; background: var(--wy-accent);
+}
+.vn-time {
+  flex: none; font-size: 12.5px; font-weight: 600; color: var(--wy-muted);
+  font-variant-numeric: tabular-nums; line-height: 1;
+  /* Fixed width so the row does not twitch as playback ticks over. */
+  min-width: 38px; text-align: center;
+}
+.vn-send {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 32px; height: 32px; border-radius: 50%;
+  color: var(--wy-accent); background: transparent;
+  transition: background-color 0.15s, opacity 0.15s, transform 0.15s var(--wy-ease);
+}
+.vn-send:hover:not(:disabled) { background: var(--wy-hover-2); }
+.vn-send:active:not(:disabled) { transform: scale(0.92); }
+/* Still uploading: the note is playable and deletable, but not sendable. */
+.vn-send:disabled { opacity: 0.4; }
+/* Chat footer sits directly under the composer (design source). */
+.composer-zone .wy-footer { padding: 4px 0 2px; }
+.composer-zone .wy-powered { font-size: 12px; }
+.mic-ring { position: absolute; inset: 0; border-radius: 9999px; pointer-events: none; }
+.mic-btn.recording .mic-ring { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.5); animation: wy-load-pulse 1.4s infinite; }
+
+
+/* ─── A pending file or image, inside the composer pill ──────────────
+   It used to be a chip in a strip ABOVE the composer, which pushed the whole
+   composer down the moment a file was picked and read like an upload manager
+   rather than a message being written. Now it is a row of the pill itself.
+
+   Unlike a voice note it does NOT take the pill over: an attachment usually
+   wants a caption, so the textarea stays right below it and the ordinary
+   send button sends both together. */
+.att-preview {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 0 7px; margin-bottom: 1px;
+  border-bottom: 1px solid var(--wy-border);
+  animation: wy-att-in 0.18s var(--wy-ease) both;
+}
+.att-preview[hidden] { display: none; }
+/* Fade only. A translate would briefly paint the row outside the pill it
+   belongs to — the pill has no clipping, and the row appearing is already
+   a visible layout change without help. */
+@keyframes wy-att-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.att-preview-thumb {
+  position: relative; flex: none; width: 36px; height: 36px;
+  border-radius: var(--wy-radius-sm); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--wy-hover-2); color: var(--wy-muted);
+}
+/* An image shows itself; everything else keeps the document glyph. */
+.att-preview-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.att-preview-img[hidden], .att-preview-doc[hidden] { display: none; }
+.att-preview-doc { display: flex; line-height: 0; }
+
+.att-preview-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.att-preview-name {
+  font-size: 12.5px; font-weight: 600; color: var(--wy-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.att-preview-sub {
+  font-size: 11.5px; color: var(--wy-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.att-preview-track {
+  height: 3px; margin-top: 3px; border-radius: 9999px;
+  background: var(--wy-hover-2); overflow: hidden;
+}
+.att-preview-track[hidden] { display: none; }
+.att-preview-bar { height: 100%; width: 0; border-radius: 9999px; background: var(--wy-accent); }
+
+.att-preview-btn {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: transparent; color: var(--wy-muted);
+  transition: background-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
+}
+.att-preview-btn:active { transform: scale(0.9); }
+.att-preview-btn[hidden] { display: none; }
+.att-preview-remove:hover { background: rgba(229, 72, 77, 0.1); color: #e5484d; }
+.att-preview-retry { color: var(--wy-accent); }
+.att-preview-retry:hover { background: var(--wy-hover-2); }
+
+/* A failed upload says so on the row itself; the retry button appears
+   beside it rather than the file silently sitting there unsendable. */
+.att-preview.is-error .att-preview-sub { color: #e5484d; }
+.att-preview.is-error .att-preview-thumb { color: #e5484d; background: rgba(229, 72, 77, 0.1); }
+
+.reply-preview {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 8px 10px;
+  background: var(--wy-hover-2); border-radius: var(--wy-radius-sm);
+  font-size: 12px; color: var(--wy-muted);
+}
+.reply-preview[hidden] { display: none; }
+.reply-preview-bar { width: 3px; align-self: stretch; border-radius: 3px; background: var(--wy-accent); flex: none; }
+.reply-preview-icon { display: inline-flex; color: var(--wy-accent); flex: none; }
+.reply-preview-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.reply-preview-author { font-size: 11px; font-weight: 600; color: var(--wy-accent); }
+.reply-preview-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wy-muted); }
+
+
+.emoji-picker {
+  margin: 0 0 6px; background: var(--wy-card); border: 1px solid var(--wy-border);
+  border-radius: var(--wy-radius-xl); padding: 0.25rem; display: grid;
+  grid-template-columns: repeat(6, 1fr); max-height: 13.25rem; overflow-y: auto;
+}
+.emoji-picker[hidden] { display: none; }
+.emoji-picker button {
+  font-size: 19px; margin: 0.25rem; height: 1.625rem; width: 1.625rem; line-height: 1.5;
+  border-radius: 0.375rem; transition: background-color 0.12s;
+}
+.emoji-picker button:hover { background: var(--wy-hover-2); }
+
+.rec-bar { display: flex; align-items: center; gap: 8px; padding: 0 0 6px; font-size: 12px; color: var(--wy-muted); }
+
+/* ─── Pre-contact / fallback forms ──────────────────────────────────── */
+.wy-view-precontact > .wy-body-pad { padding: 20px; gap: 16px; overflow-y: auto; }
+.prechat-spacer { flex: 1; min-height: 16px; }
+.prechat-subtitle, .prechat-intro { font-size: 13.5px; line-height: 1.7; color: var(--wy-muted); margin: 0; }
+.prechat-fields { display: flex; flex-direction: column; gap: 14px; }
+.prechat-field { display: flex; flex-direction: column; gap: 6px; }
+.prechat-label { font-size: 12.5px; font-weight: 500; color: var(--wy-text); }
+.prechat-req-mark { color: #e5484d; margin-inline-start: 3px; }
+.prechat-control { position: relative; display: flex; align-items: center; }
+.prechat-input {
+  box-sizing: border-box; width: 100%; height: 40px; padding: 0 12px;
+  border-radius: var(--wy-radius-sm); border: 1px solid var(--wy-border);
+  font-size: 14px; color: var(--wy-text); background: var(--wy-card); outline: none;
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+/* Source: focus is a border colour change only — no 3px halo. */
+.prechat-input:focus { border-color: var(--wy-accent); box-shadow: none; }
+.prechat-input[aria-invalid='true'] { border-color: #e5484d; }
+.prechat-input[dir='ltr'] { text-align: right; }
+.prechat-textarea { height: auto; padding: 10px 12px; resize: vertical; }
+.prechat-error { font-size: 11.5px; color: #e5484d; min-height: 0; }
+.prechat-error:empty { display: none; }
+.prechat-privacy { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 11.5px; color: var(--wy-faint); }
+.prechat-privacy-icon svg { width: 13px; height: 13px; }
+.fallback-status { margin-top: 10px; font-size: 12.5px; color: var(--wy-muted); }
+.wy-view-fallback .wy-scroll { padding: 16px 10px; }
+.wy-view-fallback .prechat-submit { margin-top: 16px; }
+
+/* Inline handoff card inside the chat stream */
+.hc-card {
+  width: 280px; max-width: 88%; background: var(--wy-card); border: 1px solid var(--wy-border);
+  border-radius: var(--wy-radius-lg); padding: 14px; display: flex; flex-direction: column; gap: 10px;
+}
+.hc-title { font-size: 13px; font-weight: 600; }
+.hc-subtitle { font-size: 12.5px; color: var(--wy-muted); }
+.hc-fields .prechat-input { height: 36px; font-size: 13px; }
+.hc-submit { width: 100%; }
+
+/* ─── Knowledge Base ────────────────────────────────────────────────── */
+.kb-search-wrap { margin-bottom: 12px; }
+.kb-search {
+  width: 100%; box-sizing: border-box; height: 40px; padding: 0 12px;
+  border: 1px solid var(--wy-border); border-radius: var(--wy-radius-sm); background: var(--wy-card);
+  font-size: 13.5px; color: var(--wy-text); outline: none;
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+.kb-search:focus { border-color: var(--wy-accent); box-shadow: 0 0 0 3px rgba(31, 147, 255, 0.14); }
+
+.kb-list { display: flex; flex-direction: column; gap: 6px; }
+.kb-article, .kb-category {
+  display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
+  padding: 14px 12px; text-align: start; text-decoration: none;
+  border: 1px solid var(--wy-border); border-radius: var(--wy-radius-md); background: var(--wy-card);
+  color: var(--wy-text);
+  transition: background-color 0.15s, border-color 0.15s;
+}
+/* P1 — no hover lift on article rows: the design uses a flat fill/border
+   change only, and the translate made long lists feel jittery. */
+.kb-article:hover, .kb-category:hover { background: var(--wy-hover); border-color: var(--wy-border-strong); }
+.kb-article-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-article-chevron { color: var(--wy-faint); display: inline-flex; }
+[dir='rtl'] .kb-article-chevron svg { transform: scaleX(-1); }
+.kb-section-h { font-size: 12px; font-weight: 600; color: var(--wy-muted); margin: 16px 0 8px; }
+
+.kb-empty { padding: 40px 16px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.kb-empty-icon { color: var(--wy-border-strong); }
+.kb-empty-text { font-size: 13px; color: var(--wy-muted); margin: 0; }
+
+.wy-view-kb:has(.kb-article-view) .wy-kb-body { padding: 20px; gap: 12px; }
+.wy-view-kb:has(.kb-article-view) .wy-kb-scroll { padding: 0; }
+.kb-article-view { display: flex; flex-direction: column; gap: 0; }
+.kb-article-h { font-size: 17px; font-weight: 700; margin: 0; }
+.kb-article-excerpt-full { font-size: 13px; color: var(--wy-muted); margin: 0; }
+.kb-article-body { font-size: 14px; line-height: 1.9; color: var(--wy-text); }
+.kb-article-body img { max-width: 100%; border-radius: var(--wy-radius-md); }
+.kb-article-body a { color: var(--wy-accent); }
+.kb-article-body h2, .kb-article-body h3 { font-size: 14.5px; font-weight: 600; margin: 14px 0 6px; }
+.kb-article-body ul, .kb-article-body ol { padding-inline-start: 20px; }
+.kb-article-footer { padding-top: 8px; }
+.kb-open-browser { font-size: 12px; color: var(--wy-accent); text-decoration: none; }
+
+.kb-feedback {
+  /* P1 — EXACT source geometry. A previous pass "tightened" this to 16/14;
+     the design file is 24/16 and that is the source of truth. */
+  margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--wy-border);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  animation: wy-view-in 0.24s var(--wy-ease) both;
+}
+.kb-feedback-q { font-size: 13px; font-weight: 400; color: var(--wy-muted); }
+.kb-feedback-actions { display: flex; gap: 6px; }
+.kb-rate {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 13px;
+  border: 1px solid var(--wy-border); border-radius: 9999px; background: var(--wy-surface); color: var(--wy-text);
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
+}
+.kb-rate:hover { background: var(--wy-hover-2); border-color: var(--wy-border-strong); }
+/* Source selects the positive rating with the ACCENT colour, not green. */
+.kb-rate.is-up { border-color: var(--wy-accent); color: var(--wy-accent); background: rgba(31, 147, 255, 0.08); }
+.kb-rate.is-down { border-color: #e5484d; color: #e5484d; background: rgba(229, 72, 77, 0.08); }
+.kb-feedback-thanks { font-size: 12px; font-weight: 400; color: var(--wy-muted); }
+.kb-feedback-cta { align-self: center; margin-top: 4px; padding: 9px 18px; border-radius: 9999px; font-size: 13px; font-weight: 500; }
+
+/* ─── Reduced motion ────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .panel, .wy-view, .msg-row, .kb-feedback, .smart-home-card, .wy-jump { animation: none !important; transition: none !important; }
+  .typing-dots span, .ci-pulse { animation: none !important; }
+}
+
+
+/* The close action belongs to the panel shell, not the chat view. */
+.panel-close {
+  position: absolute;
+  top: 12px;
+  inset-inline-end: 12px;
+  z-index: 20;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--wy-border);
+  border-radius: 12px;
+  background: var(--wy-card, #fff);
+  color: var(--wy-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+  transition: color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
+}
+.panel-close:hover { color: var(--wy-text); background: var(--wy-hover-2); }
+.panel-close:active { transform: scale(0.92); }
+.panel-close:focus-visible { outline: 2px solid var(--wy-accent); outline-offset: 2px; }
+.panel-close svg { width: 18px; height: 18px; pointer-events: none; }
+
+/* Composer surface refresh — visual-only: Core's data hooks and DOM order stay intact.
+   Scoped to the chat view so home, knowledge and call surfaces keep their layout. */
+.wy-view-chat .composer-zone {
+  padding-block: 10px 8px;
+}
+.wy-view-chat .input-wrap {
+  border-radius: 16px;
+  padding-inline: 8px;
+  background: var(--wy-card, #fff);
+  box-shadow: 0 0 0 1px var(--wy-border-strong, #d5d7dd), 0 3px 12px rgba(16, 24, 40, 0.06);
+  transition: box-shadow 0.18s ease, background-color 0.18s ease;
+}
+.wy-view-chat .input-wrap:focus-within {
+  box-shadow: 0 0 0 2px var(--wy-accent), 0 5px 18px rgba(16, 24, 40, 0.10);
+}
+.wy-view-chat .input {
+  min-height: 50px;
+  height: 50px;
+  padding-block: 15px;
+  line-height: 20px;
+  font-size: 14px;
+}
+.wy-view-chat .input::placeholder { color: var(--wy-faint); opacity: 1; }
+.wy-view-chat .composer-actions { padding-inline-start: 4px; }
+.wy-view-chat .composer-actions-start { gap: 2px; }
+.wy-view-chat .mic-btn,
+.wy-view-chat .send-btn,
+.wy-view-chat .attach-btn,
+.wy-view-chat .emoji-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  box-sizing: border-box;
+  border-radius: 11px;
+  color: var(--wy-muted);
+  transition: color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+.wy-view-chat .mic-btn { margin-inline-end: 4px; }
+.wy-view-chat .mic-btn svg,
+.wy-view-chat .send-btn svg,
+.wy-view-chat .attach-btn svg,
+.wy-view-chat .emoji-btn svg {
+  width: 18px;
+  height: 18px;
+  transform: none;
+}
+.wy-view-chat .mic-btn:hover,
+.wy-view-chat .attach-btn:hover,
+.wy-view-chat .emoji-btn:hover { color: var(--wy-text); background: var(--wy-hover-2); }
+.wy-view-chat .emoji-btn[aria-expanded='true'] {
+  color: var(--wy-accent);
+  background: var(--wy-hover-2);
+}
+.wy-view-chat .send-btn {
+  color: var(--wy-accent);
+  background: var(--wy-hover-2);
+}
+.wy-view-chat .input-bar.has-draft .send-btn {
+  color: #fff;
+  background: var(--wy-accent);
+  box-shadow: 0 2px 6px rgba(16, 24, 40, 0.14);
+}
+.wy-view-chat .input-bar.has-draft .send-btn:hover { filter: brightness(1.08); }
+.wy-view-chat .input-bar:not(.has-draft) .send-btn { opacity: 0.55; }
+.wy-view-chat .mic-btn:focus-visible,
+.wy-view-chat .send-btn:focus-visible,
+.wy-view-chat .attach-btn:focus-visible,
+.wy-view-chat .emoji-btn:focus-visible,
+.wy-view-chat .wy-back:focus-visible {
+  outline: 2px solid var(--wy-accent);
+  outline-offset: 2px;
+}
+.wy-view-chat .wy-back {
+  width: 34px;
+  height: 34px;
+  margin-inline-end: 0;
+  border-radius: 10px;
+  background: var(--wy-hover-2);
+}
+.wy-view-chat .wy-back:hover { background: var(--wy-hover); }
+@media (prefers-reduced-motion: reduce) {
+  .wy-view-chat .input-wrap,
+  .wy-view-chat .mic-btn,
+  .wy-view-chat .send-btn,
+  .wy-view-chat .attach-btn,
+  .wy-view-chat .emoji-btn { transition: none; }
+}
+
+/* ─── Message layout polish (the default look) ──────────────────────────
+   The same fixes the International skin got in #286, in the default's own
+   measures and colours (the local kit: ink #12141F, mist #E3E6EB,
+   paper #F4F6F8), right-to-left first. Every selector below is one the
+   International skin (its own stylesheet, loaded after this one) sets
+   itself with the same specificity, so RESPOK's rendering is its own and
+   does not change.
+
+   Markup per message (presentation-default.js messagesHtml):
+     .msg-row.{visitor|operator}[.is-last]
+       [.msg-avatar]                      operator only, real one on .is-last
+       .msg-col
+         .msg-line > .msg + .msg-actions  bubble + quote/copy buttons
+         [.msg-footline > .msg-meta]      time / ticks / AI, on .is-last only
+   Sides are physical in both directions (see Messages above): operator on
+   the left, visitor on the right. */
+:host,
+.shell {
+  /* Persian glyphs need a taller line box than Latin ones. */
+  --wy-msg-line: 22px;
+  --wy-msg-pad-y: 8px;
+  --wy-msg-pad-x: 13px;
+  --wy-msg-radius: 18px;
+  --wy-msg-radius-join: 6px;
+  --wy-msg-avatar: 30px;
+  --wy-msg-meta-h: 16px;
+  --wy-msg-meta-gap: 3px;
+  /* Between the kit's paper and mist: a quiet, borderless operator bubble. */
+  --wy-msg-op-bg: #eef1f4;
+}
+
+/* Rhythm: 12px between authors (and around day dividers and system rows),
+   3px between bubbles of one group. */
+.messages { gap: 12px; }
+.msg-row:not(.is-last) { margin-bottom: -9px; }
+
+.msg-col { gap: var(--wy-msg-meta-gap); max-width: 78%; }
+/* The operator column leaves room for its avatar and, beside the bubble,
+   the quote/copy buttons, so they are never clipped on a phone. */
+.msg-row.operator .msg-col { max-width: min(78%, calc(100% - var(--wy-msg-avatar) - 60px)); }
+
+/* Bubbles shrink-wrap their text; every bubble has the same padding and
+   line box, so a one-word message is as tall as any first line. */
+.msg {
+  min-width: 2.75rem;
+  padding: var(--wy-msg-pad-y) var(--wy-msg-pad-x);
+  border-radius: var(--wy-msg-radius);
+  font-size: 14px;
+  line-height: var(--wy-msg-line);
+  overflow-wrap: anywhere;
+}
+.msg.operator {
+  background: var(--wy-msg-op-bg);
+  border: 0;
+  color: #12141f;
+}
+/* The link chip normally sits on --wy-hover; lift it onto the card colour
+   so it does not melt into the operator bubble. */
+.msg.operator .msg-link { background: var(--wy-card); }
+
+/* Each paragraph takes the direction of its own first letter: English
+   reads left-to-right inside a Persian widget (and Persian right-to-left in
+   an English one), and `start` follows that paragraph, not the panel. */
+.msg-text,
+.msg-quote {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* Grouped corners: the joining side of a group is tighter on every bubble;
+   the bottom one carries the tail, the ones below the first also tighten
+   their top. */
+.msg-row.visitor .msg.visitor { border-bottom-right-radius: var(--wy-msg-radius-join); }
+.msg-row.visitor:not(.is-last) + .msg-row.visitor .msg.visitor { border-top-right-radius: var(--wy-msg-radius-join); }
+.msg-row.operator .msg.operator { border-bottom-left-radius: var(--wy-msg-radius-join); }
+.msg-row.operator:not(.is-last) + .msg-row.operator .msg.operator { border-top-left-radius: var(--wy-msg-radius-join); }
+
+/* The quote/copy buttons float beside the bubble, on its open side, instead
+   of taking layout space: hidden, they still widened the column, so the
+   visitor's time and ticks stuck out past the bubble and the operator's
+   bubble drifted away from its avatar and time. */
+.msg-line { position: relative; }
+.msg-actions { position: absolute; bottom: 0; padding-bottom: 2px; }
+.msg-row.visitor .msg-actions { right: 100%; padding-right: 4px; }
+.msg-row.operator .msg-actions { left: 100%; padding-left: 4px; }
+
+/* One meta line per group, under its last bubble, flush with the bubble's
+   outer edge (right for the visitor, left for the operator). */
+.msg-footline { height: var(--wy-msg-meta-h); min-height: var(--wy-msg-meta-h); }
+.msg-meta {
+  gap: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: var(--wy-msg-meta-h);
+  color: var(--wy-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.msg-time { font-size: 11px; }
+
+/* The operator's avatar sits beside the LAST bubble of the group, centred
+   on its first line — never down beside the time. */
+.msg-avatar {
+  width: var(--wy-msg-avatar);
+  height: var(--wy-msg-avatar);
+  margin-bottom: calc((var(--wy-msg-line) + 2 * var(--wy-msg-pad-y) - var(--wy-msg-avatar)) / 2);
+}
+.msg-row:has(> .msg-col > .msg-footline) > .msg-avatar {
+  margin-bottom: calc(var(--wy-msg-meta-h) + var(--wy-msg-meta-gap)
+    + (var(--wy-msg-line) + 2 * var(--wy-msg-pad-y) - var(--wy-msg-avatar)) / 2);
+}
+
+/* Day divider: a quiet label centred on the list. */
+.msg-day { margin: 4px 0 0; }
+.msg-day span {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--wy-muted);
+  background: var(--wy-hover-2);
+  padding: 5px 10px;
+}
+
+/* Composer: a hairline separates it from the messages, and the credit gets
+   the same breathing room above and below. */
+.wy-view-chat .composer-zone {
+  border-top: 1px solid var(--wy-border);
+  padding-block: 10px 6px;
+}
+.composer-zone .wy-footer { padding: 6px 0 2px; }

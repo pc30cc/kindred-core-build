@@ -57,6 +57,26 @@
       skin: 'presentation-intl.css',
       fonts: 'presentation-default-fonts.css',
     },
+    // Two more templates of the Iranian edition, each with its own renderer
+    // and stylesheet over the shared fonts. Their ids are neutral and stable:
+    // the names a workspace owner sees live in the Super Admin's template
+    // catalog (renamable at any time), never in an id or a file name.
+    't1': {
+      id: 't1',
+      name: 't1',
+      globalKey: '__gs_presentation_t1',
+      script: 'presentation-t1.js',
+      style: 'presentation-t1.css',
+      fonts: 'presentation-default-fonts.css',
+    },
+    't2': {
+      id: 't2',
+      name: 't2',
+      globalKey: '__gs_presentation_t2',
+      script: 'presentation-t2.js',
+      style: 'presentation-t2.css',
+      fonts: 'presentation-default-fonts.css',
+    },
   };
 
   /**

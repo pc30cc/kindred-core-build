@@ -60,6 +60,20 @@ export const CHAT_WIDGET_TEMPLATES = {
     skin: 'presentation-intl.css',
     fonts: 'presentation-default-fonts.css',
   },
+  t1: {
+    id: 't1',
+    script: 'presentation-t1.js',
+    style: 'presentation-t1.css',
+    skin: null,
+    fonts: 'presentation-default-fonts.css',
+  },
+  t2: {
+    id: 't2',
+    script: 'presentation-t2.js',
+    style: 'presentation-t2.css',
+    skin: null,
+    fonts: 'presentation-default-fonts.css',
+  },
 } as const satisfies Record<string, ChatWidgetTemplate>;
 
 export type ChatWidgetTemplateId = keyof typeof CHAT_WIDGET_TEMPLATES;
@@ -72,7 +86,7 @@ export interface EditionTemplates<Id extends string> {
 }
 
 export const EDITION_CHAT_WIDGET_TEMPLATES: Readonly<Record<Edition, EditionTemplates<ChatWidgetTemplateId>>> = {
-  iran: { default: 'default', offered: ['default'] },
+  iran: { default: 'default', offered: ['default', 't1', 't2'] },
   international: { default: 'intl', offered: ['intl'] },
 };
 

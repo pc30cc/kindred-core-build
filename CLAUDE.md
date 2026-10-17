@@ -39,6 +39,15 @@ storage in renderers, only hashed file names without `?v=`, the size budgets
 in `src/test/widget/templateRules.test.ts`, which checks every template in
 `shared/widgetTemplates.ts`. Never raise a budget without the owner's say.
 
+WebYar's chat widget has three templates: `default` (the original look, keep
+it byte-identical), `t1` and `t2` (the 2026-10 designs, see
+`docs/chat-widget-handoff/IMPLEMENTATION_NOTES.md`). Ids are neutral; the
+names people see live in the Super Admin's catalog (migration 275), and a
+template is worn only once the Super Admin enables it. Persian text in the
+widget is IRANSans only (owner). Core behaviour only t1/t2 use lives in the
+lazy `public/widget/runtime-ext.js`, gated on the renderer's `features`, so
+`default` visitors never download it.
+
 ## The iOS app in Xcode on the Mac
 
 `~/dev/kcb-ios-preview` is the copy of the iOS app (`ios/Webyar`)

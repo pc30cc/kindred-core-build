@@ -347,7 +347,7 @@ button.cd:hover {
 /* ─── Keyboard focus: Core's ring (runtime.css) in a colour that reads on
    white, around each control's own shape (Core's rule sets 6px corners). */
 .wy-view :focus-visible { outline-color: var(--a-tx); }
-.vd .wy-tab:focus-visible { outline-color: var(--on-a); }
+.vd .wy-tab:focus-visible, .msg.visitor .msg-link:focus-visible { outline-color: var(--on-a); }
 .ra:focus-visible, .wy-ap-play:focus-visible, .rec-cancel:focus-visible, .vn-delete:focus-visible { border-radius: 50%; }
 .wy-jump:focus-visible, .ci-btn:focus-visible { border-radius: 99px; }
 .ib:focus-visible, .chip:focus-visible, .li:focus-visible, .btn.sm:focus-visible { border-radius: 12px; }

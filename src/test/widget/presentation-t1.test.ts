@@ -445,6 +445,10 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(optional.querySelector('.hc-card [data-prechat="email"]')).not.toBeNull();
       const required = parse(r().handoffPrechatCardHtml(IDENTITY(['email'], ['email']), {}, 'fa', 'sub', false));
       expect(required.querySelector('[data-prechat-skip]')).toBeNull();
+      // The card names the phone shortly (08·a «موبایل»); the full form keeps «شماره موبایل».
+      const phone = (html: string) => parse(html).querySelector('label[for="prechat-phone"]')!.firstChild!.textContent!.trim();
+      expect(phone(r().handoffPrechatCardHtml(IDENTITY(['phone']), {}, 'fa', 'sub', false))).toBe('موبایل');
+      expect(phone(r().prechatFormHtml(IDENTITY(['phone']), {}, 'fa'))).toBe('شماره موبایل');
       // The composer locks while the card waits: its message, and no emoji.
       const frame = parse(FRAME(r()));
       expect(frame.querySelector('.input-wrap .cmp-lock')!.textContent).toBe('اول فرم بالا را تکمیل کنید');
@@ -666,7 +670,8 @@ describe('t1: accent tokens', () => {
   it('uses the workspace colour, with white or ink on it by contrast', () => {
     expect(styleOf(make({ primaryColor: '#7c3aed' }))).toBe('--a:#7c3aed;--a-rgb:124,58,237;--gs-primary:#7c3aed');
     expect(styleOf(make({ primaryColor: '#111827' }))).not.toContain('--on-a');
-    const ink = ';--on-a:#16142B;--on-a-2:rgba(22,20,43,.78);--on-a-sf:rgba(22,20,43,.08)';
+    // A light accent also darkens itself where it is text or an icon on white (`--dk`).
+    const ink = ';--on-a:#16142B;--on-a-2:rgba(22,20,43,.78);--on-a-sf:rgba(22,20,43,.08);--dk:50%';
     expect(styleOf(make({ primaryColor: '#FFEB3B' }))).toBe('--a:#ffeb3b;--a-rgb:255,235,59;--gs-primary:#ffeb3b' + ink);
     expect(styleOf(make({ primaryColor: '#fc0' }))).toBe('--a:#ffcc00;--a-rgb:255,204,0;--gs-primary:#ffcc00' + ink);
   });
@@ -749,6 +754,19 @@ describe('t1: direction, people, the workspace', () => {
     const ban = t.querySelector('.messages > .ban.ban-row:first-child')!;
     expect(ban.querySelector('b')!.textContent).toBe('تیم ما الان آفلاین است');
     expect(T1_CSS).toMatch(/\.messages > \.ban-row \{ display: none;/);
+    // While away the thread starts under the banner, and a sent message reads «… · ارسال شد».
+    expect(T1_CSS).toContain(".wy-view-chat:has(.away) .ban-row + * { margin-top: 0; }");
+    expect(T1_CSS).toContain(".wy-view-chat:has(.away) .msg-ticks[role='img']:not(.is-seen)::before { content: '· ' attr(aria-label); }");
+  });
+
+  it('says when the team is back as the design does: the hour and the part of the day, minutes only when not :00', () => {
+    const tehran = (hh: number, mm: number) => new Date(Date.UTC(2026, 9, 18, hh, mm) - 210 * 60_000).toISOString();
+    const status = (iso: string, locale = 'fa') => parse(make({ locale, config: { availability: { state: 'offline', next_open_at: iso } } })
+      .homeHtml({ rtl: locale === 'fa', isOnline: false, chatEnabled: true })).querySelector('.team .cs')!.textContent;
+    expect(status(tehran(9, 0))).toBe('از ساعت ۹ صبح پاسخ می‌دهیم');
+    expect(status(tehran(9, 30))).toBe('از ساعت ۹:۳۰ صبح پاسخ می‌دهیم');
+    // Other languages read the visitor's own clock.
+    expect(status(new Date(2026, 9, 18, 9, 0).toISOString(), 'en')).toBe('We reply from 9 in the morning');
   });
 });
 

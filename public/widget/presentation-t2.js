@@ -240,6 +240,10 @@
   // The topic and category icons a workspace may pick (the settings'
   // allow-list); anything else draws the book.
   var TOPIC_ICONS = { truck: 1, return: 1, ruler: 1, card: 1, box: 1, chat: 1, help: 1, gift: 1, clock: 1, tag: 1, person: 1 };
+  /** An allowed topic/category icon, else the book (own keys only: never `constructor`). */
+  function topicIcon(name) {
+    return Object.prototype.hasOwnProperty.call(TOPIC_ICONS, name) ? name : 'book';
+  }
   // A voice note's waveform (the design's fixed shape, in px).
   var WAVE = [8, 10, 10, 6, 20, 22, 12, 16, 18, 8, 14, 7, 16, 20, 10, 14, 18, 6, 12, 12, 12, 8, 9, 24];
   // The recorder's (its live wave, in px).
@@ -447,7 +451,8 @@
       var platform = (pb && pb.brand) || config.platformName || '';
       if (!platform) return '';
       var label = (pb && pb.text && textFitsLocale(pb.text)) ? pb.text : tf('poweredBy', 'Powered by');
-      var url = (pb && pb.url) || '';
+      // Web addresses only (the server checks too; a link is never a script).
+      var url = pb && /^https?:\/\//i.test(String(pb.url || '').trim()) ? String(pb.url).trim() : '';
       // A platform logo in the name's place (config.poweredBy.logo); Core
       // swaps it back to the name if it cannot load ([data-wy-brand-logo]).
       var logo = pb && typeof pb.logo === 'string' && /^https?:\/\//i.test(pb.logo) ? pb.logo : '';
@@ -493,7 +498,12 @@
         return new Intl.DateTimeFormat(tag, opts).format(d) + (d.getHours() < 12 ? L('am') : '');
       } catch (_) { return ''; }
     }
-    /** "We're offline right now" + when the team is back (else the reply-time text). */
+    /**
+     * "We're offline right now" + when the team is back (else the reply-time
+     * text). The design adds an away reply time («؛ معمولاً تا ۲ ساعت»); the
+     * workspace's one reply-time text is its online promise, so it is not
+     * repeated here.
+     */
     function awayNoticeHtml() {
       var d = nextOpen();
       var at = d ? backAtTime(d) : '';
@@ -520,7 +530,7 @@
 
     function chipHtml(attr, value, icon, label) {
       return '<button type="button" class="chip" ' + attr + '="' + esc(value) + '">' +
-        ico(TOPIC_ICONS[icon] ? icon : 'book', 16, 1.8) + '<span>' + esc(label) + '</span></button>';
+        ico(topicIcon(icon), 16, 1.8) + '<span>' + esc(label) + '</span></button>';
     }
     /** The workspace's topics (templateOptions.topics), as chips. */
     function topicChipsHtml() {
@@ -667,9 +677,10 @@
       var total = Math.ceil(ms / 1000);
       var m = Math.floor(total / 60);
       var s = total % 60;
-      var time = total < 60 ? t('ciSeconds').replace('{s}', total)
-        : s ? t('ciMinutesSeconds').replace('{m}', m).replace('{s}', s)
-        : t('ciMinutes').replace('{m}', m);
+      // Core's sentences, with the numbers in the visitor's digits.
+      var time = total < 60 ? t('ciSeconds').replace('{s}', digits(total))
+        : s ? t('ciMinutesSeconds').replace('{m}', digits(m)).replace('{s}', digits(s))
+        : t('ciMinutes').replace('{m}', digits(m));
       return t('ciTimeLeft').replace('{time}', time);
     }
 
@@ -694,7 +705,7 @@
         : by === 'operator' ? 'csEndedByOperator'
         : by === 'visitor' ? 'csEndedByVisitor'
         : 'csEndedBySystem';
-      return systemPillHtml('', String(t(key)).replace('{duration}', fmtCallDuration(dur)));
+      return systemPillHtml('', String(t(key)).replace('{duration}', digits(fmtCallDuration(dur))));
     }
 
     function renderRoutingOutcomeRow(msg) {
@@ -734,7 +745,7 @@
           if (isFinite(deltaMs) && deltaMs > 0) waitMinutes = Math.max(1, Math.round(deltaMs / 60000));
         }
         var waitLine = waitMinutes === 1 ? t('ciWaitOneMinute')
-          : waitMinutes > 1 ? String(t('ciWaitMinutes')).replace('{m}', waitMinutes) : '';
+          : waitMinutes > 1 ? String(t('ciWaitMinutes')).replace('{m}', digits(waitMinutes)) : '';
         bodyBlock = '<div class="ci-body"><div>' + esc(t(video ? 'ciBodyVideo' : 'ciBodyAudio')) + '</div>' +
           (waitLine ? '<div class="ci-wait">' + esc(waitLine) + '</div>' : '') + '</div>';
         statusBlock = '<div class="ci-meta ci-countdown" aria-live="polite">' +
@@ -747,7 +758,8 @@
             '" aria-label="' + esc(t('ciAriaDecline')) + '">' + esc(t('ciDecline')) + '</button>' +
         '</div>';
       } else {
-        var stateKey = { joined: 'ciStateJoined', expired: 'ciStateExpired', cancelled: 'ciStateCancelled', declined: 'ciStateDeclined' }[status];
+        var states = { joined: 'ciStateJoined', expired: 'ciStateExpired', cancelled: 'ciStateCancelled', declined: 'ciStateDeclined' };
+        var stateKey = Object.prototype.hasOwnProperty.call(states, status) ? states[status] : '';
         statusBlock = '<div class="ci-meta ci-status ci-status-' + esc(status) + '">' + esc(stateKey ? t(stateKey) : '') + '</div>';
       }
       return '<div class="msg-row system">' +
@@ -1187,7 +1199,7 @@
         : op && op.online ? '<span class="st"><i class="ondot"></i>' + esc(L('online')) + '</span>'
         : rt ? '<span class="st">' + esc(rt) + '</span>' : '';
       return backButtonHtml('home') + whoHtml(avatar, name, st) + '<span class="cs" aria-hidden="true"></span>' +
-        '<div class="presence sr-only" data-presence>' +
+        '<div class="presence sr-only" data-presence aria-live="polite">' +
           '<span class="presence-dot" data-presence-dot></span>' +
           '<span class="presence-label" data-presence-label></span>' +
         '</div>';
@@ -1351,7 +1363,7 @@
       var unread = Number(c.unreadCount) || 0;
       var preview = c.preview || tf('wyNoPreview', '…');
       if (c.lastFromVisitor && c.preview) preview = tf('you', 'You') + ': ' + preview;
-      var timeHtml = c.timeLabel ? '<time>' + esc(c.timeLabel) + '</time>' : '';
+      var timeHtml = c.timeLabel ? '<time>' + esc(digits(c.timeLabel)) + '</time>' : '';
       if (compact) {
         return '<button type="button" class="conv-row conv-row-compact" data-conversation-open="' + esc(c.id) + '">' +
           '<span class="conv-preview">' + esc(preview) + '</span>' + unreadBadgeHtml(unread) + timeHtml +
@@ -1414,8 +1426,9 @@
       // placeholder and its topics as chips; away, a note instead.
       var ask = '';
       if (vm.chatEnabled) {
+        // One or two examples rotate after the prompt (two or three slots).
         var ph = online
-          ? [L('ask')].concat(examples.length === 2 ? examples.map(function (e) { return L('eg') + e.trim(); }) : [])
+          ? [L('ask')].concat(examples.map(function (e) { return L('eg') + e.trim(); }))
           : [L('askAway')];
         var chips = topicChipsHtml();
         if (!chips && vm.kbEnabled) {
@@ -1425,7 +1438,7 @@
         }
         var d = nextOpen();
         ask = '<div class="ask cas" style="--i:4">' +
-          '<div class="field' + (ph.length < 3 ? ' static' : '') + '">' +
+          '<div class="field' + (ph.length < 2 ? ' static' : ph.length < 3 ? ' two' : '') + '">' +
             '<textarea class="ask-in" rows="1" data-home-ask placeholder=" " aria-label="' + esc(ph[0].replace(/…$/, '')) + '"></textarea>' +
             '<span class="ph" aria-hidden="true">' + ph.map(function (p) { return '<span>' + esc(p) + '</span>'; }).join('') + '</span>' +
             '<button type="button" class="send" data-home-action="chat" aria-label="' + esc(tf('send', 'Send')) + '">' + ico('send', 20, 2.2) + '</button>' +
@@ -1451,7 +1464,7 @@
           rows.push(rowHtml('data-conversation-open="' + esc(latest.id) + '"', convAvatarHtml(latest, 40),
             latest.operatorName ? L('cont', { name: latest.operatorName }) : tf('wyContinueLast', 'Continue last conversation'),
             latest.preview || '',
-            '<span class="end">' + (latest.timeLabel ? '<span>' + esc(latest.timeLabel) + '</span>' : '') + unreadBadgeHtml(unread) + '</span>',
+            '<span class="end">' + (latest.timeLabel ? '<span>' + esc(digits(latest.timeLabel)) + '</span>' : '') + unreadBadgeHtml(unread) + '</span>',
             unread > 0));
         }
         if (convs.length) {
@@ -1582,7 +1595,7 @@
       if (!cats.length) return '';
       return '<p class="sec">' + esc(L('topicsT')) + '</p><div class="cats">' + cats.map(function (c) {
         return '<button type="button" class="cat" data-kb-category="' + esc(c.id) + '">' +
-          '<span class="it" aria-hidden="true">' + ico(TOPIC_ICONS[c.icon] ? c.icon : 'book', 18, 1.7) + '</span>' +
+          '<span class="it" aria-hidden="true">' + ico(topicIcon(c.icon), 18, 1.7) + '</span>' +
           '<span class="tx"><b>' + esc(c.name) + '</b><small>' + esc(L('arts', { n: fmtNum(c.count || 0) })) + '</small></span>' +
         '</button>';
       }).join('') + '</div>';
@@ -1707,17 +1720,23 @@
     function skeletonHomeHtml(vm) {
       vm = vm || {};
       var row = '<div class="r"><span class="it skc"></span><span class="tx">' + skl('46%', 12) + skl('70%', 9) + '</span></div>';
+      // The same rows the real home is about to draw: the team's faces only
+      // with a team, the away note instead of chips, chips only from topics
+      // or the help center's articles.
+      var opts = config.templateOptions || {};
+      var chips = !teamOnline() ? '<p class="note"><span>' + skl('230px', 10) + '</span></p>'
+        : (Array.isArray(opts.topics) && opts.topics.length) || (config.features && config.features.knowledgeBase)
+          ? '<div class="chips">' + skl('88px', 34) + skl('104px', 34) + skl('92px', 34) + '</div>' : '';
       return skViewOpen('wy-view-home home-root', vm) +
         '<div class="wy-home-scroll">' +
           '<div class="hero">' +
             '<div class="top">' + (config.showLogo === false ? '' : '<span class="logo"></span>') + '<span class="sp"></span><span class="cs"></span></div>' +
             '<p class="hi">' + skl('30%', 12) + '</p>' +
             '<h2 class="hq">' + skl('62%', 22) + '<br>' + skl('44%', 22) + '</h2>' +
-            '<div class="pres">' + skl('72%', 10) + '</div>' +
+            '<div class="pres">' + (showTeam && team.length ? '<i class="skc" style="width:28px;height:28px"></i>' : '') +
+              '<span>' + skl('200px', 10) + '</span></div>' +
           '</div>' +
-          (vm.chatEnabled === false ? '' :
-            '<div class="ask"><div class="field static"></div>' +
-              '<div class="chips">' + skl('88px', 34) + skl('104px', 34) + skl('92px', 34) + '</div></div>') +
+          (vm.chatEnabled === false ? '' : '<div class="ask"><div class="field static"></div>' + chips + '</div>') +
           '<div class="list' + (vm.chatEnabled === false ? ' lift' : '') + '">' + row + row + '</div>' +
         '</div>' +
         footerHtml() +
@@ -1796,7 +1815,8 @@
       var lines = ['96%', '88%', '92%', '70%', '94%', '61%', '86%', '48%'].map(function (w) { return skl(w, 11); }).join('');
       return skViewOpen('wy-view-kb kb-root kb-article-root', vm) +
         skBarHtml('<span class="ttl">' + skl('120px', 14) + '</span>') +
-        '<div class="art wy-scroll"><h1>' + skl('80%', 18) + '</h1><div class="kb-article-body wy-sk-group">' + lines + '</div></div>' +
+        '<div class="art wy-scroll"><h1>' + skl('80%', 18) + '</h1><div class="am"><span>' + skl('96px', 10) + '</span></div>' +
+          '<div class="kb-article-body wy-sk-group">' + lines + '</div></div>' +
         '<div class="kb-feedback fb">' + skl('40%', 11) + '<span class="sp"></span><span class="face skc"></span><span class="face skc"></span></div>' +
         '<span class="cta skc"></span>' +
         footerHtml() +

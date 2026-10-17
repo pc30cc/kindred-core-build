@@ -392,7 +392,8 @@ describe('t2: skeletons wear the real surfaces', () => {
   const r = () => make();
   const classes = (html: string) => new Set((html.match(/class="([^"]+)"/g) || []).flatMap((m) => m.slice(7, -1).split(/\s+/)));
   const pairs: Array<[string, () => string, () => string, string[]]> = [
-    ['home', () => r().skeletonHtml('home', { rtl: true, chatEnabled: true }),
+    // With the help center on (Core's kbEnabled), as the real home is drawn.
+    ['home', () => make({ config: { features: { knowledgeBase: true } } }).skeletonHtml('home', { rtl: true, chatEnabled: true }),
       () => r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, kbEnabled: true, articles: [{ slug: 'a', title: 'A' }] }),
       ['wy-view-home', 'wy-home-scroll', 'hero', 'top', 'logo', 'hi', 'hq', 'pres', 'ask', 'field', 'chips', 'list', 'r', 'pw']],
     ['chat', () => r().skeletonHtml('chat', { rtl: true, chatEnabled: true, composer: { voiceNotes: true, attachments: true, emoji: true } }),
@@ -594,5 +595,98 @@ describe('t2: the platform\'s marks stay in the Iranian edition\'s build', () =>
     expect(respok).not.toContain(mark);
     expect(respok).toContain('__gs_presentation_t2');
     expect(T2_CSS).not.toMatch(/M42\.28/);
+  });
+});
+
+describe('t2: review fixes', () => {
+  it('draws an icon only from the allow-list, never from an object\'s own machinery', () => {
+    for (const icon of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+      const r = make({ config: { templateOptions: { topics: [{ label: 'x', icon }] } } });
+      const html = r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true }) +
+        r.kbHtml({ state: 'list', articles: [], categories: [{ id: 'c', name: 'n', icon, count: 1 }] });
+      expect(html, icon).not.toMatch(/native code|\[object/);
+      expect(parse(html).querySelector('[data-topic] svg path')).not.toBeNull();
+    }
+    const states = parse(make().callInvitationCardHtml({ metadata: { status: 'constructor', channel: 'audio', invitation_id: 'x' } }));
+    expect(states.textContent).not.toMatch(/native code/);
+  });
+
+  it('links the footer only to a web address', () => {
+    const footer = (url: string) => parse(make({ config: { poweredBy: { brand: 'P', url } } }).homeHtml({ rtl: true, isOnline: true }));
+    expect(footer('https://platform.test').querySelector('a.wy-powered')!.getAttribute('href')).toBe('https://platform.test');
+    for (const url of ['javascript:alert(1)', ' JaVaScRiPt:x', 'data:text/html,x', '//evil.test', '/relative']) {
+      expect(footer(url).querySelector('a.wy-powered'), url).toBeNull();
+      expect(footer(url).querySelector('span.wy-powered'), url).not.toBeNull();
+    }
+  });
+
+  it('prints the call card\'s and the call row\'s numbers in Persian digits', () => {
+    const CALL: Record<string, string> = {
+      ciMinutesSeconds: '{m} دقیقه و {s} ثانیه', ciSeconds: '{s} ثانیه', ciMinutes: '{m} دقیقه', ciTimeLeft: '{time} باقی‌مانده',
+      ciWaitMinutes: 'حداکثر {m} دقیقه', csEndedByOperator: 'مدت مکالمه {duration}',
+    };
+    const r = make({ t: (k) => CALL[k] ?? FA[k] ?? k });
+    const card = parse(r.callInvitationCardHtml({ createdAt: new Date().toISOString(), metadata: {
+      status: 'pending', channel: 'audio', invitation_id: 'x', wait_minutes: 5,
+      expires_at: new Date(Date.now() + 125_500).toISOString() } })).textContent!;
+    expect(card).toMatch(/[۰-۹]+ دقیقه و [۰-۹]+ ثانیه باقی‌مانده/);
+    expect(card).toContain('حداکثر ۵ دقیقه');
+    expect(card).not.toMatch(/[0-9]/);
+    expect(parse(r.callEndedRowHtml({ metadata: { ended_by: 'operator', duration_seconds: 65 } })).textContent).toBe('مدت مکالمه ۰۱:۰۵');
+    expect(parse(r.conversationRowHtml({ id: 'c', timeLabel: '5m', preview: 'p' }, false)).querySelector('time')!.textContent).toBe('۵m');
+    expect(make({ locale: 'en' }).callEndedRowHtml({ metadata: { ended_by: 'operator', duration_seconds: 65 } })).toContain('csEndedByOperator');
+  });
+
+  it('keeps the presence line a polite live region, as the default renderer does', () => {
+    expect(parse(make().chatHeaderHtml({ online: true })).querySelector('[data-presence]')!.getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('heads an away thread with the return time, never the online reply promise', () => {
+    const at = new Date(); at.setDate(at.getDate() + 1); at.setHours(9, 0, 0, 0);
+    const away = parse(make({ config: { replyTimeText: 'معمولاً در ۲ دقیقه پاسخ می‌دهیم', availability: { state: 'offline', next_open_at: at.toISOString() } } })
+      .messagesHtml({ messages: [msg({})] }, '', {})).querySelector('.away small')!.textContent!;
+    expect(away).toMatch(/^از .*۹.* پاسخ می‌دهیم$/);
+  });
+
+  it('rotates one or two ask examples after the prompt', () => {
+    const field = (askExamples: string[]) => parse(make({ config: { templateOptions: { askExamples } } })
+      .homeHtml({ rtl: true, isOnline: true, chatEnabled: true })).querySelector('.ask .field')!;
+    expect(field([]).className).toBe('field static');
+    expect(field(['کفش ۴۲ دارید؟']).className).toBe('field two');
+    expect(Array.from(field(['کفش ۴۲ دارید؟']).querySelectorAll('.ph span')).map((s) => s.textContent)).toEqual(['سؤالتان را بنویسید…', 'مثلاً: کفش ۴۲ دارید؟']);
+    expect(field(['a', 'b']).className).toBe('field');
+    expect(field(['a', 'b']).querySelectorAll('.ph span').length).toBe(3);
+    expect(T2_CSS).toMatch(/\.two \.ph span \{ animation-name: t2-ph2; animation-duration: 8s; \}/);
+  });
+
+  it('skeletons draw what the real view will: the away note, faces only with a team, the article\'s meta line', () => {
+    const home = (config: Vm) => parse(make({ config }).skeletonHtml('home', { rtl: true, chatEnabled: true }));
+    const away = home({ availability: { state: 'offline' }, features: { knowledgeBase: true } });
+    expect(away.querySelector('.ask .note')).not.toBeNull();
+    expect(away.querySelector('.ask .chips')).toBeNull();
+    expect(home({ features: { knowledgeBase: true } }).querySelector('.pres .skc')).not.toBeNull();
+    expect(home({ teamMembers: [] }).querySelector('.pres .skc')).toBeNull();
+    expect(home({ showTeamAvatars: false }).querySelector('.pres .skc')).toBeNull();
+    expect(home({ features: {} }).querySelector('.ask .chips')).toBeNull();
+    expect(home({ templateOptions: { topics: [{ label: 'x', icon: 'box' }] } }).querySelector('.ask .chips')).not.toBeNull();
+    expect(parse(make().skeletonHtml('article', { rtl: true })).querySelector('.art h1 + .am')).not.toBeNull();
+  });
+
+  it('keeps each control\'s shape when it takes keyboard focus', () => {
+    // The round recorder send is also a .rec-btn: a later 12px rule for
+    // .rec-btn would win and square it.
+    expect(T2_CSS).not.toMatch(/\.rec-btn:focus-visible/);
+    expect(T2_CSS).toMatch(/\.rec-send:focus-visible[^{]*\{ border-radius: 999px; \}/);
+    expect(T2_CSS).toMatch(/\.msg-link:focus-visible[^{]*\{ border-radius: 999px; \}/);
+    // The bubble clips an image: its ring goes inside, above the
+    // `.wy-view :is(button, a):focus-visible` offset (0,2,1).
+    expect(T2_CSS).toMatch(/\.msg \.msg-att-img-btn:focus-visible \{ outline-offset: -4px; border-radius: 16px; \}/);
+    // A scrolling chip row on phones leaves room for the ring.
+    expect(T2_CSS).toMatch(/margin-block: 8px -4px;\s*padding-block: 4px;/);
+  });
+
+  it('never opens the emoji picker under a locked composer, and draws an English greeting in Inter', () => {
+    expect(T2_CSS).toMatch(/\.composer-zone:has\(\.is-locked\) \.emoji-picker \{ display: none; \}/);
+    expect(T2_CSS).toMatch(/\.smart-nudge\[dir='ltr'\],\n\.smart-nudge\[dir='ltr'\] \* \{\n {2}font-family: 'InterWY'/);
   });
 });

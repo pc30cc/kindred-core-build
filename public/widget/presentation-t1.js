@@ -32,11 +32,11 @@
 
   // Copy this template adds (Core's own keys are read through `t`): one
   // '|'-separated string per language, in the order of COPY_KEYS.
-  var COPY_KEYS = 'msgs help nav unread all hi hiBack q team online reply away backAt note search searchAway recent newMsg type typing typingNow delivered retry b kb mb now teamOf cats connect introT introX priv privShort details locked saved edit skip phone awayEmail awayT helpQ count popular readT updated helpful yes no still talk'.split(' ');
+  var COPY_KEYS = 'msgs help nav unread all hi hiBack q team online reply away backAt note search searchAway recent newMsg type typing typingNow delivered retry b kb mb now teamOf cats connect introT introX priv privShort details locked saved edit skip phone mob awayEmail awayT helpQ count popular readT updated helpful yes no still talk'.split(' ');
   var DICT = {
-    fa: 'پیام‌ها|راهنما|بخش‌های ویجت|{label}، {n} خوانده‌نشده|همه گفتگوها|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از ساعت {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را به ایمیلتان می‌فرستیم و همین‌جا هم می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|پیام اخیر|ارسال پیام جدید|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|اگر از سایت رفتید، پاسخ را برایتان می‌فرستیم.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|آفلاین · پاسخ از طریق ایمیل|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید',
-    en: 'Messages|Help|Widget sections|{label}, {n} unread|All conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; we will email you the reply and you will see it here too.|Search help|Your answer may be in our help|Recent message|Send a new message|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Connect to support|Before we start, introduce yourself|If you leave the site, we will send you the reply.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Offline · reply by email|Our team is offline right now|Type your question…|{n} articles|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team',
-    tr: 'Mesajlar|Yardım|Widget bölümleri|{label}, {n} okunmamış|Tüm konuşmalar|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı e-postanıza göndeririz, burada da görürsünüz.|Yardımda ara|Yanıtınız yardımda olabilir|Son mesaj|Yeni mesaj gönder|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Siteden ayrılırsanız yanıtı size göndeririz.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Çevrimdışı · e-postayla yanıt|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun',
+    fa: 'پیام‌ها|راهنما|بخش‌های ویجت|{label}، {n} خوانده‌نشده|همه گفتگوها|سلام، خوش آمدید|سلام دوباره، {name}|چطور می‌توانیم کمکتان کنیم؟|گفتگو با تیم پشتیبانی|آنلاین|پاسخ در چند دقیقه|الان آفلاین هستیم|از ساعت {time} پاسخ می‌دهیم|پیامتان را بگذارید؛ پاسخ را به ایمیلتان می‌فرستیم و همین‌جا هم می‌بینید.|جستجو در راهنما|جوابتان شاید در راهنما باشد|پیام اخیر|ارسال پیام جدید|پیام خود را بنویسید…|{name} در حال نوشتن…|در حال نوشتن…|تحویل شد|تلاش دوباره|بایت|کیلوبایت|مگابایت|همین حالا|تیم پشتیبانی {name}|پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|اتصال به پشتیبان|قبل از شروع، خودتان را معرفی کنید|اگر از سایت رفتید، پاسخ را برایتان می‌فرستیم.|اطلاعات شما فقط برای پاسخگویی استفاده می‌شود.|فقط برای پاسخگویی استفاده می‌شود|مشخصات شما|اول فرم بالا را تکمیل کنید|مشخصات شما ثبت شد|ویرایش|رد کردن|شماره موبایل|موبایل|آفلاین · پاسخ از طریق ایمیل|تیم ما الان آفلاین است|سؤالتان را بنویسید…|{n} مقاله|پربازدیدترین‌ها|{n} دقیقه مطالعه|به‌روز شده {time}|این مقاله مفید بود؟|بله|نه|هنوز سؤال دارید؟|با تیم پشتیبانی گفتگو کنید',
+    en: 'Messages|Help|Widget sections|{label}, {n} unread|All conversations|Hi, welcome|Welcome back, {name}|How can we help you?|Chat with our support team|Online|Replies in a few minutes|We are offline right now|We reply from {time}|Leave a message; we will email you the reply and you will see it here too.|Search help|Your answer may be in our help|Recent message|Send a new message|Write your message…|{name} is typing…|typing…|Delivered|Try again|B|KB|MB|Just now|{name} support team|Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|Connect to support|Before we start, introduce yourself|If you leave the site, we will send you the reply.|Your details are used only to reply to you.|Used only to reply to you|Your details|Fill in the form above first|Your details are saved|Edit|Skip|Mobile number|Mobile|Offline · reply by email|Our team is offline right now|Type your question…|{n} articles|Most viewed|{n} min read|Updated {time}|Was this article helpful?|Yes|No|Still have a question?|Chat with our support team',
+    tr: 'Mesajlar|Yardım|Widget bölümleri|{label}, {n} okunmamış|Tüm konuşmalar|Merhaba, hoş geldiniz|Tekrar merhaba, {name}|Size nasıl yardımcı olabiliriz?|Destek ekibiyle sohbet edin|Çevrimiçi|Birkaç dakika içinde yanıt|Şu an çevrimdışıyız|{time} itibarıyla yanıt veriyoruz|Mesajınızı bırakın; yanıtı e-postanıza göndeririz, burada da görürsünüz.|Yardımda ara|Yanıtınız yardımda olabilir|Son mesaj|Yeni mesaj gönder|Mesajınızı yazın…|{name} yazıyor…|yazıyor…|İletildi|Tekrar dene|B|KB|MB|Şimdi|{name} destek ekibi|Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Destekle bağlanın|Başlamadan önce kendinizi tanıtın|Siteden ayrılırsanız yanıtı size göndeririz.|Bilgileriniz yalnızca size yanıt vermek için kullanılır.|Yalnızca yanıt için kullanılır|Bilgileriniz|Önce yukarıdaki formu doldurun|Bilgileriniz kaydedildi|Düzenle|Atla|Cep telefonu|Cep|Çevrimdışı · e-postayla yanıt|Ekibimiz şu an çevrimdışı|Sorunuzu yazın…|{n} makale|En çok görüntülenen|{n} dk okuma|{time} güncellendi|Bu makale yardımcı oldu mu?|Evet|Hayır|Hâlâ sorunuz mu var?|Destek ekibimizle konuşun',
   };
 
 
@@ -606,9 +606,9 @@
     }
 
     // Field visibility/required state is server-authoritative (identity).
-    function fieldHtml(hook, key, type, value, req) {
+    function fieldHtml(hook, key, type, value, req, card) {
       var id = (hook === 'fb' ? 'fb-' : 'prechat-') + key;
-      var label = key === 'phone' ? L('phone') : t(key === 'message' ? 'fallbackMessageLabel' : key);
+      var label = key === 'phone' ? L(card ? 'mob' : 'phone') : t(key === 'message' ? 'fallbackMessageLabel' : key);
       var ph = key === 'message' ? L('type') : t('prechat' + key.charAt(0).toUpperCase() + key.slice(1) + 'Ph') || label;
       return '<div class="prechat-field fld" data-field="' + key + '">' +
           '<label class="prechat-label" for="' + id + '">' + esc(label) +
@@ -626,12 +626,13 @@
           '<div class="prechat-error err" id="' + (hook === 'fb' ? 'fb-err-' : 'prechat-err-') + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
         '</div>';
     }
-    function renderPrechatFieldRow(identity, key, type, value) {
-      return fieldHtml('prechat', key, type, value, identity.isRequired(key));
+    /** `card`: the compact card in the thread (its short phone label). */
+    function renderPrechatFieldRow(identity, key, type, value, card) {
+      return fieldHtml('prechat', key, type, value, identity.isRequired(key), card);
     }
-    function askedFields(identity, contact) {
+    function askedFields(identity, contact, card) {
       return ['name', 'email', 'phone'].filter(function (k) { return identity.isAsked(k); }).map(function (k) {
-        return renderPrechatFieldRow(identity, k, k === 'name' ? 'text' : k === 'email' ? 'email' : 'tel', contact[k]);
+        return renderPrechatFieldRow(identity, k, k === 'name' ? 'text' : k === 'email' ? 'email' : 'tel', contact[k], card);
       }).join('');
     }
 
@@ -822,7 +823,7 @@
      */
     function handoffPrechatCardHtml(identity, contact, locale, subtitle, animateSubtitle) {
       contact = contact || {};
-      var fieldsHtml = askedFields(identity, contact);
+      var fieldsHtml = askedFields(identity, contact, 1);
       var any = ['name', 'email', 'phone'].some(function (k) { return identity.isAsked(k) && identity.isRequired(k); });
       var dir = String(locale || '').toLowerCase().split('-')[0] === 'fa' ? 'rtl' : 'ltr';
       var who = lead();

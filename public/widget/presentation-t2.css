@@ -113,7 +113,9 @@
 .shell[dir='ltr'],
 .shell[dir='ltr'] *,
 .panel[dir='ltr'],
-.panel[dir='ltr'] * {
+.panel[dir='ltr'] *,
+.smart-nudge[dir='ltr'],
+.smart-nudge[dir='ltr'] * {
   font-family: 'InterWY', 'IRANSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 .sr-only {
@@ -416,6 +418,7 @@
 .ph span { position: absolute; inset: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; animation: t2-ph 12s var(--ease) infinite; }
 .ph span:nth-child(2) { animation-delay: 4s; }
 .ph span:nth-child(3) { animation-delay: 8s; }
+.two .ph span { animation-name: t2-ph2; animation-duration: 8s; }
 .ph::before {
   content: '';
   position: absolute;
@@ -863,7 +866,11 @@ a.wy-powered:hover { color: var(--ink-2); }
 .input-bar:not(.has-draft) .mic-btn ~ .composer-actions .send-btn, .has-draft .mic-btn { display: none; }
 .send-btn[hidden], .attach-btn[hidden], .emoji-btn[hidden], .mic-btn[hidden] { display: none; }
 .mic-btn.recording { color: var(--rec); }
+/* While the pre-chat card waits the composer is locked: the drawn emoji
+   button takes no click, and its picker never opens (Core would insert into
+   the disabled field). */
 .input-bar.is-locked .emoji-btn { pointer-events: none; }
+.composer-zone:has(.is-locked) .emoji-picker { display: none; }
 
 /* Recording takes the box over: delete, dot, time, wave, send. */
 .is-recording .input-row, .is-voice-preview .input-row { display: flex; }
@@ -1450,7 +1457,13 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 }
 .skc { border-radius: 50%; }
 [dir='rtl'] .skl, [dir='rtl'] .skc { animation-direction: reverse; }
-.hi .skl, .hq .skl, .pres .skl { display: inline-block; vertical-align: middle; background: rgba(255, 255, 255, .22); animation: none; }
+.hi .skl, .hq .skl, .pres .skl, .pres .skc { display: inline-block; vertical-align: middle; background: rgba(255, 255, 255, .22); animation: none; }
+/* Placeholders sit in the real text's line box, so the rows keep their height. */
+.art h1 .skl, .note .skl, .am .skl { display: inline-block; vertical-align: middle; }
+.kb-article-body.wy-sk-group { display: grid; gap: 17.3px; padding-top: 8.6px; }
+.kb-article.sk .tx { min-height: 40.2px; justify-content: center; }
+.inbox .sk { align-items: flex-start; }
+.inbox .sk .tx { min-height: 71.5px; justify-content: center; }
 .wy-skeleton .tx { gap: 8px; }
 .wy-skeleton .chips { gap: 6px; }
 .wy-skeleton .chips .skl { border-radius: 999px; }
@@ -1467,7 +1480,6 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 .wy-sk-bubble { display: block; height: 38px; border-radius: 20px; background: var(--paper); }
 .wy-sk-ico .skc { width: 20px; height: 20px; border-radius: 6px; }
 .wy-sk-input { display: flex; align-items: center; }
-.wy-skeleton .pres { min-height: 28px; }
 .fi.skc, .btn.skc, .face.skc, .cta.skc { height: 46px; border-radius: 14px; box-shadow: none; }
 .face.skc { height: 38px; border-radius: 12px; }
 .cta.skc { height: 62px; border-radius: 20px; }
@@ -1479,14 +1491,18 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 .send:focus-visible, .chip:focus-visible, .mic-btn:focus-visible, .send-btn:focus-visible, .fab:focus-visible,
 .msg-att-action:focus-visible, .wy-ap-play:focus-visible, .rec-send:focus-visible, .vn-play:focus-visible,
 .vn-send:focus-visible, .sfield .x:focus-visible, .wy-jump:focus-visible, .smart-cta:focus-visible, .ci-btn:focus-visible,
-.att-preview-btn:focus-visible, .reply-preview-cancel:focus-visible { border-radius: 999px; }
-.ib:focus-visible, .panel-close:focus-visible, .face:focus-visible, .rec-btn:focus-visible, .wy-btn-outline:focus-visible { border-radius: 12px; }
+.att-preview-btn:focus-visible, .reply-preview-cancel:focus-visible, .msg-link:focus-visible { border-radius: 999px; }
+/* The delete buttons only: the round send is a .rec-btn too. */
+.ib:focus-visible, .panel-close:focus-visible, .face:focus-visible, .rec-cancel:focus-visible, .vn-delete:focus-visible,
+.wy-btn-outline:focus-visible, .conv-row-compact:focus-visible { border-radius: 12px; }
 .emoji-btn:focus-visible, .attach-btn:focus-visible, .hc-submit:focus-visible { border-radius: 11px; }
 .smart-dismiss:focus-visible, .emoji-picker button:focus-visible { border-radius: 10px; }
 .btn:focus-visible { border-radius: 14px; }
 .r:focus-visible, .cat:focus-visible, .ci:focus-visible { border-radius: 18px; }
 .res .kb-article:focus-visible { border-radius: 16px; }
 .cta:focus-visible { border-radius: 20px; }
+/* The bubble clips the image (overflow: hidden): its ring is drawn inside. */
+.msg .msg-att-img-btn:focus-visible { outline-offset: -4px; border-radius: 16px; }
 
 /* ─── Phones: the panel is the screen ───────────────────────────────── */
 @media (max-width: 640px) {
@@ -1518,6 +1534,9 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
     overflow-x: auto;
     margin-inline: -12px;
     padding-inline: 12px;
+    /* Room for a chip's focus ring, which the scroller would clip. */
+    margin-block: 8px -4px;
+    padding-block: 4px;
     scrollbar-width: none;
     --fade-to: left;
     -webkit-mask-image: linear-gradient(to var(--fade-to), transparent 0, #000 28px, #000 calc(100% - 12px), transparent);
@@ -1544,6 +1563,7 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--a22); color: inheri
 @keyframes t2-drift { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(-26px, 22px) scale(1.12); } }
 @keyframes t2-ping { 0% { transform: scale(1); opacity: .6; } 70%, 100% { transform: scale(2.6); opacity: 0; } }
 @keyframes t2-ph { 0% { opacity: 0; transform: translateY(10px); } 4%, 30% { opacity: 1; transform: none; } 34%, 100% { opacity: 0; transform: translateY(-10px); } }
+@keyframes t2-ph2 { 0% { opacity: 0; transform: translateY(10px); } 6%, 45% { opacity: 1; transform: none; } 51%, 100% { opacity: 0; transform: translateY(-10px); } }
 @keyframes t2-caret { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
 @keyframes t2-wave { 0%, 60%, 100% { transform: none; opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
 @keyframes t2-rise { 0% { opacity: 0; transform: translateY(12px); } 100% { opacity: 1; transform: none; } }

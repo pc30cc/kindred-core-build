@@ -232,8 +232,8 @@ const T1_THREADS: Record<string, Msg[]> = {
     sara('h2', 'متأسفم! بررسی می‌کنیم.', at(23, 58)),
     sara('h3', 'اگه راحت‌ترید، می‌تونید مشکل رو صوتی توضیح بدید.', at(23, 58)),
   ],
-  // 06·2: the first two messages of 04·04.
-  'c-t1-emoji': THREAD.slice(0, 2),
+  // 06·1–3: 04·04's first two messages (the reply without its link).
+  'c-t1-emoji': [THREAD[0], sara('m2', 'سلام علی جان! سفارش‌تون امروز صبح ارسال شد. کد رهگیری: TR-2290-5531', at(19, 54))],
   // 08·a–c: the visitor's first message (Core draws the card inline once a
   // thread has one; an empty thread gets the full-screen form).
   'c-t1-card': [visitor('p1', 'سلام، درباره سفارشم سؤال دارم.', at(23, 40), { seen_at: null })],
@@ -569,6 +569,16 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await page.locator('[data-msg-input]').fill('عالیه، خیلی ممنون 😍');
       await page.locator('[data-emoji-btn]').click();
       await pause(page, 300);
+    },
+  },
+  // 06·1 / 06·3: the draft typed, the box focused, the picker still closed.
+  't1-emoji-draft': {
+    keepFocus: true,
+    setup: (f) => t1Thread(f, 'c-t1-emoji'),
+    drive: async ({ page }) => {
+      await openThread(page, 'c-t1-emoji');
+      await page.locator('[data-msg-input]').fill('عالیه، خیلی ممنون');
+      await page.locator('[data-msg-input]').focus();
     },
   },
   't1-prechat-error': {

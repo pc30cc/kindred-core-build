@@ -4496,11 +4496,10 @@
 
 
       getLastMergedAiMessage: function () { return lastMergedNewAiMessage; },
-      // What runtime-ext.js builds on (renderer features).
-      x: {
-        qna: qnaState, qnaCount: QNA_COLLAPSED_COUNT, loadQna: loadQnaSuggestions, wireChips: wireQnaChips,
-        prechatValues: prechatValues, prechatSubtitle: resolveHandoffPrechatSubtitle, wirePrechat: wirePrechatForm,
-      },
+      // What runtime-ext.js builds on (renderer features), in the order its
+      // create() reads them (src/test/widget/runtimeExt.test.ts).
+      x: [qnaState, QNA_COLLAPSED_COUNT, loadQnaSuggestions, wireQnaChips, prechatValues,
+        resolveHandoffPrechatSubtitle, wirePrechatForm],
     };
 
   }
@@ -9328,9 +9327,10 @@
       }, 3500);
     }
     // A driver's capabilities are only known once the realtime negotiation
-    // answers, after this line runs: a renderer with features (it may draw
-    // typing) listens regardless; only a driver that supports typing emits.
-    if ((transport.hasCapability && transport.hasCapability('supportsTyping')) || Presentation.features) {
+    // answers, after this line runs: a renderer with features (here still
+    // waiting for them: it may draw typing) listens regardless; only a
+    // driver that supports typing emits.
+    if ((transport.hasCapability && transport.hasCapability('supportsTyping')) || extWait) {
       transport.on('typing', function (e) {
         var actor = e && e.payload && e.payload.actor;
         if (actor === 'visitor') return; // ignore self-echo
@@ -9573,8 +9573,8 @@
             renderVoicePreview, extCalls
           );
         } catch (e) { Util.warn('Module failed: ext', e); }
-        // The load is over (the timer passes no `mod`).
-        if (mod !== undefined) extCalls = null;
+        // Calls are kept for the module only while the panel waits for it.
+        extCalls = null;
         // Repaint what waited, or what was painted without a late module.
         var repaint = extWait ? extHeld : mod && Ext;
         extWait = false;

@@ -61,6 +61,22 @@ templates: `docs/operations/EDITIONS.md`.
   loaded page, else at the load event or when the bootstrap answers,
   whichever is first (a bootstrap answering first still starts them inside
   the load, as it always did).
+- Renderer features (chat): a behaviour a template needs beyond what Core
+  does for `default` (search as you type, tab badges, a visible typing row,
+  the home ask field, …) is declared by the renderer (`features` returned
+  by `create()`) and lives in `public/widget/runtime-ext.js`, a lazy Core
+  module (ModuleLoader name `ext`, content-hashed like the other modules,
+  URL in `config.modules.ext`). Only a renderer that returns `features`
+  requests it, right after it is mounted, in parallel with the visitor's
+  identity and threads; its first paint holds the skeleton until the module
+  is in, at most 1.5 s (a failed request releases at once, a late module
+  repaints). runtime.js, which every visitor of every template downloads on
+  a first open, keeps only the hook points (`ext('<hook>', …)`, a no-op
+  without the module): never put feature code there
+  (`src/test/widget/runtimeExt.test.ts` checks both files agree, and that
+  `default` never requests the module). Sizes on 2026-10-17 (gzip 5, as
+  shipped): runtime.js 54.5 KB, of which the hook points are 0.7 KB (53.8
+  KB before the first features); runtime-ext.js 6.2 KB.
 - Every hashed file has a one-time canonical-name fallback in the code that
   loads it (loader, runtime modules, the call module, call widget l.js): keep
   it when you touch loading code. A retried `<script>` is a NEW element
@@ -116,6 +132,8 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   (links, logos) come from the view-model.
 - Interaction is expressed with `data-*` behaviour hooks the core binds;
   visual classes carry no behaviour. Never rename an existing `data-*` hook.
+  A hook only a new template needs is a renderer feature (§2): Core's code
+  for it goes in `runtime-ext.js`, not in `runtime.js`.
 - Call widget: the presentation never calls the network or storage; the
   runtime never touches the DOM (`src/test/callWidgetPresentationContract.test.ts`).
 - Shipped JS targets ES2017 (the build lowers it); no new npm dependencies

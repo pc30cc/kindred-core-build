@@ -11,7 +11,10 @@
  * module) and hands create() what the features build on. This module adds
  * the view-model fields by wrapping the renderer's own surfaces (homeHtml,
  * conversationListHtml, emptyHtml, messagesHtml) and binds its controls
- * after Core painted a view.
+ * after Core painted a view. Core requests it as soon as such a renderer is
+ * mounted and paints the skeleton until it is in (at most 1.5 s), so a first
+ * paint already has the features; data that arrived first reaches create()
+ * as `earlyCalls`.
  *
  *   tabs                 badges `[data-tab-badge]`, `aria-current` on `[data-view]` tabs, unreadTotal
  *   kbSearch             search as you type in `[data-kb-search]`, `[data-kb-results]` repainted alone
@@ -30,7 +33,8 @@
  *   visitorName          home greets the visitor by name (waits for the identity)
  *   conversationOperator conversation rows carry the operator and who wrote last
  *
- * Public API (window.__gs_mod_ext): create(core) → the hooks runtime.js runs.
+ * Public API (window.__gs_mod_ext): create(<the instance's parts>) → the
+ * hooks runtime.js runs. Brand-neutral: it ships in every build as is.
  */
 (function () {
   'use strict';
@@ -53,7 +57,14 @@
     var inputBar = chatQ('[data-input-bar]');
     var chatEnabled = config.features && config.features.chat !== false;
     var teamMembers = Array.isArray(config.teamMembers) ? config.teamMembers.slice(0, 4) : [];
-    var chatX = chatUI.x;
+    // The chat view's own parts (runtime.js createChatUI's `x`, same order).
+    var qnaState = chatUI.x[0];
+    var QNA_COLLAPSED_COUNT = chatUI.x[1];
+    var loadQnaSuggestions = chatUI.x[2];
+    var wireQnaChips = chatUI.x[3];
+    var prechatValues = chatUI.x[4];
+    var resolveHandoffPrechatSubtitle = chatUI.x[5];
+    var wirePrechatForm = chatUI.x[6];
     var kb = kbUI.x;
 
     function feat(name) { return !!(P.features && P.features[name]); }
@@ -244,7 +255,7 @@
       if (visitorMessageCount(s) !== prechatSummary.visitorCount) { prechatSummary = null; return ''; }
       if (prechatSummary.editing) {
         return P.handoffPrechatCardHtml(
-          prechatSummary.identity, chatX.prechatValues(), ctx.locale, chatX.prechatSubtitle(ctx.locale), false);
+          prechatSummary.identity, prechatValues(), ctx.locale, resolveHandoffPrechatSubtitle(ctx.locale), false);
       }
       return typeof P.prechatSummaryHtml === 'function' ? (P.prechatSummaryHtml(prechatSummary.contact) || '') : '';
     }
@@ -253,7 +264,7 @@
       if (prechatSummary.editing) {
         var firstPaint = !prechatSummary.focused;
         prechatSummary.focused = true;
-        chatX.wirePrechat(root, prechatSummary.identity, function () {
+        wirePrechatForm(root, prechatSummary.identity, function () {
           showPrechatSummary(prechatSummary && prechatSummary.identity);
           renderBody();
         }, { autofocus: firstPaint });
@@ -290,10 +301,10 @@
       if (feat('emptyQna') || feat('topics') || feat('operatorTyping') || feat('prechatSummary')) {
         // A new conversation can offer the workspace's Q&A and topics, and
         // show the operator typing, before anybody wrote a word.
-        if (feat('emptyQna')) chatX.loadQna();
+        if (feat('emptyQna')) loadQnaSuggestions();
         var opts = (ctx.config && ctx.config.templateOptions) || {};
         emptyVm = {
-          qna: { questions: chatX.qna.questions, expanded: chatX.qna.expanded, collapsedCount: chatX.qnaCount },
+          qna: { questions: qnaState.questions, expanded: qnaState.expanded, collapsedCount: QNA_COLLAPSED_COUNT },
           topics: Array.isArray(opts.topics) ? opts.topics : [],
           prechatSummaryHtml: prechatSummaryRowHtml(chatStore.get()),
         };
@@ -418,6 +429,8 @@
     });
 
     // ═══ Help (`kbSearch`, `kbCategories`, `kbArticleMeta`, `kbProgress`) ═══
+    // Core paints the help view into the panel body (kbUI.render(body)), so
+    // `body` is its root; `kb` is the help view's own state (createKbUI `x`).
     // Search as you type: typing waits 300 ms and two characters, never
     // searches in the middle of an IME composition (its Enter commits a
     // word), keeps ONE request in flight (the latest query runs when it
@@ -755,19 +768,27 @@
 
     // ═══ Wiring ═══
     // A bottom-menu tab is repainted with its view: focus moves to the new
-    // view's own tab instead of falling to nowhere. Core's delegated
-    // navigation (registered first) has switched the view by now.
+    // view's own tab instead of falling to nowhere. The pressed tab is read
+    // before Core's delegated navigation runs (capture: the repaint takes it
+    // off the page), and focused after it switched the view.
+    var tabPressed = null;
     panel.addEventListener('click', function (ev) {
       var target = ev.target;
+      tabPressed = null;
       if (!feat('tabs') || !target || !target.closest) return;
       function trigger(sel) {
         var el = target.closest(sel);
         return el && el !== panel && panel.contains(el) ? el : null;
       }
+      // The same order as Core's navigation: a back or a row wins.
       if (trigger('[data-view-back]') || trigger('[data-conversation-open]')) return;
       var view = trigger('[data-view]');
-      if (!view || !view.hasAttribute('aria-current')) return;
-      var tab = tabsFor(view.getAttribute('data-view'))[0];
+      if (view && view.hasAttribute('aria-current')) tabPressed = view.getAttribute('data-view');
+    }, true);
+    panel.addEventListener('click', function () {
+      var key = tabPressed;
+      tabPressed = null;
+      var tab = key != null && tabsFor(key)[0];
       if (tab) { try { tab.focus({ preventScroll: true }); } catch (_) {} }
     });
     // A thread whose history starts loading has no assigned operator until
@@ -778,11 +799,16 @@
       historyWasLoading = !!st.historyLoading;
     });
     // What Core saw before this module was in (data can arrive first): the
-    // thread list it mapped, a history it adopted, typing.
+    // thread list it mapped, a history it adopted, typing. A row Core copied
+    // since (one marked read) gets the fields of the server row it came from.
+    var earlyRows = {};
     (earlyCalls || []).forEach(function (call) {
-      if (call[0] === 'conv') mapConversation(call[1], call[2]);
+      if (call[0] === 'conv') { mapConversation(call[1], call[2]); earlyRows[call[1].id] = call[2]; }
       else if (call[0] === 'history') adoptHistory(call[1], call[2]);
       else if (call[0] === 'typing') setOperatorTypingVm(call[1] ? typingPerson() : null);
+    });
+    ((conversationsStore.get() || {}).items || []).forEach(function (vm) {
+      if (earlyRows[vm.id]) mapConversation(vm, earlyRows[vm.id]);
     });
     if (feat('chatHeader')) {
       presenceStore.subscribe(paintChatHeader);
@@ -804,11 +830,11 @@
         prechatPainted = false;
       },
       // Home waits for the visitor's identity to greet them by name.
-      waitHome: function () { return feat('visitorName') && !identityStore.get().loaded; },
+      wait: function () { return feat('visitorName') && !identityStore.get().loaded; },
       // Before home repaints: hold it while a field is mid-composition (only
       // while that field is still the one in use: a field taken off screen
       // mid-composition never says it ended), else keep its focus and caret.
-      homeHold: function () {
+      hold: function () {
         var keepFields = feat('homeAsk') || feat('kbSearch');
         if (keepFields && homeComposing) {
           if (homeFieldFocus()) { homeRepaintPending = true; return true; }
@@ -848,7 +874,7 @@
       },
       empty: function (root) {
         if (!emptyVmGiven) return;
-        chatX.wireChips(root);
+        wireQnaChips(root);
         bindTopics(root);
         wirePrechatSummary(root);
       },
@@ -870,7 +896,7 @@
         renderHeaderPresence(s);
         return true;
       },
-      skipPrechat: prechatSkipApplies,
+      skip: prechatSkipApplies,
       // The chat tab's state, just before it paints: the pre-chat card keeps
       // a locked composer under it.
       lock: function (stateName) {
@@ -882,7 +908,7 @@
       },
       locked: function () { return composerLocked; },
       // The renderer's "your details" card takes the form's place.
-      prechatDone: showPrechatSummary,
+      prechat: showPrechatSummary,
 
       // ── voice ──
       clock: function (sec) {

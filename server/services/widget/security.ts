@@ -2,19 +2,22 @@
  * Widget Security — HMAC Session Tokens, Rate Limiting, Origin Enforcement
  *
  * - HMAC session tokens with nonce (short-lived, origin-bound)
- * - Single auth header: x-widget-token
+ * - Single auth header: x-widget-token (the same token may ride in the body
+ *   of /track and /visitor-presence only — see readWidgetToken)
  * - Fail-closed origin validation
  * - In-memory rate limiting (production-safe)
  * - Strict conversation ownership verification
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { ipKeyGenerator } from 'express-rate-limit';
 import { getClientIp as resolveClientIp } from '../../utils/clientIp.js';
 import crypto from 'crypto';
 import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
 import { readVisitorCookie } from './visitorIdentity.js';
 import { platformSigningSecret } from '../../lib/platformSecret.js';
+import { canonicalWorkspaceId } from '../../lib/workspaceId.js';
 
 /** What requireWidgetSession() leaves on the request for later middleware. */
 interface WidgetSessionRequest extends Request {
@@ -212,16 +215,61 @@ export function verifyTokenForRefresh(token: string): TokenResult {
 }
 
 // ─── In-memory Rate Limiting ───
-const RATE_LIMITS: Record<string, { window: number; max: number }> = {
-  bootstrap: { window: 60, max: 30 },
-  poll:      { window: 60, max: 60 },
-  message:   { window: 60, max: 15 },
-  upload:    { window: 60, max: 10 },
-  refresh:   { window: 60, max: 20 },
-  default:   { window: 60, max: 30 },
+/**
+ * Per-category caps, requests per `window` seconds, each counted in its own
+ * bucket (see widgetRateLimit below for how a request picks its buckets):
+ *
+ *   visitor    one verified visitor (HMAC-signed, workspace-bound dvsid
+ *              cookie): what a single browser may do.
+ *   anonymous  one (IP, workspace) for requests WITHOUT such a cookie: first
+ *              visits, browsers that block third-party cookies (Safari), and
+ *              anything that is not a browser. It also bounds how many new
+ *              cookies one address can mint per workspace (bootstrap).
+ *   shared     one (IP, workspace) for EVERY request, with a cookie or
+ *              without: room for a whole carrier-grade NAT of real visitors,
+ *              and the true ceiling of one address, whatever cookies it
+ *              minted earlier. `message` and `upload` (AI and storage cost,
+ *              OTP mail) get 4x their anonymous cap, the rest 10x.
+ *
+ * `config` (GET /config, /manifest, /call-channels) is separate from
+ * `bootstrap` (POST /bootstrap only): an older loader asked both on every
+ * page view and drained one bucket twice.
+ */
+interface RateLimitCaps { window: number; visitor: number; anonymous: number; shared: number }
+const RATE_LIMITS: Record<string, RateLimitCaps> = {
+  // Every cookieless bootstrap mints a visitor (and, with /track, one more
+  // visitor counted against the workspace's monthly quota): 120 a minute per
+  // address, 8x the 15 page views an address used to get.
+  bootstrap:      { window: 60, visitor: 30, anonymous: 120, shared: 1200 },
+  // GET /api/call-widget/bootstrap without a visitor cookie: it mints one AND
+  // inserts a visitor_sessions row counted against max_visitors, so 60 a
+  // minute per (IP, workspace), as the old per-address cap was.
+  call_bootstrap: { window: 60, visitor: 30, anonymous: 60, shared: 1200 },
+  config:         { window: 60, visitor: 20, anonymous: 600, shared: 6000 },
+  poll:           { window: 60, visitor: 60, anonymous: 600, shared: 6000 },
+  // Cost-bearing (AI replies, offline-capture emails, OTP mail, storage):
+  // these never grow with identities anyone can mint. Per address they stay
+  // at the old per-(IP, workspace) cap without a cookie, and all cookies
+  // from one address together get only 4x it.
+  message:        { window: 60, visitor: 15, anonymous: 15, shared: 60 },
+  upload:         { window: 60, visitor: 10, anonymous: 10, shared: 40 },
+  refresh:        { window: 60, visitor: 20, anonymous: 200, shared: 2000 },
+  default:        { window: 60, visitor: 30, anonymous: 300, shared: 3000 },
 };
 
+/**
+ * New visitor_sessions rows (the insert branches of POST /api/widget/track and
+ * POST /api/visitors/track, one shared budget), per (IP, workspace) a minute:
+ * each true-new visitor of the month counts against the workspace's
+ * max_visitors quota, and visitor_id is the client's there, so this — not the
+ * request caps above — slows how fast one address can spend a victim's
+ * quota. It slows it; many addresses can still spend it.
+ */
+const NEW_VISITOR_SESSIONS_PER_MIN = 60;
+
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+/** Bound of the store: past it, expired buckets go first, then the oldest. */
+const RATE_LIMIT_STORE_MAX = 200_000;
 
 // Cleanup expired entries every 30s
 setInterval(() => {
@@ -229,21 +277,52 @@ setInterval(() => {
   for (const [key, val] of rateLimitStore) {
     if (now > val.resetAt) rateLimitStore.delete(key);
   }
-}, 30_000);
+}, 30_000).unref?.();
 
-function checkRateLimit(key: string, category: string = 'default'): boolean {
-  const limit = RATE_LIMITS[category] || RATE_LIMITS.default;
-  const now = Date.now();
-  const entry = rateLimitStore.get(key);
-
-  if (!entry || now > entry.resetAt) {
-    rateLimitStore.set(key, { count: 1, resetAt: now + limit.window * 1000 });
-    return true;
+function boundRateLimitStore(now: number): void {
+  if (rateLimitStore.size < RATE_LIMIT_STORE_MAX) return;
+  for (const [key, val] of rateLimitStore) {
+    if (now > val.resetAt) rateLimitStore.delete(key);
   }
+  // Map order is insertion order: the oldest windows are dropped first.
+  for (const key of rateLimitStore.keys()) {
+    if (rateLimitStore.size < RATE_LIMIT_STORE_MAX * 0.9) break;
+    rateLimitStore.delete(key);
+  }
+}
 
-  if (entry.count >= limit.max) return false;
-  entry.count++;
-  return true;
+interface RateLimitBucket { key: string; max: number }
+
+/**
+ * Take one request from every bucket, or from none: a request refused by one
+ * bucket is not counted in the others. Returns the seconds until the fullest
+ * refusing bucket resets (>= 1), or 0 when the request may pass.
+ */
+function takeRateLimit(buckets: RateLimitBucket[], windowSeconds: number): number {
+  const now = Date.now();
+  let retryAfterMs = 0;
+  for (const b of buckets) {
+    const entry = rateLimitStore.get(b.key);
+    if (entry && now <= entry.resetAt && entry.count >= b.max) {
+      retryAfterMs = Math.max(retryAfterMs, entry.resetAt - now);
+    }
+  }
+  if (retryAfterMs > 0) return Math.max(1, Math.ceil(retryAfterMs / 1000));
+  for (const b of buckets) {
+    const entry = rateLimitStore.get(b.key);
+    if (!entry || now > entry.resetAt) {
+      boundRateLimitStore(now);
+      rateLimitStore.set(b.key, { count: 1, resetAt: now + windowSeconds * 1000 });
+    } else {
+      entry.count++;
+    }
+  }
+  return 0;
+}
+
+/** Test-only: forget every bucket. */
+export function __resetWidgetRateLimitsForTests(): void {
+  rateLimitStore.clear();
 }
 
 /**
@@ -266,9 +345,16 @@ export interface OwnedConversation {
   metadata: ({ visitor_id?: string } & Record<string, unknown>) | null;
 }
 
-/** Rate-limit bucket key: the real IP, or a shared 'unknown' bucket. */
+/**
+ * Rate-limit bucket key: the client address, an IPv6 one as its /56 (like the
+ * express-rate-limit layers, so a host cannot rotate through the addresses of
+ * its own /64), or a shared 'unknown' bucket. It is only as trustworthy as
+ * getClientIp: see "Client IP behind a CDN" in WIDGET_CONFIG_CACHE.md.
+ */
 function rateLimitIpKey(req: Request): string {
-  return resolveClientIp(req) ?? 'unknown';
+  const ip = resolveClientIp(req);
+  if (!ip) return 'unknown';
+  try { return ipKeyGenerator(ip, 56); } catch { return ip; }
 }
 
 function getRequestOrigin(req: Request): string | null {
@@ -281,9 +367,46 @@ function getRequestOrigin(req: Request): string | null {
   return null;
 }
 
+/**
+ * The two widget calls of a page view that may carry the session token in
+ * their JSON body instead of the X-Widget-Token header: POST /api/widget/track
+ * and POST /api/realtime/visitor-presence. With no custom header and a
+ * text/plain body (server/middleware/bodyParsers.ts) they are CORS-simple, so
+ * the browser sends no preflight. The loader does this only for a backend
+ * whose bootstrap said `protocol` >= 3 (public/widget/loader.js tokenPost).
+ */
+const BODY_TOKEN_PATH = /^\/api\/(?:widget\/track|realtime\/visitor-presence)\/?$/i;
+
+/** The body field that carries the token on those two paths. */
+export const WIDGET_BODY_TOKEN_FIELD = 'widget_token';
+
+export function acceptsBodyWidgetToken(path: string): boolean {
+  return BODY_TOKEN_PATH.test(path);
+}
+
+/**
+ * The widget session token a request presents: the X-Widget-Token header,
+ * else — on the two paths above only, for a POST — the `widget_token` body
+ * field. Every layer that reads the token (this gate, widgetCorsMiddleware,
+ * the per-session and workspace rate limiters, visitor-presence) reads it
+ * here, so the body form is verified by the same function, bound to the same
+ * Origin and counted in the same session bucket as the header. Never from the
+ * query string (URLs end up in logs).
+ */
+export function readWidgetToken(req: Request): string | null {
+  const raw = req.headers?.['x-widget-token'];
+  const header = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof header === 'string' && header) return header;
+  if (req.method !== 'POST') return null;
+  const path = String(req.originalUrl || req.url || '').split('?')[0];
+  if (!acceptsBodyWidgetToken(path)) return null;
+  const fromBody = (req.body as Record<string, unknown> | undefined)?.[WIDGET_BODY_TOKEN_FIELD];
+  return typeof fromBody === 'string' && fromBody ? fromBody : null;
+}
+
 // ─── Middleware: Session token enforcement ───
 export function enforceWidgetToken(req: Request, res: Response, next: NextFunction) {
-  const token = req.headers['x-widget-token'] as string;
+  const token = readWidgetToken(req);
   if (!token) {
     return res.status(401).json({ error: 'Widget authentication required', code: 'MISSING_TOKEN' });
   }
@@ -297,7 +420,9 @@ export function enforceWidgetToken(req: Request, res: Response, next: NextFuncti
   }
 
   const ctx = req as WidgetSessionRequest;
-  ctx._widgetWorkspaceId = result.workspaceId;
+  // Canonical (lib/workspaceId.ts), also for a token minted before the
+  // bootstrap canonicalised the id it signs.
+  ctx._widgetWorkspaceId = canonicalWorkspaceId(result.workspaceId) ?? result.workspaceId;
   ctx._widgetSessionOrigin = result.origin;
   ctx._widgetToken = token;
   ctx._widgetNonce = result.nonce;
@@ -339,20 +464,108 @@ export function enforceOrigin(req: Request, res: Response, next: NextFunction) {
 }
 
 
+/**
+ * The workspace a rate-limit bucket is scoped to: the token's (server-signed)
+ * when the token gate already ran, else the one the body names, in its
+ * canonical spelling (lib/workspaceId.ts), so respelling one id never opens
+ * a fresh bucket. Anything that is no uuid shares the 'unknown' bucket.
+ */
+function rateLimitWorkspaceKey(req: Request): string {
+  const ws = (req as WidgetSessionRequest)._widgetWorkspaceId || (req.body as { workspace_id?: unknown } | undefined)?.workspace_id;
+  return canonicalWorkspaceId(ws) ?? 'unknown';
+}
+
+/**
+ * The verified visitor behind the request, or null: the dvsid cookie must
+ * verify (HMAC) and be bound to `workspaceId`. A forged, expired or
+ * other-workspace cookie is no identity, so that request is anonymous.
+ */
+function rateLimitVisitorId(req: Request, workspaceId: string): string | null {
+  if (workspaceId === 'unknown') return null;
+  try {
+    return readVisitorCookie(req, workspaceId)?.v || null;
+  } catch {
+    return null;
+  }
+}
+
+function sendRateLimited(res: Response, retryAfter: number) {
+  res.setHeader('Retry-After', String(retryAfter));
+  return res.status(429).json({
+    error: 'Too many requests — please slow down',
+    code: 'RATE_LIMITED',
+    retry_after: retryAfter,
+  });
+}
+
+/**
+ * The call widget's bootstrap (GET, workspace from the query): a request
+ * without a valid visitor cookie for `workspaceId` mints a visitor, so it is
+ * counted per (IP, workspace) at the `call_bootstrap` anonymous cap. Returns
+ * true when the request may go on; otherwise it has answered 429.
+ * A request with a valid cookie is bounded by the per-IP limiter only.
+ */
+export function takeAnonymousCallBootstrap(req: Request, res: Response, workspaceId: string): boolean {
+  if (rateLimitVisitorId(req, workspaceId)) return true;
+  const caps = RATE_LIMITS.call_bootstrap;
+  const retryAfter = takeRateLimit(
+    [{ key: `call_bootstrap:${rateLimitIpKey(req)}:${workspaceId}`, max: caps.anonymous }],
+    caps.window,
+  );
+  if (retryAfter > 0) { sendRateLimited(res, retryAfter); return false; }
+  return true;
+}
+
+/**
+ * A /track route is about to insert a visitor_sessions row (a visitor new to
+ * this session window, possibly new this month): at most
+ * NEW_VISITOR_SESSIONS_PER_MIN per (IP, workspace). True = go on; otherwise
+ * it has answered 429. Page views of known sessions never get here.
+ */
+export function takeNewVisitorSession(req: Request, res: Response, workspaceId: string): boolean {
+  const retryAfter = takeRateLimit(
+    [{ key: `visitor_new:${rateLimitIpKey(req)}:${workspaceId}`, max: NEW_VISITOR_SESSIONS_PER_MIN }],
+    60,
+  );
+  if (retryAfter > 0) { sendRateLimited(res, retryAfter); return false; }
+  return true;
+}
+
 // ─── Middleware: Rate limiting ───
+/**
+ * Per-category limit (RATE_LIMITS above), in front of each widget route.
+ *
+ * Identity: a request carrying a verified, workspace-bound visitor cookie is
+ * counted per VISITOR (plus the shared per-(IP, workspace) ceiling of all
+ * such requests); a request without one is counted per (IP, workspace) at
+ * the anonymous cap. So visitors behind one carrier-grade NAT address no
+ * longer share one small bucket, while every identity stays one the server
+ * signed: never a raw workspace id (a pre-auth limit keyed on one would let
+ * anyone drain a victim's quota), never the token nonce (the one per-session
+ * layer is widgetSessionRateLimiter, below). New cookies come only from
+ * bootstraps without one, which the anonymous bucket bounds.
+ *
+ * 429: `retry_after` is the real number of seconds until that bucket resets,
+ * also sent as `Retry-After` (exposed to the widget by widgetCorsMiddleware).
+ */
 export function widgetRateLimit(category: string = 'default') {
+  const caps = RATE_LIMITS[category] || RATE_LIMITS.default;
   return (req: Request, res: Response, next: NextFunction) => {
     const ip = rateLimitIpKey(req);
-    const workspaceId = (req as WidgetSessionRequest)._widgetWorkspaceId || req.body?.workspace_id || 'unknown';
-    const key = `${category}:${ip}:${workspaceId}`;
+    const workspaceId = rateLimitWorkspaceKey(req);
+    // A bootstrap with `fresh_visitor` mints a new visitor even when it
+    // carries a cookie: it is counted like one without, so cookies can only
+    // ever be minted within the anonymous cap.
+    const mintsVisitor = category === 'bootstrap'
+      && (req.body as { fresh_visitor?: unknown } | undefined)?.fresh_visitor === true;
+    const visitorId = mintsVisitor ? null : rateLimitVisitorId(req, workspaceId);
+    const shared: RateLimitBucket = { key: `${category}:shared:${ip}:${workspaceId}`, max: caps.shared };
+    const buckets: RateLimitBucket[] = visitorId
+      ? [{ key: `${category}:v:${workspaceId}:${visitorId}`, max: caps.visitor }, shared]
+      : [{ key: `${category}:${ip}:${workspaceId}`, max: caps.anonymous }, shared];
 
-    if (!checkRateLimit(key, category)) {
-      return res.status(429).json({
-        error: 'Too many requests — please slow down',
-        code: 'RATE_LIMITED',
-        retry_after: RATE_LIMITS[category]?.window || 60,
-      });
-    }
+    const retryAfter = takeRateLimit(buckets, caps.window);
+    if (retryAfter > 0) return sendRateLimited(res, retryAfter);
 
     // Per-session protection lives in ONE canonical place —
     // widgetSessionRateLimiter in server/middleware/security.ts, mounted
@@ -375,8 +588,11 @@ export function widgetRateLimit(category: string = 'default') {
 // ─── Workspace resolution ───
 export function resolveWorkspaceId(req: Request, res: Response, candidateWorkspaceId?: string): string | null {
   const tokenWorkspaceId = (req as WidgetSessionRequest)._widgetWorkspaceId || null;
-  const requestedWorkspaceId = typeof candidateWorkspaceId === 'string' && candidateWorkspaceId.trim().length > 0
+  const raw = typeof candidateWorkspaceId === 'string' && candidateWorkspaceId.trim().length > 0
     ? candidateWorkspaceId.trim() : null;
+  // Compared and returned in the canonical spelling the token carries; a
+  // value that is no uuid is compared as given (and matches no token).
+  const requestedWorkspaceId = raw ? canonicalWorkspaceId(raw) ?? raw : null;
 
   if (requestedWorkspaceId && tokenWorkspaceId && requestedWorkspaceId !== tokenWorkspaceId) {
     res.status(403).json({ error: 'Workspace does not match session', code: 'WORKSPACE_MISMATCH' });

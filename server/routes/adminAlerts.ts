@@ -17,6 +17,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import {
   runAlertCycle,
   loadAlertFlags,
@@ -205,6 +206,7 @@ adminAlertsRouter.put('/webhook', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     __resetAlertFlagCacheForTests(); // clear 60s cache so changes apply immediately
     invalidatePlatformPublicConfig(); // same row as the public realtime values
+    publishCacheInvalidation(['platform']);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: (err as ThrownValue)?.message || 'Failed to update webhook config' });

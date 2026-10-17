@@ -9,14 +9,11 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
-import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { serverConfigOf } from '../lib/workspaceAuth.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 
 export const adminSecurityRouter = Router();
-
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
-}
 
 adminSecurityRouter.get('/stats', async (req, res) => {
   const sb = getServiceClient(serverConfigOf(req));
@@ -74,9 +71,12 @@ adminSecurityRouter.post('/blocked-ips', async (req, res) => {
   const { error } = await sb.from('ip_blocklist').insert({
     ip_address: parsed.data.ip,
     reason: parsed.data.reason,
-    blocked_by: (req as any).adminUser?.id ?? null,
+    blocked_by: (req as { adminUser?: { id?: string } }).adminUser?.id ?? null,
   });
   if (error) return res.status(500).json({ error: error.message });
+  // Every API process answers from a snapshot of the list
+  // (ipBlockMiddleware): make them all reload it now.
+  publishCacheInvalidation(['ipblock']);
   return res.json({ success: true });
 });
 
@@ -84,5 +84,6 @@ adminSecurityRouter.delete('/blocked-ips/:id', async (req, res) => {
   const sb = getServiceClient(serverConfigOf(req));
   const { error } = await sb.from('ip_blocklist').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation(['ipblock']);
   return res.json({ success: true });
 });

@@ -7,14 +7,10 @@
  * Palette: the RESPOK brand kit (shared/panelThemes.ts `respok`) — Ink on
  * Paper, Mist hairlines, Slate secondary text, Signal as the accent. */
 
-/* Self-hosted faces, the same woff2 files the chat widget ships
- * (public/widget/fonts): Inter for Latin text, the Persian face for
- * right-to-left Persian text. */
-@font-face { font-family: 'InterWY'; src: url('../widget/fonts/inter-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
-@font-face { font-family: 'IRANSans'; src: url('../widget/fonts/iransans-400.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'IRANSans'; src: url('../widget/fonts/iransans-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
-@font-face { font-family: 'IRANSans'; src: url('../widget/fonts/iransans-700.woff2') format('woff2'); font-weight: 600; font-display: swap; }
-@font-face { font-family: 'IRANSans'; src: url('../widget/fonts/iransans-700.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+/* Typefaces: the shared, document-level font stylesheet (the one the
+ * loader's build names, else the bootstrap's `assets.font_style_url`; linked
+ * by createHost): Inter for Latin text, the Persian face for right-to-left
+ * Persian text. */
 
 .ccw-root.ccw-presentation-intl {
   --ccw-ink: 245 37% 12%;

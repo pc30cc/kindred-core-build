@@ -182,13 +182,18 @@ server {
     #      Enterprise plans, so origin `no-store` did not evict them.
     #   2. `/widget/fonts/` is not content-addressed, so the stale edge copy
     #      never rotated on deploy — unlike hashed assets.
-    # Fix (architectural, not a workaround): font bytes now ship inside a
-    # CONTENT-HASHED presentation asset (presentation-<id>-fonts.css) with
-    # the faces inlined as data: URLs. No font subresource request is made
-    # at all, and any future byte change produces a new URL, so a stale edge
-    # copy is impossible. The raw .woff2 files stay on disk only as build
-    # inputs. If they are ever served directly again, purge the CDN cache
-    # for /widget/fonts/* after any header change.
+    # Fix (architectural, not a workaround): every face is a CONTENT-HASHED
+    # file, /widget/fonts/<name>.<hash>.woff2 (scripts/widget-hash.js), named
+    # by the content-hashed presentation-<id>-fonts.css and served by the
+    # hashed branch below, with `Access-Control-Allow-Origin: *` from its very
+    # first response. Any byte change is a new URL, so no edge can hold a copy
+    # that predates a header (cause 2), and none has ever seen these URLs
+    # without it (cause 1). (Between the incident and this, the faces were
+    # inlined as data: URLs in that stylesheet: ~231 KB gzip on every first
+    # open, for faces most visitors never draw.) The unhashed
+    # /widget/fonts/*.woff2 are dev sources only; nothing in production names
+    # them. If one is ever served again, purge the CDN cache for it after any
+    # header change.
     # ─────────────────────────────────────────────────────────────────
     location ^~ /widget/ {
         root /usr/share/nginx/html;
@@ -216,21 +221,33 @@ server {
         # style appears." We now refuse to long-cache unhashed runtime
         # files — only the content-addressed ones get immutable.
         # ─────────────────────────────────────────────────────────────
-        location ~* "^/widget/.*\.[a-f0-9]{8}\.(?:js|css)$" {
+        location ~* "^/widget/.*\.[a-f0-9]{8}\.(?:js|css|woff2)$" {
             root /usr/share/nginx/html;
             # Force MIME so Firefox ORB / Chrome CORB cannot mis-classify
             # the response and refuse to execute it as a script.
             types {
                 application/javascript js;
                 text/css              css;
+                font/woff2            woff2;
             }
-            expires 365d;
-            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            # One Cache-Control, and no `always` on it: a year-long header must
+            # never ride on an error (see /assets/ below). A hashed file this
+            # container does not have (the other container's build during a
+            # rolling deploy) is a 404 that nothing stores.
+            # `expires off`: this block would otherwise inherit the parent's
+            # `expires -1`, which adds `Expires` and a second
+            # `Cache-Control: no-cache` next to this one, and browsers then
+            # revalidate a file whose name is its content on every use.
+            expires off;
+            # scripts/widget-hash.js writes a level-9 `<file>.gz` beside each
+            # hashed script and stylesheet: sent as is, never gzipped again.
+            gzip_static on;
+            add_header Cache-Control "public, max-age=31536000, immutable";
             add_header X-Widget-Asset "runtime-hashed" always;
             add_header Access-Control-Allow-Origin "*" always;
             add_header Cross-Origin-Resource-Policy "cross-origin" always;
             add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
-            try_files $uri =404;
+            try_files $uri @missing_widget_asset;
         }
 
         # Unhashed runtime/css/js fallbacks — never cache. If any client
@@ -253,6 +270,19 @@ server {
         add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
         # Hard 404 — DO NOT fall back to index.html for /widget/* paths.
         try_files $uri =404;
+    }
+
+    # A hashed widget file this image does not have (the hashed branches of
+    # /widget/ above and /call-widget/ below): a 404 no browser or edge
+    # keeps, readable cross-origin.
+    location @missing_widget_asset {
+        add_header Cache-Control "no-store" always;
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        return 404;
     }
 
     # ─────────────────────────────────────────────────────────────────────
@@ -355,15 +385,29 @@ server {
     }
 
     # ─────────────────────────────────────────────────────────────────────
-    # Call Center widget assets — these are NOT content-hashed (loader +
-    # runtime live at fixed paths under /call-widget/). If we let nginx
-    # fall through to `location /` they pick up heuristic browser caching
-    # AND Cloudflare's default Edge TTL, which is exactly what caused
-    # "some browsers show the new widget, others show the old one even
-    # after a CF cache purge". Force no-store on the loader/runtime so
-    # every page load re-validates. Only the vendor SDK (LiveKit UMD) is
-    # safe to cache long-term because its filename is stable AND its
-    # contents are pinned to a specific upstream version.
+    # Call Center widget. A customer's snippet names /call-widget/l.js, so
+    # that path is fixed; every other file is content-addressed by
+    # scripts/call-widget-hash.js, which writes the names INTO l.js: one
+    # image, one build, so a loader can never name another deploy's file.
+    #   • hashed files (`<name>.<12 hex>.js|css`) → immutable, a year, from
+    #     the level-9 .gz copies the build writes. (The LiveKit SDK l.js names
+    #     is the chat widget's hashed copy under /widget/vendor/.)
+    #   • l.js and the fixed names (older loaders, the operator preview,
+    #     the loader's own fallback) → `no-cache`: the browser keeps them but
+    #     revalidates on every use (ETag → bodiless 304), a CDN never stores
+    #     them — exactly /widget/loader.js's policy.
+    #   • vendor/ (the SDK at its fixed name, for older loaders and the
+    #     fallback) → a year, as before.
+    # History: everything here used to be no-store, plus a per-load
+    # `&t=Date.now()` in l.js, after "some browsers show the new widget,
+    # others the old one even after a CF cache purge" — fixed names that had
+    # no Cache-Control picked up heuristic browser caching and Cloudflare's
+    # edge TTL. A content-addressed name cannot be stale, and l.js is never
+    # reused unrevalidated, so that cannot come back; every page view no
+    # longer re-downloads the whole UI.
+    # No `expires` at this level: nested locations inherit it (both nested
+    # blocks also say `expires off`). A miss in either is a 404 nothing
+    # stores (@missing_widget_asset).
     # ─────────────────────────────────────────────────────────────────────
     location ^~ /call-widget/ {
         root /usr/share/nginx/html;
@@ -372,28 +416,50 @@ server {
             text/css              css;
             application/json      json;
         }
+
+        location ~* "^/call-widget/[a-z0-9.-]+\.[a-f0-9]{12}\.(?:js|css)$" {
+            root /usr/share/nginx/html;
+            types {
+                application/javascript js;
+                text/css              css;
+            }
+            gzip_static on;
+            # One Cache-Control, and no `always` on it: a year-long header
+            # never rides on an error. `expires off` keeps it the only one
+            # even if this block's parent ever sets `expires` again (nested
+            # locations inherit it; `expires -1` adds `Expires` and a second
+            # `Cache-Control: no-cache`).
+            expires off;
+            add_header Cache-Control "public, max-age=31536000, immutable";
+            add_header Access-Control-Allow-Origin "*" always;
+            add_header Cross-Origin-Resource-Policy "cross-origin" always;
+            add_header X-Widget-Asset "call-widget-hashed" always;
+            # Another build's name (a stale loader, or the other container
+            # during a rolling deploy): a 404 nothing stores, readable
+            # cross-origin (@missing_widget_asset); the loader then falls back
+            # to the fixed names, which every build has.
+            try_files $uri @missing_widget_asset;
+        }
+
+        # The media SDK at its fixed name: loaders from before hashing, and
+        # l.js when the chat widget's hashed copy is not there. Pinned to
+        # one upstream version, so a year; one Cache-Control (`expires off`),
+        # never on an error (no `always`), and a miss is not kept.
+        location ~* "^/call-widget/vendor/" {
+            root /usr/share/nginx/html;
+            expires off;
+            add_header Cache-Control "public, max-age=31536000, immutable";
+            add_header Access-Control-Allow-Origin "*" always;
+            add_header Cross-Origin-Resource-Policy "cross-origin" always;
+            try_files $uri @missing_widget_asset;
+        }
+
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
         add_header Access-Control-Allow-Origin "*" always;
         add_header Cross-Origin-Resource-Policy "cross-origin" always;
         add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
-
-        # Long-cache the self-hosted vendor SDK (stable contents).
-        location ~* "^/call-widget/vendor/" {
-            root /usr/share/nginx/html;
-            expires 365d;
-            add_header Cache-Control "public, max-age=31536000, immutable" always;
-            add_header Access-Control-Allow-Origin "*" always;
-            add_header Cross-Origin-Resource-Policy "cross-origin" always;
-            try_files $uri =404;
-        }
-
-        # Loader + runtime (unhashed) — never cache anywhere.
-        expires -1;
-        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0" always;
-        add_header Pragma "no-cache" always;
-        add_header Expires "0" always;
-        add_header Surrogate-Control "no-store" always;
-        add_header CDN-Cache-Control "no-store" always;
-        add_header Cloudflare-CDN-Cache-Control "no-store" always;
         add_header X-Widget-Asset "call-widget" always;
         try_files $uri =404;
     }

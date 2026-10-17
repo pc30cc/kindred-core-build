@@ -29,6 +29,7 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { requireUser, authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
 import { PhoneVerificationError } from '../services/phoneVerification/types.js';
@@ -373,6 +374,7 @@ workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}`, async (req: WorkspaceIdRequest,
     .update({ name: parsed.data.name, updated_at: new Date().toISOString() })
     .eq('id', req.params.workspaceId);
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${req.params.workspaceId}`]);
   return res.json({ success: true });
 });
 
@@ -498,6 +500,7 @@ workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceI
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${req.params.workspaceId}`]);
   return res.json({ branding: await withDerivedLogoUrl(config, req.params.workspaceId, data) });
 });
 
@@ -574,6 +577,7 @@ workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdR
   // change. Invalidate the origin caches so the new domain works right away.
   invalidateWorkspaceOriginCache(workspaceId);
   invalidateOriginHostCache(domainInput.domain);
+  publishCacheInvalidation([`widget:${workspaceId}`, `origin:${workspaceId}`, `host:${domainInput.domain}`]);
   return res.json({ success: true });
 });
 
@@ -600,6 +604,11 @@ workspacesRouter.delete(`/${WORKSPACE_ID_PARAM}/domains/:domainId`, async (req: 
   // until its cached entry is dropped.
   invalidateWorkspaceOriginCache(workspaceId);
   if (existing.domain) invalidateOriginHostCache(existing.domain);
+  publishCacheInvalidation([
+    `widget:${workspaceId}`,
+    `origin:${workspaceId}`,
+    ...(existing.domain ? [`host:${existing.domain}`] : []),
+  ]);
   return res.json({ success: true });
 });
 
@@ -613,6 +622,7 @@ workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/domains/:domainId/primary`, async
   await sb.from('workspace_domains').update({ is_primary: false }).eq('workspace_id', workspaceId);
   const { error } = await sb.from('workspace_domains').update({ is_primary: true }).eq('id', domainId);
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${workspaceId}`, `origin:${workspaceId}`]);
   return res.json({ success: true });
 });
 

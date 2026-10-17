@@ -35,6 +35,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 import { mustDb } from '../../utils/mustDb.js';
 
 export const STORAGE_POOL_KEY = 'storage_provider_pool';
@@ -292,6 +293,9 @@ export async function writeStoragePool(
     if (result.error === 'revision_conflict') throw new StoragePoolConflictError(result.revision ?? 0);
     throw new Error(`db_write_failed[writeStoragePool]: ${result.error ?? 'unknown'}`);
   }
+  // Widget config snapshots hold logo / launcher / avatar URLs derived from
+  // the primary provider: a promotion must reach them on every node.
+  publishCacheInvalidation(['widget']);
   return result.revision ?? expectedRevision + 1;
 }
 

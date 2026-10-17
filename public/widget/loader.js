@@ -14,7 +14,9 @@
  *  - DEBUG is OFF unless explicitly enabled by config.debugMode or
  *    window.__gs_debug === true.
  *  - Multiple injections must NOT create duplicate shells.
- *  - Identity/security model is untouched: cookies + X-Widget-Token only.
+ *  - Identity/security model is untouched: cookies + the widget session
+ *    token (X-Widget-Token; on a backend that says protocol >= 3, the same
+ *    token in the body of /track and /visitor-presence — see tokenPost).
  */
 (function () {
   "use strict";
@@ -184,10 +186,21 @@
     var bootstrapsInWindow = 0;
 
 
+    // What the backend said it speaks (the bootstrap's `protocol`). >= 3:
+    // /track and /visitor-presence take the token in a CORS-simple body (see
+    // tokenPost). Taken from EVERY bootstrap answer, so a backend rolled back
+    // mid-page is followed; 0 (unknown) keeps the header form.
+    bus.serverProtocol = 0;
+    function noteProtocol(data) {
+      if (data && data.session_token) bus.serverProtocol = Number(data.protocol) || 0;
+      return data;
+    }
+
     bus.configure = function (next) {
       if (!next) return;
       if (next.apiBase) cfg.apiBase = next.apiBase;
       if (next.workspaceId) cfg.workspaceId = next.workspaceId;
+      if (next.protocol !== undefined) bus.serverProtocol = Number(next.protocol) || 0;
       if (next.token) bus.set(next.token);
     };
     bus.config = function () { return { apiBase: cfg.apiBase, workspaceId: cfg.workspaceId }; };
@@ -242,15 +255,32 @@
       if (!force && now - lastBootstrapAt < BOOTSTRAP_COOLDOWN_MS) return Promise.resolve(null);
       lastBootstrapAt = now;
       bootstrapsInWindow += 1;
-      return fetch(cfg.apiBase + '/api/widget/bootstrap', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        // Always the CURRENT browser origin: a token is never migrated from
-        // one origin to another, a brand-new origin-bound one is minted.
-        body: JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin }),
-      })
-        .then(function (r) { return r.ok ? r.json() : null; })
+      // Always the CURRENT browser origin: a token is never migrated from
+      // one origin to another, a brand-new origin-bound one is minted.
+      var body = JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin });
+      // First CORS-simple (text/plain, no preflight) to /boot; a backend
+      // older than this loader has no such route and answers before any
+      // bootstrap work, so anything but a current answer is dropped and the
+      // same body goes once more as application/json to /bootstrap (see
+      // requestBootstrap below). One fetch site for both shapes.
+      function post(json) {
+        var init = { method: 'POST', credentials: 'include', body: body };
+        if (json) init.headers = { 'Content-Type': 'application/json' };
+        return fetch(cfg.apiBase + bootstrapPath(json), init);
+      }
+      function okJson(r) { return r && r.ok ? r.json() : null; }
+      function asJson() { return post(true).then(okJson); }
+      return post(false)
+        .then(function (r) {
+          if (r.status === 429) return null;
+          if (!r.ok) {
+            return r.json().then(function (j) { return isFinalBootstrapError(j) ? null : asJson(); }, asJson);
+          }
+          return r.json().then(function (data) {
+            return isCurrentBootstrap(data, cfg.workspaceId) ? data : asJson();
+          }, asJson);
+        }, asJson)
+        .then(noteProtocol)
         .then(adopt)
         .catch(function () { return null; });
     };
@@ -1177,17 +1207,29 @@
   }
 
   // ─── HTTP helper with capped retries & jitter ───
-  function fetchWithRetry(url, opts, attempts) {
+  // `failFastOnError`: a thrown fetch (network / CORS failure) is not
+  // retried here — the caller has its own fallback for it. 5xx still are.
+  // A 429 (rate limited) is asked again ONCE, after the wait it names
+  // (see retryDelay429); a second 429 is the answer.
+  function fetchWithRetry(url, opts, attempts, failFastOnError) {
     attempts = attempts || 3;
     var attempt = 0;
+    var retried429 = false;
     return new Promise(function (resolve, reject) {
       function go() {
         attempt++;
         fetch(url, opts).then(function (r) {
+          if (r.status === 429 && !retried429) {
+            retried429 = true;
+            return retryDelay429(r).then(function (ms) {
+              log("rate limited — retry in", ms, "ms");
+              setTimeout(go, ms);
+            });
+          }
           if (r.status >= 500 && attempt < attempts) return delay();
           resolve(r);
         }).catch(function (err) {
-          if (attempt < attempts) return delay(err);
+          if (attempt < attempts && !failFastOnError) return delay(err);
           reject(err);
         });
       }
@@ -1198,6 +1240,145 @@
       }
       go();
     });
+  }
+
+  // How long to wait before asking a 429 again: the `retry_after` seconds of
+  // its JSON body, else its Retry-After header (the server exposes it to
+  // this origin), at most 10 s — 2 s when it names neither — plus up to half
+  // a second at random, so visitors refused together do not return together.
+  function retryDelay429(r) {
+    var header = null;
+    try { header = r.headers && r.headers.get ? r.headers.get("Retry-After") : null; } catch (_) {}
+    var body;
+    try { body = r.json(); } catch (_) { body = null; }
+    return Promise.resolve(body).then(null, function () { return null; }).then(function (j) {
+      var s = Number(j && j.retry_after);
+      if (!(s > 0)) s = Number(header);
+      return Math.min(s > 0 ? s * 1000 : 2000, 10000) + Math.floor(Math.random() * 500);
+    });
+  }
+
+  // ─── Token-bearing POSTs that can go CORS-simple ───
+  // POST /api/widget/track and /api/realtime/visitor-presence carry the
+  // widget session token. A backend whose bootstrap said `protocol` >= 3
+  // reads it from the JSON body (`widget_token`), so they are sent with no
+  // request header at all: the browser labels the body text/plain and sends
+  // no OPTIONS preflight (one round trip less on every page view whose
+  // preflight is not cached). Any other backend — older, or not known yet —
+  // gets exactly the request it always got: JSON with X-Widget-Token.
+  // Never in the URL.
+  function serverReadsBodyToken() {
+    try { return Number(window.__gs_token && window.__gs_token.serverProtocol) >= 3; } catch (_) { return false; }
+  }
+  // A body-token request that fails (no CORS headers: a network error), is
+  // refused as unauthenticated (401), or is refused as malformed (400: an
+  // older process cannot read a text/plain body, and on a same-origin page
+  // that answer is readable) may have reached a backend process older than
+  // the one that answered the bootstrap (a rolling deploy, a rollback): it is
+  // sent once more in the header form, and when that goes through, this page
+  // keeps the header form from then on.
+  function tokenPost(url, payload, token) {
+    function headerForm() {
+      return fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+        body: JSON.stringify(payload),
+      });
+    }
+    function useHeaderForm() {
+      try { if (window.__gs_token) window.__gs_token.serverProtocol = 0; } catch (_) {}
+    }
+    if (!serverReadsBodyToken()) return headerForm();
+    var body = {};
+    for (var k in payload) {
+      if (Object.prototype.hasOwnProperty.call(payload, k)) body[k] = payload[k];
+    }
+    body.widget_token = token;
+    return fetch(url, { method: "POST", credentials: "include", body: JSON.stringify(body) })
+      .then(function (r) {
+        if (r.status !== 401 && r.status !== 400) return r;
+        return headerForm().then(function (again) {
+          if (again.ok) useHeaderForm();
+          return again;
+        });
+      }, function () {
+        useHeaderForm();
+        return headerForm();
+      });
+  }
+
+  // ─── POST /api/widget/boot, then /api/widget/bootstrap ───
+  // The CORS-simple first try goes to /boot, a route only a backend that
+  // reads its text/plain body has. An older backend answers it before any
+  // bootstrap work (no route: 401/404, or no CORS headers at all), so it never
+  // mints a token or sets a visitor cookie for whatever workspace the page
+  // origin maps to; the JSON retry goes to /bootstrap, which every backend has.
+  function bootstrapPath(json) { return json ? '/api/widget/bootstrap' : '/api/widget/boot'; }
+
+  // A bootstrap answer from a backend that read our text/plain body: it says
+  // `protocol` >= 2 and names the workspace we asked for (a disabled answer
+  // names none). Anything else came from an older backend, which ignored
+  // that body and can only have answered for the page origin's mapping.
+  function isCurrentBootstrap(data, workspaceId) {
+    return !!data && typeof data === "object" && Number(data.protocol) >= 2 &&
+      (!data.workspace_id || sameWorkspaceId(data.workspace_id, workspaceId));
+  }
+  // The server answers with the id in its canonical spelling (lower case,
+  // hyphenated); the page may have embedded another one of the same uuid.
+  function sameWorkspaceId(a, b) {
+    function c(v) { return String(v || "").replace(/[{}\-\s]/g, "").toLowerCase(); }
+    return c(a) === c(b);
+  }
+  // An error the current bootstrap handler wrote (it carries `protocol`):
+  // final, as a bootstrap error always was. Without it, the error came from a
+  // backend that has no /boot route, and the JSON request to /bootstrap is
+  // the real answer.
+  function isFinalBootstrapError(body) {
+    return !!body && typeof body === "object" && Number(body.protocol) >= 2;
+  }
+
+  // Sent first as a CORS-simple request to /boot: no Content-Type header, so
+  // the browser labels the JSON text/plain and sends no OPTIONS preflight
+  // (one round trip less on a first visit; `include_config` saves another).
+  // Frontend and backend deploy independently, so the backend may be older
+  // than this loader: it then has no /boot (an error, or no CORS headers at
+  // all — a network error), or answers without `protocol`. Such an answer is
+  // DROPPED and the same body is sent once more as application/json to
+  // /bootstrap; that answer is used, and 401/403/404 and a disabled widget
+  // are final there, as they always were. An error from the current handler
+  // (it carries `protocol`) is final at once, and so is a 429 on /boot (both
+  // paths share the bootstrap budget; fetchWithRetry already waited once).
+  // 5xx are retried by fetchWithRetry as before.
+  function requestBootstrap(apiBase, payload) {
+    var body = JSON.stringify(payload);
+    function parse(r) {
+      if (r.status === 401 || r.status === 403) {
+        throw new Error("unauthorized");
+      }
+      if (!r.ok) throw new Error("bootstrap_failed_" + r.status);
+      return r.json();
+    }
+    function asJson() {
+      return fetchWithRetry(apiBase + bootstrapPath(true), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+      }, 3).then(parse);
+    }
+    return fetchWithRetry(apiBase + bootstrapPath(false), { method: "POST", credentials: "include", body: body }, 3, true)
+      .then(function (r) {
+        if (r.status === 429) return parse(r);
+        if (!r.ok) {
+          return r.json().then(function (j) {
+            return isFinalBootstrapError(j) ? parse(r) : asJson();
+          }, asJson);
+        }
+        return r.json().then(function (data) {
+          return isCurrentBootstrap(data, payload.workspace_id) ? data : asJson();
+        }, asJson);
+      }, asJson);
   }
 
   // ─── Bootstrap flow ───
@@ -1225,10 +1406,11 @@
       return;
     }
 
-    var bootstrapUrl = apiBase + "/api/widget/bootstrap";
     var bootstrapPayload = {
       workspace_id: WORKSPACE_ID,
       origin: window.location.origin,
+      // The GET /config body comes back inline (an older backend ignores this).
+      include_config: true,
     };
     if (commerceSubjectChanged(WORKSPACE_ID)) {
       bootstrapPayload.fresh_visitor = true;
@@ -1238,21 +1420,7 @@
         document.cookie = "gs_active=; path=/; max-age=0; SameSite=Lax";
       } catch (_) {}
     }
-    var bootstrapBody = JSON.stringify(bootstrapPayload);
-
-    fetchWithRetry(bootstrapUrl, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: bootstrapBody,
-    }, 3)
-      .then(function (r) {
-        if (r.status === 401 || r.status === 403) {
-          throw new Error("unauthorized");
-        }
-        if (!r.ok) throw new Error("bootstrap_failed_" + r.status);
-        return r.json();
-      })
+    requestBootstrap(apiBase, bootstrapPayload)
       .then(function (data) {
         if (data.disabled) {
           log("Widget disabled by server");
@@ -1297,7 +1465,7 @@
         // refresh / bounded re-bootstrap on behalf of every layer.
         try {
           if (window.__gs_token.configure) {
-            window.__gs_token.configure({ apiBase: apiBase, workspaceId: WORKSPACE_ID, token: sessionToken });
+            window.__gs_token.configure({ apiBase: apiBase, workspaceId: WORKSPACE_ID, token: sessionToken, protocol: Number(data.protocol) || 0 });
           } else {
             window.__gs_token.set(sessionToken);
           }
@@ -1320,7 +1488,11 @@
           }
         } catch (_) {}
 
-        var configRequest = fetchWithRetry(
+        // The current backend sends the GET /config body inline; an older
+        // one (or a widget that is not configured) does not, and then it is
+        // asked for exactly as before.
+        var inlineConfig = data.config && typeof data.config === "object" ? data.config : null;
+        var configRequest = inlineConfig ? Promise.resolve(null) : fetchWithRetry(
           apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),
           {
             credentials: "include",
@@ -1328,12 +1500,12 @@
           },
           3
         );
-        return Promise.all([configRequest, identityReady]).then(function (ready) { return ready[0]; });
-      })
-      .then(function (r) {
-        if (!r) return null;
-        if (!r.ok) throw new Error("config_failed_" + r.status);
-        return r.json();
+        return Promise.all([configRequest, identityReady]).then(function (ready) {
+          if (inlineConfig) return inlineConfig;
+          var r = ready[0];
+          if (!r.ok) throw new Error("config_failed_" + r.status);
+          return r.json();
+        });
       })
       .then(function (config) {
         if (!config || !config.enabled) return;
@@ -1421,6 +1593,98 @@
       if (opts.launcherOnly) { showShellError(lt("notConfigured")); return; }
       onLauncherClick();
     });
+    if (!opts.errorMessage && !opts.launcherOnly) {
+      // A press or keyboard focus is an intent at once.
+      var intentEvents = ["pointerdown", "touchstart", "focus"];
+      for (var ie = 0; ie < intentEvents.length; ie++) {
+        launcherEl.addEventListener(intentEvents[ie], onOpenIntent, { passive: true });
+      }
+      // A mouse only by MOVING over the launcher: one that appears under a
+      // resting cursor gets a pointerenter (and maybe a synthetic move at the
+      // same spot) though nobody moved. Movement opens the connections; the
+      // files load once the pointer stays 100 ms, so a pointer that only
+      // passes over the corner costs no download.
+      launcherEl.addEventListener("pointerenter", onPointerEnter, { passive: true });
+      launcherEl.addEventListener("pointermove", onPointerMove, { passive: true });
+      launcherEl.addEventListener("pointerleave", onPointerLeave, { passive: true });
+    }
+  }
+
+  // ─── Open intent: warm what a first open waits on ────────────────────
+  // A first open needs two connections the page view no longer opens:
+  // Chrome's uncredentialed one to the API (the open's preflights; the page
+  // view sends none now) and to the fonts' host (the template's CORS font
+  // files). Each costs a TCP + TLS setup at tap time. A pointer moving over
+  // the launcher, a touch on it or keyboard focus says an open is likely:
+  // both are opened then (rel=preconnect crossorigin, never on a page view
+  // nobody opens, so no handshake is spent on those), and the panel's files
+  // load and run (for a mouse once it stays 100 ms), with the template's
+  // prepare() warming its faces. Only
+  // their definitions run: runtime.init() (the realtime connection, every
+  // API read) waits for a real open, or for a Smart Engagement preload.
+  var openIntentSeen = false;
+  var connectionsWarmed = false;
+  var pointerAnchor = null;
+  var dwellTimer = null;
+  var holdRuntimeInit = false;
+  var heldRuntimeInit = null;
+  var preconnected = {};
+  function preconnectAnonymous(base) {
+    try {
+      if (!base) return;
+      var o = new URL(base, window.location.href).origin;
+      if (!o || o === "null" || o === window.location.origin || preconnected[o]) return;
+      preconnected[o] = true;
+      var link = document.createElement("link");
+      link.rel = "preconnect";
+      link.href = o;
+      link.crossOrigin = "anonymous";
+      (document.head || document.documentElement).appendChild(link);
+    } catch (_) { /* noop */ }
+  }
+  function warmConnections() {
+    if (connectionsWarmed || !configData) return;
+    connectionsWarmed = true;
+    preconnectAnonymous(configData._apiBase);
+    // The faces come from the fonts stylesheet's host (the template's other
+    // files load no-cors, over the credentialed connection the page view
+    // already opened).
+    preconnectAnonymous(configData.presentationFontsUrl);
+  }
+  function onOpenIntent() {
+    if (openIntentSeen || !configData) return;
+    openIntentSeen = true;
+    if (dwellTimer) { clearTimeout(dwellTimer); dwellTimer = null; }
+    warmConnections();
+    if (runtimeLoaded || runtimeLoading || runtimeLoadFailed) return;
+    holdRuntimeInit = true;
+    loadRuntimeAssets();
+  }
+  function isMousePointer(ev) {
+    return !ev || !ev.pointerType || ev.pointerType === "mouse" || ev.pointerType === "pen";
+  }
+  function onPointerEnter(ev) {
+    if (!isMousePointer(ev)) return;
+    pointerAnchor = { x: ev.clientX, y: ev.clientY };
+  }
+  function onPointerMove(ev) {
+    if (openIntentSeen || !isMousePointer(ev)) return;
+    if (!pointerAnchor) { pointerAnchor = { x: ev.clientX, y: ev.clientY }; return; }
+    if (Math.abs(ev.clientX - pointerAnchor.x) + Math.abs(ev.clientY - pointerAnchor.y) < 3) return;
+    warmConnections();
+    if (!dwellTimer) dwellTimer = setTimeout(function () { dwellTimer = null; onOpenIntent(); }, 100);
+  }
+  function onPointerLeave() {
+    pointerAnchor = null;
+    if (dwellTimer) { clearTimeout(dwellTimer); dwellTimer = null; }
+  }
+  // Something wants the runtime itself now (an open, a Smart Engagement
+  // preload): run the init a warm-up held back, or let the load go on to it.
+  function releaseRuntimeInit() {
+    holdRuntimeInit = false;
+    var run = heldRuntimeInit;
+    heldRuntimeInit = null;
+    if (run) run();
   }
 
   // ─── Single source of truth for open state ───────────────────────────
@@ -1574,11 +1838,13 @@
       syncOpenStateFromRuntime();
       return;
     }
-    // A Smart Engagement silent preload (see preloadRuntimeForSmart) may
-    // already have a load in flight. Upgrade it to "open when ready"
-    // instead of starting a second, redundant load.
+    // A Smart Engagement silent preload (see preloadRuntimeForSmart) or an
+    // open-intent warm-up (onOpenIntent) may already have a load in flight.
+    // Upgrade it to "open when ready" instead of starting a second,
+    // redundant load.
     wantRuntimeOpen = true;
-    if (runtimeLoading) return;
+    if (runtimeLoading) { releaseRuntimeInit(); return; }
+    holdRuntimeInit = false;
     loadRuntimeAssets();
   }
 
@@ -1596,14 +1862,33 @@
   // must already paint in the template's own typeface. The stylesheet is
   // also expected to publish a generic `--gs-presentation-font` custom
   // property, which the shell consumes through a var() fallback.
+  // Settles once the template's font stylesheet has loaded or failed (null
+  // while none was injected): the template's prepare() asks the browser for
+  // faces, and a face the stylesheet has not declared yet is found missing at
+  // once, so the panel would open in the fallback font and swap. The loader
+  // still knows nothing of what the stylesheet holds.
+  var presentationFontsReady = null;
+  function stylesheetSettled(link) {
+    return new Promise(function (resolve) {
+      try { if (link.sheet) { resolve(); return; } } catch (_) { /* noop */ }
+      link.addEventListener("load", function () { resolve(); });
+      link.addEventListener("error", function () { resolve(); });
+    });
+  }
+
   function injectPresentationFonts(url) {
     if (!url) return;
     try {
-      if (document.getElementById("gs-presentation-fonts")) return;
+      var existing = document.getElementById("gs-presentation-fonts");
+      if (existing) {
+        if (!presentationFontsReady) presentationFontsReady = stylesheetSettled(existing);
+        return;
+      }
       var fontsLink = document.createElement("link");
       fontsLink.id = "gs-presentation-fonts";
       fontsLink.rel = "stylesheet";
       fontsLink.href = url;
+      presentationFontsReady = stylesheetSettled(fontsLink);
       (document.head || document.documentElement).appendChild(fontsLink);
       // Mirror the presentation font custom property onto the shadow host.
       // Custom properties normally inherit into the shadow tree, but the
@@ -1689,26 +1974,53 @@
     var jsLoaded = false;
     var templateCssLoaded = false;
     var templateSkinLoaded = !presentationSkinCss;
+    var registryLoaded = false;
     var templateJsLoaded = false;
     var presentationPreparing = false;
+    var preparation = null;
     var failed = false;
 
-    function done() {
-      if (failed || !cssLoaded || !jsLoaded || !templateCssLoaded || !templateSkinLoaded || !templateJsLoaded) return;
-      if (presentationPreparing) return;
-      presentationPreparing = true;
+    // The template's own readiness (its typeface), started as soon as the
+    // registry and the renderer are in, while runtime.js is still on its way,
+    // so whatever it fetches loads alongside; done() awaits the same promise.
+    // The context is opaque here: the template decides what its first paint
+    // needs from the locale (the loader knows no font, family or file).
+    function startPreparation() {
+      if (preparation || !registryLoaded || !templateJsLoaded) return preparation;
       var registry = window.__gs_presentation_registry;
       var descriptor = registry && typeof registry.resolve === "function"
         ? registry.resolve(configData.templateId)
         : null;
       var presentationModule = descriptor ? window[descriptor.globalKey] : null;
-      var preparation = presentationModule && typeof presentationModule.prepare === "function"
-        ? presentationModule.prepare()
-        : null;
-      Promise.resolve(preparation).catch(function () {
+      // prepare() runs once the font stylesheet is in (at most 800 ms later:
+      // a slow or failed stylesheet only costs the typeface, never the panel).
+      var fontsGate = presentationFontsReady
+        ? Promise.race([presentationFontsReady, new Promise(function (resolve) { setTimeout(resolve, 800); })])
+        : Promise.resolve();
+      preparation = fontsGate.then(function () {
+        var ready = null;
+        try {
+          ready = presentationModule && typeof presentationModule.prepare === "function"
+            ? presentationModule.prepare({ locale: configData.locale, templateId: configData.templateId })
+            : null;
+        } catch (_) { ready = null; }
+        return ready;
+      }).catch(function () {
         // Readiness is best-effort. A template must never make the widget
         // permanently unavailable because a font or other visual asset failed.
-      }).then(initRuntime);
+      });
+      return preparation;
+    }
+
+    function done() {
+      if (failed || !cssLoaded || !jsLoaded || !templateCssLoaded || !templateSkinLoaded || !registryLoaded || !templateJsLoaded) return;
+      if (presentationPreparing) return;
+      presentationPreparing = true;
+      startPreparation().then(function () {
+        // An open-intent warm-up stops here until something wants the runtime.
+        if (holdRuntimeInit) { heldRuntimeInit = initRuntime; return; }
+        initRuntime();
+      });
     }
 
     function initRuntime() {
@@ -1772,6 +2084,8 @@
       failed = true;
       runtimeLoading = false;
       runtimeLoadFailed = true;
+      holdRuntimeInit = false;
+      heldRuntimeInit = null;
       warn("Runtime asset failed:", what);
       // Clean up any half-loaded sibling so a successful CSS load does
       // not later flip `cssLoaded=true` and re-enter `done()` with a
@@ -1800,19 +2114,32 @@
     function unhashedAssetUrl(url) {
       if (!url) return null;
       var alt = String(url).replace(/\.[0-9a-f]{6,16}\.(js|css)(\?|#|$)/, ".$1$2");
-      return alt !== String(url) ? alt : null;
+      if (alt === String(url)) return null;
+      // A hashed URL carries no query (its name is its version); the
+      // canonical name keeps a cache-buster, as it always had.
+      return alt.indexOf("?") === -1
+        ? alt + "?v=" + encodeURIComponent(configData.loaderVersion || LOADER_VERSION)
+        : alt;
     }
     /**
      * Wires `el.onerror` so a hashed 404 is retried once with the unhashed
      * name (a fresh node, because re-setting src/href on a failed element is
      * not reliably re-fetched), then calls onFail() if that also fails.
+     * Fresh means createElement, never cloneNode(): a cloned <script> keeps
+     * its "already started" flag (HTML spec), so it is never fetched and
+     * fires neither load nor error, and the panel would wait forever.
      */
     function withHashFallback(el, url, urlProp, parent, onFail) {
       el.onerror = function () {
         var alt = unhashedAssetUrl(url);
         if (!alt) { onFail(); return; }
         warn("asset failed, retrying unhashed:", alt);
-        var retry = el.cloneNode(false);
+        var retry = document.createElement(el.tagName.toLowerCase());
+        for (var ai = 0; ai < el.attributes.length; ai++) {
+          var attr = el.attributes[ai];
+          if (attr.name !== urlProp) retry.setAttribute(attr.name, attr.value);
+        }
+        if (urlProp === "src") retry.async = el.async;
         retry[urlProp] = alt;
         retry.onload = el.onload;
         retry.onerror = function () { onFail(); };
@@ -1876,25 +2203,27 @@
       shadowRoot.appendChild(skinLink);
     }
 
-    // Registry first (tiny), then the active template's renderer. The
-    // renderer must be registered on window BEFORE runtime.init() runs.
+    // The registry and the active template's renderer, in parallel: the
+    // renderer only registers itself on window, and both must be in before
+    // runtime.init() runs (done()). Loading them one after the other cost a
+    // round trip on every first open.
     var regScript = document.createElement("script");
     regScript.src = presentationRegistryJs;
     regScript.charset = "utf-8";
     regScript.async = true;
     regScript.setAttribute("data-gs-template", "registry");
-    regScript.onload = function () {
-      var tplScript = document.createElement("script");
-      tplScript.src = presentationJs;
-      tplScript.charset = "utf-8";
-      tplScript.async = true;
-      tplScript.setAttribute("data-gs-template", "renderer");
-      tplScript.onload = function () { templateJsLoaded = true; done(); };
-      withHashFallback(tplScript, presentationJs, "src", document.head, function () { fail("template-js"); });
-      document.head.appendChild(tplScript);
-    };
+    regScript.onload = function () { registryLoaded = true; startPreparation(); done(); };
     withHashFallback(regScript, presentationRegistryJs, "src", document.head, function () { fail("template-registry"); });
     document.head.appendChild(regScript);
+
+    var tplScript = document.createElement("script");
+    tplScript.src = presentationJs;
+    tplScript.charset = "utf-8";
+    tplScript.async = true;
+    tplScript.setAttribute("data-gs-template", "renderer");
+    tplScript.onload = function () { templateJsLoaded = true; startPreparation(); done(); };
+    withHashFallback(tplScript, presentationJs, "src", document.head, function () { fail("template-js"); });
+    document.head.appendChild(tplScript);
 
     var script = document.createElement("script");
     script.src = runtimeJs;
@@ -1937,6 +2266,10 @@
             window.__gs_call_resolveReady = resolve;
             window.__gs_call_rejectReady = reject;
           });
+          // Whoever awaits it (a Join) handles a failure; with nobody waiting,
+          // a failed load must not surface on the customer's page as an
+          // unhandled rejection.
+          window.__gs_call_ready.then(null, function () {});
           var cs = document.createElement("script");
           cs.src = callJs;
           cs.charset = "utf-8";
@@ -1951,10 +2284,11 @@
               try { window.__gs_call_rejectReady && window.__gs_call_rejectReady(new Error('call_module_loaded_but_api_missing')); } catch (_) {}
             }
           };
-          cs.onerror = function () {
+          // Its own one-time canonical-name retry, like every hashed file.
+          withHashFallback(cs, callJs, "src", document.head, function () {
             warn("call module failed to load");
             try { window.__gs_call_rejectReady && window.__gs_call_rejectReady(new Error('call_module_load_failed')); } catch (_) {}
-          };
+          });
           document.head.appendChild(cs);
         }
       } catch (_) { /* never block chat boot on the call module */ }
@@ -1979,6 +2313,8 @@
   // normal triggerOpen() -> instance.open() path.
   function preloadRuntimeForSmart() {
     if (!configData || runtimeLoadFailed) return;
+    if (runtimeLoading) { releaseRuntimeInit(); return; }
+    holdRuntimeInit = false;
     loadRuntimeAssets();
   }
 
@@ -3159,12 +3495,11 @@
 
     /** Fetch a fresh presence config (tokens + lease). Resolves null on failure. */
     function fetchConfig(isRetry) {
-      return fetch(apiBase + '/api/realtime/visitor-presence', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': tokenNow() },
-        body: JSON.stringify({ workspace_id: workspaceId, session_id: sessionId }),
-      })
+      // CORS-simple when the backend takes the token in the body (tokenPost).
+      return tokenPost(apiBase + '/api/realtime/visitor-presence', {
+        workspace_id: workspaceId,
+        session_id: sessionId,
+      }, tokenNow())
         .then(function (r) {
           if (r.ok) return r.json();
           // The widget session died while the page sat open (tab left open
@@ -3384,29 +3719,25 @@
     } catch (_) {}
 
     var trackQuery = currentQuery();
-    fetch(apiBase + "/api/widget/track", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", "X-Widget-Token": tokenNow() },
-      body: JSON.stringify({
-        workspace_id: workspaceId,
-        event: "page_view",
-        current_page: currentPage(),
-        page_title: currentTitle(),
-        referrer: document.referrer || null,
-        browser: detectBrowser(),
-        device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
-        os: detectOS(),
-        // First-touch attribution for Web Analytics (server only persists
-        // these on brand-new sessions — see server/routes/widget.ts).
-        utm_source: trackQuery.utm_source || null,
-        utm_medium: trackQuery.utm_medium || null,
-        utm_campaign: trackQuery.utm_campaign || null,
-        utm_term: trackQuery.utm_term || null,
-        utm_content: trackQuery.utm_content || null,
-        language: (configData.locale || document.documentElement.lang || navigator.language || null),
-      }),
-    })
+    // CORS-simple when the backend takes the token in the body (tokenPost).
+    tokenPost(apiBase + "/api/widget/track", {
+      workspace_id: workspaceId,
+      event: "page_view",
+      current_page: currentPage(),
+      page_title: currentTitle(),
+      referrer: document.referrer || null,
+      browser: detectBrowser(),
+      device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
+      os: detectOS(),
+      // First-touch attribution for Web Analytics (server only persists
+      // these on brand-new sessions — see server/routes/widget.ts).
+      utm_source: trackQuery.utm_source || null,
+      utm_medium: trackQuery.utm_medium || null,
+      utm_campaign: trackQuery.utm_campaign || null,
+      utm_term: trackQuery.utm_term || null,
+      utm_content: trackQuery.utm_content || null,
+      language: (configData.locale || document.documentElement.lang || navigator.language || null),
+    }, tokenNow())
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var sessionId = data && data.session_id ? data.session_id : null;

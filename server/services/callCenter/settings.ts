@@ -6,6 +6,8 @@ import crypto from 'crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import type { CallWidgetFormField, CallWidgetOfflineBehavior, CallWidgetTheme } from './presentation.js';
+import { invalidateCallWidgetBootstrapCache } from './bootstrapCache.js';
+import { onInvalidate, publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 export interface PlatformCallCenterSettings {
   call_center_enabled: boolean;
@@ -92,7 +94,13 @@ const PLATFORM_CACHE_MS = 30_000;
 
 export function invalidatePlatformCallCenterCache() {
   _platformCache = null;
+  invalidateCallWidgetBootstrapCache();
 }
+
+// Another process changed a platform-wide setting.
+onInvalidate('platform', () => {
+  _platformCache = null;
+});
 
 export async function getPlatformCallCenterSettings(
   config: ServerConfig,
@@ -135,6 +143,7 @@ export async function updatePlatformCallCenterSettings(
     .maybeSingle();
   if (error) throw error;
   invalidatePlatformCallCenterCache();
+  publishCacheInvalidation(['platform']);
   return data as PlatformCallCenterSettings;
 }
 
@@ -159,7 +168,29 @@ export async function getOrCreateWorkspaceSettings(
     .select('*')
     .maybeSingle();
   if (error) throw error;
+  // The call widget bootstrap and the chat widget's call channels, on every process.
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return created as WorkspaceCallCenterSettings;
+}
+
+/**
+ * The workspace's row, or null when it has none; never creates one (the
+ * public, pre-auth call widget bootstrap). A failed read throws: "no row"
+ * answers `workspace_disabled`, which the bootstrap memo keeps for a while
+ * and the loader remembers, so an outage must not look like one.
+ */
+export async function findWorkspaceSettings(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<WorkspaceCallCenterSettings | null> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('call_center_settings')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as WorkspaceCallCenterSettings | null) ?? null;
 }
 
 export async function updateWorkspaceSettings(
@@ -184,6 +215,7 @@ export async function updateWorkspaceSettings(
     .select('*')
     .maybeSingle();
   if (error) throw error;
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return data as WorkspaceCallCenterSettings;
 }
 
@@ -196,17 +228,21 @@ export async function updateWorkspaceSettings(
  * but it must NEVER authenticate a caller and must never select an
  * authenticated per-workspace rate-limit bucket. Only a signed, server-issued
  * call-widget session (`x-cc-session`) proves workspace identity.
+ *
+ * Null only when no row has the key; a failed read throws (see
+ * findWorkspaceSettings: an unknown key is remembered as one).
  */
 export async function findWorkspaceByPublicKey(
   config: ServerConfig,
   publicKey: string,
 ): Promise<WorkspaceCallCenterSettings | null> {
   const sb = getServiceClient(config);
-  const { data } = await sb
+  const { data, error } = await sb
     .from('call_center_settings')
     .select('*')
     .eq('public_key', publicKey)
     .maybeSingle();
+  if (error) throw error;
   return (data as WorkspaceCallCenterSettings | null) ?? null;
 }
 

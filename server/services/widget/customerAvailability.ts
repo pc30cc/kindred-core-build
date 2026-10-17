@@ -70,19 +70,37 @@ export interface AvailabilityPrefsRow {
 export const AVAILABILITY_PREFS_COLUMNS =
   'user_id, force_offline, available_when_using_app, schedule_enabled, timezone, weekly_schedule';
 
-export function partsInTz(date: Date, tz: string): { h: number; m: number; dow: DayKey } {
-  let parts: Intl.DateTimeFormatPart[];
-  const opts: Intl.DateTimeFormatOptions = {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    weekday: 'short',
-  };
+/**
+ * Formatters per time zone, as in availability.ts: availability is computed
+ * for every member on every widget page view (from the cached config
+ * snapshot), and building an Intl.DateTimeFormat costs far more than using
+ * one. An invalid zone maps to null (→ UTC, as before); the bound only guards
+ * against junk values.
+ */
+const PARTS_OPTIONS: Intl.DateTimeFormatOptions = {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  weekday: 'short',
+};
+const tzFormatters = new Map<string, Intl.DateTimeFormat | null>();
+const MAX_TZ_FORMATTERS = 200;
+
+function formatterFor(timeZone: string): Intl.DateTimeFormat | null {
+  let fmt = tzFormatters.get(timeZone);
+  if (fmt !== undefined) return fmt;
   try {
-    parts = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: tz }).formatToParts(date);
+    fmt = new Intl.DateTimeFormat('en-US', { ...PARTS_OPTIONS, timeZone });
   } catch {
-    parts = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: 'UTC' }).formatToParts(date);
+    fmt = null;
   }
+  if (tzFormatters.size >= MAX_TZ_FORMATTERS) tzFormatters.clear();
+  tzFormatters.set(timeZone, fmt);
+  return fmt;
+}
+
+export function partsInTz(date: Date, tz: string): { h: number; m: number; dow: DayKey } {
+  const parts: Intl.DateTimeFormatPart[] = (formatterFor(tz) ?? formatterFor('UTC')!).formatToParts(date);
   const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
   const dowMap: Record<string, DayKey> = {
     Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat',

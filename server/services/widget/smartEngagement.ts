@@ -103,6 +103,19 @@ export function toPublicSmartRule(row: SmartRuleSource) {
   };
 }
 
+export type PublicSmartRule = ReturnType<typeof toPublicSmartRule>;
+
+/**
+ * Whether a rule's schedule still runs at `nowMs`: no end, an unparseable
+ * end, or an end not yet passed.
+ */
+export function isSmartRuleUnexpired(rule: { schedule_config?: unknown } | null | undefined, nowMs: number): boolean {
+  const end = (rule?.schedule_config as { end_at?: string } | null)?.end_at;
+  if (!end) return true;
+  const ts = Date.parse(end);
+  return !isFinite(ts) || ts >= nowMs;
+}
+
 /**
  * Published + active rules only. Drafts and paused rules are never sent to
  * a visitor, and an expired schedule is filtered out server side so the
@@ -113,8 +126,25 @@ export async function loadPublicSmartRules(
   supabase: unknown,
   workspaceId: string,
   masterEnabled: boolean,
-): Promise<{ enabled: boolean; rules: ReturnType<typeof toPublicSmartRule>[] }> {
-  if (!masterEnabled) return { enabled: false, rules: [] };
+): Promise<{ enabled: boolean; rules: PublicSmartRule[] }> {
+  const { enabled, rules } = await loadPublishedSmartRules(supabase, workspaceId, masterEnabled);
+  const now = Date.now();
+  return { enabled, rules: rules.filter((rule) => isSmartRuleUnexpired(rule, now)) };
+}
+
+/**
+ * The same published + active rules, sanitized, WITHOUT the expiry filter:
+ * what the widget config snapshot keeps (it applies isSmartRuleUnexpired per
+ * request). `error` is true when the read failed; `rules` is then empty,
+ * exactly as loadPublicSmartRules answers.
+ */
+export async function loadPublishedSmartRules(
+  /** The service client; `unknown` so a test can hand in a minimal fake. */
+  supabase: unknown,
+  workspaceId: string,
+  masterEnabled: boolean,
+): Promise<{ enabled: boolean; rules: PublicSmartRule[]; error: boolean }> {
+  if (!masterEnabled) return { enabled: false, rules: [], error: false };
   try {
     const { data, error } = await (supabase as ServiceClient)
       .from('widget_smart_rules')
@@ -125,7 +155,6 @@ export async function loadPublicSmartRules(
       .order('priority', { ascending: false })
       .limit(SMART_PUBLIC_RULE_LIMIT);
     if (error) throw error;
-    const now = Date.now();
     const rules = (data || [])
       // A row with no published snapshot has never been published (or was
       // unpublished) — never fall back to the draft columns.
@@ -146,17 +175,11 @@ export async function loadPublicSmartRules(
         frequency_config: row.published_frequency_config,
         behavior_config: row.published_behavior_config,
       }))
-      .filter((row) => {
-        const end = (row?.schedule_config as { end_at?: string } | null)?.end_at;
-        if (!end) return true;
-        const ts = Date.parse(end);
-        return !isFinite(ts) || ts >= now;
-      })
       .map(toPublicSmartRule);
-    return { enabled: true, rules };
+    return { enabled: true, rules, error: false };
   } catch (err) {
     console.warn('[smart-engagement] rule load failed:', err?.message || err);
-    return { enabled: masterEnabled, rules: [] };
+    return { enabled: masterEnabled, rules: [], error: true };
   }
 }
 

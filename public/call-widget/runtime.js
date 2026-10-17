@@ -702,6 +702,8 @@
     var presentationHost = this.presentation.createHost({
       origin: this.origin,
       runtimeAssetSuffix: this.runtimeAssetSuffix,
+      assetUrl: typeof opts.assetUrl === 'function' ? opts.assetUrl : null,
+      fontsUrl: typeof opts.fontsUrl === 'string' ? opts.fontsUrl : null,
       bootstrap: this.bootstrap,
     });
     this.root = presentationHost.root;

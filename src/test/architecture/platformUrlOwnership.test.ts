@@ -123,7 +123,8 @@ describe('widget URLs are owned by widget_platform_settings', () => {
   });
 
   it('the widget resolves its URLs from widget_platform_settings', () => {
-    const widget = read('server/routes/widget.ts');
+    // GET /config's URL bases are read by the widget config snapshot module.
+    const widget = read('server/services/widget/configSnapshot.ts');
     expect(widget).toContain("from('widget_platform_settings')");
     expect(widget).toMatch(
       /widget_loader_base_url[\s\S]{0,120}widget_asset_base_url[\s\S]{0,120}widget_public_base_url[\s\S]{0,120}widget_api_base_url/,

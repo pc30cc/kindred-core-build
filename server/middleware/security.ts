@@ -7,9 +7,10 @@ import { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
+import { readWidgetToken, verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
 import { verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
+import { onInvalidate } from '../lib/cacheBus.js';
 
 /**
  * What earlier middleware — and express-rate-limit — attach to a request,
@@ -36,14 +37,187 @@ function requestPath(req: Request): string {
   return String(raw).split('?')[0];
 }
 
-/** Normalized per-IP bucket suffix (IPv6-safe via express-rate-limit helper). */
+/**
+ * Normalized per-IP bucket suffix (IPv6-safe via express-rate-limit helper).
+ *
+ * Deliberately Express's `req.ip` (which follows `trust proxy`, server/index.ts),
+ * NOT utils/clientIp.ts getClientIp: that one believes `cf-connecting-ip` from
+ * any private peer, so a client reaching the origin through Traefik without
+ * Cloudflare could choose its own bucket. Behind Cloudflare without
+ * TRUST_PROXY listing Cloudflare's ranges, `req.ip` is the edge address — see
+ * docs/operations/WIDGET_CONFIG_CACHE.md "Client IP behind a CDN".
+ */
 function ipBucket(req: Request): string {
   return req.ip ? ipKeyGenerator(req.ip) : 'unknown';
 }
 
+/**
+ * A positive integer from the environment, else `fallback`. Read on every
+ * call (a few env lookups per request), so a test or an operator's restart
+ * with a new value takes effect without other plumbing.
+ */
+function limitFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+/** Whole seconds until express-rate-limit's window for this request resets (>= 1). */
+function retryAfterSeconds(req: Request, windowMs = 60_000): number {
+  const reset = (req as Request & { rateLimit?: { resetTime?: Date } }).rateLimit?.resetTime;
+  const ms = reset instanceof Date ? reset.getTime() - Date.now() : windowMs;
+  return Math.max(1, Math.ceil(ms / 1000));
+}
+
 // ─── IP Blocking Middleware ───────────────────────────────────────
-const blockedIPCache = new Map<string, { blocked: boolean; until: number | null; checkedAt: number }>();
-const IP_CACHE_TTL = 60_000; // 1 min
+//
+// The blocklist is held as ONE per-process snapshot of the active rows of
+// ip_blocklist (same predicate as the is_ip_blocked() SQL function:
+// blocked_until IS NULL OR blocked_until > now()), so a visitor's request
+// costs no query. It used to be one is_ip_blocked RPC per new client address
+// per minute per process, on the critical path of that visitor's first
+// request (the CORS preflight included).
+//
+//   - Refreshed at most every 30 s, single flight; past that the current
+//     list still answers while one background reload runs.
+//   - Fails closed (503 IP_CHECK_UNAVAILABLE, as before) only when there is
+//     no list to answer from: never loaded, or the last good load is older
+//     than 5 min, and the reload fails. A failed load is not retried for 2 s
+//     (those requests get the same 503 without a query).
+//   - The admin routes (server/routes/adminSecurity.ts) publish the
+//     `ipblock` scope on the cache bus after a block or unblock: every
+//     process reloads before answering its next request (falling back to
+//     the list it has if that reload fails).
+//   - The key is exactly what the RPC was given — `req.ip`, else the socket
+//     address — compared as text with ip_address, like the SQL function.
+//     `blocked_until` is re-checked per request, so a block ends on time.
+const IPBLOCK_REFRESH_MS = 30_000;
+const IPBLOCK_MAX_STALE_MS = 5 * 60_000;
+const IPBLOCK_RETRY_MS = 2_000;
+const IPBLOCK_PAGE = 1000;
+
+interface IpBlocklistSnapshot {
+  /** ip_address → blocked_until (ms), null = no end. */
+  entries: Map<string, number | null>;
+  loadedAt: number;
+}
+
+let ipBlocklist: IpBlocklistSnapshot | null = null;
+let ipBlocklistFlight: Promise<IpBlocklistSnapshot> | null = null;
+let ipBlocklistGen = 0;
+let ipBlocklistStale = false;
+let ipBlocklistFailedAt = 0;
+
+async function readIpBlocklist(config: ServerConfig): Promise<IpBlocklistSnapshot> {
+  const sb = getServiceClient(config);
+  const nowIso = new Date().toISOString();
+  const entries = new Map<string, number | null>();
+  // Paged: DATABASE_MAX_ROWS (1000 by default) would otherwise cut a long
+  // list short, silently unblocking whatever did not fit. The database may
+  // return FEWER rows than asked for (a lower DATABASE_MAX_ROWS, PostgREST's
+  // max-rows), so the next page starts after the rows actually read, and a
+  // short page is not the end: only an empty page, or reaching the count.
+  for (let from = 0; ; ) {
+    const { data, error, count } = await sb
+      .from('ip_blocklist')
+      .select('ip_address, blocked_until', { count: 'exact' })
+      .or(`blocked_until.is.null,blocked_until.gt."${nowIso}"`)
+      .order('id', { ascending: true })
+      .range(from, from + IPBLOCK_PAGE - 1);
+    // PostgREST reports failures via `error` rather than throwing.
+    if (error) throw error;
+    const rows = (data ?? []) as Array<{ ip_address?: unknown; blocked_until?: unknown }>;
+    for (const row of rows) {
+      if (typeof row.ip_address !== 'string' || !row.ip_address) continue;
+      const until = row.blocked_until ? Date.parse(String(row.blocked_until)) : null;
+      // An unparseable end is read as "no end": fail closed.
+      const end = until === null || Number.isNaN(until) ? null : until;
+      const prev = entries.get(row.ip_address);
+      entries.set(row.ip_address, prev === null || end === null ? null : Math.max(prev ?? end, end));
+    }
+    if (rows.length === 0) break;
+    from += rows.length;
+    if (typeof count === 'number' && from >= count) break;
+  }
+  return { entries, loadedAt: Date.now() };
+}
+
+/**
+ * One load at a time. A load running when the list is invalidated still
+ * answers the requests waiting on it but is not kept (it may predate the
+ * admin's write); the next request starts a fresh one.
+ */
+function loadIpBlocklist(config: ServerConfig): Promise<IpBlocklistSnapshot> {
+  if (ipBlocklistFlight) return ipBlocklistFlight;
+  const gen = ipBlocklistGen;
+  const flight: Promise<IpBlocklistSnapshot> = readIpBlocklist(config).then(
+    (list) => {
+      if (gen === ipBlocklistGen) {
+        ipBlocklist = list;
+        ipBlocklistStale = false;
+      }
+      ipBlocklistFailedAt = 0;
+      return list;
+    },
+    (err) => {
+      ipBlocklistFailedAt = Date.now();
+      throw err;
+    },
+  );
+  ipBlocklistFlight = flight;
+  void flight.then(
+    () => { if (ipBlocklistFlight === flight) ipBlocklistFlight = null; },
+    () => { if (ipBlocklistFlight === flight) ipBlocklistFlight = null; },
+  );
+  return flight;
+}
+
+onInvalidate('ipblock', (_key, { resync }) => {
+  if (resync) {
+    // The bus reconnected (nothing known changed): reload soon, but keep
+    // answering from the current list meanwhile instead of making every
+    // request wait for the reload. A reload already running may have read
+    // the rows before a block whose notification was lost: it is not kept.
+    if (ipBlocklist) ipBlocklist = { ...ipBlocklist, loadedAt: Math.min(ipBlocklist.loadedAt, Date.now() - IPBLOCK_REFRESH_MS) };
+    if (ipBlocklistFlight) {
+      ipBlocklistGen++;
+      ipBlocklistFlight = null;
+    }
+    return;
+  }
+  ipBlocklistGen++;
+  ipBlocklistStale = true;
+  ipBlocklistFlight = null;
+});
+
+function isIpBlocked(list: IpBlocklistSnapshot, ip: string, now: number): boolean {
+  if (!list.entries.has(ip)) return false;
+  const until = list.entries.get(ip);
+  return until === null || until === undefined || until > now;
+}
+
+/** Test-only: forget the list and any load in flight. */
+export function __resetIpBlocklistForTests(): void {
+  ipBlocklist = null;
+  ipBlocklistFlight = null;
+  ipBlocklistGen++;
+  ipBlocklistStale = false;
+  ipBlocklistFailedAt = 0;
+}
+
+/** Test-only: pretend the current list was loaded `ageMs` ago. */
+export function __ageIpBlocklistForTests(ageMs: number): void {
+  if (ipBlocklist) ipBlocklist = { ...ipBlocklist, loadedAt: Date.now() - ageMs };
+}
+
+function ipCheckUnavailable(res: Response, err: unknown): void {
+  // Fail closed: we cannot prove this IP is not blocked, so we refuse the
+  // request instead of letting a database outage disable IP blocking.
+  // 503 (not 403) so legitimate clients can retry once the DB recovers.
+  if (err) console.error('[security] IP blocklist load failed:', err);
+  res.status(503).json({ error: 'Security check unavailable', code: 'IP_CHECK_UNAVAILABLE' });
+}
 
 export function ipBlockMiddleware() {
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -51,29 +225,35 @@ export function ipBlockMiddleware() {
     const config = view(req).serverConfig;
     if (!config) return next();
 
-    const cached = blockedIPCache.get(ip);
-    if (cached && Date.now() - cached.checkedAt < IP_CACHE_TTL) {
-      if (cached.blocked) {
-        return res.status(403).json({ error: 'IP blocked', reason: 'Your IP has been blocked due to suspicious activity.' });
+    const now = Date.now();
+    let list = ipBlocklist;
+    const usable = !!list && now - list.loadedAt <= IPBLOCK_MAX_STALE_MS;
+    const invalidated = ipBlocklistStale;
+    const due = !list || invalidated || now - list.loadedAt >= IPBLOCK_REFRESH_MS;
+    const coolingDown = ipBlocklistFailedAt > 0 && now - ipBlocklistFailedAt < IPBLOCK_RETRY_MS && !ipBlocklistFlight;
+
+    if (due && !coolingDown) {
+      const flight = loadIpBlocklist(config);
+      if (usable && !invalidated) {
+        // Just old: answer from the current list, reload in the background.
+        flight.catch((err) => console.warn('[security] IP blocklist refresh failed:', err instanceof Error ? err.message : err));
+      } else {
+        // Nothing to answer from, or an admin just changed the list (wait
+        // for it, so a block or an unblock holds from the next request).
+        try {
+          list = await flight;
+        } catch (err) {
+          if (!usable) return ipCheckUnavailable(res, err);
+          console.warn('[security] IP blocklist reload failed:', err instanceof Error ? err.message : err);
+        }
       }
-      return next();
+    } else if (!usable) {
+      // Nothing to answer from and the last load failed moments ago.
+      return ipCheckUnavailable(res, null);
     }
 
-    try {
-      const sb = getServiceClient(config);
-      const { data, error } = await sb.rpc('is_ip_blocked', { _ip: ip });
-      // PostgREST reports failures via `error` rather than throwing.
-      if (error) throw error;
-      blockedIPCache.set(ip, { blocked: !!data, until: null, checkedAt: Date.now() });
-      if (data) {
-        return res.status(403).json({ error: 'IP blocked' });
-      }
-    } catch (err) {
-      // Fail closed: we cannot prove this IP is not blocked, so we refuse the
-      // request instead of letting a database outage disable IP blocking.
-      // 503 (not 403) so legitimate clients can retry once the DB recovers.
-      console.error('[security] IP block lookup failed:', err);
-      return res.status(503).json({ error: 'Security check unavailable', code: 'IP_CHECK_UNAVAILABLE' });
+    if (list && isIpBlocked(list, ip, Date.now())) {
+      return res.status(403).json({ error: 'IP blocked', reason: 'Your IP has been blocked due to suspicious activity.' });
     }
     next();
   };
@@ -121,16 +301,26 @@ export const emailRateLimiter = rateLimit({
   },
 });
 
-// Widget: 300 per minute per IP (high traffic expected)
+/**
+ * Every /api/widget and /api/call-widget request per IP per minute
+ * (WIDGET_PER_IP_PER_MIN, default 1200; it was 300). It is the outer bound of
+ * one address, so it is what a carrier-grade NAT or an office runs into: one
+ * page view is 1-3 calls (bootstrap, track, the presence handshake), an open
+ * chat polls. The per-visitor and per-session layers below it are tighter.
+ */
+export function widgetPerIpPerMin(): number {
+  return limitFromEnv('WIDGET_PER_IP_PER_MIN', 1200);
+}
+
 export const widgetRateLimiter = rateLimit({
   windowMs: 60_000,
-  max: 300,
+  limit: () => widgetPerIpPerMin(),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipBucket(req),
   handler: async (req, res) => {
-    logRateLimited(req, 'info', { endpoint: '/api/widget', limit: '300/min' });
-    res.status(429).json({ error: 'Widget rate limit exceeded.' });
+    logRateLimited(req, 'info', { endpoint: '/api/widget', limit: `${widgetPerIpPerMin()}/min` });
+    res.status(429).json({ error: 'Widget rate limit exceeded.', code: 'RATE_LIMITED', retry_after: retryAfterSeconds(req) });
   },
 });
 
@@ -174,7 +364,7 @@ const REFRESH_PATH = /^\/api\/widget\/session\/refresh\/?$/;
 export function resolveRateLimitWorkspaceKey(req: Request): string {
   const trusted = resolveTrustedRateLimitWorkspaceId(req);
   if (trusted) return `ws:${trusted}`;
-  return `ip:${req.ip ? ipKeyGenerator(req.ip) : 'unknown'}`;
+  return `ip:${ipBucket(req)}`;
 }
 
 /**
@@ -211,9 +401,8 @@ function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
     return already.trim();
   }
 
-  const widgetToken = req.headers?.['x-widget-token'];
-  const widgetTokenStr = Array.isArray(widgetToken) ? widgetToken[0] : widgetToken;
-  if (typeof widgetTokenStr === 'string' && widgetTokenStr) {
+  const widgetTokenStr = readWidgetToken(req);
+  if (widgetTokenStr) {
     try {
       // /session/refresh accepts recently-expired tokens (inside the refresh
       // grace window), so the limiter must use the SAME verifier the route
@@ -257,21 +446,26 @@ function computeTrustedRateLimitWorkspaceId(req: Request): string | null {
  * Stops an attacker who rotates source IPs from flooding a single workspace,
  * and stops one workspace from exhausting shared capacity.
  */
+//
+// Its `ip:` fallback (every credential today, see above) is one more per-IP
+// bucket; it follows WIDGET_PER_IP_PER_MIN so that one setting decides what
+// an address may send, instead of a second, fixed per-IP cap behind it.
+const WORKSPACE_BUCKET_PER_MIN = 1200;
+
 export const widgetWorkspaceRateLimiter = rateLimit({
   windowMs: 60_000,
-  max: 1200,
+  limit: (req) => (resolveRateLimitWorkspaceKey(req).startsWith('ws:') ? WORKSPACE_BUCKET_PER_MIN : widgetPerIpPerMin()),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: resolveRateLimitWorkspaceKey,
   handler: async (req, res) => {
+    const key = resolveRateLimitWorkspaceKey(req);
     logRateLimited(req, 'warn', {
       endpoint: req.originalUrl,
-      limit: '1200/min/workspace',
-      workspaceId: resolveRateLimitWorkspaceKey(req).startsWith('ws:')
-        ? resolveRateLimitWorkspaceKey(req).slice(3)
-        : null,
+      limit: key.startsWith('ws:') ? `${WORKSPACE_BUCKET_PER_MIN}/min/workspace` : `${widgetPerIpPerMin()}/min/ip`,
+      workspaceId: key.startsWith('ws:') ? key.slice(3) : null,
     });
-    res.status(429).json({ error: 'Workspace rate limit exceeded.' });
+    res.status(429).json({ error: 'Workspace rate limit exceeded.', code: 'RATE_LIMITED', retry_after: retryAfterSeconds(req) });
   },
 });
 
@@ -299,9 +493,11 @@ export const widgetWorkspaceRateLimiter = rateLimit({
  * tokens, /kb) — that traffic is covered by the pre-auth/per-IP limiters.
  */
 function resolveWidgetSessionNonceKey(req: Request): string | null {
-  const widgetToken = req.headers?.['x-widget-token'];
-  const tokenStr = Array.isArray(widgetToken) ? widgetToken[0] : widgetToken;
-  if (typeof tokenStr !== 'string' || !tokenStr) return null;
+  // Header, or the body field on /track and /visitor-presence (the same
+  // reader enforceWidgetToken uses): a CORS-simple call is counted in the
+  // same session bucket as one carrying the header.
+  const tokenStr = readWidgetToken(req);
+  if (!tokenStr) return null;
   try {
     const result = REFRESH_PATH.test(requestPath(req))
       ? verifyTokenForRefresh(tokenStr)
@@ -323,7 +519,7 @@ export const widgetSessionRateLimiter = rateLimit({
       endpoint: req.originalUrl,
       limit: '300/min/session',
     });
-    res.status(429).json({ error: 'Too many requests for this session — please slow down.', code: 'SESSION_RATE_LIMITED' });
+    res.status(429).json({ error: 'Too many requests for this session — please slow down.', code: 'SESSION_RATE_LIMITED', retry_after: retryAfterSeconds(req) });
   },
 });
 
@@ -362,7 +558,7 @@ export const callWidgetSessionRateLimiter = rateLimit({
       endpoint: req.originalUrl,
       limit: '120/min/session',
     });
-    res.status(429).json({ error: 'Too many requests for this session — please slow down.' });
+    res.status(429).json({ error: 'Too many requests for this session — please slow down.', retry_after: retryAfterSeconds(req) });
   },
 });
 
@@ -389,8 +585,12 @@ export const visitorRateLimiter = rateLimit({
 // Keys are per-IP + route scope. Because IPs can be rotated, each pre-auth
 // route also passes through a bounded process-global ceiling (below).
 
-/** Per-process global ceiling — deliberately generous vs. real traffic. */
-function globalCeiling(name: string, max: number, windowMs = 60_000) {
+/**
+ * Per-process global ceiling — deliberately generous vs. real traffic. It is
+ * per PROCESS: with N API processes (replicas, regions) the platform-wide
+ * figure is N times `max()`.
+ */
+function globalCeiling(name: string, max: () => number, windowMs = 60_000) {
   let count = 0;
   let resetAt = Date.now() + windowMs;
   return (req: Request, res: Response, next: NextFunction) => {
@@ -398,18 +598,19 @@ function globalCeiling(name: string, max: number, windowMs = 60_000) {
     const now = Date.now();
     if (now > resetAt) { count = 0; resetAt = now + windowMs; }
     count++;
-    if (count > max) {
-      res.setHeader('Retry-After', Math.ceil((resetAt - now) / 1000));
-      return res.status(429).json({ error: 'Service is busy, please retry.', code: 'PREAUTH_GLOBAL_LIMIT', scope: name });
+    if (count > max()) {
+      const retryAfter = Math.max(1, Math.ceil((resetAt - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfter));
+      return res.status(429).json({ error: 'Service is busy, please retry.', code: 'PREAUTH_GLOBAL_LIMIT', scope: name, retry_after: retryAfter });
     }
     next();
   };
 }
 
-function preAuthLimiter(scope: string, max: number) {
+function preAuthLimiter(scope: string, max: () => number) {
   return rateLimit({
     windowMs: 60_000,
-    max,
+    limit: () => max(),
     standardHeaders: true,
     legacyHeaders: false,
     // Key is built from `ipKeyGenerator` (IPv6-safe) inside `ipBucket`; the
@@ -419,26 +620,47 @@ function preAuthLimiter(scope: string, max: number) {
     skip: (req) => req.method === 'OPTIONS',
     keyGenerator: (req) => `${scope}:${ipBucket(req)}`,
     handler: async (req, res) => {
-      logRateLimited(req, 'info', { endpoint: req.originalUrl, limit: `${max}/min/ip`, scope });
-      res.status(429).json({ error: 'Too many requests. Please retry shortly.', code: 'PREAUTH_RATE_LIMITED' });
+      logRateLimited(req, 'info', { endpoint: req.originalUrl, limit: `${max()}/min/ip`, scope });
+      res.status(429).json({ error: 'Too many requests. Please retry shortly.', code: 'PREAUTH_RATE_LIMITED', retry_after: retryAfterSeconds(req) });
     },
   });
 }
 
-// Caps derived from existing project limits: the generic widget per-IP limiter
-// is 300/min and visitor tracking 200/min; a real browser performs ONE
-// bootstrap per page load, so a far tighter per-IP cap is safe here.
-export const widgetBootstrapRateLimiter = preAuthLimiter('widget-bootstrap', 60);
-export const callWidgetBootstrapRateLimiter = preAuthLimiter('call-widget-bootstrap', 60);
-export const publicKbRateLimiter = preAuthLimiter('public-kb', 120);
-export const visitorPreAuthRateLimiter = preAuthLimiter('visitor-preauth', 200);
+// Bootstrap caps, chat and call widget. Every page view of a site with the
+// widget bootstraps once (a reload or a new tab is a new page view), so these
+// count page views, not visitors: one carrier-grade NAT or office address can
+// carry hundreds of real visitors. They used to be 60/min per IP and
+// 1200/min per process, i.e. the whole platform at 20 page views a second on
+// one process, and a NAT of a few dozen active visitors already refused.
+//
+// They can be this much higher now because a bootstrap that hits the caches
+// costs no database query: the chat widget's from the workspace snapshot
+// (services/widget/configSnapshot.ts), whose MISSES are what reach the
+// database and are bounded on their own by WIDGET_CONFIG_REBUILDS_PER_SEC; the
+// call widget's from its workspace memo plus the 60 s presence ticket
+// (services/callCenter/bootstrapCache.ts, presenceTicket.ts). A call widget
+// visitor seen for the first time still costs its visitor queries (~5-8),
+// so its global ceiling is half the chat widget's.
+//
+// Per-IP caps: WIDGET_BOOTSTRAP_PER_IP_PER_MIN / CALL_WIDGET_BOOTSTRAP_PER_IP_PER_MIN
+// (default 600: ten page views a second from one address). Per-process
+// ceilings, the rotating-IP backstop: WIDGET_BOOTSTRAP_GLOBAL_PER_MIN (12000)
+// and CALL_WIDGET_BOOTSTRAP_GLOBAL_PER_MIN (6000). Inside these, widgetRateLimit
+// ('bootstrap') still caps one visitor at 30/min and an address without a
+// visitor cookie at 300/min per workspace.
+export const widgetBootstrapRateLimiter = preAuthLimiter(
+  'widget-bootstrap', () => limitFromEnv('WIDGET_BOOTSTRAP_PER_IP_PER_MIN', 600));
+export const callWidgetBootstrapRateLimiter = preAuthLimiter(
+  'call-widget-bootstrap', () => limitFromEnv('CALL_WIDGET_BOOTSTRAP_PER_IP_PER_MIN', 600));
+export const publicKbRateLimiter = preAuthLimiter('public-kb', () => 120);
+export const visitorPreAuthRateLimiter = preAuthLimiter('visitor-preauth', () => 200);
 
-// Global ceilings: 20x the per-IP cap keeps normal multi-visitor traffic well
-// clear while bounding a rotating-IP flood on a single process.
-export const widgetBootstrapGlobalCeiling = globalCeiling('widget-bootstrap', 1200);
-export const callWidgetBootstrapGlobalCeiling = globalCeiling('call-widget-bootstrap', 1200);
-export const publicKbGlobalCeiling = globalCeiling('public-kb', 2400);
-export const visitorPreAuthGlobalCeiling = globalCeiling('visitor-preauth', 4000);
+export const widgetBootstrapGlobalCeiling = globalCeiling(
+  'widget-bootstrap', () => limitFromEnv('WIDGET_BOOTSTRAP_GLOBAL_PER_MIN', 12_000));
+export const callWidgetBootstrapGlobalCeiling = globalCeiling(
+  'call-widget-bootstrap', () => limitFromEnv('CALL_WIDGET_BOOTSTRAP_GLOBAL_PER_MIN', 6_000));
+export const publicKbGlobalCeiling = globalCeiling('public-kb', () => 2400);
+export const visitorPreAuthGlobalCeiling = globalCeiling('visitor-preauth', () => 4000);
 
 // Admin: 30 per minute per IP
 export const adminRateLimiter = rateLimit({
@@ -738,12 +960,6 @@ setInterval(() => {
   for (const [key, val] of requestCounters) {
     if (now - val.windowStart > ABUSE_WINDOW * 2) {
       requestCounters.delete(key);
-    }
-  }
-  // Clean IP cache
-  for (const [key, val] of blockedIPCache) {
-    if (now - val.checkedAt > IP_CACHE_TTL * 5) {
-      blockedIPCache.delete(key);
     }
   }
 }, 5 * 60_000);

@@ -26,7 +26,7 @@ import type { ServerConfig } from '../../config.js';
 import { loadControlPlane, type RealtimeProviderId } from './controlPlane.js';
 import { loadFailoverState } from './failoverState.js';
 import { isActionActive } from '../observability/autoActionsCache.js';
-import { loadCallControlPlane, loadEffectiveCallChannels } from '../calls/controlPlane.js';
+import { loadCallControlPlane, loadEffectiveCallChannels, type EffectiveCallChannels } from '../calls/controlPlane.js';
 
 export type EffectiveProviderWire =
   | 'centrifugo'
@@ -222,7 +222,17 @@ function computePolicyVersion(snap: Omit<EffectivePolicySnapshot, 'policy_versio
  */
 export async function resolveEffectivePolicy(
   config: ServerConfig,
-  opts?: { workspaceId?: string | null; preChatRequired?: boolean },
+  opts?: {
+    workspaceId?: string | null;
+    preChatRequired?: boolean;
+    /**
+     * The workspace's effective call channels, when the caller already holds
+     * them (the widget config snapshot): used instead of reading them again.
+     * `null` = they could not be read, which resolves exactly as a failed
+     * read here does (every channel off).
+     */
+    callChannels?: EffectiveCallChannels | null;
+  },
 ): Promise<EffectivePolicySnapshot> {
   try {
     const [policy, state, callCp] = await Promise.all([
@@ -304,7 +314,8 @@ export async function resolveEffectivePolicy(
     let visitor_initiated_video = false;
     if (opts?.workspaceId) {
       try {
-        const ch = await loadEffectiveCallChannels(config, opts.workspaceId);
+        if (opts.callChannels === null) throw new Error('call channels unavailable');
+        const ch = opts.callChannels ?? (await loadEffectiveCallChannels(config, opts.workspaceId));
         voice_enabled = !!ch.voice_enabled && !audio_only_mode === false ? !!ch.voice_enabled : !!ch.voice_enabled;
         // audio_only / video_disabled overlays
         video_enabled = !!ch.video_enabled && !video_disabled;
@@ -352,7 +363,7 @@ export async function resolveEffectivePolicy(
       policy_version,
       expires_at: Date.now() + POLICY_SNAPSHOT_TTL_MS,
     };
-  } catch (err: any) {
+  } catch {
     // Fail-open: never block a handshake on policy resolution.
     return { ...SAFE_DEFAULT, expires_at: Date.now() + POLICY_SNAPSHOT_TTL_MS };
   }

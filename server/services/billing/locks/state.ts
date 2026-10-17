@@ -23,6 +23,7 @@
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { coalesce } from '../../../lib/inflight.js';
+import { invalidateLocal, onInvalidate } from '../../../lib/cacheBus.js';
 
 export type LockKind = 'kb_article' | 'contact' | 'member' | 'conversation';
 
@@ -201,10 +202,17 @@ export function clearLockStateCache(workspaceId?: string): void {
   if (!workspaceId) {
     kindCache.clear();
     enabledCache = null;
-    return;
+  } else {
+    for (const kind of LOCK_KINDS) kindCache.delete(kindKey(workspaceId, kind));
   }
-  for (const kind of LOCK_KINDS) kindCache.delete(kindKey(workspaceId, kind));
+  // The widget's `quota_full` follows the switch and the plan: drop the
+  // workspace's (or every) widget config snapshot and quota answer in this
+  // process too. Local only — never published from here.
+  invalidateLocal([workspaceId ? `widget:${workspaceId}` : 'widget']);
 }
+
+// Another backend process changed a plan, override, seat or the switch.
+onInvalidate('entitlements', (workspaceId) => clearLockStateCache(workspaceId ?? undefined));
 
 /** How long an unreadable switch reads as off without asking again. */
 const FAILED_TTL_MS = 30_000;

@@ -114,8 +114,10 @@ describe('chat widget assets on the server', () => {
   });
 
   it('the bootstrap carries the edition, brand and date hints, and the skin URL (additive)', () => {
-    const route = read('server/routes/widget.ts');
-    expect(route).toContain('const edition = await getPlatformEditionOrNull(config);');
+    // The bootstrap route reads the edition; GET /config's body (and the
+    // bootstrap's inline copy) is built in the widget config snapshot module.
+    const route = read('server/routes/widget.ts') + read('server/services/widget/configSnapshot.ts');
+    expect(read('server/routes/widget.ts')).toContain('getPlatformEditionOrNull(config),');
     expect(route).toContain('resolveEditionWidgetTemplateId(');
     expect(route).toMatch(/\n\s+edition,\n\s+platformBrandName,\n\s+calendar: dateHints\.calendar,\n\s+timeZone: dateHints\.timeZone,/);
     expect(route).toContain('presentationSkinUrl:');
@@ -292,7 +294,11 @@ describe('call widget templates on the server', () => {
   it('the bootstrap sends the edition, and a credit only in the International edition', () => {
     const route = read('server/routes/callWidget.ts');
     expect(route).toContain('resolveCallWidgetTemplateId(ws.widget_template_id, edition)');
-    expect(route).toMatch(/const intlBrand = edition === 'international'\n\s+\? await buildCallWidgetBrand\(config, ws\.workspace_id, getLoaderAssetBase\(req as ExpressRequest\)\)\n\s+: null;/);
+    // Read with the workspace's memoized part; the logo URL (it carries the
+    // loader's asset origin) is built per request.
+    expect(route).toContain("const brand = edition === 'international' ? await readCallWidgetBrand(config, ws.workspace_id) : null;");
+    expect(route).toMatch(/const intlBrand = pub\.brand\n\s+\? buildCallWidgetBrand\(pub\.brand, loaderAssetBase\)\n\s+: null;/);
+    expect(route).toContain('const loaderAssetBase = getLoaderAssetBase(req as ExpressRequest);');
     expect(route).toContain('calendar: dateHints.calendar,');
     expect(route).toContain('time_zone: dateHints.timeZone,');
     expect(route).toContain("...(poweredBy !== undefined ? { powered_by: poweredBy } : {}),");
@@ -422,7 +428,7 @@ describe('"powered by" with the platform logo (International template)', () => {
     const runtime = read('public/widget/runtime.js');
     expect(runtime).toContain("if (!img || !img.hasAttribute || !img.hasAttribute('data-wy-brand-logo')) return;");
     expect(read('public/widget/presentation-intl.css')).toMatch(/\.wy-powered \.wy-powered-logo \{[^}]*height: 14px;[^}]*vertical-align: middle;/);
-    expect(read('server/routes/widget.ts')).toContain('.logo = `${assetBase}${INTL_BRAND.horizontal.light}`');
+    expect(read('server/services/widget/configSnapshot.ts')).toContain('.logo = `${assetBase}${INTL_BRAND.horizontal.light}`');
   });
 
   const cwSource = (name: string) => read(`public/call-widget/${name}`);

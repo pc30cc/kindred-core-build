@@ -10,9 +10,10 @@
  * its real allowed_domains entry, and can set arbitrary Origin/Referer
  * headers and rotate source IPs. None of those are authentication proof.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
-import express from 'express';
+import type { AddressInfo } from 'node:net';
+import express, { type Request } from 'express';
 
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key-widget-security';
 
@@ -27,10 +28,10 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from(table: string) {
       let filterId: string | undefined;
-      const b: any = {
+      const b: Record<string, unknown> = {
         select: () => b,
-        eq: (col: string, val: any) => {
-          if (col === 'id' || col === 'workspace_id') filterId = val;
+        eq: (col: string, val: unknown) => {
+          if (col === 'id' || col === 'workspace_id') filterId = val as string;
           return b;
         },
         in: () => b,
@@ -43,8 +44,8 @@ vi.mock('@supabase/supabase-js', () => ({
         // widget_platform_settings and platform_branding — so bootstrap
         // threw and every test downstream of a token got `undefined`.
         limit: () => {
-          const l: any = Object.create(b);
-          l.then = (onOk: any, onErr: any) =>
+          const l = Object.create(b) as Record<string, unknown>;
+          l.then = (onOk: (v: unknown) => unknown, onErr: (e: unknown) => unknown) =>
             Promise.resolve({ data: [], error: null }).then(onOk, onErr);
           return l;
         },
@@ -65,7 +66,7 @@ vi.mock('@supabase/supabase-js', () => ({
 
 vi.mock('../../../server/supabase.js', async () => {
   const { createClient } = await import('@supabase/supabase-js');
-  const client = (createClient as any)();
+  const client = (createClient as unknown as () => unknown)();
   return { getServiceClient: () => client };
 });
 
@@ -74,44 +75,53 @@ vi.mock('../../../server/services/geo/index.js', () => ({ enrichVisitorSessionGe
 
 const { widgetRouter } = await import('../../../server/routes/widget.js');
 const { resolveRateLimitWorkspaceKey, widgetSessionRateLimiter } = await import('../../../server/middleware/security.js');
+const { jsonBodyParser } = await import('../../../server/middleware/bodyParsers.js');
+const { __resetWidgetConfigCachesForTests } = await import('../../../server/services/widget/configSnapshot.js');
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = {
-    supabaseUrl: 'https://example.supabase.co',
-    supabaseAnonKey: 'ANON_KEY',
-    supabaseServiceRoleKey: 'SERVICE_KEY',
-  };
+  Object.assign(req, {
+    serverConfig: {
+      supabaseUrl: 'https://example.supabase.co',
+      supabaseAnonKey: 'ANON_KEY',
+      supabaseServiceRoleKey: 'SERVICE_KEY',
+    },
+  });
   next();
 });
-app.use(express.json());
+// server/index.ts's body parser: JSON everywhere, and on /api/widget/bootstrap
+// also the loader's text/plain (CORS-simple) JSON body.
+app.use(jsonBodyParser());
 // Mirrors server/index.ts's real mount chain for /api/widget so the
 // canonical per-session limiter is actually exercised, not just the
 // router alone.
 app.use('/api/widget', widgetSessionRateLimiter, widgetRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as AddressInfo).port;
+
+/** The JSON answers these tests read (a raw string when the body is not JSON). */
+type ResponseBody = { session_token: string; code?: string; config?: unknown; [key: string]: unknown };
 
 function call(
   method: string,
   path: string,
-  opts: { headers?: Record<string, string>; body?: unknown } = {},
-): Promise<{ status: number; body: any }> {
+  opts: { headers?: Record<string, string>; body?: unknown; contentType?: string } = {},
+): Promise<{ status: number; body: ResponseBody }> {
   return new Promise((resolve, reject) => {
     const payload = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
     const headers = { ...(opts.headers || {}) };
     if (payload) {
-      headers['content-type'] = 'application/json';
+      headers['content-type'] = opts.contentType || 'application/json';
       headers['content-length'] = Buffer.byteLength(payload).toString();
     }
     const req = http.request({ host: '127.0.0.1', port: port(), path, method, headers }, (res) => {
       let d = '';
       res.on('data', (c) => (d += c));
       res.on('end', () => {
-        let parsed: any = d;
+        let parsed: unknown = d;
         try { parsed = JSON.parse(d); } catch { /* leave raw */ }
-        resolve({ status: res.statusCode || 0, body: parsed });
+        resolve({ status: res.statusCode || 0, body: parsed as ResponseBody });
       });
     });
     req.on('error', reject);
@@ -120,11 +130,19 @@ function call(
   });
 }
 
-async function bootstrap(headers: Record<string, string>, body: unknown = { workspace_id: VICTIM_WS }) {
-  return call('POST', '/api/widget/bootstrap', { headers, body });
+async function bootstrap(headers: Record<string, string>, body: unknown = { workspace_id: VICTIM_WS }, contentType?: string) {
+  return call('POST', '/api/widget/bootstrap', { headers, body, contentType });
 }
 
+/** The current loader's request: the same JSON, labelled text/plain (no preflight). */
+const TEXT_PLAIN = 'text/plain;charset=UTF-8';
+
 describe('chat widget bootstrap — real route, credential trust boundary', () => {
+  // The widget config snapshot is per-process state; each test starts cold.
+  beforeEach(() => {
+    __resetWidgetConfigCachesForTests();
+  });
+
   // TEST 2 — spoofed victim Origin + victim workspace_id still yields a
   // functional token (product contract; not itself a vulnerability), but
   // it must decode to rateLimitTrust:'public' and the resolver must NOT
@@ -141,7 +159,7 @@ describe('chat widget bootstrap — real route, credential trust boundary', () =
       body: {},
       query: {},
       originalUrl: '/api/widget/poll',
-    } as any);
+    } as unknown as Request);
     expect(key).not.toBe(`ws:${VICTIM_WS}`);
     expect(key).toBe('ip:203.0.113.9');
   });
@@ -163,9 +181,18 @@ describe('chat widget bootstrap — real route, credential trust boundary', () =
     expect(res.body.session_token).toBeUndefined();
   });
 
+  it('TEST 5 (text/plain body): the CORS-simple request is held to the same rule', async () => {
+    const res = await bootstrap({}, { workspace_id: VICTIM_WS, include_config: true }, TEXT_PLAIN);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('ORIGIN_REQUIRED');
+    expect(res.body.session_token).toBeUndefined();
+    expect(res.body.config).toBeUndefined();
+  });
+
   // TEST 4 — token farming via IP rotation against one victim workspace:
-  // bounded by the existing pre-auth per-IP limiter (60/min/IP) and global
-  // ceiling (1200/min) mounted in server/index.ts — NOT by any per-workspace
+  // bounded by the existing pre-auth per-IP limiter (WIDGET_BOOTSTRAP_PER_IP_PER_MIN,
+  // 600/min/IP) and per-process ceiling (WIDGET_BOOTSTRAP_GLOBAL_PER_MIN,
+  // 12000/min) mounted in server/index.ts — NOT by any per-workspace
   // bootstrap ceiling (which would itself be an attacker-targetable DoS
   // vector keyed on a public workspace UUID). This test exercises the
   // route directly (no server/index.ts pre-auth limiter attached here, by
@@ -187,7 +214,22 @@ describe('chat widget bootstrap — real route, credential trust boundary', () =
         body: {},
         query: {},
         originalUrl: '/api/widget/poll',
-      } as any);
+      } as unknown as Request);
+      expect(key).not.toBe(`ws:${FARM_WS}`);
+    }
+  });
+
+  it('TEST 4 (text/plain body): tokens farmed with the CORS-simple request cannot select ws:VICTIM either', async () => {
+    for (let i = 0; i < 10; i++) {
+      const res = await bootstrap({ origin: VICTIM_ORIGIN, 'x-forwarded-for': `46.9.${i}.1` }, { workspace_id: FARM_WS, include_config: true }, TEXT_PLAIN);
+      expect(res.status).toBe(200);
+      const key = resolveRateLimitWorkspaceKey({
+        ip: '203.0.113.13',
+        headers: { 'x-widget-token': res.body.session_token },
+        body: {},
+        query: {},
+        originalUrl: '/api/widget/poll',
+      } as unknown as Request);
       expect(key).not.toBe(`ws:${FARM_WS}`);
     }
   });
@@ -215,7 +257,7 @@ describe('chat widget bootstrap — real route, credential trust boundary', () =
       body: {},
       query: {},
       originalUrl: '/api/widget/poll',
-    } as any);
+    } as unknown as Request);
     expect(key).not.toBe(`ws:${VICTIM_WS}`);
   });
 
@@ -239,7 +281,7 @@ describe('chat widget bootstrap — real route, credential trust boundary', () =
       body: {},
       query: {},
       originalUrl: '/api/widget/poll',
-    } as any);
+    } as unknown as Request);
     expect(key).not.toBe(`ws:${VICTIM_WS}`);
   });
 
@@ -305,7 +347,7 @@ describe('backward compatibility — pre-trust-claim tokens', () => {
       body: {},
       query: {},
       originalUrl: '/api/widget/poll',
-    } as any);
+    } as unknown as Request);
     expect(key).not.toBe(`ws:${VICTIM_WS}`);
   });
 });

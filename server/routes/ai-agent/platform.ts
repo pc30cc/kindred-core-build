@@ -13,6 +13,7 @@ import {
 } from '../../services/ai-agent/platformSettings.js';
 import { resolveCurrentUserId } from './shared.js';
 import { getServiceClient } from '../../supabase.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 import { getMonitoringCollector } from '../../services/observability/collector/index.js';
 import { canAccessAiAgentAdvancedToolsServer } from '../../services/ai-agent/customerSafe.js';
 
@@ -80,6 +81,8 @@ platformRouter.patch('/platform/settings', async (req: Request, res: Response) =
       (req.body || {}) as Record<string, unknown>,
       userId,
     );
+    // Every widget's AI snapshot depends on these switches, on every node.
+    publishCacheInvalidation(['all']);
     // Only a genuine OFF → ON transition re-arms deferred indexing for every
     // workspace. ON → ON does nothing; ON → OFF only clears caches implicitly
     // (events stay deferred and retryable on their own backoff).

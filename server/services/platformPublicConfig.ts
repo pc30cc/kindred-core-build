@@ -31,6 +31,7 @@ import { getServiceClient } from '../supabase.js';
 import { resolveEdition } from '../../shared/edition.js';
 import { brandContactFromDomains } from '../../shared/brand.js';
 import { isInternationalSmsVerificationActive } from './sms/index.js';
+import { onInvalidate } from '../lib/cacheBus.js';
 
 // Whitelists, applied after a `select('*')`: production and a database built
 // from database/migrations do not have exactly the same optional columns
@@ -119,6 +120,9 @@ export function invalidatePlatformPublicConfig(): void {
   cached = null;
   loading = null;
 }
+
+// A Super Admin write on another backend process (lib/cacheBus.ts 'platform').
+onInvalidate('platform', () => invalidatePlatformPublicConfig());
 
 async function load(config: ServerConfig): Promise<PlatformPublicConfig | null> {
   const sb = getServiceClient(config);

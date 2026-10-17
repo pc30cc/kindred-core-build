@@ -47,6 +47,7 @@ import { IdleBackoff } from '../jobs/idleBackoff.js';
 import { reviveFailedWorkspaceDeletion } from '../workspaceDeletion/revive.js';
 import { resolveOwnerCdn, purgeOwnerFromCdn, logOwnerCdnPurge } from '../cdn/ownerPurge.js';
 import { supabaseServicesClient } from '../../db/index.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 const POLL_INTERVAL_MS = 5_000;
 /** Ceiling for the idle backoff — see the start function below. */
@@ -328,6 +329,9 @@ async function purgeUser(config: ServerConfig, job: UserDeletionJobRow): Promise
       return;
     }
   }
+
+  // Their name and avatar leave every widget team stack now, on every process.
+  publishCacheInvalidation([`user:${job.user_id}`]);
 
   // The user's own objects (users/<id>/, the avatar) are gone from storage;
   // evict the CDN's cached copies too. Owned workspaces purged theirs when

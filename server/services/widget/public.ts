@@ -2,6 +2,8 @@ import type { Request } from 'express';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { extractHostname, isOriginAllowed, normalizeDomain } from '../../utils/domain.js';
+import { onInvalidate } from '../../lib/cacheBus.js';
+import { canonicalWorkspaceId } from '../../lib/workspaceId.js';
 
 const CACHE_TTL = 60_000;
 /** Negative (host → no workspace) answers expire faster: a customer that just
@@ -24,8 +26,8 @@ const NEGATIVE_CACHE_TTL = 15_000;
  *    newly added domain (whose host may have been cached as "unknown", incl.
  *    subdomains we cannot enumerate) is re-resolved on the next request.
  *
- * A future multi-node shared layer only has to broadcast the same three
- * primitives below — no call site needs to change.
+ * Other backend processes receive the same primitives through the cache bus
+ * (lib/cacheBus.ts scopes `origin:<workspace>` and `host:<domain>`).
  */
 const CACHE_MAX_ENTRIES = 1000;
 
@@ -64,6 +66,7 @@ function isHostEntryFresh(entry: HostEntry): boolean {
 
 /** Drop the cached origin rules of one workspace (domain/settings mutation). */
 export function invalidateWorkspaceOriginCache(workspaceId: string): void {
+  workspaceId = canonicalWorkspaceId(workspaceId) ?? workspaceId;
   originRulesCache.delete(workspaceId);
   domainGeneration += 1;
   for (const [host, entry] of workspaceByHostCache) {
@@ -78,12 +81,22 @@ export function invalidateOriginHostCache(domain: string): void {
   domainGeneration += 1;
 }
 
-/** Test-only: wipe every cached origin decision. */
-export function __resetWidgetOriginCaches(): void {
+/** Drop every cached origin decision. */
+function clearAllOriginCaches(): void {
   workspaceByHostCache.clear();
   originRulesCache.clear();
   domainGeneration += 1;
 }
+
+/** Test-only: wipe every cached origin decision. */
+export function __resetWidgetOriginCaches(): void {
+  clearAllOriginCaches();
+}
+
+// The same primitives, applied when another backend process publishes the
+// change (lib/cacheBus.ts). 'all' (key null) drops everything.
+onInvalidate('origin', (workspaceId) => (workspaceId ? invalidateWorkspaceOriginCache(workspaceId) : clearAllOriginCaches()));
+onInvalidate('host', (domain) => (domain ? invalidateOriginHostCache(domain) : clearAllOriginCaches()));
 
 /**
  * Bounded list of hostname suffixes that could match a stored domain.
@@ -256,7 +269,7 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
 
   if (error) throw error;
 
-  const rows = (domainRows || []).map((row: any) => ({
+  const rows = ((domainRows || []) as Array<{ workspace_id: string; normalized_domain: string | null }>).map((row) => ({
     workspace_id: row.workspace_id as string,
     domain: String(row.normalized_domain || '').toLowerCase(),
   }));
@@ -297,7 +310,10 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
 
   if (widgetError) throw widgetError;
 
-  const allowSubdomainMap = new Map((widgetRows || []).map((row: any) => [row.workspace_id as string, !!row.allow_subdomains]));
+  const allowSubdomainMap = new Map(
+    ((widgetRows || []) as Array<{ workspace_id: string; allow_subdomains: boolean | null }>)
+      .map((row) => [row.workspace_id as string, !!row.allow_subdomains]),
+  );
   const eligible = suffixMatches.filter((row) => allowSubdomainMap.get(row.workspace_id));
   if (!eligible.length) return rememberHost(null);
 
@@ -310,6 +326,8 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
 
 
 export async function getWorkspaceOriginRules(config: ServerConfig, workspaceId: string) {
+  // One entry per workspace whatever the spelling (lib/workspaceId.ts).
+  workspaceId = canonicalWorkspaceId(workspaceId) ?? workspaceId;
   const cached = originRulesCache.get(workspaceId);
   if (cached && isFresh(cached.ts)) {
     return { domains: cached.domains, allowSubdomains: cached.allowSubdomains };
@@ -345,7 +363,7 @@ export async function getWorkspaceOriginRules(config: ServerConfig, workspaceId:
 
   const domains = uniqueStrings([
     ...(allowlistGranted ? ((widgetData?.allowed_domains as string[] | null) || []) : []),
-    ...((domainData || []).map((row: any) => row.domain)),
+    ...(((domainData || []) as Array<{ domain: string | null }>).map((row) => row.domain)),
   ]);
 
 

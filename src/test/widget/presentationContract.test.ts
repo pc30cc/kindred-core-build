@@ -306,7 +306,8 @@ describe('widget build pipeline — template-agnostic', () => {
   });
 
   it('names presentation assets from the resolved template id on the server', () => {
-    const route = readFileSync('server/routes/widget.ts', 'utf8');
+    // GET /config's body is built in the widget config snapshot module.
+    const route = readFileSync('server/services/widget/configSnapshot.ts', 'utf8');
     expect(route).toContain('resolveWidgetTemplateId');
     expect(route).toContain('widgetTemplateAssetKeys');
     expect(/const templateId = ['"]default['"]/.test(route)).toBe(false);

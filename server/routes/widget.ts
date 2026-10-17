@@ -23,6 +23,7 @@ import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 import { routeParam } from '../lib/routeParams.js';
+import { canonicalWorkspaceId } from '../lib/workspaceId.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
   publishConversationEvent,
@@ -30,33 +31,27 @@ import {
 } from '../services/realtime/publish.js';
 import { notifyInboundMessage } from '../services/push/index.js';
 import {
-  getLoaderAssetBase,
-  getRequestBaseUrl,
   getRequestOrigin as getRequestOriginPublic,
   getWorkspaceOriginRules,
   isWorkspaceOriginAllowed,
-  resolveWidgetApiBase,
-  resolveWidgetAssetBase,
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
 import { perfHttpMiddleware } from '../services/observability/perf.js';
-import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
-import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
-import { widgetDateHints } from '../../shared/widgetTemplates.js';
-import { INTL_BRAND } from '../../shared/internationalMode.js';
-import { WEBYAR_BRAND, isWebyarKitEdition } from '../../shared/webyarBrand.js';
+import { getWidgetAssetName, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import { attachmentPreviewKind, type AttachmentPreviewKind } from '../services/attachmentPreviewKind.js';
-import { isPoweredByAllowedForPlan, buildPoweredByConfig } from '../services/widget/poweredBy.js';
 import {
-  resolveWidgetEntitlements,
-  applyWidgetEntitlementsToSettings,
-  type WidgetEntitlements,
-} from '../services/widget/entitlements.js';
+  DEFAULT_WIDGET_SETTINGS,
+  bootstrapAvailability,
+  getQuotaFull,
+  getWidgetPlatformSnapshot,
+  getWorkspaceWidgetSnapshot,
+  resolveWidgetConfigBody,
+  WidgetConfigBusyError,
+} from '../services/widget/configSnapshot.js';
 
 
-import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
+import { recordSmartEvent } from '../services/widget/smartEngagement.js';
 import { evaluateAiProactiveNudge } from '../services/widget/aiNudge/evaluate.js';
-import { resolveEffectiveAiNudgePolicy } from '../services/widget/aiNudge/policy.js';
 import {
   touchVisitorLiveness,
   VISITOR_LIVENESS_NAVIGATION_ONLY_MS,
@@ -82,9 +77,9 @@ import {
   verifyConversationOwnership,
   getClientIp,
   getRequestOrigin,
+  takeNewVisitorSession,
 } from '../services/widget/security.js';
-import { createStorageUrlResolver, hydrateUserAvatars } from '../services/storage/urlResolver.js';
-import { resolveAgentLogoUrl, type AgentMode } from '../services/ai-agent/settings.js';
+import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { enrichMessagesWithSender } from '../services/widget/senderIdentity.js';
 
 /**
@@ -99,7 +94,6 @@ type WidgetScopedRequest = Request & {
 };
 import { maybeRunAiAssistantAfterVisitorMessage } from '../services/ai-agent/engine.js';
 import { logRun as logAiRun } from '../services/ai-agent/logs.js';
-import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
 import { clearAiManagementForPlatformOff, markNeedsHuman, type PlatformOffReason } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { ensureVisitorContact } from '../services/widget/anonymousContact.js';
@@ -120,7 +114,7 @@ import {
   INBOUND_REUSABLE_STATUSES,
 } from '../services/conversationLifecycle.js';
 import { extractHostname, isOriginAllowed } from '../utils/domain.js';
-import { resolveAvailability, resolveConversationQuotaFull, snapshotToWirePayload } from '../services/widget/availability.js';
+import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { applyKbUnlockedFilter, resolveKbLock } from '../services/knowledge-base/locks.js';
 import { sendEmail } from '../services/email/index.js';
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
@@ -137,7 +131,7 @@ import { checkMaxConversationsAllowance, enforceMaxConversationsLimit } from '..
 import { locksEnabled } from '../services/billing/locks/state.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
-import { getPlatformAllowedLocales, getPlatformEditionOrNull } from '../services/platformRegion.js';
+import { getPlatformEditionOrNull } from '../services/platformRegion.js';
 
 /**
  * Internal staffing notices never reach the visitor.
@@ -182,192 +176,71 @@ widgetRouter.use('/departments', widgetDepartmentsRouter);
 // existing conversation-ownership helper.
 widgetRouter.use('/call-invitations', widgetCallInvitationsRouter);
 
-// ─── Default widget settings ───
-// Seeded English defaults. When the widget locale is not English these are
-// treated as "unset" so the visitor sees a localized string instead of the
-// leftover English seed value.
-const SEED_LAUNCHER_TEXTS = ['chat with us', 'support', 'hello!'];
-const SEED_WELCOME_TEXTS = ['hello! how can we help you?', 'how can we help you?'];
-const LOCALIZED_WIDGET_DEFAULTS: Record<string, { launcher: string; welcome: string }> = {
-  fa: { launcher: 'با ما گفتگو کنید', welcome: 'سلام! چطور می‌توانیم کمکتان کنیم؟' },
-  tr: { launcher: 'Bizimle sohbet edin', welcome: 'Merhaba! Size nasıl yardımcı olabiliriz?' },
-  en: { launcher: 'Chat with us', welcome: 'Hello! How can we help you?' },
-};
-
-function resolveLocalizedDefault(
-  value: unknown,
-  kind: 'launcher' | 'welcome',
-  locale: string | null | undefined,
-): string {
-  const lang = String(locale || 'en').toLowerCase().split('-')[0];
-  const defaults = LOCALIZED_WIDGET_DEFAULTS[lang] || LOCALIZED_WIDGET_DEFAULTS.en;
-  const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) return lang === 'en' ? '' : defaults[kind];
-  if (lang === 'en') return raw;
-  const seeds = kind === 'launcher' ? SEED_LAUNCHER_TEXTS : SEED_WELCOME_TEXTS;
-  if (seeds.includes(raw.toLowerCase())) return defaults[kind];
-  return raw;
-}
-
-const DEFAULT_WIDGET_SETTINGS = {
-  enabled: true,
-  primary_color: '#3B82F6',
-  secondary_color: '#6366f1',
-  greeting_message: '',
-  welcome_message: 'Hello! How can we help you?',
-  // NULL (not '') = "never authored" → the UI/widget uses its default text.
-  // An explicit '' is an authored "hide this line" signal.
-  reply_time_text: null as string | null,
-  brand_name: null as string | null,
-
-  placeholder_text: '',
-  position: 'bottom-right',
-  show_logo: true,
-  show_team_avatars: true,
-  show_powered_by: true,
-  offline_message: '',
-  auto_open_delay: 0,
-  theme: 'modern',
-  fab_icon: 'chat',
-  fab_shape: 'circle',
-  fab_label: '',
-  fab_scale: 100,
-  fab_icon_color: '#ffffff',
-  fab_image_storage_key: null as string | null,
-  fab_image_url: null as string | null,
-  fab_text_color: '#ffffff',
-  default_mode: 'chat',
-  chat_enabled: true,
-  kb_enabled: true,
-  visitor_tracking_enabled: true,
-  support_mode: 'human_first',
-  widget_language: 'auto',
-  mobile_behavior: 'bottom_sheet',
-  locale: 'en',
-  // Phase 5 — Availability
-  live_chat_enabled: true,
-  offline_mode: 'accept_messages',
-  business_hours: { enabled: false, timezone: 'UTC', schedule: [] },
-  availability_labels: {},
-  // Phase 6a — Attachments (off by default)
-  attachments_enabled: false,
-  attachments_max_size_mb: 10,
-  attachments_allowed_mimes: [
-    'image/png', 'image/jpeg', 'image/webp', 'image/gif',
-    'application/pdf', 'text/plain',
-  ],
-  // Voice notes — independent of file attachments (own toggle, own
-  // fixed audio-mime allow-list server-side; see widgetAttachments.ts).
-  voice_notes_enabled: false,
-  // Emoji picker — client-side only, on by default.
-  emoji_enabled: true,
-  // Phase 7 — Read receipts (on by default; admin can disable per-workspace)
-  read_receipts_enabled: true,
-};
-
-const PRECHAT_RUNTIME_KEY = 'widget_prechat_fields';
-const PRECHAT_FIELD_KEYS = {
-  name: 'widget_prechat_name',
-  email: 'widget_prechat_email',
-  phone: 'widget_prechat_phone',
-} as const;
-const DEFAULT_PRECHAT_POLICY = {
-  name: 'default_on',
-  email: 'default_on',
-  phone: 'default_on',
-} as const;
-
-function normalizePreChatPolicy(value) {
-  const source = value && typeof value === 'object' ? value : {};
-  const valid = (v) => v === 'force_on' || v === 'force_off' || v === 'default_on' || v === 'default_off';
-  return {
-    name: valid(source.name) ? source.name : DEFAULT_PRECHAT_POLICY.name,
-    email: valid(source.email) ? source.email : DEFAULT_PRECHAT_POLICY.email,
-    phone: valid(source.phone) ? source.phone : DEFAULT_PRECHAT_POLICY.phone,
-  };
-}
-
-// Loads policy from widget_platform_settings (preferred) or falls back to app_runtime_config
-async function loadPlatformPreChatPolicy(supabase): Promise<Record<string, unknown>> {
-  const { data: platformRow } = await supabase
-    .from('widget_platform_settings')
-    .select('prechat_name_policy, prechat_email_policy, prechat_phone_policy')
-    .limit(1)
-    .maybeSingle();
-  if (platformRow) {
-    return {
-      name: platformRow.prechat_name_policy,
-      email: platformRow.prechat_email_policy,
-      phone: platformRow.prechat_phone_policy,
-    };
-  }
-  const { data: legacy } = await supabase
-    .from('app_runtime_config')
-    .select('value')
-    .eq('key', PRECHAT_RUNTIME_KEY)
-    .maybeSingle();
-  return legacy?.value || null;
-}
-
-function buildPreChatConfig(policyValue, workspaceFlags: Array<{ key: string; enabled: boolean | null }> = []) {
-  const policy = normalizePreChatPolicy(policyValue);
-  const flagMap = new Map(workspaceFlags.map((flag) => [flag.key, flag.enabled]));
-
-  const resolveField = (field: keyof typeof PRECHAT_FIELD_KEYS) => {
-    const mode = policy[field];
-    const locked = mode === 'force_off';
-    const workspaceOverride = flagMap.has(PRECHAT_FIELD_KEYS[field]) ? flagMap.get(PRECHAT_FIELD_KEYS[field]) ?? false : null;
-    const enabled = locked ? false : workspaceOverride === null ? mode === 'default_on' : !!workspaceOverride;
-    return { enabled, locked, mode, workspaceOverride };
-  };
-
-  return {
-    name: resolveField('name'),
-    email: resolveField('email'),
-    phone: resolveField('phone'),
-  };
-}
-
 // ═══════════════════════════════════════════════
 // POST /bootstrap — Public. Issues session token
 // ═══════════════════════════════════════════════
-widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware('widget.bootstrap'), async (req: Request, res: Response) => {
+//
+// Reads nothing on a warm cache: the workspace, its widget settings, team
+// prefs and call channels come from the workspace snapshot, the platform
+// name from the platform snapshot (services/widget/configSnapshot.ts). The
+// visitor-specific parts — token, cookies, origin checks — are per request.
+//
+// `include_config: true` (the current loader) adds `config`: exactly the
+// GET /config body, so a page view needs one API round trip instead of two.
+// It is left out whenever that body would not be a 200 (the loader then asks
+// GET /config and gets the same answer as before). The loader posts the body
+// as text/plain (a CORS-simple request: no preflight); server/index.ts parses
+// it as JSON on this path only.
+//
+// `protocol` on every body this handler answers tells the loader it reached
+// this server and not an older one:
+//   >= 2  this server read the text/plain bootstrap body (an older one
+//         ignores it; see public/widget/loader.js requestBootstrap). Every
+//         answer the handler writes carries it, errors included, so the
+//         loader can tell a final error from this server from an older
+//         backend's answer to POST /boot, a route it does not have;
+//   >= 3  POST /track and POST /api/realtime/visitor-presence also take the
+//         session token as `widget_token` in a text/plain body, so the
+//         loader sends them CORS-simple (no preflight; loader.js tokenPost).
+const BOOTSTRAP_PROTOCOL = 3;
+
+async function handleBootstrap(req: Request, res: Response) {
   try {
     const config = serverConfigOf(req);
-    const supabase = getServiceClient(config);
     const { workspace_id } = req.body || {};
 
     const requestOrigin = getRequestOrigin(req) || (() => {
       try { return new URL(req.headers['referer'] as string || '').origin; } catch { return null; }
     })();
 
+    // An explicit id is used in its canonical spelling only (lib/workspaceId.ts):
+    // every cache, token and bucket below sees one key per workspace. A value
+    // that is no uuid at all names no workspace.
+    const explicitWorkspaceId = workspace_id ? canonicalWorkspaceId(workspace_id) : null;
+    if (workspace_id && !explicitWorkspaceId) {
+      return res.status(404).json({ disabled: true, error: 'Workspace not found', protocol: BOOTSTRAP_PROTOCOL });
+    }
+
     // Resolve workspace: explicit ID or by origin
-    const resolvedWorkspaceId = workspace_id || (requestOrigin ? await resolveWorkspaceIdFromOrigin(config, requestOrigin) : null);
+    const resolvedWorkspaceId = explicitWorkspaceId || (requestOrigin ? await resolveWorkspaceIdFromOrigin(config, requestOrigin) : null);
 
     if (!resolvedWorkspaceId) {
-      return res.status(400).json({ error: 'workspace_id required or origin must be mapped', code: 'MISSING_WORKSPACE' });
+      return res.status(400).json({ error: 'workspace_id required or origin must be mapped', code: 'MISSING_WORKSPACE', protocol: BOOTSTRAP_PROTOCOL });
     }
 
     // Verify workspace exists
-    const { data: workspace } = await supabase
-      .from('workspaces')
-      .select('id, name')
-      .eq('id', resolvedWorkspaceId)
-      .maybeSingle();
+    const snap = await getWorkspaceWidgetSnapshot(config, resolvedWorkspaceId);
+    const workspace = snap.workspace;
 
     if (!workspace) {
-      return res.status(404).json({ disabled: true, error: 'Workspace not found' });
+      return res.status(404).json({ disabled: true, error: 'Workspace not found', protocol: BOOTSTRAP_PROTOCOL });
     }
 
     // Check widget enabled
-    const { data: widgetSettings } = await supabase
-      .from('widget_settings')
-      .select('enabled, allowed_domains, allow_subdomains')
-      .eq('workspace_id', resolvedWorkspaceId)
-      .maybeSingle();
+    const widgetSettings = snap.widgetRow;
 
     if (widgetSettings?.enabled === false) {
-      return res.json({ disabled: true, fallback: true });
+      return res.json({ disabled: true, fallback: true, protocol: BOOTSTRAP_PROTOCOL });
     }
 
     // Credential-issuance integrity — a bootstrap request with NEITHER
@@ -382,11 +255,14 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     // and no real browser traffic needs the bypass anyway.
     if (!requestOrigin) {
       console.warn(`[widget-bootstrap] Rejected — no Origin/Referer for workspace ${resolvedWorkspaceId}`);
-      return res.status(403).json({ error: 'Origin or Referer required', code: 'ORIGIN_REQUIRED' });
+      return res.status(403).json({ error: 'Origin or Referer required', code: 'ORIGIN_REQUIRED', protocol: BOOTSTRAP_PROTOCOL });
     }
 
-    // Origin validation
-    if (requestOrigin && widgetSettings) {
+    // Origin validation. An unreadable widget_settings row is checked too
+    // (getWorkspaceOriginRules reads it itself and throws on error): the
+    // snapshot that failed to read it is cached for seconds, and the
+    // allow-list must not be off for that long.
+    if (requestOrigin && (widgetSettings || snap.widgetRowUnreadable)) {
       const originRules = await getWorkspaceOriginRules(config, resolvedWorkspaceId);
       if (originRules.domains.length > 0) {
         const allowed = await isWorkspaceOriginAllowed(config, resolvedWorkspaceId, requestOrigin);
@@ -395,7 +271,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
           const isLocalDev = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(requestOrigin);
           if (!isLocalDev) {
             console.warn(`[widget-bootstrap] Origin rejected: ${requestOrigin} for workspace ${resolvedWorkspaceId}`);
-            return res.status(403).json({ error: 'Origin not authorized', code: 'ORIGIN_DENIED' });
+            return res.status(403).json({ error: 'Origin not authorized', code: 'ORIGIN_DENIED', protocol: BOOTSTRAP_PROTOCOL });
           }
         }
       }
@@ -433,19 +309,14 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
 
     // Platform display name — owned by platform branding (super admin only).
     // Workspace rows must never influence how the platform is credited.
-    // platform_name lives on platform_branding_localized — it was moved off
-    // platform_branding, so selecting it here returned 400 on every request.
-    // The dropped error then made platform_display_name silently empty.
-    // 'en' is the terminal fallback used by manifest.ts and resolveBrandName().
-    const { data: branding, error: brandingError } = await supabase
-      .from('platform_branding_localized')
-      .select('platform_name')
-      .eq('locale', 'en')
-      .maybeSingle();
-    if (brandingError) {
-      console.warn('[widget] platform brand name lookup failed:', brandingError.message);
-    }
-
+    // platform_name lives on platform_branding_localized; 'en' is the
+    // terminal fallback used by manifest.ts and resolveBrandName().
+    const now = new Date();
+    const [platform, edition, quotaFull] = await Promise.all([
+      getWidgetPlatformSnapshot(config),
+      getPlatformEditionOrNull(config),
+      getQuotaFull(config, resolvedWorkspaceId),
+    ]);
 
     // Phase 8 — server-authoritative availability snapshot. Additive;
     // existing widget runtimes ignore unknown fields.
@@ -454,14 +325,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
       const localeHint = (req.body && (req.body.locale as string)) ||
         (req.headers['accept-language'] as string | undefined)?.split(',')[0] ||
         'en';
-      const [snap, quotaFull] = await Promise.all([
-        resolveAvailability(config, {
-          workspaceId: resolvedWorkspaceId,
-          locale: localeHint,
-        }),
-        resolveConversationQuotaFull(config, resolvedWorkspaceId),
-      ]);
-      availabilityPayload = snapshotToWirePayload(snap, { quota_full: quotaFull });
+      availabilityPayload = await bootstrapAvailability(config, resolvedWorkspaceId, snap, localeHint, now, quotaFull);
     } catch (err) {
       console.warn('[widget-bootstrap] availability resolve failed:', err?.message);
     }
@@ -472,28 +336,63 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     // round-trip. Resolution is fail-open and never blocks bootstrap.
     const effective_policy = await resolveEffectivePolicy(config, {
       workspaceId: resolvedWorkspaceId,
+      callChannels: snap.callChannels,
     });
+
+    // The GET /config body, inline, when the loader asks for it and it
+    // would be a 200. A failure here only means the loader asks GET /config.
+    let inlineConfig: Record<string, unknown> | null = null;
+    if ((req.body as { include_config?: unknown } | undefined)?.include_config === true) {
+      try {
+        const built = await resolveWidgetConfigBody(config, req, resolvedWorkspaceId, { snap, platform, edition, quotaFull, now });
+        if (built.status === 200) inlineConfig = built.body;
+      } catch (err) {
+        console.warn('[widget-bootstrap] inline config failed:', err?.message);
+      }
+    }
 
     return res.json({
       session_token: sessionToken,
       workspace_id: resolvedWorkspaceId,
       workspace_name: workspace.name,
       expires_at: tokenInfo.valid && tokenInfo.expiresAt ? new Date(tokenInfo.expiresAt * 1000).toISOString() : null,
-      platform_display_name: branding?.platform_name || '',
+      platform_display_name: platform.names.get('en') || '',
       // Additive: the platform's edition (null when it cannot be read; the
       // widget then behaves as the Iranian edition).
-      edition: await getPlatformEditionOrNull(config),
+      edition,
       visitor_id: visitor.visitorId,
       is_new_visitor: visitor.isNew,
       availability: availabilityPayload,
       effective_policy,
       version: '3.0.0',
+      protocol: BOOTSTRAP_PROTOCOL,
+      ...(inlineConfig ? { config: inlineConfig } : {}),
     });
   } catch (err) {
+    if (err instanceof WidgetConfigBusyError) {
+      // Too many cold snapshots at once on this process: retry shortly.
+      res.set('Retry-After', '1');
+      return res.status(503).json({ error: 'Bootstrap failed', code: err.code, protocol: BOOTSTRAP_PROTOCOL });
+    }
     console.error('[widget-bootstrap] Error:', err.message);
-    return res.status(500).json({ error: 'Bootstrap failed' });
+    return res.status(500).json({ error: 'Bootstrap failed', protocol: BOOTSTRAP_PROTOCOL });
   }
-});
+}
+
+// The same bootstrap under two paths:
+//   POST /bootstrap  what every loader posts as application/json (and what
+//                    an older loader only knows);
+//   POST /boot       what the current loader posts FIRST, CORS-simple
+//                    (text/plain, no preflight). A backend older than that
+//                    loader has no such route: it answers before any
+//                    bootstrap work, minting no token and setting no visitor
+//                    cookie, and the loader falls back to /bootstrap as JSON.
+//                    Sending the CORS-simple body to /bootstrap itself would
+//                    let an older backend, which cannot read it, resolve the
+//                    workspace from the page origin instead, and set a
+//                    visitor cookie for THAT workspace.
+widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware('widget.bootstrap'), handleBootstrap);
+widgetRouter.post('/boot', widgetRateLimit('bootstrap'), perfHttpMiddleware('widget.bootstrap'), handleBootstrap);
 
 // ═══════════════════════════════════════════════
 // POST /session/refresh — Secure token renewal
@@ -615,13 +514,11 @@ widgetRouter.use((req: Request, res: Response, next: NextFunction) => {
 // ═══════════════════════════════════════════════
 // GET /config — Full widget configuration
 // ═══════════════════════════════════════════════
-widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+widgetRouter.get('/config', widgetRateLimit('config'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
-
-  const supabase = getServiceClient(config);
 
   // /config drives runtime URLs (with hashed asset names). MUST never be
   // cached at the edge — a stale config returns dead asset URLs after
@@ -632,559 +529,15 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
   res.set('Cloudflare-CDN-Cache-Control', 'no-store');
 
   try {
-    const [
-      { data: widget, error },
-      { data: branding },
-      { data: platformWidget },
-      { data: platformBranding },
-      poweredByPlanAllows,
-      originRules,
-      platformPreChatPolicy,
-      { data: workspacePreChatFlags },
-    ] = await Promise.all([
-      supabase.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
-      supabase.from('workspace_branding')
-        .select('logo_url, logo_storage_key, primary_color')
-        .eq('workspace_id', workspaceId).maybeSingle(),
-      // Single source of truth for widget URLs — never read platform_domains/branding for these.
-      supabase.from('widget_platform_settings')
-        .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, default_welcome_message, powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url')
-        .limit(1).maybeSingle(),
-      // Platform identity for the powered-by footer. NEVER the workspace row.
-      supabase.from('platform_branding_localized').select('platform_name').eq('locale', 'en').maybeSingle(),
-      isPoweredByAllowedForPlan(supabase, workspaceId),
-      getWorkspaceOriginRules(config, workspaceId),
-      loadPlatformPreChatPolicy(supabase),
-      supabase.from('feature_flags').select('key, enabled').eq('workspace_id', workspaceId).in('key', Object.values(PRECHAT_FIELD_KEYS)),
-    ]);
-
-
-    if (error || !widget) {
-      return res.status(404).json({ error: 'Widget not found or not configured' });
-    }
-
-    if (!widget.enabled) {
-      return res.json({ enabled: false });
-    }
-
-    // Plan intersection — a downgrade must disable behaviours in widgets that
-    // are already embedded on customer sites, not just hide the operator UI.
-    let widgetEntitlements: WidgetEntitlements | null = null;
-    try {
-      widgetEntitlements = await resolveWidgetEntitlements(config, workspaceId);
-    } catch (err) {
-      console.error('[widget/config] entitlement resolution failed', err);
-    }
-    const ws = widgetEntitlements
-      ? applyWidgetEntitlementsToSettings({ ...DEFAULT_WIDGET_SETTINGS, ...widget }, widgetEntitlements)
-      : { ...DEFAULT_WIDGET_SETTINGS, ...widget };
-
-    // Smart Engagement rules (active + published only). Failure here must
-    // never take down /config — the helper already degrades to an empty list.
-    const smartPayload = await loadPublicSmartRules(
-      supabase,
-      workspaceId,
-      ws.smart_engagement_enabled === true,
-    );
-
-    // AI Proactive Nudge — only {enabled, mode} ever reach the browser.
-    // Guidance text, path targeting and platform ceilings stay server-side;
-    // POST /api/widget/nudge/evaluate re-resolves the full policy itself on
-    // every call, so a stale/forged client value here can only ever waste
-    // one harmless round-trip, never bypass a limit.
-    let aiProactiveSnapshot: { enabled: boolean; mode: string } = { enabled: false, mode: 'off' };
-    if (ws.smart_engagement_enabled === true) {
-      try {
-        const nudgePolicy = await resolveEffectiveAiNudgePolicy(config, workspaceId);
-        aiProactiveSnapshot = { enabled: nudgePolicy.available, mode: nudgePolicy.mode };
-      } catch { /* fail closed — no AI proactive snapshot */ }
-    }
-
-    // Get workspace info + team members
-    const { data: workspace } = await supabase
-      .from('workspaces').select('name').eq('id', workspaceId).maybeSingle();
-
-    // Phase 4 — expose AI Agent activation snapshot so the widget can decide
-    // whether to suppress the generic greeting. Best-effort; never blocks
-    // the widget config response.
-    let aiAgentInfo: {
-      enabled: boolean;
-      mode: string;
-      introEnabled: boolean;
-      suppressGreeting: boolean;
-      /** AI will actually converse with the visitor (provider proven). */
-      visitorFacing: boolean;
-      /** AI may send the static intro first (no provider required). */
-      introCapable: boolean;
-      providerReady: boolean;
-      /** Coarse, non-sensitive diagnosis. Never a provider/model/key. */
-      reason: string;
-      agentName: string | null;
-      agentLogoUrl: string | null;
-      disabledByPlatform: boolean;
-      disabledMessage: string | null;
-      // Owner-configurable text for the inline pre-chat card shown when the
-      // AI hands off to a human mid-conversation. Empty = client falls back
-      // to its own built-in copy.
-      handoffPrechatMessageLocalized: Record<string, string>;
-    } = {
-      enabled: false,
-      mode: 'off',
-      introEnabled: false,
-      suppressGreeting: false,
-      visitorFacing: false,
-      introCapable: false,
-      providerReady: false,
-      reason: 'platform_disabled',
-      agentName: null,
-      agentLogoUrl: null,
-      disabledByPlatform: false,
-      disabledMessage: null,
-      handoffPrechatMessageLocalized: {},
-    };
-    try {
-      // E12 — platform kill switch wins over workspace AI settings.
-      // When the platform disables AI Agent globally we MUST advertise
-      // it as disabled to the widget so it stops suppressing the generic
-      // greeting and never requests the AI intro.
-      const { getPlatformAiAgentSettings } = await import('../services/ai-agent/platformSettings.js');
-      const platform = await getPlatformAiAgentSettings(config).catch(() => null);
-      const platformDisabled = !!platform && platform.ai_agent_enabled === false;
-      if (platformDisabled) {
-        aiAgentInfo = {
-          enabled: false,
-          mode: 'off',
-          introEnabled: false,
-          suppressGreeting: false,
-          visitorFacing: false,
-          introCapable: false,
-          providerReady: false,
-          reason: 'platform_disabled',
-          agentName: null,
-          agentLogoUrl: null,
-          disabledByPlatform: true,
-          disabledMessage: platform?.disabled_message || null,
-          handoffPrechatMessageLocalized: {},
-        };
-      } else {
-
-      const { data: aiSettings } = await supabase
-        .from('ai_agent_settings')
-        .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url, metadata')
-        .eq('workspace_id', workspaceId)
-        .maybeSingle();
-      // Best-effort, separate from the query above on purpose: this column
-      // ships in a migration that may not be applied to every environment
-      // yet. Fetching it in the SAME select as the fields above would make
-      // one missing column fail the whole lookup — which previously broke
-      // suppressGreeting entirely (aiAgentInfo silently fell back to its
-      // all-off default, forcing pre-chat to show for every visitor even
-      // with AI correctly enabled). Never let this one field take down the
-      // fields everything else here depends on.
-      let handoffPrechatMessageLocalized: Record<string, string> = {};
-      try {
-        const { data: hpRow } = await supabase
-          .from('ai_agent_settings')
-          .select('handoff_prechat_message_localized')
-          .eq('workspace_id', workspaceId)
-          .maybeSingle();
-        if (hpRow && hpRow.handoff_prechat_message_localized
-          && typeof hpRow.handoff_prechat_message_localized === 'object') {
-          handoffPrechatMessageLocalized = hpRow.handoff_prechat_message_localized;
-        }
-      } catch (_) { /* column may not exist yet — fine, client has its own fallback copy */ }
-      if (aiSettings) {
-        const mode = String(aiSettings.mode || 'off');
-        const introEnabled = aiSettings.ai_intro_enabled !== false;
-        // P0-AI — ONE authoritative visitor-facing AI snapshot. `visitorFacing`
-        // now genuinely means "the AI will converse with this visitor": it
-        // requires a resolvable provider, so `provider_pending` no longer
-        // suppresses the greeting for a workspace whose AI can only ever emit
-        // a single canned line and then go silent. `introCapable` (all gates
-        // except the provider) is what governs the static intro itself.
-        const { resolveVisitorAiSnapshot } = await import('../services/ai-agent/visitorAiSnapshot.js');
-        const aiSnapshot = await resolveVisitorAiSnapshot(config, workspaceId, {
-          enabled: !!aiSettings.enabled,
-          mode: mode as AgentMode,
-        });
-        aiAgentInfo = {
-          enabled: !!aiSettings.enabled,
-          mode,
-          introEnabled,
-          // Suppress the generic greeting only when the AI will actually
-          // speak first AND can carry the conversation afterwards.
-          suppressGreeting: aiSnapshot.visitorFacing && aiSnapshot.introCapable && introEnabled,
-          visitorFacing: aiSnapshot.visitorFacing,
-          introCapable: aiSnapshot.introCapable && introEnabled,
-          providerReady: aiSnapshot.providerReady,
-          reason: aiSnapshot.reason,
-          agentName: aiSettings.agent_name || null,
-          agentLogoUrl: await resolveAgentLogoUrl(config, workspaceId, aiSettings),
-          disabledByPlatform: false,
-          disabledMessage: null,
-          handoffPrechatMessageLocalized: handoffPrechatMessageLocalized,
-        };
-      }
-
-      }
-    } catch (e) {
-      console.warn('[widget-config] ai_agent_settings lookup failed:', e?.message || e);
-    }
-
-    // Members + their availability prefs, read ONCE: the team stack below and
-    // the availability snapshot further down both need them (each used to
-    // read members and prefs itself, and the stack read members a third time).
-    const { loadWorkspaceAvailabilityPrefs, listCustomerAvailableOperators } = await import('../services/widget/customerAvailability.js');
-    const availabilityPrefs = await loadWorkspaceAvailabilityPrefs(config, workspaceId).catch(() => undefined);
-    const members = availabilityPrefs
-      ? availabilityPrefs.memberIds.slice(0, 4).map((user_id) => ({ user_id }))
-      : (await supabase.from('workspace_members').select('user_id').eq('workspace_id', workspaceId).limit(4)).data;
-
-    let teamMembers: Array<{ name: string; avatar: string | null; online: boolean }> = [];
-    if (members?.length) {
-      const { data: profiles } = await supabase
-        .from('profiles').select('id, full_name, avatar_storage_key')
-        .in('id', members.map((m) => m.user_id));
-      const withAvatars = await hydrateUserAvatars(config, profiles || []);
-      // Resolve who's online right now using the operator presence service
-      // so the widget can render a green status dot on each avatar.
-      const presenceByUser = new Map<string, 'online' | 'offline'>();
-      try {
-        // Visitor-facing dots follow CUSTOMER availability (manual status +
-        // schedule), never connection state.
-        const { available } = await listCustomerAvailableOperators(config, workspaceId, new Date(), availabilityPrefs);
-        for (const op of available) presenceByUser.set(op.user_id, 'online');
-      } catch { /* presence is cosmetic — never fail the bootstrap */ }
-      if (profiles) {
-        teamMembers = withAvatars.map((p) => ({
-          name: p.full_name || 'Operator',
-          avatar: p.avatar_url,
-          online: presenceByUser.get(p.id) === 'online',
-        }));
-        // Online operators first so the stack leads with available staff.
-        teamMembers.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
-      }
-    }
-
-    const apiBase = resolveWidgetApiBase({
-      widgetApiBaseUrl: platformWidget?.widget_api_base_url,
-      platformApiBaseUrl: null,
-      requestBaseUrl: getRequestBaseUrl(req),
-      allowRequestFallback: !platformWidget?.widget_api_base_url,
-    });
-    const assetBase = resolveWidgetAssetBase({
-      widgetBaseUrl: platformWidget?.widget_asset_base_url,
-      widgetLoaderBaseUrl: platformWidget?.widget_loader_base_url,
-      widgetPublicBaseUrl: platformWidget?.widget_public_base_url,
-      assetBaseUrl: platformWidget?.widget_asset_base_url,
-      loaderAssetBase: getLoaderAssetBase(req),
-    });
-
-    const runtimeJsName = getWidgetAssetName('runtime.js');
-    const runtimeCssName = getWidgetAssetName('runtime.css');
-    const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
-    // Presentation layer — registry + active template assets. Widget Core
-    // ships no markup, so these are part of the required boot payload.
-    // The platform's edition picks the template (shared/widgetTemplates.ts):
-    // the Iranian edition — and an edition that cannot be read — wears
-    // `default`, exactly as before; the International edition wears `intl`.
-    // A requested id is honoured only when the edition offers it; the
-    // browser registry resolves the same ids.
-    const edition = await getPlatformEditionOrNull(config);
-    const templateId = resolveWidgetTemplateId(resolveEditionWidgetTemplateId(
-      edition,
-      (ws as { widget_template_id?: string | null }).widget_template_id
-        ?? (platformWidget as { widget_template_id?: string | null } | null | undefined)?.widget_template_id,
-    ));
-
-    const templateAssets = widgetTemplateAssetKeys(templateId);
-    const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
-    const presentationJsName = getWidgetAssetName(templateAssets.script);
-    const presentationCssName = getWidgetAssetName(templateAssets.style);
-    // A skin template's own stylesheet, loaded after the base one (none in
-    // the Iranian edition).
-    const presentationSkinCssName = templateAssets.skin ? getOptionalWidgetAssetName(templateAssets.skin) : null;
-    // Optional, template-owned font asset (hashed). Resolved existence-aware:
-    // templates that ship no font asset yield `null`, so the loader never
-    // requests a 404. The loader stays generic either way.
-    const presentationFontsCssName = getOptionalWidgetAssetName(templateAssets.fonts);
-
-
-    const chatModuleName = getWidgetAssetName('runtime-chat.js');
-    const kbModuleName = getWidgetAssetName('runtime-kb.js');
-    const smartEngineName = getWidgetAssetName('smart-engine.js');
-    // Self-hosted LiveKit JS SDK. Hashed at build time so we can serve it
-    // with `immutable, max-age=1y`. The widget never contacts a CDN for
-    // this asset — see scripts/widget-hash.js VENDOR_FILES.
-    const livekitSdkName = getWidgetAssetName('vendor/livekit-client.umd.min.js');
-    const loaderVersion = getLoaderVersion();
-    const preChat = buildPreChatConfig(platformPreChatPolicy, workspacePreChatFlags || []);
-    // Platform region lock — a single-language deployment must serve the
-    // widget only in that language, whatever the workspace row still holds.
-    const platformLocales = await getPlatformAllowedLocales(config);
-    const clampLoc = (loc: string | null | undefined, fallbackToFirst = true) => {
-      const base = String(loc || '').toLowerCase().split('-')[0];
-      if (base && platformLocales.includes(base)) return base;
-      return fallbackToFirst ? (platformLocales[0] || 'en') : '';
-    };
-    const effectiveLocale = clampLoc(
-      ws.widget_language && ws.widget_language !== 'auto' ? ws.widget_language : ws.locale,
-    );
-    const effectiveWidgetLanguage =
-      platformLocales.length === 1
-        ? platformLocales[0]
-        : ws.widget_language && ws.widget_language !== 'auto'
-          ? clampLoc(ws.widget_language)
-          : 'auto';
-    const versionedAssetUrl = (url: string | null) => {
-      if (!url) return null;
-      const separator = url.includes('?') ? '&' : '?';
-      return `${url}${separator}v=${encodeURIComponent(loaderVersion)}`;
-    };
-    // Powered-by footer — platform admin owns wording, brand and link;
-    // plans decide who sees it. The workspace may only hide it when its plan
-    // grants `widget_powered_by_toggle` (default preference: shown).
-    const workspaceMayHidePoweredBy = widgetEntitlements?.features?.widget_powered_by_toggle === true;
-    const workspaceWantsPoweredBy = workspaceMayHidePoweredBy
-      ? ws.show_powered_by !== false
-      : true;
-    // The platform's own name (the panel's source, platform_branding_
-    // localized): in the International edition in the widget's language,
-    // else — and in the Iranian edition, which reads nothing more on this hot
-    // path — the English row already read above.
-    const platformBrandName = await (async () => {
-      try {
-        if (edition === 'international' && effectiveLocale && effectiveLocale !== 'en') {
-          const { data } = await supabase
-            .from('platform_branding_localized')
-            .select('platform_name')
-            .eq('locale', effectiveLocale)
-            .maybeSingle();
-          const name = String((data as { platform_name?: unknown } | null)?.platform_name || '').trim();
-          if (name) return name;
-        }
-      } catch { /* the English row below */ }
-      return String(platformBranding?.platform_name || '').trim();
-    })();
-    const poweredBy = buildPoweredByConfig(
-      platformWidget as Record<string, unknown>,
-      // Iran (and an unknown edition) credits the English platform name, as
-      // it always did; International credits it in the widget's language.
-      edition === 'international' ? platformBrandName : platformBranding?.platform_name || '',
-      poweredByPlanAllows && workspaceWantsPoweredBy,
-    );
-    // The International template credits the platform with its logo (the
-    // RESPOK kit's horizontal mark, the one the app's launch screen wears;
-    // the "color" variant, drawn for the widget's light surface). Absolute:
-    // the widget runs on customers' sites.
-    if (poweredBy && edition === 'international' && assetBase) {
-      (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${INTL_BRAND.horizontal.light}`;
-    }
-    // The Iranian edition (region_mode = 'iran' exactly; an edition that
-    // cannot be read keeps the text) credits WebYar with the brand kit's
-    // Persian logotype ("color", for the widget's light surface); its name
-    // stays the alt text and the fallback if the image cannot load.
-    if (poweredBy && isWebyarKitEdition(edition) && assetBase) {
-      (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${WEBYAR_BRAND.logo.light}`;
-    }
-    // Dates: Jalali in Tehran time for Persian in the Iranian edition (as
-    // before); Gregorian in the visitor's own zone in the International one.
-    const dateHints = widgetDateHints(edition);
-    const widgetConfig = {
-      enabled: true,
-      workspaceId,
-      apiBase,
-      assetBase,
-      debugMode: ws.debug_mode ?? false,
-      // Workspace identity owns all widget headers. Platform identity is
-      // intentionally separate and is used only by the powered-by footer.
-      // An explicit empty string means the workspace cleared the display name.
-      brandName: typeof ws.brand_name === 'string'
-        ? ws.brand_name.trim()
-        : (workspace?.name || 'Support'),
-
-      // Explicit platform brand for the "powered by" footer. The footer must
-      // ALWAYS name the platform, never the workspace's own brand.
-      platformName: poweredBy?.brand || '',
-      poweredBy,
-      showPoweredBy: !!poweredBy,
-
-      // The platform's edition and identity (additive). `edition` is null
-      // when the platform settings could not be read; the widget then
-      // behaves as the Iranian edition, as it always did.
-      edition,
-      platformBrandName,
-      calendar: dateHints.calendar,
-      timeZone: dateHints.timeZone,
-
-
-      primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
-      secondaryColor: ws.secondary_color || '#6366f1',
-      // `widget_settings.logo_url` is an operator-typed external link and is
-      // kept as-is; the workspace's own uploaded logo is derived from its
-      // storage key so it follows a provider promotion with no row rewrite.
-      logoUrl: ws.logo_url
-        || (await createStorageUrlResolver(config).workspace(workspaceId, branding?.logo_storage_key))
-        || null,
-      launcherText: resolveLocalizedDefault(
-        ws.launcher_text,
-        'launcher',
-        effectiveLocale,
-      ),
-      // Three-tier resolution: workspace override → platform default → hardcoded fallback.
-      // Stored in `widget_settings.welcome_message` (per-workspace) or
-      // `widget_platform_settings.default_welcome_message` (platform-wide).
-      welcomeMessage:
-        resolveLocalizedDefault(
-          ws.welcome_message,
-          'welcome',
-          effectiveLocale,
-        )
-        || platformWidget?.default_welcome_message
-        || '',
-      // Workspace-authored reply-time note for the widget header. An explicit
-      // empty string means "hide it"; NULL (never configured) falls back to
-      // the locale default in the presentation layer.
-      replyTimeText: typeof ws.reply_time_text === 'string' ? ws.reply_time_text.trim() : null,
-
-      greetingMessage: ws.greeting_message || '',
-      placeholderText: ws.placeholder_text || '',
-      offlineMessage: ws.offline_message || '',
-      position: ws.position || 'bottom-right',
-      locale: effectiveLocale,
-      widgetLanguage: effectiveWidgetLanguage,
-      loaderVersion,
-      theme: ws.theme || 'modern',
-      fab: {
-        icon: ws.fab_icon || 'chat',
-        helpIcon: ws.fab_help_icon || 'help_circle',
-        shape: ws.fab_shape || 'circle',
-        label: ws.fab_label || '',
-        chatLabel: ws.fab_chat_label || '',
-        helpLabel: ws.fab_help_label || '',
-        scale: ws.fab_scale ?? 100,
-        iconColor: ws.fab_icon_color || '#ffffff',
-        textColor: ws.fab_text_color || '#ffffff',
-        animation: ws.fab_animation ?? true,
-        // Optional launcher image. DERIVED from the stored key for whichever
-        // provider is primary right now, so promoting a new one needs no row
-        // rewritten. The legacy `fab_image_url` tail is a deprecated
-        // read-only fallback for rows uploaded before the key column
-        // existed; nothing writes it any more. The storage key itself is
-        // never sent to a visitor.
-        // On hover the runtime circle-reveals the configured icon underneath.
-        imageUrl: (await createStorageUrlResolver(config).workspace(workspaceId, ws.fab_image_storage_key))
-          ?? (typeof ws.fab_image_url === 'string' && /^https?:\/\//i.test(ws.fab_image_url.trim())
-            ? ws.fab_image_url.trim()
-            : null),
-      },
-      features: {
-        chat: ws.chat_enabled ?? true,
-        knowledgeBase: ws.kb_enabled ?? true,
-        visitorTracking: ws.visitor_tracking_enabled ?? true,
-      },
-      preChat,
-      // Phase 8 — Server-authoritative availability. Computed via resolver
-      // so runtime never has to interpret weekly schedules. Locked rules:
-      //  - business_hours.enabled === false  =>  state = 'online' always.
-      //  - offline_message comes from offline_message_localized (per-locale)
-      //    with legacy offline_message as fallback. No translation pipeline.
-      // `quota_full` (phase 4) only while billing locks are on: the monthly
-      // chat quota is full, so a new conversation goes to the
-      // leave-a-message form (see resolveConversationQuotaFull).
-      availability: snapshotToWirePayload(
-        await resolveAvailability(config, {
-          workspaceId,
-          locale: effectiveLocale,
-          // The raw row (not the entitlement-applied `ws`), as its own read was.
-          settingsRow: widget,
-          availabilityPrefs,
-        }),
-        { quota_full: await resolveConversationQuotaFull(config, workspaceId) },
-      ),
-      // Phase 6a — Attachment config exposed to the widget runtime.
-      // The widget enforces these as a UX guard; the backend re-validates.
-      attachments: {
-        enabled: ws.attachments_enabled === true,
-        maxSizeMb: Math.max(1, Math.min(25, ws.attachments_max_size_mb ?? 10)),
-        allowedMimes: Array.isArray(ws.attachments_allowed_mimes) && ws.attachments_allowed_mimes.length > 0
-          ? ws.attachments_allowed_mimes
-          : ['image/png','image/jpeg','image/webp','image/gif','application/pdf','text/plain'],
-        maxCount: 1, // v1: single file per message
-        // Voice notes — independent toggle from file attachments (own
-        // fixed audio-mime allow-list is enforced server-side, not
-        // configurable via allowedMimes above).
-        voiceNotesEnabled: ws.voice_notes_enabled === true,
-      },
-      composer: {
-        emojiEnabled: ws.emoji_enabled !== false,
-      },
-      // Phase 7 — Read receipts toggle. When false, the widget shows only
-      // sending/sent (no "Seen" indicator). The widget never invents seen
-      // state; it only renders what the backend has actually recorded.
-      readReceipts: {
-        enabled: ws.read_receipts_enabled !== false,
-      },
-      supportMode: ws.support_mode || 'human_first',
-      defaultMode: ws.default_mode || 'chat',
-      mobileBehavior: ws.mobile_behavior || 'bottom_sheet',
-      autoOpenDelay: ws.auto_open_delay || 0,
-      showLogo: ws.show_logo ?? true,
-      showTeamAvatars: ws.show_team_avatars !== false,
-      workspaceName: typeof ws.brand_name === 'string'
-        ? ws.brand_name.trim()
-        : (workspace?.name || ''),
-
-      teamMembers,
-      onlineOperators: 0, // Resolved client-side from realtime presence when supported.
-      runtimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeJsName}` : null),
-      styleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeCssName}` : null),
-      callRuntimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${callRuntimeJsName}` : null),
-      templateId,
-      presentationRegistryUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationRegistryJsName}` : null),
-      presentationUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationJsName}` : null),
-      presentationStyleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${presentationCssName}` : null),
-      // Additive: the template's skin stylesheet, loaded after the base one;
-      // null when the template has none (the Iranian `default`).
-      presentationSkinUrl: presentationSkinCssName && assetBase
-        ? versionedAssetUrl(`${assetBase}/widget/${presentationSkinCssName}`)
-        : null,
-      presentationFontsUrl: presentationFontsCssName && assetBase
-        ? versionedAssetUrl(`${assetBase}/widget/${presentationFontsCssName}`)
-        : null,
-
-      // Pass 1 — explicit LiveKit SDK URL. Self-hosted, hashed asset. The
-      // call runtime MUST consume this and never fall back to a CDN. When
-      // assetBase is unresolved (very unusual — most likely a misconfigured
-      // deploy) we surface `null` so the widget can render a clear
-      // `provider_not_ready` error instead of silently breaking.
-      livekitSdkUrl: versionedAssetUrl(
-        assetBase ? `${assetBase}/widget/${livekitSdkName}` : null,
-      ),
-      modules: {
-        chat: versionedAssetUrl(assetBase ? `${assetBase}/widget/${chatModuleName}` : null),
-        kb: versionedAssetUrl(assetBase ? `${assetBase}/widget/${kbModuleName}` : null),
-      },
-      // Smart Engagement — proactive rules. The payload is already
-      // sanitized and stripped of management fields; evaluation happens in
-      // the browser with the shared engine bundle.
-      smart: {
-        enabled: smartPayload.enabled,
-        engineUrl: smartPayload.enabled
-          ? versionedAssetUrl(assetBase ? `${assetBase}/widget/${smartEngineName}` : null)
-          : null,
-        rules: smartPayload.rules,
-        // AI Proactive Nudge — {enabled, mode} only, see resolveEffectiveAiNudgePolicy.
-        aiProactive: aiProactiveSnapshot,
-      },
-      // Phase 4 — AI Agent snapshot. Used by the widget runtime to decide
-      // whether to suppress the generic welcome greeting (the AI intro will
-      // take its place after pre-chat).
-      aiAgent: aiAgentInfo,
-    };
-
-    res.json(widgetConfig);
+    // Every input comes from the workspace / platform snapshots
+    // (services/widget/configSnapshot.ts); a cache hit reads nothing.
+    const { status, body } = await resolveWidgetConfigBody(config, req, workspaceId);
+    res.status(status).json(body);
   } catch (err) {
+    if (err instanceof WidgetConfigBusyError) {
+      res.set('Retry-After', '1');
+      return res.status(503).json({ error: 'Internal error', code: err.code });
+    }
     console.error('Widget config error:', err);
     res.status(500).json({ error: 'Internal error' });
   }
@@ -2731,26 +2084,32 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
       // public IP could be resolved, which silently aborted the whole
       // tracking branch (the catch below swallows it and returns ok:true).
       const ipHash = hashIp(clientIp);
+      // The independent reads below run together, and so do the writes: a
+      // navigation costs 2 database round trips instead of 5. The operations
+      // and what each branch writes are unchanged.
+      //
       // Privacy gate: only persist raw IP when the workspace explicitly
       // opts in — same setting + same rule as /api/visitors/track. This
       // endpoint (the chat widget's own background tracker, loader.js) was
       // never actually reading it, so a raw IP was never stored for ANY
       // chat-widget visitor regardless of the toggle — contacts.ts's /ip
       // lookup and identityMerge's location enrichment had nothing to read.
-      let storeRawIp = false;
-      try {
-        const { data: ws } = await supabase
-          .from('widget_settings')
-          .select('store_raw_ip')
-          .eq('workspace_id', workspaceId)
-          .maybeSingle();
-        storeRawIp = ws?.store_raw_ip === true;
-      } catch { /* default to not storing on lookup failure */ }
-      const ipRawForStorage = storeRawIp ? clientIp : null;
+      // Read from the database on every request (not the config snapshot),
+      // so the toggle holds from the very next request, on every node.
+      const storeRawIpRead = (async () => {
+        try {
+          const { data: ws } = await supabase
+            .from('widget_settings')
+            .select('store_raw_ip')
+            .eq('workspace_id', workspaceId)
+            .maybeSingle();
+          return ws?.store_raw_ip === true;
+        } catch { return false; /* default to not storing on lookup failure */ }
+      })();
 
       // Check for existing recent session
       const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-      const { data: existing } = await supabase
+      const sessionRead = supabase
         // ip_hash is fetched so a mid-session network change (VPN / mobile
         // handover) forces a geo re-resolve instead of keeping the old country.
         // current_page detects a URL change BEFORE it is overwritten, and the
@@ -2761,6 +2120,8 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
         .eq('workspace_id', workspaceId).eq('visitor_id', visitor_id || '')
         .gte('last_seen_at', thirtyMinAgo)
         .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
+      const [storeRawIp, { data: existing }] = await Promise.all([storeRawIpRead, sessionRead]);
+      const ipRawForStorage = storeRawIp ? clientIp : null;
 
       let previousIpHash: string | null = null;
       if (existing) {
@@ -2783,33 +2144,40 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
           (!ipHash || ipHash === existing.ip_hash) &&
           Number.isFinite(lastSeenMs) &&
           nowMs - lastSeenMs < TRACK_REWRITE_MS;
-        if (sessionUnchanged) {
-          // ip_raw must match too, or the privacy toggle would not take effect
-          // on this request. Anything but a clean read of an equal value
-          // (including a chain without the column) means the write runs.
-          const { data: rawRow, error: rawErr } = await supabase.from('visitor_sessions')
-            .select('ip_raw').eq('id', existing.id).maybeSingle();
-          sessionUnchanged =
-            !rawErr && !!rawRow && (ipRawForStorage ?? null) === ((rawRow.ip_raw as string | null) ?? null);
-        }
-
         let presenceFresh = false;
         if (sessionUnchanged) {
-          // The presence row is normally written together with the session,
-          // but it is checked on its own: another path may have marked it
-          // offline since. More than one row (a creation race) reads as
-          // "not fresh", so it gets the unconditional update, as before.
-          const { data: presence } = await supabase.from('visitor_presence')
-            .select('status, current_page, updated_at').eq('visitor_session_id', existing.id).maybeSingle();
+          // The two checks of an unchanged repeat, read together:
+          //  - ip_raw must match too, or the privacy toggle would not take
+          //    effect on this request. Anything but a clean read of an equal
+          //    value (including a chain without the column) means the write
+          //    runs.
+          //  - The presence row is normally written together with the
+          //    session, but it is checked on its own: another path may have
+          //    marked it offline since. More than one row (a creation race)
+          //    reads as "not fresh", so it gets the unconditional update, as
+          //    before. It counts only when the session is still unchanged.
+          const [{ data: rawRow, error: rawErr }, { data: presence }] = await Promise.all([
+            supabase.from('visitor_sessions')
+              .select('ip_raw').eq('id', existing.id).maybeSingle(),
+            supabase.from('visitor_presence')
+              .select('status, current_page, updated_at').eq('visitor_session_id', existing.id).maybeSingle(),
+          ]);
+          sessionUnchanged =
+            !rawErr && !!rawRow && (ipRawForStorage ?? null) === ((rawRow.ip_raw as string | null) ?? null);
           const presenceMs = presence?.updated_at ? Date.parse(presence.updated_at as string) : NaN;
           presenceFresh =
+            sessionUnchanged &&
             !!presence &&
             presence.status === 'online' &&
             ((presence.current_page as string | null) ?? null) === (normalizedPageUrl ?? null) &&
             Number.isFinite(presenceMs) &&
             nowMs - presenceMs < TRACK_REWRITE_MS;
-        } else {
-          await supabase.from('visitor_sessions')
+        }
+
+        // Independent rows: written together.
+        const writes: Array<PromiseLike<unknown>> = [];
+        if (!sessionUnchanged) {
+          writes.push(supabase.from('visitor_sessions')
             .update({
               current_page: normalizedPageUrl,
               browser: browser || undefined,
@@ -2825,28 +2193,32 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
               ...(ipHash ? { ip_hash: ipHash } : {}),
               ip_raw: ipRawForStorage,
             })
-            .eq('id', existing.id);
+            .eq('id', existing.id));
         }
 
         if (!presenceFresh) {
-          await supabase.from('visitor_presence')
+          writes.push(supabase.from('visitor_presence')
             .update({ status: 'online', current_page: normalizedPageUrl, updated_at: new Date().toISOString() })
-            .eq('visitor_session_id', existing.id);
+            .eq('visitor_session_id', existing.id));
         }
 
         // Append a page-view row when the URL is new for this session.
         // First page_view of an existing session also counts (prevPage may
         // be null on rehydrated sessions).
         if (normalizedPageUrl && normalizedPageUrl !== prevPage) {
-          await recordVisitorPageView(config, supabase, {
+          writes.push(recordVisitorPageView(config, supabase, {
             workspaceId,
             sessionId: existing.id,
             url: normalizedPageUrl,
             title: page_title,
             context: 'widget-track',
-          });
+          }));
         }
+        await Promise.all(writes);
       } else if (visitor_id) {
+        // A new row may count against the workspace's monthly visitor quota,
+        // and visitor_id is the client's: new rows are budgeted per address.
+        if (!takeNewVisitorSession(req, res, workspaceId)) return;
         // Phase 10 — gate true-new-this-month visitors on the public widget
         // /track endpoint. Reuses the Phase 9 helper so the trigger remains
         // the sole writer of `workspace_usage_counters.visitors_count` and
@@ -2884,22 +2256,26 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
 
         if (newSession) {
           activeSessionId = newSession.id;
-          await supabase.from('visitor_presence').insert({
-            workspace_id: workspaceId,
-            visitor_session_id: newSession.id,
-            status: 'online',
-            current_page: normalizedPageUrl,
-          });
-          // Always log the very first page view of a brand-new session.
-          if (normalizedPageUrl) {
-            await recordVisitorPageView(config, supabase, {
-              workspaceId,
-              sessionId: newSession.id,
-              url: normalizedPageUrl,
-              title: page_title,
-              context: 'widget-track',
-            });
-          }
+          // The presence row and the first page view need only the session
+          // id: written together.
+          await Promise.all([
+            supabase.from('visitor_presence').insert({
+              workspace_id: workspaceId,
+              visitor_session_id: newSession.id,
+              status: 'online',
+              current_page: normalizedPageUrl,
+            }),
+            // Always log the very first page view of a brand-new session.
+            normalizedPageUrl
+              ? recordVisitorPageView(config, supabase, {
+                workspaceId,
+                sessionId: newSession.id,
+                url: normalizedPageUrl,
+                title: page_title,
+                context: 'widget-track',
+              })
+              : null,
+          ]);
           // Fire-and-forget geo enrichment — never block the widget response.
           // Uses MaxMind local DB when configured (city-level), with cache.
           // Marked as attempted so the existing-session check below does not
@@ -3529,7 +2905,7 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
   }
 });
 
-widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+widgetRouter.get('/manifest', widgetRateLimit('config'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
@@ -4218,7 +3594,7 @@ function isQueueGateDenial(gate: QueueGateResult): gate is QueueDenial {
  * workspace. Reuses the visitor session for identity and the existing
  * effective policy snapshot. No new identity flow, no new pre-chat form.
  */
-widgetRouter.get('/call-channels', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+widgetRouter.get('/call-channels', widgetRateLimit('config'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
   const workspaceId = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined
     || (req.query.workspace_id as string | undefined);

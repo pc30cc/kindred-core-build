@@ -356,6 +356,39 @@ export function getLoaderVersion(): string {
   return manifest.loaderVersion || FALLBACK_VERSION;
 }
 
+/**
+ * The content-hash test of nginx.conf.template's immutable /widget/ location
+ * (`location ~* "^/widget/.*\.[a-f0-9]{8}\.(?:js|css|woff2)$"`, case-
+ * insensitive). Keep the two identical: "this URL carries no query" must mean
+ * exactly "nginx and the CDN keep it a year".
+ */
+const CONTENT_HASHED_RE = /\.[a-f0-9]{8}\.(?:js|css|woff2)$/i;
+
+/** True for a build-hashed widget file name (`runtime.3051edd1.js`). */
+export function isContentHashedAssetName(name: string): boolean {
+  return CONTENT_HASHED_RE.test(name);
+}
+
+/**
+ * The URL of a widget asset under `<assetBase>/widget/`.
+ *
+ * A content-hashed name is its own version: it gets no query, so a browser
+ * and every CDN PoP keep one copy per content (shared with the call widget
+ * and the operator preview, which name the same files), and a deploy that
+ * changes only loader.js re-downloads nothing. An unhashed name — the
+ * fallback manifest of a backend that cannot see the build — keeps
+ * `?v=<loaderVersion>` exactly as before, because nginx serves those no-store
+ * and the buster is what moves a cached copy.
+ *
+ * Pure: the caller passes the version. Null for a missing base or name, as
+ * the old inline ternaries were.
+ */
+export function widgetAssetUrl(assetBase: string | null | undefined, name: string | null | undefined, version: string): string | null {
+  if (!assetBase || !name) return null;
+  const url = `${assetBase}/widget/${name}`;
+  return isContentHashedAssetName(name) ? url : `${url}?v=${encodeURIComponent(version)}`;
+}
+
 export function invalidateManifestCache(): void {
   cachedManifest = null;
   lastReadTime = 0;

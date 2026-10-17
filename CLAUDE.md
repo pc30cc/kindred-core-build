@@ -28,6 +28,17 @@ build is the first from the brand-neutral sources and must keep
 `com.webyar.ai`, be signed with `~/dev/webyar-release.jks` and use a
 `versionCode` above Bazaar's.
 
+## Widget templates (chat widget and call center widget)
+
+Any new or changed widget design (template, skin, theme, fonts) follows
+`docs/operations/WIDGET_TEMPLATE_RULES.md`, and the procedure is the project
+skill `widget-template` (`.claude/skills/widget-template/SKILL.md`). In short:
+no font bytes or `@font-face` in template stylesheets (faces only in the
+document-level fonts stylesheet, woff2 with `unicode-range`), no network or
+storage in renderers, only hashed file names without `?v=`, the size budgets
+in `src/test/widget/templateRules.test.ts`, which checks every template in
+`shared/widgetTemplates.ts`. Never raise a budget without the owner's say.
+
 ## The iOS app in Xcode on the Mac
 
 `~/dev/kcb-ios-preview` is the copy of the iOS app (`ios/Webyar`)

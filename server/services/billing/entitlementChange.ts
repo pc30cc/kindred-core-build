@@ -13,6 +13,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { clearEntitlementCache } from '../../middleware/featureGating.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 import { enqueueKnowledgeBaseCatchup } from '../ai-agent/knowledgeIndex/kbEvents.js';
 import { clearLockStateCache } from './locks/state.js';
 import { clearPlanStopCache } from './planStops.js';
@@ -138,6 +139,9 @@ export async function handleWorkspaceEntitlementChanged(
   clearEntitlementCache(workspaceId);
   clearLockStateCache(workspaceId);
   clearPlanStopCache(workspaceId);
+  // …on every backend process: the widget config (plan-gated behaviours),
+  // its entitlement / lock caches and the plan-gated origin allow-list.
+  publishCacheInvalidation([`widget:${workspaceId}`, `entitlements:${workspaceId}`, `origin:${workspaceId}`]);
 
   // 2. Apply the pure transition rule.
   if (!shouldEnqueueEntitlementCatchup({
@@ -233,6 +237,7 @@ export async function handlePlanDefinitionChanged(
   clearEntitlementCache();
   clearLockStateCache();
   clearPlanStopCache();
+  publishCacheInvalidation(['all']);
   const { enqueuePlanEntitlementFanout } = await import('./entitlementFanout.js');
   const r = await enqueuePlanEntitlementFanout(config, planId, diff);
   return { ...r, backgrounded: true };
@@ -250,6 +255,7 @@ export async function handlePlatformAiEnabled(
   // Turning the platform AI switch OFF revokes access everywhere at once; it
   // queues nothing but must never be served from a stale cache.
   clearEntitlementCache();
+  publishCacheInvalidation(['all']);
   const { enqueuePlatformEntitlementFanout } = await import('./entitlementFanout.js');
   const r = await enqueuePlatformEntitlementFanout(config, transition);
   return { ...r, backgrounded: true };

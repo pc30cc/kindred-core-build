@@ -22,6 +22,7 @@ import {
 } from '../services/sms/index.js';
 import { TELNYX_PROFILE_ID_PATTERN } from '../services/sms/providers/telnyx.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 
 export const adminSmsProvidersRouter = Router();
 
@@ -153,6 +154,7 @@ adminSmsProvidersRouter.put('/', async (req: Request, res: Response) => {
     );
     // The public config tells the browser whether phone verification is on.
     invalidatePlatformPublicConfig();
+    publishCacheInvalidation(['platform']);
     res.json(info);
   } catch (err) {
     if (err instanceof SmsConfigValidationError) {
@@ -170,6 +172,7 @@ adminSmsProvidersRouter.delete('/', async (req: Request, res: Response) => {
   try {
     const info = await deleteSmsProviderConfig(ctx(req).serverConfig, userId);
     invalidatePlatformPublicConfig();
+    publishCacheInvalidation(['platform']);
     res.json(info);
   } catch {
     res.status(500).json({ error: 'sms_config_delete_failed' });

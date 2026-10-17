@@ -16,6 +16,7 @@ import {
 import { getCapability } from '../services/billing/capabilityRegistry.js';
 import { assignedPlanApplies, type SubscriptionPlanState } from '../services/billing/planSelection.js';
 import { getTrustedGateWorkspaceId } from './gateWorkspace.js';
+import { invalidateLocal, onInvalidate } from '../lib/cacheBus.js';
 
 interface EntitlementResult {
   allowed: boolean;
@@ -51,11 +52,21 @@ function cacheKey(workspaceId: string, feature: string): string {
 }
 
 export function clearEntitlementCache(workspaceId?: string): void {
-  if (!workspaceId) { cache.clear(); return; }
-  for (const key of cache.keys()) {
-    if (key.startsWith(workspaceId)) cache.delete(key);
+  if (!workspaceId) {
+    cache.clear();
+  } else {
+    for (const key of cache.keys()) {
+      if (key.startsWith(workspaceId)) cache.delete(key);
+    }
   }
+  // The widget config snapshot holds the widget entitlements too: drop it in
+  // this process with them (other processes follow the writer's published
+  // scopes, lib/cacheBus.ts). Local only — never published from here.
+  invalidateLocal([workspaceId ? `widget:${workspaceId}` : 'widget']);
 }
+
+// Another backend process changed a plan, override or subscription.
+onInvalidate('entitlements', (workspaceId) => clearEntitlementCache(workspaceId ?? undefined));
 
 /** Express request as the server hands it to route middleware. */
 type GatedRequest = Request & {

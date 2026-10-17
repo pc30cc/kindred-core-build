@@ -57,6 +57,12 @@ export interface WidgetEntitlements {
   features: Record<string, boolean>;
   /** Maximum allowed embed domains; -1 = unlimited. */
   maxDomains: number;
+  /**
+   * True when at least one answer was unreadable (RPC error, exception,
+   * unparseable payload) and therefore read as a denial. The booleans keep
+   * their fail-closed meaning; a cache of them must only be short-lived.
+   */
+  degraded?: boolean;
 }
 
 function registryDefault(key: string): boolean | number {
@@ -131,6 +137,7 @@ async function resolveBoolean(
   workspaceId: string,
   key: string,
   moduleOverrides: Map<string, boolean>,
+  onUnreadable: () => void,
 ): Promise<boolean> {
   // A workspace-level module override is authoritative on its own.
   if (MODULE_KEYS.has(key) && moduleOverrides.has(key)) return moduleOverrides.get(key) === true;
@@ -141,6 +148,7 @@ async function resolveBoolean(
     key,
     { selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
   );
+  if (res.plan === 'error') onUnreadable();
   if (res.allowed) return true;
   if (isUnknownToPlan(res.reason)) return registryDefault(key) === true;
   return false;
@@ -151,10 +159,12 @@ export async function resolveWidgetEntitlements(
   workspaceId: string,
 ): Promise<WidgetEntitlements> {
   const features: Record<string, boolean> = {};
+  let degraded = false;
+  const markUnreadable = () => { degraded = true; };
   const moduleOverrides = await loadModuleOverrides(config, workspaceId);
   await Promise.all(
     WIDGET_CAPABILITY_KEYS.map(async (key) => {
-      features[key] = await resolveBoolean(config, workspaceId, key, moduleOverrides);
+      features[key] = await resolveBoolean(config, workspaceId, key, moduleOverrides, markUnreadable);
     }),
   );
 
@@ -165,6 +175,7 @@ export async function resolveWidgetEntitlements(
     'max_widget_domains',
     { numeric: true, selfHostBillingUnlimited: config.selfHostBillingUnlimited === true },
   );
+  if (limitRes.plan === 'error') markUnreadable();
   let maxDomains: number;
   if (limitRes.allowed && limitRes.limitValid && typeof limitRes.limit === 'number') {
     maxDomains = limitRes.limit;
@@ -174,7 +185,7 @@ export async function resolveWidgetEntitlements(
     maxDomains = 0;
   }
 
-  return { features, maxDomains };
+  return degraded ? { features, maxDomains, degraded } : { features, maxDomains };
 }
 
 /** Force every plan-denied behaviour flag off in an outgoing settings row. */

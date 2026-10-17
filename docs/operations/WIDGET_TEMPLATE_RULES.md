@@ -1,0 +1,176 @@
+# Widget template rules
+
+Every template of the website chat widget (`public/widget/`) and of the call
+center widget (`public/call-widget/`) follows these rules: the shipped ones,
+and every new design added later. Each rule exists because the widget once
+broke it, and the cost landed on every visitor of every customer site.
+
+Most rules are enforced: `src/test/widget/templateRules.test.ts` runs them
+against every template listed in `shared/widgetTemplates.ts`
+(`CHAT_WIDGET_TEMPLATES`, `CALL_WIDGET_TEMPLATES`), so a new template is
+checked the moment it is described there, in CI (`npm test`). The rest are
+checked by the other tests named below, or are review rules.
+
+How to add a template, step by step: `.claude/skills/widget-template/SKILL.md`
+(the same procedure, for people and for Claude sessions). How editions pick
+templates: `docs/operations/EDITIONS.md`.
+
+## 1. What a template is
+
+- Chat widget: a renderer `presentation-<id>.js` (pure functions: view-model
+  in, HTML out), a stylesheet `presentation-<id>.css`, optionally a skin
+  (`presentation-<id>.css` loaded after another template's stylesheet, for a
+  restyle that reuses a renderer), and a fonts stylesheet
+  (`presentation-<id>-fonts.css`, or the shared
+  `presentation-default-fonts.css`).
+- Call widget: a presentation `presentation-<id>.js` (or a registration in an
+  existing one) and a stylesheet `presentation-<id>.css`.
+- The descriptor in `shared/widgetTemplates.ts` and the browser registry
+  (`public/widget/presentation-registry.js`; the call widget registers in its
+  presentation script) name the same files under the same id.
+- Prefer a skin over a new renderer: a skin is ~1 KB for its visitors and no
+  second renderer to keep in step with every runtime feature.
+
+## 2. Delivery and caching (never change these per template)
+
+- The build content-hashes every `presentation-*.js|css` it finds
+  (`scripts/widget-hash.js`, `scripts/call-widget-hash.js`). Never reference
+  a template file by its fixed name in code, and never add `?v=` to a hashed
+  URL: the hash in the name is its version.
+- Hashed files are served `public, max-age=31536000, immutable` with ONE
+  Cache-Control header (`expires off;` in the nested nginx location, which
+  would otherwise inherit the parent's `expires -1`), CORS `*`, gzip_static,
+  and a missing hashed file is a `no-store` 404 (`@missing_widget_asset`), so
+  a rolling deploy can never pin a 404 for a year. Pinned by
+  `src/test/perf/assetDelivery.test.ts`; check a change with a real nginx
+  (`nginx -t` on the rendered template) before shipping it: a broken
+  `nginx.conf.template` takes app.webyar.ai down at container start, and any
+  `${` in it other than `${BACKEND_URL}`, even in a comment, stops the
+  container (docker-entrypoint.sh).
+- Chat widget: template files load only when the visitor opens the panel, a
+  nudge shows, or the visitor shows an open intent (pointer over the
+  launcher, a touch on it, keyboard focus: `onOpenIntent` in loader.js), never
+  on a page view alone. Only the selected template's files are requested. An
+  intent also preconnects (crossorigin) to the API and the fonts' host, the
+  two uncredentialed connections a first open needs; runtime.init() still
+  waits for a real open.
+- Call widget: its presentation mounts at page load (the launcher lives in
+  it), so every byte of a call template is paid on a first page view. l.js
+  does not request its scripts early inside the host page's load (a script
+  requested before the load event delays it by its download): at once on a
+  loaded page, else at the load event or when the bootstrap answers,
+  whichever is first (a bootstrap answering first still starts them inside
+  the load, as it always did).
+- Every hashed file has a one-time canonical-name fallback in the code that
+  loads it (loader, runtime modules, the call module, call widget l.js): keep
+  it when you touch loading code. A retried `<script>` is a NEW element
+  (createElement): a cloneNode() copy keeps the "already started" flag and is
+  never fetched (`src/test/widget/loaderOpenIntent.test.ts`).
+
+## 3. Fonts (the 231 KB lesson)
+
+The fonts stylesheet once inlined five faces as base64: 231 KB gzip on every
+first open, 73% of the panel's bytes, the same Bold file twice, and a full
+111 KB Inter for Persian visitors who never draw a Latin glyph in it.
+
+- No font bytes in any stylesheet: no `data:font`, no base64.
+- No `@font-face` in a template stylesheet or skin, and none in a call widget
+  stylesheet (they live in a shadow root, where Chromium never fetches
+  faces). Faces live ONLY in the template's fonts stylesheet, which the
+  loader injects at DOCUMENT level.
+- Every face: one `src: url(fonts/<file>.woff2) format('woff2')` (relative;
+  the build hashes the file and rewrites the url), `font-display: swap`,
+  `font-style: normal`, and a `unicode-range`, so a face is downloaded only
+  when text on screen needs one of its characters. Only a family's LAST face
+  may omit the range (the fallback for a browser without unicode-range). No
+  face may claim emoji or symbol blocks.
+- Font files: woff2 only, under `public/widget/fonts/`, at most 45 KB each,
+  every file named by a fonts stylesheet (no dead weight), no two files with
+  the same bytes (point two weights at one file instead).
+- Licences: a licensed face (IRANSans) ships byte-for-byte unmodified. An OFL
+  face (Inter) may be subset; keep its copyright and licence names. Subsets
+  are generated once and committed (`scripts/fonts/subset-widget-fonts.py`):
+  the Docker build has no Python.
+- No external font hosts (Google Fonts, CDNs): customer sites' CSP and
+  privacy, and one more connection.
+- Customer sites with a Content-Security-Policy must allow the widget's
+  asset host in `font-src` (`https://app.webyar.ai`, `https://app.respok.app`).
+  Until 2026-10 the faces were `data:` URIs, so `font-src 'self' data:` was
+  enough; such a page now shows both widgets in the system font (they still
+  work) and logs one CSP error per face. Say so to a customer who reports it.
+- Prefer the shared faces (IRANSans for Persian, InterWY for Latin): a new
+  family is downloaded by every visitor of that template.
+- `prepare(context)` (`context = { locale, templateId }`) warms only the faces
+  the locale's FIRST paint draws, resolves within 500 ms even if a font never
+  arrives, and never throws. A Persian first paint may cost at most 120 KB of
+  fonts, an English or Turkish one 50 KB. Older loaders pass no context:
+  behave as Persian. The loader runs prepare() once the fonts stylesheet has
+  loaded (or failed, or 800 ms passed).
+
+## 4. Renderers are pure presentation
+
+- No network or storage: no `fetch`, `XMLHttpRequest`, `WebSocket`,
+  `EventSource`, `sendBeacon`, `localStorage`, `sessionStorage`,
+  `indexedDB`, `document.cookie`, dynamic `import()`, `eval`,
+  `new Function`, and no address of any host. URLs a template shows
+  (links, logos) come from the view-model.
+- Interaction is expressed with `data-*` behaviour hooks the core binds;
+  visual classes carry no behaviour. Never rename an existing `data-*` hook.
+- Call widget: the presentation never calls the network or storage; the
+  runtime never touches the DOM (`src/test/callWidgetPresentationContract.test.ts`).
+- Shipped JS targets ES2017 (the build lowers it); no new npm dependencies
+  in widget files.
+- No forbidden template-system tokens (`src/test/widget/noTemplateSystem.test.ts`).
+- RTL and LTR from one stylesheet (logical properties), both editions,
+  both brands: the RESPOK build must pass `scripts/build/brandAudit.mjs`
+  (`src/test/widget/widgetBrandBuild.test.ts` runs it on every file).
+
+## 5. Size budgets
+
+Minified as shipped (`scripts/build/widgetBrand.mjs`), gzip level 5 (what
+nginx sends). Numbers live in `BUDGETS` in `templateRules.test.ts`; raising
+one is a decision, with the reason in the commit and here.
+
+| File | Budget | Paid on |
+| --- | --- | --- |
+| chat `loader.js` | 24 KB | every page view of every site |
+| chat renderer | 20 KB | first open |
+| chat stylesheet | 18 KB | first open |
+| chat skin | 6 KB | first open |
+| chat fonts stylesheet | 3 KB | first open |
+| chat template total (renderer + stylesheet + skin + fonts stylesheet) | 40 KB | first open |
+| call `l.js` | 3 KB | every page view |
+| call `runtime.css` | 5 KB | first page view |
+| call presentation | 10 KB | first page view |
+| call stylesheet | 3 KB | first page view |
+| one font file | 45 KB | when its text is on screen |
+| Persian first-paint fonts / English or Turkish | 120 KB / 50 KB | first open |
+
+A launcher look belongs to `loader.js` (every page view): a template that
+wants its own launcher must fit the loader budget, or take its look from
+config instead of new code.
+
+## 6. Server side (no per-template work, but do not undo it)
+
+- The server picks ONE template per request and sends only its asset URLs;
+  per-template server cost is an in-memory lookup.
+- Widget config is cached per workspace in each API process (60 s, with
+  cross-node invalidation over Postgres LISTEN/NOTIFY), and the bootstrap
+  returns it inline, so a page view costs one API request and no database
+  query on a cache hit: `docs/operations/WIDGET_CONFIG_CACHE.md`. A template
+  that needs new settings adds them to that snapshot, never a per-request
+  query.
+
+## 7. Before a template ships
+
+1. `npx vitest run src/test/widget/templateRules.test.ts src/test/widget src/test/edition src/test/perf`
+2. Build both brands in a scratch copy:
+   `VITE_BRAND=iran node scripts/widget-hash.js && VITE_BRAND=iran node scripts/call-widget-hash.js`,
+   the same with `VITE_BRAND=respok`, then
+   `VITE_BRAND=respok node scripts/build/brandAudit.mjs dist`.
+3. If `nginx.conf.template` changed: render it with
+   `envsubst '${BACKEND_URL}'` and run `nginx -t` on it.
+4. Open the template in a real browser for fa and en: the panel opens in its
+   own typeface, and only the expected font files are requested.
+5. The widget Playwright specs (`e2e/widget*.spec.ts`) locally: CI does not
+   run them.

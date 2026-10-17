@@ -14,6 +14,8 @@ import { resolve, join, dirname, relative } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBuildBrand } from './build/brand.mjs';
 import { isWidgetSource, transformWidgetAsset } from './build/widgetBrand.mjs';
+import { rewriteWidgetFontUrls } from './build/widgetFonts.mjs';
+import { precompressFiles } from './build/precompress.mjs';
 
 // NOTE: Do NOT use `import.meta.dirname` — it was only added in Node 20.11.
 // Some `node:20-alpine` images shipped with older 20.x patch versions
@@ -41,9 +43,37 @@ const shipped = new Map();
 function shippedBytes(file) {
   if (!shipped.has(file)) {
     const raw = readFileSync(join(SRC_DIR, file));
-    shipped.set(file, isWidgetSource(file) ? Buffer.from(transformWidgetAsset(file, raw, BRAND), 'utf8') : raw);
+    let out = isWidgetSource(file) ? transformWidgetAsset(file, raw, BRAND) : raw;
+    // A stylesheet's url(fonts/<name>.woff2) becomes the font's hashed name
+    // BEFORE the stylesheet itself is hashed, so a font change is a new
+    // stylesheet URL too.
+    if (file.endsWith('.css')) out = rewriteWidgetFontUrls(out, hashedFont);
+    shipped.set(file, typeof out === 'string' ? Buffer.from(out, 'utf8') : out);
   }
   return shipped.get(file);
+}
+
+// Widget fonts (public/widget/fonts/*.woff2): content-hashed into
+// dist/widget/fonts/<name>.<hash>.woff2 when a stylesheet names them, served
+// immutable with CORS like every hashed widget asset (nginx.conf.template).
+// Manifest key `fonts/<name>.woff2`. A named font that does not exist fails
+// the build.
+const hashedFonts = new Map();
+function hashedFont(name) {
+  if (!hashedFonts.has(name)) {
+    const src = join(SRC_DIR, 'fonts', name);
+    if (!existsSync(src)) {
+      console.error(`[widget-hash] FATAL: a stylesheet names fonts/${name}, which does not exist`);
+      process.exit(1);
+    }
+    const buf = readFileSync(src);
+    const rel = `fonts/${name.slice(0, -'.woff2'.length)}.${contentHash(buf)}.woff2`;
+    mkdirSync(join(OUT_DIR, 'fonts'), { recursive: true });
+    writeFileSync(join(OUT_DIR, rel), buf);
+    hashedFonts.set(name, rel);
+    console.log(`[widget-hash] fonts/${name} → ${rel} (${(buf.length / 1024).toFixed(1)} KB)`);
+  }
+  return hashedFonts.get(name);
 }
 console.log(`[widget-hash] build brand: ${BRAND}`);
 
@@ -114,15 +144,21 @@ function contentHash(buf) {
 function cleanOldHashed() {
   if (!existsSync(OUT_DIR)) return;
   for (const f of readdirSync(OUT_DIR)) {
-    if (/^(runtime|presentation)[a-z0-9-]*\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
+    if (/^(runtime|presentation)[a-z0-9-]*\.[a-f0-9]{8}\.(js|css)(\.gz)?$/.test(f)) {
       unlinkSync(join(OUT_DIR, f));
+    }
+  }
+  const fontDir = join(OUT_DIR, 'fonts');
+  if (existsSync(fontDir)) {
+    for (const f of readdirSync(fontDir)) {
+      if (/\.[a-f0-9]{8}\.woff2$/.test(f)) unlinkSync(join(fontDir, f));
     }
   }
   // Also clean stale hashed vendor files so deploy converges.
   const vendorDir = join(OUT_DIR, 'vendor');
   if (existsSync(vendorDir)) {
     for (const f of readdirSync(vendorDir)) {
-      if (/\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
+      if (/\.[a-f0-9]{8}\.(js|css)(\.gz)?$/.test(f)) {
         unlinkSync(join(vendorDir, f));
       }
     }
@@ -134,6 +170,8 @@ mkdirSync(join(OUT_DIR, 'vendor'), { recursive: true });
 cleanOldHashed();
 
 const manifest = {};
+// Every content-hashed file written below, for the gzip copies at the end.
+const hashedOutputs = [];
 
 // Hash runtime files
 for (const file of HASHED_FILES) {
@@ -149,9 +187,12 @@ for (const file of HASHED_FILES) {
   const hashedName = `${base}.${hash}.${ext}`;
 
   writeFileSync(join(OUT_DIR, hashedName), buf);
+  hashedOutputs.push(join(OUT_DIR, hashedName));
   manifest[file] = hashedName;
   console.log(`[widget-hash] ${file} → ${hashedName}`);
 }
+
+for (const [name, rel] of hashedFonts) manifest[`fonts/${name}`] = rel;
 
 // Hash vendor files. Manifest key is the logical name with `vendor/`
 // prefix preserved, value is the hashed path also under `vendor/`.
@@ -170,6 +211,7 @@ for (const logical of VENDOR_FILES) {
   const stem = baseName.replace(`.${ext}`, '');
   const hashedRel = `vendor/${stem}.${hash}.${ext}`;
   writeFileSync(join(OUT_DIR, hashedRel), buf);
+  hashedOutputs.push(join(OUT_DIR, hashedRel));
   manifest[logical] = hashedRel;
   console.log(`[widget-hash] ${logical} → ${hashedRel} (${(buf.length / 1024).toFixed(1)} KB)`);
 }
@@ -196,6 +238,15 @@ if (existsSync(loaderSrc)) {
 for (const file of readdirSync(SRC_DIR)) {
   if (!isWidgetSource(file) || !existsSync(join(OUT_DIR, file))) continue;
   writeFileSync(join(OUT_DIR, file), shippedBytes(file));
+}
+
+// Level-9 gzip copies of the hashed scripts and stylesheets for nginx's
+// `gzip_static` (the hashed /widget/ location): made once here instead of
+// gzipped again by nginx on every request that misses the CDN. woff2 is
+// compressed already and is skipped (scripts/build/precompress.mjs).
+{
+  const { written, rawBytes, gzipBytes } = await precompressFiles(hashedOutputs);
+  console.log(`[widget-hash] gzip_static: ${written} files, ${(rawBytes / 1024).toFixed(0)} KB → ${(gzipBytes / 1024).toFixed(0)} KB`);
 }
 
 const manifestPath = join(OUT_DIR, 'widget-manifest.json');

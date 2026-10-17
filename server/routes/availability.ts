@@ -18,6 +18,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { listWorkspacePresence } from '../services/widget/operatorPresence.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { getPlatformEditionOrNull } from '../services/platformRegion.js';
@@ -290,6 +291,8 @@ availabilityRouter.patch('/', async (req, res) => {
       row = data;
     }
 
+    // Every workspace whose widget shows this operator.
+    publishCacheInvalidation([`user:${user.id}`]);
     const prefs = mergeWithDefaults(row);
     const status = computeLiveStatus(prefs);
     return res.json({ prefs, status });

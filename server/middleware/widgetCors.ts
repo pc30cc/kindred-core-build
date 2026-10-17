@@ -37,11 +37,29 @@ import {
   getRequestBaseUrl,
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
-import { verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
+import { readWidgetToken, verifySessionToken, verifyTokenForRefresh } from '../services/widget/security.js';
 import { isOriginAllowed, toStrictOrigin } from '../utils/domain.js';
+import { serverConfigOf } from '../lib/workspaceAuth.js';
+import { canonicalWorkspaceId } from '../lib/workspaceId.js';
 
 const ALLOWED_HEADERS = 'Content-Type, Authorization, X-Widget-Token, x-widget-token';
 const ALLOWED_METHODS = 'GET, POST, PUT, OPTIONS';
+
+/**
+ * How long a browser may reuse a widget preflight answer, in seconds — for
+ * the chat widget (here) and the call widget (routes/callWidget.ts). 7200 is
+ * Chromium's ceiling (it clamps anything longer; WebKit keeps ~600 s, Firefox
+ * up to 24 h). A preflight is cached per URL, so this only matters for calls
+ * that still send a custom header (X-Widget-Token, x-cc-session) or a JSON body.
+ */
+export const WIDGET_CORS_MAX_AGE_SECONDS = 7200;
+
+/**
+ * Response headers a cross-origin widget script may read beyond the
+ * CORS-safelisted ones: Retry-After, so the loaders can wait as long as a
+ * 429 (or a busy 503) says instead of guessing.
+ */
+export const WIDGET_CORS_EXPOSE_HEADERS = 'Retry-After';
 
 /**
  * Canonical credentialed-CORS response contract. Exported so any other
@@ -53,16 +71,18 @@ export function applyWidgetCorsHeaders(res: Response, origin: string) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', ALLOWED_METHODS);
   res.setHeader('Access-Control-Allow-Headers', ALLOWED_HEADERS);
-  res.setHeader('Access-Control-Max-Age', '3600');
+  res.setHeader('Access-Control-Expose-Headers', WIDGET_CORS_EXPOSE_HEADERS);
+  res.setHeader('Access-Control-Max-Age', String(WIDGET_CORS_MAX_AGE_SECONDS));
   res.setHeader('Vary', 'Origin');
 }
 
+/** The client-declared workspace, canonical (lib/workspaceId.ts); null when it is no uuid. */
 function getWorkspaceId(req: Request): string | null {
-  return (
+  return canonicalWorkspaceId(
     (req.query.workspace_id as string) ||
     (req.body?.workspace_id as string) ||
     (req.body?.workspaceId as string) ||
-    null
+    null,
   );
 }
 
@@ -79,12 +99,13 @@ function isSessionRefreshPath(req: Request): boolean {
  * token — such a token must never widen CORS in any way.
  */
 function getTokenContext(req: Request): { workspaceId: string; tokenOrigin: string } | null {
-  const raw = req.headers['x-widget-token'];
-  const token = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof token !== 'string' || !token) return null;
+  // The header, or the body field of a CORS-simple /track or
+  // /visitor-presence call (readWidgetToken): same token, same verifier.
+  const token = readWidgetToken(req);
+  if (!token) return null;
   const result = isSessionRefreshPath(req) ? verifyTokenForRefresh(token) : verifySessionToken(token);
   if (!result.valid || !result.workspaceId) return null;
-  return { workspaceId: result.workspaceId, tokenOrigin: (result.origin || '').toLowerCase().replace(/\/+$/, '') };
+  return { workspaceId: canonicalWorkspaceId(result.workspaceId) ?? result.workspaceId, tokenOrigin: (result.origin || '').toLowerCase().replace(/\/+$/, '') };
 }
 
 /**
@@ -113,7 +134,7 @@ export function widgetCorsMiddleware() {
 
     if (!origin) return next();
 
-    const config = (req as any).serverConfig as ServerConfig;
+    const config: ServerConfig | undefined = serverConfigOf(req);
     if (!config) {
       // Fail closed: no server config means we cannot verify the workspace's
       // origin allow-list, so do not echo Access-Control-Allow-Origin (which,
@@ -136,7 +157,7 @@ export function widgetCorsMiddleware() {
 
     // 3) For bootstrap and config endpoints we may not have an explicit
     //    workspace yet — resolve it from the origin / referrer header.
-    if (!workspaceId && (req.path === '/bootstrap' || req.path === '/config')) {
+    if (!workspaceId && (req.path === '/bootstrap' || req.path === '/boot' || req.path === '/config')) {
       try {
         workspaceId = await resolveWorkspaceIdFromOrigin(config, getBootstrapOrigin(req));
       } catch {

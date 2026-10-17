@@ -6,7 +6,8 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { createStorageUrlResolver } from '../storage/urlResolver.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
+import { createStorageUrlResolver, type StorageUrlResolver } from '../storage/urlResolver.js';
 
 export type AgentMode =
   | 'off'
@@ -172,6 +173,7 @@ export async function getOrCreateSettings(
     .select('*')
     .single();
   if (error) throw new Error(`ai_agent_settings init failed: ${error.message}`);
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return created as AgentSettings;
 }
 
@@ -214,6 +216,8 @@ export async function updateSettings(
     .select('*')
     .single();
   if (error) throw new Error(`ai_agent_settings update failed: ${error.message}`);
+  // The widget's AI snapshot (greeting, intro, agent name and logo).
+  publishCacheInvalidation([`widget:${workspaceId}`]);
   return data as AgentSettings;
 }
 /**
@@ -229,6 +233,8 @@ export async function resolveAgentLogoUrl(
   config: ServerConfig,
   workspaceId: string | null | undefined,
   settings: { agent_logo_url?: string | null; metadata?: unknown } | null | undefined,
+  /** A resolver the caller already holds (one provider lookup for several URLs). */
+  resolver?: StorageUrlResolver,
 ): Promise<string | null> {
   if (!settings) return null;
   const meta = (settings.metadata && typeof settings.metadata === 'object')
@@ -236,7 +242,7 @@ export async function resolveAgentLogoUrl(
     : {};
   const key = typeof meta.ai_avatar_storage_key === 'string' ? meta.ai_avatar_storage_key : null;
   if (key) {
-    const derived = await createStorageUrlResolver(config).workspace(workspaceId, key);
+    const derived = await (resolver ?? createStorageUrlResolver(config)).workspace(workspaceId, key);
     if (derived) return derived;
   }
   return settings.agent_logo_url ?? null;

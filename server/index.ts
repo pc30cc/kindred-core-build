@@ -10,6 +10,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { primePlatformOrigins, isAllowedOrigin } from './services/platformOrigins.js';
 import { loadConfig, type ServerConfig } from './config.js';
+import { jsonBodyParser } from './middleware/bodyParsers.js';
+import { startCacheBusListener, stopCacheBusListener } from './lib/cacheBus.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
@@ -90,7 +92,7 @@ import { aiKbRouter } from './routes/aiKb.js';
 import { knowledgeBaseRouter } from './routes/knowledgeBase.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
 import { callCenterRouter } from './routes/callCenter.js';
-import { callWidgetRouter } from './routes/callWidget.js';
+import { callWidgetCors, callWidgetRouter } from './routes/callWidget.js';
 import { contactsRouter } from './routes/contacts.js';
 import { teamChatRouter } from './routes/teamChat.js';
 import { platformSupportRouter } from './routes/platformSupport.js';
@@ -209,13 +211,14 @@ function widgetAssetHeaderMap(filePath: string): Record<string, string> {
   if (/livekit-client\.umd\.min\.js$/i.test(filePath)) {
     headers['Cache-Control'] = 'public, max-age=31536000, immutable';
   } else {
-    // Loader + runtime are NOT content-hashed. If we let CDNs cache them
-    // even briefly, customers see stale widget UI after every deploy and
-    // a Cloudflare purge isn't always enough (heuristic / edge TTL).
-    // Force no-store everywhere so each page load fetches fresh bytes.
-    headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0';
-    headers['Pragma'] = 'no-cache';
-    headers['Expires'] = '0';
+    // l.js and the files at their fixed names (this image has no hashed
+    // copies): the browser keeps them but revalidates on every use
+    // (ETag / Last-Modified -> a bodiless 304), a CDN never stores them, so
+    // a deploy is seen at the next page view without re-sending unchanged
+    // bytes. The raw loader versions them with the bootstrap's
+    // assets_version (a hash of these files). They used to be no-store,
+    // re-downloaded in full on every page view.
+    headers['Cache-Control'] = 'no-cache, must-revalidate';
     headers['Surrogate-Control'] = 'no-store';
     headers['CDN-Cache-Control'] = 'no-store';
     headers['Cloudflare-CDN-Cache-Control'] = 'no-store';
@@ -361,13 +364,17 @@ app.use('/api/commerce/events', commerceEventsRouter);
 app.use('/api/commerce/connection', commercePluginActionsRouter);
 
 // JSON / cookies for everything else. Skip the webhook path explicitly so
-// a future re-order can't accidentally consume the raw body.
+// a future re-order can't accidentally consume the raw body. The widget
+// bootstrap also accepts its JSON as text/plain (a CORS-simple request, no
+// preflight) — see middleware/bodyParsers.ts; parsed here, before
+// widgetCorsMiddleware reads body.workspace_id.
+const parseJsonBody = jsonBodyParser();
 app.use((req, res, next) => {
   if (req.path === '/api/calls/livekit/webhook') return next();
   if (req.path.startsWith('/api/billing/webhook')) return next();
   if (req.path.startsWith('/api/commerce/events')) return next();
   if (req.path.startsWith('/api/commerce/connection')) return next();
-  return express.json({ limit: '50mb' })(req, res, next);
+  return parseJsonBody(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
 
@@ -419,7 +426,7 @@ app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 // protected by per-IP + global ceilings ONLY. It must never touch the
 // authenticated per-workspace bucket (a spoofed Origin / known workspace UUID
 // would otherwise let an attacker drain a victim's shared quota).
-app.use('/api/widget/bootstrap', widgetCorsMiddleware(), widgetBootstrapGlobalCeiling, widgetBootstrapRateLimiter);
+app.use(['/api/widget/bootstrap', '/api/widget/boot'], widgetCorsMiddleware(), widgetBootstrapGlobalCeiling, widgetBootstrapRateLimiter);
 
 // Anonymous public KB JSON — no cryptographic credential exists on this path,
 // so there is deliberately NO workspace blocking bucket for it.
@@ -658,9 +665,12 @@ app.use('/api/ai-agent', aiAgentRouter);
 app.use('/api/call-center', callCenterRouter);
 
 // Call Widget — public visitor-facing standalone widget endpoints.
-// Dynamic per-workspace CORS handled inside the router.
+// CORS first, ahead of the limiters, so a 429 is readable by l.js (it then
+// waits the Retry-After it names); which origins may use a workspace is
+// still decided inside the router (callOriginAllowed).
 // Pre-auth call-widget bootstrap: `publicKey` is a PUBLIC identifier visible in
 // the embed, never a secret — it cannot select a workspace bucket.
+app.use('/api/call-widget', callWidgetCors);
 app.use('/api/call-widget/bootstrap', callWidgetBootstrapGlobalCeiling, callWidgetBootstrapRateLimiter);
 // Post-bootstrap call-widget traffic: per-IP + workspace bucket (unreachable
 // today, see resolveRateLimitWorkspaceKey's doc comment) + a per-session
@@ -702,6 +712,10 @@ await ensureInvitationSecrets(config)
 
 const httpServer = app.listen(config.port, () => {
   console.log(`Growth Suite server running on port ${config.port}`);
+
+  // Cross-node cache invalidation (PostgreSQL LISTEN, one connection). Only
+  // this API process listens; best-effort, a no-op in supabase-rest mode.
+  startCacheBusListener();
 
   // Phase 3 — start best-effort orphan-attachment sweeper.
   startAttachmentJanitor(config);
@@ -1035,5 +1049,10 @@ const httpServer = app.listen(config.port, () => {
 // classic source of stray 502s. headersTimeout must stay above it.
 httpServer.keepAliveTimeout = 65_000;
 httpServer.headersTimeout = 66_000;
+
+// Graceful shutdown closes the HTTP server; its LISTEN connection goes too.
+httpServer.on('close', () => {
+  void stopCacheBusListener();
+});
 
 export default app;

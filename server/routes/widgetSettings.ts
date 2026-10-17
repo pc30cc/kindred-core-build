@@ -26,6 +26,7 @@ import { uploadForOwner, deleteForOwner } from '../services/storage/index.js';
 import { widgetAssetKey } from '../services/storage/keys.js';
 import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { invalidatePlatformPublicConfig } from '../services/platformPublicConfig.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 
 
 export const widgetSettingsRouter = Router();
@@ -218,8 +219,9 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   // Embed allow-list / subdomain policy is read on every widget request from
   // a short-lived cache — drop it now so the change is live immediately
-  // instead of after the TTL.
+  // instead of after the TTL. The widget config snapshot too, on every node.
   invalidateWorkspaceOriginCache(workspaceId);
+  publishCacheInvalidation([`widget:${workspaceId}`, `origin:${workspaceId}`]);
   return res.json({ settings: await withDerivedFabImageUrl(config, workspaceId, data) });
 });
 
@@ -319,6 +321,7 @@ widgetSettingsRouter.post('/:workspaceId/fab-image', async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${workspaceId}`]);
 
   if (previousKey && previousKey !== fileKey) {
     await deleteForOwner(config, { kind: 'workspace', workspaceId }, previousKey).catch(() => undefined);
@@ -356,6 +359,7 @@ widgetSettingsRouter.delete('/:workspaceId/fab-image', async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${workspaceId}`]);
 
   if (previousKey) {
     await deleteForOwner(config, { kind: 'workspace', workspaceId }, previousKey).catch(() => undefined);
@@ -412,6 +416,7 @@ widgetSettingsRouter.patch('/:workspaceId/debug', async (req, res) => {
     .select('workspace_id, debug_mode')
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${workspaceId}`]);
 
   // Durable audit trail — reuses the existing audit_logs table (the SAME
   // one server/routes/adminManagement.ts's audit viewer already reads),
@@ -568,7 +573,10 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
   // (or the row was deleted). Create it on demand — the table enforces a
   // singleton unique index, so concurrent seeds are safe.
   const seed = await sb.from('widget_platform_settings').insert({}).select().single();
-  if (!seed.error) invalidatePlatformPublicConfig();
+  if (!seed.error) {
+    invalidatePlatformPublicConfig();
+    publishCacheInvalidation(['platform']);
+  }
   if (seed.error) {
     const retry = await sb.from('widget_platform_settings').select('*').limit(1).maybeSingle();
     if (retry.data) return res.json({ settings: retry.data });
@@ -675,7 +683,9 @@ widgetSettingsRouter.patch('/platform/config', async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
-  // The realtime_* tuning values are part of the public config.
+  // The realtime_* tuning values are part of the public config; the URL
+  // bases, welcome text and powered-by wording feed the widget config.
   invalidatePlatformPublicConfig();
+  publishCacheInvalidation(['platform']);
   return res.json({ settings: data });
 });

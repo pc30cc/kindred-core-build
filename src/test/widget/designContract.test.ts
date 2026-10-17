@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 /**
  * Widget design contract lock.
@@ -75,34 +75,34 @@ describe('typography ownership', () => {
     expect(RUNTIME_CSS).not.toMatch(/Vazirmatn/);
   });
 
-  it('keeps ALL font bytes in ONE presentation-owned asset, never in the template CSS', () => {
-    // Template stylesheet: typography rules only — zero font bytes.
+  it('keeps ALL font faces in ONE presentation-owned asset, never in the template CSS', () => {
+    // Template stylesheet: typography rules only — no faces, no font files.
     expect(PRES_CSS).not.toMatch(/@font-face/);
     expect(PRES_CSS).not.toMatch(/base64,/);
     expect(PRES_CSS).not.toMatch(/url\(['"]?[^)]*\.woff2/);
     expect(PRES_CSS).toMatch(/\.shell \*\s*\{\s*\n?\s*font-family: 'IRANSans'/);
     expect(PRES_CSS).toMatch(/font-family: 'InterWY'/);
 
-    // Font asset: the faces, with the bytes inlined (CORS-proof) exactly once.
-    const faces = PRES_FONTS_CSS.match(/@font-face[^}]*'IRANSans'[^}]*}/g) || [];
+    // Font asset: the faces, each its own (build-hashed) file; no inlined bytes.
+    const faces = PRES_FONTS_CSS.match(/@font-face\s*\{[^}]*'IRANSans'[^}]*\}/g) || [];
     expect(faces.length).toBe(4);
-    expect(PRES_FONTS_CSS).not.toMatch(/url\(['"]?[^)]*\.woff2/);
+    expect(PRES_FONTS_CSS).not.toMatch(/data:|base64,/);
     for (const w of [400, 500, 600, 700]) {
       expect(
-        faces.some((f) => new RegExp(`font-weight:\\s*${w}\\b`).test(f) && /url\(data:font\/woff2;base64,/.test(f)),
+        faces.some((f) => new RegExp(`font-weight:\\s*${w}\\b`).test(f) && /url\(fonts\/iransans-\d{3}\.woff2\)/.test(f)),
       ).toBe(true);
     }
     expect(PRES_FONTS_CSS).toMatch(/font-family: 'InterWY'[^}]*font-weight: 500/);
   });
 
-  it('maps the design 600 and 700 weights to the same licensed Bold asset', () => {
-    const faces = PRES_FONTS_CSS.match(/@font-face[^}]*'IRANSans'[^}]*}/g) || [];
+  it('maps the design 600 and 700 weights to the same licensed Bold file', () => {
+    const faces = PRES_FONTS_CSS.match(/@font-face\s*\{[^}]*'IRANSans'[^}]*\}/g) || [];
     const src = (w: number) => {
       const f = faces.find((x) => new RegExp(`font-weight:\\s*${w}\\b`).test(x));
-      return f ? (f.match(/base64,([A-Za-z0-9+/=]{64})/) || [])[1] : undefined;
+      return f ? (f.match(/url\(([^)]+)\)/) || [])[1] : undefined;
     };
-    expect(src(600)).toBeDefined();
-    expect(src(600)).toBe(src(700));
+    expect(src(600)).toBe('fonts/iransans-700.woff2');
+    expect(src(700)).toBe('fonts/iransans-700.woff2');
   });
 
   it('exposes the font asset generically through the registry descriptor', () => {
@@ -112,7 +112,8 @@ describe('typography ownership', () => {
     expect(loader).not.toContain('IRANSans');
     expect(loader).not.toContain('/widget/fonts.css');
     expect(loader).toContain('presentationFontsUrl');
-    // The large inlined font stylesheet loads only for an opened panel or a visible nudge.
+    // The font stylesheet loads only for an opened panel or a visible nudge:
+    // once it is in, the launcher's own text would start downloading faces.
     expect(loader).not.toContain('injectPresentationFonts(config.presentationFontsUrl');
     expect(loader).toContain('injectPresentationFonts(configData.presentationFontsUrl');
     // Call widget consumes a server-provided asset URL, not the chat path.
@@ -132,6 +133,15 @@ describe('typography ownership', () => {
     expect(readFileSync('server/routes/callWidget.ts', 'utf8')).toContain('font_style_url:');
     const callCss = readFileSync('public/call-widget/runtime.css', 'utf8');
     expect(callCss).not.toMatch(/@font-face/);
+    // Nor any of its presentation stylesheets: they load inside the shadow
+    // root, where faces are not used; the document-level fonts stylesheet
+    // (the loader's build names it, else the bootstrap's font_style_url)
+    // has them.
+    const callSheets = readdirSync('public/call-widget').filter((f) => /^presentation-[a-z0-9-]+\.css$/.test(f));
+    expect(callSheets).toEqual(expect.arrayContaining(['presentation-default.css', 'presentation-intl.css']));
+    for (const f of callSheets) {
+      expect(readFileSync(`public/call-widget/${f}`, 'utf8'), f).not.toMatch(/@font-face|\.woff2/);
+    }
   });
 
   it('keeps all controls on presentation-owned inherited typography', () => {

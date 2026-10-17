@@ -19,6 +19,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { publishCacheInvalidation } from '../lib/cacheBus.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { checkWorkspaceProviderBaseUrl } from '../../shared/ai/endpointPolicy.js';
 import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
@@ -293,6 +294,8 @@ workspaceIntegrationsRouter.put('/:workspaceId/providers', async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  // provider_type 'call' is the widget's call-channel overrides.
+  publishCacheInvalidation([`widget:${req.params.workspaceId}`]);
   return res.json({ setting: data });
 });
 
@@ -309,6 +312,7 @@ workspaceIntegrationsRouter.delete('/:workspaceId/providers/:providerType', asyn
     .eq('workspace_id', req.params.workspaceId)
     .eq('provider_type', req.params.providerType);
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${req.params.workspaceId}`]);
   return res.json({ success: true });
 });
 
@@ -364,6 +368,7 @@ workspaceIntegrationsRouter.put('/:workspaceId/privacy-storage', async (req, res
     .select('*')
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${req.params.workspaceId}`]);
   return res.json({ storage: data });
 });
 
@@ -377,5 +382,6 @@ workspaceIntegrationsRouter.delete('/:workspaceId/privacy-storage', async (req, 
     .eq('workspace_id', req.params.workspaceId)
     .eq('provider_type', PRIVACY_STORAGE_TYPE);
   if (error) return res.status(500).json({ error: error.message });
+  publishCacheInvalidation([`widget:${req.params.workspaceId}`]);
   return res.json({ success: true });
 });

@@ -6,9 +6,14 @@
  * Registered under `window.__gs_presentation_t2` and resolved through
  * `presentation-registry.js`.
  *
+ * The look: a home with a tall gradient hero, an ask card overlapping it and
+ * a card of quiet rows (no bottom menu); white views with a 68px bar; an
+ * operator-side thread with avatars on every run; a two-row composer.
+ *
  * CONTRACT (see docs/WIDGET_PRESENTATION_ARCHITECTURE.md)
  *   create(env) -> renderer
- *     env    = { t, escapeHtml, config, locale, primaryColor }
+ *     env    = { t, escapeHtml, linkifyHtml, linkLabel, config, locale,
+ *                primaryColor, capabilities }
  *     render = pure functions: (view-model) -> HTML string
  *
  * Rules for every presentation implementation:
@@ -17,14 +22,270 @@
  *     view-model argument produced by Widget Core.
  *   - Interaction is expressed with behaviour hooks (data-* attributes)
  *     that Core binds; visual classes carry no behavioural meaning.
+ *
+ * Every hook the `default` renderer emits is emitted here too (hidden where
+ * this design draws no control for it). The Core behaviours this renderer
+ * opts into are listed in `features` (runtime.js `feat()`); the ones whose
+ * backend does not exist yet (`env.capabilities`: rating after a chat,
+ * reactions, order card, instant answers, track order) draw nothing.
  */
 (function () {
   'use strict';
+
+  // The platform's marks (the hero watermark and the footer glyph) belong to
+  // the Iranian edition's build only: the RESPOK build deletes this block, so
+  // both stay empty there and nothing is drawn.
+  var MARK = '';
+  var MARK_DOTS = '';
+  /* @iran-kit:begin */
+  MARK = 'M42.28 27.95A12.4 12.4 0 0 0 21.7 17.01A12.4 12.4 0 0 0 30.43 38.62A7.75 7.75 0 0 0 22.95 46.14A0.43 0.43 0 0 1 22.56 46.56A21.7 21.7 0 0 0 42.28 27.95Z';
+  MARK_DOTS = MARK + 'M35.21 24.12L37.32 26.23L35.21 28.34L33.1 26.23ZM30 24.12L32.11 26.23L30 28.34L27.89 26.23ZM24.79 24.12L26.9 26.23L24.79 28.34L22.69 26.23Z';
+  /* @iran-kit:end */
+
+  // Strings this design adds (Core's own keys are read through `t`).
+  // fa / en / tr; anything missing falls back to en.
+  var DICT = {
+    fa: {
+      hiBack: 'سلام {name}، خوش برگشتی 👋',
+      q: 'چطور می‌توانیم\nکمکتان کنیم؟',
+      qAway: 'پیامتان را\nبگذارید',
+      on: 'آنلاین هستیم',
+      off: 'آفلاین هستیم',
+      sep: '، ',
+      semi: '؛ ',
+      backAt: 'از ساعت {t} پاسخ می‌دهیم',
+      am: ' صبح',
+      ask: 'سؤالتان را بنویسید…',
+      askAway: 'پیامتان را بنویسید…',
+      eg: 'مثلاً: ',
+      noteAm: 'پاسخ را صبح به ایمیلتان می‌فرستیم',
+      note: 'پاسخ را به ایمیلتان می‌فرستیم',
+      helpSub: '{n} مقاله درباره {c}',
+      helpAway: 'بیشتر پاسخ‌ها همین‌جاست، همیشه در دسترس',
+      and: ' و ',
+      arts: '{n} مقاله',
+      cont: 'ادامه گفتگو با {name}',
+      convs: 'گفتگوهای شما',
+      convsOne: '{n} گفتگو، یکی باز است',
+      convsN: '{n} گفتگو',
+      online: 'آنلاین',
+      typing: 'در حال نوشتن',
+      away: 'آفلاین؛ پاسخ با ایمیل',
+      awayT: 'الان آفلاین هستیم',
+      team: 'تیم پشتیبانی {w}',
+      retry: 'تلاش دوباره',
+      delRec: 'حذف ضبط',
+      sendVoice: 'ارسال پیام صوتی',
+      kb: 'کیلوبایت',
+      mb: 'مگابایت',
+      clear: 'پاک کردن',
+      found: '{n} مقاله پیدا شد',
+      topicsT: 'یا از یک موضوع شروع کنید',
+      didHelp: 'این مقاله کمک کرد؟',
+      no: 'نه',
+      partly: 'تا حدی',
+      yes: 'بله',
+      still: 'هنوز سؤال دارید؟',
+      chatTeam: 'با تیم گفتگو کنید',
+      read: '{n} دقیقه مطالعه',
+      askEmail: 'اگر از سایت رفتید، پاسخ را کجا بفرستیم؟',
+      saveEmail: 'ثبت ایمیل',
+      skip: 'نه ممنون، همین‌جا منتظر می‌مانم',
+      replyTo: 'پاسخ را به {email} می‌فرستیم.',
+    },
+    en: {
+      hiBack: 'Hi {name}, welcome back 👋',
+      q: 'How can we\nhelp you?',
+      qAway: 'Leave us\na message',
+      on: "We're online",
+      off: "We're offline",
+      sep: ', ',
+      semi: '; ',
+      backAt: 'we reply from {t}',
+      am: '',
+      ask: 'Write your question…',
+      askAway: 'Write your message…',
+      eg: 'e.g. ',
+      noteAm: "We'll email you the reply in the morning",
+      note: "We'll email you the reply",
+      helpSub: '{n} articles about {c}',
+      helpAway: 'Most answers are right here, always available',
+      and: ' and ',
+      arts: '{n} articles',
+      cont: 'Continue with {name}',
+      convs: 'Your conversations',
+      convsOne: '{n} conversations, one open',
+      convsN: '{n} conversations',
+      online: 'Online',
+      typing: 'Typing',
+      away: "Offline; we'll reply by email",
+      awayT: "We're offline right now",
+      team: '{w} support team',
+      retry: 'Try again',
+      delRec: 'Delete recording',
+      sendVoice: 'Send voice message',
+      kb: 'KB',
+      mb: 'MB',
+      clear: 'Clear',
+      found: '{n} articles found',
+      topicsT: 'Or start from a topic',
+      didHelp: 'Did this article help?',
+      no: 'No',
+      partly: 'Partly',
+      yes: 'Yes',
+      still: 'Still have a question?',
+      chatTeam: 'Chat with the team',
+      read: '{n} min read',
+      askEmail: 'If you leave the site, where should we send the reply?',
+      saveEmail: 'Save email',
+      skip: "No thanks, I'll wait here",
+      replyTo: "We'll send the reply to {email}.",
+    },
+    tr: {
+      hiBack: 'Merhaba {name}, tekrar hoş geldin 👋',
+      q: 'Size nasıl\nyardımcı olabiliriz?',
+      qAway: 'Bize bir\nmesaj bırakın',
+      on: 'Çevrimiçiyiz',
+      off: 'Çevrimdışıyız',
+      backAt: '{t} itibarıyla yanıtlıyoruz',
+      ask: 'Sorunuzu yazın…',
+      askAway: 'Mesajınızı yazın…',
+      eg: 'Örn. ',
+      noteAm: 'Yanıtı sabah e-postanıza göndeririz',
+      note: 'Yanıtı e-postanıza göndeririz',
+      helpSub: '{c} hakkında {n} makale',
+      helpAway: 'Çoğu yanıt burada, her zaman erişilebilir',
+      and: ' ve ',
+      arts: '{n} makale',
+      cont: '{name} ile devam et',
+      convs: 'Sohbetleriniz',
+      convsOne: '{n} sohbet, biri açık',
+      convsN: '{n} sohbet',
+      online: 'Çevrimiçi',
+      typing: 'Yazıyor',
+      away: 'Çevrimdışı; e-postayla yanıtlarız',
+      awayT: 'Şu anda çevrimdışıyız',
+      team: '{w} destek ekibi',
+      retry: 'Tekrar dene',
+      delRec: 'Kaydı sil',
+      sendVoice: 'Sesli mesajı gönder',
+      clear: 'Temizle',
+      found: '{n} makale bulundu',
+      topicsT: 'Ya da bir konudan başlayın',
+      didHelp: 'Bu makale yardımcı oldu mu?',
+      no: 'Hayır',
+      partly: 'Kısmen',
+      yes: 'Evet',
+      still: 'Hâlâ sorunuz mu var?',
+      chatTeam: 'Ekiple sohbet edin',
+      read: '{n} dk okuma',
+      askEmail: 'Siteden ayrılırsanız yanıtı nereye gönderelim?',
+      saveEmail: 'E-postayı kaydet',
+      skip: 'Hayır teşekkürler, burada beklerim',
+      replyTo: 'Yanıtı {email} adresine göndereceğiz.',
+    },
+  };
+
+  // Icons: inner SVG markup on a 24px grid (see ico()). Chevrons are drawn
+  // left-to-right and mirrored in RTL by the stylesheet (`.dirf`).
+  function P(d) { return '<path d="' + d + '"/>'; }
+  var EYES = '<path d="M9 10h.01M15 10h.01" stroke-width="2.6"/>';
+  var CIRCLE = '<circle cx="12" cy="12" r="8.5"/>';
+  var I = {
+    x: P('M6 6l12 12M18 6 6 18'),
+    back: P('m14 6-6 6 6 6'),
+    fwd: P('m10 6 6 6-6 6'),
+    send: P('M12 19V5M5.5 11.5L12 5l6.5 6.5'),
+    mic: '<rect x="8.5" y="2.5" width="7" height="12.5" rx="3.5" fill="currentColor" stroke="none"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" stroke-width="2"/>',
+    emoji: CIRCLE + P('M8.5 14.2c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8') + '<path d="M9 9.5h.01M15 9.5h.01" stroke-width="2.6"/>',
+    clip: P('M20 11.5 12.4 19a5 5 0 0 1-7.1-7.1l7.8-7.8a3.3 3.3 0 0 1 4.7 4.7l-7.6 7.6a1.7 1.7 0 0 1-2.4-2.4l7-7'),
+    trash: P('M4.5 7h15M9.5 7V5.25c0-.7.55-1.25 1.25-1.25h2.5c.7 0 1.25.55 1.25 1.25V7M6.5 7l.9 12.2A1.9 1.9 0 0 0 9.3 21h5.4a1.9 1.9 0 0 0 1.9-1.8L17.5 7'),
+    book: P('M12 6.6C10.5 5.4 8.4 4.75 6 4.75c-.97 0-1.75.78-1.75 1.75v10.25c0 .97.78 1.75 1.75 1.75 2.4 0 4.5.65 6 1.85 1.5-1.2 3.6-1.85 6-1.85.97 0 1.75-.78 1.75-1.75V6.5c0-.97-.78-1.75-1.75-1.75-2.4 0-4.5.65-6 1.85Z') + P('M12 6.6v13.5'),
+    box: P('M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z') + P('M3.5 7.5 12 12l8.5-4.5M12 12v9'),
+    chat: P('M14.5 9.5h3.25A2.75 2.75 0 0 1 20.5 12.25v3.5a2.75 2.75 0 0 1-2.1 2.67V20.5l-2.65-1.9H12.5a2.75 2.75 0 0 1-2.75-2.75v-.6') + P('M6.25 4.5h6.5A2.75 2.75 0 0 1 15.5 7.25v4.5a2.75 2.75 0 0 1-2.75 2.75H8.4L5.6 16.6v-2.2a2.75 2.75 0 0 1-2.1-2.67V7.25A2.75 2.75 0 0 1 6.25 4.5z'),
+    truck: P('M2.75 6.75h11v9.5h-11zM13.75 10h4l3.5 3.5v2.75h-7.5') + '<circle cx="7" cy="17.75" r="1.75"/><circle cx="17.25" cy="17.75" r="1.75"/>',
+    return: P('M9 14 4 9l5-5') + P('M4 9h10.5a5.5 5.5 0 0 1 0 11H11'),
+    ruler: P('M3.5 16.5 16.5 3.5l4 4-13 13z') + P('M7.5 12.5l2 2M10.5 9.5l2 2M13.5 6.5l2 2'),
+    card: '<rect x="3" y="5.5" width="18" height="13" rx="2.5"/>' + P('M3 10h18M7 15h3'),
+    clock: CIRCLE + P('M12 7.5V12l3 2'),
+    help: CIRCLE + P('M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.7M12 17h.01'),
+    gift: '<rect x="4" y="9.5" width="16" height="10.5" rx="1.5"/>' + P('M3 9.5h18M12 9.5V20M12 9.5C10.5 6 6.5 5.3 6.5 7.7s3.4 1.8 5.5 1.8c2.1 0 5.5.6 5.5-1.8S13.5 6 12 9.5'),
+    tag: P('M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1.4 1.4 0 0 1 0 2l-7 7a1.4 1.4 0 0 1-2 0z') + '<circle cx="8" cy="8" r="1.5"/>',
+    person: '<circle cx="12" cy="8.5" r="3.8"/>' + P('M4.5 20c.9-3.6 3.9-5.5 7.5-5.5s6.6 1.9 7.5 5.5'),
+    mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/>' + P('m4.5 7.5 7.5 5.5 7.5-5.5'),
+    search: '<circle cx="11" cy="11" r="6.5"/>' + P('m20 20-4.2-4.2'),
+    tick: P('m5 12.5 4 4 10-10'),
+    ticks: P('m2.5 12.5 4 4 8-9M10.5 15.5l1 1 8-9'),
+    err: CIRCLE + P('M12 8v4.5M12 16h.01'),
+    img: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.6"/>' + P('m20.5 16-5-5-8.5 8.5'),
+    dl: P('M12 4v11M7 10l5 5 5-5M5 19.5h14'),
+    plus: P('M12 5v14M5 12h14'),
+    moon: P('M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z'),
+    sad: CIRCLE + EYES + P('M8.5 16.4c1-1.1 2.2-1.7 3.5-1.7s2.5.6 3.5 1.7'),
+    meh: CIRCLE + EYES + P('M9 15.2h6'),
+    happy: CIRCLE + EYES + '<path d="M8.4 13.6c.9 1.7 2.1 2.6 3.6 2.6s2.7-.9 3.6-2.6z" fill="currentColor"/>',
+    quote: P('M9 17l-5-5 5-5') + P('M4 12h10a5 5 0 0 1 5 5v2'),
+    copy: '<rect x="9" y="9" width="11" height="11" rx="2"/>' + P('M5 15V5a2 2 0 0 1 2-2h8'),
+    retry: P('M21 12a9 9 0 1 1-3.1-6.8') + P('M21 4v5h-5'),
+    doc: P('M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z') + P('M14 3v5h5'),
+    play: '<path d="M8 5.2v13.6a1 1 0 0 0 1.53.85l10.6-6.8a1 1 0 0 0 0-1.7L9.53 4.35A1 1 0 0 0 8 5.2Z" fill="currentColor" stroke="none"/>',
+    pause: '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" stroke="none"/>',
+    down: P('M12 5v14M19 12l-7 7-7-7'),
+    video: P('m23 7-7 5 7 5z') + '<rect x="1" y="5" width="15" height="14" rx="2"/>',
+    phone: P('M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z'),
+  };
+  // The topic and category icons a workspace may pick (the settings'
+  // allow-list); anything else draws the book.
+  var TOPIC_ICONS = { truck: 1, return: 1, ruler: 1, card: 1, box: 1, chat: 1, help: 1, gift: 1, clock: 1, tag: 1, person: 1 };
+  // A voice note's waveform (the design's fixed shape, in px).
+  var WAVE = [8, 10, 10, 6, 20, 22, 12, 16, 18, 8, 14, 7, 16, 20, 10, 14, 18, 6, 12, 12, 12, 8, 9, 24];
+  var INK = '#16142B';
+
+  function ico(name, size, sw, cls) {
+    return '<svg' + (cls ? ' class="' + cls + '"' : '') + ' viewBox="0 0 24 24" width="' + size + '" height="' + size +
+      '" fill="none" stroke="currentColor" stroke-width="' + sw + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      I[name] + '</svg>';
+  }
+
+  /** #rgb / #rrggbb -> [r, g, b], else null. */
+  function rgbOf(hex) {
+    var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+    if (!m) return null;
+    var s = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
+    return [0, 2, 4].map(function (i) { return parseInt(s.substr(i, 2), 16); });
+  }
+  /** WCAG relative luminance. */
+  function lum(rgb) {
+    var c = rgb.map(function (v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  /**
+   * The accent tokens as inline custom properties: `--a` (the workspace
+   * colour), `--on-a` (white unless Ink reads better on it) and Core's
+   * `--gs-primary` (its focus ring). An uncustomised colour (empty, the
+   * seeded #3B82F6) or the brand's own #0B7D6C wears the brand look, with
+   * its hand-tuned hero stops. Derived shades come from the stylesheet.
+   */
+  function accentTokens(primary) {
+    var raw = String(primary || '').trim().toLowerCase();
+    var rgb = rgbOf(raw);
+    var brand = !rgb || raw === '#3b82f6' || raw === '#0b7d6c';
+    if (brand) rgb = [11, 125, 108];
+    var a = brand ? '#0B7D6C' : '#' + rgb.map(function (v) { return (v < 16 ? '0' : '') + v.toString(16); }).join('').toUpperCase();
+    var l = lum(rgb);
+    var onA = 1.05 / (l + 0.05) >= (l + 0.05) / (lum(rgbOf(INK)) + 0.05) ? '#FFFFFF' : INK;
+    return '--a:' + a + ';--on-a:' + onA + ';--gs-primary:' + a +
+      (brand ? ';--h1:#22C4A6;--h2:#0F927D;--h3:#08594E;--glow:#7CF5DF' : '');
+  }
 
   function create(env) {
     env = env || {};
     var t = env.t || function (k) { return k; };
     var config = env.config || {};
+    var caps = env.capabilities || {};
     var workspaceName = String(config.workspaceName || config.brandName || '');
     var Util = {
       // Core always supplies this; the fallback still escapes (including
@@ -35,21 +296,23 @@
           return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
         });
       },
-      // Core supplies this. The fallback escapes and links nothing, which is
-      // the behaviour this template had before links were rendered at all —
-      // never a hand-rolled linkifier, because the scheme allow-list that
-      // keeps `javascript:` out of an href belongs in exactly one place.
+      // Core supplies this; without it nothing is linked (the scheme
+      // allow-list lives in exactly one place, Core).
       linkifyHtml: env.linkifyHtml || null,
     };
-    // Core supplies the localized label too, so the button reads the same
-    // whichever surface renders it.
     var linkLabel = env.linkLabel || null;
     var ctx = {
       config: config,
       locale: env.locale,
       primaryColor: env.primaryColor,
-      loadAuthedMediaBlobUrl: env.loadAuthedMediaBlobUrl,
     };
+    var lang = String(ctx.locale || 'en').toLowerCase().split('-')[0];
+    var D = DICT[lang] || DICT.en;
+    var ACC = ' style="' + accentTokens(env.primaryColor) + '"';
+    var team = (Array.isArray(config.teamMembers) ? config.teamMembers : []).filter(function (m) {
+      return m && (m.name || m.full_name);
+    });
+    var showTeam = config.showTeamAvatars !== false;
 
     function esc(v) { return Util.escapeHtml(v); }
     /** Escaped message text, with ordinary web links made clickable. */
@@ -58,7 +321,7 @@
         ? Util.linkifyHtml(v, linkLabel || tf('msgOpenLink', 'Open link'))
         : Util.escapeHtml(v);
     }
-    function isRtl() { return String(ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa'; }
+    function isRtl() { return lang === 'fa'; }
     // Whether a platform-wide text is written in the widget's language:
     // Persian script for fa, no Persian script for the other languages.
     function textFitsLocale(text) {
@@ -68,108 +331,126 @@
       var v = t(key);
       return (v && v !== key) ? v : fallback;
     }
-
-    // ── Shared iconography (stroke icons, matching the design language) ──
-    var ICON = {
-      back: '<svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
-      chevron: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
-      plus: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
-      send: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
-      attach: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l8.8-8.8a4 4 0 0 1 5.7 5.7l-8.8 8.8a2 2 0 0 1-2.8-2.8l8.1-8.1"/></svg>',
-      emoji: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01" stroke-width="2.6"/></svg>',
-      mic: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10a7 7 0 0 1-14 0M12 17v5M8 22h8"/></svg>',
-      thumbUp: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88 14 10h6.28a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.75 20H7a1 1 0 0 1-1-1v-9a1 1 0 0 1 .29-.71l6.06-6.06a.5.5 0 0 1 .85.35L13 5.88Z"/></svg>',
-      thumbDown: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.12 10 14H3.72a2 2 0 0 1-1.94-2.5l1.54-6A2 2 0 0 1 5.25 4H17a1 1 0 0 1 1 1v9a1 1 0 0 1-.29.71l-6.06 6.06a.5.5 0 0 1-.85-.35L11 18.12Z"/></svg>',
-      close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
-      retry: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.1-6.8"/><path d="M21 4v5h-5"/></svg>',
-      // Generic document glyph for a pending non-image attachment. An image
-      // shows its own thumbnail instead.
-      fileDoc: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
-      copy: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
-      check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
-      quote: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M4 12h10a5 5 0 0 1 5 5v2"/></svg>',
-      trash: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
-      recCheck: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
-      playSm: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M8 5.2v13.6a1 1 0 0 0 1.53.85l10.6-6.8a1 1 0 0 0 0-1.7L9.53 4.35A1 1 0 0 0 8 5.2Z"/></svg>',
-      pauseSm: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/></svg>',
-    };
-
-    // Delivery ticks: one tick = sent, two ticks = delivered, two accent
-    // ticks = read. No textual label (design decision).
-    var TICKS = {
-      single: '<svg viewBox="0 0 20 12" width="15" height="10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6.6l3 3L14.5 3"/></svg>',
-      double: '<svg viewBox="0 0 20 12" width="18" height="10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 6.6l3 3L11 3"/><path d="M8 9.6L14.5 3"/></svg>',
-    };
-
-    // Workspace identity block reused by every header (home/list/articles/
-    // article/precontact/chat). Never hardcodes a brand — everything comes
-    // from config/view-model.
-    function identityAvatarHtml(size) {
-      // Logo explicitly disabled by the workspace => render NO avatar layer at
-      // all (no initial-letter fallback circle behind it).
-      if (config && config.showLogo === false) return '';
-      var logo = (config && config.logoUrl) ? String(config.logoUrl) : '';
-      var brand = workspaceName;
-      var cls = 'wy-avatar wy-avatar-' + (size || 'md');
-      if (logo) {
-        return '<span class="' + cls + ' has-img"><img src="' + esc(logo) + '" alt="' + esc(brand) +
-          '" loading="lazy" decoding="async" /></span>';
+    /** This design's own copy, `{name}` placeholders filled with plain text. */
+    function L(key, vars) {
+      var s = D[key] != null ? D[key] : (DICT.en[key] || '');
+      for (var k in vars || {}) {
+        if (Object.prototype.hasOwnProperty.call(vars, k)) s = s.split('{' + k + '}').join(String(vars[k]));
       }
-      var initial = (brand.trim().charAt(0) || 'W').toUpperCase();
-      return '<span class="' + cls + '" aria-hidden="true">' + esc(initial) + '</span>';
+      return s;
+    }
+    /** Persian digits in fa, as every number this design prints. */
+    function digits(s) {
+      s = String(s);
+      return lang === 'fa' ? s.replace(/[0-9]/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'.charAt(+d); }) : s;
+    }
+    function dirAttr(rtl) { return ' dir="' + (rtl ? 'rtl' : 'ltr') + '"'; }
+    function viewOpen(cls, rtl, extra) {
+      return '<div class="wy-view ' + cls + '"' + dirAttr(rtl) + ACC + (extra || '') + '>';
     }
 
+    // ── People and the workspace ──────────────────────────────────────
+    /** First letter of a name (a whole code point, never half a pair). */
+    function initialOf(name) {
+      var s = String(name || '').trim();
+      return s ? Array.from(s)[0].toUpperCase() : '';
+    }
+    /** A person's tile colour (c1..c3), stable for a name on every surface. */
+    function tone(name) {
+      var h = 0;
+      Array.from(String(name || '')).forEach(function (c) { h = (h * 19 + c.codePointAt(0)) % 9973; });
+      return 'c' + ((h + 1) % 3 + 1);
+    }
+    /** An image address worth drawing: web, protocol-relative, same-origin or blob. */
+    function safeSrc(u) {
+      u = String(u || '').trim();
+      return /^(https?:)?\/\/[^\s]/i.test(u) || /^\/[^/\\]/.test(u) || /^blob:/i.test(u) ? u : '';
+    }
+    function imgTag(src, alt) {
+      return '<img src="' + esc(src) + '" alt="' + esc(alt || '') + '" loading="lazy" decoding="async">';
+    }
+    /**
+     * One round person tile: the photo when there is one, else the initial
+     * on the person's colour. `pr` adds the presence dot ('on' | 'off').
+     */
+    function avatarHtml(name, photo, size, opts) {
+      opts = opts || {};
+      var src = safeSrc(photo);
+      return '<span class="av s' + size + ' ' + (opts.tone || tone(name)) + (opts.cls ? ' ' + opts.cls : '') +
+        (src ? ' has-img' : '') + '" aria-hidden="true">' +
+        (src ? imgTag(src) : esc(initialOf(name))) +
+        (opts.pr ? '<span class="pr' + (opts.pr === 'off' ? ' off' : '') + '"></span>' : '') +
+      '</span>';
+    }
+    function workspaceLogo() {
+      return config.showLogo === false ? '' : safeSrc(config.logoUrl);
+    }
+    /** The workspace where it speaks in a round slot: its logo, else its initial on the reserved tile. */
+    function storeAvatarHtml(size, pr, cls) {
+      return avatarHtml(workspaceName, workspaceLogo(), size, { tone: 'c4', pr: pr, cls: cls });
+    }
+    /** Up to three team members, overlapping; neighbours never share a colour. */
+    function stackHtml(size) {
+      if (!showTeam) return '';
+      var used = {};
+      var html = team.slice(0, 3).map(function (m) {
+        var name = m.name || m.full_name;
+        var n = +tone(name).charAt(1);
+        for (var k = 0; k < 3 && used[n]; k++) n = n % 3 + 1;
+        used[n] = 1;
+        return avatarHtml(name, m.avatar || m.avatar_url, size, { tone: 'c' + n });
+      }).join('');
+      return html ? '<span class="avs" aria-hidden="true">' + html + '</span>' : '';
+    }
+    function markSvg(cls, d) {
+      return d ? '<svg class="' + cls + '" viewBox="17 13.5 26 33.5" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="' + d + '"/></svg>' : '';
+    }
 
+    // ── Shared chrome ─────────────────────────────────────────────────
     function backButtonHtml(target) {
-      return '<button type="button" class="wy-back" data-view-back="' + esc(target || 'home') +
-        '" aria-label="' + esc(tf('back', 'Back')) + '">' + ICON.back + '</button>';
+      return '<button type="button" class="wy-back ib" data-view-back="' +
+        (target === 'back' ? 'back" data-view-back-fallback="home' : esc(target || 'home')) +
+        '" aria-label="' + esc(tf('back', 'Back')) + '">' + ico('back', 20, 2, 'dirf') + '</button>';
+    }
+    /** A view's top bar; the empty `.cs` slot is where the panel's close button lands. */
+    function barHtml(inner, extra) {
+      return '<div class="wy-head bar">' + inner + '<span class="cs" aria-hidden="true"></span>' + (extra || '') + '</div>';
+    }
+    function titleBarHtml(title, back) {
+      return barHtml(backButtonHtml(back || 'home') + '<h2 class="ttl">' + esc(title) + '</h2>');
+    }
+    function whoHtml(avatar, name, status) {
+      return '<span class="who">' + avatar + '<span class="wt"><span class="nm">' + esc(name) + '</span>' +
+        (status || '') + '</span></span>';
     }
 
     function footerHtml() {
       // The footer credits the PLATFORM, never the workspace brand. Wording,
       // brand label and outbound link are platform-admin owned and arrive as
       // `config.poweredBy` ({ text, brand, url }); plans decide visibility, so
-      // an absent payload means "do not render" — the view then extends to the
-      // bottom edge on its own.
-      var pb = (config && config.poweredBy) || null;
-      if (config && config.showPoweredBy === false) return '';
-      var platform = (pb && pb.brand) || (config && config.platformName) || '';
+      // an absent payload means "do not render".
+      var pb = config.poweredBy || null;
+      if (config.showPoweredBy === false) return '';
+      var platform = (pb && pb.brand) || config.platformName || '';
       if (!platform) return '';
-      // The platform's wording is one string for every language; it is used
-      // only when written in the widget's language (Persian script for fa,
-      // non-Persian otherwise), else the widget's own translation is.
       var label = (pb && pb.text && textFitsLocale(pb.text)) ? pb.text : tf('poweredBy', 'Powered by');
       var url = (pb && pb.url) || '';
-      // No URL => a genuinely non-interactive element: no href, no data hook,
-      // no link semantics. Appearance is identical (same class).
-      // With a URL => a native anchor (no JS navigation): `nofollow` keeps this
-      // widely distributed attribution link compliant with search-engine link
-      // policies, `noopener` protects the opener, and a strict-origin referrer
-      // still lets the platform see the referring origin in analytics.
-      // The connection/loading indicator is a SIBLING of the anchor — never
-      // part of the clickable area (SEO + click semantics stay untouched).
-      // A platform logo in place of the name (the International edition's
-      // `intl` template: config.poweredBy.logo, an absolute URL). The name is
-      // its alt text, and Core swaps the image back to the name if it cannot
-      // load ([data-wy-brand-logo]). Without a logo — the Iranian edition —
-      // the markup is exactly as it always was.
+      // A platform logo in the name's place (config.poweredBy.logo); Core
+      // swaps it back to the name if it cannot load ([data-wy-brand-logo]).
       var logo = pb && typeof pb.logo === 'string' && /^https?:\/\//i.test(pb.logo) ? pb.logo : '';
       var inner = logo
         ? '<span>' + esc(label) + '</span><img class="wy-powered-logo" data-wy-brand-logo src="' + esc(logo) +
           '" alt="' + esc(platform) + '" decoding="async" draggable="false">'
-        : '<span>' + esc(label) + ' ' + esc(platform) + '</span>';
+        : markSvg('wm', MARK_DOTS) + '<span>' + esc(label) + '</span><b>' + esc(platform) + '</b>';
+      // A native link (nofollow, noopener, strict-origin referrer) only with
+      // a URL; the connection dot is a sibling, never part of the link.
       var body = url
         ? '<a class="wy-powered" href="' + esc(url) + '" target="_blank" rel="noopener nofollow" referrerpolicy="strict-origin-when-cross-origin">' + inner + '</a>'
         : '<span class="wy-powered">' + inner + '</span>';
-
-      return '<div class="wy-footer">' + connIndicatorHtml() + body + '</div>';
+      return '<div class="wy-footer pw">' + connIndicatorHtml() + body + '</div>';
     }
 
-    /**
-     * The single post-mount loading/connection affordance: a 4px dot with a
-     * micro orbital ring. Purely visual — Core only writes a normalized
-     * `data-conn-state` on the panel and this template decides the look.
-     */
+    /** The post-mount connection affordance; Core writes `data-conn-state` on the panel. */
     function connIndicatorHtml() {
       return '<span class="wy-conn" data-conn-indicator aria-hidden="true">' +
         '<span class="wy-conn-ring"></span>' +
@@ -177,63 +458,89 @@
       '</span>';
     }
 
-
-
-
     /**
-     * Reply-time note under the workspace name. Workspace-configurable via
-     * `widget_settings.reply_time_text` (surfaced as config.replyTimeText);
-     * falls back to the locale default for the availability state.
+     * Reply-time note. Workspace-configurable (config.replyTimeText; an
+     * explicit '' hides it), else the locale default for the availability.
      */
     function replyTimeText(online) {
-      // An explicit string (including '') is authoritative: the workspace
-      // cleared the field, so nothing is shown. Only null/undefined falls
-      // back to the locale default.
-      if (config && typeof config.replyTimeText === 'string') return config.replyTimeText.trim();
+      if (typeof config.replyTimeText === 'string') return config.replyTimeText.trim();
       return online === false ? tf('homeReplySlow', '') : tf('homeReplyFast', '');
     }
-
-
-    function headerIdentityHtml(opts) {
-      opts = opts || {};
-      var title = esc(opts.title || workspaceName);
-      var subtitle = opts.subtitle ? '<span class="wy-head-sub">' + esc(opts.subtitle) + '</span>' : '';
-      var dot = opts.online ? '<span class="wy-online-dot" aria-hidden="true"></span>' : '';
-      return (opts.back ? backButtonHtml(opts.back) : '') +
-        identityAvatarHtml(opts.avatarSize) +
-        '<div class="wy-head-text">' +
-          // Online-operator stack sits BEFORE the workspace name (design source).
-          '<span class="wy-head-title">' + dot + (opts.stack || '') + '<span>' + title + '</span></span>' +
-          subtitle +
-        '</div>';
+    function nextOpen() {
+      var iso = config.availability && config.availability.next_open_at;
+      var d = iso ? new Date(iso) : null;
+      return d && !isNaN(d.getTime()) ? d : null;
     }
-
+    /** "9 am"-style time the team is back, in the visitor's clock. */
+    function backAtTime(d) {
+      try {
+        var tag = lang === 'fa' ? 'fa-IR' : lang === 'tr' ? 'tr-TR' : 'en-US';
+        var opts = lang === 'tr' ? { hour: '2-digit', minute: '2-digit' } : { hour: 'numeric' };
+        if (lang !== 'tr' && d.getMinutes()) opts.minute = '2-digit';
+        return new Intl.DateTimeFormat(tag, opts).format(d) + (d.getHours() < 12 ? L('am') : '');
+      } catch (_) { return ''; }
+    }
+    /** The away line: when the team is back, else the reply-time text. */
+    function awayLine() {
+      var d = nextOpen();
+      var at = d ? backAtTime(d) : '';
+      var rest = at ? L('backAt', { t: at }) : replyTimeText(false);
+      return L('off') + (rest ? L('sep') + rest : '');
+    }
 
     // ══════════════════════════════════════════════════════════════════
     // Chat surfaces
     // ══════════════════════════════════════════════════════════════════
 
-    function emptyHtml() {
-      var ai = ctx.config && ctx.config.aiAgent;
+    function teamOnline() {
+      var av = config.availability;
+      return !(av && av.state === 'offline');
+    }
+
+    function chipHtml(attr, value, icon, label) {
+      return '<button type="button" class="chip" ' + attr + '="' + esc(value) + '">' +
+        ico(TOPIC_ICONS[icon] ? icon : 'book', 16, 1.8) + '<span>' + esc(label) + '</span></button>';
+    }
+    /** The workspace's topics (templateOptions.topics), as chips. */
+    function topicChipsHtml() {
+      var opts = config.templateOptions || {};
+      return (Array.isArray(opts.topics) ? opts.topics : []).slice(0, 4).map(function (tp) {
+        var label = String((tp && tp.label) || '').trim();
+        return label ? chipHtml('data-topic', label, tp.icon, label) : '';
+      }).join('');
+    }
+
+    /**
+     * An empty thread: the team's welcome block, the welcome bubble from the
+     * first team member, and the topics (or the workspace's Q&A) as chips.
+     */
+    function emptyHtml(vm) {
+      vm = vm || {};
+      var tail = (vm.prechatSummaryHtml || '') + (vm.operatorTyping ? typingRowHtml(vm.operatorTyping) : '');
+      var ai = config.aiAgent;
       if (ai && ai.suppressGreeting === true) {
-        return '<div class="messages welcome-only"></div>';
+        return '<div class="messages welcome-only">' + tail + '</div>';
       }
-      var welcome = (ctx.config && typeof ctx.config.welcomeMessage === 'string' && ctx.config.welcomeMessage.trim().length > 0)
-        ? ctx.config.welcomeMessage
+      var welcome = (typeof config.welcomeMessage === 'string' && config.welcomeMessage.trim().length > 0)
+        ? config.welcomeMessage
         : t('intro');
       var lines = String(welcome).split(/\n+/).map(function (l) { return esc(l); }).join('<br>');
-      var team = (ctx.config && Array.isArray(ctx.config.teamMembers)) ? ctx.config.teamMembers : [];
-      var op = team.filter(function (m) { return m && (m.avatar_url || m.avatar); })[0];
-      var opAvatar = op && (op.avatar_url || op.avatar);
-      // No uploaded avatar anywhere on the team => no avatar layer, same
-      // rule as every other operator bubble.
-      var avatarHtml = opAvatar
-        ? '<span class="msg-avatar has-img"><img src="' + esc(String(opAvatar)) + '" alt="" loading="lazy" decoding="async" /></span>'
-        : '';
+      var online = teamOnline();
+      var first = team[0];
+      var chips = topicChipsHtml();
       return '<div class="messages welcome-only">' +
-        '<div class="msg-row operator">' + avatarHtml +
-          '<div class="msg operator welcome-bubble">' + lines + '</div>' +
+        '<div class="welc">' + stackHtml(40) +
+          (workspaceName ? '<h3>' + esc(L('team', { w: workspaceName })) + '</h3>' : '') +
+          '<p' + (online ? '' : ' class="off"') + '><i></i>' + esc(online ? L('on') : L('away')) + '</p>' +
         '</div>' +
+        '<div class="msg-row operator is-last is-first">' +
+          (first ? avatarHtml(first.name || first.full_name, first.avatar || first.avatar_url, 28, { cls: 'msg-avatar' })
+            : storeAvatarHtml(28, '', 'msg-avatar')) +
+          '<div class="msg-col"><div class="msg-line"><div class="msg operator welcome-bubble">' + lines + '</div></div></div>' +
+        '</div>' +
+        (chips ? '<div class="qr">' + chips + '</div>'
+          : (vm.qna && vm.qna.questions && vm.qna.questions.length ? qnaChipsHtml(vm.qna) : '')) +
+        tail +
       '</div>';
     }
 
@@ -245,24 +552,33 @@
       var remaining = all.length - visible.length;
       var chipsHtml = visible.map(function (q) {
         var text = (q && q.question) ? String(q.question) : '';
-        if (!text) return '';
-        return '<button type="button" class="qna-chip" data-qna-question="' + esc(text) + '">' + esc(text) + '</button>';
+        return text ? '<button type="button" class="qna-chip chip" data-qna-question="' + esc(text) + '">' +
+          ico('chat', 16, 1.8) + '<span>' + esc(text) + '</span></button>' : '';
       }).join('');
       var moreHtml = (!qnaState.expanded && remaining > 0)
-        ? '<button type="button" class="qna-more-btn" data-qna-more>' + esc(t('qnaMore')) +
-            '<span class="qna-more-count">+' + remaining + '</span></button>'
+        ? '<button type="button" class="qna-more-btn chip" data-qna-more aria-label="' + esc(t('qnaMore')) + '">' +
+            '<span class="qna-more-count">+' + esc(fmtNum(remaining)) + '</span></button>'
         : '';
-      return '<div class="qna-suggestions" data-qna>' +
-        '<div class="qna-title">' + esc(t('qnaTitle')) + '</div>' +
-        '<div class="qna-chips">' + chipsHtml + moreHtml + '</div>' +
+      return '<div class="qna-suggestions qr" data-qna>' +
+        '<span class="qna-title sr-only">' + esc(t('qnaTitle')) + '</span>' + chipsHtml + moreHtml +
       '</div>';
     }
 
+    /** File sizes in the visitor's digits and words (۲۴۰ کیلوبایت). */
     function humanSize(bytes) {
       var n = Number(bytes) || 0;
-      if (n < 1024) return n + ' B';
-      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
-      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+      var mb = n >= 1048576;
+      var v = mb ? Math.round(n / 104857.6) / 10 : Math.max(1, Math.round(n / 1024));
+      return fmtNum(v) + ' ' + L(mb ? 'mb' : 'kb');
+    }
+    /** m:ss in the visitor's digits (voice notes, the recorder). */
+    function clock(sec) {
+      sec = Math.max(0, Math.floor(Number(sec) || 0));
+      var s = sec % 60;
+      return digits(Math.floor(sec / 60) + ':' + (s < 10 ? '0' : '') + s);
+    }
+    function waveHtml() {
+      return WAVE.map(function (h) { return '<i style="height:' + h + 'px"></i>'; }).join('');
     }
 
     // Real attachments — authenticated media is loaded by Core through the
@@ -270,13 +586,13 @@
     function renderMessageAttachment(att) {
       if (!att || !att.id) return '';
       var id = esc(att.id);
-      var name = esc(att.file_name || 'file');
-      var size = humanSize(att.size_bytes);
+      var raw = String(att.file_name || 'file');
+      var name = esc(raw);
       var isImage = att.kind === 'image' || (att.mime_type && /^image\//.test(att.mime_type));
       var isAudio = att.kind === 'audio' || (att.mime_type && /^audio\//.test(att.mime_type));
       if (isImage) {
-        // `is-loading` shows an in-bubble spinner + "Receiving…" until Core
-        // finishes the authenticated fetch, so the bubble is never blank.
+        // `is-loading` shows a spinner + "Receiving…" until Core finishes the
+        // authenticated fetch, so the bubble is never blank.
         return '<div class="msg-att msg-att-image">' +
           '<button type="button" class="msg-att-img-btn is-loading" data-att-preview="' + id + '" aria-label="' + esc(t('openFile')) + '">' +
             '<span class="msg-att-loading" aria-live="polite">' +
@@ -285,77 +601,65 @@
             '</span>' +
             '<img loading="lazy" decoding="async" data-att-media-src="' + id + '" alt="' + name + '" />' +
             '<span class="msg-att-img-fallback">' + esc(t('imageUnavailable')) + '</span>' +
+            '<span class="cap" aria-hidden="true">' + ico('img', 13, 2) + '<bdi>' + name + '</bdi></span>' +
           '</button>' +
         '</div>';
       }
-
       if (isAudio) {
-        // Custom player: transport controls are ALWAYS LTR (play left,
-        // download right) even in RTL locales — audio timelines run
-        // left→right everywhere. Core wires the [data-audio-*] hooks.
-        return '<div class="msg-att msg-att-audio" data-audio-player dir="ltr">' +
+        // Only the timeline runs left→right in every locale; the play button
+        // sits at the start of the reading direction. The played share of the
+        // wave is the progress layer Core sizes ([data-audio-progress]).
+        return '<div class="msg-att msg-att-audio" data-audio-player>' +
           '<audio preload="metadata" data-att-media-src="' + id + '" data-audio-el></audio>' +
           '<button type="button" class="wy-ap-play" data-audio-toggle aria-label="' + esc(t('playAudio')) + '">' +
-            '<span class="wy-ap-ico wy-ap-ico-play"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5.2v13.6a1 1 0 0 0 1.53.85l10.6-6.8a1 1 0 0 0 0-1.7L9.53 4.35A1 1 0 0 0 8 5.2Z"/></svg></span>' +
-            '<span class="wy-ap-ico wy-ap-ico-pause"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/></svg></span>' +
+            '<span class="wy-ap-ico wy-ap-ico-play">' + ico('play', 15, 0) + '</span>' +
+            '<span class="wy-ap-ico wy-ap-ico-pause">' + ico('pause', 15, 0) + '</span>' +
             '<span class="wy-ap-spinner" aria-hidden="true"></span>' +
           '</button>' +
-          '<div class="wy-ap-body">' +
-            '<div class="wy-ap-track" data-audio-seek>' +
-              '<div class="wy-ap-buffer" data-audio-buffer></div>' +
-              '<div class="wy-ap-progress" data-audio-progress><span class="wy-ap-knob"></span></div>' +
-            '</div>' +
-            '<div class="wy-ap-meta">' +
-              '<span class="wy-ap-time" data-audio-time>0:00</span>' +
-              '<button type="button" class="wy-ap-rate" data-audio-rate>1×</button>' +
-            '</div>' +
+          '<div class="wy-ap-track" data-audio-seek dir="ltr">' + waveHtml() +
+            '<div class="wy-ap-buffer" data-audio-buffer></div>' +
+            '<div class="wy-ap-progress" data-audio-progress><span class="wy-ap-played">' + waveHtml() + '</span><span class="wy-ap-knob"></span></div>' +
           '</div>' +
+          '<span class="wy-ap-time" data-audio-time>' + clock(0) + '</span>' +
+          '<button type="button" class="wy-ap-rate" data-audio-rate hidden>1×</button>' +
           '<a class="wy-ap-dl" href="#" data-att-download="' + id + '" data-att-download-name="' + name +
-            '" aria-label="' + esc(t('download')) + '">' +
-            '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4"/><path d="M5 19h14"/></svg>' +
-          '</a>' +
+            '" aria-label="' + esc(t('download')) + '" hidden>' + ico('dl', 15, 1.9) + '</a>' +
         '</div>';
       }
-
-      var iconSvg = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+      var dot = raw.lastIndexOf('.');
+      var ext = dot > 0 ? raw.slice(dot + 1, dot + 5).toUpperCase() : '';
       return '<div class="msg-att msg-att-file">' +
-        '<div class="msg-att-icon">' + iconSvg + '</div>' +
+        '<div class="msg-att-icon" aria-hidden="true">' + (ext ? esc(ext) : ico('doc', 18, 1.7)) + '</div>' +
         '<div class="msg-att-meta">' +
           '<div class="msg-att-name" title="' + name + '">' + name + '</div>' +
-          '<div class="msg-att-sub">' + esc(size) + '</div>' +
+          '<div class="msg-att-sub">' + esc(humanSize(att.size_bytes)) + '</div>' +
         '</div>' +
         '<a class="msg-att-action" href="#" data-att-download="' + id + '" data-att-download-name="' + name +
-          '" aria-label="' + esc(t('download')) + '">' +
-          '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v12m0 0l-4-4m4 4l4-4"/><path d="M5 20h14"/></svg>' +
-        '</a>' +
+          '" aria-label="' + esc(tf('download', 'Download') + ' ' + raw) + '">' + ico('dl', 16, 2) + '</a>' +
       '</div>';
     }
 
+    // Call cards and system rows. Core supplies every key in every language.
     function fmtInvitationRemaining(expiresAtIso) {
       var ms = new Date(expiresAtIso).getTime() - Date.now();
-      if (!isFinite(ms) || ms <= 0) return t('ciStateExpired') || 'Expired';
+      if (!isFinite(ms) || ms <= 0) return t('ciStateExpired');
       var total = Math.ceil(ms / 1000);
-      var timeStr;
-      if (total < 60) {
-        timeStr = (t('ciSeconds') || '{s}s').replace('{s}', String(total));
-      } else {
-        var m = Math.floor(total / 60);
-        var s = total % 60;
-        if (s === 0) timeStr = (t('ciMinutes') || '{m}m').replace('{m}', String(m));
-        else timeStr = (t('ciMinutesSeconds') || '{m}m {s}s').replace('{m}', String(m)).replace('{s}', String(s));
-      }
-      return (t('ciTimeLeft') || '{time} left').replace('{time}', timeStr);
+      var m = Math.floor(total / 60);
+      var s = total % 60;
+      var time = total < 60 ? t('ciSeconds').replace('{s}', total)
+        : s ? t('ciMinutesSeconds').replace('{m}', m).replace('{s}', s)
+        : t('ciMinutes').replace('{m}', m);
+      return t('ciTimeLeft').replace('{time}', time);
     }
 
     function fmtCallDuration(seconds) {
       var s = Math.max(0, Math.floor(Number(seconds) || 0));
       var hh = Math.floor(s / 3600);
-      var mm = Math.floor((s % 3600) / 60);
-      var ss = s % 60;
       function pad(n) { return n < 10 ? '0' + n : '' + n; }
-      return hh > 0 ? pad(hh) + ':' + pad(mm) + ':' + pad(ss) : pad(mm) + ':' + pad(ss);
+      return (hh > 0 ? pad(hh) + ':' : '') + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60);
     }
 
+    /** A system line (a call ended, someone joined): text between two rules. */
     function systemPillHtml(icon, text) {
       return '<div class="msg-row system"><div class="msg-system-pill">' + icon +
         '<span>' + esc(text) + '</span></div></div>';
@@ -363,116 +667,74 @@
 
     function renderCallEndedRow(msg) {
       var meta = msg.metadata || {};
-      var endedBy = String(meta.ended_by || 'system');
-      var endReason = String(meta.end_reason || '');
+      var by = String(meta.ended_by || 'system');
       var dur = Number(meta.duration_seconds) || 0;
-      var isMissed = endReason === 'failed' || dur <= 0;
-      var key = isMissed ? 'csEndedNotConnected'
-        : endedBy === 'operator' ? 'csEndedByOperator'
-        : endedBy === 'visitor' ? 'csEndedByVisitor'
+      var key = String(meta.end_reason || '') === 'failed' || dur <= 0 ? 'csEndedNotConnected'
+        : by === 'operator' ? 'csEndedByOperator'
+        : by === 'visitor' ? 'csEndedByVisitor'
         : 'csEndedBySystem';
-      var fallback = isMissed ? 'Call did not connect'
-        : endedBy === 'operator' ? ('Call ended by operator · Duration ' + fmtCallDuration(dur))
-        : endedBy === 'visitor' ? ('Call ended by visitor · Duration ' + fmtCallDuration(dur))
-        : ('Call ended · Duration ' + fmtCallDuration(dur));
-      var raw = t(key);
-      var text = (raw && raw !== key) ? String(raw).replace('{duration}', fmtCallDuration(dur)) : fallback;
-      var icon = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-        + '<path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 8.63 18.5"/>'
-        + '<line x1="23" y1="1" x2="1" y2="23"/></svg>';
-      return systemPillHtml(icon, text);
+      return systemPillHtml('', String(t(key)).replace('{duration}', fmtCallDuration(dur)));
     }
 
     function renderRoutingOutcomeRow(msg) {
       var meta = msg.metadata || {};
       var kind = meta.kind;
       var text;
-      // A transfer between operators is an internal staffing move on the
-      // inbox side, but from here it is simply the next person arriving —
-      // so it reads as a join, naming whoever now holds the conversation.
-      if (kind === 'conversation_transferred') kind = 'routing_agent_joined';
-      if (kind === 'routing_agent_joined') {
+      // A transfer between operators is, from here, simply the next person
+      // arriving — so it reads as a join, naming whoever now holds it.
+      if (kind === 'conversation_transferred' || kind === 'routing_agent_joined') {
         var name = String(meta.agent_name || meta.to_name || '');
         var raw = t('routingAgentJoined');
-        text = (raw && raw !== 'routingAgentJoined' && name)
-          ? String(raw).replace('{name}', name)
-          : (name ? (name + ' ' + t('routingAgentJoinedSuffix')) : t('routingAgentJoinedGeneric'));
-      } else if (kind === 'routing_no_agent_available') {
-        text = t('routingNoAgentAvailable');
+        text = name
+          ? (raw && raw !== 'routingAgentJoined' ? String(raw).replace('{name}', name) : name + ' ' + t('routingAgentJoinedSuffix'))
+          : t('routingAgentJoinedGeneric');
       } else {
-        text = t('routingInQueue');
+        text = t(kind === 'routing_no_agent_available' ? 'routingNoAgentAvailable' : 'routingInQueue');
       }
-      var icon = kind === 'routing_agent_joined'
-        ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
-        : '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
-      return systemPillHtml(icon, text);
+      return systemPillHtml('', text);
     }
 
     function renderCallInvitationCard(msg) {
       var meta = msg.metadata || {};
-      var channel = meta.channel === 'video' ? 'video' : 'audio';
+      var video = meta.channel === 'video';
+      var channel = video ? 'video' : 'audio';
       var status = meta.status || 'pending';
       var inviteId = esc(meta.invitation_id || '');
-      var op = meta.operator_name ? esc(meta.operator_name) : '';
-      var headlineKey = channel === 'video'
-        ? (op ? 'ciHeadlineVideoFrom' : 'ciHeadlineVideo')
-        : (op ? 'ciHeadlineAudioFrom' : 'ciHeadlineAudio');
-      var headlineTpl = t(headlineKey) || (channel === 'video'
-        ? 'You have been invited to a video call'
-        : 'You have been invited to an audio call');
-      var headline = op ? headlineTpl.replace('{op}', op) : headlineTpl;
-      var iconSvg = channel === 'video'
-        ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>'
-        : '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>';
-
-      var statusBlock = '';
+      var op = meta.operator_name ? String(meta.operator_name) : '';
+      var headline = String(t('ciHeadline' + (video ? 'Video' : 'Audio') + (op ? 'From' : ''))).replace('{op}', op);
+      var statusBlock;
       var actionBlock = '';
       var bodyBlock = '';
       if (status === 'pending') {
-        var bodyKey = channel === 'video' ? 'ciBodyVideo' : 'ciBodyAudio';
-        var bodyText = t(bodyKey) || (channel === 'video'
-          ? 'An operator is inviting you to a video call.'
-          : 'An operator is inviting you to a voice call.');
         var waitMinutes = (typeof meta.wait_minutes === 'number' && isFinite(meta.wait_minutes) && meta.wait_minutes > 0)
           ? Math.round(meta.wait_minutes) : 0;
         if (!waitMinutes && meta.expires_at) {
           var deltaMs = new Date(meta.expires_at).getTime() - new Date(msg.createdAt || Date.now()).getTime();
           if (isFinite(deltaMs) && deltaMs > 0) waitMinutes = Math.max(1, Math.round(deltaMs / 60000));
         }
-        var waitLine = '';
-        if (waitMinutes === 1) waitLine = t('ciWaitOneMinute') || 'The operator will wait up to one minute for you to join.';
-        else if (waitMinutes > 1) {
-          waitLine = (t('ciWaitMinutes') || 'The operator will wait up to {m} minutes for you to join.')
-            .replace('{m}', String(waitMinutes));
-        }
-        bodyBlock = '<div class="ci-body"><div>' + esc(bodyText) + '</div>' +
+        var waitLine = waitMinutes === 1 ? t('ciWaitOneMinute')
+          : waitMinutes > 1 ? String(t('ciWaitMinutes')).replace('{m}', waitMinutes) : '';
+        bodyBlock = '<div class="ci-body"><div>' + esc(t(video ? 'ciBodyVideo' : 'ciBodyAudio')) + '</div>' +
           (waitLine ? '<div class="ci-wait">' + esc(waitLine) + '</div>' : '') + '</div>';
         statusBlock = '<div class="ci-meta ci-countdown" aria-live="polite">' +
           '<span class="ci-pulse" aria-hidden="true"></span>' + esc(fmtInvitationRemaining(meta.expires_at)) + '</div>';
-        var joinLabel = channel === 'video' ? (t('ciJoinVideo') || 'Join video call') : (t('ciJoinAudio') || 'Join call');
-        var joinAria = channel === 'video' ? (t('ciAriaJoinVideo') || 'Join the video call now') : (t('ciAriaJoinAudio') || 'Join the audio call now');
         actionBlock = '<div class="ci-actions">' +
           '<button type="button" class="ci-btn ci-btn-primary" data-ci-action="join" data-ci-id="' + inviteId +
-            '" data-ci-channel="' + channel + '" aria-label="' + esc(joinAria) + '">' + esc(joinLabel) + '</button>' +
+            '" data-ci-channel="' + channel + '" aria-label="' + esc(t(video ? 'ciAriaJoinVideo' : 'ciAriaJoinAudio')) + '">' +
+            esc(t(video ? 'ciJoinVideo' : 'ciJoinAudio')) + '</button>' +
           '<button type="button" class="ci-btn ci-btn-ghost" data-ci-action="decline" data-ci-id="' + inviteId +
-            '" aria-label="' + esc(t('ciAriaDecline') || 'Decline this call invitation') + '">' +
-            esc(t('ciDecline') || 'Decline') + '</button>' +
+            '" aria-label="' + esc(t('ciAriaDecline')) + '">' + esc(t('ciDecline')) + '</button>' +
         '</div>';
       } else {
-        var stateLabel = status === 'joined' ? (t('ciStateJoined') || 'You joined the call')
-          : status === 'expired' ? (t('ciStateExpired') || 'Invitation expired')
-          : status === 'cancelled' ? (t('ciStateCancelled') || 'Operator cancelled the invitation')
-          : status === 'declined' ? (t('ciStateDeclined') || 'You declined this call') : '';
-        statusBlock = '<div class="ci-meta ci-status ci-status-' + esc(status) + '">' + esc(stateLabel) + '</div>';
+        var stateKey = { joined: 'ciStateJoined', expired: 'ciStateExpired', cancelled: 'ciStateCancelled', declined: 'ciStateDeclined' }[status];
+        statusBlock = '<div class="ci-meta ci-status ci-status-' + esc(status) + '">' + esc(stateKey ? t(stateKey) : '') + '</div>';
       }
-
-      var ariaCard = (t('ciAriaCard') || 'Call invitation') + ' — ' +
-        (channel === 'video' ? (t('videoCall') || 'Video') : (t('voiceCall') || 'Voice'));
       return '<div class="msg-row system">' +
         '<div class="ci-card ci-channel-' + channel + ' ci-status-' + esc(status) +
-          '" data-ci-card="' + inviteId + '" role="group" aria-label="' + esc(ariaCard) + '">' +
+          '" data-ci-card="' + inviteId + '" role="group" aria-label="' +
+          esc(t('ciAriaCard') + ' — ' + t(video ? 'videoCall' : 'voiceCall')) + '">' +
           '<div class="ci-row">' +
-            '<span class="ci-icon" aria-hidden="true">' + iconSvg + '</span>' +
+            '<span class="ci-icon" aria-hidden="true">' + ico(video ? 'video' : 'phone', 20, 2) + '</span>' +
             '<div class="ci-text">' +
               '<div class="ci-title">' + esc(headline) + '</div>' + bodyBlock + statusBlock +
             '</div>' +
@@ -484,10 +746,9 @@
     /** Locale-aware digits (Persian numerals for fa). */
     function fmtNum(n) {
       try {
-        var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
-        var tag = l === 'fa' ? 'fa-IR' : l === 'tr' ? 'tr-TR' : 'en-US';
+        var tag = lang === 'fa' ? 'fa-IR' : lang === 'tr' ? 'tr-TR' : 'en-US';
         return new Intl.NumberFormat(tag).format(Number(n) || 0);
-      } catch (_) { return String(n); }
+      } catch (_) { return digits(n); }
     }
 
     function formatMsgTime(d) {
@@ -498,80 +759,53 @@
       } catch (_) { return ''; }
     }
 
-    /**
-     * Day dividers. Persian renders the Jalali calendar in Tehran time, so a
-     * conversation continued the next day shows "امروز" above the new run and
-     * keeps the earlier messages under their own dated divider.
-     *
-     * The bootstrap's calendar hints decide this (shared/widgetTemplates.ts
-     * widgetDateHints): `calendar: 'gregorian'` (the International edition)
-     * draws Persian dates in the Gregorian calendar (Persian digits stay) in
-     * the visitor's own zone, or `timeZone` when one is given. Without the
-     * hints — the Iranian edition, an older backend — it is Jalali in Tehran
-     * time, exactly as before.
-     */
+    // Day dividers: Persian is the Jalali calendar in Tehran time unless the
+    // bootstrap says Gregorian (config.calendar / config.timeZone).
     function persianGregorian() {
-      return !!(ctx.config && ctx.config.calendar === 'gregorian');
+      return config.calendar === 'gregorian';
     }
-
     function persianTimeZone() {
       if (!persianGregorian()) return 'Asia/Tehran';
-      var tz = ctx.config && ctx.config.timeZone;
+      var tz = config.timeZone;
       return typeof tz === 'string' && tz ? tz : undefined;
     }
-
     function dateLocaleTag() {
-      var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
-      if (l === 'fa') return persianGregorian() ? 'fa-IR-u-ca-gregory' : 'fa-IR-u-ca-persian';
-      return l === 'tr' ? 'tr-TR' : 'en-US';
+      if (lang === 'fa') return persianGregorian() ? 'fa-IR-u-ca-gregory' : 'fa-IR-u-ca-persian';
+      return lang === 'tr' ? 'tr-TR' : 'en-US';
     }
-
     function dayKeyOf(d) {
       var date = (d instanceof Date) ? d : new Date(d);
       if (!date || isNaN(date.getTime())) return '';
       try {
         return new Intl.DateTimeFormat('en-CA', {
           year: 'numeric', month: '2-digit', day: '2-digit',
-          timeZone: dateLocaleTag().indexOf('fa') === 0 ? persianTimeZone() : undefined,
+          timeZone: lang === 'fa' ? persianTimeZone() : undefined,
         }).format(date);
       } catch (_) { return date.toDateString(); }
     }
-
     function dayLabelOf(d) {
       var date = (d instanceof Date) ? d : new Date(d);
       if (!date || isNaN(date.getTime())) return '';
-      var l = String(ctx.locale || 'en').toLowerCase().split('-')[0];
       var key = dayKeyOf(date);
       var now = new Date();
-      if (key === dayKeyOf(now)) return l === 'fa' ? 'امروز' : l === 'tr' ? 'Bugün' : 'Today';
+      if (key === dayKeyOf(now)) return lang === 'fa' ? 'امروز' : lang === 'tr' ? 'Bugün' : 'Today';
       if (key === dayKeyOf(new Date(now.getTime() - 86400000))) {
-        return l === 'fa' ? 'دیروز' : l === 'tr' ? 'Dün' : 'Yesterday';
+        return lang === 'fa' ? 'دیروز' : lang === 'tr' ? 'Dün' : 'Yesterday';
       }
       try {
         var opts = { year: 'numeric', month: 'long', day: 'numeric' };
-        if (l === 'fa' && persianTimeZone()) opts.timeZone = persianTimeZone();
+        if (lang === 'fa' && persianTimeZone()) opts.timeZone = persianTimeZone();
         return new Intl.DateTimeFormat(dateLocaleTag(), opts).format(date);
       } catch (_) { return key; }
     }
-
     function dayDividerHtml(d) {
       var label = dayLabelOf(d);
-      if (!label) return '';
-      return '<div class="msg-day"><span>' + esc(label) + '</span></div>';
+      return label ? '<div class="msg-day"><span>' + esc(label) + '</span></div>' : '';
     }
 
-
-
-    var PRECHAT_ICONS = {
-      name: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-      email: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
-      phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>',
-      lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
-    };
-
-    // Field visibility/required state is server-authoritative (identity),
-    // never derived from the design demo.
-    function renderPrechatFieldRow(identity, key, type, value) {
+    // Field visibility/required state is server-authoritative (identity).
+    // `tail` sits inside the control (the in-thread card's submit).
+    function renderPrechatFieldRow(identity, key, type, value, tail, prefix) {
       var label = t(key);
       var ph = t('prechat' + key.charAt(0).toUpperCase() + key.slice(1) + 'Ph') || label;
       var req = identity.isRequired(key);
@@ -579,26 +813,26 @@
         ? '<span class="prechat-req-mark" aria-label="' + esc(t('required')) + '" title="' + esc(t('required')) + '">*</span>'
         : '';
       var ac = key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel';
-      var inputDir = (key === 'email' || key === 'phone') ? 'ltr' : '';
+      var ltr = key === 'email' || key === 'phone';
+      var p = prefix || 'prechat';
+      var hook = p === 'fb' ? 'data-fb' : 'data-prechat';
       return '<div class="prechat-field" data-field="' + key + '">' +
-          '<label class="prechat-label" for="prechat-' + key + '">' + esc(label) + badge + '</label>' +
-          '<div class="prechat-control">' +
-            '<input id="prechat-' + key + '" class="prechat-input" data-prechat="' + key + '" type="' + type +
-              '" autocomplete="' + ac + '"' + (inputDir ? ' dir="' + inputDir + '"' : '') +
+          '<label class="prechat-label" for="' + p + '-' + key + '">' + esc(label) + badge + '</label>' +
+          '<div class="prechat-control fi"' + (ltr ? ' dir="ltr"' : '') + '>' +
+            '<input id="' + p + '-' + key + '" class="prechat-input" ' + hook + '="' + key + '" type="' + type +
+              '" autocomplete="' + ac + '"' + (ltr ? ' dir="ltr"' : '') +
               ' placeholder="' + esc(ph) + '"' + (req ? ' aria-required="true"' : '') +
-              ' aria-invalid="false" aria-describedby="prechat-err-' + key + '"' +
+              ' aria-invalid="false" aria-describedby="' + p + '-err-' + key + '"' +
               ' value="' + esc(value || '') + '" />' +
-            '<span class="prechat-status" aria-hidden="true"></span>' +
+            (p === 'fb' ? '' : '<span class="prechat-status" aria-hidden="true"></span>') + (tail || '') +
           '</div>' +
-          '<div class="prechat-error" id="prechat-err-' + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
+          '<div class="prechat-error" id="' + p + '-err-' + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
         '</div>';
     }
 
     /**
      * Splits a plain-text body that carries a leading quote block
      * ("> quoted line(s)" followed by a blank line) into { quote, rest }.
-     * This is the wire format used when the visitor forwards/quotes a
-     * message, so operators reading plain text still see the context.
      */
     function splitQuotedBody(body) {
       var raw = body == null ? '' : String(body);
@@ -615,211 +849,226 @@
       return { quote: quoteLines.join(' ').trim(), rest: lines.slice(i).join('\n') };
     }
 
+    function dotsBubbleHtml(extra) {
+      return '<div class="msg operator typing-bubble' + (extra || '') + '"><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+    }
     function renderAiThinkingRow() {
-      // Single affordance only: the three bouncing dots. No pulsing spark and
-      // no duplicated "Thinking…" label (the dots carry the meaning; the
-      // label stays for assistive tech only).
-      return '<div class="msg-row operator ai-thinking-row">' +
-        '<div class="msg operator ai-thinking-bubble">' +
-          '<span class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></span>' +
-          '<span class="sr-only">' + esc(t('aiThinking') || 'Thinking…') + '</span>' +
-        '</div>' +
+      return '<div class="msg-row operator is-last ai-thinking-row">' + storeAvatarHtml(28, '', 'msg-avatar') +
+        '<div class="msg-col"><div class="msg-line">' + dotsBubbleHtml(' ai-thinking-bubble') +
+          '<span class="sr-only">' + esc(t('aiThinking') || 'Thinking…') + '</span></div>' +
+        '</div></div></div>';
+    }
+    /** The person typing, drawn as the thread's last row (feature `operatorTyping`). */
+    function typingRowHtml(p) {
+      p = p || {};
+      return '<div class="msg-row operator is-last typing-row" aria-hidden="true">' +
+        (p.name || p.avatar ? avatarHtml(p.name, p.avatar, 28, { cls: 'msg-avatar' }) : storeAvatarHtml(28, '', 'msg-avatar')) +
+        '<div class="msg-col"><div class="msg-line">' + dotsBubbleHtml() + '</div></div></div>' +
       '</div>';
     }
-
+    function msgAvatarHtml(m) {
+      return (m.senderName || m.senderAvatar)
+        ? avatarHtml(m.senderName || '', m.senderAvatar, 28, { cls: 'msg-avatar' })
+        : storeAvatarHtml(28, '', 'msg-avatar');
+    }
 
     function messagesHtml(s, extraRowHtml, view) {
       view = view || {};
       var typewriter = view.typewriter || null;
       var qnaState = view.qna || { questions: [], expanded: false };
-      var rrCfg = ctx.config && ctx.config.readReceipts;
+      var rrCfg = config.readReceipts;
       var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
+      var msgs = s.messages || [];
       var html = '<div class="messages">';
 
-      var groupKeys = s.messages.map(function (m) {
+      // Runs: consecutive messages of one author on one day share one avatar
+      // (beside the last bubble) and one meta line (under it).
+      var groupKeys = msgs.map(function (m) {
         var author = m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
-        // A new calendar day always breaks the streak so the meta line (time +
-        // ticks) closes the previous day's run.
         return author + '@' + dayKeyOf(m.time);
       });
-      var visitorHasReplied = s.messages.some(function (m) { return m.sender === 'visitor'; });
+      var visitorHasReplied = msgs.some(function (m) { return m.sender === 'visitor'; });
       var lastDayKey = '';
 
-      s.messages.forEach(function (m, idx) {
+      msgs.forEach(function (m, idx) {
         var dk = dayKeyOf(m.time);
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
-        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
-
-          html += renderCallInvitationCard(m); return;
-        }
-        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_ended') {
-          html += renderCallEndedRow(m); return;
-        }
-        if (m.senderType === 'system' && m.metadata
-            && (m.metadata.kind === 'routing_agent_joined'
-              || m.metadata.kind === 'conversation_transferred'
-              || m.metadata.kind === 'routing_no_agent_available'
-              || m.metadata.kind === 'routing_in_queue')) {
+        var kind = m.senderType === 'system' && m.metadata ? m.metadata.kind : '';
+        if (kind === 'call_invitation') { html += renderCallInvitationCard(m); return; }
+        if (kind === 'call_ended') { html += renderCallEndedRow(m); return; }
+        if (kind === 'routing_agent_joined' || kind === 'conversation_transferred'
+            || kind === 'routing_no_agent_available' || kind === 'routing_in_queue') {
           html += renderRoutingOutcomeRow(m); return;
         }
-        var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
-        var bg = m.sender === 'visitor' ? 'style="background:' + esc(ctx.primaryColor) + '"' : '';
+        var visitor = m.sender === 'visitor';
+        var cls = visitor ? 'visitor' : 'operator';
         var isAi = m.senderType === 'ai';
-        var hasText = m.body && String(m.body).trim().length > 0;
-        var attHtml = renderMessageAttachment(m.attachment);
-        var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
-
-        // Consecutive messages from the same author share ONE avatar and ONE
-        // meta line (time + delivery ticks) under the LAST bubble of the run.
-        var isLastInStreak = idx === s.messages.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
+        var isLast = idx === msgs.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
+        var isFirst = idx === 0 || groupKeys[idx - 1] !== groupKeys[idx];
+        var failed = visitor && isLast && m.status === 'failed';
 
         var statusHtml = '';
-        if (m.sender === 'visitor' && isLastInStreak && m.status === 'failed') {
-          // Send failure is error feedback, not a "read receipt" — shown
-          // regardless of the workspace's receiptsEnabled setting, with a
-          // retry action the visitor can actually act on (unlike the old
-          // static "!" glyph). data-msg-retry is handled by the same
-          // delegated click handler as data-msg-reply/data-msg-copy.
-          statusHtml = '<span class="msg-ticks is-failed" aria-label="' + esc(t('msgFailed')) + '">!</span>' +
-            '<button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') +
-              '" title="' + esc(t('retry')) + '" aria-label="' + esc(t('retry')) + '">' +
-              esc(t('retry')) + '</button>';
-        } else if (m.sender === 'visitor' && isLastInStreak && receiptsEnabled && m.status) {
+        if (failed) {
+          // Error feedback, shown whatever the read-receipt setting, with a
+          // retry the visitor can act on.
+          statusHtml = ico('err', 14, 2.2, 'msg-err-ico') +
+            '<span class="msg-ticks is-failed">' + esc(tf('msgFailed', 'Not sent')) + '</span>' +
+            '<button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') + '">' + esc(L('retry')) + '</button>';
+        } else if (visitor && isLast && receiptsEnabled && m.status) {
           if (m.status === 'sending') {
             statusHtml = '<span class="msg-ticks is-sending" aria-label="' + esc(t('msgSending')) + '">' +
               '<span class="msg-status-spinner" aria-hidden="true"></span></span>';
           } else {
             var seen = m.status === 'seen';
-            var two = seen || m.status === 'delivered';
             statusHtml = '<span class="msg-ticks' + (seen ? ' is-seen' : '') + '" aria-hidden="true">' +
-              (two ? TICKS.double : TICKS.single) + '</span>';
+              ico(seen || m.status === 'delivered' ? 'ticks' : 'tick', 16, 2) + '</span>';
           }
         }
 
-        // An operator or AI agent with no uploaded avatar gets NO avatar
-        // layer — not an initial-letter circle, and not the reserved spacer
-        // either, so the bubble sits flush against the row edge instead of
-        // being indented past an empty slot. Avatar presence is uniform
-        // across a streak (it is part of the grouping key), so dropping the
-        // spacer cannot misalign the rows above the last one.
-        var avatarHtml = '';
-        if (cls === 'operator' && m.senderAvatar) {
-          avatarHtml = isLastInStreak
-            ? '<span class="msg-avatar has-img"><img src="' + esc(m.senderAvatar) + '" alt="' +
-                esc(m.senderName || t('operator')) + '" loading="lazy" decoding="async" /></span>'
-            : '<span class="msg-avatar msg-avatar-spacer" aria-hidden="true"></span>';
-        }
+        // Every operator run has its avatar beside its last bubble; earlier
+        // rows keep the column with a spacer.
+        var avatarHtml = visitor ? ''
+          : isLast ? msgAvatarHtml(m) : '<span class="msg-avatar msg-avatar-spacer" aria-hidden="true"></span>';
+        // A person's name above the first bubble of their run (people only).
+        var label = (!visitor && isFirst && !isAi && m.senderType !== 'system' && m.senderName)
+          ? '<span class="msg-sender-label">' + esc(m.senderName) + '</span>' : '';
 
-        // AI attribution lives on the meta line UNDER the bubble, next to the
-        // time — never as a badge floating above the text.
-        var aiMetaHtml = (isAi && isLastInStreak)
+        var aiMetaHtml = (isAi && isLast)
           ? '<span class="msg-ai-badge" title="' + esc(tf('wyAiAssistant', 'AI assistant')) + '">' +
               esc(tf('wyAiShort', 'AI')) + '</span>' +
             (m.senderName ? '<span class="msg-sender">' + esc(m.senderName) + '</span>' : '')
           : '';
-
-        var timeStr = formatMsgTime(m.time);
-        var metaHtml = isLastInStreak && (timeStr || statusHtml || aiMetaHtml)
-          ? '<div class="msg-meta">' + aiMetaHtml +
+        var timeStr = failed ? '' : formatMsgTime(m.time);
+        var metaHtml = isLast && (timeStr || statusHtml || aiMetaHtml)
+          ? '<div class="msg-footline"><div class="msg-meta">' + aiMetaHtml +
               (timeStr ? '<span class="msg-time">' + esc(timeStr) + '</span>' : '') + statusHtml +
-            '</div>'
+            '</div></div>'
           : '';
 
-        // A quote can arrive either as a structured replyTo (realtime payload)
-        // or, for messages that travelled through the plain-text pipeline, as
-        // a leading "> …" block inside the body. Both render identically, so
-        // the operator and the visitor always see the same quoted context.
         var parsed = splitQuotedBody(m.body);
         var quoteText = (m.replyTo && (m.replyTo.text || m.replyTo.body)) || parsed.quote || '';
         var bodyText = parsed.quote ? parsed.rest : m.body;
-
         var isTypingThis = !!(typewriter && typewriter.id === m.__id);
-        var typingDone = isTypingThis && typewriter.revealedCount >= typewriter.tokens.length;
-        var isRevealing = isTypingThis && !typingDone;
+        var isRevealing = isTypingThis && typewriter.revealedCount < typewriter.tokens.length;
         var displayText = isRevealing
           ? typewriter.tokens.slice(0, Math.max(1, typewriter.revealedCount)).join('')
           : bodyText;
-        // While revealing, the target span MUST exist even at zero revealed
-        // tokens — otherwise the reveal timer finds no node and the bubble
-        // stays visibly empty until the next full re-render.
-        // Mid-reveal the text stays plain: half a URL is not a link yet, and
-        // Core swaps in the linked markup on the reveal's final frame.
+        // While revealing, the target span exists even at zero tokens, and
+        // the text stays plain (half a URL is not a link yet).
         var textHtml = (isRevealing || (displayText && String(displayText).length))
           ? '<span class="msg-text"' + (isRevealing ? ' data-typing-id="' + esc(m.__id) + '"' : '') + '>' +
               (isRevealing ? esc(displayText) : escLinked(displayText)) + '</span>'
           : '';
-
-
-        var quoted = quoteText
-          ? '<span class="msg-quote">' + esc(String(quoteText)) + '</span>'
-          : '';
-
-        // Message actions sit on the bubble's bottom line (never centered on
-        // the bubble): quote/forward + copy, revealed on hover/focus.
+        var quoted = quoteText ? '<span class="msg-quote">' + esc(String(quoteText)) + '</span>' : '';
+        var hasText = !!(m.body && String(m.body).trim().length > 0);
         var actionsHtml = hasText
           ? '<span class="msg-actions">' +
               '<button type="button" class="msg-act" data-msg-reply="' + esc(m.__id || '') +
                 '" data-msg-reply-text="' + esc(String(bodyText || m.body || '').slice(0, 200)) +
-                '" data-msg-reply-author="' + esc(m.sender === 'visitor' ? tf('you', 'You') : (m.senderName || t('operator'))) +
+                '" data-msg-reply-author="' + esc(visitor ? tf('you', 'You') : (m.senderName || t('operator'))) +
                 '" title="' + esc(tf('reply', 'Reply')) + '" aria-label="' + esc(tf('reply', 'Reply')) + '">' +
-                ICON.quote + '</button>' +
+                ico('quote', 13, 1.8) + '</button>' +
               '<button type="button" class="msg-act" data-msg-copy="' + esc(String(bodyText || m.body || '')) +
                 '" title="' + esc(tf('copy', 'Copy')) + '" aria-label="' + esc(tf('copy', 'Copy')) + '">' +
-                ICON.copy + '</button>' +
+                ico('copy', 14, 1.7) + '</button>' +
             '</span>'
           : '';
 
-        html += '<div class="msg-row ' + cls + (isLastInStreak ? ' is-last' : '') + '">' + avatarHtml +
-          '<div class="msg-col">' +
-            '<div class="msg-line">' +
-              '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + (isLastInStreak ? ' has-tail' : '') + '"' +
-                (isTypingThis && !typingDone ? ' data-typing-host data-typing-active="1"' : '') + ' ' + bg + '>' +
-                quoted + textHtml + attHtml +
-              '</div>' +
-              actionsHtml +
-            '</div>' +
-            (metaHtml ? '<div class="msg-footline">' + metaHtml + '</div>' : '') +
-          '</div>' +
+        // An attachment is its own item above its caption, as the design draws them.
+        var att = renderMessageAttachment(m.attachment);
+        var items = att
+          ? '<div class="msg-line"><div class="msg ' + cls + ' has-att-only">' + att + '</div></div>' : '';
+        if (textHtml || quoted || !att) {
+          items += '<div class="msg-line">' +
+            '<div class="msg ' + cls + (isAi ? ' is-ai' : '') + (isLast ? ' has-tail' : '') + '"' +
+              (isRevealing ? ' data-typing-host data-typing-active="1"' : '') + '>' + quoted + textHtml +
+            '</div>' + actionsHtml +
+          '</div>';
+        }
+
+        html += '<div class="msg-row ' + cls + (isLast ? ' is-last' : '') + (isFirst ? ' is-first' : '') +
+          (failed ? ' is-failed' : '') + '">' + avatarHtml +
+          '<div class="msg-col">' + label + items + metaHtml + '</div>' +
         '</div>';
-
-
 
         var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';
         if (isIntro && !visitorHasReplied && qnaState.questions.length) html += qnaChipsHtml(qnaState);
       });
 
       if (extraRowHtml) html += extraRowHtml;
-      var lastMsg = s.messages && s.messages.length ? s.messages[s.messages.length - 1] : null;
+      var lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
       var waitingOnAi = !!lastMsg && (lastMsg.sender === 'visitor' || lastMsg.from === 'visitor' || lastMsg.author === 'visitor');
       if (s.aiThinking && waitingOnAi) html += renderAiThinkingRow();
+      if (view.operatorTyping) html += typingRowHtml(view.operatorTyping);
       html += '</div>';
       return html;
     }
 
+    /**
+     * The in-thread pre-chat card, on the team's side: the reason (Core's
+     * owner-configurable subtitle, typed out on first show), the question,
+     * then the fields with the submit inside the last one, and "no thanks"
+     * when nothing is required (feature `prechatOperator`).
+     */
     function handoffPrechatCardHtml(identity, contact, locale, subtitle, animateSubtitle) {
       contact = contact || {};
-      var fieldsHtml = '';
-      if (identity.isAsked('name')) fieldsHtml += renderPrechatFieldRow(identity, 'name', 'text', contact.name);
-      if (identity.isAsked('email')) fieldsHtml += renderPrechatFieldRow(identity, 'email', 'email', contact.email);
-      if (identity.isAsked('phone')) fieldsHtml += renderPrechatFieldRow(identity, 'phone', 'tel', contact.phone);
+      var keys = ['name', 'email', 'phone'].filter(function (k) { return identity.isAsked(k); });
+      var required = keys.some(function (k) { return identity.isRequired(k); });
+      var lastKey = keys[keys.length - 1];
+      var types = { name: 'text', email: 'email', phone: 'tel' };
+      var submit = '<button type="button" class="hc-submit ok" data-prechat-submit aria-label="' +
+        esc(lastKey === 'email' ? L('saveEmail') : tf('continue', 'Continue')) + '">' + ico('tick', 18, 2.4) + '</button>';
+      var fieldsHtml = keys.map(function (k) {
+        return renderPrechatFieldRow(identity, k, types[k], contact[k], k === lastKey ? submit : '');
+      }).join('');
+      var title = (identity.isAsked('email') || identity.isAsked('phone')) ? L('askEmail') : t('prechatTitle');
       var dir = String(locale || '').toLowerCase().split('-')[0] === 'fa' ? 'rtl' : 'ltr';
       var subtitleHtml = animateSubtitle
-        ? '<div class="hc-subtitle" data-typing-host data-typing-active="1" data-typing-id="hc-subtitle"></div>'
-        : '<div class="hc-subtitle">' + esc(subtitle) + '</div>';
-      return '<div class="msg-row visitor">' +
-        '<div class="hc-card" dir="' + dir + '" role="group" aria-label="' + esc(t('prechatTitle')) + '">' +
-          '<div class="hc-title">' + esc(t('prechatTitle')) + '</div>' + subtitleHtml +
-          '<div class="prechat-fields hc-fields">' + fieldsHtml + '</div>' +
-          '<button type="button" class="wy-btn wy-btn-primary hc-submit" data-prechat-submit>' +
-            esc(t('continue')) + '</button>' +
+        ? '<div class="msg operator hc-subtitle" data-typing-host data-typing-active="1" data-typing-id="hc-subtitle"></div>'
+        : (subtitle ? '<div class="msg operator hc-subtitle">' + esc(subtitle) + '</div>' : '');
+      return '<div class="msg-row operator is-last hc-row">' + storeAvatarHtml(28, '', 'msg-avatar') +
+        '<div class="msg-col">' +
+          (subtitleHtml ? '<div class="msg-line">' + subtitleHtml + '</div>' : '') +
+          '<div class="msg-line"><div class="msg operator hc-title">' + esc(title) + '</div></div>' +
+          '<div class="msg-line"><div class="hc-card fcard" dir="' + dir + '" role="group" aria-label="' + esc(title) + '">' +
+            '<div class="prechat-fields hc-fields">' + (fieldsHtml || submit) + '</div>' +
+            (required ? '' : '<button type="button" class="skip" data-prechat-skip>' + esc(L('skip')) + '</button>') +
+          '</div></div>' +
         '</div>' +
       '</div>';
     }
 
+    /** The details just saved, on the team's side (feature `prechatSummary`). */
+    function prechatSummaryHtml(contact) {
+      contact = contact || {};
+      var to = String(contact.email || contact.phone || '').trim();
+      if (!to) return '';
+      var parts = L('replyTo').split('{email}');
+      return '<div class="msg-row operator is-last">' + storeAvatarHtml(28, '', 'msg-avatar') +
+        '<div class="msg-col"><div class="msg-line"><div class="fcard done" role="status">' +
+          '<span class="ck" aria-hidden="true">' + ico('tick', 16, 2.4) + '</span>' +
+          '<span>' + esc(parts[0]) + '<b dir="ltr">' + esc(to) + '</b>' + esc(parts[1] || '') + '</span>' +
+        '</div></div></div>' +
+      '</div>';
+    }
+
+    /** A form view (pre-contact, leave-a-message): bar, scrolling body, footer. */
+    function formViewHtml(cls, locale, header, inner) {
+      var rtl = String(locale || '').toLowerCase().split('-')[0] === 'fa';
+      return viewOpen('wy-view-' + cls + ' prechat' + (cls === 'fallback' ? ' fallback' : ''), rtl) +
+        barHtml(backButtonHtml('home') + header) +
+        '<div class="wy-scroll wy-body-pad form-body">' + inner + '</div>' + footerHtml() +
+      '</div>';
+    }
+    function teamHeaderHtml(online) {
+      var stack = online ? stackHtml(28) : '';
+      return whoHtml(stack || storeAvatarHtml(40, online ? '' : 'off'), workspaceName,
+        '<span class="st">' + esc(online ? replyTimeText(true) : L('away')) + '</span>');
+    }
+
     /**
-     * Full-screen pre-contact view (design §9). Field set and required
-     * markers come from the server-authoritative identity contract; the
-     * design's "name required" demo rule never overrides it.
+     * Full-screen pre-contact view. Field set and required markers come from
+     * the server-authoritative identity contract.
      */
     function prechatFormHtml(identity, contact, locale) {
       contact = contact || {};
@@ -827,108 +1076,68 @@
       if (identity.isAsked('name')) fieldsHtml += renderPrechatFieldRow(identity, 'name', 'text', contact.name);
       if (identity.isAsked('email')) fieldsHtml += renderPrechatFieldRow(identity, 'email', 'email', contact.email);
       if (identity.isAsked('phone')) fieldsHtml += renderPrechatFieldRow(identity, 'phone', 'tel', contact.phone);
-      var dir = String(locale || '').toLowerCase().split('-')[0] === 'fa' ? 'rtl' : 'ltr';
-      return '<div class="wy-view wy-view-precontact prechat" dir="' + dir + '">' +
-        '<div class="wy-head">' +
-          headerIdentityHtml({ back: 'home', subtitle: tf('wyConnectOperator', 'Connect to an operator') }) +
-        '</div>' +
-        '<div class="wy-scroll wy-body-pad">' +
-          '<p class="prechat-subtitle">' + esc(tf('wyPrecontactDesc', t('prechatSubtitle'))) + '</p>' +
-          '<div class="prechat-fields">' + fieldsHtml + '</div>' +
-          '<div class="prechat-spacer" aria-hidden="true"></div>' +
-          '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit" data-prechat-submit>' +
-            esc(tf('wyConnectOperator', t('continue'))) + '</button>' +
-        '</div>' +
-      '</div>';
+      return formViewHtml('precontact', locale, teamHeaderHtml(true),
+        '<p class="prechat-subtitle">' + esc(tf('wyPrecontactDesc', t('prechatSubtitle'))) + '</p>' +
+        '<div class="prechat-fields">' + fieldsHtml + '</div>' +
+        '<div class="prechat-spacer" aria-hidden="true"></div>' +
+        '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit btn" data-prechat-submit>' +
+          esc(tf('wyConnectOperator', t('continue'))) + '</button>');
     }
 
+    /** Leave-a-message form (the team is away): the away notice, then the form. */
     function contactFallbackHtml(identity, contact, locale, presence) {
       contact = contact || {};
       var intro = (presence && presence.introLabel) ? presence.introLabel : t('fallbackIntro');
-      var dir = String(locale || '').toLowerCase().split('-')[0] === 'fa' ? 'rtl' : 'ltr';
-
-      function fieldRow(key, type, value, required) {
-        var label = t(key);
-        return '<div class="prechat-field" data-field="' + key + '">' +
-          '<label class="prechat-label" for="fb-' + key + '">' + esc(label) +
-            (required ? '<span class="prechat-req-mark">*</span>' : '') + '</label>' +
-          '<div class="prechat-control">' +
-            '<input id="fb-' + key + '" class="prechat-input" data-fb="' + key + '" type="' + type +
-            '" autocomplete="' + (key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel') +
-            '" placeholder="' + esc(label) + '"' + (required ? ' aria-required="true"' : '') +
-            ' aria-invalid="false" aria-describedby="fb-err-' + key + '"' +
-            ' value="' + esc(value || '') + '" />' +
-          '</div>' +
-          '<div class="prechat-error" id="fb-err-' + key + '" data-err="' + key + '" role="alert" aria-live="polite"></div>' +
-        '</div>';
-      }
-
       var askPhone = identity.isAsked('phone');
-      var fieldsHtml = fieldRow('name', 'text', contact.name, identity.isRequired('name')) +
-        fieldRow('email', 'email', contact.email, !askPhone) +
-        (askPhone ? fieldRow('phone', 'tel', contact.phone, identity.isRequired('phone')) : '');
-
-      return '<div class="wy-view wy-view-fallback prechat fallback" dir="' + dir + '">' +
-        '<div class="wy-head">' +
-          headerIdentityHtml({ back: 'home', subtitle: tf('wyLeaveMessage', t('homeLeaveMessage')) }) +
-        '</div>' +
-        '<div class="wy-scroll wy-body-pad">' +
-          '<p class="prechat-intro">' + esc(intro) + '</p>' +
-          '<div class="prechat-fields">' + fieldsHtml +
-            '<div class="prechat-field" data-field="message">' +
-              '<label class="prechat-label" for="fb-message">' + esc(t('fallbackMessageLabel')) +
-                '<span class="prechat-req-mark">*</span></label>' +
-              '<div class="prechat-control">' +
-                '<textarea id="fb-message" class="prechat-input prechat-textarea" data-fb="message" rows="3" placeholder="' +
-                  esc(t('typeMsg')) + '" aria-required="true" aria-invalid="false" aria-describedby="fb-err-message"></textarea>' +
-              '</div>' +
-              '<div class="prechat-error" id="fb-err-message" data-err="message" role="alert" aria-live="polite"></div>' +
+      var req = { isRequired: function (k) { return k === 'email' ? !askPhone : identity.isRequired(k); } };
+      var d = nextOpen();
+      var at = d ? backAtTime(d) : '';
+      var sub = at ? L('backAt', { t: at }) : replyTimeText(false);
+      var fieldsHtml = renderPrechatFieldRow(req, 'name', 'text', contact.name, '', 'fb') +
+        renderPrechatFieldRow(req, 'email', 'email', contact.email, '', 'fb') +
+        (askPhone ? renderPrechatFieldRow(req, 'phone', 'tel', contact.phone, '', 'fb') : '');
+      return formViewHtml('fallback', locale, teamHeaderHtml(false),
+        '<div class="away"><span class="it">' + ico('moon', 18, 1.8) + '</span><span>' + esc(L('awayT')) +
+          (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span></div>' +
+        '<p class="prechat-intro">' + esc(intro) + '</p>' +
+        '<div class="prechat-fields">' + fieldsHtml +
+          '<div class="prechat-field" data-field="message">' +
+            '<label class="prechat-label" for="fb-message">' + esc(t('fallbackMessageLabel')) +
+              '<span class="prechat-req-mark">*</span></label>' +
+            '<div class="prechat-control fi fi-ta">' +
+              '<textarea id="fb-message" class="prechat-input prechat-textarea" data-fb="message" rows="3" placeholder="' +
+                esc(t('typeMsg')) + '" aria-required="true" aria-invalid="false" aria-describedby="fb-err-message"></textarea>' +
             '</div>' +
+            '<div class="prechat-error" id="fb-err-message" data-err="message" role="alert" aria-live="polite"></div>' +
           '</div>' +
-          '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit" data-fb-submit>' +
-            esc(t('fallbackSubmit')) + '</button>' +
-          '<div class="fallback-status" data-fb-status role="status" aria-live="polite"></div>' +
-        '</div>' + footerHtml() +
-      '</div>';
+        '</div>' +
+        '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit btn" data-fb-submit>' +
+          esc(t('fallbackSubmit')) + '</button>' +
+        '<div class="fallback-status" data-fb-status role="status" aria-live="polite"></div>');
     }
 
     function smartSurfaceHtml(s) {
       return (s.dismissible === false
         ? ''
         : '<button type="button" class="smart-dismiss" data-smart-dismiss aria-label="' +
-            esc(tf('close', 'Close')) + '">\u00d7</button>') +
+            esc(tf('close', 'Close')) + '">' + ico('x', 15, 2.4) + '</button>') +
         (s.title ? '<div class="smart-title">' + esc(s.title) + '</div>' : '') +
         '<div class="smart-body">' + esc(s.body || '') + '</div>' +
-        (s.ctaLabel
-          ? '<button type="button" class="smart-cta" data-smart-cta style="background:' + esc(env.primaryColor) + '">' +
-              esc(s.ctaLabel) + '</button>'
-          : '');
+        (s.ctaLabel ? '<button type="button" class="smart-cta" data-smart-cta>' + esc(s.ctaLabel) + '</button>' : '');
     }
 
     // ══════════════════════════════════════════════════════════════════
     // Shell — NON-VISUAL infrastructure only (single-view architecture)
     // ══════════════════════════════════════════════════════════════════
-    //
-    // The panel is a bare container. At any moment EXACTLY ONE full view is
-    // rendered inside the view host, and that view owns its own header,
-    // body, composer and footer. The shell therefore carries no chat
-    // header, no composer and no powered-by footer — only the view host and
-    // the attachment lightbox (accessibility infrastructure Core needs).
-    //
-    // The launcher slides away while the panel is open (shared-origin FAB
-    // motion), so the shell owns a single close control in the top corner.
+    // One view at a time inside the view host; the panel's only own control
+    // is the close button, drawn per view by the stylesheet
+    // (.panel[data-view]): glass on the home hero, plain on white bars.
     function shellHtml() {
-      return '<button type="button" class="panel-close" data-panel-close aria-label="' +
-          esc(tf('close', 'Close')) + '">' +
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-          'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>' +
-        '</button>' +
+      return '<button type="button" class="panel-close" data-panel-close' + ACC + ' aria-label="' +
+          esc(tf('close', 'Close')) + '">' + ico('x', 20, 1.9) + '</button>' +
         '<div class="body wy-scroll" data-body></div>' +
-        // The in-panel call surface is a PANEL-level overlay, not a view
-        // inside the body. That is what lets a visitor shrink the call and
-        // keep chatting: the chat view stays mounted underneath, and
-        // expanding again is a class toggle rather than a re-render — so
-        // the <video> element is never torn down mid-call.
+        // The in-panel call surface is a PANEL-level overlay, so a minimized
+        // call keeps its <video> while the chat stays usable underneath.
         '<div class="gs-call-host" data-call-host hidden></div>' +
         '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' +
           esc(t('openFile')) + '">' +
@@ -938,76 +1147,72 @@
         '</div>';
     }
 
+    /**
+     * The chat bar (feature `chatHeader`: Core writes this into
+     * [data-chat-header] whenever what it shows changes). The person
+     * answering when there is one, the team for a new conversation, else the
+     * workspace; then typing, online, away or the reply time.
+     */
+    function chatHeaderHtml(vm) {
+      vm = vm || {};
+      var online = vm.online !== false;
+      var op = vm.operator && vm.operator.name ? vm.operator : null;
+      var stack = !op && vm.isNew && online ? stackHtml(28) : '';
+      var avatar = op ? avatarHtml(op.name, op.avatar, 40, { pr: op.online ? 'on' : (online ? '' : 'off') })
+        : stack || storeAvatarHtml(40, online ? '' : 'off');
+      var name = op ? op.name : stack ? tf('wyNewConversation', 'New conversation') : workspaceName;
+      var rt = replyTimeText(true);
+      var st = vm.typing ? '<span class="st typ">' + esc(L('typing')) + '<i></i><i></i><i></i></span>'
+        : !online ? '<span class="st">' + esc(L('away')) + '</span>'
+        : op && op.online ? '<span class="st"><i class="ondot"></i>' + esc(L('online')) + '</span>'
+        : rt ? '<span class="st">' + esc(rt) + '</span>' : '';
+      return backButtonHtml('home') + whoHtml(avatar, name, st) + '<span class="cs" aria-hidden="true"></span>' +
+        '<div class="presence sr-only" data-presence>' +
+          '<span class="presence-dot" data-presence-dot></span>' +
+          '<span class="presence-label" data-presence-label></span>' +
+        '</div>';
+    }
 
-    // ══════════════════════════════════════════════════════════════════
-    // Chat view (design §5) — the ONE generic chat surface
-    // ══════════════════════════════════════════════════════════════════
-    //
-    // Built exactly once by Core and mounted into the view host whenever the
-    // chat view is active: header → message scroll host → reply/emoji/
-    // attachment state → composer → powered-by footer. Core renders the
-    // message list into [data-chat-messages] and binds composer behaviour to
-    // the nodes in this frame.
+    // The ONE chat surface, built once by Core: bar, message scroll host,
+    // composer, footer. Core renders the list into [data-chat-messages] and
+    // binds the composer nodes of this frame (their DOM order is fixed; the
+    // stylesheet lays them out as a two-row grid).
     function chatFrameHtml(vm) {
       vm = vm || {};
       var cfg = vm.config || {};
       var chatEnabled = !!vm.chatEnabled;
       var rtl = String(vm.locale || 'en').toLowerCase().split('-')[0] === 'fa';
-
-      // Chat header — workspace identity ONLY. `launcherText` is never a
-      // header title (design §2): the launcher label is a launcher concern.
-      var chatHeader = '<div class="header wy-head wy-head-chat" data-chat-header>' +
-        headerIdentityHtml({
-          back: 'home',
-          title: vm.workspaceName || vm.brandName || workspaceName,
-          subtitle: replyTimeText(true),
-
-        }) +
-        '<div class="presence sr-only" data-presence aria-live="polite">' +
-          '<span class="presence-dot" data-presence-dot></span>' +
-          '<span class="presence-label" data-presence-label></span>' +
-        '</div>' +
-      '</div>';
-
-      var attachCfg = (cfg && cfg.attachments) || { enabled: false };
-      var composerCfg = (cfg && cfg.composer) || {};
+      var attachCfg = cfg.attachments || { enabled: false };
+      var composerCfg = cfg.composer || {};
       var micSupported = !!(typeof navigator !== 'undefined' && navigator.mediaDevices
         && navigator.mediaDevices.getUserMedia && typeof window.MediaRecorder === 'function');
-      var voiceNotesEnabled = attachCfg.voiceNotesEnabled === true;
+      var voice = attachCfg.voiceNotesEnabled === true && micSupported;
       var emojiEnabled = composerCfg.emojiEnabled !== false;
 
       var inputHtml = chatEnabled
-        ? '<div class="composer-zone" data-composer-zone>' +
-            // Typing state is preserved as a Core capability, but the design
-            // has NO visible "typing…" row above the composer — it is
-            // announced to assistive tech only.
+        ? '<div class="composer-zone cmp" data-composer-zone>' +
+            // Typing is drawn in the thread; this row announces it.
             '<div class="sr-only" data-typing-row hidden aria-live="polite">' +
               '<span class="typing-label" data-typing-label></span>' +
             '</div>' +
             '<div class="reply-preview" data-reply-preview hidden>' +
               '<span class="reply-preview-bar" aria-hidden="true"></span>' +
-              '<span class="reply-preview-icon" aria-hidden="true">' + ICON.quote + '</span>' +
+              '<span class="reply-preview-icon" aria-hidden="true">' + ico('quote', 13, 1.8) + '</span>' +
               '<span class="reply-preview-body">' +
                 '<span class="reply-preview-author" data-reply-preview-author></span>' +
                 '<span class="reply-preview-text" data-reply-preview-text></span>' +
               '</span>' +
               '<button type="button" class="reply-preview-cancel" data-reply-cancel aria-label="' +
-                esc(tf('cancel', 'Cancel')) + '">' + ICON.close + '</button>' +
+                esc(tf('cancel', 'Cancel')) + '">' + ico('x', 14, 2) + '</button>' +
             '</div>' +
             '<div class="emoji-picker" data-emoji-picker hidden></div>' +
             '<div class="input-bar" data-input-bar>' +
               '<div class="input-wrap" data-input-wrap>' +
-                // A pending file or image previews inside the pill, as a row
-                // ABOVE the input rather than instead of it: unlike a voice
-                // note, an attachment usually wants a caption, so the
-                // textarea has to stay usable and the ordinary send button
-                // sends both together.
                 (attachCfg.enabled
                   ? '<div class="att-preview" data-attach-preview hidden>' +
                       '<div class="att-preview-thumb" data-attach-thumb>' +
                         '<img class="att-preview-img" data-attach-thumb-img alt="" hidden />' +
-                        '<span class="att-preview-doc" data-attach-thumb-doc aria-hidden="true">' +
-                          ICON.fileDoc + '</span>' +
+                        '<span class="att-preview-doc" data-attach-thumb-doc aria-hidden="true">' + ico('doc', 18, 1.7) + '</span>' +
                       '</div>' +
                       '<div class="att-preview-meta">' +
                         '<div class="att-preview-name" data-attach-name></div>' +
@@ -1017,121 +1222,83 @@
                         '</div>' +
                       '</div>' +
                       '<button type="button" class="att-preview-btn att-preview-retry" data-attach-retry hidden' +
-                        ' aria-label="' + esc(t('retry')) + '" title="' + esc(t('retry')) + '">' +
-                        ICON.retry + '</button>' +
+                        ' aria-label="' + esc(t('retry')) + '">' + ico('retry', 14, 1.9) + '</button>' +
                       '<button type="button" class="att-preview-btn att-preview-remove" data-attach-remove' +
-                        ' aria-label="' + esc(t('remove')) + '" title="' + esc(t('remove')) + '">' +
-                        ICON.close + '</button>' +
+                        ' aria-label="' + esc(t('remove')) + '">' + ico('x', 14, 2) + '</button>' +
                     '</div>'
                   : '') +
-                // Everything the visitor writes with lives on one row of the
-                // pill. The preview above is a second row, which is why the
-                // pill is a column and this is the row inside it.
                 '<div class="input-row" data-input-row>' +
-                // Mic is the FIRST child inside the input row and only shows
-                // while the draft is empty (design source).
-                (voiceNotesEnabled && micSupported
-                  ? '<button type="button" class="mic-btn" data-mic-btn title="' + esc(t('recordVoice')) +
-                      '" aria-label="' + esc(t('recordVoice')) + '">' + ICON.mic +
-                      '<span class="mic-ring" aria-hidden="true"></span></button>'
-                  : '') +
-                '<textarea class="input" rows="1" data-msg-input placeholder="' + esc(t('typeMsg')) + '"></textarea>' +
-                // ONE action group with FIXED membership: every control stays
-                // mounted whatever the draft state, so starting to type never
-                // shifts a button out from under the visitor's finger.
-                // Document order is send → attach → emoji, which in the RTL
-                // widget paints them left-to-right as emoji, attach, send —
-                // putting send immediately to the right of the attach button.
-                '<div class="composer-actions">' +
-                  '<div class="composer-actions-start">' +
-                    '<button type="button" class="send-btn" data-send-btn aria-label="' + esc(tf('send', 'Send')) + '">' +
-                      ICON.send + '</button>' +
-                    (attachCfg.enabled
-                      ? '<button type="button" class="attach-btn" data-attach-btn title="' + esc(t('attachFile') || 'Attach file') +
-                          '" aria-label="' + esc(t('attachFile') || 'Attach file') + '">' + ICON.attach + '</button>' +
-                        '<input type="file" data-attach-input hidden accept="' + esc((attachCfg.allowedMimes || []).join(',')) + '" />'
-                      : '') +
-                    (emojiEnabled
-                      ? '<button type="button" class="emoji-btn" data-emoji-btn aria-expanded="false" title="' + esc(t('emojiPicker')) +
-                          '" aria-label="' + esc(t('emojiPicker')) + '">' + ICON.emoji + '</button>'
-                      : '') +
+                  (voice
+                    ? '<button type="button" class="mic-btn" data-mic-btn aria-label="' + esc(t('recordVoice')) + '">' + ico('mic', 20, 2) + '</button>'
+                    : '') +
+                  '<textarea class="input" rows="1" data-msg-input placeholder="' + esc(t('typeMsg')) + '"></textarea>' +
+                  '<div class="composer-actions">' +
+                    '<div class="composer-actions-start">' +
+                      '<button type="button" class="send-btn" data-send-btn aria-label="' + esc(tf('send', 'Send')) + '">' +
+                        ico('send', 20, 2.2) + '</button>' +
+                      (attachCfg.enabled
+                        ? '<button type="button" class="attach-btn" data-attach-btn aria-label="' + esc(t('attachFile')) + '">' + ico('clip', 20, 1.8) + '</button>' +
+                          '<input type="file" data-attach-input hidden accept="' + esc((attachCfg.allowedMimes || []).join(',')) + '" />'
+                        : '') +
+                      (emojiEnabled
+                        ? '<button type="button" class="emoji-btn" data-emoji-btn aria-expanded="false" aria-label="' + esc(t('emojiPicker')) + '">' + ico('emoji', 20, 1.8) + '</button>'
+                        : '') +
+                    '</div>' +
                   '</div>' +
-                '</div>' +
-                // Voice recording takes over the pill itself (WhatsApp-style)
-                // rather than opening a second strip above it. It is a
-                // SIBLING of the textarea, not a replacement: Core holds
-                // references to the composer nodes from the single build, so
-                // the mode switch is a class toggle and nothing is rebuilt.
-                (voiceNotesEnabled && micSupported
-                  ? '<div class="rec-bar" data-rec-bar hidden>' +
-                      '<button type="button" class="rec-btn rec-cancel" data-rec-cancel title="' +
-                        esc(t('cancelRecording')) + '" aria-label="' + esc(t('cancelRecording')) + '">' +
-                        ICON.trash + '</button>' +
-                      '<span class="rec-live">' +
+                  // Recording takes the box over (a class toggle; nothing is
+                  // rebuilt). The red button sends the note at once (feature
+                  // `recSend`); `data-rec-stop` (stop → preview) is kept for
+                  // Core but this design draws no such control.
+                  (voice
+                    ? '<div class="rec-bar" data-rec-bar hidden>' +
+                        '<button type="button" class="rec-btn rec-cancel" data-rec-cancel aria-label="' + esc(L('delRec')) + '">' + ico('trash', 20, 1.8) + '</button>' +
                         '<span class="rec-dot" aria-hidden="true"></span>' +
-                        '<span class="rec-time" data-rec-timer role="timer" aria-live="off">0:00</span>' +
-                      '</span>' +
-                      '<span class="rec-wave" aria-hidden="true">' +
-                        '<i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>' +
-                      '</span>' +
-                      '<span class="sr-only" data-rec-sr role="status" aria-live="polite">' +
-                        esc(t('recording')) + '</span>' +
-                      '<button type="button" class="rec-btn rec-confirm" data-rec-stop title="' +
-                        esc(t('stopRecording')) + '" aria-label="' + esc(t('stopRecording')) + '">' +
-                        ICON.recCheck + '</button>' +
-                    '</div>'
-                  : '') +
-                // A finished recording stays in the SAME pill rather than
-                // becoming a file chip above the composer: the visitor can
-                // hear it back, throw it away, or send it without the
-                // composer ever changing height. Transport controls run
-                // left→right even in RTL, because audio timelines do
-                // everywhere — hence the explicit dir on the row.
-                (voiceNotesEnabled && micSupported
-                  ? '<div class="vn-bar" data-vn-bar hidden dir="ltr">' +
-                      '<button type="button" class="rec-btn vn-delete" data-vn-delete title="' +
-                        esc(t('remove')) + '" aria-label="' + esc(t('remove')) + '">' +
-                        ICON.trash + '</button>' +
-                      '<button type="button" class="vn-play" data-vn-toggle aria-label="' +
-                        esc(t('playAudio')) + '" title="' + esc(t('playAudio')) + '">' +
-                        '<span class="vn-ico vn-ico-play">' + ICON.playSm + '</span>' +
-                        '<span class="vn-ico vn-ico-pause">' + ICON.pauseSm + '</span>' +
-                      '</button>' +
-                      '<div class="vn-track" data-vn-seek>' +
-                        '<div class="vn-progress" data-vn-progress></div>' +
+                        '<span class="rec-time" data-rec-timer role="timer" aria-live="off">' + clock(0) + '</span>' +
+                        '<span class="rec-wave" aria-hidden="true">' + waveHtml() + '</span>' +
+                        '<span class="sr-only" data-rec-sr role="status" aria-live="polite">' + esc(t('recording')) + '</span>' +
+                        '<button type="button" class="rec-btn rec-confirm" data-rec-stop hidden aria-label="' +
+                          esc(t('stopRecording')) + '"></button>' +
+                        '<button type="button" class="rec-btn rec-send" data-rec-send aria-label="' + esc(L('sendVoice')) + '">' + ico('send', 20, 2.2) + '</button>' +
                       '</div>' +
-                      '<span class="vn-time" data-vn-time>0:00</span>' +
-                      '<audio data-vn-audio preload="metadata"></audio>' +
-                      '<button type="button" class="vn-send" data-vn-send aria-label="' +
-                        esc(tf('send', 'Send')) + '" title="' + esc(tf('send', 'Send')) + '">' +
-                        ICON.send + '</button>' +
-                    '</div>'
-                  : '') +
+                      // A finished note waiting (the fallback when its upload
+                      // failed): hear it back, throw it away or send it.
+                      '<div class="vn-bar" data-vn-bar hidden>' +
+                        '<button type="button" class="rec-btn vn-delete" data-vn-delete aria-label="' + esc(t('remove')) + '">' + ico('trash', 20, 1.8) + '</button>' +
+                        '<button type="button" class="vn-play" data-vn-toggle aria-label="' +
+                          esc(t('playAudio')) + '">' +
+                          '<span class="vn-ico vn-ico-play">' + ico('play', 15, 0) + '</span>' +
+                          '<span class="vn-ico vn-ico-pause">' + ico('pause', 15, 0) + '</span>' +
+                        '</button>' +
+                        '<div class="vn-track" data-vn-seek dir="ltr">' +
+                          '<div class="vn-progress" data-vn-progress></div>' +
+                        '</div>' +
+                        '<span class="vn-time" data-vn-time>' + clock(0) + '</span>' +
+                        '<audio data-vn-audio preload="metadata"></audio>' +
+                        '<button type="button" class="vn-send" data-vn-send aria-label="' +
+                          esc(tf('send', 'Send')) + '">' + ico('send', 20, 2.2) + '</button>' +
+                      '</div>'
+                    : '') +
                 '</div>' +
               '</div>' +
             '</div>' +
-
             footerHtml() +
           '</div>'
         : footerHtml();
 
-      // Jump-to-latest: the ONLY affordance for a visitor who scrolled up
-      // while new messages kept arriving. Core owns the visibility state
-      // (`hidden` + `has-new`) — the template only describes the look.
+      // Jump-to-latest, for a visitor who scrolled up while messages arrived
+      // (Core owns `hidden` and `has-new`). Never inside the header Core rewrites.
       var jumpHtml = chatEnabled
         ? '<button type="button" class="wy-jump" data-chat-jump hidden' +
             ' aria-label="' + esc(tf('scrollToLatest', 'Scroll to latest message')) + '">' +
-            '<span class="wy-jump-ico" aria-hidden="true">' +
-              '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
-              'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/>' +
-              '<path d="M19 12l-7 7-7-7"/></svg>' +
-            '</span>' +
+            '<span class="wy-jump-ico" aria-hidden="true">' + ico('down', 16, 2) + '</span>' +
             '<span class="wy-jump-label" data-chat-jump-label></span>' +
           '</button>'
         : '';
 
-      return '<div class="wy-view wy-view-chat"' + (rtl ? ' dir="rtl"' : '') + '>' +
-        chatHeader +
+      return viewOpen('wy-view-chat', rtl) +
+        '<div class="header wy-head bar" data-chat-header>' +
+          chatHeaderHtml({ online: teamOnline(), typing: false, operator: null, isNew: true }) +
+        '</div>' +
         '<div class="wy-chat-scroll-host">' +
           '<div class="wy-chat-scroll wy-scroll" data-chat-messages></div>' +
           jumpHtml +
@@ -1140,165 +1307,169 @@
       '</div>';
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // Home
+    // ══════════════════════════════════════════════════════════════════
+    function openOf(list) {
+      return (list || []).filter(function (c) {
+        var st = String(c.status || '');
+        return st !== 'resolved' && st !== 'closed';
+      });
+    }
+    function unreadBadgeHtml(n) {
+      return n > 0 ? '<span class="nb" aria-label="' + esc(tf('wyUnread', 'Unread messages')) + '">' +
+        esc(n > 99 ? fmtNum(99) + '+' : fmtNum(n)) + '</span>' : '';
+    }
+    function convAvatarHtml(c, size) {
+      return c.operatorName || c.operatorAvatar
+        ? avatarHtml(c.operatorName || '', c.operatorAvatar, size, { pr: c.operatorOnline ? 'on' : '' })
+        : storeAvatarHtml(size);
+    }
 
-    // ══════════════════════════════════════════════════════════════════
-    // Home (design §7)
-    // ══════════════════════════════════════════════════════════════════
+    /** One conversation: the person answering, the latest line, its state. */
     function conversationRowHtml(c, compact) {
       var unread = Number(c.unreadCount) || 0;
-      var unreadHtml = unread > 0
-        ? '<span class="conv-unread" aria-label="' + esc(tf('wyUnread', 'Unread messages')) + '">' +
-            esc(unread > 99 ? fmtNum(99) + '+' : fmtNum(unread)) + '</span>' : '';
-
-      var timeHtml = c.timeLabel ? '<span class="conv-time">' + esc(c.timeLabel) + '</span>' : '';
+      var preview = c.preview || tf('wyNoPreview', '…');
+      if (c.lastFromVisitor && c.preview) preview = tf('you', 'You') + ': ' + preview;
+      var timeHtml = c.timeLabel ? '<time>' + esc(c.timeLabel) + '</time>' : '';
       if (compact) {
         return '<button type="button" class="conv-row conv-row-compact" data-conversation-open="' + esc(c.id) + '">' +
-          '<span class="conv-preview">' + esc(c.preview || tf('wyNoPreview', '…')) + '</span>' +
-          unreadHtml + timeHtml +
+          '<span class="conv-preview">' + esc(preview) + '</span>' + unreadBadgeHtml(unread) + timeHtml +
         '</button>';
       }
-      var resolved = String(c.status || '') === 'resolved';
-      var statusLabel = resolved ? tf('wyStatusResolved', 'Resolved') : tf('wyStatusOpen', 'Open');
-      return '<button type="button" class="conv-row" data-conversation-open="' + esc(c.id) + '">' +
-        identityAvatarHtml('sm') +
-        '<span class="conv-main">' +
-          '<span class="conv-line">' +
-            '<span class="conv-name">' + esc(c.title || workspaceName) + '</span>' + timeHtml +
-          '</span>' +
-          '<span class="conv-line">' +
-            '<span class="conv-preview">' + esc(c.preview || tf('wyNoPreview', '…')) + '</span>' + unreadHtml +
-          '</span>' +
-          '<span class="conv-status' + (resolved ? ' is-resolved' : '') + '">' +
-            '<span class="conv-status-dot" aria-hidden="true"></span>' + esc(statusLabel) + '</span>' +
+      var resolved = String(c.status || '') === 'resolved' || String(c.status || '') === 'closed';
+      return '<button type="button" class="conv-row ci" data-conversation-open="' + esc(c.id) + '">' +
+        convAvatarHtml(c, 44) +
+        '<span class="tx">' +
+          '<span class="l1"><span class="nm">' + esc(c.operatorName || c.title || workspaceName) + '</span>' + timeHtml + '</span>' +
+          '<span class="l2' + (unread ? ' u' : '') + '"><em>' + esc(preview) + '</em>' + unreadBadgeHtml(unread) + '</span>' +
+          '<span class="pl"><span class="pill' + (resolved ? ' done' : '') + '">' +
+            esc(resolved ? tf('wyStatusResolved', 'Resolved') : tf('wyStatusOpen', 'Open')) + '</span></span>' +
         '</span>' +
       '</button>';
     }
 
+    function rowHtml(attr, lead, title, sub, tail, unread) {
+      return '<button type="button" class="r" ' + attr + '>' + lead +
+        '<span class="tx"><span class="t1">' + esc(title) + '</span>' +
+          (sub ? '<span class="t2x' + (unread ? ' u' : '') + '">' + esc(sub) + '</span>' : '') + '</span>' +
+        (tail || ico('fwd', 18, 2, 'ch dirf')) +
+      '</button>';
+    }
+    function tileHtml(name) { return '<span class="it" aria-hidden="true">' + ico(name, 20, 1.7) + '</span>'; }
+    function listJoin(names) {
+      if (names.length < 2) return names.join('');
+      return names.slice(0, -1).join(L('sep')) + L('and') + names[names.length - 1];
+    }
+
     function homeHtml(vm) {
       vm = vm || {};
-      var rtl = !!vm.rtl;
       var online = !!vm.isOnline;
-      // P1 — Home shows at most 3 recent threads (design source of truth);
-      // the full list stays reachable via the conversations view.
-      var convs = (vm.conversations || []).slice(0, 3);
-      var hasThreads = convs.length > 0;
-      var unresolved = (vm.conversations || []).filter(function (c) { return String(c.status || '') !== 'resolved'; })[0];
-      var articles = (vm.articles || []);
-      // Design source of truth (renderVals(): showArticleChips true,
-      // showArticlesButton false): article chips stay visible even when the
-      // visitor already has recent conversations.
-      var showChips = vm.kbEnabled && articles.length > 0;
-      var showArticlesButton = false;
+      var convs = vm.conversations || [];
+      var open = openOf(convs);
+      var articles = vm.articles || [];
+      var opts = config.templateOptions || {};
+      var examples = (Array.isArray(opts.askExamples) ? opts.askExamples : []).filter(function (e) {
+        return typeof e === 'string' && e.trim();
+      }).slice(0, 2);
+      var name = String(vm.visitorName || '').trim();
+      var rt = replyTimeText(true);
+      var logoSrc = workspaceLogo();
+      var logo = config.showLogo === false ? ''
+        : '<span class="logo"' + (logoSrc ? '' : ' aria-hidden="true"') + '>' +
+          (logoSrc ? imgTag(logoSrc, workspaceName) : esc(initialOf(workspaceName) || 'W')) + '</span>';
 
+      var hero = '<div class="hero">' +
+        '<div class="aur" aria-hidden="true"><i></i><i></i></div>' + markSvg('mk', MARK) +
+        '<div class="top cas" style="--i:0">' + logo + '<span class="sp"></span><span class="cs" aria-hidden="true"></span></div>' +
+        '<p class="hi cas" style="--i:1">' + esc(name ? L('hiBack', { name: name }) : tf('homeGreeting', 'Hello 👋')) + '</p>' +
+        '<h2 class="hq cas" style="--i:2">' + L(online ? 'q' : 'qAway').split('\n').map(esc).join('<br>') + '</h2>' +
+        '<div class="pres cas' + (online ? '' : ' off') + '" style="--i:3">' + stackHtml(28) +
+          '<span><i class="dot"></i>' + esc(online ? L('on') + (rt ? L('sep') + rt : '') : awayLine()) + '</span>' +
+        '</div>' +
+      '</div>';
 
-      // Online-operator avatars are opt-out via widget settings and now live
-      // INSIDE the "start chat" CTA (before its label), never in the header.
-      var showStack = vm.showTeamAvatars !== false;
-      // Only operators with a real uploaded avatar appear in the stack — an
-      // empty placeholder circle says nothing and is exactly the blank slot
-      // this design does not want.
-      var stack = !showStack ? '' : (vm.teamMembers || [])
-        .filter(function (m) { return m && m.online && m.avatar; }).slice(0, 3)
-        .map(function (m) {
-          return '<span class="home-stack-item has-img" title="' + esc(m.name || '') + '">' +
-            '<img src="' + esc(String(m.avatar)) + '" alt="" loading="lazy" decoding="async" /></span>';
-        }).join('');
-      var stackHtml = stack ? '<span class="home-stack" aria-hidden="true">' + stack + '</span>' : '';
+      // The one elevated thing: a question that starts a conversation
+      // (feature `homeAsk`), with the workspace's examples rotating in its
+      // placeholder and its topics as chips; away, a note instead.
+      var ask = '';
+      if (vm.chatEnabled) {
+        var ph = online
+          ? [L('ask')].concat(examples.length === 2 ? examples.map(function (e) { return L('eg') + e.trim(); }) : [])
+          : [L('askAway')];
+        var chips = topicChipsHtml();
+        if (!chips && vm.kbEnabled) {
+          chips = articles.slice(0, 3).map(function (a) {
+            return chipHtml('data-home-article', a.slug || '', 'book', a.title || '');
+          }).join('');
+        }
+        var d = nextOpen();
+        ask = '<div class="ask cas" style="--i:4">' +
+          '<div class="field' + (ph.length < 3 ? ' static' : '') + '">' +
+            '<textarea class="ask-in" rows="1" data-home-ask placeholder=" " aria-label="' + esc(ph[0].replace(/…$/, '')) + '"></textarea>' +
+            '<span class="ph" aria-hidden="true">' + ph.map(function (p) { return '<span>' + esc(p) + '</span>'; }).join('') + '</span>' +
+            '<button type="button" class="send" data-home-action="chat" aria-label="' + esc(tf('send', 'Send')) + '">' + ico('send', 20, 2.2) + '</button>' +
+          '</div>' +
+          (online
+            ? (chips ? '<div class="chips">' + chips + '</div>' : '')
+            : '<p class="note">' + ico('mail', 16, 1.8) + esc(L(d && d.getHours() < 12 ? 'noteAm' : 'note')) + '</p>') +
+        '</div>';
+      }
 
-      var smartCardHtml = vm.smartSurface && vm.smartSurface.mode === 'home_card'
+      var smart = vm.smartSurface && vm.smartSurface.mode === 'home_card'
         ? '<section class="smart-home-card">' + smartSurfaceHtml(vm.smartSurface) + '</section>'
         : '';
 
-      var recentHtml = hasThreads
-        ? '<section class="home-section home-recent">' +
-            '<h3 class="home-section-title">' + esc(tf('wyRecentConversations', 'Recent conversations')) + '</h3>' +
-            convs.map(function (c) { return conversationRowHtml(c, true); }).join('') +
-            '<button type="button" class="home-link" data-view="list">' +
-              esc(tf('wyViewConversations', 'View conversations')) +
-              '<span class="home-link-chevron" aria-hidden="true">' + ICON.chevron + '</span>' +
-            '</button>' +
-          '</section>'
-        : '';
-
-      // A genuine load failure (never a real "zero conversations" 200) with
-      // nothing cached to fall back on. If there ARE cached items (a later
-      // background refresh failed but the earlier successful load's data is
-      // still in the store), they render above instead — a transient
-      // refresh failure must never blank a list the visitor already saw.
-      var convErrorHtml = (!hasThreads && vm.conversationsError)
-        ? '<section class="home-section home-conv-error">' +
-            '<p class="home-conv-error-text">' + esc(tf('wyConversationsLoadError', t('convLoadError'))) + '</p>' +
-            '<button type="button" class="home-link" data-home-action="conversations-retry">' +
-              esc(tf('wyConversationsRetry', t('convRetry'))) +
-            '</button>' +
-          '</section>'
-        : '';
-
-      var chipsHtml = showChips
-        ? '<section class="home-section">' +
-            '<h3 class="home-section-title">' + esc(tf('wyArticlesSuggest', t('homeHelpTitle'))) + '</h3>' +
-            '<div class="home-chips">' +
-              articles.slice(0, 5).map(function (a) {
-                return '<button type="button" class="home-chip" data-home-article="' + esc(a.slug || '') + '">' +
-                  esc(a.title || '') + '</button>';
-              }).join('') +
-              '<button type="button" class="home-chip home-chip-more" data-view="help">' +
-                esc(tf('wyMoreArticles', t('homeSeeAll'))) + '</button>' +
-            '</div>' +
-          '</section>'
-        : '';
-
-      var actions = '';
+      // Quiet rows, each only when it has something behind it (at most three):
+      // continue the open conversation, all conversations, the help center.
+      // (Track order needs a store context the widget does not have yet.)
+      var rows = [];
       if (vm.chatEnabled) {
-        if (unresolved) {
-          actions += '<button type="button" class="wy-btn wy-btn-primary" data-conversation-open="' + esc(unresolved.id) + '">' +
-            esc(tf('wyContinueLast', 'Continue last conversation')) + '</button>';
+        var latest = open[0];
+        if (latest) {
+          var unread = Number(latest.unreadCount) || 0;
+          rows.push(rowHtml('data-conversation-open="' + esc(latest.id) + '"', convAvatarHtml(latest, 40),
+            latest.operatorName ? L('cont', { name: latest.operatorName }) : tf('wyContinueLast', 'Continue last conversation'),
+            latest.preview || '',
+            '<span class="end">' + (latest.timeLabel ? '<span>' + esc(latest.timeLabel) + '</span>' : '') + unreadBadgeHtml(unread) + '</span>',
+            unread > 0));
         }
-        actions += '<button type="button" class="wy-btn ' + (unresolved ? 'wy-btn-outline' : 'wy-btn-primary') +
-          ' wy-btn-grow" data-home-action="chat">' + (unresolved ? '' : stackHtml) +
-          esc(unresolved ? tf('wyStartNew', t('homeStartChat')) : (online ? t('homeStartChat') : t('homeLeaveMessage'))) +
-          '</button>';
+        if (convs.length) {
+          var n = fmtNum(convs.length);
+          rows.push(rowHtml('data-view="list"', tileHtml('chat'), L('convs'),
+            open.length === 1 ? L('convsOne', { n: n }) : L('convsN', { n: n })));
+        } else if (vm.conversationsError) {
+          rows.push(rowHtml('data-home-action="conversations-retry"', tileHtml('chat'), L('convs'),
+            tf('wyConversationsLoadError', t('convLoadError')), ico('retry', 18, 1.9, 'ch')));
+        }
       }
-      if (showArticlesButton) {
-        actions += '<button type="button" class="wy-btn wy-btn-outline" data-view="help">' +
-          esc(tf('wyArticles', t('help'))) + '</button>';
+      if (vm.kbEnabled) {
+        var catNames = (vm.categories || []).map(function (c) { return String((c && c.name) || '').trim(); })
+          .filter(Boolean).slice(0, 3);
+        var helpSub = !online ? L('helpAway')
+          : !articles.length ? ''
+          : catNames.length ? L('helpSub', { n: fmtNum(articles.length), c: listJoin(catNames) })
+          : L('arts', { n: fmtNum(articles.length) });
+        rows.push(rowHtml('data-view="help"', tileHtml('book'), tf('help', 'Help center'), helpSub));
       }
+      rows = rows.slice(0, 3);
 
-      return '<div class="wy-view wy-view-home home-root"' + (rtl ? ' dir="rtl"' : '') + '>' +
-        '<div class="wy-head wy-head-home">' +
-          headerIdentityHtml({
-             title: vm.workspaceName || vm.headerTitle || workspaceName,
-            subtitle: replyTimeText(online),
-          }) +
+      return viewOpen('wy-view-home home-root', !!vm.rtl) +
+        '<div class="wy-scroll wy-home-scroll">' + hero + ask + smart +
+          (rows.length ? '<div class="list cas' + (ask ? '' : ' lift') + '" style="--i:5">' + rows.join('') + '</div>' : '') +
         '</div>' +
-        '<div class="wy-home-body">' +
-          '<div class="wy-scroll wy-home-scroll">' +
-            smartCardHtml +
-            '<section class="home-greeting-block">' +
-              '<h2 class="home-greeting">' + esc(t('homeGreeting')) + '</h2>' +
-              '<p class="home-welcome">' + esc(vm.welcomeMessage || t('homeWelcome')) + '</p>' +
-            '</section>' +
-            recentHtml + convErrorHtml + chipsHtml +
-          '</div>' +
-          '<div class="wy-actions-block">' +
-            '<div class="wy-actions">' + actions + '</div>' + footerHtml() +
-          '</div>' +
-        '</div>' +
+        footerHtml() +
       '</div>';
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Conversation list (design §8)
+    // Conversation list
     // ══════════════════════════════════════════════════════════════════
     function conversationListHtml(vm) {
       vm = vm || {};
-      var rtl = !!vm.rtl;
       var items = vm.conversations || [];
-      // A real failure with nothing cached gets its own distinguishable,
-      // retryable state — never the same "no conversations yet" copy a
-      // genuine 200 with zero threads gets. If items ARE present (cached
-      // from an earlier successful load, refresh just failed) they render
-      // as normal instead — a transient failure must not blank the list.
+      // A real failure with nothing cached is its own, retryable state;
+      // cached items stay on screen when only a refresh failed.
       var bodyHtml = (vm.error && !items.length)
         ? '<div class="wy-empty wy-conv-error">' +
             '<p>' + esc(tf('wyConversationsLoadError', t('convLoadError'))) + '</p>' +
@@ -1307,219 +1478,198 @@
             '</button>' +
           '</div>'
         : (vm.loading
-            ? skeletonConvRowsHtml(6)
+            ? skeletonConvRowsHtml(5)
             : (items.length
                 ? items.map(function (c) { return conversationRowHtml(c, false); }).join('')
                 : '<div class="wy-empty"><p>' + esc(tf('wyNoConversations', 'No conversations yet')) + '</p></div>'));
-      return '<div class="wy-view wy-view-list"' + (rtl ? ' dir="rtl"' : '') + '>' +
-        '<div class="wy-head wy-head-list">' +
-          backButtonHtml('home') +
-          '<div class="wy-head-plain">' + esc(tf('wyConversations', 'Conversations')) + '</div>' +
-          (vm.chatEnabled
-            ? '<button type="button" class="wy-fab" data-home-action="chat" aria-label="' +
-                esc(tf('wyNewConversation', 'New conversation')) + '">' + ICON.plus + '</button>'
-            : '') +
-        '</div>' +
-        '<div class="wy-body-pad wy-list-body">' +
-          '<div class="wy-scroll wy-list-scroll">' + bodyHtml + '</div>' + footerHtml() +
-        '</div>' +
+      return viewOpen('wy-view-list', !!vm.rtl) +
+        titleBarHtml(L('convs')) +
+        '<div class="wy-scroll inbox wy-list-scroll">' + bodyHtml + '</div>' +
+        (vm.chatEnabled
+          ? '<button type="button" class="wy-fab fab" data-home-action="chat">' + ico('plus', 20, 2.2) +
+              '<span>' + esc(tf('wyNewConversation', 'New conversation')) + '</span></button>'
+          : '') +
+        footerHtml() +
       '</div>';
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Knowledge Base surfaces (articles / article, design §10 + §11)
+    // Knowledge Base (help center, a category, an article)
     // ══════════════════════════════════════════════════════════════════
-    var KB_ICON_SEARCH =
-      '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
-        '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
-    var KB_ICON_BOOK =
-      '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
-        '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
+    function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    /** Escaped text with the query's words highlighted (escaped too). */
+    function markedHtml(text, query) {
+      var words = String(query || '').trim().split(/\s+/).filter(function (w) { return w.length >= 2; });
+      text = String(text || '');
+      if (!words.length) return esc(text);
+      var parts = text.split(new RegExp('(' + words.map(escRe).join('|') + ')', 'gi'));
+      return parts.map(function (p, i) { return i % 2 ? '<mark>' + esc(p) + '</mark>' : esc(p); }).join('');
+    }
 
-    function kbArticleItemHtml(a) {
+    function kbArticleItemHtml(a, query) {
       return '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' + esc(a.slug) + '">' +
-        '<span class="kb-article-title">' + esc(a.title) + '</span>' +
-        '<span class="kb-article-chevron" aria-hidden="true">' + ICON.chevron + '</span>' +
+        '<span class="it" aria-hidden="true">' + ico('book', 18, 1.7) + '</span>' +
+        '<span class="tx"><span class="tt">' + markedHtml(a.title, query) + '</span>' +
+          (a.excerpt ? '<small>' + markedHtml(a.excerpt, query) + '</small>' : '') +
+        '</span>' +
       '</button>';
     }
 
     function kbSearchBarHtml(vm) {
       vm = vm || {};
-      return '<div class="kb-search-wrap">' +
-        '<input class="kb-search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" ' +
-        'aria-label="' + esc(t('searchKb')) + '" ' +
-        'placeholder="' + esc(t('searchKb')) + '" value="' + esc(vm.query || '') + '" /></div>';
+      return '<div class="sfield kb-search-wrap">' + ico('search', 20, 1.9) +
+        '<input class="kb-search" type="search" data-kb-search autocomplete="off" autocorrect="off" spellcheck="false" ' +
+          'enterkeyhint="search" aria-label="' + esc(t('searchKb')) + '" placeholder="' + esc(t('searchKb')) +
+          '" value="' + esc(vm.query || '') + '" />' +
+        '<button type="button" class="x" data-kb-search-clear aria-label="' + esc(L('clear')) + '">' + ico('x', 14, 2.2) + '</button>' +
+      '</div>';
+    }
+
+    function ctaHtml(vm) {
+      if (vm && vm.hideChatCta) return '';
+      var rt = replyTimeText(true);
+      return '<button type="button" class="cta" data-kb-action="switch-chat">' + stackHtml(28) +
+        '<span class="tx">' + esc(L('still')) + '<small>' + esc(L('chatTeam') + (rt ? L('semi') + rt : '')) + '</small></span>' +
+        '<span class="go" aria-hidden="true">' + ico('fwd', 18, 2, 'dirf') + '</span>' +
+      '</button>';
     }
 
     function kbEmptyHtml(vm) {
       vm = vm || {};
       var isSearch = vm.state === 'results';
-      var text = vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'));
       return '<div class="kb-empty">' +
-        '<div class="kb-empty-icon" aria-hidden="true">' + (isSearch ? KB_ICON_SEARCH : KB_ICON_BOOK) + '</div>' +
-        '<p class="kb-empty-text">' + esc(text) + '</p>' +
-        (vm.hideChatCta ? '' :
-          '<button type="button" class="wy-btn wy-btn-primary" data-kb-action="switch-chat">' +
-            esc(t('kbSwitchToChat')) + '</button>') +
+        '<p class="cnt kb-empty-text" role="status">' + esc(vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'))) + '</p>' +
+        ctaHtml(vm) +
       '</div>';
     }
 
     function kbLoadingHtml() {
-      // No visitor-visible "searching…" copy — the list shape itself is the
-      // loading affordance.
-      return skeletonArticleRowsHtml(6);
+      // The list's shape is the loading affordance; no visitor-visible copy.
+      return skeletonArticleRowsHtml(3);
     }
-
 
     function kbSearchResultsHtml(vm) {
       vm = vm || {};
       var results = vm.results || [];
       if (!results.length) return kbEmptyHtml({ state: 'results', emptyText: vm.emptyText, hideChatCta: vm.hideChatCta });
-      return '<div class="kb-list">' + results.map(kbArticleItemHtml).join('') + '</div>';
+      return '<p class="cnt" role="status">' + esc(L('found', { n: fmtNum(results.length) })) + '</p>' +
+        '<div class="res kb-list">' + results.map(function (a) { return kbArticleItemHtml(a, vm.query); }).join('') + '</div>';
+    }
+
+    /** Category tiles (feature `kbCategories`: ids and counts from Core). */
+    function kbCategoriesHtml(cats) {
+      cats = (cats || []).filter(function (c) { return c && c.id != null && c.name; });
+      if (!cats.length) return '';
+      return '<p class="sec">' + esc(L('topicsT')) + '</p><div class="cats">' + cats.map(function (c) {
+        return '<button type="button" class="cat" data-kb-category="' + esc(c.id) + '">' +
+          '<span class="it" aria-hidden="true">' + ico(TOPIC_ICONS[c.icon] ? c.icon : 'book', 18, 1.7) + '</span>' +
+          '<span class="tx"><b>' + esc(c.name) + '</b><small>' + esc(L('arts', { n: fmtNum(c.count || 0) })) + '</small></span>' +
+        '</button>';
+      }).join('') + '</div>';
     }
 
     function kbHomeHtml(vm) {
       vm = vm || {};
-      var cats = vm.categories || [];
       var articles = vm.articles || [];
-      if (!cats.length && !articles.length) {
+      var cats = kbCategoriesHtml(vm.categories);
+      if (!articles.length && !cats) {
         return kbEmptyHtml({ state: 'list', emptyText: vm.emptyText, hideChatCta: vm.hideChatCta });
       }
-      // Design §10 — the widget Articles view is a plain list of article
-      // rows. Category navigation lives in the full Knowledge Base site.
-      if (!articles.length) {
-        return kbEmptyHtml({ state: 'list', emptyText: vm.emptyText, hideChatCta: vm.hideChatCta });
-      }
-      return '<div class="kb-list">' + articles.map(kbArticleItemHtml).join('') + '</div>';
+      // With categories to browse, the list opens with the newest few.
+      return (articles.length
+        ? '<div class="res kb-list">' + articles.slice(0, cats ? 6 : articles.length).map(function (a) {
+            return kbArticleItemHtml(a, '');
+          }).join('') + '</div>'
+        : '') + cats;
     }
 
     /**
-     * Article feedback block (design §11). Rendered ONLY when Core says the
-     * capability exists (vm.feedback.enabled) — the renderer never fakes a
-     * persisted rating.
+     * Article feedback (rendered only when Core says it is enabled): sad,
+     * neutral (only while the server stores it: `capabilities.kbNeutral`)
+     * and happy faces.
      */
     function kbArticleFeedbackHtml(fb) {
       if (!fb || !fb.enabled) return '';
       var rating = fb.rating || null;
-      return '<div class="kb-feedback" data-kb-feedback>' +
-        '<span class="kb-feedback-q">' + esc(tf('wyArticleHelpful', 'Was this article helpful?')) + '</span>' +
-        '<div class="kb-feedback-actions">' +
-          '<button type="button" class="kb-rate' + (rating === 'up' ? ' is-up' : '') +
-            '" data-kb-rate="up" aria-pressed="' + (rating === 'up') + '">' + ICON.thumbUp +
-            esc(tf('wyHelpfulYes', 'Helpful')) + '</button>' +
-          '<button type="button" class="kb-rate' + (rating === 'down' ? ' is-down' : '') +
-            '" data-kb-rate="down" aria-pressed="' + (rating === 'down') + '">' + ICON.thumbDown +
-            esc(tf('wyHelpfulNo', 'Not helpful')) + '</button>' +
-        '</div>' +
-        (rating ? '<span class="kb-feedback-thanks">' + esc(tf('wyFeedbackThanks', 'Thanks for your feedback!')) + '</span>' : '') +
-        (rating === 'down'
-          ? '<button type="button" class="wy-btn wy-btn-primary kb-feedback-cta" data-kb-action="switch-chat">' +
-              esc(tf('wyTalkToSupport', t('kbSwitchToChat'))) + '</button>'
-          : '') +
+      var faces = [['down', 'sad', 'no']];
+      if (caps.kbNeutral) faces.push(['neutral', 'meh', 'partly']);
+      faces.push(['up', 'happy', 'yes']);
+      return '<div class="kb-feedback fb" data-kb-feedback>' +
+        '<span class="q">' + esc(L('didHelp')) + '</span><span class="sp"></span>' +
+        faces.map(function (f) {
+          var on = rating === f[0];
+          return '<button type="button" class="kb-rate face' + (on ? ' is-' + f[0] : '') + '" data-kb-rate="' + f[0] +
+            '" aria-pressed="' + on + '" aria-label="' + esc(L(f[2])) + '">' + ico(f[1], 22, 1.7) + '</button>';
+        }).join('') +
+        (rating ? '<span class="sr-only" role="status">' + esc(tf('wyFeedbackThanks', 'Thanks for your feedback!')) + '</span>' : '') +
       '</div>';
     }
 
     function kbArticleHtml(vm) {
       vm = vm || {};
       var a = vm.article || {};
-      return '<div class="kb-article-view">' +
-        '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
-        kbArticleFeedbackHtml(vm.feedback) +
-      '</div>';
+      var mins = Number(a.readingMinutes) || 0;
+      return '<div class="art wy-scroll kb-article-view">' +
+          '<h1>' + esc(a.title || '') + '</h1>' +
+          (mins ? '<div class="am"><span>' + ico('clock', 15, 1.8) + esc(L('read', { n: fmtNum(mins) })) + '</span></div>' : '') +
+          '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
+        '</div>' +
+        kbArticleFeedbackHtml(vm.feedback) + ctaHtml(vm);
     }
 
-    /** Full KB surface — its own header + the state-specific body. */
+    /** The help view: its bar, then the search field and a live results region, or the article. */
     function kbHtml(vm) {
       vm = vm || {};
       var state = vm.state || 'list';
-      var isArticle = state === 'article';
-      var inner;
-      if (isArticle) inner = kbArticleHtml(vm);
-      else if (state === 'searching') inner = kbLoadingHtml(vm);
-      else if (state === 'results') inner = kbSearchResultsHtml(vm);
-      else inner = kbHomeHtml(vm);
-
-      // article -> articles, articles -> home (design §16).
-      var head = isArticle
-        ? '<div class="wy-head wy-head-article">' +
-            // P1 — generic back control: the shell resolves "back" as a real
-            // step back inside the current view (article -> results/list) and
-            // only falls back to the named tab when there is nowhere to go.
-            '<button type="button" class="wy-back" data-view-back="back" data-view-back-fallback="home"' +
-              ' aria-label="' + esc(tf('back', 'Back')) + '">' + ICON.back + '</button>' +
-            identityAvatarHtml('sm') +
-            '<div class="wy-head-plain wy-head-article-title">' + esc((vm.article && vm.article.title) || '') + '</div>' +
-          '</div>'
-        : '<div class="wy-head">' +
-            headerIdentityHtml({ back: 'home', subtitle: tf('wyArticles', t('help')) }) +
-          '</div>';
-
-      return '<div class="wy-view wy-view-kb kb-root"' + (vm.rtl ? ' dir="rtl"' : '') + '>' + head +
-        '<div class="wy-body-pad wy-kb-body">' +
-          '<div class="wy-scroll wy-kb-scroll">' +
-            inner +
-          '</div>' + footerHtml() +
-        '</div>' +
+      var a = vm.article || {};
+      if (state === 'article') {
+        return viewOpen('wy-view-kb kb-root kb-article-root', !!vm.rtl) +
+          barHtml(backButtonHtml('back') + '<h2 class="ttl">' + esc(a.categoryTitle || a.title || '') + '</h2>',
+            '<i class="prog" data-kb-progress aria-hidden="true"></i>') +
+          kbArticleHtml(vm) + footerHtml() +
+        '</div>';
+      }
+      var inCat = state === 'category' && vm.category;
+      var inner = state === 'searching' ? kbLoadingHtml(vm)
+        : state === 'results' ? kbSearchResultsHtml(vm) + kbCategoriesHtml(vm.categories)
+        : inCat ? '<p class="cnt">' + esc(L('arts', { n: fmtNum((vm.articles || []).length) })) + '</p>' +
+            '<div class="res kb-list">' + (vm.articles || []).map(function (x) { return kbArticleItemHtml(x, ''); }).join('') + '</div>'
+        : kbHomeHtml(vm);
+      // Search as you type (feature `kbSearch`): Core repaints only
+      // [data-kb-results], so the field keeps its text, focus and caret.
+      return viewOpen('wy-view-kb kb-root', !!vm.rtl) +
+        barHtml(backButtonHtml('back') + '<h2 class="ttl">' + esc(inCat ? vm.category.name : tf('help', 'Help center')) + '</h2>') +
+        kbSearchBarHtml(vm) +
+        '<div class="wy-scroll kb-scroll" data-kb-results>' + inner + '</div>' +
+        footerHtml() +
       '</div>';
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Loading skeletons (cold boot only)
+    // Loading skeletons
     // ══════════════════════════════════════════════════════════════════
-    //
-    // Core never builds this markup: it only reports a normalized
-    // `{ view, initialLoading, hasUsableContent }` and asks the template for
-    // a skeleton. Every skeleton mirrors the geometry of the real surface it
-    // replaces (same header height, same paddings, same footer) so the
-    // crossfade to real content produces no layout shift. Containers are
-    // `aria-hidden` — a skeleton must never look like real content to a
-    // screen reader, and it never carries fake names/times/counts.
-
-    function sk(cls, style) {
-      return '<span class="wy-sk' + (cls ? ' ' + cls : '') + '"' + (style ? ' style="' + style + '"' : '') + '></span>';
+    // Core asks for a skeleton by view key; each wears the REAL surface's
+    // classes (bar, hero, ask card, composer box, footer) so the crossfade
+    // to content moves nothing. aria-hidden, no fake names or numbers.
+    function skl(w, h) {
+      return '<i class="skl" style="width:' + w + (h ? ';height:' + h + 'px' : '') + '"></i>';
     }
-    function skLine(width, height, radius) {
-      return sk('wy-sk-line', 'width:' + width + ';height:' + (height || 10) + 'px;border-radius:' +
-        (radius || 5) + 'px;');
+    function skBarHtml(inner) {
+      return '<div class="wy-head bar"><span class="wy-back ib"></span>' + inner + '<span class="cs"></span></div>';
     }
-    function skCircle(size) {
-      return sk('wy-sk-circle', 'width:' + size + 'px;height:' + size + 'px;');
+    function skWhoHtml() {
+      return '<span class="who"><span class="av s40 skc"></span><span class="wt"><span class="nm">' + skl('96px', 12) +
+        '</span><span class="st">' + skl('140px', 9) + '</span></span></span>';
     }
-
-    // Uses the REAL header classes (.wy-head-text / .wy-head-title /
-    // .wy-head-sub) rather than a parallel skeleton-only structure, so the
-    // gaps and the two line boxes are the stylesheet's, not a second set of
-    // numbers that can drift from them. A skeleton header is then exactly as
-    // tall as the header that replaces it.
-    function skHeadIdentityHtml(opts) {
-      opts = opts || {};
-      return '<div class="wy-head' + (opts.headClass ? ' ' + opts.headClass : '') + '">' +
-        (opts.back ? '<span class="wy-back wy-sk-back"></span>' : '') +
-        skCircle(opts.avatar || 44) +
-        '<div class="wy-head-text">' +
-          '<span class="wy-head-title">' + skLine('120px', 13) + '</span>' +
-          // A workspace that cleared its reply-time text gets a one-line
-          // header; drawing a second line here would make the skeleton
-          // taller than the header replacing it.
-          (opts.sub === false ? '' : '<span class="wy-head-sub">' + skLine('84px', 9) + '</span>') +
-        '</div>' +
-        (opts.stack
-          ? '<span class="home-stack">' + skCircle(22) + skCircle(22) + skCircle(22) + '</span>'
-          : '') +
-      '</div>';
+    function skViewOpen(cls, vm) {
+      return viewOpen(cls + ' wy-skeleton', !!(vm && vm.rtl), ' aria-hidden="true"');
     }
 
     function skeletonConvRowsHtml(n) {
       var out = '';
       for (var i = 0; i < (n || 5); i++) {
-        out += '<div class="conv-row wy-sk-row" aria-hidden="true">' +
-          skCircle(36) +
-          '<span class="conv-main">' +
-            '<span class="conv-line">' + skLine('44%', 11) + skLine('26px', 9) + '</span>' +
-            '<span class="conv-line">' + skLine((62 + (i % 3) * 9) + '%', 10) + '</span>' +
-            '<span class="conv-line">' + skLine('48px', 8) + '</span>' +
-          '</span>' +
-        '</div>';
+        out += '<div class="sk" aria-hidden="true"><i class="skc" style="width:44px;height:44px"></i>' +
+          '<span class="tx">' + skl('45%', 12) + skl((80 - (i % 3) * 12) + '%', 10) + '</span></div>';
       }
       return '<div class="wy-sk-group" aria-hidden="true">' + out + '</div>';
     }
@@ -1528,195 +1678,114 @@
       var out = '';
       var widths = ['72%', '58%', '81%', '64%', '76%', '52%'];
       for (var i = 0; i < (n || 6); i++) {
-        out += '<div class="kb-article wy-sk-row" aria-hidden="true">' +
-          skLine(widths[i % widths.length], 12) +
-          '<span class="kb-article-chevron wy-sk-chevron" aria-hidden="true">' + sk('', 'width:7px;height:7px;') + '</span>' +
-        '</div>';
+        out += '<div class="kb-article sk" aria-hidden="true"><span class="it skc"></span>' +
+          '<span class="tx">' + skl(widths[i % 6], 12) + skl('88%', 9) + '</span></div>';
       }
-      return '<div class="kb-list wy-sk-group" aria-hidden="true">' + out + '</div>';
+      return '<div class="res kb-list wy-sk-group" aria-hidden="true">' + out + '</div>';
     }
 
     function skeletonHomeHtml(vm) {
       vm = vm || {};
-      return '<div class="wy-view wy-view-home home-root wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        skHeadIdentityHtml({ headClass: 'wy-head-home', avatar: 44, sub: !!replyTimeText(true) }) +
-        '<div class="wy-home-body">' +
-          '<div class="wy-scroll wy-home-scroll" aria-hidden="true">' +
-            '<section class="home-greeting-block">' +
-              skLine('38%', 19, 7) + skLine('72%', 14) +
-            '</section>' +
-            '<section class="home-section home-recent">' +
-              skLine('42%', 10) +
-              '<div class="conv-row conv-row-compact wy-sk-row">' +
-                skLine('68%', 11) + skLine('30px', 9) +
-              '</div>' +
-            '</section>' +
-            '<section class="home-section">' +
-              skLine('34%', 10) +
-              '<div class="home-chips">' +
-                sk('wy-sk-chip', 'width:96px;') + sk('wy-sk-chip', 'width:74px;') +
-                sk('wy-sk-chip', 'width:110px;') +
-              '</div>' +
-            '</section>' +
+      var row = '<div class="r"><span class="it skc"></span><span class="tx">' + skl('46%', 12) + skl('70%', 9) + '</span></div>';
+      return skViewOpen('wy-view-home home-root', vm) +
+        '<div class="wy-home-scroll">' +
+          '<div class="hero">' +
+            '<div class="top">' + (config.showLogo === false ? '' : '<span class="logo"></span>') + '<span class="sp"></span><span class="cs"></span></div>' +
+            '<p class="hi">' + skl('30%', 12) + '</p>' +
+            '<h2 class="hq">' + skl('62%', 22) + '<br>' + skl('44%', 22) + '</h2>' +
+            '<div class="pres">' + skl('72%', 10) + '</div>' +
           '</div>' +
-          '<div class="wy-actions-block">' +
-            '<div class="wy-actions" aria-hidden="true">' +
-              sk('wy-sk-btn') +
-            '</div>' + footerHtml() +
-          '</div>' +
+          (vm.chatEnabled === false ? '' :
+            '<div class="ask"><div class="field static"></div>' +
+              '<div class="chips">' + skl('88px', 34) + skl('104px', 34) + skl('92px', 34) + '</div></div>') +
+          '<div class="list' + (vm.chatEnabled === false ? ' lift' : '') + '">' + row + row + '</div>' +
         '</div>' +
+        footerHtml() +
       '</div>';
-    }
-
-    /** One composer control: the REAL 32x32 button box, a placeholder glyph. */
-    function skComposerIconHtml(cls) {
-      return '<span class="' + cls + ' wy-sk-ico">' +
-        sk('', 'width:18px;height:18px;border-radius:5px;') + '</span>';
     }
 
     function skeletonChatHtml(vm) {
       vm = vm || {};
-      var rows = [
-        { me: false, w: '64%' },
-        { me: true, w: '48%' },
-        { me: false, w: '78%' },
-        { me: true, w: '38%' },
-        { me: false, w: '56%' },
-      ];
-      var msgs = rows.map(function (r) {
-        return '<div class="wy-sk-msg' + (r.me ? ' is-me' : '') + '">' +
-          // Same 2rem avatar the real operator rows use.
-          (r.me ? '' : skCircle(32)) +
-          '<span class="wy-sk-bubble" style="width:' + r.w + ';"></span>' +
-        '</div>';
+      var msgs = [['', '64%'], [' is-me', '48%'], ['', '78%'], [' is-me', '38%']].map(function (r) {
+        return '<div class="wy-sk-msg' + r[0] + '">' + (r[0] ? '' : '<i class="skc" style="width:28px;height:28px"></i>') +
+          '<i class="wy-sk-bubble" style="width:' + r[1] + '"></i></div>';
       }).join('');
-
-      // The composer is the one thing on a chat surface the visitor is
-      // looking straight at while it loads, so this mirrors chatFrameHtml
-      // exactly: the same wrapper classes (identical padding, pill geometry
-      // and ring) and the same control set Core is about to mount, decided
-      // by the same config flags. Anything less and the box the visitor
-      // types into moves the moment the real composer arrives.
+      // The composer mirrors chatFrameHtml: the same box, grid and control
+      // set (decided by the same flags), so the box the visitor is about to
+      // type into does not move when the real one arrives.
       var comp = vm.composer || {};
+      var ctl = function (cls) { return '<span class="' + cls + ' wy-sk-ico"><i class="skc"></i></span>'; };
       var composerHtml = vm.chatEnabled === false
         ? footerHtml()
-        : '<div class="composer-zone">' +
-            '<div class="input-bar">' +
-              '<div class="input-wrap">' +
-                // The pill is a COLUMN whose one visible row is `.input-row`
-                // (the other is the attachment preview, which a skeleton
-                // never has). Without this wrapper the skeleton's controls
-                // stack instead of sitting in a row, and the box the visitor
-                // is about to type into jumps the moment the real composer
-                // arrives — the exact defect this skeleton exists to avoid.
-                '<div class="input-row">' +
-                  (comp.voiceNotes ? skComposerIconHtml('mic-btn') : '') +
-                  '<span class="input wy-sk-input">' + skLine('54%', 12) + '</span>' +
-                  '<div class="composer-actions">' +
-                    '<div class="composer-actions-start">' +
-                      // Same fixed order as the real frame.
-                      skComposerIconHtml('send-btn') +
-                      (comp.attachments ? skComposerIconHtml('attach-btn') : '') +
-                      (comp.emoji ? skComposerIconHtml('emoji-btn') : '') +
-                    '</div>' +
-                  '</div>' +
-                '</div>' +
-              '</div>' +
-            '</div>' +
+        : '<div class="composer-zone cmp">' +
+            '<div class="input-bar"><div class="input-wrap"><div class="input-row">' +
+              '<span class="input wy-sk-input">' + skl('54%', 10) + '</span>' +
+              '<div class="composer-actions"><div class="composer-actions-start">' +
+                ctl(comp.voiceNotes ? 'mic-btn' : 'send-btn') +
+                (comp.attachments ? ctl('attach-btn') : '') +
+                (comp.emoji ? ctl('emoji-btn') : '') +
+              '</div></div>' +
+            '</div></div></div>' +
             footerHtml() +
           '</div>';
-
-      // Same three-part tree as the real chat view: header, scroll host,
-      // composer. The previous `.wy-chat-body` wrapper had no stylesheet rule
-      // at all, so it collapsed to its content height inside the flex column
-      // and left the composer floating above the panel's bottom edge.
-      return '<div class="wy-view wy-view-chat wy-skeleton" aria-hidden="true"' +
-        (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        skHeadIdentityHtml({
-          headClass: 'wy-head-chat', avatar: 44, back: true,
-          // Same source the real chat header reads its subtitle from.
-          sub: !!replyTimeText(true),
-        }) +
-        '<div class="wy-chat-scroll-host">' +
-          '<div class="wy-chat-scroll wy-scroll wy-sk-msgs">' + msgs + '</div>' +
-        '</div>' +
+      return skViewOpen('wy-view-chat', vm) +
+        skBarHtml(skWhoHtml()) +
+        '<div class="wy-chat-scroll-host"><div class="wy-chat-scroll wy-sk-msgs">' + msgs + '</div></div>' +
         composerHtml +
       '</div>';
     }
 
     function skeletonListHtml(vm) {
       vm = vm || {};
-      return '<div class="wy-view wy-view-list wy-skeleton" aria-hidden="true"' +
-        (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        '<div class="wy-head wy-head-list">' +
-          '<span class="wy-back wy-sk-back"></span>' +
-          '<span class="wy-head-plain">' + skLine('92px', 13) + '</span>' +
-          (vm.chatEnabled === false ? '' : '<span class="wy-fab wy-sk-ico"></span>') +
-        '</div>' +
-        '<div class="wy-body-pad wy-list-body">' +
-          '<div class="wy-scroll wy-list-scroll">' + skeletonConvRowsHtml(6) + '</div>' +
-          footerHtml() +
-        '</div>' +
+      return skViewOpen('wy-view-list', vm) +
+        skBarHtml('<span class="ttl">' + skl('110px', 14) + '</span>') +
+        '<div class="wy-scroll inbox">' + skeletonConvRowsHtml(5) + '</div>' +
+        footerHtml() +
       '</div>';
     }
 
     function skeletonPrechatHtml(vm) {
       vm = vm || {};
-      // Bounded default while the asked-field config is still unknown; once
-      // Core knows the authoritative field count it passes `fields`.
       var n = Math.max(1, Math.min(4, Number(vm.fields) || 2));
       var fields = '';
       for (var i = 0; i < n; i++) {
-        fields += '<div class="prechat-field" aria-hidden="true">' +
-          skLine('64px', 10) + sk('wy-sk-field') +
-        '</div>';
+        fields += '<div class="prechat-field">' + skl('64px', 10) + '<span class="fi skc"></span></div>';
       }
-      return '<div class="wy-view wy-view-precontact prechat wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        skHeadIdentityHtml({ back: true, avatar: 44 }) +
-        '<div class="wy-scroll wy-body-pad" aria-hidden="true">' +
-          '<div class="wy-sk-group">' + skLine('86%', 12) + skLine('58%', 12) + '</div>' +
+      return skViewOpen('wy-view-precontact prechat', vm) +
+        skBarHtml(skWhoHtml()) +
+        '<div class="wy-scroll wy-body-pad form-body">' +
+          '<div class="wy-sk-group">' + skl('86%', 11) + skl('58%', 11) + '</div>' +
           '<div class="prechat-fields">' + fields + '</div>' +
-          '<div class="prechat-spacer"></div>' +
-          sk('wy-sk-btn') +
-        '</div>' +
+          '<div class="prechat-spacer"></div><span class="btn skc"></span>' +
+        '</div>' + footerHtml() +
       '</div>';
     }
 
     function skeletonArticlesHtml(vm) {
       vm = vm || {};
-      return '<div class="wy-view wy-view-kb kb-root wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        skHeadIdentityHtml({ back: true, avatar: 44 }) +
-        '<div class="wy-body-pad wy-kb-body">' +
-          '<div class="wy-scroll wy-kb-scroll">' + skeletonArticleRowsHtml(6) + '</div>' +
-          footerHtml() +
-        '</div>' +
+      return skViewOpen('wy-view-kb kb-root', vm) +
+        skBarHtml('<span class="ttl">' + skl('110px', 14) + '</span>') +
+        '<div class="sfield kb-search-wrap">' + skl('60%', 12) + '</div>' +
+        '<div class="wy-scroll kb-scroll">' + skeletonArticleRowsHtml(5) + '</div>' +
+        footerHtml() +
       '</div>';
     }
 
     function skeletonArticleHtml(vm) {
       vm = vm || {};
-      var widths = ['96%', '88%', '92%', '70%', '94%', '61%', '86%', '48%'];
-      var lines = widths.map(function (w) { return skLine(w, 11); }).join('');
-      return '<div class="wy-view wy-view-kb kb-root wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        '<div class="wy-head wy-head-article" aria-hidden="true">' +
-          '<span class="wy-back wy-sk-back"></span>' + skCircle(36) + skLine('56%', 13) +
-        '</div>' +
-        '<div class="wy-body-pad wy-kb-body">' +
-          '<div class="wy-scroll wy-kb-scroll" aria-hidden="true">' +
-            '<div class="kb-article-body wy-sk-group">' + lines + '</div>' +
-            '<div class="kb-feedback wy-sk-group">' +
-              skLine('46%', 11) +
-              '<div class="kb-feedback-actions">' + sk('wy-sk-pill') + sk('wy-sk-pill') + '</div>' +
-            '</div>' +
-          '</div>' + footerHtml() +
-        '</div>' +
+      var lines = ['96%', '88%', '92%', '70%', '94%', '61%', '86%', '48%'].map(function (w) { return skl(w, 11); }).join('');
+      return skViewOpen('wy-view-kb kb-root kb-article-root', vm) +
+        skBarHtml('<span class="ttl">' + skl('120px', 14) + '</span>') +
+        '<div class="art wy-scroll"><h1>' + skl('80%', 18) + '</h1><div class="kb-article-body wy-sk-group">' + lines + '</div></div>' +
+        '<div class="kb-feedback fb">' + skl('40%', 11) + '<span class="sp"></span><span class="face skc"></span><span class="face skc"></span></div>' +
+        '<span class="cta skc"></span>' +
+        footerHtml() +
       '</div>';
     }
 
     /**
      * Generic entry point Core calls with a normalized view key. Unknown
-     * views fall back to an empty string so Core degrades to "render nothing"
-     * rather than leaking a technical placeholder.
+     * views fall back to the home skeleton.
      */
     function skeletonHtml(view, vm) {
       switch (String(view || '')) {
@@ -1734,8 +1803,27 @@
     return {
 
       id: 't2',
+      // The Core behaviours this design draws (runtime.js `feat()`).
+      features: {
+        homeAsk: true,
+        topics: true,
+        visitorName: true,
+        conversationOperator: true,
+        chatHeader: true,
+        operatorTyping: true,
+        emptyQna: true,
+        prechatOperator: true,
+        prechatSummary: true,
+        kbSearch: true,
+        kbCategories: true,
+        kbArticleMeta: true,
+        kbProgress: true,
+        recSend: true,
+        clock: true,
+      },
       shellHtml: shellHtml,
       chatFrameHtml: chatFrameHtml,
+      chatHeaderHtml: chatHeaderHtml,
       homeHtml: homeHtml,
       emptyHtml: emptyHtml,
       messagesHtml: messagesHtml,
@@ -1748,6 +1836,7 @@
       prechatFieldRowHtml: renderPrechatFieldRow,
       prechatFormHtml: prechatFormHtml,
       handoffPrechatCardHtml: handoffPrechatCardHtml,
+      prechatSummaryHtml: prechatSummaryHtml,
       contactFallbackHtml: contactFallbackHtml,
       smartSurfaceHtml: smartSurfaceHtml,
       // Generic contract extensions (template-agnostic surfaces).
@@ -1763,18 +1852,16 @@
       kbLoadingHtml: kbLoadingHtml,
       kbArticleFeedbackHtml: kbArticleFeedbackHtml,
 
-      // Loading UX (optional presentation contract). Core asks for a
-      // skeleton by normalized view key; a template that does not implement
-      // this simply omits it and Core renders nothing instead.
+      // Loading UX (optional presentation contract).
       skeletonHtml: skeletonHtml,
       connIndicatorHtml: connIndicatorHtml,
-
 
       format: {
         msgTime: formatMsgTime,
         callDuration: fmtCallDuration,
         invitationRemaining: fmtInvitationRemaining,
         humanSize: humanSize,
+        clock: clock,
       },
     };
   }
@@ -1784,10 +1871,9 @@
   // other face stays on demand through its unicode-range
   // (presentation-default-fonts.css):
   //   - Persian: IRANSans 400, 500 and 600 (= the 700 file);
-  //   - any other locale: Inter, the one Latin file. The `intl` template sets
-  //     Inter first in every direction, so a Persian panel there needs it too.
+  //   - any other locale: Inter, the one Latin file.
   // `context` is { locale, templateId } from the loader and the live preview.
-  // An older loader passes none: the Persian set, as it always was.
+  // An older loader passes none: the Persian set.
   function prepare(context) {
     if (!document.fonts || typeof document.fonts.load !== 'function') return Promise.resolve();
     var c = context || {};
@@ -1797,8 +1883,9 @@
       [400, 500, 600].forEach(function (weight) {
         loads.push(document.fonts.load(weight + ' 16px IRANSans', 'سلام دنیا'));
       });
+    } else {
+      loads.push(document.fonts.load('500 16px InterWY', 'Aa'));
     }
-    if (!persian || c.templateId === 'intl') loads.push(document.fonts.load('500 16px InterWY', 'Aa'));
     return Promise.race([
       Promise.all(loads.map(function (p) { return p.catch(function () { return []; }); })).then(function () {}),
       new Promise(function (resolve) { setTimeout(resolve, 500); }),

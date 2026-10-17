@@ -202,6 +202,15 @@ export function platformCallCenterRingbackKey(opts: { slot: string; fileName: st
   return `platform/call-center/ringback/${safePathSegment(opts.slot)}/${newUuid()}-${safeFileName(opts.fileName)}`;
 }
 
+/**
+ * A bank receipt uploaded with a card-to-card wallet top-up. Platform-owned:
+ * a financial record the Super Admin reviews, never counted toward the
+ * workspace's storage and streamed by the backend only.
+ */
+export function platformCardTransferReceiptKey(opts: { workspaceId: string; requestId: string; fileName: string }): string {
+  return `platform/billing/card-transfers/${safePathSegment(opts.workspaceId)}/${safePathSegment(opts.requestId)}-${safeFileName(opts.fileName)}`;
+}
+
 /** Workspace icon/logo — target shape for the legacy `branding/<workspaceId>/...` producer (account.ts's workspace-icon routes). */
 export function workspaceBrandingKey(opts: { workspaceId: string; fileName: string }): string {
   return `${workspaceRoot(opts.workspaceId)}/branding/${newUuid()}-${safeFileName(opts.fileName)}`;

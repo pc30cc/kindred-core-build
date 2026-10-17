@@ -9,6 +9,7 @@
  */
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { API_BASE } from './apiBase';
+import type { CardTransferRequest, CardTransferSettings, CardTransferStatus } from '../../shared/cardTransfer';
 import type { Edition } from '../../shared/edition';
 import type { AiPack } from '../../shared/aiPacks';
 import type {
@@ -156,7 +157,38 @@ export const adminSimpleBillingApi = {
   getRevenue: (params: RevenueParams = {}) =>
     request<RevenueReport>(`/revenue${query({ months: params.months, includeTest: params.includeTest })}`),
   getGateways: () => request<GatewayReadinessReport>('/gateways'),
+  // Card to card (Iranian edition, migration 274).
+  getCardTransferSettings: () => request<{ settings: CardTransferSettings }>('/card-transfer/settings'),
+  putCardTransferSettings: (settings: CardTransferSettings) =>
+    request<{ settings: CardTransferSettings }>('/card-transfer/settings', { method: 'PUT', body: JSON.stringify(settings) }),
+  listCardTransfers: (status: CardTransferStatus | 'all' = 'pending') =>
+    request<{ items: AdminCardTransfer[]; pending: number }>(`/card-transfers${query({ status })}`),
+  approveCardTransfer: (id: string, netMinor?: number) =>
+    request<{ replayed: boolean; ledger_id: string | null; receipt_number: string | null; balance_minor: number | null }>(
+      `/card-transfers/${encodeURIComponent(id)}/approve`,
+      { method: 'POST', body: JSON.stringify(netMinor !== undefined ? { netMinor } : {}) },
+    ),
+  rejectCardTransfer: (id: string, reason: string) =>
+    request<{ item: AdminCardTransfer }>(`/card-transfers/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  /** The uploaded bank receipt, as a blob. */
+  cardTransferReceipt: async (id: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/admin/simple-billing/card-transfers/${encodeURIComponent(id)}/receipt`, {
+      credentials: 'include',
+    });
+    if (!res.ok) throw new AdminBillingApiError(`HTTP_${res.status}`, res.status, {});
+    return res.blob();
+  },
 };
+
+/** A card-to-card request as the Super Admin reviews it. */
+export interface AdminCardTransfer extends CardTransferRequest {
+  workspace_name: string | null;
+  workspace_slug: string | null;
+  requester_email: string | null;
+}
 
 /** The largest page GET /accounts serves. */
 export const ACCOUNTS_MAX_PAGE_SIZE = 100;

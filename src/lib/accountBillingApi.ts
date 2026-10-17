@@ -133,6 +133,27 @@ export interface AccountView {
   card_available: boolean;
   /** The gateways that can save one. */
   card_providers: string[];
+  /** Iranian edition: the bank account for a card-to-card top-up, when the Super Admin turned it on. */
+  card_transfer?: CardTransferAccount | null;
+}
+
+/** The bank account a card-to-card top-up goes to (shared/cardTransfer.ts). */
+export interface CardTransferAccount {
+  holder_name: string;
+  card_number: string;
+  iban: string;
+  bank: string;
+}
+
+export type { CardTransferRequest, CardTransferStatus } from '../../shared/cardTransfer';
+
+export interface CardTransferInput {
+  amountMinor: number;
+  reference?: string | null;
+  paidAt?: string | null;
+  payerCardLast4?: string | null;
+  note?: string | null;
+  receipt: { fileName: string; mimeType: string; dataBase64: string };
 }
 
 export interface PlanOption {
@@ -389,6 +410,24 @@ export interface AiPackResult {
 
 export const accountBillingApi = {
   view: (workspaceId: string) => request<AccountView>(base(workspaceId)),
+  cardTransfers: (workspaceId: string) =>
+    request<{ items: import('../../shared/cardTransfer').CardTransferRequest[] }>(`${base(workspaceId)}/card-transfers`),
+  submitCardTransfer: (workspaceId: string, input: CardTransferInput) =>
+    request<{ item: import('../../shared/cardTransfer').CardTransferRequest }>(`${base(workspaceId)}/card-transfers`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  cancelCardTransfer: (workspaceId: string, id: string) =>
+    request<{ item: import('../../shared/cardTransfer').CardTransferRequest }>(
+      `${base(workspaceId)}/card-transfers/${encodeURIComponent(id)}/cancel`,
+      { method: 'POST' },
+    ),
+  /** The uploaded bank receipt, as a blob (sent with the session cookie). */
+  cardTransferReceipt: async (workspaceId: string, id: string): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}${base(workspaceId)}/card-transfers/${encodeURIComponent(id)}/receipt`, { credentials: 'include' });
+    if (!res.ok) throw new AccountApiError(`HTTP_${res.status}`, res.status, null);
+    return res.blob();
+  },
   ledger: (workspaceId: string, page = 1, pageSize = 20) =>
     request<LedgerPage>(`${base(workspaceId)}/ledger?page=${page}&pageSize=${pageSize}`),
   receipt: (workspaceId: string, ledgerId: string) =>

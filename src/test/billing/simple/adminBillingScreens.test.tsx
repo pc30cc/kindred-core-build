@@ -203,9 +203,10 @@ const accountsCalls = () => calls.filter((c) => c.method === 'GET' && c.url.path
 // ─── Finance page ──────────────────────────────────────────────────────────
 
 describe('Finance page tabs', () => {
-  it('lists revenue, accounts, gateways, ai, audit while billing v2 is hidden; revenue is the default', () => {
+  it('lists revenue, accounts, card to card (Iran only), gateways, ai, audit while billing v2 is hidden; revenue is the default', () => {
     const src = readFileSync(join(process.cwd(), 'src', 'pages', 'admin', 'FinancePage.tsx'), 'utf8');
-    expect(src).toContain("['revenue', 'accounts', 'gateways', 'ai', 'audit']");
+    expect(src).toContain("['revenue', 'accounts', 'cardTransfers', 'gateways', 'ai', 'audit']");
+    expect(src).toContain("key !== 'cardTransfers' || isIran");
     expect(src).toMatch(/<TabsContent value="revenue"[^>]*><RevenueTab \/>/);
     expect(src).toMatch(/<TabsContent value="accounts"[^>]*><AccountsTab \/>/);
   });

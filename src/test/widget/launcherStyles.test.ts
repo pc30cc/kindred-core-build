@@ -19,9 +19,9 @@
  *
  * @vitest-environment jsdom
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import {
@@ -30,8 +30,23 @@ import {
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const LOADER_SRC = read('public/widget/loader.js');
-/** The loader the round started from (a95fa39): what a launcher without a style must still be. */
-const STARTING_LOADER = execFileSync('git', ['show', 'a95fa39:public/widget/loader.js'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+/**
+ * What a launcher without a style must still be: the snapshots the loader the
+ * round started from (a95fa39) gives, kept as a fixture so the test needs no
+ * git history (CI checks out one commit). Regenerate with
+ * UPDATE_LAUNCHER_FIXTURE=1 where that commit is in the local history.
+ */
+const FIXTURE = resolve(process.cwd(), 'src/test/widget/fixtures/launcherWithoutStyle.json');
+const UPDATE_FIXTURE = process.env.UPDATE_LAUNCHER_FIXTURE === '1';
+const fixture: Record<string, Snapshot> = UPDATE_FIXTURE ? {} : JSON.parse(read('src/test/widget/fixtures/launcherWithoutStyle.json'));
+let startingLoader: string | null = null;
+async function startingSnapshot(key: string, config: Record<string, unknown>): Promise<Snapshot> {
+  if (!UPDATE_FIXTURE) return fixture[key];
+  startingLoader ??= execFileSync('git', ['show', 'a95fa39:public/widget/loader.js'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  fixture[key] = await snapshot(config, startingLoader);
+  return fixture[key];
+}
+afterAll(() => { if (UPDATE_FIXTURE) writeFileSync(FIXTURE, `${JSON.stringify(fixture, null, 1)}\n`); });
 const FAB_CSS = read('public/widget/runtime-fab.css');
 const FAB_URL = 'https://app.test/widget/runtime-fab.0123abcd.css';
 
@@ -67,8 +82,10 @@ async function boot(config: Record<string, unknown>, src = LOADER_SRC) {
   return { root, launcher: root.querySelector('.launcher') as HTMLButtonElement, shell: root.querySelector('.shell') as HTMLElement };
 }
 
+type Snapshot = { launcher: string; shell: string; card: string | null; styles: (string | null)[]; links: number };
+
 /** What the visitor's page holds of the launcher: its markup, the shell's classes, the kits' stylesheets. */
-async function snapshot(config: Record<string, unknown>, src: string) {
+async function snapshot(config: Record<string, unknown>, src: string): Promise<Snapshot> {
   reset();
   const { root, launcher, shell } = await boot(config, src);
   const out = {
@@ -120,8 +137,8 @@ describe('without a style, the launcher is the starting commit\'s, byte for byte
     ['the Iranian edition, away, a square and a custom colour', { edition: 'iran', primaryColor: '#E11D48', availability: { state: 'offline' }, fab: { shape: 'square' } }],
     // A row with a style but a server from before the styles: no fabStyleUrl.
     ['a pill named without its stylesheet', { edition: 'iran', fab: { shape: 'pill', icon: 'bubble', label: 'Hi' } }],
-  ])('%s', async (_name, config) => {
-    const before = await snapshot(config, STARTING_LOADER);
+  ])('%s', async (name, config) => {
+    const before = await startingSnapshot(name, config);
     const after = await snapshot(config, LOADER_SRC);
     expect(after.launcher).toBe(before.launcher);
     expect(after.shell).toBe(before.shell);
@@ -133,7 +150,7 @@ describe('without a style, the launcher is the starting commit\'s, byte for byte
   }, 20_000);
 
   it('the International edition: the same launcher; the shell says the logo is Thread (lg-thread)', async () => {
-    const before = await snapshot({ edition: 'international', templateId: 'intl' }, STARTING_LOADER);
+    const before = await startingSnapshot('the International edition', { edition: 'international', templateId: 'intl' });
     const after = await snapshot({ edition: 'international', templateId: 'intl' }, LOADER_SRC);
     expect(after.launcher).toBe(before.launcher);
     expect(after.shell).toBe(`${before.shell} lg-thread`);

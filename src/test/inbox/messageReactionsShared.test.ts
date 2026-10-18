@@ -155,8 +155,10 @@ describe('who may react to what', () => {
     for (const ch of ['telegram', 'whatsapp', 'instagram', 'bale', 'platform_support', 'email']) expect(isWidgetChannel(ch)).toBe(false);
   });
 
-  it('only Template 2\'s descriptor draws reactions (the inbox offers React for no other workspace)', () => {
+  it('only Template 2\'s renderer draws reactions: t2 and its RESPOK skin t2-intl (the inbox offers React for no other workspace)', () => {
     const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as ChatWidgetTemplateId[];
-    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].reactions)).toEqual(['t2']);
+    const withReactions = ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].reactions);
+    expect(withReactions).toEqual(['t2', 't2-intl']);
+    for (const id of withReactions) expect(CHAT_WIDGET_TEMPLATES[id].script, id).toBe(CHAT_WIDGET_TEMPLATES.t2.script);
   });
 });

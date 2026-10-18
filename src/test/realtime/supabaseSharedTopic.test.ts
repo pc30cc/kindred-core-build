@@ -115,6 +115,25 @@ describe('SupabaseRealtimeClientProvider — one join per topic', () => {
     s2.unsubscribe();
   });
 
+  it('a subscriber that comes after a lost and recovered join hears the status of now', async () => {
+    const provider = new SupabaseRealtimeClientProvider();
+    const s1 = await provider.subscribe(INBOX, {});
+    const ch = world.channels.get(TOPIC)!;
+    ch.statusCb!('CHANNEL_ERROR');
+    const during: string[] = [];
+    const s2 = await provider.subscribe(INBOX, { onStatus: (s) => during.push(s) });
+    expect(during).toEqual(['connecting', 'error']);
+    ch.statusCb!('SUBSCRIBED');
+    const after: string[] = [];
+    const s3 = await provider.subscribe(INBOX, { onStatus: (s) => after.push(s) });
+    expect(after).toEqual(['connecting', 'open']);
+    expect(during).toEqual(['connecting', 'error', 'open']);
+    expect(ch.joins).toBe(1);
+    s1.unsubscribe();
+    s2.unsubscribe();
+    s3.unsubscribe();
+  });
+
   it('a channel the server closed is joined afresh by the next subscriber', async () => {
     const provider = new SupabaseRealtimeClientProvider();
     const first = await provider.subscribe(INBOX, {});

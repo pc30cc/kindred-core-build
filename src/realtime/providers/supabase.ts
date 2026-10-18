@@ -107,8 +107,10 @@ function unwrap(msg: BroadcastMessage | null | undefined): Record<string, unknow
 interface SharedTopic {
   ch: RealtimeChannelLike;
   handlers: Set<RealtimeHandlers>;
-  /** The status of the join once it settled ('open', 'closed' or 'error'). */
-  joined: Promise<'open' | 'closed' | 'error'>;
+  /** Settles with the join's first outcome. */
+  joined: Promise<void>;
+  /** The latest status ('open', 'closed' or 'error'), reported to a subscriber that comes later. */
+  status: 'open' | 'closed' | 'error';
   reason?: string;
 }
 
@@ -142,26 +144,29 @@ function joinTopic(
     if (payload) each((h) => h.onEvent?.(payload as unknown as OperatorEventPayload));
   });
 
-  const shared: SharedTopic = { ch, handlers, joined: Promise.resolve('open') };
+  const shared: SharedTopic = { ch, handlers, joined: Promise.resolve(), status: 'error' };
   shared.joined = new Promise((resolve) => {
     let settled = false;
     ch.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
+        shared.status = 'open';
+        shared.reason = undefined;
         if (settled) each((h) => h.onStatus?.('open'));
         settled = true;
-        resolve('open');
+        resolve();
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         const next = status === 'CLOSED' ? 'closed' : 'error';
+        shared.status = next;
         shared.reason = status;
         // A closed channel is not joined again by itself: the next
         // subscriber of the topic joins afresh.
         if (status === 'CLOSED' && sharedTopics.get(topic) === shared) sharedTopics.delete(topic);
-        // Later changes reach every subscriber; the first one is reported
-        // to each as it subscribes. Don't block — the caller already
-        // considers polling fallback elsewhere.
+        // Later changes reach every subscriber; the status at the time is
+        // reported to each as it subscribes. Don't block — the caller
+        // already considers polling fallback elsewhere.
         if (settled) each((h) => h.onStatus?.(next, { reason: status }));
         settled = true;
-        resolve(next);
+        resolve();
       }
     });
   });
@@ -193,9 +198,9 @@ export class SupabaseRealtimeClientProvider implements ClientRealtimeProvider {
     }
     const mine = shared;
     mine.handlers.add(handlers);
-    const status = await mine.joined;
-    if (status === 'open') handlers.onStatus?.('open');
-    else handlers.onStatus?.(status, { reason: mine.reason });
+    await mine.joined;
+    if (mine.status === 'open') handlers.onStatus?.('open');
+    else handlers.onStatus?.(mine.status, { reason: mine.reason });
 
     let left = false;
     return {

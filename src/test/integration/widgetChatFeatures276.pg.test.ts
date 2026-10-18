@@ -21,7 +21,7 @@
  *       samples on, never above 180 minutes, never from stale stats;
  *   T6  the claim trigger samples the first assignment of a queued row only,
  *       averages and restarts after 14 idle days, and never fails the
- *       assignment;
+ *       assignment nor makes it wait for a lock;
  *   T7  knowledge_base_articles.author_user_id: a validated key to profiles,
  *       set to NULL when the profile goes;
  *   T8  visitor_conversation_transcript: both editions in fa/en/tr; a re-run
@@ -179,7 +179,7 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
         ORDER BY 1`,
     );
     expect(fns).toEqual([
-      { sig: 'chat_queue_record_claim()', definer: true, config: ['search_path=public, pg_temp'] },
+      { sig: 'chat_queue_record_claim()', definer: true, config: ['search_path=public, pg_temp', 'lock_timeout=100ms'] },
       { sig: 'chat_queue_status(uuid,uuid)', definer: false, config: ['search_path=public, pg_temp'] },
       { sig: 'tg_conversation_message_reactions_touch_message()', definer: false, config: ['search_path=public, pg_temp'] },
     ]);
@@ -301,7 +301,7 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     expect(String(def.d)).toContain(`WHERE ((assigned_to IS NULL) AND ((metadata ->> 'routing_outcome'::text) = 'manual_queue'::text))`);
   });
 
-  it('T6 the claim trigger samples the first assignment of a queued row only, and never fails it', async () => {
+  it('T6 the claim trigger samples the first assignment of a queued row only, and never fails it nor holds it up', async () => {
     const wc = randomUUID();
     await workspace(wc);
     const stats = async () => (await q(`SELECT seconds_per_place AS s, samples AS n FROM public.chat_queue_stats WHERE workspace_id = $1`, [wc]))[0] ?? null;
@@ -343,6 +343,12 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     expect((await one(`SELECT assigned_to FROM public.conversations WHERE id = $1`, [badPlace])).assigned_to).toBe(op1);
     expect((await stats())!.n).toBe(2);
 
+    // A claim that rewrites the queue state in the same UPDATE is sampled
+    // from the state it was claimed in.
+    const rewritten = await queued(wc, 60);
+    await q(`UPDATE public.conversations SET assigned_to = $2, metadata = metadata - 'queued_at' - 'routing_outcome' WHERE id = $1`, [rewritten, op1]);
+    expect((await stats())!.n).toBe(3);
+
     // After 14 idle days the average starts again from the new sample.
     await q(`UPDATE public.chat_queue_stats SET updated_at = now() - interval '15 days' WHERE workspace_id = $1`, [wc]);
     await assign(await queued(wc, 200), op1);
@@ -350,9 +356,32 @@ suite('276 — chat widget features (real PostgreSQL)', () => {
     expect(s!.n).toBe(1);
     expect(Number(s!.s)).toBeCloseTo(200, 0);
 
+    // The stats row is locked by another transaction (a claim that has not
+    // committed yet): the next assignment neither waits for it nor fails; it
+    // goes without its sample.
+    const holder = new pg.Client({ connectionString: chain.url });
+    await holder.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(`UPDATE public.chat_queue_stats SET samples = samples WHERE workspace_id = $1`, [wc]);
+      const waiting = await queued(wc, 45);
+      const started = Date.now();
+      const outcome = await Promise.race([
+        assign(waiting, op2).then(() => 'assigned', (e: Error) => e.message),
+        new Promise<string>((done) => setTimeout(() => done('still waiting'), 5_000)),
+      ]);
+      expect(outcome).toBe('assigned');
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect((await one(`SELECT assigned_to FROM public.conversations WHERE id = $1`, [waiting])).assigned_to).toBe(op2);
+    } finally {
+      await holder.query('ROLLBACK').catch(() => undefined);
+      await holder.end();
+    }
+    expect((await stats())!.n).toBe(1);
+
     const trg = await one(`SELECT pg_get_triggerdef(oid) AS d FROM pg_trigger WHERE tgname = 'trg_conversations_queue_claim'`);
     expect(String(trg.d)).toContain('AFTER UPDATE OF assigned_to ON public.conversations FOR EACH ROW WHEN');
-  });
+  }, 30_000);
 
   it('T7 knowledge_base_articles.author_user_id: a validated key to profiles, NULL when the profile goes', async () => {
     const col = await one(`SELECT data_type, is_nullable, column_default FROM information_schema.columns

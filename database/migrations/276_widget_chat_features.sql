@@ -396,13 +396,19 @@ COMMENT ON FUNCTION public.chat_queue_status(uuid, uuid) IS
 
 -- One sample per first assignment of a queued row: the seconds it waited,
 -- per place it entered at. Cosmetic: any error is swallowed, so an
--- assignment never fails because of it. SECURITY DEFINER so a claim made by
--- any role records its sample in the server-only table.
+-- assignment never fails because of it. Nor does it wait: the workspace's
+-- stats row is locked by every claim until that claim commits, and a lock
+-- held longer (a claim inside a longer transaction) would otherwise hold the
+-- next operator's assignment up for as long, or deadlock it; the function's
+-- own lock_timeout (well under deadlock_timeout) gives up on the sample
+-- instead. SECURITY DEFINER so a claim made by any role records its sample
+-- in the server-only table.
 CREATE OR REPLACE FUNCTION public.chat_queue_record_claim()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
+SET lock_timeout = '100ms'
 AS $fn_queue_claim$
 DECLARE
   v_wait double precision;

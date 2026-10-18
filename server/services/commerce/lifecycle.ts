@@ -11,6 +11,7 @@ import { setInstallationStatus } from '../plugins/state.js';
 import { revokeInstallationSecrets, rotateInstallationSecret } from './credentials.js';
 import { writeCommerceAudit } from './audit.js';
 import { getConnectionForWorkspace } from './gateway.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 function base64url(input: Buffer): string {
   return input.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -34,6 +35,9 @@ export async function disconnectConnection(
     .update({ revoked_at: new Date().toISOString(), health: 'disconnected', catalog_ready: false })
     .eq('id', connectionId)
     .eq('workspace_id', workspaceId);
+  // The widget's track-order row (configSnapshot.ts getStoreOrders) goes
+  // with the store, on the next page view rather than within its TTL.
+  publishCacheInvalidation([`widget:${workspaceId}`]);
 
   await revokeInstallationSecrets(config, connection.installation_id);
   await setInstallationStatus(config, connection.installation_id, 'uninstalled');
@@ -94,6 +98,8 @@ export async function updateConnectionPermissions(
     .eq('id', connectionId)
     .eq('workspace_id', workspaceId);
   if (error) throw new Error(`permission update failed: ${error.message}`);
+  // The order permissions decide the widget's track-order row.
+  publishCacheInvalidation([`widget:${workspaceId}`]);
 
   await writeCommerceAudit(config, {
     workspaceId,

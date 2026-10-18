@@ -19,6 +19,12 @@ export interface KnowledgeBaseArticleInput {
   status: ArticleStatus;
   category_id: string | null;
   visible_in_widget: boolean;
+  /**
+   * The workspace member shown as the author in the widget. Omitted: on
+   * create the creator, on update unchanged; null: none (any other id that
+   * is not a member: 400 invalid_author).
+   */
+  author_user_id?: string | null;
 }
 
 export type KnowledgeBaseArticleWithCategory = KnowledgeBaseArticle & {

@@ -213,8 +213,9 @@ conversationNotesRouter.post('/:id/notes', async (req, res) => {
       skipRealtimeEcho: true,
     });
 
-    // Phase 5 — realtime push (operator-only). Per-conversation channel
-    // only; the inbox list does not display notes so we skip that fan-out.
+    // Phase 5 — realtime push (operator-only): the inbox channel, never the
+    // conversation channel the visitor's widget listens on. Ids only, never
+    // the note's text: an open thread reads the notes again over REST.
     void publishOperatorEvent(config, {
       kind: 'note_added',
       conversation_id: conversationId,
@@ -222,8 +223,7 @@ conversationNotesRouter.post('/:id/notes', async (req, res) => {
       actor_id: auth.userId,
       note_id: inserted.id,
       created_at: inserted.created_at,
-      preview: parsed.data.body.slice(0, 140),
-    }, { skipInboxChannel: true });
+    });
 
     // On the phones of those the conversation's messages reach — its
     // assignee, or everyone following an unassigned one — never the author's.
@@ -355,7 +355,7 @@ conversationNotesRouter.delete('/:id/notes/:noteId', async (req, res) => {
       actor_id: auth.userId,
       note_id: noteId,
       created_at: new Date().toISOString(),
-    }, { skipInboxChannel: true });
+    });
 
     return res.json({ ok: true });
   } catch (err) {

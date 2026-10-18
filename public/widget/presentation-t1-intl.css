@@ -1,0 +1,116 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Widget Presentation — the "t1-intl" skin: the International edition's
+   (RESPOK) look over the t1 renderer and its stylesheet.
+
+   Loaded after presentation-t1.css in the same shadow root, so a rule here
+   with the base rule's specificity wins. The renderer is t1's, unchanged:
+   everything RESPOK lives here (tokens, type, status colours, the brand
+   art as CSS masks) and in the config (the footer's lockup). Brand art
+   follows the logo direction the loader puts on the shell: Thread (two
+   pills) by default, Open (a bubble and a dot) under `.shell.lg-open`.
+
+   Type: Figtree for Latin text from the shared document-level fonts
+   stylesheet (presentation-default-fonts.css); Persian stays IRANSans and
+   keeps t1's line heights (the tighter ones below are for LTR only).
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ─── Tokens: Ink text, Signal for live and Signal Deep for unread, fixed
+   neutrals (they do not follow the accent, as the design says) ────────── */
+.wy-view, .panel-close, .smart-nudge {
+  --ink: #16142B; --ink-2: #3D3B55; --ink-3: #5E5C75; --ink-4: #A9A7BC;
+  --sig: #FF5A3C; --sig-d: #D3361A; --away: #A9A7BC; --ok: #FF5A3C; --bad: #D3361A; --rec: #FF5A3C;
+  --bg: #F5F5F8; --bg-2: #EDECF2; --line: #E4E3EC; --line-2: #D3D1DE; --op: #F0EFF5;
+}
+/* The brand accent is Ink, with its hand-tuned hero (also for Ink picked
+   explicitly; the renderer writes `--a` first). */
+.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #16142B; --a-rgb: 22, 20, 43; --gs-primary: #16142B; }
+.wy-view.gs-accent-brand, .wy-view[style*='--a:#16142b;' i] { --hero: linear-gradient(155deg, #302C59 0%, #1E1B3B 50%, #16142B 100%); }
+.shell:has(.rpk-kit-brand) .smart-nudge { --a: #16142B; --a-rgb: 22, 20, 43; }
+
+/* ─── Type ─────────────────────────────────────────────────────────── */
+.panel { color: #16142B; font-family: 'IRANSans', 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+.panel[dir='ltr'], .smart-nudge[dir='ltr'] { font-family: 'Figtree', 'IRANSans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+.panel[dir='ltr'] { line-height: 1.5; }
+.wy-view[dir='ltr'] .hx-hi { font-size: 16.5px; line-height: 1.4; }
+.wy-view[dir='ltr'] .hx-q { margin-top: 4px; font-size: 25px; line-height: 1.2; letter-spacing: -.015em; }
+.gs-mobile-open .wy-view[dir='ltr'] .hx-q { font-size: 28px; }
+.wy-view[dir='ltr'] .ct { line-height: 1.35; }
+.wy-view[dir='ltr'] :is(.cs, .l1, .l2, .li, .msg-sender-label, .msg-meta) { line-height: 1.4; }
+.wy-view[dir='ltr'] :is(.msg, .note, .intro, .prechat-intro) { line-height: 1.5; }
+.wy-view[dir='ltr'] .art h1 { line-height: 1.3; letter-spacing: -.01em; }
+.wy-view[dir='ltr'] .kb-article-body, .wy-view[dir='ltr'] .kb-article-body ol > li { line-height: 1.65; }
+.wy-view[dir='ltr'] .kb-article-body blockquote { line-height: 1.55; }
+.wy-view[dir='ltr'] .wel p { line-height: 1.55; }
+.wy-tab { font-size: 12.5px; }
+
+/* ─── Status: Signal live dots, away as an empty ring, Signal Deep badges,
+   the warm tints for "open" and "saved" ───────────────────────────────── */
+.live { background: var(--sig); box-shadow: 0 0 0 3px rgba(255, 90, 60, .22); }
+.live.off { background: #fff; box-shadow: inset 0 0 0 2px var(--away); }
+.pr.off { background: #fff; box-shadow: inset 0 0 0 2.5px var(--away), 0 0 0 2.5px #fff; }
+.nb, .tic .nb { background: var(--sig-d); color: #fff; font-weight: 700; }
+.tic .nb { z-index: 1; }
+.tg.open { background: #FFEAE4; color: #A62A12; }
+.sh2 { background: #FFF1ED; color: #A62A12; }
+.fallback-status.ok { color: #A62A12; }
+.ra.stop { color: var(--sig-d); }
+/* Typing: three round dots instead of t1's diamonds. */
+.typing-dots i { width: 7px; height: 7px; border-radius: 50%; transform: none; animation-name: rp-typ; }
+@keyframes rp-typ { 0%, 60%, 100% { opacity: .45; transform: none; } 25% { opacity: 1; transform: translateY(-3px); } }
+
+/* ─── Footer: the lockup the server names for the direction ──────────── */
+.pw { gap: 5px; }
+.wy-powered-logo { height: 12px; }
+/* Another brand's mark (only a build that ships it draws one) never shows. */
+.hx-mk, .pw-mk { display: none; }
+
+/* ─── Brand art, Thread unless the shell says Open ───────────────────── */
+.wy-view, .smart-nudge {
+  --mk: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 104 92'%3E%3Cpath d='M21 0H41A21 21 0 0 1 62 21A21 21 0 0 1 41 42H4A4 4 0 0 1 0 38V21A21 21 0 0 1 21 0ZM43 50H83A21 21 0 0 1 104 71V88A4 4 0 0 1 100 92H43A21 21 0 0 1 22 71A21 21 0 0 1 43 50Z'/%3E%3C/svg%3E");
+  --mk-w: 156px; --mk-h: 138px; --mk-top: -34px;
+  --gav: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 108 102'%3E%3Cpath fill='%23fff' d='M23 0H41A23 23 0 0 1 64 23A23 23 0 0 1 41 46H5A5 5 0 0 1 0 41V23A23 23 0 0 1 23 0Z'/%3E%3Cpath fill='%23FF5A3C' d='M43 56H85A23 23 0 0 1 108 79V97A5 5 0 0 1 103 102H43A23 23 0 0 1 20 79A23 23 0 0 1 43 56Z'/%3E%3C/svg%3E");
+  /* The Messages tab: outline, then the active pair (question, answer). */
+  --tm: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linejoin='round'%3E%3Cpath d='M5.75 3H9.75A3.75 3.75 0 0 1 13.5 6.75A3.75 3.75 0 0 1 9.75 10.5H3A1 1 0 0 1 2 9.5V6.75A3.75 3.75 0 0 1 5.75 3ZM10.75 13.5H18.25A3.75 3.75 0 0 1 22 17.25V20A1 1 0 0 1 21 21H10.75A3.75 3.75 0 0 1 7 17.25A3.75 3.75 0 0 1 10.75 13.5Z'/%3E%3C/svg%3E");
+  --tq: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24' stroke='%23000' stroke-width='1.7' stroke-linejoin='round'%3E%3Cpath d='M5.75 3H9.75A3.75 3.75 0 0 1 13.5 6.75A3.75 3.75 0 0 1 9.75 10.5H3A1 1 0 0 1 2 9.5V6.75A3.75 3.75 0 0 1 5.75 3Z'/%3E%3C/svg%3E");
+  --ta: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24' stroke='%23000' stroke-width='1.7' stroke-linejoin='round'%3E%3Cpath d='M10.75 13.5H18.25A3.75 3.75 0 0 1 22 17.25V20A1 1 0 0 1 21 21H10.75A3.75 3.75 0 0 1 7 17.25A3.75 3.75 0 0 1 10.75 13.5Z'/%3E%3C/svg%3E");
+  --tc: #FF5A3C;
+}
+.lg-open .wy-view, .lg-open .smart-nudge {
+  --mk: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 82 82'%3E%3Cpath d='M41 0A41 41 0 0 1 82 41V78Q82 82 78 82H41A41 41 0 0 1 0 41A41 41 0 0 1 41 0Z'/%3E%3C/svg%3E");
+  --mk-w: 150px; --mk-h: 150px; --mk-top: -46px;
+  --gav: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 112 112'%3E%3Cpath fill='%23fff' d='M40 0A40 40 0 0 1 80 40V75Q80 80 75 80H40A40 40 0 0 1 0 40A40 40 0 0 1 40 0Z'/%3E%3Ccircle fill='%23FF5A3C' cx='95' cy='95' r='17'/%3E%3C/svg%3E");
+  --tm: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24'%3E%3Cpath d='M12 4A8 8 0 0 1 20 12V18.4A1.6 1.6 0 0 1 18.4 20H12A8 8 0 0 1 4 12A8 8 0 0 1 12 4Z' fill='none' stroke='%23000' stroke-width='1.7'/%3E%3Ccircle cx='8.4' cy='12' r='1.2'/%3E%3Ccircle cx='12' cy='12' r='1.2'/%3E%3Ccircle cx='15.6' cy='12' r='1.2'/%3E%3C/svg%3E");
+  --tq: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24'%3E%3Cpath d='M12 4A8 8 0 0 1 20 12V18.4A1.6 1.6 0 0 1 18.4 20H12A8 8 0 0 1 4 12A8 8 0 0 1 12 4Z' stroke='%23000' stroke-width='1.7'/%3E%3C/svg%3E");
+  --ta: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24'%3E%3Ccircle cx='8.4' cy='12' r='1.2'/%3E%3Ccircle cx='12' cy='12' r='1.2'/%3E%3Ccircle cx='15.6' cy='12' r='1.2'/%3E%3C/svg%3E");
+  --tc: #fff;
+}
+/* The home header's watermark, in the text colour on the accent, only
+   while the platform is credited (t1 draws its own mark the same way). */
+.wy-view:has(.wy-powered) .hx::before {
+  content: ''; position: absolute; top: var(--mk-top); inset-inline-end: 16px; width: var(--mk-w); height: var(--mk-h);
+  background: currentColor; opacity: .1; pointer-events: none;
+  -webkit-mask: var(--mk) 0 0 / 100% 100% no-repeat; mask: var(--mk) 0 0 / 100% 100% no-repeat;
+}
+.wy-tab[data-view='list'] .tic svg { display: none; }
+.wy-tab[data-view='list'] .tic::before, .wy-tab[aria-current='page'][data-view='list'] .tic::after {
+  content: ''; position: absolute; inset: 0; background: currentColor;
+  -webkit-mask: var(--tm) center / 100% no-repeat; mask: var(--tm) center / 100% no-repeat;
+}
+.wy-tab[aria-current='page'][data-view='list'] .tic::before { -webkit-mask-image: var(--tq); mask-image: var(--tq); }
+.wy-tab[aria-current='page'][data-view='list'] .tic::after { background: var(--tc); -webkit-mask-image: var(--ta); mask-image: var(--ta); }
+.nv-text .vb .tic::before, .nv-text .vb .tic::after { display: none; }
+
+/* ─── The greeting beside the launcher: the brand's avatar, the corner
+   that faces the launcher, and its place (Thread above it, Open beside) ── */
+.smart-nudge { width: 272px; padding-inline-start: 54px; border-radius: 21px 21px 4px 21px; bottom: calc(var(--gs-fab-size, 60px) + 16px); color: var(--ink); }
+.smart-nudge.bottom-left { border-radius: 21px 21px 21px 4px; }
+.smart-nudge .smart-body { color: var(--ink); }
+.smart-nudge::before {
+  content: ''; display: block; position: absolute; top: 14px; inset-inline: 14px auto; width: 30px; height: 30px; border-radius: 50%;
+  background: #16142B var(--gav) center / 52% no-repeat;
+}
+.smart-nudge::after { display: none; }
+/* Open sits beside the launcher: narrower on a narrow phone, so it stays on screen. */
+.lg-open .smart-nudge { bottom: calc(var(--gs-fab-size, 60px) + 5px); max-width: calc(100vw - 53px - var(--gs-fab-size, 60px)); border-radius: 18px 18px 6px 18px; }
+.lg-open .smart-nudge.bottom-right { right: calc(var(--gs-fab-size, 60px) + 5px); }
+.lg-open .smart-nudge.bottom-left { left: calc(var(--gs-fab-size, 60px) + 5px); border-radius: 18px 18px 18px 6px; }

@@ -308,10 +308,11 @@
           // and these envelopes have no widget-facing meaning. Defensive guard
           // so future operator-only types remain forward-safe.
           if (data && data.type === 'event') {
-            // Phase 8B — `call:incoming` is the ONE event-kind the widget cares
-            // about. Every other operator-only kind (conversation_updated,
-            // note_added, …) is silently dropped. The call dispatch is a
-            // sidecar — it does NOT touch the chat FSM or transport store.
+            // Phase 8B — the widget acts on three event kinds: `call:incoming`
+            // and `call:ended` (the call sidecar) and `message_reactions` (the
+            // runtime's hook). Every other kind (conversation_updated,
+            // note_added, …) is silently dropped. Neither dispatch touches the
+            // chat FSM or transport store.
             try {
               var p = data.payload;
               if (p && p.kind === 'call:incoming' && window.__gs_call && typeof window.__gs_call.incoming === 'function') {
@@ -326,6 +327,9 @@
               if (p && p.kind === 'call:ended' && window.__gs_call && typeof window.__gs_call.ended === 'function') {
                 window.__gs_call.ended(p);
               }
+              // A message's reactions changed: the runtime's hook (only a
+              // template drawing reactions does anything with it).
+              if (p && p.kind === 'message_reactions' && hooks.onReaction) hooks.onReaction(p);
             } catch (_) {}
           } else if (data && data.type === 'message' && hooks.onMessage) {
             hooks.onMessage({ channel: ch, messages: [data.payload] });

@@ -35,7 +35,9 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `navStyle` | `va`, `vb`, `vc`, `vd` | `vb` | T1 | Bottom-bar style: classic bar with diamond marker, floating dock with active capsule, segmented, brand dock | Class on `nav.wy-tabs`. `va`, `vc`, `vd` are optional alternatives and ignore `navMode` ([brief §7a](../CLAUDE_CODE_BRIEF.md)). WY1 §4.10, RP1 §4.12 |
 | `navMode` | `both`, `active`, `icon`, `text`, `none` | `active` | T1 | Label mode of the floating dock: icons and labels, icons with the active label, icons only, labels only, no menu | Super-admin setting. Class `nv-both`, `nv-icon`, `nv-text` or `nv-none` on each view root `.wy-view` (`active` has no class). `none` adds the home "All conversations" link and back buttons in Messages and Help. WY1 §4.10, RP1 §4.12 |
 | `logoDirection` | `thread`, `open` | `thread` | Respok: T1, T2 and the launcher | Respok logo direction: hero watermark, Messages-tab icon (T1), footer lockup, launcher glyph and its arrival animation, greeting corners | Class `lg-thread` / `lg-open` on `.shell`, so the launcher and the panel agree; brand elements carry `.g-t` / `.g-o`. The settings board's "Respok Open" and "Respok Thread" chat-button tiles set it. [Brief §5.6](../CLAUDE_CODE_BRIEF.md), RP1 §4.1, RP2 §4.33 |
-| `prechatMode` | `card`, `steps` | `card` | T1 | Pre-chat inside the conversation: one form card, or one question at a time | `steps` needs the step flow in Core (validation, skip of optional steps, the workspace's country-code prefix). After submit both modes show the saved-details summary with `data-prechat-edit`. RP1 §5.11, WY1 §9 |
+| `prechatMode` | `card`, `steps` | `card` | T1 | Pre-chat inside the conversation: one form card, or one question at a time | `steps` needs the step flow in Core (validation, skip of optional steps, the workspace's country-code prefix). After submit both modes show the saved-details summary with `data-prechat-edit`. **Built as a template option** (`config.templateOptions.prechatMode`, Super Admin default → workspace, `shared/chatTemplateCatalog.ts`); a conversation keeps the mode its form first rendered in. RP1 §5.11, WY1 §9 |
+| `csat` *(named here)* | `true`, `false` | `true` | T2 | The rating card under the «… closed the conversation» line | Template option (`config.templateOptions.csat`, Super Admin default → workspace). Off: the line only, and `POST …/csat` answers 403 `csat_disabled`. §6 |
+| `transcriptEmail` *(named here)* | `true`, `false` | `true` | T1, T2 | "Email me the transcript": the rating card's link (T2) and the ⋯ menu item (T1, T2) | Template option. Off: neither is drawn, and `POST …/transcript` answers 403 `transcript_disabled`. §6 |
 | `askExamples` | up to 2 strings | none | T2 | Lines 2 and 3 of the rotating ask placeholder, each shown after `simpleAskExamplePrefix` | Line 1 is `simpleAskPlaceholder`. With fewer than two examples, render the static field (`.field.static`, suggestion). WY2 §4.4, RP2 §4.5 |
 | `topics` | list of `{label, icon}` | none | T2 home and thread chips; T1 new-conversation chips | Topic chips (`data-topic`) | Without topics: Q&A chips (`data-qna-question`); T2 home falls back to article chips (`data-home-article`) or no chips. RP2 §4.17, WY2 §4.4 |
 | `fab.shape` (existing) | `circle`, `square`; new `pill` | `circle` | Launcher (both templates) | Launcher outline. `square` is the "WebYar square" tile (18px radius in the designs, 16px today). `pill` is "Pill with text" | With `pill` the launcher widens to the glyph plus the `fab.label` text inside it, and the separate `.gs-fab-label` card is not drawn. The pill's glyph follows `fab.icon` (the boards draw the kit glyph). WY1 §4.24, RP1 §4.29 |
@@ -76,8 +78,17 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `data-prechat-skip` | "No thanks…" link under the T2 email card | Skip the email | Click hides the card and continues; render only when email is not required (`identity.isRequired`) | T2 (WY2 §4.20, RP2 §4.30) |
 | `data-csat-rate="1…5"` | The five CSAT face buttons, with `aria-pressed` | Conversation rating | Click sets the rating and `aria-pressed` on the chosen face | T2 (WY2 §4.22, RP2 §4.32) |
 | `data-csat-comment` | CSAT comment `textarea` | Optional comment | Read on submit | T2 |
-| `data-csat-submit` | CSAT "Send feedback" button | Submit the rating | Click sends rating + comment to the rating API (new) | T2 |
-| `data-csat-transcript` | CSAT "Email me the transcript" link | Transcript by email | Click calls the transcript-by-email API (new) | T2 |
+| `data-csat-submit` | CSAT "Send feedback" button | Submit the rating | Click sends rating + comment: `POST /api/widget/conversations/:id/csat` (§6) | T2 |
+| `data-csat-transcript` | CSAT "Email me the transcript" link (a `button`) | Transcript by email | Click calls `POST /api/widget/conversations/:id/transcript` (§6) | T2 |
+| `data-csat` *(named here)* | The CSAT card root (`role="group"`) | Card container | Core (runtime-late.js) binds the four hooks above inside it | T2 |
+| `data-chat-menu-toggle` *(named here)* | Chat bar ⋯ button (`aria-haspopup="menu"`, `aria-expanded`, `aria-label` = `moreOptions`) | Open the header menu | Click opens or closes `[data-chat-menu]`; drawn only when the menu has an item, never on a new conversation | T1, T2 |
+| `data-chat-menu` *(named here)* | The menu (`role="menu"`, `hidden` while closed) | Header menu | Escape closes it and returns focus to the toggle; an outside click closes it | T1, T2 |
+| `data-chat-menu-action="transcript\|sound"` *(named here)* | Menu items (`role="menuitem"`; the sound item `menuitemcheckbox` with `aria-checked`) | Email the transcript; notification sounds on/off | `transcript`: the same API as `data-csat-transcript`, only while the server says it is available; `sound`: Core's `uiPrefsStore.soundEnabled`, remembered for the visitor in `localStorage` `gs:sound:<workspaceId>` (`'0'` while off, removed when on; hidden when the workspace turned sound off). No "end conversation" item (owner) | T1, T2 |
+| `data-msg-react="❤️"` + `data-msg-id="<message id>"` *(named here)* | `button.msg-act[aria-pressed]` in a team bubble's action row (operator, AI, bot; a server message id only) | The visitor's heart | Click sets or takes back the visitor's ❤️: `POST /api/widget/conversations/:id/reactions` (§6), optimistic, then the server's list; `aria-pressed` = the visitor's own; focus returns to the same heart after the repaint. The visitor has no other emoji (owner) | T2 |
+| `data-prechat-step="<name\|email\|phone>"` *(named here)* | The step box root `div.cbox.steps`, inserted before `[data-input-bar]` in `[data-composer-zone]` | One pre-chat question at a time (`prechatMode: "steps"`) | Core (runtime-late.js) owns the box: progress, validation, the edition's phone prefix (+98 Iran, none International), one `POST /api/widget/identity/prechat` at the end | T1 |
+| `data-prechat-step-input`, `data-prechat-step-submit`, `data-prechat-step-skip` *(named here)* | The step's input, its submit button, the skip link of an optional step | Answer, submit, skip | Enter (not while composing) or the button submits; skip answers nothing and moves on. Not `data-prechat-skip`, which skips the whole pre-chat | T1 |
+| `data-ph-away` *(named here)* | The automated reply row (`.away-reply`, `awayReplyHtml`), its value the away placeholder (`simpleAddMore`) | Placeholder while away with a thread | Core (runtime-late.js) gives the composer that placeholder while the row is on screen and the team is away, and its own back after | T2 |
+| `data-fb-skip` *(named here)* | «نه ممنون» in the T2 away email card, drawn only when the email is not required | Leave no email | Core marks the card skipped (no request) and puts the focus in the composer | T2 |
 
 ### 2.2 New values of existing hooks
 
@@ -104,6 +115,7 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `.panel.wy-after-fab` | Panel | Delay the open by .2s when the launcher was on screen and drops first | Core or the loader | T1 (RP1 §6) |
 | `.wy-avatar-tile` | `span.wy-avatar` in the home hero | Logo tile look (48px, 15px radius) | Renderer | T1 (RP1 §4.3) |
 | `.wy-head-chat.is-new` | Chat header | Header variant while the thread is empty | Renderer | T1 (RP1 §9) |
+| `span.react[data-msg-id]` *(named here)* | The reaction badge under a bubble (`role="img"`, display only) | A badge already on screen | Core adds `.no-enter` to a badge it has shown, so a repaint does not replay its entrance | T2 |
 
 ### 2.4 Existing hooks in new places
 
@@ -112,7 +124,7 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | `data-home-action="chat"` | T2 home `.send` (reads `data-home-ask`); T2 list `.fab`; T1 Messages bottom button (the header `.wy-fab` moves there) | T2 home send passes the draft | T1, T2 |
 | `data-kb-action="open"` + `data-kb-slug` | T2 tray rows, outside the help view | Bind them outside `kbHtml` | T2 |
 | `data-kb-action="switch-chat"` | T1 "Still have a question?" card and T2 `.cta`, shown always | None | T1, T2 |
-| `data-fb="email"`, `data-fb-submit`, `data-fb-status` | T1 in-thread away e-mail card `.ec` | The visitor's thread message becomes the fallback message (production map §4.6) | T1 (WY1 §4.20, RP1 §4.21) |
+| `data-fb="email"`, `data-fb-submit`, `data-fb-status` | T1 in-thread away e-mail card `.ec`; T2 away thread's `.fcard` | The visitor's thread message becomes the fallback message (production map §4.6): `POST /api/widget/offline-messages` with `client_message_id`, then the address through `POST /api/widget/identity/offline-email` (§6) | T1 (WY1 §4.20, RP1 §4.21), T2 (WY2 §4.20) |
 | `data-prechat="email"`, `data-prechat-submit` | T2 email card `.fcard` (handoff card with only email, on the operator side) | None | T2 (WY2 §4.20, RP2 §4.30) |
 | `[data-emoji-picker]` | First child of `div.input-wrap` | Confirm Core finds it by attribute | T1 (WY1 §4.17, RP1 §4.18) |
 | `[data-presence]` | Visible as the T2 bar status line | None (CSS) | T2 (RP2 §4.8) |
@@ -131,6 +143,8 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | home (T2) | `kbSummary` | `{ count, categories }`: article count and top category names | Help-row subtitle `simpleHelpSub` | The static `simpleHelpSubAway` line, or the title only |
 | chat frame (T1, T2) | `assignedOperator` | `{ name, avatar, online }` | Chat header identity, presence and typing look | Workspace avatar, name and `replyTimeText` (production) |
 | messages: the `view` argument of `messagesHtml` (PD:630-796) (T1, T2) | `view.operatorTyping` | `{ name, avatar }`, absent when nobody types | Visible typing row (`.typing-row`, §2.3) and its "{name} is typing…" meta (T1). Core already knows from `setOperatorTyping` | No visible row; the sr-only `[data-typing-row]` still announces |
+| messages: the `view` argument of `messagesHtml` (T2) | `view.csat` *(named here)* | `{ closedId, name, avatar, rating, comment, state, transcript }`; `state` `ask` / `sending` / `done` / `error` / `gone`; `transcript` null or `{ state, to }` with `state` `idle` / `sending` / `sent` / `failed` / `no` | The rating card under the `conversation_closed` row whose id is `closedId` (runtime-late.js, from `GET …/csat`, §6) | No card: the closed line only |
+| chat frame (T1, T2) | `menu` in the `chatHeaderHtml` view model *(named here)* | `{ open, items }`, items `{ action: 'transcript', state, to }` and `{ action: 'sound', on }` | The ⋯ menu (`data-chat-menu*`, §2.1); null on a new conversation or with no item | No ⋯ button |
 | config `availability` (T1, T2) | `availability.nextOpenAt` | ISO 8601 date-time | `{time}` in `homeBackAt`, `awayBannerSub`, `simpleAwayBackAt`, `simpleAwaySub`; the day part of the T2 away note | `replyTimeText(false)` / `homeReplySlow`; drop the "back at" part |
 | kb (T1, T2) | `categories[].icon`, `categories[].count` | icon id, number | Category rows and tiles; `{n}` of `kbArticleCount` | Default icon (book); hide the count |
 | kb article (T1, T2) | `article.categoryTitle` | string | Article header title (the article title moves into the body `h1`) | Article title in the header (production) |
@@ -140,9 +154,12 @@ contract ([brief §2](../CLAUDE_CODE_BRIEF.md)). If a design README and this fil
 | kb article (T1) | `article.updatedAt` | ISO 8601 date-time | `kbUpdated`; named here | Hide |
 | kb results and tray (T2) | `results[].snippet`, `results[].matches`, `results[].readingMinutes` | string, match ranges, number | Two-line excerpt with `mark` highlights; tray "n min read"; named here | Title only, no highlight |
 | message `metadata` (T2) | `metadata.kind: "order_status"` + order number, item summary, status label, steps, current step, delivery day, tracking URL | object | Order card (needs the store context, `data-commerce-*`) | Not rendered |
-| message `metadata` (T2) | `metadata.reactions` | reactions with counts | Reaction badge | Not rendered |
-| message `metadata` (T2) | `metadata.kind: "conversation_closed"` + the closing operator's name | object | System line `convClosedBy`, then the CSAT card; value named here | Omit |
-| system row `routing_in_queue` (T1) | `position`, `waitMinutes` | numbers | Queue pill `routingInQueue` `{n}` `{min}`; named here | Production queue text |
+| message `metadata` (T2) | `metadata.reactions` | `[{ emoji, count, mine }]` in display order (❤️ 👍 😂 😮 😢 🙏); `mine` = the visitor's own | Reaction badge (up to 3 kinds, then the total) and the heart's `aria-pressed`. Put on the message by runtime-late.js from `GET …/reactions` and the `message_reactions` event (§6), only inside its `messagesHtml` wrapper: /history and /poll never carry it | Not rendered |
+| message `metadata` (T2) | `metadata.kind: "conversation_closed"` + `by`, `agent_name` (who closed it), `operator_name` (the operator rated), `status` (`resolved` / `closed`) | object | System line `convClosedBy` `{name}` = `agent_name` (else the workspace), then the CSAT card; written by the server only for a template with `closedNotice` (§6). The stored row also holds `agent_id` and `operator_id`; the visitor never receives them (§6, "What a visitor never receives") | Omit (runtime.js drops the row before a renderer without `closedNotice` sees it) |
+| messages: the `view` argument of `messagesHtml` (T2) | `view.react` *(named here)* | boolean | Reactions can be drawn: the badge (`reactHtml`) under each bubble with `metadata.reactions` and the visitor's heart (`reactBtnHtml`, `data-msg-react`) among a team message's actions; set only by the late pack, so no heart is drawn without the Core that answers it | No badge, no heart |
+| messages: the `view` argument of `messagesHtml` (T1) | `view.queue` *(named here)* | `{ at, position, waitMinutes }`: `at` the index of the queued row it belongs to, `waitMinutes` null without an estimate | Queue pill on the LAST `routing_in_queue` row while nothing after it (a join, a transfer, an operator's message) says the wait is over: `routingInQueue` `{n}` `{min}`, or `routingInQueuePosition` `{n}` without `waitMinutes`. From `GET /api/widget/queue` (§6), polled every 30 s while shown | Production queue text (`routingInQueue` without placeholders) |
+| messages: the `view` argument of `messagesHtml` (T1, T2) | `view.awayReply` *(named here)* | `{ at, email, status, value, error, skip }`: `at` the index of the visitor message captured while away, `email` the contact's address once known, `status` `ask` / `saving` / `saved` / `skipped` (T2), `value` and `error` the card's draft and its message key, `skip` the T2 card may offer «نه ممنون» (email not required) | The local auto-reply row after that message and its email card (`awayReplyHtml`); never a stored message, operators do not see it | No row |
+| messages: the `view` argument of `messagesHtml` (T1) | `view.away` *(named here; not built)* | boolean | The visitor's last message would show `msgSent` instead of the tick while away (07·09); round 3 does not set it, so T1 keeps the ticks | Ticks |
 | loader `setUnread` (T1 Respok) | `setUnread(count, preview)`, `preview { name, avatar, text }` | object | Reply card while the panel is closed (RP1 §4.28) | Badge only |
 
 ---
@@ -219,13 +236,14 @@ Core's table.
 | `prechatCardLabel` | «مشخصات تماس» | Contact details | Form card `aria-label` (today `prechatTitle`, PD:809) |
 | `prechatAskName` | «سلام! برای شروع، اسم‌تون چیه؟» | Hi! To start, what's your name? | Step 1 question (`prechatMode: "steps"`) |
 | `prechatAskEmail` `{name}` | «ممنون علی جان. ایمیل‌تون رو هم بنویسید تا جواب‌ها رو براتون بفرستیم.» | Thanks, Ali. What's your email, so we can send you our replies? | Step 2 question |
+| `prechatAskEmailNoName` *(named here)* | «ایمیل‌تون رو بنویسید تا جواب‌ها رو براتون بفرستیم.» | What's your email, so we can send you our replies? | Step 2 question when no name is known (the name step was skipped or not asked) |
 | `prechatAskPhone` | «اگه بخواید شماره موبایل‌تون رو هم بدید تا پیامکی خبرتون کنیم.» | If you like, add your phone number and we'll text you updates. | Step 3 question |
 | `prechatStep` `{n}` `{total}` | «مرحله ۳ از ۳ · اختیاری» | Step 3 of 3 · optional | Step progress (+ `optional` on an optional step) |
 | `skip` | «رد کردن» | Skip | Skip an optional step |
 | `prechatPhonePhLocal` | «۹۱۲ ۳۴۵ ۶۷۸۹» | 415 555 0132 | Step phone placeholder after the country-code prefix |
 | `prechatPhoneHint` | «برای پیامک پیگیری» | For text updates | Step phone hint |
-| `submit` | «ثبت» | Submit | Step submit `aria-label` |
-| `saved` | «ثبت شد» | Saved | Meta of an accepted step answer |
+| `prechatStepSubmit` (the designs' `submit`) | «ثبت» | Submit | Step submit `aria-label` |
+| `prechatStepSaved` (the designs' `saved`) | «ثبت شد» | Saved | Meta of the newest accepted step answer (08·b) |
 | `prechatSaved` | «مشخصات شما ثبت شد» | Your details are saved | Saved-details summary header |
 | `edit` | «ویرایش» | Edit | Summary edit link (`data-prechat-edit`) |
 | `prechatSavedLabel` | «مشخصات ثبت‌شده» | Saved details | Summary `aria-label` |
@@ -241,6 +259,8 @@ Core's table.
 | `awayAutoReply` | «پیامتون ثبت شد. ایمیلتون رو بگذارید تا پاسخ رو براتون بفرستیم.» | Got your message! Leave your email and we'll send you the reply. | Automated reply in the away thread |
 | `fallbackEmailLabel` | «ایمیل برای دریافت پاسخ» | Email for the reply | E-mail card visible label |
 | `fallbackEmailFormLabel` | «ایمیل برای پاسخ» | Email for the reply | E-mail card form `aria-label`; named here (WY1 gives the string without a key; English from RP1 §8) |
+| `awayRecorded` *(named here)* | «پیامتون ثبت شد.» | Got your message! | The automated reply once the e-mail is known |
+| `awayReplyTo` `{email}` *(named here)* | «پاسخ را به {email} می‌فرستیم.» | We'll send the reply to {email}. | The card under it once the e-mail is known |
 
 ### 4.6 Template 1: help center
 
@@ -296,6 +316,8 @@ Core's table.
 | `simpleAutoReply` | «پاسخ خودکار» | Automatic reply | Meta under the auto reply |
 | `simpleAddMore` | «اگر چیزی اضافه دارید بنویسید…» | Add anything else… | Composer placeholder while away |
 | `convClosedBy` `{name}` | «{name} گفتگو را بست» | Sara closed the conversation | System line when the operator closes the conversation (`metadata.kind: "conversation_closed"`) |
+| `simpleReact` *(named here)* | «پسندیدن» | Like | The visitor's heart (`data-msg-react`): `title` and `aria-label` |
+| `simpleReactions` `{list}` *(named here)* | «واکنش‌ها: ❤️ ۱، 👍 ۲» | Reactions: ❤️ 1, 👍 2 | Reaction badge `aria-label`; `{list}` = "emoji count" pairs joined by the dictionary's separator («، » in Persian, ", " in English and Turkish) |
 
 ### 4.9 Template 2: help center
 
@@ -328,7 +350,13 @@ Core's table.
 | `csat1` … `csat5` | «خیلی بد · بد · معمولی · خوب · عالی» | Very bad · Bad · Okay · Good · Great | Face labels, 1 to 5 (`data-csat-rate`) |
 | `csatComment` | «چیز دیگری هم بگویید (اختیاری)» | Tell us more (optional) | Comment placeholder (`data-csat-comment`) |
 | `csatSend` | «ارسال نظر» | Send feedback | Submit button (`data-csat-submit`) |
-| `csatTranscript` | «ارسال متن گفتگو به ایمیل» | Email me the transcript | Transcript link (`data-csat-transcript`) |
+| `csatTranscript` | «ارسال متن گفتگو به ایمیل» | Email me the transcript | Transcript link (`data-csat-transcript`) and the ⋯ menu item |
+| `csatTranscriptSent` `{email}` *(named here)* | «متن گفتگو به {email} فرستاده شد» | We sent the transcript to {email} | After a sent transcript; `{email}` is the server's masked address (`a•••@example.com`), an isolated LTR run |
+| `menuSound` *(named here)* | «صدای اعلان‌ها» | Notification sounds | ⋯ menu sound item (`data-chat-menu-action="sound"`), T1 and T2 |
+
+The rating card's other states reuse or add renderer copy (`csatThanks`, `csatRated`, `csatGone`, `csatFailed`,
+`csatTranscriptFailed` in the extras files' own dictionaries); `menuEndConversation` and `convEndedByYou` are not used
+(no "end conversation" item, owner 2026-10-17).
 
 ### 4.12 Launcher
 
@@ -364,7 +392,8 @@ Core's table.
 | `wyArticleHelpful` | «این مقاله مفید بود؟» | Was this article helpful? | T1 rating question; Persian today «آیا این مقاله مفید بود؟». T2 uses `kbDidThisHelp` |
 | `wyHelpfulYes`, `wyHelpfulNo` | «بله» / «نه» | Yes / No | T1 rating buttons and the outer T2 faces; today «مفید بود», «مفید نبود» / "Helpful", "Not helpful" |
 | `wyStatusOpen`, `wyStatusResolved` | «باز» · «حل شده» | Open / Resolved | Status tags. **Decided:** «حل شده» (a status adjective) for both templates (T2 boards say «حل شد»: accepted copy difference) |
-| `routingInQueue` `{n}` `{min}` | «نفر ۲ در صف · حدود ۳ دقیقه» | 2nd in line · about 3 minutes | T1 queue pill; new placeholders (position and wait of the `routing_in_queue` row) |
+| `routingInQueue` `{n}` `{min}` | «نفر ۲ در صف · حدود ۳ دقیقه» | 2nd in line · about 3 minutes | T1 queue pill (`view.queue`, §3); new placeholders, in the T1 dictionary: Core's own `routingInQueue` (no placeholders) stays as it is for `default` |
+| `routingInQueuePosition` `{n}` *(named here)* | «نفر ۲ در صف» | 2nd in line | T1 queue pill while there is no wait estimate (fewer than 3 measured claims, or more than 180 minutes) |
 | `you` + ": " | «شما:» | You: | Preview prefix when the visitor sent the last message (`lastFromVisitor`), both templates; a composition, no new key |
 | `kbSwitchToChat` (or `wyTalkToSupport`) | «با تیم پشتیبانی گفتگو کنید» | Chat with our support team | T1 ask card line, now shown always; both T1 specs name the same two candidates (PD:1416 decides) |
 | `dismiss` *(loader)* | «بستن پیام» | Dismiss message | Greeting close (`aria-label`); today «بستن» / "Dismiss". **Decided:** «بستن پیام», matching the English (T1 boards say «بستن اعلان») |
@@ -432,3 +461,181 @@ Do not use these; they appeared in earlier drafts of the specs.
 | `simpleOrderTitle`, `simpleOrderShipped`, `simpleOrderStep…`, `orderStatus*`, `simpleOrderDelivery`, `simpleTrackShipment` | `orderTitle`, `orderStatusShipped`, `orderStep…`, `orderArrives`, `orderTrackPackage` | WY2, RP2 §10 |
 | `simpleClosedBy`, `simpleCsatTitle` … `simpleCsatComment`, `simpleCsatSubmit`, `simpleEmailTranscript` | `convClosedBy`, `csatTitle` … `csatComment`, `csatSend`, `csatTranscript` | WY2 §10 |
 | placeholder `{count}` in `kbResultsCount`, `simpleConversationsSub` | `{n}` | RP2 §10 |
+
+---
+
+## 6. Server names of the late features (issue #340, as built)
+
+The widget calls these only from Core's lazy modules (`public/widget/runtime-ext.js`, `public/widget/runtime-late.js`),
+for a template that declares the feature; `default` and `intl` never do.
+
+**Template descriptor** (`shared/widgetTemplates.ts`): `closedNotice` — the renderer draws the `conversation_closed`
+line and its rating card (t2 only; must equal the renderer's `features.closedNotice`). The server writes the line only
+for a workspace whose **effective** template has it (`server/services/widget/configSnapshot.ts`
+`workspaceChatTemplate`: the catalog, the plan, the choice — the same answer `GET /config` gives; a workspace whose
+widget settings cannot be read counts as wearing the edition's own `default` / `intl`).
+
+**Renderer features and Core capabilities**: a renderer's `features.closedNotice` keeps `conversation_closed` rows
+(runtime.js drops them, before the stores and notify, for a renderer without it); `features.csat` (the rating card,
+`view.csat`, §3) and `features.chatMenu` (the ⋯ menu, the header's `menu`, §3) are run by runtime-late.js.
+`env.capabilities.csat` and `env.capabilities.chatMenu` are true since the API below exists.
+
+**The closed line** (`server/services/conversationClosedNotice.ts`): when an operator closes a widget conversation
+(inbox `PATCH` to `resolved` / `closed`, or "Send & resolve"), one `conversation_messages` row, `sender_type: 'system'`,
+body `"<name> closed the conversation"` (frozen English), `metadata` as in §3, published like any message on
+`ws:<ws>:conv:<cid>`. Never for another channel, never twice with nothing said in between, never failing the
+operator's request. The inbox draws it with `inbox.system.closedBy` / `inbox.system.closed`.
+
+| Endpoint | Body | Answers |
+|---|---|---|
+| `GET /api/widget/conversations/:id/csat` | — (`workspace_id` in the query) | `{ closed_id, rateable, rating: {score, comment, rated_at} \| null, operator: {name, avatar} \| null, transcript: {available, to} }`; 404 `not_found` for a conversation that is not the visitor's |
+| `POST /api/widget/conversations/:id/csat` | `{ workspace_id?, closed_id, rating: 1–5, comment? (≤ 1000) }` | 200 `{ok, rating}`; 400 `invalid_rating`; 403 `csat_disabled` (`code: 'CSAT_DISABLED'`) / `CONVERSATION_ACCESS_DENIED`; 409 `not_ratable` / `already_rated` (+ `rating`); 503 `csat_unavailable` |
+| `POST /api/widget/conversations/:id/transcript` | `{ workspace_id?, locale?, tz? }` (never an address) | 200 `{ok, to}` (masked); 403 `transcript_disabled` (`code: 'TRANSCRIPT_DISABLED'`) / `CONVERSATION_ACCESS_DENIED`; 409 `no_email` / `nothing_to_send`; 429 `rate_limited` (+ `retry_after`, `Retry-After`) / `limit_reached` / `workspace_limit`; 502 `send_failed`; 503 `email_unavailable` |
+
+- Each 403 these routes answer carries a `code`: the widget's `fetchWith` (runtime.js) takes a code-less 401/403 for
+  an expired token, refreshes it and sends the request again.
+- Rating rules: only the closed line the thread ends with (other system rows after it do not count; anything said
+  does), within 7 days, once (`conversation_ratings.closed_message_id` unique), only when a human operator answered.
+  runtime-late.js picks the card's closed row by the same rule (`lastClosed`), so the card and the server agree on
+  which closure is rated (`src/test/widget/afterChatServer.test.ts` runs the shipped widget against the real routes).
+- Transcript rules: only to the email on the conversation's contact, only when a human operator answered, with a
+  platform email provider; 3 sent per conversation, one per 10 minutes, 100 attempts per workspace a day
+  (`conversation_transcript_emails`), plus the widget rate-limit category `transcript` (3 per visitor per 10 minutes,
+  `server/services/widget/security.ts`). The mail is the Super Admin template `visitor_conversation_transcript`
+  (variables `{brand} {year} {workspace} {workspace_name} {date} {transcript} {transcript_text}`), in the visitor's
+  language as the edition allows.
+- Timeline events (`conversation_events`): `rated` `{score, comment, closed_id, operator_id, source}` and
+  `transcript_emailed` `{status, to (masked), messages, source}`; Operator Activity shows satisfaction per operator from
+  `conversation_ratings`.
+- Before migration 276 every read answers "nothing to rate" / unavailable and every write 503, never a 500.
+
+**Realtime** (`server/services/realtime/publish.ts`): the visitor's channel `ws:<ws>:conv:<cid>` carries messages
+(the closed line included), typing and seen as before, and of the operator `event` envelopes only the kinds listed in
+`WIDGET_EVENT_FIELDS`, cut to the fields the widget reads (`call:ended`, `message_reactions`); every other operator event goes to
+`ws:<ws>:inbox` only. A new widget-visible kind must be added there with exactly its fields, pinned by a test. The
+operator typing envelope is `{actor, conversation_id, ts, name?, avatar?}`: the typing operator's public name and
+avatar (as on their messages), never an id, e-mail or role.
+
+**Reactions** (round 3, g2): `shared/messageReactions.ts` holds the rules (the six emojis ❤️ 👍 😂 😮 😢 🙏, who
+reacts to what), `server/services/messageReactions.ts` the storage (`conversation_message_reactions`, migration 276:
+one row per message, actor and emoji; the visitor side has no id) and the live event. Template descriptor
+`reactions` (`shared/widgetTemplates.ts`, t2 only; must equal the renderer's `features.reactions`): the inbox offers
+React only for a workspace whose **effective** template has it (`workspaceShowsReactions`), and only on widget
+conversations, so an operator never reacts where the visitor cannot see it.
+
+| Endpoint | Body | Answers |
+|---|---|---|
+| `GET /api/widget/conversations/:id/reactions` | — (`workspace_id`, optional `visitor_id` / `session_id` in the query, as `/history`) | `{ reactions: { <message_id>: [{emoji, count, mine}] }, at }` (only messages that have any; `at` = ms when read); 403 `CONVERSATION_ACCESS_DENIED`; before 276 `{ reactions: {}, at }` |
+| `POST /api/widget/conversations/:id/reactions` | `{ workspace_id, message_id, emoji: '❤️', on }` | 200 `{ok, message_id, reactions: [{emoji, count, mine}], at}`; 400 `invalid_payload` / `invalid_emoji` (anything but ❤️; a bare U+2764 counts as ❤️); 403 `CONVERSATION_ACCESS_DENIED`; 404 `message_not_found` (another conversation's, or an inbox-only row); 422 `not_reactable` (not a team message: the visitor's own, a system row); 503 `migration_required` |
+| `POST /api/conversations/:id/messages/:messageId/reactions` (inbox) | `{ workspace_id, emoji, on }` (`on: false` also takes back an emoji since dropped from the list) | 200 `{ok, message_id, reactions: [{emoji, count, mine, visitor}], at}`; 400; 401 / 403 (membership, seat or plan lock); 404 `conversation_not_found` / `message_not_found`; 409 `reactions_not_shown`; 422 `reactions_unsupported_channel` / `not_reactable` (only a visitor's message); 503 `migration_required` |
+| `GET /api/conversations/:id/messages` (inbox, existing) | — | each row may gain `reactions: [{emoji, count, mine, visitor}]` (only when it has any) and `can_react: true` (a visitor's message this operator may react to); a change touches the message's `updated_at`, so `?since=` returns it |
+
+- A write sets or takes back (`on`), never toggles: a retry changes nothing. A change publishes the operator event
+  `message_reactions` `{conversation_id, message_id, reactions: [{emoji, count, visitor}], at}` (the inbox channel
+  whole; the visitor's channel cut to these fields by `WIDGET_EVENT_FIELDS`); the widget keeps the newest `at`. No
+  answer or event names who reacted; `mine` is the reader's own. GET `/poll`, `/history`, `/identity/history` and
+  `POST /message` carry no reactions.
+
+**Queue place** (round 3, g4 f2): `GET /api/widget/queue?workspace_id&conversation_id` (optional `visitor_id` /
+`session_id`, ownership as `/history`) → `{ position, wait_minutes }`, two integers or nulls (not waiting: an
+operator has it, it is closed, routing never queued it; and before 276); 403 `CONVERSATION_ACCESS_DENIED`. Routing
+in assignment mode `manual` (`server/services/chatRouting.ts`) writes `metadata.queued_at` when the conversation
+enters the queue (kept while it waits and when an operator hands it back; one older than 24 hours is a new entry)
+and `metadata.queue_entry_position`; `chat_queue_status()` (276) counts the place on the partial index (only the rows
+that wait: unassigned, open or pending, not spam) and gives the wait only from 3 measured claims and up to 180
+minutes. A **hand-back** (an operator unassigns a queued conversation, or a paused seat is released): 276's trigger
+`trg_conversations_queue_return` keeps `queued_at` (the place) and writes `metadata.queue_reentered_at` (when it came
+back) and `queue_entry_position` (at which place) in the same UPDATE; the claim sampler measures the next claim from
+the later of `queued_at` and `queue_reentered_at`; the next routing run posts a new `routing_in_queue` row, once per
+return (`metadata.queue_return_notice_at`), so the visitor's queue pill comes back.
+
+**Away thread** (round 3, g4 f3): `POST /api/widget/offline-messages` takes `client_message_id` (8–64 characters;
+then any non-empty message up to the 5,000 characters `POST /message` takes, and the contact's stored name, email
+and phone without failing on them) and answers `message_id` too; the same id again within 24 hours answers the same
+`conversation_id` and `message_id` without a second insert, push or mail. Without the field (the leave-a-message
+form) the request is checked and answered exactly as before. `POST /api/widget/identity/offline-email`
+`{ workspace_id?, conversation_id, email }` → 200 `{ok, contact_id}`; 400 `Invalid input`; 403
+`CONVERSATION_ACCESS_DENIED` (the signed cookie alone); 409 `not_offline_capture` (only a conversation tagged
+`offline`: never a way around required pre-chat fields); 500 `merge_failed`. The address is an unverified claim,
+merged as pre-chat merges one (never linking to another contact), and the continuity cookie is issued as
+`/identity/prechat` does. Step pre-chat uses `/identity/prechat` unchanged.
+
+**Order card** (round 4, g3): the AI's reply about ONE order its commerce tools read live in that turn (WooCommerce:
+the latest order with its tracking, or an order by number; OpenCart: one order's detail with the shipments read for
+it, never a list) carries `metadata.kind: 'order_status'` and `metadata.order`
+`{v: 1, number, summary, more, status, statusLabel, step, arrives, trackingUrl}`
+(`server/services/ai-agent/commerce-tools/orderCard.ts`): `number` a plain order number (`[A-Za-z0-9#._-]{1,32}`,
+else no card); `summary` the first product line (sanitized, ≤ 80 characters + …) or null, `more` the other product
+lines; `status` one of `pending on_hold processing shipped completed cancelled refunded failed unknown` (`shipped`:
+processing or unknown with a tracking number or link this turn); `statusLabel` the store's own status name (OpenCart,
+≤ 40) or null (WooCommerce); `step` 0–3 (placed · preparing · shipped · delivered; `completed` → 3, all four done) or
+null (no progress row: cancelled, refunded, failed, unknown); `arrives` `YYYY-MM-DD` or null; `trackingUrl` an
+absolute https link (no credentials, ≤ 500, none of the characters the card never links, `\s " ' < > \\`, left in it
+after normalisation) or null: a link the server sends is one the card draws. Only the auto reply's row carries it
+(never a handoff, intro, limit or suggestion), built beside the tool results from the same objects: the prompt, the
+tool results and the text are what they were, and every other reader (default/intl, the inbox, channels, the apps)
+shows the text. Without a card the AI row's metadata is exactly as before. Optional plugin fields (none sent yet):
+`item_summary` / `item_count` on the customer's order list and `estimatedDelivery` on tracking. Renderer feature /
+capability: `orderCard`.
+
+**Track an order** (round 4, g3): `config.commerce = { trackOrder: true }`, right after `templateOptions`, only for a
+template with `coreFeatures` whose workspace has a store the AI can answer "track my order" for
+(`configSnapshot.ts` `getStoreOrders` / `trackOrderEntitlementFor`: a store-family connection, not revoked, in a
+health the gateway accepts, `orders.read` negotiated, the owner's `orders` permission and, for WooCommerce, order
+history on a synced catalogue, for OpenCart the platform policy; the plan's `commerce` and
+`commerce_customer_history` (WooCommerce) or `commerce_orders` (OpenCart)); absent otherwise and for `default` /
+`intl`, which never read `commerce_connections`. Cached 60 s per workspace (a failed read: false, for 5 s), dropped
+by `widget:<ws>`, which a disconnect, a permission change, a pairing and a handshake that changes a store's health
+publish. The row (t2 home, `data-home-action="track-order"`) sends «پیگیری سفارشم» / "Track my order" /
+"Siparişimi takip et" as the first message; each detects as `order_status`. Renderer feature: `trackOrder`.
+
+**Instant answers** (round 4, g3): `GET /api/widget/kb-suggest?workspace_id&q&locale&limit`
+(`server/routes/widgetKbSuggest.ts`, `server/services/knowledge-base/widgetSuggest.ts`), token-secured like every
+widget route (the workspace is the token's; another → 403 `WORKSPACE_MISMATCH`), `Cache-Control: no-store` → 200
+`{ results: [{ slug, title, snippet, matches: [words], readingMinutes }] }`, at most `limit` (clamped to 1–3,
+default 2). Bad input (no `q`, `q` over 200), a draft with nothing to search, no match and a database error all answer
+`{ results: [] }`. The draft's words: punctuation, symbols and control characters out, lower-cased as the database folds case («İ» is «i»), no stopwords
+(`KB_SUGGEST_STOPWORDS`, fa/en/tr) or one-letter words, the four longest of its first 120 characters; only published
+articles shown in the widget (`visible_in_widget`), never one the plan locked; title or summary (never the text); a
+word in the title counts 2, in the summary 1, at least 2 to be shown, the conversation's language breaking ties.
+`matches` are the searched words the row contains, case folded (the tray marks them, escaped, an «i» also marking
+an «İ»); `snippet` up to 120 characters of the summary around the first match, cut at spaces with …; `readingMinutes`
+exactly the article view's formula (`kbReadingMinutes` = runtime-ext.js `kbArticleMeta`: tags to spaces, words / 200,
+rounded, at least 1; `src/test/widget/commerceKbServer.test.ts` pins both, and the route, on one fixture).
+Memos: per (workspace, words) 60 s, only the articles an answer can show for any language and limit, without their
+summaries (≤ 2,000 that found something, ≤ 2,000 that found nothing), the reading time per article version (≤ 20,000).
+Limits of its own: the widget rate-limit category `kb_suggest` (30 a minute per visitor or per address, 300 per
+address; 429 `{code: 'RATE_LIMITED', retry_after}` + `Retry-After`) first, then the process ceiling
+`kbSuggestGlobalCeiling` (`WIDGET_KB_SUGGEST_GLOBAL_PER_MIN`, 1800; 429 `{code: 'PREAUTH_GLOBAL_LIMIT', scope:
+'kb-suggest', retry_after}`): the help center's `/api/widget/kb/*` limits and this one never spend each other.
+Renderer feature / capability: `instantAnswers` (hook `[data-kb-suggest]`, rows `[data-kb-action="open"][data-kb-slug]`).
+
+**Help results** (round 4, g3): `GET /api/widget/kb/search?match=words` (runtime-ext.js `kbSearch`) also gives each
+result `snippet` (≤ 160 characters of its summary around the first match) and `matches` (the words its title or
+summary contains). Without `match=words` (every help center) the rows are exactly as before.
+
+**KB article author** (round 4, g5-2a): `knowledge_base_articles.author_user_id` (migration 276). The widget asks for
+it with `meta=1` on `GET /api/widget/kb/article` (runtime-ext.js `kbMeta`, a renderer declaring `kbAuthor`): the
+article gains `author_name` (the author's `profiles.full_name`, while they are a member of the workspace, ≤ 80
+characters; else null), never `author_user_id`; before 276 the article without a byline, never a 404. Without
+`meta=1` the query and the answer are exactly as before. View-model field `article.author`. The dashboard's write API
+(`server/routes/knowledgeBase.ts`): `author_user_id` absent on create → the creator (when a member), absent on update
+→ unchanged, null → none, any other id must be a member of the workspace (else 400 `invalid_author`); before 276 the
+article is saved without it. The AI's article writers name no author. The editor's select
+(`src/pages/app/knowledge/ArticleEditorPage.tsx`): keys `knowledgeBase.editor.authorLabel` / `authorNone` /
+`authorHint` (fa/en/tr).
+
+**Emoji keywords** (round 4, g5-2c): `config.modules.emoji` (the hashed `runtime-emoji.js`) only for a template with
+`coreFeatures`, next to `modules.ext`; Core requests it only when a visitor first uses the picker's search.
+
+**What a visitor never receives**: an operator's account id. Every message a visitor gets — the visitor's channel
+(`publishConversationEvent`), `GET /poll`, `/history`, `/identity/history` — goes through
+`server/services/realtime/publish.ts` `visitorMessagePayload` / `visitorMessageMetadata`: no `sender_id`, and no
+`actor_id`, `agent_id`, `operator_id`, `from_id`, `to_id`, `assigned_to`, `created_by_user_id` or
+`ended_by_user_id` in `metadata` (a join, a transfer, the closed line, call rows). The widget shows the names next to
+them (`agent_name`, `to_name`, `operator_name`) and groups bubbles by name and avatar. The inbox channel and every
+operator API keep the ids. (An operator's avatar URL is derived from a storage key that names their user id: a
+storage-layout matter, not covered here.)
+
+**Per-visitor setting**: the ⋯ menu's sound switch is remembered in the visitor's `localStorage` under
+`gs:sound:<workspaceId>` (`'0'` while off, removed when on); nothing about it reaches the server.

@@ -1,7 +1,8 @@
 /**
  * The chat widget template catalog (shared/chatTemplateCatalog.ts): the
  * Super Admin's catalog per edition, what a workspace wears, the merged
- * template options, and the validation of a Super Admin save.
+ * template options (with the after-chat ones of issue #340), and the
+ * validation of a Super Admin save.
  *
  * The rule that matters most: with no catalog (no row, a database from
  * before migration 275) every workspace wears the edition's default, so a
@@ -10,7 +11,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   CHAT_TEMPLATE_OPTIONS,
+  CHAT_TEMPLATE_OPTION_KEYS,
+  CHAT_TEMPLATE_PRECHAT_MODES,
   canonicalChatTemplateId,
+  chatTemplateOptionDefaults,
   chatTemplatePickerShown,
   cleanChatTemplateCatalogInput,
   cleanTemplateOptionsInput,
@@ -75,8 +79,8 @@ describe('resolveChatTemplateCatalog — the Super Admin catalog', () => {
     const t1 = c.entries.find((e) => e.id === 't1')!;
     expect(t1.name).toEqual({ fa: 'فیروزه' });
     // An unknown value reads as the code default; topics default to none.
-    expect(t1.options).toEqual({ navStyle: 'vb', navMode: 'both', topics: [] });
-    expect(c.entries.find((e) => e.id === 't2')!.options).toEqual({ topics: [], askExamples: [] });
+    expect(t1.options).toEqual({ navStyle: 'vb', navMode: 'both', topics: [], prechatMode: 'card', transcriptEmail: true });
+    expect(c.entries.find((e) => e.id === 't2')!.options).toEqual({ topics: [], askExamples: [], csat: true, transcriptEmail: true });
     expect(c.entries.find((e) => e.id === 'default')!.options).toEqual({});
   });
 
@@ -159,15 +163,16 @@ describe('template options', () => {
     const c = iranOn({
       t1: { enabled: true, options: { navStyle: 'vc', topics: [{ label: 'ارسال', icon: 'truck' }] } },
     });
-    expect(resolveChatTemplateOptions(c, 't1', {})).toEqual({ navStyle: 'vc', navMode: 'active', topics: [{ label: 'ارسال', icon: 'truck' }] });
-    expect(resolveChatTemplateOptions(c, 't1', { navMode: 'none', askExamples: ['x'], extra: 1 }))
-      .toEqual({ navStyle: 'vc', navMode: 'none', topics: [{ label: 'ارسال', icon: 'truck' }] });
+    const t1Rest = { prechatMode: 'card', transcriptEmail: true };
+    expect(resolveChatTemplateOptions(c, 't1', {})).toEqual({ navStyle: 'vc', navMode: 'active', topics: [{ label: 'ارسال', icon: 'truck' }], ...t1Rest });
+    expect(resolveChatTemplateOptions(c, 't1', { navMode: 'none', askExamples: ['x'], csat: false, extra: 1 }))
+      .toEqual({ navStyle: 'vc', navMode: 'none', topics: [{ label: 'ارسال', icon: 'truck' }], ...t1Rest });
     // An explicit empty list is the workspace's own choice: no topics.
     expect(resolveChatTemplateOptions(c, 't1', { topics: [] }).topics).toEqual([]);
     // An invalid workspace value falls through to the Super Admin's.
     expect(resolveChatTemplateOptions(c, 't1', { navStyle: 'zz' }).navStyle).toBe('vc');
-    expect(resolveChatTemplateOptions(c, 't2', { askExamples: ['سفارشم کی می‌رسد؟'], navMode: 'none' }))
-      .toEqual({ topics: [], askExamples: ['سفارشم کی می‌رسد؟'] });
+    expect(resolveChatTemplateOptions(c, 't2', { askExamples: ['سفارشم کی می‌رسد؟'], navMode: 'none', prechatMode: 'steps' }))
+      .toEqual({ topics: [], askExamples: ['سفارشم کی می‌رسد؟'], csat: true, transcriptEmail: true });
     expect(resolveChatTemplateOptions(c, 'default', { navMode: 'none' })).toEqual({});
   });
 
@@ -270,9 +275,13 @@ describe('cleanChatTemplateCatalogInput — a Super Admin save', () => {
       .toMatchObject({ ok: true });
   });
 
-  it('the International edition accepts only intl', () => {
+  it('the International edition accepts only its own ids (intl and its skins), never the Iranian ones', () => {
     expect(cleanChatTemplateCatalogInput('international', { defaultId: 'intl', templates: [{ id: 'intl', enabled: true }] }, null))
       .toEqual({ ok: true, value: { default: 'intl', items: { intl: { enabled: true } } } });
+    expect(cleanChatTemplateCatalogInput('international', { defaultId: 'intl', templates: [{ id: 't1-intl', enabled: true }] }, null))
+      .toEqual({ ok: true, value: { default: 'intl', items: { 't1-intl': { enabled: true } } } });
+    expect(cleanChatTemplateCatalogInput('iran', { defaultId: 'default', templates: [{ id: 't2-intl', enabled: true }] }, null))
+      .toMatchObject({ ok: false, problem: 'template_not_offered' });
     expect(cleanChatTemplateCatalogInput('international', { defaultId: 'intl', templates: [{ id: 't1', enabled: true }] }, null))
       .toMatchObject({ ok: false, problem: 'template_not_offered' });
   });
@@ -290,7 +299,139 @@ describe('cleanChatTemplateCatalogInput — a Super Admin save', () => {
     const c = resolveChatTemplateCatalog('iran', r.value);
     expect(c.defaultId).toBe('t2');
     expect(enabledChatTemplateIds(c)).toEqual(['t2', 't1']);
-    expect(resolveChatTemplateOptions(c, 't2', {})).toEqual({ topics: [], askExamples: ['کی می‌رسد؟'] });
+    expect(resolveChatTemplateOptions(c, 't2', {})).toEqual({ topics: [], askExamples: ['کی می‌رسد؟'], csat: true, transcriptEmail: true });
     expect(resolveWorkspaceChatTemplate(c, 'default')).toBe('t2');
+  });
+});
+
+describe('the after-chat options (issue #340): csat, transcriptEmail, prechatMode', () => {
+  it('who reads which: the rating card is Template 2\'s, the transcript both new templates\', the step form Template 1\'s', () => {
+    expect(CHAT_TEMPLATE_OPTIONS.t1).toEqual(['navStyle', 'navMode', 'topics', 'prechatMode', 'transcriptEmail']);
+    expect(CHAT_TEMPLATE_OPTIONS.t2).toEqual(['topics', 'askExamples', 'csat', 'transcriptEmail']);
+    expect(CHAT_TEMPLATE_OPTIONS.default).toEqual([]);
+    expect(CHAT_TEMPLATE_OPTIONS.intl).toEqual([]);
+    expect(CHAT_TEMPLATE_OPTION_KEYS).toEqual(expect.arrayContaining(['prechatMode', 'csat', 'transcriptEmail']));
+    expect(CHAT_TEMPLATE_PRECHAT_MODES).toEqual(['card', 'steps']);
+  });
+
+  it('defaults: both switches on, the card form', () => {
+    expect(chatTemplateOptionDefaults('t2')).toMatchObject({ csat: true, transcriptEmail: true });
+    expect(chatTemplateOptionDefaults('t1')).toMatchObject({ prechatMode: 'card', transcriptEmail: true });
+    expect(chatTemplateOptionDefaults('default')).toEqual({});
+  });
+
+  it('only booleans and the two modes are valid; anything else is refused by name or read as the level above', () => {
+    expect(cleanTemplateOptionsInput({ csat: false, transcriptEmail: true, prechatMode: 'steps' }))
+      .toEqual({ ok: true, value: { csat: false, transcriptEmail: true, prechatMode: 'steps' } });
+    for (const bad of ['false', 0, 1, null, 'yes']) {
+      expect(cleanTemplateOptionsInput({ csat: bad }), String(bad)).toMatchObject({ ok: false, key: 'csat' });
+      expect(cleanTemplateOptionsInput({ transcriptEmail: bad }), String(bad)).toMatchObject({ ok: false, key: 'transcriptEmail' });
+    }
+    for (const bad of ['Steps', 'wizard', '', true]) {
+      expect(cleanTemplateOptionsInput({ prechatMode: bad }), String(bad)).toMatchObject({ ok: false, key: 'prechatMode' });
+    }
+    expect(readTemplateOptions({ csat: 'false', transcriptEmail: false, prechatMode: 'wizard' })).toEqual({ transcriptEmail: false });
+  });
+
+  it('merge: a Super Admin default off, a workspace turning it back on; a key the template does not read is dropped', () => {
+    const c = iranOn({ t2: { enabled: true, order: 2, options: { csat: false, transcriptEmail: false } } });
+    expect(resolveChatTemplateOptions(c, 't2', {})).toMatchObject({ csat: false, transcriptEmail: false });
+    expect(resolveChatTemplateOptions(c, 't2', { csat: true })).toMatchObject({ csat: true, transcriptEmail: false });
+    expect(resolveChatTemplateOptions(c, 't2', { csat: 'on' })).toMatchObject({ csat: false });
+    expect(resolveChatTemplateOptions(c, 't1', { csat: false, prechatMode: 'steps' })).not.toHaveProperty('csat');
+    expect(resolveChatTemplateOptions(c, 't1', { prechatMode: 'steps' }).prechatMode).toBe('steps');
+    // A Super Admin save keeps them per template.
+    const saved = cleanChatTemplateCatalogInput('iran', {
+      defaultId: 'default',
+      templates: [
+        { id: 't1', enabled: true, options: { prechatMode: 'steps', transcriptEmail: false, csat: false } },
+        { id: 't2', enabled: true, options: { csat: false } },
+      ],
+    }, null);
+    if (!saved.ok) throw new Error('save refused');
+    expect(saved.value.items?.t1?.options).toEqual({ prechatMode: 'steps', transcriptEmail: false });
+    expect(saved.value.items?.t2?.options).toEqual({ csat: false });
+    expect(cleanChatTemplateCatalogInput('iran', { defaultId: 'default', templates: [{ id: 't2', enabled: true, options: { csat: 'no' } }] }, null))
+      .toMatchObject({ ok: false, problem: 'invalid_template_options', id: 't2' });
+  });
+
+  it('only Template 2 (and the International skin over it) draws the closed line (descriptor closedNotice): the server writes it for no other workspace', () => {
+    const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
+    expect(ids.filter((id) => CHAT_WIDGET_TEMPLATES[id].closedNotice)).toEqual(['t2', 't2-intl']);
+    // That it is the renderer's own features.closedNotice: runtimeExt.test.ts.
+  });
+});
+
+describe('the International edition\'s skins over Templates 1 and 2 (t1-intl, t2-intl) and their logo direction', () => {
+  it('are offered next to intl, which stays the default and the only one on until the Super Admin enables them', () => {
+    expect(EDITION_CHAT_WIDGET_TEMPLATES.international).toEqual({ default: 'intl', offered: ['intl', 't1-intl', 't2-intl'] });
+    for (const stored of [null, {}, { items: { intl: { enabled: true } } }]) {
+      const c = resolveChatTemplateCatalog('international', stored);
+      expect(enabledChatTemplateIds(c)).toEqual(['intl']);
+      expect(c.entries.map((e) => e.id)).toEqual(['intl', 't1-intl', 't2-intl']);
+      for (const requested of ['t1-intl', 't2-intl', 't1', 'intl', null]) expect(resolveWorkspaceChatTemplate(c, requested)).toBe('intl');
+    }
+    const on = resolveChatTemplateCatalog('international', { items: { 't1-intl': { enabled: true } } });
+    expect(enabledChatTemplateIds(on)).toEqual(['intl', 't1-intl']);
+    expect(resolveWorkspaceChatTemplate(on, 'T1-INTL ')).toBe('t1-intl');
+    expect(resolveWorkspaceChatTemplate(on, 't1')).toBe('intl');
+    expect(resolveWorkspaceChatTemplate(on, 't2-intl')).toBe('intl');
+    // The Iranian edition never wears them, whatever its row says.
+    const iran = iranOn({ 't1-intl': { enabled: true } });
+    expect(enabledChatTemplateIds(iran)).not.toContain('t1-intl');
+    expect(resolveWorkspaceChatTemplate(iran, 't1-intl')).toBe('default');
+    expect(canonicalChatTemplateId('iran', 't2-intl')).toBeNull();
+  });
+
+  it('read what their renderer reads, and the logo direction (no other template does)', () => {
+    expect(CHAT_TEMPLATE_OPTIONS['t1-intl']).toEqual(['logoDirection', ...CHAT_TEMPLATE_OPTIONS.t1]);
+    expect(CHAT_TEMPLATE_OPTIONS['t2-intl']).toEqual(['logoDirection', ...CHAT_TEMPLATE_OPTIONS.t2]);
+    expect(CHAT_TEMPLATE_OPTION_KEYS).toContain('logoDirection');
+    for (const id of Object.keys(CHAT_TEMPLATE_OPTIONS) as Array<keyof typeof CHAT_TEMPLATE_OPTIONS>) {
+      expect(CHAT_TEMPLATE_OPTIONS[id].includes('logoDirection'), id).toBe(id === 't1-intl' || id === 't2-intl');
+    }
+    expect(chatTemplateOptionDefaults('t1-intl')).toMatchObject({ logoDirection: 'thread', navStyle: 'vb', prechatMode: 'card' });
+    expect(chatTemplateOptionDefaults('t2-intl')).toMatchObject({ logoDirection: 'thread', csat: true, transcriptEmail: true });
+  });
+
+  it('logo direction: code default thread, the Super Admin\'s brand default, the workspace\'s own over it', () => {
+    const c = resolveChatTemplateCatalog('international', {
+      items: { 't1-intl': { enabled: true, options: { logoDirection: 'open' } }, 't2-intl': { enabled: true } },
+    });
+    expect(c.entries.find((e) => e.id === 't1-intl')!.options.logoDirection).toBe('open');
+    expect(resolveChatTemplateOptions(c, 't1-intl', {}).logoDirection).toBe('open');
+    expect(resolveChatTemplateOptions(c, 't1-intl', { logoDirection: 'thread' }).logoDirection).toBe('thread');
+    expect(resolveChatTemplateOptions(c, 't2-intl', {}).logoDirection).toBe('thread');
+    expect(resolveChatTemplateOptions(c, 't2-intl', { logoDirection: 'open' }).logoDirection).toBe('open');
+    // A stored value that is not a direction reads as the level above.
+    expect(resolveChatTemplateOptions(c, 't1-intl', { logoDirection: 'sideways' }).logoDirection).toBe('open');
+    expect(readTemplateOptions({ logoDirection: 'OPEN' }, ['logoDirection'])).toEqual({});
+    // intl itself does not read it (its launcher and footer stay Thread).
+    expect(resolveChatTemplateOptions(c, 'intl', { logoDirection: 'open' })).toEqual({});
+  });
+
+  it('a save with a direction that is not one is refused by name; a good one is kept', () => {
+    expect(cleanTemplateOptionsInput({ logoDirection: 'sideways' }, CHAT_TEMPLATE_OPTIONS['t1-intl']))
+      .toEqual({ ok: false, problem: 'invalid_template_options', key: 'logoDirection' });
+    expect(cleanTemplateOptionsInput({ logoDirection: 'open', navMode: 'icon' }, CHAT_TEMPLATE_OPTIONS['t1-intl']))
+      .toEqual({ ok: true, value: { logoDirection: 'open', navMode: 'icon' } });
+    // Dropped (not refused) for a template that does not read it.
+    expect(cleanTemplateOptionsInput({ logoDirection: 'open' }, CHAT_TEMPLATE_OPTIONS.t1)).toEqual({ ok: true, value: {} });
+    expect(cleanChatTemplateCatalogInput('international', {
+      defaultId: 'intl',
+      templates: [{ id: 't2-intl', enabled: true, options: { logoDirection: 'diagonal' } }],
+    }, null)).toMatchObject({ ok: false, problem: 'invalid_template_options', id: 't2-intl' });
+    const saved = cleanChatTemplateCatalogInput('international', {
+      defaultId: 't1-intl',
+      templates: [{ id: 't1-intl', enabled: true, options: { logoDirection: 'open' } }],
+    }, null);
+    expect(saved).toEqual({ ok: true, value: { default: 't1-intl', items: { 't1-intl': { enabled: true, options: { logoDirection: 'open' } } } } });
+  });
+
+  it('the server resolver: the International skins only with the catalog on', () => {
+    expect(resolveEditionWidgetTemplateId('international', 't1-intl')).toBe('intl');
+    expect(resolveEditionWidgetTemplateId('iran', 't1-intl')).toBe('default');
+    const on = resolveChatTemplateCatalog('international', { items: { 't2-intl': { enabled: true } } });
+    expect(resolveEditionWidgetTemplateId('international', 't2-intl', on)).toBe('t2-intl');
   });
 });

@@ -82,7 +82,28 @@ describe('widget presentation — template registry', () => {
       });
       expect(registry.resolve(id).skin).toBeUndefined();
     }
-    expect(registry.list().map((d) => d.id)).toEqual(['default', 'intl', 't1', 't2']);
+    // The International edition's skins over them: the renderer (its global,
+    // stylesheet and extras) is t1's / t2's, the skin their own.
+    for (const base of ['t1', 't2']) {
+      expect(registry.resolve(`${base}-intl`)).toMatchObject({
+        id: `${base}-intl`,
+        globalKey: `__gs_presentation_${base}`,
+        script: `presentation-${base}.js`,
+        style: `presentation-${base}.css`,
+        skin: `presentation-${base}-intl.css`,
+        fonts: 'presentation-default-fonts.css',
+        extras: `presentation-${base}-x.js`,
+      });
+    }
+    expect(registry.list().map((d) => d.id)).toEqual(['default', 'intl', 't1', 't2', 't1-intl', 't2-intl']);
+  });
+
+  it('resolves only its own ids: a name every object inherits is unknown (the default)', () => {
+    new Function(REGISTRY_SRC).call(window);
+    const registry = win().__gs_presentation_registry;
+    for (const id of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(registry.resolve(id).id, id).toBe('default');
+    }
   });
 
   it('has no trace of the removed classic template', () => {
@@ -201,6 +222,61 @@ describe('widget presentation — default renderer contract', () => {
     });
     expect(html).toContain('dir="rtl"');
     expect(html).toContain('سلام');
+  });
+});
+
+// The owner-approved fix to `default` (and `intl`, the same renderer) of
+// issue #340 (g5-3b): an operator's name reached Core's sentences through
+// String.replace (`$&`, `$'`, `` $` ``, `$$` expanded) and the call card
+// escaped it twice ("A&B" read "A&amp;B").
+describe('widget presentation — default puts names into Core\'s sentences literally', () => {
+  const own: Record<string, string> = {
+    routingAgentJoined: '{name} پیوست',
+    ciHeadlineAudioFrom: '{op} تماس می‌گیرد',
+    ciHeadlineVideoFrom: '{op} تماس تصویری می‌گیرد',
+  };
+  function make() {
+    new Function(REGISTRY_SRC).call(window);
+    new Function(RENDERER_SRC).call(window);
+    const mod = win()[win().__gs_presentation_registry.resolve('default').globalKey];
+    // No escapeHtml: the renderer's own (quotes included), as Core's.
+    return mod.create({ t: (k: string) => own[k] ?? k, config: {}, locale: 'fa' });
+  }
+  const parse = (html: string) => {
+    const box = document.createElement('div');
+    box.innerHTML = html;
+    return box;
+  };
+  const call = (meta: Record<string, unknown>) => ({ senderType: 'system', createdAt: new Date().toISOString(), metadata: { kind: 'call_invitation', invitation_id: 'i1', ...meta } });
+
+  it.each(["A$'B$&C$`D$$E", 'A&B <i>x</i> "q" \'s'])('%s: the join row and the call card say it once, literally', (name) => {
+    const r = make();
+    const joined = parse(r.routingOutcomeRowHtml({ senderType: 'system', metadata: { kind: 'routing_agent_joined', agent_name: name } }));
+    expect(joined.querySelector('.msg-system-pill')!.textContent).toBe(name + ' پیوست');
+    const moved = parse(r.routingOutcomeRowHtml({ senderType: 'system', metadata: { kind: 'conversation_transferred', to_name: name } }));
+    expect(moved.querySelector('.msg-system-pill')!.textContent).toBe(name + ' پیوست');
+    for (const [channel, suffix] of [['audio', ' تماس می‌گیرد'], ['video', ' تماس تصویری می‌گیرد']]) {
+      for (const status of ['pending', 'joined']) {
+        const card = parse(r.callInvitationCardHtml(call({ channel, status, operator_name: name })));
+        expect(card.querySelector('.ci-title')!.textContent, `${channel} ${status}`).toBe(name + suffix);
+        expect(card.querySelector('.ci-title i'), 'never markup').toBeNull();
+      }
+    }
+  });
+
+  it('without a name: the generic sentences, as before', () => {
+    const r = make();
+    expect(parse(r.routingOutcomeRowHtml({ senderType: 'system', metadata: { kind: 'routing_agent_joined' } })).textContent).toBe('routingAgentJoinedGeneric');
+    expect(parse(r.callInvitationCardHtml(call({ channel: 'audio', status: 'joined' }))).querySelector('.ci-title')!.textContent).toBe('ciHeadlineAudio');
+  });
+
+  it('a call status named after an Object.prototype key draws no state text, never prototype text', () => {
+    const r = make();
+    for (const status of ['constructor', 'toString', '__proto__', 'valueOf']) {
+      const card = parse(r.callInvitationCardHtml(call({ channel: 'audio', status })));
+      expect(card.querySelector('.ci-status')!.textContent, status).toBe('');
+      expect(card.textContent, status).not.toMatch(/function|native code|\[object/);
+    }
   });
 });
 

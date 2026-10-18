@@ -31,9 +31,30 @@
  *   prechatSummary       `R.prechatSummaryHtml(contact)` after a submit, `[data-prechat-edit]`
  *   recSend, vnRate      stop-and-send `[data-rec-send]`, preview speed `[data-vn-rate]`
  *   clock                `R.format.clock(seconds)` for every timer Core writes
- *   emojiTabs            `[data-emoji-tab]` scrolls its `[data-emoji-group]` into view
+ *   emojiTabs            `[data-emoji-tab]` scrolls its `[data-emoji-group]` into view; a grid
+ *                        from the renderer's extras (`R.emojiPickerHtml()`) is put in when they come
  *   visitorName          home greets the visitor by name (waits for the identity)
  *   conversationOperator conversation rows carry the operator and who wrote last
+ *   closedNotice         runtime.js keeps `conversation_closed` rows (the "closed the
+ *                        conversation" line) only for such a renderer
+ *   csat, chatMenu       the rating card and the chat bar's menu: runtime-late.js
+ *   reactions, prechatSteps, awayThread, queuePosition
+ *                        a message's reactions, the pre-chat one question at a time, the
+ *                        message left while the team is away, the place in the queue:
+ *                        runtime-late.js (this module's hooks `reaction`, `inline`,
+ *                        `away`, `send` answer nothing of their own)
+ *   instantAnswers, emojiSearch, dlProgress
+ *                        help articles while the first message is written, the emoji
+ *                        picker's search, a download's progress: runtime-late.js (its
+ *                        `media` hook reads an attachment's body)
+ *   kbAuthor             an article's author (`meta=1`, `article.author`)
+ *
+ * It also brings the late pack, for a renderer whose descriptor names
+ * extras (`presentation-<renderer>-x.js`): the renderer's extras and Core's
+ * runtime-late.js, asked for together after the first paint and applied
+ * together or not at all (see "The late pack" below). runtime-late.js
+ * registers its handlers on the same hooks (`api.on`); each hook runs this
+ * module's own handler first, then the late ones.
  *
  * Public API (window.__gs_mod_ext): create(<the instance's parts>) → the
  * hooks runtime.js runs. Brand-neutral: it ships in every build as is.
@@ -47,7 +68,7 @@
   function create(
     P, ctx, panel, chatQ, identity, chatUI, kbUI, ModuleLoader, ConvEpoch,
     shellStore, chatStore, presenceStore, conversationsStore, notifyStore, identityStore, kbStore,
-    attachmentStore, transportStore,
+    attachmentStore, transportStore, uiPrefsStore,
     renderBody, renderHome, switchTab, deriveChatTabState, setDraftFor, currentDraftKey, trySend,
     restoreDraftToInput, applyComposerState, syncAttachButton, showAiThinking, finishRecording,
     renderVoicePreview, earlyCalls
@@ -70,6 +91,7 @@
     var kb = kbUI.x;
 
     function feat(name) { return !!(P.features && P.features[name]); }
+    function noop() {}
     function each(root, sel, fn) { Array.prototype.forEach.call(root.querySelectorAll(sel), fn); }
     function onClick(root, sel, fn) {
       each(root, sel, function (el) { el.addEventListener('click', function (ev) { fn(el, ev); }); });
@@ -165,10 +187,11 @@
       }
       return null;
     }
-    // Typing events carry no name: the person drawn is the current operator,
-    // else the first team member who is online.
-    function typingPerson() {
-      var op = currentOperator() || teamMembers.filter(function (m) { return m && m.online; })[0] || {};
+    // The person an operator's typing event names (`p.name`, `p.avatar`),
+    // else the current operator, else the first team member who is online.
+    function typingPerson(p) {
+      var op = p && typeof p.name == 'string' && p.name.trim() ? { name: p.name.trim().slice(0, 80), avatar: typeof p.avatar == 'string' ? p.avatar : null }
+        : currentOperator() || teamMembers.filter(function (m) { return m && m.online; })[0] || {};
       return { name: op.name || '', avatar: op.avatar || null };
     }
     var operatorTyping = null;
@@ -197,6 +220,9 @@
 
     // The renderer's chat header, repainted whenever what it shows changes.
     var chatHeaderSignature = null;
+    // Forced: what the late module adds to the header (its menu) is not in
+    // the signature.
+    function repaintChatHeader() { chatHeaderSignature = null; paintChatHeader(); }
     function paintChatHeader() {
       if (!feat('chatHeader') || typeof P.chatHeaderHtml !== 'function') return;
       var header = chatQ('[data-chat-header]');
@@ -775,6 +801,132 @@
       });
     }
 
+    // ═══ The late pack: the renderer's extras + runtime-late.js ═══
+    // What no first paint needs comes after it, in two hashed files asked
+    // for together: the renderer's extras (its descriptor's `extras`,
+    // `config.modules.extras`; markup it draws only once `P.extend()` took
+    // them) and Core's late module (runtime-late.js, `config.modules.late`;
+    // the code of the features that markup needs). Asked for once the first
+    // paint is done (the browser's next idle moment, 2 s at most), at once
+    // when the chat view is painted or a control needs them, and applied
+    // together or not at all: a file from another deploy or template (a
+    // canonical-name fallback) is refused by its id and version, and then
+    // neither is used and their features stay off. If the renderer was
+    // asked for a surface before they were in, Core repaints once.
+    var LATE_V = 2;
+    var registry = window.__gs_presentation_registry;
+    var desc = registry && typeof registry.resolve === 'function' ? registry.resolve(config.templateId) : null;
+    var lateFile = typeof P.extend === 'function' && desc && desc.extras;
+    var lateState = lateFile ? 0 : 3; // 0 not asked, 1 on its way, 2 in, 3 off (failed, refused or none)
+    var latePlanned = false;
+    var lateWaiting = [];
+    var lateHooks = null;   // the late module's handlers, by hook, once the pack is in
+    var lateTaking = null;  // the same while its create() runs
+    var hooks;              // this module's hooks (below)
+    // runtime-late.js builds on this module's own surface (its `api`).
+    var api = {
+      P: P, ctx: ctx, panel: panel, chatQ: chatQ, identity: identity, chatUI: chatUI, kbUI: kbUI,
+      ModuleLoader: ModuleLoader, ConvEpoch: ConvEpoch,
+      shellStore: shellStore, chatStore: chatStore, presenceStore: presenceStore, conversationsStore: conversationsStore,
+      notifyStore: notifyStore, identityStore: identityStore, kbStore: kbStore, attachmentStore: attachmentStore,
+      transportStore: transportStore, uiPrefsStore: uiPrefsStore,
+      renderBody: renderBody, renderHome: renderHome, switchTab: switchTab, deriveChatTabState: deriveChatTabState,
+      trySend: trySend, applyComposerState: applyComposerState, syncAttachButton: syncAttachButton, showPrechatSummary: showPrechatSummary,
+      feat: feat, each: each, onClick: onClick, wrap: wrap, currentOperator: currentOperator,
+      startConversationWith: startConversationWith, loadLatePack: loadLatePack, paintChatHeader: repaintChatHeader,
+      /** Registers `fn` on hook `name` (one runtime.js runs); false for any other name. */
+      on: function (name, fn) {
+        var table = lateHooks || lateTaking;
+        if (!table || typeof fn !== 'function' || !Object.prototype.hasOwnProperty.call(hooks, name)) return false;
+        (table[name] = table[name] || []).push(fn);
+        return true;
+      },
+    };
+    /**
+     * Applies both files, or neither: 0 (refused), 1 (in) or 2 (in, and a
+     * surface was missed). The renderer is asked first whether it takes the
+     * extras (a dry run), then the late module is created (its handlers held
+     * aside), then the renderer takes them: a module that throws leaves both
+     * out, so no surface is ever drawn without its Core.
+     */
+    function applyLatePack(extras, late) {
+      var r = 0;
+      lateTaking = {};
+      try {
+        if (late && late.v === LATE_V && typeof late.create === 'function' && P.extend(extras, true)) {
+          late.create(api);
+          r = P.extend(extras);
+        }
+      } catch (e) { r = 0; }
+      if (r) lateHooks = lateTaking;
+      lateTaking = null;
+      return r;
+    }
+    // `early`: applied before the first paint, which follows anyway.
+    function settleLatePack(r, early) {
+      lateState = r ? 2 : 3;
+      paintEmojiGrid(!!r);
+      // The chat bar is part of the frame too: its late parts (the menu) come now.
+      if (r) repaintChatHeader();
+      if (r > 1 && !early) renderBody();
+      var waiting = lateWaiting;
+      lateWaiting = [];
+      waiting.forEach(function (cb) { cb(!!r); });
+    }
+    /** Asks for the pack now (once); `cb(ok)` runs when it settled. */
+    function loadLatePack(cb) {
+      if (lateState > 1) { if (typeof cb === 'function') cb(lateState === 2); return; }
+      if (typeof cb === 'function') lateWaiting.push(cb);
+      if (lateState) return;
+      lateState = 1;
+      var extras = null;
+      var late = null;
+      var pending = 2;
+      function done() { if (!--pending) settleLatePack(applyLatePack(extras, late)); }
+      ModuleLoader.loadFor(ctx, 'extras', lateFile, function (mod) { extras = mod; done(); });
+      ModuleLoader.loadFor(ctx, 'late', 'runtime-late.js', function (mod) { late = mod; done(); });
+    }
+    // After a paint: the chat view (a composer the visitor is about to use)
+    // asks at once, any other view at the browser's next idle moment. A
+    // skeleton is not that paint: what it waits for (the visitor, the
+    // threads, a history) comes first, and its real paint asks.
+    function planLatePack() {
+      var view = body && body.firstElementChild;
+      if (lateState || (view && view.classList.contains('wy-skeleton'))) return;
+      if (shellStore.get().activeTab === 'chat') { loadLatePack(); return; }
+      if (latePlanned) return;
+      latePlanned = true;
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(function () { loadLatePack(); }, { timeout: 2000 });
+      } else setTimeout(function () { loadLatePack(); }, 300);
+    }
+    // t1 draws its grouped emoji from its extras: until they are in, the
+    // picker Core keeps holds none, so the first press on the emoji button
+    // asks for them at once and opens the picker when they are in; without
+    // them the button goes (a picker with nothing to pick is a dead control).
+    var emojiBtn = chatQ('[data-emoji-btn]');
+    var lateEmoji = typeof P.emojiPickerHtml === 'function' && !!emojiPickerEl && !!emojiBtn;
+    function paintEmojiGrid(ok) {
+      if (!lateEmoji) return;
+      lateEmoji = false;
+      if (ok) emojiPickerEl.innerHTML = P.emojiPickerHtml();
+      // Extras without a grid are no grid either.
+      if (emojiPickerEl.querySelector('[data-emoji]:not([hidden])')) return;
+      emojiPickerEl.hidden = true;
+      emojiBtn.hidden = true;
+    }
+    if (lateEmoji) {
+      panel.addEventListener('click', function (ev) {
+        var target = ev.target;
+        if (!lateEmoji || !target || !target.closest || !target.closest('[data-emoji-btn]')) return;
+        ev.stopPropagation();
+        loadLatePack(function () {
+          // Opened by Core's own toggle, as a press would.
+          if (!emojiBtn.hidden && emojiPickerEl.hidden && panel.contains(emojiBtn)) emojiBtn.click();
+        });
+      }, true);
+    }
+
     // ═══ Wiring ═══
     // A bottom-menu tab is repainted with its view: focus moves to the new
     // view's own tab instead of falling to nowhere. The pressed tab is read
@@ -815,7 +967,7 @@
     (earlyCalls || []).forEach(function (call) {
       if (call[0] === 'conv') { mapConversation(call[1], call[2]); earlyRows[call[1].id] = call[2]; }
       else if (call[0] === 'history') adoptHistory(call[1], call[2]);
-      else if (call[0] === 'typing') setOperatorTypingVm(call[1] ? typingPerson() : null);
+      else if (call[0] === 'typing') setOperatorTypingVm(call[1] ? typingPerson(call[2]) : null);
     });
     replaying = false;
     ((conversationsStore.get() || {}).items || []).forEach(function (vm) {
@@ -833,12 +985,13 @@
     }
 
     // The hooks runtime.js runs (`ext(name, …)`).
-    return {
+    hooks = {
       // ── renderBody / home / list ──
       body: function () {
         markActiveTab();
         if (prechatPainted) bindPrechatSkip(panel);
         prechatPainted = false;
+        planLatePack();
       },
       // Home waits for the visitor's identity to greet them by name.
       wait: function () { return feat('visitorName') && !identityStore.get().loaded; },
@@ -872,7 +1025,9 @@
           });
         }
         if (feat('homeAsk') || feat('kbSearch')) bindHomeFields(homeKeep);
-        if (feat('topics')) onClick(root, '[data-topic]', function (el) { startConversationWith(el.getAttribute('data-topic')); });
+        // A topic (the track-order row is one) starts one conversation: a
+        // second press on the home it left behind does nothing.
+        if (feat('topics')) onClick(root, '[data-topic]', function (el) { if (el.isConnected) startConversationWith(el.getAttribute('data-topic')); });
       },
       conv: mapConversation,
       noIntro: function () { return introSuppressedEpoch === ConvEpoch.get(); },
@@ -901,7 +1056,7 @@
         if (summaryPainted) wirePrechatSummary(root);
       },
       history: adoptHistory,
-      typing: function (on) { setOperatorTypingVm(on ? typingPerson() : null); },
+      typing: function (on, p) { setOperatorTypingVm(on ? typingPerson(p) : null); },
       presence: function (s) {
         if (!feat('chatHeader')) return false;
         renderHeaderPresence(s);
@@ -971,6 +1126,7 @@
           vm.article.updatedAt = article.updated_at || null;
           vm.article.categoryTitle = cat ? cat.name : null;
           vm.article.readingMinutes = Math.max(1, Math.round(words / 200));
+          if (feat('kbAuthor')) vm.article.author = String(article.author_name || '').trim() || null;
         }
       },
       kbPaint: function () {
@@ -1006,9 +1162,47 @@
         return feat('kbSearch');
       },
       kbBack: stepBack,
+      // An article's author is asked for (`meta=1`) only for a renderer that draws it.
+      kbMeta: function () { return feat('kbAuthor') ? 1 : undefined; },
       kbOpen: function () { if (kb.view !== 'article') articleFrom = kb.view; },
       kbRender: function () { if (searchOnRender) { searchOnRender = false; searchNow(); } },
+
+      // ── runtime-late.js only (nothing of this module's own) ──
+      reaction: noop,
+      inline: noop,
+      away: noop,
+      send: noop,
+      media: noop,
     };
+    // Each hook runs this module's own handler, then the late module's for
+    // it (runtime-late.js `api.on`), in the order they were registered:
+    // each gets the hook's arguments and the answer so far, and an answer
+    // of its own (anything but undefined) replaces it, so a late handler
+    // may consume a call (true) or override a value. One that throws is
+    // skipped. Before the late pack is in, and without it, only this
+    // module's own run.
+    Object.keys(hooks).forEach(function (name) {
+      var own = hooks[name];
+      hooks[name] = function (a, b) {
+        var out = own(a, b);
+        var list = lateHooks && lateHooks[name];
+        for (var i = 0; list && i < list.length; i++) {
+          try {
+            var r = list[i](a, b, out);
+            if (r !== undefined) out = r;
+          } catch (_) {}
+        }
+        return out;
+      };
+    });
+    // A pack already in the page (an earlier instance's, or one its host
+    // put there, as the screenshot harness does) is applied before the
+    // first paint; else it comes after it (planLatePack). A renderer with
+    // nothing to come sets aside what would wait for it.
+    var early = lateFile && window.__gs_mod_extras && window.__gs_mod_late
+      ? applyLatePack(window.__gs_mod_extras, window.__gs_mod_late) : 0;
+    if (early || lateState === 3) settleLatePack(early, true);
+    return hooks;
   }
 
   window.__gs_mod_ext = { create: create };

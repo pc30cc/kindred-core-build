@@ -6,14 +6,23 @@
  *   default — header, welcome card, list rows, a button;
  *   t1      — coloured hero, cards over it, a bottom menu;
  *   t2      — coloured hero with an ask field and topic chips, no menu.
+ * A skin over a renderer (`t1-intl`, `t2-intl`) has its renderer's shape.
  */
 import { cn } from '@/lib/utils';
+import { chatWidgetTemplate } from '../../../../shared/widgetTemplates';
 
 const SURFACE = 'hsl(var(--background))';
 const MUTED = 'hsl(var(--muted))';
 const LINE = 'hsl(var(--border))';
 
+/** The layout a template draws: its renderer's (a skin's is the renderer it restyles). */
+function shapeOf(id: string): string {
+  const script = chatWidgetTemplate(id)?.script;
+  return script === 'presentation-t1.js' ? 't1' : script === 'presentation-t2.js' ? 't2' : 'default';
+}
+
 export function TemplateSketch({ id, className }: { id: string; className?: string }) {
+  const shape = shapeOf(id);
   return (
     <svg
       viewBox="0 0 120 150"
@@ -22,7 +31,7 @@ export function TemplateSketch({ id, className }: { id: string; className?: stri
       className={cn('h-auto w-full rounded-lg text-primary', className)}
     >
       <rect x="0.5" y="0.5" width="119" height="149" rx="10" fill={SURFACE} stroke={LINE} />
-      {id === 't1' ? (
+      {shape === 't1' ? (
         <>
           <path d="M1 11a10 10 0 0 1 10-10h98a10 10 0 0 1 10 10v51H1z" fill="currentColor" />
           <rect x="12" y="14" width="16" height="16" rx="5" fill={SURFACE} opacity=".9" />
@@ -39,7 +48,7 @@ export function TemplateSketch({ id, className }: { id: string; className?: stri
           <circle cx="60" cy="134.5" r="3" fill={MUTED} />
           <circle cx="84" cy="134.5" r="3" fill={MUTED} />
         </>
-      ) : id === 't2' ? (
+      ) : shape === 't2' ? (
         <>
           <path d="M1 11a10 10 0 0 1 10-10h98a10 10 0 0 1 10 10v63H1z" fill="currentColor" />
           <rect x="12" y="14" width="16" height="16" rx="5" fill={SURFACE} opacity=".9" />

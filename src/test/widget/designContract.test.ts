@@ -307,7 +307,7 @@ describe('workspace appearance settings surface', () => {
   const PAGE = readFileSync('src/pages/app/WidgetPage.tsx', 'utf8');
   it('no longer exposes fixed-template visual settings', () => {
     for (const key of [
-      'launcher_text', 'secondary_color', 'fab_shape',
+      'launcher_text', 'secondary_color',
       'fab_icon_color', 'fab_animation',
       // The launcher shadow is derived from the primary colour, never configured.
       'shadow_color',
@@ -318,8 +318,10 @@ describe('workspace appearance settings surface', () => {
   it('keeps the settings that stay workspace-owned', () => {
     for (const key of [
       'primary_color', 'position', 'welcome_message', 'show_logo', 'placeholder_text',
-      // Launcher identity: bubble text, size and icon are operator-owned.
-      'fab_label', 'fab_scale', 'fab_icon',
+      // Launcher identity: bubble text, size and icon are operator-owned;
+      // its shape too since the launcher styles (issue #340: the pill, the
+      // kit's square; LauncherStylePicker).
+      'fab_label', 'fab_scale', 'fab_icon', 'fab_shape',
     ]) {
       expect(PAGE).toContain(key);
     }

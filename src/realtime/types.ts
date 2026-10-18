@@ -37,7 +37,9 @@ export type OperatorEventKind =
   | 'note_deleted'
   | 'timeline_event'
   // Email Inbox: a mailbox changed (a cursor, never content).
-  | 'email_mailbox_changed';
+  | 'email_mailbox_changed'
+  // A message's reactions changed: its new counts, never who reacted.
+  | 'message_reactions';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;

@@ -14,6 +14,7 @@
  *  - POST /identity/continuity/use    — Restore session from continuity token
  *  - POST /identity/continuity/revoke — Revoke continuity token
  *  - GET  /identity/history         — Smart conversation continuation
+ *  - POST /identity/offline-email   — The email for the reply to a message left while away
  */
 
 import { Router, Request, Response } from 'express';
@@ -50,7 +51,9 @@ import {
   widgetRateLimit,
   resolveWorkspaceId,
   getClientIp,
+  verifyConversationOwnership,
 } from '../services/widget/security.js';
+import { visitorMessageMetadata } from '../services/realtime/publish.js';
 import { enrichMessagesWithAttachments, enrichMessagesWithReplyTo, filterVisitorVisibleMessages } from './widgetAttachments.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { getClientCountry } from '../utils/clientIp.js';
@@ -409,7 +412,9 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
     _sender_id: m.sender_id || null,
     text: m.body,
     time: m.created_at,
-    metadata: m.metadata,
+    // Without the operator account ids a row records (realtime/publish.ts
+    // visitorMessageMetadata), as /poll and /history.
+    metadata: visitorMessageMetadata(m.metadata),
     // Phase 7 — lifecycle propagated to history backfill so the widget
     // can render the correct status on already-seen messages.
     seen_at: m.seen_at || null,
@@ -425,6 +430,91 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
   const messages = await enrichMessagesWithSender(config, supabase, withReplies, workspaceId);
 
   return res.json({ conversation_id: conv.id, messages, last_updated_at: conv.updatedAt });
+});
+
+// ═══════════════════════════════════════════════
+// POST /identity/offline-email — The email for the reply (issue #340 g4)
+// ───────────────────────────────────────────────
+// The away thread's email card (runtime-late.js, Template 1 and 2): the
+// visitor left a message while the team was away (POST /offline-messages)
+// and now says where the reply should go. Body { workspace_id?,
+// conversation_id, email } → 200 { ok, contact_id } | 400 Invalid input |
+// 403 CONVERSATION_ACCESS_DENIED | 409 not_offline_capture | 500
+// merge_failed.
+//
+// Only for a conversation the visitor owns (the signed cookie alone) and
+// that was captured while away (tagged `offline`): never a way around the
+// workspace's required pre-chat fields. The address is an UNVERIFIED claim,
+// merged exactly as POST /prechat merges one: kept on this visitor's own (or
+// a new) contact, never linking the visitor to another contact that holds
+// it. The conversation is linked to that contact when it has none, the
+// timeline gets `identified`, and the continuity cookie is issued as
+// /prechat does.
+// ═══════════════════════════════════════════════
+const offlineEmailSchema = z.object({
+  workspace_id: z.string().uuid().optional(),
+  conversation_id: z.string().uuid(),
+  email: z.string().trim().email().max(254),
+});
+
+widgetIdentityRouter.post('/offline-email', widgetRateLimit('message'), async (req: Request, res: Response) => {
+  const config = serverConfigOf(req);
+  const parsed = offlineEmailSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
+  }
+
+  const workspaceId = resolveWorkspaceId(req, res, parsed.data.workspace_id);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const conversationId = parsed.data.conversation_id;
+  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, null, null, req);
+  if (!ownership.valid) {
+    return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+  }
+
+  const supabase = getServiceClient(config);
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('id, tags')
+    .eq('id', conversationId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  const tags = Array.isArray(conv?.tags) ? (conv.tags as unknown[]) : [];
+  if (!conv || !tags.includes('offline')) return res.status(409).json({ error: 'not_offline_capture' });
+
+  const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
+  const netCtx = await resolveSessionNetworkContext(supabase, req, workspaceId);
+  await ensureVisitorSessionRow(supabase, workspaceId, visitorId, null, 'chat_widget', netCtx);
+
+  try {
+    // An unverified claim, as pre-chat's (see POST /prechat).
+    const merge = await mergeVisitorIdentity(config, supabase, {
+      workspaceId,
+      visitorId,
+      identity: { name: null, email: parsed.data.email, phone: null },
+      method: 'prechat',
+      ipAddress: getClientIp(req),
+      cfCountry: getClientCountry(req),
+    });
+    // A conversation captured with no session row (the merge relinks the
+    // visitor's sessions' conversations) still gets its contact.
+    await supabase
+      .from('conversations')
+      .update({ contact_id: merge.contactId })
+      .eq('id', conversationId)
+      .eq('workspace_id', workspaceId)
+      .is('contact_id', null);
+    void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, 'offline_email', merge.isNewContact);
+    await issueContinuityCookieForContact(
+      supabase, req, res, workspaceId, merge.contactId, 'chat_widget',
+    );
+    return res.json({ ok: true, contact_id: merge.contactId });
+  } catch (err) {
+    console.error('[identity-offline-email] Error:', err?.message || err);
+    return res.status(500).json({ error: 'merge_failed' });
+  }
 });
 
 // ═══════════════════════════════════════════════

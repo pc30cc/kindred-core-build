@@ -138,6 +138,8 @@ suite('KB, help center and AI: articles over max_kb_articles (phase 4)', () => {
     app.use((req, _res, next) => { (req as unknown as { serverConfig: unknown }).serverConfig = config; next(); });
     app.use('/api/knowledge-base', knowledgeBaseRouter);
     app.use('/api/widget/kb', widgetKbRouter);
+    const { handleKbSuggest } = await import('../../../server/routes/widgetKbSuggest.js');
+    app.get('/api/widget/kb-suggest', handleKbSuggest);
     app.use('/api/ai-kb', aiKbRouter);
     app.use('/api/ai-agent', knowledgeRouter);
     app.use('/', publicKbRouter);
@@ -190,6 +192,18 @@ suite('KB, help center and AI: articles over max_kb_articles (phase 4)', () => {
     expect(none.body.results).toEqual([]);
     expect((await request(app).get('/api/widget/kb/article').query({ workspace_id: ws, slug: 'gamma' })).status).toBe(404);
     expect((await request(app).get('/api/widget/kb/article').query({ workspace_id: ws, slug: 'alpha' })).status).toBe(200);
+    // Word by word (match=words) too: the lock's or() beside the words'.
+    const words = await request(app).get('/api/widget/kb/search').query({ workspace_id: ws, q: 'refund guide', match: 'words' });
+    expect(slugsOf(words.body.results)).toEqual(['alpha', 'beta']);
+  });
+
+  it('instant answers (kb-suggest) never offer a locked article', async () => {
+    (await import('../../../server/services/knowledge-base/widgetSuggest.js')).__resetKbSuggestCachesForTests();
+    const res = await request(app).get('/api/widget/kb-suggest').query({ workspace_id: ws, q: 'refund guide', limit: '3' });
+    expect(res.status).toBe(200);
+    expect(slugsOf(res.body.results)).toEqual(['alpha', 'beta']);
+    const locked = await request(app).get('/api/widget/kb-suggest').query({ workspace_id: ws, q: 'gamma refund' });
+    expect(slugsOf(locked.body.results)).toEqual(['alpha', 'beta']);
   });
 
   it('public help center (SSR): pages, search and sitemap leave locked articles out', async () => {

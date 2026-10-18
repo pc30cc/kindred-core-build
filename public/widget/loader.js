@@ -46,6 +46,12 @@
   // false, so the minifier drops each `if (LOCAL_KIT ...)` branch too: every
   // use of what those blocks define must sit inside such a branch.
   var LOCAL_KIT = true;
+  // The mirror for the International edition's kit (RESPOK's floating
+  // button): the Iran build deletes every `@intl-kit` block and sets this to
+  // false, so every `if (INTL_KIT ...)` branch goes too and an Iran-brand
+  // deployment switched to the International edition shows the plain
+  // launcher (docs/operations/WIDGET_TEMPLATE_RULES.md §5).
+  var INTL_KIT = true;
 
   // DEBUG defaults to OFF in production. Opt in via:
   //   window.__gs_debug = true          (developer console)
@@ -717,7 +723,7 @@
   // operator preview's copy; src/test/widget/localKitLauncher.test.ts).
   // Injected as its own <style> only when worn, so other editions' shadow DOM
   // is unchanged.
-  var LOCAL_KIT_CSS = ".launcher.lk-kit.lk-kit-brand{background:linear-gradient(140deg,#22D3B4,#0B7D6C);box-shadow:0 12px 28px rgba(11,125,108,.36),0 3px 8px rgba(18,20,31,.16);--lk-kit-dot:#18AD94;--lk-kit-ring:#16C7A8;}.launcher.lk-kit:not(.open):not(.enter):hover{transform:translateY(-3px) scale(1.06);transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease;}.launcher.lk-kit.lk-kit-brand:not(.open):not(.enter):hover{box-shadow:0 18px 36px rgba(11,125,108,.42),0 4px 10px rgba(18,20,31,.16);}.launcher.lk-kit svg.lk-kit-glyph{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:none;overflow:visible;transform-origin:50% 50%;transition:transform .2s cubic-bezier(.4,0,1,1),opacity .16s ease;}.launcher.lk-kit .lk-kit-body{fill:currentColor;transition:fill .25s ease;}.launcher.lk-kit .lk-kit-dot{fill:var(--lk-kit-dot,var(--gs-primary,#0B7D6C));transform-box:fill-box;transform-origin:50% 50%;transition:fill .25s ease;}.launcher.lk-kit .lk-kit-chev{fill:none;stroke:currentColor;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round;}.launcher.lk-kit svg.close-icon.lk-kit-glyph{display:block;opacity:0;transform:rotate(45deg) scale(.6);transition:transform .2s ease,opacity .14s ease;}.launcher.lk-kit.open svg.chat-icon.lk-kit-glyph{display:block;opacity:0;transform:rotate(-35deg) scale(.3);}.launcher.lk-kit.open svg.close-icon.lk-kit-glyph{opacity:1;transform:none;transition:transform .26s cubic-bezier(.2,.9,.3,1.2) .06s,opacity .2s ease .06s;}.launcher.lk-kit.lk-kit-enter{animation:lk-kit-fab-in .62s cubic-bezier(.2,1.25,.4,1) backwards;}.launcher.lk-kit.lk-kit-enter .lk-kit-body{transform-box:fill-box;transform-origin:50% 50%;animation:lk-kit-body-in .5s cubic-bezier(.2,1.2,.4,1) .12s backwards;}.launcher.lk-kit.lk-kit-enter .lk-kit-dot{animation:lk-kit-dot-in .32s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.lk-kit.lk-kit-enter .lk-kit-d1{animation-delay:.45s;}.launcher.lk-kit.lk-kit-enter .lk-kit-d2{animation-delay:.65s;}.launcher.lk-kit.lk-kit-enter .lk-kit-d3{animation-delay:.85s;}.launcher.lk-kit:not(.open):hover .lk-kit-dot{animation:lk-kit-wave .62s ease-in-out;}.launcher.lk-kit:not(.open):hover .lk-kit-d2{animation-delay:.08s;}.launcher.lk-kit:not(.open):hover .lk-kit-d3{animation-delay:.16s;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-dot{animation:lk-kit-dot-in .26s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-d1{animation-delay:.12s;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-d2{animation-delay:.2s;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-d3{animation-delay:.28s;}.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-dot,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-dot{animation:lk-kit-type 1.3s ease-in-out infinite;}.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-d2,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-d2{animation-delay:.16s;}.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-d3,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-d3{animation-delay:.32s;}.launcher.lk-kit .lk-kit-ping{position:absolute;inset:0;border-radius:inherit;border:2px solid var(--lk-kit-ring,var(--gs-primary,#16C7A8));opacity:0;pointer-events:none;}.launcher.lk-kit.lk-kit-pinging:not(.open) .lk-kit-ping{animation:lk-kit-ping 1.8s cubic-bezier(.2,.6,.3,1) 2;}.launcher.lk-kit .badge{top:-6px;right:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;border:0;background:#FFB423;color:#12141F;font:800 13px/24px IRANSans,Tahoma,'Segoe UI',sans-serif;box-shadow:0 0 0 3px #fff;animation:lk-kit-badge-in .45s cubic-bezier(.3,1.6,.5,1);}.launcher.lk-kit.open .badge{display:none;}.launcher.lk-kit.lk-kit-nudge:not(.open){animation:lk-kit-nudge .6s ease-in-out;}.launcher.lk-kit.lk-kit-brand.lk-kit-offline{background:#12141F;--lk-kit-dot:#12141F;}.launcher.lk-kit.lk-kit-brand.lk-kit-offline .lk-kit-body{fill:#16C7A8;}@keyframes lk-kit-fab-in{0%{opacity:0;transform:translateY(18px) scale(.6);}100%{opacity:1;transform:none;}}@keyframes lk-kit-body-in{0%{opacity:0;transform:scale(.7);}100%{opacity:1;transform:none;}}@keyframes lk-kit-type{0%,60%,100%{transform:none;opacity:.55;}25%{transform:translateY(-2.5px);opacity:1;}}@keyframes lk-kit-ping{0%{opacity:.6;transform:scale(1);}100%{opacity:0;transform:scale(1.75);}}@keyframes lk-kit-dot-in{0%{opacity:0;transform:scale(.4);}100%{opacity:1;transform:none;}}@keyframes lk-kit-wave{0%,100%{transform:none;}35%{transform:translateY(-2.5px);}}@keyframes lk-kit-badge-in{0%{transform:scale(0);}60%{transform:scale(1.18);}100%{transform:scale(1);}}@keyframes lk-kit-nudge{0%,100%{transform:none;}20%{transform:rotate(-10deg);}45%{transform:rotate(8deg);}70%{transform:rotate(-4deg);}}@media(prefers-reduced-motion:reduce){.launcher.lk-kit,.launcher.lk-kit *{animation:none!important;}.launcher.lk-kit:not(.open):not(.enter):hover{transform:none;}.launcher.lk-kit svg.lk-kit-glyph,.launcher.lk-kit svg.close-icon.lk-kit-glyph,.launcher.lk-kit.open svg.close-icon.lk-kit-glyph{transition:opacity .15s ease;}.launcher.lk-kit.open svg.chat-icon.lk-kit-glyph,.launcher.lk-kit svg.close-icon.lk-kit-glyph{transform:none;}}";
+  var LOCAL_KIT_CSS = ".launcher.lk-kit.lk-kit-brand{background:linear-gradient(140deg,#22D3B4,#0B7D6C);box-shadow:0 12px 28px rgba(11,125,108,.36),0 3px 8px rgba(18,20,31,.16);--lk-kit-dot:#18AD94;--lk-kit-ring:#16C7A8;}.launcher.lk-kit:not(.open):not(.enter):hover{transform:translateY(-3px) scale(1.06);transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease;}.launcher.lk-kit.lk-kit-brand:not(.open):not(.enter):hover{box-shadow:0 18px 36px rgba(11,125,108,.42),0 4px 10px rgba(18,20,31,.16);}.launcher.lk-kit svg.lk-kit-glyph{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:none;overflow:visible;transform-origin:50% 50%;transition:transform .2s cubic-bezier(.4,0,1,1),opacity .16s ease;}.launcher.lk-kit .lk-kit-body{fill:currentColor;transition:fill .25s ease;}.launcher.lk-kit .lk-kit-dot{fill:var(--lk-kit-dot,var(--gs-primary,#0B7D6C));transform-box:fill-box;transform-origin:50% 50%;transition:fill .25s ease;}.launcher.lk-kit .lk-kit-chev{fill:none;stroke:currentColor;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round;}.launcher.lk-kit svg.close-icon.lk-kit-glyph{display:block;opacity:0;transform:rotate(45deg) scale(.6);transition:transform .2s ease,opacity .14s ease;}.launcher.lk-kit.open svg.chat-icon.lk-kit-glyph{display:block;opacity:0;transform:rotate(-35deg) scale(.3);}.launcher.lk-kit.open svg.close-icon.lk-kit-glyph{opacity:1;transform:none;transition:transform .26s cubic-bezier(.2,.9,.3,1.2) .06s,opacity .2s ease .06s;}.launcher.lk-kit.lk-kit-enter{animation:lk-kit-fab-in .62s cubic-bezier(.2,1.25,.4,1) backwards;}.launcher.lk-kit.lk-kit-enter .lk-kit-body{transform-box:fill-box;transform-origin:50% 50%;animation:lk-kit-body-in .5s cubic-bezier(.2,1.2,.4,1) .12s backwards;}.launcher.lk-kit.lk-kit-enter .lk-kit-dot{animation:lk-kit-dot-in .32s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.lk-kit.lk-kit-enter .lk-kit-d1{animation-delay:.45s;}.launcher.lk-kit.lk-kit-enter .lk-kit-d2{animation-delay:.65s;}.launcher.lk-kit.lk-kit-enter .lk-kit-d3{animation-delay:.85s;}.launcher.lk-kit:not(.open):hover .lk-kit-dot{animation:lk-kit-wave .62s ease-in-out;}.launcher.lk-kit:not(.open):hover .lk-kit-d2{animation-delay:.08s;}.launcher.lk-kit:not(.open):hover .lk-kit-d3{animation-delay:.16s;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-dot{animation:lk-kit-dot-in .26s cubic-bezier(.3,1.45,.5,1) backwards;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-d1{animation-delay:.12s;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-d2{animation-delay:.2s;}.launcher.lk-kit.lk-kit-closing:not(.open) .lk-kit-d3{animation-delay:.28s;}.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-dot,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-dot{animation:lk-kit-type 1.3s ease-in-out infinite;}.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-d2,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-d2{animation-delay:.16s;}.launcher.lk-kit.lk-kit-typing:not(.open) .lk-kit-d3,.launcher.lk-kit.lk-kit-typing:not(.open):hover .lk-kit-d3{animation-delay:.32s;}.launcher.lk-kit .lk-kit-ping{position:absolute;inset:0;border-radius:inherit;border:2px solid var(--lk-kit-ring,var(--gs-primary,#16C7A8));opacity:0;pointer-events:none;}.launcher.lk-kit.lk-kit-pinging:not(.open) .lk-kit-ping{animation:lk-kit-ping 1.8s cubic-bezier(.2,.6,.3,1) 2;}.launcher.lk-kit .badge{top:-6px;right:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;border:0;background:#FFB423;color:#12141F;font:800 13px/24px IRANSans,Tahoma,'Segoe UI',sans-serif;box-shadow:0 0 0 3px #fff;animation:lk-kit-badge-in .45s cubic-bezier(.3,1.6,.5,1);}.launcher.lk-kit.open .badge{display:none;}.launcher.lk-kit.lk-kit-nudge:not(.open){animation:lk-kit-nudge .6s ease-in-out;}.launcher.lk-kit.lk-kit-brand.lk-kit-offline{background:#12141F;--lk-kit-dot:#12141F;}.launcher.lk-kit.lk-kit-brand.lk-kit-offline .lk-kit-body{fill:#16C7A8;}@keyframes lk-kit-fab-in{0%{opacity:0;transform:translateY(18px) scale(.6);}100%{opacity:1;transform:none;}}@keyframes lk-kit-body-in{0%{opacity:0;transform:scale(.7);}100%{opacity:1;transform:none;}}@keyframes lk-kit-type{0%,60%,100%{transform:none;opacity:.55;}25%{transform:translateY(-2.5px);opacity:1;}}@keyframes lk-kit-ping{0%{opacity:.6;transform:scale(1);}100%{opacity:0;transform:scale(1.75);}}@keyframes lk-kit-dot-in{0%{opacity:0;transform:scale(.4);}100%{opacity:1;transform:none;}}@keyframes lk-kit-wave{0%,100%{transform:none;}35%{transform:translateY(-2.5px);}}@keyframes lk-kit-badge-in{0%{transform:scale(0);}60%{transform:scale(1.18);}100%{transform:scale(1);}}@keyframes lk-kit-nudge{0%,100%{transform:none;}20%{transform:rotate(-10deg);}45%{transform:rotate(8deg);}70%{transform:rotate(-4deg);}}@media(prefers-reduced-motion:reduce){.launcher.lk-kit,.launcher.lk-kit *{animation:none!important;}.launcher.lk-kit:not(.open):not(.enter):hover{transform:none;}.launcher.lk-kit svg.lk-kit-glyph,.launcher.lk-kit svg.close-icon.lk-kit-glyph,.launcher.lk-kit.open svg.close-icon.lk-kit-glyph{transition:opacity .15s ease;}.launcher.lk-kit.open svg.chat-icon.lk-kit-glyph,.launcher.lk-kit svg.close-icon.lk-kit-glyph{transform:none;}}.launcher.lk-kit.square{border-radius:18px;}";
   var LOCAL_KIT_CHAT_GLYPH = "<svg class=\"chat-icon lk-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"lk-kit-body\" d=\"M42.28 27.95A12.4 12.4 0 0 0 21.7 17.01A12.4 12.4 0 0 0 30.43 38.62A7.75 7.75 0 0 0 22.95 46.14A0.43 0.43 0 0 1 22.56 46.56A21.7 21.7 0 0 0 42.28 27.95Z\"/><path class=\"lk-kit-dot lk-kit-d1\" d=\"M35.21 24.12L37.32 26.23L35.21 28.34L33.1 26.23Z\"/><path class=\"lk-kit-dot lk-kit-d2\" d=\"M30 24.12L32.11 26.23L30 28.34L27.89 26.23Z\"/><path class=\"lk-kit-dot lk-kit-d3\" d=\"M24.79 24.12L26.9 26.23L24.79 28.34L22.69 26.23Z\"/></svg>";
   var LOCAL_KIT_CLOSE_GLYPH = "<svg class=\"close-icon lk-kit-glyph\" viewBox=\"0 0 60 60\" aria-hidden=\"true\" focusable=\"false\"><path class=\"lk-kit-chev\" d=\"M22 27l8 8 8-8\"/></svg>";
   var LOCAL_KIT_PING = "<span class=\"lk-kit-ping\" aria-hidden=\"true\"></span>";
@@ -752,6 +758,7 @@
     if (LOCAL_KIT && launcherEl.classList.contains("lk-kit")) launcherEl.classList.toggle("lk-kit-typing", !!on);
   }
 
+  /* @intl-kit:begin */
   // ─── RESPOK's floating button (the brand kit's Thread chat button,
   // International edition only) ───
   // Worn by every template when the bootstrap says the platform is the
@@ -761,11 +768,17 @@
   // shared/respokLauncher.ts (the operator preview's copy;
   // src/test/widget/respokLauncher.test.ts). Injected as its own <style> only
   // when worn, so the other edition's shadow DOM is unchanged.
-  var RESPOK_KIT_CSS = ".launcher.rpk-kit.rpk-kit-brand{background:#16142B;box-shadow:0 10px 28px rgba(22,20,43,.28);--rpk-kit-accent:#FF5A3C;--rpk-kit-away:#A9A7BC;}.launcher.rpk-kit:not(.open):not(.enter):hover{transform:scale(1.06);transition:transform .16s ease,box-shadow .16s ease;}.launcher.rpk-kit.rpk-kit-brand:not(.open):not(.enter):hover{box-shadow:0 16px 36px rgba(22,20,43,.36);}.launcher.rpk-kit:not(.open):not(.enter):active{transform:scale(.94);transition-duration:.09s;}.launcher.rpk-kit.rpk-kit-brand:not(.open):not(.enter):active{box-shadow:0 5px 14px rgba(22,20,43,.24);}.launcher.rpk-kit:focus-visible{outline:none;box-shadow:0 0 0 3px #fff,0 0 0 6px #FF5A3C,0 10px 28px rgba(22,20,43,.28);}.launcher.rpk-kit svg.rpk-kit-glyph{position:absolute;inset:0;margin:auto;width:50%;height:44.23%;fill:none;stroke:none;overflow:visible;transition:transform .2s ease,opacity .2s ease;}.launcher.rpk-kit .rpk-kit-q{fill:currentColor;}.launcher.rpk-kit .rpk-kit-a{fill:var(--rpk-kit-accent,currentColor);}.launcher.rpk-kit.rpk-kit-away .rpk-kit-a{fill:none;stroke:var(--rpk-kit-away,currentColor);stroke-width:7;}.launcher.rpk-kit svg.close-icon.rpk-kit-glyph{display:block;width:43%;height:43%;opacity:0;transform:rotate(-90deg);}.launcher.rpk-kit .rpk-kit-chev{fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;}.launcher.rpk-kit.open svg.chat-icon.rpk-kit-glyph{display:block;opacity:0;transform:rotate(90deg) scale(.6);}.launcher.rpk-kit.open svg.close-icon.rpk-kit-glyph{opacity:1;transform:none;}.launcher.rpk-kit.rpk-kit-arrive .rpk-kit-a{animation:rpk-kit-answer .36s cubic-bezier(.3,1.4,.5,1);}.launcher.rpk-kit .badge{top:-3px;right:-3px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;border:2px solid #fff;background:#D3361A;color:#fff;font-size:12px;font-weight:700;line-height:18px;box-shadow:none;animation:rpk-kit-badge-in .34s cubic-bezier(.3,1.5,.5,1);}.launcher.rpk-kit .badge.rpk-kit-bump{animation:rpk-kit-bump .32s ease;}.launcher.rpk-kit .badge.rpk-kit-still{animation:none;}.launcher.rpk-kit.open .badge{display:none;}@keyframes rpk-kit-answer{0%{transform:translateX(34px);opacity:0;}70%{transform:translateX(-6px);opacity:1;}100%{transform:none;}}@keyframes rpk-kit-badge-in{0%{transform:scale(0);}100%{transform:scale(1);}}@keyframes rpk-kit-bump{0%,100%{transform:scale(1);}50%{transform:scale(1.15);}}@media(prefers-reduced-motion:reduce){.launcher.rpk-kit,.launcher.rpk-kit *{animation:none!important;}.launcher.rpk-kit:not(.open):not(.enter):hover,.launcher.rpk-kit:not(.open):not(.enter):active{transform:none;}.launcher.rpk-kit svg.rpk-kit-glyph,.launcher.rpk-kit svg.close-icon.rpk-kit-glyph,.launcher.rpk-kit.open svg.close-icon.rpk-kit-glyph{transition:opacity .12s ease;}.launcher.rpk-kit.open svg.chat-icon.rpk-kit-glyph,.launcher.rpk-kit svg.close-icon.rpk-kit-glyph{transform:none;}}";
+  var RESPOK_KIT_CSS = ".launcher.rpk-kit.rpk-kit-brand{background:#16142B;box-shadow:0 10px 28px rgba(22,20,43,.28);--rpk-kit-accent:#FF5A3C;--rpk-kit-away:#A9A7BC;}.launcher.rpk-kit:not(.open):not(.enter):hover{transform:scale(1.06);transition:transform .16s ease,box-shadow .16s ease;}.launcher.rpk-kit.rpk-kit-brand:not(.open):not(.enter):hover{box-shadow:0 16px 36px rgba(22,20,43,.36);}.launcher.rpk-kit:not(.open):not(.enter):active{transform:scale(.94);transition-duration:.09s;}.launcher.rpk-kit.rpk-kit-brand:not(.open):not(.enter):active{box-shadow:0 5px 14px rgba(22,20,43,.24);}.launcher.rpk-kit:focus-visible{outline:none;box-shadow:0 0 0 3px #fff,0 0 0 6px #FF5A3C,0 10px 28px rgba(22,20,43,.28);}.launcher.rpk-kit svg.rpk-kit-glyph{position:absolute;inset:0;margin:auto;width:50%;height:44.23%;fill:none;stroke:none;overflow:visible;transition:transform .2s ease,opacity .2s ease;}.launcher.rpk-kit .rpk-kit-q{fill:currentColor;}.launcher.rpk-kit .rpk-kit-a{fill:var(--rpk-kit-accent,currentColor);}.launcher.rpk-kit.rpk-kit-away .rpk-kit-a{fill:none;stroke:var(--rpk-kit-away,currentColor);stroke-width:7;}.launcher.rpk-kit svg.close-icon.rpk-kit-glyph{display:block;width:43%;height:43%;opacity:0;transform:rotate(-90deg);}.launcher.rpk-kit .rpk-kit-chev{fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;}.launcher.rpk-kit.open svg.chat-icon.rpk-kit-glyph{display:block;opacity:0;transform:rotate(90deg) scale(.6);}.launcher.rpk-kit.open svg.close-icon.rpk-kit-glyph{opacity:1;transform:none;}.launcher.rpk-kit.rpk-kit-arrive .rpk-kit-a{animation:rpk-kit-answer .36s cubic-bezier(.3,1.4,.5,1);}.launcher.rpk-kit .badge{top:-3px;right:-3px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;border:2px solid #fff;background:#D3361A;color:#fff;font-size:12px;font-weight:700;line-height:18px;box-shadow:none;animation:rpk-kit-badge-in .34s cubic-bezier(.3,1.5,.5,1);}.launcher.rpk-kit .badge.rpk-kit-bump{animation:rpk-kit-bump .32s ease;}.launcher.rpk-kit .badge.rpk-kit-still{animation:none;}.launcher.rpk-kit.open .badge{display:none;}.launcher.rpk-kit svg.rpk-kit-o{width:47%;height:47%;}.launcher.rpk-kit.rpk-kit-arrive .rpk-kit-o .rpk-kit-a{animation-name:rpk-kit-dot;animation-timing-function:cubic-bezier(.3,1.5,.5,1);transform-origin:96px 96px;}@keyframes rpk-kit-dot{0%{transform:scale(.2);}60%{transform:scale(1.35);}}@keyframes rpk-kit-answer{0%{transform:translateX(34px);opacity:0;}70%{transform:translateX(-6px);opacity:1;}100%{transform:none;}}@keyframes rpk-kit-badge-in{0%{transform:scale(0);}100%{transform:scale(1);}}@keyframes rpk-kit-bump{0%,100%{transform:scale(1);}50%{transform:scale(1.15);}}@media(prefers-reduced-motion:reduce){.launcher.rpk-kit,.launcher.rpk-kit *{animation:none!important;}.launcher.rpk-kit:not(.open):not(.enter):hover,.launcher.rpk-kit:not(.open):not(.enter):active{transform:none;}.launcher.rpk-kit svg.rpk-kit-glyph,.launcher.rpk-kit svg.close-icon.rpk-kit-glyph,.launcher.rpk-kit.open svg.close-icon.rpk-kit-glyph{transition:opacity .12s ease;}.launcher.rpk-kit.open svg.chat-icon.rpk-kit-glyph,.launcher.rpk-kit svg.close-icon.rpk-kit-glyph{transform:none;}}";
   var RESPOK_KIT_CHAT_GLYPH = "<svg class=\"chat-icon rpk-kit-glyph\" viewBox=\"0 0 104 92\" aria-hidden=\"true\" focusable=\"false\"><path class=\"rpk-kit-q\" d=\"M21 0H41A21 21 0 0 1 62 21V21A21 21 0 0 1 41 42H4A4 4 0 0 1 0 38V21A21 21 0 0 1 21 0Z\"/><path class=\"rpk-kit-a\" d=\"M43 50H83A21 21 0 0 1 104 71V88A4 4 0 0 1 100 92H43A21 21 0 0 1 22 71V71A21 21 0 0 1 43 50Z\"/></svg>";
+  // The Open logo (template option logoDirection: "open", t1-intl / t2-intl
+  // only): the bubble, and the Signal dot that springs in with a message.
+  var RESPOK_KIT_OPEN_GLYPH = "<svg class=\"chat-icon rpk-kit-glyph rpk-kit-o\" viewBox=\"0 0 108 108\" aria-hidden=\"true\" focusable=\"false\"><path class=\"rpk-kit-q\" d=\"M41 0A41 41 0 0 1 82 41L82 78Q82 82 78 82L41 82A41 41 0 0 1 0 41A41 41 0 0 1 41 0Z\"/><circle class=\"rpk-kit-a\" cx=\"96\" cy=\"96\" r=\"12\"/></svg>";
   var RESPOK_KIT_CLOSE_GLYPH = "<svg class=\"close-icon rpk-kit-glyph\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path class=\"rpk-kit-chev\" d=\"M6 9l6 6 6-6\"/></svg>";
   function respokKitOn(config) {
     return !!config && config.edition === "international";
+  }
+  function rpkOpen(config) {
+    return (config.templateOptions || {}).logoDirection === "open";
   }
   function ensureRespokKitStyle() {
     if (!shadowRoot || shadowRoot.querySelector("style[data-rpk-kit]")) return;
@@ -774,6 +787,7 @@
     kitStyle.textContent = RESPOK_KIT_CSS;
     shadowRoot.appendChild(kitStyle);
   }
+  /* @intl-kit:end */
 
   // ─── <gs-widget> custom element ───
   // Defining it once is safe; if some host page already registered it, we no-op.
@@ -946,7 +960,8 @@
   // unread badge to be read as a bare number with no context.
   function syncLauncherLabel() {
     if (!launcherEl) return;
-    var label = isOpen ? lt("closeChat") : lt("openChat");
+    // A pill is named by the text it shows (the name contains the label).
+    var label = isOpen ? lt("closeChat") : launcherEl.classList.contains("fx-pill") && launcherEl.getAttribute("data-fx") || lt("openChat");
     var n = lastUnreadCount | 0;
     if (!isOpen && n > 0) {
       var tpl = n === 1 ? lt("unreadOne") : lt("unreadMany");
@@ -1036,7 +1051,7 @@
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
     var kit = LOCAL_KIT && localKitOn(config);
-    var rpkKit = !kit && respokKitOn(config);
+    var rpkKit = INTL_KIT && !kit && respokKitOn(config);
     // The kits' buttons are 60px at 100% (the scale still applies).
     var size = Math.round((kit || rpkKit ? 60 : 56) * scale);
     // ONE source of truth for the launcher box: the CSS variable. The button,
@@ -1051,7 +1066,10 @@
     if (String(fab.shape || "circle") === "square") launcherEl.classList.add("square");
     if (fab.animation === true) launcherEl.classList.add("pulse");
     launcherEl.style.color = fab.iconColor || "#ffffff";
-    var icon = FAB_ICONS[fab.icon] || FAB_ICONS.chat;
+    // Its own keys only: an icon named "constructor" drew prototype text.
+    var custom = FAB_ICONS.hasOwnProperty(fab.icon) && fab.icon !== "chat";
+    var icon = custom ? FAB_ICONS[fab.icon] : FAB_ICONS.chat;
+    var away = !!(config.availability && config.availability.state === "offline");
     var imageUrl = typeof fab.imageUrl === "string" ? fab.imageUrl.trim() : "";
     if (imageUrl && !/^https?:\/\//i.test(imageUrl)) imageUrl = "";
     launcherEl.classList.toggle("has-image", !!imageUrl);
@@ -1065,14 +1083,13 @@
       launcherEl.classList.add("lk-kit");
       var kitBrand = kitBrandColor(config);
       launcherEl.classList.toggle("lk-kit-brand", kitBrand);
-      var offline = !!(config.availability && config.availability.state === "offline");
-      launcherEl.classList.toggle("lk-kit-offline", kitBrand && offline);
+      launcherEl.classList.toggle("lk-kit-offline", kitBrand && away);
       launcherEl.innerHTML =
-        (String(fab.icon || "chat") === "chat" || !FAB_ICONS[fab.icon]
-          ? LOCAL_KIT_CHAT_GLYPH
-          : '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>') +
+        (custom
+          ? '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>'
+          : LOCAL_KIT_CHAT_GLYPH) +
         LOCAL_KIT_CLOSE_GLYPH + LOCAL_KIT_PING + imgHtml;
-    } else if (rpkKit) {
+    } else if (INTL_KIT && rpkKit) {
       // RESPOK's button: the kit's Thread pills (or the workspace's own icon
       // when it picked one other than `chat`) and the kit's chevron for
       // "open". The seeded colour wears Ink + Signal; any other colour keeps
@@ -1080,11 +1097,11 @@
       ensureRespokKitStyle();
       launcherEl.classList.add("rpk-kit");
       launcherEl.classList.toggle("rpk-kit-brand", kitBrandColor(config));
-      launcherEl.classList.toggle("rpk-kit-away", !!(config.availability && config.availability.state === "offline"));
+      launcherEl.classList.toggle("rpk-kit-away", away);
       launcherEl.innerHTML =
-        (String(fab.icon || "chat") === "chat" || !FAB_ICONS[fab.icon]
-          ? RESPOK_KIT_CHAT_GLYPH
-          : '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>') +
+        (custom
+          ? '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>'
+          : rpkOpen(config) ? RESPOK_KIT_OPEN_GLYPH : RESPOK_KIT_CHAT_GLYPH) +
         RESPOK_KIT_CLOSE_GLYPH + imgHtml;
     } else {
       launcherEl.innerHTML =
@@ -1092,17 +1109,46 @@
         '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
         imgHtml;
     }
+    // A launcher style (shared/launcherStyles.ts: the pill, the bubble, two
+    // bubbles, the agent's face) is runtime-fab.css's, which /config names
+    // only for a workspace wearing one: classes and texts for it on today's
+    // markup, the launcher unseen until it is in (3 s at most). Without it
+    // today's launcher shows.
+    var fxUrl = config.fabStyleUrl;
+    if (fxUrl) {
+      launcherEl.className += " fx fx-" + fab.icon + " fx-" + fab.shape + (away ? " fx-off" : "");
+      launcherEl.setAttribute("data-fx", fab.label || "");
+      launcherEl.setAttribute("data-fi", fab.initial || "");
+      launcherEl.dir = /^fa/.test(config.locale) ? "rtl" : "ltr";
+      if (!shadowRoot.querySelector("link[data-gs-fab]")) {
+        var fxLink = document.createElement("link");
+        var fxEl = launcherEl;
+        // The card beside it waits with it (it is drawn below).
+        var fxShow = function () { fxEl.style.visibility = ""; if (fabLabelEl) fabLabelEl.style.visibility = ""; };
+        fxEl.style.visibility = "hidden";
+        fxLink.rel = "stylesheet";
+        fxLink.href = fxUrl;
+        fxLink.setAttribute("data-gs-fab", "");
+        fxLink.onload = fxShow;
+        withHashFallback(fxLink, fxUrl, "href", shadowRoot, fxShow);
+        setTimeout(fxShow, 3000);
+        shadowRoot.appendChild(fxLink);
+      }
+    }
 
 
     // Optional text card beside the launcher (title + optional sub-line).
     var shellDiv2 = shadowRoot.querySelector(".shell");
     if (fabLabelEl && fabLabelEl.parentNode) fabLabelEl.parentNode.removeChild(fabLabelEl);
     fabLabelEl = null;
-    var label = fab.label ? String(fab.label).trim() : "";
+    // A pill (worn: its stylesheet named) carries its text inside: no card beside it.
+    var label = fab.label && !(fxUrl && fab.shape === "pill") ? String(fab.label).trim() : "";
     var subLabel = fab.subLabel ? String(fab.subLabel).trim() : "";
     if (label && shellDiv2) {
       fabLabelEl = document.createElement("div");
       fabLabelEl.className = "gs-fab-label" + (isOpen ? " open" : "");
+      // Unseen while its launcher waits for runtime-fab.css (above).
+      if (launcherEl.style.visibility) fabLabelEl.style.visibility = "hidden";
       var titleEl = document.createElement("span");
       titleEl.className = "label-title";
       titleEl.textContent = label;
@@ -1165,6 +1211,11 @@
     if (shellDiv) {
       shellDiv.classList.toggle("pos-bottom-left", posClass === "bottom-left");
       shellDiv.classList.toggle("pos-bottom-right", posClass !== "bottom-left");
+      // RESPOK's logo direction, one class for the launcher and the panel.
+      if (INTL_KIT && respokKitOn(config)) {
+        shellDiv.classList.toggle("lg-open", rpkOpen(config));
+        shellDiv.classList.toggle("lg-thread", !rpkOpen(config));
+      }
     }
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong
@@ -1202,6 +1253,50 @@
     if (errorToastEl) {
       errorToastEl.classList.toggle("toast-left", posClass === "bottom-left");
     }
+  }
+
+  // ─── Hashed-asset self-healing ───────────────────────────────────────
+  // /config hands us content-hashed asset names (runtime.<hash>.js). If the
+  // static host has not been redeployed in lockstep with the API, those
+  // exact names 404 and the whole chat UI silently dies (or, worse, loads
+  // partially: shell from cache, message renderer missing → thread opens
+  // empty). Retry ONCE with the unhashed canonical filename before giving
+  // up. Same origin, same path, no new endpoint — just a resilience net.
+  function unhashedAssetUrl(url) {
+    if (!url) return null;
+    var alt = String(url).replace(/\.[0-9a-f]{6,16}\.(js|css)(\?|#|$)/, ".$1$2");
+    if (alt === String(url)) return null;
+    // A hashed URL carries no query (its name is its version); the
+    // canonical name keeps a cache-buster, as it always had.
+    return alt.indexOf("?") === -1
+      ? alt + "?v=" + encodeURIComponent(configData.loaderVersion || LOADER_VERSION)
+      : alt;
+  }
+  /**
+   * Wires `el.onerror` so a hashed 404 is retried once with the unhashed
+   * name (a fresh node, because re-setting src/href on a failed element is
+   * not reliably re-fetched), then calls onFail() if that also fails.
+   * Fresh means createElement, never cloneNode(): a cloned <script> keeps
+   * its "already started" flag (HTML spec), so it is never fetched and
+   * fires neither load nor error, and the panel would wait forever.
+   */
+  function withHashFallback(el, url, urlProp, parent, onFail) {
+    el.onerror = function () {
+      var alt = unhashedAssetUrl(url);
+      if (!alt) { onFail(); return; }
+      warn("asset failed, retrying unhashed:", alt);
+      var retry = document.createElement(el.tagName.toLowerCase());
+      for (var ai = 0; ai < el.attributes.length; ai++) {
+        var attr = el.attributes[ai];
+        if (attr.name !== urlProp) retry.setAttribute(attr.name, attr.value);
+      }
+      if (urlProp === "src") retry.async = el.async;
+      retry[urlProp] = alt;
+      retry.onload = el.onload;
+      retry.onerror = function () { onFail(); };
+      try { el.parentNode && el.parentNode.removeChild(el); } catch (_) {}
+      parent.appendChild(retry);
+    };
   }
 
   // ─── HTTP helper with capped retries & jitter ───
@@ -2102,50 +2197,6 @@
       if (wantRuntimeOpen) showShellError(lt("resourcesFailed"));
     }
 
-    // ─── Hashed-asset self-healing ───────────────────────────────────────
-    // /config hands us content-hashed asset names (runtime.<hash>.js). If the
-    // static host has not been redeployed in lockstep with the API, those
-    // exact names 404 and the whole chat UI silently dies (or, worse, loads
-    // partially: shell from cache, message renderer missing → thread opens
-    // empty). Retry ONCE with the unhashed canonical filename before giving
-    // up. Same origin, same path, no new endpoint — just a resilience net.
-    function unhashedAssetUrl(url) {
-      if (!url) return null;
-      var alt = String(url).replace(/\.[0-9a-f]{6,16}\.(js|css)(\?|#|$)/, ".$1$2");
-      if (alt === String(url)) return null;
-      // A hashed URL carries no query (its name is its version); the
-      // canonical name keeps a cache-buster, as it always had.
-      return alt.indexOf("?") === -1
-        ? alt + "?v=" + encodeURIComponent(configData.loaderVersion || LOADER_VERSION)
-        : alt;
-    }
-    /**
-     * Wires `el.onerror` so a hashed 404 is retried once with the unhashed
-     * name (a fresh node, because re-setting src/href on a failed element is
-     * not reliably re-fetched), then calls onFail() if that also fails.
-     * Fresh means createElement, never cloneNode(): a cloned <script> keeps
-     * its "already started" flag (HTML spec), so it is never fetched and
-     * fires neither load nor error, and the panel would wait forever.
-     */
-    function withHashFallback(el, url, urlProp, parent, onFail) {
-      el.onerror = function () {
-        var alt = unhashedAssetUrl(url);
-        if (!alt) { onFail(); return; }
-        warn("asset failed, retrying unhashed:", alt);
-        var retry = document.createElement(el.tagName.toLowerCase());
-        for (var ai = 0; ai < el.attributes.length; ai++) {
-          var attr = el.attributes[ai];
-          if (attr.name !== urlProp) retry.setAttribute(attr.name, attr.value);
-        }
-        if (urlProp === "src") retry.async = el.async;
-        retry[urlProp] = alt;
-        retry.onload = el.onload;
-        retry.onerror = function () { onFail(); };
-        try { el.parentNode && el.parentNode.removeChild(el); } catch (_) {}
-        parent.appendChild(retry);
-      };
-    }
-
     if (runtimeCss) {
       // Inject as <link> directly into the SHADOW ROOT — Shadow DOM supports
       // external stylesheets natively and they are NOT subject to CORS
@@ -2355,7 +2406,7 @@
       // RESPOK's button: the badge springs in the first time, bumps when it
       // was already showing and a message arrived, and keeps still when the
       // count only went down; a new message slides the answer pill in.
-      if (launcherEl.classList.contains("rpk-kit")) {
+      if (INTL_KIT && launcherEl.classList.contains("rpk-kit")) {
         if (lastUnreadCount > 0) badge.classList.add(count > lastUnreadCount ? "rpk-kit-bump" : "rpk-kit-still");
         if (count > lastUnreadCount && !isOpen) {
           var arriving = launcherEl;

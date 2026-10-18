@@ -10,12 +10,14 @@
  * text ships in both editions' builds).
  */
 export const widgetCatalogEn = {
-  names: { default: 'Familiar', intl: 'Familiar', t1: 'Turquoise', t2: 'Breeze' },
+  names: { default: 'Familiar', intl: 'Familiar', t1: 'Turquoise', t2: 'Breeze', 't1-intl': 'Classic', 't2-intl': 'Simple' },
   descriptions: {
     default: 'A greeting with recent conversations, help articles and a button to start a chat',
     intl: 'A greeting with recent conversations, help articles and a button to start a chat',
     t1: 'A coloured home with cards and a bottom menu: Home, Messages, Help',
     t2: 'No bottom menu; visitors type their question right on the home screen',
+    't1-intl': 'A coloured home with cards and a bottom menu: Home, Messages, Help',
+    't2-intl': 'No bottom menu; visitors type their question right on the home screen',
   },
   languages: { fa: 'Persian', en: 'English', tr: 'Turkish' },
   admin: {
@@ -75,6 +77,9 @@ export const widgetCatalogEn = {
     useDefault: 'Use the default',
   },
   options: {
+    logoDirection: 'Logo style',
+    logoDirections: { thread: 'Thread: two message pills', open: 'Open: a bubble and a dot' },
+    logoDirectionHint: 'Shown on the chat button, the home header and the footer.',
     navStyle: 'Bottom menu style',
     navStyles: { vb: 'Floating dock', va: 'Classic bar', vc: 'Segmented', vd: 'Accent dock' },
     navMode: 'Bottom menu labels',
@@ -91,16 +96,25 @@ export const widgetCatalogEn = {
     askExamples: 'Example questions',
     askExamplesHint: 'Up to {{max}} examples shown in the ask field on the home screen.',
     askExample: 'Example {{n}}',
+    prechatMode: 'Pre-chat form',
+    prechatModes: { card: 'Every question on one card', steps: 'One question at a time' },
+    prechatModeHint: 'How the form a visitor fills in before a chat is shown. A conversation keeps the way its form was first shown.',
+    csat: 'Rating after a chat',
+    csatHint: 'When an operator closes a conversation they answered, the visitor is asked to rate it.',
+    transcriptEmail: 'Email the transcript',
+    transcriptEmailHint: 'Once an operator has answered, visitors can have the conversation sent to the email they gave.',
   },
 };
 
 export const widgetCatalogFa: typeof widgetCatalogEn = {
-  names: { default: 'آشنا', intl: 'آشنا', t1: 'فیروزه', t2: 'نسیم' },
+  names: { default: 'آشنا', intl: 'آشنا', t1: 'فیروزه', t2: 'نسیم', 't1-intl': 'کلاسیک', 't2-intl': 'ساده' },
   descriptions: {
     default: 'خوشامد با گفتگوهای اخیر، مقاله‌های راهنما و دکمهٔ شروع گفتگو',
     intl: 'خوشامد با گفتگوهای اخیر، مقاله‌های راهنما و دکمهٔ شروع گفتگو',
     t1: 'خانه با سربرگ رنگی و کارت‌ها، با منوی پایین: خانه، پیام‌ها، راهنما',
     t2: 'بدون منوی پایین؛ بازدیدکننده سؤالش را همان‌جا روی صفحه خانه می‌نویسد',
+    't1-intl': 'خانه با سربرگ رنگی و کارت‌ها، با منوی پایین: خانه، پیام‌ها، راهنما',
+    't2-intl': 'بدون منوی پایین؛ بازدیدکننده سؤالش را همان‌جا روی صفحه خانه می‌نویسد',
   },
   languages: { fa: 'فارسی', en: 'انگلیسی', tr: 'ترکی' },
   admin: {
@@ -160,6 +174,9 @@ export const widgetCatalogFa: typeof widgetCatalogEn = {
     useDefault: 'استفاده از پیش‌فرض',
   },
   options: {
+    logoDirection: 'سبک نشان',
+    logoDirections: { thread: 'رشته: دو کپسول پیام', open: 'باز: حباب و نقطه' },
+    logoDirectionHint: 'روی دکمهٔ گفتگو، سربرگ خانه و پانویس دیده می‌شود.',
     navStyle: 'سبک منوی پایین',
     navStyles: { vb: 'داک شناور با کپسول', va: 'کلاسیک دقیق', vc: 'سگمنت', vd: 'داک برند' },
     navMode: 'نوشته‌های منوی پایین',
@@ -176,16 +193,25 @@ export const widgetCatalogFa: typeof widgetCatalogEn = {
     askExamples: 'نمونه سؤال‌ها',
     askExamplesHint: 'حداکثر {{max}} نمونه که در کادر سؤال صفحه خانه نمایش داده می‌شود.',
     askExample: 'نمونه {{n}}',
+    prechatMode: 'فرم پیش از گفتگو',
+    prechatModes: { card: 'همه سؤال‌ها در یک کارت', steps: 'هر بار یک سؤال' },
+    prechatModeHint: 'فرمی که بازدیدکننده پیش از گفتگو پر می‌کند چطور نمایش داده شود. هر گفتگو فرمش را به همان شکلی که اول نمایش داده شد نگه می‌دارد.',
+    csat: 'نظرسنجی پایان گفتگو',
+    csatHint: 'وقتی اپراتور گفتگویی را که پاسخ داده می‌بندد، از بازدیدکننده خواسته می‌شود به گفتگو امتیاز بدهد.',
+    transcriptEmail: 'ارسال متن گفتگو به ایمیل',
+    transcriptEmailHint: 'پس از پاسخ اپراتور، بازدیدکننده می‌تواند متن گفتگو را به ایمیلی که داده دریافت کند.',
   },
 };
 
 export const widgetCatalogTr: typeof widgetCatalogEn = {
-  names: { default: 'Tanıdık', intl: 'Tanıdık', t1: 'Turkuaz', t2: 'Esinti' },
+  names: { default: 'Tanıdık', intl: 'Tanıdık', t1: 'Turkuaz', t2: 'Esinti', 't1-intl': 'Klasik', 't2-intl': 'Sade' },
   descriptions: {
     default: 'Karşılama, son konuşmalar, yardım makaleleri ve sohbet başlatma düğmesi',
     intl: 'Karşılama, son konuşmalar, yardım makaleleri ve sohbet başlatma düğmesi',
     t1: 'Renkli ana sayfa, kartlar ve alt menü: Ana sayfa, Mesajlar, Yardım',
     t2: 'Alt menü yok; ziyaretçi sorusunu doğrudan ana sayfaya yazar',
+    't1-intl': 'Renkli ana sayfa, kartlar ve alt menü: Ana sayfa, Mesajlar, Yardım',
+    't2-intl': 'Alt menü yok; ziyaretçi sorusunu doğrudan ana sayfaya yazar',
   },
   languages: { fa: 'Farsça', en: 'İngilizce', tr: 'Türkçe' },
   admin: {
@@ -245,6 +271,9 @@ export const widgetCatalogTr: typeof widgetCatalogEn = {
     useDefault: 'Varsayılanı kullan',
   },
   options: {
+    logoDirection: 'Logo stili',
+    logoDirections: { thread: 'Thread: iki mesaj kapsülü', open: 'Open: bir balon ve bir nokta' },
+    logoDirectionHint: 'Sohbet düğmesinde, ana sayfa başlığında ve alt bilgide görünür.',
     navStyle: 'Alt menü stili',
     navStyles: { vb: 'Yüzen dock', va: 'Klasik çubuk', vc: 'Segmentli', vd: 'Vurgu dock' },
     navMode: 'Alt menü etiketleri',
@@ -261,5 +290,12 @@ export const widgetCatalogTr: typeof widgetCatalogEn = {
     askExamples: 'Örnek sorular',
     askExamplesHint: 'Ana sayfadaki soru alanında gösterilen en fazla {{max}} örnek.',
     askExample: 'Örnek {{n}}',
+    prechatMode: 'Sohbet öncesi form',
+    prechatModes: { card: 'Tüm sorular tek kartta', steps: 'Her seferinde bir soru' },
+    prechatModeHint: 'Ziyaretçinin sohbetten önce doldurduğu formun nasıl gösterileceği. Bir sohbet, formunun ilk gösterildiği biçimi korur.',
+    csat: 'Sohbet sonrası değerlendirme',
+    csatHint: 'Bir operatör yanıtladığı bir sohbeti kapattığında ziyaretçiden puan vermesi istenir.',
+    transcriptEmail: 'Sohbet dökümünü e-postayla gönder',
+    transcriptEmailHint: 'Bir operatör yanıt verdikten sonra ziyaretçiler sohbeti verdikleri e-postaya gönderebilir.',
   },
 };

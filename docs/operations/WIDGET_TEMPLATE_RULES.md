@@ -25,9 +25,23 @@ templates: `docs/operations/EDITIONS.md`.
   `presentation-default-fonts.css`).
 - Call widget: a presentation `presentation-<id>.js` (or a registration in an
   existing one) and a stylesheet `presentation-<id>.css`.
+- Chat widget, optionally: the renderer's extras `presentation-<renderer>-x.js`,
+  its markup that no first paint needs (t1's emoji grid; the late surfaces of
+  issue #340 as they come). It registers `window.__gs_mod_extras = { id, v,
+  create(H) }`: `id` is the RENDERER's (a skin over t1 wears t1's file), `v`
+  the version of its contract with the renderer, `create(H)` returns the
+  surfaces, built on the renderer's helpers `H`. The renderer keeps a one-line
+  delegate per surface (`function cardHtml(vm) { return x('cardHtml', [vm]); }`):
+  until Core hands the file over (`renderer.extend(mod)`, which takes only its
+  own id and version) `x()` draws nothing and notes the miss, and Core repaints
+  once when the file is in. The chat frame is built once, before any extras: a
+  frame surface in them (the emoji grid) is put in by Core when they come. Its
+  rules stay in the template's stylesheet (no `-x.css`). Change `v` in both
+  files whenever a surface's arguments or `H` change.
 - The descriptor in `shared/widgetTemplates.ts` and the browser registry
   (`public/widget/presentation-registry.js`; the call widget registers in its
-  presentation script) name the same files under the same id.
+  presentation script) name the same files under the same id (`extras` too,
+  null without).
 - Prefer a skin over a new renderer: a skin is ~1 KB for its visitors and no
   second renderer to keep in step with every runtime feature.
 
@@ -88,6 +102,78 @@ templates: `docs/operations/EDITIONS.md`.
   request). Sizes on 2026-10-17 (gzip 5, as shipped): runtime.js 54.6 KB,
   of which the hook points are 0.8 KB (53.8 KB before the first features);
   runtime-ext.js 6.2 KB; the loader's request 0.05 KB.
+- The late pack: what a template draws only after its first paint (the
+  extras, §1) and Core's code for it (`public/widget/runtime-late.js`,
+  ModuleLoader name `late`, gated by `feat()` like runtime-ext.js). Both are
+  hashed (`scripts/widget-hash.js`; the extras need no stylesheet of their
+  own, but their renderer) and named by /config (`config.modules.extras`,
+  `config.modules.late`) only for a template with `coreFeatures` and
+  `extras`, so the `default` and `intl` payloads are unchanged. runtime-ext.js
+  (never the loader) requests them together after the first paint (the
+  browser's next idle moment, 2 s at most; 300 ms without
+  `requestIdleCallback`), at once when the chat view is painted or a control
+  needs them (t1's emoji button); a skeleton (`.wy-skeleton`) is not that
+  paint, so nothing competes with the data it waits for. They load with the
+  canonical-name retry, and runtime-ext applies them together or not at
+  all: the renderer refuses extras of another
+  template or version, runtime-ext a late module of another version
+  (`v`), and then neither is used, so a canonical-name fallback from another
+  deploy never half-applies. A feature of the pack is never a dead control
+  before it is in or if it never comes: its markup is drawn only through the
+  extras, and a base control that needs them (t1's emoji button) asks for
+  them on a first press and goes if they fail or hold nothing for it
+  (`hidden`; `.ext-off` without runtime-ext.js). runtime-late.js registers
+  its handlers on runtime-ext's hooks (`api.on(hook, fn)`): runtime-ext's own
+  handler runs first, then the late ones, each of which may consume or
+  override its answer. The operator preview (`WidgetLivePreview.tsx`, which
+  has no Core: the extras only) and the screenshot harness
+  (`e2e/harness/templateScreens.ts`, both; `--late-after` shoots the live
+  order instead) put them on the page before painting.
+  `src/test/widget/runtimeExt.test.ts` checks who asks and when, the
+  all-or-nothing rule and the one repaint. Sizes on 2026-10-18, after issue
+  #340's rounds 1–4 (gzip 5, as shipped, both brands): runtime.js 54.8 KB
+  (+0.2 KB for the issue so far: round 2's closed-row guards, the hook
+  points `send`, `away`, `inline`, `reaction`, `kbMeta`, `media`, the typing
+  payload and the capability flips), runtime-ext.js
+  7.3 KB (of 8; the pack's loader, the late module's API, those hooks' own
+  empty handlers, the typing name and an article's author), runtime-late.js
+  10.4 KB (of 12: the rating card, the chat bar's menu, reactions, the
+  pre-chat one question at a time, the message left while away, the place
+  in the queue, the help articles offered while a first message is written,
+  a download's progress, the emoji search), presentation-t1-x.js 4.8 KB and
+  presentation-t2-x.js 5.9 KB (of 12 each; t1's emoji grid and its search
+  field, t2's order card and articles tray, every late surface, out of the
+  first paint); the renderers keep their first-open budgets (t1 19.4 KB,
+  t2 19.9 KB in the Iranian build, 19.3 / 19.8 KB in RESPOK's, of 20: t2
+  has 62 B left, so its next surface goes in its extras).
+- The emoji search's keywords (`public/widget/runtime-emoji.js`, ModuleLoader
+  name `emoji`, `config.modules.emoji` for a template with `coreFeatures`):
+  pure data (the renderer rules apply: no network, storage or host), the
+  words in English, Persian and Turkish of every emoji t1 and Core draw,
+  from the Unicode CLDR annotations (Unicode License v3, noted in its
+  header) with the Persian reviewed. runtime-late.js asks for it on the
+  search field's first use only, so a visitor who never searches never
+  downloads it; 3.8 KB of a 4 KB budget. An emoji added to a picker gets
+  its words there too (`emojiSearch.test.ts` checks every one).
+- The launcher's styles (`public/widget/runtime-fab.css`, issue #340: the
+  pill with the launcher text inside, the classic bubble, two bubbles, the
+  agent's face; `fab.shape` / `fab.icon` in `shared/launcherStyles.ts`):
+  the launcher is the loader's in every template, so a style is not a
+  template's. /config names the hashed file (`config.fabStyleUrl`) only for
+  a workspace wearing one, and only then does the loader request it, into
+  its shadow root (canonical-name retry), keeping the launcher (and the
+  card beside it) unseen until it is in (3 s at most). It restyles the
+  loader's own launcher (classes `fx fx-<icon> fx-<shape>`, the pill's text
+  in `data-fx`, the agent's initial in `data-fi`, `dir`), so without it the
+  launcher is today's, and a launcher without a style is byte for byte as
+  before (`launcherStyles.test.ts`). It follows the stylesheet rules of §3 (no
+  font, no host, small inline SVGs; `templateRules.test.ts` checks it with
+  the template stylesheets) and moves nothing of its own. 1.2 KB of its
+  2 KB. The operator preview (`WidgetLivePreview.tsx`) draws the same
+  classes and texts and asks for the manifest's runtime-fab.css in its
+  frame; `launcherLogoBootstrap.test.ts` follows a style from the
+  dashboard's tile through the settings PATCH and /config to each brand's
+  built loader and the hashed file it requests.
 - A feature's server data is sent on request only, so the API serves
   `default` as before: the thread list's and a history's assigned operator
   (`operator=1`, which runtime.js `operatorQ()` adds only for a renderer
@@ -125,9 +211,9 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   every file named by a fonts stylesheet (no dead weight), no two files with
   the same bytes (point two weights at one file instead).
 - Licences: a licensed face (IRANSans) ships byte-for-byte unmodified. An OFL
-  face (Inter) may be subset; keep its copyright and licence names. Subsets
-  are generated once and committed (`scripts/fonts/subset-widget-fonts.py`):
-  the Docker build has no Python.
+  face (Inter, Figtree) may be subset; keep its copyright and licence names.
+  Subsets are generated once and committed
+  (`scripts/fonts/subset-widget-fonts.py`): the Docker build has no Python.
 - No external font hosts (Google Fonts, CDNs): customer sites' CSP and
   privacy, and one more connection.
 - Customer sites with a Content-Security-Policy must allow the widget's
@@ -135,8 +221,25 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
   Until 2026-10 the faces were `data:` URIs, so `font-src 'self' data:` was
   enough; such a page now shows both widgets in the system font (they still
   work) and logs one CSP error per face. Say so to a customer who reports it.
-- Prefer the shared faces (IRANSans for Persian, InterWY for Latin): a new
-  family is downloaded by every visitor of that template.
+- Prefer the shared faces (IRANSans for Persian, InterWY for Latin; Figtree
+  for the International skins only): a new family is downloaded by every
+  visitor of that template.
+- Figtree (SIL OFL 1.1, no Reserved Font Name) is the Latin and Turkish face
+  of the International edition's skins `t1-intl` / `t2-intl` only. It is
+  variable (wght axis) and cut into two files in the shared
+  `presentation-default-fonts.css`: `figtree-latin.woff2` (18,540 B: Basic
+  Latin, Latin-1, the dotless ı and typographic punctuation) and
+  `figtree-tr.woff2` (2,312 B: Ğ ğ İ Ş ş). Each is declared at weights
+  400-800 against the same file (one download), with disjoint
+  unicode-ranges, the Latin face last. The files are cut by
+  `scripts/fonts/subset-widget-fonts.py --figtree <@fontsource-variable/figtree@5.2.10 files>`
+  from sha256-pinned sources. The licence is
+  `public/widget/fonts/OFL-Figtree.txt` (an OFL licence `.txt` is the only
+  non-woff2 file allowed in `fonts/`). No other template names Figtree, so
+  their visitors never download it. For an `-intl` id, prepare() warms the
+  Latin file, and in Turkish the Turkish file too (that first paint draws
+  ğ ş İ): en 18.5 KB, tr 20.9 KB. Code in articles is the system monospace
+  (no DM Mono).
 - `prepare(context)` (`context = { locale, templateId }`) warms only the faces
   the locale's FIRST paint draws, resolves within 500 ms even if a font never
   arrives, and never throws. A Persian first paint may cost at most 120 KB of
@@ -160,6 +263,8 @@ first open, 73% of the panel's bytes, the same Bold file twice, and a full
 - Shipped JS targets ES2017 (the build lowers it); no new npm dependencies
   in widget files.
 - No forbidden template-system tokens (`src/test/widget/noTemplateSystem.test.ts`).
+- A renderer's extras (§1) are renderer markup: the same rules, and the same
+  scan (`templateRules.test.ts`).
 - RTL and LTR from one stylesheet (logical properties), both editions,
   both brands: the RESPOK build must pass `scripts/build/brandAudit.mjs`
   (`src/test/widget/widgetBrandBuild.test.ts` runs it on every file).
@@ -178,6 +283,11 @@ one is a decision, with the reason in the commit and here.
 | chat skin | 6 KB | first open |
 | chat fonts stylesheet | 3 KB | first open |
 | chat template total (renderer + stylesheet + skin + fonts stylesheet) | 40 KB | first open |
+| chat `runtime-ext.js` | 8 KB | first open of a t1/t2 template |
+| chat `runtime-late.js` | 12 KB | after the first paint of a template with extras |
+| chat renderer extras (each `presentation-<renderer>-x.js`; not in the template total) | 12 KB | after the first paint |
+| chat `runtime-fab.css` | 2 KB | page views of a workspace wearing a launcher style |
+| chat `runtime-emoji.js` | 4 KB | the emoji search's first use |
 | call `l.js` | 3 KB | every page view |
 | call `runtime.css` | 5 KB | first page view |
 | call presentation | 10 KB | first page view |
@@ -185,9 +295,44 @@ one is a decision, with the reason in the commit and here.
 | one font file | 45 KB | when its text is on screen |
 | Persian first-paint fonts / English or Turkish | 120 KB / 50 KB | first open |
 
+Each brand's build is measured as it ships: the loader in both (the RESPOK
+build leaves out the Iran region's kit), each chat template in the brand of
+every edition that offers it (`EDITION_CHAT_WIDGET_TEMPLATES`: Iranian →
+`iran`, International → `respok`), Core's modules in both.
+
+The International skins on 2026-10-18: `presentation-t1-intl.css` 2.1 KB
+and `presentation-t2-intl.css` 2.0 KB (of 6), in both builds.
+
 A launcher look belongs to `loader.js` (every page view): a template that
 wants its own launcher must fit the loader budget, or take its look from
-config instead of new code.
+config instead of new code. A launcher style that not every site wears
+goes in `runtime-fab.css` (§2), never in the loader. Sizes on 2026-10-18,
+after issue #340 (gzip 5, as shipped): the loader 23.1 KB in the Iranian
+build (23.7 KB before: RESPOK's kit left out, the styles' wiring added),
+22.6 KB in RESPOK's (22.1 KB before: the Open logo added).
+
+The build supports a second kit marker, the mirror of the Iran region's
+`@iran-kit` (left out of the RESPOK build): `/* @intl-kit:begin */ …
+/* @intl-kit:end */` with the switch `var INTL_KIT = true;` is left out of
+the Iran build (`scripts/build/widgetBrand.mjs`, the widgets' copy of the
+dashboard's `SHIPS_INTL_KIT`; every build refuses malformed markers of
+either kit; a name a deleted block defines must be used only inside
+`if (INTL_KIT ...)` branches, or the Iran build fails). It holds
+RESPOK-only loader code: RESPOK's launcher kit (`RESPOK_KIT_CSS`, its
+Thread and Open glyphs, `respokKitOn`, `rpkOpen`, `ensureRespokKitStyle`;
+the operator preview's copy is `shared/respokLauncher.ts`), whose uses
+(the button, its badge, the shell's `lg-thread` / `lg-open`) sit behind
+`INTL_KIT`, so the Iran loader does not pay for it. The edition is the
+database's (`platform_settings.region_mode`, which the Super Admin may
+switch; a missing row is International) and the brand the build's: an
+Iran-brand deployment switched to the International edition then shows
+the plain launcher instead of RESPOK's, with no other brand's art, as the
+dashboard's Iran build goes without International-only extras (decided for
+issue #340; `widgetBrandBuild.test.ts` pins both loaders and boots the Iran
+one in the International edition). The build checks every name a deleted
+block declares, each declarator of a `var a = 1, b = 2;` or `var a, b;`
+included, and its function and class declarations, and refuses a
+declaration it cannot read (a destructuring one).
 
 ## 6. Server side (no per-template work, but do not undo it)
 

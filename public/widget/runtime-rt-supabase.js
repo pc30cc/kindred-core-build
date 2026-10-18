@@ -251,10 +251,10 @@
         if (p && hooks.onMessage) hooks.onMessage({ channel: name, messages: [p] });
       });
 
-      // Phase 8B — operator-only `event` envelopes carry kind:'call:incoming'
-      // for ringing the widget instantly. Every OTHER operator kind
-      // (note_added, conversation_updated, …) is silently dropped — they have
-      // no widget UI surface. Sidecar dispatch only; FSM untouched.
+      // Phase 8B — `event` envelopes carry kind:'call:incoming' for ringing
+      // the widget instantly, 'call:ended' and 'message_reactions' (the
+      // runtime's hook). Every OTHER kind (note_added, conversation_updated,
+      // …) is silently dropped — they have no widget UI surface. FSM untouched.
       ch.on('broadcast', { event: 'event' }, function (msg) {
         var p = unwrapPayload(msg);
         if (!p) return;
@@ -270,6 +270,9 @@
             if (window.__gs_call && typeof window.__gs_call.ended === 'function') {
               window.__gs_call.ended(p);
             }
+          } else if (p.kind === 'message_reactions' && hooks.onReaction) {
+            // A message's reactions changed: the runtime's hook.
+            hooks.onReaction(p);
           }
         } catch (_) {}
       });

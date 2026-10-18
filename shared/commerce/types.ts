@@ -179,6 +179,14 @@ export interface CommerceOrderSummary {
   status: OrderStatus;
   total: Money;
   createdAt: string;
+  /**
+   * Optional, sent by plugin builds that support it: the first product line
+   * (sanitized) and how many product lines the order has. Read only by the
+   * order card (server/services/ai-agent/commerce-tools/orderCard.ts), never
+   * handed to the model.
+   */
+  itemSummary?: string | null;
+  itemCount?: number | null;
 }
 
 export interface TrackingResult {
@@ -188,6 +196,12 @@ export interface TrackingResult {
   trackingUrl: string | null;
   status: string | null;
   updatedAt: string | null;
+  /**
+   * Optional estimated delivery day (ISO date) from the tracking payload, for
+   * plugin builds (or shipping plugins through the payload filter) that send
+   * one. Read only by the order card, never handed to the model.
+   */
+  estimatedDelivery?: string | null;
 }
 
 /**

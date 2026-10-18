@@ -55,6 +55,14 @@
     var f = (Presentation && Presentation.features) || {};
     return f.conversationOperator || f.chatHeader || f.operatorTyping ? 1 : undefined;
   }
+  // The "closed the conversation" line (a visitor-visible system row,
+  // metadata.kind 'conversation_closed') is drawn only by a renderer that
+  // declares `closedNotice`. For any other (`default`, `intl`) such a row is
+  // dropped where frames come in and where histories merge, so it never
+  // reaches the stores, the renderer or the unread count; in no template is
+  // it an unread message, a toast or a chime.
+  function closedRow(m) { return !!(m && m.metadata && m.metadata.kind === 'conversation_closed'); }
+  function hiddenRow(m) { return closedRow(m) && !((Presentation && Presentation.features) || {}).closedNotice; }
 
   function resolvePresentation(ctx, t) {
     var registry = window.__gs_presentation_registry;
@@ -77,7 +85,16 @@
       // What this Core can serve, so a renderer never draws a control nobody
       // answers. `kbNeutral`: the article vote accepts 'neutral' (until the
       // database allows it, such a vote is refused like any failed vote).
-      capabilities: { kbNeutral: true, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false },
+      // `csat`, `chatMenu`: the rating after a chat and the chat's menu;
+      // `reactions`, `prechatSteps`, `awayThread`, `queuePosition`: a
+      // message's reactions, the pre-chat one question at a time, the
+      // message left while the team is away and the place in the queue
+      // (runtime-late.js, with the routes they call). `orderCard`,
+      // `instantAnswers`, `emojiSearch`, `dlProgress`, `kbAuthor`: an AI
+      // answer's order card, help articles while the first message is
+      // written, the emoji picker's search, a download's progress and an
+      // article's author (runtime-late.js; the author's `meta=1`, runtime-ext.js).
+      capabilities: { kbNeutral: true, csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, chatMenu: true, awayThread: true, queuePosition: true, emojiSearch: true, dlProgress: true, kbAuthor: true },
     });
   }
 
@@ -1616,7 +1633,7 @@
       // the chat store). `allMessages` = every frame, so unread counters and
       // call-invitation scanning still see other threads.
       if (event === 'message' && payload && payload.messages) {
-        var all = payload.messages || [];
+        var all = Array.prototype.filter.call(payload.messages, function (m) { return !hiddenRow(m); });
         var owned = [];
         for (var f = 0; f < all.length; f++) {
           if (ConvEpoch.ownsFrame(frameConversationId(all[f]))) owned.push(all[f]);
@@ -2138,6 +2155,8 @@
                   onMessage: function (e) { emit('message', e); },
                   onTyping: function (e) { emit('typing', e); },
                   onPresence: function (e) { emit('presence', e); },
+                  // A message's reactions changed (runtime-late.js; nothing without it).
+                  onReaction: function (p) { ext('reaction', p); },
                   onReconnect: function () { emit('reconnect', {}); },
                   // Subscribe-ack from the driver — proves the per-conversation
                   // channel is live and the visitor is sendable. This is the
@@ -2899,10 +2918,12 @@
       return t('availOffline');
     }
 
+    // The store starts 'offline' with no label: a start the server reports
+    // as away publishes once too (the workspace's offline mode, the label).
     function publish() {
       var status = resolveStatus();
-      var prev = presenceStore.get().status;
-      if (prev === status) return;
+      var cur = presenceStore.get();
+      if (cur.status === status && (serverState !== 'offline' || cur.label)) return;
       presenceStore.set({
         status: status,
         label: labelFor(status),
@@ -3243,6 +3264,7 @@
       var changed = false;
 
       incoming.forEach(function (m) {
+        if (hiddenRow(m)) return;
         var id = m.id || (m.time + ':' + (m.text || m.body || ''));
         var senderRaw = m.role || m.sender || m.sender_type || 'agent';
         var sender = (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator';
@@ -4159,58 +4181,59 @@
      */
     function attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange) {
       var s = chatStore.get();
-      transport.sendMessage(
-        {
-          text: text,
-          conversationId: s.conversationId,
-          // One-shot: only true for the first message after "+ New
-          // conversation". Never sent alongside a conversationId.
-          forceNewConversation: forcingNew() && !s.conversationId,
-          attachmentId: attachmentId || null,
-          clientMessageId: localId,
-          replyToMessageId: replyToMessageId || null,
-          departmentId: departmentId,
+      var req = {
+        text: text,
+        conversationId: s.conversationId,
+        // One-shot: only true for the first message after "+ New
+        // conversation". Never sent alongside a conversationId.
+        forceNewConversation: forcingNew() && !s.conversationId,
+        attachmentId: attachmentId || null,
+        clientMessageId: localId,
+        replyToMessageId: replyToMessageId || null,
+        departmentId: departmentId,
+      };
+      var cbs = {
+        onConversation: function (cid) {
+          // Thread established — disarm before anything else so a retry or
+          // a follow-up message can never spawn a second thread, and so
+          // history/polling may resume adopting this (now current) id.
+          chatStore.set({ freshIntent: false });
+          if (cid && cid !== chatStore.get().conversationId) {
+            chatStore.set({ conversationId: cid });
+            transport.subscribeConversation(cid);
+          }
         },
-        {
-          onConversation: function (cid) {
-            // Thread established — disarm before anything else so a retry or
-            // a follow-up message can never spawn a second thread, and so
-            // history/polling may resume adopting this (now current) id.
-            chatStore.set({ freshIntent: false });
-            if (cid && cid !== chatStore.get().conversationId) {
-              chatStore.set({ conversationId: cid });
-              transport.subscribeConversation(cid);
-            }
-          },
 
 
-          onAccepted: function (info) {
-            // Bind canonical message id and flip to 'sent'. The next merge
-            // (poll/history) will reconcile by __id and may promote to 'seen'.
-            updateMessageByLocalId(localId, {
-              status: 'sent',
-              __id: info && info.messageId ? info.messageId : undefined,
-            }, onChange);
-          },
-          onReply: function (reply) {
-            var ns = chatStore.get();
-            var arr = ns.messages.slice();
-            arr.push({ body: reply, sender: 'operator', time: new Date() });
-            chatStore.set({ messages: arr });
-            if (onChange) onChange();
-          },
-          onError: function (err) {
-            // The monthly chat quota is full (simple billing phase 4): a
-            // first message cannot open a new conversation, so the visitor
-            // gets the leave-a-message form instead of a failed bubble —
-            // only when the server accepts captures over the quota
-            // (availability.quota_full present) and no thread exists yet.
-            if (switchToQuotaForm(err, localId, text, onChange)) return;
-            Util.warn('Send failed');
-            updateMessageByLocalId(localId, { status: 'failed' }, onChange);
-          },
-        }
-      );
+        onAccepted: function (info) {
+          // Bind canonical message id and flip to 'sent'. The next merge
+          // (poll/history) will reconcile by __id and may promote to 'seen'.
+          updateMessageByLocalId(localId, {
+            status: 'sent',
+            __id: info && info.messageId ? info.messageId : undefined,
+          }, onChange);
+        },
+        onReply: function (reply) {
+          var ns = chatStore.get();
+          var arr = ns.messages.slice();
+          arr.push({ body: reply, sender: 'operator', time: new Date() });
+          chatStore.set({ messages: arr });
+          if (onChange) onChange();
+        },
+        onError: function (err) {
+          // The monthly chat quota is full (simple billing phase 4): a
+          // first message cannot open a new conversation, so the visitor
+          // gets the leave-a-message form instead of a failed bubble —
+          // only when the server accepts captures over the quota
+          // (availability.quota_full present) and no thread exists yet.
+          if (switchToQuotaForm(err, localId, text, onChange)) return;
+          Util.warn('Send failed');
+          updateMessageByLocalId(localId, { status: 'failed' }, onChange);
+        },
+      };
+      // A renderer feature may deliver it another way (the message left
+      // while the team is away), through these same callbacks.
+      if (!ext('send', req, cbs)) transport.sendMessage(req, cbs);
     }
 
     /**
@@ -4878,6 +4901,8 @@
           sessionToken: ctx.sessionToken,
           locale: ctx.locale,
           slug: slug,
+          // `meta=1` (its author) only for a renderer that draws it.
+          meta: ext('kbMeta'),
           onResult: function (r) {
             if (pendingSlug !== slug) return;
             articleLoading = false;
@@ -5051,8 +5076,9 @@
       if (!id) return Promise.resolve(null);
       if (__mediaBlobCache[id]) return __mediaBlobCache[id];
       var url = (ctx.config.apiBase || ctx.apiBase || '') + '/api/widget/attachments/' + encodeURIComponent(id);
+      // The body is read by the template's Core (`media`, its progress) when it asks to.
       var p = ctx.fetchWith(url, { method: 'GET' })
-        .then(function (r) { if (!r.ok) throw new Error('attachment_fetch_failed'); return r.blob(); })
+        .then(function (r) { if (!r.ok) throw new Error('attachment_fetch_failed'); return ext('media', r, id) || r.blob(); })
         .then(function (blob) { return URL.createObjectURL(blob); })
         .catch(function () { delete __mediaBlobCache[id]; return null; });
       __mediaBlobCache[id] = p;
@@ -7566,9 +7592,9 @@
       if (!attachBtn) return;
       var conn = transportStore.get().connectionState;
       var pState = presenceStore.get();
-      var availOk = pState.liveChatEnabled !== false
-        && !((pState.status === 'offline' || pState.status === 'unavailable')
-          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
+      // Away, the leave-a-message form owns a new human thread (it hides
+      // the composer); a renderer feature's thread may hold files back (ext 'away').
+      var availOk = pState.liveChatEnabled !== false && ext('away', 'attach') !== false;
       if (ext('locked')) availOk = false;
       attachBtn.disabled = !(conn === 'online' && availOk);
       if (micBtn && !recordingActive) micBtn.disabled = !(conn === 'online' && availOk);
@@ -7629,11 +7655,11 @@
       var conn = transportStore.get().connectionState;
       // Phase 5 — composer is also gated by availability:
       //   - liveChatEnabled === false       → never enable
-      //   - offline_mode === contact_fallback when offline → fallback form owns input
+      //   - away with offline_mode capture_message, the leave-a-message form
+      //     owns a new human thread (renderBody hides the composer); an
+      //     existing thread and an AI chat keep theirs
       var pState = presenceStore.get();
-      var availOk = pState.liveChatEnabled !== false
-        && !((pState.status === 'offline' || pState.status === 'unavailable')
-          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
+      var availOk = pState.liveChatEnabled !== false;
       var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
       // A locked composer is styled by its renderer (`.input-bar.is-locked`).
       var locked = ext('locked');
@@ -8867,7 +8893,8 @@
       var pMode = presenceStore.get().offlineMode;
       var isOfflineFallbackMode = (pStatus === 'offline' || pStatus === 'unavailable')
         && (pMode === 'contact_fallback' || pMode === 'capture_message');
-      if (isOfflineFallbackMode && !hasMsgs && !aiActiveNow) {
+      // A renderer feature may take the message in the thread instead (ext 'away').
+      if (isOfflineFallbackMode && !hasMsgs && !aiActiveNow && !ext('away')) {
         return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
       if (!aiActiveNow && !hasMsgs) {
@@ -9047,7 +9074,10 @@
           // happened) renders fields inline, inside the message list, so the
           // prior conversation stays visible — the full-page form is only
           // for PRECHAT_FOR_HUMAN, the very first thing a visitor sees.
-          if (state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT) {
+          // A renderer feature may ask in the thread for a first chat too
+          // (ext 'inline', which also learns how to report the submit).
+          var inline = ext('inline', onPrechatSubmitted);
+          if (state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT || inline) {
             chatUI.renderHandoffPrechatInline(mountChatFrame() || body, identity, ctx.locale, onPrechatSubmitted);
           } else {
             chatUI.renderPreChat(body, identity, ctx.locale, onPrechatSubmitted);
@@ -9178,6 +9208,7 @@
         // Skip own messages (visitor/contact = the user themselves).
         var sender = m.role || m.sender || m.sender_type || 'agent';
         if (sender === 'visitor' || sender === 'contact') continue;
+        if (closedRow(m)) continue;
         // De-dupe by stable id (prevents reconnect/poll from double-counting).
         var id = m.id || (m.time ? (m.time + ':' + (m.text || m.body || '')) : null);
         if (id) {
@@ -9322,12 +9353,13 @@
       }
     }
     var launcherTypingTimer = null;
-    function showOperatorTyping() {
+    function showOperatorTyping(p) {
       // The launcher shows it even while the panel (and its bar) is closed.
       launcherTyping(true);
       if (launcherTypingTimer) clearTimeout(launcherTypingTimer);
       launcherTypingTimer = setTimeout(function () { launcherTyping(false); }, 3500);
-      ext('typing', 1);
+      // The event's typing operator (name, photo) for a visible typing row.
+      ext('typing', 1, p);
       if (!typingRow || !typingLabel) return;
       typingRow.classList.remove('ai-thinking');
       typingLabel.textContent = t('typingOperator') || 'Support is typing…';
@@ -9345,7 +9377,7 @@
       transport.on('typing', function (e) {
         var actor = e && e.payload && e.payload.actor;
         if (actor === 'visitor') return; // ignore self-echo
-        showOperatorTyping();
+        showOperatorTyping(e && e.payload);
       });
     }
 
@@ -9581,7 +9613,7 @@
           if (mod) Ext = mod.create(
             Presentation, ctx, panel, chatQ, identity, chatUI, kbUI, ModuleLoader, ConvEpoch,
             shellStore, chatStore, presenceStore, conversationsStore, notifyStore, identityStore, kbStore,
-            attachmentStore, transportStore,
+            attachmentStore, transportStore, uiPrefsStore,
             renderBody, renderHome, switchTab, deriveChatTabState, setDraftFor, currentDraftKey, trySend,
             restoreDraftToInput, applyComposerState, syncAttachButton, showAiThinking, finishRecording,
             renderVoicePreview, extCalls

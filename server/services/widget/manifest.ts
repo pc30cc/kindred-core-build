@@ -29,6 +29,14 @@ interface WidgetManifest {
   'runtime-kb.js'?: string;
   // The renderer features (loaded only by a template that declares some).
   'runtime-ext.js'?: string;
+  // The late features (loaded after the first paint, only by a template
+  // whose renderer has extras).
+  'runtime-late.js'?: string;
+  // The emoji picker's search keywords (loaded on the search's first use,
+  // only by a template whose renderer declares features).
+  'runtime-emoji.js'?: string;
+  // The launcher styles (loaded by the loader only for a workspace wearing one).
+  'runtime-fab.css'?: string;
   'runtime-call.js'?: string;
   'runtime-rt-centrifugo.js'?: string;
   'runtime-rt-supabase.js'?: string;
@@ -51,6 +59,9 @@ type WidgetCoreAssetKey =
   | 'runtime-chat.js'
   | 'runtime-kb.js'
   | 'runtime-ext.js'
+  | 'runtime-late.js'
+  | 'runtime-emoji.js'
+  | 'runtime-fab.css'
   | 'runtime-call.js'
   | 'runtime-rt-centrifugo.js'
   | 'runtime-rt-supabase.js'
@@ -262,6 +273,9 @@ function fallbackManifest(): WidgetManifest {
     'runtime-chat.js': 'runtime-chat.js',
     'runtime-kb.js': 'runtime-kb.js',
     'runtime-ext.js': 'runtime-ext.js',
+    'runtime-late.js': 'runtime-late.js',
+    'runtime-emoji.js': 'runtime-emoji.js',
+    'runtime-fab.css': 'runtime-fab.css',
     'runtime-call.js': 'runtime-call.js',
     'runtime-rt-centrifugo.js': 'runtime-rt-centrifugo.js',
     'runtime-rt-supabase.js': 'runtime-rt-supabase.js',

@@ -18,6 +18,13 @@
  * warms exactly those). The IRANSans files are the licensed bytes, unmodified;
  * the Inter files are subsets of src/assets/fonts/inter-500.woff2 made by
  * scripts/fonts/subset-widget-fonts.py, which also prints the Inter rules below.
+ *
+ * Figtree is named only by the International edition's skins
+ * (presentation-t1-intl.css, presentation-t2-intl.css) and warmed only by
+ * their renderers' prepare() for a template id ending in -intl, so no other
+ * template ever downloads it. It is one variable file per script (wght axis),
+ * declared once per weight those skins use; the subset script cuts and
+ * prints them too (OFL, fonts/OFL-Figtree.txt).
  */
 :root {
   /* Generic contract read by the widget shell (`var(--gs-presentation-font)`).
@@ -67,4 +74,60 @@
   font-family: 'InterWY'; font-style: normal; font-weight: 500; font-display: swap;
   src: url(fonts/inter-500-latin.woff2) format('woff2');
   unicode-range: U+0000, U+0020-007E, U+00A0-00AC, U+00AE-00FF, U+011E-011F, U+0130-0131, U+0152-0153, U+015E-015F, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+2000-200B, U+2010-2027, U+202F-2055, U+2057, U+205F, U+20AC, U+20BA, U+2122, U+2190-2199, U+2212, U+2264-2265, U+25CF, U+2713, U+FEFF;
+}
+
+/* Figtree 400, 500, 600, 700 and 800 (OFL, variable: wght 300-900), the
+   International skins' Latin face, split into disjoint ranges: Turkish's
+   G/S with breve and cedilla and the dotted capital I in their own file, so an
+   English panel fetches the Latin file only; the Latin file (with the
+   dotless i) last. Every weight of a file is the same URL: one download. */
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(fonts/figtree-tr.woff2) format('woff2');
+  unicode-range: U+011E-011F, U+0130, U+015E-015F;
+}
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(fonts/figtree-latin.woff2) format('woff2');
+  unicode-range: U+0020-007E, U+00A0-00AC, U+00AE-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2022, U+2026, U+2039-203A, U+2044, U+20AC, U+2122;
+}
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url(fonts/figtree-tr.woff2) format('woff2');
+  unicode-range: U+011E-011F, U+0130, U+015E-015F;
+}
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url(fonts/figtree-latin.woff2) format('woff2');
+  unicode-range: U+0020-007E, U+00A0-00AC, U+00AE-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2022, U+2026, U+2039-203A, U+2044, U+20AC, U+2122;
+}
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(fonts/figtree-tr.woff2) format('woff2');
+  unicode-range: U+011E-011F, U+0130, U+015E-015F;
+}
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(fonts/figtree-latin.woff2) format('woff2');
+  unicode-range: U+0020-007E, U+00A0-00AC, U+00AE-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2022, U+2026, U+2039-203A, U+2044, U+20AC, U+2122;
+}
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url(fonts/figtree-tr.woff2) format('woff2');
+  unicode-range: U+011E-011F, U+0130, U+015E-015F;
+}
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url(fonts/figtree-latin.woff2) format('woff2');
+  unicode-range: U+0020-007E, U+00A0-00AC, U+00AE-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2022, U+2026, U+2039-203A, U+2044, U+20AC, U+2122;
+}
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 800; font-display: swap;
+  src: url(fonts/figtree-tr.woff2) format('woff2');
+  unicode-range: U+011E-011F, U+0130, U+015E-015F;
+}
+@font-face {
+  font-family: 'Figtree'; font-style: normal; font-weight: 800; font-display: swap;
+  src: url(fonts/figtree-latin.woff2) format('woff2');
+  unicode-range: U+0020-007E, U+00A0-00AC, U+00AE-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2022, U+2026, U+2039-203A, U+2044, U+20AC, U+2122;
 }

@@ -8,7 +8,6 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
-import type { OperatorEventKind } from '../../services/realtime/publish.js';
 import { getServiceClient } from '../../supabase.js';
 import { recordAiAgentDebugEvent } from '../../services/ai-agent/debugEvents.js';
 import { routeParam } from '../../lib/routeParams.js';
@@ -337,13 +336,13 @@ activityRouter.post('/suggestions/:id/use', async (req: Request, res: Response) 
   try {
     const { publishOperatorEvent } = await import('../../services/realtime/publish.js');
     await publishOperatorEvent(config, {
-      kind: 'ai_suggestion_updated' as OperatorEventKind, // not listed in the OperatorEventKind union
+      kind: 'ai_suggestion_updated',
       conversation_id: data.conversation_id as string,
       workspace_id: data.workspace_id as string,
       actor_id: ctx.userId,
       suggestion_id: data.id as string,
       status: 'used',
-    }, { skipInboxChannel: true });
+    });
   } catch { /* best-effort */ }
 
   return res.json({ ok: true, suggestion: data });
@@ -372,13 +371,13 @@ activityRouter.post('/suggestions/:id/dismiss', async (req: Request, res: Respon
   try {
     const { publishOperatorEvent } = await import('../../services/realtime/publish.js');
     await publishOperatorEvent(config, {
-      kind: 'ai_suggestion_updated' as OperatorEventKind, // not listed in the OperatorEventKind union
+      kind: 'ai_suggestion_updated',
       conversation_id: data.conversation_id as string,
       workspace_id: data.workspace_id as string,
       actor_id: ctx.userId,
       suggestion_id: data.id as string,
       status: 'dismissed',
-    }, { skipInboxChannel: true });
+    });
   } catch { /* best-effort */ }
 
   return res.json({ ok: true, suggestion: data });

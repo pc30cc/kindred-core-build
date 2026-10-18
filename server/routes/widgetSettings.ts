@@ -11,6 +11,7 @@
  */
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { FAB_ICON_IDS, FAB_SHAPES } from '../../shared/launcherStyles.js';
 import type { ServerConfig } from '../config.js';
 import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
@@ -184,7 +185,7 @@ async function withDerivedFabImageUrl(
  * WIDGET_CUSTOMIZATION_CAPABILITY maps) — not guessed. A field the UI does
  * not currently write (e.g. `launcher_text`, `theme`, `secondary_color`,
  * `greeting_message`, the `fab_*` styling columns beyond label/scale/icon/
- * image, `read_receipts_enabled`, `mobile_behavior`) is deliberately left
+ * shape/image, `read_receipts_enabled`, `mobile_behavior`) is deliberately left
  * OUT: adding real UI for one of those later means deliberately adding it
  * here too, which is the point.
  *
@@ -217,7 +218,10 @@ const widgetSettingsPatchSchema = z.object({
   // Launcher (FAB)
   fab_label: z.string().max(100).nullable().optional(),
   fab_scale: z.number().min(50).max(300).optional(),
-  fab_icon: z.string().max(50).nullable().optional(),
+  // The launcher's style (shared/launcherStyles.ts): known values only, so a
+  // stored icon can never be a name such as "constructor".
+  fab_icon: z.enum(FAB_ICON_IDS).nullable().optional(),
+  fab_shape: z.enum(FAB_SHAPES).optional(),
   // NO fab_image_url. The launcher image is uploaded to WebYar storage
   // through POST /:workspaceId/fab-image, which records only
   // `fab_image_storage_key`; the link is derived on read. A settings PATCH

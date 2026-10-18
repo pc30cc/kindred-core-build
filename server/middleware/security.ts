@@ -660,6 +660,14 @@ export const widgetBootstrapGlobalCeiling = globalCeiling(
 export const callWidgetBootstrapGlobalCeiling = globalCeiling(
   'call-widget-bootstrap', () => limitFromEnv('CALL_WIDGET_BOOTSTRAP_GLOBAL_PER_MIN', 6_000));
 export const publicKbGlobalCeiling = globalCeiling('public-kb', () => 2400);
+/**
+ * GET /api/widget/kb-suggest (instant answers, server/routes/widgetKbSuggest.ts),
+ * per process: WIDGET_KB_SUGGEST_GLOBAL_PER_MIN (1800). Its own counter, so the
+ * help center's searches never use it up, nor it theirs. Mounted after the
+ * per-visitor `kb_suggest` bucket: a request that bucket refuses costs nothing here.
+ */
+export const kbSuggestGlobalCeiling = globalCeiling(
+  'kb-suggest', () => limitFromEnv('WIDGET_KB_SUGGEST_GLOBAL_PER_MIN', 1800));
 export const visitorPreAuthGlobalCeiling = globalCeiling('visitor-preauth', () => 4000);
 
 /**

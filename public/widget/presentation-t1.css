@@ -7,10 +7,12 @@
    Latin.
 
    Colour: the renderer sets the accent `--a` (and `--a-rgb`, `--on-a*`,
-   `--gs-primary`, the brand hero, and `--dk` for a light accent that needs
-   dark text) inline on each view root and on the close button; every
-   other shade is derived here from `--a`, in OKLab like the design, with
-   an rgba fallback where color-mix() is missing.
+   `--gs-primary`, and `--dk` for a light accent that needs dark text)
+   inline on each view root and on the close button; every other shade is
+   derived here from `--a`, in OKLab like the design, with an rgba fallback
+   where color-mix() is missing. An uncustomised accent is not inlined: the
+   renderer marks those elements `gs-accent-brand` and the brand colour and
+   its hand-tuned hero are below (a skin restyles them).
    ══════════════════════════════════════════════════════════════════════ */
 
 .wy-view, .panel-close, .smart-nudge {
@@ -58,6 +60,11 @@
     --hero: var(--a);
   }
 }
+/* The brand accent (the renderer's `gs-accent-brand`), and its hero, which
+   the brand colour picked explicitly wears too (the renderer writes `--a`
+   first, with its `;`). Two classes: above the token blocks. */
+.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #0B7D6C; --a-rgb: 11, 125, 108; --gs-primary: #0B7D6C; }
+.wy-view.gs-accent-brand, .wy-view[style*='--a:#0b7d6c;' i] { --hero: linear-gradient(155deg, #1DB99D 0%, #0F927D 46%, #0B7D6C 100%); }
 
 .sr-only {
   position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -394,6 +401,21 @@ button.cd:hover {
   padding: 0 10px; padding-inline-end: 50px; background: #fff; box-shadow: 0 1px 0 var(--line);
 }
 .who { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding-inline: 4px; }
+/* The chat bar's ⋯ (before the shell's close) and its menu (extras), hanging under it at the bar's end. */
+.cm { position: relative; flex: none; }
+.cm .ib[aria-expanded='true'] { background: var(--bg-2); color: var(--ink); }
+.menu { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; z-index: 5; width: max-content; min-width: 200px; max-width: 272px; padding: 6px; border-radius: 16px; background: #fff; box-shadow: var(--sh-2); }
+.menu[hidden] { display: none; }
+.menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; line-height: 1.5; color: var(--ink); text-align: start; }
+.menu button:hover, .menu button:focus-visible { background: var(--bg-2); }
+.menu button[aria-disabled='true'] { color: var(--ink-3); cursor: default; }
+.menu svg { flex: none; color: var(--ink-3); }
+.menu span { flex: 1; min-width: 0; }
+.menu b { color: var(--ink); unicode-bidi: isolate; }
+.sw { position: relative; flex: none; width: 30px; height: 18px; border-radius: 999px; background: var(--line-2); transition: background-color .15s; }
+.sw::after { content: ''; position: absolute; top: 2px; inset-inline-start: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(15, 18, 23, .25); transition: inset-inline-start .2s var(--ease); }
+[aria-checked='true'] > .sw { background: var(--a); }
+[aria-checked='true'] > .sw::after { inset-inline-start: 14px; }
 .who-x { display: block; min-width: 0; }
 .hn { display: block; overflow: hidden; font-size: 15px; font-weight: 700; line-height: 1.4; white-space: nowrap; text-overflow: ellipsis; }
 .hs { display: block; overflow: hidden; font-size: 12px; line-height: 1.45; color: var(--ink-3); white-space: nowrap; text-overflow: ellipsis; }
@@ -583,6 +605,23 @@ button.cd:hover {
 .msg-att-name { overflow: hidden; font-size: 13px; font-weight: 700; line-height: 1.5; white-space: nowrap; text-overflow: ellipsis; }
 .msg-att-sub { font-size: 11.5px; color: var(--ink-3); }
 .msg-att-action { width: 32px; height: 32px; border-radius: 10px; background: #fff; box-shadow: 0 0 0 1px var(--line); }
+/* A download's progress (feature `dlProgress`: Core's `--dl`, 0..1, on the
+   control while the bytes come): a ring from the top around a voice note's
+   play button, a bar under a file's (in the reading direction). */
+.dl-on.msg-att-action { position: relative; }
+.dl-on .wy-ap-play::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%;
+  background: conic-gradient(var(--a) calc(var(--dl, 0) * 360deg), var(--a-3) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+}
+.dl-on.msg-att-action::after {
+  content: ''; position: absolute; inset-inline: 3px; bottom: -6px; height: 3px; border-radius: 2px;
+  background: linear-gradient(to right, var(--a) calc(var(--dl, 0) * 100%), var(--a-3) 0);
+}
+[dir='rtl'] .dl-on.msg-att-action::after { background: linear-gradient(to left, var(--a) calc(var(--dl, 0) * 100%), var(--a-3) 0); }
+.visitor .dl-on .wy-ap-play::after { background: conic-gradient(var(--on-a, #fff) calc(var(--dl, 0) * 360deg), rgba(255, 255, 255, .3) 0); }
+.dl-on .wy-ap-spinner { display: none !important; }
 .msg-att-audio, .vn-bar {
   --bars:
     linear-gradient(currentColor, currentColor) 0% 50% / 3px 8px no-repeat,
@@ -657,6 +696,10 @@ button.cd:hover {
 .emoji-btn svg { transition: transform .28s var(--ease); }
 .emoji-btn[aria-expanded='true'] { background: var(--a-2); color: var(--a-ink); box-shadow: inset 0 0 0 1px var(--a-3); }
 .emoji-btn[aria-expanded='true'] svg { transform: rotate(-14deg) scale(1.06); }
+/* The grid comes with the template's extras (runtime-ext.js): painted
+   without Core's module (`.ext-off`), or once the extras failed, the button
+   goes, never a picker with nothing in it. */
+.ext-off .emoji-btn, .emoji-btn[hidden] { display: none; }
 .send-btn, .has-draft .mic-btn, .mic-ring { display: none; }
 .has-draft .send-btn, .send-btn.solo { display: grid; }
 .has-draft .send-btn .pl { animation: t1-swap .18s ease-out; }
@@ -716,6 +759,17 @@ button.cd:hover {
 .ep-e { display: grid; place-items: center; height: 38px; border-radius: 11px; font-size: 14px; line-height: 1; transition: background-color .12s, transform .16s var(--ease); }
 .ep-e:hover { background: var(--bg-2); transform: scale(1.14); }
 .ep-e:active { background: var(--a-2); box-shadow: inset 0 0 0 1px var(--a-3); }
+/* Its search (feature `emojiSearch`): the field on top, a taller picker (an
+   open one: a closed picker keeps no height); while searching the tabs go and
+   Core hides what does not match. */
+.epk:not([hidden]):has(.ep-sr:not([hidden])) { height: 290px; }
+.ep-sr { display: flex; align-items: center; gap: 8px; flex: none; height: 36px; margin: 0 2px; padding: 0 12px; border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); }
+.ep-sr:focus-within { box-shadow: inset 0 0 0 1.5px var(--a-tx); }
+.ep-sr[hidden], .epk.is-searching .ep-cats, .ep-e[hidden] { display: none; }
+.ep-sr input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--ink); outline: 0; }
+.ep-sr input::placeholder { color: var(--ink-3); }
+.ep-sr input::-webkit-search-cancel-button { display: none; }
+.ep-none { margin: 0; padding: 24px 0; font-size: 12.5px; color: var(--ink-3); text-align: center; }
 
 /* Voice: recording, then the preview, in the same box. */
 .rec-bar, .vn-bar { display: none; grid-column: 1 / -1; grid-row: 1 / -1; align-items: center; gap: 6px; }
@@ -802,6 +856,39 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
 .sum-edit { margin-inline-start: auto; font-size: 12px; font-weight: 600; color: var(--a-ink); }
 .sum .rw { display: flex; justify-content: space-between; gap: 10px; padding: 9px 14px; box-shadow: 0 -1px 0 var(--line); font-size: 12.5px; }
 .sum .rw span { color: var(--ink-3); }
+/* The pre-chat one question at a time (extras): the step in the composer's
+   place, focused-looking, and the answers in the thread. */
+.cbox.steps { gap: 4px; padding: 12px 6px 6px; box-shadow: 0 0 0 1.5px var(--a-tx), 0 0 0 4px var(--a-3); }
+.prog { display: flex; align-items: center; gap: 10px; padding: 0 8px 6px; font-size: 11.5px; font-weight: 600; line-height: 1.5; color: var(--ink-3); white-space: nowrap; }
+.prog .bar { flex: 1; display: flex; gap: 4px; }
+.prog .bar i { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+.prog .bar .on { background: var(--a); }
+.prog .skip { margin-inline-start: 4px; font-size: 11.5px; font-weight: 600; color: var(--a-ink); }
+.ex { display: flex; align-items: center; gap: 10px; min-height: 26px; }
+.ex .pre { direction: ltr; padding-inline-end: 10px; border-inline-end: 1px solid var(--line-2); font-size: 14px; line-height: 26px; color: var(--ink-2); }
+.ex .input { flex: 1; min-width: 0; padding: 0; }
+[dir='rtl'] .ex .input[dir='ltr'] { text-align: right; }
+.steps .tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-inline-start: 8px; }
+.steps .tools .ra { margin-inline-start: auto; }
+.steps .hint { font-size: 12px; color: var(--ink-3); }
+.steps .err { padding: 0 8px 4px; color: var(--bad); }
+.msg.fail { opacity: .55; }
+.st-ok, .st-err { display: inline-flex; align-items: center; gap: 4px; }
+.st-ok svg { color: var(--a-tx); }
+.st-err b { font-weight: 600; color: var(--bad); }
+/* The automated reply to a message left while away, joined to its e-mail card. */
+.msg.joined { border-bottom-left-radius: 6px; }
+.ec { width: 282px; gap: 8px; padding: 12px; border-radius: 18px; border-top-left-radius: 6px; }
+.ec label { font-size: 12.5px; font-weight: 600; }
+.ec .rw { display: flex; gap: 6px; }
+.ec .inp { flex: 1; min-width: 0; }
+.ec .rw .inp[dir='ltr'] { text-align: left; }
+.go { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(180deg, var(--a-hi), var(--a)); color: var(--on-a); }
+.go:disabled { opacity: .6; }
+.ec .fallback-status { font-size: 12px; font-weight: 600; text-align: start; color: var(--bad); }
+.ec.done { flex-direction: row; align-items: center; gap: 10px; font-size: 13px; line-height: 1.6; color: var(--ink-2); }
+.ec.done svg { flex: none; color: var(--a-tx); }
+.ec.done b { color: var(--ink); unicode-bidi: isolate; }
 .dept-picker { display: flex; flex-direction: column; gap: 8px; padding: 20px 18px; }
 .dept-picker__title { font-size: 17px; font-weight: 700; }
 .dept-picker__subtitle { font-size: 13px; color: #666D7A; }
@@ -829,6 +916,7 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
 .art h1 { margin: 0 0 8px; font-size: 21px; font-weight: 700; line-height: 1.6; }
 .am { display: flex; align-items: center; gap: 8px; min-height: 24px; margin: 0 0 16px; font-size: 12px; color: var(--ink-3); }
 .am .dot { margin: 0 -4px; }
+.am .av { flex: none; }
 .kb-article-body { font-size: 14.5px; line-height: 2; color: #272B34; }
 .kb-article-body p { margin: 0 0 12px; }
 .kb-article-body h1, .kb-article-body h2, .kb-article-body h3 { margin: 16px 0 8px; font-size: 16px; font-weight: 700; line-height: 1.7; color: var(--ink); }

@@ -53,6 +53,13 @@ export interface EmailRequest {
   text?: string;
   templateSlug?: string;
   templateData?: Record<string, string>;
+  /**
+   * Values for the template's HTML part only, over `templateData`: the
+   * caller's HTML-escaped copy of text a visitor typed, so the HTML shows it
+   * as text while the subject and the text part get `templateData`'s raw
+   * value (no `&amp;` where the visitor wrote `&`). Never logged.
+   */
+  htmlData?: Record<string, string>;
   locale?: string;
   /**
    * Send through a provider chosen for this KIND of mail rather than the
@@ -147,6 +154,22 @@ async function resolveProviderConfig(
 }
 
 /**
+ * Whether the platform has an email provider at all (the same reading
+ * sendEmail makes, never the override key; `stub` is sendEmail's "not
+ * configured"): a feature that mails a visitor on request (the transcript by
+ * email) is offered only then. False when the setting cannot be read.
+ */
+export async function isEmailProviderConfigured(config: ServerConfig): Promise<boolean> {
+  try {
+    const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
+    const provider = await resolveProviderConfig(supabase);
+    return !!provider && provider.provider_name !== 'stub';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The From header, fail-closed.
  *
  * Transport identity (who the mail is *from*) comes from the provider config
@@ -231,16 +254,22 @@ async function resolveTemplate(
 }
 
 /**
- * Interpolate {{key}} variables in a string.
+ * Interpolate {key} and {{key}} variables in a string; a placeholder with no
+ * key in `data` is left as it is.
+ *
+ * Each value is inserted as it is, in one pass over the template: a function
+ * replacer, because a string replacement would expand `$&`, `$'`, `` $` ``
+ * and `$$` in it, and never a second look at an inserted value, which used to
+ * fill a placeholder typed inside it with a later key's value (a visitor's
+ * "{transcript_text}" in the HTML transcript would have pulled the unescaped
+ * text transcript into the HTML). Visitor text in a transcript, an order
+ * note or a name arrives as typed. Exported for its tests.
  */
-function interpolate(text: string, data: Record<string, string>): string {
-  let result = text;
-  for (const [key, value] of Object.entries(data)) {
-    // Support both {key} and {{key}} patterns
-    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
-    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
-  }
-  return result;
+export function interpolate(text: string, data: Record<string, string>): string {
+  return text.replace(/\{\{([^{}]+)\}\}|\{([^{}]+)\}/g, (match: string, double?: string, single?: string) => {
+    const key = (double ?? single) as string;
+    return Object.prototype.hasOwnProperty.call(data, key) ? String(data[key]) : match;
+  });
 }
 
 /**
@@ -300,7 +329,10 @@ type RenderedTemplate =
 /**
  * The running edition's Super Admin template for `slug`, filled in. Branding
  * defaults ({brand}, {year}, {support_email}) are added so every template
- * renders them, while the caller's templateData always wins.
+ * renders them, while the caller's templateData always wins; `htmlData`
+ * (the HTML-escaped copies) wins over it in the HTML part alone. The subject
+ * is one line whatever a value holds (a visitor's name typed with a line
+ * break): a header never carries one.
  */
 async function renderEditionTemplate(
   config: ServerConfig,
@@ -308,6 +340,7 @@ async function renderEditionTemplate(
   slug: string,
   templateData: Record<string, string> | undefined,
   locale: string | undefined,
+  htmlData?: Record<string, string>,
 ): Promise<RenderedTemplate> {
   const scope = await resolveEmailScope(config, locale);
   if (!scope) return { status: 'edition_unavailable' };
@@ -321,8 +354,8 @@ async function renderEditionTemplate(
   };
   return {
     status: 'ok',
-    subject: interpolate(tpl.subject, data),
-    html: interpolate(tpl.html_body, data),
+    subject: interpolate(tpl.subject, data).replace(/[\r\n]+/g, ' '),
+    html: interpolate(tpl.html_body, htmlData ? { ...data, ...htmlData } : data),
     text: interpolate(tpl.text_body || '', data),
     locale: tpl.locale,
   };
@@ -338,6 +371,8 @@ export interface PlatformEmailRequest {
   /** The running edition's Super Admin template to send, as in EmailRequest. */
   templateSlug?: string;
   templateData?: Record<string, string>;
+  /** As in EmailRequest: the HTML part's escaped values. */
+  htmlData?: Record<string, string>;
   locale?: string;
 }
 
@@ -366,7 +401,7 @@ export async function sendPlatformEmail(
   let text = request.text || '';
   let fromLocale = 'en';
   if (request.templateSlug) {
-    const rendered = await renderEditionTemplate(config, supabase, request.templateSlug, request.templateData, request.locale);
+    const rendered = await renderEditionTemplate(config, supabase, request.templateSlug, request.templateData, request.locale, request.htmlData);
     if (rendered.status === 'ok') {
       ({ subject, html, text } = rendered);
       fromLocale = rendered.locale;
@@ -407,7 +442,7 @@ export async function sendEmail(
 ): Promise<SendResult> {
   const supabase = serviceClientFor(config.supabaseUrl, config.supabaseServiceRoleKey);
 
-  const { workspaceId, to, templateSlug, templateData, locale } = request;
+  const { workspaceId, to, templateSlug, templateData, htmlData, locale } = request;
 
   // `workspaceId === null` is an explicit platform send; an empty string or a
   // missing field is still a caller bug.
@@ -427,7 +462,7 @@ export async function sendEmail(
 
   let tplLocale = locale || 'en';
   if (templateSlug) {
-    const rendered = await renderEditionTemplate(config, supabase, templateSlug, templateData, locale);
+    const rendered = await renderEditionTemplate(config, supabase, templateSlug, templateData, locale, htmlData);
     if (rendered.status === 'ok') {
       ({ subject, html, text } = rendered);
       tplLocale = rendered.locale;

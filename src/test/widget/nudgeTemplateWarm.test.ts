@@ -4,6 +4,8 @@
  * edition's first one (`t1`, `t2`) dresses that bubble in its own
  * stylesheet, so when the bubble shows the loader warms the template the way
  * an open intent does: files load, runtime.init() still waits for an open.
+ * The International edition's skins over them (`t1-intl`, `t2-intl`) are
+ * warmed the same way, with their skin stylesheet.
  * `default` and `intl` keep exactly today's behaviour: a nudge loads nothing.
  *
  * @vitest-environment jsdom
@@ -17,13 +19,19 @@ const WS = '7b0e9d8c-1f2a-4b3c-9d4e-5f6a7b8c9d0e';
 const tick = async (n = 10) => { for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0)); };
 
 function configFor(templateId: string | undefined) {
+  // A skin (t1-intl, t2-intl) wears its base template's files plus its own
+  // stylesheet, as the server's config names them.
+  const intlSkin = /-intl$/.test(templateId || '');
+  const files = intlSkin ? String(templateId).replace(/-intl$/, '') : templateId || 'default';
   return {
-    enabled: true, features: { chat: true }, primaryColor: '#3B82F6', templateId, locale: 'fa', edition: 'iran',
+    enabled: true, features: { chat: true }, primaryColor: '#3B82F6', templateId,
+    locale: intlSkin ? 'en' : 'fa', edition: intlSkin || templateId === 'intl' ? 'international' : 'iran',
     styleUrl: 'https://cdn.test/widget/runtime.0123abcd.css',
     runtimeUrl: 'https://cdn.test/widget/runtime.0123abcd.js',
     presentationRegistryUrl: 'https://cdn.test/widget/presentation-registry.0123abcd.js',
-    presentationUrl: `https://cdn.test/widget/presentation-${templateId || 'default'}.0123abcd.js`,
-    presentationStyleUrl: `https://cdn.test/widget/presentation-${templateId || 'default'}.0123abcd.css`,
+    presentationUrl: `https://cdn.test/widget/presentation-${files}.0123abcd.js`,
+    presentationStyleUrl: `https://cdn.test/widget/presentation-${files}.0123abcd.css`,
+    ...(intlSkin ? { presentationSkinUrl: `https://cdn.test/widget/presentation-${templateId}.0123abcd.css` } : {}),
     presentationFontsUrl: 'https://cdn.test/widget/presentation-default-fonts.0123abcd.css',
     callRuntimeUrl: 'https://cdn.test/widget/runtime-call.0123abcd.js',
     smart: {
@@ -108,6 +116,18 @@ describe('a launcher nudge and the template files', () => {
     expect(requested(new RegExp(`presentation-${templateId}\\.0123abcd\\.css$`)).length).toBeGreaterThan(0);
     expect(requested(new RegExp(`presentation-${templateId}\\.0123abcd\\.js$`)).length).toBeGreaterThan(0);
     expect(requested(/runtime\.0123abcd\.js$/).length).toBeGreaterThan(0);
+    await tick(20);
+    expect(init).not.toHaveBeenCalled();
+  });
+
+  // The International edition's skins over Templates 1 and 2 dress the bubble
+  // too (their stylesheets carry its corners and place): warmed the same way.
+  it.each([['t1-intl', 't1'], ['t2-intl', 't2']])('%s: the bubble shows and its base files and skin load, without init()', async (templateId, base) => {
+    const root = await bootWithNudge(templateId);
+    expect(root.querySelector('.smart-nudge')).not.toBeNull();
+    expect(requested(new RegExp(`presentation-${base}\\.0123abcd\\.css$`)).length).toBeGreaterThan(0);
+    expect(requested(new RegExp(`presentation-${base}\\.0123abcd\\.js$`)).length).toBeGreaterThan(0);
+    expect(requested(new RegExp(`presentation-${templateId}\\.0123abcd\\.css$`)).length).toBeGreaterThan(0);
     await tick(20);
     expect(init).not.toHaveBeenCalled();
   });

@@ -88,8 +88,12 @@ if (!existsSync(SRC_DIR)) {
 
 // Files that get content-hashed filenames
 // `runtime-ext.js`: the renderer features, loaded only by a template that
-// declares some (docs/operations/WIDGET_TEMPLATE_RULES.md §2).
-const CORE_HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-ext.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
+// declares some; `runtime-late.js`: the late features, loaded after the
+// first paint with the renderer's extras (docs/operations/WIDGET_TEMPLATE_RULES.md §2);
+// `runtime-emoji.js`: the emoji search's keywords, loaded on its first use;
+// `runtime-fab.css`: the launcher styles, loaded by the loader only for a
+// workspace wearing one (shared/launcherStyles.ts).
+const CORE_HASHED_FILES = ['runtime.js', 'smart-engine.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-ext.js', 'runtime-late.js', 'runtime-emoji.js', 'runtime-fab.css', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
 
 // Presentation layer (template system) — DISCOVERED, never hard-coded.
 // Any `presentation-<id>.js` / `presentation-<id>.css` dropped into
@@ -109,9 +113,20 @@ if (!PRESENTATION_FILES.includes('presentation-registry.js')) {
   console.error('[widget-hash] FATAL: presentation-registry.js missing from public/widget/');
   process.exit(1);
 }
-// Every template must ship BOTH a renderer and a stylesheet.
+// Every template must ship BOTH a renderer and a stylesheet. A renderer's
+// extras (`presentation-<id>-x.js`, markup it draws after the first paint)
+// have no stylesheet of their own (their rules are in the template's), but
+// need their renderer.
 for (const f of PRESENTATION_FILES) {
   if (f === 'presentation-registry.js' || !f.endsWith('.js')) continue;
+  if (f.endsWith('-x.js')) {
+    const renderer = f.replace(/-x\.js$/, '.js');
+    if (!PRESENTATION_FILES.includes(renderer)) {
+      console.error(`[widget-hash] FATAL: template extras ${f} have no renderer ${renderer}`);
+      process.exit(1);
+    }
+    continue;
+  }
   const css = f.replace(/\.js$/, '.css');
   if (!PRESENTATION_FILES.includes(css)) {
     console.error(`[widget-hash] FATAL: template renderer ${f} has no matching stylesheet ${css}`);

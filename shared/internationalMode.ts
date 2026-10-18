@@ -45,6 +45,13 @@ export const INTL_BRAND = {
     light: `${INTL_BRAND_BASE}/respok-thread-horizontal-color.svg`,
     dark: `${INTL_BRAND_BASE}/respok-thread-horizontal-reversed.svg`,
   },
+  /**
+   * The same with the Open symbol: the chat widget's credit for a template
+   * that wears the Open logo (template option `logoDirection: 'open'`).
+   */
+  horizontalOpen: {
+    light: `${INTL_BRAND_BASE}/respok-open-horizontal-color.svg`,
+  },
   /** The wordmark alone: the small mark under the auth cards. */
   wordmark: {
     light: `${INTL_BRAND_BASE}/respok-thread-wordmark-color.svg`,

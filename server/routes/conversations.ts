@@ -52,7 +52,18 @@ import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/
 import { sanitizeClientMessageMetadata } from '../services/channels/clientMessageMetadata.js';
 
 import { applyPostSendAction } from '../services/conversationPostSend.js';
+import { recordConversationClosed } from '../services/conversationClosedNotice.js';
 import { isActionableCustomerTurn, isQualifiedCustomerFacingAnswer, type NeedsReplyMessage } from '../services/needsReply.js';
+import {
+  REACTIONS_MIGRATION_REQUIRED,
+  publishMessageReactions,
+  readConversationReactions,
+  readMessageReactions,
+  setMessageReaction,
+  workspaceShowsReactions,
+  type ConversationReactions,
+} from '../services/messageReactions.js';
+import { isWidgetChannel, normalizeReactionEmoji, reactableByOperator, reactionEmojiToTakeBack } from '../../shared/messageReactions.js';
 
 /** The public-safe attachment shape a message is enriched with. No URLs. */
 type MessageAttachment = {
@@ -63,6 +74,7 @@ type MessageAttachment = {
   kind: string;
 };
 import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
+import { publicOperatorIdentity } from '../services/widget/senderIdentity.js';
 import { deltaLowerBound, inThreadOrder, nextSyncCursor, parseSyncCursor } from '../services/messageSync.js';
 import { isConversationId, parseConversationIds } from '../services/conversationIds.js';
 import { queueTranscript } from '../services/notificationEmail/producers.js';
@@ -204,8 +216,12 @@ conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
  *
  * Phase 1 contract:
  *   - No DB write. The server simply publishes an ephemeral
- *     `{ type: 'typing', payload: { actor: 'agent', conversation_id, ts } }`
+ *     `{ type: 'typing', payload: { actor: 'agent', conversation_id, ts, name?, avatar? } }`
  *     envelope on the conversation channel using the active realtime publisher.
+ *     `name` and `avatar` are the typing operator's PUBLIC identity, exactly
+ *     what the visitor sees on their messages (each only when known; never
+ *     an id, e-mail or role), so a template can say who is typing. The inbox
+ *     ignores agent typing; the default widget reads no field of it.
  *   - On polling deployments the publish becomes a no-op and typing is silently
  *     not delivered (by design — typing is best-effort).
  *   - Caller must be an authenticated workspace member of the conversation.
@@ -215,6 +231,13 @@ const typingSchema = z.object({
   conversation_id: z.string().uuid(),
   workspace_id: z.string().uuid(),
 });
+
+/** A profile name as a typing event carries it: no control characters, trimmed, at most 80 characters (never half of one). */
+function typingName(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = name.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim();
+  return Array.from(clean).slice(0, 80).join('').trim();
+}
 
 conversationsRouter.post('/typing', async (req, res) => {
   try {
@@ -251,6 +274,8 @@ conversationsRouter.post('/typing', async (req, res) => {
       return res.json({ ok: true, published: false, reason: 'auto_action_suppressed' });
     }
 
+    const who = await publicOperatorIdentity(config, sb, auth.userId);
+    const name = typeof who?.name === 'string' ? typingName(who.name) : '';
     const pub = await publishConversationEvent(
       config,
       parsed.data.workspace_id,
@@ -261,6 +286,8 @@ conversationsRouter.post('/typing', async (req, res) => {
           actor: 'agent',
           conversation_id: parsed.data.conversation_id,
           ts: Date.now(),
+          ...(name ? { name } : {}),
+          ...(typeof who?.avatar === 'string' && who.avatar ? { avatar: who.avatar } : {}),
         },
       },
     );
@@ -984,8 +1011,9 @@ conversationsRouter.patch('/:id', async (req, res) => {
     }
 
     // ─── Realtime push (Phase 5) ───
-    // Operator-only `event` envelope. Fans out to the per-conversation
-    // channel AND the workspace inbox channel. Best-effort, non-blocking.
+    // Operator-only `event` envelope (tags, assignee ids): the workspace
+    // inbox channel only, never the conversation channel the visitor's
+    // widget listens on. Best-effort, non-blocking.
     if (Object.keys(changes).length > 0) {
       const kind: OperatorEventPayload['kind'] =
         statusEvType === 'resolved' ? 'conversation_resolved'
@@ -1012,6 +1040,15 @@ conversationsRouter.patch('/:id', async (req, res) => {
           actorId: auth.userId,
         }).catch((err: unknown) => {
           console.error('[conversations PATCH] transcript queue failed:', err);
+        });
+        // The visitor's «X closed the conversation» line (and its rating
+        // card), for a widget conversation whose template draws it. Never
+        // throws, never awaited.
+        void recordConversationClosed(config, {
+          workspaceId: parsed.data.workspace_id,
+          conversationId,
+          actorId: auth.userId,
+          status: parsed.data.status === 'closed' ? 'closed' : 'resolved',
         });
       }
     }
@@ -1764,7 +1801,7 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
 
     const { data: conv } = await sb
       .from('conversations')
-      .select('id, workspace_id, created_at, updated_at')
+      .select('id, workspace_id, created_at, updated_at, channel:metadata->>channel')
       .eq('id', conversationId)
       .maybeSingle();
     if (!conv) return res.status(404).json({ error: 'conversation_not_found' });
@@ -1772,6 +1809,15 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
     const auth = await authorizeWorkspaceMember(req, res, config, conv.workspace_id);
     if (!auth) return;
     if (await refuseLockedConversation(res, config, conv.workspace_id, conv)) return;
+
+    // Reactions (a widget conversation only: no other channel has them), read
+    // alongside the thread. `can_react` marks the visitor's messages an
+    // operator may react to: only where the visitor sees reactions.
+    const widgetThread = isWidgetChannel((conv as { channel?: string | null }).channel);
+    const reactionsP: Promise<ConversationReactions | null> = widgetThread
+      ? readConversationReactions(sb, conversationId, { type: 'operator', userId: auth.userId })
+      : Promise.resolve(null);
+    const reactionsShownP = widgetThread ? workspaceShowsReactions(config, conv.workspace_id) : Promise.resolve(false);
 
     const threadRows = () => sb.from('conversation_messages').select('*').eq('conversation_id', conversationId);
     // `?since=<cursor>`: only rows created/changed since then (services/messageSync.ts).
@@ -1866,6 +1912,9 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
       ? await resolveWorkspaceAgentLogoUrl(config, conv.workspace_id).catch(() => null)
       : null;
 
+    const [reactions, reactionsShown] = await Promise.all([reactionsP, reactionsShownP]);
+    const canReact = reactionsShown && !!reactions?.ready;
+
     const enriched = messages.map((m) => {
       const aid = m?.metadata?.attachment_id;
       const list: unknown[] = [];
@@ -1875,6 +1924,7 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
         if (!seen.has(a.id)) { list.push(a); seen.add(a.id); }
       }
       const prof = m.sender_id ? senderMap[m.sender_id] : null;
+      const reacted = m.id ? reactions?.byMessage.get(m.id) : undefined;
       return {
         ...m,
         // `attachment` kept for backwards compatibility with older clients.
@@ -1882,6 +1932,11 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
         sender_name: prof?.name ?? null,
         sender_avatar: prof?.avatar
           ?? ((m.sender_type === 'ai' || m.sender_type === 'bot') ? agentLogo : null),
+        // [{emoji, count, mine, visitor}] for this operator; absent without
+        // any (in a ?since delta too: the message came back because its
+        // reactions changed, and none means none now).
+        ...(reacted && reacted.length ? { reactions: reacted } : {}),
+        ...(canReact && reactableByOperator(m) ? { can_react: true } : {}),
       };
     });
 
@@ -1892,6 +1947,90 @@ conversationsRouter.get('/:id/messages', async (req, res) => {
   } catch (err) {
     console.error('[conversations messages] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /:id/messages/:messageId/reactions — an operator's reaction to a
+// visitor's message (issue #340 g2).
+//
+// Body { workspace_id, emoji (❤️ 👍 😂 😮 😢 🙏; taking back, also one since
+// dropped from the list), on } → 200 { ok, message_id,
+// reactions: [{emoji, count, mine, visitor}], at } | 400 Invalid payload /
+// invalid_emoji | 401 / 403 (membership, seat lock, plan lock) | 404
+// conversation_not_found / message_not_found | 409 reactions_not_shown (the
+// workspace's template does not draw reactions) | 422
+// reactions_unsupported_channel (Telegram, WhatsApp, …: the customer would
+// never see it) / not_reactable (not the visitor's message) | 503
+// migration_required. Sets or takes back this operator's reaction, either
+// idempotent; a change is published (services/messageReactions.ts). Not a
+// reply: nothing else about the conversation changes.
+// ═══════════════════════════════════════════════════════════════════
+const reactionSchema = z.object({
+  workspace_id: z.string().uuid(),
+  emoji: z.unknown(),
+  on: z.boolean(),
+});
+
+conversationsRouter.post('/:id/messages/:messageId/reactions', async (req, res) => {
+  try {
+    const config: ServerConfig = serverConfigOf(req);
+    const conversationId = String(req.params.id || '');
+    const messageId = String(req.params.messageId || '');
+    const parsed = reactionSchema.safeParse(req.body ?? {});
+    if (!parsed.success || !isConversationId(conversationId) || !isConversationId(messageId)) {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+    // Given: one of the list. Taken back: also one since dropped from it.
+    const emoji = parsed.data.on ? normalizeReactionEmoji(parsed.data.emoji) : reactionEmojiToTakeBack(parsed.data.emoji);
+    if (!emoji) return res.status(400).json({ error: 'invalid_emoji' });
+    const workspaceId = parsed.data.workspace_id;
+
+    const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+    if (!auth) return;
+
+    const sb = getServiceClient(config);
+    const { data: conv } = await sb
+      .from('conversations')
+      .select('id, workspace_id, created_at, updated_at, channel:metadata->>channel')
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (!conv || conv.workspace_id !== workspaceId) return res.status(404).json({ error: 'conversation_not_found' });
+    if (await refuseLockedConversation(res, config, workspaceId, conv)) return;
+    if (!isWidgetChannel((conv as { channel?: string | null }).channel)) {
+      return res.status(422).json({ error: 'reactions_unsupported_channel' });
+    }
+    if (!(await workspaceShowsReactions(config, workspaceId))) return res.status(409).json({ error: 'reactions_not_shown' });
+
+    const { data: message } = await sb
+      .from('conversation_messages')
+      .select('id, conversation_id, sender_type, metadata')
+      .eq('id', messageId)
+      .eq('conversation_id', conversationId)
+      .maybeSingle();
+    if (!message) return res.status(404).json({ error: 'message_not_found' });
+    if (!reactableByOperator(message)) return res.status(422).json({ error: 'not_reactable' });
+
+    const outcome = await setMessageReaction(sb, {
+      workspaceId,
+      conversationId,
+      messageId,
+      actorType: 'operator',
+      actorId: auth.userId,
+      emoji,
+      on: parsed.data.on,
+    });
+    if (outcome === 'missing') return res.status(503).json(REACTIONS_MIGRATION_REQUIRED);
+    // Taken before the read: a later `at` always saw every earlier write.
+    const at = Date.now();
+    const summary = await readMessageReactions(sb, messageId, { type: 'operator', userId: auth.userId });
+    if (outcome === 'changed') {
+      void publishMessageReactions(config, { workspaceId, conversationId, messageId, reactions: summary, at });
+    }
+    return res.json({ ok: true, message_id: messageId, reactions: summary, at });
+  } catch (err) {
+    console.error('[conversations reactions] error:', err);
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 

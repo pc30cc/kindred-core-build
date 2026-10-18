@@ -10,12 +10,13 @@
  *   - each Core behaviour in `features` is actually drawn, and nothing is
  *     drawn for a capability Core says it cannot serve;
  *   - skeletons wear the real surfaces' structure; Persian digits in fa; the
- *     accent tokens it computes (brand look, on-accent ink);
+ *     accent tokens it computes (on-accent ink; the brand look is the
+ *     stylesheet's, by class, so a skin can give its own);
  *   - the platform's marks stay out of the RESPOK build.
  * Geometry against the design's PNGs is checked with the screenshot harness
  * (e2e/harness/templateScreens.ts --template t2), not here.
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -84,8 +85,33 @@ const IDENTITY = (asked: string[], required: string[] = []) => ({
 });
 const now = new Date().toISOString();
 const msg = (over: Vm): Vm => ({ __id: 'm' + Math.random(), sender: 'operator', senderType: 'agent', body: 'hi', time: now, ...over });
+const HEART = '\u2764\uFE0F';
+const UUID = '7d1f3e2a-4b5c-4d6e-8f90-a1b2c3d4e5f6';
 
 beforeAll(load);
+
+const T2_X_SRC = read('public/widget/presentation-t2-x.js');
+/** The renderer's extras module (presentation-t2-x.js), fresh, as Core hands it over. */
+function extrasModule() {
+  const w = window as unknown as Record<string, unknown>;
+  delete w.__gs_mod_extras;
+  new Function(T2_X_SRC).call(window);
+  return w.__gs_mod_extras as { id: string; v: number; create: (h: unknown) => Record<string, Fn> };
+}
+/** A renderer that took its extras. */
+function withExtras(r: Renderer): Renderer {
+  expect((r.extend as unknown as (m: unknown) => number)(extrasModule())).toBeGreaterThan(0);
+  return r;
+}
+/** A `conversation_closed` row as Core keeps it. */
+const closedRow = (id: string, agentName: string | null, over: Vm = {}): Vm => msg({
+  __id: id, sender: 'operator', senderType: 'system', senderName: agentName, body: `${agentName} closed the conversation`,
+  metadata: { kind: 'conversation_closed', by: 'agent', agent_name: agentName, operator_name: agentName, status: 'resolved' }, ...over,
+});
+/** The rating card's view-model (runtime-late.js `view.csat`). */
+const CSAT = (closedId: string, over: Vm = {}): Vm => ({
+  closedId, name: 'سارا', avatar: null, rating: 0, comment: '', state: 'ask', transcript: null, ...over,
+});
 
 describe('t2: registration', () => {
   it('registers under the registry key with id t2 and the shared contract', () => {
@@ -263,8 +289,14 @@ describe('t2: strings are escaped, addresses are allow-listed', () => {
   });
 });
 
+/** What Core serves today (runtime.js env.capabilities). */
+const SERVED = {
+  kbNeutral: true, csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, chatMenu: true, awayThread: true,
+  queuePosition: true, emojiSearch: true, dlProgress: true, kbAuthor: true,
+};
+
 describe('t2: the Core behaviours it declares are the ones it draws', () => {
-  const r = () => make({ config: { templateOptions: { topics: [{ label: 'زمان ارسال', icon: 'truck' }] } } });
+  const r = () => make({ capabilities: SERVED, config: { templateOptions: { topics: [{ label: 'زمان ارسال', icon: 'truck' }] } } });
   const checks: Record<string, () => void> = {
     homeAsk: () => {
       const h = parse(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true }));
@@ -351,11 +383,49 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
       expect(make().format.clock(14)).toBe('۰:۱۴');
       expect(make({ locale: 'en' }).format.clock(75)).toBe('1:15');
     },
+    // Drawn by the extras (presentation-t2-x.js), tested below.
+    closedNotice: () => {
+      const h = parse(withExtras(r()).messagesHtml({ messages: [closedRow('c1', 'سارا')] }, undefined, {}));
+      expect(h.querySelector('.msg-system-pill')!.textContent).toBe('سارا گفتگو را بست');
+    },
+    csat: () => {
+      const h = parse(withExtras(r()).messagesHtml({ messages: [closedRow('c1', 'سارا')] }, undefined, { csat: CSAT('c1') }));
+      expect(h.querySelectorAll('[data-csat] [data-csat-rate]')).toHaveLength(5);
+    },
+    chatMenu: () => {
+      const h = parse(withExtras(r()).chatHeaderHtml({ online: true, isNew: false, menu: { open: false, items: [{ action: 'sound', on: true }] } }));
+      expect(h.querySelector('[data-chat-menu-toggle][aria-haspopup="menu"]')).not.toBeNull();
+    },
+    reactions: () => {
+      const m = msg({ __id: UUID, metadata: { reactions: [{ emoji: HEART, count: 1, mine: true }] } });
+      const h = parse(withExtras(r()).messagesHtml({ messages: [m] }, undefined, { react: true }));
+      expect(h.querySelector('.msg-line.rel > .react[role="img"]')).not.toBeNull();
+      expect(h.querySelector('[data-msg-react][aria-pressed="true"]')).not.toBeNull();
+    },
+    awayThread: () => {
+      const h = parse(withExtras(r()).messagesHtml({ messages: [msg({ sender: 'visitor', senderType: 'contact' })] }, undefined, { awayReply: { at: 0, status: 'ask' } }));
+      expect(h.querySelector('.away-reply form [data-fb="email"]')).not.toBeNull();
+    },
+    // Tested below: the tray (extras), the arc (stylesheet), the byline.
+    instantAnswers: () => {
+      const h = parse(withExtras(r()).kbSuggestHtml({ results: [{ slug: 'a', title: 'مرجوعی', matches: ['مرجوعی'] }] }));
+      expect(h.querySelector('[data-kb-suggest] [data-kb-action="open"][data-kb-slug="a"] mark')).not.toBeNull();
+    },
+    dlProgress: () => {
+      expect(T2_CSS).toContain('.dl-on.msg-att-action::after, .dl-on .wy-ap-play::after {');
+    },
+    kbAuthor: () => {
+      const h = parse(r().kbArticleHtml({ article: { title: 't', author: 'سارا', readingMinutes: 2, contentHtml: '' } }));
+      expect(h.querySelector('.am')!.textContent).toBe('سسارا۲ دقیقه مطالعه');
+    },
   };
 
   it('declares exactly the behaviours it implements', () => {
-    expect(Object.keys(make().features).sort()).toEqual(Object.keys(checks).sort());
-    expect(Object.values(make().features).every((v) => v === true)).toBe(true);
+    expect(Object.keys(r().features).sort()).toEqual(Object.keys(checks).sort());
+    expect(Object.values(r().features).every((v) => v === true)).toBe(true);
+    // A Core that does not serve them gets none of them.
+    const off = make().features;
+    for (const f of ['reactions', 'awayThread', 'instantAnswers', 'dlProgress', 'kbAuthor']) expect(off[f], f).toBe(false);
   });
   for (const [name, check] of Object.entries(checks)) it(name, check);
 
@@ -368,7 +438,9 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
 describe('t2: nothing is drawn for a capability Core cannot serve', () => {
   const cases = [
     { csat: false, reactions: false, orderCard: false, instantAnswers: false, kbNeutral: false },
-    // Even a Core that says yes gets nothing: this renderer implements none of them yet.
+    // Even a Core that says yes gets nothing without its view-model and the
+    // extras (reactions: `view.react`; the order card and the tray come with
+    // the extras), and no track-order row without a store (`config.commerce`).
     { csat: true, reactions: true, orderCard: true, instantAnswers: true, kbNeutral: false },
   ];
   for (const capabilities of cases) {
@@ -384,7 +456,7 @@ describe('t2: nothing is drawn for a capability Core cannot serve', () => {
         r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true, kbEnabled: true }),
       ].join('');
       const root = parse(html);
-      expect(root.querySelector('.card, .steps, .react, .csat, .faces, [data-csat-rate], .tray, [data-kb-suggest]')).toBeNull();
+      expect(root.querySelector('.card, .steps, .react, .csat, .faces, [data-csat-rate], [data-msg-react], .tray, [data-kb-suggest], .away-reply')).toBeNull();
       expect(html).not.toContain('track-order');
       const fb = parse(r.kbArticleFeedbackHtml({ enabled: true, rating: null }));
       expect(fb.querySelectorAll('[data-kb-rate]').length).toBe(2);
@@ -482,11 +554,33 @@ describe('t2: numbers in the visitor\'s digits', () => {
 describe('t2: accent tokens', () => {
   const styleOf = (r: Renderer) => parse(r.homeHtml({ rtl: true, isOnline: true })).firstElementChild!.getAttribute('style')!;
 
-  it('wears the brand look when the colour is uncustomised or the brand\'s own', () => {
-    for (const c of ['', '#3B82F6', '#3b82f6', '#0B7D6C', 'not-a-colour', 'red;background:url(x)']) {
-      const s = styleOf(make({ primaryColor: c }));
-      expect(s, c).toBe('--a:#0B7D6C;--on-a:#FFFFFF;--gs-primary:#0B7D6C;--h1:#22C4A6;--h2:#0F927D;--h3:#08594E;--glow:#7CF5DF');
+  it('leaves an uncustomised or unparseable colour to the stylesheet: no inline accent, the class gs-accent-brand', () => {
+    for (const c of ['', '#3B82F6', '#3b82f6', 'not-a-colour', 'red;background:url(x)']) {
+      const r = make({ primaryColor: c });
+      for (const html of [r.homeHtml({ rtl: true, isOnline: true }), r.conversationListHtml({}), r.skeletonHtml('chat', {})]) {
+        const root = parse(html).firstElementChild!;
+        expect(root.hasAttribute('style'), c).toBe(false);
+        expect(root.classList.contains('gs-accent-brand'), c).toBe(true);
+      }
+      const close = parse(r.shellHtml({})).querySelector('[data-panel-close]')!;
+      expect(close.hasAttribute('style'), c).toBe(false);
+      expect(close.classList.contains('gs-accent-brand'), c).toBe(true);
     }
+    // The brand's colour and hero stops are the stylesheet's (a skin gives
+    // its own), the stops also for the brand colour picked explicitly.
+    expect(T2_CSS).toContain('.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #0B7D6C; --on-a: #FFFFFF; --gs-primary: #0B7D6C; }');
+    expect(T2_CSS).toContain(".wy-view.gs-accent-brand, .wy-view[style*='--a:#0b7d6c;' i] { --h1: #22C4A6; --h2: #0F927D; --h3: #08594E; --glow: #7CF5DF; }");
+  });
+
+  it('writes a chosen colour inline, `--a` first with its `;` (what the stylesheets match), and no class', () => {
+    for (const c of ['#0B7D6C', '#16142B', '#2F5BFF']) {
+      const root = parse(make({ primaryColor: c }).homeHtml({ rtl: true, isOnline: true })).firstElementChild!;
+      expect(root.getAttribute('style')!.startsWith(`--a:${c};`), c).toBe(true);
+      expect(root.getAttribute('style'), c).not.toMatch(/--h1|--glow/);
+      expect(root.classList.contains('gs-accent-brand'), c).toBe(false);
+    }
+    const code = T2_SRC.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(code).not.toMatch(/0b7d6c|22c4a6|7cf5df/i);
   });
 
   it('uses the workspace colour, with white or ink on it by contrast', () => {
@@ -733,7 +827,8 @@ describe('t2: review fixes', () => {
   });
 
   it('painted without Core\'s module (`.ext-off`), the ask field opens a chat and the topics are set aside', () => {
-    expect(T2_CSS).toContain('.ext-off .ask-in, .ext-off :has(> [data-topic]) { display: none; }');
+    // The topic chips' rows, and the track-order row (a topic too): never the list it sits in.
+    expect(T2_CSS).toContain('.ext-off .ask-in, .ext-off :has(> .chip[data-topic]), .ext-off .r[data-topic] { display: none; }');
     expect(T2_CSS).toContain('.ext-off .ask .send { position: static; transform: none; }');
     expect(T2_CSS).toContain(".ext-off .ask .send::before { content: ''; position: absolute; inset: 0; }");
     expect(T2_CSS).toMatch(/\.field \{\s*position: relative;/);
@@ -747,5 +842,715 @@ describe('t2: review fixes', () => {
   it('never opens the emoji picker under a locked composer, and draws an English greeting in Inter', () => {
     expect(T2_CSS).toMatch(/\.composer-zone:has\(\.is-locked\) \.emoji-picker \{ display: none; \}/);
     expect(T2_CSS).toMatch(/\.smart-nudge\[dir='ltr'\],\n\.smart-nudge\[dir='ltr'\] \* \{\n {2}font-family: 'InterWY'/);
+  });
+});
+
+describe('t2: its extras (presentation-t2-x.js)', () => {
+
+  it('registers as the renderer\'s extras, with the renderer\'s id and contract version', () => {
+    expect(T2_X_SRC).toContain("window.__gs_mod_extras = { id: 't2', v: 2, create: create };");
+    expect(T2_SRC).toContain("mod.id !== 't2' || mod.v !== 2");
+  });
+
+  it('takes only its own file: another template\'s, another version or no module is refused', () => {
+    const extend = make().extend as unknown as (m: unknown, dry?: boolean) => number;
+    const mod = extrasModule();
+    for (const bad of [null, {}, { ...mod, id: 't1' }, { ...mod, v: 1 }, { ...mod, v: 3 }, { id: 't2', v: 2 }]) expect(extend(bad)).toBe(0);
+    expect(extend(mod, true)).toBe(1);
+    // Nothing was asked for before: taken, no repaint; taken again: the same.
+    expect(extend(mod)).toBe(1);
+    expect(extend(mod)).toBe(1);
+  });
+
+  it('builds its surfaces on the renderer\'s helpers', () => {
+    let H: Record<string, unknown> | null = null;
+    const mod = extrasModule();
+    (make().extend as unknown as (m: unknown) => number)({ ...mod, create: (h: Record<string, unknown>) => { H = h; return mod.create(h); } });
+    expect(Object.keys(H!).sort()).toEqual(['L', 'avatarHtml', 'config', 'digits', 'esc', 'fa', 'fmtNum', 'ico', 'lang', 'storeAvatarHtml', 'systemPillHtml', 't', 'tf'].sort());
+    expect((H!.fa as boolean)).toBe(true);
+    expect((H!.digits as (s: string) => string)('12')).toBe('۱۲');
+  });
+
+  it('its emoji picker stays Core\'s: the frame draws an empty picker, which Core fills with its list', () => {
+    const r = make();
+    const frame = parse(r.chatFrameHtml({ chatEnabled: true, locale: 'fa', config: BASE_CONFIG }));
+    expect(frame.querySelector('[data-emoji-picker]')!.innerHTML).toBe('');
+    expect(r.emojiPickerHtml).toBeUndefined();
+  });
+});
+
+describe('t2: after a chat — the closed line, the rating card, the transcript (extras)', () => {
+  const thread = (r: Renderer, messages: Vm[], view: Vm = {}) => parse(r.messagesHtml({ messages }, undefined, view));
+  const card = (over: Vm = {}, opts: { locale?: string } = {}) =>
+    thread(withExtras(make(opts)), [closedRow('c1', 'سارا')], { csat: CSAT('c1', over) }).querySelector('.msg-row.system > .csat[data-csat]')!;
+
+  it('the line names who closed it, else the workspace; in fa, en and tr', () => {
+    const line = (name: string | null, locale = 'fa') =>
+      thread(withExtras(make({ locale })), [closedRow('c1', name)]).querySelector('.msg-row.system .msg-system-pill')!.textContent;
+    expect(line('سارا')).toBe('سارا گفتگو را بست');
+    expect(line(null)).toBe('فروشگاه نیلوفر گفتگو را بست');
+    expect(line('Sara', 'en')).toBe('Sara closed the conversation');
+    expect(line('Sara', 'tr')).toBe('Sara sohbeti kapattı');
+  });
+
+  it('before the extras: no line, no card, and taking them asks Core for one repaint', () => {
+    const r = make();
+    const h = thread(r, [closedRow('c1', 'سارا')], { csat: CSAT('c1') });
+    expect(h.querySelector('.msg-system-pill, [data-csat]')).toBeNull();
+    expect((r.extend as unknown as (m: unknown) => number)(extrasModule())).toBe(2);
+  });
+
+  it('the card goes only under the row Core names (`view.csat.closedId`)', () => {
+    const r = withExtras(make());
+    const rows = [closedRow('c0', 'رضا'), msg({ body: 'باز شد' }), closedRow('c1', 'سارا')];
+    expect(thread(r, rows).querySelector('[data-csat]')).toBeNull();
+    const h = thread(r, rows, { csat: CSAT('c1') });
+    expect(h.querySelectorAll('[data-csat]')).toHaveLength(1);
+    const pills = Array.from(h.querySelectorAll('.msg-row.system'));
+    // The card follows the line it answers.
+    expect(pills[pills.length - 1].querySelector('[data-csat]')).not.toBeNull();
+    expect(pills[pills.length - 2].textContent).toBe('سارا گفتگو را بست');
+  });
+
+  it('a closed line that ends the thread stays last with its card: a row Core adds (the saved details) goes above it', () => {
+    const r = withExtras(make());
+    const extra = '<div class="msg-row prechat-summary-row" data-extra-row></div>';
+    const rows = [msg({ senderName: 'سارا', body: 'بفرمایید' }), closedRow('c1', 'سارا')];
+    const h = parse(r.messagesHtml({ messages: rows }, extra, { csat: CSAT('c1') }));
+    const order = Array.from(h.querySelectorAll('.messages > .msg-row')).map((el) =>
+      el.hasAttribute('data-extra-row') ? 'extra' : el.querySelector('[data-csat]') ? 'card' : el.querySelector('.msg-system-pill') ? 'line' : 'bubble');
+    expect(order).toEqual(['bubble', 'extra', 'line', 'card']);
+    // Anywhere else the row stays where Core puts it: after the thread.
+    const reopened = parse(r.messagesHtml({ messages: [...rows, msg({ sender: 'visitor', body: 'یک سؤال دیگر' })] }, extra, {}));
+    const rest = Array.from(reopened.querySelectorAll('.messages > .msg-row'));
+    expect(rest[rest.length - 1].hasAttribute('data-extra-row')).toBe(true);
+  });
+
+  it('a closed line ends the operator\'s run: the bubble before it keeps its avatar and time', () => {
+    const r = withExtras(make());
+    const h = thread(r, [msg({ senderName: 'سارا', body: 'خوشحالم که حل شد!' }), closedRow('c1', 'سارا')]);
+    const bubble = h.querySelector('.msg-row.operator')!;
+    expect(bubble.querySelector('.msg-avatar:not(.msg-avatar-spacer)')).not.toBeNull();
+    expect(bubble.querySelector('.msg-time')).not.toBeNull();
+  });
+
+  it('asks: the operator, the question, five faces from very bad to great (in DOM order), the comment, a send that waits for a pick', () => {
+    const c = card();
+    expect(c.getAttribute('role')).toBe('group');
+    expect(c.getAttribute('aria-label')).toBe('گفتگو با سارا چطور بود؟');
+    expect(c.querySelector('.av.s44')!.textContent).toBe('س');
+    expect(c.querySelector('h3')!.textContent).toBe('گفتگو با سارا چطور بود؟');
+    expect(c.querySelector('p')!.textContent).toBe('نظرتان کمک می‌کند بهتر شویم.');
+    const faces = Array.from(c.querySelectorAll('.faces > button[data-csat-rate]'));
+    expect(faces.map((b) => b.getAttribute('data-csat-rate'))).toEqual(['1', '2', '3', '4', '5']);
+    expect(faces.map((b) => b.getAttribute('aria-label'))).toEqual(['خیلی بد', 'بد', 'معمولی', 'خوب', 'عالی']);
+    expect(faces.every((b) => b.getAttribute('aria-pressed') === 'false' && b.getAttribute('type') === 'button')).toBe(true);
+    // The design's mouths: a frown for very bad, a filled smile for great.
+    expect(faces[0].innerHTML).toContain('M8.5 16.4c1-1.1 2.2-1.7 3.5-1.7s2.5.6 3.5 1.7');
+    expect(faces[2].innerHTML).toContain('M9 15.2h6');
+    expect(faces[4].innerHTML).toContain('fill="currentColor"');
+    const ta = c.querySelector('textarea[data-csat-comment]') as HTMLTextAreaElement;
+    expect(ta.getAttribute('placeholder')).toBe('چیز دیگری هم بگویید (اختیاری)');
+    expect(ta.getAttribute('aria-label')).toBe('چیز دیگری هم بگویید (اختیاری)');
+    expect(ta.getAttribute('maxlength')).toBe('1000');
+    const send = c.querySelector('button.btn[data-csat-submit]')!;
+    expect(send.textContent).toBe('ارسال نظر');
+    expect(send.hasAttribute('disabled')).toBe(true);
+    expect(c.querySelector('[data-csat-transcript]')).toBeNull();
+  });
+
+  it('a pick presses its face and enables send; the comment comes back escaped', () => {
+    const c = card({ rating: 5, comment: '</textarea><img src=x onerror=alert(1)>' });
+    expect(Array.from(c.querySelectorAll('[data-csat-rate]')).map((b) => b.getAttribute('aria-pressed')))
+      .toEqual(['false', 'false', 'false', 'false', 'true']);
+    expect(c.querySelector('[data-csat-submit]')!.hasAttribute('disabled')).toBe(false);
+    expect(c.querySelector('img')).toBeNull();
+    expect((c.querySelector('[data-csat-comment]') as HTMLTextAreaElement).value).toBe('</textarea><img src=x onerror=alert(1)>');
+  });
+
+  it('sending: nothing can be pressed twice; an error says so and lets the visitor send again', () => {
+    const busy = card({ rating: 4, state: 'sending' });
+    expect(Array.from(busy.querySelectorAll('[data-csat-rate]')).every((b) => b.hasAttribute('disabled'))).toBe(true);
+    expect(busy.querySelector('[data-csat-submit]')!.hasAttribute('disabled')).toBe(true);
+    expect(busy.querySelector('[data-csat-submit]')!.getAttribute('aria-busy')).toBe('true');
+    expect(busy.querySelector('[data-csat-comment]')!.hasAttribute('readonly')).toBe(true);
+    const err = card({ rating: 4, state: 'error' });
+    expect(err.querySelector('.er[role="alert"]')!.textContent).toBe('ارسال نشد');
+    expect(err.querySelector('[data-csat-submit]')!.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('rated: the chosen face and a thanks, no form; the transcript link stays', () => {
+    const c = card({ rating: 5, state: 'done', transcript: { state: 'idle', to: 'a•••@example.com' } });
+    expect(c.classList.contains('done')).toBe(true);
+    expect(c.querySelector('.cf')!.innerHTML).toContain('fill="currentColor"');
+    expect(c.querySelector('[role="status"] h3')!.textContent).toBe('از نظرتان سپاسگزاریم!');
+    expect(c.querySelector('[role="status"] p')!.textContent).toBe('امتیاز شما: عالی');
+    expect(c.querySelector('[data-csat-rate], [data-csat-comment], [data-csat-submit]')).toBeNull();
+    expect(c.querySelector('button[data-csat-transcript]')).not.toBeNull();
+  });
+
+  it('no longer ratable: said once, nothing to press', () => {
+    const c = card({ state: 'gone' });
+    expect(c.querySelector('.er')!.textContent).toBe('دیگر نمی‌شود به این گفتگو امتیاز داد.');
+    expect(c.querySelector('[data-csat-rate], [data-csat-comment], [data-csat-submit]')).toBeNull();
+  });
+
+  it('the transcript link: idle, sending, sent to the masked address (an isolated run), a retry, no more', () => {
+    const link = (state: string, to = 'a•••@example.com') => card({ transcript: { state, to } });
+    const idle = link('idle').querySelector('button.lnk2[data-csat-transcript]')!;
+    expect(idle.textContent).toBe('ارسال متن گفتگو به ایمیل');
+    expect(idle.hasAttribute('disabled')).toBe(false);
+    expect(link('sending').querySelector('[data-csat-transcript]')!.hasAttribute('disabled')).toBe(true);
+    const sent = link('sent').querySelector('p.lnk2[role="status"]')!;
+    expect(sent.textContent).toBe('متن گفتگو به a•••@example.com فرستاده شد');
+    expect(sent.querySelector('b[dir="ltr"]')!.textContent).toBe('a•••@example.com');
+    expect(link('sent').querySelector('[data-csat-transcript]')).toBeNull();
+    expect(link('failed').querySelector('[data-csat-transcript]')!.textContent).toBe('ارسال نشد · تلاش دوباره');
+    expect(link('no').querySelector('p.lnk2')!.textContent).toBe('ارسال متن گفتگو ممکن نشد');
+    expect(link('no').querySelector('[data-csat-transcript]')).toBeNull();
+    const evil = link('sent', '<img src=x onerror=alert(1)>');
+    expect(evil.querySelector('img')).toBeNull();
+  });
+
+  it('escapes the operator\'s name and draws a photo only from an allowed address', () => {
+    const c = card({ name: '<b>سارا</b>', avatar: 'javascript:alert(1)' });
+    expect(c.querySelector('b')).toBeNull();
+    expect(c.querySelector('h3')!.textContent).toBe('گفتگو با <b>سارا</b> چطور بود؟');
+    expect(c.querySelector('img')).toBeNull();
+    expect(card({ avatar: 'https://cdn.test/s.png' }).querySelector('.av img')!.getAttribute('src')).toBe('https://cdn.test/s.png');
+    // No operator name: the workspace asks.
+    const ws = card({ name: '' });
+    expect(ws.querySelector('h3')!.textContent).toBe('گفتگو با فروشگاه نیلوفر چطور بود؟');
+    expect(ws.querySelector('.av.c4')).not.toBeNull();
+  });
+
+  it('speaks en and tr', () => {
+    const en = card({ rating: 2, transcript: { state: 'idle' } }, { locale: 'en' });
+    expect(en.querySelector('h3')!.textContent).toBe('How was your chat with سارا?');
+    expect(Array.from(en.querySelectorAll('[data-csat-rate]')).map((b) => b.getAttribute('aria-label'))).toEqual(['Very bad', 'Bad', 'Okay', 'Good', 'Great']);
+    expect(en.querySelector('[data-csat-submit]')!.textContent).toBe('Send feedback');
+    expect(en.querySelector('[data-csat-transcript]')!.textContent).toBe('Email me the transcript');
+    const tr = card({ rating: 2, state: 'done' }, { locale: 'tr' });
+    expect(tr.querySelector('h3')!.textContent).toBe('Geri bildiriminiz için teşekkürler!');
+    expect(tr.querySelector('[role="status"] p')!.textContent).toBe('Puanınız: Kötü');
+  });
+
+  it('carries its own copy in fa, en and tr, in key order (the registry\'s names)', () => {
+    const keys = (/var COPY_KEYS = '([^']+)'/.exec(T2_X_SRC) || [])[1]!.split(' ');
+    for (const k of ['convClosedBy', 'csatTitle', 'csatSub', 'csat1', 'csat5', 'csatComment', 'csatSend', 'csatTranscript', 'csatTranscriptSent', 'moreOptions', 'menuSound']) {
+      expect(keys, k).toContain(k);
+    }
+    expect(keys).not.toContain('menuEndConversation');
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const lang of ['fa', 'en', 'tr']) {
+      const parts = (new RegExp(`\\n    ${lang}: '([^']*)',`).exec(T2_X_SRC) || [])[1]!.split('|');
+      expect(parts.length, lang).toBe(keys.length);
+      expect(parts.every((p) => p.trim().length > 0), lang).toBe(true);
+    }
+    // Any other language reads English (a locale 'constructor' too).
+    for (const locale of ['de', 'constructor']) {
+      expect(thread(withExtras(make({ locale })), [closedRow('c1', 'Sara')]).querySelector('.msg-system-pill')!.textContent).toBe('Sara closed the conversation');
+    }
+  });
+
+  it('the chat bar\'s ⋯ sits between the person and the close slot, its menu as on t1', () => {
+    const vm = { online: true, isNew: false, operator: { name: 'سارا', online: true } };
+    const r = withExtras(make());
+    const h = parse(r.chatHeaderHtml({ ...vm, menu: { open: true, items: [{ action: 'transcript', state: 'idle' }, { action: 'sound', on: false }] } }));
+    const kids = Array.from(h.children).map((el) => el.className.split(' ')[0]);
+    expect(kids.slice(1, 4)).toEqual(['who', 'cm', 'cs']);
+    const toggle = h.querySelector('.cm > button.ib[data-chat-menu-toggle]')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('aria-label')).toBe('گزینه‌های بیشتر');
+    expect(toggle.innerHTML).toContain('M5 12h.01M12 12h.01M19 12h.01');
+    const menu = h.querySelector('[data-chat-menu][role="menu"]')!;
+    expect(menu.hasAttribute('hidden')).toBe(false);
+    expect(Array.from(menu.querySelectorAll('[data-chat-menu-action]')).map((b) => [b.getAttribute('role'), b.textContent]))
+      .toEqual([['menuitem', 'ارسال متن گفتگو به ایمیل'], ['menuitemcheckbox', 'صدای اعلان‌ها']]);
+    expect(menu.querySelector('[data-chat-menu-action="sound"]')!.getAttribute('aria-checked')).toBe('false');
+    // No list, no ⋯ (Core never passes one for a new conversation).
+    expect(parse(r.chatHeaderHtml(vm)).querySelector('.cm')).toBeNull();
+    expect(parse(r.chatHeaderHtml({ ...vm, menu: { open: false, items: [] } })).querySelector('.cm')).toBeNull();
+  });
+
+  it('its stylesheet: the card stretches across the thread, a repaint replays nothing, logical sides only', () => {
+    expect(T2_CSS).toMatch(/\.csat \{ flex: 1; min-width: 0;/);
+    expect(T2_CSS).toContain(".no-enter :is(.csat, .cf, .faces [aria-pressed='true']) { animation: none; }");
+    expect(T2_CSS).toMatch(/\.menu \{ position: absolute; top: calc\(100% \+ 6px\); inset-inline-end: 0;/);
+    for (const sel of ['.csat', '.faces', '.menu', '.lnk2', '.sw']) {
+      const rules = T2_CSS.split('\n').filter((l) => l.startsWith(sel));
+      expect(rules.length, sel).toBeGreaterThan(0);
+      for (const rule of rules) expect(rule, rule).not.toMatch(/\b(margin|padding)-(left|right)|[{;]\s*(left|right):/);
+    }
+  });
+});
+
+describe('t2: a message\'s reactions (extras, feature `reactions`)', () => {
+  const r = (locale = 'fa') => withExtras(make({ locale, capabilities: SERVED }));
+  const team = (reactions?: Vm[], over: Vm = {}) => msg({ __id: UUID, body: 'این هم فاکتور سفارشتان.', ...(reactions ? { metadata: { reactions } } : {}), ...over });
+  const thread = (rr: Renderer, messages: Vm[], view: Vm = { react: true }) => parse(rr.messagesHtml({ messages }, undefined, view));
+
+  it('draws the badge under the bubble it belongs to: the heart drawn, other kinds as glyphs, three at most, then the total', () => {
+    const h = thread(r(), [team([{ emoji: HEART, count: 1, mine: true }, { emoji: '👍', count: 2 }, { emoji: '😂', count: 1 }, { emoji: '🙏', count: 1 }])]);
+    const badge = h.querySelector('.msg-line.rel > .react')!;
+    expect(badge.getAttribute('role')).toBe('img');
+    expect(badge.getAttribute('data-msg-id')).toBe(UUID);
+    expect(badge.getAttribute('aria-label')).toBe('واکنش‌ها: ❤️ ۱، 👍 ۲، 😂 ۱، 🙏 ۱');
+    expect(badge.querySelectorAll('svg')).toHaveLength(1);
+    expect(Array.from(badge.querySelectorAll('i')).map((i) => i.textContent)).toEqual(['👍', '😂']);
+    expect(badge.textContent).toBe('👍😂۵');
+    // The badge sits on the bubble's line (as wide as the bubble), not inside it.
+    expect(badge.parentElement!.querySelector(':scope > .msg')).not.toBeNull();
+    expect(h.querySelector('.msg .react')).toBeNull();
+  });
+
+  it('an attachment-only message carries its badge on the attachment\'s line', () => {
+    const att = { id: 'a1', kind: 'file', mime_type: 'application/pdf', file_name: 'f.pdf', size_bytes: 1000 };
+    const h = thread(r(), [team([{ emoji: HEART, count: 1 }], { body: '', attachment: att })]);
+    expect(h.querySelector('.msg-line.rel > .msg.has-att-only + .react')).not.toBeNull();
+    const both = thread(r(), [team([{ emoji: HEART, count: 1 }], { attachment: att })]);
+    expect(both.querySelectorAll('.react')).toHaveLength(1);
+    expect(both.querySelector('.msg-line:not(.rel) > .msg.has-att-only')).not.toBeNull();
+    expect(both.querySelector('.msg-line.rel > .msg:not(.has-att-only) ~ .react')).not.toBeNull();
+  });
+
+  it('the visitor\'s heart: on team and AI messages the server stores, pressed once given, labelled', () => {
+    const h = thread(r(), [team([{ emoji: HEART, count: 1, mine: true }]), team(undefined, { __id: '8d1f3e2a-4b5c-4d6e-8f90-a1b2c3d4e5f6', senderType: 'ai' })]);
+    const hearts = Array.from(h.querySelectorAll('.msg-actions [data-msg-react]'));
+    expect(hearts.map((b) => [b.getAttribute('data-msg-react'), b.getAttribute('aria-pressed'), b.getAttribute('aria-label'), b.getAttribute('title')]))
+      .toEqual([[HEART, 'true', 'پسندیدن', 'پسندیدن'], [HEART, 'false', 'پسندیدن', 'پسندیدن']]);
+    expect(hearts[0].getAttribute('data-msg-id')).toBe(UUID);
+    expect((hearts[0] as HTMLButtonElement).type).toBe('button');
+    // None on the visitor's own messages, a local row (no server id yet), or an attachment without text.
+    const none = thread(r(), [
+      msg({ __id: UUID, sender: 'visitor', senderType: 'contact' }),
+      msg({ __id: 'ai-intro-local-1' }),
+      msg({ __id: UUID, body: '', attachment: { id: 'a1', kind: 'file', mime_type: 'application/pdf', file_name: 'f.pdf', size_bytes: 1 } }),
+    ]);
+    expect(none.querySelector('[data-msg-react]')).toBeNull();
+  });
+
+  it('a badge on the visitor\'s message too (the team reacted), in English digits and words', () => {
+    const h = thread(r('en'), [msg({ __id: UUID, sender: 'visitor', senderType: 'contact', metadata: { reactions: [{ emoji: '👍', count: 1 }] } })]);
+    expect(h.querySelector('.react')!.getAttribute('aria-label')).toBe('Reactions: 👍 1');
+    expect(h.querySelector('.react')!.textContent).toBe('👍1');
+    expect(thread(r('en'), [team()]).querySelector('[data-msg-react]')!.getAttribute('aria-label')).toBe('Like');
+    expect(thread(r('tr'), [team()]).querySelector('[data-msg-react]')!.getAttribute('aria-label')).toBe('Beğen');
+  });
+
+  it('nothing without Core\'s `view.react`, and a message without reactions is drawn exactly as before', () => {
+    expect(thread(r(), [team([{ emoji: HEART, count: 1 }])], {}).querySelector('.react, [data-msg-react]')).toBeNull();
+    const plain = make({ capabilities: SERVED });
+    const m = team();
+    const before = plain.messagesHtml({ messages: [m] }, undefined, {});
+    expect(r().messagesHtml({ messages: [m] }, undefined, {})).toBe(before);
+    // With `view.react` only the heart is added.
+    const withHeart = r().messagesHtml({ messages: [m] }, undefined, { react: true });
+    expect(withHeart.replace(/<button type="button" class="msg-act" data-msg-react=[\s\S]*?<\/button>/, '')).toBe(before);
+  });
+
+  it('escapes what a reaction carries and ignores empty or odd counts', () => {
+    const h = thread(r(), [team([{ emoji: '<img src=x onerror=1>', count: 1 }, { emoji: '👍', count: 0 }, { emoji: '😮', count: 'x' }])]);
+    expect(h.querySelector('img')).toBeNull();
+    expect(h.querySelector('.react')!.textContent).toBe('<img src=x onerror=1>۱');
+    expect(thread(r(), [team([{ emoji: '👍', count: 0 }])]).querySelector('.react')).toBeNull();
+  });
+
+  it('its stylesheet places the badge on the inner bottom corner in either direction and fills a given heart', () => {
+    expect(T2_CSS).toMatch(/\.react \{\n {2}position: absolute; bottom: -10px; inset-inline-end: 10px;/);
+    expect(T2_CSS).toContain('.msg-line.rel { margin-bottom: 10px; }');
+    expect(T2_CSS).toContain('.react.no-enter { animation: none; }');
+    expect(T2_CSS).toMatch(/\.react svg, \.msg-act\[aria-pressed='true'\] \{ color: #E5484D; \}/);
+    const rule = /\.react \{([^}]*)\}/.exec(T2_CSS)![1];
+    expect(rule).not.toMatch(/\b(left|right):/);
+  });
+});
+
+describe('t2: the message left while the team is away (extras, feature `awayThread`)', () => {
+  const r = (locale = 'fa') => withExtras(make({ locale, capabilities: SERVED }));
+  const VISITOR = () => msg({ sender: 'visitor', senderType: 'contact', body: 'سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟', status: 'sent' });
+  const reply = (vm: Vm, locale?: string) =>
+    parse(r(locale).messagesHtml({ messages: [VISITOR()] }, undefined, { awayReply: { at: 0, ...vm } })).querySelector('.away-reply')!;
+
+  it('asks where to send the reply: the details card\'s look, the contact-fallback hooks, "no thanks" when not required', () => {
+    const row = reply({ status: 'ask', value: '', skip: true });
+    expect(Array.from(row.querySelectorAll('.msg.operator')).map((b) => b.textContent))
+      .toEqual(['پیامتان ثبت شد.', 'اگر از سایت رفتید، پاسخ را کجا بفرستیم؟']);
+    const form = row.querySelector('form.fcard')!;
+    expect(form.hasAttribute('novalidate')).toBe(true);
+    expect(form.querySelector('label[for="fb-email"]')!.textContent).toBe('ایمیل');
+    const input = form.querySelector('.fi #fb-email[data-fb="email"]') as HTMLInputElement;
+    expect([input.type, input.getAttribute('dir'), input.getAttribute('aria-describedby')]).toEqual(['email', 'ltr', 'fb-status']);
+    expect(form.querySelector('.fi button[type="submit"][data-fb-submit].ok')!.getAttribute('aria-label')).toBe('ثبت ایمیل');
+    expect(form.querySelector('[data-fb-skip]')!.textContent).toBe('نه ممنون، همین‌جا منتظر می‌مانم');
+    expect(row.querySelector('.msg-meta')!.textContent).toBe('پاسخ خودکار');
+    // The composer's placeholder meanwhile.
+    expect(row.getAttribute('data-ph-away')).toBe('اگر چیزی اضافه دارید بنویسید…');
+    expect(reply({ status: 'ask', skip: false }).querySelector('[data-fb-skip]')).toBeNull();
+  });
+
+  it('saved: «پاسخ را به {email} می‌فرستیم.» (04·11); skipped: the recorded line alone', () => {
+    const saved = reply({ status: 'saved', email: 'ali@example.com' });
+    expect(saved.querySelector('form')).toBeNull();
+    const done = saved.querySelector('.fcard.done[role="status"]')!;
+    expect(done.textContent).toBe('پاسخ را به ali@example.com می‌فرستیم.');
+    expect(done.querySelector('b[dir="ltr"]')!.textContent).toBe('ali@example.com');
+    expect(done.querySelector('.ck svg')).not.toBeNull();
+    const skipped = reply({ status: 'skipped' });
+    expect(Array.from(skipped.querySelectorAll('.msg.operator')).map((b) => b.textContent)).toEqual(['پیامتان ثبت شد.']);
+    expect(skipped.querySelector('form, .fcard')).toBeNull();
+  });
+
+  it('saving locks the field; an error is Core\'s string; values are escaped', () => {
+    const saving = reply({ status: 'saving', value: 'a@b.io' });
+    expect(saving.querySelector('input')!.hasAttribute('readonly')).toBe(true);
+    expect((saving.querySelector('[data-fb-submit]') as HTMLButtonElement).disabled).toBe(true);
+    const bad = reply({ status: 'ask', value: '"><img src=x onerror=1>', error: 'fallbackError' });
+    expect(bad.querySelector('img')).toBeNull();
+    expect(bad.querySelector('[data-fb-status]')!.textContent).toBe('fallbackError');
+    expect(bad.querySelector('input')!.getAttribute('aria-invalid')).toBe('true');
+    expect(reply({ status: 'saved', email: '<i>x</i>' }).querySelector('.fcard.done b i')).toBeNull();
+  });
+
+  it('speaks en and tr', () => {
+    expect(reply({ status: 'saved', email: 'a@b.io' }, 'en').querySelector('.msg.operator')!.textContent).toBe('Your message is saved.');
+    expect(reply({ status: 'ask' }, 'en').getAttribute('data-ph-away')).toBe('Add anything else…');
+    expect(reply({ status: 'ask' }, 'tr').querySelector('.msg-meta')!.textContent).toBe('Otomatik yanıt');
+  });
+});
+
+// ─── Issue #340 round 4: the order card, track order, instant answers ───
+
+/** An AI answer about one order (`metadata.kind` 'order_status'), as the server stores it. */
+const ORDER = (order: Vm, over: Vm = {}): Vm => msg({
+  __id: 'ai-1', senderType: 'ai', senderName: 'دستیار', body: 'سلام علی! سفارشتان امروز صبح ارسال شد.',
+  metadata: { source: 'ai_agent', kind: 'order_status', order: { v: 1, number: '48213', summary: null, more: 0, status: 'shipped', statusLabel: null, step: 2, arrives: null, trackingUrl: null, ...order } },
+  ...over,
+});
+/** A local calendar day `days` from today, as the server sends `arrives`. */
+const dayIso = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+};
+
+describe('t2: an AI answer\'s order card (02·04, extras, capability `orderCard`)', () => {
+  const r = (locale = 'fa') => withExtras(make({ locale, capabilities: SERVED }));
+  const card = (order: Vm, locale?: string, over?: Vm) => parse(r(locale).messagesHtml({ messages: [ORDER(order, over)] }, undefined, {})).querySelector('.card');
+  const steps = (c: Element) => Array.from(c.querySelectorAll('.steps li')).map((li) => li.className + (li.getAttribute('aria-current') ? '@' : ''));
+
+  it('sits under the answer\'s text, in the same run, before its time line', () => {
+    const h = parse(r().messagesHtml({ messages: [ORDER({})] }, undefined, {}));
+    const col = h.querySelector('.msg-row.operator .msg-col')!;
+    const lines = Array.from(col.querySelectorAll(':scope > .msg-line'));
+    expect(lines).toHaveLength(2);
+    expect(lines[0].querySelector('.msg-text')!.textContent).toBe('سلام علی! سفارشتان امروز صبح ارسال شد.');
+    expect(lines[1].querySelector('.msg.operator.has-card > .card[role="group"]')).not.toBeNull();
+    expect(lines[1].nextElementSibling!.classList.contains('msg-footline')).toBe(true);
+  });
+
+  it('titles the order in Persian digits, with its status pill and the four steps up to the current one', () => {
+    const c = card({ summary: 'کفش رانینگ، سایز ۴۲', more: 2 })!;
+    expect(c.getAttribute('aria-label')).toBe('سفارش ۴۸۲۱۳');
+    expect(c.querySelector('.th svg[aria-hidden="true"]')).not.toBeNull();
+    expect(c.querySelector('.tt b')!.textContent).toBe('سفارش ۴۸۲۱۳');
+    expect(c.querySelector('.tt small')!.textContent).toBe('کفش رانینگ، سایز ۴۲ +۲');
+    expect(c.querySelector('.pill')!.textContent).toBe('ارسال شد');
+    expect(c.querySelector('.pill')!.classList.contains('done')).toBe(false);
+    expect(Array.from(c.querySelectorAll('.steps li')).map((li) => li.textContent)).toEqual(['ثبت', 'آماده‌سازی', 'ارسال', 'تحویل']);
+    expect(steps(c)).toEqual(['ok', 'ok', 'now@', '']);
+    expect(c.querySelector('.steps')!.getAttribute('style')).toBe('--f:0.667');
+    expect(c.querySelector('ol.steps')).not.toBeNull();
+  });
+
+  it('draws every status with its copy, step and look; completed is all four done', () => {
+    const cases: Array<[Vm, string, string[] | null, boolean]> = [
+      [{ status: 'pending', step: 0 }, 'در انتظار پرداخت', ['now@', '', '', ''], false],
+      [{ status: 'on_hold', step: 0 }, 'در انتظار بررسی', ['now@', '', '', ''], false],
+      [{ status: 'processing', step: 1 }, 'در حال آماده‌سازی', ['ok', 'now@', '', ''], false],
+      [{ status: 'shipped', step: 2 }, 'ارسال شد', ['ok', 'ok', 'now@', ''], false],
+      [{ status: 'completed', step: 3 }, 'تکمیل شد', ['ok', 'ok', 'ok', 'ok'], true],
+      [{ status: 'cancelled', step: null }, 'لغو شد', null, true],
+      [{ status: 'refunded', step: null }, 'مسترد شد', null, true],
+      [{ status: 'failed', step: null }, 'ناموفق', null, true],
+    ];
+    for (const [order, pill, st, done] of cases) {
+      const c = card(order)!;
+      expect(c.querySelector('.pill')!.textContent, String(order.status)).toBe(pill);
+      expect(c.querySelector('.pill')!.classList.contains('done'), String(order.status)).toBe(done);
+      if (st) expect(steps(c), String(order.status)).toEqual(st);
+      else expect(c.querySelector('.steps'), String(order.status)).toBeNull();
+    }
+    expect(card({ status: 'completed', step: 3 })!.querySelector('.steps')!.getAttribute('style')).toBe('--f:1');
+    // A store's own status name wins; an unknown status without one has no pill.
+    expect(card({ status: 'unknown', statusLabel: 'در صف ارسال', step: null })!.querySelector('.pill.done')!.textContent).toBe('در صف ارسال');
+    expect(card({ status: 'unknown', step: null })!.querySelector('.pill')).toBeNull();
+    expect(card({ status: 'constructor', step: 1 })!.querySelector('.pill')).toBeNull();
+  });
+
+  it('shows the item line, the delivery day and the tracking link only when present', () => {
+    const bare = card({})!;
+    expect(bare.querySelector('.tt small')).toBeNull();
+    expect(bare.querySelector('.ft')).toBeNull();
+    const link = card({ trackingUrl: 'https://post.ir/track?id=1&x=2' })!.querySelector('.ft a.trk')!;
+    expect(link.getAttribute('href')).toBe('https://post.ir/track?id=1&x=2');
+    expect(r().messagesHtml({ messages: [ORDER({ trackingUrl: 'https://post.ir/track?id=1&x=2' })] }, undefined, {})).toContain('href="https://post.ir/track?id=1&amp;x=2"');
+    expect([link.getAttribute('target'), link.getAttribute('rel')]).toEqual(['_blank', 'noopener noreferrer']);
+    expect(link.textContent).toBe('پیگیری مرسوله');
+    expect(card({ more: 3 })!.querySelector('.tt small')).toBeNull();
+  });
+
+  it('never links an unsafe address, and escapes every field', () => {
+    for (const url of ['javascript:alert(1)', 'data:text/html,x', '/relative', 'https://a b.ir', 'https://x.ir/"><img src=x>', "https://x.ir/'x", 'https://x.ir/' + 'a'.repeat(500)]) {
+      expect(card({ trackingUrl: url })!.querySelector('a'), url).toBeNull();
+    }
+    const evil = '<img src=x onerror=1>';
+    const c = card({ number: evil, summary: evil, statusLabel: evil, status: 'unknown', arrives: evil })!;
+    expect(c.querySelector('img')).toBeNull();
+    expect(c.querySelector('.tt b')!.textContent).toBe('سفارش <img src=x onerror=۱>');
+    expect(c.querySelector('.tt small')!.textContent).toBe(evil);
+    expect(c.querySelector('.pill')!.textContent).toBe(evil);
+    expect(c.querySelector('.ft')).toBeNull();
+  });
+
+  describe('the delivery day', () => {
+    afterEach(() => { vi.useRealTimers(); });
+    it('is the weekday within six days, else the day and month; past or unreadable days are not shown', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 9, 18, 10, 0));
+      const day = (iso: string, locale = 'fa') => card({ arrives: iso }, locale)?.querySelector('.ft span');
+      const weekday = (d: number, tag: string) => new Intl.DateTimeFormat(tag, { weekday: 'long' }).format(new Date(2026, 9, 18 + d, 12));
+      expect(day('2026-10-22')!.textContent).toBe('تحویل: ' + weekday(4, 'fa-IR-u-ca-persian'));
+      expect(day('2026-10-22')!.querySelector('b')!.textContent).toBe(weekday(4, 'fa-IR-u-ca-persian'));
+      expect(day('2026-10-18')!.textContent).toBe('تحویل: ' + weekday(0, 'fa-IR-u-ca-persian'));
+      expect(day('2026-11-16')!.textContent).toBe('تحویل: ' + new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long' }).format(new Date(2026, 10, 16, 12)));
+      expect(day('2026-10-22', 'en')!.textContent).toBe('Arrives ' + weekday(4, 'en-US'));
+      expect(day('2026-10-22', 'tr')!.textContent).toBe('Teslimat: ' + weekday(4, 'tr-TR'));
+      expect(day('2026-10-17')).toBeFalsy();
+      expect(day('soon')).toBeFalsy();
+      // The day alone (no link) still gets its footer, with the truck.
+      expect(card({ arrives: '2026-10-20' })!.querySelector('.ft svg')).not.toBeNull();
+    });
+  });
+
+  it('speaks en and tr, left to right', () => {
+    const en = card({ summary: 'Running shoes', more: 1, trackingUrl: 'https://t.example/1' }, 'en')!;
+    expect(en.querySelector('.tt b')!.textContent).toBe('Order 48213');
+    expect(en.querySelector('.tt small')!.textContent).toBe('Running shoes +1');
+    expect(Array.from(en.querySelectorAll('.steps li')).map((li) => li.textContent)).toEqual(['Placed', 'Packed', 'Shipped', 'Delivered']);
+    expect(en.querySelector('.trk')!.textContent).toBe('Track package');
+    expect(parse(r('en').messagesHtml({ messages: [ORDER({})] }, undefined, {})).firstElementChild!.closest('[dir]')).toBeNull();
+    const tr = card({ status: 'completed', step: 3 }, 'tr')!;
+    expect(tr.querySelector('.tt b')!.textContent).toBe('Sipariş 48213');
+    expect(tr.querySelector('.pill')!.textContent).toBe('Tamamlandı');
+  });
+
+  it('is the text only before the extras, without the capability, on a visitor\'s message or without a number', () => {
+    const none = (h: string) => expect(parse(h).querySelector('.card')).toBeNull();
+    none(make({ capabilities: SERVED }).messagesHtml({ messages: [ORDER({})] }, undefined, {}));
+    none(withExtras(make({ capabilities: { ...SERVED, orderCard: false } })).messagesHtml({ messages: [ORDER({})] }, undefined, {}));
+    none(r().messagesHtml({ messages: [ORDER({}, { sender: 'visitor', senderType: 'contact' })] }, undefined, {}));
+    none(r().messagesHtml({ messages: [ORDER({ number: '' })] }, undefined, {}));
+    none(r().messagesHtml({ messages: [msg({ metadata: { kind: 'order_status' } })] }, undefined, {}));
+    // The text is there in every case.
+    expect(parse(make({ capabilities: SERVED }).messagesHtml({ messages: [ORDER({})] }, undefined, {})).querySelector('.msg-text')!.textContent)
+      .toBe('سلام علی! سفارشتان امروز صبح ارسال شد.');
+  });
+
+  it('is in the page while the answer types out, hidden by the stylesheet until it is done', () => {
+    const m = ORDER({});
+    const h = parse(r().messagesHtml({ messages: [m] }, undefined, { typewriter: { id: m.__id, tokens: ['سلام', ' علی'], revealedCount: 1 } }));
+    expect(h.querySelector('[data-typing-active]')).not.toBeNull();
+    expect(h.querySelector('.card')).not.toBeNull();
+    expect(T2_CSS).toContain('.msg-col:has([data-typing-active]) .card { display: none; }');
+    expect(T2_CSS).toContain('.no-enter .card, .no-enter .steps::after { animation: none; }');
+    // The track's fill and the current step's pulse, both directions.
+    expect(T2_CSS).toContain("[dir='rtl'] .steps::after { transform-origin: right; }");
+    expect(T2_CSS).toMatch(/@keyframes t2-now \{/);
+    expect(T2_CSS).toMatch(/@keyframes t2-fill \{/);
+  });
+});
+
+describe('t2: the track-order row (01·01, 01·03; `config.commerce.trackOrder`)', () => {
+  const STORE = { commerce: { trackOrder: true } };
+  const home = (vm: Vm, config: Vm = STORE, locale = 'fa') => parse(make({ locale, config, capabilities: SERVED })
+    .homeHtml({ rtl: locale === 'fa', isOnline: true, chatEnabled: true, kbEnabled: true, ...vm }));
+  const rows = (h: Element) => Array.from(h.querySelectorAll('.list > .r')).map((b) => b.querySelector('.t1')!.textContent);
+
+  it('comes after the help center, its first message the localized «پیگیری سفارشم» (a topic Core sends)', () => {
+    const h = home({});
+    expect(rows(h)).toEqual(['مرکز راهنما', 'پیگیری سفارش']);
+    const row = h.querySelector('.r[data-home-action="track-order"]')!;
+    expect(row.getAttribute('data-topic')).toBe('پیگیری سفارشم');
+    expect(row.querySelector('.t2x')!.textContent).toBe('وضعیت سفارشتان را همین‌جا بپرسید');
+    expect(row.querySelector('.it svg')).not.toBeNull();
+    expect(row.querySelector('.ch')).not.toBeNull();
+  });
+
+  it('is there while the team is away (01·03)', () => {
+    expect(rows(home({ isOnline: false }))).toEqual(['مرکز راهنما', 'پیگیری سفارش']);
+  });
+
+  it('is only for a store that answers order questions, with the chat on', () => {
+    expect(home({}, {}).querySelector('[data-home-action="track-order"]')).toBeNull();
+    expect(home({}, { commerce: { trackOrder: 'yes' } }).querySelector('[data-home-action="track-order"]')).toBeNull();
+    expect(home({ chatEnabled: false }).querySelector('[data-home-action="track-order"]')).toBeNull();
+  });
+
+  it('keeps the rows at three: a returning visitor (01·02) has no room for it', () => {
+    const conv = { id: 'c1', status: 'open', preview: 'سلام', operatorName: 'سارا' };
+    expect(rows(home({ conversations: [conv] }))).toEqual(['ادامه گفتگو با سارا', 'گفتگوهای شما', 'مرکز راهنما']);
+    expect(rows(home({ kbEnabled: false, conversations: [conv] }))).toEqual(['ادامه گفتگو با سارا', 'گفتگوهای شما', 'پیگیری سفارش']);
+  });
+
+  it('speaks en and tr', () => {
+    const en = home({}, STORE, 'en').querySelector('[data-home-action="track-order"]')!;
+    expect([en.querySelector('.t1')!.textContent, en.querySelector('.t2x')!.textContent, en.getAttribute('data-topic')])
+      .toEqual(['Track an order', 'Ask about your order here', 'Track my order']);
+    const tr = home({}, STORE, 'tr').querySelector('[data-home-action="track-order"]')!;
+    expect([tr.querySelector('.t1')!.textContent, tr.querySelector('.t2x')!.textContent, tr.getAttribute('data-topic')])
+      .toEqual(['Sipariş takibi', 'Siparişinizi buradan sorun', 'Siparişimi takip et']);
+  });
+});
+
+describe('t2: help articles while the first message is written (02·06, extras, feature `instantAnswers`)', () => {
+  const r = (locale = 'fa') => withExtras(make({ locale, capabilities: SERVED }));
+  const A = (slug: string, title: string, matches: string[], readingMinutes: number | null = 2) => ({ slug, title, snippet: '', matches, readingMinutes });
+
+  it('is a labelled region (no live region) with at most two rows that open their article', () => {
+    const t = parse(r().kbSuggestHtml({ results: [A('returns', 'شرایط مرجوعی کالا', ['مرجوعی']), A('refund', 'بازگشت وجه بعد از مرجوعی چقدر طول می‌کشد؟', ['مرجوعی'], 1), A('x', 'سوم', [])] }));
+    const tray = t.querySelector('.tray[data-kb-suggest][role="region"]')!;
+    expect(tray.getAttribute('aria-labelledby')).toBe('kbs-h');
+    expect(tray.querySelector('#kbs-h')!.textContent).toBe('پاسخ‌های آماده از مرکز راهنما');
+    expect(tray.hasAttribute('aria-live')).toBe(false);
+    const rows = Array.from(tray.querySelectorAll('button.ta[data-kb-action="open"]'));
+    expect(rows.map((b) => b.getAttribute('data-kb-slug'))).toEqual(['returns', 'refund']);
+    expect(rows.map((b) => b.querySelector('small')!.textContent)).toEqual(['۲ دقیقه مطالعه', '۱ دقیقه مطالعه']);
+    expect(rows[0].querySelector('.tt')!.innerHTML).toBe('شرایط <mark>مرجوعی</mark> کالا');
+  });
+
+  it('marks the matched words escaped, regex characters included; nothing for no results', () => {
+    const t = parse(r().kbSuggestHtml({ results: [A('"><x', '<b>ارسال</b> با c++ و (کد)', ['ارسال', 'c++', '(کد)', 'x'])] }));
+    const row = t.querySelector('[data-kb-slug]')!;
+    expect(row.getAttribute('data-kb-slug')).toBe('"><x');
+    expect(row.querySelector('.tt b')).toBeNull();
+    expect(Array.from(row.querySelectorAll('mark')).map((m) => m.textContent)).toEqual(['ارسال', 'c++', '(کد)']);
+    expect(row.querySelector('.tt')!.textContent).toBe('<b>ارسال</b> با c++ و (کد)');
+    expect(r().kbSuggestHtml({ results: [] })).toBe('');
+    expect(r().kbSuggestHtml({ results: [{ slug: '', title: 'x' }] })).toBe('');
+    expect(parse(r().kbSuggestHtml({ results: [A('a', 'x', [], null)] })).querySelector('small')).toBeNull();
+    expect(make({ capabilities: SERVED }).kbSuggestHtml({ results: [A('a', 'x', [])] })).toBe('');
+  });
+
+  it('marks a Turkish «İ» for the server\'s case-folded word (kb-suggest folds «İade» to «iade», as ILIKE does)', () => {
+    const row = parse(r('tr').kbSuggestHtml({ results: [A('a', 'İade ve iptal: IADE', ['iade', 'iptal'], 3)] })).querySelector('.tt')!;
+    expect(Array.from(row.querySelectorAll('mark')).map((m) => m.textContent)).toEqual(['İade', 'iptal', 'IADE']);
+    expect(row.textContent).toBe('İade ve iptal: IADE');
+  });
+
+  it('speaks en and tr', () => {
+    expect(parse(r('en').kbSuggestHtml({ results: [A('a', 'Returns', [], 3)] })).querySelector('h4')!.textContent).toBe('Answers from the help center');
+    expect(parse(r('en').kbSuggestHtml({ results: [A('a', 'Returns', [], 3)] })).querySelector('small')!.textContent).toBe('3 min read');
+    expect(parse(r('tr').kbSuggestHtml({ results: [A('a', 'İade', [], 3)] })).querySelector('h4')!.textContent).toBe('Yardım merkezinden yanıtlar');
+  });
+
+  it('has its look in the stylesheet, out of the frame Core builds', () => {
+    expect(T2_CSS).toMatch(/\.tray \{ margin: 0 12px 8px;/);
+    expect(parse(make({ capabilities: SERVED }).chatFrameHtml({ chatEnabled: true, locale: 'fa', config: BASE_CONFIG })).querySelector('[data-kb-suggest]')).toBeNull();
+  });
+});
+
+describe('t2: help search results with the server\'s snippet and matches (03·07)', () => {
+  const results = (rs: Vm[], query = 'ارسال') => parse(make({ capabilities: SERVED }).kbHtml({ state: 'results', query, results: rs }));
+
+  it('shows the snippet over the summary, the matched words marked (escaped)', () => {
+    const h = results([{ slug: 'a', title: 'زمان و هزینه ارسال', excerpt: 'خلاصه', snippet: '…هزینه‌ی ارسال برای خریدهای بالای ۲ میلیون…', matches: ['ارسال'] }]);
+    const item = h.querySelector('[data-kb-slug="a"]')!;
+    expect(item.querySelector('small')!.innerHTML).toBe('…هزینه‌ی <mark>ارسال</mark> برای خریدهای بالای ۲ میلیون…');
+    expect(item.querySelector('.tt mark')!.textContent).toBe('ارسال');
+  });
+
+  it('marks a word with «i» where the text has «İ» (Turkish, folded by the server as the database does)', () => {
+    const tr = parse(make({ locale: 'tr', capabilities: SERVED }).kbHtml({ state: 'results', query: 'iade', results: [
+      { slug: 'a', title: 'İade koşulları', excerpt: 'iade ve değişim', matches: ['iade'] },
+    ] }));
+    expect(tr.querySelector('.tt')!.innerHTML).toBe('<mark>İade</mark> koşulları');
+    expect(tr.querySelector('small')!.innerHTML).toBe('<mark>iade</mark> ve değişim');
+  });
+
+  it('keeps the summary and the query\'s words without them, and escapes both', () => {
+    const plain = results([{ slug: 'a', title: 'ارسال', excerpt: '<img src=x> ارسال' }]);
+    expect(plain.querySelector('small')!.innerHTML).toBe('&lt;img src=x&gt; <mark>ارسال</mark>');
+    const evil = results([{ slug: 'a', title: 't', snippet: '<img src=x onerror=1>', matches: ['img', '['] }], 'zz');
+    expect(evil.querySelector('small img')).toBeNull();
+    expect(evil.querySelector('small mark')!.textContent).toBe('img');
+  });
+});
+
+describe('t2: an article\'s author (03·08, feature `kbAuthor`)', () => {
+  const am = (article: Vm, locale = 'fa') => parse(make({ locale, capabilities: SERVED }).kbArticleHtml({ article: { title: 'چطور', contentHtml: '', ...article } })).querySelector('.am');
+
+  it('draws the initial on its tile and the name, then the reading time', () => {
+    const line = am({ author: 'سارا', readingMinutes: 2 })!;
+    const spans = Array.from(line.children);
+    expect(spans.map((s) => s.textContent)).toEqual(['سسارا', '۲ دقیقه مطالعه']);
+    expect(spans[0].querySelector('.av.s24[aria-hidden="true"]')!.textContent).toBe('س');
+    expect(am({ author: 'سارا' })!.children).toHaveLength(1);
+  });
+
+  it('draws nothing of it without a name, and escapes it', () => {
+    expect(am({ author: ' ', readingMinutes: 2 })!.querySelector('.av')).toBeNull();
+    expect(am({})).toBeNull();
+    const evil = am({ author: '<img src=x onerror=1>' })!;
+    expect(evil.querySelector('img')).toBeNull();
+    expect(evil.textContent).toBe('<<img src=x onerror=1>');
+  });
+});
+
+describe('t2: a download\'s progress (feature `dlProgress`, the stylesheet\'s)', () => {
+  it('draws an arc from the top on the download control and the voice note\'s play button, in place of the spinner', () => {
+    const rule = /\.dl-on\.msg-att-action::after, \.dl-on \.wy-ap-play::after \{([^}]*)\}/.exec(T2_CSS)![1];
+    expect(rule).toContain('conic-gradient(currentColor calc(var(--dl, 0) * 360deg), transparent 0)');
+    expect(rule).toContain('animation: none');
+    expect(T2_CSS).toContain('.dl-on .wy-ap-spinner { display: none; }');
+  });
+});
+
+describe('t2-intl: the International edition\'s skin over t2 (presentation-t2-intl.css)', () => {
+  const SKIN = read('public/widget/presentation-t2-intl.css');
+
+  it('the brand accent is Ink, by the renderer\'s class (and its hero stops for Ink picked explicitly)', () => {
+    expect(SKIN).toContain('.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #16142B; --on-a: #FFFFFF; --gs-primary: #16142B; }');
+    expect(SKIN).toMatch(/\.wy-view\.gs-accent-brand, \.wy-view\[style\*='--a:#16142b;' i\] \{ --h1: /);
+  });
+
+  it('brand art: Thread by default, Open under the shell\'s lg-open; drawn only from data: masks', () => {
+    expect(SKIN.match(/--mk: url\("data:image\/svg\+xml,/g)?.length).toBe(2);
+    expect(SKIN).toContain('.lg-open .wy-view {');
+    expect(SKIN).toContain('.lg-open .smart-nudge {');
+    for (const m of SKIN.matchAll(/url\(\s*["']?([^"')\s]+)/g)) expect(m[1].startsWith('data:'), m[1]).toBe(true);
+    expect(SKIN).toContain('.wy-view:has(.wy-powered) .hero::after');
+  });
+
+  it('the Open greeting beside the launcher narrows on a narrow phone, so it never leaves the screen', () => {
+    const open = SKIN.match(/^\.lg-open \.smart-nudge \{([^}]*)\}/m)![1];
+    expect(open).toContain('max-width: calc(100vw - 53px - var(--gs-fab-size, 60px))');
+  });
+
+  it('code in an article is the system monospace (t2\'s universal font rules would make it Figtree), above them', () => {
+    // `.shell[dir='ltr'] *` is (0,2,0): the rule must outrank it.
+    expect(SKIN).toContain(".wy-view .kb-article-body :is(code, pre) { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }");
+    expect(SKIN).not.toMatch(/DM Mono/);
+  });
+
+  it('Persian keeps IRANSans first; left-to-right text leads with Figtree', () => {
+    expect(SKIN).toContain(".shell, .shell * { font-family: 'IRANSans', 'Figtree',");
+    expect(SKIN).toMatch(/\.shell\[dir='ltr'\][^{]*\{\s*font-family: 'Figtree', 'IRANSans',/);
+    expect(SKIN).not.toMatch(/@font-face|@import/);
+  });
+
+  it('the renderer stays t2\'s: no RESPOK word, Signal colour or logo direction in presentation-t2.js', () => {
+    const code = T2_SRC.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(code).not.toMatch(/respok|ff5a3c|lg-open|lg-thread|logoDirection/i);
   });
 });

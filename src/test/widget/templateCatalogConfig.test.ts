@@ -12,7 +12,11 @@
  *   - before migration 275 (no table) the snapshot is not degraded; a failed
  *     read is, and a rebuild that fails keeps the previous catalog, also
  *     right after a `platform` clear (the process's last good read);
- *   - the warm path reads nothing; `platform` makes the next read see a save.
+ *   - the warm path reads nothing; `platform` makes the next read see a save;
+ *   - workspaceChatTemplate (what the server reads before writing the closed
+ *     line or serving a rating or a transcript) is exactly GET /config's
+ *     template and options, so a `default` / `intl` workspace is never
+ *     treated as wearing t2.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request } from 'express';
@@ -119,7 +123,9 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     });
     const b = await body();
     expect(b.templateId).toBe('t1');
-    expect(b.templateOptions).toEqual({ navStyle: 'vc', navMode: 'both', topics: [{ label: 'ارسال', icon: 'truck' }] });
+    expect(b.templateOptions).toEqual({
+      navStyle: 'vc', navMode: 'both', topics: [{ label: 'ارسال', icon: 'truck' }], prechatMode: 'card', transcriptEmail: true,
+    });
     expect(String(b.presentationUrl)).toContain('presentation-t1');
     expect(String(b.presentationStyleUrl)).toContain('presentation-t1');
     expect(String(b.presentationFontsUrl ?? '')).not.toContain('t1');
@@ -141,6 +147,32 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     expect(JSON.stringify(b).match(/runtime-ext/g)).toHaveLength(1);
   });
 
+  it('names the late pack (modules.late, modules.extras) for a template whose renderer has extras, and never for default or intl', async () => {
+    // default and intl: the modules exactly as before the late pack.
+    const before = ['chat', 'kb', 'rt_resolver', 'rt_centrifugo', 'rt_supabase'];
+    await fresh();
+    expect(Object.keys((await body()).modules as Record<string, unknown>)).toEqual(before);
+    await fresh((t) => { withCatalog(CATALOG, 'international')(t); }, { edition: 'international' });
+    const intl = await body('international');
+    expect(intl.templateId).toBe('intl');
+    expect(Object.keys(intl.modules as Record<string, unknown>)).toEqual(before);
+    expect(JSON.stringify(intl)).not.toMatch(/runtime-late|-x\.js|runtime-emoji/);
+    for (const id of ['t1', 't2']) {
+      await fresh((t) => { withCatalog()(t); choose(id)(t); });
+      const b = await body();
+      expect(b.templateId).toBe(id);
+      const modules = b.modules as Record<string, unknown>;
+      expect(Object.keys(modules)).toEqual(['chat', 'kb', 'ext', 'emoji', 'late', 'extras', 'rt_resolver', 'rt_centrifugo', 'rt_supabase']);
+      expect(String(modules.late)).toMatch(/\/widget\/runtime-late(\.[0-9a-f]{8}\.js|\.js\?v=[^&]+)$/);
+      // The emoji keyword data, requested only when the picker's search is used.
+      expect(String(modules.emoji)).toMatch(/\/widget\/runtime-emoji(\.[0-9a-f]{8}\.js|\.js\?v=[^&]+)$/);
+      expect(JSON.stringify(b).match(/runtime-emoji/g)).toHaveLength(1);
+      expect(String(modules.extras)).toMatch(new RegExp(`/widget/presentation-${id}-x(\\.[0-9a-f]{8}\\.js|\\.js\\?v=[^&]+)$`));
+      // The loader never asks for them: nowhere but in `modules`.
+      expect(JSON.stringify(b).match(/runtime-late|-x\./g)).toHaveLength(2);
+    }
+  });
+
   it('display names never reach the widget', async () => {
     await fresh((t) => { withCatalog()(t); choose('t1')(t); });
     const text = JSON.stringify(await body());
@@ -156,7 +188,7 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     });
     const b = await body();
     expect(b.templateId).toBe('t2');
-    expect(b.templateOptions).toEqual({ topics: [], askExamples: [] });
+    expect(b.templateOptions).toEqual({ topics: [], askExamples: [], csat: true, transcriptEmail: true });
   });
 
   it('a plan without widget_appearance wears the default with the Super Admin options only', async () => {
@@ -168,7 +200,7 @@ describe('GET /config body: templateId and templateOptions from the catalog', ()
     }, { deny: ['widget_appearance'] });
     const b = await body();
     expect(b.templateId).toBe('t1');
-    expect(b.templateOptions).toEqual({ navStyle: 'vd', navMode: 'active', topics: [] });
+    expect(b.templateOptions).toEqual({ navStyle: 'vd', navMode: 'active', topics: [], prechatMode: 'card', transcriptEmail: true });
   });
 
   it('the International edition ignores an Iranian catalog and wears intl', async () => {
@@ -252,5 +284,68 @@ describe('the catalog in the platform snapshot', () => {
     expect(cold.degraded).toBe(true);
     expect(cold.chatTemplates).toEqual({});
     warn.mockRestore();
+  });
+});
+
+describe('workspaceChatTemplate: the server\'s view of the template a workspace wears', () => {
+  const effective = async () => snapshotMod.workspaceChatTemplate(config, WS);
+
+  it('is GET /config\'s template and options, with the descriptor (closedNotice only on t2)', async () => {
+    await fresh((t) => { withCatalog()(t); choose('t2', { csat: false })(t); });
+    const tpl = await effective();
+    const b = await body();
+    expect(tpl.id).toBe(b.templateId);
+    expect(tpl.options).toEqual(b.templateOptions);
+    expect(tpl.options).toMatchObject({ csat: false, transcriptEmail: true });
+    expect(tpl.descriptor?.closedNotice).toBe(true);
+    await fresh((t) => { withCatalog()(t); choose('t1')(t); });
+    expect((await effective()).descriptor?.closedNotice).toBe(false);
+  });
+
+  it('no catalog, a disabled choice, a plan without the Appearance editor, the International edition: never t2', async () => {
+    await fresh(choose('t2'));
+    expect((await effective()).id).toBe('default');
+    await fresh((t) => { withCatalog({ default: 'default', items: { t2: { enabled: false } } })(t); choose('t2')(t); });
+    expect((await effective()).id).toBe('default');
+    await fresh((t) => { withCatalog()(t); choose('t2')(t); }, { deny: ['widget_appearance'] });
+    const plan = await effective();
+    expect(plan.id).toBe('default');
+    expect(plan.descriptor?.closedNotice).toBe(false);
+    await fresh((t) => { withCatalog(CATALOG, 'international')(t); choose('t2')(t); }, { edition: 'international' });
+    expect((await effective()).id).toBe('intl');
+  });
+
+  it('a workspace whose choice follows the default wears t2 when the Super Admin makes t2 the default', async () => {
+    await fresh((t) => { withCatalog({ default: 't2', items: { t2: { enabled: true } } })(t); choose(null)(t); });
+    const tpl = await effective();
+    expect(tpl.id).toBe('t2');
+    expect(tpl.descriptor?.closedNotice).toBe(true);
+  });
+
+  it('widget settings missing or unreadable: the edition\'s own template, never the catalog\'s t2 default', async () => {
+    const t2Default = { default: 't2', items: { t2: { enabled: true } } };
+    // The workspace chose `default`; its row cannot be read (the degraded
+    // snapshot's few seconds), or it has none: not taken for t2.
+    await fresh((t) => { withCatalog(t2Default)(t); choose('default')(t); }, { failing: new Set(['widget_settings']) });
+    const unreadable = await effective();
+    expect(unreadable).toEqual({ id: 'default', descriptor: expect.objectContaining({ id: 'default', closedNotice: false }), options: {} });
+    await fresh((t) => { withCatalog(t2Default)(t); t.widget_settings.length = 0; });
+    expect((await effective()).descriptor?.closedNotice).toBe(false);
+    await fresh((t) => {
+      withCatalog(t2Default, 'international')(t);
+      t.widget_settings.length = 0;
+    }, { edition: 'international' });
+    expect((await effective()).id).toBe('intl');
+    // Readable again: the choice (and the catalog default for no choice) as before.
+    await fresh((t) => { withCatalog(t2Default)(t); choose(null)(t); });
+    expect((await effective()).id).toBe('t2');
+  });
+
+  it('reads nothing on a warm cache', async () => {
+    await fresh((t) => { withCatalog()(t); choose('t2')(t); });
+    await effective();
+    holder.db.resetCalls();
+    await effective();
+    expect(holder.db.calls.from + holder.db.calls.rpc).toBe(0);
   });
 });

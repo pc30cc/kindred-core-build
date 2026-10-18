@@ -1,7 +1,9 @@
+import { useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import type { Conversation, ConversationMessage } from '@/types/models';
 import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
 import { dedupeById } from '@/realtime/dedupe';
+import { applyReactionToggle } from '../../shared/messageReactions';
 import { refreshConversations } from '@/hooks/inboxListCache';
 import {
   fetchVisitorNetworkForConversations,
@@ -193,11 +195,22 @@ export interface MessageAttachment {
   size_bytes: number;
   kind: 'image' | 'audio' | 'video' | 'file';
 }
+/**
+ * One emoji of a message's reactions, as GET /api/conversations/:id/messages
+ * gives it to this operator: `mine` is their own, `visitor` the visitor's
+ * (shared/messageReactions.ts). Never who else.
+ */
+export type MessageReaction = { emoji: string; count: number; mine: boolean; visitor: boolean };
+
 export type ConversationMessageWithAttachment = ConversationMessage & {
   attachment?: MessageAttachment | null;
   attachments?: MessageAttachment[] | null;
   sender_name?: string | null;
   sender_avatar?: string | null;
+  /** Present only when the message has reactions. */
+  reactions?: MessageReaction[];
+  /** A visitor's message this operator may react to (the visitor sees reactions). */
+  can_react?: boolean;
 };
 
 
@@ -269,6 +282,74 @@ export function useSendMessage(
     },
 
   });
+}
+
+/**
+ * Set or take back the operator's reaction to a visitor's message, shown at
+ * once (applyReactionToggle) and put back as it was when the server refuses
+ * (`onError`, e.g. a toast). The server's answer is the truth: applied once
+ * no other change of that message is on its way, then the thread is read
+ * again. Each toggle stays with the thread it was made in, also when the
+ * operator opens another one before the answer.
+ */
+export function useMessageReaction(
+  conversationId: string | undefined,
+  workspaceId: string | undefined,
+  onError?: (err: Error) => void,
+) {
+  const qc = useQueryClient();
+  const pending = useRef(new Map<string, number>());
+  type Toggle = { conversationId?: string; workspaceId?: string; messageId: string; emoji: string; on: boolean };
+  const setRow = (cid: string | undefined, messageId: string, reactions: MessageReaction[] | undefined) => {
+    qc.setQueryData<ConversationMessageWithAttachment[]>(['messages', cid], (rows) => rows?.map((row) => (
+      row.id === messageId ? { ...row, reactions: reactions && reactions.length ? reactions : undefined } : row
+    )));
+  };
+  const mutation = useMutation({
+    mutationFn: async ({ conversationId: cid, workspaceId: wsId, messageId, emoji, on }: Toggle) => {
+      if (!cid || !wsId) throw new Error('Missing conversation or workspace');
+      return conversationsApi.setReaction({
+        workspace_id: wsId,
+        conversation_id: cid,
+        message_id: messageId,
+        emoji,
+        on,
+      });
+    },
+    onMutate: async ({ conversationId: cid, messageId, emoji, on }) => {
+      await qc.cancelQueries({ queryKey: ['messages', cid] });
+      const row = qc.getQueryData<ConversationMessageWithAttachment[]>(['messages', cid])?.find((r) => r.id === messageId);
+      const before = row?.reactions;
+      pending.current.set(messageId, (pending.current.get(messageId) || 0) + 1);
+      setRow(cid, messageId, applyReactionToggle(before, emoji, on, 'operator'));
+      return { before };
+    },
+    onError: (err, { conversationId: cid, messageId }, ctx) => {
+      // Put back only when nothing else of this message is on its way: the
+      // state before this toggle would undo a later one's, whose answer (or
+      // the re-read below) settles the row instead.
+      if ((pending.current.get(messageId) || 0) <= 1) setRow(cid, messageId, ctx?.before);
+      onError?.(err as Error);
+    },
+    onSuccess: (data, { conversationId: cid, messageId }) => {
+      if ((pending.current.get(messageId) || 0) <= 1) setRow(cid, messageId, data.reactions);
+    },
+    onSettled: (_data, _err, { conversationId: cid, messageId }) => {
+      const left = (pending.current.get(messageId) || 1) - 1;
+      if (left > 0) pending.current.set(messageId, left);
+      else pending.current.delete(messageId);
+      void qc.invalidateQueries({ queryKey: ['messages', cid] });
+    },
+  });
+  const { mutate } = mutation;
+  return {
+    ...mutation,
+    /** Toggles in the thread open now (its ids are taken at the call). */
+    mutate: useCallback(
+      (toggle: { messageId: string; emoji: string; on: boolean }) => mutate({ ...toggle, conversationId, workspaceId }),
+      [mutate, conversationId, workspaceId],
+    ),
+  };
 }
 
 export function useDeleteAllConversations() {

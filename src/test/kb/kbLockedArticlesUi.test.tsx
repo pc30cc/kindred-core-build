@@ -50,6 +50,8 @@ vi.mock('@/components/app/knowledge/RichTextEditor', () => ({
   default: ({ value }: { value: string }) => <div data-testid="rte">{value}</div>,
 }));
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
+// The editor's author select (its own test: kbArticleAuthorUi.test.tsx).
+vi.mock('@/hooks/useWorkspaceMembers', () => ({ useWorkspaceMembers: () => ({ data: [] }) }));
 vi.mock('@/hooks/useKnowledgeBase', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/hooks/useKnowledgeBase')>()),
   useKBArticles: () => ({ data: h.articles, isLoading: false }),

@@ -19,6 +19,7 @@ import {
   RESPOK_LAUNCHER_CHAT_GLYPH,
   RESPOK_LAUNCHER_CLOSE_GLYPH,
   RESPOK_LAUNCHER_CSS,
+  RESPOK_LAUNCHER_OPEN_GLYPH,
 } from '../../../shared/respokLauncher';
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
@@ -71,6 +72,12 @@ describe('the loader carries the kit byte-for-byte', () => {
     expect(literal('RESPOK_KIT_CSS')).toBe(RESPOK_LAUNCHER_CSS);
     expect(literal('RESPOK_KIT_CHAT_GLYPH')).toBe(RESPOK_LAUNCHER_CHAT_GLYPH);
     expect(literal('RESPOK_KIT_CLOSE_GLYPH')).toBe(RESPOK_LAUNCHER_CLOSE_GLYPH);
+    expect(literal('RESPOK_KIT_OPEN_GLYPH')).toBe(RESPOK_LAUNCHER_OPEN_GLYPH);
+    // All of it inside the loader's @intl-kit block (the Iran build leaves it out).
+    const kit = LOADER_SRC.slice(LOADER_SRC.indexOf('/* @intl-kit:begin */'), LOADER_SRC.indexOf('/* @intl-kit:end */'));
+    for (const name of ['RESPOK_KIT_CSS', 'RESPOK_KIT_CHAT_GLYPH', 'RESPOK_KIT_OPEN_GLYPH', 'RESPOK_KIT_CLOSE_GLYPH', 'function respokKitOn', 'function rpkOpen', 'function ensureRespokKitStyle']) {
+      expect(kit, name).toContain(name);
+    }
     expect(read('src/components/app/widget/WidgetLivePreview.tsx')).toContain('RESPOK_LAUNCHER_CSS');
   });
 
@@ -89,7 +96,13 @@ describe('the loader carries the kit byte-for-byte', () => {
     expect(RESPOK_LAUNCHER_CSS).toContain('@media(prefers-reduced-motion:reduce)');
     expect(LOADER_SRC).not.toContain('Respok.init');
     expect(LOADER_SRC).not.toContain('fonts.googleapis.com');
-    expect(RESPOK_LAUNCHER_CHAT_GLYPH + RESPOK_LAUNCHER_CLOSE_GLYPH).not.toMatch(/\son[a-z]+=/i);
+    // The Open logo: the kit's bubble and Signal dot; the dot springs in (rpk-kit-dot).
+    expect(RESPOK_LAUNCHER_OPEN_GLYPH).toContain('viewBox="0 0 108 108"');
+    expect(RESPOK_LAUNCHER_OPEN_GLYPH).toContain('M41 0A41 41 0 0 1 82 41L82 78Q82 82 78 82L41 82A41 41 0 0 1 0 41A41 41 0 0 1 41 0Z');
+    expect(RESPOK_LAUNCHER_OPEN_GLYPH).toContain('<circle class="rpk-kit-a" cx="96" cy="96" r="12"/>');
+    expect(RESPOK_LAUNCHER_CSS).toContain('@keyframes rpk-kit-dot{');
+    expect(RESPOK_LAUNCHER_CSS.indexOf('rpk-kit-o')).toBeLessThan(RESPOK_LAUNCHER_CSS.indexOf('@media(prefers-reduced-motion:reduce)'));
+    expect(RESPOK_LAUNCHER_CHAT_GLYPH + RESPOK_LAUNCHER_OPEN_GLYPH + RESPOK_LAUNCHER_CLOSE_GLYPH).not.toMatch(/\son[a-z]+=/i);
     expect(RESPOK_LAUNCHER_CSS).not.toMatch(/url\(|@import/);
   });
 });
@@ -125,6 +138,16 @@ describe('the launcher per edition', () => {
     const { root, launcher } = await boot({ templateId });
     expect(launcher.classList.contains('rpk-kit')).toBe(true);
     expect(root.querySelector('style[data-rpk-kit]')!.textContent).toBe(RESPOK_LAUNCHER_CSS);
+  });
+
+  it('an icon named after an Object.prototype key draws the kit\'s glyph, never prototype text', async () => {
+    for (const icon of ['constructor', '__proto__', 'toString']) {
+      const { launcher } = await boot({ fab: { icon } });
+      expect(launcher.querySelector('svg.chat-icon.rpk-kit-glyph'), icon).not.toBeNull();
+      expect(launcher.innerHTML, icon).not.toMatch(/function|native code/);
+      document.body.innerHTML = '';
+      for (const key of Object.keys(window)) if (key.indexOf('__gs') === 0) delete (window as unknown as Record<string, unknown>)[key];
+    }
   });
 
   it('honours the workspace\'s colour, icon, size and position', async () => {
@@ -168,5 +191,51 @@ describe('the launcher per edition', () => {
     push(['setUnread', 2]);
     expect(launcher.querySelector('.badge')!.classList.contains('rpk-kit-still')).toBe(true);
     expect(launcher.classList.contains('lk-kit-nudge')).toBe(false);
+  });
+});
+
+// The logo direction (t1-intl / t2-intl's template option logoDirection;
+// the server sends it only for them, so `intl` stays Thread).
+describe('the logo direction', () => {
+  const shell = (root: ShadowRoot) => root.querySelector('.shell')!;
+
+  it('Thread by default: the two pills, and lg-thread on the shell', async () => {
+    const { root, launcher } = await boot({ templateId: 'intl', templateOptions: {} });
+    expect(shell(root).classList.contains('lg-thread')).toBe(true);
+    expect(shell(root).classList.contains('lg-open')).toBe(false);
+    expect(launcher.querySelector('svg.chat-icon')!.getAttribute('viewBox')).toBe('0 0 104 92');
+    expect(launcher.querySelector('.rpk-kit-o')).toBeNull();
+  });
+
+  it('Open: the bubble and the dot, lg-open on the shell, the dot springing in with a message', async () => {
+    const { root, launcher } = await boot({ templateId: 't1-intl', templateOptions: { logoDirection: 'open' } });
+    expect(shell(root).classList.contains('lg-open')).toBe(true);
+    expect(shell(root).classList.contains('lg-thread')).toBe(false);
+    const glyph = launcher.querySelector('svg.chat-icon.rpk-kit-glyph.rpk-kit-o')!;
+    expect(glyph.getAttribute('viewBox')).toBe('0 0 108 108');
+    expect(glyph.querySelector('circle.rpk-kit-a')!.getAttribute('r')).toBe('12');
+    expect(root.querySelector('style[data-rpk-kit]')!.textContent).toContain('@keyframes rpk-kit-dot');
+    push(['setUnread', 1]);
+    expect(launcher.classList.contains('rpk-kit-arrive')).toBe(true);
+  });
+
+  it('Open away: the dot is an outline (the away rule draws the circle too)', async () => {
+    const { launcher } = await boot({ templateId: 't2-intl', templateOptions: { logoDirection: 'open' }, availability: { state: 'offline' } });
+    expect(launcher.classList.contains('rpk-kit-away')).toBe(true);
+    expect(launcher.querySelector('.rpk-kit-o .rpk-kit-a')).not.toBeNull();
+  });
+
+  it('a workspace\'s own icon stays; the panel still follows the direction', async () => {
+    const { root, launcher } = await boot({ templateId: 't1-intl', templateOptions: { logoDirection: 'open' }, fab: { icon: 'headset' } });
+    expect(launcher.querySelector('svg.chat-icon')!.classList.contains('rpk-kit-glyph')).toBe(false);
+    expect(shell(root).classList.contains('lg-open')).toBe(true);
+  });
+
+  it.each([
+    ['the Iranian edition', { edition: 'iran', templateId: 't1', templateOptions: { logoDirection: 'open' } }],
+    ['an unknown edition', { edition: null, templateId: 'default' }],
+  ])('%s: neither class', async (_name, extra) => {
+    const { root } = await boot(extra);
+    expect(shell(root).className).not.toMatch(/lg-/);
   });
 });

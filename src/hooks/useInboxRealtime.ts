@@ -11,6 +11,16 @@
  *   - channel:  ws:<workspace_id>:conv:<conversation_id>
  *   - envelope: { type: 'message' | 'typing' | 'seen', payload: { ... } }
  *
+ * The thread's operator-only `event` envelopes (notes, status, tags,
+ * assignee, timeline, AI suggestions, calls) come from the workspace inbox
+ * channel `ws:<workspace_id>:inbox`, filtered to this conversation: the
+ * server never publishes them on the conversation channel, which the
+ * visitor's widget subscribes to (server/services/realtime/publish.ts,
+ * WIDGET_EVENT_FIELDS). The few `event` kinds the widget acts on also reach
+ * the conversation channel, cut down to the visitor's fields; they are taken
+ * whole from the inbox channel, so the conversation channel's `event`
+ * envelopes are ignored here.
+ *
  * On `message` events we just invalidate React Query keys — no aggressive
  * local cache patching yet (that's a later phase).
  */
@@ -41,9 +51,9 @@ export interface InboxRealtimeOptions {
   onMessage?: (payload: NormalizedMessagePayload) => void;
   onTyping?: (payload: Record<string, unknown>) => void;
   /**
-   * Phase 5 — operator-only events on the per-conversation channel.
-   * Polling/disabled adapters are no-ops; React Query refetch keeps
-   * the UI fresh in that case.
+   * Phase 5 — operator-only events of this conversation (heard on the
+   * workspace inbox channel). Polling/disabled adapters are no-ops; React
+   * Query refetch keeps the UI fresh in that case.
    */
   onEvent?: (payload: OperatorEventPayload) => void;
   enabled?: boolean;
@@ -61,8 +71,45 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
     if (!enabled || !workspaceId || !conversationId) return;
 
     let cancelled = false;
-    let sub: RealtimeSubscription | null = null;
+    const subs: RealtimeSubscription[] = [];
     const channel = `ws:${workspaceId}:conv:${conversationId}`;
+    const inboxChannel = `ws:${workspaceId}:inbox`;
+
+    // Phase 5 — this conversation's operator-only events. Notes routes
+    // publish ONLY note_added/_deleted (no duplicate timeline_event echo), so
+    // we invalidate the notes cache for those kinds and the timeline cache
+    // for everything else operator-side.
+    const onOperatorEvent = (payload: OperatorEventPayload, vendor: string) => {
+      const kind = (payload as { kind?: string })?.kind;
+      rtDebug('inbox', 'event:event', { vendor, channel: inboxChannel, kind });
+      if (kind === 'note_added' || kind === 'note_deleted') {
+        invalidateThrottled(queryClient, ['conversation-notes', conversationId, workspaceId]);
+        invalidateThrottled(queryClient, ['conversation-timeline', conversationId, workspaceId]);
+      } else if (
+        kind === 'conversation_updated' ||
+        kind === 'conversation_resolved' ||
+        kind === 'conversation_reopened' ||
+        kind === 'timeline_event'
+      ) {
+        invalidateThrottled(queryClient, ['conversation-timeline', conversationId, workspaceId]);
+        // Assignment transfers append an internal system message to the
+        // thread — refresh the message list so it shows without reload.
+        invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
+
+      } else if (
+        kind === 'ai_suggestion_created' ||
+        kind === 'ai_suggestion_updated'
+      ) {
+        // Phase 2 — operator AI suggestion card refresh
+        invalidateThrottled(queryClient, ['ai-agent', 'conv-suggestions', conversationId]);
+      } else if (kind === 'message_reactions') {
+        // A reaction (the visitor's, or a teammate's): the thread re-reads
+        // its messages, where each carries its reactions as this operator
+        // sees them. The list shows none, so it stays as it is.
+        invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
+      }
+      handlersRef.current.onEvent?.(payload);
+    };
 
     (async () => {
       try {
@@ -95,39 +142,8 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
             rtDebug('inbox', 'event:seen', { vendor: provider.vendor, channel });
             invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
           },
-          // Phase 5 — operator-only `event` envelopes on the conv channel.
-          // Note: notes routes publish ONLY note_added/_deleted (no
-          // duplicate timeline_event echo), so we invalidate the notes
-          // cache for those kinds and the timeline cache for everything
-          // else operator-side. The widget runtime never sees these
-          // because Supabase broadcast is event-name-scoped and the
-          // Centrifugo widget runtime explicitly drops type !== message|typing.
-          onEvent: (payload) => {
-            const kind = (payload as { kind?: string })?.kind;
-            rtDebug('inbox', 'event:event', { vendor: provider.vendor, channel, kind });
-            if (kind === 'note_added' || kind === 'note_deleted') {
-              invalidateThrottled(queryClient, ['conversation-notes', conversationId, workspaceId]);
-              invalidateThrottled(queryClient, ['conversation-timeline', conversationId, workspaceId]);
-            } else if (
-              kind === 'conversation_updated' ||
-              kind === 'conversation_resolved' ||
-              kind === 'conversation_reopened' ||
-              kind === 'timeline_event'
-            ) {
-              invalidateThrottled(queryClient, ['conversation-timeline', conversationId, workspaceId]);
-              // Assignment transfers append an internal system message to the
-              // thread — refresh the message list so it shows without reload.
-              invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
-
-            } else if (
-              kind === 'ai_suggestion_created' ||
-              kind === 'ai_suggestion_updated'
-            ) {
-              // Phase 2 — operator AI suggestion card refresh
-              invalidateThrottled(queryClient, ['ai-agent', 'conv-suggestions', conversationId]);
-            }
-            handlersRef.current.onEvent?.(payload);
-          },
+          // No onEvent: an `event` here is the visitor's copy of one the
+          // inbox channel below delivers whole.
           onStatus: (status, info) => {
             if (status === 'error') {
               rtWarn('inbox', 'status=error', { vendor: provider.vendor, reason: info?.reason });
@@ -140,7 +156,21 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
           subscription.unsubscribe();
           return;
         }
-        sub = subscription;
+        subs.push(subscription);
+
+        const inbox = await provider.subscribe(inboxChannel, {
+          onEvent: (payload) => {
+            if (!payload || typeof payload !== 'object') return;
+            if (payload.conversation_id !== conversationId) return;
+            if (payload.workspace_id && payload.workspace_id !== workspaceId) return;
+            onOperatorEvent(payload, provider.vendor);
+          },
+        });
+        if (cancelled) {
+          inbox.unsubscribe();
+          return;
+        }
+        subs.push(inbox);
       } catch (err) {
         // Resolver itself never throws; this catches subscribe-time errors
         // from a primary transport. Polling fallback is implicit.
@@ -150,13 +180,12 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
 
     return () => {
       cancelled = true;
-      if (sub) {
+      for (const sub of subs.splice(0)) {
         try {
           sub.unsubscribe();
         } catch {
           /* noop */
         }
-        sub = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

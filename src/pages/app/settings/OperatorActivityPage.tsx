@@ -5,6 +5,8 @@
  * Online minutes are no longer recorded — their table,
  * `operator_activity_samples`, is dropped (database/migrations/223) — so the
  * API reports zero for them; assignments and message counts are still live.
+ * Satisfaction (visitors' ratings after a chat) shows only once the window
+ * has ratings.
  */
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -28,8 +30,10 @@ const RANGES = [1, 7, 30] as const;
 function useFormatters(locale: string) {
   return useMemo(() => {
     const num = new Intl.NumberFormat(locale);
+    const score = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
     return {
       num: (n: number) => num.format(n),
+      score: (n: number) => score.format(n),
       dt: (iso: string | null) =>
         iso
           ? new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))
@@ -81,6 +85,7 @@ export default function OperatorActivityPage() {
   }
 
   const maxMinutes = Math.max(1, ...(data?.operators || []).map((o) => o.online_minutes));
+  const showSatisfaction = (data?.totals.csat_count ?? 0) > 0;
 
   return (
     <div dir={dir} className="space-y-6 animate-fade-in">
@@ -245,6 +250,16 @@ export default function OperatorActivityPage() {
                       {fmt.num(op.conversations_resolved)}/{fmt.num(op.conversations_assigned)}
                     </div>
                   </div>
+                  {showSatisfaction && (
+                    <div className="hidden text-center lg:block" data-satisfaction={op.user_id}>
+                      <div className="text-xs text-muted-foreground">{t('operatorActivity.col.satisfaction')}</div>
+                      <div className="text-sm font-medium text-foreground" title={t('operatorActivity.satisfactionHint')}>
+                        {op.csat_count && op.csat_avg != null
+                          ? t('operatorActivity.satisfactionValue', { avg: fmt.score(op.csat_avg), n: fmt.num(op.csat_count) })
+                          : '—'}
+                      </div>
+                    </div>
+                  )}
 
                   <Button
                     size="icon"

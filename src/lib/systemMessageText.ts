@@ -20,7 +20,7 @@ export interface SystemMessageMeta {
   // conversation_transferred / conversation_unassigned
   actor_name?: string | null;
   to_name?: string | null;
-  // routing_agent_joined
+  // routing_agent_joined, conversation_closed (who closed it)
   agent_name?: string | null;
   // call_invitation
   channel?: string | null;
@@ -94,6 +94,14 @@ export function systemMessageText(
       return name
         ? line(t, 'inbox.system.agentJoined', `${name} joined the conversation`).replace('{name}', name)
         : line(t, 'inbox.system.agentJoinedGeneric', 'A colleague joined the conversation');
+    }
+    case 'conversation_closed': {
+      // The visitor-visible line an operator's close writes (a widget
+      // conversation of a template that draws it, with the rating card).
+      const name = String(meta?.agent_name || '').trim();
+      return name
+        ? line(t, 'inbox.system.closedBy', '{name} closed the conversation').replace('{name}', () => name)
+        : line(t, 'inbox.system.closed', 'The conversation was closed');
     }
     case 'routing_no_agent_available':
       return line(

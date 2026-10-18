@@ -1,0 +1,128 @@
+/*
+ * The launcher's styles (issue #340; WebYar board 11, RESPOK board 10): the
+ * pill with the launcher's text inside, the classic bubble, two bubbles and
+ * the agent's face. loader.js requests this file only for a workspace that
+ * wears one (config.fabStyleUrl, shared/launcherStyles.ts) and keeps the
+ * launcher unseen until it is in (3 s at most). It restyles the loader's
+ * own launcher, never replaces it: the classes fx-<icon> and fx-<shape>, the
+ * pill's text in data-fx, the agent's initial in data-fi, the direction in
+ * dir. Without it the launcher is today's.
+ *
+ * Above the template stylesheets' .launcher rules by specificity, whichever
+ * comes last. Sizes follow --gs-fab-size (the launcher is a <button>: its
+ * own padding makes percentages unreliable). No animation of its own (reduced motion: nothing moves). The
+ * glyphs are masks of the launcher's colour (LAUNCHER_GLYPHS); a browser
+ * without masks keeps the launcher's own glyph.
+ */
+
+/* ─── Bubble and two bubbles ─── */
+@supports ((-webkit-mask: none) or (mask: none)) {
+  .launcher.fx-bubble svg.chat-icon,
+  .launcher.fx-duo svg.chat-icon { display: none; }
+  .launcher.fx-bubble::before,
+  .launcher.fx-duo::before {
+    content: '';
+    flex: none;
+    width: calc(var(--gs-fab-size, 56px) * .6);
+    height: calc(var(--gs-fab-size, 56px) * .6);
+    background: currentColor;
+    -webkit-mask: var(--fx) center / contain no-repeat;
+    mask: var(--fx) center / contain no-repeat;
+  }
+  .launcher.fx-bubble { --fx: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M12 3.6c4.9 0 8.8 3.3 8.8 7.6s-3.9 7.6-8.8 7.6c-.9 0-1.8-.1-2.7-.3l-4.5 1.9 1-3.8c-1.7-1.4-2.6-3.3-2.6-5.4 0-4.3 3.9-7.6 8.8-7.6ZM7.05 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM10.75 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM14.45 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0Z'/%3E%3C/svg%3E"); }
+  /* The bubble's dots in the brand kit's second colour on the kit's own
+     ground (RESPOK's Signal, the local kit's dot colour): a layer under the
+     bubble, seen through its holes (and under a launcher image). Elsewhere
+     the variable is unset, the layer is transparent and the holes show the
+     launcher's colour. The pill's ::after is its text. */
+  .launcher.fx-bubble:not(.fx-pill)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    margin: auto;
+    width: calc(var(--gs-fab-size, 56px) * .6);
+    height: calc(var(--gs-fab-size, 56px) * .6);
+    background: var(--rpk-kit-accent, var(--lk-kit-dot));
+    --fx-dots: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7.05 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM10.75 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0ZM14.45 11.2a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0Z'/%3E%3C/svg%3E");
+    -webkit-mask: var(--fx-dots) center / contain no-repeat;
+    mask: var(--fx-dots) center / contain no-repeat;
+  }
+  .launcher.fx-duo { --fx: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M14.5 6.5V6a2.5 2.5 0 0 0-2.5-2.5H5.5A2.5 2.5 0 0 0 3 6v5a2.5 2.5 0 0 0 2.5 2.5H6v2.4l2.6-2.2' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' opacity='.75'/%3E%3Cpath d='M9.5 11a2.5 2.5 0 0 1 2.5-2.5h6.5A2.5 2.5 0 0 1 21 11v4.5a2.5 2.5 0 0 1-2.5 2.5H18v2.6L14.8 18H12a2.5 2.5 0 0 1-2.5-2.5z'/%3E%3C/svg%3E"); }
+}
+
+/* ─── The agent's face: the first operator's initial, online dot ─── */
+.launcher.fx-avatar svg.chat-icon { display: none; }
+.launcher.fx-avatar::before {
+  content: attr(data-fi);
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--gs-fab-size, 56px) - 8px);
+  height: calc(var(--gs-fab-size, 56px) - 8px);
+  border-radius: 50%;
+  background: #FCE3D4;
+  color: #8A3410;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+.launcher.fx-avatar:not(.fx-pill)::after {
+  content: '';
+  position: absolute;
+  bottom: 1px;
+  inset-inline-end: 1px;
+  width: 14px;
+  height: 14px;
+  border: 2.5px solid #fff;
+  border-radius: 50%;
+  /* Online: green, or the brand kit's own live colour where it has one (RESPOK's Signal). */
+  background: var(--rpk-kit-accent, #16A34A);
+}
+/* Away: no dot. */
+.launcher.fx-avatar.fx-off::after { display: none; }
+
+/* ─── The pill: the glyph at the inline start, the text after it ─── */
+.launcher.fx-pill {
+  width: auto;
+  gap: 4px;
+  padding: 0 20px 0 6px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.launcher.fx-pill[dir='rtl'] { padding: 0 6px 0 20px; }
+.launcher.fx-pill::after { content: attr(data-fx); }
+.launcher.fx.fx-pill svg.chat-icon,
+.launcher.fx.fx-pill::before {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  flex: none;
+  margin: 0;
+  width: calc(var(--gs-fab-size, 56px) - 10px);
+  height: calc(var(--gs-fab-size, 56px) - 10px);
+}
+/* A stroke icon at its usual size inside the glyph's box; the kits' own glyphs fill it. */
+.launcher.fx.fx-pill svg.chat-icon { padding: calc(var(--gs-fab-size, 56px) * .18); }
+.launcher.fx.fx-pill svg.lk-kit-glyph { padding: 0; }
+.launcher.fx.fx-pill svg.rpk-kit-glyph { padding: calc(var(--gs-fab-size, 56px) * .21); }
+.launcher.fx-pill::before { -webkit-mask-size: 78%; mask-size: 78%; }
+.launcher.fx-pill.fx-avatar::before { width: calc(var(--gs-fab-size, 56px) - 16px); height: calc(var(--gs-fab-size, 56px) - 16px); margin: 0 3px; }
+.launcher.fx-pill .fab-img { display: none; }
+.launcher.fx-pill.open { width: var(--gs-fab-size, 56px); padding: 0; }
+
+/* Open: the close glyph alone, as every launcher. */
+.launcher.fx.open::before,
+.launcher.fx.open::after { display: none; }
+
+/* Keyboard focus: a ring that reads on any page (RESPOK's button has its own). */
+.launcher.fx:not(.rpk-kit):focus-visible {
+  outline: 2px solid #12141F;
+  outline-offset: 3px;
+}

@@ -22,12 +22,14 @@ import {
   LOCAL_KIT_LAUNCHER_CLOSE_GLYPH,
   LOCAL_KIT_LAUNCHER_CSS,
 } from '../../../../shared/localKitLauncher';
-import { SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
+import { SHIPS_INTL_KIT, SHIPS_IRAN_KIT } from '../../../../shared/buildBrand';
+import { launcherInitial, resolveLauncherStyle } from '../../../../shared/launcherStyles';
 import {
   RESPOK_LAUNCHER_BASE_SIZE,
   RESPOK_LAUNCHER_CHAT_GLYPH,
   RESPOK_LAUNCHER_CLOSE_GLYPH,
   RESPOK_LAUNCHER_CSS,
+  RESPOK_LAUNCHER_OPEN_GLYPH,
 } from '../../../../shared/respokLauncher';
 
 /** `list` is the conversation list (a bottom menu's Messages). */
@@ -303,8 +305,11 @@ export function WidgetLivePreview({
   const iranKitEdition = useWebyarKit();
   const localKit = SHIPS_IRAN_KIT && iranKitEdition && !isInternational;
   // The International edition previews RESPOK's floating button (the kit's
-  // Thread chat button), as loader.js draws it for the `intl` template.
-  const respokKit = isInternational;
+  // Thread or Open chat button), as loader.js draws it, when this build
+  // ships it: the Iran build's loader leaves RESPOK's kit out (`@intl-kit`),
+  // so an Iran-brand deployment switched to the International edition shows
+  // the plain launcher on its sites, and here.
+  const respokKit = SHIPS_INTL_KIT && isInternational;
   const stageBackground = stage?.background ?? '#F1F5F9';
   const stageBar = stage?.bar ?? '#E2E8F0';
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -382,17 +387,40 @@ export function WidgetLivePreview({
       Math.max(0.8, !isFinite(rawScale) || rawScale <= 0 ? 1 : rawScale > 3 ? rawScale / 100 : rawScale),
     );
     const fabSize = Math.round((SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_BASE_SIZE : respokKit ? RESPOK_LAUNCHER_BASE_SIZE : 56) * fabScale);
+    // The launcher as /config sends it (shared/launcherStyles.ts: an unknown
+    // icon is `chat`, a pill needs its text; `s` has the plan applied).
+    const launcher = resolveLauncherStyle({ shape: s.fab_shape, icon: s.fab_icon, label: s.fab_label });
+    // An icon of today's set other than `chat`, by its own keys only (as the
+    // loader: "constructor" is no icon).
+    const customIcon = typeof s.fab_icon === 'string' && s.fab_icon !== 'chat' && Object.prototype.hasOwnProperty.call(FAB_ICONS, s.fab_icon);
     // The local kit's button (shared/localKitLauncher.ts): its gradient unless
     // the workspace chose its own colour; its bubble unless it chose an icon.
     const kitBrand = SHIPS_IRAN_KIT && localKit && isUncustomisedColor(s.primary_color);
-    const kitBubble = SHIPS_IRAN_KIT && localKit && (!s.fab_icon || s.fab_icon === 'chat' || !FAB_ICONS[s.fab_icon as string]);
+    const kitBubble = SHIPS_IRAN_KIT && localKit && !customIcon;
     // RESPOK's button (shared/respokLauncher.ts): Ink + Signal unless the
     // workspace chose its own colour; the kit's pills unless it chose an icon.
     const rpkBrand = respokKit && isUncustomisedColor(s.primary_color);
-    const rpkPills = respokKit && (!s.fab_icon || s.fab_icon === 'chat' || !FAB_ICONS[s.fab_icon as string]);
-    const fabRadius = s.fab_shape === 'square' ? '16px' : '50%';
+    const rpkPills = respokKit && !customIcon;
+    // The kit's square has the brand's 18px corners (LOCAL_KIT_LAUNCHER_CSS), every other 16px.
+    const fabRadius = launcher.shape === 'square' ? (SHIPS_IRAN_KIT && localKit ? '18px' : '16px') : '50%';
     const fabIconColor = s.fab_icon_color || '#fff';
-    const fabIcon = FAB_ICONS[(s.fab_icon as string) || 'chat'] || FAB_ICONS.chat;
+    const fabIcon = customIcon ? FAB_ICONS[s.fab_icon as string] : FAB_ICONS.chat;
+    // A launcher style (the pill, the bubble, two bubbles, the agent's face):
+    // the loader's classes and texts on the same markup, its look from
+    // runtime-fab.css (asked for in the frame, through the manifest). The
+    // agent's letter as /config picks it: the team, online first, then the
+    // workspace's name.
+    const fabStyled = launcher.styled;
+    const fabInitial = launcher.icon === 'avatar'
+      ? launcherInitial([
+        ...[...(teamMembers || [])].sort((a, b) => Number(b.online) - Number(a.online)).map((m) => m.name),
+        typeof s.brand_name === 'string' ? s.brand_name : workspaceName || brandName,
+      ])
+      : '';
+    const fabStyleAttrs = fabStyled
+      ? ` data-fx="${esc(s.fab_label || '')}" data-fi="${esc(fabInitial)}" dir="${/^fa/.test(locale) ? 'rtl' : 'ltr'}" style="visibility:hidden"`
+      : '';
+    const fabStyleClass = fabStyled ? ` fx fx-${launcher.icon} fx-${launcher.shape}${view === 'offline' ? ' fx-off' : ''}` : '';
     const rawFabImage = typeof s.fab_image_url === 'string' ? s.fab_image_url.trim() : '';
     const fabImage = /^https?:\/\//i.test(rawFabImage) ? rawFabImage : '';
     const logo = s.show_logo !== false && s.logo_url ? String(s.logo_url) : '';
@@ -467,6 +495,12 @@ export function WidgetLivePreview({
         ? resolveChatWidgetTemplate('international', s.widget_template_id)
         : (s.widget_template_id as string | undefined) || null;
     const previewTemplateOptions = (templateOptions !== undefined ? templateOptions : s.widget_template_options) || {};
+    // RESPOK's logo direction (a template option of t1-intl / t2-intl): the
+    // server credits with that direction's lockup in the International
+    // edition; the loader (the build that ships RESPOK's kit) puts one class
+    // on the shell for the panel's art and draws that direction's glyph.
+    const logoOpen = isInternational && (previewTemplateOptions as { logoDirection?: unknown }).logoDirection === 'open';
+    const lgOpen = respokKit && logoOpen;
 
     const previewConfig = {
       brandName: brandName || title,
@@ -481,7 +515,7 @@ export function WidgetLivePreview({
             // The Iranian edition (known, never assumed) credits its platform
             // with the local kit's Persian logotype the same way.
             poweredBy: isInternational && poweredBy
-              ? { ...poweredBy, logo: `${window.location.origin}${INTL_BRAND.horizontal.light}` }
+              ? { ...poweredBy, logo: `${window.location.origin}${(logoOpen ? INTL_BRAND.horizontalOpen : INTL_BRAND.horizontal).light}` }
               : SHIPS_IRAN_KIT && localKit && poweredBy
                 ? { ...poweredBy, logo: `${window.location.origin}${WEBYAR_BRAND.logo.light}` }
                 : poweredBy,
@@ -596,7 +630,20 @@ export function WidgetLivePreview({
         ],
       },
       // The capabilities Core passes to a renderer (production: runtime.js).
-      capabilities: { kbNeutral: true, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false },
+      capabilities: { kbNeutral: true, csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, chatMenu: true, awayThread: true, queuePosition: true, emojiSearch: true, dlProgress: true, kbAuthor: true },
+      // Who answers the sample conversation (the chat bar Core paints for it).
+      chatOperator: { name: operatorName || title, avatar: operatorAvatar || '', online: true },
+      // The pre-chat one question at a time (a renderer declaring prechatSteps,
+      // template option prechatMode 'steps'): its sample answers and the
+      // edition's phone prefix, as runtime-late.js uses it.
+      steps: {
+        name: rtl ? 'علی رضایی' : 'Alex Morgan',
+        phonePrefix: isInternational ? '' : '+98',
+      },
+      // The message left while the team is away (a renderer declaring
+      // awayThread), when the workspace's offline mode takes one.
+      awaySample: (s.offline_mode || 'capture_message') === 'capture_message'
+        ? { sender: 'visitor', senderType: 'visitor', body: d.visitorSample, time: nowIso, status: 'sent' } : null,
       messages: view === 'offline'
         ? [{ sender: 'operator', senderType: 'system', body: offlineMsg, time: nowIso }]
         : [
@@ -623,6 +670,8 @@ export function WidgetLivePreview({
 
       typingLabel: `${title} ${d.typing}`,
       phase,
+      /** The launcher wears a style: the frame asks for runtime-fab.css. */
+      fabStyled,
     };
 
     return `<!doctype html>
@@ -653,7 +702,7 @@ export function WidgetLivePreview({
   .shell.pos-bottom-left{bottom:24px;left:24px;right:auto;top:auto;}
   .shell .launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;
     --gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);
-    width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:${fabRadius};border:none;cursor:pointer;
+    width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:${fabRadius};border:none;cursor:pointer;font-family:inherit;
     box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);
     transition:transform .62s cubic-bezier(.33,1,.68,1),box-shadow .2s ease;
      background:${esc(primary)};color:${esc(fabIconColor)};}
@@ -696,14 +745,14 @@ export function WidgetLivePreview({
     <div class="block"></div>
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
-  <div class="shell pos-${pos}${s.fab_animation === true ? ' anim-on' : ''}">
+  <div class="shell pos-${pos}${respokKit ? (lgOpen ? ' lg-open' : ' lg-thread') : ''}${s.fab_animation === true ? ' anim-on' : ''}">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
-    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${SHIPS_IRAN_KIT && localKit ? ` lk-kit${kitBrand ? ' lk-kit-brand' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}` : ''}" id="gs-launcher" aria-label="chat">
-      ${SHIPS_IRAN_KIT && kitBubble ? LOCAL_KIT_LAUNCHER_CHAT_GLYPH : rpkPills ? RESPOK_LAUNCHER_CHAT_GLYPH : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
+    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}${SHIPS_IRAN_KIT && localKit ? ` lk-kit${kitBrand ? ' lk-kit-brand' : ''}` : ''}${respokKit ? ` rpk-kit${rpkBrand ? ' rpk-kit-brand' : ''}` : ''}${fabStyleClass}" id="gs-launcher" aria-label="chat"${fabStyleAttrs}>
+      ${SHIPS_IRAN_KIT && kitBubble ? LOCAL_KIT_LAUNCHER_CHAT_GLYPH : rpkPills ? (lgOpen ? RESPOK_LAUNCHER_OPEN_GLYPH : RESPOK_LAUNCHER_CHAT_GLYPH) : `<svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>`}
       ${SHIPS_IRAN_KIT && localKit ? LOCAL_KIT_LAUNCHER_CLOSE_GLYPH : respokKit ? RESPOK_LAUNCHER_CLOSE_GLYPH : '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>'}
       ${fabImage ? `<img class="fab-img" alt="" src="${esc(fabImage)}">` : ''}
     </button>
-    ${s.fab_label ? `<div class="fab-label"><span class="label-title">${esc(s.fab_label)}</span></div>` : ''}
+    ${s.fab_label && launcher.shape !== 'pill' ? `<div class="fab-label"${fabStyled ? ' style="visibility:hidden"' : ''}><span class="label-title">${esc(s.fab_label)}</span></div>` : ''}
   </div>
 <!-- The preview loads the SAME presentation assets the visitor widget loads,
      resolved through the registry (no template name is hard-coded here). -->
@@ -717,6 +766,24 @@ export function WidgetLivePreview({
   }, true);
   var GS_PREVIEW = ${JSON.stringify(payload).replace(/</g, '\\u003c')};
   var GS_SMART = GS_PREVIEW.smart;
+
+  // A launcher style's stylesheet (runtime-fab.css), as the loader asks for
+  // it: the manifest's file, the launcher and its card unseen until it is in
+  // (3 s at most); without it the launcher is today's.
+  function gsFabShow() {
+    var els = document.querySelectorAll('#gs-launcher, .fab-label');
+    for (var i = 0; i < els.length; i++) els[i].style.visibility = '';
+  }
+  if (GS_PREVIEW.fabStyled) setTimeout(gsFabShow, 3000);
+  function gsFabStyle(manifest) {
+    if (!GS_PREVIEW.fabStyled || document.querySelector('link[data-gs-fab]')) return;
+    var fx = document.createElement('link');
+    fx.rel = 'stylesheet';
+    fx.href = '/widget/' + ((manifest && manifest['runtime-fab.css']) || 'runtime-fab.css');
+    fx.setAttribute('data-gs-fab', '');
+    fx.onload = fx.onerror = gsFabShow;
+    document.head.appendChild(fx);
+  }
 
   (function () {
     var reg = window.__gs_presentation_registry;
@@ -744,9 +811,12 @@ export function WidgetLivePreview({
       var styleReady = false;
       var skinReady = !desc.skin;
       var scriptReady = false;
+      // The renderer's extras (its markup no first paint needs): the live
+      // widget gets them after its first paint, the preview before it paints.
+      var extrasReady = !desc.extras;
       var mod = null;
       function prepareAndRender() {
-        if (!styleReady || !skinReady || !scriptReady || !mod || !mod.create) return;
+        if (!styleReady || !skinReady || !scriptReady || !extrasReady || !mod || !mod.create) return;
         var preparation = typeof mod.prepare === 'function'
           ? mod.prepare({ locale: GS_PREVIEW.locale, templateId: GS_PREVIEW.templateId })
           : null;
@@ -776,12 +846,18 @@ export function WidgetLivePreview({
         prepareAndRender();
       };
       document.body.appendChild(scr);
+      if (desc.extras) {
+        var xs = document.createElement('script');
+        xs.src = '/widget/' + ((manifest && manifest[desc.extras]) || desc.extras);
+        xs.onload = xs.onerror = function () { extrasReady = true; prepareAndRender(); };
+        document.body.appendChild(xs);
+      }
     }
 
     fetch('/widget/widget-manifest.json', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
-      .then(boot);
+      .then(function (manifest) { gsFabStyle(manifest); boot(manifest); });
   })();
 
 
@@ -808,6 +884,9 @@ export function WidgetLivePreview({
       primaryColor: GS_PREVIEW.primary,
       capabilities: GS_PREVIEW.capabilities,
     });
+    // Its extras before anything is painted (the renderer refuses a file
+    // that is not its own); without them it draws what it draws without.
+    if (typeof R.extend === 'function' && window.__gs_mod_extras) R.extend(window.__gs_mod_extras);
 
     // The renderer's declared features, read as Core reads them (feat() in
     // runtime-ext.js), and the view-model fields Core adds for them: the unread total
@@ -851,7 +930,39 @@ export function WidgetLivePreview({
         isAsked: function (k) { return !!pc.asked[k]; },
         isRequired: function (k) { return !!pc.required[k]; },
       };
-      body.innerHTML = R.prechatFormHtml(identity, {}, GS_PREVIEW.locale);
+      /* The pre-chat one question at a time (feature prechatSteps, option
+         prechatMode 'steps'): the chat view with the questions answered so
+         far, an e-mail refused then taken, and the last step in the
+         composer's place, as runtime-late.js paints it. */
+      var keys = ['name', 'email', 'phone'].filter(function (k) { return pc.asked[k]; });
+      var steps = feat('prechatSteps') && (GS_PREVIEW.config.templateOptions || {}).prechatMode === 'steps' &&
+        typeof R.prechatStepBoxHtml === 'function' && keys.length;
+      if (!steps) {
+        body.innerHTML = R.prechatFormHtml(identity, {}, GS_PREVIEW.locale);
+      } else {
+        var open = keys[keys.length - 1];
+        var log = [];
+        keys.slice(0, -1).forEach(function (k) {
+          if (k === 'email') log.push({ key: k, value: 'ali@example', ok: false, why: 'invalid' });
+          log.push({ key: k, value: k === 'name' ? GS_PREVIEW.steps.name : k === 'email' ? 'ali@example.com' : '0912 345 6789', ok: true });
+        });
+        body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
+        var stepsHost = body.querySelector('[data-chat-messages]');
+        if (stepsHost) {
+          stepsHost.innerHTML = R.messagesHtml({ messages: [] },
+            R.prechatStepsHtml({ key: open, log: log, firstName: pc.asked.name ? GS_PREVIEW.steps.name.split(' ')[0] : '' }), {});
+        }
+        var stepsHead = body.querySelector('[data-chat-header]');
+        if (stepsHead && feat('chatHeader')) stepsHead.innerHTML = R.chatHeaderHtml({ online: true, typing: false, isNew: false, operator: null });
+        var stepsBar = body.querySelector('[data-input-bar]');
+        if (stepsBar) {
+          stepsBar.style.display = 'none';
+          stepsBar.insertAdjacentHTML('beforebegin', R.prechatStepBoxHtml({
+            key: open, n: keys.length, total: keys.length, optional: !pc.required[open], value: '',
+            prefix: open === 'phone' ? GS_PREVIEW.steps.phonePrefix : '', busy: false, error: false,
+          }));
+        }
+      }
     } else if (view === 'kb') {
       body.innerHTML = R.kbHtml(GS_PREVIEW.kbVm);
     } else {
@@ -859,7 +970,26 @@ export function WidgetLivePreview({
          composer + footer) exactly like production mounts it. */
       body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
       var msgHost = body.querySelector('[data-chat-messages]');
-      if (msgHost) msgHost.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
+      /* Away, a renderer with the in-thread message (feature awayThread)
+         shows the visitor's message and the automated reply asking for an
+         e-mail, as runtime-late.js does; any other its offline line. */
+      var away = view === 'offline' && feat('awayThread') && GS_PREVIEW.awaySample;
+      if (msgHost) {
+        msgHost.innerHTML = away
+          ? R.messagesHtml({ messages: [GS_PREVIEW.awaySample] }, '', { awayReply: { at: 0, status: 'ask', value: '', error: '', skip: true } })
+          : R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
+      }
+      /* The chat bar as Core paints it for an existing conversation (feature
+         chatHeader: who answers), with its closed menu button (feature
+         chatMenu: the notification sounds item, drawn by the extras). */
+      var chatHead = body.querySelector('[data-chat-header]');
+      if (chatHead && feat('chatHeader') && typeof R.chatHeaderHtml === 'function') {
+        chatHead.innerHTML = R.chatHeaderHtml({
+          online: view !== 'offline', typing: false, isNew: false,
+          operator: view === 'offline' ? null : GS_PREVIEW.chatOperator,
+          menu: feat('chatMenu') ? { open: false, items: [{ action: 'sound', on: true }] } : null,
+        });
+      }
       /* Typing state is sr-only in the design — no visible typing row. */
     }
 

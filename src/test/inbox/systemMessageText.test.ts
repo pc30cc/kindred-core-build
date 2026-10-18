@@ -36,6 +36,8 @@ const KINDS = [
   { kind: 'call_invitation', channel: 'video', operator_name: 'Ali', status: 'pending' },
   { kind: 'call_ended', ended_by: 'operator', duration_seconds: 72 },
   { kind: 'support_rating', internal: true, score: 4, comment: 'great help' },
+  { kind: 'conversation_closed', by: 'agent', agent_name: 'Sara', operator_name: 'Sara', status: 'resolved' },
+  { kind: 'conversation_closed', by: 'agent', agent_name: null, status: 'closed' },
 ];
 
 describe('every system message kind has text, in every locale', () => {
@@ -132,6 +134,20 @@ describe('the sentences say the right thing', () => {
     expect(systemMessageText({ kind: 'support_rating', score: 2 }, T.fa)).toBe('به این گفتگو 2 از ۵ امتیاز داد');
   });
 
+  it('names who closed the conversation (the line the visitor also sees), generic without a name', () => {
+    const closed = { kind: 'conversation_closed', by: 'agent', agent_name: 'Sara', operator_name: 'Reza', status: 'resolved' };
+    expect(systemMessageText(closed, T.en)).toBe('Sara closed the conversation');
+    expect(systemMessageText(closed, T.fa)).toBe('Sara گفتگو را بست');
+    expect(systemMessageText(closed, T.tr)).toBe('Sara sohbeti kapattı');
+    for (const agent_name of [null, undefined, '', '  ']) {
+      expect(systemMessageText({ kind: 'conversation_closed', agent_name }, T.en)).toBe('The conversation was closed');
+    }
+    expect(systemMessageText({ kind: 'conversation_closed' }, T.fa)).toBe('گفتگو بسته شد');
+    expect(systemMessageText({ kind: 'conversation_closed' }, T.tr)).toBe('Sohbet kapatıldı');
+    // A name is taken as typed.
+    expect(systemMessageText({ kind: 'conversation_closed', agent_name: '$& {name}' }, T.en)).toBe('$& {name} closed the conversation');
+  });
+
   it('takes the comment as typed, placeholders and all', () => {
     expect(systemMessageText({ kind: 'support_rating', score: 3, comment: '{rating} costs $& {score}' }, T.en))
       .toBe('Rated the conversation 3/5 — “{rating} costs $& {score}”');
@@ -173,5 +189,9 @@ describe('every surface reads from the one localizer', () => {
     expect(CONVERSATIONS_ROUTE).not.toContain('actor_name: meta?.actor_name ? String(meta.actor_name) : null,');
     expect(CONTACTS_ROUTE).toContain('last_message_meta:');
     expect(CONTACTS_ROUTE).toContain("select('conversation_id, sender_type, sender_id, body, created_at, metadata')");
+  });
+
+  it('the thread draws the closed line as a centred notice, not as a bubble', () => {
+    expect(INBOX).toMatch(/meta\.kind === 'routing_agent_joined' \|\| meta\.kind === 'conversation_closed'/);
   });
 });

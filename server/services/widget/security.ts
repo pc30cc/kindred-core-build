@@ -253,6 +253,14 @@ const RATE_LIMITS: Record<string, RateLimitCaps> = {
   // from one address together get only 4x it.
   message:        { window: 60, visitor: 15, anonymous: 15, shared: 60 },
   upload:         { window: 60, visitor: 10, anonymous: 10, shared: 40 },
+  // POST /conversations/:id/transcript: a mail to the visitor's address. The
+  // durable limits (3 per conversation, 100 per workspace a day) are the
+  // ledger's (services/visitorTranscript.ts); this only stops a burst.
+  transcript:     { window: 600, visitor: 3, anonymous: 3, shared: 10 },
+  // GET /kb-suggest (instant answers while a visitor writes; the widget asks
+  // at most once per pause in typing): its own bucket, so drafting never
+  // spends the help center's or the chat's.
+  kb_suggest:     { window: 60, visitor: 30, anonymous: 30, shared: 300 },
   refresh:        { window: 60, visitor: 20, anonymous: 200, shared: 2000 },
   default:        { window: 60, visitor: 30, anonymous: 300, shared: 3000 },
 };

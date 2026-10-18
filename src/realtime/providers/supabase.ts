@@ -96,6 +96,83 @@ function unwrap(msg: BroadcastMessage | null | undefined): Record<string, unknow
   return null;
 }
 
+/**
+ * One joined Supabase channel per topic, shared by every subscriber of it.
+ * The Supabase client hands back the SAME channel object for a topic it has
+ * already joined, and removeChannel() leaves that topic for everyone, so two
+ * subscriptions of one channel (the inbox list and an open thread both hear
+ * `ws:<ws>:inbox`) must share a join: the broadcast bindings are made once
+ * and fan out to each subscriber, and the topic is left with the last one.
+ */
+interface SharedTopic {
+  ch: RealtimeChannelLike;
+  handlers: Set<RealtimeHandlers>;
+  /** Settles with the join's first outcome. */
+  joined: Promise<void>;
+  /** The latest status ('open', 'closed' or 'error'), reported to a subscriber that comes later. */
+  status: 'open' | 'closed' | 'error';
+  reason?: string;
+}
+
+const sharedTopics = new Map<string, SharedTopic>();
+
+function joinTopic(
+  supabase: NonNullable<Awaited<ReturnType<typeof getSupabaseRealtimeClient>>>,
+  topic: string,
+): SharedTopic {
+  const ch: RealtimeChannelLike = supabase.channel(topic, {
+    config: { broadcast: { self: false, ack: false } },
+  });
+  const handlers = new Set<RealtimeHandlers>();
+  const each = (fn: (h: RealtimeHandlers) => void) => handlers.forEach((h) => fn(h));
+
+  ch.on('broadcast', { event: 'message' }, (msg: BroadcastMessage) => {
+    const payload = unwrap(msg);
+    if (payload) each((h) => h.onMessage?.(payload as unknown as NormalizedMessagePayload));
+  });
+  ch.on('broadcast', { event: 'typing' }, (msg: BroadcastMessage) => {
+    const payload = unwrap(msg) ?? {};
+    each((h) => h.onTyping?.(payload));
+  });
+  ch.on('broadcast', { event: 'seen' }, (msg: BroadcastMessage) => {
+    const payload = unwrap(msg) ?? {};
+    each((h) => h.onSeen?.(payload));
+  });
+  // Phase 5 — operator-only event envelope. Forward-safe.
+  ch.on('broadcast', { event: 'event' }, (msg: BroadcastMessage) => {
+    const payload = unwrap(msg);
+    if (payload) each((h) => h.onEvent?.(payload as unknown as OperatorEventPayload));
+  });
+
+  const shared: SharedTopic = { ch, handlers, joined: Promise.resolve(), status: 'error' };
+  shared.joined = new Promise((resolve) => {
+    let settled = false;
+    ch.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        shared.status = 'open';
+        shared.reason = undefined;
+        if (settled) each((h) => h.onStatus?.('open'));
+        settled = true;
+        resolve();
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        const next = status === 'CLOSED' ? 'closed' : 'error';
+        shared.status = next;
+        shared.reason = status;
+        // A closed channel is not joined again by itself: the next
+        // subscriber of the topic joins afresh.
+        if (status === 'CLOSED' && sharedTopics.get(topic) === shared) sharedTopics.delete(topic);
+        // Later changes reach every subscriber; the status at the time is
+        // reported to each as it subscribes. Don't block — the caller
+        // already considers polling fallback elsewhere.
+        if (settled) each((h) => h.onStatus?.(next, { reason: status }));
+        settled = true;
+        resolve();
+      }
+    });
+  });
+  return shared;
+}
+
 export class SupabaseRealtimeClientProvider implements ClientRealtimeProvider {
   readonly vendor = 'supabase' as const;
 
@@ -114,44 +191,30 @@ export class SupabaseRealtimeClientProvider implements ClientRealtimeProvider {
       return { unsubscribe: () => { /* nothing was joined */ } };
     }
 
-    const ch: RealtimeChannelLike = supabase.channel(topic, {
-      config: { broadcast: { self: false, ack: false } },
-    });
+    let shared = sharedTopics.get(topic);
+    if (!shared) {
+      shared = joinTopic(supabase, topic);
+      sharedTopics.set(topic, shared);
+    }
+    const mine = shared;
+    mine.handlers.add(handlers);
+    await mine.joined;
+    if (mine.status === 'open') handlers.onStatus?.('open');
+    else handlers.onStatus?.(mine.status, { reason: mine.reason });
 
-    ch.on('broadcast', { event: 'message' }, (msg: BroadcastMessage) => {
-      const payload = unwrap(msg);
-      if (payload) handlers.onMessage?.(payload as unknown as NormalizedMessagePayload);
-    });
-    ch.on('broadcast', { event: 'typing' }, (msg: BroadcastMessage) => {
-      handlers.onTyping?.(unwrap(msg) ?? {});
-    });
-    ch.on('broadcast', { event: 'seen' }, (msg: BroadcastMessage) => {
-      handlers.onSeen?.(unwrap(msg) ?? {});
-    });
-    // Phase 5 — operator-only event envelope. Forward-safe.
-    ch.on('broadcast', { event: 'event' }, (msg: BroadcastMessage) => {
-      const payload = unwrap(msg);
-      if (payload) handlers.onEvent?.(payload as unknown as OperatorEventPayload);
-    });
-
-    await new Promise<void>((resolve) => {
-      ch.subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          handlers.onStatus?.('open');
-          resolve();
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          handlers.onStatus?.(status === 'CLOSED' ? 'closed' : 'error', { reason: status });
-          resolve(); // Don't block — caller already considers polling fallback elsewhere.
-        }
-      });
-    });
-
+    let left = false;
     return {
       unsubscribe: () => {
-        try {
-          void supabase.removeChannel(ch);
-        } catch {
-          /* noop */
+        if (left) return;
+        left = true;
+        mine.handlers.delete(handlers);
+        if (mine.handlers.size === 0 && sharedTopics.get(topic) === mine) {
+          sharedTopics.delete(topic);
+          try {
+            void supabase.removeChannel(mine.ch);
+          } catch {
+            /* noop */
+          }
         }
         handlers.onStatus?.('closed');
       },

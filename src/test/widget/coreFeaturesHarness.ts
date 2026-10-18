@@ -9,12 +9,20 @@
  *    passed (behaviour unchanged: each wrapper calls the real function).
  *  - `renderer: <factory>` mounts default's renderer extended by the factory
  *    (features, extra markup, new surfaces), as a t1/t2 renderer would be.
+ *  - `renderer: 't1' | 't2'` mounts that template's real renderer through
+ *    the real registry, wrapped the same way.
  *
  * Network: an in-memory fake of the widget API (`fetch`), the chat module
  * replaced by a fake, the KB module the real runtime-kb.js (it fetches), the
  * renderer features the real runtime-ext.js (a script the runtime requests
  * only for a renderer that declares features; `ext` decides when it answers),
- * and an optional realtime driver whose typing events the test fires.
+ * the late pack (the renderer's extras and the real runtime-late.js, which
+ * runtime-ext.js requests after the first paint; `late` decides how they
+ * answer), the emoji search's keywords (the real runtime-emoji.js; `emoji`
+ * decides how it answers) and an optional realtime driver whose typing
+ * events (with a payload), reaction events and message frames the test
+ * fires. `api` answers a route before the fake does (the routes of
+ * runtime-late.js; `raw` hands back a response object, a streamed body).
  */
 import { vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -52,7 +60,17 @@ export interface RuntimeInstance {
 }
 interface RuntimeGlobal { init: (config: Dict, shell: Dict) => RuntimeInstance }
 interface ChatModuleCall { conversationId: string; onResult: (r: Dict) => void }
-interface DriverHooks { onTyping: (e: unknown) => void; onConnectionState?: (state: string) => void }
+interface DriverHooks {
+  onTyping: (e: unknown) => void;
+  onMessage?: (e: { messages: unknown[] }) => void;
+  onConnectionState?: (state: string) => void;
+  onReaction?: (p: unknown) => void;
+}
+/**
+ * A test's own answer for a request: `status` (default 200) and its JSON
+ * `body`, or `raw`, the response object itself (a streamed body, headers).
+ */
+export interface ApiAnswer { status?: number; body?: unknown; raw?: unknown }
 
 export interface Call { surface: string; args: unknown[] }
 
@@ -67,9 +85,31 @@ export interface ConversationSeed {
 }
 
 export interface BootOptions {
-  renderer?: 'default' | RendererFactory;
+  renderer?: 'default' | 't1' | 't2' | RendererFactory;
+  /** The extras a factory renderer's registry descriptor names (none by default); t1 and t2 name their own. */
+  extras?: string;
+  /**
+   * How the late pack's requests (the extras and runtime-late.js) answer:
+   * 'load' (when asked, default), 'hold' (until releaseLate()), 'fail'
+   * (onerror for both names, like a 404), 'fail-extras' / 'fail-late' (only
+   * that file's, both names) or 'fail-hashed' (only the hashed URLs: the
+   * canonical names answer).
+   */
+  late?: 'load' | 'hold' | 'fail' | 'fail-extras' | 'fail-late' | 'fail-hashed';
+  /** What the extras request leaves as window.__gs_mod_extras: default the template's real file (a factory: nothing). */
+  extrasModule?: unknown;
+  /** What the runtime-late.js request leaves as window.__gs_mod_late: default the real file. */
+  lateModule?: unknown;
+  /**
+   * How the runtime-emoji.js request (the emoji search's keywords) answers:
+   * 'load' (after a tick, the real file; default), 'hold' (until
+   * releaseEmoji()) or 'fail' (onerror for both names).
+   */
+  emoji?: 'load' | 'hold' | 'fail';
   config?: Record<string, unknown>;
   conversations?: ConversationSeed[];
+  /** Keeps the thread list's answer until releaseConversations() (home paints its skeleton meanwhile). */
+  holdConversations?: boolean;
   /** Messages of a thread when its history loads. */
   history?: Record<string, Array<Record<string, unknown>>>;
   assignedOperator?: Record<string, unknown> | null;
@@ -78,8 +118,12 @@ export interface BootOptions {
   /** query -> results; a query not listed answers []. `hold` keeps answers until release(). */
   kbSearch?: Record<string, unknown[]>;
   holdKbSearch?: boolean;
-  /** Use a realtime driver (typing events) instead of polling. */
+  /** Use a realtime driver (typing events, message frames) instead of polling. */
   realtime?: boolean;
+  /** Answers a request before the fake API does (undefined: the fake answers); a promise holds it. */
+  api?: (url: string, init?: RequestInit) => ApiAnswer | Promise<ApiAnswer> | undefined;
+  /** What the page's public event bus saw (`window.__gs_public_events`): every `message` event. */
+  publicEvents?: boolean;
   /** A microphone and MediaRecorder (jsdom has neither), and uploads that succeed. */
   media?: boolean;
   open?: boolean;
@@ -104,12 +148,29 @@ export interface Harness {
   lastCall: (surface: string) => unknown[] | undefined;
   fetches: string[];
   posts: Array<{ url: string; body: Dict }>;
-  emitTyping: () => void;
+  /** An operator's typing event (`realtime: true`); the payload defaults to `{ actor: 'agent' }`. */
+  emitTyping: (payload?: Dict) => void;
+  /** A `message_reactions` event, as the drivers hand it to the runtime (`realtime: true`). */
+  emitReaction: (payload: Dict) => void;
+  /** A realtime frame with these messages (`realtime: true`). */
+  emitMessages: (messages: Array<Record<string, unknown>>) => void;
+  /** A /poll answer with these messages (without `realtime`: the polling transport). */
+  emitPoll: (messages: Array<Record<string, unknown>>) => void;
+  /** Every count Core gave the launcher's badge (shell.setUnread). */
+  unread: number[];
+  /** The public bus's events (`publicEvents: true`). */
+  events: Array<{ name: string; payload: unknown }>;
   releaseKbSearch: () => void;
   /** Every <script> src the runtime asked for, in order. */
   scripts: string[];
   /** Answers a held runtime-ext.js request (`ext: 'hold'`). */
   releaseExt: () => void;
+  /** Answers the held late pack requests (`late: 'hold'`). */
+  releaseLate: () => void;
+  /** Answers the held thread list requests (`holdConversations`). */
+  releaseConversations: () => void;
+  /** Answers the held runtime-emoji.js request (`emoji: 'hold'`). */
+  releaseEmoji: () => void;
   q: <T extends Element = HTMLElement>(sel: string) => T | null;
 }
 
@@ -117,9 +178,11 @@ export const flush = async (n = 12) => {
   for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
 };
 
-function jsonResponse(payload: unknown, ok = true, status = 200) {
+function jsonResponse(payload: unknown, ok = true, status = 200): Record<string, unknown> {
   return {
     ok, status,
+    // fetchWith reads a 401/403's body from a copy.
+    clone: () => jsonResponse(payload, ok, status),
     json: () => Promise.resolve(payload),
     text: () => Promise.resolve(JSON.stringify(payload)),
     blob: () => Promise.resolve(new Blob()),
@@ -152,6 +215,12 @@ export function boot(opts: BootOptions = {}): Harness {
   const posts: Array<{ url: string; body: Dict }> = [];
   let capturedEnv: Dict = {};
   let typingHook: ((e: unknown) => void) | null = null;
+  let messageHook: ((e: { messages: unknown[] }) => void) | null = null;
+  let reactionHook: ((p: unknown) => void) | null = null;
+  let pollHook: ((msgs: unknown[]) => void) | null = null;
+  const unread: number[] = [];
+  const events: Array<{ name: string; payload: unknown }> = [];
+  if (opts.publicEvents) win.__gs_public_events = { emit: (name: string, payload: unknown) => { events.push({ name, payload }); } };
   const heldSearches: Array<() => void> = [];
 
   if (opts.hint) sessionStorage.setItem('gs:view:ws-test', JSON.stringify(opts.hint));
@@ -168,12 +237,17 @@ export function boot(opts: BootOptions = {}): Harness {
         assignedOperator: opts.assignedOperator ?? null,
       });
     },
-    startPolling() { return { stop() {}, pollNow() {} }; },
+    startPolling(o: { onMessages?: (msgs: unknown[]) => void }) {
+      pollHook = o && o.onMessages ? o.onMessages : null;
+      return { stop() {}, pollNow() {} };
+    },
   };
   if (opts.realtime) {
     win.__gs_mod_rt_centrifugo = {
       create(_ctx: unknown, _resolved: unknown, hooks: DriverHooks) {
         typingHook = hooks.onTyping;
+        messageHook = hooks.onMessage || null;
+        reactionHook = hooks.onReaction || null;
         return {
           connect() { if (hooks.onConnectionState) hooks.onConnectionState('connected'); },
           disconnect() {},
@@ -212,6 +286,10 @@ export function boot(opts: BootOptions = {}): Harness {
 
   const scripts: string[] = [];
   const heldExt: Array<() => void> = [];
+  const heldLate: Array<() => void> = [];
+  const heldConversations: Array<() => void> = [];
+  const heldEmoji: Array<() => void> = [];
+  const realTemplate = opts.renderer === 't1' || opts.renderer === 't2' ? opts.renderer : null;
   const realAppend = document.head.appendChild.bind(document.head);
   vi.spyOn(document.head, 'appendChild').mockImplementation(<T extends Node>(node: T): T => {
     const script = node as unknown as HTMLScriptElement;
@@ -228,6 +306,37 @@ export function boot(opts: BootOptions = {}): Harness {
         if (opts.ext === 'hold') { heldExt.push(load); return node; }
         if (opts.ext !== 'tick') { load(); return node; }
       }
+      if (/runtime-emoji\b/.test(script.src)) {
+        if (opts.emoji === 'fail') {
+          setTimeout(() => { if (typeof script.onerror === 'function') script.onerror(new Event('error')); }, 0);
+          return node;
+        }
+        const answer = () => { new Function(read('public/widget/runtime-emoji.js')).call(window); load(); };
+        if (opts.emoji === 'hold') heldEmoji.push(answer);
+        else setTimeout(answer, 0);
+        return node;
+      }
+      const extrasReq = /\/presentation-[a-z0-9-]+-x\b/.test(script.src);
+      if (extrasReq || /runtime-late\b/.test(script.src)) {
+        const fails = opts.late === 'fail' || opts.late === (extrasReq ? 'fail-extras' : 'fail-late') ||
+          (opts.late === 'fail-hashed' && !/\?v=/.test(script.src));
+        if (fails) {
+          setTimeout(() => { if (typeof script.onerror === 'function') script.onerror(new Event('error')); }, 0);
+          return node;
+        }
+        // The file runs when its request answers, as a script would.
+        const answer = () => {
+          if (extrasReq) {
+            if (opts.extrasModule !== undefined) win.__gs_mod_extras = opts.extrasModule;
+            else if (realTemplate) new Function(read(`public/widget/presentation-${realTemplate}-x.js`)).call(window);
+          } else if (opts.lateModule !== undefined) win.__gs_mod_late = opts.lateModule;
+          else new Function(read('public/widget/runtime-late.js')).call(window);
+          load();
+        };
+        if (opts.late === 'hold') heldLate.push(answer);
+        else setTimeout(answer, 0);
+        return node;
+      }
       setTimeout(load, 0);
       return node;
     }
@@ -240,9 +349,13 @@ export function boot(opts: BootOptions = {}): Harness {
     if (init && init.method === 'POST' && init.body) {
       try { posts.push({ url: u, body: JSON.parse(String(init.body)) as Dict }); } catch { posts.push({ url: u, body: { raw: init.body } }); }
     }
+    const own = opts.api ? opts.api(u, init) : undefined;
+    if (own) {
+      return Promise.resolve(own).then((a) => (a.raw ? a.raw : jsonResponse(a.body ?? {}, (a.status ?? 200) < 400, a.status ?? 200)));
+    }
     if (u.includes('/api/widget/conversations') && u.includes('/read')) return Promise.resolve(jsonResponse({ ok: true }));
     if (u.includes('/api/widget/conversations')) {
-      return Promise.resolve(jsonResponse({
+      const answer = () => jsonResponse({
         conversations: (opts.conversations || []).map((c) => ({
           id: c.id,
           status: c.status || 'open',
@@ -255,7 +368,9 @@ export function boot(opts: BootOptions = {}): Harness {
           operatorAvatar: c.operatorAvatar ?? null,
           operatorOnline: !!c.operatorOnline,
         })),
-      }));
+      });
+      if (opts.holdConversations) return new Promise((res) => heldConversations.push(() => res(answer())));
+      return Promise.resolve(answer());
     }
     if (u.includes('/api/realtime/connect')) {
       return Promise.resolve(jsonResponse(opts.realtime
@@ -297,7 +412,15 @@ export function boot(opts: BootOptions = {}): Harness {
 
   const base = win.__gs_presentation_default as PresentationModule;
   let templateId = 'default';
-  if (opts.renderer && opts.renderer !== 'default') {
+  if (realTemplate) {
+    loadAsset(`public/widget/presentation-${realTemplate}.js`);
+    templateId = realTemplate;
+    const key = `__gs_presentation_${realTemplate}`;
+    const real = win[key] as PresentationModule;
+    win[key] = Object.assign({}, real, {
+      create(env: Dict) { capturedEnv = env; return wrapSurfaces(real.create(env), calls); },
+    });
+  } else if (typeof opts.renderer === 'function') {
     const factory = opts.renderer;
     templateId = 'tx';
     win.__gs_presentation_tx = {
@@ -308,7 +431,8 @@ export function boot(opts: BootOptions = {}): Harness {
         return wrapSurfaces(Object.assign({}, r, factory(r as BaseRenderer, env)), calls);
       },
     };
-    win.__gs_presentation_registry = { resolve: () => ({ id: 'tx', globalKey: '__gs_presentation_tx' }) };
+    const extras = opts.extras;
+    win.__gs_presentation_registry = { resolve: () => ({ id: 'tx', globalKey: '__gs_presentation_tx', extras }) };
   } else {
     const realCreate = base.create;
     win.__gs_presentation_default = Object.assign({}, base, {
@@ -340,7 +464,7 @@ export function boot(opts: BootOptions = {}): Harness {
       ],
       ...(opts.config || {}),
     },
-    { shadowRoot: shadow, shellEl: host, launcher, setUnread() {}, setOperatorTyping() {} },
+    { shadowRoot: shadow, shellEl: host, launcher, setUnread(n: number) { unread.push(n); }, setOperatorTyping() {} },
   );
   if (opts.open !== false) runtime.open();
 
@@ -358,10 +482,18 @@ export function boot(opts: BootOptions = {}): Harness {
     },
     fetches,
     posts,
-    emitTyping: () => { if (typingHook) typingHook({ payload: { actor: 'agent' } }); },
+    emitTyping: (payload?: Dict) => { if (typingHook) typingHook({ payload: payload || { actor: 'agent' } }); },
+    emitReaction: (payload: Dict) => { if (reactionHook) reactionHook(payload); },
+    emitMessages: (messages) => { if (messageHook) messageHook({ messages }); },
+    emitPoll: (messages) => { if (pollHook) pollHook(messages); },
+    unread,
+    events,
     releaseKbSearch: () => { while (heldSearches.length) heldSearches.shift()!(); },
     scripts,
     releaseExt: () => { while (heldExt.length) heldExt.shift()!(); },
+    releaseLate: () => { while (heldLate.length) heldLate.shift()!(); },
+    releaseConversations: () => { while (heldConversations.length) heldConversations.shift()!(); },
+    releaseEmoji: () => { while (heldEmoji.length) heldEmoji.shift()!(); },
     q: <T extends Element = HTMLElement>(sel: string) => shadow.querySelector(sel) as T | null,
   };
 }

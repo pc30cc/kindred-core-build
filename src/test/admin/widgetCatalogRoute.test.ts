@@ -215,6 +215,13 @@ describe('GET', () => {
       optionSpec: { navStyle: ['vb', 'va', 'vc', 'vd'], navMode: ['active', 'both', 'icon', 'text', 'none'] },
     });
     expect(templates[2].optionSpec).toMatchObject({ topics: { max: 4 }, askExamples: { max: 2 } });
+    // Every option a template reads has its spec (the first value the code's default).
+    expect(templates[1].optionSpec).toMatchObject({ prechatMode: ['card', 'steps'], transcriptEmail: [true, false] });
+    expect(templates[2].optionSpec).toMatchObject({ csat: [true, false], transcriptEmail: [true, false] });
+    expect(templates[2].optionSpec).not.toHaveProperty('prechatMode');
+    for (const t of templates) {
+      expect(Object.keys(t.optionSpec as Row).sort(), String(t.id)).toEqual(Object.keys(t.options as Row).sort());
+    }
   });
 
   it('reads only the running edition\'s row', async () => {
@@ -227,7 +234,21 @@ describe('GET', () => {
     state.edition = 'international';
     const intl = await get();
     expect(intl.json).toMatchObject({ edition: 'international', defaultId: 'intl' });
-    expect((intl.json.templates as Row[]).map((t) => t.id)).toEqual(['intl']);
+    expect((intl.json.templates as Row[]).map((t) => t.id)).toEqual(['intl', 't1-intl', 't2-intl']);
+    // RESPOK's skins over Templates 1 and 2 are off until the Super Admin
+    // enables them, and carry the logo direction (Thread by default).
+    const [own, t1i, t2i] = intl.json.templates as Row[];
+    expect([own.enabled, t1i.enabled, t2i.enabled]).toEqual([true, false, false]);
+    expect(t1i.options).toMatchObject({ logoDirection: 'thread', navStyle: 'vb', navMode: 'active' });
+    expect(t2i.options).toMatchObject({ logoDirection: 'thread', csat: true });
+    expect(own.options).toEqual({});
+    // Every option they read has its spec here too, the logo direction's
+    // values with the code's default (Thread) first.
+    expect(t1i.optionSpec).toMatchObject({ logoDirection: ['thread', 'open'] });
+    expect(t2i.optionSpec).toMatchObject({ logoDirection: ['thread', 'open'] });
+    for (const t of intl.json.templates as Row[]) {
+      expect(Object.keys(t.optionSpec as Row).sort(), String(t.id)).toEqual(Object.keys(t.options as Row).sort());
+    }
   });
 
   it('503 while the edition cannot be told', async () => {

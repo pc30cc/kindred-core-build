@@ -19,6 +19,7 @@ import { getProviderDescriptor, isKnownProvider } from './connectors/registry.js
 import { OpenCartConnector, claimUpdateNudge, isOlderConnector } from './connectors/opencart.js';
 import { writeCommerceAudit } from './audit.js';
 import { dialectFromRedirectUri, isKnownProtocolVersion } from './pluginDialect.js';
+import { publishCacheInvalidation } from '../../lib/cacheBus.js';
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
@@ -331,6 +332,9 @@ export async function exchangePairingCode(
     .select('id')
     .single();
   if (connError) throw new Error(`connection create failed: ${connError.message}`);
+  // A (re)paired connection starts with no capabilities: the widget's
+  // track-order row (configSnapshot.ts getStoreOrders) reads it afresh.
+  publishCacheInvalidation([`widget:${data.workspace_id}`]);
 
   await writeCommerceAudit(config, {
     workspaceId: data.workspace_id,
@@ -373,7 +377,17 @@ export async function runCapabilityHandshake(
   if (opts.workspaceId) query = query.eq('workspace_id', opts.workspaceId);
   const { data: connection, error } = await query.maybeSingle();
   if (error || !connection || connection.revoked_at) return;
-  if (connection.provider_type === 'opencart') return runOpenCartHandshake(config, connection as Parameters<typeof runOpenCartHandshake>[1]);
+  // A store whose health this handshake changed may gain or lose the
+  // widget's track-order row (configSnapshot.ts getStoreOrders): drop that
+  // answer now. An unchanged health (every periodic heartbeat) publishes
+  // nothing.
+  const healthWritten = (health: string, family: string | undefined) => {
+    if (family === 'store' && health !== connection.health) publishCacheInvalidation([`widget:${connection.workspace_id}`]);
+  };
+  if (connection.provider_type === 'opencart') {
+    healthWritten(await runOpenCartHandshake(config, connection as Parameters<typeof runOpenCartHandshake>[1]), 'store');
+    return;
+  }
 
   const descriptor = getProviderDescriptor(String(connection.provider_type ?? 'woocommerce'));
   if (!descriptor) return;
@@ -383,6 +397,7 @@ export async function runCapabilityHandshake(
     const secret = await readInstallationSecret(config, connection.installation_id);
     if (!secret) {
       await sb.from('commerce_connections').update({ health: 'authentication_error' }).eq('id', connectionId);
+      healthWritten('authentication_error', descriptor.family);
       return;
     }
 
@@ -445,19 +460,22 @@ export async function runCapabilityHandshake(
       .from('commerce_connections')
       .update({ ...common, ...providerFields })
       .eq('id', connectionId);
+    healthWritten(health, descriptor.family);
   } catch (err) {
     const code = err instanceof CommerceError ? err.code : 'commerce_live_unavailable';
+    // A billing connection that is refused outright has a credential
+    // problem, not an outage; the store family keeps its original
+    // `offline` so nothing about WooCommerce health reporting changes.
+    const health = descriptor.family === 'billing' && code === 'commerce_permission_denied' ? 'authentication_error' : 'offline';
     await sb
       .from('commerce_connections')
       .update({
-        // A billing connection that is refused outright has a credential
-        // problem, not an outage; the store family keeps its original
-        // `offline` so nothing about WooCommerce health reporting changes.
-        health: descriptor.family === 'billing' && code === 'commerce_permission_denied' ? 'authentication_error' : 'offline',
+        health,
         last_error_code: code,
         last_error_at: new Date().toISOString(),
       })
       .eq('id', connectionId);
+    healthWritten(health, descriptor.family);
   }
 }
 
@@ -471,7 +489,7 @@ export async function runCapabilityHandshake(
 async function runOpenCartHandshake(
   config: ServerConfig,
   connection: { id: string; installation_id: string; approved_origin: string; workspace_id: string; store_id: string; external_store_id: string | null; platform_version: string | null; protocol_version?: string | null },
-): Promise<void> {
+): Promise<string> {
   const sb = getServiceClient(config);
   const now = new Date().toISOString();
   try {
@@ -479,7 +497,7 @@ async function runOpenCartHandshake(
     const secret = await readInstallationSecret(config, connection.installation_id);
     if (!secret) {
       await sb.from('commerce_connections').update({ health: 'authentication_error', last_health_check_at: now }).eq('id', connection.id);
-      return;
+      return 'authentication_error';
     }
     const tryVersion = async (platformVersion: string | null) => new OpenCartConnector({
       origin: connection.approved_origin,
@@ -525,6 +543,7 @@ async function runOpenCartHandshake(
     if (health === 'connected' && handshake.capabilities.includes('connector.update') && isOlderConnector(handshake.connectorVersion) && claimUpdateNudge(connection.installation_id)) {
       void requestOpenCartUpdate(sb, connection, secret, handshake.platformVersion ?? connection.platform_version);
     }
+    return health;
   } catch (err) {
     await sb.from('commerce_connections').update({
       health: 'offline',
@@ -532,6 +551,7 @@ async function runOpenCartHandshake(
       last_error_at: now,
       last_health_check_at: now,
     }).eq('id', connection.id);
+    return 'offline';
   }
 }
 

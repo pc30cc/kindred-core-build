@@ -306,7 +306,8 @@ describe('reply-to-message — every read path resolves the structured relation 
 
   it('GET /history selects reply_to_message_id and runs it through enrichMessagesWithReplyTo, scoped to the requested conversation', () => {
     const idx = widgetRoute.indexOf("widgetRouter.get('/history'");
-    const body = widgetRoute.slice(idx, idx + 2500);
+    // The route's own body: up to the next route.
+    const body = widgetRoute.slice(idx, widgetRoute.indexOf('\nwidgetRouter.', idx + 1));
     expect(body).toContain('reply_to_message_id');
     expect(body).toContain('enrichMessagesWithReplyTo(config, conversationId, enriched)');
   });
@@ -361,7 +362,7 @@ describe('reply-to-message — every read path resolves the structured relation 
 
   it('operator inbox (GET /:id/messages) already returns the raw column via select(\'*\') — zero code change needed for the FK to reach the operator', () => {
     const idx = conversationsRoute.indexOf("conversationsRouter.get('/:id/messages'");
-    const body = conversationsRoute.slice(idx, idx + 800);
+    const body = conversationsRoute.slice(idx, conversationsRoute.indexOf('\nconversationsRouter.', idx + 1));
     expect(body).toContain("select('*')");
   });
 

@@ -38,6 +38,7 @@ budget), `server/lib/cacheBus.ts` (cross-node invalidation),
 | Not-found answers | "this workspace does not exist" | 15 s | own LRU (¼ of the max, ≥100): random ids cannot evict real snapshots |
 | Platform snapshot | widget_platform_settings (URL bases, welcome default, powered-by wording), the pre-chat policy, every `platform_branding_localized.platform_name`, the chat widget template catalog per edition (`widget_edition_settings.chat_templates`, migration 275) | 30 s | the catalog is its own read: a database without 275 reads as no catalog (not degraded); a failed read is degraded (5 s) and serves the process's last good catalog, also right after a `platform` clear; a process that has not read it yet serves the edition default meanwhile |
 | `quota_full` | the monthly conversation quota answer | 60 s | usage has no write hook |
+| Store orders (`config.commerce`) | whether the workspace has a store the AI can answer "track my order" for (`getStoreOrders`: its `commerce_connections`, the OpenCart policy, two plan entitlements) | 60 s | read only for a template with Core features (`default` / `intl` never); a failed read answers no row for 5 s; dropped by `widget:<ws>`, which a connection's disconnect, permission change, pairing and health change publish |
 
 Computed **per request**, never cached: availability at the current time
 (business hours and personal schedules switch exactly on time), the team's
@@ -82,7 +83,7 @@ Rules common to the three caches:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WIDGET_CONFIG_CACHE_TTL_MS` | `60000` | Fresh lifetime of a workspace snapshot. A smaller value also shortens the platform (30 s) and quota (60 s) caches. **`0` turns all three off** (every request reads, as before this change). `300000` is reasonable once the bus is known to work. |
+| `WIDGET_CONFIG_CACHE_TTL_MS` | `60000` | Fresh lifetime of a workspace snapshot. A smaller value also shortens the platform (30 s), quota (60 s) and store-orders (60 s) caches. **`0` turns them all off** (every request reads, as before this change). `300000` is reasonable once the bus is known to work. |
 | `WIDGET_CONFIG_CACHE_MAX` | `2000` | LRU bound of workspace snapshots per process (a snapshot is ~5–20 KB). |
 | `WIDGET_CONFIG_REBUILDS_PER_SEC` | `25` | Rebuild budget per process; `0` = unlimited. |
 | `WIDGET_BOOTSTRAP_PER_IP_PER_MIN` | `600` | Chat widget bootstraps per client address per minute (was 60). |
@@ -90,8 +91,9 @@ Rules common to the three caches:
 | `CALL_WIDGET_BOOTSTRAP_PER_IP_PER_MIN` | `600` | Call widget bootstraps per client address per minute (was 60). |
 | `CALL_WIDGET_BOOTSTRAP_GLOBAL_PER_MIN` | `6000` | Call widget bootstraps per **process** per minute (was 1200). |
 | `WIDGET_PER_IP_PER_MIN` | `1200` | Every `/api/widget` and `/api/call-widget` request per client address per minute (was 300); also the `ip:` fallback of the workspace limiter. |
+| `WIDGET_KB_SUGGEST_GLOBAL_PER_MIN` | `1800` | GET /api/widget/kb-suggest (instant answers) per **process** per minute. |
 
-The five limits take a positive integer; anything else means the default. They
+The six limits take a positive integer; anything else means the default. They
 are read per request, so a restart with a new value is all it takes.
 
 ## Rate limits (chat and call widget)
@@ -117,6 +119,7 @@ Layers a widget request passes, outermost first (all per process, in memory):
 | `widgetRateLimiter`, `widgetWorkspaceRateLimiter` (its `ip:` fallback) | `req.ip` | 1200 per min |
 | `widgetSessionRateLimiter` / `callWidgetSessionRateLimiter` | the token's nonce (one per session lineage) | 300 / 120 per min |
 | `widgetRateLimit(category)` on each chat route | see below | see below |
+| `kbSuggestGlobalCeiling` (GET /kb-suggest only, after its `kb_suggest` bucket) | the process | `WIDGET_KB_SUGGEST_GLOBAL_PER_MIN`, 1800 per min |
 
 `widgetRateLimit(category)` counts a request with a **valid, HMAC-signed,
 workspace-bound `dvsid` visitor cookie** per visitor; a request without one
@@ -150,6 +153,17 @@ cannot rotate through its own /64. Per minute:
 | `refresh` | /session/refresh | 20 | 200 | 2000 |
 | `message` | /message, OTP, pre-chat, offline capture, … | 15 | 15 | 60 |
 | `upload` | attachments | 10 | 10 | 40 |
+| `transcript` | POST /conversations/:id/transcript (per 10 minutes) | 3 | 3 | 10 |
+| `kb_suggest` | GET /kb-suggest (instant answers) | 30 | 30 | 300 |
+
+GET /kb-suggest (instant answers while a first message is written) has its own
+bucket and its own process ceiling: the help center's `/api/widget/kb/*` routes
+(`publicKbRateLimiter`, `publicKbGlobalCeiling`, 2400 per minute per process)
+never spend it, nor it theirs. Its answers are memoised in-process: per
+workspace and words for 60 s, only the few articles an answer can show (no
+summaries), at most 2,000 entries that found something and 2,000 that found
+nothing (an LRU each, so made-up drafts never push a real one out); reading
+times per article version, at most 20,000.
 
 `message` and `upload` cost money (AI replies, offline-capture and OTP email,
 storage), so they never grow with identities anyone can mint: without a cookie

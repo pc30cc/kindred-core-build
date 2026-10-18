@@ -95,6 +95,12 @@ describe('generic presentation readiness', () => {
     expect(preview).toContain("typeof mod.prepare === 'function'");
   });
 
+  it('gives a renderer the capabilities Core gives it (a template draws the same surfaces in both)', () => {
+    const literal = (src: string) => (/capabilities: (\{ kbNeutral: [^}]*\})/.exec(src) || [])[1];
+    expect(literal(runtime)).toBeTruthy();
+    expect(literal(preview)).toBe(literal(runtime));
+  });
+
   it('passes distinct workspace/platform identity and custom reply time to preview', () => {
     expect(preview).toContain('workspaceName: title');
     // Brand label is platform-owned: the resolved powered-by brand wins, with

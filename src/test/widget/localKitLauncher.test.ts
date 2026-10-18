@@ -83,6 +83,11 @@ describe('the loader carries the kit byte-for-byte', () => {
     expect(LOADER_SRC).not.toMatch(/Vazirmatn/i);
   });
 
+  it('the kit\'s square has the brand\'s 18px corners; every other launcher\'s square keeps 16px', () => {
+    expect(LOCAL_KIT_LAUNCHER_CSS.endsWith('.launcher.lk-kit.square{border-radius:18px;}')).toBe(true);
+    expect(LOADER_SRC).toContain('".launcher.square{border-radius:16px;}",');
+  });
+
   it('honours reduced motion and adds no global script or inline handler', () => {
     expect(LOCAL_KIT_LAUNCHER_CSS).toContain('@media(prefers-reduced-motion:reduce)');
     expect(LOCAL_KIT_LAUNCHER_CSS).toContain('linear-gradient(140deg,#22D3B4,#0B7D6C)');
@@ -238,7 +243,7 @@ describe('the kit\'s animations', () => {
     expect(LOADER_SRC).toContain('setOperatorTyping: setOperatorTyping,');
     expect(LOADER_SRC).toMatch(/if \(LOCAL_KIT && launcherEl\.classList\.contains\("lk-kit"\)\) launcherEl\.classList\.toggle\("lk-kit-typing", !!on\);/);
     expect(runtime).toContain("if (shell && typeof shell.setOperatorTyping === 'function')");
-    expect(runtime).toMatch(/function showOperatorTyping\(\) \{\s+\/\/[^\n]*\n\s+launcherTyping\(true\);/);
+    expect(runtime).toMatch(/function showOperatorTyping\(p\) \{\s+\/\/[^\n]*\n\s+launcherTyping\(true\);/);
   });
 
   it.each([

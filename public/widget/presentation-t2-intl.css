@@ -1,0 +1,137 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Widget Presentation — the "t2-intl" skin: the International edition's
+   (RESPOK) look over the t2 renderer and its stylesheet.
+
+   Loaded after presentation-t2.css in the same shadow root, so a rule here
+   with the base rule's specificity wins. The renderer is t2's, unchanged:
+   everything RESPOK lives here (tokens, type, flat Ink fills, the Signal
+   focus rings and tints, the brand art as CSS masks) and in the config (the
+   footer's lockup). Brand art follows the logo direction the loader puts
+   on the shell: Thread (two pills) by default, Open (a bubble and a dot)
+   under `.shell.lg-open`.
+
+   Type: Figtree for Latin text from the shared document-level fonts
+   stylesheet (presentation-default-fonts.css); Persian stays IRANSans and
+   keeps t2's line heights (the tighter ones below are for LTR only).
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ─── Tokens: Ink text, Signal for live and Signal Deep for unread, fixed
+   neutrals (they do not follow the accent, as the design says) ────────── */
+:host, .shell {
+  --ink: #16142B; --ink-2: #3D3B55; --ink-3: #5E5C75; --ink-4: #A9A7BC;
+  --live: #FF5A3C; --away: #A9A7BC; --bad: #D3361A; --rec: #FF5A3C; --unread: #D3361A; --unread-ink: #fff;
+}
+.shell, .wy-view, .panel-close {
+  --paper: #F5F5F8; --paper-2: #EDECF2; --line: #E4E3EC; --line-2: #D3D1DE; --bubble: #F0EFF5;
+  --glow: #FF5A3C; --glow-2: #8C83FF;
+}
+/* The hero of any other accent: violet-leaning light stop, deep dark stop. */
+@supports (color: color-mix(in oklab, red, blue)) {
+  .shell, .wy-view, .panel-close {
+    --h1: color-mix(in oklab, var(--a) 74%, #5B53A8);
+    --h1a: color-mix(in oklab, var(--h1) 90%, transparent);
+    --h3: color-mix(in oklab, var(--a) 82%, #000);
+  }
+}
+/* Without color-mix(): the shades resolved for Ink. */
+@supports not (color: color-mix(in oklab, red, blue)) {
+  .shell, .wy-view, .panel-close {
+    --a-1: #F2F2F3; --a-2: #E4E4E8; --a-3: #CACAD1; --a-hi: #2C2B41; --a-ink: #131224; --a22: #D0D0D5;
+    --a25: rgba(22, 20, 43, .25); --a75: rgba(22, 20, 43, .75); --a80: rgba(22, 20, 43, .8);
+    --h1: #262349; --h3: #0E0D1E; --h2r: #1A1734;
+  }
+}
+/* The brand accent is Ink, with its hand-tuned hero stops (also for Ink
+   picked explicitly; the renderer writes `--a` first). */
+.wy-view.gs-accent-brand, .panel-close.gs-accent-brand { --a: #16142B; --on-a: #FFFFFF; --gs-primary: #16142B; }
+.wy-view.gs-accent-brand, .wy-view[style*='--a:#16142b;' i] { --h1: #3B3576; --h2: #1E1B3B; --h3: #100E20; --glow: #FF5A3C; }
+
+/* ─── Type ─────────────────────────────────────────────────────────── */
+.shell, .shell * { font-family: 'IRANSans', 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+.shell[dir='ltr'], .shell[dir='ltr'] *, .panel[dir='ltr'], .panel[dir='ltr'] *, .smart-nudge[dir='ltr'], .smart-nudge[dir='ltr'] * {
+  font-family: 'Figtree', 'IRANSans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+.wy-view[dir='ltr'] .hi { margin-top: 36px; font-size: 16px; line-height: 1.4; }
+.wy-view[dir='ltr'] .hq { line-height: 1.18; letter-spacing: -.02em; }
+.wy-view[dir='ltr'] .msg { line-height: 1.5; }
+.wy-view[dir='ltr'] .art h1 { line-height: 1.25; letter-spacing: -.018em; }
+.wy-view[dir='ltr'] .kb-article-body { line-height: 1.65; }
+.wy-view[dir='ltr'] .kb-article-body ol > li { line-height: 1.55; }
+
+/* ─── Frame and home ───────────────────────────────────────────────── */
+/* The corner toward the launcher is the bubble's tail (not on a phone). */
+.shell:not(.gs-mobile-open) .panel.bottom-right { border-bottom-right-radius: 8px; }
+.shell:not(.gs-mobile-open) .panel.bottom-left { border-bottom-left-radius: 8px; }
+.hero { background: radial-gradient(110% 80% at 100% 0%, var(--h1a), transparent 60%), linear-gradient(165deg, var(--h1) 0%, var(--h2) 55%, var(--h3) 100%); }
+.aur i:first-child { opacity: .42; }
+.aur i + i { opacity: .22; }
+.pres .dot { background: #FF5A3C; }
+.ph::before { background: #FF5A3C; }
+/* Topics outlined in Ink, filled with it on hover. */
+.chip, .chip:hover { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.chip, .chip svg { color: var(--ink); }
+.chip:hover { background: var(--ink); color: #fff; }
+.chip:hover svg { color: #fff; }
+/* Paper tiles with Ink icons. */
+.r .it, .res .it, .tray .it { background: var(--paper); color: var(--ink); }
+.cat .it, .st.typ { color: var(--ink); }
+.cta { background: var(--ink); }
+
+/* ─── Thread and composer: flat Ink fills, Signal rings and caret ────── */
+.msg.visitor, .has-draft .send-btn, .fab, .csat .btn { background: var(--a); }
+.msg-ticks.is-seen { color: var(--ink); }
+.mic-btn { background: var(--paper); color: var(--ink); }
+.input-wrap:focus-within { box-shadow: 0 0 0 2px #FF5A3C, 0 0 0 6px rgba(255, 90, 60, .12), 0 8px 20px -14px rgba(15, 18, 23, .3); }
+.field:focus-within, .sfield:focus-within { box-shadow: 0 0 0 2px #FF5A3C, 0 0 0 6px rgba(255, 90, 60, .12); }
+.fi:focus-within { box-shadow: 0 0 0 2px #FF5A3C, 0 0 0 5px rgba(255, 90, 60, .12); }
+.input, .ask-in, .sfield input, .prechat-input { caret-color: #FF5A3C; }
+mark { background: #FFE1D9; }
+.wy-view :is(button, a):focus-visible { outline-color: #FF5A3C; }
+.hero :is(button, a):focus-visible, .panel[data-view='home'] .panel-close:focus-visible { outline-color: #fff; }
+
+/* ─── The late surfaces: the order card, the rating, the saved e-mail,
+   the help articles offered while a first message is written ──────── */
+.card .th { background: linear-gradient(140deg, #F1F0F6, #E4E3EC); color: var(--ink); }
+.pill { background: #FFEAE4; color: #A62A12; }
+.trk, .trk:hover { background: var(--ink); color: #fff; }
+.faces [aria-pressed='true'], .cf { background: #FFEAE4; color: #A62A12; box-shadow: inset 0 0 0 2px #FF5A3C; }
+.ck { background: #FFEAE4; color: #A62A12; }
+.tray h4 svg { color: #FF5A3C; }
+
+/* ─── Help article ─────────────────────────────────────────────────── */
+.kb-article-body ol > li::before { background: var(--paper-2); color: var(--ink); }
+.kb-article-body blockquote { background: #FFF4F1; box-shadow: inset 0 0 0 1px #FFD9CE; color: #8A2410; }
+/* Code in the system monospace (t2's universal font rules would give it Figtree). */
+.wy-view .kb-article-body :is(code, pre) { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+
+/* ─── Footer: the lockup the server names for the direction ──────────── */
+.wy-powered-logo { height: 13px; }
+/* Another brand's mark (only a build that ships it draws one) never shows. */
+.mk, .wm { display: none; }
+
+/* ─── Brand art: the home header's watermark, Thread unless the shell
+   says Open, in the text colour on the accent and only while the platform
+   is credited ───────────────────────────────────────────────────────── */
+.wy-view {
+  --mk: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 104 92'%3E%3Cpath d='M21 0H41A21 21 0 0 1 62 21A21 21 0 0 1 41 42H4A4 4 0 0 1 0 38V21A21 21 0 0 1 21 0ZM43 50H83A21 21 0 0 1 104 71V88A4 4 0 0 1 100 92H43A21 21 0 0 1 22 71A21 21 0 0 1 43 50Z'/%3E%3C/svg%3E");
+  --mk-h: 133px;
+}
+.lg-open .wy-view {
+  --mk: url("data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 82 82'%3E%3Cpath d='M41 0A41 41 0 0 1 82 41V78Q82 82 78 82H41A41 41 0 0 1 0 41A41 41 0 0 1 41 0Z'/%3E%3C/svg%3E");
+  --mk-h: 150px;
+}
+.wy-view:has(.wy-powered) .hero::after {
+  content: ''; position: absolute; z-index: -1; top: -36px; inset-inline-end: -18px; width: 150px; height: var(--mk-h);
+  background: currentColor; opacity: .08; pointer-events: none;
+  -webkit-mask: var(--mk) 0 0 / 100% 100% no-repeat; mask: var(--mk) 0 0 / 100% 100% no-repeat;
+}
+
+/* ─── The greeting beside the launcher: the corner that faces it, and its
+   place (Thread above it, Open beside) ───────────────────────────────── */
+.smart-nudge { border-radius: 21px 21px 4px 21px; }
+.smart-nudge.bottom-left { border-radius: 21px 21px 21px 4px; }
+/* Open sits beside the launcher: narrower on a narrow phone, so it stays on screen. */
+.lg-open .smart-nudge { bottom: calc(var(--gs-fab-size, 60px) + 5px); max-width: calc(100vw - 53px - var(--gs-fab-size, 60px)); border-radius: 18px 18px 6px 18px; }
+.lg-open .smart-nudge.bottom-right { right: calc(var(--gs-fab-size, 60px) + 5px); }
+.lg-open .smart-nudge.bottom-left { left: calc(var(--gs-fab-size, 60px) + 5px); border-radius: 18px 18px 18px 6px; }
+.shell:has(.rpk-kit-brand) .smart-nudge { --a: #16142B; }

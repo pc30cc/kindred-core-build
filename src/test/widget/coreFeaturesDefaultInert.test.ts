@@ -13,7 +13,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { boot, click, flush, resetWindow } from './coreFeaturesHarness';
+import { boot, click, flush, resetWindow, typeInto } from './coreFeaturesHarness';
 
 beforeEach(() => { vi.useRealTimers(); resetWindow(); });
 afterEach(() => { vi.restoreAllMocks(); });
@@ -31,7 +31,8 @@ describe('default declares no feature and Core stays as it was', () => {
     const h = boot({ renderer: 'default' });
     await flush();
     expect(h.env().capabilities).toEqual({
-      kbNeutral: true, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false,
+      kbNeutral: true, csat: true, reactions: true, orderCard: true, prechatSteps: true, instantAnswers: true, chatMenu: true,
+      awayThread: true, queuePosition: true, emojiSearch: true, dlProgress: true, kbAuthor: true,
     });
     expect(h.calls.some((c) => c.surface === 'chatHeaderHtml' || c.surface === 'prechatSummaryHtml')).toBe(false);
   });
@@ -150,5 +151,55 @@ describe('default declares no feature and Core stays as it was', () => {
     const wrap = h.q('[data-presence]')!;
     expect(wrap.className).toBe('presence sr-only');
     expect(h.q('[data-presence-label]')!.textContent).toBe('');
+  });
+
+  // Issue #340 round 4: what t1/t2 ask the server for and draw, default never does.
+  it('asks for an article without meta=1 (no author), as before', async () => {
+    const h = boot({ renderer: 'default', kb: { article: { id: 'a1', title: 'x', slug: 'x', content: '<p>x</p>', author_name: 'سارا' } } });
+    await flush();
+    h.runtime.setTab('help', 'x');
+    await flush(20);
+    const req = h.fetches.filter((u) => u.includes('/api/widget/kb/article?'));
+    expect(req).toHaveLength(1);
+    expect(new URL(req[0]).searchParams.has('meta')).toBe(false);
+    expect(Object.keys((h.lastCall('kbHtml')![0] as { article: Record<string, unknown> }).article).sort()).toEqual(['contentHtml', 'excerpt', 'publicUrl', 'title']);
+  });
+
+  it('draws an AI answer about an order as its text alone', async () => {
+    const order = { v: 1, number: '48213', summary: 'x', more: 0, status: 'shipped', statusLabel: null, step: 2, arrives: null, trackingUrl: 'https://post.ir/t' };
+    const h = boot({
+      renderer: 'default',
+      conversations: [{ id: 'c1' }],
+      history: { c1: [{ id: 'ai-1', role: 'ai', sender_type: 'ai', text: 'سفارشتان ارسال شد.', time: new Date().toISOString(), metadata: { source: 'ai_agent', kind: 'order_status', order } }] },
+    });
+    await flush();
+    h.runtime.__test.openConversation('c1');
+    await flush(20);
+    const thread = h.q('[data-chat-messages]')!;
+    expect(thread.textContent).toContain('سفارشتان ارسال شد.');
+    expect(thread.textContent).not.toContain('48213');
+    expect(thread.querySelector('a[href="https://post.ir/t"], .card, .steps')).toBeNull();
+  });
+
+  it('asks nothing while a first message is written, and loads no late pack or emoji keywords', async () => {
+    const h = boot({ renderer: 'default', config: { modules: { emoji: 'https://cdn.test/widget/runtime-emoji.0123abcd.js' } } });
+    await flush(20);
+    h.runtime.setTab('chat');
+    await flush(20);
+    h.runtime.__test.setConnectionState('online');
+    typeInto(h.q<HTMLTextAreaElement>('[data-msg-input]')!, 'مرجوعی کفش');
+    await new Promise((r) => setTimeout(r, 320));
+    await flush(10);
+    click(h.q('[data-emoji-btn]'));
+    await flush(10);
+    expect(h.fetches.filter((u) => u.includes('kb-suggest'))).toEqual([]);
+    expect(h.scripts.filter((u) => /runtime-(emoji|late|ext)|-x\./.test(u))).toEqual([]);
+    expect(h.q('[data-kb-suggest], [data-emoji-search]')).toBeNull();
+  });
+
+  it('draws no track-order row, even with a store in its config', async () => {
+    const h = boot({ renderer: 'default', config: { commerce: { trackOrder: true } } });
+    await flush(20);
+    expect(h.q('[data-home-action="track-order"]')).toBeNull();
   });
 });

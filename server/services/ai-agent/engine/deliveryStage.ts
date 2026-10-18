@@ -51,16 +51,16 @@ export async function runDeliveryStage(
     routingMeta,
   } = answer;
   const { aiResult } = generation;
-  const aiActionsMeta = (generation as any).actionsMeta || null;
-  const vnextMeta = (generation as any).vnextMeta || null;
-  const memoryPatch = (generation as any).memoryPatch || null;
+  const aiActionsMeta = generation.actionsMeta || null;
+  const vnextMeta = generation.vnextMeta || null;
+  const memoryPatch = generation.memoryPatch || null;
   /**
    * vNext bug fix — a handoff executed by the action pipeline must NOT be
    * silently reverted to `ai_managed` after delivery. Previously this stage
    * always called markAiManaged(), which pulled a conversation that the AI
    * had just escalated back out of the human queue.
    */
-  const handoffExecuted = !!(generation as any).actionHandoffExecuted;
+  const handoffExecuted = !!generation.actionHandoffExecuted;
   const keepAiOwnership = async () => {
     if (handoffExecuted) {
       decisionTimeline.push('ai_ownership_released_after_handoff');
@@ -166,6 +166,9 @@ export async function runDeliveryStage(
       agentName: display.agentName,
       agentLogoUrl: display.agentLogoUrl,
       decisionType: strategy.decisionType,
+      // Only this insert (the auto reply) carries the order card; handoff,
+      // intro, limit and suggestion messages never do.
+      orderCard: generation.orderCard ?? null,
     });
     if (!inserted.id) {
       const failFinal = await finalizeRun(config, runId, {
@@ -299,12 +302,12 @@ export async function runDeliveryStage(
 
   try {
     await publishOperatorEvent(config, {
-      kind: 'ai_suggestion_created' as any,
+      kind: 'ai_suggestion_created',
       conversation_id: conversationId,
       workspace_id: workspaceId,
       actor_id: null,
       suggestion_id: suggestion?.id || null,
-    }, { skipInboxChannel: true });
+    });
   } catch { /* best-effort */ }
 
   return {

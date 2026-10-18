@@ -12,9 +12,12 @@
  *       ws:<workspace_id>:inbox                    operator-only
  *   - envelope: { type: 'message' | 'typing' | 'seen' | 'event', payload: { ... } }
  *
- * `event` envelopes are operator-oriented. The widget runtime explicitly
- * ignores unknown `type` values for forward-safety. Existing message/typing/
- * seen envelopes remain byte-identical.
+ * `event` envelopes are operator-oriented: they travel on the inbox channel,
+ * and only the few kinds the widget acts on (WIDGET_EVENT_FIELDS) also on the
+ * conversation channel, which the visitor's browser subscribes to. A
+ * `message` envelope reaches the conversation channel as the visitor's copy
+ * (visitorMessagePayload: no operator account ids) and the inbox channel
+ * whole; typing and seen envelopes are unchanged.
  *
  * Fail-safe: never throws. If realtime is disabled, mis-configured, or
  * the publish call fails, returns { ok: false, reason } and the caller
@@ -49,7 +52,13 @@ export async function publishConversationEvent(
       channel,
       type: event.type,
     });
-    const result = await publisher.publish(channel, event);
+    // The visitor's browser subscribes to this channel: a message goes out
+    // without the operator account ids it carries (the inbox copy below and
+    // every operator API keep them).
+    const result = await publisher.publish(
+      channel,
+      event.type === 'message' ? { type: 'message', payload: visitorMessagePayload(event.payload) } : event,
+    );
     if (result.ok) {
       rtDebug('publish', 'ok', { vendor: publisher.vendor, channel, type: event.type });
     } else {
@@ -159,6 +168,58 @@ export function buildMessageEnvelope(row: {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// What a visitor may see of a message
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Message metadata keys that name an operator's account (their user id), as
+ * the server writes them: a join's `agent_id` and `actor_id`
+ * (chatRouting.ts, the inbox PATCH), a transfer's `actor_id`, `from_id` and
+ * `to_id`, the closed line's `agent_id` and `operator_id`
+ * (conversationClosedNotice.ts); the rest are the same idea under the names
+ * other rows use. The visitor's widget reads none of them: it shows the
+ * names next to them (`agent_name`, `to_name`, `operator_name`), and the
+ * server reads the ids from the stored row, never from the widget.
+ */
+export const OPERATOR_ID_METADATA_KEYS: readonly string[] = [
+  'actor_id', 'agent_id', 'operator_id', 'from_id', 'to_id',
+  'sender_id', 'assigned_to', 'created_by_user_id', 'ended_by_user_id',
+];
+
+/**
+ * A message's metadata as the visitor gets it: without OPERATOR_ID_METADATA_KEYS.
+ * The same object when it has none of them (so such a row answers exactly as
+ * it always did), else a shallow copy, keys in their order.
+ */
+export function visitorMessageMetadata<T>(metadata: T): T {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return metadata;
+  const meta = metadata as Record<string, unknown>;
+  if (!OPERATOR_ID_METADATA_KEYS.some((key) => Object.prototype.hasOwnProperty.call(meta, key))) return metadata;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(meta)) {
+    if (!OPERATOR_ID_METADATA_KEYS.includes(key)) out[key] = value;
+  }
+  return out as T;
+}
+
+/**
+ * A message row or `message` payload as the visitor gets it, on every path:
+ * the conversation channel (publishConversationEvent), GET /poll, /history
+ * and /identity/history. No `sender_id` (an operator's user id on their
+ * replies, the inviting or hanging-up operator's on call rows; nothing in the
+ * widget groups or labels by it: runtime.js keys a sender by its name and
+ * avatar) and metadata through visitorMessageMetadata. Keys keep their order.
+ */
+export function visitorMessagePayload<T extends Record<string, unknown>>(payload: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'sender_id') continue;
+    out[key] = key === 'metadata' ? visitorMessageMetadata(value) : value;
+  }
+  return out as T;
+}
+
 
 // ─────────────────────────────────────────────────────────────────────
 // Operator event envelopes (Phase 5 — realtime push for non-message events)
@@ -180,7 +241,15 @@ export type OperatorEventKind =
   | 'ai_human_takeover'
   // Email Inbox: "this mailbox changed, re-read it" — ids and a cursor only,
   // never content (docs/EMAIL_INBOX_ARCHITECTURE.md).
-  | 'email_mailbox_changed';
+  | 'email_mailbox_changed'
+  // The operator's AI suggestion card (engine/deliveryStage.ts,
+  // routes/ai-agent/activity.ts): ids only.
+  | 'ai_suggestion_created'
+  | 'ai_suggestion_updated'
+  // A message's reactions changed (services/messageReactions.ts): its new
+  // counts, read by the visitor's widget too (WIDGET_EVENT_FIELDS). No
+  // actor ids.
+  | 'message_reactions';
 
 export interface OperatorEventPayload {
   kind: OperatorEventKind;
@@ -197,10 +266,50 @@ export function buildEventEnvelope(payload: OperatorEventPayload): ConversationE
 }
 
 /**
- * Fan out an operator-oriented event to BOTH:
- *   1. The per-conversation channel (so an open thread updates immediately).
- *   2. The workspace inbox channel (so the conversation list updates even
- *      when the conversation isn't open).
+ * The `event` kinds the visitor's widget acts on, each with the fields it
+ * reads: all an `event` envelope may carry on ws:<ws>:conv:<cid>. The visitor
+ * subscribes to that channel, and its realtime drivers
+ * (public/widget/runtime-rt-centrifugo.js, runtime-rt-supabase.js) act on
+ * these kinds only, but whatever is published there reaches the visitor's
+ * browser, where devtools show it. Private-note events, tag, status and
+ * assignee changes, AI suggestions and the timeline therefore travel on the
+ * operator-only inbox channel alone. A kind the widget starts to act on is
+ * added here, with exactly the fields it reads. (`call:incoming` is published
+ * by routes/calls.ts itself, not through publishOperatorEvent.)
+ */
+export const WIDGET_EVENT_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  // handleServerCallEnded (public/widget/runtime.js): closes the call surface
+  // and writes "operator ended the call · 02:15" into the thread.
+  'call:ended': ['kind', 'call_session_id', 'ended_by', 'duration_seconds', 'ended_at'],
+  // The reaction badge (runtime-late.js, Template 2): the message's new
+  // counts `[{emoji, count, visitor}]` and the moment they were read (`at`,
+  // ms: the widget keeps the newest). The same for every reader, so no
+  // `mine`; never who reacted.
+  message_reactions: ['kind', 'conversation_id', 'message_id', 'reactions', 'at'],
+};
+
+/** The visitor's copy of an operator event, or null when the widget has no use for its kind. */
+export function widgetEventPayload(payload: OperatorEventPayload): Record<string, unknown> | null {
+  const fields = Object.prototype.hasOwnProperty.call(WIDGET_EVENT_FIELDS, payload.kind)
+    ? WIDGET_EVENT_FIELDS[payload.kind]
+    : null;
+  if (!fields) return null;
+  const out: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (payload[field] !== undefined) out[field] = payload[field];
+  }
+  return out;
+}
+
+/**
+ * Fan out an operator-oriented event to:
+ *   1. The workspace inbox channel (operator-only): every event, whole. The
+ *      conversation list, an open thread (useInboxRealtime picks its own
+ *      conversation's events from it), the contacts and mailbox pages and the
+ *      apps all listen there.
+ *   2. The per-conversation channel, only for a kind the visitor's widget
+ *      acts on, cut down to the fields it reads (WIDGET_EVENT_FIELDS).
+ *      `skipConversationChannel` leaves even that out.
  *
  * Both publishes are best-effort and independent. The inbox list and its
  * counts have no periodic poll: an event lost here shows on the operator's
@@ -210,43 +319,45 @@ export function buildEventEnvelope(payload: OperatorEventPayload): ConversationE
 export async function publishOperatorEvent(
   config: ServerConfig,
   payload: OperatorEventPayload,
-  opts?: { skipInboxChannel?: boolean; skipConversationChannel?: boolean },
+  opts?: { skipConversationChannel?: boolean },
 ): Promise<void> {
   const envelope = buildEventEnvelope(payload);
   const tasks: Promise<unknown>[] = [];
 
-  if (!opts?.skipConversationChannel) {
+  const visitorCopy = opts?.skipConversationChannel ? null : widgetEventPayload(payload);
+  if (visitorCopy) {
     tasks.push(
-      publishConversationEvent(config, payload.workspace_id, payload.conversation_id, envelope),
+      publishConversationEvent(config, payload.workspace_id, payload.conversation_id, {
+        type: 'event',
+        payload: visitorCopy,
+      }),
     );
   }
 
-  if (!opts?.skipInboxChannel) {
-    tasks.push(
-      (async () => {
-        try {
-          const publisher = await resolvePublisher(config, payload.workspace_id);
-          const channel = buildInboxChannelName(payload.workspace_id);
-          rtDebug('publish', 'attempt:inbox', {
+  tasks.push(
+    (async () => {
+      try {
+        const publisher = await resolvePublisher(config, payload.workspace_id);
+        const channel = buildInboxChannelName(payload.workspace_id);
+        rtDebug('publish', 'attempt:inbox', {
+          vendor: publisher.vendor,
+          channel,
+          kind: payload.kind,
+        });
+        const result = await publisher.publish(channel, envelope);
+        if (!result.ok) {
+          rtWarn('publish', 'inbox_skipped', {
             vendor: publisher.vendor,
             channel,
             kind: payload.kind,
+            reason: result.reason,
           });
-          const result = await publisher.publish(channel, envelope);
-          if (!result.ok) {
-            rtWarn('publish', 'inbox_skipped', {
-              vendor: publisher.vendor,
-              channel,
-              kind: payload.kind,
-              reason: result.reason,
-            });
-          }
-        } catch (err) {
-          rtWarn('publish', 'inbox_error', { error: err?.message || String(err) });
         }
-      })(),
-    );
-  }
+      } catch (err) {
+        rtWarn('publish', 'inbox_error', { error: err?.message || String(err) });
+      }
+    })(),
+  );
 
   await Promise.allSettled(tasks);
 }

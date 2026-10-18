@@ -44,6 +44,7 @@ import {
   type DirectProductSummary,
   type DirectReadMeta,
   type DirectSearchResult,
+  type DirectTrackingResult,
   type StoreContext,
 } from '../../../../shared/commerce/types.js';
 import { withCommerceConnector, assertCommerceModuleEntitled, type CommerceConnectionRow, type CommercePermissionKey } from '../../commerce/gateway.js';
@@ -53,6 +54,7 @@ import { publicCache, liveSingleFlight, PUBLIC_TTL_MS } from '../../commerce/liv
 import { recordLiveRead } from '../../commerce/metrics.js';
 import { STORE_INFO_KEYWORDS, type CommerceIntent, type FollowUp } from './intent.js';
 import { MAX_COMMERCE_CALLS_PER_TURN, COMMERCE_TOOL_DEADLINE_MS } from './limits.js';
+import { orderCardFromDirect, type OrderStatusCard } from './orderCard.js';
 
 /** Hard cap on the evidence bytes one turn adds to the prompt. */
 export const MAX_EVIDENCE_BYTES = 7_000;
@@ -83,6 +85,8 @@ export interface DirectStageResult {
   allowedUrls: string[];
   /** Observability for the run log / resource report. */
   meta: { storeCalls: number; cacheHits: number; evidenceBytes: number; storeQueries: number; responseBytes: number };
+  /** The order card, when this turn read exactly one order's detail and no list (orderCard.ts). */
+  orderCard?: OrderStatusCard | null;
 }
 
 interface CommerceRefs {
@@ -167,6 +171,11 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
   const meta = { storeCalls: 0, cacheHits: 0, evidenceBytes: 0, storeQueries: 0, responseBytes: 0 };
   const perms = connection.permissions ?? ({} as Record<string, boolean>);
   const sb = getServiceClient(config);
+  // The order card's inputs: every detail read this turn (with the shipments
+  // read for it) and whether an order list was read. Kept beside `results`,
+  // never added to them.
+  const cardOrders: Array<{ detail: DirectOrderDetail; tracking: DirectTrackingResult | null }> = [];
+  let orderListRead = false;
 
   await assertCommerceModuleEntitled(config, input.workspaceId); // plan gate — throws CommerceError
 
@@ -309,6 +318,7 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
   };
 
   const addOrders = (list: DirectOrderSummary[], page: number, hasMore: boolean) => {
+    orderListRead = true;
     list.forEach((o, i) => results.push({ name: 'commerce.customer_orders', data: { n: i + 1, ...orderSummaryData(o) } }));
     if (!list.length) results.push({ name: 'commerce.customer_orders', data: { error_code: 'order_not_found', note: 'no_orders_in_this_store' } });
     results.push({ name: 'commerce.orders_meta', data: { source: 'live_store', page, has_more: hasMore } });
@@ -330,19 +340,22 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
     const detail = await live('commerce.get_order', 'orders.read', 'orders', (c, ctx, onMeta) => c.getOrderDetail(ctx, customer as CustomerRef, orderId, { language, onMeta }));
     if (!detail) return;
     addOrderDetail(detail);
-    if (followUp.wantsTracking) await tracking(orderId);
+    const card = { detail, tracking: null as DirectTrackingResult | null };
+    cardOrders.push(card);
+    if (followUp.wantsTracking) card.tracking = await tracking(orderId);
   };
 
-  const tracking = async (orderId: string) => {
-    if (perms.tracking !== true) return;
+  const tracking = async (orderId: string): Promise<DirectTrackingResult | null> => {
+    if (perms.tracking !== true) return null;
     const t = await live('commerce.get_tracking', 'tracking.read', 'tracking', (c, ctx, onMeta) => c.getTrackingDirect(ctx, customer as CustomerRef, orderId, { language, onMeta }));
-    if (!t) return;
+    if (!t) return null;
     if (!t.available) {
       // Said plainly, so nothing gets invented to fill the gap.
       results.push({ name: 'commerce.tracking', data: { order_id: t.externalOrderId, tracking_available: false, reason: t.reason ?? 'no_tracking_source', note: 'No structured carrier feed is connected. Order history may still contain a merchant-provided tracking code; quote it as recorded, without claiming live carrier verification or inventing a tracking URL.' } });
-      return;
+      return t;
     }
     for (const s of t.shipments) results.push({ name: 'commerce.tracking', data: { order_id: t.externalOrderId, tracking_available: true, carrier: s.carrier, tracking_number: s.trackingNumber, tracking_url: s.trackingUrl, status: s.status, updated_at: s.updatedAt } });
+    return t;
   };
 
   const productDetails = async (id: string, fresh: boolean) => {
@@ -489,7 +502,10 @@ export async function runDirectCommerceStage(config: ServerConfig, input: Direct
   const bounded = boundEvidence(results);
   meta.evidenceBytes = bounded.bytes;
   recordLiveRead({ provider: connection.provider_type, op: 'turn', outcome: 'ok', durationMs: 0, evidenceBytes: bounded.bytes });
-  return { toolResults: bounded.results, toolsUsed, historyCutoffAt, allowedUrls: [...allowedUrls], meta };
+  // A card only for a turn about ONE order: a list (even with the first
+  // order's detail after it) is a list, and gets the text alone.
+  const orderCard = cardOrders.length === 1 && !orderListRead ? orderCardFromDirect(cardOrders[0].detail, cardOrders[0].tracking) : null;
+  return { toolResults: bounded.results, toolsUsed, historyCutoffAt, allowedUrls: [...allowedUrls], meta, ...(orderCard ? { orderCard } : {}) };
 }
 
 async function persistRefs(config: ServerConfig, workspaceId: string, conversationId: string, refs: CommerceRefs): Promise<void> {

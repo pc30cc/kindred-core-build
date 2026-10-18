@@ -64,9 +64,15 @@ import {
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, widgetAssetUrl } from './manifest.js';
 import { resolveEditionWidgetTemplateId, resolveWidgetTemplateId, widgetTemplateAssetKeys } from './presentationAssets.js';
 import { readChatTemplateRows } from './templateCatalog.js';
-import { chatWidgetTemplate, widgetDateHints } from '../../../shared/widgetTemplates.js';
-import { resolveChatTemplateCatalog, resolveChatTemplateOptions, type ChatTemplateCatalog } from '../../../shared/chatTemplateCatalog.js';
+import { EDITION_CHAT_WIDGET_TEMPLATES, chatWidgetTemplate, widgetDateHints, type ChatWidgetTemplate } from '../../../shared/widgetTemplates.js';
+import {
+  resolveChatTemplateCatalog,
+  resolveChatTemplateOptions,
+  type ChatTemplateCatalog,
+  type ChatTemplateOptions,
+} from '../../../shared/chatTemplateCatalog.js';
 import { INTL_BRAND } from '../../../shared/internationalMode.js';
+import { launcherInitial, resolveLauncherStyle } from '../../../shared/launcherStyles.js';
 import { WEBYAR_BRAND, isWebyarKitEdition } from '../../../shared/webyarBrand.js';
 import type { Edition } from '../../../shared/edition.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from './poweredBy.js';
@@ -95,6 +101,12 @@ import {
 import { PLATFORM_STATUS_UNAVAILABLE } from '../ai-agent/platformGuards.js';
 import { loadEffectiveCallChannels, type EffectiveCallChannels } from '../calls/controlPlane.js';
 import { getPlatformAllowedLocales, getPlatformEditionOrNull } from '../platformRegion.js';
+import { listWorkspaceConnections } from '../commerce/connectionSelection.js';
+import { getProviderDescriptor } from '../commerce/connectors/registry.js';
+import { isDirectProvider } from '../commerce/providers.js';
+import { getOpenCartPolicy } from '../commerce/opencartPolicy.js';
+import type { CommerceConnectionRow } from '../commerce/gateway.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Defaults and pre-chat policy (moved from server/routes/widget.ts)
@@ -392,6 +404,7 @@ const DEGRADED_TTL_MS = 5_000;
 const NEGATIVE_TTL_MS = 15_000;
 const PLATFORM_TTL_MS = 30_000;
 const QUOTA_TTL_MS = 60_000;
+const STORE_ORDERS_TTL_MS = 60_000;
 const DEFAULT_MAX_ENTRIES = 2000;
 const DEFAULT_REBUILDS_PER_SEC = 25;
 
@@ -856,6 +869,60 @@ export async function getChatTemplateCatalog(
   return { catalog: chatTemplateCatalogOf(platform, edition), edition, ready: platform.chatTemplatesReady !== false };
 }
 
+export interface EffectiveChatTemplate {
+  id: string;
+  /** null only for an id no descriptor knows (never one the catalog resolves). */
+  descriptor: ChatWidgetTemplate | null;
+  options: ChatTemplateOptions;
+}
+
+/**
+ * The chat widget template a workspace's visitors wear and its options (no
+ * I/O): the workspace's choice while the edition's catalog has it enabled
+ * (`settings` has the plan applied: without widget_appearance the choice reads
+ * as none), else the catalog's default. The same answer GET /config gives.
+ */
+export function resolveEffectiveChatTemplate(
+  platform: WidgetPlatformSnapshot,
+  edition: Edition | null,
+  settings: WidgetSettingsRow | null,
+): EffectiveChatTemplate {
+  const catalog = chatTemplateCatalogOf(platform, edition);
+  const chosen = settings as { widget_template_id?: string | null; widget_template_options?: unknown } | null;
+  const id = resolveWidgetTemplateId(resolveEditionWidgetTemplateId(edition, chosen?.widget_template_id, catalog));
+  return {
+    id,
+    descriptor: chatWidgetTemplate(id),
+    options: resolveChatTemplateOptions(catalog, id, chosen?.widget_template_options),
+  };
+}
+
+/**
+ * resolveEffectiveChatTemplate for a workspace, from the cached snapshots (no
+ * query on a hit): what the server reads before serving or writing anything
+ * for a template's feature (the closed line, the rating after a chat, the
+ * transcript by email), so it never disagrees with the widget the visitor
+ * has. Throws only when the snapshot build does (as GET /config would fail).
+ *
+ * Without widget settings (no row, or a read that failed: the degraded
+ * snapshot's few seconds) GET /config serves no widget, and the choice is
+ * unknown: it reads as the edition's own template (`default` / `intl`), never
+ * the catalog's default, so a workspace that chose `default` is not taken
+ * for Template 2 while its row cannot be read.
+ */
+export async function workspaceChatTemplate(config: ServerConfig, workspaceId: string): Promise<EffectiveChatTemplate> {
+  const [snap, platform, edition] = await Promise.all([
+    getWorkspaceWidgetSnapshot(config, workspaceId),
+    getWidgetPlatformSnapshot(config),
+    getPlatformEditionOrNull(config),
+  ]);
+  if (!snap.settings) {
+    const id = EDITION_CHAT_WIDGET_TEMPLATES[edition ?? 'iran'].default;
+    return { id, descriptor: chatWidgetTemplate(id), options: {} };
+  }
+  return resolveEffectiveChatTemplate(platform, edition, snap.settings);
+}
+
 const quotaCache = new MemoCache<boolean | null>({
   name: 'widget-quota-full',
   enabled: cachingEnabled,
@@ -868,6 +935,99 @@ export function getQuotaFull(config: ServerConfig, workspaceId: string): Promise
   const key = cacheKey(workspaceId);
   if (!key) return Promise.resolve(null);
   return quotaCache.get(key, () => resolveConversationQuotaFull(config, key));
+}
+
+// ─── Track order (t2 home row): `config.commerce` ──────────────────────
+
+/** Healths in which the gateway (or the store) refuses every call. */
+const UNUSABLE_STORE_HEALTH: ReadonlySet<string> = new Set([
+  'disconnected', 'protocol_mismatch', 'plugin_outdated', 'stale_origin', 'authentication_error',
+]);
+
+/**
+ * Can this connection answer the track-order row's message (an order-status
+ * question about the visitor's latest order)? The plan entitlement that turn
+ * needs, or null: the same gates the AI's commerce stage meets on that turn
+ * (commerce-tools/runner.ts, directRunner.ts, commerce/gateway.ts), read
+ * from the row alone.
+ *
+ *  - a store-family provider (WHMCS is billing: no), not revoked, in a
+ *    health the gateway accepts, with `orders.read` negotiated;
+ *  - the owner allows orders, and, for an indexed store (WooCommerce), the
+ *    customer's order history (the latest-order read) on a synced catalogue;
+ *  - a direct store (OpenCart) only while the platform's OpenCart policy is
+ *    on and does not switch orders off.
+ */
+export function trackOrderEntitlementFor(
+  row: Pick<CommerceConnectionRow, 'provider_type' | 'revoked_at' | 'health' | 'capabilities' | 'permissions' | 'catalog_ready'> | null | undefined,
+  openCartPolicy: { enabled: boolean; sections: Record<string, boolean> } | null,
+): 'commerce_customer_history' | 'commerce_orders' | null {
+  if (!row || row.revoked_at) return null;
+  const descriptor = getProviderDescriptor(String(row.provider_type ?? ''));
+  if (!descriptor || descriptor.family !== 'store') return null;
+  if (UNUSABLE_STORE_HEALTH.has(String(row.health ?? ''))) return null;
+  if (!Array.isArray(row.capabilities) || !row.capabilities.includes('orders.read')) return null;
+  const permissions = (row.permissions ?? {}) as Record<string, unknown>;
+  if (permissions.orders !== true) return null;
+  if (isDirectProvider(row.provider_type)) {
+    if (!openCartPolicy?.enabled || openCartPolicy.sections.orders === false) return null;
+    return 'commerce_orders';
+  }
+  if (row.catalog_ready !== true || permissions.customer_history !== true) return null;
+  return 'commerce_customer_history';
+}
+
+interface StoreOrdersAnswer {
+  trackOrder: boolean;
+  /** A read failed: answered "no row" for a few seconds only. */
+  degraded: boolean;
+}
+
+const storeOrdersCache = new MemoCache<StoreOrdersAnswer>({
+  name: 'widget-store-orders',
+  enabled: cachingEnabled,
+  ttlMs: (answer) => capped(answer.degraded ? DEGRADED_TTL_MS : STORE_ORDERS_TTL_MS),
+  serveStale: (answer) => !answer.degraded,
+  max: maxEntries,
+});
+
+async function resolveStoreOrders(config: ServerConfig, workspaceId: string): Promise<StoreOrdersAnswer> {
+  try {
+    const rows = await listWorkspaceConnections(config, workspaceId);
+    if (!rows.length) return { trackOrder: false, degraded: false };
+    const policy = rows.some((r) => isDirectProvider(r.provider_type)) ? await getOpenCartPolicy(config) : null;
+    const features = new Set<string>();
+    for (const row of rows) {
+      const feature = trackOrderEntitlementFor(row, policy);
+      if (feature) features.add(feature);
+    }
+    if (!features.size) return { trackOrder: false, degraded: false };
+    const entitled = (feature: string) => checkEntitlementFromDB(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, feature, {
+      selfHostBillingUnlimited: config.selfHostBillingUnlimited,
+    }).then((r) => r.allowed === true);
+    const [moduleOk, ...featureOk] = await Promise.all([entitled('commerce'), ...[...features].map(entitled)]);
+    return { trackOrder: moduleOk && featureOk.some(Boolean), degraded: false };
+  } catch (err) {
+    console.warn('[widget-config] store order check failed:', err instanceof Error ? err.message : err);
+    return { trackOrder: false, degraded: true };
+  }
+}
+
+/**
+ * Whether the workspace has a store the AI can answer "track my order" for
+ * (trackOrderEntitlementFor + the plan), cached 60 s per workspace and
+ * dropped on `widget:<ws>` (published on a connection's disconnect,
+ * permission change and pairing; health flips ride the TTL). Never throws:
+ * any failure reads as false.
+ */
+export async function getStoreOrders(config: ServerConfig, workspaceId: string): Promise<boolean> {
+  const key = cacheKey(workspaceId);
+  if (!key) return false;
+  try {
+    return (await storeOrdersCache.get(key, () => resolveStoreOrders(config, key))).trackOrder;
+  } catch {
+    return false;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -971,14 +1131,15 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   // edition that cannot be read, wear `default` exactly as before; the
   // International edition wears `intl`. The browser registry resolves the
   // same ids. Its options ride along; the template's display name never does.
-  const templateCatalog = chatTemplateCatalogOf(platform, edition);
-  const wsTemplate = ws as { widget_template_id?: string | null; widget_template_options?: unknown };
-  const templateId = resolveWidgetTemplateId(resolveEditionWidgetTemplateId(
-    edition,
-    wsTemplate.widget_template_id,
-    templateCatalog,
-  ));
-  const templateOptions = resolveChatTemplateOptions(templateCatalog, templateId, wsTemplate.widget_template_options);
+  const {
+    id: templateId,
+    descriptor: templateDescriptor,
+    options: templateOptions,
+  } = resolveEffectiveChatTemplate(platform, edition, ws);
+  // The track-order row (t2 home): asked only for a template with Core
+  // features, so `default` / `intl` neither read commerce_connections nor
+  // carry the key.
+  const trackOrder = templateDescriptor?.coreFeatures ? await getStoreOrders(config, workspaceId) : false;
 
   const templateAssets = widgetTemplateAssetKeys(templateId);
   const presentationRegistryJsName = getWidgetAssetName('presentation-registry.js');
@@ -1050,6 +1211,12 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   // the widget runs on customers' sites.
   if (poweredBy && edition === 'international' && assetBase) {
     (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${INTL_BRAND.horizontal.light}`;
+    // A template wearing the Open logo (its option logoDirection, t1-intl /
+    // t2-intl only) credits with the Open lockup, so the footer agrees with
+    // the launcher.
+    if ((templateOptions as { logoDirection?: unknown }).logoDirection === 'open') {
+      (poweredBy as typeof poweredBy & { logo?: string }).logo = `${assetBase}${INTL_BRAND.horizontalOpen.light}`;
+    }
   }
   // The Iranian edition (region_mode = 'iran' exactly; an edition that
   // cannot be read keeps the text) credits WebYar with the brand kit's
@@ -1061,6 +1228,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
   // Dates: Jalali in Tehran time for Persian in the Iranian edition (as
   // before); Gregorian in the visitor's own zone in the International one.
   const dateHints = widgetDateHints(edition);
+  // The launcher's look (shared/launcherStyles.ts): what the row says,
+  // normalised (an unknown icon is `chat`, a pill needs its text). `ws` has
+  // the plan applied, so without widget_launcher_icon it is a chat circle.
+  const launcher = resolveLauncherStyle({ shape: ws.fab_shape, icon: ws.fab_icon, label: ws.fab_label });
   const widgetConfig = {
     enabled: true,
     workspaceId,
@@ -1124,9 +1295,14 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     loaderVersion,
     theme: ws.theme || 'modern',
     fab: {
-      icon: ws.fab_icon || 'chat',
+      icon: launcher.icon,
       helpIcon: ws.fab_help_icon || 'help_circle',
-      shape: ws.fab_shape || 'circle',
+      shape: launcher.shape,
+      // The agent's face shows the first operator's initial (online first,
+      // as the team stack), else the workspace's.
+      ...(launcher.icon === 'avatar' ? {
+        initial: launcherInitial([...teamMembers.map((m) => m.name), typeof ws.brand_name === 'string' ? ws.brand_name : workspace?.name]),
+      } : {}),
       label: ws.fab_label || '',
       chatLabel: ws.fab_chat_label || '',
       helpLabel: ws.fab_help_label || '',
@@ -1139,6 +1315,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       // runtime circle-reveals the configured icon underneath.
       imageUrl: snap.fabImageUrl,
     },
+    // Additive, only for a launcher wearing a style (a pill, the bubble, two
+    // bubbles, the agent's face): its stylesheet, which the loader requests
+    // then. Absent otherwise, so other payloads are unchanged.
+    ...(launcher.styled ? { fabStyleUrl: assetUrl(getWidgetAssetName('runtime-fab.css')) } : {}),
     features: {
       chat: ws.chat_enabled ?? true,
       knowledgeBase: ws.kb_enabled ?? true,
@@ -1206,6 +1386,10 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
     // Additive: the template's options (shared/chatTemplateCatalog.ts), `{}`
     // for a template without any (the Iranian `default`).
     templateOptions,
+    // Additive, only for a Core-features template whose workspace has a
+    // store that can answer order questions (getStoreOrders); absent
+    // otherwise, so other payloads are unchanged.
+    ...(trackOrder ? { commerce: { trackOrder: true } } : {}),
     presentationRegistryUrl: assetUrl(presentationRegistryJsName),
     presentationUrl: assetUrl(presentationJsName),
     presentationStyleUrl: assetUrl(presentationCssName),
@@ -1230,7 +1414,19 @@ export async function buildWidgetConfigBody(input: WidgetConfigInputs): Promise<
       // whose renderer declares some (shared/widgetTemplates.ts
       // `coreFeatures`): the loader fetches it with that template's files.
       // `default` and `intl` never get it, so their payload is as before.
-      ...(chatWidgetTemplate(templateId)?.coreFeatures ? { ext: assetUrl(getWidgetAssetName('runtime-ext.js')) } : {}),
+      ...(templateDescriptor?.coreFeatures ? { ext: assetUrl(getWidgetAssetName('runtime-ext.js')) } : {}),
+      // The emoji keyword data (runtime-emoji.js), requested by Core only
+      // when a visitor first uses the picker's search; Core-features
+      // templates only.
+      ...(templateDescriptor?.coreFeatures ? { emoji: assetUrl(getWidgetAssetName('runtime-emoji.js')) } : {}),
+      // The late pack of such a template whose renderer has extras: the
+      // extras and Core's late module, which runtime-ext.js requests after
+      // the first paint (the loader never does). `default` and `intl` have
+      // none.
+      ...(templateDescriptor?.coreFeatures && templateDescriptor.extras ? {
+        late: assetUrl(getWidgetAssetName('runtime-late.js')),
+        extras: assetUrl(getWidgetAssetName(templateDescriptor.extras)),
+      } : {}),
       rt_resolver: assetUrl(getWidgetAssetName('runtime-rt-resolver.js')),
       rt_centrifugo: assetUrl(getWidgetAssetName('runtime-rt-centrifugo.js')),
       rt_supabase: assetUrl(getWidgetAssetName('runtime-rt-supabase.js')),
@@ -1329,9 +1525,11 @@ onInvalidate('widget', (workspaceId, { resync }) => {
     if (resync) {
       snapshots.expireAll();
       quotaCache.expireAll();
+      storeOrdersCache.expireAll();
     } else {
       snapshots.clear();
       quotaCache.clear();
+      storeOrdersCache.clear();
     }
     return;
   }
@@ -1339,6 +1537,7 @@ onInvalidate('widget', (workspaceId, { resync }) => {
   if (!key) return;
   snapshots.invalidate(key);
   quotaCache.invalidate(key);
+  storeOrdersCache.invalidate(key);
 });
 
 // A profile (name, avatar) or availability change: every snapshot whose
@@ -1362,12 +1561,13 @@ onInvalidate('platform', (_key, { resync }) => {
   __resetPlatformAiAgentSettingsCache();
 });
 
-/** Test-only — forget every snapshot, the platform snapshot and quota answers. */
+/** Test-only — forget every snapshot, the platform snapshot, quota and store-order answers. */
 export function __resetWidgetConfigCachesForTests(): void {
   snapshots.clear();
   platformCache.clear();
   lastGoodChatTemplates = null;
   quotaCache.clear();
+  storeOrdersCache.clear();
   rebuildGate.reset();
 }
 

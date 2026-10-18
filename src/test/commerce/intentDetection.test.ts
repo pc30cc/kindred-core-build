@@ -172,3 +172,10 @@ describe('«… دارید؟» — how a shopper actually asks for stock', () =>
   });
 });
 
+
+describe('the track-order row’s first message (t2 home, simpleTrackOrderMessage)', () => {
+  // The widget sends exactly these strings; each must reach the order tools.
+  it.each(['پیگیری سفارشم', 'Track my order', 'Siparişimi takip et'])('«%s» → order_status', (text) => {
+    expect(detectCommerceIntent(text)).toEqual({ kind: 'order_status' });
+  });
+});

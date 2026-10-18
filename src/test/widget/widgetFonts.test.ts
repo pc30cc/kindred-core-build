@@ -55,7 +55,13 @@ describe('the font stylesheet', () => {
     for (const n of named) expect(existsSync(`public/widget/fonts/${n}`), n).toBe(true);
     const sheets = readdirSync('public/widget').filter((f) => /^presentation-[a-z0-9-]+-fonts\.css$/.test(f));
     const used = new Set(sheets.flatMap((s) => widgetFontNames(read(`public/widget/${s}`))));
-    for (const f of readdirSync('public/widget/fonts')) expect(used.has(f), `${f} is shipped but no stylesheet names it`).toBe(true);
+    // Besides the faces, only an OFL face's licence text, for a family a stylesheet names.
+    const families = new Set(all.map((f) => f.family));
+    for (const f of readdirSync('public/widget/fonts')) {
+      const licence = /^OFL-([A-Za-z]+)\.txt$/.exec(f);
+      if (licence) expect(families.has(licence[1]), `${f}: no stylesheet names ${licence[1]}`).toBe(true);
+      else expect(used.has(f), `${f} is shipped but no stylesheet names it`).toBe(true);
+    }
   });
 
   it('ships IRANSans as the licensed bytes, unmodified', () => {
@@ -86,6 +92,39 @@ describe('the font stylesheet', () => {
     const latin = inter.find((f) => f.src === 'fonts/inter-500-latin.woff2')!;
     const text = 'Hello, how can we help? Bağlanıyor — İyi günler, Şükrü! Çok güzel… ÖÜ öü ’·×→↗●✓ ₺€';
     for (const ch of text) expect(covers(latin, ch.codePointAt(0)!), `U+${ch.codePointAt(0)!.toString(16)} ${ch}`).toBe(true);
+  });
+
+  // The International skins' Latin face (t1-intl, t2-intl).
+  const figtree = all.filter((f) => f.family === 'Figtree');
+
+  it('declares Figtree in the weights the International skins use, two disjoint files per weight, the Latin one last', () => {
+    expect([...new Set(figtree.map((f) => f.weight))]).toEqual(['400', '500', '600', '700', '800']);
+    for (const w of ['400', '500', '600', '700', '800']) {
+      const faces = figtree.filter((f) => f.weight === w);
+      expect(faces.map((f) => f.src), w).toEqual(['fonts/figtree-tr.woff2', 'fonts/figtree-latin.woff2']);
+      for (const [a, b] of faces[0].range) {
+        for (const [c, d] of faces[1].range) expect(a <= d && c <= b, `${w}: the Figtree files overlap`).toBe(false);
+      }
+    }
+  });
+
+  it('draws English from the Latin Figtree file only, and Turkish from the two', () => {
+    const latin = figtree.find((f) => f.src === 'fonts/figtree-latin.woff2')!;
+    const tr = figtree.find((f) => f.src === 'fonts/figtree-tr.woff2')!;
+    for (const ch of 'Hello, how can we help you today? “Quotes” – … € ™ · ÇÖÜçöüı') expect(covers(latin, ch.codePointAt(0)!), ch).toBe(true);
+    for (const ch of 'ĞğŞşİ') {
+      expect(covers(tr, ch.codePointAt(0)!), ch).toBe(true);
+      expect(covers(latin, ch.codePointAt(0)!), ch).toBe(false);
+    }
+    // No Arabic script, no zero-width joiners: Persian text never asks for it.
+    for (const f of figtree) for (const cp of [0x0633, 0x06cc, 0x06f1, 0x200c, 0x200d]) expect(covers(f, cp), `${f.src} U+${cp.toString(16)}`).toBe(false);
+  });
+
+  it('keeps Figtree to the International skins: no other stylesheet, no other renderer names it', () => {
+    const named = readdirSync('public/widget').filter((f) => /\.(css|js)$/.test(f) && !/-fonts\.css$/.test(f) && read(`public/widget/${f}`).includes('Figtree'));
+    expect(named.sort()).toEqual(['presentation-t1-intl.css', 'presentation-t1.js', 'presentation-t2-intl.css', 'presentation-t2.js']);
+    // The licence travels with the files.
+    expect(read('public/widget/fonts/OFL-Figtree.txt')).toMatch(/Copyright 2022 The Figtree Project Authors[\s\S]*SIL OPEN FONT LICENSE Version 1\.1/);
   });
 
   it('leaves Persian to IRANSans: no Inter face claims Arabic script', () => {
@@ -128,6 +167,35 @@ describe('prepare(): only the faces the first paint draws with', () => {
     await prepare(ctx as Record<string, unknown> | undefined);
     expect(calls).toEqual(expected);
   });
+});
+
+describe('prepare() of t1 and t2: Inter for their own ids, Figtree for the International skins over them', () => {
+  let calls: string[];
+  beforeEach(() => {
+    calls = [];
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { load: vi.fn((font: string) => { calls.push(font); return Promise.resolve([]); }) },
+    });
+  });
+  afterEach(() => { delete (document as unknown as Record<string, unknown>).fonts; });
+  const PERSIAN = ['400 16px IRANSans', '500 16px IRANSans', '600 16px IRANSans'];
+
+  for (const base of ['t1', 't2']) {
+    it.each([
+      ['en', base, ['500 16px InterWY']],
+      ['tr', base, ['500 16px InterWY']],
+      ['en', `${base}-intl`, ['500 16px Figtree']],
+      ['tr', `${base}-intl`, ['500 16px Figtree']],
+      ['fa', `${base}-intl`, PERSIAN],
+      ['fa', base, PERSIAN],
+    ])(`${base}: %s / %s`, async (locale, templateId, expected) => {
+      new Function(read(`public/widget/presentation-${base}.js`)).call(window);
+      const mod = (window as unknown as Record<string, { prepare: (c?: unknown) => Promise<void> }>)[`__gs_presentation_${base}`];
+      await mod.prepare({ locale, templateId });
+      expect(calls).toEqual(expected);
+    });
+  }
 });
 
 describe('the loader: registry and renderer side by side, prepare() with the locale', () => {

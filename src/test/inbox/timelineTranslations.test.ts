@@ -61,6 +61,9 @@ const EVENTS: TimelineEvent[] = [
   ...['within_hours', 'outside_hours', 'override_closed', 'always_offline', 'no_operators_online', 'disabled']
     .map((availability_reason) => event('captured_offline', { availability_reason })),
   event('rated', { score: 4 }),
+  event('rated', { score: 5, comment: 'خیلی خوب بود', closed_id: 'c', operator_id: 'o', source: 'widget' }),
+  event('transcript_emailed', { status: 'sent', to: 'a•••@example.com', messages: 4, source: 'widget' }),
+  event('transcript_emailed', { status: 'failed', to: 'a•••@example.com', messages: 4, source: 'widget' }),
   event('call_queued', { channel: 'audio' }),
   event('call_offered', { channel: 'video' }),
   event('call_accepted', { channel: 'audio' }),
@@ -112,6 +115,23 @@ describe('Activity timeline translations', () => {
     expect(describeEvent(event('identified', { method: 'visitor_id' }), t).secondary).toBe('بازدیدکننده بازگشتی');
     expect(describeEvent(event('call_ended', { call_type: 'audio', end_reason: 'visitor_ended', duration_seconds: 125 }), t).secondary)
       .toBe('صوتی · پایان توسط بازدیدکننده · 2:05');
+  });
+
+  it('a visitor\'s rating shows the score and their comment, quoted in the interface\'s style', () => {
+    const enT = translator(en as unknown as Record<string, unknown>);
+    const faT = translator(fa as unknown as Record<string, unknown>);
+    expect(describeEvent(event('rated', { score: 4, comment: 'Great {{text}} $&' }), enT))
+      .toEqual({ primary: 'Visitor rated the conversation', secondary: '★★★★ 4/5 · “Great {{text}} $&”' });
+    expect(describeEvent(event('rated', { score: 5, comment: 'عالی' }), faT).secondary).toBe('★★★★★ 5/5 · «عالی»');
+    expect(describeEvent(event('rated', { score: 3, comment: '  ' }), enT).secondary).toBe('★★★ 3/5');
+  });
+
+  it('a transcript mailed to the visitor shows the masked address, and says so when it failed', () => {
+    const t = translator(fa as unknown as Record<string, unknown>);
+    expect(describeEvent(event('transcript_emailed', { status: 'sent', to: 'a•••@example.com' }), t))
+      .toEqual({ primary: 'متن گفتگو برای بازدیدکننده ایمیل شد', secondary: 'a•••@example.com' });
+    expect(describeEvent(event('transcript_emailed', { status: 'failed', to: 'a•••@example.com' }), translator(tr as unknown as Record<string, unknown>)).primary)
+      .toBe('Döküm ziyaretçiye e-postayla gönderilemedi');
   });
 
   it('an unknown code reads as words, not as a key', () => {

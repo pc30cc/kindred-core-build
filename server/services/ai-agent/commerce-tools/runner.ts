@@ -34,6 +34,7 @@ import { detectCommerceIntent, detectFollowUp } from './intent.js';
 import { MAX_COMMERCE_CALLS_PER_TURN, MAX_RESULTS_PER_TOOL, COMMERCE_TOOL_DEADLINE_MS } from './limits.js';
 import { randomUUID } from 'node:crypto';
 import { recordCommerceToolAudit } from '../../commerce/audit.js';
+import { orderCardFromStore, type OrderStatusCard } from './orderCard.js';
 
 export interface CommerceStageInput {
   workspaceId: string;
@@ -58,6 +59,12 @@ export interface CommerceStageResult {
   allowedUrls?: string[];
   /** Direct connectors: store calls / cache hits / evidence bytes of this turn. */
   directMeta?: Record<string, number>;
+  /**
+   * The one order this turn read live, as the order card the reply carries
+   * (orderCard.ts). Built beside toolResults from the same fetched objects;
+   * absent when the turn was not about exactly one order.
+   */
+  orderCard?: OrderStatusCard | null;
 }
 
 /**
@@ -199,7 +206,10 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
         intent: keywordIntent,
         followUp,
       });
-      return { toolResults: direct.toolResults, toolsUsed: direct.toolsUsed, historyCutoffAt: direct.historyCutoffAt, allowedUrls: direct.allowedUrls, directMeta: direct.meta };
+      return {
+        toolResults: direct.toolResults, toolsUsed: direct.toolsUsed, historyCutoffAt: direct.historyCutoffAt, allowedUrls: direct.allowedUrls, directMeta: direct.meta,
+        ...(direct.orderCard ? { orderCard: direct.orderCard } : {}),
+      };
     }
 
     await assertCommerceModuleEntitled(config, input.workspaceId); // plan gate — throws CommerceError, caught below
@@ -236,6 +246,7 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
     const results: ReadOnlyToolResult[] = [];
     const toolsUsed: string[] = [];
     let calls = 0;
+    let orderCard: OrderStatusCard | null = null;
     // ONE id for the whole turn, so the audit rows of a single question can
     // be read together. Without it each gateway call minted its own and the
     // trail could not be joined back into a turn.
@@ -439,11 +450,13 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
           const latest = orders?.[0];
           if (latest) {
             results.push({ name: 'commerce.get_customer_orders', data: { external_id: latest.externalId, status: latest.status, total: latest.total?.amountMinor ?? null, created_at: latest.createdAt } });
+            let tracking: TrackingResult | null = null;
             if (connection.permissions?.tracking) {
-              const tracking = await callGateway<TrackingResult>('commerce.get_tracking', 'tracking', 'tracking.read', (c, ctx) =>
+              tracking = await callGateway<TrackingResult>('commerce.get_tracking', 'tracking', 'tracking.read', (c, ctx) =>
                 c.getTracking(ctx, { kind: 'verified_customer', installationId: connection.installation_id, externalCustomerId, externalOrderId: latest.externalId }));
               if (tracking) results.push({ name: 'commerce.get_tracking', data: { carrier: tracking.carrier, tracking_number: tracking.trackingNumber, status: tracking.status } });
             }
+            orderCard = orderCardFromStore(latest, tracking);
           } else {
             results.push({ name: 'commerce.get_customer_orders', data: { error_code: 'order_not_found' } });
           }
@@ -451,13 +464,17 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
           const orderNumber = intent.kind === 'order_lookup' ? intent.orderNumber : '';
           const order = await callGateway<CommerceOrder>('commerce.get_order_status', 'order_status', 'orders.read', (c, ctx) =>
             c.getOrder(ctx, { kind: 'verified_customer', installationId: connection.installation_id, externalCustomerId, externalOrderId: orderNumber }));
-          if (order) results.push({ name: 'commerce.get_order_status', data: { external_id: order.externalId, status: order.status, total: order.total?.amountMinor ?? null } });
+          if (order) {
+            results.push({ name: 'commerce.get_order_status', data: { external_id: order.externalId, status: order.status, total: order.total?.amountMinor ?? null } });
+            // No tracking call here: v1 adds no store call to a turn.
+            orderCard = orderCardFromStore(order, null);
+          }
         }
         break;
       }
     }
 
-    return { toolResults: results, toolsUsed };
+    return { toolResults: results, toolsUsed, ...(orderCard ? { orderCard } : {}) };
   } catch (err) {
     if (err instanceof CommerceError) return { toolResults: [{ name: 'commerce_status', data: { error_code: err.code } }], toolsUsed: [] };
     console.warn('[commerce-tools] stage failed:', err instanceof Error ? err.message : err);

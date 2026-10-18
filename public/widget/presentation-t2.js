@@ -25,9 +25,12 @@
  *
  * Every hook the `default` renderer emits is emitted here too (hidden where
  * this design draws no control for it). The Core behaviours this renderer
- * opts into are listed in `features` (runtime.js `feat()`); the ones whose
- * backend does not exist yet (`env.capabilities`: rating after a chat,
- * reactions, order card, instant answers, track order) draw nothing.
+ * opts into are listed in `features` (runtime.js `feat()`), each only as
+ * far as Core serves it (`env.capabilities`). The "closed the conversation"
+ * line, the rating card under it, the chat bar's menu, a message's
+ * reactions, the reply to a message left while away, an AI answer's order
+ * card and the help articles offered while a first message is written are
+ * drawn by the extras (presentation-t2-x.js) once Core handed them over.
  */
 (function () {
   'use strict';
@@ -93,6 +96,9 @@
       saveEmail: 'ثبت ایمیل',
       skip: 'نه ممنون، همین‌جا منتظر می‌مانم',
       replyTo: 'پاسخ را به {email} می‌فرستیم.',
+      track: 'پیگیری سفارش',
+      trackSub: 'وضعیت سفارشتان را همین‌جا بپرسید',
+      trackMsg: 'پیگیری سفارشم',
     },
     en: {
       hiBack: 'Hi {name}, welcome back 👋',
@@ -142,6 +148,9 @@
       saveEmail: 'Save email',
       skip: "No thanks, I'll wait here",
       replyTo: "We'll send the reply to {email}.",
+      track: 'Track an order',
+      trackSub: 'Ask about your order here',
+      trackMsg: 'Track my order',
     },
     tr: {
       hiBack: 'Merhaba {name}, tekrar hoş geldin 👋',
@@ -186,6 +195,9 @@
       saveEmail: 'E-postayı kaydet',
       skip: 'Hayır teşekkürler, burada beklerim',
       replyTo: 'Yanıtı {email} adresine göndereceğiz.',
+      track: 'Sipariş takibi',
+      trackSub: 'Siparişinizi buradan sorun',
+      trackMsg: 'Siparişimi takip et',
     },
   };
 
@@ -272,14 +284,17 @@
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   }
   /**
-   * The accent tokens as inline custom properties: `--a` (the workspace
+   * The accent tokens as an inline style attribute (` style="…"`): `--a` (the workspace
    * colour), `--on-a` (white unless Ink reads better on it) and Core's
    * `--gs-primary` (its focus ring). An uncustomised colour (empty, the
-   * seeded #3B82F6) or the brand's own #0B7D6C wears the brand look, with
-   * its hand-tuned hero stops. Derived shades come from the stylesheet.
-   * A light accent (Ink on it) is too pale as text or a ring on white:
-   * there `--a-tx` and `--a-ink` (and the focus ring) are the accent
-   * darkened (45% of it over Ink-black).
+   * seeded #3B82F6, unreadable) gets none ('', and the class
+   * `gs-accent-brand` where they would go): the stylesheet (and a skin over
+   * it) holds the brand colour and its hand-tuned hero stops, and gives
+   * them to the brand colour picked explicitly too, which it finds by
+   * `--a` written first with its `;` (`[style*='--a:#0b7d6c;' i]`).
+   * Derived shades come from the stylesheet. A light accent (Ink on it) is
+   * too pale as text or a ring on white: there `--a-tx` and `--a-ink` (and
+   * the focus ring) are the accent darkened (45% of it over Ink-black).
    */
   function hexOf(rgb) {
     return '#' + rgb.map(function (v) { return (v < 16 ? '0' : '') + v.toString(16); }).join('').toUpperCase();
@@ -287,15 +302,13 @@
   function accentTokens(primary) {
     var raw = String(primary || '').trim().toLowerCase();
     var rgb = rgbOf(raw);
-    var brand = !rgb || raw === '#3b82f6' || raw === '#0b7d6c';
-    if (brand) rgb = [11, 125, 108];
+    if (!rgb || raw === '#3b82f6') return '';
     var a = hexOf(rgb);
     var l = lum(rgb);
     var light = 1.05 / (l + 0.05) < (l + 0.05) / (lum(rgbOf(INK)) + 0.05);
     var dk = light ? hexOf(rgb.map(function (v, i) { return Math.round(v * .45 + [11, 13, 18][i] * .55); })) : '';
-    return '--a:' + a + ';--on-a:' + (light ? INK : '#FFFFFF') + ';--gs-primary:' + (dk || a) +
-      (dk ? ';--a-tx:' + dk + ';--a-ink:' + dk : '') +
-      (brand ? ';--h1:#22C4A6;--h2:#0F927D;--h3:#08594E;--glow:#7CF5DF' : '');
+    return ' style="--a:' + a + ';--on-a:' + (light ? INK : '#FFFFFF') + ';--gs-primary:' + (dk || a) +
+      (dk ? ';--a-tx:' + dk + ';--a-ink:' + dk : '') + '"';
   }
 
   function create(env) {
@@ -325,7 +338,8 @@
     };
     var lang = String(ctx.locale || 'en').toLowerCase().split('-')[0];
     var D = DICT[lang] || DICT.en;
-    var ACC = ' style="' + accentTokens(env.primaryColor) + '"';
+    var ACC = accentTokens(env.primaryColor);
+    var AB = ACC ? '' : ' gs-accent-brand';
     var team = (Array.isArray(config.teamMembers) ? config.teamMembers : []).filter(function (m) {
       return m && (m.name || m.full_name);
     });
@@ -364,7 +378,7 @@
     }
     function dirAttr(rtl) { return ' dir="' + (rtl ? 'rtl' : 'ltr') + '"'; }
     function viewOpen(cls, rtl, extra) {
-      return '<div class="wy-view ' + cls + '"' + dirAttr(rtl) + ACC + (extra || '') + '>';
+      return '<div class="wy-view ' + cls + AB + '"' + dirAttr(rtl) + ACC + (extra || '') + '>';
     }
 
     // ── People and the workspace ──────────────────────────────────────
@@ -584,15 +598,15 @@
       var remaining = all.length - visible.length;
       var chipsHtml = visible.map(function (q) {
         var text = (q && q.question) ? String(q.question) : '';
-        return text ? '<button type="button" class="qna-chip chip" data-qna-question="' + esc(text) + '">' +
+        return text ? '<button type="button" class="chip" data-qna-question="' + esc(text) + '">' +
           ico('chat', 16, 1.8) + '<span>' + esc(text) + '</span></button>' : '';
       }).join('');
       var moreHtml = (!qnaState.expanded && remaining > 0)
-        ? '<button type="button" class="qna-more-btn chip" data-qna-more aria-label="' + esc(t('qnaMore')) + '">' +
+        ? '<button type="button" class="chip" data-qna-more aria-label="' + esc(t('qnaMore')) + '">' +
             '<span class="qna-more-count">+' + esc(fmtNum(remaining)) + '</span></button>'
         : '';
       return '<div class="qna-suggestions qr" data-qna>' +
-        '<span class="qna-title sr-only">' + esc(t('qnaTitle')) + '</span>' + chipsHtml + moreHtml +
+        '<span class="sr-only">' + esc(t('qnaTitle')) + '</span>' + chipsHtml + moreHtml +
       '</div>';
     }
 
@@ -629,7 +643,7 @@
           '<button type="button" class="msg-att-img-btn is-loading" data-att-preview="' + id + '" aria-label="' + esc(t('openFile')) + '">' +
             '<span class="msg-att-loading" aria-live="polite">' +
               '<span class="msg-att-spinner" aria-hidden="true"></span>' +
-              '<span class="msg-att-loading-text">' + esc(tf('receivingFile', 'Receiving…')) + '</span>' +
+              '<span>' + esc(tf('receivingFile', 'Receiving…')) + '</span>' +
             '</span>' +
             '<img loading="lazy" decoding="async" data-att-media-src="' + id + '" alt="' + name + '" />' +
             '<span class="msg-att-img-fallback">' + esc(t('imageUnavailable')) + '</span>' +
@@ -750,7 +764,7 @@
           : waitMinutes > 1 ? String(t('ciWaitMinutes')).replace('{m}', digits(waitMinutes)) : '';
         bodyBlock = '<div class="ci-body"><div>' + esc(t(video ? 'ciBodyVideo' : 'ciBodyAudio')) + '</div>' +
           (waitLine ? '<div class="ci-wait">' + esc(waitLine) + '</div>' : '') + '</div>';
-        statusBlock = '<div class="ci-meta ci-countdown" aria-live="polite">' +
+        statusBlock = '<div class="ci-meta" aria-live="polite">' +
           '<span class="ci-pulse" aria-hidden="true"></span>' + esc(fmtInvitationRemaining(meta.expires_at)) + '</div>';
         actionBlock = '<div class="ci-actions">' +
           '<button type="button" class="ci-btn ci-btn-primary" data-ci-action="join" data-ci-id="' + inviteId +
@@ -770,7 +784,7 @@
           esc(t('ciAriaCard') + ' — ' + t(video ? 'videoCall' : 'voiceCall')) + '">' +
           '<div class="ci-row">' +
             '<span class="ci-icon" aria-hidden="true">' + ico(video ? 'video' : 'phone', 20, 2) + '</span>' +
-            '<div class="ci-text">' +
+            '<div>' +
               '<div class="ci-title">' + esc(headline) + '</div>' + bodyBlock + statusBlock +
             '</div>' +
           '</div>' + actionBlock +
@@ -921,7 +935,9 @@
       // Runs: consecutive messages of one author on one day share one avatar
       // (beside the last bubble) and one meta line (under it).
       var groupKeys = msgs.map(function (m, i) {
+        // A system line (a join, a close) ends a run: it is no one's bubble.
         var author = m.sender === 'visitor' ? (m.status === 'failed' ? 'x' + i : 'v')
+          : m.senderType === 'system' ? 's' + i
           : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
         return author + '@' + dayKeyOf(m.time);
       });
@@ -929,11 +945,16 @@
       var lastDayKey = '';
 
       msgs.forEach(function (m, idx) {
+        var kind = m.senderType === 'system' && m.metadata ? m.metadata.kind : '';
+        // A closed line that ends the thread stays last, with its card: a row
+        // Core adds (the saved details) goes above it.
+        if (kind === 'conversation_closed' && idx === msgs.length - 1) { html += extraRowHtml || ''; extraRowHtml = ''; }
         var dk = dayKeyOf(m.time);
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
-        var kind = m.senderType === 'system' && m.metadata ? m.metadata.kind : '';
         if (kind === 'call_invitation') { html += renderCallInvitationCard(m); return; }
         if (kind === 'call_ended') { html += renderCallEndedRow(m); return; }
+        // The line and, under the newest one, the rating card (Core's `view.csat`).
+        if (kind === 'conversation_closed') { html += closedHtml(m, view.csat || null); return; }
         if (kind === 'routing_agent_joined' || kind === 'conversation_transferred'
             || kind === 'routing_no_agent_available' || kind === 'routing_in_queue') {
           html += renderRoutingOutcomeRow(m); return;
@@ -999,6 +1020,9 @@
           : '';
         var quoted = quoteText ? '<span class="msg-quote">' + esc(String(quoteText)) + '</span>' : '';
         var hasText = !!(m.body && String(m.body).trim().length > 0);
+        // Reactions (`view.react`, the extras'): the badge under the bubble,
+        // the visitor's heart among a team message's actions.
+        var react = view.react ? x('reactHtml', [m]) : '';
         var actionsHtml = hasText
           ? '<span class="msg-actions">' +
               '<button type="button" class="msg-act" data-msg-reply="' + esc(m.__id || '') +
@@ -1008,21 +1032,26 @@
                 ico('quote', 13, 1.8) + '</button>' +
               '<button type="button" class="msg-act" data-msg-copy="' + esc(String(bodyText || m.body || '')) +
                 '" title="' + esc(tf('copy', 'Copy')) + '" aria-label="' + esc(tf('copy', 'Copy')) + '">' +
-                ico('copy', 14, 1.7) + '</button>' +
+                ico('copy', 14, 1.7) + '</button>' + (view.react && !visitor ? x('reactBtnHtml', [m]) : '') +
             '</span>'
           : '';
 
-        // An attachment is its own item above its caption, as the design draws them.
+        // An attachment is its own item above its caption, as the design
+        // draws them; the badge goes under the last one.
         var att = renderMessageAttachment(m.attachment);
+        var onText = textHtml || quoted || !att;
         var items = att
-          ? '<div class="msg-line"><div class="msg ' + cls + ' has-att-only">' + att + '</div></div>' : '';
-        if (textHtml || quoted || !att) {
-          items += '<div class="msg-line">' +
-            '<div class="msg ' + cls + (isAi ? ' is-ai' : '') + (isLast ? ' has-tail' : '') + '"' +
+          ? '<div class="msg-line' + (react && !onText ? ' rel' : '') + '"><div class="msg ' + cls + ' has-att-only">' + att + '</div>' + (onText ? '' : react) + '</div>' : '';
+        if (onText) {
+          items += '<div class="msg-line' + (react ? ' rel' : '') + '">' +
+            '<div class="msg ' + cls + '"' +
               (isRevealing ? ' data-typing-host data-typing-active="1"' : '') + '>' + quoted + textHtml +
-            '</div>' + actionsHtml +
+            '</div>' + actionsHtml + react +
           '</div>';
         }
+        // An answer about one order: its card under the text (the extras').
+        var order = !visitor && caps.orderCard && m.metadata && m.metadata.kind === 'order_status' && m.metadata.order;
+        if (order && order.number) items += x('orderCardHtml', [order]);
 
         html += '<div class="msg-row ' + cls + (isLast ? ' is-last' : '') + (isFirst ? ' is-first' : '') +
           (failed ? ' is-failed' : '') + '">' + avatarHtml +
@@ -1031,6 +1060,8 @@
 
         var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';
         if (isIntro && !visitorHasReplied && qnaState.questions.length) html += qnaChipsHtml(qnaState);
+        // The automated reply under the message left while the team is away (`view.awayReply`).
+        if (view.awayReply && view.awayReply.at === idx) html += x('awayReplyHtml', [view.awayReply]);
       });
 
       if (extraRowHtml) html += extraRowHtml;
@@ -1069,7 +1100,7 @@
           (subtitleHtml ? '<div class="msg-line">' + subtitleHtml + '</div>' : '') +
           '<div class="msg-line"><div class="msg operator hc-title">' + esc(title) + '</div></div>' +
           '<div class="msg-line"><div class="hc-card fcard" dir="' + dir + '" role="group" aria-label="' + esc(title) + '">' +
-            '<div class="prechat-fields hc-fields">' + (fieldsHtml || submit) + '</div>' +
+            '<div class="prechat-fields">' + (fieldsHtml || submit) + '</div>' +
             (required ? '' : '<button type="button" class="skip" data-prechat-skip>' + esc(L('skip')) + '</button>') +
           '</div></div>' +
         '</div>' +
@@ -1097,7 +1128,7 @@
       var rtl = String(locale || '').toLowerCase().split('-')[0] === 'fa';
       return viewOpen('wy-view-' + cls + ' prechat' + (cls === 'fallback' ? ' fallback' : ''), rtl) +
         barHtml(backButtonHtml('home') + header) +
-        '<div class="wy-scroll wy-body-pad form-body">' + inner + '</div>' + footerHtml() +
+        '<div class="wy-scroll form-body">' + inner + '</div>' + footerHtml() +
       '</div>';
     }
     function teamHeaderHtml(online) {
@@ -1120,7 +1151,7 @@
         '<p class="prechat-subtitle">' + esc(tf('wyPrecontactDesc', t('prechatSubtitle'))) + '</p>' +
         '<div class="prechat-fields">' + fieldsHtml + '</div>' +
         '<div class="prechat-spacer" aria-hidden="true"></div>' +
-        '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit btn" data-prechat-submit>' +
+        '<button type="button" class="wy-btn-primary btn" data-prechat-submit>' +
           esc(tf('wyConnectOperator', t('continue'))) + '</button>');
     }
 
@@ -1147,7 +1178,7 @@
             '<div class="prechat-error" id="fb-err-message" data-err="message" role="alert" aria-live="polite"></div>' +
           '</div>' +
         '</div>' +
-        '<button type="button" class="wy-btn wy-btn-primary wy-btn-block prechat-submit btn" data-fb-submit>' +
+        '<button type="button" class="wy-btn-primary btn" data-fb-submit>' +
           esc(t('fallbackSubmit')) + '</button>' +
         '<div class="fallback-status" data-fb-status role="status" aria-live="polite"></div>');
     }
@@ -1169,7 +1200,7 @@
     // is the close button, drawn per view by the stylesheet
     // (.panel[data-view]): glass on the home hero, plain on white bars.
     function shellHtml() {
-      return '<button type="button" class="panel-close" data-panel-close' + ACC + ' aria-label="' +
+      return '<button type="button" class="panel-close' + AB + '" data-panel-close' + ACC + ' aria-label="' +
           esc(tf('close', 'Close')) + '">' + ico('x', 20, 1.9) + '</button>' +
         '<div class="body wy-scroll" data-body></div>' +
         // The in-panel call surface is a PANEL-level overlay, so a minimized
@@ -1202,10 +1233,12 @@
         : !online ? '<span class="st off">' + esc(L('away')) + '</span>'
         : op && op.online ? '<span class="st"><i class="ondot"></i>' + esc(L('online')) + '</span>'
         : rt ? '<span class="st">' + esc(rt) + '</span>' : '';
-      return backButtonHtml('home') + whoHtml(avatar, name, st) + '<span class="cs" aria-hidden="true"></span>' +
+      // The menu (`vm.menu`) only once Core's late module drew it a list.
+      return backButtonHtml('home') + whoHtml(avatar, name, st) + (vm.menu ? chatMenuHtml(vm.menu) : '') +
+        '<span class="cs" aria-hidden="true"></span>' +
         '<div class="presence sr-only" data-presence aria-live="polite">' +
-          '<span class="presence-dot" data-presence-dot></span>' +
-          '<span class="presence-label" data-presence-label></span>' +
+          '<span data-presence-dot></span>' +
+          '<span data-presence-label></span>' +
         '</div>';
     }
 
@@ -1229,7 +1262,7 @@
         ? '<div class="composer-zone cmp" data-composer-zone>' +
             // Typing is drawn in the thread; this row announces it.
             '<div class="sr-only" data-typing-row hidden aria-live="polite">' +
-              '<span class="typing-label" data-typing-label></span>' +
+              '<span data-typing-label></span>' +
             '</div>' +
             '<div class="reply-preview" data-reply-preview hidden>' +
               '<span class="reply-preview-bar" aria-hidden="true"></span>' +
@@ -1257,9 +1290,9 @@
                           '<div class="att-preview-bar" data-attach-bar></div>' +
                         '</div>' +
                       '</div>' +
-                      '<button type="button" class="att-preview-btn att-preview-retry" data-attach-retry hidden' +
+                      '<button type="button" class="att-preview-btn" data-attach-retry hidden' +
                         ' aria-label="' + esc(t('retry')) + '">' + ico('retry', 14, 1.9) + '</button>' +
-                      '<button type="button" class="att-preview-btn att-preview-remove" data-attach-remove' +
+                      '<button type="button" class="att-preview-btn" data-attach-remove' +
                         ' aria-label="' + esc(t('remove')) + '">' + ico('x', 14, 2) + '</button>' +
                     '</div>'
                   : '') +
@@ -1458,8 +1491,9 @@
         : '';
 
       // Quiet rows, each only when it has something behind it (at most three):
-      // continue the open conversation, all conversations, the help center.
-      // (Track order needs a store context the widget does not have yet.)
+      // continue the open conversation, all conversations, the help center,
+      // track an order (a store that answers order questions: `config.commerce`;
+      // its first message is sent as a topic's, runtime-ext.js).
       var rows = [];
       if (vm.chatEnabled) {
         var latest = open[0];
@@ -1489,6 +1523,9 @@
           : L('arts', { n: fmtNum(articles.length) });
         rows.push(rowHtml('data-view="help"', tileHtml('book'), tf('help', 'Help center'), helpSub));
       }
+      if (vm.chatEnabled && (config.commerce || {}).trackOrder === true) {
+        rows.push(rowHtml('data-home-action="track-order" data-topic="' + esc(L('trackMsg')) + '"', tileHtml('box'), L('track'), L('trackSub')));
+      }
       rows = rows.slice(0, 3);
 
       return viewOpen('wy-view-home home-root', !!vm.rtl) +
@@ -1508,9 +1545,9 @@
       // A real failure with nothing cached is its own, retryable state;
       // cached items stay on screen when only a refresh failed.
       var bodyHtml = (vm.error && !items.length)
-        ? '<div class="wy-empty wy-conv-error">' +
+        ? '<div class="wy-empty">' +
             '<p>' + esc(tf('wyConversationsLoadError', t('convLoadError'))) + '</p>' +
-            '<button type="button" class="wy-btn wy-btn-outline" data-home-action="conversations-retry">' +
+            '<button type="button" class="wy-btn-outline" data-home-action="conversations-retry">' +
               esc(tf('wyConversationsRetry', t('convRetry'))) +
             '</button>' +
           '</div>'
@@ -1533,7 +1570,12 @@
     // ══════════════════════════════════════════════════════════════════
     // Knowledge Base (help center, a category, an article)
     // ══════════════════════════════════════════════════════════════════
-    function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    /**
+     * A query word as a pattern. The server folds case as the database does
+     * («İade» is «iade»), which a JavaScript /i alone does not undo: an «i»
+     * also marks an «İ».
+     */
+    function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/i/g, '[iİ]'); }
     /** Escaped text with the query's words highlighted (escaped too). */
     function markedHtml(text, query) {
       var words = String(query || '').trim().split(/\s+/).filter(function (w) { return w.length >= 2; });
@@ -1543,11 +1585,14 @@
       return parts.map(function (p, i) { return i % 2 ? '<mark>' + esc(p) + '</mark>' : esc(p); }).join('');
     }
 
+    /** A search's result: the words it matched (`matches`) marked, in its `snippet` when the server cut one. */
     function kbArticleItemHtml(a, query) {
+      var ex = a.snippet || a.excerpt;
+      if (Array.isArray(a.matches)) query = a.matches.join(' ');
       return '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' + esc(a.slug) + '">' +
         '<span class="it" aria-hidden="true">' + ico('book', 18, 1.7) + '</span>' +
         '<span class="tx"><span class="tt">' + markedHtml(a.title, query) + '</span>' +
-          (a.excerpt ? '<small>' + markedHtml(a.excerpt, query) + '</small>' : '') +
+          (ex ? '<small>' + markedHtml(ex, query) + '</small>' : '') +
         '</span>' +
       '</button>';
     }
@@ -1575,7 +1620,7 @@
       vm = vm || {};
       var isSearch = vm.state === 'results';
       return '<div class="kb-empty">' +
-        '<p class="cnt kb-empty-text" role="status">' + esc(vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'))) + '</p>' +
+        '<p class="cnt" role="status">' + esc(vm.emptyText || (isSearch ? t('kbZeroResults') : t('noArticles'))) + '</p>' +
         ctaHtml(vm) +
       '</div>';
     }
@@ -1646,9 +1691,12 @@
       vm = vm || {};
       var a = vm.article || {};
       var mins = Number(a.readingMinutes) || 0;
-      return '<div class="art wy-scroll kb-article-view">' +
+      // Its author (feature `kbAuthor`): the initial and the name, as 03·08 draws them.
+      var by = String(a.author || '').trim();
+      return '<div class="art wy-scroll">' +
           '<h1>' + esc(a.title || '') + '</h1>' +
-          (mins ? '<div class="am"><span>' + ico('clock', 15, 1.8) + esc(L('read', { n: fmtNum(mins) })) + '</span></div>' : '') +
+          (mins || by ? '<div class="am">' + (by ? '<span>' + avatarHtml(by, null, 24) + esc(by) + '</span>' : '') +
+            (mins ? '<span>' + ico('clock', 15, 1.8) + esc(L('read', { n: fmtNum(mins) })) + '</span>' : '') + '</div>' : '') +
           '<div class="kb-article-body">' + (a.contentHtml || '') + '</div>' +
         '</div>' +
         kbArticleFeedbackHtml(vm.feedback) + ctaHtml(vm);
@@ -1796,7 +1844,7 @@
       }
       return skViewOpen('wy-view-precontact prechat', vm) +
         skBarHtml(skWhoHtml()) +
-        '<div class="wy-scroll wy-body-pad form-body">' +
+        '<div class="wy-scroll form-body">' +
           '<div class="wy-sk-group">' + skl('86%', 11) + skl('58%', 11) + '</div>' +
           '<div class="prechat-fields">' + fields + '</div>' +
           '<div class="prechat-spacer"></div><span class="btn skc"></span>' +
@@ -1844,6 +1892,39 @@
       }
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // Template extras (presentation-t2-x.js): markup no first paint needs,
+    // which Core hands over after it (`extend`). Until then a surface asked
+    // for (`x()`) draws nothing and notes it, and Core repaints once when
+    // they are in. Only this renderer's id and contract version are taken:
+    // a file from another deploy or template is refused.
+    // ══════════════════════════════════════════════════════════════════
+    var X = null;
+    var missed = false;
+    var H = {
+      esc: esc, t: t, tf: tf, L: L, digits: digits, fmtNum: fmtNum, ico: ico, avatarHtml: avatarHtml,
+      storeAvatarHtml: storeAvatarHtml, systemPillHtml: systemPillHtml, config: config, lang: lang, fa: isRtl(),
+    };
+    function x(name, args) {
+      if (X && X[name]) return X[name].apply(null, args);
+      missed = true;
+      return '';
+    }
+    /** 0: refused; 1: taken (with `dry`: would be); 2: taken, and a surface was asked for before. */
+    function extend(mod, dry) {
+      if (!mod || mod.id !== 't2' || mod.v !== 2 || typeof mod.create !== 'function') return 0;
+      if (dry) return 1;
+      X = X || mod.create(H);
+      var m = missed;
+      missed = false;
+      return m ? 2 : 1;
+    }
+    // The extras' surfaces.
+    function closedHtml(m, csat) { return x('closedHtml', [m, csat]); }
+    function chatMenuHtml(menu) { return x('chatMenuHtml', [menu]); }
+    // The help articles offered while a first message is written (runtime-late.js puts the tray in).
+    function kbSuggestHtml(vm) { return x('kbSuggestHtml', [vm]); }
+
     return {
 
       id: 't2',
@@ -1864,7 +1945,22 @@
         kbProgress: true,
         recSend: true,
         clock: true,
+        // The closed line (runtime.js keeps the row only for this), the
+        // rating card and the chat bar's menu (runtime-late.js).
+        closedNotice: true,
+        csat: true,
+        chatMenu: true,
+        // A message's reactions and the message left while away
+        // (runtime-late.js), as far as Core serves them.
+        reactions: !!caps.reactions,
+        awayThread: !!caps.awayThread,
+        // Help articles while the first message is written, a download's
+        // progress, an article's author.
+        instantAnswers: !!caps.instantAnswers,
+        dlProgress: !!caps.dlProgress,
+        kbAuthor: !!caps.kbAuthor,
       },
+      extend: extend,
       shellHtml: shellHtml,
       chatFrameHtml: chatFrameHtml,
       chatHeaderHtml: chatHeaderHtml,
@@ -1895,6 +1991,7 @@
       kbEmptyHtml: kbEmptyHtml,
       kbLoadingHtml: kbLoadingHtml,
       kbArticleFeedbackHtml: kbArticleFeedbackHtml,
+      kbSuggestHtml: kbSuggestHtml,
 
       // Loading UX (optional presentation contract).
       skeletonHtml: skeletonHtml,
@@ -1915,23 +2012,23 @@
   // other face stays on demand through its unicode-range
   // (presentation-default-fonts.css):
   //   - Persian: IRANSans 400, 500 and 600 (= the 700 file);
-  //   - any other locale: Inter, the one Latin file.
+  //   - any other locale: Inter, the one Latin file; Figtree for a skin of
+  //     the International edition (a template id ending in -intl, whose skin
+  //     draws Latin text in it; Turkish's own letters, ğ ş İ, are its second
+  //     file, which a Turkish first paint draws too).
   // `context` is { locale, templateId } from the loader and the live preview.
   // An older loader passes none: the Persian set.
   function prepare(context) {
     if (!document.fonts || typeof document.fonts.load !== 'function') return Promise.resolve();
     var c = context || {};
-    var persian = String(c.locale || 'fa').toLowerCase().split('-')[0] === 'fa';
-    var loads = [];
-    if (persian) {
-      [400, 500, 600].forEach(function (weight) {
-        loads.push(document.fonts.load(weight + ' 16px IRANSans', 'سلام دنیا'));
-      });
-    } else {
-      loads.push(document.fonts.load('500 16px InterWY', 'Aa'));
-    }
+    var lang = String(c.locale || 'fa').toLowerCase().split('-')[0];
+    var fa = lang === 'fa';
+    var loads = (fa ? [400, 500, 600] : [500]).map(function (w) {
+      return document.fonts.load(w + (fa ? ' 16px IRANSans' : /-intl$/.test(c.templateId) ? ' 16px Figtree' : ' 16px InterWY'),
+        fa ? 'سلام دنیا' : lang === 'tr' ? 'Aaş' : 'Aa').catch(function () { return []; });
+    });
     return Promise.race([
-      Promise.all(loads.map(function (p) { return p.catch(function () { return []; }); })).then(function () {}),
+      Promise.all(loads).then(function () {}),
       new Promise(function (resolve) { setTimeout(resolve, 500); }),
     ]);
   }

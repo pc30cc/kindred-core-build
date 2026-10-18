@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useBranding } from '@/hooks/useBranding';
-import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen, useInboxTabCounts, useInboxCounts, type InboxQueue } from '@/hooks/useConversations';
+import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen, useInboxTabCounts, useInboxCounts, useMessageReaction, type InboxQueue } from '@/hooks/useConversations';
 import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { emitInvitationChanged } from '@/lib/call-invitations-events';
@@ -93,6 +93,7 @@ import {
   type SystemMessageMeta, type AttachmentPreviewKind,
 } from '@/lib/systemMessageText';
 import { SupportRequesterCard } from '@/components/inbox/SupportRequesterCard';
+import { MessageReactionChips, ReactionPickerButton } from '@/components/inbox/MessageReactions';
 import { REQUESTER_KIND, type RequesterCardMeta } from '@/components/inbox/requesterMeta';
 
 const API_BASE = RESOLVED_API_BASE || '';
@@ -472,6 +473,10 @@ export default function InboxPage() {
   // answers 403 conversation_locked, and the thread shows the locked panel.
   const selectedLocked = !!conversations?.find((c) => c.id === selectedId)?.locked_by_retention;
   const { data: rawMessages } = useConversationMessages(selectedLocked ? undefined : (selectedId ?? undefined));
+  // Reacting to a visitor's message (the server marks which: `can_react`).
+  const react = useMessageReaction(selectedId ?? undefined, workspace?.id, () => {
+    toast({ title: t('inbox.reactionFailed'), variant: 'destructive' });
+  });
   const sendMessage = useSendMessage(selectedId ?? undefined, workspace?.id);
   const updateConv = useUpdateConversation();
   const deleteAll = useDeleteAllConversations();
@@ -519,9 +524,10 @@ export default function InboxPage() {
       // Show indicator for ~3.5s; subsequent events extend the window.
       setVisitorTypingUntil(Date.now() + 3500);
     },
-    // Phase 5 — operator-side events on the per-conversation channel.
-    // Refresh notes/timeline caches so the open thread reflects new
-    // notes, status/priority/assignment/tag changes immediately.
+    // Phase 5 — this conversation's operator-side events (heard on the
+    // workspace inbox channel, see useInboxRealtime). Refresh notes/timeline
+    // caches so the open thread reflects new notes, status/priority/
+    // assignment/tag changes immediately.
     onEvent: (payload) => {
       const kind = (payload as { kind?: string })?.kind;
       const convId = (payload as { conversation_id?: string })?.conversation_id;
@@ -2352,7 +2358,11 @@ export default function InboxPage() {
                     </div>
                   );
                 }
-                if (msg.sender_type === 'system' && meta.kind === 'routing_agent_joined') {
+                // A join, and the «X closed the conversation» line the
+                // visitor also sees (widget conversations of a template that
+                // draws it, under which they are asked to rate the chat).
+                if (msg.sender_type === 'system'
+                  && (meta.kind === 'routing_agent_joined' || meta.kind === 'conversation_closed')) {
                   const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
                   return (
                     <div key={msg.id} className="flex justify-center my-1">
@@ -2545,12 +2555,19 @@ export default function InboxPage() {
                           );
                         })()}
                       </div>
-                      {/* Side actions — hugging the bubble */}
-                      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Side actions — hugging the bubble (shown on hover, and
+                          while one of them has the keyboard focus) */}
+                      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                         {timeGapFromPrev && (
                           <bdi dir={dir} className="text-[11px] text-muted-foreground" title={formatDateTime(msg.created_at)}>
                             {formatTime(msg.created_at)}
                           </bdi>
+                        )}
+                        {msg.can_react && (
+                          <ReactionPickerButton
+                            reactions={msg.reactions}
+                            onToggle={(emoji, on) => react.mutate({ messageId: msg.id, emoji, on })}
+                          />
                         )}
                         <button
                           onClick={() => {
@@ -2576,6 +2593,17 @@ export default function InboxPage() {
                         </button>
                       </div>
                       </div>
+                      {/* Reactions: the operators' on a visitor's message (each
+                          chip toggles this operator's own), the visitor's ❤️
+                          on a team message (shown only). */}
+                      {msg.reactions?.length ? (
+                        <MessageReactionChips
+                          reactions={msg.reactions}
+                          canToggle={!!msg.can_react}
+                          onToggle={(emoji, on) => react.mutate({ messageId: msg.id, emoji, on })}
+                          align={isAgent ? 'end' : 'start'}
+                        />
+                      ) : null}
                       {/* Name + time strip below the LAST bubble of a streak */}
                       {showMeta && (
                         <div className={cn(

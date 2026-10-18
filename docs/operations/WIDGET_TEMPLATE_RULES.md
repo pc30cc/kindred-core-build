@@ -112,19 +112,23 @@ templates: `docs/operations/EDITIONS.md`.
   (never the loader) requests them together after the first paint (the
   browser's next idle moment, 2 s at most; 300 ms without
   `requestIdleCallback`), at once when the chat view is painted or a control
-  needs them (t1's emoji button), with the canonical-name retry, and applies
-  them together or not at all: the renderer refuses extras of another
+  needs them (t1's emoji button); a skeleton (`.wy-skeleton`) is not that
+  paint, so nothing competes with the data it waits for. They load with the
+  canonical-name retry, and runtime-ext applies them together or not at
+  all: the renderer refuses extras of another
   template or version, runtime-ext a late module of another version
   (`v`), and then neither is used, so a canonical-name fallback from another
   deploy never half-applies. A feature of the pack is never a dead control
   before it is in or if it never comes: its markup is drawn only through the
   extras, and a base control that needs them (t1's emoji button) asks for
-  them on a first press and goes if they fail (`hidden`; `.ext-off` without
-  runtime-ext.js). runtime-late.js registers its handlers on runtime-ext's
-  hooks (`api.on(hook, fn)`): runtime-ext's own handler runs first, then the
-  late ones, each of which may consume or override its answer. The operator
-  preview (`WidgetLivePreview.tsx`) and the screenshot harness
-  (`e2e/harness/templateScreens.ts`) put both on the page before painting.
+  them on a first press and goes if they fail or hold nothing for it
+  (`hidden`; `.ext-off` without runtime-ext.js). runtime-late.js registers
+  its handlers on runtime-ext's hooks (`api.on(hook, fn)`): runtime-ext's own
+  handler runs first, then the late ones, each of which may consume or
+  override its answer. The operator preview (`WidgetLivePreview.tsx`, which
+  has no Core: the extras only) and the screenshot harness
+  (`e2e/harness/templateScreens.ts`, both; `--late-after` shoots the live
+  order instead) put them on the page before painting.
   `src/test/widget/runtimeExt.test.ts` checks who asks and when, the
   all-or-nothing rule and the one repaint. Sizes on 2026-10-18: runtime-ext.js
   7.1 KB (the pack's loader and the late module's API +0.9 KB), runtime-late.js
@@ -247,13 +251,19 @@ The build supports a second kit marker, the mirror of the Iran region's
 /* @intl-kit:end */` with the switch `var INTL_KIT = true;` is left out of
 the Iran build (`scripts/build/widgetBrand.mjs`, the widgets' copy of the
 dashboard's `SHIPS_INTL_KIT`; every build refuses malformed markers of
-either kit). No widget file uses it yet, on purpose: the edition is the
-database's (`platform_settings.region_mode`, which the Super Admin may
-switch; a missing row is International), the brand the build's, so an
-Iran-brand deployment (app.webyar.ai) can serve International workspaces,
-whose loader wears RESPOK's button (`respokKitOn`). Mark RESPOK-only loader
-code `@intl-kit` only once a deployment's edition follows its brand
-(`widgetBrandBuild.test.ts` pins that the Iran loader keeps the kit).
+either kit; a name a deleted block defines must be used only inside
+`if (INTL_KIT ...)` branches, or the Iran build fails). It is for
+RESPOK-only loader code (RESPOK's launcher kit: `RESPOK_KIT_CSS`, its
+glyphs, `respokKitOn`, `ensureRespokKitStyle`; the operator preview's
+copy is `shared/respokLauncher.ts`), so the Iran loader does not pay for it. The
+edition is the database's (`platform_settings.region_mode`, which the Super
+Admin may switch; a missing row is International) and the brand the
+build's: an Iran-brand deployment switched to the International edition
+then shows the plain launcher instead of RESPOK's, with no other brand's
+art, as the dashboard's Iran build goes without International-only extras
+(decided for issue #340). No widget file is marked yet: whoever marks the
+kit also updates `widgetBrandBuild.test.ts`, which pins that the Iran loader
+still has it.
 
 ## 6. Server side (no per-template work, but do not undo it)
 

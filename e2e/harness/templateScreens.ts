@@ -21,7 +21,9 @@
  * overlay ones, as macOS / iOS / Android draw them and the designs show),
  * --safe-area (phone states: `top,bottom` insets in CSS px, e.g. `0,34` for
  * a home indicator), --motion (keep animations; default reduced motion so every shot is
- * stable), --chromium (path; default PLAYWRIGHT_CHROMIUM_PATH, then
+ * stable), --late-after (the live widget's order: the late pack is not put
+ * on the page first, runtime-ext.js asks for it after the first paint),
+ * --chromium (path; default PLAYWRIGHT_CHROMIUM_PATH, then
  * /opt/pw-browsers or /opt/ms-playwright).
  *
  * Desktop states shoot the panel at 400×720 CSS px, phone states the whole
@@ -917,6 +919,8 @@ export interface ScreenOptions {
   classicScrollbars?: boolean;
   /** Phone states: the screen's safe-area insets in CSS px (status bar, home indicator), e.g. { top: 0, bottom: 34 }. */
   safeArea?: { top: number; bottom: number };
+  /** The late pack as the live widget gets it: asked for by runtime-ext.js after the first paint, not put on the page first. */
+  lateAfter?: boolean;
   /** Called after each PNG is written. */
   onShot?: (file: string) => void;
   /** Runs right before each shot (scratch inspection: measure, log, tweak). */
@@ -979,8 +983,9 @@ async function shoot(browser: Browser, name: string, spec: StateSpec, opts: Scre
     // The renderer's extras and Core's late module are on the page before
     // runtime.js: runtime-ext.js then applies them before the first paint
     // (the live widget gets them after it), so every shot has them.
+    // --late-after leaves them to runtime-ext.js, as the live widget.
     const extras = chatWidgetTemplate(tpl.id)?.extras;
-    const late = extras ? [extras, 'runtime-late.js'] : [];
+    const late = extras && !opts.lateAfter ? [extras, 'runtime-late.js'] : [];
     for (const f of ['presentation-registry.js', tpl.script, ...late, 'runtime-chat.js', 'runtime.js']) {
       await page.addScriptTag({ url: `${ORIGIN}/widget/${f}` });
     }
@@ -1097,7 +1102,7 @@ if (invokedDirectly) {
   } else {
     const outDir = String(args.out || '');
     if (!outDir) {
-      console.error('usage: npx tsx e2e/harness/templateScreens.ts --template <id> --out <folder> [--states a,b] [--locale fa] [--accent #hex] [--options JSON] [--native-size] [--classic-scrollbars] [--safe-area top,bottom] [--motion] [--chromium path] | --list');
+      console.error('usage: npx tsx e2e/harness/templateScreens.ts --template <id> --out <folder> [--states a,b] [--locale fa] [--accent #hex] [--options JSON] [--native-size] [--classic-scrollbars] [--safe-area top,bottom] [--motion] [--late-after] [--chromium path] | --list');
       process.exit(2);
     }
     renderTemplateScreens({
@@ -1114,6 +1119,7 @@ if (invokedDirectly) {
       safeArea: typeof args['safe-area'] === 'string'
         ? (([top, bottom]) => ({ top: Number(top) || 0, bottom: Number(bottom) || 0 }))(String(args['safe-area']).split(','))
         : undefined,
+      lateAfter: !!args['late-after'],
       onShot: (f) => console.log(f),
     }).catch((e) => { console.error(e); process.exit(1); });
   }

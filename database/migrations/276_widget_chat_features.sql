@@ -58,8 +58,11 @@
 -- Locks: the new tables' foreign keys take SHARE ROW EXCLUSIVE on workspaces,
 -- conversations, conversation_messages and profiles for an instant; the
 -- trigger the same on conversations; the new column ACCESS EXCLUSIVE on
--- knowledge_base_articles for an instant. Re-runnable: every step is guarded
--- or a no-op the second time, and a second run takes none of those locks.
+-- knowledge_base_articles for an instant, and its partial index SHARE (writes
+-- to the articles wait) while it reads that small table; the queue index the
+-- same on conversations, unless it was built beforehand as above. Nothing
+-- rewrites a table. Re-runnable: every step is guarded or a no-op the second
+-- time, and a second run takes none of those locks.
 -- The file sets lock_timeout 5s itself (not one transaction, so for the
 -- session, reset at the end): a runner without PGOPTIONS, such as RESPOK's
 -- migrator, must not leave every chat write queued behind a lock that waits

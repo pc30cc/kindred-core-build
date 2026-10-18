@@ -231,20 +231,22 @@ async function resolveTemplate(
 }
 
 /**
- * Interpolate {{key}} variables in a string.
+ * Interpolate {key} and {{key}} variables in a string; a placeholder with no
+ * key in `data` is left as it is.
  *
- * Each value is inserted as it is: a function replacer, because a string
- * replacement would expand `$&`, `$'`, `` $` `` and `$$` in it (a visitor's
- * own text in a transcript, an order note, a name). Exported for its tests.
+ * Each value is inserted as it is, in one pass over the template: a function
+ * replacer, because a string replacement would expand `$&`, `$'`, `` $` ``
+ * and `$$` in it, and never a second look at an inserted value, which used to
+ * fill a placeholder typed inside it with a later key's value (a visitor's
+ * "{transcript_text}" in the HTML transcript would have pulled the unescaped
+ * text transcript into the HTML). Visitor text in a transcript, an order
+ * note or a name arrives as typed. Exported for its tests.
  */
 export function interpolate(text: string, data: Record<string, string>): string {
-  let result = text;
-  for (const [key, value] of Object.entries(data)) {
-    // Support both {key} and {{key}} patterns
-    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => value);
-    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), () => value);
-  }
-  return result;
+  return text.replace(/\{\{([^{}]+)\}\}|\{([^{}]+)\}/g, (match: string, double?: string, single?: string) => {
+    const key = (double ?? single) as string;
+    return Object.prototype.hasOwnProperty.call(data, key) ? String(data[key]) : match;
+  });
 }
 
 /**

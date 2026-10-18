@@ -18,10 +18,11 @@
  * The Iran build does the same with the International-only kit, marked
  * `/* @intl-kit:begin *\/` … `/* @intl-kit:end *\/` with the switch
  * `var INTL_KIT = true;` (the widgets' mirror of the dashboard's
- * SHIPS_INTL_KIT, shared/buildBrand.ts). No widget file uses it yet: the
- * Iran build (app.webyar.ai) can serve the International edition, whose
- * kit it then needs (docs/operations/WIDGET_TEMPLATE_RULES.md §5). `both`
- * keeps everything. Every build refuses malformed markers of either kit.
+ * SHIPS_INTL_KIT, shared/buildBrand.ts): an Iran-brand deployment switched
+ * to the International edition then goes without it (the plain launcher
+ * instead of RESPOK's, docs/operations/WIDGET_TEMPLATE_RULES.md §5). No
+ * widget file is marked yet. `both` keeps everything. Every build refuses
+ * malformed markers of either kit.
  *
  * A name a deleted block defined that is still referenced after minifying
  * would throw a ReferenceError in visitors' browsers: the transform refuses

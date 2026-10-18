@@ -867,9 +867,12 @@
       ModuleLoader.loadFor(ctx, 'late', 'runtime-late.js', function (mod) { late = mod; done(); });
     }
     // After a paint: the chat view (a composer the visitor is about to use)
-    // asks at once, any other view at the browser's next idle moment.
+    // asks at once, any other view at the browser's next idle moment. A
+    // skeleton is not that paint: what it waits for (the visitor, the
+    // threads, a history) comes first, and its real paint asks.
     function planLatePack() {
-      if (lateState) return;
+      var view = body && body.firstElementChild;
+      if (lateState || (view && view.classList.contains('wy-skeleton'))) return;
       if (shellStore.get().activeTab === 'chat') { loadLatePack(); return; }
       if (latePlanned) return;
       latePlanned = true;
@@ -886,7 +889,9 @@
     function paintEmojiGrid(ok) {
       if (!lateEmoji) return;
       lateEmoji = false;
-      if (ok) { emojiPickerEl.innerHTML = P.emojiPickerHtml(); return; }
+      if (ok) emojiPickerEl.innerHTML = P.emojiPickerHtml();
+      // Extras without a grid are no grid either.
+      if (emojiPickerEl.querySelector('[data-emoji]:not([hidden])')) return;
       emojiPickerEl.hidden = true;
       emojiBtn.hidden = true;
     }
@@ -895,9 +900,9 @@
         var target = ev.target;
         if (!lateEmoji || !target || !target.closest || !target.closest('[data-emoji-btn]')) return;
         ev.stopPropagation();
-        loadLatePack(function (ok) {
+        loadLatePack(function () {
           // Opened by Core's own toggle, as a press would.
-          if (ok && emojiPickerEl.hidden && panel.contains(emojiBtn)) emojiBtn.click();
+          if (!emojiBtn.hidden && emojiPickerEl.hidden && panel.contains(emojiBtn)) emojiBtn.click();
         });
       }, true);
     }

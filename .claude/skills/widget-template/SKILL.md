@@ -55,9 +55,10 @@ Never: font bytes in CSS, `@font-face` in a template/skin/call stylesheet,
 `@import`, any external host, network or storage calls in a renderer or its
 extras, `?v=` on a hashed URL, a fixed file name in code, or `${` in
 nginx.conf.template. Iran-only widget code goes in `@iran-kit` blocks (left
-out of the RESPOK build); do not mark code `@intl-kit` (left out of the Iran
-build) while an Iran-brand deployment can serve the International edition
-(WIDGET_TEMPLATE_RULES.md §5).
+out of the RESPOK build), RESPOK-only loader code in `@intl-kit` blocks (left
+out of the Iran build; their uses behind `if (INTL_KIT ...)`, so an
+Iran-brand deployment switched to the International edition simply goes
+without them; WIDGET_TEMPLATE_RULES.md §5).
 
 ## 3. Register it
 

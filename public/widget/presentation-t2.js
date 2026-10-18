@@ -888,7 +888,7 @@
       return '<div class="msg operator typing-bubble' + (extra || '') + '"><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
     }
     function renderAiThinkingRow() {
-      return '<div class="msg-row operator is-last">' + storeAvatarHtml(28, '', 'msg-avatar') +
+      return '<div class="msg-row operator is-last ai-thinking-row">' + storeAvatarHtml(28, '', 'msg-avatar') +
         '<div class="msg-col"><div class="msg-line">' + dotsBubbleHtml(' ai-thinking-bubble') +
           '<span class="sr-only">' + esc(t('aiThinking') || 'Thinking…') + '</span></div>' +
         '</div></div></div>';

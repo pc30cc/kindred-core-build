@@ -63,13 +63,12 @@ describe('the RESPOK widget carries nothing of the Iran brand', () => {
     });
   }
 
-  it('the International kit stays in the Iran build: an Iran-brand deployment can serve the International edition', () => {
-    // The edition is the database's (platform_settings.region_mode, which the
-    // Super Admin may switch, and a missing row is International), the brand
-    // the build's (VITE_API_BASE_URL / VITE_BRAND): app.webyar.ai can serve
-    // workspaces of the International edition, whose loader then wears
-    // RESPOK's button. So no widget file marks code @intl-kit (the Iran
-    // build would drop it) until a deployment's edition follows its brand.
+  it('the RESPOK loader keeps its launcher kit; nothing is marked @intl-kit yet, so the Iran loader has it too', () => {
+    // RESPOK-only loader code is to go in @intl-kit blocks, which the Iran
+    // build leaves out (an Iran-brand deployment switched to the
+    // International edition then shows the plain launcher). Until it is
+    // marked, this pins that no widget file uses the marker and that both
+    // loaders have the kit: whoever marks it changes the Iran half here.
     for (const name of readdirSync(resolve(ROOT, 'public/widget')).filter(isWidgetSource)) {
       expect(readFileSync(resolve(ROOT, 'public/widget', name), 'utf8'), name).not.toMatch(/@intl-kit|\bINTL_KIT\b/);
     }

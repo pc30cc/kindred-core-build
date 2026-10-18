@@ -76,16 +76,20 @@ export interface BootOptions {
   extras?: string;
   /**
    * How the late pack's requests (the extras and runtime-late.js) answer:
-   * 'load' (when asked, default), 'hold' (until releaseLate()) or 'fail'
-   * (onerror for both names, like a 404).
+   * 'load' (when asked, default), 'hold' (until releaseLate()), 'fail'
+   * (onerror for both names, like a 404), 'fail-extras' / 'fail-late' (only
+   * that file's, both names) or 'fail-hashed' (only the hashed URLs: the
+   * canonical names answer).
    */
-  late?: 'load' | 'hold' | 'fail';
+  late?: 'load' | 'hold' | 'fail' | 'fail-extras' | 'fail-late' | 'fail-hashed';
   /** What the extras request leaves as window.__gs_mod_extras: default the template's real file (a factory: nothing). */
   extrasModule?: unknown;
   /** What the runtime-late.js request leaves as window.__gs_mod_late: default the real file. */
   lateModule?: unknown;
   config?: Record<string, unknown>;
   conversations?: ConversationSeed[];
+  /** Keeps the thread list's answer until releaseConversations() (home paints its skeleton meanwhile). */
+  holdConversations?: boolean;
   /** Messages of a thread when its history loads. */
   history?: Record<string, Array<Record<string, unknown>>>;
   assignedOperator?: Record<string, unknown> | null;
@@ -128,6 +132,8 @@ export interface Harness {
   releaseExt: () => void;
   /** Answers the held late pack requests (`late: 'hold'`). */
   releaseLate: () => void;
+  /** Answers the held thread list requests (`holdConversations`). */
+  releaseConversations: () => void;
   q: <T extends Element = HTMLElement>(sel: string) => T | null;
 }
 
@@ -231,6 +237,7 @@ export function boot(opts: BootOptions = {}): Harness {
   const scripts: string[] = [];
   const heldExt: Array<() => void> = [];
   const heldLate: Array<() => void> = [];
+  const heldConversations: Array<() => void> = [];
   const realTemplate = opts.renderer === 't1' || opts.renderer === 't2' ? opts.renderer : null;
   const realAppend = document.head.appendChild.bind(document.head);
   vi.spyOn(document.head, 'appendChild').mockImplementation(<T extends Node>(node: T): T => {
@@ -250,7 +257,9 @@ export function boot(opts: BootOptions = {}): Harness {
       }
       const extrasReq = /\/presentation-[a-z0-9-]+-x\b/.test(script.src);
       if (extrasReq || /runtime-late\b/.test(script.src)) {
-        if (opts.late === 'fail') {
+        const fails = opts.late === 'fail' || opts.late === (extrasReq ? 'fail-extras' : 'fail-late') ||
+          (opts.late === 'fail-hashed' && !/\?v=/.test(script.src));
+        if (fails) {
           setTimeout(() => { if (typeof script.onerror === 'function') script.onerror(new Event('error')); }, 0);
           return node;
         }
@@ -281,7 +290,7 @@ export function boot(opts: BootOptions = {}): Harness {
     }
     if (u.includes('/api/widget/conversations') && u.includes('/read')) return Promise.resolve(jsonResponse({ ok: true }));
     if (u.includes('/api/widget/conversations')) {
-      return Promise.resolve(jsonResponse({
+      const answer = () => jsonResponse({
         conversations: (opts.conversations || []).map((c) => ({
           id: c.id,
           status: c.status || 'open',
@@ -294,7 +303,9 @@ export function boot(opts: BootOptions = {}): Harness {
           operatorAvatar: c.operatorAvatar ?? null,
           operatorOnline: !!c.operatorOnline,
         })),
-      }));
+      });
+      if (opts.holdConversations) return new Promise((res) => heldConversations.push(() => res(answer())));
+      return Promise.resolve(answer());
     }
     if (u.includes('/api/realtime/connect')) {
       return Promise.resolve(jsonResponse(opts.realtime
@@ -411,6 +422,7 @@ export function boot(opts: BootOptions = {}): Harness {
     scripts,
     releaseExt: () => { while (heldExt.length) heldExt.shift()!(); },
     releaseLate: () => { while (heldLate.length) heldLate.shift()!(); },
+    releaseConversations: () => { while (heldConversations.length) heldConversations.shift()!(); },
     q: <T extends Element = HTMLElement>(sel: string) => shadow.querySelector(sel) as T | null,
   };
 }

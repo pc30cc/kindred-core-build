@@ -20,14 +20,16 @@
  *    (src/test/widget/loaderOpenIntent.test.ts, templateCatalogConfig.test.ts).
  *  - The late pack (the renderer's extras + runtime-late.js): asked for
  *    only by a renderer whose descriptor names extras, after its first paint
- *    (the next idle moment; at once in the chat view or for a control that
- *    needs it), applied together or not at all (an id or version that is
+ *    (a skeleton is none; the next idle moment; at once in the chat view or
+ *    for a control that needs it), by the canonical names after a failed
+ *    hashed URL, applied together or not at all (an id or version that is
  *    not the renderer's refuses both), with one repaint when the renderer
  *    missed a surface meanwhile; `default` and `intl` never ask. The late
  *    module's handlers run after runtime-ext's own on the same hooks.
  *  - t1's emoji grid comes with its extras: the button opens the picker
  *    once they are in, asks for them at once on a first press, and goes if
- *    they fail.
+ *    they fail or hold no grid. A pack already on the page is applied before
+ *    the first paint when it is the renderer's own.
  *
  * @vitest-environment jsdom
  */
@@ -303,6 +305,22 @@ describe('the late pack: who asks for it, and when', () => {
     expect(lateScripts(h)).toEqual([EXTRAS_URL, LATE_URL]);
   });
 
+  it('a skeleton is not the first paint: nothing is asked for while one is on screen, its real paint asks', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const h = boot({ renderer: withExtras(), extras: 'presentation-tx-x.js', extrasModule: EXTRAS, config: lateConfig, holdConversations: true });
+    await vi.advanceTimersByTimeAsync(1000);
+    // Home waits for the thread list on its skeleton.
+    expect(h.body.firstElementChild!.classList.contains('wy-skeleton')).toBe(true);
+    expect(homeCalls(h)).toBe(0);
+    expect(lateScripts(h)).toEqual([]);
+    h.releaseConversations();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(homeCalls(h)).toBeGreaterThan(0);
+    expect(lateScripts(h)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lateScripts(h)).toEqual([EXTRAS_URL, LATE_URL]);
+  });
+
   it('with requestIdleCallback, waits for it (2 s at most)', async () => {
     const idle: Array<{ cb: () => void; opts: unknown }> = [];
     (window as unknown as Dict).requestIdleCallback = (cb: () => void, o: unknown) => { idle.push({ cb, opts: o }); return 1; };
@@ -418,6 +436,38 @@ describe('the late pack: applied together, or not at all', () => {
   });
 });
 
+describe('the late pack: one file failing, a hashed URL failing', () => {
+  const CANONICAL = {
+    extras: 'https://cdn.test/widget/presentation-tx-x.js?v=dev',
+    late: 'https://cdn.test/widget/runtime-late.js?v=dev',
+  };
+  for (const [late, which] of [['fail-extras', 'extras'], ['fail-late', 'late']] as const) {
+    it(`only the ${which === 'extras' ? 'extras' : 'late module'} failing (both names) applies neither`, async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const created: unknown[] = [];
+      const h = boot({
+        renderer: withExtras({ ask: true }), extras: 'presentation-tx-x.js', extrasModule: EXTRAS, config: lateConfig, late,
+        lateModule: { v: 1, create: () => { created.push(1); return {}; } },
+      });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(lateScripts(h)).toEqual([EXTRAS_URL, LATE_URL, CANONICAL[which]]);
+      expect(created).toEqual([]);
+      expect(h.calls.filter((c) => c.surface === 'extend' && c.args[1] !== true)).toEqual([]);
+      expect(h.q('[data-card]')).toBeNull();
+    });
+  }
+
+  it('hashed URLs that fail (a page older than the deploy) are retried by their canonical names, and the pack applies', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const h = boot({
+      renderer: withExtras({ ask: true }), extras: 'presentation-tx-x.js', extrasModule: EXTRAS, config: lateConfig, late: 'fail-hashed',
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(lateScripts(h)).toEqual([EXTRAS_URL, LATE_URL, CANONICAL.extras, CANONICAL.late]);
+    expect(h.q('[data-card]')!.textContent).toBe('card');
+  });
+});
+
 describe('the late module\'s handlers', () => {
   it('run after runtime-ext\'s own, get its answer and may override it; one that throws is skipped; only Core\'s hooks take one', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -503,6 +553,44 @@ describe('t1: the emoji grid comes with its extras', () => {
     await flush(20);
     expect(button(h).hidden).toBe(true);
     expect(picker(h).hidden).toBe(true);
+  });
+
+  it('extras without a grid: the button goes too', async () => {
+    const h = boot({ renderer: 't1', extrasModule: { id: 't1', v: 1, create: () => ({}) } });
+    await flush(20);
+    await toChat(h);
+    await flush(20);
+    expect(lateScripts(h)).toHaveLength(2);
+    expect(button(h).hidden).toBe(true);
+    expect(picker(h).hidden).toBe(true);
+  });
+
+  it('a pack already on the page (an earlier instance\'s) is applied before the first paint and asked for no more', async () => {
+    new Function(read('public/widget/presentation-t1-x.js')).call(window);
+    const created: unknown[] = [];
+    (window as unknown as Dict).__gs_mod_late = { v: 1, create: () => { created.push(1); return {}; } };
+    const h = boot({ renderer: 't1' });
+    await flush(20);
+    expect(created).toHaveLength(1);
+    await toChat(h);
+    expect(picker(h).querySelectorAll('[data-emoji-tab]')).toHaveLength(6);
+    h.runtime.setTab('home');
+    await toChat(h);
+    await flush(20);
+    expect(lateScripts(h)).toEqual([]);
+    expect(created).toHaveLength(1);
+  });
+
+  it('another renderer\'s pack on the page is refused, and t1 asks for its own', async () => {
+    new Function(read('public/widget/presentation-t2-x.js')).call(window);
+    new Function(read('public/widget/runtime-late.js')).call(window);
+    const h = boot({ renderer: 't1' });
+    await flush(20);
+    await toChat(h);
+    await flush(20);
+    expect(lateScripts(h)).toHaveLength(2);
+    expect(picker(h).querySelectorAll('[data-emoji-tab]')).toHaveLength(6);
+    expect(button(h).hidden).toBe(false);
   });
 
   it('a renderer drawing its grid from extras its descriptor does not name hides the button at once', async () => {

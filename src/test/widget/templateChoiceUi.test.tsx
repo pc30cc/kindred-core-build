@@ -222,7 +222,7 @@ describe('WidgetLivePreview — the effective template', () => {
     expect(p.templateId).toBe('t1');
     expect(p.config.templateId).toBe('t1');
     expect(p.config.templateOptions).toEqual({ navStyle: 'vd', navMode: 'none', topics: [] });
-    expect(p.capabilities).toMatchObject({ kbNeutral: true, csat: true, chatMenu: true, reactions: false });
+    expect(p.capabilities).toMatchObject({ kbNeutral: true, csat: true, chatMenu: true, reactions: true, prechatSteps: true, awayThread: true, queuePosition: true, orderCard: false });
   });
 
   it('the default preview stays as it was: default template, no options', () => {
@@ -400,6 +400,50 @@ describe('WidgetLivePreview — a renderer\'s declared features, as Core reads t
     const kb = paint('kb', features);
     expect(kb.seen.kb).toMatchObject({ unreadTotal: 1, hasSearch: true });
     expect(kb.current).toEqual(['home:false', 'list:false', 'help:page']);
+  });
+});
+
+describe('WidgetLivePreview — the late surfaces, with the real renderers and extras', () => {
+  /** The frame's own script in a page of its own, painting with a real renderer that took its extras. */
+  function paintReal(id: 't1' | 't2', props: Partial<Parameters<typeof WidgetLivePreview>[0]>) {
+    const page = new JSDOM(srcdoc({ templateId: id, ...props }), { runScripts: 'outside-only' });
+    const w = page.window as unknown as Record<string, unknown> & { eval: (s: string) => void };
+    const inline = Array.from((page.window.document as Document).querySelectorAll('script:not([src])')).map((s) => s.textContent).join('\n');
+    w.eval(inline);
+    w.eval(readFileSync(resolve(process.cwd(), `public/widget/presentation-${id}.js`), 'utf8'));
+    w.eval(readFileSync(resolve(process.cwd(), `public/widget/presentation-${id}-x.js`), 'utf8'));
+    (w as unknown as { gsRenderPreview: (mod: unknown) => void }).gsRenderPreview(w[`__gs_presentation_${id}`]);
+    return page.window.document as Document;
+  }
+  const PRECHAT = { ask_name: true, ask_email: true, ask_phone: true, require_name: true, require_email: true, require_phone: false };
+
+  it('t1 with prechatMode steps: the chat view, the questions so far and the last step in the composer\'s place', () => {
+    const doc = paintReal('t1', { view: 'prechat', prechat: PRECHAT as never, templateOptions: { prechatMode: 'steps' } });
+    const box = doc.querySelector('[data-composer-zone] [data-prechat-step="phone"]')!;
+    expect(box).not.toBeNull();
+    expect((doc.querySelector('[data-input-bar]') as HTMLElement).style.display).toBe('none');
+    expect(box.querySelector('.pre')!.textContent).toBe('+98');
+    expect(box.querySelector('[data-prechat-step-skip]')).not.toBeNull();
+    expect(doc.querySelectorAll('[data-chat-messages] .msg.fail')).toHaveLength(1);
+    expect(doc.querySelector('#pq-phone')).not.toBeNull();
+    // The card option (or none) keeps the form.
+    const card = paintReal('t1', { view: 'prechat', prechat: PRECHAT as never, templateOptions: { prechatMode: 'card' } });
+    expect(card.querySelector('[data-prechat-step]')).toBeNull();
+    expect(card.querySelector('[data-prechat="name"]')).not.toBeNull();
+  });
+
+  it('away: the visitor\'s message and the automated reply asking for an e-mail (t1, t2)', () => {
+    const t1 = paintReal('t1', { view: 'offline' });
+    expect(t1.querySelector('.away-reply [data-fb="email"]')).not.toBeNull();
+    const t2 = paintReal('t2', { view: 'offline' });
+    expect(t2.querySelector('.away-reply [data-fb="email"]')).not.toBeNull();
+    expect(t2.querySelector('.away-reply [data-fb-skip]')).not.toBeNull();
+    // An offline mode that takes no message keeps the offline line.
+    for (const mode of ['show_offline_message', 'hide_widget']) {
+      const line = paintReal('t1', { view: 'offline', settings: { widget_language: 'en', offline_mode: mode, offline_message: 'Back soon' } });
+      expect(line.querySelector('.away-reply'), mode).toBeNull();
+      expect(line.querySelector('[data-chat-messages]')!.textContent, mode).toContain('Back soon');
+    }
   });
 });
 

@@ -23,6 +23,26 @@
  *              transcript by email, when the server offers it, and the
  *              notification sounds on/off (Core's `uiPrefsStore.soundEnabled`,
  *              remembered for this visitor in localStorage `gs:sound:<workspace>`)
+ *   reactions  a message's reactions (`metadata.reactions` for
+ *              `messagesHtml`, `view.react`): GET …/conversations/:id/reactions
+ *              when a thread shows (again after 60 s and after a reconnect),
+ *              the live `message_reactions` event (hook `reaction`, the newest
+ *              `at` wins), and the visitor's heart `[data-msg-react]` toggled
+ *              at once and confirmed (or undone) by POST …/reactions
+ *   prechatSteps  the pre-chat one question at a time (template option
+ *              `prechatMode: 'steps'`): the questions and answers in the thread
+ *              (`R.prechatStepsHtml` in the card's place), the step in the
+ *              composer's place (`R.prechatStepBoxHtml`), one POST
+ *              /api/widget/identity/prechat at the end; a conversation keeps
+ *              the mode its pre-chat first showed in
+ *   awayThread the message left while the team is away, in the thread: the
+ *              first one goes to POST /api/widget/offline-messages (its
+ *              `client_message_id` makes a retry safe), the automated reply
+ *              under it (`view.awayReply`) asks for an email (POST
+ *              /api/widget/identity/offline-email); later ones go as any message
+ *   queuePosition  the visitor's place in the queue on the queued row
+ *              (`view.queue`): GET /api/widget/queue every 30 s while that
+ *              row is the thread's last word and the thread is on screen
  *
  * Public API (window.__gs_mod_late): `v`, the version of the contract with
  * runtime-ext.js (the `api` below; runtime-ext refuses another version, so
@@ -42,6 +62,34 @@
 (function () {
   'use strict';
 
+  /**
+   * A widget API request: `done(status, json)`, status 0 when the request
+   * itself failed. `body` null: a GET (`path` carries its query).
+   */
+  function request(api, path, body, done) {
+    var ctx = api.ctx;
+    var init = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { method: 'GET' };
+    try {
+      ctx.fetchWith(ctx.apiBase + path, init).then(function (r) {
+        return r.json().then(function (j) { return [r.status, j]; }, function () { return [r.status, null]; });
+      }).then(function (a) { done(a[0], a[1] || {}); }, function () { done(0, {}); });
+    } catch (_) { done(0, {}); }
+  }
+  function enc(v) { return encodeURIComponent(v == null ? '' : v); }
+  /** A plain thread is on screen (not a pre-chat, a form or another view). */
+  function threadShown(api) {
+    var st = api.deriveChatTabState().name;
+    var sh = api.shellStore.get();
+    return !!sh.isOpen && sh.activeTab === 'chat' && (st === 'AI_CHAT' || st === 'HUMAN_WELCOME' || st === 'ACTIVE_THREAD');
+  }
+  /** Repaints a plain thread on screen, unless pre-chat fields being filled in would be repainted. */
+  function repaintThread(api) {
+    var a = api.panel.getRootNode().activeElement;
+    if (threadShown(api) && !(a && a.hasAttribute && a.hasAttribute('data-prechat'))) api.renderBody();
+  }
+  function focusOn(el) { if (el) { try { el.focus({ preventScroll: true }); } catch (_) {} } }
+  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
   // ═══ After a chat (`csat`, `chatMenu`) ═══
   function afterChat(api) {
     var ctx = api.ctx;
@@ -55,7 +103,6 @@
     var menuOn = api.feat('chatMenu');
     function opts() { return config.templateOptions || {}; }
     function active() { return root.activeElement; }
-    function focusOn(el) { if (el) { try { el.focus({ preventScroll: true }); } catch (_) {} } }
 
     // Per conversation, for this page: the server's answer (GET …/csat:
     // { closed_id, rateable, rating, operator, transcript: { available, to } }),
@@ -397,10 +444,650 @@
     });
   }
 
+  // ═══ Reactions (`reactions`) ═══
+  // Reactions live beside the messages, never in them: a map by message id
+  // for the conversation on screen, handed to the renderer as
+  // `metadata.reactions` only inside its messagesHtml, so the stores, the
+  // histories and `default` never see them.
+  function reactions(api) {
+    var ctx = api.ctx;
+    var chatStore = api.chatStore;
+    var root = api.panel.getRootNode();
+    var HEART = '❤️';
+    var cid = null;     // the conversation the maps are about
+    var lists = {};     // message id -> [{ emoji, count, mine }]
+    var ats = {};       // message id -> `at` of the state in hand
+    var busy = {};      // message id -> a toggle on its way
+    var shown = {};     // badges already on screen (no second pop)
+    var readAt = 0;     // when the conversation's reactions were last read (0: read again)
+    var seq = 0;
+    var refocus = null;
+    function forConv(c) {
+      c = c == null ? null : String(c);
+      if (c === cid) return;
+      cid = c;
+      lists = {};
+      ats = {};
+      busy = {};
+      readAt = 0;
+    }
+    /** Keeps the newest state: one older than the state in hand is ignored. */
+    function setList(id, list, at) {
+      if (at != null && ats[id] > at) return false;
+      if (at != null) ats[id] = at;
+      if (list && list.length) lists[id] = list; else delete lists[id];
+      return true;
+    }
+    function norm(list, mineKey) {
+      return (Array.isArray(list) ? list : []).map(function (r) {
+        return { emoji: String(r && r.emoji || ''), count: Math.floor(Number(r && r.count)) || 0, mine: !!(r && r[mineKey]) };
+      });
+    }
+    function read() {
+      var c = cid;
+      var my = ++seq;
+      readAt = Date.now();
+      request(api, '/api/widget/conversations/' + enc(c) + '/reactions?workspace_id=' + enc(ctx.workspaceId), null, function (status, j) {
+        if (my !== seq || c !== cid || status !== 200) return;
+        var got = j.reactions || {};
+        var id;
+        for (id in lists) if (!busy[id] && !Object.prototype.hasOwnProperty.call(got, id)) setList(id, [], j.at);
+        for (id in got) if (Object.prototype.hasOwnProperty.call(got, id) && !busy[id]) setList(id, norm(got[id], 'mine'), j.at);
+        repaintThread(api);
+      });
+    }
+    // Read when a thread is on screen: a new one, or one read over a minute ago.
+    function maybeRead() {
+      var c = chatStore.get().conversationId;
+      if (!c || !threadShown(api)) return;
+      forConv(c);
+      if (!readAt || Date.now() - readAt > 60000) read();
+    }
+    api.wrap('messagesHtml', function (orig, s, extra, view) {
+      if (view) {
+        view.react = true;
+        var mine = cid && String(chatStore.get().conversationId) === cid;
+        if (mine && Object.keys(lists).length) {
+          s = Object.assign({}, s, { messages: (s.messages || []).map(function (m) {
+            var list = m && m.__id && lists[m.__id];
+            return list ? Object.assign({}, m, { metadata: Object.assign({}, m.metadata, { reactions: list }) }) : m;
+          }) });
+        }
+      }
+      return orig(s, extra, view);
+    });
+    // The heart: on screen at once, then the server's answer (or the state before).
+    function toggle(el) {
+      var id = el.getAttribute('data-msg-id');
+      var emoji = el.getAttribute('data-msg-react') || HEART;
+      // The thread on screen (a heart above a pre-chat card is one too).
+      forConv(chatStore.get().conversationId);
+      var c = cid;
+      if (!id || !c || busy[id]) return;
+      var before = lists[id] || [];
+      var atBefore = ats[id];
+      var on = !before.some(function (r) { return r.emoji === emoji && r.mine; });
+      var found = false;
+      var next = before.map(function (r) {
+        if (r.emoji !== emoji) return r;
+        found = true;
+        return { emoji: r.emoji, count: r.count + (on ? 1 : -1), mine: on };
+      }).filter(function (r) { return r.count > 0; });
+      if (!found && on) next.push({ emoji: emoji, count: 1, mine: true });
+      busy[id] = 1;
+      if (root.activeElement === el) refocus = id;
+      setList(id, next, null);
+      api.renderBody();
+      request(api, '/api/widget/conversations/' + enc(c) + '/reactions', { workspace_id: ctx.workspaceId, message_id: id, emoji: emoji, on: on }, function (status, j) {
+        if (c !== cid) return;
+        busy[id] = 0;
+        if (status === 200 && Array.isArray(j.reactions)) setList(id, norm(j.reactions, 'mine'), j.at);
+        // Not saved: the state before, unless a newer one came meanwhile.
+        else if (ats[id] === atBefore) setList(id, before, null);
+        repaintThread(api);
+      });
+    }
+    api.panel.addEventListener('click', function (ev) {
+      var el = ev.target && ev.target.closest ? ev.target.closest('[data-msg-react]') : null;
+      if (el && api.panel.contains(el)) toggle(el);
+    });
+    // Another visitor tab or an operator reacted (the visitor's own reaction is `visitor`).
+    api.on('reaction', function (p) {
+      if (!p || cid == null || String(p.conversation_id) !== cid || !p.message_id) return;
+      if (setList(String(p.message_id), norm(p.reactions, 'visitor'), Number(p.at) || 0)) repaintThread(api);
+    });
+    api.on('wired', function (host) {
+      // A badge already on screen does not pop in again.
+      api.each(host, '.react[data-msg-id]', function (b) {
+        var k = b.getAttribute('data-msg-id') + '|' + b.textContent;
+        if (shown[k]) b.classList.add('no-enter');
+        shown[k] = 1;
+      });
+      if (refocus) {
+        focusOn(host.querySelector('[data-msg-react][data-msg-id="' + refocus.replace(/[^\w-]/g, '') + '"]'));
+        refocus = null;
+      }
+    });
+    // After every paint (a thread shown again repaints nothing when it did
+    // not change) and when the panel opens again.
+    api.on('body', maybeRead);
+    api.shellStore.subscribe(function () { maybeRead(); });
+    // A reconnect may have missed events: read again.
+    var online = api.transportStore.get().connectionState === 'online';
+    var wasOnline = online;
+    api.transportStore.subscribe(function (t) {
+      var now = t.connectionState === 'online';
+      if (now && !online && wasOnline) { readAt = 0; maybeRead(); }
+      if (now) wasOnline = true;
+      online = now;
+    });
+    return maybeRead;
+  }
+
+  // ═══ The pre-chat one question at a time (`prechatSteps`) ═══
+  function steps(api) {
+    var ctx = api.ctx;
+    var identity = api.identity;
+    var P = api.P;
+    var root = api.panel.getRootNode();
+    var zone = api.chatQ('[data-composer-zone]');
+    var inputBar = api.chatQ('[data-input-bar]');
+    var prechatValues = api.chatUI.x[4];
+    if (!zone || !inputBar || typeof P.prechatStepBoxHtml !== 'function') return;
+    // The edition's prefix for a number typed without one (no workspace country exists).
+    var PREFIX = ctx.config.edition === 'international' ? '' : '+98';
+    var PRECHAT = { PRECHAT_FOR_HUMAN: 1, HANDOFF_PRECHAT: 1 };
+    // The mode this conversation's pre-chat showed in first: a card (or the
+    // form) already on screen when this module came keeps its mode.
+    var mode = api.panel.querySelector('[data-prechat]') || api.chatQ('[data-prechat]') ? 'card' : null;
+    var st = null;          // the steps in progress
+    var done = null;        // Core's "submitted" for the pre-chat on screen
+    var skipped = false;    // every step skipped: no pre-chat for this page
+    var state = null;       // the chat tab's state, as the last paint saw it
+    var painted = false;    // this paint drew the steps
+    var box = null;
+    var boxSig = null;
+    function on() {
+      return mode !== 'card' && (ctx.config.templateOptions || {}).prechatMode === 'steps';
+    }
+    function start(editing) {
+      var v = prechatValues();
+      st = {
+        keys: ['name', 'email', 'phone'].filter(function (k) { return identity.isAsked(k); }),
+        i: 0, log: [], answers: {}, drafts: { name: v.name, email: v.email, phone: v.phone },
+        busy: false, error: false, editing: editing, focus: editing || state === 'PRECHAT_FOR_HUMAN',
+      };
+      api.paintChatHeader();
+    }
+    function stop() {
+      st = null;
+      api.paintChatHeader();
+    }
+    /** The answer as the server takes it, or null when it is not one. */
+    function check(key, raw) {
+      if (key === 'name') return raw.slice(0, 120);
+      if (key === 'email') return EMAIL_RE.test(raw) ? raw : null;
+      // Persian and Arabic digits, spaces and punctuation; 00 or + is a
+      // country code, else the edition's prefix without the leading zeros.
+      var d = raw.replace(/[۰-۹٠-٩]/g, function (c) { return String(c.charCodeAt(0) & 15); }).replace(/[\s\-().]/g, '');
+      d = /^00/.test(d) ? '+' + d.slice(2) : d.charAt(0) === '+' || !PREFIX ? d : PREFIX + d.replace(/^0+/, '');
+      return /^\+?\d{6,20}$/.test(d) ? d : null;
+    }
+    function firstName() {
+      var n = String(st.answers.name || ((api.identityStore.get() || {}).contact || {}).name || '').trim();
+      return n ? n.split(/\s+/)[0] : '';
+    }
+    function answer(skip) {
+      if (!st || st.busy) return;
+      var key = st.keys[st.i];
+      var raw = String(st.drafts[key] || '').trim();
+      if (skip) {
+        if (identity.isRequired(key)) return;
+        st.answers[key] = null;
+        st.log.push({ key: key, skip: true });
+      } else {
+        if (!raw) return;
+        var val = check(key, raw);
+        st.log.push({ key: key, value: raw, ok: val != null, why: 'invalid' });
+        if (val == null) { api.renderBody(); return; }
+        st.answers[key] = val;
+      }
+      st.error = false;
+      // The next step not answered yet (after a refusal from the server, the
+      // later answers stand); none: the details go to the server.
+      for (var i = 0; i < st.keys.length; i++) {
+        if (!Object.prototype.hasOwnProperty.call(st.answers, st.keys[i])) { st.i = i; st.focus = true; api.renderBody(); return; }
+      }
+      submit();
+    }
+    function submit() {
+      var a = st.answers;
+      if (!a.name && !a.email && !a.phone) {
+        // Nothing given (every step was optional): the chat opens without;
+        // the saved details being edited stay as they were.
+        if (st.editing) api.showPrechatSummary(identity);
+        else skipped = true;
+        stop();
+        api.renderBody();
+        focusOn(api.chatQ('[data-msg-input]'));
+        return;
+      }
+      st.busy = true;
+      st.error = false;
+      api.renderBody();
+      var editing = st.editing;
+      identity.submitPrechat({ name: a.name || '', email: a.email || '', phone: a.phone || '' }, function (ok, resp) {
+        if (!st) return;
+        st.busy = false;
+        if (ok) {
+          var cb = done;
+          stop();
+          if (editing) {
+            api.showPrechatSummary(identity);
+            api.renderBody();
+            focusOn(api.chatQ('[data-msg-input]'));
+          } else if (cb) cb();
+          return;
+        }
+        // A field the server refused goes back to its step; anything else
+        // is said under the step, to try again.
+        resp = resp || {};
+        var f = resp.field || st.keys.filter(function (k) { return resp.details && resp.details[k]; })[0];
+        var at = f ? st.keys.indexOf(f) : -1;
+        if (at < 0) st.error = true;
+        else {
+          st.i = at;
+          delete st.answers[f];
+          st.log.push({ key: f, value: String(st.drafts[f] || '').trim(), ok: false, why: resp.field ? 'required' : 'invalid' });
+          st.focus = true;
+        }
+        api.renderBody();
+      });
+    }
+    // The card's place: the steps, for a pre-chat (or the saved details
+    // being edited) whose conversation did not show a card first.
+    api.wrap('handoffPrechatCardHtml', function (orig, idt, contact, locale, subtitle, anim) {
+      if (!on()) {
+        mode = mode || 'card';
+        return orig(idt, contact, locale, subtitle, anim);
+      }
+      mode = 'steps';
+      var editing = !PRECHAT[state];
+      if (!st) start(editing);
+      painted = true;
+      var handoff = state === 'HANDOFF_PRECHAT';
+      return P.prechatStepsHtml({
+        key: st.keys[st.i], log: st.log, firstName: firstName(),
+        intro: handoff ? subtitle : '', introAnimate: handoff && !!anim,
+      });
+    });
+    // A pre-chat state paints the chat view with the steps (a first chat too)
+    // and no composer.
+    api.on('inline', function (cb) {
+      done = cb;
+      return on();
+    });
+    api.on('lock', function (name) {
+      state = name;
+      painted = false;
+      if (PRECHAT[name] && on()) return false;
+    });
+    api.on('skip', function (a, b, out) { return out || skipped || undefined; });
+    // While the steps show, the chat bar is the conversation's, not "new conversation".
+    api.wrap('chatHeaderHtml', function (orig, vm) {
+      if (st && vm) vm.isNew = false;
+      return orig(vm);
+    });
+    function boxVm() {
+      var key = st.keys[st.i];
+      return {
+        key: key, n: st.i + 1, total: st.keys.length, optional: !identity.isRequired(key),
+        value: st.drafts[key] || '', prefix: key === 'phone' ? PREFIX : '', busy: st.busy, error: st.error,
+      };
+    }
+    // After every paint of the chat tab: the step in the composer's place,
+    // made again only when the step itself changed (typing in it, a new
+    // message or a typing row repaint the thread, never the step).
+    api.on('body', function () {
+      if (api.shellStore.get().activeTab !== 'chat') return;
+      var vm = painted && st ? boxVm() : null;
+      // Editing the saved details: the steps take the composer's place too.
+      if (vm && st.editing) inputBar.style.display = 'none';
+      var sig = vm ? [vm.key, vm.n, vm.total, vm.busy, vm.error].join('|') : null;
+      if (sig === boxSig) return;
+      var had = box && box.contains(root.activeElement);
+      if (box && box.parentNode) box.parentNode.removeChild(box);
+      box = null;
+      boxSig = sig;
+      if (!vm) return;
+      inputBar.insertAdjacentHTML('beforebegin', P.prechatStepBoxHtml(vm));
+      box = inputBar.previousElementSibling;
+      var input = box && box.querySelector('[data-prechat-step-input]');
+      if (input && (had || st.focus)) {
+        focusOn(input);
+        try { input.setSelectionRange(input.value.length, input.value.length); } catch (_) {}
+      }
+      st.focus = false;
+    });
+    // The step's controls, delegated on the composer zone (bound once).
+    var composing = false;
+    zone.addEventListener('input', function (ev) {
+      var el = ev.target;
+      if (!st || !el || !el.hasAttribute || !el.hasAttribute('data-prechat-step-input')) return;
+      st.drafts[st.keys[st.i]] = el.value || '';
+      var send = box && box.querySelector('[data-prechat-step-submit]');
+      if (send) send.disabled = st.busy || !String(el.value || '').trim();
+    });
+    zone.addEventListener('compositionstart', function () { composing = true; });
+    zone.addEventListener('compositionend', function () { composing = false; });
+    zone.addEventListener('keydown', function (ev) {
+      var el = ev.target;
+      // An IME's Enter commits its word.
+      if (ev.key !== 'Enter' || ev.isComposing || ev.keyCode === 229 || composing || !el || !el.hasAttribute || !el.hasAttribute('data-prechat-step-input')) return;
+      ev.preventDefault();
+      answer(false);
+    });
+    zone.addEventListener('click', function (ev) {
+      var el = ev.target && ev.target.closest ? ev.target.closest('[data-prechat-step-submit], [data-prechat-step-skip]') : null;
+      if (el) answer(el.hasAttribute('data-prechat-step-skip'));
+    });
+    // A new conversation (or another one) starts its pre-chat afresh.
+    function reset() { mode = null; if (st) stop(); }
+    var startNew = api.chatUI.startNewConversation;
+    api.chatUI.startNewConversation = function () {
+      var out = startNew.apply(this, arguments);
+      reset();
+      return out;
+    };
+    // Back in a conversation, its pre-chat's mode again.
+    var modes = {};
+    var shownCid = api.chatStore.get().conversationId;
+    api.chatStore.subscribe(function (s) {
+      var c = s.conversationId;
+      if (c && shownCid && String(c) !== String(shownCid) && !(st && st.busy)) {
+        modes[shownCid] = mode;
+        reset();
+        mode = modes[c] || null;
+      }
+      if (c) shownCid = c;
+    });
+  }
+
+  // ═══ The message left while the team is away (`awayThread`) ═══
+  function away(api) {
+    var ctx = api.ctx;
+    var config = ctx.config || {};
+    var chatStore = api.chatStore;
+    var presenceStore = api.presenceStore;
+    var identityStore = api.identityStore;
+    var root = api.panel.getRootNode();
+    var msgInput = api.chatQ('[data-msg-input]');
+    var placeholder = msgInput ? msgInput.getAttribute('placeholder') : null;
+    var invited = false;    // the composer shows the renderer's "add more" text
+    var captured = {};      // local ids of the messages sent as the message left away
+    var card = { status: 'ask', value: '', error: '' };
+    var keep = null;        // the e-mail field's focus and caret across a repaint
+    // The leave-a-message form already on screen keeps the tab while it is.
+    var formFirst = !!api.panel.querySelector('[data-fb="message"]');
+    function awayOn() {
+      if (formFirst && api.panel.querySelector('[data-fb="message"]')) return false;
+      formFirst = false;
+      var p = presenceStore.get();
+      var av = config.availability || {};
+      var ai = config.aiAgent;
+      // Presence publishes its mode on its first change of status; offline
+      // from the start (the server's `availability.state`), the store still
+      // holds its initial 'accept_messages' and the workspace's own mode is
+      // the one (a capture unless it hides the widget or only shows a
+      // message, as createPresence normalises it).
+      var m = p.offlineMode;
+      if (m === 'accept_messages' && av.state === 'offline') m = av.offlineMode || av.offline_mode;
+      return p.status === 'offline' && p.liveChatEnabled !== false
+        && m !== 'accept_messages' && m !== 'hide_widget' && m !== 'show_offline_message'
+        && !(ai && ai.suppressGreeting === true)
+        && ctx.__quotaFull !== true && av.quota_full !== true;
+    }
+    function contact() { return (identityStore.get() || {}).contact || {}; }
+    // Away, the chat tab stays the thread with the composer open; attaching
+    // waits for the conversation (the message left away takes no file).
+    api.on('away', function (kind) {
+      if (!awayOn()) return;
+      return kind === 'attach' ? !!chatStore.get().conversationId : true;
+    });
+    // A conversation's first message, away: the message left for the team.
+    // What the visitor writes while it is on its way waits for it (each
+    // capture would be a conversation of its own), then goes as any message
+    // of that conversation: Core's retry, once marked as not sent.
+    var later = null;
+    api.on('send', function (req, cbs) {
+      if (later && !req.conversationId) { later.push(req.clientMessageId, cbs); return true; }
+      if (!awayOn() || req.conversationId || req.attachmentId) return;
+      var c = contact();
+      var body = { workspace_id: ctx.workspaceId, message: req.text, locale: ctx.locale || 'en', honeypot: '', client_message_id: req.clientMessageId };
+      if (c.name) body.name = c.name;
+      if (c.email) body.email = c.email;
+      if (c.phone) body.phone = c.phone;
+      captured[req.clientMessageId] = 1;
+      later = [];
+      // Core's transport rule: an answer for a conversation left meanwhile is dropped.
+      var epoch = api.ConvEpoch.get();
+      request(api, '/api/widget/offline-messages', body, function (status, j) {
+        var next = later;
+        later = null;
+        if (!api.ConvEpoch.valid(epoch)) return;
+        var ok = status === 200 && j.conversation_id;
+        if (ok) {
+          cbs.onConversation(j.conversation_id);
+          cbs.onAccepted({ messageId: j.message_id || null });
+        } else cbs.onError({ status: status, feature: j.feature || j.code });
+        for (var i = 0; i < next.length; i += 2) {
+          next[i + 1].onError({});
+          if (ok) api.chatUI.resendMessage(next[i], api.renderBody);
+        }
+      });
+      return true;
+    });
+    /** The automated reply's view-model: under the message left away (this page's, or a history's). */
+    function replyVm(s) {
+      var msgs = s.messages || [];
+      for (var i = 0; i < msgs.length; i++) {
+        var m = msgs[i];
+        if (m.sender !== 'visitor' || !(captured[m.localId] || (m.metadata && m.metadata.source === 'offline_capture'))) continue;
+        if (m.status === 'sending' || m.status === 'failed') return null;
+        var email = String(contact().email || '');
+        return {
+          at: i, email: email, value: card.value, error: card.error, skip: !api.identity.isRequired('email'),
+          status: email && card.status !== 'saving' ? 'saved' : card.status === 'saved' ? 'ask' : card.status,
+        };
+      }
+      return null;
+    }
+    api.wrap('messagesHtml', function (orig, s, extra, view) {
+      if (view) {
+        view.awayReply = replyVm(s);
+        var a = root.activeElement;
+        keep = a && a.hasAttribute && a.hasAttribute('data-fb') ? { a: a.selectionStart, b: a.selectionEnd } : null;
+      }
+      return orig(s, extra, view);
+    });
+    function saveEmail(input) {
+      var c = chatStore.get().conversationId;
+      var v = String(input.value || '').trim();
+      card.value = v;
+      if (card.status === 'saving' || !c) return;
+      if (!EMAIL_RE.test(v)) {
+        card.error = 'invalidEmail';
+        api.renderBody();
+        return;
+      }
+      card.status = 'saving';
+      card.error = '';
+      api.renderBody();
+      request(api, '/api/widget/identity/offline-email', { workspace_id: ctx.workspaceId, conversation_id: c, email: v }, function (status, j) {
+        if (status === 200) {
+          var prev = contact();
+          card.status = 'saved';
+          identityStore.set({ identityState: 'identified', contact: Object.assign({}, prev, { id: j.contact_id || prev.id || null, email: v }) });
+        } else {
+          card.status = 'ask';
+          card.error = status === 400 ? 'invalidEmail' : 'fallbackError';
+        }
+        repaintThread(api);
+      });
+    }
+    // The card's controls, on the panel (bound once, before any card is drawn).
+    api.panel.addEventListener('submit', function (ev) {
+      var form = ev.target;
+      if (!form || !form.closest || !form.closest('.away-reply')) return;
+      ev.preventDefault();
+      var input = form.querySelector('[data-fb="email"]');
+      if (input) saveEmail(input);
+    });
+    api.panel.addEventListener('input', function (ev) {
+      var el = ev.target;
+      if (el && el.closest && el.closest('.away-reply') && el.hasAttribute('data-fb')) {
+        card.value = el.value || '';
+        if (card.error) { card.error = ''; el.setAttribute('aria-invalid', 'false'); }
+      }
+    });
+    api.panel.addEventListener('click', function (ev) {
+      var el = ev.target && ev.target.closest ? ev.target.closest('[data-fb-skip]') : null;
+      if (!el || !el.closest('.away-reply')) return;
+      card.status = 'skipped';
+      api.renderBody();
+      focusOn(msgInput);
+    });
+    api.on('wired', function (host) {
+      var field = host.querySelector('.away-reply [data-fb="email"]');
+      // The field the visitor was in, back with its caret (a status read out
+      // stays where it is).
+      if (keep && field && !root.activeElement) {
+        focusOn(field);
+        try { field.setSelectionRange(keep.a, keep.b); } catch (_) {}
+      }
+      keep = null;
+      // Its card's error, said where the field is described.
+      if (card.error && field) field.setAttribute('aria-invalid', 'true');
+    });
+    // While away, the composer invites more (a renderer naming that text in
+    // the thread on screen); back to its own words otherwise.
+    api.on('body', function () {
+      var row = api.shellStore.get().activeTab === 'chat' && api.chatQ('[data-chat-messages] [data-ph-away]');
+      var more = row && awayOn() ? row.getAttribute('data-ph-away') : null;
+      if (msgInput && (more || invited)) msgInput.setAttribute('placeholder', more || placeholder || '');
+      invited = !!more;
+    });
+    // The composer and the tab follow presence and the conversation.
+    var wasAway = awayOn();
+    function sync() {
+      api.applyComposerState();
+      api.syncAttachButton();
+    }
+    presenceStore.subscribe(function () {
+      var now = awayOn();
+      if (now === wasAway) return;
+      wasAway = now;
+      sync();
+      if (api.shellStore.get().activeTab === 'chat') api.renderBody();
+    });
+    var hadConv = chatStore.get().conversationId;
+    chatStore.subscribe(function (s) {
+      var c = s.conversationId;
+      if (String(c) === String(hadConv)) return;
+      // Another conversation's reply starts over (the one just made keeps it).
+      if (c && hadConv) card = { status: 'ask', value: '', error: '' };
+      if (!c !== !hadConv) sync();
+      hadConv = c;
+    });
+    var startNew = api.chatUI.startNewConversation;
+    api.chatUI.startNewConversation = function () {
+      var out = startNew.apply(this, arguments);
+      card = { status: 'ask', value: '', error: '' };
+      return out;
+    };
+    // This module comes after Core set the composer for the away team.
+    sync();
+  }
+
+  // ═══ The place in the queue (`queuePosition`) ═══
+  function queue(api) {
+    var ctx = api.ctx;
+    var chatStore = api.chatStore;
+    var shellStore = api.shellStore;
+    var q = null;        // { cid, row, position, waitMinutes }
+    var timer = null;
+    var asking = false;
+    var over = {};       // queued rows the server said are not waiting any more
+    /** Index of the queued row that is the thread's last word on routing, else -1. */
+    function queuedRow(msgs) {
+      for (var i = msgs.length - 1; i >= 0; i--) {
+        var m = msgs[i];
+        var k = m.metadata && m.metadata.kind;
+        if (k === 'routing_in_queue') return i;
+        if (k === 'routing_agent_joined' || k === 'conversation_transferred' || k === 'conversation_closed'
+          || (m.sender !== 'visitor' && (m.senderType === 'agent' || m.senderType === 'operator' || m.senderType === 'human'))) return -1;
+      }
+      return -1;
+    }
+    /** The queued row worth asking about now: the thread on screen, the panel open, the page visible. */
+    function wanted() {
+      var s = chatStore.get();
+      var sh = shellStore.get();
+      var msgs = s.messages || [];
+      var i = s.conversationId && sh.isOpen && sh.activeTab === 'chat' && document.visibilityState !== 'hidden' ? queuedRow(msgs) : -1;
+      return i < 0 || over[msgs[i].__id || i] ? null : { cid: String(s.conversationId), row: msgs[i].__id || i };
+    }
+    function poll() {
+      clearTimeout(timer);
+      timer = null;
+      var w = wanted();
+      if (!w || asking) return;
+      asking = true;
+      request(api, '/api/widget/queue?workspace_id=' + enc(ctx.workspaceId) + '&conversation_id=' + enc(w.cid), null, function (status, j) {
+        asking = false;
+        var next = q;
+        if (status === 200) {
+          var n = Math.floor(Number(j.position)) || 0;
+          next = n > 0 ? { cid: w.cid, row: w.row, position: n, waitMinutes: Math.floor(Number(j.wait_minutes)) || null } : null;
+          if (!next) over[w.row] = 1;
+        } else if (status > 399 && status < 500 && status !== 429) over[w.row] = 1; // refused: not asked again
+        // The next ask is planned before the repaint (which would ask again).
+        if (wanted()) timer = setTimeout(poll, 30000);
+        if (JSON.stringify(next) !== JSON.stringify(q)) { q = next; repaintThread(api); }
+      });
+    }
+    api.wrap('messagesHtml', function (orig, s, extra, view) {
+      var i = view && q ? queuedRow(s.messages || []) : -1;
+      if (i >= 0 && q.cid === String(chatStore.get().conversationId) && (s.messages[i].__id || i) === q.row) {
+        view.queue = { at: i, position: q.position, waitMinutes: q.waitMinutes };
+      }
+      return orig(s, extra, view);
+    });
+    // Asked when such a row is shown, then every 30 s while it is wanted.
+    api.on('body', function () { if (!timer && !asking) poll(); });
+    document.addEventListener('visibilitychange', function () { if (!timer && !asking) poll(); });
+    // A closed panel or another view pauses it; back, it asks at once.
+    shellStore.subscribe(function () {
+      if (!wanted()) { clearTimeout(timer); timer = null; } else if (!timer && !asking) poll();
+    });
+    return poll;
+  }
+
   function create(api) {
+    var kicks = [];
     if (api.feat('csat') || api.feat('chatMenu')) afterChat(api);
+    if (api.feat('reactions')) kicks.push(reactions(api));
+    if (api.feat('prechatSteps')) steps(api);
+    if (api.feat('awayThread')) away(api);
+    if (api.feat('queuePosition')) kicks.push(queue(api));
+    // Once the pack is in (right after this), a thread already on screen
+    // gets what it adds: its data asked for, and one repaint.
+    Promise.resolve().then(function () {
+      kicks.forEach(function (k) { k(); });
+      repaintThread(api);
+    });
     return {};
   }
 
-  window.__gs_mod_late = { v: 1, create: create };
+  window.__gs_mod_late = { v: 2, create: create };
 })();

@@ -38,6 +38,11 @@
  *   closedNotice         runtime.js keeps `conversation_closed` rows (the "closed the
  *                        conversation" line) only for such a renderer
  *   csat, chatMenu       the rating card and the chat bar's menu: runtime-late.js
+ *   reactions, prechatSteps, awayThread, queuePosition
+ *                        a message's reactions, the pre-chat one question at a time, the
+ *                        message left while the team is away, the place in the queue:
+ *                        runtime-late.js (this module's hooks `reaction`, `inline`,
+ *                        `away`, `send` answer nothing of their own)
  *
  * It also brings the late pack, for a renderer whose descriptor names
  * extras (`presentation-<renderer>-x.js`): the renderer's extras and Core's
@@ -81,6 +86,7 @@
     var kb = kbUI.x;
 
     function feat(name) { return !!(P.features && P.features[name]); }
+    function noop() {}
     function each(root, sel, fn) { Array.prototype.forEach.call(root.querySelectorAll(sel), fn); }
     function onClick(root, sel, fn) {
       each(root, sel, function (el) { el.addEventListener('click', function (ev) { fn(el, ev); }); });
@@ -176,10 +182,11 @@
       }
       return null;
     }
-    // Typing events carry no name: the person drawn is the current operator,
-    // else the first team member who is online.
-    function typingPerson() {
-      var op = currentOperator() || teamMembers.filter(function (m) { return m && m.online; })[0] || {};
+    // The person an operator's typing event names (`p.name`, `p.avatar`),
+    // else the current operator, else the first team member who is online.
+    function typingPerson(p) {
+      var op = p && typeof p.name == 'string' && p.name.trim() ? { name: p.name.trim().slice(0, 80), avatar: typeof p.avatar == 'string' ? p.avatar : null }
+        : currentOperator() || teamMembers.filter(function (m) { return m && m.online; })[0] || {};
       return { name: op.name || '', avatar: op.avatar || null };
     }
     var operatorTyping = null;
@@ -801,7 +808,7 @@
     // canonical-name fallback) is refused by its id and version, and then
     // neither is used and their features stay off. If the renderer was
     // asked for a surface before they were in, Core repaints once.
-    var LATE_V = 1;
+    var LATE_V = 2;
     var registry = window.__gs_presentation_registry;
     var desc = registry && typeof registry.resolve === 'function' ? registry.resolve(config.templateId) : null;
     var lateFile = typeof P.extend === 'function' && desc && desc.extras;
@@ -819,7 +826,7 @@
       notifyStore: notifyStore, identityStore: identityStore, kbStore: kbStore, attachmentStore: attachmentStore,
       transportStore: transportStore, uiPrefsStore: uiPrefsStore,
       renderBody: renderBody, renderHome: renderHome, switchTab: switchTab, deriveChatTabState: deriveChatTabState,
-      trySend: trySend, applyComposerState: applyComposerState,
+      trySend: trySend, applyComposerState: applyComposerState, syncAttachButton: syncAttachButton, showPrechatSummary: showPrechatSummary,
       feat: feat, each: each, onClick: onClick, wrap: wrap, currentOperator: currentOperator,
       startConversationWith: startConversationWith, loadLatePack: loadLatePack, paintChatHeader: repaintChatHeader,
       /** Registers `fn` on hook `name` (one runtime.js runs); false for any other name. */
@@ -955,7 +962,7 @@
     (earlyCalls || []).forEach(function (call) {
       if (call[0] === 'conv') { mapConversation(call[1], call[2]); earlyRows[call[1].id] = call[2]; }
       else if (call[0] === 'history') adoptHistory(call[1], call[2]);
-      else if (call[0] === 'typing') setOperatorTypingVm(call[1] ? typingPerson() : null);
+      else if (call[0] === 'typing') setOperatorTypingVm(call[1] ? typingPerson(call[2]) : null);
     });
     replaying = false;
     ((conversationsStore.get() || {}).items || []).forEach(function (vm) {
@@ -1042,7 +1049,7 @@
         if (summaryPainted) wirePrechatSummary(root);
       },
       history: adoptHistory,
-      typing: function (on) { setOperatorTypingVm(on ? typingPerson() : null); },
+      typing: function (on, p) { setOperatorTypingVm(on ? typingPerson(p) : null); },
       presence: function (s) {
         if (!feat('chatHeader')) return false;
         renderHeaderPresence(s);
@@ -1149,6 +1156,12 @@
       kbBack: stepBack,
       kbOpen: function () { if (kb.view !== 'article') articleFrom = kb.view; },
       kbRender: function () { if (searchOnRender) { searchOnRender = false; searchNow(); } },
+
+      // ── runtime-late.js only (nothing of this module's own) ──
+      reaction: noop,
+      inline: noop,
+      away: noop,
+      send: noop,
     };
     // Each hook runs this module's own handler, then the late module's for
     // it (runtime-late.js `api.on`), in the order they were registered:

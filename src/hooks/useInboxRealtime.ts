@@ -102,6 +102,11 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
       ) {
         // Phase 2 — operator AI suggestion card refresh
         invalidateThrottled(queryClient, ['ai-agent', 'conv-suggestions', conversationId]);
+      } else if (kind === 'message_reactions') {
+        // A reaction (the visitor's, or a teammate's): the thread re-reads
+        // its messages, where each carries its reactions as this operator
+        // sees them. The list shows none, so it stays as it is.
+        invalidateThrottled(queryClient, ['messages', conversationId], MESSAGES_WINDOW_MS);
       }
       handlersRef.current.onEvent?.(payload);
     };

@@ -238,7 +238,7 @@ describe('the kit\'s animations', () => {
     expect(LOADER_SRC).toContain('setOperatorTyping: setOperatorTyping,');
     expect(LOADER_SRC).toMatch(/if \(LOCAL_KIT && launcherEl\.classList\.contains\("lk-kit"\)\) launcherEl\.classList\.toggle\("lk-kit-typing", !!on\);/);
     expect(runtime).toContain("if (shell && typeof shell.setOperatorTyping === 'function')");
-    expect(runtime).toMatch(/function showOperatorTyping\(\) \{\s+\/\/[^\n]*\n\s+launcherTyping\(true\);/);
+    expect(runtime).toMatch(/function showOperatorTyping\(p\) \{\s+\/\/[^\n]*\n\s+launcherTyping\(true\);/);
   });
 
   it.each([

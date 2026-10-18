@@ -17,13 +17,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 let stored: Record<string, unknown>;
-const rpcCalls: Array<{ name: string; args: any }> = [];
-const wholeDocumentWrites: any[] = [];
-const systemMessages: any[] = [];
+type Row = Record<string, unknown>;
+const rpcCalls: Array<{ name: string; args: { p_patch?: Row } & Row }> = [];
+const wholeDocumentWrites: Row[] = [];
+const systemMessages: Row[] = [];
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
-    rpc: async (name: string, args: any) => {
+    rpc: async (name: string, args: { p_patch?: Row } & Row) => {
       rpcCalls.push({ name, args });
       if (name === 'patch_conversation_metadata') {
         stored = { ...stored, ...(args.p_patch || {}) };
@@ -32,19 +33,19 @@ vi.mock('../../../server/supabase.js', () => ({
       return { data: null, error: { message: 'unsupported_rpc' } };
     },
     from: (table: string) => {
-      const api: any = {
-        _update: null as any,
+      const api: Record<string, unknown> = {
+        _update: null as Row | null,
         select: () => api,
         eq: () => api,
         not: () => api,
         order: () => api,
         limit: () => api,
-        update(patch: any) {
+        update(patch: Row) {
           if (table === 'conversations' && patch && 'metadata' in patch) wholeDocumentWrites.push(patch);
           api._update = patch;
           return api;
         },
-        insert(row: any) {
+        insert(row: Row) {
           if (table === 'conversation_messages') {
             systemMessages.push(row);
             // A concurrent Telegram offline-screen claim lands here, i.e.
@@ -75,7 +76,7 @@ vi.mock('../../../server/supabase.js', () => ({
 vi.mock('../../../server/services/realtime/publish.js', () => ({
   publishOperatorEvent: async () => {},
   publishConversationEvent: async () => {},
-  buildMessageEnvelope: (m: any) => m,
+  buildMessageEnvelope: (m: unknown) => m,
 }));
 vi.mock('../../../server/services/channels/outbound.js', () => ({
   dispatchOutboundIfChannelConversation: async () => {},
@@ -86,7 +87,7 @@ vi.mock('../../../server/services/channels/telegram/offlineDelivery.js', () => (
 
 const { routeConversationToOperator } = await import('../../../server/services/chatRouting');
 
-const config = {} as any;
+const config = {} as never;
 
 beforeEach(() => {
   stored = { channel: 'telegram', ai_state: 'needs_human', human_takeover_at: '2026-01-01T00:00:00Z' };
@@ -103,9 +104,11 @@ describe('chat routing metadata contract', () => {
     expect(wholeDocumentWrites).toEqual([]);
     const patches = rpcCalls.filter((c) => c.name === 'patch_conversation_metadata');
     expect(patches.length).toBeGreaterThan(0);
+    // Its own keys: routing_* and the queue's entry (queued_at,
+    // queue_entry_position, issue #340: the visitor's place in the queue).
     for (const p of patches) {
       for (const key of Object.keys(p.args.p_patch)) {
-        expect(key.startsWith('routing_')).toBe(true);
+        expect(key.startsWith('routing_') || key === 'queued_at' || key === 'queue_entry_position', key).toBe(true);
       }
     }
   });

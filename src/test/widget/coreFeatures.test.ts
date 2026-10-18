@@ -116,10 +116,12 @@ describe('env and the gate', () => {
     const h = boot({ renderer: featureRenderer({ visitorName: true }), identity: { identity_state: 'identified', contact: { name: 'علی رضایی' } } });
     await flush(20);
     expect(capabilities(h).kbNeutral).toBe(true);
-    // The rating after a chat and the chat's menu are served (runtime-late.js); reactions are not yet.
-    expect(capabilities(h).csat).toBe(true);
-    expect(capabilities(h).chatMenu).toBe(true);
-    expect(capabilities(h).reactions).toBe(false);
+    // The rating after a chat, the chat's menu, reactions, the pre-chat in
+    // steps, the message left away and the queue place are served
+    // (runtime-late.js); the order card and instant answers are not yet.
+    for (const k of ['csat', 'chatMenu', 'reactions', 'prechatSteps', 'awayThread', 'queuePosition']) expect(capabilities(h)[k], k).toBe(true);
+    expect(capabilities(h).orderCard).toBe(false);
+    expect(capabilities(h).instantAnswers).toBe(false);
     const vm = h.lastCall('homeHtml')![0] as Record<string, unknown>;
     expect(vm.visitorName).toBe('علی');
     expect(vm).not.toHaveProperty('unreadTotal');

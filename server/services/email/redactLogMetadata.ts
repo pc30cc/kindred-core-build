@@ -15,6 +15,18 @@
 
 export const REDACTED = '[REDACTED]';
 
+/** In place of a bulky template value the log does not keep. */
+export const OMITTED = '[OMITTED]';
+
+/**
+ * Template data that is a whole document rather than a field: the visitor's
+ * conversation transcript (services/visitorTranscript.ts, up to 200 KiB of
+ * HTML and its text twin). The mail carried it; the log row keeps only that
+ * it was there, so a delivery log is neither a second copy of the
+ * conversation nor 400 KiB a row.
+ */
+const BULKY_KEY = /^(transcript|transcript_text)$/i;
+
 /**
  * Any key whose name suggests a credential or a credential-bearing link.
  * Matched case-insensitively as a substring, so `action_url`, `verifyUrl`,
@@ -42,7 +54,9 @@ function redactValue(value: unknown, depth: number): unknown {
 function redactRecord(obj: Record<string, unknown>, depth: number): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
-    if (SENSITIVE_KEY.test(key) && value !== null && value !== undefined && value !== '') {
+    if (BULKY_KEY.test(key) && value !== null && value !== undefined && value !== '') {
+      out[key] = OMITTED;
+    } else if (SENSITIVE_KEY.test(key) && value !== null && value !== undefined && value !== '') {
       out[key] = REDACTED;
     } else {
       out[key] = redactValue(value, depth);
@@ -53,8 +67,9 @@ function redactRecord(obj: Record<string, unknown>, depth: number): Record<strin
 
 /**
  * Returns a deep copy of `value` with every credential-looking field replaced
- * by `[REDACTED]`. Non-object input is returned unchanged (after URL check).
- * Never throws.
+ * by `[REDACTED]` and every bulky one (a transcript) by `[OMITTED]`, on
+ * writes and on reads of older rows alike. Non-object input is returned
+ * unchanged (after URL check). Never throws.
  */
 export function redactSecrets<T>(value: T): T {
   try {

@@ -143,6 +143,10 @@ interface Fixture {
   kb?: { categories: unknown[]; articles: Array<Record<string, unknown>>; search: Record<string, unknown[]>; body?: string };
   /** GET /api/widget/conversations/:id/csat (the rating card, the transcript); default: nothing to rate, no transcript. */
   csat?: Record<string, unknown>;
+  /** GET /api/widget/conversations/:id/reactions, by conversation: message id -> [{ emoji, count, mine }]. */
+  reactions?: Record<string, Record<string, Array<{ emoji: string; count: number; mine: boolean }>>>;
+  /** GET /api/widget/queue: the visitor's place (default: not queued). */
+  queue?: { position: number | null; wait_minutes: number | null };
 }
 
 function baseFixture(): Fixture {
@@ -215,8 +219,8 @@ async function newConversation(page: Page) {
   await pause(page, 300);
   await online(page);
 }
-async function typing(page: Page) {
-  await page.evaluate(() => (window as unknown as { __gsTyping?: () => void }).__gsTyping?.());
+async function typing(page: Page, payload?: Record<string, unknown>) {
+  await page.evaluate((p) => (window as unknown as { __gsTyping?: (p?: unknown) => void }).__gsTyping?.(p), payload);
 }
 
 // ─── Template 1's panels, with each panel's own demo content ────────────
@@ -241,6 +245,15 @@ const T1_THREADS: Record<string, Msg[]> = {
   // 08·a–c: the visitor's first message (Core draws the card inline once a
   // thread has one; an empty thread gets the full-screen form).
   'c-t1-card': [visitor('p1', 'سلام، درباره سفارشم سؤال دارم.', at(23, 40), { seen_at: null })],
+  // 08·c: the team's answer, the queued row, the visitor's question.
+  'c-t1-queue': [
+    sara('q1', 'ممنون علی! یکی از همکارهام تا چند دقیقه دیگه جواب می‌ده. سؤال‌تون رو بنویسید.', at(23, 47)),
+    {
+      id: 'q2', role: 'system', sender_type: 'system', text: 'Your message is in the support queue.', time: at(23, 47),
+      metadata: { kind: 'routing_in_queue' },
+    },
+    visitor('q3', 'سلام، سفارش ۴۸۲۱۳ هنوز کد رهگیری نداره.', at(23, 48), { seen_at: null }),
+  ],
   // 12·15: the phone's conversation.
   'c-t1-phone': [
     visitor('k1', 'سلام، دوشنبه یه کفش سفارش دادم ولی هنوز کد رهگیری برام نیومده.', at(19, 42)),
@@ -277,6 +290,25 @@ const t1PrechatCard = (f: Fixture) => {
     handoffPrechatMessageLocalized: { fa: 'سلام! خوش اومدید. قبل از شروع خودتون رو معرفی کنید تا اگه از سایت رفتید هم جواب‌تون برسه.' },
   };
 };
+/** 08·b: the pre-chat asked one question at a time, name and e-mail required, the phone optional. */
+const t1Steps = (f: Fixture) => {
+  f.identity = {
+    identity_state: 'anonymous', contact: null,
+    prechat: { ask_name: true, require_name: true, ask_email: true, require_email: true, ask_phone: true, require_phone: false, timing: 'always' },
+  };
+  f.config.templateOptions = { ...((f.config.templateOptions as Record<string, unknown>) || {}), prechatMode: 'steps' };
+};
+async function startSteps(page: Page) {
+  await online(page);
+  await page.locator('[data-home-action="chat"]').first().click();
+  await pause(page, 400);
+}
+async function step(page: Page, value: string) {
+  const input = page.locator('[data-prechat-step-input]');
+  await input.fill(value);
+  await input.press('Enter');
+  await pause(page, 300);
+}
 const T1_TOPICS = [
   { label: 'پیگیری سفارش', icon: 'truck' }, { label: 'مشاوره خرید', icon: 'chat' },
   { label: 'مرجوعی و بازگشت وجه', icon: 'return' }, { label: 'پشتیبانی فنی', icon: 'help' },
@@ -353,6 +385,13 @@ const T2_THREADS: Record<string, Msg[]> = {
   ],
   'c-email': [visitor('f1', 'سلام، برای خرید عمده تخفیف دارید؟', at(19, 42))],
 };
+/** 05 (reactions): a thread whose operator lines the server stores (uuids: the heart is offered). */
+const T2_REACT_ID = 'b1b1b1b1-0000-4000-8000-000000000002';
+const T2_REACT_THREAD: Msg[] = [
+  visitor('b1b1b1b1-0000-4000-8000-000000000001', 'سلام، فاکتور سفارش ۴۸۲۱۳ را می‌خواستم.', at(20, 4)),
+  sara(T2_REACT_ID, 'این هم فاکتور سفارشتان.', at(20, 6)),
+  sara('b1b1b1b1-0000-4000-8000-000000000003', 'کار دیگری هست که کمک کنم؟', at(20, 6)),
+];
 /** The design's workspace settings: reply time, topics, ask examples. */
 function t2Workspace(f: Fixture, topics?: Array<{ label: string; icon: string }>) {
   f.config.replyTimeText = T2_REPLY;
@@ -368,6 +407,8 @@ function t2Workspace(f: Fixture, topics?: Array<{ label: string; icon: string }>
 }
 const t2Home = (f: Fixture) => { t2Workspace(f); f.kb = T2_HOME_KB; };
 const t2Help = (f: Fixture) => { t2Workspace(f); f.kb = T2_HELP_KB; };
+/** 05: the operator's line under the invoice got the visitor's heart. */
+const T2_MEDIA_REACTIONS = { 'c-media': { e3: [{ emoji: '\u2764\uFE0F', count: 1, mine: true }] } };
 const t2Live = (f: Fixture) => { t2Workspace(f); f.identity = RETURNING; f.conversations = [T2_OPEN]; };
 /** 12: the thread an operator closed, its line, and the rating card (the transcript offered). */
 const T2_CLOSED: Msg[] = [
@@ -643,6 +684,56 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await pause(page, 500);
     },
   },
+  // 08·b: the pre-chat one question at a time (template option prechatMode
+  // 'steps'): the name taken, an e-mail refused then taken, the phone step.
+  't1-prechat-steps': {
+    home: true,
+    keepFocus: true,
+    setup: t1Steps,
+    drive: async ({ page }) => {
+      await startSteps(page);
+      await step(page, 'علی رضایی');
+      await step(page, 'ali@example');
+      await step(page, 'ali@example.com');
+    },
+  },
+  't1-prechat-step-name': {
+    home: true,
+    keepFocus: true,
+    setup: t1Steps,
+    drive: async ({ page }) => { await startSteps(page); },
+  },
+  't1-prechat-step-error': {
+    home: true,
+    keepFocus: true,
+    setup: t1Steps,
+    drive: async ({ page }) => {
+      await startSteps(page);
+      await step(page, 'علی رضایی');
+      await step(page, 'ali@example');
+    },
+  },
+  // 08·c (top): the details sent, the saved summary with its "edit".
+  't1-prechat-steps-saved': {
+    home: true,
+    setup: t1Steps,
+    drive: async ({ page }) => {
+      await startSteps(page);
+      await step(page, 'علی رضایی');
+      await step(page, 'ali@example.com');
+      await page.locator('[data-prechat-step-skip]').click();
+      await pause(page, 600);
+    },
+  },
+  // 08·c: the queued row with the visitor's place.
+  't1-queue': {
+    setup: (f) => {
+      t1Thread(f, 'c-t1-queue');
+      f.identity = { identity_state: 'identified', contact: { name: 'علی رضایی', email: 'ali@example.com' } };
+      f.queue = { position: 2, wait_minutes: 3 };
+    },
+    drive: async ({ page }) => { await openThread(page, 'c-t1-queue'); await pause(page, 400); },
+  },
   't1-away-message': {
     home: true,
     setup: (f) => { AWAY(f); f.config.replyTimeText = 'معمولاً تا ۲ ساعت'; },
@@ -653,6 +744,23 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       const input = page.locator('[data-msg-input]');
       await input.fill('سلام، برای سفارش عمده تخفیف دارید؟');
       await input.press('Enter');
+      await pause(page, 500);
+    },
+  },
+  // 07·09 answered: the e-mail saved, where the reply goes.
+  't1-away-saved': {
+    home: true,
+    setup: (f) => { AWAY(f); f.config.replyTimeText = 'معمولاً تا ۲ ساعت'; },
+    drive: async ({ page }) => {
+      await page.locator('[data-home-action="chat"]').first().click();
+      await pause(page, 300);
+      await online(page);
+      const input = page.locator('[data-msg-input]');
+      await input.fill('سلام، برای سفارش عمده تخفیف دارید؟');
+      await input.press('Enter');
+      await pause(page, 500);
+      await page.locator('.away-reply [data-fb="email"]').fill('ali@example.com');
+      await page.locator('.away-reply [data-fb-submit]').click();
       await pause(page, 500);
     },
   },
@@ -709,7 +817,7 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     drive: async ({ page }) => { await openThread(page, 'c-live'); await typing(page); },
   },
   't2-files-voice': {
-    setup: (f) => { t2Live(f); f.conversations = [{ ...T2_OPEN, id: 'c-media' }]; f.messageFails = true; },
+    setup: (f) => { t2Live(f); f.conversations = [{ ...T2_OPEN, id: 'c-media' }]; f.messageFails = true; f.reactions = T2_MEDIA_REACTIONS; },
     drive: async ({ page }) => {
       await openThread(page, 'c-media');
       const input = page.locator('[data-msg-input]');
@@ -768,6 +876,22 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
     },
     drive: async ({ page }) => { await openThread(page, 'c-email'); },
   },
+  // 05: the heart the visitor gave the operator's line (the badge, and the
+  // heart pressed among the line's actions).
+  't2-reactions': {
+    setup: (f) => {
+      t2Live(f);
+      f.conversations = [{ ...T2_OPEN, id: 'c-react' }];
+      f.threads = { ...f.threads, 'c-react': T2_REACT_THREAD };
+      f.reactions = { 'c-react': { [T2_REACT_ID]: [{ emoji: '\u2764\uFE0F', count: 1, mine: true }, { emoji: '👍', count: 1, mine: false }] } };
+    },
+    drive: async ({ page }) => {
+      await openThread(page, 'c-react');
+      await pause(page, 300);
+      // The pointer on the reacted line: its actions show the heart pressed.
+      await page.locator('.msg-line.rel > .msg').first().hover();
+    },
+  },
   't2-away-message': {
     home: true,
     setup: (f) => { t2Workspace(f); AWAY(f); },
@@ -782,6 +906,20 @@ export const SCREEN_STATES: Record<string, StateSpec> = {
       await input.fill(text);
       await input.press('Enter');
       await pause(page, 500);
+    },
+  },
+  // 04·11: the message left away by a visitor whose e-mail is known: where the reply goes.
+  't2-away-saved': {
+    home: true,
+    setup: (f) => { t2Workspace(f); AWAY(f); f.identity = RETURNING; },
+    drive: async ({ page }) => {
+      await page.locator('[data-home-action="chat"]').first().click();
+      await pause(page, 300);
+      await online(page);
+      const input = page.locator('[data-msg-input]');
+      await input.fill('سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟');
+      await input.press('Enter');
+      await pause(page, 600);
     },
   },
   // 12: rating after a chat («عالی» picked), then sent; the bar's menu open (t1 and t2).
@@ -857,7 +995,7 @@ function silentWav(seconds = 14): Buffer {
 
 /** A realtime driver that only exists to emit the operator's typing. */
 const FAKE_DRIVER = `window.__gs_mod_rt_centrifugo = { create: function (ctx, resolved, hooks) {
-  window.__gsTyping = function () { hooks.onTyping({ payload: { actor: 'agent' } }); };
+  window.__gsTyping = function (p) { hooks.onTyping({ payload: p || { actor: 'agent' } }); };
   return {
     connect: function () { hooks.onConnectionState('online'); },
     disconnect: function () {},
@@ -913,6 +1051,21 @@ async function routeApi(page: Page, fixture: Fixture, fontsFile: string | null, 
       return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: IMAGE_SVG });
     }
     if (p.includes('/api/widget/conversations') && p.endsWith('/read')) return json({ ok: true });
+    // A message's reactions (runtime-late.js, t2): the fixture's, and a toggle echoed.
+    if (p.includes('/api/widget/conversations') && p.endsWith('/reactions')) {
+      const cid = p.split('/').slice(-2)[0];
+      if (method === 'POST') {
+        const b = (route.request().postDataJSON() || {}) as Record<string, unknown>;
+        return json({ ok: true, message_id: b.message_id, reactions: b.on ? [{ emoji: b.emoji, count: 1, mine: true }] : [], at: Date.now() });
+      }
+      return json({ reactions: (fixture.reactions || {})[cid] || {}, at: 1 });
+    }
+    // The place in the queue, the message left away and its email (runtime-late.js).
+    if (p.endsWith('/api/widget/queue')) return json(fixture.queue || { position: null, wait_minutes: null });
+    if (p.endsWith('/api/widget/offline-messages') && method === 'POST') {
+      return json({ ok: true, captured: true, conversation_id: 'c-away', message_id: 'a9a9a9a9-0000-4000-8000-000000000001', transitioning: false });
+    }
+    if (p.endsWith('/api/widget/identity/offline-email') && method === 'POST') return json({ ok: true, contact_id: 'contact-1' });
     // The rating card and the transcript (runtime-late.js).
     if (p.includes('/api/widget/conversations') && p.endsWith('/csat')) {
       if (method === 'POST') {

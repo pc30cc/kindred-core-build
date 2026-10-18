@@ -80,6 +80,9 @@ describe('runtime.js and runtime-ext.js agree', () => {
       'feat(', 'searchCache', 'prechatSummary', 'homeAskDraft', 'paintTabBadges', 'setOperatorTypingVm',
       'paintChatHeader', 'startConversationWith', 'recSendWhenReady', 'data-kb-category', 'data-tab-badge',
       'data-emoji-tab', 'data-prechat-skip', 'data-rec-send', 'data-vn-rate', 'data-home-ask',
+      // The late features (runtime-late.js): reactions, steps, away, queue.
+      'data-msg-react', 'toggleReaction', '/reactions', 'data-prechat-step', 'prechatStepsHtml', 'offline-email',
+      'client_message_id: req', 'awayReply', '/api/widget/queue', 'data-ph-away',
     ]) expect(RUNTIME.includes(name), name).toBe(false);
   });
 });
@@ -125,6 +128,25 @@ describe('which templates build on the module', () => {
       expect(!!f.csat, `${id} csat`).toBe(options.includes('csat'));
       if (f.csat) expect(f.closedNotice, `${id} csat needs its line`).toBe(true);
       expect(!!(f.csat || f.chatMenu), `${id} transcript`).toBe(options.includes('transcriptEmail'));
+    }
+  });
+
+  it('a descriptor\'s `reactions` (the inbox offers React) is exactly its renderer\'s `features.reactions` with Core\'s capabilities', () => {
+    const w = window as unknown as Record<string, unknown>;
+    w.MediaRecorder = function () {};
+    new Function(read('public/widget/presentation-registry.js')).call(window);
+    const registry = w.__gs_presentation_registry as { resolve: (id: string) => { globalKey: string } };
+    // The capabilities runtime.js passes (one literal, pinned by previewParity.test.ts).
+    const caps = new Function(`return ${/capabilities: (\{ kbNeutral: [^}]*\})/.exec(RUNTIME)![1]};`)() as Record<string, boolean>;
+    expect(caps.reactions).toBe(true);
+    const ids = Object.keys(CHAT_WIDGET_TEMPLATES) as Array<keyof typeof CHAT_WIDGET_TEMPLATES>;
+    const flag = (id: keyof typeof CHAT_WIDGET_TEMPLATES) => !!(CHAT_WIDGET_TEMPLATES[id] as { reactions?: boolean }).reactions;
+    expect(ids.filter(flag)).toEqual(['t2']);
+    for (const id of ids) {
+      new Function(read(`public/widget/${CHAT_WIDGET_TEMPLATES[id].script}`)).call(window);
+      const mod = w[registry.resolve(id).globalKey] as { create: (env: Record<string, unknown>) => { features?: Record<string, boolean> } };
+      const r = mod.create({ t: (k: string) => k, config: { templateId: id }, locale: 'fa', capabilities: caps });
+      expect(!!(r.features || {}).reactions, id).toBe(flag(id));
     }
   });
 
@@ -391,7 +413,7 @@ describe('the late pack: applied together, or not at all', () => {
   it('a surface asked for before it was in is drawn by exactly one repaint', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const created: Dict[] = [];
-    const h = pack({ lateModule: { v: 1, create: (api: Dict) => { created.push(api); return {}; } } });
+    const h = pack({ lateModule: { v: 2, create: (api: Dict) => { created.push(api); return {}; } } });
     await vi.advanceTimersByTimeAsync(400);
     expect(h.q('[data-late-slot]')!.innerHTML).toBe('');
     const painted = homeCalls(h);
@@ -423,14 +445,14 @@ describe('the late pack: applied together, or not at all', () => {
     ['extras of another template', { extrasModule: { ...EXTRAS, id: 't1' } }],
     ['extras of another contract version', { extrasModule: { ...EXTRAS, v: 2 } }],
     ['no extras at all (the file defined nothing)', { extrasModule: null }],
-    ['a late module of another contract version', { lateModule: { v: 2, create: () => ({}) } }],
-    ['a late module that throws', { lateModule: { v: 1, create: () => { throw new Error('boom'); } } }],
+    ['a late module of another contract version', { lateModule: { v: 1, create: () => ({}) } }],
+    ['a late module that throws', { lateModule: { v: 2, create: () => { throw new Error('boom'); } } }],
   ];
   for (const [what, over] of refused) {
     it(`refuses both for ${what}: the late module's handlers never run, nothing is drawn, no repaint`, async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const ran: string[] = [];
-      const lateModule = over.lateModule ?? { v: 1, create: (api: Dict) => { (api.on as (n: string, f: () => void) => boolean)('body', () => { ran.push('body'); }); return {}; } };
+      const lateModule = over.lateModule ?? { v: 2, create: (api: Dict) => { (api.on as (n: string, f: () => void) => boolean)('body', () => { ran.push('body'); }); return {}; } };
       const h = pack({ ...over, lateModule });
       await vi.advanceTimersByTimeAsync(400);
       const painted = homeCalls(h);
@@ -449,7 +471,7 @@ describe('the late pack: applied together, or not at all', () => {
   it('a request that fails (both names) applies neither', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const created: unknown[] = [];
-    const h = pack({ late: 'fail', lateModule: { v: 1, create: () => { created.push(1); return {}; } } });
+    const h = pack({ late: 'fail', lateModule: { v: 2, create: () => { created.push(1); return {}; } } });
     await vi.advanceTimersByTimeAsync(500);
     expect(lateScripts(h)).toEqual([
       EXTRAS_URL, LATE_URL,
@@ -472,7 +494,7 @@ describe('the late pack: one file failing, a hashed URL failing', () => {
       const created: unknown[] = [];
       const h = boot({
         renderer: withExtras({ ask: true }), extras: 'presentation-tx-x.js', extrasModule: EXTRAS, config: lateConfig, late,
-        lateModule: { v: 1, create: () => { created.push(1); return {}; } },
+        lateModule: { v: 2, create: () => { created.push(1); return {}; } },
       });
       await vi.advanceTimersByTimeAsync(500);
       expect(lateScripts(h)).toEqual([EXTRAS_URL, LATE_URL, CANONICAL[which]]);
@@ -499,7 +521,7 @@ describe('the late module\'s handlers', () => {
     const seen: unknown[] = [];
     const taken: boolean[] = [];
     const lateModule = {
-      v: 1,
+      v: 2,
       create: (api: Dict) => {
         const on = api.on as (n: string, f: (...a: unknown[]) => unknown) => boolean;
         taken.push(on('noSuchHook', () => true));
@@ -581,7 +603,7 @@ describe('t1: the emoji grid comes with its extras', () => {
   });
 
   it('extras without a grid: the button goes too', async () => {
-    const h = boot({ renderer: 't1', extrasModule: { id: 't1', v: 1, create: () => ({}) } });
+    const h = boot({ renderer: 't1', extrasModule: { id: 't1', v: 2, create: () => ({}) } });
     await flush(20);
     await toChat(h);
     await flush(20);
@@ -593,7 +615,7 @@ describe('t1: the emoji grid comes with its extras', () => {
   it('a pack already on the page (an earlier instance\'s) is applied before the first paint and asked for no more', async () => {
     new Function(read('public/widget/presentation-t1-x.js')).call(window);
     const created: unknown[] = [];
-    (window as unknown as Dict).__gs_mod_late = { v: 1, create: () => { created.push(1); return {}; } };
+    (window as unknown as Dict).__gs_mod_late = { v: 2, create: () => { created.push(1); return {}; } };
     const h = boot({ renderer: 't1' });
     await flush(20);
     expect(created).toHaveLength(1);

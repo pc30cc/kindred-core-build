@@ -45,6 +45,7 @@ import {
   CHAT_TEMPLATE_NAV_MODES,
   CHAT_TEMPLATE_NAV_STYLES,
   CHAT_TEMPLATE_ORDER_MAX,
+  CHAT_TEMPLATE_PRECHAT_MODES,
   CHAT_TEMPLATE_TOPIC_ICONS,
   chatTemplateOptionKeys,
   cleanChatTemplateCatalogInput,
@@ -81,6 +82,10 @@ function optionSpec(id: string): Record<string, unknown> {
     if (key === 'navMode') spec.navMode = CHAT_TEMPLATE_NAV_MODES;
     if (key === 'topics') spec.topics = { max: CHAT_TEMPLATE_LIMITS.topics, labelMax: CHAT_TEMPLATE_LIMITS.topicLabel, icons: CHAT_TEMPLATE_TOPIC_ICONS };
     if (key === 'askExamples') spec.askExamples = { max: CHAT_TEMPLATE_LIMITS.askExamples, textMax: CHAT_TEMPLATE_LIMITS.askExample };
+    if (key === 'prechatMode') spec.prechatMode = CHAT_TEMPLATE_PRECHAT_MODES;
+    // On / off, the code's default (on) first.
+    if (key === 'csat') spec.csat = [true, false];
+    if (key === 'transcriptEmail') spec.transcriptEmail = [true, false];
   }
   return spec;
 }

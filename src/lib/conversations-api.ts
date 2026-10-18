@@ -83,6 +83,37 @@ export const conversationsApi = {
   },
 
   /**
+   * Set (`on`) or take back the operator's reaction to a visitor's message
+   * (issue #340 g2). Answers the message's reactions as this operator now
+   * sees them, and `at` (ms) when the server read them.
+   */
+  async setReaction(payload: {
+    workspace_id: string;
+    conversation_id: string;
+    message_id: string;
+    emoji: string;
+    on: boolean;
+  }): Promise<{
+    ok: boolean;
+    message_id: string;
+    reactions: Array<{ emoji: string; count: number; mine: boolean; visitor: boolean }>;
+    at: number;
+  }> {
+    const res = await fetch(
+      `${API_BASE}/api/conversations/${encodeURIComponent(payload.conversation_id)}/messages/${encodeURIComponent(payload.message_id)}/reactions`,
+      {
+        credentials: 'include',
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ workspace_id: payload.workspace_id, emoji: payload.emoji, on: payload.on }),
+      },
+    );
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || `Reaction failed: ${res.status}`);
+    return json;
+  },
+
+  /**
    * Phase 1 — emit ephemeral operator typing.
    * Fire-and-forget; failure is silently ignored (typing is best-effort).
    */

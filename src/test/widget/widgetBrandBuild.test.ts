@@ -112,10 +112,10 @@ describe('the shipped files', () => {
       // The late pack: each renderer's extras (handshake intact) and Core's late module.
       for (const id of ['t1', 't2']) {
         win.eval(shipped('public/widget', `presentation-${id}-x.js`, brand));
-        expect(win.__gs_mod_extras, `${id} (${brand})`).toMatchObject({ id, v: 1 });
+        expect(win.__gs_mod_extras, `${id} (${brand})`).toMatchObject({ id, v: 2 });
       }
       win.eval(shipped('public/widget', 'runtime-late.js', brand));
-      expect(win.__gs_mod_late).toMatchObject({ v: 1 });
+      expect(win.__gs_mod_late).toMatchObject({ v: 2 });
     }
   });
 });

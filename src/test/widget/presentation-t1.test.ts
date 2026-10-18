@@ -62,6 +62,8 @@ const BASE_CONFIG: Vm = {
   readReceipts: { enabled: true },
 };
 const NO_CAPS = { kbNeutral: false, csat: false, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false };
+/** What Core serves today (runtime.js env.capabilities). */
+const SERVED = { kbNeutral: true, csat: true, reactions: true, orderCard: false, prechatSteps: true, instantAnswers: false, chatMenu: true, awayThread: true, queuePosition: true };
 
 function load() {
   const w = window as unknown as Record<string, unknown>;
@@ -458,7 +460,7 @@ describe('t1: strings are escaped, addresses are allow-listed', () => {
 });
 
 describe('t1: the Core behaviours it declares are the ones it draws', () => {
-  const r = () => make();
+  const r = () => make({ capabilities: SERVED });
   const checks: Record<string, () => void> = {
     tabs: () => {
       const home = parse(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true, unreadTotal: 3 }));
@@ -658,11 +660,30 @@ describe('t1: the Core behaviours it declares are the ones it draws', () => {
       expect(h.querySelector('.cm > [data-chat-menu-toggle][aria-haspopup="menu"]')).not.toBeNull();
       expect(h.querySelector('[data-chat-menu][role="menu"] [data-chat-menu-action="sound"]')).not.toBeNull();
     },
+    prechatSteps: () => {
+      // The steps come with the extras, through the renderer's own surfaces.
+      expect(r().prechatStepBoxHtml({ key: 'name', n: 1, total: 1 })).toBe('');
+      const box = parse(extended(r()).prechatStepBoxHtml({ key: 'name', n: 1, total: 2, optional: false, value: '' }));
+      expect(box.querySelector('[data-prechat-step="name"] [data-prechat-step-input]')).not.toBeNull();
+      expect(parse(extended(r()).prechatStepsHtml({ key: 'name', log: [] })).querySelector('#pq-name')).not.toBeNull();
+    },
+    queuePosition: () => {
+      const q = { metadata: { kind: 'routing_in_queue' }, senderType: 'system', sender: 'operator' };
+      const html = extended(r()).messagesHtml({ messages: [msg(q)] }, '', { queue: { at: 0, position: 2, waitMinutes: 3 } });
+      expect(parse(html).querySelector('.msg-system-pill')!.textContent).toBe('نفر ۲ در صف · حدود ۳ دقیقه');
+    },
+    awayThread: () => {
+      const html = extended(r()).messagesHtml({ messages: [msg({ sender: 'visitor', senderType: 'contact' })] }, '', { awayReply: { at: 0, status: 'ask' } });
+      expect(parse(html).querySelector('.away-reply form [data-fb="email"]')).not.toBeNull();
+    },
   };
 
   it('declares exactly the behaviours it implements', () => {
-    expect(Object.keys(make().features).sort()).toEqual(Object.keys(checks).sort());
-    expect(Object.values(make().features).every((v) => v === true)).toBe(true);
+    expect(Object.keys(r().features).sort()).toEqual(Object.keys(checks).sort());
+    expect(Object.values(r().features).every((v) => v === true)).toBe(true);
+    // A Core that does not serve them gets none of the late pre-chat, queue and away behaviours.
+    const off = make({ capabilities: NO_CAPS }).features;
+    for (const f of ['prechatSteps', 'queuePosition', 'awayThread']) expect(off[f], f).toBe(false);
   });
   for (const [name, check] of Object.entries(checks)) it(name, check);
 
@@ -692,7 +713,7 @@ describe('t1: nothing is drawn for a capability Core cannot serve', () => {
         r.handoffPrechatCardHtml(IDENTITY(['name', 'email', 'phone']), {}, 'fa', 'sub', false),
       ].join('');
       const root = parse(html);
-      expect(root.querySelector('.card, .steps, .react, .csat, .faces, [data-csat-rate], [data-react], .tray, [data-kb-suggest], [data-prechat-step]')).toBeNull();
+      expect(root.querySelector('.card, .steps, .react, .csat, .faces, [data-csat-rate], [data-react], [data-msg-react], .tray, [data-kb-suggest], [data-prechat-step]')).toBeNull();
       expect(html).not.toContain('track-order');
       const fb = parse(r.kbArticleFeedbackHtml({ enabled: true, rating: null }));
       expect(Array.from(fb.querySelectorAll('[data-kb-rate]')).map((b) => b.getAttribute('data-kb-rate'))).toEqual(['up', 'down']);
@@ -708,8 +729,9 @@ describe('t1: nothing is drawn for a capability Core cannot serve', () => {
   });
 
   it('keeps the source free of the hooks of behaviours Core serves to other renderers only', () => {
-    expect(T1_SRC).not.toMatch(/data-csat|data-react|data-order|data-kb-suggest|data-prechat-step/);
-    expect(T1_SRC).toMatch(/void caps;/);
+    // Its own late surfaces are in its extras, never in the renderer itself.
+    expect(T1_SRC).not.toMatch(/data-csat|data-react|data-msg-react|data-order|data-kb-suggest|data-prechat-step|data-fb-skip/);
+    expect(T1_X_SRC).not.toMatch(/data-csat|data-react|data-msg-react|data-order|data-kb-suggest/);
   });
 });
 
@@ -1135,7 +1157,13 @@ describe('t1: its own copy', () => {
 
   it('the extras carry their own copy in fa, en and tr, in key order: one name per emoji group', () => {
     const xkeys = (/var COPY_KEYS = '([^']+)'/.exec(T1_X_SRC) || [])[1]!.split(' ');
-    expect(xkeys).toEqual(['cats', 'moreOptions', 'menuSound', 'csatTranscript', 'csatTranscriptSent', 'csatTranscriptFailed', 'csatFailed']);
+    expect(xkeys).toEqual([
+      'cats', 'moreOptions', 'menuSound', 'csatTranscript', 'csatTranscriptSent', 'csatTranscriptFailed', 'csatFailed',
+      'prechatAskName', 'prechatAskEmail', 'prechatAskEmailNoName', 'prechatAskPhone', 'prechatStep', 'prechatStepSaved',
+      'prechatStepEmailInvalid', 'prechatStepEmailExample', 'prechatPhonePhLocal', 'prechatPhoneHint', 'prechatStepSubmit',
+      'routingInQueue', 'routingInQueuePosition', 'awayAutoReply', 'fallbackEmailLabel', 'fallbackEmailFormLabel', 'saveEmail',
+      'msgAutomated', 'awayRecorded', 'awayReplyTo',
+    ]);
     for (const lang of ['fa', 'en', 'tr']) {
       const parts = (new RegExp(`\\n    ${lang}: '([^']*)',`).exec(T1_X_SRC) || [])[1]!.split('|');
       expect(parts.length, lang).toBe(xkeys.length);
@@ -1193,15 +1221,15 @@ describe('t1: the platform\'s marks stay in the Iranian edition\'s build', () =>
 
 describe('t1: its extras (presentation-t1-x.js)', () => {
   it('registers as the renderer\'s extras, with the renderer\'s id and contract version', () => {
-    expect(T1_X_SRC).toContain("window.__gs_mod_extras = { id: 't1', v: 1, create: create };");
-    expect(T1_SRC).toContain("mod.id !== 't1' || mod.v !== 1");
+    expect(T1_X_SRC).toContain("window.__gs_mod_extras = { id: 't1', v: 2, create: create };");
+    expect(T1_SRC).toContain("mod.id !== 't1' || mod.v !== 2");
   });
 
   it('takes only its own file: another template\'s, another version or no module is refused', () => {
     const r = make();
     const extend = r.extend as unknown as (m: unknown, dry?: boolean) => number;
     const mod = EXTRAS();
-    for (const bad of [null, {}, { ...mod, id: 't2' }, { ...mod, v: 2 }, { id: 't1', v: 1 }]) expect(extend(bad)).toBe(0);
+    for (const bad of [null, {}, { ...mod, id: 't2' }, { ...mod, v: 1 }, { ...mod, v: 3 }, { id: 't1', v: 2 }]) expect(extend(bad)).toBe(0);
     // Nothing taken: the grid is still the mark.
     expect(r.emojiPickerHtml()).toBe('<i data-emoji hidden></i>');
     // A dry run says yes and takes nothing.
@@ -1218,7 +1246,7 @@ describe('t1: its extras (presentation-t1-x.js)', () => {
     let H: Record<string, unknown> | null = null;
     const spy = make();
     (spy.extend as unknown as (m: unknown) => number)({ ...EXTRAS(), create: (h: Record<string, unknown>) => { H = h; return EXTRAS().create(h); } });
-    expect(Object.keys(H!).sort()).toEqual(['D', 'L', 'P', 'avatarHtml', 'config', 'digits', 'esc', 'fa', 'fill', 'fmtNum', 'lang', 'svg', 'systemPillHtml', 't', 'tf'].sort());
+    expect(Object.keys(H!).sort()).toEqual(['D', 'L', 'P', 'SEND', 'avatarHtml', 'config', 'digits', 'esc', 'fa', 'fill', 'fmtNum', 'lang', 'svg', 'systemPillHtml', 't', 'tf'].sort());
     expect(spy.emojiPickerHtml()).toBe(r.emojiPickerHtml());
     expect(EXTRAS().create(H!).emojiPickerHtml()).toBe(r.emojiPickerHtml());
   });
@@ -1308,5 +1336,222 @@ describe('t1: the chat bar\'s menu (extras, feature `chatMenu`)', () => {
     expect(T1_CSS).toMatch(/\.menu \{ position: absolute; top: calc\(100% \+ 6px\); inset-inline-end: 0;/);
     expect(T1_CSS).toContain('.menu[hidden] { display: none; }');
     expect(T1_CSS).not.toMatch(/\.menu[^{]*\{[^}]*\b(left|right):/);
+  });
+});
+
+describe('t1: the pre-chat one question at a time (extras, feature `prechatSteps`)', () => {
+  const r = (locale = 'fa') => extended(make({ locale, capabilities: SERVED }));
+  const LOG = [
+    { key: 'name', value: 'علی رضایی', ok: true },
+    { key: 'email', value: 'ali@example', ok: false, why: 'invalid' },
+    { key: 'email', value: 'ali@example.com', ok: true },
+  ];
+  const rows = (html: string) => Array.from(parse(html).querySelectorAll('.msg-row'));
+
+  it('asks each question once, beside the team\'s lead, and draws each answer with what became of it', () => {
+    const html = r().prechatStepsHtml({ key: 'phone', log: LOG, firstName: 'علی' });
+    const list = rows(html);
+    expect(list.map((x) => (x.classList.contains('visitor') ? 'v:' : 'q:') + x.querySelector('.msg')!.textContent)).toEqual([
+      'q:سلام! برای شروع، اسم‌تون چیه؟',
+      'v:علی رضایی',
+      'q:ممنون علی جان. ایمیل‌تون رو هم بنویسید تا جواب‌ها رو براتون بفرستیم.',
+      'v:ali@example',
+      'v:ali@example.com',
+      'q:اگه بخواید شماره موبایل‌تون رو هم بدید تا پیامکی خبرتون کنیم.',
+    ]);
+    const root = parse(html);
+    // The questions are named for the step's field (aria-describedby).
+    expect(['pq-name', 'pq-email', 'pq-phone'].map((id) => !!root.querySelector('#' + id))).toEqual([true, true, true]);
+    expect(root.querySelector('#pq-name')!.closest('.msg-row')!.querySelector('.av')!.textContent).toBe('س');
+    // The newest answer taken: a tick and «ثبت شد» (an older one says nothing,
+    // as 08·b draws the name); refused: faded, the reason and an example.
+    expect(list[4].querySelector('.st-ok')!.textContent).toBe('ثبت شد');
+    expect(list[1].querySelector('.msg-footline')).toBeNull();
+    expect(root.querySelectorAll('.st-ok')).toHaveLength(1);
+    expect(list[3].querySelector('.msg.fail')).not.toBeNull();
+    expect(list[3].querySelector('.st-err')!.textContent).toBe('ایمیل کامل نیست · مثلاً name@example.com');
+    // Only the newest answer's refusal is read out (it is not the newest here).
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+    expect(list[1].querySelector('.msg')!.getAttribute('dir')).toBe('auto');
+    expect(list[3].querySelector('.msg')!.getAttribute('dir')).toBe('ltr');
+  });
+
+  it('reads out a refusal that is the newest answer; a phone refusal and a server one say theirs', () => {
+    const phone = parse(r().prechatStepsHtml({ key: 'phone', log: [{ key: 'phone', value: '12', ok: false, why: 'invalid' }] }));
+    expect(phone.querySelector('.st-err[role="alert"]')!.textContent).toBe('invalidPhone');
+    const req = parse(r().prechatStepsHtml({ key: 'email', log: [{ key: 'email', value: '', ok: false, why: 'required' }] }));
+    expect(req.querySelector('.st-err[role="alert"]')!.textContent).toBe('required');
+  });
+
+  it('asks for the email without a name when there is none, and skips no question for a skipped step', () => {
+    const html = r().prechatStepsHtml({ key: 'email', log: [{ key: 'name', skip: true }], firstName: '' });
+    expect(rows(html).map((x) => x.querySelector('.msg')!.textContent)).toEqual([
+      'سلام! برای شروع، اسم‌تون چیه؟', 'ایمیل‌تون رو بنویسید تا جواب‌ها رو براتون بفرستیم.',
+    ]);
+  });
+
+  it('opens a handoff with its reason, typed out on its first show as the card does', () => {
+    const typed = parse(r().prechatStepsHtml({ key: 'name', log: [], introAnimate: true, intro: 'برای ادامه مشخصاتتان را بگویید' }));
+    expect(typed.querySelector('[data-typing-host][data-typing-active="1"][data-typing-id="hc-subtitle"]')!.textContent).toBe('');
+    const plain = parse(r().prechatStepsHtml({ key: 'name', log: [], intro: 'برای ادامه مشخصاتتان را بگویید' }));
+    expect(plain.querySelector('.msg-row .msg')!.textContent).toBe('برای ادامه مشخصاتتان را بگویید');
+    expect(plain.querySelector('[data-typing-id]')).toBeNull();
+  });
+
+  it('escapes what the visitor typed and the name it repeats', () => {
+    const evil = '<img src=x onerror=alert(1)>';
+    const html = r().prechatStepsHtml({ key: 'email', log: [{ key: 'name', value: evil, ok: true }], firstName: evil, intro: evil });
+    const root = parse(html);
+    expect(root.querySelector('img')).toBeNull();
+    expect(root.querySelector('#pq-email')!.textContent).toContain(evil);
+  });
+
+  it('draws the step in the composer\'s place: progress, the field, its prefix, skip and submit', () => {
+    const box = parse(r().prechatStepBoxHtml({ key: 'phone', n: 3, total: 3, optional: true, value: '', prefix: '+98' }));
+    const root = box.querySelector('.cbox.steps[data-prechat-step="phone"]')!;
+    expect(root.querySelector('.prog > span')!.textContent).toBe('مرحله ۳ از ۳ · اختیاری');
+    expect(Array.from(root.querySelectorAll('.prog .bar i')).map((i) => i.classList.contains('on'))).toEqual([true, true, true]);
+    expect(root.querySelector('[data-prechat-step-skip]')!.textContent).toBe('رد کردن');
+    const pre = root.querySelector('label.ex > .pre')!;
+    expect(pre.getAttribute('dir')).toBe('ltr');
+    expect(pre.textContent).toBe('+۹۸');
+    const input = root.querySelector('input[data-prechat-step-input]') as HTMLInputElement;
+    expect([input.type, input.getAttribute('dir'), input.getAttribute('autocomplete'), input.getAttribute('enterkeyhint')]).toEqual(['tel', 'ltr', 'tel-national', 'done']);
+    expect(input.getAttribute('placeholder')).toBe('۹۱۲ ۳۴۵ ۶۷۸۹');
+    expect(input.getAttribute('aria-describedby')).toBe('pq-phone');
+    expect(input.getAttribute('aria-label')).toBe('شماره موبایل');
+    expect(root.querySelector('.tools .hint')!.textContent).toBe('برای پیامک پیگیری');
+    const send = root.querySelector('[data-prechat-step-submit]') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(send.getAttribute('aria-label')).toBe('ثبت');
+  });
+
+  it('a required step has no skip; the first of three fills one bar; a value enables submit; busy locks both', () => {
+    const name = parse(r().prechatStepBoxHtml({ key: 'name', n: 1, total: 3, optional: false, value: 'علی' }));
+    expect(name.querySelector('.prog > span')!.textContent).toBe('مرحله ۱ از ۳');
+    expect(name.querySelector('[data-prechat-step-skip]')).toBeNull();
+    expect(Array.from(name.querySelectorAll('.prog .bar i')).map((i) => i.classList.contains('on'))).toEqual([true, false, false]);
+    const input = name.querySelector('input') as HTMLInputElement;
+    expect([input.type, input.hasAttribute('dir'), input.getAttribute('autocomplete'), input.getAttribute('enterkeyhint'), input.value])
+      .toEqual(['text', false, 'name', 'next', 'علی']);
+    expect(name.querySelector('.pre, .hint')).toBeNull();
+    expect((name.querySelector('[data-prechat-step-submit]') as HTMLButtonElement).disabled).toBe(false);
+    const busy = parse(r().prechatStepBoxHtml({ key: 'name', n: 1, total: 3, value: 'علی', busy: true }));
+    expect(busy.querySelector('input')!.hasAttribute('readonly')).toBe(true);
+    expect((busy.querySelector('[data-prechat-step-submit]') as HTMLButtonElement).disabled).toBe(true);
+    // A network failure: Core's error line, read out.
+    const failed = parse(r().prechatStepBoxHtml({ key: 'name', n: 1, total: 1, value: 'علی', error: true }));
+    expect(failed.querySelector('.err[role="alert"]')!.textContent).toBe('fallbackError');
+  });
+
+  it('without the edition\'s prefix the phone step takes a number with its country code', () => {
+    const box = parse(r().prechatStepBoxHtml({ key: 'phone', n: 1, total: 1, optional: true, value: '', prefix: '' }));
+    expect(box.querySelector('.pre')).toBeNull();
+    const input = box.querySelector('input')!;
+    expect([input.getAttribute('autocomplete'), input.getAttribute('placeholder')]).toEqual(['tel', 'prechatPhonePh']);
+  });
+
+  it('speaks en (left to right, Latin digits) and tr', () => {
+    const en = parse(r('en').prechatStepBoxHtml({ key: 'email', n: 2, total: 3, optional: true, value: '' }));
+    // (Core's own words come from its `t`, Persian in these tests.)
+    expect(en.querySelector('.prog > span')!.textContent).toBe('Step 2 of 3 · اختیاری');
+    expect(en.querySelector('input')!.getAttribute('placeholder')).toBe('name@example.com');
+    expect(parse(r('en').prechatStepsHtml({ key: 'email', log: [], firstName: 'Ali' })).querySelector('#pq-email')!.textContent)
+      .toBe('Thanks, Ali. What’s your email, so we can send you our replies?');
+    expect(parse(r('en').prechatStepBoxHtml({ key: 'phone', n: 3, total: 3, prefix: '+98' })).querySelector('.pre')!.textContent).toBe('+98');
+    expect(parse(r('tr').prechatStepBoxHtml({ key: 'name', n: 1, total: 2 })).querySelector('.prog > span')!.textContent).toBe('Adım 1/2');
+  });
+
+  it('its stylesheet: the step looks focused, the prefix keeps its own direction, logical sides only', () => {
+    expect(T1_CSS).toMatch(/\.cbox\.steps \{[^}]*box-shadow: 0 0 0 1\.5px var\(--a-tx\), 0 0 0 4px var\(--a-3\)/);
+    expect(T1_CSS).toMatch(/\.ex \.pre \{ direction: ltr;[^}]*border-inline-end: 1px solid var\(--line-2\)/);
+    expect(T1_CSS).toMatch(/\.prog \.bar \.on \{ background: var\(--a\); \}/);
+    expect(T1_CSS).toMatch(/\.msg\.fail \{ opacity: \.55; \}/);
+    for (const sel of ['.prog', '.ex', '.steps .tools']) {
+      const rule = new RegExp(sel.replace(/\./g, '\\.') + ' \\{([^}]*)\\}').exec(T1_CSS)![1];
+      expect(rule, sel).not.toMatch(/\b(left|right):|margin-(left|right)|padding-(left|right)/);
+    }
+  });
+});
+
+describe('t1: the visitor\'s place in the queue (extras, feature `queuePosition`)', () => {
+  const r = (locale = 'fa') => extended(make({ locale, capabilities: SERVED }));
+  const QUEUED = { senderType: 'system', sender: 'operator', metadata: { kind: 'routing_in_queue' } };
+  const pills = (html: string) => Array.from(parse(html).querySelectorAll('.msg-system-pill')).map((p) => p.textContent);
+
+  it('numbers the row Core points at, with Persian digits and the green dot; the place alone without a wait', () => {
+    const msgs = [msg(QUEUED), msg({ body: 'سلام' }), msg(QUEUED)];
+    const html = r().messagesHtml({ messages: msgs }, '', { queue: { at: 2, position: 2, waitMinutes: 3 } });
+    expect(pills(html)).toEqual(['routingInQueue', 'نفر ۲ در صف · حدود ۳ دقیقه']);
+    expect(parse(html).querySelectorAll('.msg-system-pill .live:not(.off)')).toHaveLength(1);
+    const only = r().messagesHtml({ messages: [msg(QUEUED)] }, '', { queue: { at: 0, position: 12, waitMinutes: null } });
+    expect(pills(only)).toEqual(['نفر ۱۲ در صف']);
+  });
+
+  it('keeps Core\'s text without a place, and before its extras', () => {
+    expect(pills(r().messagesHtml({ messages: [msg(QUEUED)] }, '', {}))).toEqual(['routingInQueue']);
+    expect(parse(r().messagesHtml({ messages: [msg(QUEUED)] }, '', {})).querySelector('.live.off')).not.toBeNull();
+  });
+
+  it('speaks English ordinals and Turkish', () => {
+    const en = (n: number, w: number | null) => pills(r('en').messagesHtml({ messages: [msg(QUEUED)] }, '', { queue: { at: 0, position: n, waitMinutes: w } }))[0];
+    expect(en(2, 3)).toBe('2nd in line · about 3 min');
+    expect([1, 3, 4, 11, 12, 13, 21, 22, 101, 111, 112].map((n) => en(n, null)))
+      .toEqual(['1st', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '101st', '111th', '112th'].map((o) => o + ' in line'));
+    expect(pills(r('tr').messagesHtml({ messages: [msg(QUEUED)] }, '', { queue: { at: 0, position: 2, waitMinutes: 3 } }))[0])
+      .toBe('Sırada 2. · yaklaşık 3 dk');
+  });
+});
+
+describe('t1: the message left while the team is away (extras, feature `awayThread`)', () => {
+  const r = (locale = 'fa') => extended(make({ locale, capabilities: SERVED }));
+  const VISITOR = () => msg({ sender: 'visitor', senderType: 'contact', body: 'سلام، برای سفارش عمده تخفیف دارید؟', status: 'sent' });
+  const reply = (vm: Vm, locale?: string) =>
+    parse(r(locale).messagesHtml({ messages: [VISITOR(), msg({ body: 'بعدی' })] }, '', { awayReply: { at: 0, ...vm } })).querySelector('.away-reply')!;
+
+  it('answers under the message it follows, asking for an email with the contact-fallback hooks', () => {
+    const html = r().messagesHtml({ messages: [VISITOR(), msg({ body: 'بعدی' })] }, '', { awayReply: { at: 0, status: 'ask', value: '' } });
+    const list = Array.from(parse(html).querySelectorAll('.messages > .msg-row'));
+    expect(list.map((x) => x.className.includes('away-reply'))).toEqual([false, true, false]);
+    const row = list[1];
+    expect(row.querySelector('.msg.operator.joined')!.textContent).toBe('پیامتون ثبت شد. ایمیلتون رو بگذارید تا پاسخ رو براتون بفرستیم.');
+    expect(row.querySelector('.av')!.textContent).toBe('ف');
+    const form = row.querySelector('form.fcard.ec')!;
+    expect(form.getAttribute('aria-label')).toBe('ایمیل برای پاسخ');
+    expect(form.hasAttribute('novalidate')).toBe(true);
+    expect(form.querySelector('label[for="fb-email"]')!.textContent).toBe('ایمیل برای دریافت پاسخ');
+    const input = form.querySelector('#fb-email[data-fb="email"]') as HTMLInputElement;
+    expect([input.type, input.getAttribute('dir'), input.getAttribute('autocomplete'), input.getAttribute('aria-describedby')]).toEqual(['email', 'ltr', 'email', 'fb-status']);
+    const go = form.querySelector('button[type="submit"][data-fb-submit]')!;
+    expect(go.getAttribute('aria-label')).toBe('ثبت ایمیل');
+    expect(form.querySelector('#fb-status[data-fb-status][role="status"]')!.textContent).toBe('');
+    expect(row.querySelector('.msg-meta')!.textContent).toBe('پیام خودکار');
+  });
+
+  it('saving locks the field; an error is Core\'s string; the value is kept and escaped', () => {
+    const saving = reply({ status: 'saving', value: 'ali@example.com' });
+    expect(saving.querySelector('input')!.hasAttribute('readonly')).toBe(true);
+    expect((saving.querySelector('[data-fb-submit]') as HTMLButtonElement).disabled).toBe(true);
+    const bad = reply({ status: 'ask', value: '"><img src=x onerror=1>', error: 'invalidEmail' });
+    expect(bad.querySelector('img')).toBeNull();
+    expect((bad.querySelector('input') as HTMLInputElement).value).toBe('"><img src=x onerror=1>');
+    expect(bad.querySelector('input')!.getAttribute('aria-invalid')).toBe('true');
+    expect(bad.querySelector('[data-fb-status]')!.textContent).toBe('invalidEmail');
+  });
+
+  it('saved: where the reply goes, the address an isolated left-to-right run', () => {
+    const saved = reply({ status: 'saved', email: 'ali@example.com' });
+    expect(saved.querySelector('form, [data-fb]')).toBeNull();
+    expect(saved.querySelector('.msg.operator')!.textContent).toBe('پیامتون ثبت شد.');
+    const done = saved.querySelector('.ec.done[role="status"]')!;
+    expect(done.textContent).toBe('پاسخ را به ali@example.com می‌فرستیم.');
+    expect(done.querySelector('b[dir="ltr"]')!.textContent).toBe('ali@example.com');
+    expect(reply({ status: 'saved', email: '<b>x</b>' }).querySelector('.ec.done b b')).toBeNull();
+    expect(reply({ status: 'saved', email: 'a@b.io' }, 'en').querySelector('.ec.done')!.textContent).toBe('We’ll send the reply to a@b.io.');
+  });
+
+  it('draws nothing without Core\'s view-model (the template\'s own away banner is the stylesheet\'s)', () => {
+    expect(parse(r().messagesHtml({ messages: [VISITOR()] }, '', {})).querySelector('.away-reply')).toBeNull();
+    expect(parse(make({ capabilities: SERVED }).messagesHtml({ messages: [VISITOR()] }, '', { awayReply: { at: 0, status: 'ask' } })).querySelector('.away-reply')).toBeNull();
   });
 });

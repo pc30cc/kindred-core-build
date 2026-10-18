@@ -26,10 +26,11 @@
  * Every hook the `default` renderer emits is emitted here too (hidden where
  * this design draws no control for it). The Core behaviours this renderer
  * opts into are listed in `features` (runtime.js `feat()`); the ones whose
- * backend does not exist yet (`env.capabilities`: reactions, order card,
- * instant answers, track order) draw nothing. The "closed the conversation"
- * line, the rating card under it and the chat bar's menu are drawn by the
- * extras (presentation-t2-x.js) once Core handed them over.
+ * backend does not exist yet (`env.capabilities`: order card, instant
+ * answers, track order) draw nothing. The "closed the conversation" line,
+ * the rating card under it, the chat bar's menu, a message's reactions and
+ * the reply to a message left while away are drawn by the extras
+ * (presentation-t2-x.js) once Core handed them over.
  */
 (function () {
   'use strict';
@@ -1008,6 +1009,9 @@
           : '';
         var quoted = quoteText ? '<span class="msg-quote">' + esc(String(quoteText)) + '</span>' : '';
         var hasText = !!(m.body && String(m.body).trim().length > 0);
+        // Reactions (`view.react`, the extras'): the badge under the bubble,
+        // the visitor's heart among a team message's actions.
+        var react = view.react ? x('reactHtml', [m]) : '';
         var actionsHtml = hasText
           ? '<span class="msg-actions">' +
               '<button type="button" class="msg-act" data-msg-reply="' + esc(m.__id || '') +
@@ -1017,19 +1021,21 @@
                 ico('quote', 13, 1.8) + '</button>' +
               '<button type="button" class="msg-act" data-msg-copy="' + esc(String(bodyText || m.body || '')) +
                 '" title="' + esc(tf('copy', 'Copy')) + '" aria-label="' + esc(tf('copy', 'Copy')) + '">' +
-                ico('copy', 14, 1.7) + '</button>' +
+                ico('copy', 14, 1.7) + '</button>' + (view.react && !visitor ? x('reactBtnHtml', [m]) : '') +
             '</span>'
           : '';
 
-        // An attachment is its own item above its caption, as the design draws them.
+        // An attachment is its own item above its caption, as the design
+        // draws them; the badge goes under the last one.
         var att = renderMessageAttachment(m.attachment);
+        var onText = textHtml || quoted || !att;
         var items = att
-          ? '<div class="msg-line"><div class="msg ' + cls + ' has-att-only">' + att + '</div></div>' : '';
-        if (textHtml || quoted || !att) {
-          items += '<div class="msg-line">' +
+          ? '<div class="msg-line' + (react && !onText ? ' rel' : '') + '"><div class="msg ' + cls + ' has-att-only">' + att + '</div>' + (onText ? '' : react) + '</div>' : '';
+        if (onText) {
+          items += '<div class="msg-line' + (react ? ' rel' : '') + '">' +
             '<div class="msg ' + cls + '"' +
               (isRevealing ? ' data-typing-host data-typing-active="1"' : '') + '>' + quoted + textHtml +
-            '</div>' + actionsHtml +
+            '</div>' + actionsHtml + react +
           '</div>';
         }
 
@@ -1040,6 +1046,8 @@
 
         var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';
         if (isIntro && !visitorHasReplied && qnaState.questions.length) html += qnaChipsHtml(qnaState);
+        // The automated reply under the message left while the team is away (`view.awayReply`).
+        if (view.awayReply && view.awayReply.at === idx) html += x('awayReplyHtml', [view.awayReply]);
       });
 
       if (extraRowHtml) html += extraRowHtml;
@@ -1875,7 +1883,7 @@
     }
     /** 0: refused; 1: taken (with `dry`: would be); 2: taken, and a surface was asked for before. */
     function extend(mod, dry) {
-      if (!mod || mod.id !== 't2' || mod.v !== 1 || typeof mod.create !== 'function') return 0;
+      if (!mod || mod.id !== 't2' || mod.v !== 2 || typeof mod.create !== 'function') return 0;
       if (dry) return 1;
       X = X || mod.create(H);
       var m = missed;
@@ -1911,6 +1919,10 @@
         closedNotice: true,
         csat: true,
         chatMenu: true,
+        // A message's reactions and the message left while away
+        // (runtime-late.js), as far as Core serves them.
+        reactions: !!caps.reactions,
+        awayThread: !!caps.awayThread,
       },
       extend: extend,
       shellHtml: shellHtml,

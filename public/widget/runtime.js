@@ -85,9 +85,12 @@
       // What this Core can serve, so a renderer never draws a control nobody
       // answers. `kbNeutral`: the article vote accepts 'neutral' (until the
       // database allows it, such a vote is refused like any failed vote).
-      // `csat`, `chatMenu`: the rating after a chat and the chat's menu
+      // `csat`, `chatMenu`: the rating after a chat and the chat's menu;
+      // `reactions`, `prechatSteps`, `awayThread`, `queuePosition`: a
+      // message's reactions, the pre-chat one question at a time, the
+      // message left while the team is away and the place in the queue
       // (runtime-late.js, with the routes they call).
-      capabilities: { kbNeutral: true, csat: true, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false, chatMenu: true },
+      capabilities: { kbNeutral: true, csat: true, reactions: true, orderCard: false, prechatSteps: true, instantAnswers: false, chatMenu: true, awayThread: true, queuePosition: true },
     });
   }
 
@@ -2148,6 +2151,8 @@
                   onMessage: function (e) { emit('message', e); },
                   onTyping: function (e) { emit('typing', e); },
                   onPresence: function (e) { emit('presence', e); },
+                  // A message's reactions changed (runtime-late.js; nothing without it).
+                  onReaction: function (p) { ext('reaction', p); },
                   onReconnect: function () { emit('reconnect', {}); },
                   // Subscribe-ack from the driver — proves the per-conversation
                   // channel is live and the visitor is sendable. This is the
@@ -4170,58 +4175,59 @@
      */
     function attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange) {
       var s = chatStore.get();
-      transport.sendMessage(
-        {
-          text: text,
-          conversationId: s.conversationId,
-          // One-shot: only true for the first message after "+ New
-          // conversation". Never sent alongside a conversationId.
-          forceNewConversation: forcingNew() && !s.conversationId,
-          attachmentId: attachmentId || null,
-          clientMessageId: localId,
-          replyToMessageId: replyToMessageId || null,
-          departmentId: departmentId,
+      var req = {
+        text: text,
+        conversationId: s.conversationId,
+        // One-shot: only true for the first message after "+ New
+        // conversation". Never sent alongside a conversationId.
+        forceNewConversation: forcingNew() && !s.conversationId,
+        attachmentId: attachmentId || null,
+        clientMessageId: localId,
+        replyToMessageId: replyToMessageId || null,
+        departmentId: departmentId,
+      };
+      var cbs = {
+        onConversation: function (cid) {
+          // Thread established — disarm before anything else so a retry or
+          // a follow-up message can never spawn a second thread, and so
+          // history/polling may resume adopting this (now current) id.
+          chatStore.set({ freshIntent: false });
+          if (cid && cid !== chatStore.get().conversationId) {
+            chatStore.set({ conversationId: cid });
+            transport.subscribeConversation(cid);
+          }
         },
-        {
-          onConversation: function (cid) {
-            // Thread established — disarm before anything else so a retry or
-            // a follow-up message can never spawn a second thread, and so
-            // history/polling may resume adopting this (now current) id.
-            chatStore.set({ freshIntent: false });
-            if (cid && cid !== chatStore.get().conversationId) {
-              chatStore.set({ conversationId: cid });
-              transport.subscribeConversation(cid);
-            }
-          },
 
 
-          onAccepted: function (info) {
-            // Bind canonical message id and flip to 'sent'. The next merge
-            // (poll/history) will reconcile by __id and may promote to 'seen'.
-            updateMessageByLocalId(localId, {
-              status: 'sent',
-              __id: info && info.messageId ? info.messageId : undefined,
-            }, onChange);
-          },
-          onReply: function (reply) {
-            var ns = chatStore.get();
-            var arr = ns.messages.slice();
-            arr.push({ body: reply, sender: 'operator', time: new Date() });
-            chatStore.set({ messages: arr });
-            if (onChange) onChange();
-          },
-          onError: function (err) {
-            // The monthly chat quota is full (simple billing phase 4): a
-            // first message cannot open a new conversation, so the visitor
-            // gets the leave-a-message form instead of a failed bubble —
-            // only when the server accepts captures over the quota
-            // (availability.quota_full present) and no thread exists yet.
-            if (switchToQuotaForm(err, localId, text, onChange)) return;
-            Util.warn('Send failed');
-            updateMessageByLocalId(localId, { status: 'failed' }, onChange);
-          },
-        }
-      );
+        onAccepted: function (info) {
+          // Bind canonical message id and flip to 'sent'. The next merge
+          // (poll/history) will reconcile by __id and may promote to 'seen'.
+          updateMessageByLocalId(localId, {
+            status: 'sent',
+            __id: info && info.messageId ? info.messageId : undefined,
+          }, onChange);
+        },
+        onReply: function (reply) {
+          var ns = chatStore.get();
+          var arr = ns.messages.slice();
+          arr.push({ body: reply, sender: 'operator', time: new Date() });
+          chatStore.set({ messages: arr });
+          if (onChange) onChange();
+        },
+        onError: function (err) {
+          // The monthly chat quota is full (simple billing phase 4): a
+          // first message cannot open a new conversation, so the visitor
+          // gets the leave-a-message form instead of a failed bubble —
+          // only when the server accepts captures over the quota
+          // (availability.quota_full present) and no thread exists yet.
+          if (switchToQuotaForm(err, localId, text, onChange)) return;
+          Util.warn('Send failed');
+          updateMessageByLocalId(localId, { status: 'failed' }, onChange);
+        },
+      };
+      // A renderer feature may deliver it another way (the message left
+      // while the team is away), through these same callbacks.
+      if (!ext('send', req, cbs)) transport.sendMessage(req, cbs);
     }
 
     /**
@@ -7577,9 +7583,10 @@
       if (!attachBtn) return;
       var conn = transportStore.get().connectionState;
       var pState = presenceStore.get();
+      // Away, a renderer feature may keep the thread open (ext 'away').
       var availOk = pState.liveChatEnabled !== false
         && !((pState.status === 'offline' || pState.status === 'unavailable')
-          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
+          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message') && !ext('away', 'attach'));
       if (ext('locked')) availOk = false;
       attachBtn.disabled = !(conn === 'online' && availOk);
       if (micBtn && !recordingActive) micBtn.disabled = !(conn === 'online' && availOk);
@@ -7644,7 +7651,7 @@
       var pState = presenceStore.get();
       var availOk = pState.liveChatEnabled !== false
         && !((pState.status === 'offline' || pState.status === 'unavailable')
-          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
+          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message') && !ext('away', 'send'));
       var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
       // A locked composer is styled by its renderer (`.input-bar.is-locked`).
       var locked = ext('locked');
@@ -8878,7 +8885,8 @@
       var pMode = presenceStore.get().offlineMode;
       var isOfflineFallbackMode = (pStatus === 'offline' || pStatus === 'unavailable')
         && (pMode === 'contact_fallback' || pMode === 'capture_message');
-      if (isOfflineFallbackMode && !hasMsgs && !aiActiveNow) {
+      // A renderer feature may take the message in the thread instead (ext 'away').
+      if (isOfflineFallbackMode && !hasMsgs && !aiActiveNow && !ext('away')) {
         return { name: ENTRY_FLOW_STATE.OFFLINE_CONTACT, aiActiveNow: aiActiveNow, hasMsgs: hasMsgs, aiOwnsThread: aiOwnsThread };
       }
       if (!aiActiveNow && !hasMsgs) {
@@ -9058,7 +9066,10 @@
           // happened) renders fields inline, inside the message list, so the
           // prior conversation stays visible — the full-page form is only
           // for PRECHAT_FOR_HUMAN, the very first thing a visitor sees.
-          if (state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT) {
+          // A renderer feature may ask in the thread for a first chat too
+          // (ext 'inline', which also learns how to report the submit).
+          var inline = ext('inline', onPrechatSubmitted);
+          if (state.name === ENTRY_FLOW_STATE.HANDOFF_PRECHAT || inline) {
             chatUI.renderHandoffPrechatInline(mountChatFrame() || body, identity, ctx.locale, onPrechatSubmitted);
           } else {
             chatUI.renderPreChat(body, identity, ctx.locale, onPrechatSubmitted);
@@ -9334,12 +9345,13 @@
       }
     }
     var launcherTypingTimer = null;
-    function showOperatorTyping() {
+    function showOperatorTyping(p) {
       // The launcher shows it even while the panel (and its bar) is closed.
       launcherTyping(true);
       if (launcherTypingTimer) clearTimeout(launcherTypingTimer);
       launcherTypingTimer = setTimeout(function () { launcherTyping(false); }, 3500);
-      ext('typing', 1);
+      // The event's typing operator (name, photo) for a visible typing row.
+      ext('typing', 1, p);
       if (!typingRow || !typingLabel) return;
       typingRow.classList.remove('ai-thinking');
       typingLabel.textContent = t('typingOperator') || 'Support is typing…';
@@ -9357,7 +9369,7 @@
       transport.on('typing', function (e) {
         var actor = e && e.payload && e.payload.actor;
         if (actor === 'visitor') return; // ignore self-echo
-        showOperatorTyping();
+        showOperatorTyping(e && e.payload);
       });
     }
 

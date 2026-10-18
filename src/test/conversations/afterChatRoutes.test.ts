@@ -234,10 +234,13 @@ describe('the closed line in the visitor\'s thread', () => {
       const rows = (res.body.messages as Body[]);
       const lines = rows.filter((m) => m.metadata?.kind === 'conversation_closed');
       expect(lines, path).toHaveLength(1);
+      // The names only: the stored row's agent_id / operator_id never reach
+      // the visitor (realtime/publish.ts visitorMessageMetadata).
       expect(lines[0], path).toMatchObject({
         id: first!.id, role: 'system', sender_type: 'system', text: 'Ali closed the conversation',
-        metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'Ali', operator_id: SARA, operator_name: 'Sara', status: 'resolved' },
+        metadata: { kind: 'conversation_closed', by: 'agent', agent_name: 'Ali', operator_name: 'Sara', status: 'resolved' },
       });
+      expect(Object.keys(lines[0].metadata).sort(), path).toEqual(['agent_name', 'by', 'kind', 'operator_name', 'status']);
       // The newest row, and the inbox-only notice is not there.
       expect(rows[rows.length - 1].id, path).toBe(first!.id);
       expect(rows.some((m) => m.metadata?.internal === true), path).toBe(false);

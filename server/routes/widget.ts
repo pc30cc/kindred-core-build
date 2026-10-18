@@ -14,6 +14,9 @@ import { clearContinuityCookie } from '../services/widget/continuity.js';
  *  - GET  /conversations/:id/csat       — The closed line's rating state, transcript availability
  *  - POST /conversations/:id/csat       — Rate the closed line
  *  - POST /conversations/:id/transcript — Mail the transcript to the contact's email
+ *  - GET  /conversations/:id/reactions  — Message reactions of the thread (counts, the visitor's own)
+ *  - POST /conversations/:id/reactions  — Set or take back the visitor's ❤️ on a team message
+ *  - GET  /queue            — The conversation's place in the manual queue and the wait
  *  - POST /session/refresh  — Refresh expiring token
  *  - GET  /manifest         — Token-secured. Versioned runtime manifest
  *  - POST /validate-origin  — Origin validation check
@@ -31,6 +34,7 @@ import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.j
 import {
   publishConversationEvent,
   buildMessageEnvelope,
+  visitorMessageMetadata,
 } from '../services/realtime/publish.js';
 import { notifyInboundMessage } from '../services/push/index.js';
 import {
@@ -148,6 +152,20 @@ import {
   RatingError,
 } from '../services/conversationRatings.js';
 import { emailVisitorTranscript, transcriptAvailability } from '../services/visitorTranscript.js';
+import {
+  REACTIONS_MIGRATION_REQUIRED,
+  publishMessageReactions,
+  readConversationReactions,
+  readMessageReactions,
+  setMessageReaction,
+} from '../services/messageReactions.js';
+import { readQueueStatus } from '../services/chatRouting.js';
+import {
+  VISITOR_REACTION_EMOJI,
+  normalizeReactionEmoji,
+  reactableByVisitor,
+  visitorReactionList,
+} from '../../shared/messageReactions.js';
 
 /**
  * Internal staffing notices never reach the visitor.
@@ -826,7 +844,10 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       _sender_id: m.sender_id || null,
       text: m.body,
       time: m.created_at,
-      metadata: m.metadata,
+      // Without the operator account ids a row records (a join's agent_id,
+      // a transfer's from_id / to_id, the closed line's operator_id): the
+      // widget shows the names beside them (realtime/publish.ts).
+      metadata: visitorMessageMetadata(m.metadata),
       // Phase 7 — lifecycle. Only ever set on visitor messages, only by an
       // operator-side action (mark_conversation_seen RPC). Monotonic.
       seen_at: m.seen_at || null,
@@ -933,7 +954,8 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     _sender_id: m.sender_id || null,
     text: m.body,
     time: m.created_at,
-    metadata: m.metadata,
+    // Without operator account ids (see /poll).
+    metadata: visitorMessageMetadata(m.metadata),
     // Phase 7 — lifecycle (see /poll for semantics).
     seen_at: m.seen_at || null,
     reply_to_message_id: m.reply_to_message_id || null,
@@ -965,6 +987,44 @@ async function assignedOperatorOf(
     return null;
   }
 }
+
+// ═══════════════════════════════════════════════
+// GET /queue — the place in the manual queue (issue #340 g4)
+// ───────────────────────────────────────────────
+// `?workspace_id&conversation_id` (+ visitor_id / session_id as /history)
+// → { position, wait_minutes }: two integers, or nulls while the
+// conversation is not waiting in the queue (an operator has it, it is
+// closed, routing never queued it) and before migration 276. Asked by Core's
+// late module (runtime-late.js) every 30 s while a template that draws the
+// queue pill shows a queued thread; `default` never asks. Ownership exactly
+// as /history; the count is one range on the partial index of 276
+// (services/chatRouting.ts readQueueStatus).
+// ═══════════════════════════════════════════════
+widgetRouter.get('/queue', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = serverConfigOf(req);
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+
+  const conversationId = typeof req.query.conversation_id === 'string' ? req.query.conversation_id : '';
+  if (!conversationId || !workspaceId) {
+    return res.status(400).json({ error: 'conversation_id and workspace_id required' });
+  }
+  if (!CONVERSATION_ID_RE.test(conversationId)) return res.status(400).json({ error: 'invalid conversation id' });
+  const visitorId = req.query.visitor_id as string || null;
+  const sessionId = req.query.session_id as string || null;
+
+  try {
+    const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId, req);
+    if (!ownership.valid || !ownership.conversation) {
+      return res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.json(await readQueueStatus(config, workspaceId, ownership.conversation));
+  } catch (err) {
+    console.error('[widget-queue] Error:', err?.message || err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
 
 // ═══════════════════════════════════════════════
 // GET /conversations — Visitor's own conversation list
@@ -1375,6 +1435,144 @@ widgetRouter.post('/conversations/:id/transcript', widgetRateLimit('transcript')
       : { error: result.error });
   } catch (err) {
     console.error('[widget-transcript] Error:', err?.message || err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+
+// ═══════════════════════════════════════════════
+// Message reactions (issue #340 g2)
+// ───────────────────────────────────────────────
+// Called only by Core's late module (runtime-late.js) of a template that
+// draws them (Template 2's badge and the visitor's heart): GET /poll,
+// /history, /identity/history and POST /message carry no reactions, so
+// `default` answers exactly as it always did. Ownership exactly as /history.
+// The visitor reacts with ❤️ only, on the team's messages; what they get
+// back is counts and their own part (`mine`), never who reacted. Rules:
+// shared/messageReactions.ts; storage and the live event:
+// services/messageReactions.ts. Before migration 276 the read is empty and a
+// write 503 `migration_required`.
+// ═══════════════════════════════════════════════
+
+/** The thread a reaction route is about, when the visitor owns it (else the answer is written). */
+async function reactionThread(
+  config: ServerConfig,
+  req: Request,
+  res: Response,
+  candidateWorkspaceId: string | undefined,
+  ids: { visitorId: string | null; sessionId: string | null },
+): Promise<{ workspaceId: string; conversationId: string } | null> {
+  const workspaceId = resolveWorkspaceId(req, res, candidateWorkspaceId);
+  if (res.headersSent) return null;
+  if (!workspaceId) {
+    res.status(400).json({ error: 'workspace_id required' });
+    return null;
+  }
+  const conversationId = String(req.params.id || '');
+  if (!CONVERSATION_ID_RE.test(conversationId)) {
+    res.status(400).json({ error: 'invalid conversation id' });
+    return null;
+  }
+  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, ids.visitorId, ids.sessionId, req);
+  if (!ownership.valid) {
+    res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
+    return null;
+  }
+  return { workspaceId, conversationId };
+}
+
+const queryId = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+
+// GET /conversations/:id/reactions → { reactions: { <message_id>: [{emoji, count, mine}] }, at }
+// (only messages that have any; `at` = ms when they were read).
+widgetRouter.get('/conversations/:id/reactions', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = serverConfigOf(req);
+  try {
+    const thread = await reactionThread(config, req, res, req.query.workspace_id as string, {
+      visitorId: queryId(req.query.visitor_id),
+      sessionId: queryId(req.query.session_id),
+    });
+    if (!thread) return;
+    res.set('Cache-Control', 'no-store');
+    // Taken before the read: a later `at` always saw every earlier write.
+    const at = Date.now();
+    const { byMessage } = await readConversationReactions(getServiceClient(config), thread.conversationId, { type: 'visitor' });
+    const reactions: Record<string, ReturnType<typeof visitorReactionList>> = {};
+    for (const [messageId, list] of byMessage) reactions[messageId] = visitorReactionList(list);
+    return res.json({ reactions, at });
+  } catch (err) {
+    console.error('[widget-reactions] read error:', err?.message || err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+const reactionBodySchema = z.object({
+  workspace_id: z.string().optional(),
+  message_id: z.string().uuid(),
+  emoji: z.unknown(),
+  on: z.boolean(),
+  visitor_id: z.string().max(200).nullable().optional(),
+  session_id: z.string().max(200).nullable().optional(),
+});
+
+// POST /conversations/:id/reactions {workspace_id, message_id, emoji, on} →
+// 200 {ok, message_id, reactions: [{emoji, count, mine}], at} | 400
+// invalid_payload / invalid_emoji | 403 CONVERSATION_ACCESS_DENIED | 404
+// message_not_found | 422 not_reactable | 503 migration_required. Sets
+// (`on`) or takes back the visitor's ❤️; either is idempotent. Not a reply:
+// the conversation's status, updated_at, unread counts, AI state, mails and
+// pushes stay as they are, whatever its status.
+widgetRouter.post('/conversations/:id/reactions', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = serverConfigOf(req);
+  const body = reactionBodySchema.safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: 'invalid_payload' });
+  const emoji = normalizeReactionEmoji(body.data.emoji);
+  // The visitor's one reaction (owner, 2026-10-17).
+  if (emoji !== VISITOR_REACTION_EMOJI) return res.status(400).json({ error: 'invalid_emoji' });
+  try {
+    const thread = await reactionThread(config, req, res, body.data.workspace_id, {
+      visitorId: body.data.visitor_id ?? null,
+      sessionId: body.data.session_id ?? null,
+    });
+    if (!thread) return;
+    const sb = getServiceClient(config);
+    const { data: message } = await sb
+      .from('conversation_messages')
+      .select('id, conversation_id, sender_type, metadata')
+      .eq('id', body.data.message_id)
+      .eq('conversation_id', thread.conversationId)
+      .maybeSingle();
+    // An inbox-only row does not exist for the visitor.
+    if (!message || !isVisitorVisibleMessageMeta(message.metadata)) {
+      return res.status(404).json({ error: 'message_not_found' });
+    }
+    if (!reactableByVisitor(message)) return res.status(422).json({ error: 'not_reactable' });
+
+    const outcome = await setMessageReaction(sb, {
+      workspaceId: thread.workspaceId,
+      conversationId: thread.conversationId,
+      messageId: message.id as string,
+      actorType: 'visitor',
+      actorId: null,
+      emoji,
+      on: body.data.on,
+    });
+    if (outcome === 'missing') return res.status(503).json(REACTIONS_MIGRATION_REQUIRED);
+    const at = Date.now();
+    const summary = await readMessageReactions(sb, message.id as string, { type: 'visitor' });
+    // Only a change is news (the visitor's other tabs, the inbox).
+    if (outcome === 'changed') {
+      void publishMessageReactions(config, {
+        workspaceId: thread.workspaceId,
+        conversationId: thread.conversationId,
+        messageId: message.id as string,
+        reactions: summary,
+        at,
+      });
+    }
+    return res.json({ ok: true, message_id: message.id, reactions: visitorReactionList(summary), at });
+  } catch (err) {
+    console.error('[widget-reactions] write error:', err?.message || err);
     return res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -3453,14 +3651,80 @@ const offlineMessageSchema = z.object({
   honeypot: z.string().max(0).optional(),
 });
 
+/**
+ * The away thread's first message (issue #340 g4, runtime-late.js of a
+ * template that draws it): what the visitor typed in the thread while the
+ * team is away, from one character up to what POST /message takes (its
+ * messageSchema: the composer sends this message there when the team is in),
+ * with the bubble's client id. A retry with the same id within 24 h answers
+ * the conversation and message the first one made, without a second insert,
+ * push or mail. The leave-a-message form never sends
+ * `client_message_id`, so its requests are checked and answered exactly as
+ * before (offlineMessageSchema).
+ */
+const awayMessageSchema = offlineMessageSchema.extend({
+  message: z.string().max(5000).refine((m) => m.trim().length > 0),
+  client_message_id: z.string().min(8).max(64),
+  // What the widget already knows of the contact rides along (runtime-late.js),
+  // not what the visitor typed into a form: a stored value the form would
+  // refuse (a long name, an odd address) never costs them their message.
+  name: z.string().optional().transform((v) => (v ? v.slice(0, 120) : undefined)),
+  email: z.string().email().max(255).optional().catch(undefined),
+  phone: z.string().max(40).optional().catch(undefined),
+});
+
+/** How long a client id finds the capture it made. */
+const OFFLINE_REPLAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The conversation and visitor message an earlier request with this client
+ * id captured for this visitor within OFFLINE_REPLAY_MS, or null. The
+ * visitor must be the same one exactly: a capture made with the cookie never
+ * answers a request without it (nor one without it a request with another
+ * cookie), so a client id alone finds nobody else's conversation.
+ */
+async function priorOfflineCapture(
+  supabase: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+  threadKey: string,
+  clientMessageId: string,
+  visitorId: string | null,
+): Promise<{ conversationId: string; messageId: string | null } | null> {
+  const { data: convs } = await supabase
+    .from('conversations')
+    .select('id, metadata')
+    .eq('workspace_id', workspaceId)
+    .contains('metadata', { channel_thread_key: threadKey, ...(visitorId ? { visitor_id: visitorId } : {}) })
+    .gte('created_at', new Date(Date.now() - OFFLINE_REPLAY_MS).toISOString())
+    .order('created_at', { ascending: true })
+    .limit(5);
+  const conv = (Array.isArray(convs) ? convs : []).find((c) => {
+    const meta = (c?.metadata && typeof c.metadata === 'object' ? c.metadata : {}) as Record<string, unknown>;
+    return (typeof meta.visitor_id === 'string' ? meta.visitor_id : null) === visitorId;
+  });
+  if (!conv?.id) return null;
+  const { data: msg } = await supabase
+    .from('conversation_messages')
+    .select('id')
+    .eq('conversation_id', conv.id)
+    .eq('sender_type', 'contact')
+    .filter('metadata->>client_message_id', 'eq', clientMessageId)
+    .limit(1)
+    .maybeSingle();
+  return { conversationId: conv.id as string, messageId: (msg?.id as string | undefined) ?? null };
+}
+
 widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);
-  const parsed = offlineMessageSchema.safeParse(req.body);
+  const away = req.body && typeof req.body === 'object' && (req.body as Record<string, unknown>).client_message_id != null;
+  const parsed = away ? awayMessageSchema.safeParse(req.body) : offlineMessageSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
   }
 
   const { workspace_id, message, email, name, phone, locale } = parsed.data;
+  const clientMessageId = away ? (parsed.data as z.infer<typeof awayMessageSchema>).client_message_id : null;
+  const threadKey = clientMessageId ? `widget_cmid:${clientMessageId}` : null;
   const tokenWs = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined;
   if (tokenWs && tokenWs !== workspace_id) {
     return res.status(403).json({ error: 'workspace_mismatch' });
@@ -3472,6 +3736,20 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   }
 
   const supabase = getServiceClient(config);
+
+  // A retry of an away message that was captured: the same answer, nothing new.
+  if (threadKey && clientMessageId) {
+    const prior = await priorOfflineCapture(supabase, workspace_id, threadKey, clientMessageId, readVisitorCookie(req, workspace_id)?.v || null);
+    if (prior) {
+      return res.json({
+        ok: true,
+        captured: true,
+        conversation_id: prior.conversationId,
+        transitioning: false,
+        message_id: prior.messageId,
+      });
+    }
+  }
 
   // Re-resolve availability server-side. Reject when online — the widget
   // should be sending a normal /message in that case.
@@ -3587,6 +3865,13 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
       priority: 'normal',
       tags: overQuota ? ['offline', 'over_quota'] : ['offline'],
       subject: 'Offline message',
+      // The away thread goes on in this conversation (POST /message, typing,
+      // the email card): `visitor_id` proves it is this visitor's even with
+      // no session row, and the client id finds it again on a retry (and on
+      // a /message retry of the same bubble, as /message's own key).
+      ...(threadKey
+        ? { metadata: { source: 'offline_capture', ...(visitorId ? { visitor_id: visitorId } : {}), channel_thread_key: threadKey } }
+        : {}),
     })
     .select('id')
     .single();
@@ -3601,7 +3886,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     conversation_id: conv.id,
     sender_type: 'contact',
     body: message,
-    metadata: { source: 'offline_capture', visitor_id: visitorId },
+    metadata: { source: 'offline_capture', visitor_id: visitorId, ...(clientMessageId ? { client_message_id: clientMessageId } : {}) },
   }).select('id').single();
 
   // A message left while nobody was there is still a customer's message: on
@@ -3651,8 +3936,15 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
     // would be wrong there.
     transitioning: transitioning && !overQuota,
     ...(overQuota ? { over_quota: true } : {}),
+    // The away thread's bubble becomes this message (runtime-late.js).
+    ...(clientMessageId ? { message_id: offlineMessage?.id ?? null } : {}),
   });
 });
+
+/** Visitor text for an HTML mail body: `&`, `<`, `>` and `"` as entities. */
+export function escapeMailText(value: string): string {
+  return String(value).replace(/[&<>"]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'));
+}
 
 async function notifyOfflineCapture(
   config: ServerConfig,
@@ -3709,13 +4001,14 @@ async function notifyOfflineCapture(
   } catch {
     inboxUrl = '';
   }
-  const safeMsg = payload.message.replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;'));
+  // What the visitor typed is text, never markup: in this fallback body and
+  // in the template's HTML alike.
   const html = `
     <p>A visitor left a message while your workspace was offline.</p>
-    <p><strong>From:</strong> ${payload.name || 'Anonymous'} ${payload.email ? `&lt;${payload.email}&gt;` : ''}</p>
+    <p><strong>From:</strong> ${escapeMailText(payload.name || 'Anonymous')} ${payload.email ? `&lt;${escapeMailText(payload.email)}&gt;` : ''}</p>
     <p><strong>Message:</strong></p>
-    <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${safeMsg}</blockquote>
-    <p>${inboxUrl ? `<a href="${inboxUrl}">Open this conversation in the inbox to reply.</a>` : 'Open this conversation in the inbox to reply.'}</p>
+    <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${escapeMailText(payload.message)}</blockquote>
+    <p>${inboxUrl ? `<a href="${escapeMailText(inboxUrl)}">Open this conversation in the inbox to reply.</a>` : 'Open this conversation in the inbox to reply.'}</p>
   `;
   const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
 
@@ -3728,11 +4021,16 @@ async function notifyOfflineCapture(
         html,
         text,
         templateSlug: 'offline_message_received',
+        // The template (offline_message_received) puts the visitor's name,
+        // address and message into its HTML: escaped. The same values fill
+        // its subject and text part, where an `&`, `<`, `>` or `"` then
+        // reads as its entity; an apostrophe is left as it is (no shipped
+        // template quotes an attribute with it).
         templateData: {
           conversation_id: payload.conversationId,
-          contact_name: payload.name || '',
-          contact_email: payload.email || '',
-          message_body: payload.message,
+          contact_name: escapeMailText(payload.name || ''),
+          contact_email: escapeMailText(payload.email || ''),
+          message_body: escapeMailText(payload.message),
           action_url: inboxUrl,
         },
         locale: payload.locale,

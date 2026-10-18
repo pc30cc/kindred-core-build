@@ -74,6 +74,15 @@ export interface ChatWidgetTemplate {
    * `features.closedNotice` (src/test/widget/runtimeExt.test.ts).
    */
   closedNotice: boolean;
+  /**
+   * Its renderer draws message reactions: the badge under a bubble and the
+   * visitor's heart (shared/messageReactions.ts). The inbox offers operators
+   * React on a visitor's message only for a workspace whose effective
+   * template has this (server/services/messageReactions.ts
+   * workspaceShowsReactions), so a reaction is never given where the visitor
+   * cannot see it. Must match the renderer's `features.reactions`.
+   */
+  reactions: boolean;
 }
 
 export const CHAT_WIDGET_TEMPLATES = {
@@ -86,6 +95,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     coreFeatures: false,
     extras: null,
     closedNotice: false,
+    reactions: false,
   },
   intl: {
     id: 'intl',
@@ -96,6 +106,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     coreFeatures: false,
     extras: null,
     closedNotice: false,
+    reactions: false,
   },
   t1: {
     id: 't1',
@@ -106,6 +117,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     coreFeatures: true,
     extras: 'presentation-t1-x.js',
     closedNotice: false,
+    reactions: false,
   },
   t2: {
     id: 't2',
@@ -116,6 +128,7 @@ export const CHAT_WIDGET_TEMPLATES = {
     coreFeatures: true,
     extras: 'presentation-t2-x.js',
     closedNotice: true,
+    reactions: true,
   },
 } as const satisfies Record<string, ChatWidgetTemplate>;
 

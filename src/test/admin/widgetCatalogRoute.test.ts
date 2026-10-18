@@ -215,6 +215,13 @@ describe('GET', () => {
       optionSpec: { navStyle: ['vb', 'va', 'vc', 'vd'], navMode: ['active', 'both', 'icon', 'text', 'none'] },
     });
     expect(templates[2].optionSpec).toMatchObject({ topics: { max: 4 }, askExamples: { max: 2 } });
+    // Every option a template reads has its spec (the first value the code's default).
+    expect(templates[1].optionSpec).toMatchObject({ prechatMode: ['card', 'steps'], transcriptEmail: [true, false] });
+    expect(templates[2].optionSpec).toMatchObject({ csat: [true, false], transcriptEmail: [true, false] });
+    expect(templates[2].optionSpec).not.toHaveProperty('prechatMode');
+    for (const t of templates) {
+      expect(Object.keys(t.optionSpec as Row).sort(), String(t.id)).toEqual(Object.keys(t.options as Row).sort());
+    }
   });
 
   it('reads only the running edition\'s row', async () => {

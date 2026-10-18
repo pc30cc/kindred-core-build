@@ -1197,6 +1197,14 @@ const en = {
     reply: 'Reply',
     copy: 'Copy message',
     copied: 'Copied to clipboard',
+    // Message reactions: the picker on a visitor's message and the chips
+    // under a bubble (who reacted: the visitor, you, teammates by count).
+    react: 'React',
+    reactions: 'Reactions',
+    reactionYou: 'you',
+    reactionTeamOne: 'a teammate',
+    reactionTeam: '{{count}} teammates',
+    reactionFailed: "Couldn't save the reaction",
     today: 'Today',
     yesterday: 'Yesterday',
     mainInbox: 'Main inbox',

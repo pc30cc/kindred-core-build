@@ -130,10 +130,19 @@ templates: `docs/operations/EDITIONS.md`.
   (`e2e/harness/templateScreens.ts`, both; `--late-after` shoots the live
   order instead) put them on the page before painting.
   `src/test/widget/runtimeExt.test.ts` checks who asks and when, the
-  all-or-nothing rule and the one repaint. Sizes on 2026-10-18: runtime-ext.js
-  7.1 KB (the pack's loader and the late module's API +0.9 KB), runtime-late.js
-  0.1 KB, presentation-t1-x.js 1.2 KB (t1's emoji grid, out of t1's first
-  paint), presentation-t2-x.js 0.1 KB.
+  all-or-nothing rule and the one repaint. Sizes on 2026-10-18, after issue
+  #340's rounds 1–3 (gzip 5, as shipped, both brands): runtime.js 54.8 KB
+  (+0.2 KB for the issue so far: round 2's closed-row guards, the hook
+  points `send`, `away`, `inline`, `reaction`, the typing payload and the
+  capability flips), runtime-ext.js
+  7.2 KB (of 8; the pack's loader, the late module's API, those hooks' own
+  empty handlers and the typing name), runtime-late.js 8.2 KB (of 12: the
+  rating card, the chat bar's menu, reactions, the pre-chat one question at
+  a time, the message left while away, the place in the queue),
+  presentation-t1-x.js 4.7 KB and presentation-t2-x.js 4.0 KB (of 12 each;
+  t1's emoji grid and every late surface, out of the first paint); the
+  renderers keep their first-open budgets (t1 19.3 KB, t2 19.6 KB in the
+  Iranian build, 19.2 / 19.4 KB in RESPOK's, of 20).
 - A feature's server data is sent on request only, so the API serves
   `default` as before: the thread list's and a history's assigned operator
   (`operator=1`, which runtime.js `operatorQ()` adds only for a renderer

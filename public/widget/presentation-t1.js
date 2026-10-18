@@ -713,8 +713,9 @@
         if (dk && dk !== lastDayKey) { html += dayDividerHtml(m.time); lastDayKey = dk; }
         if (isSystemRow(m)) {
           var kind = m.metadata.kind;
+          // The queued row Core gives the visitor's place (`view.queue`, by the extras).
           html += kind === 'call_invitation' ? renderCallInvitationCard(m)
-            : kind === 'call_ended' ? renderCallEndedRow(m) : renderRoutingOutcomeRow(m);
+            : kind === 'call_ended' ? renderCallEndedRow(m) : view.queue && view.queue.at === idx ? x('queueRowHtml', [view.queue]) : renderRoutingOutcomeRow(m);
           return;
         }
         var visitor = m.sender === 'visitor';
@@ -808,6 +809,8 @@
 
         var isIntro = m.metadata && m.metadata.source === 'ai_agent_intro';
         if (isIntro && !visitorHasReplied && qnaState.questions && qnaState.questions.length) html += qnaChipsHtml(qnaState);
+        // The automated reply under the message left while the team is away (`view.awayReply`).
+        if (view.awayReply && view.awayReply.at === idx) html += x('awayReplyHtml', [view.awayReply]);
       });
 
       if (extraRowHtml) html += extraRowHtml;
@@ -1391,7 +1394,7 @@
     var X = null;
     var missed = false;
     var H = {
-      esc: esc, t: t, tf: tf, L: L, fill: fill, svg: svg, P: P, D: D, digits: digits, fmtNum: fmtNum,
+      esc: esc, t: t, tf: tf, L: L, fill: fill, svg: svg, P: P, D: D, SEND: SEND, digits: digits, fmtNum: fmtNum,
       avatarHtml: avatarHtml, systemPillHtml: systemPillHtml, config: config, lang: lang, fa: fa,
     };
     function x(name, args) {
@@ -1401,7 +1404,7 @@
     }
     /** 0: refused; 1: taken (with `dry`: would be); 2: taken, and a surface was asked for before. */
     function extend(mod, dry) {
-      if (!mod || mod.id !== 't1' || mod.v !== 1 || typeof mod.create !== 'function') return 0;
+      if (!mod || mod.id !== 't1' || mod.v !== 2 || typeof mod.create !== 'function') return 0;
       if (dry) return 1;
       X = X || mod.create(H);
       var m = missed;
@@ -1410,15 +1413,16 @@
     }
 
     // Features Core runs for this renderer (runtime.js `feat()`); nothing
-    // is declared for a capability Core cannot serve (reactions, order card,
-    // step pre-chat, instant answers: `env.capabilities`). `chatMenu`: the
-    // chat bar's menu, drawn by the extras.
+    // is declared for a capability Core cannot serve (`env.capabilities`).
+    // `chatMenu`, `prechatSteps`, `queuePosition`, `awayThread`: the chat
+    // bar's menu, the pre-chat one question at a time, the place in the
+    // queue and the message left while away, drawn by the extras.
     var features = {
       tabs: true, kbSearch: true, kbCategories: true, kbArticleMeta: true, operatorTyping: true, chatHeader: true,
       emptyQna: true, topics: true, prechatOperator: true, prechatSummary: true, recSend: true, vnRate: true,
       clock: true, emojiTabs: true, visitorName: true, conversationOperator: true, chatMenu: true,
+      prechatSteps: !!caps.prechatSteps, queuePosition: !!caps.queuePosition, awayThread: !!caps.awayThread,
     };
-    void caps;
 
     return {
       id: 't1',
@@ -1441,6 +1445,9 @@
       prechatFormHtml: prechatFormHtml,
       handoffPrechatCardHtml: handoffPrechatCardHtml,
       prechatSummaryHtml: prechatSummaryHtml,
+      // The pre-chat one question at a time (the extras' surfaces).
+      prechatStepsHtml: function (vm) { return x('prechatStepsHtml', [vm]); },
+      prechatStepBoxHtml: function (vm) { return x('prechatStepBoxHtml', [vm]); },
       contactFallbackHtml: contactFallbackHtml,
       smartSurfaceHtml: smartSurfaceHtml,
       conversationListHtml: conversationListHtml,

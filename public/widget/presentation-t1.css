@@ -821,6 +821,39 @@ textarea.inp { height: auto; min-height: 92px; padding: 11px 14px; resize: none;
 .sum-edit { margin-inline-start: auto; font-size: 12px; font-weight: 600; color: var(--a-ink); }
 .sum .rw { display: flex; justify-content: space-between; gap: 10px; padding: 9px 14px; box-shadow: 0 -1px 0 var(--line); font-size: 12.5px; }
 .sum .rw span { color: var(--ink-3); }
+/* The pre-chat one question at a time (extras): the step in the composer's
+   place, focused-looking, and the answers in the thread. */
+.cbox.steps { gap: 4px; padding: 12px 6px 6px; box-shadow: 0 0 0 1.5px var(--a-tx), 0 0 0 4px var(--a-3); }
+.prog { display: flex; align-items: center; gap: 10px; padding: 0 8px 6px; font-size: 11.5px; font-weight: 600; line-height: 1.5; color: var(--ink-3); white-space: nowrap; }
+.prog .bar { flex: 1; display: flex; gap: 4px; }
+.prog .bar i { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+.prog .bar .on { background: var(--a); }
+.prog .skip { margin-inline-start: 4px; font-size: 11.5px; font-weight: 600; color: var(--a-ink); }
+.ex { display: flex; align-items: center; gap: 10px; min-height: 26px; }
+.ex .pre { direction: ltr; padding-inline-end: 10px; border-inline-end: 1px solid var(--line-2); font-size: 14px; line-height: 26px; color: var(--ink-2); }
+.ex .input { flex: 1; min-width: 0; padding: 0; }
+[dir='rtl'] .ex .input[dir='ltr'] { text-align: right; }
+.steps .tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-inline-start: 8px; }
+.steps .tools .ra { margin-inline-start: auto; }
+.steps .hint { font-size: 12px; color: var(--ink-3); }
+.steps .err { padding: 0 8px 4px; color: var(--bad); }
+.msg.fail { opacity: .55; }
+.st-ok, .st-err { display: inline-flex; align-items: center; gap: 4px; }
+.st-ok svg { color: var(--a-tx); }
+.st-err b { font-weight: 600; color: var(--bad); }
+/* The automated reply to a message left while away, joined to its e-mail card. */
+.msg.joined { border-bottom-left-radius: 6px; }
+.ec { width: 282px; gap: 8px; padding: 12px; border-radius: 18px; border-top-left-radius: 6px; }
+.ec label { font-size: 12.5px; font-weight: 600; }
+.ec .rw { display: flex; gap: 6px; }
+.ec .inp { flex: 1; min-width: 0; }
+.ec .rw .inp[dir='ltr'] { text-align: left; }
+.go { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(180deg, var(--a-hi), var(--a)); color: var(--on-a); }
+.go:disabled { opacity: .6; }
+.ec .fallback-status { font-size: 12px; font-weight: 600; text-align: start; color: var(--bad); }
+.ec.done { flex-direction: row; align-items: center; gap: 10px; font-size: 13px; line-height: 1.6; color: var(--ink-2); }
+.ec.done svg { flex: none; color: var(--a-tx); }
+.ec.done b { color: var(--ink); unicode-bidi: isolate; }
 .dept-picker { display: flex; flex-direction: column; gap: 8px; padding: 20px 18px; }
 .dept-picker__title { font-size: 17px; font-weight: 700; }
 .dept-picker__subtitle { font-size: 13px; color: #666D7A; }

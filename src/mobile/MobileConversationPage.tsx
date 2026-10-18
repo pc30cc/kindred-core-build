@@ -61,6 +61,8 @@ import { toast } from '@/lib/toast';
 import { MobileEmojiPicker } from './MobileEmojiPicker';
 import { SupportRequesterCard } from '@/components/inbox/SupportRequesterCard';
 import { REQUESTER_KIND, type RequesterCardMeta } from '@/components/inbox/requesterMeta';
+import { MessageReactionChips } from '@/components/inbox/MessageReactions';
+import type { MessageReaction } from '@/hooks/useConversations';
 
 /** One attachment as `MessageAttachmentView` needs it. */
 interface TimelineAttachment {
@@ -82,6 +84,7 @@ interface TimelineMessage {
   seen_at?: string | null;
   read_at?: string | null;
   metadata?: SystemMessageMeta | null;
+  reactions?: MessageReaction[];
 }
 
 /** The fields of a conversation this screen actually reads. */
@@ -490,6 +493,12 @@ export default function MobileConversationPage() {
                     </span>
                   </div>
                 </div>
+                {/* Reactions, shown (reacting is the desktop inbox's). */}
+                {m.reactions?.length ? (
+                  <div className="px-1">
+                    <MessageReactionChips reactions={m.reactions} canToggle={false} align={isOutbound ? 'start' : 'end'} />
+                  </div>
+                ) : null}
               </div>
             );
           })

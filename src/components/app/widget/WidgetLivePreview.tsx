@@ -596,9 +596,20 @@ export function WidgetLivePreview({
         ],
       },
       // The capabilities Core passes to a renderer (production: runtime.js).
-      capabilities: { kbNeutral: true, csat: true, reactions: false, orderCard: false, prechatSteps: false, instantAnswers: false, chatMenu: true },
+      capabilities: { kbNeutral: true, csat: true, reactions: true, orderCard: false, prechatSteps: true, instantAnswers: false, chatMenu: true, awayThread: true, queuePosition: true },
       // Who answers the sample conversation (the chat bar Core paints for it).
       chatOperator: { name: operatorName || title, avatar: operatorAvatar || '', online: true },
+      // The pre-chat one question at a time (a renderer declaring prechatSteps,
+      // template option prechatMode 'steps'): its sample answers and the
+      // edition's phone prefix, as runtime-late.js uses it.
+      steps: {
+        name: rtl ? 'علی رضایی' : 'Alex Morgan',
+        phonePrefix: isInternational ? '' : '+98',
+      },
+      // The message left while the team is away (a renderer declaring
+      // awayThread), when the workspace's offline mode takes one.
+      awaySample: (s.offline_mode || 'capture_message') === 'capture_message'
+        ? { sender: 'visitor', senderType: 'visitor', body: d.visitorSample, time: nowIso, status: 'sent' } : null,
       messages: view === 'offline'
         ? [{ sender: 'operator', senderType: 'system', body: offlineMsg, time: nowIso }]
         : [
@@ -865,7 +876,39 @@ export function WidgetLivePreview({
         isAsked: function (k) { return !!pc.asked[k]; },
         isRequired: function (k) { return !!pc.required[k]; },
       };
-      body.innerHTML = R.prechatFormHtml(identity, {}, GS_PREVIEW.locale);
+      /* The pre-chat one question at a time (feature prechatSteps, option
+         prechatMode 'steps'): the chat view with the questions answered so
+         far, an e-mail refused then taken, and the last step in the
+         composer's place, as runtime-late.js paints it. */
+      var keys = ['name', 'email', 'phone'].filter(function (k) { return pc.asked[k]; });
+      var steps = feat('prechatSteps') && (GS_PREVIEW.config.templateOptions || {}).prechatMode === 'steps' &&
+        typeof R.prechatStepBoxHtml === 'function' && keys.length;
+      if (!steps) {
+        body.innerHTML = R.prechatFormHtml(identity, {}, GS_PREVIEW.locale);
+      } else {
+        var open = keys[keys.length - 1];
+        var log = [];
+        keys.slice(0, -1).forEach(function (k) {
+          if (k === 'email') log.push({ key: k, value: 'ali@example', ok: false, why: 'invalid' });
+          log.push({ key: k, value: k === 'name' ? GS_PREVIEW.steps.name : k === 'email' ? 'ali@example.com' : '0912 345 6789', ok: true });
+        });
+        body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
+        var stepsHost = body.querySelector('[data-chat-messages]');
+        if (stepsHost) {
+          stepsHost.innerHTML = R.messagesHtml({ messages: [] },
+            R.prechatStepsHtml({ key: open, log: log, firstName: pc.asked.name ? GS_PREVIEW.steps.name.split(' ')[0] : '' }), {});
+        }
+        var stepsHead = body.querySelector('[data-chat-header]');
+        if (stepsHead && feat('chatHeader')) stepsHead.innerHTML = R.chatHeaderHtml({ online: true, typing: false, isNew: false, operator: null });
+        var stepsBar = body.querySelector('[data-input-bar]');
+        if (stepsBar) {
+          stepsBar.style.display = 'none';
+          stepsBar.insertAdjacentHTML('beforebegin', R.prechatStepBoxHtml({
+            key: open, n: keys.length, total: keys.length, optional: !pc.required[open], value: '',
+            prefix: open === 'phone' ? GS_PREVIEW.steps.phonePrefix : '', busy: false, error: false,
+          }));
+        }
+      }
     } else if (view === 'kb') {
       body.innerHTML = R.kbHtml(GS_PREVIEW.kbVm);
     } else {
@@ -873,7 +916,15 @@ export function WidgetLivePreview({
          composer + footer) exactly like production mounts it. */
       body.innerHTML = R.chatFrameHtml(GS_PREVIEW.shellVm);
       var msgHost = body.querySelector('[data-chat-messages]');
-      if (msgHost) msgHost.innerHTML = R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
+      /* Away, a renderer with the in-thread message (feature awayThread)
+         shows the visitor's message and the automated reply asking for an
+         e-mail, as runtime-late.js does; any other its offline line. */
+      var away = view === 'offline' && feat('awayThread') && GS_PREVIEW.awaySample;
+      if (msgHost) {
+        msgHost.innerHTML = away
+          ? R.messagesHtml({ messages: [GS_PREVIEW.awaySample] }, '', { awayReply: { at: 0, status: 'ask', value: '', error: '', skip: true } })
+          : R.messagesHtml({ messages: GS_PREVIEW.messages }, '', {});
+      }
       /* The chat bar as Core paints it for an existing conversation (feature
          chatHeader: who answers), with its closed menu button (feature
          chatMenu: the notification sounds item, drawn by the extras). */

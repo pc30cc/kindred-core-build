@@ -43,10 +43,84 @@ export interface AnonymizeSummary {
   operator_messages_scrubbed: number;
   notes_scrubbed: number;
   attachments_deleted: number;
+  /** Visitor comments cleared: chat ratings (276), their timeline copies, call ratings. */
+  rating_comments_cleared: number;
   verifications_deleted: number;
   email_logs_anonymized: number;
   audit_logs_anonymized: number;
   identity_merges_deleted: number;
+}
+
+/** conversation_ratings is missing (before migration 276): nothing to clear. */
+function relationMissing(error: { code?: string } | null | undefined): boolean {
+  return error?.code === '42P01' || error?.code === 'PGRST205';
+}
+
+async function clearRatingComments(
+  sb: ReturnType<typeof getServiceClient>,
+  wsId: string,
+  conversationIds: string[],
+  sessionIds: string[],
+): Promise<number> {
+  let cleared = 0;
+  if (conversationIds.length > 0) {
+    const { data: rated, error: ratedErr } = await sb
+      .from('conversation_ratings')
+      .update({ comment: null })
+      .eq('workspace_id', wsId)
+      .in('conversation_id', conversationIds)
+      .not('comment', 'is', null)
+      .select('id');
+    if (ratedErr && !relationMissing(ratedErr)) {
+      throw new Error(`anonymize: clearing rating comments failed: ${ratedErr.message}`);
+    }
+    cleared += rated?.length || 0;
+
+    const { data: events, error: eventsErr } = await sb
+      .from('conversation_events')
+      .select('id, payload')
+      .eq('workspace_id', wsId)
+      .in('conversation_id', conversationIds)
+      .eq('event_type', 'rated');
+    if (eventsErr) throw new Error(`anonymize: reading rating events failed: ${eventsErr.message}`);
+    for (const e of events || []) {
+      const payload = (e.payload && typeof e.payload === 'object' ? e.payload : {}) as Record<string, unknown>;
+      if (payload.comment == null) continue;
+      await sb.from('conversation_events').update({ payload: { ...payload, comment: null } }).eq('id', e.id);
+      cleared++;
+    }
+  }
+
+  const callIds = new Set<string>();
+  if (conversationIds.length > 0) {
+    const { data } = await sb
+      .from('call_sessions')
+      .select('id')
+      .eq('workspace_id', wsId)
+      .eq('context_type', 'conversation')
+      .in('context_id', conversationIds);
+    for (const c of data || []) callIds.add(c.id as string);
+  }
+  if (sessionIds.length > 0) {
+    const { data } = await sb
+      .from('call_sessions')
+      .select('id')
+      .eq('workspace_id', wsId)
+      .in('visitor_session_id', sessionIds);
+    for (const c of data || []) callIds.add(c.id as string);
+  }
+  if (callIds.size > 0) {
+    const { data: calls, error: callsErr } = await sb
+      .from('call_ratings')
+      .update({ comment: null })
+      .eq('workspace_id', wsId)
+      .in('call_session_id', [...callIds])
+      .not('comment', 'is', null)
+      .select('id');
+    if (callsErr) throw new Error(`anonymize: clearing call rating comments failed: ${callsErr.message}`);
+    cleared += calls?.length || 0;
+  }
+  return cleared;
 }
 
 export async function runAnonymize(
@@ -64,6 +138,7 @@ export async function runAnonymize(
     operator_messages_scrubbed: 0,
     notes_scrubbed: 0,
     attachments_deleted: 0,
+    rating_comments_cleared: 0,
     verifications_deleted: 0,
     email_logs_anonymized: 0,
     audit_logs_anonymized: 0,
@@ -225,6 +300,14 @@ export async function runAnonymize(
       summary.attachments_deleted++;
     }
   }
+
+  // ─── 4b. Clear the subject's rating comments ────────────────────
+  // What the visitor wrote under a rating is their text like a message: the
+  // chat rating (conversation_ratings, migration 276) and the copy of it in
+  // the timeline's `rated` event, and a call's rating (call_ratings) of a
+  // call in one of their conversations or sessions. The scores stay (they
+  // name nobody). Idempotent: only rows that still hold a comment.
+  summary.rating_comments_cleared += await clearRatingComments(sb, wsId, conversationIds, sessionIds);
 
   // ─── 5. Anonymize conversations + visitor_sessions ─────────────
   if (conversationIds.length > 0) {

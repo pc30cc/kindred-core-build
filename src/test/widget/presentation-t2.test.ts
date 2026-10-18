@@ -84,6 +84,8 @@ const IDENTITY = (asked: string[], required: string[] = []) => ({
 });
 const now = new Date().toISOString();
 const msg = (over: Vm): Vm => ({ __id: 'm' + Math.random(), sender: 'operator', senderType: 'agent', body: 'hi', time: now, ...over });
+const HEART = '\u2764\uFE0F';
+const UUID = '7d1f3e2a-4b5c-4d6e-8f90-a1b2c3d4e5f6';
 
 beforeAll(load);
 
@@ -286,8 +288,11 @@ describe('t2: strings are escaped, addresses are allow-listed', () => {
   });
 });
 
+/** What Core serves today (runtime.js env.capabilities). */
+const SERVED = { kbNeutral: true, csat: true, reactions: true, orderCard: false, prechatSteps: true, instantAnswers: false, chatMenu: true, awayThread: true, queuePosition: true };
+
 describe('t2: the Core behaviours it declares are the ones it draws', () => {
-  const r = () => make({ config: { templateOptions: { topics: [{ label: 'زمان ارسال', icon: 'truck' }] } } });
+  const r = () => make({ capabilities: SERVED, config: { templateOptions: { topics: [{ label: 'زمان ارسال', icon: 'truck' }] } } });
   const checks: Record<string, () => void> = {
     homeAsk: () => {
       const h = parse(r().homeHtml({ rtl: true, isOnline: true, chatEnabled: true }));
@@ -387,11 +392,24 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
       const h = parse(withExtras(r()).chatHeaderHtml({ online: true, isNew: false, menu: { open: false, items: [{ action: 'sound', on: true }] } }));
       expect(h.querySelector('[data-chat-menu-toggle][aria-haspopup="menu"]')).not.toBeNull();
     },
+    reactions: () => {
+      const m = msg({ __id: UUID, metadata: { reactions: [{ emoji: HEART, count: 1, mine: true }] } });
+      const h = parse(withExtras(r()).messagesHtml({ messages: [m] }, undefined, { react: true }));
+      expect(h.querySelector('.msg-line.rel > .react[role="img"]')).not.toBeNull();
+      expect(h.querySelector('[data-msg-react][aria-pressed="true"]')).not.toBeNull();
+    },
+    awayThread: () => {
+      const h = parse(withExtras(r()).messagesHtml({ messages: [msg({ sender: 'visitor', senderType: 'contact' })] }, undefined, { awayReply: { at: 0, status: 'ask' } }));
+      expect(h.querySelector('.away-reply form [data-fb="email"]')).not.toBeNull();
+    },
   };
 
   it('declares exactly the behaviours it implements', () => {
-    expect(Object.keys(make().features).sort()).toEqual(Object.keys(checks).sort());
-    expect(Object.values(make().features).every((v) => v === true)).toBe(true);
+    expect(Object.keys(r().features).sort()).toEqual(Object.keys(checks).sort());
+    expect(Object.values(r().features).every((v) => v === true)).toBe(true);
+    // A Core that does not serve them gets neither reactions nor the away thread.
+    const off = make().features;
+    for (const f of ['reactions', 'awayThread']) expect(off[f], f).toBe(false);
   });
   for (const [name, check] of Object.entries(checks)) it(name, check);
 
@@ -404,7 +422,9 @@ describe('t2: the Core behaviours it declares are the ones it draws', () => {
 describe('t2: nothing is drawn for a capability Core cannot serve', () => {
   const cases = [
     { csat: false, reactions: false, orderCard: false, instantAnswers: false, kbNeutral: false },
-    // Even a Core that says yes gets nothing: this renderer implements none of them yet.
+    // Even a Core that says yes gets nothing without its view-model and the
+    // extras (reactions: `view.react`), and nothing at all for what this
+    // renderer does not implement yet.
     { csat: true, reactions: true, orderCard: true, instantAnswers: true, kbNeutral: false },
   ];
   for (const capabilities of cases) {
@@ -420,7 +440,7 @@ describe('t2: nothing is drawn for a capability Core cannot serve', () => {
         r.homeHtml({ rtl: true, isOnline: true, chatEnabled: true, kbEnabled: true }),
       ].join('');
       const root = parse(html);
-      expect(root.querySelector('.card, .steps, .react, .csat, .faces, [data-csat-rate], .tray, [data-kb-suggest]')).toBeNull();
+      expect(root.querySelector('.card, .steps, .react, .csat, .faces, [data-csat-rate], [data-msg-react], .tray, [data-kb-suggest], .away-reply')).toBeNull();
       expect(html).not.toContain('track-order');
       const fb = parse(r.kbArticleFeedbackHtml({ enabled: true, rating: null }));
       expect(fb.querySelectorAll('[data-kb-rate]').length).toBe(2);
@@ -789,14 +809,14 @@ describe('t2: review fixes', () => {
 describe('t2: its extras (presentation-t2-x.js)', () => {
 
   it('registers as the renderer\'s extras, with the renderer\'s id and contract version', () => {
-    expect(T2_X_SRC).toContain("window.__gs_mod_extras = { id: 't2', v: 1, create: create };");
-    expect(T2_SRC).toContain("mod.id !== 't2' || mod.v !== 1");
+    expect(T2_X_SRC).toContain("window.__gs_mod_extras = { id: 't2', v: 2, create: create };");
+    expect(T2_SRC).toContain("mod.id !== 't2' || mod.v !== 2");
   });
 
   it('takes only its own file: another template\'s, another version or no module is refused', () => {
     const extend = make().extend as unknown as (m: unknown, dry?: boolean) => number;
     const mod = extrasModule();
-    for (const bad of [null, {}, { ...mod, id: 't1' }, { ...mod, v: 2 }, { id: 't2', v: 1 }]) expect(extend(bad)).toBe(0);
+    for (const bad of [null, {}, { ...mod, id: 't1' }, { ...mod, v: 1 }, { ...mod, v: 3 }, { id: 't2', v: 2 }]) expect(extend(bad)).toBe(0);
     expect(extend(mod, true)).toBe(1);
     // Nothing was asked for before: taken, no repaint; taken again: the same.
     expect(extend(mod)).toBe(1);
@@ -1023,5 +1043,139 @@ describe('t2: after a chat — the closed line, the rating card, the transcript 
       expect(rules.length, sel).toBeGreaterThan(0);
       for (const rule of rules) expect(rule, rule).not.toMatch(/\b(margin|padding)-(left|right)|[{;]\s*(left|right):/);
     }
+  });
+});
+
+describe('t2: a message\'s reactions (extras, feature `reactions`)', () => {
+  const r = (locale = 'fa') => withExtras(make({ locale, capabilities: SERVED }));
+  const team = (reactions?: Vm[], over: Vm = {}) => msg({ __id: UUID, body: 'این هم فاکتور سفارشتان.', ...(reactions ? { metadata: { reactions } } : {}), ...over });
+  const thread = (rr: Renderer, messages: Vm[], view: Vm = { react: true }) => parse(rr.messagesHtml({ messages }, undefined, view));
+
+  it('draws the badge under the bubble it belongs to: the heart drawn, other kinds as glyphs, three at most, then the total', () => {
+    const h = thread(r(), [team([{ emoji: HEART, count: 1, mine: true }, { emoji: '👍', count: 2 }, { emoji: '😂', count: 1 }, { emoji: '🙏', count: 1 }])]);
+    const badge = h.querySelector('.msg-line.rel > .react')!;
+    expect(badge.getAttribute('role')).toBe('img');
+    expect(badge.getAttribute('data-msg-id')).toBe(UUID);
+    expect(badge.getAttribute('aria-label')).toBe('واکنش‌ها: ❤️ ۱، 👍 ۲، 😂 ۱، 🙏 ۱');
+    expect(badge.querySelectorAll('svg')).toHaveLength(1);
+    expect(Array.from(badge.querySelectorAll('i')).map((i) => i.textContent)).toEqual(['👍', '😂']);
+    expect(badge.textContent).toBe('👍😂۵');
+    // The badge sits on the bubble's line (as wide as the bubble), not inside it.
+    expect(badge.parentElement!.querySelector(':scope > .msg')).not.toBeNull();
+    expect(h.querySelector('.msg .react')).toBeNull();
+  });
+
+  it('an attachment-only message carries its badge on the attachment\'s line', () => {
+    const att = { id: 'a1', kind: 'file', mime_type: 'application/pdf', file_name: 'f.pdf', size_bytes: 1000 };
+    const h = thread(r(), [team([{ emoji: HEART, count: 1 }], { body: '', attachment: att })]);
+    expect(h.querySelector('.msg-line.rel > .msg.has-att-only + .react')).not.toBeNull();
+    const both = thread(r(), [team([{ emoji: HEART, count: 1 }], { attachment: att })]);
+    expect(both.querySelectorAll('.react')).toHaveLength(1);
+    expect(both.querySelector('.msg-line:not(.rel) > .msg.has-att-only')).not.toBeNull();
+    expect(both.querySelector('.msg-line.rel > .msg:not(.has-att-only) ~ .react')).not.toBeNull();
+  });
+
+  it('the visitor\'s heart: on team and AI messages the server stores, pressed once given, labelled', () => {
+    const h = thread(r(), [team([{ emoji: HEART, count: 1, mine: true }]), team(undefined, { __id: '8d1f3e2a-4b5c-4d6e-8f90-a1b2c3d4e5f6', senderType: 'ai' })]);
+    const hearts = Array.from(h.querySelectorAll('.msg-actions [data-msg-react]'));
+    expect(hearts.map((b) => [b.getAttribute('data-msg-react'), b.getAttribute('aria-pressed'), b.getAttribute('aria-label'), b.getAttribute('title')]))
+      .toEqual([[HEART, 'true', 'پسندیدن', 'پسندیدن'], [HEART, 'false', 'پسندیدن', 'پسندیدن']]);
+    expect(hearts[0].getAttribute('data-msg-id')).toBe(UUID);
+    expect((hearts[0] as HTMLButtonElement).type).toBe('button');
+    // None on the visitor's own messages, a local row (no server id yet), or an attachment without text.
+    const none = thread(r(), [
+      msg({ __id: UUID, sender: 'visitor', senderType: 'contact' }),
+      msg({ __id: 'ai-intro-local-1' }),
+      msg({ __id: UUID, body: '', attachment: { id: 'a1', kind: 'file', mime_type: 'application/pdf', file_name: 'f.pdf', size_bytes: 1 } }),
+    ]);
+    expect(none.querySelector('[data-msg-react]')).toBeNull();
+  });
+
+  it('a badge on the visitor\'s message too (the team reacted), in English digits and words', () => {
+    const h = thread(r('en'), [msg({ __id: UUID, sender: 'visitor', senderType: 'contact', metadata: { reactions: [{ emoji: '👍', count: 1 }] } })]);
+    expect(h.querySelector('.react')!.getAttribute('aria-label')).toBe('Reactions: 👍 1');
+    expect(h.querySelector('.react')!.textContent).toBe('👍1');
+    expect(thread(r('en'), [team()]).querySelector('[data-msg-react]')!.getAttribute('aria-label')).toBe('Like');
+    expect(thread(r('tr'), [team()]).querySelector('[data-msg-react]')!.getAttribute('aria-label')).toBe('Beğen');
+  });
+
+  it('nothing without Core\'s `view.react`, and a message without reactions is drawn exactly as before', () => {
+    expect(thread(r(), [team([{ emoji: HEART, count: 1 }])], {}).querySelector('.react, [data-msg-react]')).toBeNull();
+    const plain = make({ capabilities: SERVED });
+    const m = team();
+    const before = plain.messagesHtml({ messages: [m] }, undefined, {});
+    expect(r().messagesHtml({ messages: [m] }, undefined, {})).toBe(before);
+    // With `view.react` only the heart is added.
+    const withHeart = r().messagesHtml({ messages: [m] }, undefined, { react: true });
+    expect(withHeart.replace(/<button type="button" class="msg-act" data-msg-react=[\s\S]*?<\/button>/, '')).toBe(before);
+  });
+
+  it('escapes what a reaction carries and ignores empty or odd counts', () => {
+    const h = thread(r(), [team([{ emoji: '<img src=x onerror=1>', count: 1 }, { emoji: '👍', count: 0 }, { emoji: '😮', count: 'x' }])]);
+    expect(h.querySelector('img')).toBeNull();
+    expect(h.querySelector('.react')!.textContent).toBe('<img src=x onerror=1>۱');
+    expect(thread(r(), [team([{ emoji: '👍', count: 0 }])]).querySelector('.react')).toBeNull();
+  });
+
+  it('its stylesheet places the badge on the inner bottom corner in either direction and fills a given heart', () => {
+    expect(T2_CSS).toMatch(/\.react \{\n {2}position: absolute; bottom: -10px; inset-inline-end: 10px;/);
+    expect(T2_CSS).toContain('.msg-line.rel { margin-bottom: 10px; }');
+    expect(T2_CSS).toContain('.react.no-enter { animation: none; }');
+    expect(T2_CSS).toMatch(/\.react svg, \.msg-act\[aria-pressed='true'\] \{ color: #E5484D; \}/);
+    const rule = /\.react \{([^}]*)\}/.exec(T2_CSS)![1];
+    expect(rule).not.toMatch(/\b(left|right):/);
+  });
+});
+
+describe('t2: the message left while the team is away (extras, feature `awayThread`)', () => {
+  const r = (locale = 'fa') => withExtras(make({ locale, capabilities: SERVED }));
+  const VISITOR = () => msg({ sender: 'visitor', senderType: 'contact', body: 'سلام، سایز ۴۲ این کفش کی دوباره موجود می‌شود؟', status: 'sent' });
+  const reply = (vm: Vm, locale?: string) =>
+    parse(r(locale).messagesHtml({ messages: [VISITOR()] }, undefined, { awayReply: { at: 0, ...vm } })).querySelector('.away-reply')!;
+
+  it('asks where to send the reply: the details card\'s look, the contact-fallback hooks, "no thanks" when not required', () => {
+    const row = reply({ status: 'ask', value: '', skip: true });
+    expect(Array.from(row.querySelectorAll('.msg.operator')).map((b) => b.textContent))
+      .toEqual(['پیامتان ثبت شد.', 'اگر از سایت رفتید، پاسخ را کجا بفرستیم؟']);
+    const form = row.querySelector('form.fcard')!;
+    expect(form.hasAttribute('novalidate')).toBe(true);
+    expect(form.querySelector('label[for="fb-email"]')!.textContent).toBe('ایمیل');
+    const input = form.querySelector('.fi #fb-email[data-fb="email"]') as HTMLInputElement;
+    expect([input.type, input.getAttribute('dir'), input.getAttribute('aria-describedby')]).toEqual(['email', 'ltr', 'fb-status']);
+    expect(form.querySelector('.fi button[type="submit"][data-fb-submit].ok')!.getAttribute('aria-label')).toBe('ثبت ایمیل');
+    expect(form.querySelector('[data-fb-skip]')!.textContent).toBe('نه ممنون، همین‌جا منتظر می‌مانم');
+    expect(row.querySelector('.msg-meta')!.textContent).toBe('پاسخ خودکار');
+    // The composer's placeholder meanwhile.
+    expect(row.getAttribute('data-ph-away')).toBe('اگر چیزی اضافه دارید بنویسید…');
+    expect(reply({ status: 'ask', skip: false }).querySelector('[data-fb-skip]')).toBeNull();
+  });
+
+  it('saved: «پاسخ را به {email} می‌فرستیم.» (04·11); skipped: the recorded line alone', () => {
+    const saved = reply({ status: 'saved', email: 'ali@example.com' });
+    expect(saved.querySelector('form')).toBeNull();
+    const done = saved.querySelector('.fcard.done[role="status"]')!;
+    expect(done.textContent).toBe('پاسخ را به ali@example.com می‌فرستیم.');
+    expect(done.querySelector('b[dir="ltr"]')!.textContent).toBe('ali@example.com');
+    expect(done.querySelector('.ck svg')).not.toBeNull();
+    const skipped = reply({ status: 'skipped' });
+    expect(Array.from(skipped.querySelectorAll('.msg.operator')).map((b) => b.textContent)).toEqual(['پیامتان ثبت شد.']);
+    expect(skipped.querySelector('form, .fcard')).toBeNull();
+  });
+
+  it('saving locks the field; an error is Core\'s string; values are escaped', () => {
+    const saving = reply({ status: 'saving', value: 'a@b.io' });
+    expect(saving.querySelector('input')!.hasAttribute('readonly')).toBe(true);
+    expect((saving.querySelector('[data-fb-submit]') as HTMLButtonElement).disabled).toBe(true);
+    const bad = reply({ status: 'ask', value: '"><img src=x onerror=1>', error: 'fallbackError' });
+    expect(bad.querySelector('img')).toBeNull();
+    expect(bad.querySelector('[data-fb-status]')!.textContent).toBe('fallbackError');
+    expect(bad.querySelector('input')!.getAttribute('aria-invalid')).toBe('true');
+    expect(reply({ status: 'saved', email: '<i>x</i>' }).querySelector('.fcard.done b i')).toBeNull();
+  });
+
+  it('speaks en and tr', () => {
+    expect(reply({ status: 'saved', email: 'a@b.io' }, 'en').querySelector('.msg.operator')!.textContent).toBe('Your message is saved.');
+    expect(reply({ status: 'ask' }, 'en').getAttribute('data-ph-away')).toBe('Add anything else…');
+    expect(reply({ status: 'ask' }, 'tr').querySelector('.msg-meta')!.textContent).toBe('Otomatik yanıt');
   });
 });

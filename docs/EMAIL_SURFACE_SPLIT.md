@@ -28,6 +28,7 @@ deferred during earlier rollouts.
 | Invitation outbox worker                              | in-process `sendEmail()`      | PLATFORM (auth)    |
 | `server/routes/widget.ts` offline-message notification | in-process `sendEmail()`      | PLATFORM (ops)     |
 | `server/routes/widget.ts` admin-test offline email     | in-process `sendEmail()`      | PLATFORM (test)    |
+| `server/services/visitorTranscript.ts` transcript by email (the visitor asks, from the widget) | in-process `sendEmail()` | PLATFORM (visitor's request) |
 | `src/providers/email/api.ts` → `EmailPage` test send   | `POST /api/email/send`        | PLATFORM (test)    |
 | (future) workspace channel-email customer comms        | `POST /api/email/send-channel` or `sendChannelEmail()` | CHANNEL |
 
@@ -55,6 +56,10 @@ callers on the platform surface.
 - Password reset / recovery
 - Team invitations
 - Workspace operational notifications
+- The transcript a visitor asks for from the widget
+  (`services/visitorTranscript.ts`: every plan, the platform's default
+  provider; only to the address already on the conversation's contact, with
+  its own limits — not channel email, which an operator sends)
 - Admin email test sends
 - All `email_logs` reads
 

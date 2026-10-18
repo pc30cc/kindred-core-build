@@ -11,8 +11,8 @@
  * these surfaces is the template's own (presentation-t1.css).
  *
  * CONTRACT (docs/operations/WIDGET_TEMPLATE_RULES.md §1)
- *   window.__gs_mod_extras = { id: 't1', v: 1, create: function (H) { return { <surface>: fn, … }; } }
- *   H = the renderer's helpers: esc, t, tf, L, fill, svg, P, D, digits,
+ *   window.__gs_mod_extras = { id: 't1', v: 2, create: function (H) { return { <surface>: fn, … }; } }
+ *   H = the renderer's helpers: esc, t, tf, L, fill, svg, P, D, SEND, digits,
  *       fmtNum, avatarHtml, systemPillHtml, config, lang, fa.
  *   `id` is the RENDERER's (a skin over t1 wears this file too) and `v` the
  *   version of this contract: the renderer takes only its own id and
@@ -26,6 +26,21 @@
  *                       'failed' | 'no'), to } | { action: 'sound', on }. Hooks:
  *                       [data-chat-menu-toggle][aria-expanded], [data-chat-menu][role=menu],
  *                       [data-chat-menu-action].
+ *   prechatStepsHtml(vm) the pre-chat asked one question at a time, as thread rows (feature
+ *                       `prechatSteps`): vm = { key (the open step), log, firstName, intro,
+ *                       introAnimate }, log = [{ key, value, ok, skip, why ('invalid' |
+ *                       'required') }] in the order answered. A question once per key
+ *                       (id `pq-<key>`), each answer a visitor bubble; a skipped step none.
+ *   prechatStepBoxHtml(vm) the step in the composer's place: vm = { key, n, total, optional,
+ *                       value, prefix (the edition's phone prefix, or ''), busy, error }.
+ *                       Hooks: [data-prechat-step=<key>], [data-prechat-step-input],
+ *                       [data-prechat-step-submit], [data-prechat-step-skip].
+ *   queueRowHtml(q)     the queued row with the visitor's place (feature `queuePosition`):
+ *                       q = { position, waitMinutes (null: unknown) }.
+ *   awayReplyHtml(r)    the automated reply under the message left while the team is away
+ *                       (feature `awayThread`): r = { status ('ask' | 'saving' | 'saved'),
+ *                       email, value, error (a Core string key) }. Hooks: [data-fb=email],
+ *                       [data-fb-submit] (the form's submit), [data-fb-status].
  */
 (function () {
   'use strict';
@@ -33,11 +48,11 @@
   // This file's copy: one '|'-separated string per language, in the order
   // of COPY_KEYS (as the renderer's own; the menu's keys are the names of
   // docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
-  var COPY_KEYS = 'cats moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed'.split(' ');
+  var COPY_KEYS = 'cats moreOptions menuSound csatTranscript csatTranscriptSent csatTranscriptFailed csatFailed prechatAskName prechatAskEmail prechatAskEmailNoName prechatAskPhone prechatStep prechatStepSaved prechatStepEmailInvalid prechatStepEmailExample prechatPhonePhLocal prechatPhoneHint prechatStepSubmit routingInQueue routingInQueuePosition awayAutoReply fallbackEmailLabel fallbackEmailFormLabel saveEmail msgAutomated awayRecorded awayReplyTo'.split(' ');
   var DICT = {
-    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|گزینه‌های بیشتر|صدای اعلان‌ها|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد',
-    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|More options|Notification sounds|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent',
-    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Diğer seçenekler|Bildirim sesleri|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi',
+    fa: 'پرکاربرد,چهره‌ها,آدم‌ها و دست‌ها,قلب‌ها و نمادها,طبیعت,غذا و نوشیدنی|گزینه‌های بیشتر|صدای اعلان‌ها|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|ارسال نشد|سلام! برای شروع، اسم‌تون چیه؟|ممنون {name} جان. ایمیل‌تون رو هم بنویسید تا جواب‌ها رو براتون بفرستیم.|ایمیل‌تون رو بنویسید تا جواب‌ها رو براتون بفرستیم.|اگه بخواید شماره موبایل‌تون رو هم بدید تا پیامکی خبرتون کنیم.|مرحله {n} از {total}|ثبت شد|ایمیل کامل نیست|مثلاً name@example.com|۹۱۲ ۳۴۵ ۶۷۸۹|برای پیامک پیگیری|ثبت|نفر {n} در صف · حدود {min} دقیقه|نفر {n} در صف|پیامتون ثبت شد. ایمیلتون رو بگذارید تا پاسخ رو براتون بفرستیم.|ایمیل برای دریافت پاسخ|ایمیل برای پاسخ|ثبت ایمیل|پیام خودکار|پیامتون ثبت شد.|پاسخ را به {email} می‌فرستیم.',
+    en: 'Frequent,Faces,People and hands,Hearts and symbols,Nature,Food and drink|More options|Notification sounds|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|Not sent|Hi! To start, what’s your name?|Thanks, {name}. What’s your email, so we can send you our replies?|What’s your email, so we can send you our replies?|If you like, add your phone number and we’ll text you updates.|Step {n} of {total}|Saved|That email isn’t complete|e.g. name@example.com|415 555 0132|For text updates|Submit|{n} in line · about {min} min|{n} in line|Got your message! Leave your email and we’ll send you the reply.|Email for the reply|Email for the reply|Save email|Automated message|Got your message!|We’ll send the reply to {email}.',
+    tr: 'Sık kullanılan,Yüzler,İnsanlar ve eller,Kalpler ve semboller,Doğa,Yiyecek ve içecek|Diğer seçenekler|Bildirim sesleri|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Gönderilemedi|Merhaba! Başlamak için adınız nedir?|Teşekkürler {name}. Yanıtlarımızı gönderebilmemiz için e-postanız nedir?|Yanıtlarımızı gönderebilmemiz için e-postanız nedir?|İsterseniz telefon numaranızı da ekleyin, size SMS ile haber verelim.|Adım {n}/{total}|Kaydedildi|Bu e-posta eksik|ör. name@example.com|532 123 4567|SMS bildirimleri için|Gönder|Sırada {n}. · yaklaşık {min} dk|Sırada {n}.|Mesajınızı aldık! Yanıtı gönderebilmemiz için e-postanızı bırakın.|Yanıt için e-posta|Yanıt için e-posta|E-postayı kaydet|Otomatik mesaj|Mesajınızı aldık!|Yanıtı {email} adresine göndereceğiz.',
   };
 
   // Grouped emoji for the picker, one group per name in `cats`.
@@ -58,8 +73,8 @@
     // A string or English: a locale 'constructor' must not reach Object.prototype.
     var COPY = (typeof DICT[H.lang] == 'string' ? DICT[H.lang] : DICT.en).split('|');
     var COPY_EN = DICT.en.split('|');
-    /** This file's own copy (fa / en / tr; English otherwise). */
-    function XL(key) { var i = COPY_KEYS.indexOf(key); return i < 0 ? '' : COPY[i] || COPY_EN[i] || ''; }
+    /** This file's own copy (fa / en / tr; English otherwise), `{name}` placeholders filled with plain text. */
+    function XL(key, vars) { var i = COPY_KEYS.indexOf(key); return H.fill(i < 0 ? '' : COPY[i] || COPY_EN[i] || '', vars || {}); }
 
     function emojiPickerHtml() {
       var cats = XL('cats').split(',');
@@ -111,8 +126,101 @@
         }).join('') + '</div></div>';
     }
 
-    return { emojiPickerHtml: emojiPickerHtml, chatMenuHtml: chatMenuHtml };
+    // ── The pre-chat one question at a time (`prechatSteps`) ──
+    /** A bubble on the team's side, beside the team's lead (the first one online). */
+    function opRow(bubble) {
+      var team = (H.config.teamMembers || []).filter(function (m) { return m && m.name; });
+      var who = team.filter(function (m) { return m.online; })[0] || team[0];
+      return '<div class="msg-row operator is-first is-last">' + H.avatarHtml(who, 's28 msg-avatar') +
+        '<div class="msg-col"><div class="msg-line">' + bubble + '</div></div></div>';
+    }
+    function question(vm, key) {
+      var text = key === 'name' ? XL('prechatAskName') : key === 'phone' ? XL('prechatAskPhone')
+        : vm.firstName ? XL('prechatAskEmail', { name: vm.firstName }) : XL('prechatAskEmailNoName');
+      return opRow('<div class="msg operator" id="pq-' + key + '">' + esc(text) + '</div>');
+    }
+    function prechatStepsHtml(vm) {
+      var log = vm.log || [];
+      var asked = {};
+      // The reason (a handoff's subtitle, typed out on first show), as the card's.
+      var html = vm.introAnimate ? opRow('<div class="msg operator" data-typing-host data-typing-active="1" data-typing-id="hc-subtitle"></div>')
+        : vm.intro ? opRow('<div class="msg operator">' + esc(vm.intro) + '</div>') : '';
+      // "Saved" under the newest answer taken (08·b); each refusal says why.
+      var lastOk = -1;
+      log.forEach(function (e, i) { if (e.ok) lastOk = i; });
+      log.forEach(function (e, i) {
+        if (!asked[e.key]) { asked[e.key] = 1; html += question(vm, e.key); }
+        if (e.skip) return;
+        // A refusal is read out when it is the newest answer.
+        var meta = e.ok ? (i === lastOk ? '<span class="st-ok">' + svg(H.D.tick, 13, 2.2) + esc(XL('prechatStepSaved')) + '</span>' : '')
+          : '<span class="st-err"' + (i === log.length - 1 ? ' role="alert"' : '') + '><b>' +
+            esc(e.why === 'required' ? t('required') : e.key === 'phone' ? t('invalidPhone') : XL('prechatStepEmailInvalid')) + '</b>' +
+            (e.why !== 'required' && e.key === 'email' ? ' · ' + esc(XL('prechatStepEmailExample')) : '') + '</span>';
+        html += '<div class="msg-row visitor is-first is-last"><div class="msg-col"><div class="msg-line"><div class="msg visitor' + (e.ok ? '' : ' fail') +
+          '" dir="' + (e.key === 'name' ? 'auto' : 'ltr') + '">' + esc(e.value) + '</div></div>' +
+          (meta ? '<div class="msg-footline"><div class="msg-meta">' + meta + '</div></div>' : '') + '</div></div>';
+      });
+      return asked[vm.key] ? html : html + question(vm, vm.key);
+    }
+    function prechatStepBoxHtml(vm) {
+      var k = vm.key;
+      var bars = '';
+      for (var i = 1; i <= vm.total; i++) bars += '<i' + (i > vm.n ? '' : ' class="on"') + '></i>';
+      var tel = k === 'phone';
+      return '<div class="cbox steps" data-prechat-step="' + k + '"><div class="prog"><span>' +
+          esc(XL('prechatStep', { n: H.digits(vm.n), total: H.digits(vm.total) }) + (vm.optional ? ' · ' + t('prechatOptional') : '')) + '</span>' +
+          '<span class="bar" aria-hidden="true">' + bars + '</span>' +
+          (vm.optional ? '<button type="button" class="skip" data-prechat-step-skip>' + esc(H.L('skip')) + '</button>' : '') + '</div>' +
+        '<label class="ex">' + (tel && vm.prefix ? '<span class="pre" dir="ltr">' + esc(H.digits(vm.prefix)) + '</span>' : '') +
+          '<input class="input" data-prechat-step-input type="' + (k === 'name' ? 'text' : k === 'email' ? 'email' : 'tel') + '"' +
+            (k === 'name' ? ' autocomplete="name"' : ' dir="ltr" autocomplete="' + (tel ? (vm.prefix ? 'tel-national' : 'tel') : 'email') + '"') +
+            ' enterkeyhint="' + (vm.n < vm.total ? 'next' : 'done') + '" placeholder="' +
+            esc(k === 'name' ? t('prechatNamePh') : !tel ? 'name@example.com' : vm.prefix ? XL('prechatPhonePhLocal') : t('prechatPhonePh')) +
+            '" aria-label="' + esc(tel ? H.L('phone') : t(k)) + '" aria-describedby="pq-' + k + '" value="' + esc(vm.value || '') + '"' +
+            (vm.busy ? ' readonly' : '') + '></label>' +
+        '<div class="tools">' + (tel ? '<span class="hint">' + esc(XL('prechatPhoneHint')) + '</span>' : '') +
+          '<button type="button" class="ra' + (vm.busy ? ' is-loading' : '') + '" data-prechat-step-submit aria-label="' + esc(XL('prechatStepSubmit')) + '"' +
+            (String(vm.value || '').trim() && !vm.busy ? '' : ' disabled') + '>' + H.SEND + '</button></div>' +
+        (vm.error ? '<div class="hint err" role="alert">' + esc(t('fallbackError')) + '</div>' : '') +
+      '</div>';
+    }
+
+    // ── The visitor's place in the queue (`queuePosition`) ──
+    function queueRowHtml(q) {
+      var n = q.position;
+      var v = n % 100;
+      var th = ['th', 'st', 'nd', 'rd'];
+      return H.systemPillHtml('<span class="live"></span>', XL(q.waitMinutes > 0 ? 'routingInQueue' : 'routingInQueuePosition', {
+        n: H.lang === 'en' ? n + (th[(v - 20) % 10] || th[v] || th[0]) : H.digits(n),
+        min: H.digits(q.waitMinutes),
+      }));
+    }
+
+    // ── The message left while the team is away (`awayThread`) ──
+    function awayReplyHtml(r) {
+      var busy = r.status === 'saving';
+      var saved = r.status === 'saved';
+      var parts = XL('awayReplyTo').split('{email}');
+      return '<div class="msg-row operator is-first is-last away-reply">' + H.avatarHtml(null, 's28 msg-avatar') + '<div class="msg-col">' +
+        '<div class="msg-line"><div class="msg operator joined">' + esc(XL(saved ? 'awayRecorded' : 'awayAutoReply')) + '</div></div>' +
+        '<div class="msg-line">' + (saved
+          ? '<div class="fcard ec done" role="status">' + svg(H.D.okc, 18, 2) + '<span>' + esc(parts[0]) + '<b dir="ltr">' + esc(r.email) + '</b>' + esc(parts[1] || '') + '</span></div>'
+          : '<form class="fcard ec" novalidate aria-label="' + esc(XL('fallbackEmailFormLabel')) + '">' +
+              '<label for="fb-email">' + esc(XL('fallbackEmailLabel')) + '</label><div class="rw">' +
+              '<input id="fb-email" class="prechat-input inp" data-fb="email" type="email" dir="ltr" autocomplete="email" placeholder="name@example.com"' +
+                ' aria-describedby="fb-status" aria-invalid="' + !!r.error + '" value="' + esc(r.value || '') + '"' + (busy ? ' readonly' : '') + '>' +
+              '<button type="submit" class="go" data-fb-submit aria-label="' + esc(XL('saveEmail')) + '"' + (busy ? ' disabled' : '') + '>' + svg(H.D.tick, 18, 2.2) + '</button></div>' +
+              '<div class="fallback-status" id="fb-status" data-fb-status role="status" aria-live="polite">' + (r.error ? esc(t(r.error)) : '') + '</div>' +
+            '</form>') + '</div>' +
+        '<div class="msg-footline"><div class="msg-meta"><span class="msg-time">' + esc(XL('msgAutomated')) + '</span></div></div>' +
+      '</div></div>';
+    }
+
+    return {
+      emojiPickerHtml: emojiPickerHtml, chatMenuHtml: chatMenuHtml, prechatStepsHtml: prechatStepsHtml,
+      prechatStepBoxHtml: prechatStepBoxHtml, queueRowHtml: queueRowHtml, awayReplyHtml: awayReplyHtml,
+    };
   }
 
-  window.__gs_mod_extras = { id: 't1', v: 1, create: create };
+  window.__gs_mod_extras = { id: 't1', v: 2, create: create };
 })();

@@ -18,9 +18,9 @@
  * only for a renderer that declares features; `ext` decides when it answers),
  * the late pack (the renderer's extras and the real runtime-late.js, which
  * runtime-ext.js requests after the first paint; `late` decides how they
- * answer) and an optional realtime driver whose typing events (and
- * message frames) the test fires. `api` answers a route before the fake does
- * (the rating and transcript routes of runtime-late.js, for one).
+ * answer) and an optional realtime driver whose typing events (with a
+ * payload), reaction events and message frames the test fires. `api`
+ * answers a route before the fake does (the routes of runtime-late.js).
  */
 import { vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -62,6 +62,7 @@ interface DriverHooks {
   onTyping: (e: unknown) => void;
   onMessage?: (e: { messages: unknown[] }) => void;
   onConnectionState?: (state: string) => void;
+  onReaction?: (p: unknown) => void;
 }
 /** A test's own answer for a request: `status` (default 200) and its JSON `body`. */
 export interface ApiAnswer { status?: number; body?: unknown }
@@ -136,7 +137,10 @@ export interface Harness {
   lastCall: (surface: string) => unknown[] | undefined;
   fetches: string[];
   posts: Array<{ url: string; body: Dict }>;
-  emitTyping: () => void;
+  /** An operator's typing event (`realtime: true`); the payload defaults to `{ actor: 'agent' }`. */
+  emitTyping: (payload?: Dict) => void;
+  /** A `message_reactions` event, as the drivers hand it to the runtime (`realtime: true`). */
+  emitReaction: (payload: Dict) => void;
   /** A realtime frame with these messages (`realtime: true`). */
   emitMessages: (messages: Array<Record<string, unknown>>) => void;
   /** A /poll answer with these messages (without `realtime`: the polling transport). */
@@ -199,6 +203,7 @@ export function boot(opts: BootOptions = {}): Harness {
   let capturedEnv: Dict = {};
   let typingHook: ((e: unknown) => void) | null = null;
   let messageHook: ((e: { messages: unknown[] }) => void) | null = null;
+  let reactionHook: ((p: unknown) => void) | null = null;
   let pollHook: ((msgs: unknown[]) => void) | null = null;
   const unread: number[] = [];
   const events: Array<{ name: string; payload: unknown }> = [];
@@ -229,6 +234,7 @@ export function boot(opts: BootOptions = {}): Harness {
       create(_ctx: unknown, _resolved: unknown, hooks: DriverHooks) {
         typingHook = hooks.onTyping;
         messageHook = hooks.onMessage || null;
+        reactionHook = hooks.onReaction || null;
         return {
           connect() { if (hooks.onConnectionState) hooks.onConnectionState('connected'); },
           disconnect() {},
@@ -452,7 +458,8 @@ export function boot(opts: BootOptions = {}): Harness {
     },
     fetches,
     posts,
-    emitTyping: () => { if (typingHook) typingHook({ payload: { actor: 'agent' } }); },
+    emitTyping: (payload?: Dict) => { if (typingHook) typingHook({ payload: payload || { actor: 'agent' } }); },
+    emitReaction: (payload: Dict) => { if (reactionHook) reactionHook(payload); },
     emitMessages: (messages) => { if (messageHook) messageHook({ messages }); },
     emitPoll: (messages) => { if (pollHook) pollHook(messages); },
     unread,

@@ -1013,6 +1013,22 @@ a.wy-powered:hover { color: var(--ink-2); }
 .fcard.done { display: flex; align-items: center; gap: 10px; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
 .ck { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--a-2); color: var(--a-ink); animation: t2-pop .5s var(--bounce) .5s backwards; }
 .fcard.done b { color: var(--ink); unicode-bidi: isolate; }
+/* The reply to a message left while away (extras): the details card's look. */
+.away-reply .fallback-status { margin: 6px 4px 0; font-size: 12px; font-weight: 600; color: var(--bad); }
+.away-reply .fallback-status:empty { display: none; }
+
+/* ─── Reactions (extras): the badge under a bubble (display only), on its
+   inner bottom corner in either direction, and the visitor's heart. ──── */
+.msg-line.rel { margin-bottom: 10px; }
+.react {
+  position: absolute; bottom: -10px; inset-inline-end: 10px; display: flex; align-items: center; gap: 3px; height: 22px; padding: 0 7px;
+  border-radius: 999px; background: #fff; box-shadow: 0 0 0 1px var(--line), 0 3px 8px -3px rgba(15, 18, 23, .18);
+  font-size: 11px; font-weight: 700; line-height: 1; color: var(--ink-2); white-space: nowrap; animation: t2-pop .5s var(--bounce) .6s backwards;
+}
+.react.no-enter { animation: none; }
+.react svg, .msg-act[aria-pressed='true'] { color: #E5484D; }
+.react path, .msg-act[aria-pressed='true'] path { fill: currentColor; }
+.react i { font-size: 12px; font-style: normal; }
 
 /* ─── After a chat: the rating card under the closed line (extras) ──── */
 .csat { flex: 1; min-width: 0; margin: 2px 4px 6px; padding: 18px 16px 16px; border-radius: 22px; background: #fff; text-align: center; box-shadow: 0 0 0 1px var(--line), 0 16px 34px -20px rgba(15, 18, 23, .35); animation: t2-rise .55s var(--ease) .3s backwards; }

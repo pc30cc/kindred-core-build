@@ -354,6 +354,105 @@ async function insertRoutingSystemMessage(
   } catch { /* best-effort — never break routing */ }
 }
 
+// ─── The queue's place and wait (issue #340 g4; migration 276) ────────────
+//
+// A conversation waits in the manual queue while nobody has it: open or
+// pending, `metadata.routing_outcome = 'manual_queue'`, no operator. Its
+// place is 1 + the workspace's queued conversations that entered the queue
+// before it (`metadata.queued_at`; every channel counts: it is the team's one
+// Unassigned queue), and the wait is that place times the workspace's moving
+// average of seconds per place (chat_queue_stats, sampled by 276's trigger
+// at each first assignment, from `queued_at` and `queue_entry_position`).
+// chat_queue_status() answers both; the partial index
+// conversations_manual_queue_idx makes it one short range read.
+
+/**
+ * How long an earlier `queued_at` stays the conversation's entry into the
+ * queue. Every visitor message re-runs routing while it waits, and a
+ * conversation an operator hands back keeps its place; a stamp older than
+ * this belongs to an earlier wait (276's claim sampler ignores such waits
+ * too), and the conversation joins the queue again at its end.
+ */
+export const QUEUE_ENTRY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The `queued_at` to save when routing puts the conversation in the manual
+ * queue: now, unless it already holds a valid one younger than
+ * QUEUE_ENTRY_MAX_AGE_MS (then null: keep it). Pure; exported for its tests.
+ */
+export function queueEntryStamp(metadata: Record<string, unknown>, now: number = Date.now()): string | null {
+  const stored = typeof metadata.queued_at === 'string' ? Date.parse(metadata.queued_at) : NaN;
+  if (Number.isFinite(stored) && stored <= now && now - stored < QUEUE_ENTRY_MAX_AGE_MS) return null;
+  return new Date(now).toISOString();
+}
+
+/** One row of chat_queue_status() (a set-returning function: an array, or one object). */
+function queueStatusRow(data: unknown): { queue_position?: unknown; wait_minutes?: unknown } | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  return row && typeof row === 'object' ? row as { queue_position?: unknown; wait_minutes?: unknown } : null;
+}
+
+function positiveInt(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * The place the conversation entered the queue at, which the claim sampler
+ * divides its wait by. Cosmetic: before 276 (no chat_queue_status) or on any
+ * error nothing is written and the sampler counts it as place 1.
+ */
+async function recordQueueEntryPosition(config: ServerConfig, workspaceId: string, conversationId: string): Promise<void> {
+  try {
+    const { data, error } = await getServiceClient(config).rpc('chat_queue_status', {
+      p_workspace_id: workspaceId,
+      p_conversation_id: conversationId,
+    });
+    if (error) return;
+    const position = positiveInt(queueStatusRow(data)?.queue_position);
+    if (position) await patchConversationMetadata(config, conversationId, { queue_entry_position: position }, workspaceId);
+  } catch { /* before 276 */ }
+}
+
+export interface QueueStatus {
+  /** 1 = next; null while the conversation is not waiting in the queue. */
+  position: number | null;
+  /** Estimated minutes, once 3 claims were measured (else null). */
+  wait_minutes: number | null;
+}
+
+const NOT_QUEUED: QueueStatus = { position: null, wait_minutes: null };
+
+/**
+ * GET /api/widget/queue for a conversation the visitor owns (its row as the
+ * ownership check read it): nulls without a query when it is plainly not
+ * waiting (an operator has it, it is closed, routing never queued it), else
+ * chat_queue_status(). Two integers and nothing else reach the visitor.
+ * Before 276, or on any error: nulls, never a failure.
+ */
+export async function readQueueStatus(
+  config: ServerConfig,
+  workspaceId: string,
+  conversation: { id: string; status?: string | null; assigned_to?: string | null; metadata?: Record<string, unknown> | null },
+): Promise<QueueStatus> {
+  const meta = conversation.metadata || {};
+  if (conversation.assigned_to) return NOT_QUEUED;
+  if (conversation.status !== 'open' && conversation.status !== 'pending') return NOT_QUEUED;
+  if (meta.routing_outcome !== 'manual_queue' || typeof meta.queued_at !== 'string') return NOT_QUEUED;
+  try {
+    const { data, error } = await getServiceClient(config).rpc('chat_queue_status', {
+      p_workspace_id: workspaceId,
+      p_conversation_id: conversation.id,
+    });
+    if (error) return NOT_QUEUED;
+    const row = queueStatusRow(data);
+    const position = positiveInt(row?.queue_position);
+    return position ? { position, wait_minutes: positiveInt(row?.wait_minutes) } : NOT_QUEUED;
+  } catch {
+    return NOT_QUEUED;
+  }
+}
+
 /**
  * Whether this routing run should tell the phones about the handoff.
  *
@@ -500,6 +599,18 @@ export async function routeConversationToOperator(
     if (mode === 'manual') {
       // The queue is the team's: everyone following all conversations.
       notifyHandoffOnce(config, args, metadata, !noticeAlreadySent);
+      // The place in the queue (GET /api/widget/queue) counts from when the
+      // conversation entered it. Saved before the visitor's queue row is
+      // published, so the widget's first read of its place already finds it.
+      const queuedAt = queueEntryStamp(metadata);
+      await tagOutcome(
+        config, args.workspaceId, args.conversationId, metadata, 'manual_queue',
+        {
+          ...(noticeAlreadySent ? {} : { routing_notice_sent: true }),
+          ...(queuedAt ? { queued_at: queuedAt } : {}),
+        },
+      );
+      if (queuedAt) await recordQueueEntryPosition(config, args.workspaceId, args.conversationId);
       if (!noticeAlreadySent) {
         await insertRoutingSystemMessage(
           config, args.workspaceId, args.conversationId,
@@ -507,10 +618,6 @@ export async function routeConversationToOperator(
           { kind: 'routing_in_queue' },
         );
       }
-      await tagOutcome(
-        config, args.workspaceId, args.conversationId, metadata, 'manual_queue',
-        noticeAlreadySent ? undefined : { routing_notice_sent: true },
-      );
       return { outcome: 'manual_queue', assignedTo: null };
     }
 

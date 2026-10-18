@@ -11,7 +11,7 @@
  * these surfaces is the template's own (presentation-t2.css).
  *
  * CONTRACT (docs/operations/WIDGET_TEMPLATE_RULES.md §1)
- *   window.__gs_mod_extras = { id: 't2', v: 1, create: function (H) { return { <surface>: fn, … }; } }
+ *   window.__gs_mod_extras = { id: 't2', v: 2, create: function (H) { return { <surface>: fn, … }; } }
  *   H = the renderer's helpers: esc, t, tf, L, digits, fmtNum, ico,
  *       avatarHtml, storeAvatarHtml, systemPillHtml, config, lang, fa.
  *   `id` is the RENDERER's (a skin over t2 wears this file too) and `v` the
@@ -37,17 +37,30 @@
  *                         item { action: 'transcript', state, to } | { action: 'sound', on }.
  *                         Hooks: [data-chat-menu-toggle][aria-expanded],
  *                         [data-chat-menu][role=menu], [data-chat-menu-action].
+ *   reactHtml(m)          a message's reactions under its bubble (feature `reactions`;
+ *                         display only): `m.metadata.reactions` = [{ emoji, count, mine }]
+ *                         in display order; up to three kinds, then the total. Marker:
+ *                         span.react[data-msg-id] (Core keeps a badge on screen from
+ *                         popping in again).
+ *   reactBtnHtml(m)       the visitor's heart among a team message's actions:
+ *                         [data-msg-react="❤️"][data-msg-id][aria-pressed].
+ *   awayReplyHtml(r)      the automated reply under the message left while the team is away
+ *                         (feature `awayThread`): r = { status ('ask' | 'saving' | 'saved' |
+ *                         'skipped'), email, value, error (a Core string key), skip (offer
+ *                         "no thanks") }. Hooks: [data-fb=email], [data-fb-submit] (the
+ *                         form's submit), [data-fb-status], [data-fb-skip], and
+ *                         [data-ph-away] (the composer's placeholder meanwhile).
  */
 (function () {
   'use strict';
 
   // This file's copy: one '|'-separated string per language, in the order
   // of COPY_KEYS (the names of docs/chat-widget-handoff/shared/new-hooks-and-settings.md).
-  var COPY_KEYS = 'convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound'.split(' ');
+  var COPY_KEYS = 'convClosedBy csatTitle csatSub csat1 csat2 csat3 csat4 csat5 csatComment csatSend csatThanks csatRated csatGone csatFailed csatTranscript csatTranscriptSent csatTranscriptFailed moreOptions menuSound simpleReact simpleReactions simpleMessageRecorded simpleAutoReply simpleAddMore'.split(' ');
   var DICT = {
-    fa: '{name} گفتگو را بست|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها',
-    en: '{name} closed the conversation|How was your chat with {name}?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|More options|Notification sounds',
-    tr: '{name} sohbeti kapattı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri',
+    fa: '{name} گفتگو را بست|گفتگو با {name} چطور بود؟|نظرتان کمک می‌کند بهتر شویم.|خیلی بد|بد|معمولی|خوب|عالی|چیز دیگری هم بگویید (اختیاری)|ارسال نظر|از نظرتان سپاسگزاریم!|امتیاز شما: {r}|دیگر نمی‌شود به این گفتگو امتیاز داد.|ارسال نشد|ارسال متن گفتگو به ایمیل|متن گفتگو به {email} فرستاده شد|ارسال متن گفتگو ممکن نشد|گزینه‌های بیشتر|صدای اعلان‌ها|پسندیدن|واکنش‌ها: {list}|پیامتان ثبت شد.|پاسخ خودکار|اگر چیزی اضافه دارید بنویسید…',
+    en: '{name} closed the conversation|How was your chat with {name}?|Your answer helps the team get better.|Very bad|Bad|Okay|Good|Great|Tell us more (optional)|Send feedback|Thanks for your feedback!|Your rating: {r}|This chat can no longer be rated.|Not sent|Email me the transcript|We sent the transcript to {email}|We could not send the transcript|More options|Notification sounds|Like|Reactions: {list}|Your message is saved.|Automatic reply|Add anything else…',
+    tr: '{name} sohbeti kapattı|{name} ile sohbetiniz nasıldı?|Yanıtınız ekibin gelişmesine yardımcı olur.|Çok kötü|Kötü|İdare eder|İyi|Harika|Eklemek istediğiniz bir şey var mı? (isteğe bağlı)|Geri bildirim gönder|Geri bildiriminiz için teşekkürler!|Puanınız: {r}|Bu sohbet artık puanlanamaz.|Gönderilemedi|Sohbet dökümünü e-postama gönder|Döküm {email} adresine gönderildi|Döküm gönderilemedi|Diğer seçenekler|Bildirim sesleri|Beğen|Tepkiler: {list}|Mesajınız kaydedildi.|Otomatik yanıt|Eklemek istediğiniz bir şey varsa yazın…',
   };
 
   // Icons this file adds (24px grid, as the renderer's ico()).
@@ -67,6 +80,9 @@
   ];
   var MORE = P('M5 12h.01M12 12h.01M19 12h.01');
   var BELL = P('M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15zM10 20.5h4');
+  // The design's heart (filled by the stylesheet where it is given).
+  var HEART_ICON = P('M12 20.5s-7.5-4.6-7.5-10.1A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8c0 5.5-7.5 10.1-7.5 10.1z');
+  var HEART = '\u2764\uFE0F';
 
   function create(H) {
     var esc = H.esc;
@@ -163,8 +179,59 @@
         }).join('') + '</div></div>';
     }
 
-    return { closedHtml: closedHtml, chatMenuHtml: chatMenuHtml };
+    // ── Reactions (`reactions`) ──
+    function reactHtml(m) {
+      var total = 0;
+      var glyphs = '';
+      var said = [];
+      ((m.metadata && m.metadata.reactions) || []).forEach(function (r) {
+        var c = Math.floor(Number(r && r.count)) || 0;
+        if (c < 1) return;
+        total += c;
+        said.push(r.emoji + ' ' + H.digits(c));
+        if (said.length < 4) glyphs += r.emoji === HEART ? svg(HEART_ICON, 12, 1.8) : '<i>' + esc(r.emoji) + '</i>';
+      });
+      return total ? '<span class="react" data-msg-id="' + esc(m.__id || '') + '" role="img" aria-label="' +
+        esc(XL('simpleReactions', { list: said.join(H.L('sep')) })) + '">' + glyphs + H.digits(total) + '</span>' : '';
+    }
+    // A team message the server stores (a uuid; a local row never gets a dead control).
+    function reactBtnHtml(m) {
+      if (m.senderType === 'system' || !/^[0-9a-f-]{36}$/i.test(m.__id || '')) return '';
+      var mine = ((m.metadata && m.metadata.reactions) || []).some(function (r) { return r && r.emoji === HEART && r.mine; });
+      var label = esc(XL('simpleReact'));
+      return '<button type="button" class="msg-act" data-msg-react="' + HEART + '" data-msg-id="' + esc(m.__id) +
+        '" aria-pressed="' + mine + '" title="' + label + '" aria-label="' + label + '">' + svg(HEART_ICON, 14, 1.8) + '</button>';
+    }
+
+    // ── The message left while the team is away (`awayThread`) ──
+    function bubble(text) { return '<div class="msg-line"><div class="msg operator">' + esc(text) + '</div></div>'; }
+    function awayReplyHtml(r) {
+      var st = r.status;
+      var busy = st === 'saving';
+      var parts = H.L('replyTo').split('{email}');
+      var html = bubble(XL('simpleMessageRecorded'));
+      if (st === 'saved') {
+        html += '<div class="msg-line"><div class="fcard done" role="status"><span class="ck" aria-hidden="true">' + H.ico('tick', 16, 2.4) + '</span>' +
+          '<span>' + esc(parts[0]) + '<b dir="ltr">' + esc(r.email) + '</b>' + esc(parts[1] || '') + '</span></div></div>';
+      } else if (st !== 'skipped') {
+        html += bubble(H.L('askEmail')) +
+          '<div class="msg-line"><form class="fcard" novalidate aria-label="' + esc(H.L('askEmail')) + '"><div class="prechat-field">' +
+            '<label class="prechat-label" for="fb-email">' + esc(H.t('email')) + '</label>' +
+            '<div class="prechat-control fi" dir="ltr"><input id="fb-email" class="prechat-input" data-fb="email" type="email" dir="ltr" autocomplete="email"' +
+              ' placeholder="name@example.com" aria-describedby="fb-status" aria-invalid="' + !!r.error + '" value="' + esc(r.value || '') + '"' + (busy ? ' readonly' : '') + '>' +
+              '<button type="submit" class="hc-submit ok" data-fb-submit aria-label="' + esc(H.L('saveEmail')) + '"' + (busy ? ' disabled' : '') + '>' + H.ico('tick', 18, 2.4) + '</button></div>' +
+            '<div class="fallback-status" id="fb-status" data-fb-status role="status" aria-live="polite">' + (r.error ? esc(H.t(r.error)) : '') + '</div></div>' +
+            (r.skip ? '<button type="button" class="skip" data-fb-skip>' + esc(H.L('skip')) + '</button>' : '') +
+          '</form></div>';
+      }
+      return '<div class="msg-row operator is-first is-last away-reply" data-ph-away="' + esc(XL('simpleAddMore')) + '">' +
+        H.storeAvatarHtml(28, '', 'msg-avatar') + '<div class="msg-col">' + html +
+          '<div class="msg-footline"><div class="msg-meta"><span class="msg-time">' + esc(XL('simpleAutoReply')) + '</span></div></div>' +
+        '</div></div>';
+    }
+
+    return { closedHtml: closedHtml, chatMenuHtml: chatMenuHtml, reactHtml: reactHtml, reactBtnHtml: reactBtnHtml, awayReplyHtml: awayReplyHtml };
   }
 
-  window.__gs_mod_extras = { id: 't2', v: 1, create: create };
+  window.__gs_mod_extras = { id: 't2', v: 2, create: create };
 })();
